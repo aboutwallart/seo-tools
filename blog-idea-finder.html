@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blog Idea Finder - About Wall Art</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: #ffffff;
+            color: #1a1a1a;
+            line-height: 1.6;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 32px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 12px 16px;
+            background: #f5f5f5;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            font-family: 'Poppins', sans-serif;
+            font-size: 14px;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #1a1a1a;
+        }
+
+        button {
+            background: #1a1a1a;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            font-family: 'Poppins', sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        button:hover {
+            opacity: 0.8;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666666;
+        }
+
+        .results {
+            margin-top: 40px;
+        }
+
+        .idea-card {
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .idea-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+        }
+
+        .idea-title {
+            font-size: 16px;
+            font-weight: 500;
+            flex: 1;
+            margin-right: 16px;
+        }
+
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .status-new {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .status-caution {
+            background: #fff9e6;
+            color: #f57c00;
+        }
+
+        .status-similar {
+            background: #ffebee;
+            color: #c62828;
+        }
+
+        .idea-meta {
+            font-size: 13px;
+            color: #666666;
+            margin-bottom: 8px;
+        }
+
+        .angle-suggestion {
+            background: #f5f5f5;
+            padding: 12px;
+            border-radius: 4px;
+            margin-top: 12px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .angle-label {
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+
+        .mark-planned-btn {
+            margin-top: 12px;
+            background: #ffffff;
+            color: #1a1a1a;
+            border: 1px solid #e0e0e0;
+            padding: 8px 16px;
+            font-size: 13px;
+        }
+
+        .mark-planned-btn:hover {
+            background: #f5f5f5;
+        }
+
+        .mark-planned-btn.planned {
+            background: #e8f5e9;
+            color: #2e7d32;
+            border-color: #2e7d32;
+        }
+
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 16px;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+
+        .stats {
+            background: #f5f5f5;
+            padding: 16px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        @media (max-width: 768px) {
+            .idea-header {
+                flex-direction: column;
+            }
+
+            .idea-title {
+                margin-right: 0;
+                margin-bottom: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Blog Idea Finder</h1>
+        <p class="subtitle">Generate SEO-optimized blog ideas and check for content cannibalization</p>
+
+        <div class="stats" id="stats">
+            Loading blog database...
+        </div>
+
+        <div class="input-group">
+            <label for="niche">Niche or Topic</label>
+            <input type="text" id="niche" placeholder="e.g., wall art, picture framing, home decor">
+        </div>
+
+        <button id="generateBtn" onclick="generateIdeas()">Generate 40 Ideas</button>
+
+        <div id="loading" class="loading" style="display: none;">
+            Generating ideas...
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+
+        <div id="results" class="results"></div>
+    </div>
+
+    <script>
+        let existingBlogs = [];
+        let currentIdeas = [];
+
+        // Load existing blogs from database on page load
+        async function loadExistingBlogs() {
+            try {
+                const response = await fetch('/api/blogs');
+                const data = await response.json();
+                existingBlogs = data.blogs || [];
+                
+                const published = existingBlogs.filter(b => b.status === 'published').length;
+                const planned = existingBlogs.filter(b => b.status === 'planned').length;
+                
+                document.getElementById('stats').innerHTML = `
+                    <strong>Database loaded:</strong> ${published} published blogs, ${planned} planned blogs
+                `;
+            } catch (error) {
+                console.error('Error loading blogs:', error);
+                document.getElementById('stats').innerHTML = `
+                    <strong>Error:</strong> Could not load blog database
+                `;
+            }
+        }
+
+        // Load blogs when page loads
+        loadExistingBlogs();
+
+        async function generateIdeas() {
+            const niche = document.getElementById('niche').value.trim();
+            
+            if (!niche) {
+                alert('Please enter a niche or topic');
+                return;
+            }
+
+            document.getElementById('generateBtn').disabled = true;
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('results').innerHTML = '';
+
+            try {
+                const response = await fetch('/api/claude', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt: `Generate exactly 40 blog post title ideas for the niche: "${niche}". 
+
+Requirements:
+- SEO-focused titles
+- Question-based and how-to formats
+- Practical, searchable topics
+- Mix of beginner and advanced content
+- Return ONLY the titles, one per line, numbered 1-40
+- No additional text or explanations`
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                const ideas = data.response
+                    .split('\n')
+                    .map(line => line.replace(/^\d+[\.\)]\s*/, '').trim())
+                    .filter(line => line.length > 0)
+                    .slice(0, 40);
+
+                currentIdeas = ideas.map(title => ({
+                    title,
+                    keyword: extractKeyword(title),
+                    status: 'new'
+                }));
+
+                // Check cannibalization
+                currentIdeas = currentIdeas.map(idea => {
+                    const conflict = checkCannibalization(idea.keyword);
+                    return {
+                        ...idea,
+                        conflict: conflict.status,
+                        conflictWith: conflict.title,
+                        score: conflict.score
+                    };
+                });
+
+                // Sort by opportunity score (lowest conflict first)
+                currentIdeas.sort((a, b) => a.score - b.score);
+
+                // Generate angle suggestions for yellow/green ideas
+                await generateAngleSuggestions();
+
+                displayResults();
+
+            } catch (error) {
+                document.getElementById('error').textContent = `Error: ${error.message}`;
+                document.getElementById('error').style.display = 'block';
+            } finally {
+                document.getElementById('generateBtn').disabled = false;
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        function extractKeyword(title) {
+            const questionWords = /\b(how|what|why|when|where|which|who|is|are|can|do|does|should|will)\b/gi;
+            const endings = /\b(guide|tips|ideas|ways|steps|tricks|hacks|secrets|benefits|mistakes|examples|like a pro|for beginners|101|explained|ultimate|complete|best|top)\b/gi;
+            const fillers = /\b(a|an|the|your|my|our|for|in|on|at|to|of|with|and|or|but)\b/gi;
+            
+            let keyword = title.toLowerCase()
+                .replace(questionWords, '')
+                .replace(endings, '')
+                .replace(fillers, '')
+                .replace(/[^\w\s]/g, '')
+                .trim()
+                .split(/\s+/)
+                .filter(word => word.length > 2)
+                .slice(0, 4)
+                .join(' ');
+            
+            return keyword || title.toLowerCase();
+        }
+
+        function checkCannibalization(keyword) {
+            const keywords = keyword.split(' ').filter(w => w.length > 2);
+            
+            let maxScore = 0;
+            let conflictTitle = null;
+
+            for (const blog of existingBlogs) {
+                const blogKeywords = blog.keyword.split(' ').filter(w => w.length > 2);
+                
+                const intersection = keywords.filter(k => blogKeywords.includes(k)).length;
+                const union = new Set([...keywords, ...blogKeywords]).size;
+                const score = intersection / union;
+
+                if (score > maxScore) {
+                    maxScore = score;
+                    conflictTitle = blog.title;
+                }
+            }
+
+            if (maxScore >= 0.6) {
+                return { status: 'similar', title: conflictTitle, score: maxScore };
+            } else if (maxScore >= 0.4) {
+                return { status: 'caution', title: conflictTitle, score: maxScore };
+            } else {
+                return { status: 'new', title: null, score: maxScore };
+            }
+        }
+
+        async function generateAngleSuggestions() {
+            const ideasNeedingAngles = currentIdeas.filter(idea => 
+                idea.conflict === 'new' || idea.conflict === 'caution'
+            );
+
+            if (ideasNeedingAngles.length === 0) return;
+
+            try {
+                const response = await fetch('/api/claude', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt: `For each of these blog titles, suggest a unique angle or differentiation strategy in ONE concise sentence (max 15 words):
+
+${ideasNeedingAngles.map((idea, i) => `${i + 1}. ${idea.title}`).join('\n')}
+
+Format: Return ONLY numbered suggestions, one per line, matching the input order.`
+                    })
+                });
+
+                const data = await response.json();
+                const suggestions = data.response
+                    .split('\n')
+                    .map(line => line.replace(/^\d+[\.\)]\s*/, '').trim())
+                    .filter(line => line.length > 0);
+
+                ideasNeedingAngles.forEach((idea, index) => {
+                    if (suggestions[index]) {
+                        idea.angleSuggestion = suggestions[index];
+                    }
+                });
+
+            } catch (error) {
+                console.error('Error generating angle suggestions:', error);
+            }
+        }
+
+        async function markAsPlanned(index) {
+            const idea = currentIdeas[index];
+            
+            try {
+                const response = await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'save',
+                        title: idea.title,
+                        keyword: idea.keyword,
+                        status: 'planned'
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Add to existing blogs list
+                    existingBlogs.push({
+                        title: idea.title,
+                        keyword: idea.keyword,
+                        status: 'planned',
+                        date: new Date().toISOString().split('T')[0]
+                    });
+
+                    // Update UI
+                    idea.isPlanned = true;
+                    displayResults();
+
+                    // Update stats
+                    const published = existingBlogs.filter(b => b.status === 'published').length;
+                    const planned = existingBlogs.filter(b => b.status === 'planned').length;
+                    document.getElementById('stats').innerHTML = `
+                        <strong>Database:</strong> ${published} published blogs, ${planned} planned blogs
+                    `;
+                } else {
+                    alert('Error marking as planned: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Error marking as planned:', error);
+                alert('Error: Could not save to database');
+            }
+        }
+
+        function displayResults() {
+            const resultsDiv = document.getElementById('results');
+            
+            const html = currentIdeas.map((idea, index) => {
+                const statusClass = idea.conflict === 'new' ? 'status-new' : 
+                                  idea.conflict === 'caution' ? 'status-caution' : 
+                                  'status-similar';
+                
+                const statusText = idea.conflict === 'new' ? '🟢 New Topic' : 
+                                 idea.conflict === 'caution' ? '🟡 Caution' : 
+                                 '🔴 Similar';
+
+                const angleSuggestion = idea.angleSuggestion && (idea.conflict === 'new' || idea.conflict === 'caution') ? `
+                    <div class="angle-suggestion">
+                        <div class="angle-label">Suggested Angle:</div>
+                        ${idea.angleSuggestion}
+                    </div>
+                ` : '';
+
+                const conflictInfo = idea.conflictWith ? `
+                    <div class="idea-meta">
+                        Similar to: <strong>${idea.conflictWith}</strong> (${Math.round(idea.score * 100)}% overlap)
+                    </div>
+                ` : '';
+
+                const plannedBtn = idea.isPlanned ? `
+                    <button class="mark-planned-btn planned" disabled>✓ Planned</button>
+                ` : `
+                    <button class="mark-planned-btn" onclick="markAsPlanned(${index})">Mark as Planned</button>
+                `;
+
+                return `
+                    <div class="idea-card">
+                        <div class="idea-header">
+                            <div class="idea-title">${idea.title}</div>
+                            <div class="status-badge ${statusClass}">${statusText}</div>
+                        </div>
+                        ${conflictInfo}
+                        ${angleSuggestion}
+                        ${plannedBtn}
+                    </div>
+                `;
+            }).join('');
+
+            resultsDiv.innerHTML = html;
+        }
+    </script>
+</body>
+</html>
