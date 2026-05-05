@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blog Idea Finder - About Wall Art</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: #ffffff;
+            color: #1a1a1a;
+            line-height: 1.6;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 32px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        h2 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            margin-top: 40px;
+        }
+
+        .subtitle {
+            color: #666666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .stats {
+            background: #f5f5f5;
+            padding: 12px 16px;
+            border-radius: 4px;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        input[type="text"], input[type="number"], select {
+            width: 100%;
+            padding: 12px 16px;
+            background: #f5f5f5;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            font-family: 'Poppins', sans-serif;
+            font-size: 14px;
+        }
+
+        input[type="text"]:focus, input[type="number"]:focus, select:focus {
+            outline: none;
+            border-color: #1a1a1a;
+        }
+
+        button {
+            background: #1a1a1a;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            font-family: 'Poppins', sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        button:hover {
+            opacity: 0.8;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        button.secondary {
+            background: white;
+            color: #1a1a1a;
+            border: 1px solid #e0e0e0;
+            padding: 8px 16px;
+            font-size: 13px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666666;
+        }
+
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 12px 16px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+
+        .results {
+            margin-top: 40px;
+        }
+
+        .idea-card {
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .idea-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+        }
+
+        .idea-title {
+            font-size: 16px;
+            font-weight: 500;
+            flex: 1;
+            margin-right: 16px;
+        }
+
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .status-new {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .status-caution {
+            background: #fff9e6;
+            color: #f57c00;
+        }
+
+        .status-similar {
+            background: #ffebee;
+            color: #c62828;
+        }
+
+        .idea-meta {
+            font-size: 13px;
+            color: #666666;
+            margin-bottom: 8px;
+        }
+
+        .angle-suggestion {
+            background: #f5f5f5;
+            padding: 12px;
+            border-radius: 4px;
+            font-size: 13px;
+            margin-top: 8px;
+            margin-bottom: 12px;
+        }
+
+        .angle-label {
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+
+        .mark-planned-btn {
+            margin-top: 12px;
+            width: 100%;
+        }
+
+        .mark-planned-btn.planned {
+            background: #2e7d32;
+        }
+
+        /* Keyword Gap Section */
+        .gap-section {
+            background: #f5f5f5;
+            padding: 24px;
+            border-radius: 4px;
+            margin-top: 40px;
+        }
+
+        .filters {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .gap-table {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .gap-table-header {
+            display: grid;
+            grid-template-columns: 2fr 120px 120px 120px;
+            background: #1a1a1a;
+            color: white;
+            padding: 12px 16px;
+            font-weight: 500;
+            font-size: 13px;
+        }
+
+        .gap-row {
+            display: grid;
+            grid-template-columns: 2fr 120px 120px 120px;
+            padding: 12px 16px;
+            border-bottom: 1px solid #e0e0e0;
+            align-items: center;
+            font-size: 13px;
+        }
+
+        .gap-row:last-child {
+            border-bottom: none;
+        }
+
+        .gap-row:hover {
+            background: #f5f5f5;
+        }
+
+        .gap-keyword {
+            font-weight: 500;
+        }
+
+        .gap-competitors {
+            font-size: 12px;
+            color: #666666;
+        }
+
+        @media (max-width: 768px) {
+            .filters {
+                grid-template-columns: 1fr;
+            }
+
+            .gap-table-header,
+            .gap-row {
+                grid-template-columns: 1fr;
+                gap: 8px;
+            }
+
+            .gap-table-header > div:not(:first-child),
+            .gap-row > div:not(:first-child) {
+                display: none;
+            }
+
+            .idea-header {
+                flex-direction: column;
+            }
+
+            .idea-title {
+                margin-right: 0;
+                margin-bottom: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Blog Idea Finder</h1>
+        <p class="subtitle">Generate SEO-optimized blog ideas and check for content cannibalization</p>
+
+        <div class="stats" id="stats">
+            Loading blog database...
+        </div>
+
+        <div class="input-group">
+            <label for="niche">Niche or Topic</label>
+            <input type="text" id="niche" placeholder="e.g., wall art, picture framing, home decor">
+        </div>
+
+        <button id="generateBtn" onclick="generateIdeas()">Generate 40 Ideas</button>
+
+        <div id="loading" class="loading" style="display: none;">
+            Generating ideas...
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+
+        <div id="results" class="results"></div>
+
+        <!-- Keyword Gap Section -->
+        <div class="gap-section">
+            <h2>Keyword Gap Opportunities</h2>
+            <p class="subtitle" style="margin-top: 0;">Keywords your competitors rank for but you haven't covered yet</p>
+
+            <div class="filters">
+                <div class="input-group" style="margin-bottom: 0;">
+                    <label for="minVolume">Min Volume</label>
+                    <input type="number" id="minVolume" value="10000" placeholder="10000">
+                </div>
+                <div class="input-group" style="margin-bottom: 0;">
+                    <label for="maxDifficulty">Max SEO Difficulty</label>
+                    <input type="number" id="maxDifficulty" value="70" placeholder="70">
+                </div>
+                <div class="input-group" style="margin-bottom: 0;">
+                    <label for="maxResults">Show Top</label>
+                    <select id="maxResults">
+                        <option value="25">25 keywords</option>
+                        <option value="50" selected>50 keywords</option>
+                        <option value="100">100 keywords</option>
+                    </select>
+                </div>
+            </div>
+
+            <button onclick="applyFilters()">Apply Filters</button>
+
+            <div id="gapStats" style="margin-top: 20px; margin-bottom: 12px; font-size: 14px; color: #666;">
+                Loading gap analysis...
+            </div>
+
+            <div class="gap-table" id="gapTable">
+                <div class="gap-table-header">
+                    <div>Keyword</div>
+                    <div>Volume</div>
+                    <div>SEO Diff</div>
+                    <div>Action</div>
+                </div>
+                <div id="gapResults"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let existingBlogs = [];
+        let currentIdeas = [];
+        let competitorKeywords = [];
+        let filteredGapKeywords = [];
+
+        // Competitor keyword data (top 200 by volume from all 3 competitors)
+        const COMPETITOR_DATA = [{"keyword":"canvases","volume":2740000,"seo_difficulty":53,"competitor":"Posterlounge"},{"keyword":"sunsets","volume":201000,"seo_difficulty":64,"competitor":"Posterlounge"},{"keyword":"painting","volume":110000,"seo_difficulty":75,"competitor":"Posterlounge"},{"keyword":"photographs to print","volume":90500,"seo_difficulty":57,"competitor":"East End Prints"},{"keyword":"photos and prints","volume":90500,"seo_difficulty":70,"competitor":"East End Prints"},{"keyword":"photo and prints","volume":90500,"seo_difficulty":72,"competitor":"East End Prints"},{"keyword":"a star signs","volume":90500,"seo_difficulty":42,"competitor":"Posterlounge"},{"keyword":"frida kahlo artist","volume":90500,"seo_difficulty":71,"competitor":"Posterlounge"},{"keyword":"frida kahlo","volume":90500,"seo_difficulty":74,"competitor":"Posterlounge"},{"keyword":"art","volume":74000,"seo_difficulty":89,"competitor":"East End Prints"},{"keyword":"art","volume":74000,"seo_difficulty":89,"competitor":"Posterlounge"},{"keyword":"prints","volume":74000,"seo_difficulty":84,"competitor":"Posterlounge"},{"keyword":"hedgehog hedgehog","volume":74000,"seo_difficulty":75,"competitor":"Posterlounge"},{"keyword":"dolomite alps","volume":74000,"seo_difficulty":59,"competitor":"Posterlounge"},{"keyword":"frame bedroom","volume":60500,"seo_difficulty":63,"competitor":"East End Prints"},{"keyword":"prints and canvases","volume":49500,"seo_difficulty":51,"competitor":"Abstract House"},{"keyword":"art at wall","volume":49500,"seo_difficulty":67,"competitor":"Abstract House"},{"keyword":"wall art for wall","volume":49500,"seo_difficulty":56,"competitor":"Abstract House"},{"keyword":"wall artwork","volume":49500,"seo_difficulty":64,"competitor":"East End Prints"},{"keyword":"wall art","volume":49500,"seo_difficulty":63,"competitor":"East End Prints"},{"keyword":"art for walls","volume":49500,"seo_difficulty":62,"competitor":"East End Prints"},{"keyword":"posters","volume":49500,"seo_difficulty":62,"competitor":"East End Prints"},{"keyword":"wall art for wall","volume":49500,"seo_difficulty":56,"competitor":"East End Prints"},{"keyword":"canvas printing","volume":49500,"seo_difficulty":79,"competitor":"Posterlounge"},{"keyword":"wall artwork","volume":49500,"seo_difficulty":64,"competitor":"Posterlounge"},{"keyword":"prints and canvases","volume":49500,"seo_difficulty":51,"competitor":"Posterlounge"},{"keyword":"wall art","volume":49500,"seo_difficulty":63,"competitor":"Posterlounge"},{"keyword":"printed canvas prints","volume":49500,"seo_difficulty":78,"competitor":"Posterlounge"},{"keyword":"art for walls","volume":49500,"seo_difficulty":62,"competitor":"Posterlounge"},{"keyword":"canvas and print","volume":49500,"seo_difficulty":67,"competitor":"Posterlounge"},{"keyword":"canvas prints","volume":49500,"seo_difficulty":69,"competitor":"Posterlounge"},{"keyword":"canvas and prints","volume":49500,"seo_difficulty":61,"competitor":"Posterlounge"},{"keyword":"art at wall","volume":49500,"seo_difficulty":67,"competitor":"Posterlounge"},{"keyword":"william morris","volume":49500,"seo_difficulty":82,"competitor":"Posterlounge"},{"keyword":"posters","volume":49500,"seo_difficulty":62,"competitor":"Posterlounge"},{"keyword":"morris william","volume":49500,"seo_difficulty":82,"competitor":"Posterlounge"},{"keyword":"canvas print","volume":49500,"seo_difficulty":79,"competitor":"Posterlounge"},{"keyword":"canvases prints","volume":49500,"seo_difficulty":57,"competitor":"Posterlounge"},{"keyword":"prints and canvas","volume":49500,"seo_difficulty":67,"competitor":"Posterlounge"},{"keyword":"poster","volume":49500,"seo_difficulty":73,"competitor":"Posterlounge"},{"keyword":"skull","volume":49500,"seo_difficulty":51,"competitor":"Posterlounge"},{"keyword":"wall art for wall","volume":49500,"seo_difficulty":56,"competitor":"Posterlounge"},{"keyword":"poster poster","volume":49500,"seo_difficulty":63,"competitor":"Posterlounge"},{"keyword":"pop art","volume":40500,"seo_difficulty":78,"competitor":"Posterlounge"},{"keyword":"bauhaus","volume":33100,"seo_difficulty":76,"competitor":"East End Prints"},{"keyword":"rooster","volume":33100,"seo_difficulty":72,"competitor":"Posterlounge"},{"keyword":"leopard prints","volume":33100,"seo_difficulty":30,"competitor":"Posterlounge"},{"keyword":"leopard print","volume":33100,"seo_difficulty":50,"competitor":"Posterlounge"},{"keyword":"whistler's","volume":33100,"seo_difficulty":36,"competitor":"Posterlounge"},{"keyword":"art deco","volume":33100,"seo_difficulty":70,"competitor":"Posterlounge"},{"keyword":"deco art deco","volume":33100,"seo_difficulty":57,"competitor":"Posterlounge"},{"keyword":"posters on my wall","volume":27100,"seo_difficulty":46,"competitor":"Posterlounge"},{"keyword":"artwork gallery","volume":27100,"seo_difficulty":81,"competitor":"Posterlounge"},{"keyword":"colourful rainbow","volume":27100,"seo_difficulty":34,"competitor":"Posterlounge"},{"keyword":"monet","volume":27100,"seo_difficulty":76,"competitor":"Posterlounge"},{"keyword":"starry night paint","volume":27100,"seo_difficulty":22,"competitor":"Posterlounge"},{"keyword":"claude monet","volume":27100,"seo_difficulty":60,"competitor":"Posterlounge"},{"keyword":"art nouveau","volume":27100,"seo_difficulty":84,"competitor":"Posterlounge"},{"keyword":"abstractionism artwork","volume":22200,"seo_difficulty":56,"competitor":"Abstract House"},{"keyword":"abstract art","volume":22200,"seo_difficulty":58,"competitor":"Abstract House"},{"keyword":"abstract arts","volume":22200,"seo_difficulty":52,"competitor":"Abstract House"},{"keyword":"abstract artwork","volume":22200,"seo_difficulty":52,"competitor":"Abstract House"},{"keyword":"abstract art","volume":22200,"seo_difficulty":58,"competitor":"East End Prints"},{"keyword":"abstract arts","volume":22200,"seo_difficulty":52,"competitor":"East End Prints"},{"keyword":"abstract artwork","volume":22200,"seo_difficulty":52,"competitor":"East End Prints"},{"keyword":"abstract art","volume":22200,"seo_difficulty":58,"competitor":"Posterlounge"},{"keyword":"world maps of countries","volume":22200,"seo_difficulty":88,"competitor":"Posterlounge"},{"keyword":"mandalas","volume":22200,"seo_difficulty":79,"competitor":"Posterlounge"},{"keyword":"abstract arts","volume":22200,"seo_difficulty":52,"competitor":"Posterlounge"},{"keyword":"henri matisse","volume":22200,"seo_difficulty":73,"competitor":"Posterlounge"},{"keyword":"bathroom painting","volume":22200,"seo_difficulty":50,"competitor":"Posterlounge"},{"keyword":"abstract artwork","volume":22200,"seo_difficulty":52,"competitor":"Posterlounge"},{"keyword":"paintings","volume":18100,"seo_difficulty":45,"competitor":"Abstract House"},{"keyword":"art painting art","volume":18100,"seo_difficulty":60,"competitor":"Abstract House"},{"keyword":"paintings of paintings","volume":18100,"seo_difficulty":45,"competitor":"Abstract House"},{"keyword":"posters and prints","volume":18100,"seo_difficulty":57,"competitor":"East End Prints"},{"keyword":"movie poster","volume":18100,"seo_difficulty":81,"competitor":"East End Prints"},{"keyword":"photography prints online","volume":18100,"seo_difficulty":58,"competitor":"East End Prints"},{"keyword":"prints and poster","volume":18100,"seo_difficulty":58,"competitor":"East End Prints"},{"keyword":"print and posters","volume":18100,"seo_difficulty":57,"competitor":"East End Prints"},{"keyword":"posters prints","volume":18100,"seo_difficulty":55,"competitor":"East End Prints"},{"keyword":"movie posters","volume":18100,"seo_difficulty":79,"competitor":"East End Prints"},{"keyword":"matisse artist","volume":18100,"seo_difficulty":50,"competitor":"Posterlounge"},{"keyword":"matisse","volume":18100,"seo_difficulty":62,"competitor":"Posterlounge"},{"keyword":"edward hopper edward hopper","volume":18100,"seo_difficulty":71,"competitor":"Posterlounge"},{"keyword":"graphics designs","volume":18100,"seo_difficulty":89,"competitor":"Posterlounge"},{"keyword":"graphics for design","volume":18100,"seo_difficulty":86,"competitor":"Posterlounge"},{"keyword":"hieronymus bosch","volume":18100,"seo_difficulty":69,"competitor":"Posterlounge"},{"keyword":"posters and prints","volume":18100,"seo_difficulty":57,"competitor":"Posterlounge"},{"keyword":"print a poster","volume":18100,"seo_difficulty":74,"competitor":"Posterlounge"},{"keyword":"artist bosch","volume":18100,"seo_difficulty":64,"competitor":"Posterlounge"},{"keyword":"movie poster","volume":18100,"seo_difficulty":81,"competitor":"Posterlounge"},{"keyword":"the hay wain painting","volume":18100,"seo_difficulty":43,"competitor":"Posterlounge"},{"keyword":"henri matisse artist","volume":18100,"seo_difficulty":55,"competitor":"Posterlounge"},{"keyword":"the laughing cavalier","volume":18100,"seo_difficulty":37,"competitor":"Posterlounge"},{"keyword":"prints and poster","volume":18100,"seo_difficulty":58,"competitor":"Posterlounge"},{"keyword":"casas","volume":18100,"seo_difficulty":58,"competitor":"Posterlounge"},{"keyword":"print and posters","volume":18100,"seo_difficulty":57,"competitor":"Posterlounge"},{"keyword":"artist henri matisse","volume":18100,"seo_difficulty":54,"competitor":"Posterlounge"},{"keyword":"posters prints","volume":18100,"seo_difficulty":55,"competitor":"Posterlounge"},{"keyword":"dream catcher","volume":18100,"seo_difficulty":30,"competitor":"Posterlounge"},{"keyword":"bosch artist","volume":18100,"seo_difficulty":55,"competitor":"Posterlounge"},{"keyword":"hay wain painting","volume":18100,"seo_difficulty":41,"competitor":"Posterlounge"},{"keyword":"poster and prints","volume":18100,"seo_difficulty":62,"competitor":"Posterlounge"},{"keyword":"movie posters","volume":18100,"seo_difficulty":79,"competitor":"Posterlounge"},{"keyword":"paintings","volume":18100,"seo_difficulty":45,"competitor":"Posterlounge"},{"keyword":"art for painting","volume":18100,"seo_difficulty":70,"competitor":"Posterlounge"},{"keyword":"art painting art","volume":18100,"seo_difficulty":60,"competitor":"Posterlounge"},{"keyword":"paintings of paintings","volume":18100,"seo_difficulty":45,"competitor":"Posterlounge"},{"keyword":"lounge room wall art","volume":14800,"seo_difficulty":33,"competitor":"Abstract House"},{"keyword":"art living room wall","volume":14800,"seo_difficulty":45,"competitor":"Abstract House"},{"keyword":"black and white","volume":14800,"seo_difficulty":58,"competitor":"East End Prints"},{"keyword":"modern artwork","volume":14800,"seo_difficulty":76,"competitor":"East End Prints"},{"keyword":"lounge room wall art","volume":14800,"seo_difficulty":33,"competitor":"East End Prints"},{"keyword":"art living room wall","volume":14800,"seo_difficulty":45,"competitor":"East End Prints"},{"keyword":"poussin","volume":14800,"seo_difficulty":40,"competitor":"Posterlounge"},{"keyword":"edvard munch","volume":14800,"seo_difficulty":64,"competitor":"Posterlounge"},{"keyword":"artist munch","volume":14800,"seo_difficulty":61,"competitor":"Posterlounge"},{"keyword":"last judgment paintings","volume":14800,"seo_difficulty":49,"competitor":"Posterlounge"},{"keyword":"black and white","volume":14800,"seo_difficulty":58,"competitor":"Posterlounge"},{"keyword":"goya's","volume":14800,"seo_difficulty":58,"competitor":"Posterlounge"},{"keyword":"the last judgement","volume":14800,"seo_difficulty":77,"competitor":"Posterlounge"},{"keyword":"karl blossfeldt","volume":14800,"seo_difficulty":24,"competitor":"Posterlounge"},{"keyword":"turner","volume":14800,"seo_difficulty":86,"competitor":"Posterlounge"},{"keyword":"toulouse lautrec","volume":14800,"seo_difficulty":62,"competitor":"Posterlounge"},{"keyword":"the last judgment","volume":14800,"seo_difficulty":84,"competitor":"Posterlounge"},{"keyword":"last judgment","volume":14800,"seo_difficulty":85,"competitor":"Posterlounge"},{"keyword":"goya","volume":14800,"seo_difficulty":68,"competitor":"Posterlounge"},{"keyword":"artwork print","volume":14800,"seo_difficulty":85,"competitor":"Posterlounge"},{"keyword":"modern art","volume":14800,"seo_difficulty":84,"competitor":"Posterlounge"},{"keyword":"art modern","volume":14800,"seo_difficulty":81,"competitor":"Posterlounge"},{"keyword":"modern artworks","volume":14800,"seo_difficulty":68,"competitor":"Posterlounge"},{"keyword":"modern artwork","volume":14800,"seo_difficulty":76,"competitor":"Posterlounge"},{"keyword":"lounge room wall art","volume":14800,"seo_difficulty":33,"competitor":"Posterlounge"},{"keyword":"art living room wall","volume":14800,"seo_difficulty":45,"competitor":"Posterlounge"},{"keyword":"art prints","volume":12100,"seo_difficulty":80,"competitor":"Abstract House"},{"keyword":"artist mark rothko","volume":12100,"seo_difficulty":70,"competitor":"Abstract House"},{"keyword":"mark rothko","volume":12100,"seo_difficulty":49,"competitor":"Abstract House"},{"keyword":"prints for wall","volume":12100,"seo_difficulty":82,"competitor":"East End Prints"},{"keyword":"artwork prints","volume":12100,"seo_difficulty":73,"competitor":"East End Prints"},{"keyword":"wall print","volume":12100,"seo_difficulty":59,"competitor":"East End Prints"},{"keyword":"art prints","volume":12100,"seo_difficulty":80,"competitor":"East End Prints"},{"keyword":"art printing","volume":12100,"seo_difficulty":52,"competitor":"East End Prints"},{"keyword":"printable wall prints","volume":12100,"seo_difficulty":25,"competitor":"East End Prints"},{"keyword":"wall prints printable","volume":12100,"seo_difficulty":24,"competitor":"East End Prints"},{"keyword":"wall art for living room","volume":12100,"seo_difficulty":43,"competitor":"East End Prints"},{"keyword":"artwork printed","volume":12100,"seo_difficulty":64,"competitor":"East End Prints"},{"keyword":"art print","volume":12100,"seo_difficulty":74,"competitor":"East End Prints"},{"keyword":"green's painting","volume":12100,"seo_difficulty":46,"competitor":"East End Prints"},{"keyword":"constable artist","volume":12100,"seo_difficulty":67,"competitor":"Posterlounge"},{"keyword":"charles rennie mackintosh","volume":12100,"seo_difficulty":51,"competitor":"Posterlounge"},{"keyword":"prints for wall","volume":12100,"seo_difficulty":82,"competitor":"Posterlounge"},{"keyword":"paintings van gogh","volume":12100,"seo_difficulty":57,"competitor":"Posterlounge"},{"keyword":"artwork prints","volume":12100,"seo_difficulty":73,"competitor":"Posterlounge"},{"keyword":"waterlily paintings","volume":12100,"seo_difficulty":53,"competitor":"Posterlounge"},{"keyword":"van gogh's paintings","volume":12100,"seo_difficulty":70,"competitor":"Posterlounge"},{"keyword":"world maps near me","volume":12100,"seo_difficulty":61,"competitor":"Posterlounge"},{"keyword":"wall print","volume":12100,"seo_difficulty":59,"competitor":"Posterlounge"},{"keyword":"saturn painting goya","volume":12100,"seo_difficulty":44,"competitor":"Posterlounge"},{"keyword":"mondrian","volume":12100,"seo_difficulty":58,"competitor":"Posterlounge"},{"keyword":"lilies by monet","volume":12100,"seo_difficulty":63,"competitor":"Posterlounge"},{"keyword":"water lilies claude monet","volume":12100,"seo_difficulty":46,"competitor":"Posterlounge"},{"keyword":"art prints","volume":12100,"seo_difficulty":80,"competitor":"Posterlounge"},{"keyword":"francisco goya saturn","volume":12100,"seo_difficulty":48,"competitor":"Posterlounge"},{"keyword":"water lilies monet","volume":12100,"seo_difficulty":58,"competitor":"Posterlounge"},{"keyword":"art printing","volume":12100,"seo_difficulty":52,"competitor":"Posterlounge"},{"keyword":"monet water lilies painting","volume":12100,"seo_difficulty":66,"competitor":"Posterlounge"},{"keyword":"waterlily by monet","volume":12100,"seo_difficulty":50,"competitor":"Posterlounge"},{"keyword":"water lily paintings monet","volume":12100,"seo_difficulty":56,"competitor":"Posterlounge"},{"keyword":"water lilies painting claude monet","volume":12100,"seo_difficulty":49,"competitor":"Posterlounge"},{"keyword":"artwork","volume":12100,"seo_difficulty":86,"competitor":"Posterlounge"},{"keyword":"claude monet water lilies painting","volume":12100,"seo_difficulty":49,"competitor":"Posterlounge"},{"keyword":"paul klee","volume":12100,"seo_difficulty":54,"competitor":"Posterlounge"},{"keyword":"world map near me","volume":12100,"seo_difficulty":69,"competitor":"Posterlounge"},{"keyword":"printable wall prints","volume":12100,"seo_difficulty":25,"competitor":"Posterlounge"},{"keyword":"botticelli birth of venus","volume":12100,"seo_difficulty":49,"competitor":"Posterlounge"},{"keyword":"england map liverpool","volume":12100,"seo_difficulty":43,"competitor":"Posterlounge"},{"keyword":"wall art for living room","volume":12100,"seo_difficulty":43,"competitor":"Posterlounge"},{"keyword":"wall prints printable","volume":12100,"seo_difficulty":24,"competitor":"Posterlounge"},{"keyword":"water lilies by monet","volume":12100,"seo_difficulty":44,"competitor":"Posterlounge"},{"keyword":"van gogh paintings","volume":12100,"seo_difficulty":64,"competitor":"Posterlounge"},{"keyword":"water lilies painting monet","volume":12100,"seo_difficulty":60,"competitor":"Posterlounge"},{"keyword":"artwork printed","volume":12100,"seo_difficulty":64,"competitor":"Posterlounge"},{"keyword":"john constable","volume":12100,"seo_difficulty":56,"competitor":"Posterlounge"},{"keyword":"klee artist","volume":12100,"seo_difficulty":52,"competitor":"Posterlounge"},{"keyword":"saturn devours his son","volume":12100,"seo_difficulty":51,"competitor":"Posterlounge"},{"keyword":"water lily painting","volume":12100,"seo_difficulty":74,"competitor":"Posterlounge"},{"keyword":"wall prints","volume":12100,"seo_difficulty":64,"competitor":"Posterlounge"},{"keyword":"munch","volume":12100,"seo_difficulty":67,"competitor":"Posterlounge"},{"keyword":"monet lilies","volume":12100,"seo_difficulty":49,"competitor":"Posterlounge"},{"keyword":"magnolia painting","volume":12100,"seo_difficulty":30,"competitor":"Posterlounge"},{"keyword":"art print","volume":12100,"seo_difficulty":74,"competitor":"Posterlounge"},{"keyword":"artist paul klee","volume":12100,"seo_difficulty":54,"competitor":"Posterlounge"},{"keyword":"bedroom wall art","volume":9900,"seo_difficulty":39,"competitor":"East End Prints"},{"keyword":"beachwalk","volume":9900,"seo_difficulty":28,"competitor":"East End Prints"},{"keyword":"framed pictures near me","volume":9900,"seo_difficulty":43,"competitor":"East End Prints"},{"keyword":"painting frame near me","volume":9900,"seo_difficulty":63,"competitor":"East End Prints"},{"keyword":"posters and frames","volume":9900,"seo_difficulty":43,"competitor":"East End Prints"},{"keyword":"posters framing","volume":9900,"seo_difficulty":20,"competitor":"East End Prints"},{"keyword":"framed posters","volume":9900,"seo_difficulty":49,"competitor":"East End Prints"}];
+
+        // Load existing blogs from database on page load
+        async function loadExistingBlogs() {
+            try {
+                const response = await fetch('/api/blogs');
+                const data = await response.json();
+                existingBlogs = data.blogs || [];
+                
+                const published = existingBlogs.filter(b => b.status === 'published').length;
+                const planned = existingBlogs.filter(b => b.status === 'planned').length;
+                
+                document.getElementById('stats').innerHTML = `
+                    <strong>Database loaded:</strong> ${published} published blogs, ${planned} planned blogs
+                `;
+
+                // Initialize keyword gap analysis
+                analyzeKeywordGap();
+            } catch (error) {
+                console.error('Error loading blogs:', error);
+                document.getElementById('stats').innerHTML = `
+                    <strong>Error:</strong> Could not load blog database
+                `;
+            }
+        }
+
+        // Analyze keyword gap - filter out keywords already covered
+        function analyzeKeywordGap() {
+            // Deduplicate keywords by keyword name
+            const uniqueKeywords = new Map();
+            COMPETITOR_DATA.forEach(item => {
+                if (!uniqueKeywords.has(item.keyword)) {
+                    uniqueKeywords.set(item.keyword, item);
+                } else {
+                    // Keep the one with lower difficulty
+                    const existing = uniqueKeywords.get(item.keyword);
+                    if (item.seo_difficulty < existing.seo_difficulty) {
+                        uniqueKeywords.set(item.keyword, item);
+                    }
+                }
+            });
+
+            // Convert back to array
+            competitorKeywords = Array.from(uniqueKeywords.values());
+
+            // Filter out keywords already covered by existing blogs
+            const uncoveredKeywords = competitorKeywords.filter(kw => {
+                const kwExtracted = extractKeyword(kw.keyword);
+                
+                // Check if any existing blog covers this keyword
+                for (const blog of existingBlogs) {
+                    const blogKeyword = blog.keyword;
+                    const similarity = calculateSimilarity(kwExtracted, blogKeyword);
+                    
+                    // If similarity >= 40%, consider it covered
+                    if (similarity >= 0.4) {
+                        return false; // Keyword is covered, exclude it
+                    }
+                }
+                
+                return true; // Keyword not covered, include it
+            });
+
+            filteredGapKeywords = uncoveredKeywords;
+            applyFilters();
+        }
+
+        function calculateSimilarity(keyword1, keyword2) {
+            const words1 = keyword1.split(' ').filter(w => w.length > 2);
+            const words2 = keyword2.split(' ').filter(w => w.length > 2);
+            
+            const intersection = words1.filter(w => words2.includes(w)).length;
+            const union = new Set([...words1, ...words2]).size;
+            
+            return intersection / union;
+        }
+
+        function applyFilters() {
+            const minVolume = parseInt(document.getElementById('minVolume').value) || 0;
+            const maxDifficulty = parseInt(document.getElementById('maxDifficulty').value) || 100;
+            const maxResults = parseInt(document.getElementById('maxResults').value) || 50;
+
+            const filtered = filteredGapKeywords
+                .filter(kw => kw.volume >= minVolume && kw.seo_difficulty <= maxDifficulty)
+                .slice(0, maxResults);
+
+            displayGapResults(filtered);
+        }
+
+        function displayGapResults(keywords) {
+            const total = filteredGapKeywords.length;
+            const showing = keywords.length;
+            
+            document.getElementById('gapStats').innerHTML = `
+                Showing <strong>${showing}</strong> of <strong>${total}</strong> uncovered keywords
+            `;
+
+            const html = keywords.map((kw, index) => `
+                <div class="gap-row">
+                    <div>
+                        <div class="gap-keyword">${kw.keyword}</div>
+                        <div class="gap-competitors">${kw.competitor}</div>
+                    </div>
+                    <div>${kw.volume.toLocaleString()}</div>
+                    <div>${kw.seo_difficulty}</div>
+                    <div>
+                        <button class="secondary" onclick="generateIdeasForKeyword('${kw.keyword.replace(/'/g, "\\'")}')">
+                            Generate Ideas
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+
+            document.getElementById('gapResults').innerHTML = html;
+        }
+
+        async function generateIdeasForKeyword(keyword) {
+            // Set the niche input to the keyword
+            document.getElementById('niche').value = keyword;
+            
+            // Scroll to top
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            
+            // Generate ideas
+            await generateIdeas();
+        }
+
+        // Load blogs when page loads
+        loadExistingBlogs();
+
+        async function generateIdeas() {
+            const niche = document.getElementById('niche').value.trim();
+            
+            if (!niche) {
+                alert('Please enter a niche or topic');
+                return;
+            }
+
+            document.getElementById('generateBtn').disabled = true;
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('results').innerHTML = '';
+
+            try {
+                const response = await fetch('/api/claude', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt: `Generate exactly 40 blog post title ideas for the niche: "${niche}". 
+
+Requirements:
+- SEO-focused titles
+- Question-based and how-to formats
+- Practical, searchable topics
+- Mix of beginner and advanced content
+- Return ONLY the titles, one per line, numbered 1-40
+- No additional text or explanations`
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                const ideas = data.response
+                    .split('\n')
+                    .map(line => line.replace(/^\d+[\.\)]\s*/, '').trim())
+                    .filter(line => line.length > 0)
+                    .slice(0, 40);
+
+                currentIdeas = ideas.map(title => ({
+                    title,
+                    keyword: extractKeyword(title),
+                    status: 'new'
+                }));
+
+                // Check cannibalization
+                currentIdeas = currentIdeas.map(idea => {
+                    const conflict = checkCannibalization(idea.keyword);
+                    return {
+                        ...idea,
+                        conflict: conflict.status,
+                        conflictWith: conflict.title,
+                        score: conflict.score
+                    };
+                });
+
+                // Sort by opportunity score (lowest conflict first)
+                currentIdeas.sort((a, b) => a.score - b.score);
+
+                // Generate angle suggestions for yellow/green ideas
+                await generateAngleSuggestions();
+
+                displayResults();
+
+            } catch (error) {
+                document.getElementById('error').textContent = `Error: ${error.message}`;
+                document.getElementById('error').style.display = 'block';
+            } finally {
+                document.getElementById('generateBtn').disabled = false;
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        function extractKeyword(title) {
+            const questionWords = /\b(how|what|why|when|where|which|who|is|are|can|do|does|should|will)\b/gi;
+            const endings = /\b(guide|tips|ideas|ways|steps|tricks|hacks|secrets|benefits|mistakes|examples|like a pro|for beginners|101|explained|ultimate|complete|best|top)\b/gi;
+            const fillers = /\b(a|an|the|your|my|our|for|in|on|at|to|of|with|and|or|but)\b/gi;
+            
+            let keyword = title.toLowerCase()
+                .replace(questionWords, '')
+                .replace(endings, '')
+                .replace(fillers, '')
+                .replace(/[^\w\s]/g, '')
+                .trim()
+                .split(/\s+/)
+                .filter(word => word.length > 2)
+                .slice(0, 4)
+                .join(' ');
+            
+            return keyword || title.toLowerCase();
+        }
+
+        function checkCannibalization(keyword) {
+            const keywords = keyword.split(' ').filter(w => w.length > 2);
+            
+            let maxScore = 0;
+            let conflictTitle = null;
+
+            for (const blog of existingBlogs) {
+                const blogKeywords = blog.keyword.split(' ').filter(w => w.length > 2);
+                
+                const intersection = keywords.filter(k => blogKeywords.includes(k)).length;
+                const union = new Set([...keywords, ...blogKeywords]).size;
+                const score = intersection / union;
+
+                if (score > maxScore) {
+                    maxScore = score;
+                    conflictTitle = blog.title;
+                }
+            }
+
+            if (maxScore >= 0.6) {
+                return { status: 'similar', title: conflictTitle, score: maxScore };
+            } else if (maxScore >= 0.4) {
+                return { status: 'caution', title: conflictTitle, score: maxScore };
+            } else {
+                return { status: 'new', title: null, score: maxScore };
+            }
+        }
+
+        async function generateAngleSuggestions() {
+            const ideasNeedingAngles = currentIdeas.filter(idea => 
+                idea.conflict === 'new' || idea.conflict === 'caution'
+            );
+
+            if (ideasNeedingAngles.length === 0) return;
+
+            try {
+                const response = await fetch('/api/claude', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt: `For each of these blog titles, suggest a unique angle or differentiation strategy in ONE concise sentence (max 15 words):
+
+${ideasNeedingAngles.map((idea, i) => `${i + 1}. ${idea.title}`).join('\n')}
+
+Format: Return ONLY numbered suggestions, one per line, matching the input order.`
+                    })
+                });
+
+                const data = await response.json();
+                const suggestions = data.response
+                    .split('\n')
+                    .map(line => line.replace(/^\d+[\.\)]\s*/, '').trim())
+                    .filter(line => line.length > 0);
+
+                ideasNeedingAngles.forEach((idea, index) => {
+                    if (suggestions[index]) {
+                        idea.angleSuggestion = suggestions[index];
+                    }
+                });
+
+            } catch (error) {
+                console.error('Error generating angle suggestions:', error);
+            }
+        }
+
+        async function markAsPlanned(index) {
+            const idea = currentIdeas[index];
+            
+            try {
+                const response = await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'save',
+                        title: idea.title,
+                        keyword: idea.keyword,
+                        status: 'planned'
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Add to existing blogs list
+                    existingBlogs.push({
+                        title: idea.title,
+                        keyword: idea.keyword,
+                        status: 'planned',
+                        date: new Date().toISOString().split('T')[0]
+                    });
+
+                    // Update UI
+                    idea.isPlanned = true;
+                    displayResults();
+
+                    // Update stats
+                    const published = existingBlogs.filter(b => b.status === 'published').length;
+                    const planned = existingBlogs.filter(b => b.status === 'planned').length;
+                    document.getElementById('stats').innerHTML = `
+                        <strong>Database:</strong> ${published} published blogs, ${planned} planned blogs
+                    `;
+
+                    // Re-analyze keyword gap (newly planned blog might cover a keyword)
+                    analyzeKeywordGap();
+                } else {
+                    alert('Error marking as planned: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Error marking as planned:', error);
+                alert('Error: Could not save to database');
+            }
+        }
+
+        function displayResults() {
+            const resultsDiv = document.getElementById('results');
+            
+            const html = currentIdeas.map((idea, index) => {
+                const statusClass = idea.conflict === 'new' ? 'status-new' : 
+                                  idea.conflict === 'caution' ? 'status-caution' : 
+                                  'status-similar';
+                
+                const statusText = idea.conflict === 'new' ? '🟢 New Topic' : 
+                                 idea.conflict === 'caution' ? '🟡 Caution' : 
+                                 '🔴 Similar';
+
+                const angleSuggestion = idea.angleSuggestion && (idea.conflict === 'new' || idea.conflict === 'caution') ? `
+                    <div class="angle-suggestion">
+                        <div class="angle-label">Suggested Angle:</div>
+                        ${idea.angleSuggestion}
+                    </div>
+                ` : '';
+
+                const conflictInfo = idea.conflictWith ? `
+                    <div class="idea-meta">
+                        Similar to: <strong>${idea.conflictWith}</strong> (${Math.round(idea.score * 100)}% overlap)
+                    </div>
+                ` : '';
+
+                const plannedBtn = idea.isPlanned ? `
+                    <button class="mark-planned-btn planned" disabled>✓ Planned</button>
+                ` : `
+                    <button class="mark-planned-btn" onclick="markAsPlanned(${index})">Mark as Planned</button>
+                `;
+
+                return `
+                    <div class="idea-card">
+                        <div class="idea-header">
+                            <div class="idea-title">${idea.title}</div>
+                            <div class="status-badge ${statusClass}">${statusText}</div>
+                        </div>
+                        ${conflictInfo}
+                        ${angleSuggestion}
+                        ${plannedBtn}
+                    </div>
+                `;
+            }).join('');
+
+            resultsDiv.innerHTML = html;
+        }
+    </script>
+</body>
+</html>
