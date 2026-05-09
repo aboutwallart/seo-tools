@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Money Page Optimizer - SEO Tools</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: #ffffff;
+            color: #1a1a1a;
+            line-height: 1.6;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666666;
+            font-size: 1.1rem;
+        }
+
+        .input-section {
+            background: #f5f5f5;
+            padding: 30px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #1a1a1a;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-family: 'Poppins', sans-serif;
+            background: #ffffff;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #1a1a1a;
+        }
+
+        button {
+            background: #1a1a1a;
+            color: white;
+            padding: 14px 32px;
+            border: none;
+            border-radius: 6px;
+            font-size: 1.1rem;
+            font-weight: 500;
+            cursor: pointer;
+            font-family: 'Poppins', sans-serif;
+            transition: transform 0.2s, opacity 0.2s;
+            width: 100%;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            opacity: 0.9;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+            background: #f5f5f5;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 4px solid #e0e0e0;
+            border-top: 4px solid #1a1a1a;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            font-size: 1.1rem;
+            color: #666666;
+            margin-bottom: 10px;
+        }
+
+        .loading-step {
+            font-size: 0.9rem;
+            color: #999999;
+        }
+
+        .results {
+            display: none;
+        }
+
+        .results.active {
+            display: block;
+        }
+
+        .competitive-data {
+            background: #f5f5f5;
+            padding: 30px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+
+        .competitive-data h2 {
+            font-size: 1.8rem;
+            margin-bottom: 20px;
+            color: #1a1a1a;
+        }
+
+        .page-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 2px solid #e0e0e0;
+        }
+
+        .page-card h3 {
+            font-size: 1.3rem;
+            margin-bottom: 15px;
+            color: #1a1a1a;
+        }
+
+        .your-page {
+            border-color: #1a1a1a;
+        }
+
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .metric {
+            background: #f5f5f5;
+            padding: 12px;
+            border-radius: 6px;
+        }
+
+        .metric-label {
+            font-size: 0.85rem;
+            color: #666666;
+            margin-bottom: 4px;
+        }
+
+        .metric-value {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #1a1a1a;
+        }
+
+        .headings-list {
+            margin-top: 10px;
+        }
+
+        .heading-item {
+            padding: 8px;
+            background: #f5f5f5;
+            border-radius: 4px;
+            margin-bottom: 6px;
+            font-size: 0.95rem;
+        }
+
+        .recommendations {
+            margin-top: 30px;
+        }
+
+        .recommendations h2 {
+            font-size: 1.8rem;
+            margin-bottom: 20px;
+        }
+
+        .priority-section {
+            margin-bottom: 30px;
+        }
+
+        .priority-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .priority-badge {
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .priority-high {
+            background: #ffebee;
+            color: #c62828;
+        }
+
+        .priority-medium {
+            background: #fff3e0;
+            color: #e65100;
+        }
+
+        .priority-low {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .priority-ai {
+            background: #e3f2fd;
+            color: #1565c0;
+        }
+
+        .recommendation-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            border-left: 4px solid #e0e0e0;
+        }
+
+        .recommendation-card.high {
+            border-left-color: #c62828;
+        }
+
+        .recommendation-card.medium {
+            border-left-color: #e65100;
+        }
+
+        .recommendation-card.low {
+            border-left-color: #2e7d32;
+        }
+
+        .recommendation-card.ai_search {
+            border-left-color: #1565c0;
+        }
+
+        .recommendation-title {
+            font-weight: 600;
+            font-size: 1.1rem;
+            margin-bottom: 10px;
+        }
+
+        .recommendation-detail {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 4px;
+        }
+
+        .recommendation-detail strong {
+            display: block;
+            margin-bottom: 5px;
+            color: #1a1a1a;
+        }
+
+        .action-buttons {
+            margin-top: 30px;
+            display: flex;
+            gap: 15px;
+        }
+
+        .action-buttons button {
+            flex: 1;
+        }
+
+        .btn-secondary {
+            background: #666666;
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2rem;
+            }
+
+            .metric-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .action-buttons {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>💰 Money Page Optimizer</h1>
+            <p class="subtitle">AI-Powered Competitive SEO Analysis & Recommendations</p>
+        </header>
+
+        <div class="input-section">
+            <form id="analyzeForm">
+                <div class="form-group">
+                    <label for="pageUrl">Your Page URL</label>
+                    <input 
+                        type="text" 
+                        id="pageUrl" 
+                        placeholder="https://aboutwallart.com/collections/living-room-wall-art"
+                        required
+                    >
+                </div>
+                <div class="form-group">
+                    <label for="keyword">Target Keyword</label>
+                    <input 
+                        type="text" 
+                        id="keyword" 
+                        placeholder="living room wall art"
+                        required
+                    >
+                </div>
+                
+                <div class="form-group" style="margin-top: 30px; padding-top: 30px; border-top: 2px solid #e0e0e0;">
+                    <label style="font-size: 1.1rem; margin-bottom: 15px;">📊 Optional: Upload Ubersuggest Data for Keyword Recommendations</label>
+                    <div style="background: #fff3cd; padding: 15px; border-radius: 6px; margin-bottom: 15px; font-size: 0.95rem; line-height: 1.6;">
+                        <strong>How to get the CSV from Ubersuggest:</strong><br>
+                        1. Go to Ubersuggest → Search your keyword<br>
+                        2. Click "AI Keyword Overview" or "Competitor Analysis"<br>
+                        3. Click "Export" → Download CSV<br>
+                        4. Upload it here (tool will analyze keyword difficulty & recommend if you should switch keywords)
+                    </div>
+                    <input 
+                        type="file" 
+                        id="csvFile" 
+                        accept=".csv"
+                        style="width: 100%; padding: 12px; border: 2px dashed #e0e0e0; border-radius: 6px; background: #f5f5f5;"
+                    >
+                    <p style="font-size: 0.85rem; color: #666666; margin-top: 8px;">Optional: If you skip this, you'll still get full SEO recommendations (just no keyword difficulty analysis)</p>
+                </div>
+
+                <button type="submit" id="analyzeBtn">
+                    🚀 Analyze & Optimize
+                </button>
+            </form>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <div class="loading-text">Analyzing your page...</div>
+            <div class="loading-step" id="loadingStep">Starting analysis...</div>
+        </div>
+
+        <div class="results" id="results">
+            <div class="competitive-data" id="competitiveData"></div>
+            <div class="recommendations" id="recommendations"></div>
+            <div class="action-buttons">
+                <button onclick="copyRecommendations()">📋 Copy All Recommendations</button>
+                <button class="btn-secondary" onclick="startOver()">🔄 Analyze Another Page</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('analyzeForm');
+        const loading = document.getElementById('loading');
+        const results = document.getElementById('results');
+        const loadingStep = document.getElementById('loadingStep');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+
+        let analysisData = null;
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const pageUrl = document.getElementById('pageUrl').value.trim();
+            const keyword = document.getElementById('keyword').value.trim();
+            const csvFile = document.getElementById('csvFile').files[0];
+
+            if (!pageUrl || !keyword) {
+                alert('Please fill in both URL and keyword fields');
+                return;
+            }
+
+            // Show loading, hide results
+            loading.classList.add('active');
+            results.classList.remove('active');
+            analyzeBtn.disabled = true;
+
+            try {
+                // Parse CSV if provided
+                let csvData = null;
+                if (csvFile) {
+                    csvData = await parseCSV(csvFile);
+                }
+
+                // Simulate progress updates
+                const steps = [
+                    { text: '[1/5] Finding competitors...', delay: 0 },
+                    { text: '[2/5] Analyzing YOUR page SEO...', delay: 10000 },
+                    { text: '[3/5] Getting YOUR PageSpeed scores...', delay: 15000 },
+                    { text: '[4/5] Analyzing 3 competitors...', delay: 35000 },
+                    { text: '[5/5] Getting AI recommendations...', delay: 50000 }
+                ];
+
+                steps.forEach(step => {
+                    setTimeout(() => {
+                        loadingStep.textContent = step.text;
+                    }, step.delay);
+                });
+                
+                const response = await fetch('/api/analyze-money-page', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ pageUrl, keyword, csvData })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Analysis failed');
+                }
+
+                const data = await response.json();
+                analysisData = data;
+
+                // Display results
+                displayResults(data);
+
+                // Show results, hide loading
+                loading.classList.remove('active');
+                results.classList.add('active');
+
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Analysis failed. Please try again.');
+                loading.classList.remove('active');
+            } finally {
+                analyzeBtn.disabled = false;
+            }
+        });
+
+        async function parseCSV(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const text = e.target.result;
+                    const lines = text.split('\n');
+                    const headers = lines[0].split(',').map(h => h.trim());
+                    const data = [];
+                    
+                    for (let i = 1; i < lines.length; i++) {
+                        if (!lines[i].trim()) continue;
+                        const values = lines[i].split(',');
+                        const row = {};
+                        headers.forEach((header, index) => {
+                            row[header] = values[index]?.trim() || '';
+                        });
+                        data.push(row);
+                    }
+                    
+                    resolve(data);
+                };
+                reader.onerror = reject;
+                reader.readAsText(file);
+            });
+        }
+
+        function displayResults(data) {
+            // Display competitive data
+            const competitiveDataHtml = `
+                <h2>📊 Competitive Analysis</h2>
+                <div class="page-card your-page">
+                    <h3>YOUR PAGE</h3>
+                    <p><strong>URL:</strong> ${data.yourPage.url}</p>
+                    <div class="metric-grid">
+                        <div class="metric">
+                            <div class="metric-label">Word Count</div>
+                            <div class="metric-value">${data.yourPage.wordCount}</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Keyword Density</div>
+                            <div class="metric-value">${data.yourPage.keywordDensity}%</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">PageSpeed Mobile</div>
+                            <div class="metric-value">${data.yourPage.speedMobile || 'N/A'}</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">PageSpeed Desktop</div>
+                            <div class="metric-value">${data.yourPage.speedDesktop || 'N/A'}</div>
+                        </div>
+                    </div>
+                    <p style="margin-top: 15px;"><strong>Title:</strong> ${data.yourPage.title}</p>
+                    <p><strong>Meta Description:</strong> ${data.yourPage.metaDescription || 'Missing'}</p>
+                </div>
+                ${data.competitors.map((comp, i) => `
+                    <div class="page-card">
+                        <h3>COMPETITOR ${i + 1}</h3>
+                        <p><strong>URL:</strong> ${comp.url}</p>
+                        <div class="metric-grid">
+                            <div class="metric">
+                                <div class="metric-label">Word Count</div>
+                                <div class="metric-value">${comp.wordCount}</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-label">Keyword Density</div>
+                                <div class="metric-value">${comp.keywordDensity}%</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-label">PageSpeed Mobile</div>
+                                <div class="metric-value">${comp.speedMobile || 'N/A'}</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-label">PageSpeed Desktop</div>
+                                <div class="metric-value">${comp.speedDesktop || 'N/A'}</div>
+                            </div>
+                        </div>
+                        <p style="margin-top: 15px;"><strong>Title:</strong> ${comp.title}</p>
+                        <p><strong>Meta Description:</strong> ${comp.metaDescription || 'Missing'}</p>
+                    </div>
+                `).join('')}
+            `;
+
+            document.getElementById('competitiveData').innerHTML = competitiveDataHtml;
+
+            // Display recommendations
+            const recommendationsHtml = `
+                <h2>🎯 SEO & AI Optimization Recommendations</h2>
+                ${renderPrioritySection('high', data.recommendations.high)}
+                ${renderPrioritySection('medium', data.recommendations.medium)}
+                ${renderPrioritySection('low', data.recommendations.low)}
+                ${renderPrioritySection('ai_search', data.recommendations.ai_search)}
+            `;
+
+            document.getElementById('recommendations').innerHTML = recommendationsHtml;
+        }
+
+        function renderPrioritySection(priority, recommendations) {
+            if (!recommendations || recommendations.length === 0) return '';
+
+            const labels = {
+                high: { emoji: '🔴', text: 'DO THESE FIRST', class: 'priority-high' },
+                medium: { emoji: '🟡', text: 'DO NEXT', class: 'priority-medium' },
+                low: { emoji: '🟢', text: 'FINAL CHECK', class: 'priority-low' },
+                ai_search: { emoji: '🤖', text: 'AI SEARCH OPTIMIZATION', class: 'priority-ai' }
+            };
+
+            const label = labels[priority];
+
+            return `
+                <div class="priority-section">
+                    <div class="priority-header">
+                        <span class="priority-badge ${label.class}">${label.emoji} ${label.text}</span>
+                    </div>
+                    ${recommendations.map(rec => `
+                        <div class="recommendation-card ${priority}">
+                            <div class="recommendation-title">${rec.title}</div>
+                            <p>${rec.description}</p>
+                            ${rec.current ? `<div class="recommendation-detail"><strong>Current:</strong> ${rec.current}</div>` : ''}
+                            ${rec.recommended ? `<div class="recommendation-detail"><strong>Recommended:</strong> ${rec.recommended}</div>` : ''}
+                            ${rec.why ? `<p style="margin-top: 10px; font-style: italic; color: #666666;">Why: ${rec.why}</p>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        function copyRecommendations() {
+            if (!analysisData) return;
+
+            const text = formatRecommendationsForCopy(analysisData);
+            navigator.clipboard.writeText(text).then(() => {
+                alert('✅ Recommendations copied to clipboard!');
+            });
+        }
+
+        function formatRecommendationsForCopy(data) {
+            let text = `MONEY PAGE OPTIMIZATION RECOMMENDATIONS\n`;
+            text += `Page: ${data.yourPage.url}\n`;
+            text += `Keyword: ${document.getElementById('keyword').value}\n\n`;
+            text += `=`.repeat(80) + `\n\n`;
+
+            ['high', 'medium', 'low'].forEach(priority => {
+                const recs = data.recommendations[priority];
+                if (recs && recs.length > 0) {
+                    text += `${priority.toUpperCase()} PRIORITY:\n\n`;
+                    recs.forEach((rec, i) => {
+                        text += `${i + 1}. ${rec.title}\n`;
+                        text += `   ${rec.description}\n`;
+                        if (rec.current) text += `   Current: ${rec.current}\n`;
+                        if (rec.recommended) text += `   Recommended: ${rec.recommended}\n`;
+                        if (rec.why) text += `   Why: ${rec.why}\n`;
+                        text += `\n`;
+                    });
+                    text += `\n`;
+                }
+            });
+
+            return text;
+        }
+
+        function startOver() {
+            results.classList.remove('active');
+            document.getElementById('pageUrl').value = '';
+            document.getElementById('keyword').value = '';
+            document.getElementById('pageUrl').focus();
+        }
+    </script>
+</body>
+</html>
