@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Money Page Optimizer - SEO Tools</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: #ffffff;
+            color: #1a1a1a;
+            line-height: 1.6;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666666;
+            font-size: 1.1rem;
+        }
+
+        .url-manager {
+            background: #f5f5f5;
+            padding: 30px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+
+        .add-url-section {
+            background: white;
+            padding: 20px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #1a1a1a;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-family: 'Poppins', sans-serif;
+            background: #ffffff;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #1a1a1a;
+        }
+
+        button {
+            background: #1a1a1a;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            font-family: 'Poppins', sans-serif;
+            transition: transform 0.2s, opacity 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            opacity: 0.9;
+        }
+
+        button.btn-secondary {
+            background: #666666;
+        }
+
+        button.btn-small {
+            padding: 8px 16px;
+            font-size: 0.9rem;
+        }
+
+        .url-list {
+            margin-top: 20px;
+        }
+
+        .url-item {
+            background: white;
+            padding: 20px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            border-left: 4px solid #e0e0e0;
+        }
+
+        .url-item.analyzed {
+            border-left-color: #2e7d32;
+        }
+
+        .url-item-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 10px;
+        }
+
+        .checkbox {
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+        }
+
+        .url-title {
+            font-weight: 600;
+            font-size: 1.1rem;
+            flex: 1;
+        }
+
+        .url-meta {
+            font-size: 0.85rem;
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        .url-link {
+            color: #666;
+            font-size: 0.9rem;
+            word-break: break-all;
+            display: block;
+            margin-bottom: 10px;
+        }
+
+        .url-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+            background: #f5f5f5;
+            border-radius: 8px;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #1a1a1a;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            font-size: 1.2rem;
+            font-weight: 500;
+            margin-bottom: 10px;
+        }
+
+        .loading-step {
+            color: #666666;
+            font-size: 0.95rem;
+        }
+
+        .results {
+            display: none;
+            background: #f5f5f5;
+            padding: 30px;
+            border-radius: 8px;
+        }
+
+        .results.active {
+            display: block;
+        }
+
+        .page-card {
+            background: white;
+            padding: 20px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+        }
+
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 15px 0;
+        }
+
+        .metric {
+            text-align: center;
+        }
+
+        .metric-label {
+            font-size: 0.85rem;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .metric-value {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #1a1a1a;
+        }
+
+        .recommendation-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            border-left: 4px solid #e0e0e0;
+        }
+
+        .recommendation-card.high {
+            border-left-color: #c62828;
+        }
+
+        .recommendation-card.medium {
+            border-left-color: #e65100;
+        }
+
+        .recommendation-card.low {
+            border-left-color: #2e7d32;
+        }
+
+        .recommendation-title {
+            font-weight: 600;
+            font-size: 1.1rem;
+            margin-bottom: 10px;
+        }
+
+        .recommendation-detail {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 4px;
+        }
+
+        .recommendation-detail strong {
+            display: block;
+            margin-bottom: 5px;
+            color: #1a1a1a;
+        }
+
+        .action-buttons {
+            margin-top: 30px;
+            display: flex;
+            gap: 15px;
+        }
+
+        .action-buttons button {
+            flex: 1;
+        }
+
+        .your-page {
+            border-left: 4px solid #2e7d32;
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2rem;
+            }
+
+            .url-actions {
+                flex-direction: column;
+            }
+
+            .url-actions button {
+                width: 100%;
+            }
+
+            .action-buttons {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>💰 Money Page Optimizer</h1>
+            <p class="subtitle">AI-Powered Competitive SEO Analysis & Recommendations</p>
+        </header>
+
+        <div class="url-manager">
+            <div class="add-url-section">
+                <h3 style="margin-bottom: 15px;">➕ Add New URL</h3>
+                <div class="form-group">
+                    <label for="newUrl">Page URL</label>
+                    <input type="text" id="newUrl" placeholder="https://aboutwallart.com/pages/celebration-gifts">
+                </div>
+                <div class="form-group">
+                    <label for="newKeyword">Target Keyword</label>
+                    <input type="text" id="newKeyword" placeholder="celebration gifts">
+                </div>
+                <button onclick="addUrl()">Add to List</button>
+            </div>
+
+            <div class="url-list" id="urlList"></div>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <div class="loading-text">Analyzing your page...</div>
+            <div class="loading-step" id="loadingStep">Starting analysis...</div>
+        </div>
+
+        <div class="results" id="results">
+            <div id="resultsContent"></div>
+            <div class="action-buttons">
+                <button onclick="copyRecommendations()">📋 Copy All Recommendations</button>
+                <button class="btn-secondary" onclick="closeResults()">← Back to List</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let urls = [];
+        let currentAnalysis = null;
+
+        // Load URLs from localStorage
+        function loadUrls() {
+            const saved = localStorage.getItem('moneyPageUrls');
+            urls = saved ? JSON.parse(saved) : [];
+            renderUrlList();
+        }
+
+        // Save URLs to localStorage
+        function saveUrls() {
+            localStorage.setItem('moneyPageUrls', JSON.stringify(urls));
+        }
+
+        // Add new URL
+        function addUrl() {
+            const url = document.getElementById('newUrl').value.trim();
+            const keyword = document.getElementById('newKeyword').value.trim();
+
+            if (!url || !keyword) {
+                alert('Please fill in both URL and keyword');
+                return;
+            }
+
+            urls.push({
+                id: Date.now(),
+                url,
+                keyword,
+                analyzed: false,
+                analyzedDate: null,
+                results: null
+            });
+
+            saveUrls();
+            renderUrlList();
+
+            document.getElementById('newUrl').value = '';
+            document.getElementById('newKeyword').value = '';
+        }
+
+        // Remove URL
+        function removeUrl(id) {
+            if (confirm('Are you sure you want to remove this URL?')) {
+                urls = urls.filter(u => u.id !== id);
+                saveUrls();
+                renderUrlList();
+            }
+        }
+
+        // Analyze URL
+        async function analyzeUrl(id) {
+            const urlItem = urls.find(u => u.id === id);
+            if (!urlItem) return;
+
+            const loading = document.getElementById('loading');
+            const loadingStep = document.getElementById('loadingStep');
+
+            loading.classList.add('active');
+
+            try {
+                const steps = [
+                    { text: '[1/5] Finding competitors...', delay: 0 },
+                    { text: '[2/5] Analyzing YOUR page SEO...', delay: 10000 },
+                    { text: '[3/5] Getting YOUR PageSpeed scores...', delay: 15000 },
+                    { text: '[4/5] Analyzing 3 competitors...', delay: 35000 },
+                    { text: '[5/5] Getting AI recommendations...', delay: 50000 }
+                ];
+
+                steps.forEach(step => {
+                    setTimeout(() => {
+                        loadingStep.textContent = step.text;
+                    }, step.delay);
+                });
+
+                const response = await fetch('/api/analyze-money-page', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ pageUrl: urlItem.url, keyword: urlItem.keyword })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Analysis failed');
+                }
+
+                const data = await response.json();
+                
+                // Save results
+                urlItem.analyzed = true;
+                urlItem.analyzedDate = new Date().toISOString();
+                urlItem.results = data;
+                saveUrls();
+                renderUrlList();
+
+                // Display results
+                displayResults(data, urlItem);
+                loading.classList.remove('active');
+
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Analysis failed. Please try again.');
+                loading.classList.remove('active');
+            }
+        }
+
+        // View stored results
+        function viewResults(id) {
+            const urlItem = urls.find(u => u.id === id);
+            if (!urlItem || !urlItem.results) return;
+
+            displayResults(urlItem.results, urlItem);
+        }
+
+        // Display results
+        function displayResults(data, urlItem) {
+            currentAnalysis = data;
+
+            const resultsContent = document.getElementById('resultsContent');
+            
+            let html = `
+                <div style="background: #e3f2fd; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+                    <h3 style="margin-bottom: 10px;">${urlItem.keyword}</h3>
+                    <div style="font-size: 0.9rem; color: #666;">${urlItem.url}</div>
+                    <div style="font-size: 0.85rem; color: #999; margin-top: 5px;">Analyzed: ${new Date(urlItem.analyzedDate).toLocaleDateString()}</div>
+                </div>
+
+                <h2>📊 Competitive Analysis</h2>
+                <div class="page-card your-page">
+                    <h3>YOUR PAGE</h3>
+                    <div class="metric-grid">
+                        <div class="metric">
+                            <div class="metric-label">Word Count</div>
+                            <div class="metric-value">${data.yourPage.wordCount}</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Keyword Density</div>
+                            <div class="metric-value">${data.yourPage.keywordDensity}%</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">PageSpeed Mobile</div>
+                            <div class="metric-value">${data.yourPage.speedMobile || 'N/A'}</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">PageSpeed Desktop</div>
+                            <div class="metric-value">${data.yourPage.speedDesktop || 'N/A'}</div>
+                        </div>
+                    </div>
+                    <p style="margin-top: 15px;"><strong>Title:</strong> ${data.yourPage.title}</p>
+                    <p><strong>Meta Description:</strong> ${data.yourPage.metaDescription || 'Missing'}</p>
+                </div>
+
+                ${data.competitors.map((comp, i) => `
+                    <div class="page-card">
+                        <h3>COMPETITOR ${i + 1}</h3>
+                        <p><strong>URL:</strong> ${comp.url}</p>
+                        <div class="metric-grid">
+                            <div class="metric">
+                                <div class="metric-label">Word Count</div>
+                                <div class="metric-value">${comp.wordCount}</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-label">Keyword Density</div>
+                                <div class="metric-value">${comp.keywordDensity}%</div>
+                            </div>
+                        </div>
+                        <p style="margin-top: 10px;"><strong>Title:</strong> ${comp.title}</p>
+                    </div>
+                `).join('')}
+
+                <h2 style="margin-top: 30px;">🎯 Recommendations</h2>
+                
+                ${formatRecommendations(data.recommendations.high, '🔴 DO THESE FIRST (Critical Issues)', 'high')}
+                ${formatRecommendations(data.recommendations.medium, '🟡 DO NEXT (Important Improvements)', 'medium')}
+                ${formatRecommendations(data.recommendations.low, '🟢 FINAL CHECK (Polish & Optimize)', 'low')}
+            `;
+
+            resultsContent.innerHTML = html;
+            document.getElementById('results').classList.add('active');
+            window.scrollTo(0, 0);
+        }
+
+        function formatRecommendations(recs, title, priority) {
+            if (!recs || recs.length === 0) return '';
+
+            return `
+                <h3 style="margin: 20px 0 15px 0;">${title}</h3>
+                ${recs.map((rec, i) => `
+                    <div class="recommendation-card ${priority}">
+                        <div class="recommendation-title">${i + 1}. ${rec.title}</div>
+                        <div class="recommendation-detail">
+                            <strong>What to Do:</strong>
+                            ${rec.description}
+                        </div>
+                        ${rec.current ? `
+                            <div class="recommendation-detail">
+                                <strong>Current:</strong>
+                                ${rec.current}
+                            </div>
+                        ` : ''}
+                        ${rec.recommended ? `
+                            <div class="recommendation-detail">
+                                <strong>Use This Instead:</strong>
+                                ${rec.recommended}
+                            </div>
+                        ` : ''}
+                        <div class="recommendation-detail">
+                            <strong>Why:</strong>
+                            ${rec.why}
+                        </div>
+                    </div>
+                `).join('')}
+            `;
+        }
+
+        // Render URL list
+        function renderUrlList() {
+            const listDiv = document.getElementById('urlList');
+            
+            if (urls.length === 0) {
+                listDiv.innerHTML = '<p style="text-align: center; color: #666; padding: 20px;">No URLs added yet. Add your first money page above!</p>';
+                return;
+            }
+
+            listDiv.innerHTML = urls.map(item => `
+                <div class="url-item ${item.analyzed ? 'analyzed' : ''}">
+                    <div class="url-item-header">
+                        <input type="checkbox" class="checkbox" ${item.analyzed ? 'checked' : ''} disabled>
+                        <div class="url-title">${item.keyword}</div>
+                    </div>
+                    ${item.analyzedDate ? `
+                        <div class="url-meta">Last analyzed: ${new Date(item.analyzedDate).toLocaleDateString()} at ${new Date(item.analyzedDate).toLocaleTimeString()}</div>
+                    ` : `
+                        <div class="url-meta">Not analyzed yet</div>
+                    `}
+                    <div class="url-link">${item.url}</div>
+                    <div class="url-actions">
+                        ${item.analyzed ? `
+                            <button class="btn-small" onclick="viewResults(${item.id})">📊 View Results</button>
+                            <button class="btn-small btn-secondary" onclick="analyzeUrl(${item.id})">🔄 Re-analyze</button>
+                        ` : `
+                            <button class="btn-small" onclick="analyzeUrl(${item.id})">🔍 Analyze Now</button>
+                        `}
+                        <button class="btn-small btn-secondary" onclick="removeUrl(${item.id})">🗑️ Remove</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function copyRecommendations() {
+            if (!currentAnalysis) return;
+
+            let text = `SEO RECOMMENDATIONS\n\n`;
+            
+            const sections = [
+                { recs: currentAnalysis.recommendations.high, title: '🔴 DO THESE FIRST (Critical Issues)' },
+                { recs: currentAnalysis.recommendations.medium, title: '🟡 DO NEXT (Important Improvements)' },
+                { recs: currentAnalysis.recommendations.low, title: '🟢 FINAL CHECK (Polish & Optimize)' }
+            ];
+
+            sections.forEach(section => {
+                if (section.recs && section.recs.length > 0) {
+                    text += `\n${section.title}\n${'='.repeat(50)}\n\n`;
+                    section.recs.forEach((rec, i) => {
+                        text += `${i + 1}. ${rec.title}\n`;
+                        text += `   What to Do: ${rec.description}\n`;
+                        if (rec.current) text += `   Current: ${rec.current}\n`;
+                        if (rec.recommended) text += `   Use This Instead: ${rec.recommended}\n`;
+                        text += `   Why: ${rec.why}\n\n`;
+                    });
+                }
+            });
+
+            navigator.clipboard.writeText(text);
+            alert('Recommendations copied to clipboard!');
+        }
+
+        function closeResults() {
+            document.getElementById('results').classList.remove('active');
+        }
+
+        // Load URLs on page load
+        loadUrls();
+    </script>
+</body>
+</html>
