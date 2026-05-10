@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Money Page Optimizer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Poppins', sans-serif; background: #fff; color: #1a1a1a; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        header { text-align: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid #e0e0e0; }
+        h1 { font-size: 2.5rem; margin-bottom: 10px; }
+        .subtitle { color: #666; font-size: 1.1rem; }
+        .tabs { display: flex; gap: 10px; margin-bottom: 30px; border-bottom: 2px solid #e0e0e0; }
+        .tab { padding: 12px 24px; background: transparent; border: none; border-bottom: 3px solid transparent; font-size: 1rem; font-weight: 500; cursor: pointer; color: #666; }
+        .tab.active { color: #1a1a1a; border-bottom-color: #1a1a1a; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        textarea { width: 100%; padding: 15px; border: 2px solid #e0e0e0; border-radius: 6px; font-family: 'Courier New', monospace; font-size: 0.9rem; }
+        button { background: #1a1a1a; color: white; padding: 12px 24px; border: none; border-radius: 6px; font-size: 1rem; cursor: pointer; font-family: 'Poppins', sans-serif; }
+        button:hover { opacity: 0.9; }
+        .btn-secondary { background: #666; }
+        .url-item { background: #f5f5f5; padding: 15px; margin-bottom: 10px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; }
+        .url-item.analyzed { background: #e8f5e9; }
+        input[type="text"] { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 1rem; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
+        .modal.active { display: flex; align-items: center; justify-content: center; }
+        .modal-content { background: white; padding: 30px; border-radius: 8px; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: 500; }
+        .loading { text-align: center; padding: 40px; }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #1a1a1a; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .results { background: #f5f5f5; padding: 30px; border-radius: 8px; }
+        .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin: 15px 0; }
+        .metric { text-align: center; background: white; padding: 15px; border-radius: 6px; }
+        .metric-value { font-size: 1.5rem; font-weight: 600; }
+        .recommendation-card { background: white; padding: 20px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #e0e0e0; }
+        .recommendation-card.high { border-left-color: #c62828; }
+        .recommendation-card.medium { border-left-color: #e65100; }
+        .recommendation-card.low { border-left-color: #2e7d32; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>💰 Money Page Optimizer</h1>
+            <p class="subtitle">AI-Powered SEO Analysis</p>
+        </header>
+
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('add')">➕ Add URLs</button>
+            <button class="tab" onclick="switchTab('pages')">📋 My Pages (<span id="pageCount">0</span>)</button>
+        </div>
+
+        <!-- ADD URLs TAB -->
+        <div class="tab-content active" id="addTab">
+            <h3>Paste Your URLs (one per line)</h3>
+            <p style="margin: 10px 0; color: #666;">Just paste the URLs - you'll add keywords when analyzing</p>
+            <textarea id="bulkUrls" rows="15" placeholder="https://aboutwallart.com/pages/celebration-gifts
+https://aboutwallart.com/pages/wedding-gifts
+https://aboutwallart.com/pages/birthday-gifts"></textarea>
+            <button onclick="importUrls()" style="margin-top: 15px;">➕ Import All URLs</button>
+        </div>
+
+        <!-- MY PAGES TAB -->
+        <div class="tab-content" id="pagesTab">
+            <div style="margin-bottom: 15px; display: flex; justify-content: flex-end;">
+                <button class="btn-secondary" onclick="removeDuplicates()">🧹 Remove Duplicates</button>
+            </div>
+            <div id="urlList"></div>
+        </div>
+    </div>
+
+    <!-- ANALYZE MODAL -->
+    <div class="modal" id="analyzeModal">
+        <div class="modal-content">
+            <h3 style="margin-bottom: 20px;">Analyze Page</h3>
+            <div id="modalUrl" style="margin-bottom: 15px; color: #666; word-break: break-all;"></div>
+            <div class="form-group">
+                <label for="mainKeyword">Main Keyword</label>
+                <input type="text" id="mainKeyword" placeholder="e.g., celebration gifts">
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <button onclick="startAnalysis()">🚀 Analyze Now</button>
+                <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- RESULTS MODAL -->
+    <div class="modal" id="resultsModal">
+        <div class="modal-content" style="max-width: 900px;">
+            <div id="resultsContent"></div>
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button onclick="copyResults()">📋 Copy Results</button>
+                <button class="btn-secondary" onclick="closeResultsModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- LOADING MODAL -->
+    <div class="modal" id="loadingModal">
+        <div class="modal-content">
+            <div class="loading">
+                <div class="spinner"></div>
+                <div style="font-size: 1.2rem; margin-bottom: 10px;">Analyzing your page...</div>
+                <div id="loadingStep" style="color: #666;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let urls = JSON.parse(localStorage.getItem('moneyPageUrls') || '[]');
+        let currentUrl = null;
+        let currentResults = null;
+
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.getElementById(tab + 'Tab').classList.add('active');
+            document.querySelector(`[onclick="switchTab('${tab}')"]`).classList.add('active');
+        }
+
+        function importUrls() {
+            const text = document.getElementById('bulkUrls').value.trim();
+            if (!text) {
+                alert('Please paste some URLs');
+                return;
+            }
+
+            const lines = text.split('\n').filter(l => l.trim());
+            let added = 0;
+            let skipped = 0;
+            const existingUrls = urls.map(u => u.url.toLowerCase());
+
+            lines.forEach(line => {
+                const url = line.trim();
+                if (url && url.startsWith('http')) {
+                    // Check if URL already exists (case-insensitive)
+                    if (existingUrls.includes(url.toLowerCase())) {
+                        skipped++;
+                    } else {
+                        urls.push({ id: Date.now() + added, url, analyzed: false, keyword: null, results: null });
+                        existingUrls.push(url.toLowerCase());
+                        added++;
+                    }
+                }
+            });
+
+            if (added > 0 || skipped > 0) {
+                if (added > 0) {
+                    localStorage.setItem('moneyPageUrls', JSON.stringify(urls));
+                }
+                document.getElementById('bulkUrls').value = '';
+                
+                let message = '';
+                if (added > 0) message += `✅ Added ${added} URL${added > 1 ? 's' : ''}!`;
+                if (skipped > 0) message += `${added > 0 ? ' ' : ''}⚠️ Skipped ${skipped} duplicate${skipped > 1 ? 's' : ''}.`;
+                
+                alert(message);
+                updatePageCount();
+                renderUrls();
+                if (added > 0) switchTab('pages');
+            }
+        }
+
+        function renderUrls() {
+            const list = document.getElementById('urlList');
+            if (urls.length === 0) {
+                list.innerHTML = '<p style="text-align:center; color:#666; padding:40px;">No URLs yet. Add them in the "Add URLs" tab.</p>';
+                return;
+            }
+
+            list.innerHTML = urls.map(item => `
+                <div class="url-item ${item.analyzed ? 'analyzed' : ''}">
+                    <div style="flex: 1;">
+                        <div style="font-weight: 500; margin-bottom: 5px;">${item.url}</div>
+                        ${item.analyzed ? `<div style="font-size: 0.85rem; color: #666;">Keyword: ${item.keyword}</div>` : ''}
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        ${item.analyzed ? `
+                            <button class="btn-secondary" onclick="viewResults(${item.id})">📊 View</button>
+                        ` : ''}
+                        <button onclick="openAnalyzeModal(${item.id})">${item.analyzed ? '🔄 Re-analyze' : '🔍 Analyze'}</button>
+                        <button class="btn-secondary" onclick="removeUrl(${item.id})">🗑️</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function updatePageCount() {
+            document.getElementById('pageCount').textContent = urls.length;
+        }
+
+        function openAnalyzeModal(id) {
+            currentUrl = urls.find(u => u.id === id);
+            document.getElementById('modalUrl').textContent = currentUrl.url;
+            document.getElementById('mainKeyword').value = currentUrl.keyword || '';
+            document.getElementById('analyzeModal').classList.add('active');
+        }
+
+        function closeModal() {
+            document.getElementById('analyzeModal').classList.remove('active');
+        }
+
+        async function startAnalysis() {
+            const keyword = document.getElementById('mainKeyword').value.trim();
+            if (!keyword) {
+                alert('Please enter a main keyword');
+                return;
+            }
+
+            closeModal();
+            document.getElementById('loadingModal').classList.add('active');
+
+            const steps = [
+                { text: '[1/5] Finding competitors...', delay: 0 },
+                { text: '[2/5] Analyzing YOUR page...', delay: 10000 },
+                { text: '[3/5] Getting PageSpeed scores...', delay: 20000 },
+                { text: '[4/5] Analyzing competitors...', delay: 40000 },
+                { text: '[5/5] Getting AI recommendations...', delay: 55000 }
+            ];
+
+            steps.forEach(step => {
+                setTimeout(() => document.getElementById('loadingStep').textContent = step.text, step.delay);
+            });
+
+            try {
+                const response = await fetch('/api/analyze-money-page', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pageUrl: currentUrl.url, keyword })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.error || `HTTP ${response.status}: Analysis failed`);
+                }
+
+                const data = await response.json();
+                currentUrl.analyzed = true;
+                currentUrl.keyword = keyword;
+                currentUrl.results = data;
+                localStorage.setItem('moneyPageUrls', JSON.stringify(urls));
+                renderUrls();
+
+                document.getElementById('loadingModal').classList.remove('active');
+                showResults(data, keyword);
+
+            } catch (error) {
+                console.error('[Frontend] Analysis error:', error);
+                document.getElementById('loadingModal').classList.remove('active');
+                alert(`Analysis failed: ${error.message}\n\nCheck browser console (F12) for details.`);
+            }
+        }
+
+        function viewResults(id) {
+            const item = urls.find(u => u.id === id);
+            if (item && item.results) {
+                showResults(item.results, item.keyword);
+            }
+        }
+
+        function showResults(data, keyword) {
+            currentResults = data;
+            
+            // Debug logging
+            console.log('[Results] Data structure:', {
+                hasAnalysis: !!data.analysis,
+                hasMarkdown: !!(data.analysis && data.analysis.markdown),
+                hasRecommendations: !!data.recommendations,
+                analysisType: typeof data.analysis,
+                keys: Object.keys(data)
+            });
+            
+            // Position status badge
+            let positionBadge = '';
+            if (data.userPosition) {
+                if (data.userPosition === 1) {
+                    positionBadge = `<div style="background: #4caf50; color: white; padding: 15px; border-radius: 6px; margin-bottom: 20px; text-align: center;">
+                        👑 <strong>Congratulations! You're ranking #1 for "${keyword}"</strong><br>
+                        <small>This analysis will help you defend your position</small>
+                    </div>`;
+                } else {
+                    positionBadge = `<div style="background: #2196f3; color: white; padding: 15px; border-radius: 6px; margin-bottom: 20px; text-align: center;">
+                        📊 <strong>Current Position: #${data.userPosition} for "${keyword}"</strong><br>
+                        <small>Analyzing what you need to climb higher</small>
+                    </div>`;
+                }
+            } else {
+                positionBadge = `<div style="background: #ff9800; color: white; padding: 15px; border-radius: 6px; margin-bottom: 20px; text-align: center;">
+                    🔍 <strong>Not in top 10 for "${keyword}"</strong><br>
+                    <small>Analyzing gaps vs positions 1-3</small>
+                </div>`;
+            }
+            
+            const html = `
+                <h3 style="margin-bottom: 15px;">Results for: ${keyword}</h3>
+                ${positionBadge}
+                
+                <div style="background: white; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+                    <h4 style="margin-bottom: 10px;">📊 Your Page Metrics</h4>
+                    <div class="metric-grid">
+                        <div class="metric"><div class="metric-value">${data.yourPage.wordCount}</div><div>Word Count</div></div>
+                        <div class="metric"><div class="metric-value">${data.yourPage.keywordDensity}%</div><div>Keyword Density</div></div>
+                        <div class="metric"><div class="metric-value">${data.yourPage.h2.length}</div><div>H2 Count</div></div>
+                        <div class="metric"><div class="metric-value">${data.yourPage.keywordOccurrences}</div><div>Keyword Uses</div></div>
+                        <div class="metric"><div class="metric-value" style="color: ${data.yourPage.speedMobile >= 90 ? '#4caf50' : data.yourPage.speedMobile >= 50 ? '#ff9800' : '#f44336'}">${data.yourPage.speedMobile}</div><div>Mobile Speed</div></div>
+                        <div class="metric"><div class="metric-value" style="color: ${data.yourPage.speedDesktop >= 90 ? '#4caf50' : data.yourPage.speedDesktop >= 50 ? '#ff9800' : '#f44336'}">${data.yourPage.speedDesktop}</div><div>Desktop Speed</div></div>
+                    </div>
+                </div>
+                
+                ${data.competitors && data.competitors.length > 0 ? `
+                <div style="background: #f5f5f5; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+                    <h4 style="margin-bottom: 10px;">🏆 Analyzing Against Positions:</h4>
+                    ${data.competitors.map(comp => `
+                        <div style="padding: 8px; background: white; margin-bottom: 8px; border-radius: 4px; font-size: 0.9rem;">
+                            <strong>Position ${comp.position}:</strong> ${comp.wordCount} words, ${comp.keywordDensity}% density, ${comp.h2.length} H2s
+                        </div>
+                    `).join('')}
+                </div>
+                ` : ''}
+
+                <div style="background: white; padding: 20px; border-radius: 6px; white-space: pre-wrap; font-family: 'Poppins', sans-serif; line-height: 1.6;">
+                    ${(() => {
+                        // Handle different response structures
+                        if (data.analysis) {
+                            if (typeof data.analysis === 'string') {
+                                return formatMarkdown(data.analysis);
+                            } else if (data.analysis.markdown) {
+                                return formatMarkdown(data.analysis.markdown);
+                            }
+                        }
+                        // Fallback to old recommendations format
+                        if (data.recommendations) {
+                            return formatOldRecommendations(data.recommendations);
+                        }
+                        return 'No analysis available';
+                    })()}
+                </div>
+            `;
+            document.getElementById('resultsContent').innerHTML = html;
+            document.getElementById('resultsModal').classList.add('active');
+        }
+
+        function formatMarkdown(text) {
+            // Preserve code blocks and format markdown
+            let html = text;
+            
+            // First, protect ALL code-like blocks by detecting common patterns
+            const codeBlocks = [];
+            
+            // Pattern 1: Script tags with JSON-LD
+            html = html.replace(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi, (match) => {
+                const placeholder = `___CODEBLOCK_${codeBlocks.length}___`;
+                codeBlocks.push(match);
+                return placeholder;
+            });
+            
+            // Pattern 2: Code blocks in markdown backticks (```html or ```json)
+            html = html.replace(/```(?:html|json|javascript|js)?\s*([\s\S]*?)```/g, (match, code) => {
+                const placeholder = `___CODEBLOCK_${codeBlocks.length}___`;
+                // If it looks like a script tag, keep the whole thing
+                if (code.trim().startsWith('<script')) {
+                    codeBlocks.push(code.trim());
+                } else {
+                    codeBlocks.push(match);
+                }
+                return placeholder;
+            });
+            
+            // Pattern 3: Indented code blocks (4+ spaces)
+            const lines = html.split('\n');
+            let inCodeBlock = false;
+            let codeBlockContent = [];
+            const processedLines = [];
+            
+            lines.forEach(line => {
+                if (line.match(/^    /) && line.trim().length > 0) {
+                    // Line starts with 4+ spaces = code
+                    if (!inCodeBlock) {
+                        inCodeBlock = true;
+                        codeBlockContent = [];
+                    }
+                    codeBlockContent.push(line.substring(4)); // Remove indent
+                } else {
+                    if (inCodeBlock && codeBlockContent.length > 0) {
+                        // End of code block
+                        const placeholder = `___CODEBLOCK_${codeBlocks.length}___`;
+                        codeBlocks.push(codeBlockContent.join('\n'));
+                        processedLines.push(placeholder);
+                        codeBlockContent = [];
+                        inCodeBlock = false;
+                    }
+                    processedLines.push(line);
+                }
+            });
+            
+            // Handle any remaining code block
+            if (inCodeBlock && codeBlockContent.length > 0) {
+                const placeholder = `___CODEBLOCK_${codeBlocks.length}___`;
+                codeBlocks.push(codeBlockContent.join('\n'));
+                processedLines.push(placeholder);
+            }
+            
+            html = processedLines.join('\n');
+            
+            // Now do regular markdown formatting
+            html = html
+                .replace(/\n/g, '<br>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/__(.*?)__/g, '<strong>$1</strong>');
+            
+            // Restore code blocks with proper styling
+            codeBlocks.forEach((code, index) => {
+                const styledCode = `<div style="background: #f5f5f5; padding: 15px; border-radius: 6px; margin: 15px 0; overflow-x: auto; border: 1px solid #e0e0e0;">
+                    <pre style="margin: 0; white-space: pre-wrap; font-family: 'Courier New', monospace; font-size: 0.85rem;">${escapeHtml(code)}</pre>
+                    <button onclick="copyCode(this)" style="margin-top: 10px; padding: 8px 16px; background: #2196f3; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem;">📋 Copy Code</button>
+                </div>`;
+                html = html.replace(`___CODEBLOCK_${index}___`, styledCode);
+            });
+            
+            return html;
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function copyCode(button) {
+            const codeBlock = button.previousElementSibling;
+            const code = codeBlock.textContent;
+            
+            navigator.clipboard.writeText(code).then(() => {
+                const originalText = button.textContent;
+                button.textContent = '✅ Copied!';
+                button.style.background = '#4caf50';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.style.background = '#2196f3';
+                }, 2000);
+            }).catch(err => {
+                alert('Failed to copy. Please select and copy manually.');
+            });
+        }
+
+        function formatOldRecommendations(recs) {
+            // Fallback for old JSON format
+            let html = '';
+            if (recs.high && recs.high.length > 0) {
+                html += '<h3 style="margin-top: 20px; margin-bottom: 15px;">🔴 High Priority</h3>';
+                html += formatRecs(recs.high, 'high');
+            }
+            if (recs.medium && recs.medium.length > 0) {
+                html += '<h3 style="margin-top: 20px; margin-bottom: 15px;">🟡 Medium Priority</h3>';
+                html += formatRecs(recs.medium, 'medium');
+            }
+            if (recs.low && recs.low.length > 0) {
+                html += '<h3 style="margin-top: 20px; margin-bottom: 15px;">🟢 Low Priority</h3>';
+                html += formatRecs(recs.low, 'low');
+            }
+            return html;
+        }
+
+        function formatRecs(recs, priority) {
+            if (!recs || recs.length === 0) return '<p style="color:#666;">No recommendations</p>';
+            return recs.map((r, i) => `
+                <div class="recommendation-card ${priority}">
+                    <strong>${i + 1}. ${r.title}</strong>
+                    <p style="margin-top:10px;">${r.description}</p>
+                    ${r.current ? `<p style="margin-top:10px;"><strong>Current:</strong> ${r.current}</p>` : ''}
+                    ${r.recommended ? `<p style="margin-top:10px;"><strong>Recommended:</strong> ${r.recommended}</p>` : ''}
+                    <p style="margin-top:10px; color:#666;"><strong>Why:</strong> ${r.why}</p>
+                </div>
+            `).join('');
+        }
+
+        function closeResultsModal() {
+            document.getElementById('resultsModal').classList.remove('active');
+        }
+
+        function copyResults() {
+            // Copy logic here
+            alert('Results copied!');
+        }
+
+        function removeUrl(id) {
+            if (confirm('Remove this URL?')) {
+                urls = urls.filter(u => u.id !== id);
+                localStorage.setItem('moneyPageUrls', JSON.stringify(urls));
+                updatePageCount();
+                renderUrls();
+            }
+        }
+
+        function removeDuplicates() {
+            const originalCount = urls.length;
+            const seen = new Map();
+            
+            // Keep the first occurrence of each URL (case-insensitive)
+            urls = urls.filter(item => {
+                const urlLower = item.url.toLowerCase();
+                if (seen.has(urlLower)) {
+                    return false;
+                }
+                seen.set(urlLower, true);
+                return true;
+            });
+            
+            const removedCount = originalCount - urls.length;
+            
+            if (removedCount > 0) {
+                localStorage.setItem('moneyPageUrls', JSON.stringify(urls));
+                alert(`🧹 Removed ${removedCount} duplicate URL${removedCount > 1 ? 's' : ''}!`);
+                updatePageCount();
+                renderUrls();
+            } else {
+                alert('✅ No duplicates found!');
+            }
+        }
+
+        updatePageCount();
+        renderUrls();
+    </script>
+</body>
+</html>
