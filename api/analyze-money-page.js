@@ -330,6 +330,29 @@ function extractSEOData(html, url, keyword) {
     .slice(0, 10)
     .map(([phrase, count]) => ({ phrase, count }));
 
+  // NEW: Detect AI Optimization Elements
+  const aiOptimization = {
+    hasBrandBlock: false,
+    hasComparisonSnippet: false,
+    hasFAQSchema: false
+  };
+
+  // Check for brand/about block with authority signals (anywhere on page)
+  // This includes "about us", authority statements, UK-based, founded date, guarantees
+  if (/about us|who we are|our story|why choose|founded|established|based in|uk.?based|leading|trusted|since \d{4}|guarantee/gi.test(textLower)) {
+    aiOptimization.hasBrandBlock = true;
+  }
+
+  // Check for comparison/definition snippets
+  if (/what is|what are|vs\s|versus|compared to|difference between|types of|kinds of/gi.test(textLower)) {
+    aiOptimization.hasComparisonSnippet = true;
+  }
+
+  // Check for FAQ schema
+  if (html.includes('FAQPage') || html.includes('"@type":"Question"')) {
+    aiOptimization.hasFAQSchema = true;
+  }
+
   return {
     url,
     title,
@@ -346,7 +369,8 @@ function extractSEOData(html, url, keyword) {
     ctas,
     trustSignals,
     urgencySignals,
-    topPhrases
+    topPhrases,
+    aiOptimization
   };
 }
 
@@ -437,11 +461,48 @@ function analyzeContentGaps(yourPage, competitors) {
     .filter(c => c.count >= 2)
     .sort((a, b) => b.count - a.count);
 
+  // 5. Find missing AI optimization elements
+  const missingAIOptimization = [];
+  
+  if (!yourPage.aiOptimization.hasFAQSchema) {
+    const competitorsWithFAQ = competitors.filter(c => c.aiOptimization.hasFAQSchema).length;
+    if (competitorsWithFAQ >= 2) {
+      missingAIOptimization.push({
+        element: 'FAQ Schema',
+        count: competitorsWithFAQ,
+        priority: 'high'
+      });
+    }
+  }
+
+  if (!yourPage.aiOptimization.hasBrandBlock) {
+    const competitorsWithBrand = competitors.filter(c => c.aiOptimization.hasBrandBlock).length;
+    if (competitorsWithBrand >= 2) {
+      missingAIOptimization.push({
+        element: 'Brand/Authority Block',
+        count: competitorsWithBrand,
+        priority: 'high'
+      });
+    }
+  }
+
+  if (!yourPage.aiOptimization.hasComparisonSnippet) {
+    const competitorsWithComparison = competitors.filter(c => c.aiOptimization.hasComparisonSnippet).length;
+    if (competitorsWithComparison >= 2) {
+      missingAIOptimization.push({
+        element: 'Comparison/Definition Snippet',
+        count: competitorsWithComparison,
+        priority: 'medium'
+      });
+    }
+  }
+
   return {
     missingH2s,
     missingKeywords,
     missingTrustSignals,
-    missingCTAs
+    missingCTAs,
+    missingAIOptimization
   };
 }
 
@@ -613,7 +674,17 @@ ${contentGaps.missingCTAs.length > 0
   ? contentGaps.missingCTAs.map(cta => `- "${cta.text}" (in ${cta.count}/${competitors.length} competitors)`).join('\n')
   : '- None significant'}
 
+Missing AI Optimization Elements:
+${contentGaps.missingAIOptimization && contentGaps.missingAIOptimization.length > 0
+  ? contentGaps.missingAIOptimization.map(ai => `- ${ai.element} (in ${ai.count}/${competitors.length} competitors) [${ai.priority} priority]`).join('\n')
+  : '- None significant'}
+
 IMPORTANT: Incorporate these gaps into your recommendations. Prioritize adding missing H2 sections and trust signals that appear in ALL competitors.
+
+FOR AI OPTIMIZATION GAPS - YOU MUST PROVIDE EXACT TEXT:
+- FAQ Schema: Say "Use Kickstart to generate FAQ schema for '${keyword}' with 8-10 questions"
+- Brand/Authority Block: Write ONE comprehensive block to add at page bottom (4-5 sentences including: UK-based, founded 2020, "design and produce our own wall art items in-house", 500+ customer reviews with 4.8/5 rating, FREE fast UK delivery, international shipping available, 14-day return policy). Must establish authority AND provide brand info in same block.
+- Comparison Snippet: Write full "What is ${keyword}" or "${keyword} vs [alternative]" paragraph (3-4 sentences) with blog link and black button CTA
 
 ` : '';
 
@@ -661,6 +732,42 @@ EXAMPLE FOR SCHEMA (do NOT write code, just this instruction):
 7. Add FAQ Schema
 Use Kickstart to generate FAQ schema for "${keyword}" with 6-10 questions
 
+EXAMPLES FOR CONTENT GAPS (must provide FULL text for every gap):
+
+If gap shows missing H2 "Customer Reviews":
+8. Add H2: "Customer Reviews" 
+Add after "Product Features" section:
+Use exactly this:
+
+## Customer Reviews
+
+Our customers love their ${keyword}! With over 500 verified 5-star reviews, we're proud to be the top choice. Read real customer experiences and see why thousands choose us for their ${keyword} needs.
+
+If gap shows missing trust signal:
+9. Add Trust Signal Block
+Add after product description:
+Use exactly this:
+
+✓ 30-Day Money-Back Guarantee
+✓ Free Shipping Over $50
+✓ Secure Checkout
+
+If gap shows missing keyword "art prints":
+10. Add Keyword "art prints"
+Add new paragraph after H2 "[specify which H2]":
+Use exactly this:
+
+[Full 3-4 sentence paragraph naturally using "art prints" 2-3 times]
+
+If gap shows missing "Brand/Authority Block":
+11. Add Brand/Authority Block
+Add at the bottom of the page (before footer):
+Use exactly this:
+
+## About [Brand Name]
+
+Founded in 2020, we're the UK's leading specialist in wall art and home decor. As a trusted, UK-based company, we design and produce our own unique wall art items in-house. Rated 4.8/5 stars from over 500+ verified customer reviews, we offer free fast UK delivery, international shipping, secure checkout, and back every purchase with our hassle-free 14-day return policy. Experience the [Brand Name] difference today.
+
 🟡 DO NEXT (after core fixes)
 
 [Same format]
@@ -681,7 +788,14 @@ RULES:
 - NO explanations of why
 - Plain text output, NOT JSON
 - Be specific and copy-paste ready
-- NEVER write placeholder text like "..." or "content here" - write the ACTUAL content`;
+- NEVER write placeholder text like "..." or "content here" - write the ACTUAL content
+
+CRITICAL FOR CONTENT GAPS:
+- For EVERY missing H2 in the content gaps: write the EXACT H2 text to add + a full 2-3 sentence paragraph for that section
+- For EVERY missing keyword: write a complete paragraph that naturally includes it 2-3 times
+- For EVERY missing trust signal: write the exact trust signal text (e.g., "✓ 30-Day Money-Back Guarantee" or "★★★★★ Rated 4.8/5 from 500+ customers")
+- If gaps show missing CTAs: write the exact button/link text (e.g., "Shop [Keyword] Now →")
+- Prioritize gaps that appear in ALL ${competitors.length} competitors first`;
 }
 
 // Helper: sleep function
