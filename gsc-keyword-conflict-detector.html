@@ -1,0 +1,1371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GSC Keyword Conflict Resolver</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: #fff;
+            padding: 20px 30px;
+            border-bottom: 2px solid #e0e0e0;
+            text-align: center;
+        }
+        
+        .header h1 { font-size: 28px; margin-bottom: 5px; color: #333; }
+        .header p { color: #666; font-size: 14px; }
+        
+        .setup-section { padding: 20px 30px; border-bottom: 1px solid #e0e0e0; }
+        
+        .input-group { margin-bottom: 20px; }
+        .input-group label { display: block; font-weight: 600; margin-bottom: 8px; color: #333; }
+        .input-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        
+        .btn {
+            background: #0969da;
+            color: white;
+            border: none;
+            padding: 14px 32px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        
+        .btn:hover:not(:disabled) { background: #0860ca; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-export { background: #10b981; margin-left: 10px; }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 20px;
+            padding: 30px;
+            background: #f8f9fa;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        
+        .stat-card .number { font-size: 36px; font-weight: 700; color: #0969da; margin-bottom: 8px; }
+        .stat-card .label { color: #666; font-size: 14px; }
+        
+        .conflicts-section { padding: 30px; }
+        
+        .conflict-item {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 25px;
+            border-left: 5px solid #0969da;
+        }
+        
+        .conflict-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .conflict-keyword {
+            font-size: 22px;
+            font-weight: 700;
+            color: #333;
+        }
+        
+        .conflict-meta {
+            display: flex;
+            gap: 15px;
+            font-size: 14px;
+            color: #666;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        
+        .conflict-meta span {
+            background: white;
+            padding: 6px 12px;
+            border-radius: 6px;
+        }
+        
+        .page-card {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            position: relative;
+        }
+        
+        .page-card.winner {
+            border-color: #10b981;
+            background: #f0fdf4;
+        }
+        
+        .page-card.done {
+            opacity: 0.6;
+            background: #f9fafb;
+        }
+        
+        .winner-badge {
+            position: absolute;
+            top: -15px;
+            right: 20px;
+            background: #10b981;
+            color: white;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 16px;
+            font-weight: 700;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+            text-transform: uppercase;
+        }
+        
+        .page-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .page-checkbox {
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            margin-top: 3px;
+        }
+        
+        .page-url {
+            flex: 1;
+            color: #0969da;
+            text-decoration: none;
+            word-break: break-all;
+            font-size: 15px;
+            font-weight: 500;
+        }
+        
+        .page-url:hover { text-decoration: underline; }
+        
+        .page-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin-bottom: 15px;
+            font-size: 13px;
+        }
+        
+        .stat-item {
+            background: #f8f9fa;
+            padding: 8px 12px;
+            border-radius: 6px;
+        }
+        
+        .stat-item strong { color: #333; }
+        .stat-item span { color: #666; }
+        
+        .ai-recommendation {
+            background: #fef3c7;
+            border: 2px solid #f59e0b;
+            border-left: 6px solid #f59e0b;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        
+        .ai-recommendation .title {
+            font-weight: 700;
+            color: #92400e;
+            margin-bottom: 10px;
+            font-size: 15px;
+            text-transform: uppercase;
+        }
+        
+        .ai-recommendation .reason {
+            color: #78350f;
+            font-size: 14px;
+            line-height: 1.6;
+            font-weight: 500;
+        }
+        
+        .action-selector {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .action-btn {
+            padding: 12px 24px;
+            border: 3px solid #e0e0e0;
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        
+        .action-btn:hover {
+            border-color: #0969da;
+            background: #f0f9ff;
+            transform: translateY(-2px);
+        }
+        
+        .action-btn.selected {
+            border-color: #0969da;
+            background: #0969da;
+            color: white;
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(9, 105, 218, 0.3);
+        }
+        
+        .action-btn.keep { border-color: #10b981; color: #10b981; }
+        .action-btn.keep.selected { background: #10b981; border-color: #10b981; color: white; }
+        
+        .action-btn.link { border-color: #f59e0b; color: #f59e0b; }
+        .action-btn.link.selected { background: #f59e0b; border-color: #f59e0b; color: white; }
+        
+        .action-btn.repurpose { border-color: #8b5cf6; color: #8b5cf6; }
+        .action-btn.repurpose.selected { background: #8b5cf6; border-color: #8b5cf6; color: white; }
+        
+        .action-btn.redirect { border-color: #ef4444; color: #ef4444; }
+        .action-btn.redirect.selected { background: #ef4444; border-color: #ef4444; color: white; }
+        
+        .loading { text-align: center; padding: 40px; color: #666; }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #0969da;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .error { background: #fee; color: #c00; padding: 15px; border-radius: 8px; margin: 20px 30px; }
+        .hidden { display: none; }
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 15px;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #0969da;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        
+        .filter-section {
+            padding: 20px 30px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        
+        .filter-section input {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+        }
+        
+        .progress-badge {
+            background: #10b981;
+            color: white;
+            padding: 6px 14px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 Keyword Conflict Resolver</h1>
+            <p>🤖 AI pre-selects best actions: Relevance → Clicks → Position priority</p>
+        </div>
+        
+        <div class="setup-section">
+            <h2 style="font-size: 24px; margin-bottom: 10px; color: #333;">GitHub Authentication</h2>
+            
+            <div class="input-group">
+                <label>GitHub Personal Access Token</label>
+                <input type="password" id="githubToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+            </div>
+            
+            <p style="color: #666; font-size: 14px; margin-bottom: 20px;">
+                Token stored locally. Never sent anywhere except GitHub API.
+            </p>
+            
+            <button class="btn" id="analyzeBtn" onclick="startAnalysis()">🚀 Start Analysis</button>
+            <button class="btn btn-export hidden" id="exportBtn" onclick="exportRegistry()">📥 Export Master Registry</button>
+            <button class="btn" style="background:#ef4444" onclick="resetAll()">🔄 Reset All Decisions</button>
+            
+            <label id="hideResolvedControl" class="hidden" style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; margin-left: 20px; padding: 10px 20px; background: #f3f4f6; border-radius: 8px;">
+                <input type="checkbox" id="hideResolved" onchange="filterConflicts()" style="width: 18px; height: 18px; cursor: pointer;">
+                <span style="font-weight: 600;">Hide Resolved</span>
+            </label>
+        </div>
+        
+        <div id="loadingSection" class="loading hidden">
+            <div class="spinner"></div>
+            <p id="loadingMessage">Loading data...</p>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressBar"></div>
+            </div>
+        </div>
+        
+        <div id="errorSection" class="error hidden"></div>
+        
+        <div id="statsSection" class="stats hidden"></div>
+        
+        <div id="filterSection" class="filter-section hidden">
+            <input type="text" id="searchFilter" placeholder="🔎 Search keywords or URLs..." oninput="filterConflicts()">
+            <div class="progress-badge" id="progressBadge">0 / 0 resolved</div>
+        </div>
+        
+        <div id="conflictsSection" class="conflicts-section hidden"></div>
+    </div>
+
+    <script>
+        let queriesData = [];
+        let pagesData = [];
+        let conflictsData = [];
+        let resolutionRegistry = {};
+        let lockedKeywords = {};
+
+        // Hardcoded blog keywords - loaded instantly without GitHub API
+        const hardcodedBlogs = [
+            { keyword: "botanical themed bedroom", title: "Master Botanical Themed Bedroom Like a Professional Designer" },
+            { keyword: "boho wall art", title: "Boho Wall Art Trends: Which Styles Are Trending Now?" },
+            { keyword: "boho art design", title: "Boho Art Design: How to Master Bohemian Wall Decor" },
+            { keyword: "boho bedroom", title: "Boho Bedroom Ideas: Create Your Peaceful Sanctuary" },
+            { keyword: "boho living room ideas", title: "Bohemian Living Room Ideas: Free-Spirited Decor Tips" },
+            { keyword: "boho wall art for living room", title: "Living Room Boho Wall Art: Express Your Bohemian Style" },
+            { keyword: "rustic boho", title: "Rustic Boho Style: How to Blend Two Design Trends" },
+            { keyword: "coastal interior design", title: "Coastal Interior Design That Will Make Your Home Instagram-Worthy" },
+            { keyword: "summer design ideas", title: "Summer Design Ideas Made Easy: Complete Beginner's Guide" },
+            { keyword: "coastal chic style", title: "Latest Coastal Chic Style Trends Every Designer is Using" },
+            { keyword: "coastal interiors", title: "Coastal Interior Design: Bring the Beach Home with These Ideas" },
+            { keyword: "coastal master bedroom ideas", title: "Coastal Master Bedroom Ideas: Serene Decor Inspiration" },
+            { keyword: "shibori wall art", title: "How to Choose the Perfect Shibori Wall Art for Your Home" },
+            { keyword: "minimalist black and white art", title: "Best Minimalist Black And White Art for Small Spaces and Apartments" },
+            { keyword: "design trends interior", title: "Interior Design Trends for 2026: Key Looks to Try" },
+            { keyword: "home decor trends", title: "Home Decor Trends for 2026: Key Looks for Every Room" },
+            { keyword: "trends now", title: "Home Decor Trends Now: What People Are Actually Buying in 2026" },
+            { keyword: "interior design trends", title: "Interior Design Trends for 2026: What’s In and What’s Out" },
+            { keyword: "paintings for living room", title: "Top Paintings For Living Room Trends You Need to Know" },
+            { keyword: "small living room decor ideas", title: "Top Small Living Room Decor Ideas Trends You Need to Know" },
+            { keyword: "texture art", title: "How Texture Art Can Completely Change Your Space" },
+            { keyword: "home decorating trends", title: "Home Decorating Trends for 2026: What’s In and What’s Out" },
+            { keyword: "art for kitchen walls", title: "Everything You Need About Perfect Art For Kitchen Walls" },
+            { keyword: "bedroom ideas for teens", title: "Budget-Friendly Bedroom Ideas For Teens Ideas That Look Expensive" },
+            { keyword: "home interior design", title: "Create Beautiful Home Interior Design in 5 Simple Steps" },
+            { keyword: "current interior decorating trends", title: "Current Interior Decorating Trends for 2026 You Need to Know" },
+            { keyword: "kitchen wall art", title: "Kitchen Wall Art: Expert Interior Design Tips & Trends 2026" },
+            { keyword: "studio apartment ideas", title: "Studio Apartment Ideas: Small Space Design Solutions for 2026" },
+            { keyword: "interior design trends 2026", title: "Interior Design Trends for 2026 and What Continues Into 2026" },
+            { keyword: "wall gallery layouts", title: "Wall Gallery Layouts Ideas That Will Transform Any Room" },
+            { keyword: "black & white bathroom ideas", title: "Everything You Need About Perfect Black & White Bathroom Ideas" },
+            { keyword: "black and white wall art", title: "Black And White Wall Art: Expert Design Tips and Inspiration" },
+            { keyword: "wall art trends", title: "Wall Art Trends for 2026: Styles Designers Are Loving" },
+            { keyword: "trending home decor", title: "Trending Home Decor Ideas for 2026 on a Real‑Life Budget" },
+            { keyword: "decor trends 2026", title: "Decor Trends for 2026: What to Watch Next" },
+            { keyword: "newest decorating trends", title: "Newest Decorating Trends for 2026 You Can Try Now" },
+            { keyword: "colour trends", title: "Colour Trends for 2026: Paint Shades Designers Recommend" },
+            { keyword: "design and trends 2026", title: "Design and Decor Trends for 2026" },
+            { keyword: "grey and beige living room", title: "The Ultimate Guide to Styling Grey And Beige Living Room" },
+            { keyword: "japanese cherry blossom art", title: "Japanese Cherry Blossom Art for Small Spaces and Apartments" },
+            { keyword: "space temporary cultural", title: "Space Temporary Cultural: Practical Design Insights for Modern Interiors" },
+            { keyword: "how to decorate a large wall in living room", title: "Everything You Need About Perfect How To Decorate A Large Wall In Living Room" },
+            { keyword: "how to decorate your home", title: "Solve Your How To Decorate Your Home Problems with These Tips" },
+            { keyword: "ideas for wall art in bedroom", title: "Design Your Dream Ideas For Wall Art In Bedroom with These Tips" },
+            { keyword: "large wall decor ideas", title: "Large Wall Decor Ideas to Fill Big Blank Walls Beautifully" },
+            { keyword: "office wall decor ideas", title: "Office Wall Decor Ideas: Trending Wall Art Ideas for Every Room" },
+            { keyword: "small bathroom wall art", title: "Create Beautiful Small Bathroom Wall Art in 5 Simple Steps" },
+            { keyword: "tv room ideas", title: "Tv Room Ideas Inspiration from Top Interior Designers" },
+            { keyword: "wall art ideas bedroom", title: "Best Wall Art Ideas Bedroom for Small Spaces and Apartments" },
+            { keyword: "wall art ideas for bedroom", title: "How Wall Art Ideas For Bedroom Can Completely Change Your Space" },
+            { keyword: "what frame size do i need", title: "Everything You Need About Perfect What Frame Size Do I Need" },
+            { keyword: "ai living room design", title: "Everything You Need About Perfect Ai Living Room Design" },
+            { keyword: "design principles art", title: "Design Principles in Art: Simple Rules for Better Wall Displays" },
+            { keyword: "small studio design ideas", title: "Small Studio Design Ideas: Small Space Design Solutions for 2026" },
+            { keyword: "study room decoration", title: "Study Room Decoration Ideas to Boost Focus and Motivation" },
+            { keyword: "tiny studio apartment ideas", title: "Tiny Studio Apartment Ideas: Small Space Design Solutions for 2026" },
+            { keyword: "farmhouse country living room ideas", title: "Farmhouse Living Room Ideas: Rustic Charm & Warmth" },
+            { keyword: "wall art for grey living room", title: "Why Wall Art For Grey Living Room is the Must-Have Trend Right Now" },
+            { keyword: "what color curtains for grey walls", title: "Master What Color Curtains For Grey Walls Like a Professional Designer" },
+            { keyword: "above toilet decor", title: "Bathroom Above Toilet Decor: Transform That Empty Space" },
+            { keyword: "bathroom art prints", title: "Beautiful Bathroom Art Prints: Elevate Your Decor Game" },
+            { keyword: "small farmhouse living room ideas", title: "Small Farmhouse Living Room: Cozy Rustic Design Ideas" },
+            { keyword: "calming bedroom ideas", title: "Calming Bedroom Ideas: Design for Better Sleep & Relaxation" },
+            { keyword: "colors that go well with grey", title: "Colors That Go With Grey: Perfect Combinations for Home Decor" },
+            { keyword: "farmhouse interior ideas", title: "Farmhouse Interior Ideas: Bringing Rustic Elegance Home" },
+            { keyword: "farmhouse master bedroom ideas", title: "Farmhouse Master Bedroom: Cozy Comfort Design Guide" },
+            { keyword: "dining room wall art ideas", title: "Dining Room Wall Art Ideas: Set the Perfect Mood" },
+            { keyword: "framed pictures for living room", title: "Hanging Framed Pictures in Living Room: A Design Guide" },
+            { keyword: "framed botanical prints set of 3", title: "Framed Botanical Prints Set Of 3: Perfect Gallery Wall Layout Guide 2026" },
+            { keyword: "botanical prints set of 3", title: "Botanical Prints Set Of 3: Perfect Gallery Wall Layout Guide 2026" },
+            { keyword: "master bed room", title: "Master Bedroom Ideas: Transform Your Private Sanctuary" },
+            { keyword: "master bedroom wall art above bed", title: "Wall Art Above Bed: Choosing the Perfect Master Bedroom Piece" },
+            { keyword: "office decor inspiration", title: "Home Office Decor Inspiration: Work From Home in Style" },
+            { keyword: "wall art budget", title: "How Much Should I Budget for Wall Art?" },
+            { keyword: "wall art", title: "What Type of Wall Art Fits My Home Style?" },
+            { keyword: "wall art size", title: "How Big Should My Wall Art Be?" },
+            { keyword: "canvas vs framed prints", title: "What's the Difference Between Canvas and Framed Prints?" },
+            { keyword: "hang wall art", title: "How to Hang Wall Art Like a Pro" },
+            { keyword: "custom wall art", title: "Should I Commission Custom Wall Art?" },
+            { keyword: "gallery wall", title: "How to Style a Gallery Wall" },
+            { keyword: "wall art for my space", title: "How Much Wall Art Do I Need for My Space?" },
+            { keyword: "digital vs handmade wall art", title: "What's the Difference Between Digital and Handmade Wall Art?" },
+            { keyword: "wall art for rental spaces", title: "How to Choose Wall Art for Rental Spaces" },
+            { keyword: "match wall art to paint colors", title: "How to Match Wall Art to Your Paint Colors" },
+            { keyword: "wall art mediums", title: "What Wall Art Mediums Are Available?" },
+            { keyword: "cultural wall art", title: "How to Incorporate Cultural Wall Art into Your Home" },
+            { keyword: "mix and match wall art styles", title: "How to Mix and Match Wall Art Styles" },
+            { keyword: "local wall art", title: "What Are the Benefits of Buying Local Wall Art?" },
+            { keyword: "wall art to brighten dark room", title: "How to Use Wall Art to Brighten a Dark Room" },
+            { keyword: "care for wall art", title: "How to Care for and Maintain Wall Art" },
+            { keyword: "wall art home office", title: "How to Incorporate Wall Art into Your Home Office" },
+            { keyword: "wall art styles personality", title: "What Wall Art Styles Fit My Personality?" },
+            { keyword: "interior decorator cost", title: "What's the Average Cost to Hire an Interior Decorator?" },
+            { keyword: "find interior designer", title: "How Can I Find the Right Interior Designer for My Home?" },
+            { keyword: "questions to ask interior designer", title: "What Questions Should I Ask Before Hiring an Interior Designer?" },
+            { keyword: "interior designer small space", title: "Should I Hire an Interior Designer for My Small Space?" },
+            { keyword: "interior designer budget", title: "How Can an Interior Designer Help Maximize My Budget?" },
+            { keyword: "interior decorator vs designer", title: "What's the Difference Between an Interior Decorator and Designer?" },
+            { keyword: "value of interior designer", title: "How Can I Get the Most Value from Hiring an Interior Designer?" },
+            { keyword: "interior designer rental apartment", title: "Should I Hire an Interior Designer for My Rental Apartment?" },
+            { keyword: "prepare for interior designer consultation", title: "How Can I Prepare My Home for an Interior Designer Consultation?" },
+            { keyword: "interior design trends", title: "What are the Top 5 Interior Design Trends for This Year?" },
+            { keyword: "sustainable interior design", title: "How Can I Incorporate Sustainable Design Into My Home?" },
+            { keyword: "interior design ideas small spaces", title: "What are the Best Interior Design Ideas for Small Spaces?" },
+            { keyword: "curb appeal on a budget", title: "How Can I Update My Home's Curb Appeal on a Budget?" },
+            { keyword: "home decor essentials", title: "What Home Decor Essentials Should I Invest In?" },
+            { keyword: "timeless interior design", title: "How Can I Incorporate Timeless Design Into My Home?" },
+            { keyword: "paint colors for small rooms", title: "What are the Best Paint Colors for Small Rooms?" },
+            { keyword: "refresh living room on a budget", title: "How Can I Refresh My Living Room on a Budget?" },
+            { keyword: "benefits of hiring an interior designer", title: "What are the Benefits of Hiring an Interior Designer for My Home?" },
+            { keyword: "feng shui home design", title: "How Can I Incorporate Feng Shui Principles Into My Home Design?" },
+            { keyword: "style your home like a professional", title: "How to Style Your Home Like a Professional" },
+            { keyword: "diy home decor projects", title: "5 Easy DIY Home Decor Projects for Beginners" },
+            { keyword: "online tools for interior design planning", title: "The Best Online Tools for Interior Design Planning" },
+            { keyword: "declutter and organize your home", title: "How to Declutter and Organize Your Home in 5 Steps" },
+            { keyword: "mixing patterns in interior design", title: "The Dos and Don'ts of Mixing Patterns in Interior Design" },
+            { keyword: "sustainable interior design materials", title: "How to Incorporate Sustainable Materials in Your Interior Design" },
+            { keyword: "interior design trends", title: "Top Interior Design Trends to Watch for in the Coming Year" },
+            { keyword: "small space interior design", title: "Design Tips for Compact Homes" },
+            { keyword: "practical interior design", title: "Balancing Function and Aesthetics: A Guide to Practical Interior Design" },
+            { keyword: "interior decorator cost", title: "How Much Does an Interior Decorator Cost?" },
+            { keyword: "hiring an interior decorator", title: "Is Hiring an Interior Decorator Worth It?" },
+            { keyword: "questions to ask interior decorator", title: "5 Questions to Ask Before Hiring an Interior Decorator" },
+            { keyword: "choose interior decorator", title: "How to Choose the Perfect Interior Decorator for Your Home" },
+            { keyword: "hire an interior decorator or diy", title: "Should I Hire an Interior Decorator or Do It Myself?" },
+            { keyword: "working with an interior decorator", title: "What to Expect When Working with an Interior Decorator" },
+            { keyword: "prepare for interior decorator meeting", title: "How to Prepare for Your First Meeting with an Interior Decorator" },
+            { keyword: "interior decorator stay on budget", title: "Can an Interior Decorator Help Me Stay on Budget?" },
+            { keyword: "gold wall art decor", title: "Gilded Opulence: Elevate Your Space with Gold Wall Art Decor" },
+            { keyword: "first home décor", title: "Elevate Your Just married First Home Decor with Wall art about love" },
+            { keyword: "personalised family presents", title: "Personalised family presents for Everlasting Memories" },
+            { keyword: "unique birthday presents", title: "Unique Birthday Presents to Celebrate Beyond Ordinary" },
+            { keyword: "bohemian art wall", title: "Bohemian Bliss: Elevate Your Space with Bohemian art wall" },
+            { keyword: "spiritual home decor", title: "10 Tips for Decorating Your Yoga Studio with Spiritual home decor" },
+            { keyword: "small bathroom wall art ideas", title: "Elevate Your Space: Small Bathroom Wall Art Ideas to Inspire Refreshing Moments" },
+            { keyword: "islamic art wall ideas", title: "Top 5 Islamic art wall Ideas Revealed" },
+            { keyword: "bathroom wall art ideas", title: "8 Creative Bathroom Wall Art Ideas to Transform Your Space" },
+            { keyword: "bible scripture wall art prints", title: "Bible scripture wall art prints to Inspire your Home decor" },
+            { keyword: "chinoiserie wall murals", title: "From East to West: Chinoiserie Wall murals in home Interiors" },
+            { keyword: "wall art pictures for living room", title: "Trending now: Wall art pictures for living room in Grounded Colours" },
+            { keyword: "galleries with framed wall art", title: "Black and White Magic: Creating Bold Galleries with Framed Wall Art" },
+            { keyword: "botanical wall art for bedroom", title: "Blossoming Trends: Botanical Wall Art for Bedroom" },
+            { keyword: "wall gallery layouts", title: "Inspiring Wall Gallery Layouts : From Blank Walls to a Perfect Gallery" },
+            { keyword: "boho home decor ideas", title: "Get the Boho Look: 9 DIY Boho Home Decor Ideas for Every Room" },
+            { keyword: "cherry blossom art japan", title: "Cherry Blossom Art Japan: Understanding the Deep Symbolism" },
+            { keyword: "christmas decor ideas", title: "Christmas Decor Ideas Beyond the Tree: 8 Fresh Ideas for a Festive Home" },
+            { keyword: "framed artwork prints", title: "Decorating with Framed Artwork Prints" },
+            { keyword: "small restroom decor ideas", title: "12 Small restroom decor ideas to maximise space" },
+            { keyword: "calming wall art", title: "7 Tips to transform Your Home office decor with Calming Wall Art" },
+            { keyword: "zen decor idea", title: "Zen Decor Ideas: Calm & Serenity in Your Living space" },
+            { keyword: "relaxing bedroom decor", title: "5 Calming Wall Art Ideas to create a Relaxing bedroom decor" },
+            { keyword: "scandinavian interior design", title: "The Essence of Scandinavian Interior Design" },
+            { keyword: "wall decor christmas", title: "Transform Your Home into a Winter Wonderland with Wall decor Christmas" },
+            { keyword: "modern islamic art", title: "Illuminate Your Home Decor this Eid with Modern Islamic Art" },
+            { keyword: "wedding anniversary gifts by year", title: "The Symbolism Behind Wedding Anniversary Gifts by Year" },
+            { keyword: "contemporary home decor", title: "The Impact of Modern Wall Art on Contemporary Home Decor" },
+            { keyword: "modern master bedroom decor ideas", title: "The Art of Decorating:  Modern master bedroom decor ideas" },
+            { keyword: "wall art for nursery ideas", title: "Enhancing your baby’s room with the cutest Wall art for nursery ideas" },
+            { keyword: "tropical home decor", title: "Transform Your Home into a Coastal Haven with Tropical Home Decor" },
+            { keyword: "wall art ideas for bathroom", title: "How to Design & Create a Retreat with wall art ideas for bathroom" },
+            { keyword: "large wall in a living room", title: "How to Decorate a Large Wall in a Living Room with Wall art" },
+            { keyword: "coastal decor home ideas on a budget", title: "Top 8 Coastal Decor Home Ideas on a budget" },
+            { keyword: "mid century modern interior décor", title: "How Mid century modern interior decor uses Wall Art as Conversational Pieces" },
+            { keyword: "japanese minimalism", title: "The Fusion of Japanese Minimalism & Scandinavian Decor" },
+            { keyword: "travel posters", title: "Exploring the World from Your Living Room: Travel Posters" },
+            { keyword: "eclectic interior decor", title: "Exploring the Beauty of Eclectic interior decor" },
+            { keyword: "office wall art prints", title: "Exploring office Wall Art Prints when designing a Home office decor" },
+            { keyword: "french country interior decor", title: "Creating a charming Home with Timeless French Country interior Decor" },
+            { keyword: "farmhouse decor", title: "Create a Serene Retreat: Transform Your Space with Farmhouse Decor" },
+            { keyword: "birthstone presents", title: "Birthstone presents: Finding the perfect gift for an Astrology lover" },
+            { keyword: "10 creative kitchen wall decor ideas", title: "10 Creative Kitchen wall decor ideas" },
+            { keyword: "japan prints and feng shui", title: "Transforming Spaces: Unveiling the Power of Japan prints and Feng Shui" },
+            { keyword: "wall art for living room", title: "Choosing the Right Wall Art for Living Room: Tips" },
+            { keyword: "islamic calligraphy", title: "Dive into the History of Islamic Calligraphy wall art and Its Modern Appeal" },
+            { keyword: "hallway art ideas", title: "Top 8 Hallway Art Ideas to Transform Your Space" },
+            { keyword: "teal color wall art", title: "Mesmerising Spaces: Elevate Your Space with teal color wall art" },
+            { keyword: "embrace nature's palette using earth tone colors", title: "Embrace Nature's Palette using Earth tone colors" },
+            { keyword: "neutral wall décor", title: "Neutral Wall Decor: Elevate Your Space with Timeless Tranquility" },
+            { keyword: "wallpaper vs wall art", title: "Wall Arts for Living Room: Wallpaper vs Wall art" },
+            { keyword: "living room fireplace decor ideas", title: "Living Room Fireplace Decor Ideas: Step-by-Step Guide to a Makeover" },
+            { keyword: "bathroom design ideas", title: "From Drab to Fab: Black and White Bathroom Design Ideas for a Makeover" },
+            { keyword: "gallery wall ideas for huge walls", title: "From Blank to Beautiful: Gallery Wall Ideas for Huge Walls" },
+            { keyword: "beach house décor", title: "Beach House Decor: Embrace the Shibori Trend for a Unique Coastal Vibe" },
+            { keyword: "decor for the home", title: "Decor for the Home: Choosing the Perfect Vibes for Your Home Decor" },
+            { keyword: "japandi style interiors", title: "How to decorate Japandi Style interiors (and what it is?)" },
+            { keyword: "small studio apartment décor", title: "Small Studio Apartment Decor: 10 Genius Tips & Hacks for Maximising Space" },
+            { keyword: "wall decoration office ideas", title: "Never Too Small: Wall Decoration Office Ideas for Tiny Apartments" },
+            { keyword: "greige colours", title: "Greige colours: How to decorate with the timeless blend of Grey & Beige" },
+            { keyword: "what frame size do i need for my space", title: "Step-by-Step Guide: What Frame Size Do I Need for my Space" },
+            { keyword: "what colour goes with grey walls", title: "Choosing the Right Palette: What Colour Goes with Grey Walls? Essential Tips" },
+            { keyword: "inspiring laundry room décor", title: "Inspiring Laundry Room Decor: Tips for a Functional and Beautiful Space" },
+            { keyword: "corridor decor ideas", title: "Corridor Decor Ideas: Transforming Your Hallways with Style" },
+            { keyword: "teenage bedroom decor ideas", title: "8 Creative teenage bedroom decor ideas" },
+            { keyword: "how to decorate a bathtub", title: "How to decorate a bathtub and transform your Bathroom" },
+            { keyword: "how to decorate hallways", title: "How to Decorate Hallways to Maximise Space. Quick Tips and Tricks" },
+            { keyword: "how to decorate a really small bedroom", title: "How to Decorate a Really Small Bedroom: 10 Space-Saving Tips and Tricks" },
+            { keyword: "scandinavian design décor", title: "Bringing Scandinavian Design decor into Your Home" },
+            { keyword: "abstract art", title: "Can a single" },
+            { keyword: "cozy interiors retreat", title: "Want to turn plain walls into a stunning" },
+            { keyword: "living room wall art décor", title: "How to create a wow factor with the right Living room Wall Art Decor!" },
+            { keyword: "bathroom art ideas", title: "Bathroom Art Ideas to transform your small bathroom into an oasis" },
+            { keyword: "above the bed decor ideas", title: "Transform your bedroom into a sanctuary! Discover perfect Above the bed decor ideas" },
+            { keyword: "biophilic design", title: "Transform your home into an walk in the woods oasis using Biophilic Design" },
+            { keyword: "typography wall art decor", title: "How to Use Typography for a Playful Kitchen Wall Art Decor?" },
+            { keyword: "art style types", title: "How to effortlessly mix and blend different art style types in a living room?" },
+            { keyword: "art for an office wall", title: "How could your art for an office wall fuel creativity and productivity?" },
+            { keyword: "bedroom art ideas", title: "How can the right Bedroom Art Ideas transform your space for sleep and relaxation?" },
+            { keyword: "space bedroom décor", title: "How a single wall can transform your Space Bedroom Decor into a stunning sanctuary?" },
+            { keyword: "atmosphere with art", title: "Atmosphere with Art: Transform Your Space Faster Than a Fresh Coat of Paint!" },
+            { keyword: "bedroom wall art ideas", title: "Did you know that the Bedroom Wall Art ideas you choose can impact your quality of rest?" },
+            { keyword: "art for the kitchen", title: "Can the right Art For The Kitchen turn it into an inviting space?" },
+            { keyword: "art for a kitchen wall ideas", title: "From Dull to Dazzling: The Best Art For A Kitchen Wall Ideas" },
+            { keyword: "nature-inspired art", title: "How nature-inspired art can transform your walls into a soul-soothing masterpiece?" },
+            { keyword: "budget dining area decor ideas", title: "Budget Dining Area Decor Ideas That Instantly Elevate the Room" },
+            { keyword: "pictures for lounge rooms", title: "Solving Wall Blankness with Well-Placed Pictures for Lounge Rooms" },
+            { keyword: "bathtub decor ideas", title: "Solving Moisture Problems with Safe Bathtub Decor Ideas" },
+            { keyword: "rustic decoration for home", title: "Rustic Decoration for Home That Doesn’t Feel Dated" },
+            { keyword: "moisture resistant restroom wall art", title: "Moisture Resistant Restroom Wall Art What Actually Works" },
+            { keyword: "color psychology in interior design", title: "How to Use Color Psychology in Interior Design" },
+            { keyword: "art on walls", title: "How to Use Art On Walls to Anchor a Color Scheme" },
+            { keyword: "pictures frames for your artwork", title: "How to Select the Right Pictures Frames for Your Artwork" },
+            { keyword: "interior color scheme", title: "How to Match Prints For The Wall with Your Interior Color Scheme" },
+            { keyword: "feng shui bedroom", title: "Feng Shui bedroom: Tips and Tricks" },
+            { keyword: "dua of forgiveness", title: "Elegant Ways to Incorporate the Dua of Forgiveness into Modern Islamic Decor" },
+            { keyword: "size of a frame for wall art", title: "Common Mistakes When Estimating the Size of a Frame for Wall Art" },
+            { keyword: "canvas wall arts vs. framed prints", title: "Canvas wall arts vs. Framed Prints: What’s Best for Each Room?" },
+            { keyword: "decorating your living room wall on a budget", title: "10 creative ideas for decorating your living room wall on a budget" },
+            { keyword: "art for grey walls", title: "Choosing the right art for grey walls without making the room feel cold" },
+            { keyword: " wall art for teenagers", title: "7 Inspiring Ideas for Wall Art for Teenagers" },
+            { keyword: "wall art for high ceilings", title: "7 Creative Ideas for Wall Art for High Ceilings" },
+            { keyword: "ideas for decorating the home", title: "7 Creative Ideas for Decorating the Home" },
+            { keyword: "art and wellbeing", title: "Understanding Art and Wellbeing: Impact and Insights" },
+            { keyword: "art color meaning", title: "Understanding Art Color Meaning: Emotions and Symbolism" },
+            { keyword: "inspiration for home decor", title: "8 Fresh Ideas for Inspiration for Home Decor" },
+            { keyword: "decorating on a budget", title: "7 Smart Tips for Decorating on a Budget" },
+            { keyword: "shop online decoration for home", title: "8 Essential Tips to Shop Online Decoration for Home" },
+            { keyword: "abstract wall art ideas", title: "8 Inspiring Abstract Wall Art Ideas for Any Space" },
+            { keyword: "choosing art for small spaces", title: "7 Smart Tips for Choosing Art for Small Spaces" },
+            { keyword: "accent wall art ideas", title: "7 Accent Wall Art Ideas for a Stunning Home" },
+            { keyword: "diy accent wall ideas", title: "7 DIY Accent Wall Ideas to Transform Your Space" },
+            { keyword: "landscape art styles", title: "Understanding Landscape Art Styles: What They Are and Why They Matter" },
+            { keyword: "current home decor trends", title: "Current Home Decor Trends Transforming Spaces in 2025" },
+            { keyword: "perfect guest room", title: "Stylish Bedroom Ideas to Create the Perfect Guest Room" },
+            { keyword: "design lounge room", title: "Design Lounge Room: Feels Effortlessly Stylish" },
+            { keyword: "home decor styles", title: "Explore the Most Popular Home Decor Styles for Every Space" },
+            { keyword: "finding your home decor", title: "A Guide to Finding Your Home Decor Style" },
+            { keyword: "home decor styles", title: "How To Find Your Perfect Home Decor Styles" },
+            { keyword: "decorations for master bedrooms", title: "Top Decorations for Master Bedrooms to Elevate Your Space" },
+            { keyword: "creative dining area interiors", title: "Creative Dining Area Interiors to Inspire Your Home" },
+            { keyword: "guest bedroom decorating ideas", title: "Guest Bedroom Decorating Ideas for a Warm and Welcoming Space" },
+            { keyword: "ideas for a teenage bedroom", title: "Fun and Stylish Decorating Ideas for a Teenage Bedroom" },
+            { keyword: "stylish practical decorating tips", title: "Stylish Practical Decorating Tips for Family Room" },
+            { keyword: "children's room wall decorations", title: "Creative Children's Room Wall Decorations to Brighten Their Space" },
+            { keyword: "sitting room designs", title: "Fresh Ideas for Sitting Room Designs to Transform Your Space" },
+            { keyword: "decorate a powder room", title: "My Guide to Decorate a Powder Room with Style" },
+            { keyword: "what is minimalist art", title: "What is Minimalist Art? The Beauty of Less is More" },
+            { keyword: "gallery wall planning", title: "Essential Tips for Gallery Wall Planning to Showcase Your Style" },
+            { keyword: "office wall design ideas", title: "Creative Office Wall Design Ideas to Inspire Productivity" },
+            { keyword: "black and white wall art for bedroom", title: "Creating a Stylish Retreat with black and white wall art for bedroom" },
+            { keyword: "pink room ideas", title: "Chic Pink Room Ideas for a Stylish and Fun Space" },
+            { keyword: "decor ideas for large walls", title: "Creative Wall Decor Ideas for Large Walls to Transform Your Space" },
+            { keyword: "creative toilet decorations", title: "Creative toilet decorations to Elevate Your Small Bathroom" },
+            { keyword: "perfect dine in room", title: "Stylish Ideas for Your Perfect Dine In Room" },
+            { keyword: "essential tips for man decorating", title: "Essential Tips for Man Decorating: Stylish Ideas for Every Space" },
+            { keyword: "how to find your decorating style", title: "How to Find Your Decorating Style: A Guide to Personalised Interiors" },
+            { keyword: "stylish man cave decorations for wall", title: "Stylish man cave decorations for wall: Personalise Your Space" },
+            { keyword: "how to live a minimalist life", title: "How To Live A Minimalist Life And Thrive With Simplicity" },
+            { keyword: "study room decor ideas", title: "Creative Study Room Decor Ideas to Boost Focus and Style" },
+            { keyword: "bathroom en suite ideas", title: "Stylish Bathroom En Suite Ideas to Elevate Your Space" },
+            { keyword: "playroom your kids will adore", title: "My Friendly Guide to Designing a Playroom Your Kids Will Adore" },
+            { keyword: "family room interiors", title: "Family Room Interiors to Inspire Comfort and Togetherness" },
+            { keyword: "role of wall art in mood setting", title: "The Role of Wall Art in Mood Setting: Enhance Your Space with Style" },
+            { keyword: "decorate a professional office", title: "Smart Ways to Decorate a Professional Office for Style and Productivity" },
+            { keyword: "support mental health at work", title: "How to Create a Relaxing Workspace: Practical Ways to Support Mental Health at Work" },
+            { keyword: "awesome bedroom ideas", title: "Awesome Bedroom Ideas to Transform Your Space" },
+            { keyword: "inspiring interior design ideas for bedrooms", title: "Inspiring Interior Design Ideas for Bedrooms: Creating Your Calm Sanctuary" },
+            { keyword: "functional childrens bedroom", title: "Creative Ideas for a Fun and Functional Childrens Bedroom" },
+            { keyword: "ideas for lounge", title: "Stylish Ideas for Lounge: Create Comfort and Elegance" },
+            { keyword: "coastal decor bedroom ideas", title: "Coastal decor bedroom ideas:  How to style this new trend it?" },
+            { keyword: "what to do when your home lacks natural light", title: "What to do when your home lacks natural light: Decorate living room wall hangings" },
+            { keyword: "home decor design trends", title: "What interior stylists predict for the next 5 years: Home decor design trends" },
+            { keyword: "color schemes in bedrooms", title: "Using wall art to complement color schemes in bedrooms" },
+            { keyword: "beige modern wall arts", title: "The new neutrals trend:  Beyond beige modern wall arts" },
+            { keyword: "the case for empty space", title: "The case for empty spaces: When less truly is more" },
+            { keyword: "style trends", title: "Style trends: Add a dash of drama with the wild side look for your home" },
+            { keyword: "interior decor ideas for living room", title: "Fresh interior decor ideas for living room updates" },
+            { keyword: "deep winter colour palette", title: "Solving lighting challenges when using a Deep Winter colour palette" },
+            { keyword: "xmas decorations personalised", title: "Solving last minute gifting with elegant Xmas decorations personalised" },
+            { keyword: "solving focal point issues", title: "Solving focal point issues with the right Sitting room art" },
+            { keyword: "dining room decor", title: "Solving dull vibes: Add personality with easy dining room decor" },
+            { keyword: "bold vs muted color trends", title: "The clash of 2025: Bold vs Muted color trends in home decor" },
+            { keyword: "how to use decor to improve daily habits", title: "How to use decor to improve daily habits" },
+            { keyword: "nursery decor style", title: "How to use a Nursery Decor style that grows with your child" },
+            { keyword: "wall art for stairs", title: "How to hang wall art for stairs without a straight wall" },
+            { keyword: "nursery colours", title: "How to add personality without overstimulating young minds: Nursery Colours" },
+            { keyword: "fixing a room with too much neutral tones", title: "Fixing a room with too much Neutral Tones" },
+            { keyword: "earth colour trends", title: "Earth inspired living:  The volcano and forest palettes down to earth colour trends" },
+            { keyword: "do beige and grey go together", title: "Do beige and grey go together? Here's how to make it work…" },
+            { keyword: "living room decor wall space", title: "Designing a living room decor wall space" },
+            { keyword: "childrens playroom ideas", title: "Designing a clutter free kids playroom: Childrens Playroom ideas" },
+            { keyword: "decor for nursery wall", title: "Decor for Nursery Wall that stimulates without overwhelming" },
+            { keyword: "creating a gallery wall", title: "Creating a Gallery wall feel in a small flat" },
+            { keyword: "common mistakes in colour schemes", title: "Common mistakes in Colour schemes living room designers avoid" },
+            { keyword: "rental décor", title: "Rental Decor: How to Make a Rental Feel Like Home Without Getting in Trouble" },
+            { keyword: "solving extra large wall art", title: "Solving Extra Large Wall Art placement anxiety where and how to hang" },
+            { keyword: "wall art for living room", title: "Wall Art for Living Room: Inspiring Ideas and Expert Tips" },
+            { keyword: "modern wall art ideas", title: "Modern Wall Art Ideas to Refresh Any Space" },
+            { keyword: "art for offices", title: "Art for Offices: Inspiring Ideas for Every Workspace" },
+            { keyword: "what is wall art", title: "What is Wall Art? A Complete Guide to Transforming Your Space" },
+            { keyword: "stylish prints for living room", title: "Stylish Prints for Living Room: Inspire Your Space" },
+            { keyword: "canvas paintings for living room", title: "Canvas Paintings for Living Room: Stylish Ideas and Tips" },
+            { keyword: " types of wall art for every space", title: "10 Popular Types of Wall Art for Every Space" },
+            { keyword: "essential tips for moving house", title: "Essential Tips for Moving House: A Stress-Free Guide" },
+            { keyword: "art for bedrooms", title: "How to Choose the Perfect Art for Bedrooms" },
+            { keyword: "canvas pictures for living rooms", title: "How I Used Canvas Pictures for Living Rooms to Create My Calm Sanctuary" },
+            { keyword: "minimalist living decor", title: "Creating Calm with Minimalist Living Decor" },
+            { keyword: "first apartment essentials", title: "First Apartment Essentials: Ultimate Guide for Every Home" },
+            { keyword: "how to hang ar", title: "How to Hang Art: Easy Steps for Perfect Display" },
+            { keyword: "understanding wall art size", title: "Understanding Wall Art Size Guide for Your Space" },
+            { keyword: "small space decorating ideas", title: "8 Smart Small Space Decorating Ideas for Your Home" },
+            { keyword: "color palettes for your home and office", title: "7 Soothing Color Palettes for Your Home and Office" },
+            { keyword: "what is canvas art?", title: "What is Canvas Art? Understanding the Beauty and Impact" },
+            { keyword: "office decor ideas", title: "10 Office Decor Ideas to Boost Your Productivity" },
+            { keyword: "role of art in interior design", title: "Understanding the Role of Art in Interior Design" },
+            { keyword: "home decor trends", title: "7 Home Decor Trends 2025 You Need to Know Now" },
+            { keyword: "interior decorating terms", title: "Understanding Interior Decorating Terms for Everyone" },
+            { keyword: "tips for wall art hanging", title: "7 Essential Tips for Wall Art Hanging Systems" },
+            { keyword: "nature inspired wall art", title: "7 Inspiring Tips for Nature Inspired Wall Art" },
+            { keyword: "old money style interiors", title: "Old Money Style Interiors: Classic Design Trends That Never Fade" },
+            { keyword: "interior design of house", title: "Interior Design of House: Transform Your Home with Calm Wall Art" },
+            { keyword: "list of interior design styles", title: "List of Interior Design Styles: Find the Perfect Look for Your Home" },
+            { keyword: "year-round decor ideas", title: "Year-Round Decor Ideas You Don't Need to Pack Away" },
+            { keyword: "warm neutral ideas", title: "Desert Brown Decor: Warm Neutral Ideas Inspired by the Desert" },
+            { keyword: "travel-inspired decor ideas", title: "Home Trotters Style: Travel-Inspired Decor Ideas for Every Room" },
+            { keyword: "quirky kitchen wall art ideas", title: "Quirky Kitchen Wall Art Ideas for Fun" },
+            { keyword: "smart zoning for small homes", title: "Multi-Use Room Ideas: Smart Zoning for Small Homes" },
+            { keyword: "focal point gallery wall", title: "How to Create a Focal Point Gallery Wall in Any Room" },
+            { keyword: "glam 1920s-style ideas", title: "Modern Art Deco Home Decor: Glam 1920s-Style Ideas for Modern Homes" },
+            { keyword: "art inspired by nature", title: "Art Inspired by Nature: Ways to Bring the Outdoors Inside" },
+            { keyword: "art moderne home décor", title: "Art Moderne Home Decor: Streamlined 1930s-Inspired Design Ideas" },
+            { keyword: "asian home decor ideas", title: "Asian Home Decor Ideas for Tranquil" },
+            { keyword: "bathroom wall decor ideas", title: "Bathroom Wall Decor Ideas for Spa-Like Spaces" },
+            { keyword: "art for bedrooms", title: "The Best Art for Bedrooms: Relaxing Pieces and Placement Tips" },
+            { keyword: "warm minimalism", title: "Warm Minimalism: How to Create a Calm Yet Cosy Home " },
+            { keyword: "black and white art", title: "Black and White Art Styles and How to Use Them at Home" },
+            { keyword: "calming home decor ideas", title: "Calming Home Decor Ideas for a Stress-Free Space" },
+            { keyword: "children's room picture ideas", title: "Children's Room Picture Ideas to Inspire Imagination" },
+            { keyword: "entryway decor ideas", title: "Entryway Decor Ideas for a Welcoming First Impression" },
+            { keyword: "coastal home décor", title: "Coastal Home Decor: Light" },
+            { keyword: "kitchen trends for 2026", title: "Kitchen Trends for 2026: Colours" },
+            { keyword: "children's room wall art ideas", title: "Children's Room Wall Art Ideas for Every Age and Interest" },
+            { keyword: "toilet decor ideas", title: "Toilet Decor Ideas to Instantly Upgrade a Small Bathroom" },
+            { keyword: "farmhouse living room ideas", title: "Farmhouse Living Room Ideas for Cosy" },
+            { keyword: "minimalist bedroom decor ideas", title: "Minimalist Bedroom Decor Ideas for Calm" },
+            { keyword: "preppy decorating style", title: "Preppy Decorating Style: How to Bring This Classic Look Into Your Home" },
+            { keyword: "masculine home décor", title: "Masculine Home Decor: Stylish Ideas to Elevate Any Modern Space" },
+            { keyword: "dining room galleries", title: "How Can Dining Room Galleries Transform Your Meals?" },
+            { keyword: "large dining rooms", title: "How Can You Make Large Dining Rooms Feel More Inviting?" },
+            { keyword: "family area ideas", title: "Stylish Family Area Ideas for a Cosy and Functional Home" },
+            { keyword: "different type of interior design", title: "A Guide to a Different Type of Interior Design for a Calming Home" },
+            { keyword: "man cave decor ", title: "How Can Man Cave Decor Create Your Perfect Personal Sanctuary?" },
+            { keyword: "home decor modern accessories", title: "How Can Home Decor Modern Accessories Transform Your Space?" },
+            { keyword: "stylish interior for dining room", title: "How Can You Create a Stylish Interior for Dining Room?" },
+            { keyword: "my guide to the top interior decorating trends 2026", title: "My Guide to the Top Interior Decorating Trends 2026" },
+            { keyword: "current interior design trends", title: "How Can Current Interior Design Trends Help Create a Calmer Home?" },
+            { keyword: "interior styles list", title: "Your Ultimate Interior Styles List for a Beautiful Home" },
+            { keyword: "behind toilet décor", title: "Stylish Behind Toilet Decor: 5 Ideas to Transform Your Small Bathroom" },
+            { keyword: "current wall colour trends", title: "How To Use Current Wall Colour Trends For A Truly Calming Home" },
+            { keyword: "breakfast nook", title: "How to Make a Breakfast Nook That’s Both Cosy and Chic" },
+            { keyword: "guy home décor", title: "My Guide to Guy Home Decor: Creating a Stylish Masculine Home" },
+            { keyword: "home interior trends 2026 for living rooms", title: "What Are The Key Home Interior Trends 2026 For Living Rooms?" },
+            { keyword: "productive home office", title: "How I Use Wall Art to Create a Calm and Productive Home Office" },
+            { keyword: "earthy neutrals", title: "Earthy Neutrals: How to Create a Calming Sanctuary in Your Home" },
+            { keyword: "black accents", title: "Using Black Accents To Add Drama And Depth To Your Home" },
+            { keyword: "art of simple living and design", title: "Define Minimalism: Understanding the Art of Simple Living and Design" },
+            { keyword: "decorating above toilet", title: "Decorating Above Toilet: Stylish Ideas to Elevate Your Bathroom" },
+            { keyword: "dark moody hues", title: "Dark Moody Hues: How to Add Drama and Depth to Your Interiors" },
+            { keyword: "luxurious retreats", title: "Luxurious Retreats: Creating Opulent and Relaxing Spaces at Home" },
+            { keyword: "modern ensuite bathroom suite", title: "Stylish Solutions for Your Modern Ensuite Bathroom Suite" },
+            { keyword: "create a gallery wall", title: "How to Create a Gallery Wall: Simple Steps to Transform Any Room" },
+            { keyword: "easy decoration for toilet", title: "Stylish Ideas For Your Smallest Room: Easy Decoration for Toilet" },
+            { keyword: "main bedroom decoration ideas", title: "Inspiring Main Bedroom Decoration Ideas for Comfort and Style" },
+            { keyword: "powder room bathroom decorating ideas", title: "Stylish Powder Room Bathroom Decorating Ideas to Elevate Your Space" },
+            { keyword: "japandi style", title: "Decorating Trend:  Japandi Style - How To Create A Calm Home" },
+            { keyword: "sitting room designs", title: "Nice Sitting Room Designs to Inspire Comfort and Style" },
+            { keyword: "typographic art", title: "What is Typographic Art: Exploring Words as Visual Design" },
+            { keyword: "how to decorate a master bedroom", title: "How to Decorate a Master Bedroom: Stylish Ideas for Comfort and Luxury" },
+            { keyword: "art placement", title: "Ever Wondered Why Art Placement Is Important for Your Home's Vibe?" },
+            { keyword: "why refresh wall décor", title: "Why Refresh Wall Decor: Transform Your Space with Ease" },
+            { keyword: "types of wall art materials", title: "Types of Wall Art Materials: A Guide to Choosing the Perfect Finish" },
+            { keyword: "color psychology in art", title: "Color Psychology in Art: Understanding How Shades Shape Emotion" },
+            { keyword: "best plants for offices", title: "Best Plants for Offices: Bring Life and Calm Into Your Workspace" },
+            { keyword: "what is the 3-5-7 rule in decorating", title: "What is the 3-5-7 rule in Decorating: A Simple Formula for Stylish Spaces" },
+            { keyword: "the history of wall art", title: "A Journey Through The History of Wall Art" },
+            { keyword: "accessories for living room décor", title: "Essential Accessories for Living Room Decor to Elevate Your Space" },
+            { keyword: "art as stress relief", title: "Art as Stress Relief: How Creativity Can Calm the Mind" },
+            { keyword: "wall art above a sofa", title: "How big should wall art be above a sofa?" },
+            { keyword: "japandi home décor", title: "Japandi Home Decor: A Calm and Minimal Blend of East Meets West" },
+            { keyword: "minimalist wall art", title: "What Is Minimalist Wall Art: Simplicity That Speaks Volumes" },
+            { keyword: "wall decor modern ideas", title: "Wall Decor Modern Ideas to Refresh Any Room" },
+            { keyword: "art print vs poster", title: "Art Print vs Poster: What’s the Difference and Which Should You Choose?" },
+            { keyword: "colour in office spaces", title: "The Role of Colour in Office Spaces: Create Productivity Through Design" },
+            { keyword: "wall art decor for bedroom", title: "Tips for Using Wall Art Decor for Bedroom to Elevate Your Space" },
+            { keyword: "why art matters in offices", title: "Why Art Matters in Offices: Boost Productivity and Inspire Creativity" }
+];
+        // Pre-load locked keywords from optimized pages
+        const preOptimizedPages = [
+            { url: 'https://aboutwallart.com/', keyword: 'wall art decor' },
+            { url: 'https://aboutwallart.com/pages/unique-wall-art', keyword: 'unique wall art' },
+            { url: 'https://aboutwallart.com/pages/home-decor-items', keyword: 'home decor unique' },
+            { url: 'https://aboutwallart.com/pages/modern-art-wall-decoration-shop-by-room', keyword: 'modern wall art' },
+            { url: 'https://aboutwallart.com/pages/wall-hanging-pictures-shop-by-style', keyword: 'framed wall art' },
+            { url: 'https://aboutwallart.com/pages/gallery-wall-art-shop-by-colour-scheme', keyword: 'wall art by colour' },
+            { url: 'https://aboutwallart.com/pages/celebration-gifts-shop-by-occasion', keyword: 'celebration gifts' }
+        ];
+
+        preOptimizedPages.forEach(page => {
+            lockedKeywords[page.keyword.toLowerCase()] = {
+                url: page.url,
+                source: 'Pre-Optimized Page',
+                locked: true
+            };
+        });
+
+        // Load hardcoded blog keywords
+        hardcodedBlogs.forEach(blog => {
+            const handle = blog.title.toLowerCase()
+                .replace(/[^a-z0-9\s-]/g, '')
+                .replace(/\s+/g, '-')
+                .substring(0, 60);
+            
+            const url = `https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/${handle}`;
+            
+            lockedKeywords[blog.keyword] = {
+                url: url,
+                source: 'Published Blog',
+                fullTitle: blog.title,
+                locked: true
+            };
+        });
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedToken = localStorage.getItem('github_token');
+            if (savedToken) document.getElementById('githubToken').value = savedToken;
+            
+            const savedRegistry = localStorage.getItem('resolution_registry');
+            if (savedRegistry) resolutionRegistry = JSON.parse(savedRegistry);
+        });
+
+        async function fetchGitHubFile(owner, repo, path, token) {
+            const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+            const headers = { 'Accept': 'application/vnd.github.v3.raw' };
+            if (token) headers['Authorization'] = `token ${token}`;
+            
+            const response = await fetch(url, { headers });
+            if (!response.ok) throw new Error(`GitHub error: ${response.status}`);
+            return await response.text();
+        }
+
+        function parseCSV(csv) {
+            const lines = csv.trim().split('\n');
+            const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+            
+            return lines.slice(1).map(line => {
+                const values = [];
+                let current = '';
+                let inQuotes = false;
+                
+                for (let i = 0; i < line.length; i++) {
+                    const char = line[i];
+                    if (char === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (char === ',' && !inQuotes) {
+                        values.push(current.trim());
+                        current = '';
+                    } else {
+                        current += char;
+                    }
+                }
+                values.push(current.trim());
+                
+                const obj = {};
+                headers.forEach((header, i) => obj[header] = values[i] || '');
+                return obj;
+            });
+        }
+
+        function parseBlogCSV(csv) {
+            // Remove BOM and normalize line endings
+            csv = csv.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
+            const lines = csv.trim().split('\n');
+            
+            let startLine = 0;
+            
+            // Check if first line is a title row - it should have "Main Keyword" in it
+            const firstLine = lines[0].toLowerCase();
+            if (!firstLine.includes('main keyword') && !firstLine.includes('keyword')) {
+                // First line doesn't have proper headers, skip it
+                startLine = 1;
+            }
+            
+            const headers = lines[startLine].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+            
+            return lines.slice(startLine + 1).map(line => {
+                const values = [];
+                let current = '';
+                let inQuotes = false;
+                
+                for (let i = 0; i < line.length; i++) {
+                    const char = line[i];
+                    if (char === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (char === ',' && !inQuotes) {
+                        values.push(current.trim());
+                        current = '';
+                    } else {
+                        current += char;
+                    }
+                }
+                values.push(current.trim());
+                
+                const obj = {};
+                headers.forEach((header, i) => obj[header] = values[i] || '');
+                return obj;
+            });
+        }
+
+        function normalizeText(text) {
+            return text.toLowerCase().replace(/[^\w\s-]/g, ' ').replace(/\s+/g, ' ').trim();
+        }
+
+        function getKeywords(text) {
+            return normalizeText(text).split(' ').filter(w => w.length > 2);
+        }
+
+        async function startAnalysis() {
+            document.getElementById('analyzeBtn').disabled = true;
+            try {
+                await analyzeConflicts();
+            } finally {
+                document.getElementById('analyzeBtn').disabled = false;
+            }
+        }
+
+        async function analyzeConflicts() {
+            const token = document.getElementById('githubToken').value.trim();
+            if (!token) {
+                showError('Please enter your GitHub Personal Access Token');
+                return;
+            }
+            
+            localStorage.setItem('github_token', token);
+            
+            try {
+                showLoading(true);
+                hideError();
+                updateProgress(0, 'Fetching data from GitHub...');
+                
+                const queriesCsv = await fetchGitHubFile('aboutwallart', 'seo-tools', 'data/Queries.csv', token);
+                updateProgress(20, 'Parsing queries...');
+                
+                const pagesCsv = await fetchGitHubFile('aboutwallart', 'seo-tools', 'data/Pages.csv', token);
+                updateProgress(30, 'Parsing pages...');
+                
+                queriesData = parseCSV(queriesCsv);
+                pagesData = parseCSV(pagesCsv);
+                
+                updateProgress(40, 'Loading locked keywords from blogs...');
+                
+                
+                updateProgress(50, 'Finding conflicts...');
+                await new Promise(r => setTimeout(r, 100));
+                
+                conflictsData = findConflicts();
+                analyzeAndRecommend();
+                
+                updateProgress(100, 'Done!');
+                
+                displayStats();
+                displayConflicts();
+                updateProgressBadge();
+                
+                showLoading(false);
+                document.getElementById('statsSection').classList.remove('hidden');
+                document.getElementById('filterSection').classList.remove('hidden');
+                document.getElementById('conflictsSection').classList.remove('hidden');
+                document.getElementById('exportBtn').classList.remove('hidden');
+                document.getElementById('hideResolvedControl').classList.remove('hidden');
+                
+            } catch (error) {
+                showLoading(false);
+                showError(`Error: ${error.message}`);
+            }
+        }
+
+        function findConflicts() {
+            const conflicts = {};
+            const topQueries = queriesData.slice(0, 250);
+            const topPages = pagesData.slice(0, 250);
+            
+            const urlIndex = topPages.map(p => ({
+                url: p['Top pages'],
+                keywords: getKeywords(p['Top pages']),
+                clicks: parseInt(p['Clicks']) || 0,
+                impressions: parseInt(p['Impressions']) || 0,
+                ctr: p['CTR'],
+                position: parseFloat(p['Position']) || 0
+            }));
+            
+            topQueries.forEach(query => {
+                const keyword = query['Top queries'];
+                const queryWords = getKeywords(keyword);
+                if (queryWords.length === 0) return;
+                
+                const matches = [];
+                
+                for (const page of urlIndex) {
+                    const matchCount = queryWords.filter(w => 
+                        page.keywords.some(pw => pw.includes(w) || w.includes(pw))
+                    ).length;
+                    
+                    const score = (matchCount / queryWords.length) * 100;
+                    
+                    if (score >= 50) {
+                        matches.push({ ...page, matchScore: score });
+                        if (matches.length >= 5) break;
+                    }
+                }
+                
+                if (matches.length >= 2) {
+                    conflicts[keyword] = {
+                        keyword,
+                        clicks: parseInt(query['Clicks']) || 0,
+                        impressions: parseInt(query['Impressions']) || 0,
+                        ctr: query['CTR'],
+                        position: parseFloat(query['Position']) || 0,
+                        pages: matches // Don't sort yet - AI will sort by relevance score
+                    };
+                }
+            });
+            
+            return Object.values(conflicts);
+        }
+
+        function analyzeAndRecommend() {
+            conflictsData.forEach(conflict => {
+                const pages = conflict.pages;
+                
+                // Calculate AI score for each page: Relevance (50%) + Clicks (30%) + Position (20%)
+                pages.forEach(page => {
+                    const relevanceScore = page.matchScore; // Already 0-100
+                    const clicksScore = Math.min((page.clicks / 100) * 100, 100); // Normalize to 100
+                    const positionScore = Math.max(0, 100 - (page.position * 5)); // Lower position = higher score
+                    
+                    page.aiScore = (relevanceScore * 0.5) + (clicksScore * 0.3) + (positionScore * 0.2);
+                });
+                
+                // Sort by AI score (highest first)
+                pages.sort((a, b) => b.aiScore - a.aiScore);
+                
+                const winner = pages[0];
+                
+                pages.forEach((page, idx) => {
+                    const key = `${conflict.keyword}|||${page.url}`;
+                    
+                    if (!resolutionRegistry[key]) {
+                        let action, reason;
+                        
+                        if (idx === 0) {
+                            // Winner - highest AI score
+                            action = 'keep';
+                            reason = `🤖 AI Winner: Best relevance (${page.matchScore.toFixed(0)}%), ${page.clicks} clicks, position ${page.position.toFixed(1)}. This page should own this keyword.`;
+                        } else {
+                            // Decide action for losers based on their profile
+                            const relevance = page.matchScore;
+                            const clicks = page.clicks;
+                            const position = page.position;
+                            
+                            if (relevance >= 80 && clicks >= 20 && position <= 10) {
+                                // High relevance + good traffic = repurpose to different keyword
+                                action = 'repurpose';
+                                reason = `🤖 High relevance (${relevance.toFixed(0)}%) & traffic (${clicks} clicks). Good page - optimize for different keyword to avoid competing with winner.`;
+                            } else if (relevance < 60 && clicks < 10 && position > 15) {
+                                // Low relevance + low performance = redirect
+                                action = 'redirect';
+                                reason = `🤖 Low relevance (${relevance.toFixed(0)}%), ${clicks} clicks, position ${position.toFixed(1)}. Redirect to winner to consolidate authority.`;
+                            } else {
+                                // Middle ground = internal link
+                                action = 'link';
+                                reason = `🤖 Moderate match (${relevance.toFixed(0)}% relevance, ${clicks} clicks). Add internal link to winner to support its authority.`;
+                            }
+                        }
+                        
+                        resolutionRegistry[key] = {
+                            action,
+                            reason,
+                            done: false,
+                            timestamp: null
+                        };
+                    }
+                });
+            });
+            
+            saveRegistry();
+        }
+
+        function updateAction(key, action) {
+            if (!resolutionRegistry[key]) resolutionRegistry[key] = {};
+            resolutionRegistry[key].action = action;
+            saveRegistry();
+            filterConflicts();
+        }
+
+        function toggleDone(key) {
+            if (!resolutionRegistry[key]) resolutionRegistry[key] = { done: false };
+            resolutionRegistry[key].done = !resolutionRegistry[key].done;
+            if (resolutionRegistry[key].done) {
+                resolutionRegistry[key].timestamp = new Date().toISOString();
+            } else {
+                resolutionRegistry[key].timestamp = null;
+            }
+            saveRegistry();
+            updateProgressBadge();
+            filterConflicts(); // Use filterConflicts to respect Hide Resolved checkbox
+        }
+
+        function saveRegistry() {
+            localStorage.setItem('resolution_registry', JSON.stringify(resolutionRegistry));
+        }
+
+        function updateProgressBadge() {
+            const total = Object.keys(resolutionRegistry).length;
+            const done = Object.values(resolutionRegistry).filter(r => r.done).length;
+            document.getElementById('progressBadge').textContent = `${done} / ${total} resolved`;
+        }
+
+        function displayStats() {
+            const total = Object.keys(resolutionRegistry).length;
+            const done = Object.values(resolutionRegistry).filter(r => r.done).length;
+            const pending = total - done;
+            const lockedCount = Object.keys(lockedKeywords).length;
+            
+            document.getElementById('statsSection').innerHTML = `
+                <div class="stat-card"><div class="number">${conflictsData.length}</div><div class="label">Conflicts</div></div>
+                <div class="stat-card"><div class="number">${total}</div><div class="label">Pages Affected</div></div>
+                <div class="stat-card"><div class="number" style="color:#10b981">${done}</div><div class="label">Resolved</div></div>
+                <div class="stat-card"><div class="number" style="color:#f59e0b">${pending}</div><div class="label">Pending</div></div>
+                <div class="stat-card"><div class="number" style="color:#dc2626">🔒 ${lockedCount}</div><div class="label">Locked Keywords</div></div>
+            `;
+        }
+
+        function filterConflicts() {
+            const searchFilter = document.getElementById('searchFilter').value.toLowerCase();
+            const hideResolved = document.getElementById('hideResolved').checked;
+            
+            const filtered = conflictsData.filter(c => {
+                // Apply search filter
+                const matchesSearch = !searchFilter || 
+                    c.keyword.toLowerCase().includes(searchFilter) ||
+                    c.pages.some(p => p.url.toLowerCase().includes(searchFilter));
+                
+                if (!matchesSearch) return false;
+                
+                // Apply hide resolved filter
+                if (hideResolved) {
+                    // Check if ALL pages in this conflict are resolved
+                    const allResolved = c.pages.every(p => {
+                        const key = `${c.keyword}|||${p.url}`;
+                        const reg = resolutionRegistry[key] || {};
+                        return reg.done === true;
+                    });
+                    return !allResolved; // Hide if all resolved
+                }
+                
+                return true;
+            });
+            
+            displayConflicts('', filtered);
+        }
+
+        function displayConflicts(_, filteredData) {
+            const dataToShow = filteredData || conflictsData;
+            
+            if (!dataToShow.length) {
+                document.getElementById('conflictsSection').innerHTML = '<p style="text-align:center;color:#666;padding:40px;">No conflicts found</p>';
+                return;
+            }
+            
+            document.getElementById('conflictsSection').innerHTML = dataToShow.map(c => `
+                <div class="conflict-item">
+                    <div class="conflict-header">
+                        <div class="conflict-keyword">🔑 ${c.keyword}</div>
+                    </div>
+                    <div class="conflict-meta">
+                        <span><strong>Clicks:</strong> ${c.clicks}</span>
+                        <span><strong>Impressions:</strong> ${c.impressions}</span>
+                        <span><strong>CTR:</strong> ${c.ctr}</span>
+                        <span><strong>Position:</strong> ${c.position.toFixed(2)}</span>
+                        <span><strong>Pages:</strong> ${c.pages.length}</span>
+                    </div>
+                    ${c.pages.map((p, idx) => {
+                        const key = `${c.keyword}|||${p.url}`;
+                        const reg = resolutionRegistry[key] || {};
+                        const isWinner = idx === 0;
+                        const isDone = reg.done;
+                        
+                        return `
+                            <div class="page-card ${isWinner ? 'winner' : ''} ${isDone ? 'done' : ''}">
+                                ${isWinner ? '<div class="winner-badge">⭐ KEEP THIS</div>' : ''}
+                                <div class="page-header">
+                                    <input type="checkbox" class="page-checkbox" ${isDone ? 'checked' : ''} 
+                                           onchange="toggleDone('${key.replace(/'/g, "\\'")}')">
+                                    <a href="${p.url}" target="_blank" class="page-url">${p.url}</a>
+                                </div>
+                                <div class="page-stats">
+                                    <div class="stat-item"><strong>AI Score:</strong> <span>${p.aiScore ? p.aiScore.toFixed(1) : 'N/A'}</span></div>
+                                    <div class="stat-item"><strong>Relevance:</strong> <span>${p.matchScore.toFixed(0)}%</span></div>
+                                    <div class="stat-item"><strong>Clicks:</strong> <span>${p.clicks}</span></div>
+                                    <div class="stat-item"><strong>Position:</strong> <span>${p.position.toFixed(1)}</span></div>
+                                </div>
+                                <div class="action-selector">
+                                    <button class="action-btn keep ${reg.action === 'keep' ? 'selected' : ''}" 
+                                            onclick="updateAction('${key.replace(/'/g, "\\'")}', 'keep')">
+                                        ⭐ KEEP
+                                    </button>
+                                    <button class="action-btn link ${reg.action === 'link' ? 'selected' : ''}" 
+                                            onclick="updateAction('${key.replace(/'/g, "\\'")}', 'link')">
+                                        🔗 INTERNAL LINK
+                                    </button>
+                                    <button class="action-btn repurpose ${reg.action === 'repurpose' ? 'selected' : ''}" 
+                                            onclick="updateAction('${key.replace(/'/g, "\\'")}', 'repurpose')">
+                                        ♻️ REPURPOSE
+                                    </button>
+                                    <button class="action-btn redirect ${reg.action === 'redirect' ? 'selected' : ''}" 
+                                            onclick="updateAction('${key.replace(/'/g, "\\'")}', 'redirect')">
+                                        ➡️ REDIRECT
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `).join('');
+        }
+
+
+        function exportRegistry() {
+            const data = [];
+            const processedKeywords = new Set();
+            
+            // First add all conflicts
+            conflictsData.forEach(c => {
+                const keyword = c.keyword;
+                const keywordLower = keyword.toLowerCase();
+                const lockInfo = lockedKeywords[keywordLower];
+                processedKeywords.add(keywordLower);
+                
+                c.pages.forEach((p, idx) => {
+                    const key = `${keyword}|||${p.url}`;
+                    const reg = resolutionRegistry[key] || {};
+                    
+                    // Check if this page owns the keyword
+                    const ownsKeyword = lockInfo && lockInfo.url === p.url;
+                    const isWinner = idx === 0;
+                    
+                    // Determine lock status
+                    let lockStatus = '';
+                    if (ownsKeyword) {
+                        lockStatus = 'LOCKED';
+                    } else if (reg.action === 'keep' && reg.done) {
+                        lockStatus = 'LOCKED';
+                    } else {
+                        lockStatus = '';
+                    }
+                    
+                    data.push({
+                        'Keyword': keyword,
+                        'Page URL': p.url,
+                        'LOCKED': lockStatus,
+                        'Status': reg.done ? 'DONE' : 'PENDING',
+                        'Action': (reg.action || 'pending').toUpperCase(),
+                        'Clicks': p.clicks,
+                        'Position': p.position.toFixed(1),
+                        'Match Score': p.matchScore.toFixed(0) + '%',
+                        'AI Score': p.aiScore ? p.aiScore.toFixed(1) : 'N/A',
+                        'Is Winner': isWinner ? 'YES' : 'NO',
+                        'Source': lockStatus === 'LOCKED' && ownsKeyword ? lockInfo.source : ''
+                    });
+                });
+            });
+            
+            // NOW ADD ALL PRE-LOCKED KEYWORDS THAT DON'T HAVE CONFLICTS
+            Object.entries(lockedKeywords).forEach(([keyword, info]) => {
+                if (!processedKeywords.has(keyword)) {
+                    data.push({
+                        'Keyword': keyword,
+                        'Page URL': info.url,
+                        'LOCKED': 'LOCKED',
+                        'Status': 'NO CONFLICT',
+                        'Action': 'KEEP',
+                        'Clicks': 'N/A',
+                        'Position': 'N/A',
+                        'Match Score': 'N/A',
+                        'AI Score': 'N/A',
+                        'Is Winner': 'YES',
+                        'Source': info.source
+                    });
+                }
+            });
+            
+            // Count URL occurrences to identify duplicates (pages ranking for multiple keywords)
+            const urlCounts = {};
+            data.forEach(row => {
+                const url = row['Page URL'];
+                urlCounts[url] = (urlCounts[url] || 0) + 1;
+            });
+            
+            // Mark which URLs are duplicates for yellow highlighting
+            data.forEach(row => {
+                const url = row['Page URL'];
+                row['Multiple Keywords'] = urlCounts[url] > 1 ? 'YES' : 'NO';
+            });
+            
+            // Create second sheet with all locked keywords for easy reference
+            const lockedData = [];
+            Object.entries(lockedKeywords).forEach(([keyword, info]) => {
+                lockedData.push({
+                    'Keyword': keyword,
+                    'Locked To URL': info.url,
+                    'Source': info.source,
+                    'Full Title': info.fullTitle || 'N/A'
+                });
+            });
+            
+            const ws1 = XLSX.utils.json_to_sheet(data);
+            
+            // Apply yellow highlighting to rows where URL appears multiple times
+            const range = XLSX.utils.decode_range(ws1['!ref']);
+            for (let R = range.s.r + 1; R <= range.e.r; ++R) {
+                const multiCell = XLSX.utils.encode_cell({ r: R, c: range.e.c }); // Last column (Multiple Keywords)
+                
+                if (ws1[multiCell] && ws1[multiCell].v === 'YES') {
+                    // Highlight the entire row in yellow
+                    for (let C = range.s.c; C <= range.e.c; ++C) {
+                        const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+                        if (ws1[cellAddress]) {
+                            if (!ws1[cellAddress].s) ws1[cellAddress].s = {};
+                            ws1[cellAddress].s.fill = { fgColor: { rgb: "FFFF00" } };
+                        }
+                    }
+                }
+            }
+            
+            const ws2 = XLSX.utils.json_to_sheet(lockedData);
+            
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws1, 'All Keywords Registry');
+            XLSX.utils.book_append_sheet(wb, ws2, 'Locked Keywords List');
+            
+            XLSX.writeFile(wb, `Keyword_Master_Registry_${new Date().toISOString().split('T')[0]}.xlsx`);
+        }
+
+        function updateProgress(percent, message) {
+            document.getElementById('progressBar').style.width = percent + '%';
+            document.getElementById('loadingMessage').textContent = message;
+        }
+
+        function showLoading(show) {
+            document.getElementById('loadingSection').classList.toggle('hidden', !show);
+        }
+
+        function showError(msg) {
+            const el = document.getElementById('errorSection');
+            el.textContent = msg;
+            el.classList.remove('hidden');
+        }
+
+        function hideError() {
+            document.getElementById('errorSection').classList.add('hidden');
+        }
+
+        function resetAll() {
+            if (confirm('Are you sure? This will clear ALL your decisions and checkboxes. You cannot undo this.')) {
+                localStorage.removeItem('resolution_registry');
+                resolutionRegistry = {};
+                alert('Reset complete! Refresh the page to see clean data.');
+                location.reload();
+            }
+        }
+    </script>
+</body>
+</html>
