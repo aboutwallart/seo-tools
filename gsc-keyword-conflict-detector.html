@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GSC Keyword Conflict Detector</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: #fff;
+            color: #333;
+            padding: 30px;
+            text-align: center;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            color: #666;
+            font-size: 16px;
+        }
+        
+        .setup-section {
+            padding: 30px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .input-group {
+            margin-bottom: 20px;
+        }
+        
+        .input-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+        }
+        
+        .input-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        .input-group input:focus {
+            outline: none;
+            border-color: #0969da;
+        }
+        
+        .btn {
+            background: #0969da;
+            color: white;
+            border: none;
+            padding: 14px 32px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s, box-shadow 0.2s;
+        }
+        
+        .btn:hover {
+            background: #0860ca;
+            box-shadow: 0 4px 12px rgba(9, 105, 218, 0.3);
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-export {
+            background: #10b981;
+            margin-left: 10px;
+        }
+        
+        .btn-export:hover {
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            padding: 30px;
+            background: #f8f9fa;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        
+        .stat-card .number {
+            font-size: 36px;
+            font-weight: 700;
+            color: #0969da;
+            margin-bottom: 8px;
+        }
+        
+        .stat-card .label {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .conflicts-section {
+            padding: 30px;
+        }
+        
+        .conflict-item {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-left: 4px solid #0969da;
+        }
+        
+        .conflict-keyword {
+            font-size: 20px;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .conflict-stats {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 15px;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .conflict-stats span {
+            background: white;
+            padding: 6px 12px;
+            border-radius: 6px;
+        }
+        
+        .pages-list {
+            margin-top: 15px;
+        }
+        
+        .page-item {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 15px;
+        }
+        
+        .page-url {
+            flex: 1;
+            color: #0969da;
+            text-decoration: none;
+            word-break: break-all;
+            font-size: 14px;
+        }
+        
+        .page-url:hover {
+            text-decoration: underline;
+        }
+        
+        .page-stats {
+            display: flex;
+            gap: 15px;
+            font-size: 13px;
+            color: #666;
+            white-space: nowrap;
+        }
+        
+        .action-select {
+            padding: 8px 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            background: white;
+        }
+        
+        .action-select:focus {
+            outline: none;
+            border-color: #0969da;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #0969da;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .error {
+            background: #fee;
+            color: #c00;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 30px;
+        }
+        
+        .filter-section {
+            padding: 20px 30px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        
+        .filter-section input {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+        }
+        
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 GSC Keyword Conflict Detector</h1>
+            <p>Identify when the same keyword ranks on multiple pages</p>
+        </div>
+        
+        <div class="setup-section">
+            <h2 style="font-size: 24px; margin-bottom: 10px; color: #333;">GitHub Authentication</h2>
+            
+            <div class="input-group">
+                <label>GitHub Personal Access Token</label>
+                <input type="password" id="githubToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+            </div>
+            
+            <p style="color: #666; font-size: 14px; margin-bottom: 20px;">
+                Your token is stored locally in your browser and never sent anywhere except GitHub API.
+            </p>
+            
+            <button class="btn" id="analyzeBtn" onclick="analyzeConflicts()">Start Analysis</button>
+            <button class="btn btn-export hidden" id="exportBtn" onclick="exportToExcel()">📥 Export to Excel</button>
+        </div>
+        
+        <div id="loadingSection" class="loading hidden">
+            <div class="spinner"></div>
+            <p>Loading data and analyzing conflicts...</p>
+        </div>
+        
+        <div id="errorSection" class="error hidden"></div>
+        
+        <div id="statsSection" class="stats hidden"></div>
+        
+        <div id="filterSection" class="filter-section hidden">
+            <input type="text" id="searchFilter" placeholder="🔎 Search keywords or URLs..." oninput="filterConflicts()">
+        </div>
+        
+        <div id="conflictsSection" class="conflicts-section hidden"></div>
+    </div>
+
+    <script>
+        let queriesData = [];
+        let pagesData = [];
+        let conflictsData = [];
+        let resolutionRegistry = {};
+
+        // Load saved token on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedToken = localStorage.getItem('github_token');
+            if (savedToken) {
+                document.getElementById('githubToken').value = savedToken;
+            }
+        });
+
+        async function fetchGitHubFile(owner, repo, path, token) {
+            const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+            const headers = {
+                'Accept': 'application/vnd.github.v3.raw'
+            };
+            
+            if (token) {
+                headers['Authorization'] = `token ${token}`;
+            }
+            
+            const response = await fetch(url, { headers });
+            
+            if (!response.ok) {
+                throw new Error(`GitHub API error: ${response.status} ${response.statusText}`);
+            }
+            
+            return await response.text();
+        }
+
+        function parseCSV(csv) {
+            const lines = csv.trim().split('\n');
+            const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+            
+            return lines.slice(1).map(line => {
+                const values = [];
+                let current = '';
+                let inQuotes = false;
+                
+                for (let i = 0; i < line.length; i++) {
+                    const char = line[i];
+                    
+                    if (char === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (char === ',' && !inQuotes) {
+                        values.push(current.trim());
+                        current = '';
+                    } else {
+                        current += char;
+                    }
+                }
+                values.push(current.trim());
+                
+                const obj = {};
+                headers.forEach((header, i) => {
+                    obj[header] = values[i] || '';
+                });
+                return obj;
+            });
+        }
+
+        function normalizeText(text) {
+            return text.toLowerCase()
+                .replace(/[^\w\s-]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+
+        function getKeywords(text) {
+            const normalized = normalizeText(text);
+            return normalized.split(' ').filter(word => word.length > 2);
+        }
+
+        function calculateMatch(query, url) {
+            const queryWords = getKeywords(query);
+            const urlWords = getKeywords(url);
+            
+            if (queryWords.length === 0) return 0;
+            
+            const matches = queryWords.filter(word => 
+                urlWords.some(urlWord => urlWord.includes(word) || word.includes(urlWord))
+            );
+            
+            return (matches.length / queryWords.length) * 100;
+        }
+
+        function findConflicts() {
+            const queryToPages = {};
+            
+            // Limit to top 500 queries and pages for performance
+            const topQueries = queriesData.slice(0, 500);
+            const topPages = pagesData.slice(0, 500);
+            
+            // Pre-build URL keyword index for faster lookup
+            const urlIndex = topPages.map(page => ({
+                url: page['Top pages'],
+                keywords: getKeywords(page['Top pages']),
+                clicks: parseInt(page['Clicks']) || 0,
+                impressions: parseInt(page['Impressions']) || 0,
+                ctr: page['CTR'],
+                position: parseFloat(page['Position']) || 0
+            }));
+            
+            // Process queries
+            topQueries.forEach(query => {
+                const keyword = query['Top queries'];
+                const queryWords = getKeywords(keyword);
+                
+                if (queryWords.length === 0) return;
+                
+                const matchedPages = [];
+                
+                // Fast matching using pre-built index
+                for (let i = 0; i < urlIndex.length; i++) {
+                    const pageData = urlIndex[i];
+                    const matches = queryWords.filter(word => 
+                        pageData.keywords.some(urlWord => urlWord.includes(word) || word.includes(urlWord))
+                    );
+                    
+                    const matchScore = (matches.length / queryWords.length) * 100;
+                    
+                    if (matchScore >= 50) {
+                        matchedPages.push({
+                            url: pageData.url,
+                            clicks: pageData.clicks,
+                            impressions: pageData.impressions,
+                            ctr: pageData.ctr,
+                            position: pageData.position,
+                            matchScore: matchScore
+                        });
+                    }
+                    
+                    // Early exit if we found enough matches
+                    if (matchedPages.length >= 5) break;
+                }
+                
+                if (matchedPages.length >= 2) {
+                    queryToPages[keyword] = {
+                        keyword: keyword,
+                        clicks: parseInt(query['Clicks']) || 0,
+                        impressions: parseInt(query['Impressions']) || 0,
+                        ctr: query['CTR'],
+                        position: parseFloat(query['Position']) || 0,
+                        pages: matchedPages.sort((a, b) => b.clicks - a.clicks)
+                    };
+                }
+            });
+            
+            return Object.values(queryToPages);
+        }
+
+        async function analyzeConflicts() {
+            // Pre-filled repository details
+            const owner = 'aboutwallart';
+            const repo = 'seo-tools';
+            const queriesPath = 'data/Queries.csv';
+            const pagesPath = 'data/Pages.csv';
+            
+            const token = document.getElementById('githubToken').value.trim();
+            
+            if (!token) {
+                showError('Please enter your GitHub Personal Access Token');
+                return;
+            }
+            
+            // Store token in localStorage for future use
+            localStorage.setItem('github_token', token);
+            
+            try {
+                showLoading(true);
+                hideError();
+                updateLoadingMessage('Fetching CSV files from GitHub...');
+                
+                // Fetch CSV files from GitHub
+                const queriesCsv = await fetchGitHubFile(owner, repo, queriesPath, token);
+                const pagesCsv = await fetchGitHubFile(owner, repo, pagesPath, token);
+                
+                updateLoadingMessage('Parsing CSV data...');
+                
+                // Parse CSV data
+                queriesData = parseCSV(queriesCsv);
+                pagesData = parseCSV(pagesCsv);
+                
+                updateLoadingMessage('Analyzing conflicts (this may take a minute)...');
+                
+                // Find conflicts with async processing
+                conflictsData = await findConflictsAsync();
+                
+                updateLoadingMessage('Preparing results...');
+                
+                // Initialize resolution registry
+                resolutionRegistry = {};
+                conflictsData.forEach(conflict => {
+                    conflict.pages.forEach((page, index) => {
+                        const key = `${conflict.keyword}|||${page.url}`;
+                        resolutionRegistry[key] = 'internal-link';
+                    });
+                });
+                
+                // Display results
+                displayStats();
+                displayConflicts();
+                
+                showLoading(false);
+                document.getElementById('statsSection').classList.remove('hidden');
+                document.getElementById('filterSection').classList.remove('hidden');
+                document.getElementById('conflictsSection').classList.remove('hidden');
+                document.getElementById('exportBtn').classList.remove('hidden');
+                
+            } catch (error) {
+                showLoading(false);
+                showError(`Error: ${error.message}`);
+                console.error('Analysis error:', error);
+            }
+        }
+
+        function updateLoadingMessage(message) {
+            const loadingDiv = document.getElementById('loadingSection');
+            const p = loadingDiv.querySelector('p');
+            if (p) p.textContent = message;
+        }
+
+        async function findConflictsAsync() {
+            return new Promise((resolve) => {
+                // Use setTimeout to prevent blocking
+                setTimeout(() => {
+                    const result = findConflicts();
+                    resolve(result);
+                }, 100);
+            });
+        }
+
+        function displayStats() {
+            const totalQueries = queriesData.length;
+            const totalPages = pagesData.length;
+            const totalConflicts = conflictsData.length;
+            const totalAffectedPages = conflictsData.reduce((sum, c) => sum + c.pages.length, 0);
+            
+            const statsHtml = `
+                <div class="stat-card">
+                    <div class="number">${totalQueries}</div>
+                    <div class="label">Total Queries</div>
+                </div>
+                <div class="stat-card">
+                    <div class="number">${totalPages}</div>
+                    <div class="label">Total Pages</div>
+                </div>
+                <div class="stat-card">
+                    <div class="number">${totalConflicts}</div>
+                    <div class="label">Keyword Conflicts</div>
+                </div>
+                <div class="stat-card">
+                    <div class="number">${totalAffectedPages}</div>
+                    <div class="label">Affected Pages</div>
+                </div>
+            `;
+            
+            document.getElementById('statsSection').innerHTML = statsHtml;
+        }
+
+        function displayConflicts(filter = '') {
+            const filterLower = filter.toLowerCase();
+            const filteredConflicts = filter ? 
+                conflictsData.filter(c => 
+                    c.keyword.toLowerCase().includes(filterLower) ||
+                    c.pages.some(p => p.url.toLowerCase().includes(filterLower))
+                ) : conflictsData;
+            
+            if (filteredConflicts.length === 0) {
+                document.getElementById('conflictsSection').innerHTML = '<p style="text-align:center;color:#666;padding:40px;">No conflicts found</p>';
+                return;
+            }
+            
+            const conflictsHtml = filteredConflicts.map((conflict, idx) => `
+                <div class="conflict-item">
+                    <div class="conflict-keyword">🔑 ${conflict.keyword}</div>
+                    <div class="conflict-stats">
+                        <span><strong>Clicks:</strong> ${conflict.clicks}</span>
+                        <span><strong>Impressions:</strong> ${conflict.impressions}</span>
+                        <span><strong>CTR:</strong> ${conflict.ctr}</span>
+                        <span><strong>Position:</strong> ${conflict.position.toFixed(2)}</span>
+                        <span><strong>Conflicting Pages:</strong> ${conflict.pages.length}</span>
+                    </div>
+                    <div class="pages-list">
+                        ${conflict.pages.map((page, pageIdx) => {
+                            const key = `${conflict.keyword}|||${page.url}`;
+                            return `
+                                <div class="page-item">
+                                    <a href="${page.url}" target="_blank" class="page-url">${page.url}</a>
+                                    <div class="page-stats">
+                                        <span>Clicks: ${page.clicks}</span>
+                                        <span>Pos: ${page.position.toFixed(1)}</span>
+                                        <span>Match: ${page.matchScore.toFixed(0)}%</span>
+                                    </div>
+                                    <select class="action-select" onchange="updateResolution('${key}', this.value)">
+                                        <option value="internal-link" ${resolutionRegistry[key] === 'internal-link' ? 'selected' : ''}>Internal Link</option>
+                                        <option value="find-later" ${resolutionRegistry[key] === 'find-later' ? 'selected' : ''}>Find Later</option>
+                                        <option value="redirect" ${resolutionRegistry[key] === 'redirect' ? 'selected' : ''}>Redirect</option>
+                                        <option value="keep" ${resolutionRegistry[key] === 'keep' ? 'selected' : ''}>Keep</option>
+                                    </select>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+            `).join('');
+            
+            document.getElementById('conflictsSection').innerHTML = conflictsHtml;
+        }
+
+        function updateResolution(key, action) {
+            resolutionRegistry[key] = action;
+        }
+
+        function filterConflicts() {
+            const filter = document.getElementById('searchFilter').value;
+            displayConflicts(filter);
+        }
+
+        function exportToExcel() {
+            const exportData = [];
+            
+            conflictsData.forEach(conflict => {
+                conflict.pages.forEach(page => {
+                    const key = `${conflict.keyword}|||${page.url}`;
+                    exportData.push({
+                        'Keyword': conflict.keyword,
+                        'Keyword Clicks': conflict.clicks,
+                        'Keyword Impressions': conflict.impressions,
+                        'Keyword CTR': conflict.ctr,
+                        'Keyword Position': conflict.position,
+                        'Page URL': page.url,
+                        'Page Clicks': page.clicks,
+                        'Page Impressions': page.impressions,
+                        'Page Position': page.position,
+                        'Match Score': page.matchScore.toFixed(1) + '%',
+                        'Resolution': resolutionRegistry[key] || 'internal-link'
+                    });
+                });
+            });
+            
+            const ws = XLSX.utils.json_to_sheet(exportData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Keyword Conflicts');
+            
+            const date = new Date().toISOString().split('T')[0];
+            XLSX.writeFile(wb, `GSC_Keyword_Conflicts_${date}.xlsx`);
+        }
+
+        function showLoading(show) {
+            document.getElementById('loadingSection').classList.toggle('hidden', !show);
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('errorSection');
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+        }
+
+        function hideError() {
+            document.getElementById('errorSection').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
