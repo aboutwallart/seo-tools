@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GSC Keyword Conflict Resolver</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: #fff;
+            padding: 20px 30px;
+            border-bottom: 2px solid #e0e0e0;
+            text-align: center;
+        }
+        
+        .header h1 { font-size: 28px; margin-bottom: 5px; color: #333; }
+        .header p { color: #666; font-size: 14px; }
+        
+        .setup-section { padding: 20px 30px; border-bottom: 1px solid #e0e0e0; }
+        
+        .input-group { margin-bottom: 20px; }
+        .input-group label { display: block; font-weight: 600; margin-bottom: 8px; color: #333; }
+        .input-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        
+        .btn {
+            background: #0969da;
+            color: white;
+            border: none;
+            padding: 14px 32px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        
+        .btn:hover:not(:disabled) { background: #0860ca; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-export { background: #10b981; margin-left: 10px; }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 20px;
+            padding: 30px;
+            background: #f8f9fa;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        
+        .stat-card .number { font-size: 36px; font-weight: 700; color: #0969da; margin-bottom: 8px; }
+        .stat-card .label { color: #666; font-size: 14px; }
+        
+        .conflicts-section { padding: 30px; }
+        
+        .conflict-item {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 25px;
+            border-left: 5px solid #0969da;
+        }
+        
+        .conflict-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .conflict-keyword {
+            font-size: 22px;
+            font-weight: 700;
+            color: #333;
+        }
+        
+        .conflict-meta {
+            display: flex;
+            gap: 15px;
+            font-size: 14px;
+            color: #666;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        
+        .conflict-meta span {
+            background: white;
+            padding: 6px 12px;
+            border-radius: 6px;
+        }
+        
+        .page-card {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            position: relative;
+        }
+        
+        .page-card.winner {
+            border-color: #10b981;
+            background: #f0fdf4;
+        }
+        
+        .page-card.done {
+            opacity: 0.6;
+            background: #f9fafb;
+        }
+        
+        .winner-badge {
+            position: absolute;
+            top: -15px;
+            right: 20px;
+            background: #10b981;
+            color: white;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 16px;
+            font-weight: 700;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+            text-transform: uppercase;
+        }
+        
+        .page-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .page-checkbox {
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            margin-top: 3px;
+        }
+        
+        .page-url {
+            flex: 1;
+            color: #0969da;
+            text-decoration: none;
+            word-break: break-all;
+            font-size: 15px;
+            font-weight: 500;
+        }
+        
+        .page-url:hover { text-decoration: underline; }
+        
+        .page-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin-bottom: 15px;
+            font-size: 13px;
+        }
+        
+        .stat-item {
+            background: #f8f9fa;
+            padding: 8px 12px;
+            border-radius: 6px;
+        }
+        
+        .stat-item strong { color: #333; }
+        .stat-item span { color: #666; }
+        
+        .ai-recommendation {
+            background: #fef3c7;
+            border: 2px solid #f59e0b;
+            border-left: 6px solid #f59e0b;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        
+        .ai-recommendation .title {
+            font-weight: 700;
+            color: #92400e;
+            margin-bottom: 10px;
+            font-size: 15px;
+            text-transform: uppercase;
+        }
+        
+        .ai-recommendation .reason {
+            color: #78350f;
+            font-size: 14px;
+            line-height: 1.6;
+            font-weight: 500;
+        }
+        
+        .action-selector {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .action-btn {
+            padding: 12px 24px;
+            border: 3px solid #e0e0e0;
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        
+        .action-btn:hover {
+            border-color: #0969da;
+            background: #f0f9ff;
+            transform: translateY(-2px);
+        }
+        
+        .action-btn.selected {
+            border-color: #0969da;
+            background: #0969da;
+            color: white;
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(9, 105, 218, 0.3);
+        }
+        
+        .action-btn.keep { border-color: #10b981; color: #10b981; }
+        .action-btn.keep.selected { background: #10b981; border-color: #10b981; color: white; }
+        
+        .action-btn.link { border-color: #f59e0b; color: #f59e0b; }
+        .action-btn.link.selected { background: #f59e0b; border-color: #f59e0b; color: white; }
+        
+        .action-btn.repurpose { border-color: #8b5cf6; color: #8b5cf6; }
+        .action-btn.repurpose.selected { background: #8b5cf6; border-color: #8b5cf6; color: white; }
+        
+        .action-btn.redirect { border-color: #ef4444; color: #ef4444; }
+        .action-btn.redirect.selected { background: #ef4444; border-color: #ef4444; color: white; }
+        
+        .loading { text-align: center; padding: 40px; color: #666; }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #0969da;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .error { background: #fee; color: #c00; padding: 15px; border-radius: 8px; margin: 20px 30px; }
+        .hidden { display: none; }
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 15px;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #0969da;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        
+        .filter-section {
+            padding: 20px 30px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        
+        .filter-section input {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+        }
+        
+        .progress-badge {
+            background: #10b981;
+            color: white;
+            padding: 6px 14px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 Keyword Conflict Resolver</h1>
+            <p>AI-powered recommendations to fix keyword cannibalization</p>
+        </div>
+        
+        <div class="setup-section">
+            <h2 style="font-size: 24px; margin-bottom: 10px; color: #333;">GitHub Authentication</h2>
+            
+            <div class="input-group">
+                <label>GitHub Personal Access Token</label>
+                <input type="password" id="githubToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+            </div>
+            
+            <p style="color: #666; font-size: 14px; margin-bottom: 20px;">
+                Token stored locally. Never sent anywhere except GitHub API.
+            </p>
+            
+            <button class="btn" id="analyzeBtn" onclick="startAnalysis()">🚀 Start Analysis</button>
+            <button class="btn btn-export hidden" id="exportBtn" onclick="exportRegistry()">📥 Export Master Registry</button>
+        </div>
+        
+        <div id="loadingSection" class="loading hidden">
+            <div class="spinner"></div>
+            <p id="loadingMessage">Loading data...</p>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressBar"></div>
+            </div>
+        </div>
+        
+        <div id="errorSection" class="error hidden"></div>
+        
+        <div id="statsSection" class="stats hidden"></div>
+        
+        <div id="filterSection" class="filter-section hidden">
+            <input type="text" id="searchFilter" placeholder="🔎 Search keywords or URLs..." oninput="filterConflicts()">
+            <div class="progress-badge" id="progressBadge">0 / 0 resolved</div>
+        </div>
+        
+        <div id="conflictsSection" class="conflicts-section hidden"></div>
+    </div>
+
+    <script>
+        let queriesData = [];
+        let pagesData = [];
+        let conflictsData = [];
+        let resolutionRegistry = {};
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedToken = localStorage.getItem('github_token');
+            if (savedToken) document.getElementById('githubToken').value = savedToken;
+            
+            const savedRegistry = localStorage.getItem('resolution_registry');
+            if (savedRegistry) resolutionRegistry = JSON.parse(savedRegistry);
+        });
+
+        async function fetchGitHubFile(owner, repo, path, token) {
+            const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+            const headers = { 'Accept': 'application/vnd.github.v3.raw' };
+            if (token) headers['Authorization'] = `token ${token}`;
+            
+            const response = await fetch(url, { headers });
+            if (!response.ok) throw new Error(`GitHub error: ${response.status}`);
+            return await response.text();
+        }
+
+        function parseCSV(csv) {
+            const lines = csv.trim().split('\n');
+            const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+            
+            return lines.slice(1).map(line => {
+                const values = [];
+                let current = '';
+                let inQuotes = false;
+                
+                for (let i = 0; i < line.length; i++) {
+                    const char = line[i];
+                    if (char === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (char === ',' && !inQuotes) {
+                        values.push(current.trim());
+                        current = '';
+                    } else {
+                        current += char;
+                    }
+                }
+                values.push(current.trim());
+                
+                const obj = {};
+                headers.forEach((header, i) => obj[header] = values[i] || '');
+                return obj;
+            });
+        }
+
+        function normalizeText(text) {
+            return text.toLowerCase().replace(/[^\w\s-]/g, ' ').replace(/\s+/g, ' ').trim();
+        }
+
+        function getKeywords(text) {
+            return normalizeText(text).split(' ').filter(w => w.length > 2);
+        }
+
+        async function startAnalysis() {
+            document.getElementById('analyzeBtn').disabled = true;
+            try {
+                await analyzeConflicts();
+            } finally {
+                document.getElementById('analyzeBtn').disabled = false;
+            }
+        }
+
+        async function analyzeConflicts() {
+            const token = document.getElementById('githubToken').value.trim();
+            if (!token) {
+                showError('Please enter your GitHub Personal Access Token');
+                return;
+            }
+            
+            localStorage.setItem('github_token', token);
+            
+            try {
+                showLoading(true);
+                hideError();
+                updateProgress(0, 'Fetching data from GitHub...');
+                
+                const queriesCsv = await fetchGitHubFile('aboutwallart', 'seo-tools', 'data/Queries.csv', token);
+                updateProgress(30, 'Parsing queries...');
+                
+                const pagesCsv = await fetchGitHubFile('aboutwallart', 'seo-tools', 'data/Pages.csv', token);
+                updateProgress(40, 'Parsing pages...');
+                
+                queriesData = parseCSV(queriesCsv);
+                pagesData = parseCSV(pagesCsv);
+                
+                updateProgress(50, 'Finding conflicts...');
+                await new Promise(r => setTimeout(r, 100));
+                
+                conflictsData = findConflicts();
+                analyzeAndRecommend();
+                
+                updateProgress(100, 'Done!');
+                
+                displayStats();
+                displayConflicts();
+                updateProgressBadge();
+                
+                showLoading(false);
+                document.getElementById('statsSection').classList.remove('hidden');
+                document.getElementById('filterSection').classList.remove('hidden');
+                document.getElementById('conflictsSection').classList.remove('hidden');
+                document.getElementById('exportBtn').classList.remove('hidden');
+                
+            } catch (error) {
+                showLoading(false);
+                showError(`Error: ${error.message}`);
+            }
+        }
+
+        function findConflicts() {
+            const conflicts = {};
+            const topQueries = queriesData.slice(0, 250);
+            const topPages = pagesData.slice(0, 250);
+            
+            const urlIndex = topPages.map(p => ({
+                url: p['Top pages'],
+                keywords: getKeywords(p['Top pages']),
+                clicks: parseInt(p['Clicks']) || 0,
+                impressions: parseInt(p['Impressions']) || 0,
+                ctr: p['CTR'],
+                position: parseFloat(p['Position']) || 0
+            }));
+            
+            topQueries.forEach(query => {
+                const keyword = query['Top queries'];
+                const queryWords = getKeywords(keyword);
+                if (queryWords.length === 0) return;
+                
+                const matches = [];
+                
+                for (const page of urlIndex) {
+                    const matchCount = queryWords.filter(w => 
+                        page.keywords.some(pw => pw.includes(w) || w.includes(pw))
+                    ).length;
+                    
+                    const score = (matchCount / queryWords.length) * 100;
+                    
+                    if (score >= 50) {
+                        matches.push({ ...page, matchScore: score });
+                        if (matches.length >= 5) break;
+                    }
+                }
+                
+                if (matches.length >= 2) {
+                    conflicts[keyword] = {
+                        keyword,
+                        clicks: parseInt(query['Clicks']) || 0,
+                        impressions: parseInt(query['Impressions']) || 0,
+                        ctr: query['CTR'],
+                        position: parseFloat(query['Position']) || 0,
+                        pages: matches.sort((a, b) => b.clicks - a.clicks)
+                    };
+                }
+            });
+            
+            return Object.values(conflicts);
+        }
+
+        function analyzeAndRecommend() {
+            conflictsData.forEach(conflict => {
+                const pages = conflict.pages;
+                const winner = pages[0]; // Highest clicks
+                
+                pages.forEach((page, idx) => {
+                    const key = `${conflict.keyword}|||${page.url}`;
+                    
+                    if (!resolutionRegistry[key]) {
+                        let action, reason;
+                        
+                        if (idx === 0) {
+                            // Winner
+                            action = 'keep';
+                            reason = `⭐ Best performer with ${page.clicks} clicks and position ${page.position.toFixed(1)}. Keep and optimize this page.`;
+                        } else if (page.clicks < 10 && page.position > 15) {
+                            // Low traffic, bad position
+                            action = 'redirect';
+                            reason = `Low traffic (${page.clicks} clicks) and poor position (${page.position.toFixed(1)}). Redirect to winner to consolidate authority.`;
+                        } else if (page.clicks >= 10 && page.position <= 10) {
+                            // Good traffic, decent position
+                            action = 'repurpose';
+                            reason = `Has ${page.clicks} clicks and position ${page.position.toFixed(1)}. Good potential - repurpose with a different keyword to avoid cannibalization.`;
+                        } else {
+                            // Middle ground
+                            action = 'link';
+                            reason = `Moderate performance (${page.clicks} clicks, pos ${page.position.toFixed(1)}). Add internal link to winner page to strengthen its authority.`;
+                        }
+                        
+                        resolutionRegistry[key] = {
+                            action,
+                            reason,
+                            done: false,
+                            timestamp: null
+                        };
+                    }
+                });
+            });
+            
+            saveRegistry();
+        }
+
+        function updateAction(key, action) {
+            if (!resolutionRegistry[key]) resolutionRegistry[key] = {};
+            resolutionRegistry[key].action = action;
+            saveRegistry();
+            displayConflicts();
+        }
+
+        function toggleDone(key) {
+            if (!resolutionRegistry[key]) resolutionRegistry[key] = { done: false };
+            resolutionRegistry[key].done = !resolutionRegistry[key].done;
+            if (resolutionRegistry[key].done) {
+                resolutionRegistry[key].timestamp = new Date().toISOString();
+            } else {
+                resolutionRegistry[key].timestamp = null;
+            }
+            saveRegistry();
+            updateProgressBadge();
+            displayConflicts();
+        }
+
+        function saveRegistry() {
+            localStorage.setItem('resolution_registry', JSON.stringify(resolutionRegistry));
+        }
+
+        function updateProgressBadge() {
+            const total = Object.keys(resolutionRegistry).length;
+            const done = Object.values(resolutionRegistry).filter(r => r.done).length;
+            document.getElementById('progressBadge').textContent = `${done} / ${total} resolved`;
+        }
+
+        function displayStats() {
+            const total = Object.keys(resolutionRegistry).length;
+            const done = Object.values(resolutionRegistry).filter(r => r.done).length;
+            const pending = total - done;
+            
+            document.getElementById('statsSection').innerHTML = `
+                <div class="stat-card"><div class="number">${conflictsData.length}</div><div class="label">Conflicts</div></div>
+                <div class="stat-card"><div class="number">${total}</div><div class="label">Pages Affected</div></div>
+                <div class="stat-card"><div class="number" style="color:#10b981">${done}</div><div class="label">Resolved</div></div>
+                <div class="stat-card"><div class="number" style="color:#f59e0b">${pending}</div><div class="label">Pending</div></div>
+            `;
+        }
+
+        function displayConflicts(filter = '') {
+            const filtered = filter ? 
+                conflictsData.filter(c => 
+                    c.keyword.toLowerCase().includes(filter.toLowerCase()) ||
+                    c.pages.some(p => p.url.toLowerCase().includes(filter.toLowerCase()))
+                ) : conflictsData;
+            
+            if (!filtered.length) {
+                document.getElementById('conflictsSection').innerHTML = '<p style="text-align:center;color:#666;padding:40px;">No conflicts found</p>';
+                return;
+            }
+            
+            document.getElementById('conflictsSection').innerHTML = filtered.map(c => `
+                <div class="conflict-item">
+                    <div class="conflict-header">
+                        <div class="conflict-keyword">🔑 ${c.keyword}</div>
+                    </div>
+                    <div class="conflict-meta">
+                        <span><strong>Clicks:</strong> ${c.clicks}</span>
+                        <span><strong>Impressions:</strong> ${c.impressions}</span>
+                        <span><strong>CTR:</strong> ${c.ctr}</span>
+                        <span><strong>Position:</strong> ${c.position.toFixed(2)}</span>
+                        <span><strong>Pages:</strong> ${c.pages.length}</span>
+                    </div>
+                    ${c.pages.map((p, idx) => {
+                        const key = `${c.keyword}|||${p.url}`;
+                        const reg = resolutionRegistry[key] || {};
+                        const isWinner = idx === 0;
+                        const isDone = reg.done;
+                        
+                        return `
+                            <div class="page-card ${isWinner ? 'winner' : ''} ${isDone ? 'done' : ''}">
+                                ${isWinner ? '<div class="winner-badge">⭐ KEEP THIS</div>' : ''}
+                                <div class="page-header">
+                                    <input type="checkbox" class="page-checkbox" ${isDone ? 'checked' : ''} 
+                                           onchange="toggleDone('${key.replace(/'/g, "\\'")}')">
+                                    <a href="${p.url}" target="_blank" class="page-url">${p.url}</a>
+                                </div>
+                                <div class="page-stats">
+                                    <div class="stat-item"><strong>Clicks:</strong> <span>${p.clicks}</span></div>
+                                    <div class="stat-item"><strong>Position:</strong> <span>${p.position.toFixed(1)}</span></div>
+                                    <div class="stat-item"><strong>Match:</strong> <span>${p.matchScore.toFixed(0)}%</span></div>
+                                    <div class="stat-item"><strong>Impressions:</strong> <span>${p.impressions}</span></div>
+                                </div>
+                                <div class="ai-recommendation">
+                                    <div class="title">🤖 Recommended Action: ${reg.action ? reg.action.toUpperCase() : 'ANALYZING...'}</div>
+                                    <div class="reason">${reg.reason || 'Analyzing page performance...'}</div>
+                                </div>
+                                <div class="action-selector">
+                                    <button class="action-btn keep ${reg.action === 'keep' ? 'selected' : ''}" 
+                                            onclick="updateAction('${key.replace(/'/g, "\\'")}', 'keep')">
+                                        ⭐ KEEP
+                                    </button>
+                                    <button class="action-btn link ${reg.action === 'link' ? 'selected' : ''}" 
+                                            onclick="updateAction('${key.replace(/'/g, "\\'")}', 'link')">
+                                        🔗 INTERNAL LINK
+                                    </button>
+                                    <button class="action-btn repurpose ${reg.action === 'repurpose' ? 'selected' : ''}" 
+                                            onclick="updateAction('${key.replace(/'/g, "\\'")}', 'repurpose')">
+                                        ♻️ REPURPOSE
+                                    </button>
+                                    <button class="action-btn redirect ${reg.action === 'redirect' ? 'selected' : ''}" 
+                                            onclick="updateAction('${key.replace(/'/g, "\\'")}', 'redirect')">
+                                        ➡️ REDIRECT
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `).join('');
+        }
+
+        function filterConflicts() {
+            displayConflicts(document.getElementById('searchFilter').value);
+        }
+
+        function exportRegistry() {
+            const data = [];
+            
+            conflictsData.forEach(c => {
+                c.pages.forEach((p, idx) => {
+                    const key = `${c.keyword}|||${p.url}`;
+                    const reg = resolutionRegistry[key] || {};
+                    
+                    data.push({
+                        'Keyword': c.keyword,
+                        'Page URL': p.url,
+                        'Status': reg.done ? '✅ DONE' : '⏳ PENDING',
+                        'Action': (reg.action || 'pending').toUpperCase(),
+                        'AI Reason': reg.reason || '',
+                        'Clicks': p.clicks,
+                        'Position': p.position,
+                        'Match Score': p.matchScore.toFixed(0) + '%',
+                        'Completed Date': reg.timestamp ? new Date(reg.timestamp).toLocaleDateString() : '',
+                        'Is Winner': idx === 0 ? 'YES' : 'NO'
+                    });
+                });
+            });
+            
+            const ws = XLSX.utils.json_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Keyword Registry');
+            XLSX.writeFile(wb, `Keyword_Master_Registry_${new Date().toISOString().split('T')[0]}.xlsx`);
+        }
+
+        function updateProgress(percent, message) {
+            document.getElementById('progressBar').style.width = percent + '%';
+            document.getElementById('loadingMessage').textContent = message;
+        }
+
+        function showLoading(show) {
+            document.getElementById('loadingSection').classList.toggle('hidden', !show);
+        }
+
+        function showError(msg) {
+            const el = document.getElementById('errorSection');
+            el.textContent = msg;
+            el.classList.remove('hidden');
+        }
+
+        function hideError() {
+            document.getElementById('errorSection').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
