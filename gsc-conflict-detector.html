@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GSC Keyword Conflict Detector</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f7fa;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #7f8c8d;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #34495e;
+        }
+
+        input[type="password"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .btn {
+            background: #3498db;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .btn:hover {
+            background: #2980b9;
+        }
+
+        .btn-secondary {
+            background: #95a5a6;
+        }
+
+        .btn-secondary:hover {
+            background: #7f8c8d;
+        }
+
+        .status {
+            margin-top: 15px;
+            padding: 12px;
+            border-radius: 6px;
+            display: none;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            display: block;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            display: block;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            display: none;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .stat-number {
+            font-size: 32px;
+            font-weight: 700;
+            color: #3498db;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+
+        .conflict-card {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            border-left: 4px solid #e74c3c;
+        }
+
+        .conflict-card.resolved {
+            opacity: 0.6;
+            border-left-color: #27ae60;
+        }
+
+        .conflict-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .conflict-keyword {
+            font-size: 18px;
+            font-weight: 600;
+            color: #e74c3c;
+        }
+
+        .priority-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .priority-high {
+            background: #fee;
+            color: #c0392b;
+        }
+
+        .priority-medium {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .page-section {
+            margin-bottom: 20px;
+        }
+
+        .page-section h4 {
+            margin-bottom: 10px;
+            color: #34495e;
+        }
+
+        .page-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 3px solid #95a5a6;
+        }
+
+        .page-info.winner {
+            background: #d4edda;
+            border-left-color: #27ae60;
+        }
+
+        .page-info.loser {
+            background: #fff3cd;
+            border-left-color: #f39c12;
+        }
+
+        .page-url {
+            font-family: monospace;
+            font-size: 13px;
+            color: #2c3e50;
+            margin-bottom: 8px;
+            word-break: break-all;
+        }
+
+        .page-metrics {
+            display: flex;
+            gap: 15px;
+            font-size: 13px;
+            color: #7f8c8d;
+        }
+
+        .option-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .option-item:hover {
+            background: #e9ecef;
+            border-color: #3498db;
+        }
+
+        .option-item.selected {
+            background: #e3f2fd;
+            border-color: #3498db;
+        }
+
+        .option-checkbox {
+            width: 24px;
+            height: 24px;
+            border: 2px solid #95a5a6;
+            border-radius: 4px;
+            flex-shrink: 0;
+        }
+
+        .option-item.selected .option-checkbox {
+            background: #3498db;
+            border-color: #3498db;
+            position: relative;
+        }
+
+        .option-item.selected .option-checkbox::after {
+            content: '✓';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-weight: bold;
+        }
+
+        .option-content {
+            flex: 1;
+        }
+
+        .option-label {
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .badge {
+            background: #27ae60;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            margin-left: 8px;
+        }
+
+        .action-buttons {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .download-section {
+            margin-top: 40px;
+            padding-top: 30px;
+            border-top: 2px solid #e9ecef;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 GSC Keyword Conflict Detector</h1>
+        <p class="subtitle">Detects when the same query ranks on multiple pages</p>
+
+        <!-- Setup -->
+        <div class="card" id="setupSection">
+            <h2>GitHub Authentication</h2>
+            <div class="input-group">
+                <label for="githubToken">GitHub Personal Access Token</label>
+                <input type="password" id="githubToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+            </div>
+            <button class="btn" onclick="startAnalysis()">Start Analysis</button>
+            <div class="status" id="setupStatus"></div>
+        </div>
+
+        <!-- Loading -->
+        <div class="loading" id="loadingSection">
+            <div class="spinner"></div>
+            <p id="loadingText">Loading data...</p>
+        </div>
+
+        <!-- Results -->
+        <div class="hidden" id="resultsSection">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-number" id="statTotal">0</div>
+                    <div class="stat-label">Total Conflicts</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="statHighPriority">0</div>
+                    <div class="stat-label">High Priority</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="statResolved">0</div>
+                    <div class="stat-label">Resolved</div>
+                </div>
+            </div>
+
+            <h2>Conflicts Found</h2>
+            <div id="conflictsList"></div>
+
+            <div class="download-section">
+                <button class="btn btn-secondary" onclick="downloadRegistry()">⬇️ Download Registry (Excel)</button>
+                <div class="status" id="downloadStatus"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script>
+        const GITHUB_REPO = 'aboutwallart/seo-tools';
+        const GITHUB_BRANCH = 'main';
+        const DATA_PATH = 'data';
+        
+        let githubToken = '';
+        let queries = [];
+        let pages = [];
+        let conflicts = [];
+        let registry = [];
+
+        // Load saved token
+        window.addEventListener('DOMContentLoaded', () => {
+            const saved = localStorage.getItem('github_token');
+            if (saved) document.getElementById('githubToken').value = saved;
+        });
+
+        async function startAnalysis() {
+            githubToken = document.getElementById('githubToken').value.trim();
+            
+            if (!githubToken) {
+                showStatus('setupStatus', 'Please enter your GitHub token', 'error');
+                return;
+            }
+            
+            localStorage.setItem('github_token', githubToken);
+            
+            document.getElementById('setupSection').style.display = 'none';
+            document.getElementById('loadingSection').style.display = 'block';
+            
+            try {
+                await loadData();
+                detectConflicts();
+                displayResults();
+                
+                document.getElementById('loadingSection').style.display = 'none';
+                document.getElementById('resultsSection').classList.remove('hidden');
+            } catch (error) {
+                document.getElementById('loadingSection').style.display = 'none';
+                document.getElementById('setupSection').style.display = 'block';
+                showStatus('setupStatus', 'Error: ' + error.message, 'error');
+            }
+        }
+
+        async function loadData() {
+            document.getElementById('loadingText').textContent = 'Loading Queries.csv...';
+            queries = await loadCSV('Queries.csv');
+            
+            document.getElementById('loadingText').textContent = 'Loading Pages.csv...';
+            pages = await loadCSV('Pages.csv');
+        }
+
+        async function loadCSV(filename) {
+            const url = `https://api.github.com/repos/${GITHUB_REPO}/contents/${DATA_PATH}/${filename}`;
+            const response = await fetch(url, {
+                headers: {
+                    'Authorization': `token ${githubToken}`,
+                    'Accept': 'application/vnd.github.v3.raw'
+                }
+            });
+            
+            if (!response.ok) throw new Error(`Failed to load ${filename}`);
+            
+            const text = await response.text();
+            return parseCSV(text);
+        }
+
+        function parseCSV(text) {
+            const lines = text.trim().split('\n');
+            if (lines.length === 0) return [];
+            
+            const headers = lines[0].split(',');
+            const data = [];
+            
+            for (let i = 1; i < lines.length; i++) {
+                if (!lines[i].trim()) continue;
+                const values = lines[i].split(',');
+                const row = {};
+                headers.forEach((h, idx) => row[h] = values[idx] || '');
+                data.push(row);
+            }
+            
+            return data;
+        }
+
+        function detectConflicts() {
+            document.getElementById('loadingText').textContent = 'Detecting conflicts...';
+            
+            // Pre-process queries
+            const queryData = queries.map(q => ({
+                keyword: (q['Top queries'] || '').toLowerCase().trim(),
+                words: (q['Top queries'] || '').toLowerCase().split(' ').filter(w => w.length > 3),
+                position: parseFloat(q['Position']) || 999,
+                clicks: parseInt(q['Clicks']) || 0,
+                impressions: parseInt(q['Impressions']) || 0
+            })).filter(q => q.keyword && q.words.length > 0);
+            
+            // Map: query -> pages
+            const queryToPages = new Map();
+            
+            pages.forEach(page => {
+                const url = (page['Top pages'] || '').trim();
+                if (!url) return;
+                
+                const urlLower = url.toLowerCase();
+                const position = parseFloat(page['Position']) || 999;
+                const clicks = parseInt(page['Clicks']) || 0;
+                const impressions = parseInt(page['Impressions']) || 0;
+                
+                queryData.forEach(query => {
+                    const matchCount = query.words.filter(w => urlLower.includes(w)).length;
+                    
+                    // 50%+ match
+                    if (matchCount / query.words.length >= 0.5) {
+                        if (!queryToPages.has(query.keyword)) {
+                            queryToPages.set(query.keyword, []);
+                        }
+                        
+                        queryToPages.get(query.keyword).push({
+                            url,
+                            position,
+                            clicks,
+                            impressions
+                        });
+                    }
+                });
+            });
+            
+            // Find conflicts (2+ pages per query)
+            conflicts = [];
+            
+            queryToPages.forEach((pageList, keyword) => {
+                if (pageList.length > 1) {
+                    // Remove duplicates
+                    const uniquePages = [];
+                    const seenUrls = new Set();
+                    
+                    pageList.forEach(p => {
+                        if (!seenUrls.has(p.url)) {
+                            seenUrls.add(p.url);
+                            uniquePages.push(p);
+                        }
+                    });
+                    
+                    if (uniquePages.length > 1) {
+                        uniquePages.sort((a, b) => a.position - b.position);
+                        
+                        const totalImpressions = uniquePages.reduce((sum, p) => sum + p.impressions, 0);
+                        
+                        conflicts.push({
+                            keyword,
+                            winner: uniquePages[0],
+                            losers: uniquePages.slice(1),
+                            priority: totalImpressions > 500 ? 'high' : 'medium',
+                            resolved: false,
+                            selectedOptions: {}
+                        });
+                    }
+                }
+            });
+            
+            // Sort by priority
+            conflicts.sort((a, b) => {
+                if (a.priority === 'high' && b.priority !== 'high') return -1;
+                if (a.priority !== 'high' && b.priority === 'high') return 1;
+                return 0;
+            });
+        }
+
+        function displayResults() {
+            document.getElementById('statTotal').textContent = conflicts.length;
+            document.getElementById('statHighPriority').textContent = conflicts.filter(c => c.priority === 'high').length;
+            document.getElementById('statResolved').textContent = 0;
+            
+            const container = document.getElementById('conflictsList');
+            container.innerHTML = '';
+            
+            if (conflicts.length === 0) {
+                container.innerHTML = '<p style="text-align: center; padding: 40px; color: #666;">No conflicts found! 🎉</p>';
+                return;
+            }
+            
+            conflicts.forEach((conflict, index) => {
+                container.appendChild(renderConflict(conflict, index));
+            });
+        }
+
+        function renderConflict(conflict, index) {
+            const card = document.createElement('div');
+            card.className = `conflict-card ${conflict.resolved ? 'resolved' : ''}`;
+            card.id = `conflict-${index}`;
+            
+            const priorityClass = conflict.priority === 'high' ? 'priority-high' : 'priority-medium';
+            
+            let html = `
+                <div class="conflict-header">
+                    <div class="conflict-keyword">"${conflict.keyword}"</div>
+                    <div class="priority-badge ${priorityClass}">${conflict.priority} priority</div>
+                </div>
+                
+                <p style="color: #7f8c8d; margin-bottom: 20px;">
+                    Google shows this query on ${conflict.losers.length + 1} pages
+                </p>
+                
+                <div class="page-section">
+                    <h4>✅ Winner - Lock Keyword Here</h4>
+                    <div class="page-info winner">
+                        <div class="page-url">${conflict.winner.url}</div>
+                        <div class="page-metrics">
+                            <span>Position: ${conflict.winner.position.toFixed(2)}</span>
+                            <span>Clicks: ${conflict.winner.clicks}</span>
+                            <span>Impressions: ${conflict.winner.impressions.toLocaleString()}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            conflict.losers.forEach((loser, loserIndex) => {
+                html += `
+                    <div class="page-section">
+                        <h4>⚠️ Loser ${conflict.losers.length > 1 ? loserIndex + 1 : ''} - Choose Action</h4>
+                        <div class="page-info loser">
+                            <div class="page-url">${loser.url}</div>
+                            <div class="page-metrics">
+                                <span>Position: ${loser.position.toFixed(2)}</span>
+                                <span>Clicks: ${loser.clicks}</span>
+                                <span>Impressions: ${loser.impressions.toLocaleString()}</span>
+                            </div>
+                        </div>
+                        
+                        <div style="margin-top: 15px;">
+                            <div class="option-item selected" onclick="selectOption(${index}, ${loserIndex}, 0)">
+                                <div class="option-checkbox" id="check-${index}-${loserIndex}-0"></div>
+                                <div class="option-content">
+                                    <div class="option-label">🔗 Add internal link to winner <span class="badge">RECOMMENDED</span></div>
+                                </div>
+                            </div>
+                            
+                            <div class="option-item" onclick="selectOption(${index}, ${loserIndex}, 1)">
+                                <div class="option-checkbox" id="check-${index}-${loserIndex}-1"></div>
+                                <div class="option-content">
+                                    <div class="option-label">🔍 Change keyword later</div>
+                                </div>
+                            </div>
+                            
+                            <div class="option-item" onclick="selectOption(${index}, ${loserIndex}, 2)">
+                                <div class="option-checkbox" id="check-${index}-${loserIndex}-2"></div>
+                                <div class="option-content">
+                                    <div class="option-label">↗️ 301 Redirect to winner</div>
+                                </div>
+                            </div>
+                            
+                            <div class="option-item" onclick="selectOption(${index}, ${loserIndex}, 3)">
+                                <div class="option-checkbox" id="check-${index}-${loserIndex}-3"></div>
+                                <div class="option-content">
+                                    <div class="option-label">Keep as is</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += `
+                <div class="action-buttons">
+                    <button class="btn" onclick="resolveConflict(${index})">✓ Apply Selection</button>
+                </div>
+            `;
+            
+            card.innerHTML = html;
+            
+            // Pre-select internal link
+            conflict.losers.forEach((_, loserIndex) => {
+                conflict.selectedOptions[loserIndex] = { optionIndex: 0, type: 'internal_link' };
+            });
+            
+            return card;
+        }
+
+        function selectOption(conflictIndex, loserIndex, optionIndex) {
+            const prefix = `check-${conflictIndex}-${loserIndex}`;
+            
+            // Clear all
+            for (let i = 0; i < 4; i++) {
+                const el = document.getElementById(`${prefix}-${i}`);
+                if (el) el.parentElement.classList.remove('selected');
+            }
+            
+            // Select this
+            const selected = document.getElementById(`${prefix}-${optionIndex}`);
+            if (selected) selected.parentElement.classList.add('selected');
+            
+            const types = ['internal_link', 'find_later', 'redirect', 'keep'];
+            conflicts[conflictIndex].selectedOptions[loserIndex] = {
+                optionIndex,
+                type: types[optionIndex]
+            };
+        }
+
+        function resolveConflict(index) {
+            const conflict = conflicts[index];
+            
+            // Check all selected
+            for (let i = 0; i < conflict.losers.length; i++) {
+                if (!conflict.selectedOptions[i]) {
+                    alert('Please select an option for each loser');
+                    return;
+                }
+            }
+            
+            conflict.resolved = true;
+            
+            const card = document.getElementById(`conflict-${index}`);
+            card.classList.add('resolved');
+            
+            const banner = document.createElement('div');
+            banner.style.cssText = 'background: #d4edda; border: 2px solid #28a745; color: #155724; padding: 15px; border-radius: 6px; margin-top: 20px; font-weight: 600; text-align: center;';
+            banner.textContent = '✓ Resolved - Added to Registry';
+            card.appendChild(banner);
+            
+            document.getElementById('statResolved').textContent = conflicts.filter(c => c.resolved).length;
+            
+            addToRegistry(conflict);
+        }
+
+        function addToRegistry(conflict) {
+            // Winner
+            registry.push({
+                keyword: conflict.keyword,
+                page_url: conflict.winner.url,
+                status: 'LOCKED',
+                position: conflict.winner.position,
+                clicks: conflict.winner.clicks,
+                impressions: conflict.winner.impressions,
+                notes: 'Winner',
+                date: new Date().toISOString().split('T')[0]
+            });
+            
+            // Losers
+            conflict.losers.forEach((loser, idx) => {
+                const selection = conflict.selectedOptions[idx];
+                const statusMap = {
+                    internal_link: 'INTERNAL_LINK',
+                    find_later: 'FIND_LATER',
+                    redirect: 'REDIRECT',
+                    keep: 'ACTIVE'
+                };
+                
+                const notesMap = {
+                    internal_link: `Add internal link to: ${conflict.winner.url}`,
+                    find_later: 'Find replacement keyword',
+                    redirect: `301 redirect to: ${conflict.winner.url}`,
+                    keep: 'Keep as is'
+                };
+                
+                registry.push({
+                    keyword: conflict.keyword,
+                    page_url: loser.url,
+                    status: statusMap[selection.type],
+                    position: loser.position,
+                    clicks: loser.clicks,
+                    impressions: loser.impressions,
+                    notes: notesMap[selection.type],
+                    date: new Date().toISOString().split('T')[0]
+                });
+            });
+        }
+
+        function downloadRegistry() {
+            if (registry.length === 0) {
+                showStatus('downloadStatus', 'No conflicts resolved yet', 'error');
+                return;
+            }
+            
+            const ws = XLSX.utils.json_to_sheet(registry);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Registry');
+            XLSX.writeFile(wb, 'keyword_registry_gsc.xlsx');
+            
+            showStatus('downloadStatus', 'Downloaded!', 'success');
+        }
+
+        function showStatus(id, message, type) {
+            const el = document.getElementById(id);
+            el.textContent = message;
+            el.className = `status ${type}`;
+        }
+    </script>
+</body>
+</html>
