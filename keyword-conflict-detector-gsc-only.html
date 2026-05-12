@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GSC Keyword Conflict Detector</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f7fa;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #7f8c8d;
+            margin-bottom: 30px;
+        }
+
+        .setup-section {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #34495e;
+        }
+
+        input[type="password"], input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .btn {
+            background: #3498db;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .btn:hover {
+            background: #2980b9;
+        }
+
+        .btn-secondary {
+            background: #95a5a6;
+        }
+
+        .btn-secondary:hover {
+            background: #7f8c8d;
+        }
+
+        .status {
+            margin-top: 15px;
+            padding: 12px;
+            border-radius: 6px;
+            display: none;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            display: block;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            display: block;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            display: none;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .results-section {
+            display: none;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .stat-number {
+            font-size: 32px;
+            font-weight: 700;
+            color: #3498db;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+
+        .conflict-card {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            border-left: 4px solid #e74c3c;
+        }
+
+        .conflict-card.resolved {
+            opacity: 0.6;
+            border-left-color: #27ae60;
+        }
+
+        .conflict-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .conflict-keyword {
+            font-size: 18px;
+            font-weight: 600;
+            color: #e74c3c;
+        }
+
+        .priority-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .priority-high {
+            background: #fee;
+            color: #c0392b;
+        }
+
+        .priority-medium {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .page-section {
+            margin-bottom: 20px;
+        }
+
+        .page-section h4 {
+            margin-bottom: 10px;
+            color: #34495e;
+        }
+
+        .page-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 3px solid #95a5a6;
+        }
+
+        .page-info.winner {
+            background: #d4edda;
+            border-left-color: #27ae60;
+        }
+
+        .page-info.loser {
+            background: #fff3cd;
+            border-left-color: #f39c12;
+        }
+
+        .page-url {
+            font-family: monospace;
+            font-size: 13px;
+            color: #2c3e50;
+            margin-bottom: 8px;
+            word-break: break-all;
+        }
+
+        .page-metrics {
+            display: flex;
+            gap: 15px;
+            font-size: 13px;
+            color: #7f8c8d;
+        }
+
+        .options-section {
+            margin: 20px 0;
+        }
+
+        .option-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .option-item:hover {
+            background: #e9ecef;
+            border-color: #3498db;
+        }
+
+        .option-item.selected {
+            background: #e3f2fd;
+            border-color: #3498db;
+        }
+
+        .option-checkbox {
+            width: 24px;
+            height: 24px;
+            border: 2px solid #95a5a6;
+            border-radius: 4px;
+            flex-shrink: 0;
+        }
+
+        .option-item.selected .option-checkbox {
+            background: #3498db;
+            border-color: #3498db;
+            position: relative;
+        }
+
+        .option-item.selected .option-checkbox::after {
+            content: '✓';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-weight: bold;
+        }
+
+        .option-content {
+            flex: 1;
+        }
+
+        .option-keyword {
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .badge {
+            background: #27ae60;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            margin-left: 8px;
+        }
+
+        .option-metrics {
+            font-size: 13px;
+            color: #7f8c8d;
+            display: flex;
+            gap: 15px;
+        }
+
+        .action-buttons {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .download-section {
+            margin-top: 40px;
+            padding-top: 30px;
+            border-top: 2px solid #e9ecef;
+            text-align: center;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .info-box {
+            background: #e3f2fd;
+            border: 1px solid #90caf9;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+
+        .info-box strong {
+            color: #1976d2;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 GSC Keyword Conflict Detector</h1>
+        <p class="subtitle">Detects keyword cannibalization based on Google Search Console data</p>
+
+        <div class="info-box">
+            <strong>📊 How This Works:</strong><br>
+            This tool analyzes your Google Search Console data (Queries.csv + Pages.csv) to find when the same search query ranks on multiple pages. This is confirmed cannibalization from Google's perspective.
+        </div>
+
+        <!-- Setup Section -->
+        <div class="setup-section" id="setupSection">
+            <h2>GitHub Authentication</h2>
+            <div class="input-group">
+                <label for="githubToken">GitHub Personal Access Token</label>
+                <input type="password" id="githubToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+                <small style="color: #666; display: block; margin-top: 5px;">
+                    Your token is stored locally in your browser and never sent anywhere except GitHub API.
+                </small>
+            </div>
+            <button class="btn" onclick="startAnalysis()">Start Analysis</button>
+            <div class="status" id="setupStatus"></div>
+        </div>
+
+        <!-- Loading -->
+        <div class="loading" id="loadingSection">
+            <div class="spinner"></div>
+            <p>Loading GSC data and detecting conflicts...</p>
+            <p style="color: #666; margin-top: 10px;" id="loadingDetails">Initializing...</p>
+        </div>
+
+        <!-- Results -->
+        <div class="results-section" id="resultsSection">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-number" id="statTotal">0</div>
+                    <div class="stat-label">Total Conflicts</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="statHighPriority">0</div>
+                    <div class="stat-label">High Priority</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="statResolved">0</div>
+                    <div class="stat-label">Resolved</div>
+                </div>
+            </div>
+
+            <h2>Conflicts Found</h2>
+            <div id="conflictsList"></div>
+
+            <div class="download-section">
+                <h3>Export Results</h3>
+                <button class="btn" onclick="saveRegistry()">💾 Save Registry to GitHub</button>
+                <button class="btn btn-secondary" onclick="downloadRegistry()">⬇️ Download Registry (Excel)</button>
+                <div class="status" id="saveStatus"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script>
+        // Configuration
+        const GITHUB_REPO = 'aboutwallart/seo-tools';
+        const GITHUB_BRANCH = 'main';
+        const DATA_PATH = 'data';
+        
+        // GitHub raw URL base
+        const RAW_BASE = `https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_BRANCH}/${DATA_PATH}`;
+        
+        // Global state
+        let githubToken = localStorage.getItem('github_token') || '';
+        let gscData = {
+            queries: [],
+            pages: []
+        };
+        let conflicts = [];
+        let registry = [];
+
+        // Initialize
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedToken = localStorage.getItem('github_token');
+            if (savedToken) {
+                document.getElementById('githubToken').value = savedToken;
+            }
+        });
+
+        // Start analysis
+        async function startAnalysis() {
+            githubToken = document.getElementById('githubToken').value.trim();
+            
+            if (!githubToken) {
+                showStatus('setupStatus', 'Please enter your GitHub token', 'error');
+                return;
+            }
+            
+            localStorage.setItem('github_token', githubToken);
+            
+            document.getElementById('setupSection').style.display = 'none';
+            document.getElementById('loadingSection').style.display = 'block';
+            
+            try {
+                await loadGSCData();
+                detectConflicts();
+                displayResults();
+                
+                document.getElementById('loadingSection').style.display = 'none';
+                document.getElementById('resultsSection').style.display = 'block';
+            } catch (error) {
+                document.getElementById('loadingSection').style.display = 'none';
+                document.getElementById('setupSection').style.display = 'block';
+                showStatus('setupStatus', 'Error: ' + error.message, 'error');
+            }
+        }
+
+        // Load GSC data from GitHub
+        async function loadGSCData() {
+            updateLoadingDetails('Loading Queries.csv...');
+            const queriesResponse = await fetch(`${RAW_BASE}/Queries.csv`);
+            const queriesText = await queriesResponse.text();
+            gscData.queries = parseCSV(queriesText);
+            
+            updateLoadingDetails('Loading Pages.csv...');
+            const pagesResponse = await fetch(`${RAW_BASE}/Pages.csv`);
+            const pagesText = await pagesResponse.text();
+            gscData.pages = parseCSV(pagesText);
+        }
+
+        // Parse CSV - optimized for large files
+        function parseCSV(text) {
+            const lines = text.trim().split('\n');
+            if (lines.length === 0) return [];
+            
+            // Parse header
+            const headers = lines[0].split(',');
+            const data = [];
+            
+            // Parse rows (skip header)
+            for (let i = 1; i < lines.length; i++) {
+                if (!lines[i].trim()) continue;
+                
+                const values = lines[i].split(',');
+                const row = {};
+                
+                for (let j = 0; j < headers.length; j++) {
+                    row[headers[j]] = values[j] || '';
+                }
+                
+                data.push(row);
+            }
+            
+            return data;
+        }
+
+        // Update loading message
+        function updateLoadingDetails(message) {
+            document.getElementById('loadingDetails').textContent = message;
+        }
+
+        // Detect conflicts from GSC data
+        function detectConflicts() {
+            updateLoadingDetails('Analyzing GSC data for conflicts...');
+            
+            // Build a map: query -> [pages that rank for it]
+            const queryToPages = new Map();
+            
+            // Pre-process queries for faster lookup
+            const queryData = gscData.queries.map(q => ({
+                keyword: (q['Top queries'] || '').toLowerCase().trim(),
+                words: (q['Top queries'] || '').toLowerCase().split(' ').filter(w => w.length > 3),
+                position: parseFloat(q['Position']) || 999,
+                clicks: parseInt(q['Clicks']) || 0,
+                impressions: parseInt(q['Impressions']) || 0
+            })).filter(q => q.keyword);
+            
+            // Process Pages.csv - match with queries
+            gscData.pages.forEach((page, idx) => {
+                if (idx % 100 === 0) {
+                    updateLoadingDetails(`Processing pages... ${idx}/${gscData.pages.length}`);
+                }
+                
+                const url = (page['Top pages'] || '').trim();
+                if (!url) return;
+                
+                const urlLower = url.toLowerCase();
+                const position = parseFloat(page['Position']) || 999;
+                const clicks = parseInt(page['Clicks']) || 0;
+                const impressions = parseInt(page['Impressions']) || 0;
+                
+                // Match with queries
+                queryData.forEach(query => {
+                    if (!query.words.length) return;
+                    
+                    const matchCount = query.words.filter(word => urlLower.includes(word)).length;
+                    
+                    // If 50%+ of query words are in URL
+                    if (matchCount / query.words.length >= 0.5) {
+                        if (!queryToPages.has(query.keyword)) {
+                            queryToPages.set(query.keyword, []);
+                        }
+                        
+                        queryToPages.get(query.keyword).push({
+                            url,
+                            position,
+                            clicks,
+                            impressions,
+                            queryPosition: query.position,
+                            queryClicks: query.clicks,
+                            queryImpressions: query.impressions
+                        });
+                    }
+                });
+            });
+            
+            // Find conflicts: queries with 2+ pages
+            conflicts = [];
+            
+            queryToPages.forEach((pages, keyword) => {
+                if (pages.length > 1) {
+                    // Remove duplicates
+                    const uniquePages = [];
+                    const seenUrls = new Set();
+                    
+                    pages.forEach(page => {
+                        if (!seenUrls.has(page.url)) {
+                            seenUrls.add(page.url);
+                            uniquePages.push(page);
+                        }
+                    });
+                    
+                    if (uniquePages.length > 1) {
+                        // Sort by position (best first)
+                        uniquePages.sort((a, b) => a.position - b.position);
+                        
+                        const winner = uniquePages[0];
+                        const losers = uniquePages.slice(1);
+                        
+                        // Calculate priority based on impressions
+                        const totalImpressions = uniquePages.reduce((sum, p) => sum + p.impressions, 0);
+                        const priority = totalImpressions > 500 ? 'high' : 'medium';
+                        
+                        conflicts.push({
+                            keyword,
+                            winner,
+                            losers,
+                            priority,
+                            resolved: false,
+                            selectedOptions: {}
+                        });
+                    }
+                }
+            });
+            
+            // Sort by priority
+            conflicts.sort((a, b) => {
+                if (a.priority === 'high' && b.priority !== 'high') return -1;
+                if (a.priority !== 'high' && b.priority === 'high') return 1;
+                return 0;
+            });
+        }
+
+        // Display results
+        function displayResults() {
+            document.getElementById('statTotal').textContent = conflicts.length;
+            document.getElementById('statHighPriority').textContent = conflicts.filter(c => c.priority === 'high').length;
+            document.getElementById('statResolved').textContent = 0;
+            
+            const container = document.getElementById('conflictsList');
+            container.innerHTML = '';
+            
+            if (conflicts.length === 0) {
+                container.innerHTML = '<p style="text-align: center; padding: 40px; color: #666;">No conflicts detected in your GSC data! 🎉</p>';
+                return;
+            }
+            
+            conflicts.forEach((conflict, index) => {
+                container.appendChild(renderConflictCard(conflict, index));
+            });
+        }
+
+        // Render conflict card
+        function renderConflictCard(conflict, index) {
+            const card = document.createElement('div');
+            card.className = `conflict-card ${conflict.resolved ? 'resolved' : ''}`;
+            card.id = `conflict-${index}`;
+            
+            const priorityClass = conflict.priority === 'high' ? 'priority-high' : 'priority-medium';
+            
+            card.innerHTML = `
+                <div class="conflict-header">
+                    <div class="conflict-keyword">"${conflict.keyword}"</div>
+                    <div class="priority-badge ${priorityClass}">${conflict.priority} priority</div>
+                </div>
+                
+                <p style="color: #7f8c8d; margin-bottom: 20px;">
+                    🔍 Google shows this query ranking on ${conflict.losers.length + 1} different pages
+                </p>
+                
+                <div class="page-section">
+                    <h4>✅ Winner - Lock Keyword Here</h4>
+                    <div class="page-info winner">
+                        <div class="page-url">${conflict.winner.url}</div>
+                        <div class="page-metrics">
+                            <span>📍 Position: ${conflict.winner.position.toFixed(2)}</span>
+                            <span>👆 Clicks: ${conflict.winner.clicks}</span>
+                            <span>👁️ Impressions: ${conflict.winner.impressions.toLocaleString()}</span>
+                        </div>
+                    </div>
+                </div>
+                
+                ${conflict.losers.map((loser, loserIndex) => `
+                    <div class="page-section">
+                        <h4>⚠️ Loser ${conflict.losers.length > 1 ? loserIndex + 1 : ''} - Choose Action</h4>
+                        <div class="page-info loser">
+                            <div class="page-url">${loser.url}</div>
+                            <div class="page-metrics">
+                                <span>📍 Position: ${loser.position.toFixed(2)}</span>
+                                <span>👆 Clicks: ${loser.clicks}</span>
+                                <span>👁️ Impressions: ${loser.impressions.toLocaleString()}</span>
+                            </div>
+                        </div>
+                        
+                        <div class="options-section" id="options-${index}-${loserIndex}">
+                            <h4>Choose what to do with this page:</h4>
+                            
+                            <div class="option-item selected" onclick="selectOption(${index}, ${loserIndex}, 0, 'internal_link')">
+                                <div class="option-checkbox selected" id="checkbox-${index}-${loserIndex}-0"></div>
+                                <div class="option-content">
+                                    <div class="option-keyword">🔗 Add internal link to winner <span class="badge">RECOMMENDED</span></div>
+                                    <div class="option-metrics">
+                                        <span style="color: #666;">Keep page, link to winner for SEO authority</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="option-item" onclick="selectOption(${index}, ${loserIndex}, 1, 'find_later')">
+                                <div class="option-checkbox" id="checkbox-${index}-${loserIndex}-1"></div>
+                                <div class="option-content">
+                                    <div class="option-keyword">🔍 Change keyword later</div>
+                                    <div class="option-metrics">
+                                        <span style="color: #666;">Mark for manual keyword research</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="option-item" onclick="selectOption(${index}, ${loserIndex}, 2, 'redirect')">
+                                <div class="option-checkbox" id="checkbox-${index}-${loserIndex}-2"></div>
+                                <div class="option-content">
+                                    <div class="option-keyword">↗️ 301 Redirect to winner</div>
+                                    <div class="option-metrics">
+                                        <span style="color: #666;">Permanently redirect this page</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="option-item" onclick="selectOption(${index}, ${loserIndex}, 3, 'keep')">
+                                <div class="option-checkbox" id="checkbox-${index}-${loserIndex}-3"></div>
+                                <div class="option-content">
+                                    <div class="option-keyword">Keep as is (no change)</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `).join('')}
+                
+                <div class="action-buttons">
+                    <button class="btn" onclick="applyConflictResolution(${index})">
+                        ✓ Apply Selection${conflict.losers.length > 1 ? 's' : ''}
+                    </button>
+                </div>
+            `;
+            
+            // Pre-select internal link option
+            setTimeout(() => {
+                conflict.losers.forEach((_, loserIndex) => {
+                    if (!conflict.selectedOptions[loserIndex]) {
+                        conflict.selectedOptions[loserIndex] = {
+                            optionIndex: 0,
+                            actionType: 'internal_link'
+                        };
+                    }
+                });
+            }, 100);
+            
+            return card;
+        }
+
+        // Select option
+        function selectOption(conflictIndex, loserIndex, optionIndex, actionType) {
+            const prefix = `checkbox-${conflictIndex}-${loserIndex}`;
+            const allCheckboxes = document.querySelectorAll(`[id^="${prefix}"]`);
+            
+            allCheckboxes.forEach(cb => {
+                cb.parentElement.classList.remove('selected');
+                cb.classList.remove('selected');
+            });
+            
+            const checkbox = document.getElementById(`${prefix}-${optionIndex}`);
+            checkbox.parentElement.classList.add('selected');
+            checkbox.classList.add('selected');
+            
+            if (!conflicts[conflictIndex].selectedOptions) {
+                conflicts[conflictIndex].selectedOptions = {};
+            }
+            conflicts[conflictIndex].selectedOptions[loserIndex] = {
+                optionIndex,
+                actionType
+            };
+        }
+
+        // Apply conflict resolution
+        function applyConflictResolution(conflictIndex) {
+            const conflict = conflicts[conflictIndex];
+            
+            for (let i = 0; i < conflict.losers.length; i++) {
+                if (!conflict.selectedOptions[i]) {
+                    alert(`Please select an option for Loser ${conflict.losers.length > 1 ? i + 1 : ''}`);
+                    return;
+                }
+            }
+            
+            conflict.resolved = true;
+            
+            const card = document.getElementById(`conflict-${conflictIndex}`);
+            card.classList.add('resolved');
+            
+            const successBanner = document.createElement('div');
+            successBanner.style.cssText = 'background: #d4edda; border: 2px solid #28a745; color: #155724; padding: 15px; border-radius: 6px; margin-top: 20px; font-weight: 600; text-align: center;';
+            successBanner.innerHTML = '✓ Conflict Resolved - Added to Registry';
+            card.appendChild(successBanner);
+            
+            document.getElementById('statResolved').textContent = conflicts.filter(c => c.resolved).length;
+            
+            addToRegistry(conflict);
+        }
+
+        // Add to registry
+        function addToRegistry(conflict) {
+            // Add winner
+            registry.push({
+                keyword: conflict.keyword,
+                page_url: conflict.winner.url,
+                status: 'LOCKED',
+                position: conflict.winner.position,
+                clicks: conflict.winner.clicks,
+                impressions: conflict.winner.impressions,
+                notes: 'Winner - GSC confirmed conflict',
+                date: new Date().toISOString().split('T')[0]
+            });
+            
+            // Add losers
+            conflict.losers.forEach((loser, index) => {
+                const selection = conflict.selectedOptions[index];
+                const actionType = selection.actionType;
+                
+                let status = 'ACTIVE';
+                let notes = '';
+                
+                if (actionType === 'internal_link') {
+                    status = 'INTERNAL_LINK';
+                    notes = `Add internal link to winner: ${conflict.winner.url}`;
+                } else if (actionType === 'find_later') {
+                    status = 'FIND_LATER';
+                    notes = 'Marked for manual keyword research';
+                } else if (actionType === 'redirect') {
+                    status = 'REDIRECT';
+                    notes = `301 redirect to: ${conflict.winner.url}`;
+                } else {
+                    notes = 'Kept as is - user choice';
+                }
+                
+                registry.push({
+                    keyword: conflict.keyword,
+                    page_url: loser.url,
+                    status,
+                    position: loser.position,
+                    clicks: loser.clicks,
+                    impressions: loser.impressions,
+                    notes,
+                    date: new Date().toISOString().split('T')[0]
+                });
+            });
+        }
+
+        // Download registry as Excel
+        function downloadRegistry() {
+            if (registry.length === 0) {
+                alert('No conflicts resolved yet. Resolve at least one conflict first.');
+                return;
+            }
+            
+            const ws = XLSX.utils.json_to_sheet(registry);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Registry');
+            XLSX.writeFile(wb, 'keyword_registry_gsc.xlsx');
+        }
+
+        // Save registry to GitHub
+        async function saveRegistry() {
+            if (registry.length === 0) {
+                showStatus('saveStatus', 'No conflicts resolved yet', 'error');
+                return;
+            }
+            
+            const ws = XLSX.utils.json_to_sheet(registry);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Registry');
+            const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+            
+            try {
+                const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/output/keyword_registry_gsc.xlsx`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `token ${githubToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        message: 'Update GSC keyword registry',
+                        content: wbout,
+                        branch: GITHUB_BRANCH
+                    })
+                });
+                
+                if (response.ok) {
+                    showStatus('saveStatus', 'Registry saved to GitHub successfully!', 'success');
+                } else {
+                    throw new Error('GitHub API error');
+                }
+            } catch (error) {
+                showStatus('saveStatus', 'Error saving to GitHub: ' + error.message, 'error');
+            }
+        }
+
+        // Show status message
+        function showStatus(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.className = `status ${type}`;
+        }
+    </script>
+</body>
+</html>
