@@ -53,7 +53,6 @@
             <button class="tab active" onclick="switchTab('add')">➕ Add URLs</button>
             <button class="tab" onclick="switchTab('gsc')">📊 GSC Import</button>
             <button class="tab" onclick="switchTab('pages')">📋 My Pages (<span id="pageCount">0</span>)</button>
-            <button class="tab" onclick="switchTab('optimized')">✅ Optimized (<span id="optimizedCount">0</span>)</button>
         </div>
 
         <!-- ADD URLs TAB -->
@@ -95,12 +94,6 @@ https://aboutwallart.com/pages/birthday-gifts"></textarea>
                 <button class="btn-secondary" onclick="removeDuplicates()">🧹 Remove Duplicates</button>
             </div>
             <div id="urlList"></div>
-        </div>
-
-        <!-- OPTIMIZED PAGES TAB -->
-        <div class="tab-content" id="optimizedTab">
-            <p style="color: #666; margin-bottom: 20px;">Pages you've marked as optimized with locked keywords</p>
-            <div id="optimizedList"></div>
         </div>
     </div>
 
@@ -155,50 +148,6 @@ https://aboutwallart.com/pages/birthday-gifts"></textarea>
         let urls = JSON.parse(localStorage.getItem('moneyPageUrls') || '[]');
         let currentUrl = null;
         let currentResults = null;
-        let lockedKeywords = []; // Loaded from GitHub
-
-        // Load locked keywords on page load
-        async function loadLockedKeywords() {
-            try {
-                const response = await fetch('https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keyword-master-registry.csv');
-                const csvText = await response.text();
-                
-                const lines = csvText.split('\n');
-                const keywords = [];
-                
-                for (let i = 1; i < lines.length; i++) { // Skip header
-                    const cols = lines[i].split(',');
-                    if (cols[0] && cols[0].trim()) {
-                        keywords.push({
-                            keyword: cols[0].trim(),
-                            action: cols[1] ? cols[1].trim() : '',
-                            winningUrl: cols[2] ? cols[2].trim() : '',
-                            losingUrls: cols[3] ? cols[3].trim() : '',
-                            clicks: cols[4] ? cols[4].trim() : '',
-                            impressions: cols[5] ? cols[5].trim() : '',
-                            ctr: cols[6] ? cols[6].trim() : '',
-                            position: cols[7] ? cols[7].trim() : '',
-                            dateResolved: cols[8] ? cols[8].trim() : ''
-                        });
-                    }
-                }
-                
-                lockedKeywords = keywords;
-                console.log(`[Locked Keywords] Loaded ${lockedKeywords.length} locked keywords from GitHub`);
-                
-            } catch (error) {
-                console.error('[Locked Keywords] Error loading:', error);
-            }
-        }
-
-        // Check if keyword is locked
-        function isKeywordLocked(keyword) {
-            const keywordLower = keyword.toLowerCase();
-            return lockedKeywords.find(kw => kw.keyword.toLowerCase() === keywordLower);
-        }
-
-        // Load on startup
-        loadLockedKeywords();
 
         function switchTab(tab) {
             document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
@@ -252,14 +201,8 @@ https://aboutwallart.com/pages/birthday-gifts"></textarea>
 
         function renderUrls() {
             const list = document.getElementById('urlList');
-            
-            // Filter out optimized pages
-            const activeUrls = urls.filter(u => !u.optimized);
-            
-            if (activeUrls.length === 0) {
-                list.innerHTML = '<p style="text-align:center; color:#666; padding:40px;">No URLs yet. Add them in the "Add URLs" tab or all pages are optimized!</p>';
-                updatePageCount();
-                renderOptimizedUrls();
+            if (urls.length === 0) {
+                list.innerHTML = '<p style="text-align:center; color:#666; padding:40px;">No URLs yet. Add them in the "Add URLs" tab.</p>';
                 return;
             }
 
@@ -279,7 +222,7 @@ https://aboutwallart.com/pages/birthday-gifts"></textarea>
             });
             
             // Sort URLs: Quick Wins first, then by ID (newest first)
-            const sortedUrls = [...activeUrls].sort((a, b) => {
+            const sortedUrls = [...urls].sort((a, b) => {
                 const aData = gscMap[a.url.toLowerCase()];
                 const bData = gscMap[b.url.toLowerCase()];
                 
@@ -315,13 +258,7 @@ https://aboutwallart.com/pages/birthday-gifts"></textarea>
                         ${displayKeyword ? `<div style="font-size: 0.85rem; color: #1976d2; margin-bottom: 3px;">🎯 Keyword: "${displayKeyword}"</div>` : ''}
                         ${gscInfo ? `<div style="font-size: 0.85rem; color: #ff9800;">Position: ${gscInfo.position.toFixed(1)} ${isQuickWin ? '• QUICK WIN' : ''}</div>` : ''}
                     </div>
-                    <div style="display: flex; gap: 10px; align-items: center;">
-                        ${item.keyword ? `
-                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.9rem;">
-                                <input type="checkbox" onchange="toggleOptimized(${item.id})" style="width: 18px; height: 18px; cursor: pointer;">
-                                <span>Mark Optimized</span>
-                            </label>
-                        ` : ''}
+                    <div style="display: flex; gap: 10px;">
                         ${item.analyzed ? `
                             <button class="btn-secondary" onclick="viewResults(${item.id})">📊 View</button>
                         ` : ''}
@@ -330,125 +267,10 @@ https://aboutwallart.com/pages/birthday-gifts"></textarea>
                     </div>
                 </div>
             `}).join('');
-            
-            updatePageCount();
-            renderOptimizedUrls();
         }
 
         function updatePageCount() {
-            const activeCount = urls.filter(u => !u.optimized).length;
-            const optimizedCount = urls.filter(u => u.optimized).length;
-            document.getElementById('pageCount').textContent = activeCount;
-            document.getElementById('optimizedCount').textContent = optimizedCount;
-        }
-
-        function toggleOptimized(id) {
-            const item = urls.find(u => u.id === id);
-            if (!item) return;
-
-            if (!item.keyword) {
-                alert('⚠️ This page needs a keyword before marking as optimized.\n\nAnalyze it first or add a keyword manually.');
-                renderUrls();
-                return;
-            }
-
-            // Check if keyword is already locked to a different URL
-            const locked = isKeywordLocked(item.keyword);
-            if (locked && locked.winningUrl !== item.url) {
-                alert(`⚠️ Keyword "${item.keyword}" is already locked to:\n${locked.winningUrl}\n\nCannot lock to multiple pages.`);
-                renderUrls();
-                return;
-            }
-
-            const confirmed = confirm(`Mark "${item.url}" as OPTIMIZED?\n\nThis will:\n✅ Lock keyword "${item.keyword}" to this page\n📦 Move to "Optimized" tab\n🔒 Prevent other tools from suggesting this keyword\n\nYou can undo this later.`);
-            
-            if (!confirmed) {
-                renderUrls();
-                return;
-            }
-
-            // Mark as optimized
-            item.optimized = true;
-            item.optimizedDate = new Date().toISOString();
-
-            // Add to locked keywords
-            if (!locked) {
-                lockedKeywords.push({
-                    keyword: item.keyword,
-                    action: 'Optimized by Money Page Optimizer',
-                    winningUrl: item.url,
-                    losingUrls: '',
-                    clicks: '',
-                    impressions: '',
-                    ctr: '',
-                    position: '',
-                    dateResolved: new Date().toISOString().split('T')[0]
-                });
-            }
-
-            localStorage.setItem('moneyPageUrls', JSON.stringify(urls));
-            renderUrls();
-            alert(`✅ Success!\n\n"${item.keyword}" is now locked to this page.\n\nMoved to "Optimized" tab.`);
-        }
-
-        function renderOptimizedUrls() {
-            const list = document.getElementById('optimizedList');
-            const optimizedUrls = urls.filter(u => u.optimized);
-
-            if (optimizedUrls.length === 0) {
-                list.innerHTML = '<p style="text-align:center; color:#666; padding:40px;">No optimized pages yet.</p>';
-                return;
-            }
-
-            list.innerHTML = optimizedUrls.map(item => `
-                <div class="url-item" style="background: #e8f5e9; border-left: 4px solid #4caf50;">
-                    <div style="flex: 1;">
-                        <div style="font-weight: 500; margin-bottom: 5px;">
-                            ✅ ${item.url}
-                        </div>
-                        <div style="font-size: 0.85rem; color: #2e7d32; margin-bottom: 3px;">
-                            🔒 Locked Keyword: "${item.keyword}"
-                        </div>
-                        <div style="font-size: 0.85rem; color: #666;">
-                            Optimized: ${new Date(item.optimizedDate).toLocaleDateString()}
-                        </div>
-                    </div>
-                    <div style="display: flex; gap: 10px;">
-                        <button class="btn-secondary" onclick="unmarkOptimized(${item.id})">↩️ Undo</button>
-                        ${item.analyzed ? `<button class="btn-secondary" onclick="viewResults(${item.id})">📊 View</button>` : ''}
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        function unmarkOptimized(id) {
-            const item = urls.find(u => u.id === id);
-            if (!item) return;
-
-            const confirmed = confirm(`Remove "${item.keyword}" from optimized?\n\nThis will:\n❌ Unlock the keyword\n📦 Move back to "My Pages"\n⚠️ Other tools can suggest this keyword again`);
-            
-            if (!confirmed) return;
-
-            // Remove optimized flag
-            item.optimized = false;
-            delete item.optimizedDate;
-
-            // Remove from locked keywords
-            const index = lockedKeywords.findIndex(kw => kw.keyword.toLowerCase() === item.keyword.toLowerCase() && kw.winningUrl === item.url);
-            if (index !== -1) {
-                lockedKeywords.splice(index, 1);
-            }
-
-            localStorage.setItem('moneyPageUrls', JSON.stringify(urls));
-            renderUrls();
-            alert(`✅ "${item.keyword}" unlocked and moved back to "My Pages".`);
-        }
-
-        function updatePageCount() {
-            const activeCount = urls.filter(u => !u.optimized).length;
-            const optimizedCount = urls.filter(u => u.optimized).length;
-            document.getElementById('pageCount').textContent = activeCount;
-            document.getElementById('optimizedCount').textContent = optimizedCount;
+            document.getElementById('pageCount').textContent = urls.length;
         }
 
         function previewImage(input) {
@@ -488,15 +310,6 @@ https://aboutwallart.com/pages/birthday-gifts"></textarea>
             if (!keyword) {
                 alert('Please enter a main keyword');
                 return;
-            }
-
-            // Check if keyword is locked
-            const locked = isKeywordLocked(keyword);
-            if (locked && locked.winningUrl !== currentUrl.url) {
-                const proceed = confirm(`⚠️ WARNING: "${keyword}" is LOCKED to:\n${locked.winningUrl}\n\nThis means another page is already optimized for this keyword.\n\nDo you still want to analyze? (Not recommended)`);
-                if (!proceed) {
-                    return;
-                }
             }
 
             // Get image if uploaded
