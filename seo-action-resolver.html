@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SEO Action Resolver</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f9fafb;
+        }
+        #root {
+            min-height: 100vh;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        const { Settings, Link, RefreshCw, ExternalLink, Download, CheckCircle, AlertCircle, Loader } = lucide;
+
+        const SEOActionResolver = () => {
+            const [githubToken, setGithubToken] = useState('');
+            const [showSettings, setShowSettings] = useState(false);
+            const [activeTab, setActiveTab] = useState('link');
+            const [loading, setLoading] = useState(false);
+            const [message, setMessage] = useState({ type: '', text: '' });
+            const [registryData, setRegistryData] = useState([]);
+            const [competitorKeywords, setCompetitorKeywords] = useState([]);
+            
+            const GITHUB_REPO = 'aboutwallart/seo-tools';
+            const REGISTRY_PATH = 'data/keyword-master-registry.csv';
+            const COMPETITOR_FILES = [
+                'data/keywords_gap for abstracthouse.com.csv',
+                'data/keywords_gap for eastendprints.co.uk.csv',
+                'data/keywords_gap for posterlounge.co.uk.csv'
+            ];
+
+            useEffect(() => {
+                const savedToken = localStorage.getItem('github_token');
+                if (savedToken) {
+                    setGithubToken(savedToken);
+                } else {
+                    setShowSettings(true);
+                }
+            }, []);
+
+            const saveToken = () => {
+                localStorage.setItem('github_token', githubToken);
+                setShowSettings(false);
+                setMessage({ type: 'success', text: 'GitHub token saved successfully!' });
+                setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+            };
+
+            const fetchCSV = async (path) => {
+                const response = await fetch(
+                    `https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`,
+                    {
+                        headers: githubToken ? {
+                            'Authorization': `token ${githubToken}`,
+                            'Accept': 'application/vnd.github.v3.raw'
+                        } : {
+                            'Accept': 'application/vnd.github.v3.raw'
+                        }
+                    }
+                );
+                if (!response.ok) throw new Error(`Failed to fetch ${path}`);
+                return await response.text();
+            };
+
+            const parseCSV = (text) => {
+                const lines = text.trim().split('\n');
+                const headers = lines[0].split(',').map(h => h.trim());
+                return lines.slice(1).map(line => {
+                    const values = line.split(',');
+                    const obj = {};
+                    headers.forEach((header, i) => {
+                        obj[header] = values[i] ? values[i].trim() : '';
+                    });
+                    return obj;
+                });
+            };
+
+            const loadRegistry = async () => {
+                setLoading(true);
+                try {
+                    const csvText = await fetchCSV(REGISTRY_PATH);
+                    const data = parseCSV(csvText);
+                    setRegistryData(data);
+                    setMessage({ type: 'success', text: 'Registry loaded successfully!' });
+                } catch (error) {
+                    setMessage({ type: 'error', text: `Error loading registry: ${error.message}` });
+                }
+                setLoading(false);
+            };
+
+            const loadCompetitorKeywords = async () => {
+                setLoading(true);
+                try {
+                    const allKeywords = [];
+                    for (const file of COMPETITOR_FILES) {
+                        const csvText = await fetchCSV(file);
+                        const data = parseCSV(csvText);
+                        allKeywords.push(...data);
+                    }
+                    setCompetitorKeywords(allKeywords);
+                    setMessage({ type: 'success', text: 'Competitor keywords loaded!' });
+                } catch (error) {
+                    setMessage({ type: 'error', text: `Error loading keywords: ${error.message}` });
+                }
+                setLoading(false);
+            };
+
+            const handleLinkAction = async () => {
+                setLoading(true);
+                try {
+                    const csvText = await fetchCSV(REGISTRY_PATH);
+                    const lines = csvText.trim().split('\n');
+                    let headers = lines[0].split(',').map(h => h.trim());
+                    
+                    if (!headers.includes('Anchor Text')) {
+                        headers.push('Anchor Text');
+                    }
+                    if (!headers.includes('Link URL')) {
+                        headers.push('Link URL');
+                    }
+
+                    const processedLines = [headers.join(',')];
+                    const data = parseCSV(csvText);
+                    
+                    data.forEach(row => {
+                        if (row.Status === 'DONE' && row.Action === 'LINK') {
+                            const keepPage = data.find(r => 
+                                r.Keyword === row.Keyword && 
+                                r.LOCKED === 'LOCKED' && 
+                                r.Action === 'KEEP'
+                            );
+                            
+                            if (keepPage) {
+                                row['Anchor Text'] = row.Keyword;
+                                row['Link URL'] = keepPage['Page URL'];
+                            }
+                        }
+                        
+                        const values = headers.map(h => row[h] || '');
+                        processedLines.push(values.join(','));
+                    });
+
+                    const updatedCSV = processedLines.join('\n');
+                    
+                    const fileResponse = await fetch(
+                        `https://api.github.com/repos/${GITHUB_REPO}/contents/${REGISTRY_PATH}`,
+                        {
+                            headers: {
+                                'Authorization': `token ${githubToken}`,
+                                'Accept': 'application/vnd.github.v3+json'
+                            }
+                        }
+                    );
+                    const fileData = await fileResponse.json();
+                    
+                    const updateResponse = await fetch(
+                        `https://api.github.com/repos/${GITHUB_REPO}/contents/${REGISTRY_PATH}`,
+                        {
+                            method: 'PUT',
+                            headers: {
+                                'Authorization': `token ${githubToken}`,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                message: 'Add anchor text and link URLs for LINK actions',
+                                content: btoa(unescape(encodeURIComponent(updatedCSV))),
+                                sha: fileData.sha
+                            })
+                        }
+                    );
+
+                    if (updateResponse.ok) {
+                        setMessage({ type: 'success', text: 'LINK actions processed and GitHub updated!' });
+                        await loadRegistry();
+                    } else {
+                        throw new Error('Failed to update GitHub');
+                    }
+                } catch (error) {
+                    setMessage({ type: 'error', text: `Error: ${error.message}` });
+                }
+                setLoading(false);
+            };
+
+            const handleRedirectAction = () => {
+                const redirectRows = registryData.filter(
+                    row => row.Status === 'DONE' && row.Action === 'REDIRECT'
+                );
+
+                const csvLines = ['Redirect from,Redirect to'];
+                
+                redirectRows.forEach(row => {
+                    const keepPage = registryData.find(r => 
+                        r.Keyword === row.Keyword && 
+                        r.LOCKED === 'LOCKED' && 
+                        r.Action === 'KEEP'
+                    );
+                    
+                    if (keepPage) {
+                        csvLines.push(`${row['Page URL']},${keepPage['Page URL']}`);
+                    }
+                });
+
+                const csvContent = csvLines.join('\n');
+                const blob = new Blob([csvContent], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'shopify-redirects.csv';
+                a.click();
+                
+                setMessage({ type: 'success', text: `Generated ${redirectRows.length} redirects!` });
+            };
+
+            const getSuggestedKeywords = (pageUrl) => {
+                const urlLower = pageUrl.toLowerCase();
+                const contextWords = urlLower.match(/[a-z]+/g) || [];
+                
+                const scoredKeywords = competitorKeywords.map(kw => {
+                    const kwLower = (kw.Keyword || '').toLowerCase();
+                    const kwWords = kwLower.split(/\s+/);
+                    
+                    let score = 0;
+                    contextWords.forEach(word => {
+                        if (kwWords.some(kw => kw.includes(word) || word.includes(kw))) {
+                            score += 2;
+                        }
+                    });
+                    
+                    const volume = parseInt(kw.Volume || 0);
+                    score += Math.log10(volume + 1);
+                    
+                    const difficulty = parseInt(kw['SEO Difficulty'] || 0);
+                    score -= difficulty / 20;
+                    
+                    return { 
+                        keyword: kw.Keyword,
+                        volume: kw.Volume,
+                        visits: kw['Estimated Visits'],
+                        difficulty: kw['SEO Difficulty'],
+                        score 
+                    };
+                });
+
+                return scoredKeywords
+                    .filter(kw => kw.score > 0)
+                    .sort((a, b) => b.score - a.score)
+                    .slice(0, 4);
+            };
+
+            const LinkTab = () => {
+                const linkRows = registryData.filter(
+                    row => row.Status === 'DONE' && row.Action === 'LINK'
+                );
+
+                return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h3 style={{ fontSize: '1.125rem', fontWeight: '600' }}>LINK Actions ({linkRows.length})</h3>
+                            <button
+                                onClick={handleLinkAction}
+                                disabled={loading || linkRows.length === 0}
+                                style={{
+                                    padding: '0.5rem 1rem',
+                                    background: loading || linkRows.length === 0 ? '#93c5fd' : '#2563eb',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '0.375rem',
+                                    cursor: loading || linkRows.length === 0 ? 'not-allowed' : 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.5rem'
+                                }}
+                            >
+                                {loading ? <Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <Link size={16} />}
+                                Process All Links
+                            </button>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                            {linkRows.length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '2rem', color: '#6b7280' }}>
+                                    No LINK actions pending
+                                </div>
+                            ) : (
+                                linkRows.map((row, idx) => {
+                                    const keepPage = registryData.find(r => 
+                                        r.Keyword === row.Keyword && 
+                                        r.LOCKED === 'LOCKED' &&
+                                        r.Action === 'KEEP'
+                                    );
+
+                                    return (
+                                        <div key={idx} style={{ border: '1px solid #e5e7eb', borderRadius: '0.5rem', padding: '1rem', background: 'white', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                                <div>
+                                                    <span style={{ fontWeight: '600', fontSize: '0.875rem', color: '#4b5563' }}>Keyword:</span>
+                                                    <span style={{ marginLeft: '0.5rem', fontWeight: '500' }}>{row.Keyword}</span>
+                                                </div>
+                                                <div>
+                                                    <span style={{ fontWeight: '600', fontSize: '0.875rem', color: '#4b5563' }}>Add link on page:</span>
+                                                    <a href={row['Page URL']} target="_blank" rel="noopener noreferrer" style={{ marginLeft: '0.5rem', color: '#2563eb', textDecoration: 'none', fontSize: '0.875rem' }}>
+                                                        {row['Page URL']}
+                                                    </a>
+                                                </div>
+                                                {keepPage && (
+                                                    <>
+                                                        <div style={{ background: '#f0fdf4', padding: '0.75rem', borderRadius: '0.375rem', border: '1px solid #bbf7d0' }}>
+                                                            <div style={{ fontWeight: '600', fontSize: '0.875rem', color: '#4b5563', marginBottom: '0.25rem' }}>Anchor Text:</div>
+                                                            <code style={{ background: 'white', padding: '0.25rem 0.5rem', borderRadius: '0.25rem', border: '1px solid #e5e7eb' }}>{row.Keyword}</code>
+                                                        </div>
+                                                        <div style={{ background: '#eff6ff', padding: '0.75rem', borderRadius: '0.375rem', border: '1px solid #bfdbfe' }}>
+                                                            <div style={{ fontWeight: '600', fontSize: '0.875rem', color: '#4b5563', marginBottom: '0.25rem' }}>Link to (winner page):</div>
+                                                            <a href={keepPage['Page URL']} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'none', fontSize: '0.875rem', wordBreak: 'break-all' }}>
+                                                                {keepPage['Page URL']}
+                                                            </a>
+                                                        </div>
+                                                    </>
+                                                )}
+                                                {!keepPage && (
+                                                    <div style={{ background: '#fef2f2', padding: '0.75rem', borderRadius: '0.375rem', border: '1px solid #fecaca', fontSize: '0.875rem', color: '#b91c1c' }}>
+                                                        ⚠️ No KEEP page found for this keyword
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            )}
+                        </div>
+                    </div>
+                );
+            };
+
+            const RedirectTab = () => {
+                const redirectRows = registryData.filter(
+                    row => row.Status === 'DONE' && row.Action === 'REDIRECT'
+                );
+
+                return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h3 style={{ fontSize: '1.125rem', fontWeight: '600' }}>REDIRECT Actions ({redirectRows.length})</h3>
+                            <button
+                                onClick={handleRedirectAction}
+                                disabled={redirectRows.length === 0}
+                                style={{
+                                    padding: '0.5rem 1rem',
+                                    background: redirectRows.length === 0 ? '#c4b5fd' : '#7c3aed',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '0.375rem',
+                                    cursor: redirectRows.length === 0 ? 'not-allowed' : 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.5rem'
+                                }}
+                            >
+                                <Download size={16} />
+                                Download Shopify Redirects CSV
+                            </button>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                            {redirectRows.length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '2rem', color: '#6b7280' }}>
+                                    No REDIRECT actions pending
+                                </div>
+                            ) : (
+                                redirectRows.map((row, idx) => {
+                                    const keepPage = registryData.find(r => 
+                                        r.Keyword === row.Keyword && 
+                                        r.LOCKED === 'LOCKED' &&
+                                        r.Action === 'KEEP'
+                                    );
+
+                                    return (
+                                        <div key={idx} style={{ border: '1px solid #e5e7eb', borderRadius: '0.5rem', padding: '1rem', background: 'white', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                                <div>
+                                                    <span style={{ fontWeight: '600', fontSize: '0.875rem', color: '#4b5563' }}>Keyword:</span>
+                                                    <span style={{ marginLeft: '0.5rem', fontWeight: '500' }}>{row.Keyword}</span>
+                                                </div>
+                                                <div style={{ background: '#fef2f2', padding: '0.75rem', borderRadius: '0.375rem', border: '1px solid #fecaca' }}>
+                                                    <div style={{ fontWeight: '600', fontSize: '0.875rem', color: '#4b5563', marginBottom: '0.25rem' }}>Redirect from:</div>
+                                                    <div style={{ fontSize: '0.875rem', wordBreak: 'break-all' }}>{row['Page URL']}</div>
+                                                </div>
+                                                {keepPage && (
+                                                    <div style={{ background: '#f0fdf4', padding: '0.75rem', borderRadius: '0.375rem', border: '1px solid #bbf7d0' }}>
+                                                        <div style={{ fontWeight: '600', fontSize: '0.875rem', color: '#4b5563', marginBottom: '0.25rem' }}>Redirect to (winner page):</div>
+                                                        <a href={keepPage['Page URL']} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'none', fontSize: '0.875rem', wordBreak: 'break-all' }}>
+                                                            {keepPage['Page URL']}
+                                                        </a>
+                                                    </div>
+                                                )}
+                                                {!keepPage && (
+                                                    <div style={{ background: '#fef2f2', padding: '0.75rem', borderRadius: '0.375rem', border: '1px solid #fecaca', fontSize: '0.875rem', color: '#b91c1c' }}>
+                                                        ⚠️ No KEEP page found for this keyword
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            )}
+                        </div>
+                    </div>
+                );
+            };
+
+            const RepurposeTab = () => {
+                const [selectedKeywords, setSelectedKeywords] = useState({});
+                const [customKeywords, setCustomKeywords] = useState({});
+                const [processing, setProcessing] = useState(false);
+
+                const repurposeRows = registryData.filter(
+                    row => row.Status === 'DONE' && row.Action === 'REPURPOSE'
+                );
+
+                const handleKeywordSelect = (rowIdx, keyword) => {
+                    setSelectedKeywords(prev => ({ ...prev, [rowIdx]: keyword }));
+                    setCustomKeywords(prev => {
+                        const updated = { ...prev };
+                        delete updated[rowIdx];
+                        return updated;
+                    });
+                };
+
+                const handleCustomKeyword = (rowIdx, value) => {
+                    setCustomKeywords(prev => ({ ...prev, [rowIdx]: value }));
+                    setSelectedKeywords(prev => {
+                        const updated = { ...prev };
+                        delete updated[rowIdx];
+                        return updated;
+                    });
+                };
+
+                const handleSubmitRepurpose = async (rowIdx) => {
+                    const row = repurposeRows[rowIdx];
+                    const newKeyword = selectedKeywords[rowIdx] || customKeywords[rowIdx];
+                    
+                    if (!newKeyword) {
+                        setMessage({ type: 'error', text: 'Please select or enter a keyword' });
+                        return;
+                    }
+
+                    setProcessing(true);
+                    try {
+                        const csvText = await fetchCSV(REGISTRY_PATH);
+                        const lines = csvText.trim().split('\n');
+                        const headers = lines[0].split(',').map(h => h.trim());
+                        
+                        const updatedLines = [lines[0]];
+                        const data = parseCSV(csvText);
+                        
+                        data.forEach(r => {
+                            if (r['Page URL'] === row['Page URL'] && r.Keyword === row.Keyword) {
+                                r.Keyword = newKeyword;
+                                r.LOCKED = 'LOCKED';
+                                r.Status = 'PENDING';
+                                r.Action = 'TO_OPTIMIZE';
+                            }
+                            
+                            const values = headers.map(h => r[h] || '');
+                            updatedLines.push(values.join(','));
+                        });
+
+                        const updatedCSV = updatedLines.join('\n');
+                        
+                        const fileResponse = await fetch(
+                            `https://api.github.com/repos/${GITHUB_REPO}/contents/${REGISTRY_PATH}`,
+                            {
+                                headers: {
+                                    'Authorization': `token ${githubToken}`,
+                                    'Accept': 'application/vnd.github.v3+json'
+                                }
+                            }
+                        );
+                        const fileData = await fileResponse.json();
+                        
+                        await fetch(
+                            `https://api.github.com/repos/${GITHUB_REPO}/contents/${REGISTRY_PATH}`,
+                            {
+                                method: 'PUT',
+                                headers: {
+                                    'Authorization': `token ${githubToken}`,
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    message: `Repurpose: ${row['Page URL']} → ${newKeyword}`,
+                                    content: btoa(unescape(encodeURIComponent(updatedCSV))),
+                                    sha: fileData.sha
+                                })
+                            }
+                        );
+
+                        setMessage({ type: 'success', text: 'Page marked for optimization!' });
+                        await loadRegistry();
+                        
+                        setSelectedKeywords(prev => {
+                            const updated = { ...prev };
+                            delete updated[rowIdx];
+                            return updated;
+                        });
+                        setCustomKeywords(prev => {
+                            const updated = { ...prev };
+                            delete updated[rowIdx];
+                            return updated;
+                        });
+                    } catch (error) {
+                        setMessage({ type: 'error', text: `Error: ${error.message}` });
+                    }
+                    setProcessing(false);
+                };
+
+                return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h3 style={{ fontSize: '1.125rem', fontWeight: '600' }}>REPURPOSE Actions ({repurposeRows.length})</h3>
+                            {competitorKeywords.length === 0 && (
+                                <button
+                                    onClick={loadCompetitorKeywords}
+                                    disabled={loading}
+                                    style={{
+                                        padding: '0.5rem 1rem',
+                                        background: loading ? '#a5b4fc' : '#4f46e5',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '0.375rem',
+                                        cursor: loading ? 'not-allowed' : 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '0.5rem'
+                                    }}
+                                >
+                                    {loading ? <Loader size={16} /> : <RefreshCw size={16} />}
+                                    Load Competitor Keywords
+                                </button>
+                            )}
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                            {repurposeRows.length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '2rem', color: '#6b7280' }}>
+                                    No REPURPOSE actions pending
+                                </div>
+                            ) : (
+                                repurposeRows.map((row, idx) => {
+                                    const suggestions = competitorKeywords.length > 0 ? getSuggestedKeywords(row['Page URL']) : [];
+                                    const hasSelection = selectedKeywords[idx] || customKeywords[idx];
+
+                                    return (
+                                        <div key={idx} style={{ border: '1px solid #e5e7eb', borderRadius: '0.5rem', padding: '1rem', background: 'white', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                                <div>
+                                                    <span style={{ fontWeight: '600', fontSize: '0.875rem', color: '#4b5563' }}>Current Keyword:</span>
+                                                    <span style={{ marginLeft: '0.5rem', fontWeight: '500' }}>{row.Keyword}</span>
+                                                </div>
+                                                <div>
+                                                    <span style={{ fontWeight: '600', fontSize: '0.875rem', color: '#4b5563' }}>Page URL:</span>
+                                                    <a href={row['Page URL']} target="_blank" rel="noopener noreferrer" style={{ marginLeft: '0.5rem', color: '#2563eb', textDecoration: 'none', fontSize: '0.875rem', wordBreak: 'break-all' }}>
+                                                        {row['Page URL']}
+                                                    </a>
+                                                </div>
+
+                                                {suggestions.length > 0 ? (
+                                                    <>
+                                                        <div style={{ fontWeight: '600', fontSize: '0.875rem', color: '#374151', marginTop: '1rem' }}>Suggested Keywords:</div>
+                                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '0.5rem' }}>
+                                                            {suggestions.map((kw, kwIdx) => (
+                                                                <button
+                                                                    key={kwIdx}
+                                                                    onClick={() => handleKeywordSelect(idx, kw.keyword)}
+                                                                    style={{
+                                                                        padding: '0.75rem',
+                                                                        border: selectedKeywords[idx] === kw.keyword ? '2px solid #3b82f6' : '2px solid #e5e7eb',
+                                                                        borderRadius: '0.5rem',
+                                                                        textAlign: 'left',
+                                                                        background: selectedKeywords[idx] === kw.keyword ? '#eff6ff' : 'white',
+                                                                        cursor: 'pointer',
+                                                                        transition: 'all 0.2s'
+                                                                    }}
+                                                                >
+                                                                    <div style={{ fontWeight: '500', fontSize: '0.875rem', marginBottom: '0.25rem' }}>{kw.keyword}</div>
+                                                                    <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.75rem', color: '#4b5563' }}>
+                                                                        <span>Vol: {kw.volume}</span>
+                                                                        <span>Visits: {kw.visits}</span>
+                                                                        <span>Diff: {kw.difficulty}</span>
+                                                                    </div>
+                                                                </button>
+                                                            ))}
+                                                        </div>
+
+                                                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.75rem' }}>
+                                                            <button
+                                                                onClick={() => handleKeywordSelect(idx, null)}
+                                                                style={{
+                                                                    padding: '0.5rem 0.75rem',
+                                                                    border: selectedKeywords[idx] === null ? '2px solid #6b7280' : '2px solid #e5e7eb',
+                                                                    borderRadius: '0.25rem',
+                                                                    fontSize: '0.875rem',
+                                                                    background: selectedKeywords[idx] === null ? '#f9fafb' : 'white',
+                                                                    cursor: 'pointer'
+                                                                }}
+                                                            >
+                                                                None of these
+                                                            </button>
+                                                            <span style={{ color: '#6b7280', fontSize: '0.875rem' }}>or</span>
+                                                            <input
+                                                                type="text"
+                                                                placeholder="Enter custom keyword"
+                                                                value={customKeywords[idx] || ''}
+                                                                onChange={(e) => handleCustomKeyword(idx, e.target.value)}
+                                                                style={{
+                                                                    flex: 1,
+                                                                    padding: '0.5rem 0.75rem',
+                                                                    border: '2px solid #e5e7eb',
+                                                                    borderRadius: '0.25rem',
+                                                                    fontSize: '0.875rem',
+                                                                    outline: 'none'
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    </>
+                                                ) : (
+                                                    <div style={{ background: '#fefce8', padding: '0.75rem', borderRadius: '0.375rem', border: '1px solid #fde047', fontSize: '0.875rem' }}>
+                                                        Load competitor keywords to see suggestions
+                                                    </div>
+                                                )}
+
+                                                {hasSelection && (
+                                                    <button
+                                                        onClick={() => handleSubmitRepurpose(idx)}
+                                                        disabled={processing}
+                                                        style={{
+                                                            width: '100%',
+                                                            marginTop: '0.75rem',
+                                                            padding: '0.5rem 1rem',
+                                                            background: processing ? '#86efac' : '#16a34a',
+                                                            color: 'white',
+                                                            border: 'none',
+                                                            borderRadius: '0.375rem',
+                                                            cursor: processing ? 'not-allowed' : 'pointer',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            gap: '0.5rem'
+                                                        }}
+                                                    >
+                                                        {processing ? <Loader size={16} /> : <CheckCircle size={16} />}
+                                                        Mark for Optimization
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            )}
+                        </div>
+                    </div>
+                );
+            };
+
+            return (
+                <div style={{ minHeight: '100vh', background: '#f9fafb', padding: '1.5rem' }}>
+                    <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
+                        {/* Header */}
+                        <div style={{ background: 'white', borderRadius: '0.5rem', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)', padding: '1.5rem', marginBottom: '1.5rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                    <h1 style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#1f2937' }}>SEO Action Resolver</h1>
+                                    <p style={{ color: '#6b7280', fontSize: '0.875rem', marginTop: '0.25rem' }}>Handle LINK, REDIRECT, and REPURPOSE actions</p>
+                                </div>
+                                <button
+                                    onClick={() => setShowSettings(!showSettings)}
+                                    style={{ padding: '0.5rem', background: 'transparent', border: 'none', cursor: 'pointer', borderRadius: '0.375rem' }}
+                                >
+                                    <Settings size={24} />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Settings Panel */}
+                        {showSettings && (
+                            <div style={{ background: 'white', borderRadius: '0.5rem', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)', padding: '1.5rem', marginBottom: '1.5rem' }}>
+                                <h2 style={{ fontSize: '1.125rem', fontWeight: '600', marginBottom: '1rem' }}>Settings</h2>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: '500', color: '#374151', marginBottom: '0.5rem' }}>
+                                            GitHub Personal Access Token
+                                        </label>
+                                        <input
+                                            type="password"
+                                            value={githubToken}
+                                            onChange={(e) => setGithubToken(e.target.value)}
+                                            placeholder="ghp_xxxxxxxxxxxxx"
+                                            style={{ width: '100%', padding: '0.5rem 0.75rem', border: '1px solid #d1d5db', borderRadius: '0.375rem', outline: 'none' }}
+                                        />
+                                        <p style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '0.25rem' }}>
+                                            Required for updating the keyword registry. Get one at{' '}
+                                            <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'none' }}>
+                                                GitHub Settings
+                                            </a>
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={saveToken}
+                                        style={{ padding: '0.5rem 1rem', background: '#2563eb', color: 'white', border: 'none', borderRadius: '0.375rem', cursor: 'pointer' }}
+                                    >
+                                        Save Token
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Message Banner */}
+                        {message.text && (
+                            <div style={{
+                                borderRadius: '0.5rem',
+                                padding: '1rem',
+                                marginBottom: '1.5rem',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.5rem',
+                                background: message.type === 'success' ? '#f0fdf4' : message.type === 'error' ? '#fef2f2' : '#eff6ff',
+                                color: message.type === 'success' ? '#166534' : message.type === 'error' ? '#991b1b' : '#1e40af',
+                                border: message.type === 'success' ? '1px solid #bbf7d0' : message.type === 'error' ? '1px solid #fecaca' : '1px solid #bfdbfe'
+                            }}>
+                                {message.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
+                                {message.text}
+                            </div>
+                        )}
+
+                        {/* Load Registry Button */}
+                        {registryData.length === 0 && (
+                            <div style={{ background: 'white', borderRadius: '0.5rem', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)', padding: '1.5rem', marginBottom: '1.5rem', textAlign: 'center' }}>
+                                <button
+                                    onClick={loadRegistry}
+                                    disabled={loading || !githubToken}
+                                    style={{
+                                        padding: '0.75rem 1.5rem',
+                                        background: loading || !githubToken ? '#93c5fd' : '#2563eb',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '0.5rem',
+                                        cursor: loading || !githubToken ? 'not-allowed' : 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '0.5rem'
+                                    }}
+                                >
+                                    {loading ? <Loader size={20} /> : <ExternalLink size={20} />}
+                                    Load Keyword Registry from GitHub
+                                </button>
+                                {!githubToken && (
+                                    <p style={{ fontSize: '0.875rem', color: '#6b7280', marginTop: '0.5rem' }}>Please set your GitHub token first</p>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Tabs */}
+                        {registryData.length > 0 && (
+                            <>
+                                <div style={{ background: 'white', borderRadius: '0.5rem', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)', marginBottom: '1.5rem' }}>
+                                    <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb' }}>
+                                        <button
+                                            onClick={() => setActiveTab('link')}
+                                            style={{
+                                                flex: 1,
+                                                padding: '0.75rem 1.5rem',
+                                                fontWeight: '500',
+                                                background: 'transparent',
+                                                border: 'none',
+                                                borderBottom: activeTab === 'link' ? '2px solid #2563eb' : 'none',
+                                                color: activeTab === 'link' ? '#2563eb' : '#6b7280',
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                gap: '0.5rem'
+                                            }}
+                                        >
+                                            <Link size={18} />
+                                            LINK Actions
+                                        </button>
+                                        <button
+                                            onClick={() => setActiveTab('redirect')}
+                                            style={{
+                                                flex: 1,
+                                                padding: '0.75rem 1.5rem',
+                                                fontWeight: '500',
+                                                background: 'transparent',
+                                                border: 'none',
+                                                borderBottom: activeTab === 'redirect' ? '2px solid #7c3aed' : 'none',
+                                                color: activeTab === 'redirect' ? '#7c3aed' : '#6b7280',
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                gap: '0.5rem'
+                                            }}
+                                        >
+                                            <ExternalLink size={18} />
+                                            REDIRECT Actions
+                                        </button>
+                                        <button
+                                            onClick={() => setActiveTab('repurpose')}
+                                            style={{
+                                                flex: 1,
+                                                padding: '0.75rem 1.5rem',
+                                                fontWeight: '500',
+                                                background: 'transparent',
+                                                border: 'none',
+                                                borderBottom: activeTab === 'repurpose' ? '2px solid #4f46e5' : 'none',
+                                                color: activeTab === 'repurpose' ? '#4f46e5' : '#6b7280',
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                gap: '0.5rem'
+                                            }}
+                                        >
+                                            <RefreshCw size={18} />
+                                            REPURPOSE Actions
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div style={{ background: 'white', borderRadius: '0.5rem', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)', padding: '1.5rem' }}>
+                                    {activeTab === 'link' && <LinkTab />}
+                                    {activeTab === 'redirect' && <RedirectTab />}
+                                    {activeTab === 'repurpose' && <RepurposeTab />}
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<SEOActionResolver />, document.getElementById('root'));
+    </script>
+    
+    <style>
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</body>
+</html>
