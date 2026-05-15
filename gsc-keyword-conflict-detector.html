@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GSC Keyword Conflict Resolver - Auto-Save</title>
+    <title>GSC Keyword Conflict Resolver - Fixed Auto-Save</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -345,7 +345,7 @@
     <div class="container">
         <div class="header">
             <h1>🎯 Keyword Conflict Resolver</h1>
-            <p>✨ Auto-saves to GitHub • Ignores URL variants (query parameters)</p>
+            <p>✨ Auto-saves to GitHub • Ignores URL variants</p>
         </div>
         
         <div class="setup-section">
@@ -394,7 +394,7 @@
         let queriesData = [];
         let pagesData = [];
         let conflictsData = [];
-        let allConflictPages = {};
+        let allConflictPages = {}; // ALL conflicts, including resolved ones
         let resolutionRegistry = {};
         let lockedKeywords = {};
         let currentGitHubSHA = null;
@@ -418,10 +418,8 @@
         function normalizeURL(url) {
             try {
                 const urlObj = new URL(url);
-                // Return just protocol + hostname + pathname (no query params, no hash, no trailing slash)
                 return (urlObj.protocol + '//' + urlObj.hostname + urlObj.pathname).replace(/\/$/, '');
             } catch (e) {
-                // If URL parsing fails, just remove query string manually
                 return url.split('?')[0].split('#')[0].replace(/\/$/, '');
             }
         }
@@ -543,7 +541,7 @@
         }
 
         function findAllConflicts() {
-            allConflictPages = {};
+            allConflictPages = {}; // This will store ALL conflicts permanently
             const topQueries = queriesData.slice(0, 250);
             
             const filteredPages = pagesData.filter(p => {
@@ -560,7 +558,7 @@
                 
                 if (!urlMap.has(normalizedUrl)) {
                     urlMap.set(normalizedUrl, {
-                        url: originalUrl, // Keep the original URL (first variant found)
+                        url: originalUrl,
                         normalizedUrl: normalizedUrl,
                         keywords: getKeywords(normalizedUrl),
                         clicks: parseInt(p['Clicks']) || 0,
@@ -569,11 +567,9 @@
                         position: parseFloat(p['Position']) || 0
                     });
                 } else {
-                    // Aggregate metrics from variants
                     const existing = urlMap.get(normalizedUrl);
                     existing.clicks += parseInt(p['Clicks']) || 0;
                     existing.impressions += parseInt(p['Impressions']) || 0;
-                    // Average position
                     const newPosition = parseFloat(p['Position']) || 0;
                     if (newPosition > 0) {
                         existing.position = (existing.position + newPosition) / 2;
@@ -602,7 +598,6 @@
                     }
                 }
                 
-                // ONLY create conflict if there are 2+ DIFFERENT base URLs
                 if (matches.length >= 2) {
                     matches.forEach(page => {
                         const relevanceScore = page.matchScore;
@@ -613,6 +608,7 @@
                     
                     matches.sort((a, b) => b.aiScore - a.aiScore);
                     
+                    // STORE ALL CONFLICTS PERMANENTLY - never remove them
                     allConflictPages[keyword] = {
                         keyword,
                         clicks: parseInt(query['Clicks']) || 0,
@@ -653,6 +649,8 @@
         }
 
         function rebuildConflictsData() {
+            // This only builds the DISPLAY list (active conflicts)
+            // but allConflictPages still contains everything for GitHub export
             conflictsData = [];
             
             Object.values(allConflictPages).forEach(conflict => {
@@ -665,7 +663,7 @@
                 });
                 
                 if (hasLockedWinner) {
-                    return;
+                    return; // Skip from DISPLAY only
                 }
                 
                 const availablePages = conflict.allPages.filter(page => {
@@ -683,30 +681,6 @@
                 
                 if (availablePages.length >= 2) {
                     const topAvailable = availablePages.slice(0, 5);
-                    
-                    topAvailable.forEach((page, idx) => {
-                        const key = `${keyword}|||${page.url}`;
-                        
-                        if (!resolutionRegistry[key] || !resolutionRegistry[key].action) {
-                            if (!resolutionRegistry[key]) resolutionRegistry[key] = {};
-                            
-                            if (idx === 0) {
-                                resolutionRegistry[key].action = 'keep';
-                            } else {
-                                const relevance = page.matchScore;
-                                const clicks = page.clicks;
-                                const position = page.position;
-                                
-                                if (relevance >= 80 && clicks >= 20 && position <= 10) {
-                                    resolutionRegistry[key].action = 'repurpose';
-                                } else if (relevance < 60 && clicks < 10 && position > 15) {
-                                    resolutionRegistry[key].action = 'redirect';
-                                } else {
-                                    resolutionRegistry[key].action = 'link';
-                                }
-                            }
-                        }
-                    });
                     
                     conflictsData.push({
                         keyword: conflict.keyword,
@@ -819,10 +793,11 @@
             showAutoSaveIndicator('💾 Saving to GitHub...', 'saving');
             
             try {
-                // Build the full registry data
+                // Build CSV from ALL conflicts (including resolved ones)
                 const data = [];
                 const processedKeywords = new Set();
                 
+                // IMPORTANT: Use allConflictPages which contains EVERYTHING
                 Object.values(allConflictPages).forEach(conflict => {
                     const keyword = conflict.keyword;
                     const keywordLower = keyword.toLowerCase();
@@ -862,6 +837,7 @@
                     });
                 });
                 
+                // Also add locked keywords that don't have conflicts
                 Object.entries(lockedKeywords).forEach(([keyword, info]) => {
                     if (!processedKeywords.has(keyword)) {
                         data.push({
@@ -879,6 +855,10 @@
                 });
                 
                 // Convert to CSV
+                if (data.length === 0) {
+                    throw new Error('No data to save');
+                }
+                
                 const headers = Object.keys(data[0]);
                 let csv = headers.join(',') + '\n';
                 data.forEach(row => {
@@ -919,9 +899,8 @@
                 
                 if (response.ok) {
                     showAutoSaveIndicator('✅ Saved to GitHub!', 'success');
-                    saveQueue.shift(); // Remove processed item
+                    saveQueue.shift();
                     
-                    // Process next item in queue
                     setTimeout(() => processGitHubSaveQueue(), 1000);
                 } else {
                     const error = await response.json();
@@ -931,7 +910,7 @@
             } catch (error) {
                 console.error('GitHub save error:', error);
                 showAutoSaveIndicator('❌ Save failed: ' + error.message, 'error');
-                saveQueue = []; // Clear queue on error
+                saveQueue = [];
                 isSaving = false;
             }
         }
@@ -1048,7 +1027,7 @@
                                     <div class="stat-item"><strong>Position:</strong> <span>${p.position.toFixed(1)}</span></div>
                                 </div>
                                 <div class="action-selector">
-                                    <button class="action-btn keep ${currentAction === 'keep' ? 'selected' : ''}" 
+                                    <button class="action-btn keep ${currentAction === 'keep' || currentAction === 'TO_OPTIMIZE' ? 'selected' : ''}" 
                                             onclick="updateAction('${key.replace(/'/g, "\\'")}', 'keep')">
                                         ⭐ KEEP
                                     </button>
