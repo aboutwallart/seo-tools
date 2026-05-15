@@ -46,118 +46,14 @@
         .page-type-filter { display: inline-block; padding: 10px 20px; margin-right: 10px; margin-bottom: 10px; border: 2px solid #e0e0e0; border-radius: 6px; background: white; color: #1a1a1a; cursor: pointer; font-size: 0.95rem; font-weight: 500; transition: all 0.2s; }
         .page-type-filter:hover { background: #f5f5f5; }
         .page-type-filter.active { border-color: #1a1a1a; background: #1a1a1a; color: white; }
-        
-        /* Help Modal Styles */
-        .help-modal {
-            display: none;
-            position: fixed;
-            z-index: 9999;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            overflow: auto;
-            background-color: rgba(0,0,0,0.6);
-        }
-        .help-modal-content {
-            background-color: #fff;
-            margin: 5% auto;
-            padding: 40px;
-            border-radius: 16px;
-            width: 80%;
-            max-width: 800px;
-            max-height: 80vh;
-            overflow-y: auto;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-        }
-        .help-modal-content h2 {
-            margin-top: 0;
-        }
-        .help-modal-content h3 {
-            border-bottom: 2px solid #e0e0e0;
-            padding-bottom: 10px;
-        }
-        .help-modal-content code {
-            background: #f3f4f6;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-family: monospace;
-        }
-        .close {
-            color: #999;
-            float: right;
-            font-size: 36px;
-            font-weight: bold;
-            line-height: 24px;
-            cursor: pointer;
-        }
-        .close:hover {
-            color: #333;
-        }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-                <div style="flex: 1;">
-                    <h1>💰 Money Page Optimizer</h1>
-                    <p class="subtitle">AI-Powered SEO Analysis</p>
-                </div>
-                <button onclick="showHelp()" style="background: #0969da; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; white-space: nowrap;">
-                    ❓ How to Clear Cache Safely
-                </button>
-            </div>
+            <h1>💰 Money Page Optimizer</h1>
+            <p class="subtitle">AI-Powered SEO Analysis</p>
         </header>
-
-        <!-- Help Modal -->
-        <div id="helpModal" class="help-modal">
-            <div class="help-modal-content">
-                <span class="close" onclick="closeHelp()">&times;</span>
-                <h2 style="color: #0969da; margin-bottom: 20px;">🔒 How to Clear Cache Without Losing Your Token</h2>
-                
-                <div style="background: #fef3c7; padding: 15px; border-radius: 8px; border-left: 5px solid #f59e0b; margin-bottom: 20px;">
-                    <strong>⚠️ IMPORTANT:</strong> Your GitHub token is stored in IndexedDB. Follow these steps to keep it safe when clearing cache!
-                </div>
-                
-                <h3 style="color: #333; margin-top: 20px;">✅ Method 1: Chrome Clear Browsing Data (SAFEST)</h3>
-                <ol style="line-height: 2; margin-left: 20px;">
-                    <li>Press <strong>Cmd + Shift + Delete</strong> (Mac) or <strong>Ctrl + Shift + Delete</strong> (Windows)</li>
-                    <li>In the popup window:
-                        <ul style="margin-left: 20px; margin-top: 10px;">
-                            <li>✅ <strong>CHECK:</strong> "Cached images and files"</li>
-                            <li>❌ <strong>UNCHECK:</strong> "Cookies and other site data"</li>
-                        </ul>
-                    </li>
-                    <li>Click <strong>"Clear data"</strong></li>
-                </ol>
-                
-                <h3 style="color: #333; margin-top: 30px;">✅ Method 2: Site-Specific Settings</h3>
-                <ol style="line-height: 2; margin-left: 20px;">
-                    <li>Click the 🔒 lock icon in the address bar (left of the URL)</li>
-                    <li>Click <strong>"Cookies and site data"</strong></li>
-                    <li>Click <strong>"Manage on-device site data"</strong></li>
-                    <li>You'll see <strong>aboutwallart.github.io</strong> listed</li>
-                    <li><strong>❌ DO NOT</strong> click the trash icon 🗑️ next to it!</li>
-                    <li>Just click <strong>"Done"</strong> to keep your token safe</li>
-                </ol>
-                
-                <h3 style="color: #333; margin-top: 30px;">💡 Where is Your Token Stored?</h3>
-                <p style="line-height: 1.8;">Your GitHub token is saved in <strong>IndexedDB</strong> (browser database) for the site <code>aboutwallart.github.io</code>. As long as you don't delete "Cookies and site data" for this specific site, your token will survive cache clears!</p>
-                
-                <h3 style="color: #dc2626; margin-top: 30px;">⚠️ What Deletes Your Token?</h3>
-                <ul style="line-height: 2; margin-left: 20px;">
-                    <li>❌ Clearing "Cookies and other site data" for ALL sites</li>
-                    <li>❌ Deleting site data specifically for aboutwallart.github.io</li>
-                    <li>❌ Clicking the trash icon 🗑️ next to aboutwallart.github.io in site settings</li>
-                    <li>❌ Using "Clear all data" or "Reset browser" options</li>
-                </ul>
-                
-                <div style="background: #e0f2fe; padding: 15px; border-radius: 8px; border-left: 5px solid #0969da; margin-top: 30px;">
-                    <strong>💾 Pro Tip:</strong> Always keep a backup of your token in a secure text file on your computer, just in case!
-                </div>
-            </div>
-        </div>
 
         <div class="tabs">
             <button class="tab active" onclick="switchTab('add')">➕ Add URLs</button>
@@ -344,52 +240,6 @@ https://aboutwallart.com/pages/birthday-gifts"></textarea>
     </div>
 
     <script>
-        // IndexedDB for persistent storage (survives cache clears better than localStorage)
-        const DB_NAME = 'MoneyPageOptimizer';
-        const DB_VERSION = 1;
-        let db;
-
-        function initDB() {
-            return new Promise((resolve, reject) => {
-                const request = indexedDB.open(DB_NAME, DB_VERSION);
-                
-                request.onerror = () => reject(request.error);
-                request.onsuccess = () => {
-                    db = request.result;
-                    resolve(db);
-                };
-                
-                request.onupgradeneeded = (event) => {
-                    const db = event.target.result;
-                    if (!db.objectStoreNames.contains('settings')) {
-                        db.createObjectStore('settings');
-                    }
-                };
-            });
-        }
-
-        function saveTokenToDB(token) {
-            if (!db) return;
-            const transaction = db.transaction(['settings'], 'readwrite');
-            const store = transaction.objectStore('settings');
-            store.put(token, 'github_token');
-        }
-
-        function getTokenFromDB() {
-            return new Promise((resolve, reject) => {
-                if (!db) {
-                    resolve(null);
-                    return;
-                }
-                const transaction = db.transaction(['settings'], 'readonly');
-                const store = transaction.objectStore('settings');
-                const request = store.get('github_token');
-                
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => resolve(null);
-            });
-        }
-
         let urls = JSON.parse(localStorage.getItem('moneyPageUrls') || '[]');
         let deletedOpportunities = JSON.parse(localStorage.getItem('deletedOpportunities') || '[]');
         let optimizedPages = JSON.parse(localStorage.getItem('optimizedPages') || '[]');
@@ -1766,9 +1616,7 @@ https://aboutwallart.com/pages/birthday-gifts"></textarea>
                 return;
             }
             
-            // Save to both localStorage and IndexedDB for maximum persistence
             localStorage.setItem('githubToken', token);
-            saveTokenToDB(token);
             statusDiv.innerHTML = '<p style="color: #2e7d32;">✅ Token saved successfully!</p>';
             document.getElementById('githubToken').value = '';
         }
@@ -1985,64 +1833,28 @@ https://aboutwallart.com/pages/birthday-gifts"></textarea>
             alert('✅ Page moved back to "My Pages"');
         }
 
-        // Help Modal Functions
-        function showHelp() {
-            document.getElementById('helpModal').style.display = 'block';
+        updatePageCount();
+        updateDeletedCount();
+        updateOptimizedCount();
+        renderUrls();
+        renderDeleted();
+        renderOptimized();
+        
+        // Load and display GSC opportunities if they exist
+        const gscData = JSON.parse(localStorage.getItem('gscData') || '{}');
+        if (gscData.opportunities && gscData.opportunities.length > 0) {
+            // Store in global variable for search functionality
+            allGSCOpportunities = gscData.opportunities;
+            
+            const statusDiv = document.getElementById('gscImportStatus');
+            statusDiv.innerHTML = `<p style="color: #2e7d32;">✅ Loaded ${gscData.opportunities.length} opportunities from previous import</p>`;
+            statusDiv.innerHTML += `<p style="color: #666; font-size: 0.9rem;">Imported: ${new Date(gscData.imported).toLocaleString()}</p>`;
+            
+            // Show search container
+            document.getElementById('gscSearchContainer').style.display = 'block';
+            
+            displayGSCOpportunities(gscData.opportunities);
         }
-
-        function closeHelp() {
-            document.getElementById('helpModal').style.display = 'none';
-        }
-
-        // Close modal when clicking outside of it
-        window.onclick = function(event) {
-            const modal = document.getElementById('helpModal');
-            if (event.target == modal) {
-                modal.style.display = 'none';
-            }
-        }
-
-        // Initialize on page load
-        window.addEventListener('DOMContentLoaded', async () => {
-            // Initialize IndexedDB
-            await initDB();
-            
-            // Try IndexedDB first (most persistent)
-            let savedToken = await getTokenFromDB();
-            
-            // Fallback to localStorage if IndexedDB doesn't have it
-            if (!savedToken) {
-                savedToken = localStorage.getItem('githubToken');
-                if (savedToken) {
-                    // Migrate to IndexedDB
-                    saveTokenToDB(savedToken);
-                }
-            }
-            
-            // Initialize UI
-            updatePageCount();
-            updateDeletedCount();
-            updateOptimizedCount();
-            renderUrls();
-            renderDeleted();
-            renderOptimized();
-            
-            // Load and display GSC opportunities if they exist
-            const gscData = JSON.parse(localStorage.getItem('gscData') || '{}');
-            if (gscData.opportunities && gscData.opportunities.length > 0) {
-                // Store in global variable for search functionality
-                allGSCOpportunities = gscData.opportunities;
-                
-                const statusDiv = document.getElementById('gscImportStatus');
-                statusDiv.innerHTML = `<p style="color: #2e7d32;">✅ Loaded ${gscData.opportunities.length} opportunities from previous import</p>`;
-                statusDiv.innerHTML += `<p style="color: #666; font-size: 0.9rem;">Imported: ${new Date(gscData.imported).toLocaleString()}</p>`;
-                
-                // Show search container
-                document.getElementById('gscSearchContainer').style.display = 'block';
-                
-                displayGSCOpportunities(gscData.opportunities);
-            }
-        });
     </script>
 </body>
 </html>
