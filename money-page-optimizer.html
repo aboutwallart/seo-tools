@@ -1,0 +1,2055 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Money Page Optimizer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Poppins', sans-serif; background: #fff; color: #1a1a1a; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        header { text-align: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid #e0e0e0; }
+        h1 { font-size: 2.5rem; margin-bottom: 10px; }
+        .subtitle { color: #666; font-size: 1.1rem; }
+        .tabs { display: flex; gap: 10px; margin-bottom: 30px; border-bottom: 2px solid #e0e0e0; }
+        .tab { padding: 12px 24px; background: transparent; border: none; border-bottom: 3px solid transparent; font-size: 1rem; font-weight: 500; cursor: pointer; color: #666; }
+        .tab.active { color: #1a1a1a; border-bottom-color: #1a1a1a; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        textarea { width: 100%; padding: 15px; border: 2px solid #e0e0e0; border-radius: 6px; font-family: 'Courier New', monospace; font-size: 0.9rem; }
+        button { background: #1a1a1a; color: white; padding: 12px 24px; border: none; border-radius: 6px; font-size: 1rem; cursor: pointer; font-family: 'Poppins', sans-serif; }
+        button:hover { opacity: 0.9; }
+        .btn-secondary { background: #666; }
+        .url-item { background: #f5f5f5; padding: 15px; margin-bottom: 10px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; }
+        .url-item.analyzed { background: #e8f5e9; }
+        input[type="text"] { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 1rem; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
+        .modal.active { display: flex; align-items: center; justify-content: center; }
+        .modal-content { background: white; padding: 30px; border-radius: 8px; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: 500; }
+        .loading { text-align: center; padding: 40px; }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #1a1a1a; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .results { background: #f5f5f5; padding: 30px; border-radius: 8px; }
+        .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin: 15px 0; }
+        .metric { text-align: center; background: white; padding: 15px; border-radius: 6px; }
+        .metric-value { font-size: 1.5rem; font-weight: 600; }
+        .recommendation-card { background: white; padding: 20px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #e0e0e0; }
+        .recommendation-card.high { border-left-color: #c62828; }
+        .recommendation-card.medium { border-left-color: #e65100; }
+        .recommendation-card.low { border-left-color: #2e7d32; }
+        .gsc-checkbox { width: 20px; height: 20px; cursor: pointer; margin-right: 10px; }
+        .bulk-actions { position: sticky; top: 20px; background: #fff3e0; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #ff9800; z-index: 100; display: none; }
+        .bulk-actions.visible { display: flex; align-items: center; justify-content: space-between; }
+        .page-type-filter { display: inline-block; padding: 10px 20px; margin-right: 10px; margin-bottom: 10px; border: 2px solid #e0e0e0; border-radius: 6px; background: white; color: #1a1a1a; cursor: pointer; font-size: 0.95rem; font-weight: 500; transition: all 0.2s; }
+        .page-type-filter:hover { background: #f5f5f5; }
+        .page-type-filter.active { border-color: #1a1a1a; background: #1a1a1a; color: white; }
+        
+        /* Help Modal Styles */
+        .help-modal {
+            display: none;
+            position: fixed;
+            z-index: 9999;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.6);
+        }
+        .help-modal-content {
+            background-color: #fff;
+            margin: 5% auto;
+            padding: 40px;
+            border-radius: 16px;
+            width: 80%;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+        .help-modal-content h2 {
+            margin-top: 0;
+        }
+        .help-modal-content h3 {
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 10px;
+        }
+        .help-modal-content code {
+            background: #f3f4f6;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        .close {
+            color: #999;
+            float: right;
+            font-size: 36px;
+            font-weight: bold;
+            line-height: 24px;
+            cursor: pointer;
+        }
+        .close:hover {
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                <div style="flex: 1;">
+                    <h1>💰 Money Page Optimizer</h1>
+                    <p class="subtitle">AI-Powered SEO Analysis</p>
+                </div>
+                <button onclick="showHelp()" style="background: #0969da; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; white-space: nowrap;">
+                    ❓ How to Clear Cache Safely
+                </button>
+            </div>
+        </header>
+
+        <!-- Help Modal -->
+        <div id="helpModal" class="help-modal">
+            <div class="help-modal-content">
+                <span class="close" onclick="closeHelp()">&times;</span>
+                <h2 style="color: #0969da; margin-bottom: 20px;">🔒 How to Clear Cache Without Losing Your Token</h2>
+                
+                <div style="background: #fef3c7; padding: 15px; border-radius: 8px; border-left: 5px solid #f59e0b; margin-bottom: 20px;">
+                    <strong>⚠️ IMPORTANT:</strong> Your GitHub token is stored in IndexedDB. Follow these steps to keep it safe when clearing cache!
+                </div>
+                
+                <h3 style="color: #333; margin-top: 20px;">✅ Method 1: Chrome Clear Browsing Data (SAFEST)</h3>
+                <ol style="line-height: 2; margin-left: 20px;">
+                    <li>Press <strong>Cmd + Shift + Delete</strong> (Mac) or <strong>Ctrl + Shift + Delete</strong> (Windows)</li>
+                    <li>In the popup window:
+                        <ul style="margin-left: 20px; margin-top: 10px;">
+                            <li>✅ <strong>CHECK:</strong> "Cached images and files"</li>
+                            <li>❌ <strong>UNCHECK:</strong> "Cookies and other site data"</li>
+                        </ul>
+                    </li>
+                    <li>Click <strong>"Clear data"</strong></li>
+                </ol>
+                
+                <h3 style="color: #333; margin-top: 30px;">✅ Method 2: Site-Specific Settings</h3>
+                <ol style="line-height: 2; margin-left: 20px;">
+                    <li>Click the 🔒 lock icon in the address bar (left of the URL)</li>
+                    <li>Click <strong>"Cookies and site data"</strong></li>
+                    <li>Click <strong>"Manage on-device site data"</strong></li>
+                    <li>You'll see <strong>aboutwallart.github.io</strong> listed</li>
+                    <li><strong>❌ DO NOT</strong> click the trash icon 🗑️ next to it!</li>
+                    <li>Just click <strong>"Done"</strong> to keep your token safe</li>
+                </ol>
+                
+                <h3 style="color: #333; margin-top: 30px;">💡 Where is Your Token Stored?</h3>
+                <p style="line-height: 1.8;">Your GitHub token is saved in <strong>IndexedDB</strong> (browser database) for the site <code>aboutwallart.github.io</code>. As long as you don't delete "Cookies and site data" for this specific site, your token will survive cache clears!</p>
+                
+                <h3 style="color: #dc2626; margin-top: 30px;">⚠️ What Deletes Your Token?</h3>
+                <ul style="line-height: 2; margin-left: 20px;">
+                    <li>❌ Clearing "Cookies and other site data" for ALL sites</li>
+                    <li>❌ Deleting site data specifically for aboutwallart.github.io</li>
+                    <li>❌ Clicking the trash icon 🗑️ next to aboutwallart.github.io in site settings</li>
+                    <li>❌ Using "Clear all data" or "Reset browser" options</li>
+                </ul>
+                
+                <div style="background: #e0f2fe; padding: 15px; border-radius: 8px; border-left: 5px solid #0969da; margin-top: 30px;">
+                    <strong>💾 Pro Tip:</strong> Always keep a backup of your token in a secure text file on your computer, just in case!
+                </div>
+            </div>
+        </div>
+
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('add')">➕ Add URLs</button>
+            <button class="tab" onclick="switchTab('gsc')">📊 GSC Import</button>
+            <button class="tab" onclick="switchTab('pages')">📋 My Pages (<span id="pageCount">0</span>)</button>
+            <button class="tab" onclick="switchTab('optimized')">✅ Optimized (<span id="optimizedCount">0</span>)</button>
+            <button class="tab" onclick="switchTab('deleted')">🗑️ Deleted (<span id="deletedCount">0</span>)</button>
+            <button class="tab" onclick="switchTab('settings')">⚙️ Settings</button>
+        </div>
+
+        <!-- ADD URLs TAB -->
+        <div class="tab-content active" id="addTab">
+            <h3>Paste Your URLs (one per line)</h3>
+            <p style="margin: 10px 0; color: #666;">Just paste the URLs - you'll add keywords when analyzing</p>
+            <textarea id="bulkUrls" rows="15" placeholder="https://aboutwallart.com/pages/celebration-gifts
+https://aboutwallart.com/pages/wedding-gifts
+https://aboutwallart.com/pages/birthday-gifts"></textarea>
+            <div style="display: flex; gap: 10px; margin-top: 15px;">
+                <button onclick="importUrls()">➕ Import All URLs</button>
+            </div>
+        </div>
+
+        <!-- GSC IMPORT TAB -->
+        <div class="tab-content" id="gscTab">
+            <h3>Import Google Search Console Data</h3>
+            <p style="margin: 10px 0; color: #666;">Upload your GSC export (ZIP file with Queries.csv and Pages.csv)</p>
+            
+            <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                <h4 style="margin-bottom: 10px;">📝 How to get your GSC data:</h4>
+                <ol style="line-height: 1.8; padding-left: 20px;">
+                    <li>Go to <a href="https://search.google.com/search-console" target="_blank">Google Search Console</a></li>
+                    <li>Select your property → Performance → Full report</li>
+                    <li>Set date range to "Last 3 months"</li>
+                    <li>Click "EXPORT" (top right)</li>
+                    <li>Select "Download CSV"</li>
+                    <li>Upload the ZIP file below</li>
+                </ol>
+            </div>
+
+            <input type="file" id="gscFileInput" accept=".zip" style="margin: 20px 0;">
+            <button onclick="importGSCData()" style="margin-top: 15px;">📊 Import GSC Data</button>
+            
+            <!-- SEARCH FILTER (Hidden until data imported) -->
+            <div id="gscSearchContainer" style="margin-top: 30px; display: none; background: #f0f8ff; padding: 20px; border-radius: 8px; border: 2px solid #2196f3;">
+                <h4 style="margin-bottom: 15px; color: #1976d2;">🔍 Filter by Exact Keyword Match</h4>
+                <p style="color: #666; font-size: 0.9rem; margin-bottom: 10px;">
+                    Search for a specific keyword to see all pages competing for it
+                </p>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <input type="text" id="gscKeywordSearch" placeholder="e.g., wall art ideas for bedroom" style="flex: 1;">
+                    <button onclick="filterGSCOpportunities()" style="white-space: nowrap;">🔍 Search</button>
+                    <button class="btn-secondary" onclick="clearGSCSearch()" style="white-space: nowrap;">✖ Clear</button>
+                </div>
+                <div id="searchResults" style="margin-top: 10px; color: #666; font-size: 0.9rem;"></div>
+            </div>
+            
+            <div id="gscImportStatus" style="margin-top: 20px;"></div>
+        </div>
+
+        <!-- MY PAGES TAB -->
+        <div class="tab-content" id="pagesTab">
+            <!-- Page Type Filters -->
+            <div style="margin-bottom: 20px; padding-bottom: 15px; border-bottom: 2px solid #e0e0e0;">
+                <button class="page-type-filter active" onclick="filterMyPages('all')">All (<span id="filterCountAll">0</span>)</button>
+                <button class="page-type-filter" onclick="filterMyPages('collection')">📁 Collections (<span id="filterCountCollection">0</span>)</button>
+                <button class="page-type-filter" onclick="filterMyPages('product')">📦 Products (<span id="filterCountProduct">0</span>)</button>
+                <button class="page-type-filter" onclick="filterMyPages('page')">📄 Pages (<span id="filterCountPage">0</span>)</button>
+                <button class="page-type-filter" onclick="filterMyPages('blog')">📝 Blogs (<span id="filterCountBlog">0</span>)</button>
+                <button class="page-type-filter" onclick="filterMyPages('other')">🔗 Other (<span id="filterCountOther">0</span>)</button>
+            </div>
+            
+            <div style="margin-bottom: 15px; display: flex; justify-content: flex-end; gap: 10px;">
+                <button class="btn-secondary" onclick="clearAllPages()">🗑️ Clear All Pages</button>
+                <button class="btn-secondary" onclick="removeDuplicates()">🧹 Remove Duplicates</button>
+            </div>
+            <div id="urlList"></div>
+        </div>
+
+        <!-- DELETED TAB -->
+        <div class="tab-content" id="deletedTab">
+            <div style="margin-bottom: 15px; display: flex; justify-content: flex-end;">
+                <button class="btn-secondary" onclick="clearAllDeleted()">🗑️ Clear All Deleted</button>
+            </div>
+            <div id="deletedList"></div>
+        </div>
+
+        <!-- OPTIMIZED TAB -->
+        <div class="tab-content" id="optimizedTab">
+            <h3>✅ Optimized Pages</h3>
+            <p style="color: #666; margin-bottom: 15px;">Pages that have been analyzed and optimized. Keywords are locked in the master registry.</p>
+            <div style="margin-bottom: 15px; display: flex; justify-content: flex-end; gap: 10px;">
+                <button onclick="downloadRegistry()" style="background: #2196f3;">📥 Download Registry</button>
+                <button class="btn-secondary" onclick="clearAllOptimized()">🗑️ Clear All Optimized</button>
+            </div>
+            <div id="optimizedList"></div>
+        </div>
+
+        <!-- SETTINGS TAB -->
+        <div class="tab-content" id="settingsTab">
+            <h3>⚙️ Settings</h3>
+            
+            <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                <h4 style="margin-bottom: 15px;">GitHub Integration</h4>
+                <p style="color: #666; margin-bottom: 15px;">
+                    Required to lock keywords in the master registry when marking pages as optimized.
+                </p>
+                
+                <div class="form-group">
+                    <label for="githubToken">GitHub Personal Access Token</label>
+                    <input type="password" id="githubToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" style="font-family: monospace;">
+                    <p style="font-size: 0.85rem; color: #666; margin-top: 5px;">
+                        <a href="https://github.com/settings/tokens" target="_blank">Generate token</a> with <code>repo</code> permissions
+                    </p>
+                </div>
+                
+                <div style="display: flex; gap: 10px; margin-top: 15px;">
+                    <button onclick="saveGitHubToken()">💾 Save Token</button>
+                    <button class="btn-secondary" onclick="testGitHubToken()">🧪 Test Connection</button>
+                    <button class="btn-secondary" onclick="clearGitHubToken()" style="background: #c62828;">🗑️ Clear Token</button>
+                </div>
+                
+                <div id="tokenStatus" style="margin-top: 15px;"></div>
+            </div>
+            
+            <div style="background: #fff3e0; padding: 15px; border-radius: 8px; border-left: 4px solid #ff9800;">
+                <h4 style="margin-bottom: 10px;">ℹ️ How It Works</h4>
+                <ol style="line-height: 1.8; padding-left: 20px; font-size: 0.9rem;">
+                    <li>Enter your GitHub token and save</li>
+                    <li>Analyze pages in "My Pages" tab</li>
+                    <li>Check "Mark as Optimized" when done</li>
+                    <li>Page moves to "Optimized" tab</li>
+                    <li>Keyword is locked in GitHub registry (LOCKED, DONE, OPTIMIZED)</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+
+    <!-- ANALYZE MODAL -->
+    <div class="modal" id="analyzeModal">
+        <div class="modal-content">
+            <h3 style="margin-bottom: 20px;">Analyze Page</h3>
+            <div id="modalUrl" style="margin-bottom: 15px; color: #666; word-break: break-all;"></div>
+            <div class="form-group">
+                <label for="mainKeyword">Main Keyword</label>
+                <input type="text" id="mainKeyword" placeholder="e.g., celebration gifts">
+            </div>
+            <div class="form-group">
+                <label for="ubersuggestImage">Ubersuggest Screenshot (Optional) 📸</label>
+                <input type="file" id="ubersuggestImage" accept="image/png,image/jpeg" onchange="previewImage(this)" style="padding: 8px;">
+                <div id="imagePreview" style="margin-top: 10px; display: none;">
+                    <img id="previewImg" style="max-width: 100%; max-height: 200px; border-radius: 6px; border: 2px solid #e0e0e0;">
+                    <button class="btn-secondary" onclick="removeImage()" style="margin-top: 5px; font-size: 0.85rem; padding: 6px 12px;">Remove</button>
+                </div>
+                <p style="font-size: 0.85rem; color: #666; margin-top: 5px;">Upload Ubersuggest keyword data for swap recommendations</p>
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <button onclick="startAnalysis()">🚀 Analyze Now</button>
+                <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- RESULTS MODAL -->
+    <div class="modal" id="resultsModal">
+        <div class="modal-content" style="max-width: 900px;">
+            <div id="resultsContent"></div>
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button onclick="copyResults()">📋 Copy Results</button>
+                <button class="btn-secondary" onclick="closeResultsModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- LOADING MODAL -->
+    <div class="modal" id="loadingModal">
+        <div class="modal-content">
+            <div class="loading">
+                <div class="spinner"></div>
+                <div style="font-size: 1.2rem; margin-bottom: 10px;">Analyzing your page...</div>
+                <div id="loadingStep" style="color: #666;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // IndexedDB for persistent storage (survives cache clears better than localStorage)
+        const DB_NAME = 'MoneyPageOptimizer';
+        const DB_VERSION = 1;
+        let db;
+
+        async function initDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+                
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => {
+                    db = request.result;
+                    resolve(db);
+                };
+                
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains('settings')) {
+                        db.createObjectStore('settings');
+                    }
+                };
+            });
+        }
+
+        function saveTokenToDB(token) {
+            if (!db) return;
+            const transaction = db.transaction(['settings'], 'readwrite');
+            const store = transaction.objectStore('settings');
+            store.put(token, 'github_token');
+        }
+
+        async function getTokenFromDB() {
+            return new Promise((resolve, reject) => {
+                if (!db) {
+                    resolve(null);
+                    return;
+                }
+                const transaction = db.transaction(['settings'], 'readonly');
+                const store = transaction.objectStore('settings');
+                const request = store.get('github_token');
+                
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => resolve(null);
+            });
+        }
+
+        let urls = []; // Loaded from GitHub registry on startup
+        let deletedOpportunities = JSON.parse(localStorage.getItem('deletedOpportunities') || '[]');
+        let optimizedPages = []; // Loaded from GitHub registry on startup
+        let currentUrl = null;
+        let currentResults = null;
+        let allGSCOpportunities = []; // Store full unfiltered list for search
+        let currentPageTypeFilter = 'all'; // Current filter in My Pages tab
+
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.getElementById(tab + 'Tab').classList.add('active');
+            document.querySelector(`[onclick="switchTab('${tab}')"]`).classList.add('active');
+        }
+
+        function importUrls() {
+            const text = document.getElementById('bulkUrls').value.trim();
+            if (!text) {
+                alert('Please paste some URLs');
+                return;
+            }
+
+            // Split by newlines and filter out empty lines
+            const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+            let added = 0;
+            let skipped = 0;
+            const existingUrls = urls.map(u => u.url.toLowerCase());
+
+            lines.forEach(line => {
+                const url = line.trim();
+                // Check if it's a valid URL
+                if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+                    // Check if URL already exists (case-insensitive)
+                    if (existingUrls.includes(url.toLowerCase())) {
+                        skipped++;
+                    } else {
+                        urls.push({ 
+                            id: Date.now() + added, 
+                            url, 
+                            analyzed: false, 
+                            keyword: null, 
+                            results: null 
+                        });
+                        existingUrls.push(url.toLowerCase());
+                        added++;
+                    }
+                }
+            });
+
+            if (added > 0 || skipped > 0) {
+                document.getElementById('bulkUrls').value = '';
+                
+                let message = '';
+                if (added > 0) message += `✅ Added ${added} URL${added > 1 ? 's' : ''}!`;
+                if (skipped > 0) message += `${added > 0 ? ' ' : ''}⚠️ Skipped ${skipped} duplicate${skipped > 1 ? 's' : ''}.`;
+                
+                alert(message);
+                updatePageCount();
+                renderUrls();
+                if (added > 0) switchTab('pages');
+            }
+        }
+
+        function renderUrls() {
+            const list = document.getElementById('urlList');
+            if (urls.length === 0) {
+                list.innerHTML = '<p style="text-align:center; color:#666; padding:40px;">No URLs yet. Add them in the "Add URLs" tab.</p>';
+                updatePageTypeFilterCounts();
+                return;
+            }
+
+            // Load GSC data for sorting
+            const gscData = JSON.parse(localStorage.getItem('gscData') || '{}');
+            const gscOpportunities = gscData.opportunities || [];
+            
+            // Create a map for quick lookup
+            const gscMap = {};
+            gscOpportunities.forEach(opp => {
+                gscMap[opp.url.toLowerCase()] = {
+                    isQuickWin: opp.isQuickWin,
+                    score: opp.score,
+                    position: opp.position,
+                    keyword: opp.keyword
+                };
+            });
+            
+            // Sort URLs: Quick Wins first, then by ID (newest first)
+            const sortedUrls = [...urls].sort((a, b) => {
+                const aData = gscMap[a.url.toLowerCase()];
+                const bData = gscMap[b.url.toLowerCase()];
+                
+                // Quick Wins go first
+                if (aData?.isQuickWin && !bData?.isQuickWin) return -1;
+                if (!aData?.isQuickWin && bData?.isQuickWin) return 1;
+                
+                // Both quick wins - sort by score
+                if (aData?.isQuickWin && bData?.isQuickWin) {
+                    return bData.score - aData.score;
+                }
+                
+                // Both from GSC but not quick wins - sort by score
+                if (aData && bData) {
+                    return bData.score - aData.score;
+                }
+                
+                // Default: newest first
+                return b.id - a.id;
+            });
+
+            // Filter by page type
+            const filteredUrls = currentPageTypeFilter === 'all' 
+                ? sortedUrls 
+                : sortedUrls.filter(item => getPageType(item.url) === currentPageTypeFilter);
+
+            // Update filter counts
+            updatePageTypeFilterCounts();
+
+            // Show empty state if filtered list is empty
+            if (filteredUrls.length === 0) {
+                const filterName = currentPageTypeFilter === 'all' ? 'pages' : `${currentPageTypeFilter} pages`;
+                list.innerHTML = `<p style="text-align:center; color:#666; padding:40px;">No ${filterName} found.</p>`;
+                return;
+            }
+
+            list.innerHTML = filteredUrls.map(item => {
+                const gscInfo = gscMap[item.url.toLowerCase()];
+                const isQuickWin = gscInfo?.isQuickWin;
+                const displayKeyword = item.keyword || gscInfo?.keyword;
+                const pageType = getPageType(item.url);
+                const borderColor = getPageTypeColor(pageType);
+                const pageTypeLabel = getPageTypeLabel(pageType);
+                
+                return `
+                <div class="url-item ${item.analyzed ? 'analyzed' : ''}" style="border-left: 4px solid ${borderColor}; background: ${isQuickWin ? '#fff9f0' : 'white'};">
+                    <div style="flex: 1;">
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
+                            <span style="background: ${borderColor}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${pageTypeLabel}</span>
+                            ${isQuickWin ? '<span style="font-size: 1.2rem;">🔥</span>' : ''}
+                        </div>
+                        <div style="font-weight: 500; margin-bottom: 5px; word-break: break-all;">
+                            ${item.url}
+                        </div>
+                        ${displayKeyword ? `<div style="font-size: 0.85rem; color: #1976d2; margin-bottom: 3px;">🎯 Keyword: "${displayKeyword}"</div>` : ''}
+                        ${gscInfo ? `<div style="font-size: 0.85rem; color: #ff9800;">Position: ${gscInfo.position.toFixed(1)} ${isQuickWin ? '• QUICK WIN' : ''}</div>` : ''}
+                        ${item.analyzed ? `
+                            <div style="margin-top: 8px;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: #2e7d32; font-weight: 500;">
+                                    <input type="checkbox" onchange="markAsOptimized(${item.id})" style="width: 18px; height: 18px;">
+                                    ✅ Mark as Optimized (locks keyword in GitHub)
+                                </label>
+                            </div>
+                        ` : ''}
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        ${item.analyzed ? `
+                            <button class="btn-secondary" onclick="viewResults(${item.id})">📊 View</button>
+                        ` : ''}
+                        <button onclick="openAnalyzeModal(${item.id})">${item.analyzed ? '🔄 Re-analyze' : '🔍 Analyze'}</button>
+                        <button class="btn-secondary" onclick="removeUrl(${item.id})">🗑️</button>
+                    </div>
+                </div>
+            `}).join('');
+        }
+
+        function updatePageTypeFilterCounts() {
+            const counts = {
+                all: urls.length,
+                collection: 0,
+                product: 0,
+                page: 0,
+                blog: 0,
+                other: 0
+            };
+
+            urls.forEach(item => {
+                const type = getPageType(item.url);
+                counts[type]++;
+            });
+
+            document.getElementById('filterCountAll').textContent = counts.all;
+            document.getElementById('filterCountCollection').textContent = counts.collection;
+            document.getElementById('filterCountProduct').textContent = counts.product;
+            document.getElementById('filterCountPage').textContent = counts.page;
+            document.getElementById('filterCountBlog').textContent = counts.blog;
+            document.getElementById('filterCountOther').textContent = counts.other;
+        }
+
+        function filterMyPages(type) {
+            currentPageTypeFilter = type;
+            
+            // Update button states
+            document.querySelectorAll('.page-type-filter').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            // Re-render with filter
+            renderUrls();
+        }
+
+        async function downloadRegistry() {
+            const token = localStorage.getItem('githubToken');
+            
+            if (!token) {
+                alert('⚠️ GitHub token not configured!\n\nGo to Settings tab and add your GitHub Personal Access Token first.');
+                switchTab('settings');
+                return;
+            }
+            
+            try {
+                // Show loading indicator
+                const btn = event.target;
+                const originalText = btn.textContent;
+                btn.textContent = '⏳ Downloading...';
+                btn.disabled = true;
+                
+                // Fetch registry from GitHub
+                const response = await fetch('https://api.github.com/repos/aboutwallart/seo-tools/contents/data/keyword-master-registry.csv', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Accept': 'application/vnd.github.v3+json'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch registry: ${response.status} ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                const content = atob(data.content);
+                
+                // Create download
+                const blob = new Blob([content], { type: 'text/csv' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `keyword-master-registry-${new Date().toISOString().split('T')[0]}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                
+                // Reset button
+                btn.textContent = originalText;
+                btn.disabled = false;
+                
+                alert('✅ Registry downloaded successfully!');
+                
+            } catch (error) {
+                console.error('[Download Registry] Error:', error);
+                alert(`❌ Failed to download registry:\n\n${error.message}\n\nCheck your token in Settings.`);
+                
+                // Reset button on error
+                if (event.target) {
+                    event.target.textContent = '📥 Download Registry';
+                    event.target.disabled = false;
+                }
+            }
+        }
+
+        function updatePageCount() {
+            document.getElementById('pageCount').textContent = urls.length;
+        }
+
+        function updateDeletedCount() {
+            document.getElementById('deletedCount').textContent = deletedOpportunities.length;
+        }
+
+        function updateOptimizedCount() {
+            document.getElementById('optimizedCount').textContent = optimizedPages.length;
+        }
+
+        function renderDeleted() {
+            const list = document.getElementById('deletedList');
+            if (deletedOpportunities.length === 0) {
+                list.innerHTML = '<p style="text-align:center; color:#666; padding:40px;">No deleted opportunities.</p>';
+                return;
+            }
+
+            // Sort by most recent first
+            const sorted = [...deletedOpportunities].sort((a, b) => b.id - a.id);
+
+            list.innerHTML = sorted.map(item => `
+                <div class="url-item" style="background: #ffebee;">
+                    <div style="flex: 1;">
+                        <div style="font-weight: 500; margin-bottom: 5px; word-break: break-all;">
+                            ${item.url}
+                        </div>
+                        <div style="font-size: 0.85rem; color: #c62828; margin-bottom: 3px;">
+                            🎯 Keyword: "${item.keyword}"
+                        </div>
+                        <div style="font-size: 0.85rem; color: #999;">
+                            Deleted: ${new Date(item.deletedAt).toLocaleDateString()}
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <button onclick="restoreDeleted(${item.id})">↩️ Restore</button>
+                        <button class="btn-secondary" onclick="permanentlyDelete(${item.id})">🗑️ Remove</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function restoreDeleted(id) {
+            const item = deletedOpportunities.find(d => d.id === id);
+            if (!item) return;
+
+            if (confirm(`Restore this opportunity?\n\nURL: ${item.url}\nKeyword: "${item.keyword}"`)) {
+                deletedOpportunities = deletedOpportunities.filter(d => d.id !== id);
+                localStorage.setItem('deletedOpportunities', JSON.stringify(deletedOpportunities));
+                updateDeletedCount();
+                renderDeleted();
+
+                // Refresh GSC opportunities if available
+                const gscData = JSON.parse(localStorage.getItem('gscData') || '{}');
+                if (gscData.opportunities) {
+                    await displayGSCOpportunities(gscData.opportunities);
+                }
+
+                alert('✅ Opportunity restored!');
+            }
+        }
+
+        function permanentlyDelete(id) {
+            if (confirm('⚠️ Permanently remove this from deleted list?\n\nThis cannot be undone!')) {
+                deletedOpportunities = deletedOpportunities.filter(d => d.id !== id);
+                localStorage.setItem('deletedOpportunities', JSON.stringify(deletedOpportunities));
+                updateDeletedCount();
+                renderDeleted();
+                alert('✅ Permanently removed!');
+            }
+        }
+
+        function clearAllDeleted() {
+            if (confirm('⚠️ Clear ALL deleted opportunities?\n\nThis cannot be undone!')) {
+                deletedOpportunities = [];
+                localStorage.setItem('deletedOpportunities', JSON.stringify(deletedOpportunities));
+                updateDeletedCount();
+                renderDeleted();
+                alert('✅ All deleted opportunities cleared!');
+            }
+        }
+
+        function renderOptimized() {
+            const list = document.getElementById('optimizedList');
+            if (optimizedPages.length === 0) {
+                list.innerHTML = '<p style="text-align:center; color:#666; padding:40px;">No optimized pages yet. Analyze pages and mark them as optimized in "My Pages" tab.</p>';
+                return;
+            }
+
+            // Sort by most recent first
+            const sorted = [...optimizedPages].sort((a, b) => b.optimizedAt - a.optimizedAt);
+
+            list.innerHTML = sorted.map(item => `
+                <div class="url-item" style="background: #e8f5e9; border-left: 4px solid #4caf50;">
+                    <div style="flex: 1;">
+                        <div style="font-weight: 500; margin-bottom: 5px; word-break: break-all;">
+                            ✅ ${item.url}
+                        </div>
+                        <div style="font-size: 0.85rem; color: #1976d2; margin-bottom: 3px;">
+                            🎯 Keyword: "${item.keyword}"
+                        </div>
+                        <div style="font-size: 0.85rem; color: #2e7d32;">
+                            Optimized: ${new Date(item.optimizedAt).toLocaleDateString()}
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        ${item.results ? `<button class="btn-secondary" onclick="viewOptimizedResults('${item.url}')">📊 View Analysis</button>` : ''}
+                        <button class="btn-secondary" onclick="unmarkAsOptimized('${item.url}')">↩️ Unmark</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function clearAllOptimized() {
+            if (confirm('⚠️ Clear ALL optimized pages from view?\n\nThis will NOT change the GitHub registry. Pages will reload from registry on next refresh.\n\nContinue?')) {
+                optimizedPages = [];
+                updateOptimizedCount();
+                renderOptimized();
+                alert('✅ Optimized pages cleared from view!\n\nThey will reload from GitHub registry on next page refresh.');
+            }
+        }
+
+        function previewImage(input) {
+            const preview = document.getElementById('imagePreview');
+            const previewImg = document.getElementById('previewImg');
+            
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    previewImg.src = e.target.result;
+                    preview.style.display = 'block';
+                };
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        function removeImage() {
+            document.getElementById('ubersuggestImage').value = '';
+            document.getElementById('imagePreview').style.display = 'none';
+            document.getElementById('previewImg').src = '';
+        }
+
+        function openAnalyzeModal(id) {
+            currentUrl = urls.find(u => u.id === id);
+            document.getElementById('modalUrl').textContent = currentUrl.url;
+            document.getElementById('mainKeyword').value = currentUrl.keyword || '';
+            removeImage();
+            document.getElementById('analyzeModal').classList.add('active');
+        }
+
+        function closeModal() {
+            document.getElementById('analyzeModal').classList.remove('active');
+        }
+
+        async function startAnalysis() {
+            const keyword = document.getElementById('mainKeyword').value.trim();
+            if (!keyword) {
+                alert('Please enter a main keyword');
+                return;
+            }
+
+            // Get image if uploaded
+            const imageInput = document.getElementById('ubersuggestImage');
+            let imageBase64 = null;
+            
+            if (imageInput.files && imageInput.files[0]) {
+                imageBase64 = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve(e.target.result.split(',')[1]);
+                    reader.readAsDataURL(imageInput.files[0]);
+                });
+            }
+
+            closeModal();
+            document.getElementById('loadingModal').classList.add('active');
+
+            const steps = imageBase64 
+                ? [
+                    { text: '[1/6] Finding competitors...', delay: 0 },
+                    { text: '[2/6] Analyzing YOUR page...', delay: 10000 },
+                    { text: '[3/6] Getting PageSpeed scores...', delay: 20000 },
+                    { text: '[4/6] Analyzing competitors...', delay: 40000 },
+                    { text: '[5/6] Analyzing Ubersuggest data...', delay: 55000 },
+                    { text: '[6/6] Getting AI recommendations...', delay: 65000 }
+                ]
+                : [
+                    { text: '[1/5] Finding competitors...', delay: 0 },
+                    { text: '[2/5] Analyzing YOUR page...', delay: 10000 },
+                    { text: '[3/5] Getting PageSpeed scores...', delay: 20000 },
+                    { text: '[4/5] Analyzing competitors...', delay: 40000 },
+                    { text: '[5/5] Getting AI recommendations...', delay: 55000 }
+                ];
+
+            steps.forEach(step => {
+                setTimeout(() => document.getElementById('loadingStep').textContent = step.text, step.delay);
+            });
+
+            try {
+                const requestBody = { 
+                    pageUrl: currentUrl.url, 
+                    keyword 
+                };
+                
+                if (imageBase64) {
+                    requestBody.ubersuggestImage = imageBase64;
+                }
+
+                const response = await fetch('/api/analyze-money-page', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.error || `HTTP ${response.status}: Analysis failed`);
+                }
+
+                const data = await response.json();
+                currentUrl.analyzed = true;
+                currentUrl.keyword = keyword;
+                currentUrl.results = data;
+                renderUrls();
+
+                document.getElementById('loadingModal').classList.remove('active');
+                showResults(data, keyword);
+
+            } catch (error) {
+                console.error('[Frontend] Analysis error:', error);
+                document.getElementById('loadingModal').classList.remove('active');
+                alert(`Analysis failed: ${error.message}\n\nCheck browser console (F12) for details.`);
+            }
+        }
+
+        function viewResults(id) {
+            const item = urls.find(u => u.id === id);
+            if (item && item.results) {
+                showResults(item.results, item.keyword);
+            }
+        }
+
+        function showResults(data, keyword) {
+            currentResults = data;
+            
+            // Position status badge
+            let positionBadge = '';
+            if (data.userPosition) {
+                if (data.userPosition === 1) {
+                    positionBadge = `<div style="background: #4caf50; color: white; padding: 15px; border-radius: 6px; margin-bottom: 20px; text-align: center;">
+                        👑 <strong>Congratulations! You're ranking #1 for "${keyword}"</strong><br>
+                        <small>This analysis will help you defend your position</small>
+                    </div>`;
+                } else {
+                    positionBadge = `<div style="background: #2196f3; color: white; padding: 15px; border-radius: 6px; margin-bottom: 20px; text-align: center;">
+                        📊 <strong>Current Position: #${data.userPosition} for "${keyword}"</strong><br>
+                        <small>Analyzing what you need to climb higher</small>
+                    </div>`;
+                }
+            } else {
+                positionBadge = `<div style="background: #ff9800; color: white; padding: 15px; border-radius: 6px; margin-bottom: 20px; text-align: center;">
+                    🔍 <strong>Not in top 10 for "${keyword}"</strong><br>
+                    <small>Analyzing gaps vs positions 1-3</small>
+                </div>`;
+            }
+            
+            const html = `
+                <h3 style="margin-bottom: 15px;">Results for: ${keyword}</h3>
+                ${positionBadge}
+                
+                <div style="background: white; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+                    <h4 style="margin-bottom: 10px;">📊 Your Page Metrics</h4>
+                    <div class="metric-grid">
+                        <div class="metric"><div class="metric-value">${data.yourPage.wordCount}</div><div>Word Count</div></div>
+                        <div class="metric"><div class="metric-value">${data.yourPage.keywordDensity}%</div><div>Keyword Density</div></div>
+                        <div class="metric"><div class="metric-value">${data.yourPage.h2.length}</div><div>H2 Count</div></div>
+                        <div class="metric"><div class="metric-value">${data.yourPage.keywordOccurrences}</div><div>Keyword Uses</div></div>
+                        <div class="metric"><div class="metric-value" style="color: ${data.yourPage.speedMobile >= 90 ? '#4caf50' : data.yourPage.speedMobile >= 50 ? '#ff9800' : '#f44336'}">${data.yourPage.speedMobile}</div><div>Mobile Speed</div></div>
+                        <div class="metric"><div class="metric-value" style="color: ${data.yourPage.speedDesktop >= 90 ? '#4caf50' : data.yourPage.speedDesktop >= 50 ? '#ff9800' : '#f44336'}">${data.yourPage.speedDesktop}</div><div>Desktop Speed</div></div>
+                    </div>
+                </div>
+                
+                ${data.competitors && data.competitors.length > 0 ? `
+                <div style="background: #f5f5f5; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+                    <h4 style="margin-bottom: 10px;">🏆 Analyzing Against Positions:</h4>
+                    ${data.competitors.map(comp => `
+                        <div style="padding: 10px; background: white; margin-bottom: 8px; border-radius: 4px; font-size: 0.9rem;">
+                            <strong>Position ${comp.position}:</strong> ${comp.wordCount} words, ${comp.keywordDensity}% density, ${comp.h2.length} H2s<br>
+                            <span style="color: #666; font-size: 0.85rem; word-break: break-all;">🔗 ${comp.url}</span>
+                        </div>
+                    `).join('')}
+                </div>
+                ` : ''}
+
+                ${data.contentGaps && (data.contentGaps.missingH2s.length > 0 || data.contentGaps.missingAIOptimization.length > 0) ? `
+                <div style="background: #fff9c4; border-left: 4px solid #fbc02d; padding: 20px; border-radius: 6px; margin-bottom: 20px;">
+                    <h4 style="margin-bottom: 15px; color: #f57c00;">⚠️ Content Gaps Found</h4>
+                    
+                    ${data.contentGaps.missingAIOptimization && data.contentGaps.missingAIOptimization.length > 0 ? `
+                    <div style="margin-bottom: 15px;">
+                        <strong style="color: #c62828;">🤖 Missing AI Optimization Elements:</strong>
+                        <ul style="margin: 10px 0; padding-left: 20px; color: #c62828;">
+                            ${data.contentGaps.missingAIOptimization.map(ai => `
+                                <li><strong>${ai.element}</strong> (in ${ai.count}/${data.competitors.length} competitors)</li>
+                            `).join('')}
+                        </ul>
+                    </div>
+                    ` : ''}
+                    
+                    ${data.contentGaps.missingH2s && data.contentGaps.missingH2s.length > 0 ? `
+                    <div>
+                        <strong>📝 Missing H2 Sections:</strong>
+                        <ul style="margin: 10px 0; padding-left: 20px;">
+                            ${data.contentGaps.missingH2s.map(h2 => `
+                                <li>"${h2.text}" (in ${h2.count}/${data.competitors.length} competitors)</li>
+                            `).join('')}
+                        </ul>
+                    </div>
+                    ` : ''}
+                </div>
+                ` : ''}
+
+                <div style="background: white; padding: 20px; border-radius: 6px; white-space: pre-wrap; font-family: 'Poppins', sans-serif; line-height: 1.6;">
+                    ${(() => {
+                        if (data.analysis) {
+                            if (typeof data.analysis === 'string') {
+                                return formatMarkdown(data.analysis);
+                            } else if (data.analysis.markdown) {
+                                return formatMarkdown(data.analysis.markdown);
+                            }
+                        }
+                        if (data.recommendations) {
+                            return formatOldRecommendations(data.recommendations);
+                        }
+                        return 'No analysis available';
+                    })()}
+                </div>
+            `;
+            document.getElementById('resultsContent').innerHTML = html;
+            document.getElementById('resultsModal').classList.add('active');
+        }
+
+        function formatMarkdown(text) {
+            // Simple markdown formatting - no code block protection needed
+            let html = text
+                .replace(/\n/g, '<br>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/__(.*?)__/g, '<strong>$1</strong>');
+            
+            return html;
+        }
+        
+        function formatOldRecommendations(recs) {
+            let html = '';
+            if (recs.high && recs.high.length > 0) {
+                html += '<h3 style="margin-top: 20px; margin-bottom: 15px;">🔴 High Priority</h3>';
+                html += formatRecs(recs.high, 'high');
+            }
+            if (recs.medium && recs.medium.length > 0) {
+                html += '<h3 style="margin-top: 20px; margin-bottom: 15px;">🟡 Medium Priority</h3>';
+                html += formatRecs(recs.medium, 'medium');
+            }
+            if (recs.low && recs.low.length > 0) {
+                html += '<h3 style="margin-top: 20px; margin-bottom: 15px;">🟢 Low Priority</h3>';
+                html += formatRecs(recs.low, 'low');
+            }
+            return html;
+        }
+
+        function formatRecs(recs, priority) {
+            if (!recs || recs.length === 0) return '<p style="color:#666;">No recommendations</p>';
+            return recs.map((r, i) => `
+                <div class="recommendation-card ${priority}">
+                    <strong>${i + 1}. ${r.title}</strong>
+                    <p style="margin-top:10px;">${r.description}</p>
+                    ${r.current ? `<p style="margin-top:10px;"><strong>Current:</strong> ${r.current}</p>` : ''}
+                    ${r.recommended ? `<p style="margin-top:10px;"><strong>Recommended:</strong> ${r.recommended}</p>` : ''}
+                    <p style="margin-top:10px; color:#666;"><strong>Why:</strong> ${r.why}</p>
+                </div>
+            `).join('');
+        }
+
+        function closeResultsModal() {
+            document.getElementById('resultsModal').classList.remove('active');
+        }
+
+        function copyResults() {
+            if (!currentResults) {
+                alert('No results to copy');
+                return;
+            }
+            
+            // Get the analysis text
+            let textToCopy = '';
+            if (currentResults.analysis) {
+                if (typeof currentResults.analysis === 'string') {
+                    textToCopy = currentResults.analysis;
+                } else if (currentResults.analysis.markdown) {
+                    textToCopy = currentResults.analysis.markdown;
+                }
+            }
+            
+            if (textToCopy) {
+                navigator.clipboard.writeText(textToCopy).then(() => {
+                    alert('✅ Results copied to clipboard!');
+                }).catch(err => {
+                    alert('Failed to copy. Please select and copy manually.');
+                });
+            } else {
+                alert('No text to copy');
+            }
+        }
+
+        function removeUrl(id) {
+            if (confirm('Remove this URL?')) {
+                urls = urls.filter(u => u.id !== id);
+                updatePageCount();
+                renderUrls();
+            }
+        }
+
+        function clearAllPages() {
+            if (confirm('⚠️ Are you sure you want to delete ALL pages?\n\nThis cannot be undone!')) {
+                urls = [];
+                updatePageCount();
+                renderUrls();
+                alert('✅ All pages cleared!');
+            }
+        }
+
+        function removeDuplicates() {
+            const originalCount = urls.length;
+            const seen = new Map();
+            
+            urls = urls.filter(item => {
+                const urlLower = item.url.toLowerCase();
+                if (seen.has(urlLower)) {
+                    return false;
+                }
+                seen.set(urlLower, true);
+                return true;
+            });
+            
+            const removedCount = originalCount - urls.length;
+            
+            if (removedCount > 0) {
+                alert(`🧹 Removed ${removedCount} duplicate URL${removedCount > 1 ? 's' : ''}!`);
+                updatePageCount();
+                renderUrls();
+            } else {
+                alert('✅ No duplicates found!');
+            }
+        }
+
+        // GSC Import functions
+        async function importGSCData() {
+            const fileInput = document.getElementById('gscFileInput');
+            const statusDiv = document.getElementById('gscImportStatus');
+            
+            if (!fileInput.files || !fileInput.files[0]) {
+                statusDiv.innerHTML = '<p style="color: #c62828;">Please select a ZIP file first</p>';
+                return;
+            }
+
+            const file = fileInput.files[0];
+            statusDiv.innerHTML = '<p>📦 Extracting ZIP file...</p>';
+
+            try {
+                if (typeof JSZip === 'undefined') {
+                    const script = document.createElement('script');
+                    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+                    document.head.appendChild(script);
+                    await new Promise(resolve => script.onload = resolve);
+                }
+
+                const arrayBuffer = await file.arrayBuffer();
+                const zip = await JSZip.loadAsync(arrayBuffer);
+                
+                const queriesFile = zip.file('Queries.csv');
+                const pagesFile = zip.file('Pages.csv');
+                
+                if (!queriesFile || !pagesFile) {
+                    statusDiv.innerHTML = '<p style="color: #c62828;">❌ ZIP must contain Queries.csv and Pages.csv</p>';
+                    return;
+                }
+
+                statusDiv.innerHTML = '<p>📊 Parsing CSV data...</p>';
+
+                const queriesCSV = await queriesFile.async('string');
+                const pagesCSV = await pagesFile.async('string');
+
+                const queries = parseCSV(queriesCSV);
+                const pages = parseCSV(pagesCSV);
+
+                statusDiv.innerHTML = '<p>🔍 Analyzing opportunities...</p>';
+
+                const opportunities = processGSCData(queries, pages);
+                
+                // Load locked keywords from GitHub
+                statusDiv.innerHTML = '<p>🔒 Checking for locked keywords...</p>';
+                const lockData = await loadLockedKeywords();
+                
+                // Filter out opportunities for locked keywords
+                const filteredOpportunities = filterLockedOpportunities(opportunities, lockData);
+                
+                const removedCount = opportunities.length - filteredOpportunities.length;
+                
+                // Store in global variable for search functionality
+                allGSCOpportunities = filteredOpportunities;
+                
+                localStorage.setItem('gscData', JSON.stringify({
+                    imported: new Date().toISOString(),
+                    opportunities: filteredOpportunities.slice(0, 100)
+                }));
+
+                statusDiv.innerHTML = `<p style="color: #2e7d32;">✅ Successfully imported ${filteredOpportunities.length} opportunities!</p>`;
+                if (removedCount > 0) {
+                    statusDiv.innerHTML += `<p style="color: #ff9800;">⚠️ Removed ${removedCount} opportunities for locked keywords (conflicts already resolved)</p>`;
+                }
+                statusDiv.innerHTML += `<p style="color: #666; font-size: 0.9rem;">Top 100 stored for quick access</p>`;
+                
+                await displayGSCOpportunities(filteredOpportunities);
+
+            } catch (error) {
+                console.error('[GSC Import] Error:', error);
+                statusDiv.innerHTML = `<p style="color: #c62828;">❌ Error: ${error.message}</p>`;
+            }
+        }
+
+        async function loadLockedKeywords() {
+            try {
+                const url = 'https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keyword-master-registry.csv';
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    console.warn('[Locked Keywords] Failed to fetch, continuing without filter');
+                    return { lockedKeywords: [], blockedUrlKeywordPairs: [] };
+                }
+
+                const csvText = await response.text();
+                const lines = csvText.trim().split('\n');
+                
+                if (lines.length < 2) {
+                    return { lockedKeywords: [], blockedUrlKeywordPairs: [] };
+                }
+
+                // Parse CSV header
+                const headers = lines[0].split(',').map(h => h.trim());
+                const keywordIndex = headers.indexOf('Keyword');
+                const urlIndex = headers.indexOf('Page URL');
+                const lockedIndex = headers.indexOf('LOCKED');
+                const statusIndex = headers.indexOf('Status');
+                const actionIndex = headers.indexOf('Action');
+                
+                if (keywordIndex === -1 || urlIndex === -1 || lockedIndex === -1 || statusIndex === -1 || actionIndex === -1) {
+                    console.warn('[Locked Keywords] Missing required columns');
+                    return { lockedKeywords: [], blockedUrlKeywordPairs: [] };
+                }
+
+                const lockedKeywords = [];
+                const blockedUrlKeywordPairs = [];
+                
+                for (let i = 1; i < lines.length; i++) {
+                    const cols = lines[i].split(',');
+                    if (cols.length > Math.max(keywordIndex, urlIndex, lockedIndex, statusIndex, actionIndex)) {
+                        const keyword = cols[keywordIndex]?.trim().toLowerCase();
+                        const pageUrl = cols[urlIndex]?.trim().toLowerCase();
+                        const locked = cols[lockedIndex]?.trim().toUpperCase();
+                        const status = cols[statusIndex]?.trim().toUpperCase();
+                        const action = cols[actionIndex]?.trim().toUpperCase();
+                        
+                        // Lock entire keyword globally if:
+                        // 1. LOCKED="LOCKED" AND Status="DONE" AND Action="TO_OPTIMIZE"
+                        // 2. LOCKED="NO CONFLICT"
+                        // 3. LOCKED=(blank) AND Status="DONE" AND Action="DELETED" (irrelevant to niche)
+                        
+                        if (locked === 'LOCKED' && status === 'DONE' && action === 'TO_OPTIMIZE') {
+                            if (keyword && !lockedKeywords.includes(keyword)) {
+                                lockedKeywords.push(keyword);
+                            }
+                        }
+                        
+                        if (locked === 'NO CONFLICT') {
+                            if (keyword && !lockedKeywords.includes(keyword)) {
+                                lockedKeywords.push(keyword);
+                            }
+                        }
+                        
+                        if ((!locked || locked === '') && status === 'DONE' && action === 'DELETED') {
+                            if (keyword && !lockedKeywords.includes(keyword)) {
+                                lockedKeywords.push(keyword);
+                            }
+                        }
+                    }
+                }
+
+                console.log(`[Locked Keywords] Loaded ${lockedKeywords.length} locked keywords and ${blockedUrlKeywordPairs.length} blocked URL+keyword pairs`);
+                return { lockedKeywords, blockedUrlKeywordPairs };
+
+            } catch (error) {
+                console.error('[Locked Keywords] Error loading:', error);
+                return { lockedKeywords: [], blockedUrlKeywordPairs: [] };
+            }
+        }
+
+        function filterLockedOpportunities(opportunities, lockData) {
+            if (!lockData) {
+                return opportunities;
+            }
+
+            const { lockedKeywords, blockedUrlKeywordPairs } = lockData;
+
+            if ((!lockedKeywords || lockedKeywords.length === 0) && 
+                (!blockedUrlKeywordPairs || blockedUrlKeywordPairs.length === 0)) {
+                return opportunities;
+            }
+
+            return opportunities.filter(opp => {
+                const keywordLower = opp.keyword.toLowerCase();
+                const urlLower = opp.url.toLowerCase();
+                
+                // Check if keyword is globally locked
+                if (lockedKeywords.includes(keywordLower)) {
+                    console.log(`[Filter] Removing opportunity - keyword locked: "${opp.keyword}" (${opp.url})`);
+                    return false;
+                }
+                
+                // Check if this specific URL+keyword pair is blocked (unresolved conflict)
+                const isBlockedPair = blockedUrlKeywordPairs.some(pair => 
+                    pair.url === urlLower && pair.keyword === keywordLower
+                );
+                
+                if (isBlockedPair) {
+                    console.log(`[Filter] Removing opportunity - unresolved conflict: "${opp.keyword}" on ${opp.url}`);
+                    return false;
+                }
+                
+                return true;
+            });
+        }
+
+        function parseCSV(csv) {
+            const lines = csv.trim().split('\n');
+            const headers = lines[0].split(',');
+            const data = [];
+
+            for (let i = 1; i < lines.length; i++) {
+                const values = lines[i].split(',');
+                const row = {};
+                headers.forEach((header, index) => {
+                    row[header.trim()] = values[index] ? values[index].trim() : '';
+                });
+                data.push(row);
+            }
+
+            return data;
+        }
+
+        function getPageType(url) {
+            const urlLower = url.toLowerCase();
+            if (urlLower.includes('/collections/')) return 'collection';
+            if (urlLower.includes('/products/')) return 'product';
+            if (urlLower.includes('/pages/')) return 'page';
+            if (urlLower.includes('/blogs/')) return 'blog';
+            return 'other';
+        }
+
+        function getPageTypeColor(type) {
+            const colors = {
+                collection: '#4caf50',  // Green
+                product: '#2196f3',     // Blue
+                page: '#9c27b0',        // Purple
+                blog: '#ff9800',        // Orange
+                other: '#e0e0e0'        // Gray
+            };
+            return colors[type] || colors.other;
+        }
+
+        function getPageTypeLabel(type) {
+            const labels = {
+                collection: '📁 Collection',
+                product: '📦 Product',
+                page: '📄 Page',
+                blog: '📝 Blog',
+                other: '🔗 Other'
+            };
+            return labels[type] || labels.other;
+        }
+
+        function processGSCData(queries, pages) {
+            const opportunities = [];
+
+            pages.forEach(page => {
+                const url = page['Top pages'];
+                const position = parseFloat(page['Position']);
+                const impressions = parseInt(page['Impressions']);
+                const clicks = parseInt(page['Clicks']);
+                const ctr = parseFloat(page['CTR'].replace('%', ''));
+
+                const matchingKeywords = queries.filter(q => {
+                    const qPos = parseFloat(q['Position']);
+                    const qImpressions = parseInt(q['Impressions']);
+                    return Math.abs(qPos - position) <= 3 && qImpressions >= 50;
+                });
+                
+                matchingKeywords.sort((a, b) => parseInt(b['Impressions']) - parseInt(a['Impressions']));
+                const bestKeyword = matchingKeywords[0] ? matchingKeywords[0]['Top queries'] : 'Unknown keyword';
+
+                if (position >= 4 && position <= 20 && impressions >= 100) {
+                    const potentialCTR = estimateCTR(3);
+                    const potentialClicks = Math.round(impressions * potentialCTR);
+                    const clickGain = potentialClicks - clicks;
+                    
+                    const positionGain = position - 3;
+                    const opportunityScore = (impressions / 100) * positionGain * (clickGain / 10);
+
+                    opportunities.push({
+                        url: url,
+                        keyword: bestKeyword,
+                        position: position,
+                        impressions: impressions,
+                        clicks: clicks,
+                        ctr: ctr,
+                        potentialClicks: potentialClicks,
+                        clickGain: clickGain,
+                        score: Math.round(opportunityScore),
+                        isQuickWin: position >= 4 && position <= 10 && impressions >= 100,
+                        pageType: getPageType(url)
+                    });
+                }
+            });
+
+            // Sort by score first (primary), then by page type (secondary)
+            opportunities.sort((a, b) => {
+                // Primary sort: highest score first
+                if (a.score !== b.score) return b.score - a.score;
+                
+                // Secondary sort: collection → product → blog → other
+                const typeOrder = { collection: 0, product: 1, blog: 2, other: 3 };
+                return typeOrder[a.pageType] - typeOrder[b.pageType];
+            });
+
+            return opportunities;
+        }
+
+        function estimateCTR(position) {
+            const ctrMap = {
+                1: 0.28,
+                2: 0.15,
+                3: 0.10,
+                4: 0.08,
+                5: 0.06,
+                6: 0.05,
+                7: 0.04,
+                8: 0.03,
+                9: 0.03,
+                10: 0.02
+            };
+            return ctrMap[position] || 0.01;
+        }
+
+        async function displayGSCOpportunities(opportunities) {
+            const statusDiv = document.getElementById('gscImportStatus');
+            
+            // Show search container
+            document.getElementById('gscSearchContainer').style.display = 'block';
+            
+            // Load locked keywords from GitHub registry
+            const lockData = await loadLockedKeywords();
+            
+            // Get deleted pairs from localStorage
+            const deletedPairs = deletedOpportunities.map(d => ({
+                url: d.url.toLowerCase(),
+                keyword: d.keyword.toLowerCase()
+            }));
+            
+            // Filter opportunities against registry
+            const availableOpportunities = opportunities.filter(opp => {
+                const urlLower = opp.url.toLowerCase();
+                const keywordLower = opp.keyword.toLowerCase();
+                
+                // Rule 1: Remove if keyword is globally locked in registry
+                if (lockData.lockedKeywords.includes(keywordLower)) {
+                    console.log(`[GSC Filter] Removing - keyword "${opp.keyword}" is locked in registry`);
+                    return false;
+                }
+                
+                // Rule 2: Remove if this specific URL+keyword pair is blocked (orphaned conflict)
+                const isBlockedPair = lockData.blockedUrlKeywordPairs.some(pair => 
+                    pair.url === urlLower && pair.keyword === keywordLower
+                );
+                if (isBlockedPair) {
+                    console.log(`[GSC Filter] Removing - orphaned conflict: "${opp.keyword}" on ${opp.url}`);
+                    return false;
+                }
+                
+                // Rule 3: Remove if deleted
+                const isDeleted = deletedPairs.some(d => 
+                    d.url === urlLower && d.keyword === keywordLower
+                );
+                if (isDeleted) {
+                    return false;
+                }
+                
+                return true;
+            });
+            
+            // Sort by score (highest first)
+            availableOpportunities.sort((a, b) => b.score - a.score);
+            
+            const quickWinsCount = availableOpportunities.filter(o => o.isQuickWin).length;
+
+            // CRITICAL: Use = to REPLACE content, not += to append
+            const html = `
+                <!-- Bulk Actions Bar (hidden until checkboxes selected) -->
+                <div id="bulkActionsBar" class="bulk-actions">
+                    <div>
+                        <strong><span id="selectedCount">0</span> selected</strong>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <button onclick="bulkDeleteSelected()" style="background: #c62828;">🗑️ Delete Selected</button>
+                        <button class="btn-secondary" onclick="clearAllSelections()">✖ Clear Selection</button>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 30px;">
+                    <h3>📊 Available Opportunities (${availableOpportunities.length})</h3>
+                    <p style="color: #666; margin-bottom: 10px;">
+                        Sorted by opportunity score (highest first) • ${quickWinsCount} Quick Wins 🔥
+                    </p>
+                    <p style="color: #999; font-size: 0.9rem; margin-bottom: 20px;">
+                        Pages in "My Pages" or "Deleted" are hidden from this list
+                    </p>
+                    ${availableOpportunities.map((opp, index) => {
+                        const isQuickWin = opp.isQuickWin;
+                        const oppId = `opp-${index}`;
+                        const pageType = opp.pageType || getPageType(opp.url);
+                        const borderColor = getPageTypeColor(pageType);
+                        const pageTypeLabel = getPageTypeLabel(pageType);
+                        
+                        return `
+                        <div style="background: ${isQuickWin ? '#fff9f0' : 'white'}; border-left: 4px solid ${borderColor}; padding: 15px; margin-bottom: 15px; border-radius: 6px;">
+                            <div style="display: flex; align-items: flex-start; gap: 10px;">
+                                <input type="checkbox" class="gsc-checkbox" id="${oppId}" 
+                                       data-url="${opp.url.replace(/"/g, '&quot;')}" 
+                                       data-keyword="${opp.keyword.replace(/"/g, '&quot;')}"
+                                       onchange="updateBulkActions()">
+                                <div style="flex: 1;">
+                                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
+                                        <span style="background: ${borderColor}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${pageTypeLabel}</span>
+                                        ${isQuickWin ? '<span style="font-size: 1.2rem;">🔥</span>' : ''}
+                                        <span style="background: #666; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem;">Score: ${opp.score.toLocaleString()}</span>
+                                    </div>
+                                    <label for="${oppId}" style="cursor: pointer; font-weight: 500; margin-bottom: 5px; word-break: break-all; display: block;">
+                                        ${opp.url}
+                                    </label>
+                                    <div style="color: #1976d2; font-size: 0.95rem; margin-bottom: 8px; font-weight: 500;">🎯 Keyword: "${opp.keyword}"</div>
+                                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; font-size: 0.9rem;">
+                                        <div><strong>Position:</strong> ${opp.position.toFixed(1)}</div>
+                                        <div><strong>Impressions:</strong> ${opp.impressions.toLocaleString()}/mo</div>
+                                        <div><strong>Clicks:</strong> ${opp.clicks}/mo</div>
+                                        <div style="color: #2e7d32;"><strong>Potential:</strong> +${opp.clickGain} clicks/mo</div>
+                                    </div>
+                                    <div style="display: flex; gap: 10px; margin-top: 10px;">
+                                        <button onclick="addGSCUrlToAnalyze('${opp.url.replace(/'/g, "\\'")}', '${opp.keyword.replace(/'/g, "\\'")}')" style="font-size: 0.9rem; padding: 8px 16px;">➕ Add to My Pages</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `}).join('')}
+                </div>
+            `;
+            
+            // Find where to insert (after existing status messages)
+            const existingContent = statusDiv.querySelector('p');
+            if (existingContent) {
+                // Keep status messages, replace opportunities list
+                const opportunitiesDiv = statusDiv.querySelector('div[style*="margin-top: 30px"]');
+                if (opportunitiesDiv) {
+                    opportunitiesDiv.outerHTML = html;
+                } else {
+                    statusDiv.innerHTML += html;
+                }
+            } else {
+                statusDiv.innerHTML = html;
+            }
+        }
+
+        async function filterGSCOpportunities() {
+            console.log('[Filter] Button clicked');
+            
+            const searchTerm = document.getElementById('gscKeywordSearch').value.toLowerCase().trim();
+            const searchResults = document.getElementById('searchResults');
+            
+            if (!searchTerm) {
+                searchResults.innerHTML = '⚠️ Please enter a keyword to search';
+                await displayGSCOpportunities(allGSCOpportunities);
+                return;
+            }
+            
+            console.log('[Filter] Searching for:', searchTerm);
+            console.log('[Filter] Total opportunities:', allGSCOpportunities.length);
+            
+            // EXACT match only
+            const filtered = allGSCOpportunities.filter(opp => 
+                opp.keyword.toLowerCase() === searchTerm
+            );
+            
+            console.log('[Filter] Filtered results:', filtered.length);
+            
+            if (filtered.length === 0) {
+                searchResults.innerHTML = `❌ No pages found with exact keyword: "${searchTerm}"`;
+                searchResults.style.color = '#c62828';
+            } else {
+                searchResults.innerHTML = `✅ Found ${filtered.length} page${filtered.length > 1 ? 's' : ''} with keyword: "${searchTerm}"`;
+                searchResults.style.color = '#2e7d32';
+            }
+            
+            await displayGSCOpportunities(filtered);
+        }
+
+        async function clearGSCSearch() {
+            console.log('[Filter] Clear button clicked');
+            document.getElementById('gscKeywordSearch').value = '';
+            document.getElementById('searchResults').innerHTML = '';
+            await displayGSCOpportunities(allGSCOpportunities);
+        }
+
+        function updateBulkActions() {
+            const checkboxes = document.querySelectorAll('.gsc-checkbox:checked');
+            const count = checkboxes.length;
+            const bulkBar = document.getElementById('bulkActionsBar');
+            const countSpan = document.getElementById('selectedCount');
+            
+            if (count > 0) {
+                bulkBar.classList.add('visible');
+                countSpan.textContent = count;
+            } else {
+                bulkBar.classList.remove('visible');
+            }
+        }
+
+        async function bulkDeleteSelected() {
+            const checkboxes = document.querySelectorAll('.gsc-checkbox:checked');
+            const count = checkboxes.length;
+            
+            if (count === 0) {
+                alert('No opportunities selected');
+                return;
+            }
+            
+            if (!confirm(`Delete ${count} selected opportunit${count > 1 ? 'ies' : 'y'}?\n\nYou can restore them from the Deleted tab.`)) {
+                return;
+            }
+            
+            // Collect all selected items
+            checkboxes.forEach(checkbox => {
+                const url = checkbox.getAttribute('data-url');
+                const keyword = checkbox.getAttribute('data-keyword');
+                
+                deletedOpportunities.push({
+                    id: Date.now() + Math.random(), // Ensure unique IDs
+                    url: url,
+                    keyword: keyword,
+                    deletedAt: new Date().toISOString()
+                });
+            });
+            
+            // Save to localStorage
+            localStorage.setItem('deletedOpportunities', JSON.stringify(deletedOpportunities));
+            updateDeletedCount();
+            renderDeleted();
+            
+            // Refresh display (will filter out deleted items)
+            const currentSearchTerm = document.getElementById('gscKeywordSearch').value.trim();
+            if (currentSearchTerm) {
+                await filterGSCOpportunities();
+            } else {
+                await displayGSCOpportunities(allGSCOpportunities);
+            }
+            
+            alert(`✅ ${count} opportunit${count > 1 ? 'ies' : 'y'} moved to Deleted tab!`);
+        }
+
+        function clearAllSelections() {
+            document.querySelectorAll('.gsc-checkbox:checked').forEach(cb => {
+                cb.checked = false;
+            });
+            updateBulkActions();
+        }
+
+        async function addGSCUrlToAnalyze(url, keyword) {
+            const existingUrls = urls.map(u => u.url.toLowerCase());
+            
+            if (existingUrls.includes(url.toLowerCase())) {
+                alert('⚠️ This URL is already in your list!');
+                return;
+            }
+
+            urls.push({ 
+                id: Date.now(), 
+                url: url, 
+                analyzed: false, 
+                keyword: keyword || null,
+                results: null,
+                fromGSC: true
+            });
+
+            updatePageCount();
+            renderUrls();
+            
+            // Refresh GSC opportunities list to remove the added page
+            const gscData = JSON.parse(localStorage.getItem('gscData') || '{}');
+            if (gscData.opportunities) {
+                // Clear the status div and redisplay with updated filter
+                const statusDiv = document.getElementById('gscImportStatus');
+                statusDiv.innerHTML = `<p style="color: #2e7d32;">✅ Successfully imported ${gscData.opportunities.length} opportunities! (Top 100 stored for quick access)</p>`;
+                await displayGSCOpportunities(gscData.opportunities);
+            }
+            
+            alert(`✅ URL added with keyword "${keyword}"! Switch to "My Pages" tab to analyze it.`);
+        }
+
+
+        // Load pages from GitHub registry
+        async function loadFromGitHub() {
+            try {
+                const url = 'https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keyword-master-registry.csv';
+                console.log('[Load Registry] Fetching from:', url);
+                const response = await fetch(url);
+                
+                console.log('[Load Registry] Response status:', response.status, response.statusText);
+                
+                if (!response.ok) {
+                    console.error('[Load Registry] Failed to fetch registry:', response.status, response.statusText);
+                    alert('⚠️ Failed to load registry from GitHub\n\nStatus: ' + response.status + '\n\nStarting with empty lists.');
+                    return;
+                }
+
+                const csvText = await response.text();
+                const lines = csvText.trim().split('\n');
+                
+                if (lines.length < 2) {
+                    console.warn('[Load Registry] Registry is empty');
+                    return;
+                }
+
+                // Find the header row (search first 5 lines)
+                let headerLineIndex = -1;
+                let headers = [];
+                const requiredColumns = ['Keyword', 'Page URL', 'LOCKED', 'Status', 'Action'];
+                
+                for (let i = 0; i < Math.min(5, lines.length); i++) {
+                    const cols = lines[i].split(',').map(h => h.trim().replace(/^\uFEFF/, '')); // Remove BOM
+                    let foundCount = 0;
+                    
+                    requiredColumns.forEach(req => {
+                        if (cols.includes(req)) foundCount++;
+                    });
+                    
+                    if (foundCount >= 4) {
+                        headerLineIndex = i;
+                        headers = cols;
+                        console.log(`[Load Registry] Found header row at line ${i + 1}`);
+                        break;
+                    }
+                }
+                
+                if (headerLineIndex === -1) {
+                    console.warn('[Load Registry] Could not find header row with required columns');
+                    console.warn('[Load Registry] Required: Keyword, Page URL, LOCKED, Status, Action');
+                    return;
+                }
+
+                // Parse CSV header
+                const keywordIndex = headers.indexOf('Keyword');
+                const urlIndex = headers.indexOf('Page URL');
+                const lockedIndex = headers.indexOf('LOCKED');
+                const statusIndex = headers.indexOf('Status');
+                const actionIndex = headers.indexOf('Action');
+                
+                if (keywordIndex === -1 || urlIndex === -1 || lockedIndex === -1 || statusIndex === -1 || actionIndex === -1) {
+                    console.warn('[Load Registry] Missing required columns');
+                    return;
+                }
+
+                const toOptimizePages = [];
+                const optimizedPagesList = [];
+                
+                for (let i = headerLineIndex + 1; i < lines.length; i++) {
+                    const cols = lines[i].split(',');
+                    if (cols.length > Math.max(keywordIndex, urlIndex, lockedIndex, statusIndex, actionIndex)) {
+                        const keyword = cols[keywordIndex]?.trim() || '';
+                        const pageUrl = cols[urlIndex]?.trim() || '';
+                        const locked = cols[lockedIndex]?.trim().toUpperCase();
+                        const status = cols[statusIndex]?.trim().toUpperCase();
+                        const action = cols[actionIndex]?.trim().toUpperCase();
+                        
+                        // Load TO_OPTIMIZE pages for My Pages tab
+                        if (locked === 'LOCKED' && status === 'DONE' && action === 'TO_OPTIMIZE') {
+                            if (pageUrl && pageUrl.startsWith('http')) {
+                                toOptimizePages.push({
+                                    id: Date.now() + toOptimizePages.length,
+                                    url: pageUrl,
+                                    keyword: keyword || null,
+                                    analyzed: false,
+                                    results: null,
+                                    fromRegistry: true
+                                });
+                            }
+                        }
+                        
+                        // Load OPTIMIZED pages for Optimized tab
+                        if (locked === 'LOCKED' && status === 'DONE' && action === 'OPTIMIZED') {
+                            if (pageUrl && pageUrl.startsWith('http')) {
+                                optimizedPagesList.push({
+                                    id: Date.now() + optimizedPagesList.length,
+                                    url: pageUrl,
+                                    keyword: keyword || null,
+                                    optimizedAt: Date.now(),
+                                    fromRegistry: true
+                                });
+                            }
+                        }
+                    }
+                }
+
+                // Update global arrays
+                urls = toOptimizePages;
+                optimizedPages = optimizedPagesList;
+                
+                console.log(`[Load Registry] Loaded ${urls.length} TO_OPTIMIZE pages and ${optimizedPages.length} OPTIMIZED pages`);
+
+            } catch (error) {
+                console.error('[Load Registry] Error:', error);
+                console.error('[Load Registry] Error name:', error.name);
+                console.error('[Load Registry] Error message:', error.message);
+                alert('⚠️ Error loading registry from GitHub:\n\n' + error.name + ': ' + error.message + '\n\nCheck browser console for details.');
+            }
+        }
+
+        // Settings Tab Functions
+        function saveGitHubToken() {
+            const token = document.getElementById('githubToken').value.trim();
+            const statusDiv = document.getElementById('tokenStatus');
+            
+            if (!token) {
+                statusDiv.innerHTML = '<p style="color: #c62828;">Please enter a token</p>';
+                return;
+            }
+            
+            if (!token.startsWith('ghp_') && !token.startsWith('github_pat_')) {
+                statusDiv.innerHTML = '<p style="color: #c62828;">Invalid token format. Should start with ghp_ or github_pat_</p>';
+                return;
+            }
+            
+            // Save to both localStorage and IndexedDB for maximum persistence
+            localStorage.setItem('githubToken', token);
+            saveTokenToDB(token);
+            statusDiv.innerHTML = '<p style="color: #2e7d32;">✅ Token saved successfully!</p>';
+            document.getElementById('githubToken').value = '';
+        }
+
+        function testGitHubToken() {
+            const token = localStorage.getItem('githubToken');
+            const statusDiv = document.getElementById('tokenStatus');
+            
+            if (!token) {
+                statusDiv.innerHTML = '<p style="color: #c62828;">No token saved. Please save a token first.</p>';
+                return;
+            }
+            
+            statusDiv.innerHTML = '<p style="color: #666;">Testing connection...</p>';
+            
+            fetch('https://api.github.com/repos/aboutwallart/seo-tools/contents/data/keyword-master-registry.csv', {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Accept': 'application/vnd.github.v3+json'
+                }
+            })
+            .then(response => {
+                if (response.ok) {
+                    statusDiv.innerHTML = '<p style="color: #2e7d32;">✅ Connection successful! Token is valid.</p>';
+                } else if (response.status === 401) {
+                    statusDiv.innerHTML = '<p style="color: #c62828;">❌ Invalid token or expired. Please generate a new one.</p>';
+                } else if (response.status === 404) {
+                    statusDiv.innerHTML = '<p style="color: #ff9800;">⚠️ Token works but file not found. Check repo/file path.</p>';
+                } else {
+                    statusDiv.innerHTML = `<p style="color: #c62828;">❌ Error ${response.status}: ${response.statusText}</p>`;
+                }
+            })
+            .catch(error => {
+                statusDiv.innerHTML = `<p style="color: #c62828;">❌ Network error: ${error.message}</p>`;
+            });
+        }
+
+        function clearGitHubToken() {
+            if (confirm('⚠️ Clear saved GitHub token?\n\nYou\'ll need to re-enter it to mark pages as optimized.')) {
+                localStorage.removeItem('githubToken');
+                document.getElementById('tokenStatus').innerHTML = '<p style="color: #666;">Token cleared.</p>';
+            }
+        }
+
+        // Mark as Optimized Function
+        async function markAsOptimized(id) {
+            const item = urls.find(u => u.id === id);
+            if (!item || !item.analyzed) {
+                alert('This page must be analyzed first before marking as optimized.');
+                return;
+            }
+            
+            const token = localStorage.getItem('githubToken');
+            if (!token) {
+                alert('⚠️ GitHub token not configured!\n\nGo to Settings tab and add your GitHub Personal Access Token first.');
+                switchTab('settings');
+                return;
+            }
+            
+            // Show confirmation popup
+            if (!confirm(`Mark this page as optimized?\n\nURL: ${item.url}\nKeyword: "${item.keyword}"\n\nThis will update the GitHub registry and move the page to the Optimized tab.`)) {
+                return;
+            }
+            
+            // Show loading
+            const statusMsg = document.createElement('div');
+            statusMsg.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 10000; text-align: center;';
+            statusMsg.innerHTML = '<div class="spinner"></div><p style="margin-top: 15px;">Updating GitHub registry...</p>';
+            document.body.appendChild(statusMsg);
+            
+            try {
+                // Update GitHub registry
+                await updateGitHubRegistry(item.url, item.keyword, token);
+                
+                // Remove loading
+                document.body.removeChild(statusMsg);
+                
+                // Show success message
+                alert('✅ Successfully saved to GitHub!\n\nPage marked as optimized and registry updated.');
+                
+                // Reload from GitHub to get fresh data
+                await loadFromGitHub();
+                
+                // Update UI
+                updatePageCount();
+                updateOptimizedCount();
+                renderUrls();
+                renderOptimized();
+                
+            } catch (error) {
+                document.body.removeChild(statusMsg);
+                console.error('[Mark Optimized] Error:', error);
+                alert(`❌ Failed to update GitHub:\n\n${error.message}\n\nPage NOT marked as optimized. Check your token in Settings.`);
+            }
+        }
+
+        async function updateGitHubRegistry(url, keyword, token) {
+            // 1. Get current file
+            const getResponse = await fetch('https://api.github.com/repos/aboutwallart/seo-tools/contents/data/keyword-master-registry.csv', {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Accept': 'application/vnd.github.v3+json'
+                }
+            });
+            
+            if (!getResponse.ok) {
+                throw new Error(`Failed to read registry: ${getResponse.status} ${getResponse.statusText}`);
+            }
+            
+            const fileData = await getResponse.json();
+            const content = atob(fileData.content);
+            
+            // 2. Parse CSV
+            const lines = content.split('\n');
+            const header = lines[0];
+            let found = false;
+            let updatedLines = [header];
+            
+            // 3. Find and update matching row
+            for (let i = 1; i < lines.length; i++) {
+                if (!lines[i].trim()) continue;
+                
+                const cols = lines[i].split(',');
+                const rowUrl = cols[1]?.trim().toLowerCase();
+                const rowKeyword = cols[0]?.trim().toLowerCase();
+                
+                if (rowUrl === url.toLowerCase() && rowKeyword === keyword.toLowerCase()) {
+                    // Update this row: LOCKED, DONE, OPTIMIZED
+                    cols[2] = 'LOCKED';
+                    cols[3] = 'DONE';
+                    cols[4] = 'OPTIMIZED';
+                    updatedLines.push(cols.join(','));
+                    found = true;
+                } else {
+                    updatedLines.push(lines[i]);
+                }
+            }
+            
+            // 4. If not found, add new row
+            if (!found) {
+                const newRow = `${keyword},${url},LOCKED,DONE,OPTIMIZED,,,,,${new Date().toISOString().split('T')[0]}`;
+                updatedLines.push(newRow);
+            }
+            
+            const newContent = updatedLines.join('\n');
+            const encodedContent = btoa(unescape(encodeURIComponent(newContent)));
+            
+            // 5. Update file on GitHub
+            const updateResponse = await fetch('https://api.github.com/repos/aboutwallart/seo-tools/contents/data/keyword-master-registry.csv', {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    message: `Mark as optimized: ${keyword} on ${url}`,
+                    content: encodedContent,
+                    sha: fileData.sha
+                })
+            });
+            
+            if (!updateResponse.ok) {
+                const errorData = await updateResponse.json();
+                throw new Error(errorData.message || `GitHub update failed: ${updateResponse.status}`);
+            }
+            
+            console.log('[GitHub] Successfully updated registry');
+        }
+
+        function viewOptimizedResults(url) {
+            const item = optimizedPages.find(p => p.url === url);
+            if (item && item.results) {
+                showResults(item.results, item.keyword);
+            }
+        }
+
+        function unmarkAsOptimized(url) {
+            alert('⚠️ Unmark Feature Disabled\n\nPages are now loaded from GitHub registry.\n\nTo unmark a page:\n1. Go to GitHub registry\n2. Change Action from "OPTIMIZED" back to "TO_OPTIMIZE"\n3. Refresh this tool\n\nThis ensures the registry stays as the single source of truth.');
+        }
+
+        // Help Modal Functions
+        function showHelp() {
+            document.getElementById('helpModal').style.display = 'block';
+        }
+
+        function closeHelp() {
+            document.getElementById('helpModal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside of it
+        window.onclick = function(event) {
+            const modal = document.getElementById('helpModal');
+            if (event.target == modal) {
+                modal.style.display = 'none';
+            }
+        }
+
+        // Initialize on page load
+        window.addEventListener('DOMContentLoaded', async () => {
+            // Initialize IndexedDB
+            await initDB();
+            
+            // Try IndexedDB first (most persistent)
+            let savedToken = await getTokenFromDB();
+            
+            // Fallback to localStorage if IndexedDB doesn't have it
+            if (!savedToken) {
+                savedToken = localStorage.getItem('githubToken');
+                if (savedToken) {
+                    // Migrate to IndexedDB
+                    saveTokenToDB(savedToken);
+                }
+            }
+            
+            // Load pages from GitHub registry
+            await loadFromGitHub();
+            
+            // Initialize UI
+            updatePageCount();
+            updateDeletedCount();
+            updateOptimizedCount();
+            renderUrls();
+            renderDeleted();
+            renderOptimized();
+            
+            // Load and display GSC opportunities if they exist
+            const gscData = JSON.parse(localStorage.getItem('gscData') || '{}');
+            if (gscData.opportunities && gscData.opportunities.length > 0) {
+                // Store in global variable for search functionality
+                allGSCOpportunities = gscData.opportunities;
+                
+                const statusDiv = document.getElementById('gscImportStatus');
+                statusDiv.innerHTML = `<p style="color: #2e7d32;">✅ Loaded ${gscData.opportunities.length} opportunities from previous import</p>`;
+                statusDiv.innerHTML += `<p style="color: #666; font-size: 0.9rem;">Imported: ${new Date(gscData.imported).toLocaleString()}</p>`;
+                
+                // Show search container
+                document.getElementById('gscSearchContainer').style.display = 'block';
+                
+                await displayGSCOpportunities(gscData.opportunities);
+            }
+        });
+    </script>
+</body>
+</html>
