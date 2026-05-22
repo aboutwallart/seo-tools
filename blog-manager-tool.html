@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blog Manager Tool</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: #ffffff;
+            color: #1a1a1a;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        h1 {
+            font-size: 32px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #1a1a1a;
+        }
+
+        .subtitle {
+            color: #666666;
+            font-size: 14px;
+            margin-bottom: 4px;
+        }
+
+        .version {
+            color: #999999;
+            font-size: 11px;
+            margin-bottom: 30px;
+        }
+
+        /* STATS SECTION */
+        #stats {
+            background: #f5f5f5;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-bottom: 30px;
+            font-size: 14px;
+            color: #666666;
+        }
+
+        #stats strong {
+            color: #1a1a1a;
+        }
+
+        /* INPUT SECTION */
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        .input-group label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            color: #1a1a1a;
+            margin-bottom: 8px;
+        }
+
+        .input-group input,
+        .input-group select {
+            width: 100%;
+            max-width: 500px;
+            padding: 12px 16px;
+            font-size: 14px;
+            font-family: 'Poppins', sans-serif;
+            background: #f5f5f5;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            color: #1a1a1a;
+            transition: all 0.2s ease;
+        }
+
+        .input-group input:focus,
+        .input-group select:focus {
+            outline: none;
+            border-color: #1a1a1a;
+            background: #ffffff;
+        }
+
+        .input-group input::placeholder {
+            color: #999999;
+        }
+
+        /* BUTTON */
+        #generateBtn {
+            background: #1a1a1a;
+            color: #ffffff;
+            border: none;
+            padding: 14px 32px;
+            font-size: 14px;
+            font-weight: 500;
+            font-family: 'Poppins', sans-serif;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-top: 10px;
+        }
+
+        #generateBtn:hover {
+            background: #333333;
+        }
+
+        #generateBtn:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+
+        /* RESULTS SECTION */
+        #results {
+            margin-top: 40px;
+        }
+
+        .idea-card {
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 16px;
+            transition: all 0.2s ease;
+        }
+
+        .idea-card:hover {
+            border-color: #1a1a1a;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+
+        .idea-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+        }
+
+        .idea-title {
+            font-size: 16px;
+            font-weight: 500;
+            color: #1a1a1a;
+            flex: 1;
+            margin-right: 16px;
+        }
+
+        .idea-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .badge-paa {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+
+        .badge-reddit {
+            background: #fff3e0;
+            color: #f57c00;
+        }
+
+        .idea-meta {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            margin-bottom: 12px;
+            font-size: 13px;
+            color: #666666;
+        }
+
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .warning {
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            margin-bottom: 12px;
+        }
+
+        .warning-similar {
+            background: #ffebee;
+            border: 1px solid #ef5350;
+            color: #c62828;
+        }
+
+        .warning-caution {
+            background: #fff8e1;
+            border: 1px solid #ffa726;
+            color: #ef6c00;
+        }
+
+        .warning-new {
+            background: #e8f5e9;
+            border: 1px solid #66bb6a;
+            color: #2e7d32;
+        }
+
+        .mark-planned-btn {
+            background: #ffffff;
+            color: #1a1a1a;
+            border: 1px solid #1a1a1a;
+            padding: 8px 20px;
+            font-size: 13px;
+            font-weight: 500;
+            font-family: 'Poppins', sans-serif;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .mark-planned-btn:hover {
+            background: #1a1a1a;
+            color: #ffffff;
+        }
+
+        .mark-planned-btn:disabled {
+            background: #f5f5f5;
+            color: #cccccc;
+            border-color: #e0e0e0;
+            cursor: not-allowed;
+        }
+
+        .planned-label {
+            color: #66bb6a;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666666;
+            font-size: 14px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999999;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Blog Manager Tool</h1>
+        <p class="subtitle">Generate SEO-optimized blog ideas and check for content cannibalization</p>
+        <p class="version">v1.12 - 2026-05-22</p>
+        
+        <!-- STATS SECTION -->
+        <div id="stats">
+            <strong>Database:</strong> Loading...
+        </div>
+        
+        <!-- INPUT SECTION -->
+        <div class="input-group">
+            <label>Niche or Topic</label>
+            <input type="text" id="niche" placeholder="e.g., wall art, minimalist posters, abstract prints">
+        </div>
+        
+        <div class="input-group">
+            <label>Source & Number of Ideas</label>
+            <select id="sourceType">
+                <option value="paa" selected>10 from Google PAA</option>
+                <option value="reddit">10 from Reddit</option>
+            </select>
+        </div>
+        
+        <button id="generateBtn">Generate Ideas</button>
+        
+        <!-- RESULTS SECTION -->
+        <div id="results"></div>
+    </div>
+
+    <script>
+        // ============================================
+        // DATABASE LOADING
+        // ============================================
+        
+        let existingBlogs = [];
+
+        async function loadExistingBlogs() {
+            try {
+                const response = await fetch('/api/blogs');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                existingBlogs = data.blogs || [];
+                
+                const published = existingBlogs.filter(b => b.status === 'published').length;
+                const planned = existingBlogs.filter(b => b.status === 'planned').length;
+                
+                document.getElementById('stats').innerHTML = `
+                    <strong>Database loaded:</strong> ${published} published blogs, ${planned} planned blogs
+                `;
+                
+                console.log('Database loaded successfully:', { published, planned, total: existingBlogs.length });
+            } catch (error) {
+                console.error('Error loading blogs:', error);
+                document.getElementById('stats').innerHTML = `
+                    <strong>Database error:</strong> Could not load blogs. Check console for details.
+                `;
+            }
+        }
+
+        // Load database when page loads
+        loadExistingBlogs();
+
+        // ============================================
+        // IDEA GENERATION
+        // ============================================
+        
+        let currentIdeas = [];
+
+        async function generateIdeas() {
+            const niche = document.getElementById('niche').value.trim();
+            const sourceType = document.getElementById('sourceType').value;
+            
+            let ideaCount, promptTask;
+            
+            if (sourceType === 'paa') {
+                ideaCount = 10;
+                promptTask = `Search Google and find UP TO 10 "People Also Ask" questions (questions with 300+ monthly searches)`;
+            } else {
+                ideaCount = 10;
+                promptTask = `Search Reddit (r/HomeDecorating, r/InteriorDesign, r/CozyPlaces, r/malelivingspace) and find UP TO 10 question posts (posts with 20+ upvotes OR 10+ comments)`;
+            }
+            
+            if (!niche) {
+                alert('Please enter a niche or topic');
+                return;
+            }
+            
+            // Disable button and show loading
+            const btn = document.getElementById('generateBtn');
+            btn.disabled = true;
+            btn.textContent = 'Generating...';
+            
+            // Show loading state
+            document.getElementById('results').innerHTML = `
+                <div class="loading">
+                    🔍 Searching for questions about "${niche}"...
+                </div>
+            `;
+            
+            try {
+                const prompt = `CRITICAL: Return ONLY valid JSON. No text before or after. No markdown. No explanations.
+
+Find REAL questions people are asking about: "${niche}"
+
+${promptTask}
+
+OUTPUT ONLY THIS JSON (no other text):
+{
+  "questions": [
+    {"title": "Real question from Google?", "source": "PAA", "volume": 1200, "subreddit": null},
+    {"title": "Real question from Reddit?", "source": "Reddit", "volume": 800, "subreddit": "HomeDecorating"}
+  ]
+}
+
+Sort by estimated search volume (highest first). Return whatever questions you find, even if fewer than ${ideaCount}. It's OK to return 3-5 questions if that's all you can find.`;
+
+                // Both use Claude API (OpenAI doesn't have web search)
+                const apiEndpoint = '/api/claude';
+
+                const response = await fetch(apiEndpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`API error: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                console.log(`Claude API response (${sourceType}):`, data);
+                
+                // Backend returns { response: "cleaned JSON text", raw: {...} }
+                let jsonText = data.response;
+                
+                if (!jsonText) {
+                    throw new Error('No response from API');
+                }
+                
+                // Parse the JSON
+                const parsedData = JSON.parse(jsonText);
+                currentIdeas = parsedData.questions || [];
+                
+                if (currentIdeas.length === 0) {
+                    throw new Error('No questions found. Try a different niche or try again in 1 minute.');
+                }
+                
+                // Accept partial results - don't error if we got fewer than requested
+                displayIdeas(currentIdeas);
+                
+            } catch (error) {
+                console.error('Error generating ideas:', error);
+                document.getElementById('results').innerHTML = `
+                    <div class="empty-state">
+                        ❌ Error generating ideas: ${error.message}<br>
+                        Check console for details.
+                    </div>
+                `;
+            } finally {
+                // Lock button for 90 seconds to prevent rate limit hits
+                let countdown = 90;
+                btn.disabled = true;
+                
+                const countdownInterval = setInterval(() => {
+                    countdown--;
+                    btn.textContent = `Wait ${countdown}s...`;
+                    
+                    if (countdown <= 0) {
+                        clearInterval(countdownInterval);
+                        btn.disabled = false;
+                        btn.textContent = 'Generate Ideas';
+                    }
+                }, 1000);
+            }
+        }
+
+        function displayIdeas(ideas) {
+            if (ideas.length === 0) {
+                document.getElementById('results').innerHTML = `
+                    <div class="empty-state">
+                        No ideas generated. Try a different niche.
+                    </div>
+                `;
+                return;
+            }
+            
+            let html = '<h2 style="margin-bottom: 20px; font-size: 20px;">Generated Ideas</h2>';
+            
+            ideas.forEach((idea, index) => {
+                const badgeClass = idea.source === 'PAA' ? 'badge-paa' : 'badge-reddit';
+                const badgeText = idea.source === 'PAA' ? 'Google PAA' : 'Reddit';
+                
+                html += `
+                    <div class="idea-card">
+                        <div class="idea-header">
+                            <div class="idea-title">${idea.title}</div>
+                            <span class="idea-badge ${badgeClass}">${badgeText}</span>
+                        </div>
+                        
+                        <div class="idea-meta">
+                            <div class="meta-item">
+                                📊 Volume: ${idea.volume ? idea.volume.toLocaleString() : 'Unknown'}
+                            </div>
+                            ${idea.subreddit ? `
+                                <div class="meta-item">
+                                    💬 r/${idea.subreddit}
+                                </div>
+                            ` : ''}
+                        </div>
+                        
+                        <button class="mark-planned-btn" onclick="alert('Mark as Planned coming in v1.4')">
+                            Mark as Planned
+                        </button>
+                    </div>
+                `;
+            });
+            
+            document.getElementById('results').innerHTML = html;
+        }
+
+        // Add click handler
+        document.getElementById('generateBtn').addEventListener('click', generateIdeas);
+    </script>
+</body>
+</html>
