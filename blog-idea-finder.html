@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blog Idea Finder - About Wall Art</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: #ffffff;
+            color: #1a1a1a;
+            line-height: 1.6;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 32px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        h2 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            margin-top: 40px;
+        }
+
+        .subtitle {
+            color: #666666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .stats {
+            background: #f5f5f5;
+            padding: 12px 16px;
+            border-radius: 4px;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        input[type="text"], input[type="number"], select {
+            width: 100%;
+            padding: 12px 16px;
+            background: #f5f5f5;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            font-family: 'Poppins', sans-serif;
+            font-size: 14px;
+        }
+
+        input[type="text"]:focus, input[type="number"]:focus, select:focus {
+            outline: none;
+            border-color: #1a1a1a;
+        }
+
+        button {
+            background: #1a1a1a;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            font-family: 'Poppins', sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        button:hover {
+            opacity: 0.8;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        button.secondary {
+            background: white;
+            color: #1a1a1a;
+            border: 1px solid #e0e0e0;
+            padding: 8px 16px;
+            font-size: 13px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666666;
+        }
+
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 12px 16px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+
+        .results {
+            margin-top: 40px;
+        }
+
+        .idea-card {
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+
+        .idea-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+        }
+
+        .idea-title {
+            font-size: 16px;
+            font-weight: 500;
+            flex: 1;
+            margin-right: 16px;
+        }
+
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .status-new {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .status-caution {
+            background: #fff9e6;
+            color: #f57c00;
+        }
+
+        .status-similar {
+            background: #ffebee;
+            color: #c62828;
+        }
+
+        .idea-meta {
+            font-size: 13px;
+            color: #666666;
+            margin-bottom: 8px;
+        }
+
+        .angle-suggestion {
+            background: #f5f5f5;
+            padding: 12px;
+            border-radius: 4px;
+            font-size: 13px;
+            margin-top: 8px;
+            margin-bottom: 12px;
+        }
+
+        .angle-label {
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+
+        .mark-planned-btn {
+            margin-top: 12px;
+            width: 100%;
+        }
+
+        .mark-planned-btn.planned {
+            background: #2e7d32;
+        }
+
+        /* Keyword Gap Section */
+        .gap-section {
+            background: #f5f5f5;
+            padding: 24px;
+            border-radius: 4px;
+            margin-top: 40px;
+        }
+
+        .filters {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .gap-table {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .gap-table-header {
+            display: grid;
+            grid-template-columns: 2fr 120px 120px 120px;
+            background: #1a1a1a;
+            color: white;
+            padding: 12px 16px;
+            font-weight: 500;
+            font-size: 13px;
+        }
+
+        .gap-row {
+            display: grid;
+            grid-template-columns: 2fr 120px 120px 120px;
+            padding: 12px 16px;
+            border-bottom: 1px solid #e0e0e0;
+            align-items: center;
+            font-size: 13px;
+        }
+
+        .gap-row:last-child {
+            border-bottom: none;
+        }
+
+        .gap-row:hover {
+            background: #f5f5f5;
+        }
+
+        .gap-keyword {
+            font-weight: 500;
+        }
+
+        .gap-competitors {
+            font-size: 12px;
+            color: #666666;
+        }
+
+        .opportunity-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+            margin-left: 8px;
+        }
+
+        .opportunity-high {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .opportunity-medium {
+            background: #fff9e6;
+            color: #f57c00;
+        }
+
+        .opportunity-low {
+            background: #ffebee;
+            color: #c62828;
+        }
+
+        @media (max-width: 768px) {
+            .filters {
+                grid-template-columns: 1fr;
+            }
+
+            .gap-table-header,
+            .gap-row {
+                grid-template-columns: 1fr;
+                gap: 8px;
+            }
+
+            .gap-table-header > div:not(:first-child),
+            .gap-row > div:not(:first-child) {
+                display: none;
+            }
+
+            .idea-header {
+                flex-direction: column;
+            }
+
+            .idea-title {
+                margin-right: 0;
+                margin-bottom: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Blog Idea Finder</h1>
+        <p class="subtitle">Generate SEO-optimized blog ideas and check for content cannibalization</p>
+
+        <div class="stats" id="stats">
+            Loading blog database...
+        </div>
+
+        <div class="input-group">
+            <label for="niche">Niche or Topic</label>
+            <input type="text" id="niche" placeholder="e.g., wall art, picture framing, home decor">
+        </div>
+
+        <div class="input-group">
+            <label for="ideaCount">Number of Ideas</label>
+            <select id="ideaCount">
+                <option value="10">10 ideas</option>
+                <option value="20">20 ideas</option>
+                <option value="30">30 ideas</option>
+                <option value="40" selected>40 ideas</option>
+            </select>
+        </div>
+
+        <button id="generateBtn" onclick="generateIdeas()">Generate Ideas</button>
+
+        <div id="loading" class="loading" style="display: none;">
+            Generating ideas...
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+
+        <div id="results" class="results"></div>
+
+        <!-- Keyword Gap Section -->
+        <div class="gap-section">
+            <h2>Keyword Gap Opportunities</h2>
+            <p class="subtitle" style="margin-top: 0;">Keywords your competitors rank for but you haven't covered yet</p>
+
+            <div class="filters">
+                <div class="input-group" style="margin-bottom: 0;">
+                    <label for="minVolume">Min Volume</label>
+                    <input type="number" id="minVolume" value="10000" placeholder="10000">
+                </div>
+                <div class="input-group" style="margin-bottom: 0;">
+                    <label for="maxDifficulty">Max SEO Difficulty</label>
+                    <input type="number" id="maxDifficulty" value="70" placeholder="70">
+                </div>
+                <div class="input-group" style="margin-bottom: 0;">
+                    <label for="maxResults">Show Top</label>
+                    <select id="maxResults">
+                        <option value="25">25 keywords</option>
+                        <option value="50" selected>50 keywords</option>
+                        <option value="100">100 keywords</option>
+                    </select>
+                </div>
+            </div>
+
+            <button onclick="applyFilters()">Apply Filters</button>
+
+            <div id="gapStats" style="margin-top: 20px; margin-bottom: 12px; font-size: 14px; color: #666;">
+                Loading gap analysis...
+            </div>
+
+            <div class="gap-table" id="gapTable">
+                <div class="gap-table-header">
+                    <div>Keyword</div>
+                    <div>Volume</div>
+                    <div>SEO Diff</div>
+                    <div>Action</div>
+                </div>
+                <div id="gapResults"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let existingBlogs = [];
+        let currentIdeas = [];
+        let competitorKeywords = [];
+        let filteredGapKeywords = [];
+
+        // Competitor keyword data (top 200 by volume from all 3 competitors)
+        let COMPETITOR_DATA = [];
+
+        // Load competitor keyword data from GitHub CSV files
+        async function loadCompetitorData() {
+            const files = [
+                { url: 'https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keywords_gap_for_abstracthouse_com.csv', competitor: 'Abstract House' },
+                { url: 'https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keywords_gap_for_eastendprints_co_uk.csv', competitor: 'East End Prints' },
+                { url: 'https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keywords_gap_for_posterlounge_co_uk.csv', competitor: 'Posterlounge' }
+            ];
+
+            for (const file of files) {
+                try {
+                    const response = await fetch(file.url);
+                    const csvText = await response.text();
+                    const lines = csvText.split('\n');
+                    
+                    // Skip header row
+                    for (let i = 1; i < lines.length; i++) {
+                        const line = lines[i].trim();
+                        if (!line) continue;
+                        
+                        // CSV columns: No,Keyword,Volume,Position,Estimated Visits,CPC,Paid Difficulty,SEO Difficulty,Ranking URL
+                        const cols = line.split(',');
+                        
+                        if (cols.length >= 8) {
+                            const keyword = cols[1] ? cols[1].trim() : '';
+                            const volume = parseInt(cols[2]) || 0;
+                            const seo_difficulty = parseInt(cols[7]) || 0;
+                            
+                            if (keyword && volume > 0) {
+                                COMPETITOR_DATA.push({
+                                    keyword: keyword,
+                                    volume: volume,
+                                    seo_difficulty: seo_difficulty,
+                                    competitor: file.competitor
+                                });
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error(`Error loading ${file.competitor} data:`, error);
+                }
+            }
+            
+            console.log(`Loaded ${COMPETITOR_DATA.length} competitor keywords from 3 CSV files`);
+        }
+
+        // Load existing blogs from database on page load
+        async function loadExistingBlogs() {
+            try {
+                const response = await fetch('/api/blogs');
+                const data = await response.json();
+                existingBlogs = data.blogs || [];
+                
+                const published = existingBlogs.filter(b => b.status === 'published').length;
+                const planned = existingBlogs.filter(b => b.status === 'planned').length;
+                
+                document.getElementById('stats').innerHTML = `
+                    <strong>Database loaded:</strong> ${published} published blogs, ${planned} planned blogs
+                `;
+
+                // Initialize keyword gap analysis
+                analyzeKeywordGap();
+            } catch (error) {
+                console.error('Error loading blogs:', error);
+                document.getElementById('stats').innerHTML = `
+                    <strong>Error:</strong> Could not load blog database
+                `;
+            }
+        }
+
+        // Analyze keyword gap - filter out keywords already covered
+        function analyzeKeywordGap() {
+            // Deduplicate keywords by keyword name
+            const uniqueKeywords = new Map();
+            COMPETITOR_DATA.forEach(item => {
+                if (!uniqueKeywords.has(item.keyword)) {
+                    uniqueKeywords.set(item.keyword, item);
+                } else {
+                    // Keep the one with lower difficulty
+                    const existing = uniqueKeywords.get(item.keyword);
+                    if (item.seo_difficulty < existing.seo_difficulty) {
+                        uniqueKeywords.set(item.keyword, item);
+                    }
+                }
+            });
+
+            // Convert back to array
+            competitorKeywords = Array.from(uniqueKeywords.values());
+
+            // Filter out keywords already covered by existing blogs
+            const uncoveredKeywords = competitorKeywords.filter(kw => {
+                const kwExtracted = extractKeyword(kw.keyword);
+                
+                // Check if any existing blog covers this keyword
+                for (const blog of existingBlogs) {
+                    const blogKeyword = blog.keyword;
+                    const similarity = calculateSimilarity(kwExtracted, blogKeyword);
+                    
+                    // If similarity >= 40%, consider it covered
+                    if (similarity >= 0.4) {
+                        return false; // Keyword is covered, exclude it
+                    }
+                }
+                
+                return true; // Keyword not covered, include it
+            });
+
+            filteredGapKeywords = uncoveredKeywords;
+            applyFilters();
+        }
+
+        function calculateSimilarity(keyword1, keyword2) {
+            const words1 = keyword1.split(' ').filter(w => w.length > 2);
+            const words2 = keyword2.split(' ').filter(w => w.length > 2);
+            
+            const intersection = words1.filter(w => words2.includes(w)).length;
+            const union = new Set([...words1, ...words2]).size;
+            
+            return intersection / union;
+        }
+
+        function applyFilters() {
+            const minVolume = parseInt(document.getElementById('minVolume').value) || 0;
+            const maxDifficulty = parseInt(document.getElementById('maxDifficulty').value) || 100;
+            const maxResults = parseInt(document.getElementById('maxResults').value) || 50;
+
+            // Calculate opportunity score for each keyword
+            // Higher volume = better, Lower difficulty = better
+            // Score = volume / (difficulty * 100)
+            const scoredKeywords = filteredGapKeywords.map(kw => ({
+                ...kw,
+                opportunityScore: kw.volume / (kw.seo_difficulty * 100)
+            }));
+
+            // Filter: only show green (≥100) and yellow (≥30) opportunities
+            // Exclude red (<30) completely
+            const goodOpportunities = scoredKeywords.filter(kw => kw.opportunityScore >= 30);
+
+            // Sort by opportunity score (highest first)
+            goodOpportunities.sort((a, b) => b.opportunityScore - a.opportunityScore);
+
+            const filtered = goodOpportunities
+                .filter(kw => kw.volume >= minVolume && kw.seo_difficulty <= maxDifficulty)
+                .slice(0, maxResults);
+
+            displayGapResults(filtered);
+        }
+
+        function displayGapResults(keywords) {
+            const total = filteredGapKeywords.length;
+            const showing = keywords.length;
+            
+            document.getElementById('gapStats').innerHTML = `
+                Showing <strong>${showing}</strong> of <strong>${total}</strong> uncovered keywords
+            `;
+
+            const html = keywords.map((kw, index) => {
+                // Determine opportunity level based on score thresholds
+                let opportunityClass, opportunityText;
+                if (kw.opportunityScore >= 100) {
+                    opportunityClass = 'opportunity-high';
+                    opportunityText = '🟢 High';
+                } else if (kw.opportunityScore >= 30) {
+                    opportunityClass = 'opportunity-medium';
+                    opportunityText = '🟡 Medium';
+                } else {
+                    opportunityClass = 'opportunity-low';
+                    opportunityText = '🔴 Low';
+                }
+
+                return `
+                <div class="gap-row">
+                    <div>
+                        <div class="gap-keyword">
+                            ${kw.keyword}
+                            <span class="opportunity-badge ${opportunityClass}">${opportunityText}</span>
+                        </div>
+                        <div class="gap-competitors">${kw.competitor}</div>
+                    </div>
+                    <div>${kw.volume.toLocaleString()}</div>
+                    <div>${kw.seo_difficulty}</div>
+                    <div>
+                        <button class="secondary" onclick="generateIdeasForKeyword('${kw.keyword.replace(/'/g, "\\'")}')">
+                            Use Keyword
+                        </button>
+                    </div>
+                </div>
+            `;
+            }).join('');
+
+            document.getElementById('gapResults').innerHTML = html;
+        }
+
+        async function generateIdeasForKeyword(keyword) {
+            // Set the niche input to the keyword
+            document.getElementById('niche').value = keyword;
+            
+            // Scroll to top
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            
+            // Don't auto-generate - let user choose quantity and click Generate button
+        }
+
+        // Load blogs when page loads
+        loadExistingBlogs();
+
+        async function generateIdeas() {
+            const niche = document.getElementById('niche').value.trim();
+            
+            if (!niche) {
+                alert('Please enter a niche or topic');
+                return;
+            }
+
+            document.getElementById('generateBtn').disabled = true;
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('results').innerHTML = '';
+
+            try {
+                // Use Claude with web_search to find real questions
+                const response = await fetch('/api/claude', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt: `CRITICAL: Return ONLY valid JSON. No text before or after. No markdown. No explanations.
+
+Find REAL questions people are asking about: "${niche}"
+
+TASK 1: Search Google and extract 20 "People Also Ask" questions
+TASK 2: Search Reddit (r/HomeDecorating, r/InteriorDesign, r/DesignMyRoom, r/AmateurRoomPorn, r/malelivingspace, r/femalelivingspace, r/minimalism, r/CozyPlaces, r/Scandinavian, r/bohemian, r/modernhomes, r/HomeImprovement, r/DIY, r/upcycling, r/ApartmentDesign, r/InteriorDecorating, r/BeforeNAfterRenovation, r/RoomPorn, r/KitchenPorn, r/declutter, r/BudgetHomeDecorating, r/Frugal, r/WallArt) and find 20 real question posts
+
+Use web_search tool to find these questions. Extract actual questions from search results.
+
+OUTPUT ONLY THIS JSON (no other text):
+{
+  "questions": [
+    {"title": "Real question from Google?", "source": "PAA", "volume": 1200, "subreddit": null},
+    {"title": "Real question from Reddit?", "source": "Reddit", "volume": 800, "subreddit": "HomeDecorating"}
+  ]
+}
+
+Sort by estimated search volume (highest first). Include 40 total questions.`
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to fetch questions');
+                }
+
+                const data = await response.json();
+                let resultText = data.response || data.content || JSON.stringify(data);
+                resultText = resultText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+                const result = JSON.parse(resultText);
+
+                if (!result.questions || !Array.isArray(result.questions)) {
+                    throw new Error('No questions found');
+                }
+
+                currentIdeas = result.questions.map(q => ({
+                    title: q.title,
+                    keyword: extractKeyword(q.title),
+                    source: q.source,
+                    volume: q.volume,
+                    subreddit: q.subreddit,
+                    status: 'new'
+                }));
+
+                // Check cannibalization
+                currentIdeas = currentIdeas.map(idea => {
+                    const conflict = checkCannibalization(idea.keyword);
+                    return {
+                        ...idea,
+                        conflict: conflict.status,
+                        conflictWith: conflict.title,
+                        score: conflict.score
+                    };
+                });
+
+                // Sort by opportunity score (lowest conflict first)
+                currentIdeas.sort((a, b) => a.score - b.score);
+
+                // Generate angle suggestions for yellow/green ideas
+                await generateAngleSuggestions();
+
+                displayResults();
+
+            } catch (error) {
+                document.getElementById('error').textContent = `Error: ${error.message}`;
+                document.getElementById('error').style.display = 'block';
+            } finally {
+                document.getElementById('generateBtn').disabled = false;
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        function extractKeyword(title) {
+            const questionWords = /\b(how|what|why|when|where|which|who|is|are|can|do|does|should|will)\b/gi;
+            const endings = /\b(guide|tips|ideas|ways|steps|tricks|hacks|secrets|benefits|mistakes|examples|like a pro|for beginners|101|explained|ultimate|complete|best|top)\b/gi;
+            const fillers = /\b(a|an|the|your|my|our|for|in|on|at|to|of|with|and|or|but)\b/gi;
+            
+            let keyword = title.toLowerCase()
+                .replace(questionWords, '')
+                .replace(endings, '')
+                .replace(fillers, '')
+                .replace(/[^\w\s]/g, '')
+                .trim()
+                .split(/\s+/)
+                .filter(word => word.length > 2)
+                .slice(0, 4)
+                .join(' ');
+            
+            return keyword || title.toLowerCase();
+        }
+
+        function checkCannibalization(keyword) {
+            const keywords = keyword.split(' ').filter(w => w.length > 2);
+            
+            let maxScore = 0;
+            let conflictTitle = null;
+
+            for (const blog of existingBlogs) {
+                const blogKeywords = blog.keyword.split(' ').filter(w => w.length > 2);
+                
+                const intersection = keywords.filter(k => blogKeywords.includes(k)).length;
+                const union = new Set([...keywords, ...blogKeywords]).size;
+                const score = intersection / union;
+
+                if (score > maxScore) {
+                    maxScore = score;
+                    conflictTitle = blog.title;
+                }
+            }
+
+            if (maxScore >= 0.6) {
+                return { status: 'similar', title: conflictTitle, score: maxScore };
+            } else if (maxScore >= 0.4) {
+                return { status: 'caution', title: conflictTitle, score: maxScore };
+            } else {
+                return { status: 'new', title: null, score: maxScore };
+            }
+        }
+
+        async function generateAngleSuggestions() {
+            const ideasNeedingAngles = currentIdeas.filter(idea => 
+                idea.conflict === 'new' || idea.conflict === 'caution'
+            );
+
+            if (ideasNeedingAngles.length === 0) return;
+
+            try {
+                const response = await fetch('/api/claude', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt: `For each of these blog titles, suggest a unique angle or differentiation strategy in ONE concise sentence (max 15 words):
+
+${ideasNeedingAngles.map((idea, i) => `${i + 1}. ${idea.title}`).join('\n')}
+
+Format: Return ONLY numbered suggestions, one per line, matching the input order.`
+                    })
+                });
+
+                const data = await response.json();
+                const suggestions = data.response
+                    .split('\n')
+                    .map(line => line.replace(/^\d+[\.\)]\s*/, '').trim())
+                    .filter(line => line.length > 0);
+
+                ideasNeedingAngles.forEach((idea, index) => {
+                    if (suggestions[index]) {
+                        idea.angleSuggestion = suggestions[index];
+                    }
+                });
+
+            } catch (error) {
+                console.error('Error generating angle suggestions:', error);
+            }
+        }
+
+        async function markAsPlanned(index) {
+            const idea = currentIdeas[index];
+            
+            try {
+                const response = await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'save',
+                        title: idea.title,
+                        keyword: idea.keyword,
+                        status: 'planned'
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Add to existing blogs list
+                    existingBlogs.push({
+                        title: idea.title,
+                        keyword: idea.keyword,
+                        status: 'planned',
+                        date: new Date().toISOString().split('T')[0]
+                    });
+
+                    // Update UI
+                    idea.isPlanned = true;
+                    displayResults();
+
+                    // Update stats
+                    const published = existingBlogs.filter(b => b.status === 'published').length;
+                    const planned = existingBlogs.filter(b => b.status === 'planned').length;
+                    document.getElementById('stats').innerHTML = `
+                        <strong>Database:</strong> ${published} published blogs, ${planned} planned blogs
+                    `;
+
+                    // Re-analyze keyword gap (newly planned blog might cover a keyword)
+                    analyzeKeywordGap();
+                } else {
+                    alert('Error marking as planned: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Error marking as planned:', error);
+                alert('Error: Could not save to database');
+            }
+        }
+
+        function displayResults() {
+            const resultsDiv = document.getElementById('results');
+            
+            const html = currentIdeas.map((idea, index) => {
+                const statusClass = idea.conflict === 'new' ? 'status-new' : 
+                                  idea.conflict === 'caution' ? 'status-caution' : 
+                                  'status-similar';
+                
+                const statusText = idea.conflict === 'new' ? '🟢 New Topic' : 
+                                 idea.conflict === 'caution' ? '🟡 Caution' : 
+                                 '🔴 Similar';
+
+                const angleSuggestion = idea.angleSuggestion && (idea.conflict === 'new' || idea.conflict === 'caution') ? `
+                    <div class="angle-suggestion">
+                        <div class="angle-label">Suggested Angle:</div>
+                        ${idea.angleSuggestion}
+                    </div>
+                ` : '';
+
+                const conflictInfo = idea.conflictWith ? `
+                    <div class="idea-meta">
+                        Similar to: <strong>${idea.conflictWith}</strong> (${Math.round(idea.score * 100)}% overlap)
+                    </div>
+                ` : '';
+
+                const plannedBtn = idea.isPlanned ? `
+                    <button class="mark-planned-btn planned" disabled>✓ Planned</button>
+                ` : `
+                    <button class="mark-planned-btn" onclick="markAsPlanned(${index})">Mark as Planned</button>
+                `;
+
+                return `
+                    <div class="idea-card">
+                        <div class="idea-header">
+                            <div class="idea-title">${idea.title}</div>
+                            <div class="status-badge ${statusClass}">${statusText}</div>
+                        </div>
+                        ${conflictInfo}
+                        ${angleSuggestion}
+                        ${plannedBtn}
+                    </div>
+                `;
+            }).join('');
+
+            resultsDiv.innerHTML = html;
+        }
+    </script>
+</body>
+</html>
