@@ -1,3 +1,32 @@
+// Extract keyword from question by removing question words and leading fillers
+function extractKeyword(question) {
+  let keyword = question.toLowerCase();
+  
+  // Remove question mark
+  keyword = keyword.replace(/\?/g, '');
+  
+  // Remove question words from beginning
+  const questionWords = ['how to', 'how do', 'how', 'what is', 'what are', 'what', 'why is', 'why are', 'why', 'when is', 'when are', 'when', 'where is', 'where are', 'where', 'who is', 'who are', 'who', 'should i', 'should', 'can i', 'can', 'do i', 'do', 'does'];
+  
+  for (const qWord of questionWords) {
+    const pattern = new RegExp(`^${qWord}\\s+`, 'i');
+    keyword = keyword.replace(pattern, '');
+  }
+  
+  // Remove leading filler words (but keep them between content words)
+  const leadingFillers = ['to', 'a', 'an', 'the', 'is', 'are', 'be', 'i'];
+  
+  for (const filler of leadingFillers) {
+    const pattern = new RegExp(`^${filler}\\s+`, 'i');
+    keyword = keyword.replace(pattern, '');
+  }
+  
+  // Trim whitespace
+  keyword = keyword.trim();
+  
+  return keyword;
+}
+
 export default async function handler(req, res) {
   // CORS headers
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -103,9 +132,14 @@ ${postsText}
 Select the 10 BEST questions related to "${niche}" and return this exact JSON format:
 {
   "questions": [
-    {"title": "Question text?", "source": "Reddit", "volume": 500, "subreddit": "SubredditName"}
+    {"title": "Question text?", "keyword": "extracted keyword phrase", "source": "Reddit", "volume": 500, "subreddit": "SubredditName"}
   ]
 }
+
+For the "keyword" field: extract the main keyword phrase from each question by removing question words (how, what, why, when, where, who, should, can, do) and leading filler words (to, a, an, the, is, are), but keep filler words between content words. Examples:
+- "How to hang wall art?" → keyword: "hang wall art"
+- "What is the best wall art for living room?" → keyword: "best wall art for living room"
+- "Why is modern art expensive?" → keyword: "modern art expensive"
 
 Estimate realistic monthly search volumes (100-5000 range). Only return questions directly related to "${niche}".`;
 
