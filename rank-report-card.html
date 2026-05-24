@@ -1,0 +1,1562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rank Report Card - SEO Audit Tool</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f8f9fa;
+            color: #212529;
+            line-height: 1.6;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 48px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #212529;
+            margin-bottom: 12px;
+        }
+
+        .header .version {
+            font-size: 0.9rem;
+            color: #adb5bd;
+            font-weight: 500;
+            margin-bottom: 12px;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            color: #6c757d;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        /* Card styling */
+        .card {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 32px;
+            margin-bottom: 24px;
+        }
+
+        /* Input Section */
+        .input-section {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .url-input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-family: inherit;
+        }
+
+        .url-input:focus {
+            outline: none;
+            border-color: #0066ff;
+            box-shadow: 0 0 0 3px rgba(0, 102, 255, 0.1);
+        }
+
+        .url-input.error {
+            border-color: #c62828;
+        }
+
+        .btn-primary {
+            padding: 12px 32px;
+            background-color: #0066ff;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .btn-primary:hover {
+            background-color: #0052cc;
+        }
+
+        .btn-primary:disabled {
+            background-color: #adb5bd;
+            cursor: not-allowed;
+        }
+
+        /* Error Message */
+        .error-message {
+            display: none;
+            color: #c62828;
+            font-size: 0.9rem;
+            margin-top: 8px;
+        }
+
+        .error-message.active {
+            display: block;
+        }
+
+        /* Loading State */
+        .loading-message {
+            display: none;
+            text-align: center;
+            padding: 24px;
+            color: #6c757d;
+            font-size: 1rem;
+        }
+
+        .loading-message.active {
+            display: block;
+        }
+
+        /* Results Section */
+        .results-section {
+            display: none;
+        }
+
+        .results-section.active {
+            display: block;
+        }
+
+        /* Grade and Score */
+        .score-header {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+
+        .grade-badge {
+            width: 120px;
+            height: 120px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 3.5rem;
+            font-weight: 700;
+            color: white;
+        }
+
+        .score-display {
+            flex: 1;
+        }
+
+        .score-number {
+            font-size: 3rem;
+            font-weight: 700;
+            color: #212529;
+        }
+
+        .score-label {
+            font-size: 1.1rem;
+            color: #6c757d;
+            margin-top: 4px;
+        }
+
+        /* Summary Stats */
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+
+        .stat-box {
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-box.passes {
+            background-color: #d4edda;
+        }
+
+        .stat-box.warnings {
+            background-color: #fff3cd;
+        }
+
+        .stat-box.issues {
+            background-color: #f8d7da;
+        }
+
+        .stat-number {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .stat-box.passes .stat-number {
+            color: #2E7D32;
+        }
+
+        .stat-box.warnings .stat-number {
+            color: #f57c00;
+        }
+
+        .stat-box.issues .stat-number {
+            color: #c62828;
+        }
+
+        .stat-label {
+            font-size: 0.95rem;
+            color: #495057;
+            font-weight: 600;
+        }
+
+        /* Audit Details */
+        .section-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 20px;
+            color: #212529;
+        }
+
+        .audit-item {
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 12px;
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+        }
+
+        .audit-item.pass {
+            background-color: #f1f8f4;
+            border-left: 4px solid #2E7D32;
+        }
+
+        .audit-item.warning {
+            background-color: #fffbf0;
+            border-left: 4px solid #f57c00;
+        }
+
+        .audit-item.fail {
+            background-color: #fef5f5;
+            border-left: 4px solid #c62828;
+        }
+
+        .audit-icon {
+            font-size: 1.5rem;
+            flex-shrink: 0;
+        }
+
+        .audit-item.pass .audit-icon {
+            color: #2E7D32;
+        }
+
+        .audit-item.warning .audit-icon {
+            color: #f57c00;
+        }
+
+        .audit-item.fail .audit-icon {
+            color: #c62828;
+        }
+
+        .audit-content {
+            flex: 1;
+        }
+
+        .audit-name {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+
+        .audit-item.pass .audit-name {
+            color: #2E7D32;
+        }
+
+        .audit-item.warning .audit-name {
+            color: #f57c00;
+        }
+
+        .audit-item.fail .audit-name {
+            color: #c62828;
+        }
+
+        .audit-detail {
+            color: #6c757d;
+            font-size: 0.95rem;
+            margin-bottom: 8px;
+        }
+
+        .audit-fix {
+            font-size: 0.9rem;
+            margin-top: 8px;
+        }
+
+        .audit-fix strong {
+            font-weight: 600;
+        }
+
+        .audit-item.warning .audit-fix strong {
+            color: #f57c00;
+        }
+
+        .audit-item.fail .audit-fix strong {
+            color: #c62828;
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            margin-top: 48px;
+            padding-top: 24px;
+            border-top: 1px solid #dee2e6;
+        }
+
+        .disclaimer {
+            font-size: 0.85rem;
+            color: #6c757d;
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .input-section {
+                flex-direction: column;
+            }
+
+            .btn-primary {
+                width: 100%;
+            }
+
+            .score-header {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .summary-stats {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Watch Video Button */
+        .btn-video {
+            margin-top: 12px;
+            padding: 8px 20px;
+            background-color: #0066ff;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .btn-video:hover {
+            background-color: #0052cc;
+        }
+
+        /* Read Guide Button */
+        .btn-guide {
+            margin-top: 12px;
+            margin-left: 8px;
+            padding: 8px 20px;
+            background-color: white;
+            color: #6c757d;
+            border: 2px solid #6c757d;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-guide:hover {
+            background-color: #6c757d;
+            color: white;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            overflow-y: auto;
+            padding: 40px 20px;
+        }
+
+        .modal.active {
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            max-width: 800px;
+            width: 100%;
+            margin: auto;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            padding: 24px 32px;
+            border-bottom: 1px solid #dee2e6;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            background: white;
+            z-index: 1;
+        }
+
+        .modal-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #212529;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 2rem;
+            color: #6c757d;
+            cursor: pointer;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            transition: background-color 0.2s;
+        }
+
+        .modal-close:hover {
+            background-color: #f8f9fa;
+        }
+
+        .modal-body {
+            padding: 32px;
+            line-height: 1.8;
+        }
+
+        .modal-body h3 {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #212529;
+            margin-top: 24px;
+            margin-bottom: 12px;
+        }
+
+        .modal-body h3:first-child {
+            margin-top: 0;
+        }
+
+        .modal-body p {
+            margin-bottom: 16px;
+            color: #495057;
+        }
+
+        .modal-body strong {
+            font-weight: 600;
+            color: #212529;
+        }
+
+        .modal-body ol, .modal-body ul {
+            margin-left: 24px;
+            margin-bottom: 16px;
+        }
+
+        .modal-body li {
+            margin-bottom: 8px;
+            color: #495057;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>Rank Report Card</h1>
+            <div class="version">v5.4</div>
+            <p>Get an SEO audit with scores for technical health, speed, and on-page optimization.</p>
+        </div>
+
+        <!-- Input Section -->
+        <div class="card">
+            <div class="input-section">
+                <input type="text" class="url-input" placeholder="www.example.com or https://example.com" id="urlInput">
+                <button class="btn-primary" id="runAuditBtn">Run Audit</button>
+            </div>
+            <div class="error-message" id="errorMessage"></div>
+        </div>
+
+        <!-- Loading Message -->
+        <div class="loading-message" id="loadingMessage">
+            Running SEO audit... This may take 30-60 seconds.
+        </div>
+
+        <!-- Results Section -->
+        <div class="results-section" id="resultsSection">
+            <!-- Grade and Score -->
+            <div class="card">
+                <div class="score-header">
+                    <div class="grade-badge" id="gradeBadge">-</div>
+                    <div class="score-display">
+                        <div class="score-number" id="scoreNumber">-<span style="color: #adb5bd; font-size: 2rem;">/100</span></div>
+                        <div class="score-label">SEO Score</div>
+                    </div>
+                </div>
+
+                <!-- Summary Stats -->
+                <div class="summary-stats">
+                    <div class="stat-box passes">
+                        <div class="stat-number" id="passCount">0</div>
+                        <div class="stat-label">Passes</div>
+                    </div>
+                    <div class="stat-box warnings">
+                        <div class="stat-number" id="warningCount">0</div>
+                        <div class="stat-label">Warnings</div>
+                    </div>
+                    <div class="stat-box issues">
+                        <div class="stat-number" id="issueCount">0</div>
+                        <div class="stat-label">Issues</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Audit Details -->
+            <div class="card">
+                <h2 class="section-title">Audit Details</h2>
+                <div id="auditDetailsList"></div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p class="disclaimer">Disclaimer: These tools are designed to assist with SEO research and content creation. They do not guarantee specific results.</p>
+        </div>
+    </div>
+
+    <!-- Guide Modal -->
+    <div class="modal" id="guideModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="modalTitle"></h3>
+                <button class="modal-close" id="modalClose">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBody"></div>
+        </div>
+    </div>
+
+    <script>
+        // Phase 4 - All 22 SEO Checks (8 PageSpeed + 14 HTML-based)
+
+        const urlInput = document.getElementById('urlInput');
+        const runAuditBtn = document.getElementById('runAuditBtn');
+        const errorMessage = document.getElementById('errorMessage');
+        const loadingMessage = document.getElementById('loadingMessage');
+        const resultsSection = document.getElementById('resultsSection');
+        const auditDetailsList = document.getElementById('auditDetailsList');
+        const gradeBadge = document.getElementById('gradeBadge');
+        const scoreNumber = document.getElementById('scoreNumber');
+        const passCount = document.getElementById('passCount');
+        const warningCount = document.getElementById('warningCount');
+        const issueCount = document.getElementById('issueCount');
+
+        const API_ENDPOINT = '/api/pagespeed';
+        const FETCH_HTML_ENDPOINT = '/api/fetch-html';
+
+        // VIDEO URLs - YouTube IDs
+        const VIDEO_URLS = {
+            'Analytics': 'VWBtmmAK3-w',
+            'Meta Tags': 'kllEIIhdZvo',
+            'Image Alt Tags': 'pe9xeFbGK_E',
+            'LCP (Mobile)': '8Owj9LkPgdA',
+            'LCP (Desktop)': '8Owj9LkPgdA',
+            'SSL Certificate': 'IMdWlyWvBWk',
+            'XML Sitemap': 'x1dTCLdWs94',
+            'Robots.txt': 'KrNu3c12pwY',
+            'H1 Heading': 'IUNKEyZej6E',
+            'Open Graph Tags': 'b7VMRGtsR_8',
+            'Schema Markup': 'iDYMUy-2vzs',
+            'Mobile Viewport': 'dz6TPKF9eDI',
+            'Internal Links': 'qEYaWZdiV5w',
+            'HTTPS Redirect': 'OlhMBY6DosE',
+            'Favicon': 'p3U5Q9ZQYVY',
+            'Canonical Tag': '4xOaKJPijx8',
+            'Performance Score (Mobile)': '8Owj9LkPgdA',
+            'Performance Score (Desktop)': '8Owj9LkPgdA',
+            'CLS (Mobile)': 'Z6WiGWDU0nU',
+            'CLS (Desktop)': 'Z6WiGWDU0nU',
+            'TBT (Mobile)': 'iSybVqAyASk',
+            'TBT (Desktop)': 'iSybVqAyASk'
+        };
+
+        const guideModal = document.getElementById('guideModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalBody = document.getElementById('modalBody');
+        const modalClose = document.getElementById('modalClose');
+
+        // GUIDE TEXTS - Shopify-only
+        const GUIDE_TEXTS = {
+            'Analytics': `
+<h3>What is this?</h3>
+<p>Google Analytics (GA4) tracks who visits your website — how many people, where they came from, what pages they looked at, and whether they bought anything.</p>
+
+<h3>Why does it matter?</h3>
+<p>Without analytics, you don't know which pages get traffic, which products people look at without buying, or whether your SEO improvements work.</p>
+
+<h3>How to set it up on Shopify:</h3>
+<ol>
+<li>Go to analytics.google.com and sign in</li>
+<li>Click "Start measuring" → name your account</li>
+<li>Create a property → select "Web" → enter your URL</li>
+<li>Google gives you a GA4 Measurement ID</li>
+<li>Shopify admin → Online Store → Preferences → paste your GA4 ID in Google Analytics section</li>
+<li>Wait 24–48 hours for data to appear</li>
+</ol>
+            `,
+
+            'Meta Tags': `
+<h3>What is this?</h3>
+<p>Title tags are the clickable headlines in Google search results. Meta descriptions are the short summaries beneath them. Both must be unique, the right length (50–60 characters for titles, 120–160 for descriptions), and compelling.</p>
+
+<h3>Why does it matter?</h3>
+<p>Your title tag is often the first thing people see in Google. If it's missing, too long, or poorly written, fewer people click. Google also uses title tags as a major ranking signal.</p>
+
+<h3>How to fix on Shopify:</h3>
+<ol>
+<li>Go to Shopify admin</li>
+<li>Products → Click product → scroll to "Search engine listing preview"</li>
+<li>Click "Edit website SEO"</li>
+<li>Write unique title (50–60 chars) and description (120–160 chars)</li>
+<li>Include main keyword naturally in both</li>
+</ol>
+            `,
+
+            'Image Alt Tags': `
+<h3>What is this?</h3>
+<p>Alt text is a short description you add to every image that tells Google and screen readers what the image shows.</p>
+
+<h3>Why does it matter?</h3>
+<p>Images without alt text are invisible to Google. Good alt text helps your images appear in Google Image Search, which is significant traffic for visual products.</p>
+
+<h3>How to fix on Shopify:</h3>
+<ol>
+<li>When uploading a product image, click it → "Add alt text" field</li>
+<li>Write a descriptive phrase (e.g., "Black and white canvas print of New York City skyline")</li>
+<li>Include product keywords naturally, but don't stuff</li>
+<li>Compress images before uploading using TinyPNG or Squoosh</li>
+<li>Use JPEG for photos, PNG for logos with transparent backgrounds</li>
+</ol>
+            `,
+
+            'LCP (Mobile)': `
+<h3>What is this?</h3>
+<p>LCP (Largest Contentful Paint) is the time it takes for the biggest visible element on your page (usually a hero image or banner) to fully load. Google measures this as part of Core Web Vitals.</p>
+
+<h3>Why does it matter?</h3>
+<p>A slow website kills both sales and SEO. 53% of mobile visitors leave a page that takes over 3 seconds to load. Google ranks faster websites higher.</p>
+
+<h3>How to fix on Shopify:</h3>
+<ol>
+<li>Compress images before uploading using TinyPNG — this is the #1 fix for most Shopify stores</li>
+<li>Install "Crush Pics" app to compress existing images automatically</li>
+<li>Remove unused Shopify apps — every app adds code that slows your site</li>
+<li>Use a fast theme — Shopify's Dawn theme is one of the fastest free options</li>
+<li>Enable lazy loading for images below the fold</li>
+<li>Avoid large video files on product pages — use YouTube embeds instead</li>
+</ol>
+            `,
+
+            'LCP (Desktop)': `
+<h3>What is this?</h3>
+<p>LCP (Largest Contentful Paint) is the time it takes for the biggest visible element on your page (usually a hero image or banner) to fully load. Google measures this as part of Core Web Vitals.</p>
+
+<h3>Why does it matter?</h3>
+<p>A slow website kills both sales and SEO. 53% of mobile visitors leave a page that takes over 3 seconds to load. Google ranks faster websites higher.</p>
+
+<h3>How to fix on Shopify:</h3>
+<ol>
+<li>Compress images before uploading using TinyPNG — this is the #1 fix for most Shopify stores</li>
+<li>Install "Crush Pics" app to compress existing images automatically</li>
+<li>Remove unused Shopify apps — every app adds code that slows your site</li>
+<li>Use a fast theme — Shopify's Dawn theme is one of the fastest free options</li>
+<li>Enable lazy loading for images below the fold</li>
+<li>Avoid large video files on product pages — use YouTube embeds instead</li>
+</ol>
+            `,
+
+            'SSL Certificate': `
+<h3>What is this?</h3>
+<p>An SSL certificate encrypts data between your website and visitors, turning your URL from http:// to https:// and showing the padlock icon in browsers.</p>
+
+<h3>Why does it matter?</h3>
+<p>It's required by Google as a ranking signal and prevents the "Not Secure" warning that scares visitors away.</p>
+
+<h3>How to fix on Shopify:</h3>
+<p>Shopify includes SSL automatically for all stores. If your site still shows http://, contact Shopify support — it's a configuration issue, not something you need to buy.</p>
+            `,
+
+            'XML Sitemap': `
+<h3>What is this?</h3>
+<p>An XML sitemap is a file at yoursite.com/sitemap.xml that lists all your pages so Google can find them easily. Think of it as handing Google a complete map of your website.</p>
+
+<h3>Why does it matter?</h3>
+<p>It helps Google discover and index your pages faster, especially new products or blog posts.</p>
+
+<h3>How to fix on Shopify:</h3>
+<p>Shopify generates a sitemap automatically at yourstore.com/sitemap.xml. Submit it to Google Search Console to speed up indexing. Go to Google Search Console → Sitemaps → paste "sitemap.xml" → Submit.</p>
+            `,
+
+            'Robots.txt': `
+<h3>What is this?</h3>
+<p>Robots.txt is a small text file at yoursite.com/robots.txt that gives instructions to search engine crawlers about which pages they can and can't access.</p>
+
+<h3>Why does it matter?</h3>
+<p>It should exist and be accessible. Search engines look for it first when crawling your site.</p>
+
+<h3>How to fix on Shopify:</h3>
+<p>Shopify manages robots.txt automatically. You can view it at yourstore.com/robots.txt. If you need to customize it, go to Shopify admin → Online Store → Themes → Actions → Edit Code → find "robots.txt.liquid".</p>
+            `,
+
+            'H1 Heading': `
+<h3>What is this?</h3>
+<p>The H1 is the main headline of a page — the biggest, boldest heading at the top. Every page should have exactly one H1 that clearly describes the page's content using your target keywords.</p>
+
+<h3>Why does it matter?</h3>
+<p>Google uses H1 tags as a major signal to understand what your page is about. Missing or multiple H1s confuse search engines.</p>
+
+<h3>How to fix on Shopify:</h3>
+<p>On Shopify, your product/collection/page title is automatically your H1. Make sure every page has a clear, unique title that includes your main keyword. Never leave titles blank.</p>
+            `,
+
+            'Open Graph Tags': `
+<h3>What is this?</h3>
+<p>Open Graph tags are hidden code snippets that control how your pages look when shared on Facebook, LinkedIn, and other social platforms — the image, title, and description that appear in the preview card.</p>
+
+<h3>Why does it matter?</h3>
+<p>Without them, social platforms show random content from your page. Good Open Graph tags make shares look professional and increase click-through rates.</p>
+
+<h3>How to fix on Shopify:</h3>
+<ol>
+<li>Most modern Shopify themes include Open Graph tags automatically</li>
+<li>Go to a product/collection page → right-click → View Page Source → search for "og:title"</li>
+<li>If not found, your theme needs updating or you need an app like "SEO Manager" to add them</li>
+</ol>
+            `,
+
+            'Schema Markup': `
+<h3>What is this?</h3>
+<p>Schema markup (structured data) is hidden code that helps Google understand your content precisely. For e-commerce, it tells Google "this is a product, it costs £49.99, it has 4.5 stars, and it's in stock."</p>
+
+<h3>Why does it matter?</h3>
+<p>Pages with schema can show star ratings, prices, and availability directly in Google search results, dramatically increasing click-through rates.</p>
+
+<h3>How to fix on Shopify:</h3>
+<ol>
+<li>Most modern Shopify themes (including Dawn) automatically include product schema</li>
+<li>Check by going to Google's Rich Results Test at search.google.com/test/rich-results</li>
+<li>Enter one of your product URLs — you should see "Product" schema detected</li>
+<li>If not found, install a free app like "JSON-LD for SEO" or "Smart SEO"</li>
+</ol>
+            `,
+
+            'Mobile Viewport': `
+<h3>What is this?</h3>
+<p>The viewport meta tag tells mobile browsers how to display your website on small screens. Without it, your site appears zoomed out and tiny on phones.</p>
+
+<h3>Why does it matter?</h3>
+<p>Over 60% of web traffic is mobile. A website without a viewport tag is essentially broken on phones. Google also uses mobile-first indexing — your mobile site determines your rankings.</p>
+
+<h3>How to fix on Shopify:</h3>
+<p>All Shopify themes include viewport tags by default. If this check failed, your theme has a serious issue — contact the theme developer or switch to a modern theme like Dawn.</p>
+            `,
+
+            'Internal Links': `
+<h3>What is this?</h3>
+<p>Internal links are links on your website that point to other pages on the same website. For example, a blog post linking to your canvas prints collection page.</p>
+
+<h3>Why does it matter?</h3>
+<p>Internal links pass SEO value from one page to another. Pages with many internal links are seen as more important by Google. Without internal links, many pages are invisible to search engines.</p>
+
+<h3>How to fix on Shopify:</h3>
+<ol>
+<li>Add "Related Products" or "You Might Also Like" sections to all product pages</li>
+<li>Link from blog posts to relevant product/collection pages (e.g., "how to style wall art" → link to your canvas collection)</li>
+<li>Use your navigation menu to link to key collections and pages</li>
+<li>Add a footer with links to important pages (About, Contact, Collections, Blog)</li>
+<li>Every page should link to at least 2-3 other relevant pages on your site</li>
+</ol>
+            `,
+
+            'HTTPS Redirect': `
+<h3>What is this?</h3>
+<p>An HTTPS redirect automatically sends anyone who visits the old http:// version of your website to the secure https:// version.</p>
+
+<h3>Why does it matter?</h3>
+<p>If your website is accessible at both http:// AND https://, Google sees these as two separate websites competing with each other, splitting your SEO value.</p>
+
+<h3>How to fix on Shopify:</h3>
+<p>Shopify handles HTTPS redirects automatically — all traffic is forced to HTTPS by default. If this check failed, it's likely a false positive. Verify by typing http://yourstore.com in your browser — it should automatically redirect to https://.</p>
+            `,
+
+            'Favicon': `
+<h3>What is this?</h3>
+<p>A favicon is the tiny icon that appears in your browser tab next to your page title, and also appears next to your website name in Google search results. It's usually your logo made very small (32×32 pixels).</p>
+
+<h3>Why does it matter?</h3>
+<p>Favicons help people recognize your website in browser tabs. In Google search results, sites without favicons show a generic grey globe, which looks unprofessional.</p>
+
+<h3>How to fix on Shopify:</h3>
+<ol>
+<li>Shopify admin → Online Store → Themes → Customize</li>
+<li>Click "Theme settings" (paintbrush icon) → "Favicon"</li>
+<li>Upload a square image of your logo (at least 32×32 pixels, recommend 512×512 for best quality)</li>
+<li>Save and publish — it appears in browser tabs immediately</li>
+<li>Google may take a few weeks to show your favicon in search results after adding it</li>
+</ol>
+            `,
+
+            'Canonical Tag': `
+<h3>What is this?</h3>
+<p>A canonical tag tells Google "this is the official version of this page." It prevents duplicate content issues when the same page is accessible at multiple URLs (with/without www, with/without trailing slash).</p>
+
+<h3>Why does it matter?</h3>
+<p>Without canonical tags, Google might index multiple versions of the same page, splitting your SEO value and confusing search engines about which version to rank.</p>
+
+<h3>How to fix on Shopify:</h3>
+<p>Shopify automatically adds canonical tags to all pages. If this check failed, your theme has removed them (very rare). Contact your theme developer or switch to a standard theme like Dawn.</p>
+            `,
+
+            'Performance Score (Mobile)': `
+<h3>What is this?</h3>
+<p>Performance Score is Google's overall grade for how fast and smooth your website is on mobile devices. It's a number from 0 to 100 that combines several speed measurements. A good score is 50+ on mobile.</p>
+
+<h3>Why does it matter?</h3>
+<p>Google uses page speed as a direct ranking factor. Faster websites rank higher. Beyond SEO, speed affects sales: 53% of mobile visitors leave pages that take over 3 seconds.</p>
+
+<h3>How to fix on Shopify:</h3>
+<ol>
+<li>Compress images using TinyPNG before uploading — images are the #1 killer of speed</li>
+<li>Install "Crush.pics" app to compress existing images automatically</li>
+<li>Remove unused Shopify apps — each app adds code that slows your site</li>
+<li>Use Shopify's Dawn theme or another fast, modern theme</li>
+<li>Avoid autoplay videos on product pages — replace with static images or click-to-play</li>
+<li>Limit homepage sections to 5-7 maximum</li>
+</ol>
+            `,
+
+            'Performance Score (Desktop)': `
+<h3>What is this?</h3>
+<p>Performance Score is Google's overall grade for how fast and smooth your website is on desktop computers. It's a number from 0 to 100 that combines several speed measurements. A good score is 90+ on desktop.</p>
+
+<h3>Why does it matter?</h3>
+<p>Google uses page speed as a direct ranking factor. Faster websites rank higher. Beyond SEO, speed affects sales: 53% of mobile visitors leave pages that take over 3 seconds.</p>
+
+<h3>How to fix on Shopify:</h3>
+<ol>
+<li>Compress images using TinyPNG before uploading — images are the #1 killer of speed</li>
+<li>Install "Crush.pics" app to compress existing images automatically</li>
+<li>Remove unused Shopify apps — each app adds code that slows your site</li>
+<li>Use Shopify's Dawn theme or another fast, modern theme</li>
+<li>Avoid autoplay videos on product pages — replace with static images or click-to-play</li>
+<li>Limit homepage sections to 5-7 maximum</li>
+</ol>
+            `,
+
+            'CLS (Mobile)': `
+<h3>What is CLS?</h3>
+<p>Have you ever been reading a page on your phone and then — just as you go to tap a button — the page suddenly jumps and you end up clicking the wrong thing? That's a layout shift. CLS (Cumulative Layout Shift) measures how much your page moves around while loading. A good CLS score is 0.1 or lower.</p>
+
+<h3>Why does it matter?</h3>
+<p>Google uses CLS as a ranking signal. A page that jumps around feels broken. If your page shifts while someone tries to click "Buy Now", they'll leave.</p>
+
+<h3>How to fix on Shopify:</h3>
+<ol>
+<li>Online Store → Themes → Customize — check all image blocks have a set aspect ratio (like 1:1 for square, 4:3 for landscape), avoid "auto" height</li>
+<li>Go to Apps and remove any you're not actively using — inactive apps can still add code that causes shifts</li>
+<li>If comfortable with code: Online Store → Themes → Edit Code → theme.liquid → make sure all &lt;img&gt; tags include width and height attributes</li>
+</ol>
+            `,
+
+            'CLS (Desktop)': `
+<h3>What is CLS?</h3>
+<p>CLS (Cumulative Layout Shift) measures how much your page moves around while loading. A good CLS score is 0.1 or lower. A score above 0.25 is poor.</p>
+
+<h3>Why does it matter?</h3>
+<p>Google uses CLS as a ranking signal. A page that jumps around feels broken and untrustworthy. Fixing CLS makes your site feel smoother and more professional.</p>
+
+<h3>How to fix on Shopify:</h3>
+<ol>
+<li>Online Store → Themes → Customize — check all image blocks have a set aspect ratio (like 1:1 for square, 4:3 for landscape), avoid "auto" height</li>
+<li>Go to Apps and remove any you're not actively using — inactive apps can still add code that causes shifts</li>
+<li>If comfortable with code: Online Store → Themes → Edit Code → theme.liquid → make sure all &lt;img&gt; tags include width and height attributes</li>
+</ol>
+            `,
+
+            'TBT (Mobile)': `
+<h3>What is TBT?</h3>
+<p>TBT (Total Blocking Time) measures how long your website's main thread is "blocked" — meaning it's so busy running code that it can't respond to clicks, scrolling, or tapping. A good TBT score is under 200ms on desktop. On mobile, Google allows more but lower is better.</p>
+
+<h3>Why does it matter?</h3>
+<p>TBT affects how interactive your page feels. Pages with high TBT feel slow and unresponsive. Visitors leave if buttons don't respond to clicks.</p>
+
+<h3>How to fix on Shopify:</h3>
+<ol>
+<li>Apps are the #1 TBT culprit — each adds JavaScript. Go to Apps and remove every app you're not actively using</li>
+<li>Check Online Store → Themes → "Check speed" — it shows which apps are slowing you down by name</li>
+<li>Add Google Analytics and Meta Pixel through Shopify's native integrations (Settings → Customer events) rather than manual code — Shopify's integrations load more efficiently</li>
+</ol>
+            `,
+
+            'TBT (Desktop)': `
+<h3>What is TBT?</h3>
+<p>TBT (Total Blocking Time) measures how long your website's main thread is "blocked" — meaning it's so busy running code that it can't respond to clicks or scrolling. A good TBT score is under 200ms on desktop.</p>
+
+<h3>Why does it matter?</h3>
+<p>TBT affects how interactive your page feels. Pages with high TBT feel slow and unresponsive. Visitors leave if buttons don't respond to clicks.</p>
+
+<h3>How to fix on Shopify:</h3>
+<ol>
+<li>Apps are the #1 TBT culprit — each adds JavaScript. Go to Apps and remove every app you're not actively using</li>
+<li>Check Online Store → Themes → "Check speed" — it shows which apps are slowing you down by name</li>
+<li>Add Google Analytics and Meta Pixel through Shopify's native integrations (Settings → Customer events) rather than manual code — Shopify's integrations load more efficiently</li>
+</ol>
+            `
+        };
+
+        let auditResults = [];
+
+        function normalizeURL(input) {
+            let url = input.trim();
+            if (!url) return null;
+            if (url.startsWith('http://') || url.startsWith('https://')) return url;
+            if (url.startsWith('www.') || /^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/.test(url)) {
+                return 'https://' + url;
+            }
+            return 'https://' + url;
+        }
+
+        function isValidURL(string) {
+            try {
+                const url = new URL(string);
+                return url.protocol === 'http:' || url.protocol === 'https:';
+            } catch (_) {
+                return false;
+            }
+        }
+
+        // Fetch page HTML via Vercel function
+        async function fetchPageHTML(url) {
+            const apiUrl = `${FETCH_HTML_ENDPOINT}?url=${encodeURIComponent(url)}`;
+            const response = await fetch(apiUrl);
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || `Failed to fetch HTML: ${response.status}`);
+            }
+            const data = await response.json();
+            return data.html;
+        }
+
+        // Fetch PageSpeed via Vercel function
+        async function fetchPageSpeed(url, strategy) {
+            const apiUrl = `${API_ENDPOINT}?url=${encodeURIComponent(url)}&strategy=${strategy}`;
+            const response = await fetch(apiUrl);
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || `API error: ${response.status}`);
+            }
+            return await response.json();
+        }
+
+        // Run all audit checks
+        async function runAllChecks(url) {
+            try {
+                // Fetch all data in parallel
+                const [mobileData, desktopData, pageHTML] = await Promise.all([
+                    fetchPageSpeed(url, 'mobile'),
+                    fetchPageSpeed(url, 'desktop'),
+                    fetchPageHTML(url)
+                ]);
+
+                const checks = [];
+                const urlObj = new URL(url);
+                const domain = urlObj.origin;
+
+                // HTML-based checks
+                checks.push(checkAnalytics(pageHTML));
+                checks.push(checkMetaTags(pageHTML));
+                checks.push(checkImageAltTags(pageHTML));
+                checks.push(checkSSL(url));
+                checks.push(await checkXMLSitemap(domain));
+                checks.push(await checkRobotsTxt(domain));
+                checks.push(checkH1(pageHTML));
+                checks.push(checkOpenGraph(pageHTML));
+                checks.push(checkSchemaMarkup(pageHTML));
+                checks.push(checkMobileViewport(pageHTML));
+                checks.push(checkInternalLinks(pageHTML, domain));
+                checks.push(await checkHTTPSRedirect(url));
+                checks.push(checkFavicon(pageHTML));
+                checks.push(checkCanonical(pageHTML));
+
+                // PageSpeed checks
+                const mobileLH = mobileData.lighthouseResult;
+                const desktopLH = desktopData.lighthouseResult;
+
+                checks.push(checkLCP(mobileLH.audits['largest-contentful-paint'].numericValue / 1000, 'Mobile'));
+                checks.push(checkLCP(desktopLH.audits['largest-contentful-paint'].numericValue / 1000, 'Desktop'));
+                checks.push(checkPerformance(Math.round(mobileLH.categories.performance.score * 100), 'Mobile'));
+                checks.push(checkCLS(mobileLH.audits['cumulative-layout-shift'].numericValue, 'Mobile'));
+                checks.push(checkTBT(mobileLH.audits['total-blocking-time'].numericValue, 'Mobile'));
+                checks.push(checkPerformance(Math.round(desktopLH.categories.performance.score * 100), 'Desktop'));
+                checks.push(checkCLS(desktopLH.audits['cumulative-layout-shift'].numericValue, 'Desktop'));
+                checks.push(checkTBT(desktopLH.audits['total-blocking-time'].numericValue, 'Desktop'));
+
+                return checks;
+            } catch (error) {
+                throw new Error(`Audit failed: ${error.message}`);
+            }
+        }
+
+        // HTML Check Functions
+        function checkAnalytics(html) {
+            const hasGtag = html.includes('gtag') || html.includes('googletagmanager');
+            const hasGA = html.includes('ga(') || html.includes('_gaq');
+            const found = hasGtag || hasGA;
+            
+            return {
+                name: 'Analytics',
+                status: found ? 'pass' : 'fail',
+                detail: found ? 'Google Analytics detected' : 'No analytics tracking found',
+                fix: found ? null : 'Install Google Analytics or Google Tag Manager to track visitor behavior.'
+            };
+        }
+
+        function checkMetaTags(html) {
+            const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+            const descMatch = html.match(/<meta\s+name=["']description["']\s+content=["']([^"']+)["']/i);
+            
+            const hasTitle = titleMatch && titleMatch[1].trim().length > 0;
+            const hasDesc = descMatch && descMatch[1].trim().length > 0;
+            const titleLength = titleMatch ? titleMatch[1].trim().length : 0;
+            
+            let status, detail, fix;
+            if (hasTitle && hasDesc && titleLength <= 60) {
+                status = 'pass';
+                detail = `Title (${titleLength} chars) and description present`;
+                fix = null;
+            } else if (hasTitle && titleLength > 60) {
+                status = 'warning';
+                detail = `Title too long (${titleLength} chars, target ≤ 60)`;
+                fix = 'Shorten title to 60 characters or less for better display in search results.';
+            } else if (!hasDesc) {
+                status = 'warning';
+                detail = 'Title present but description missing';
+                fix = 'Add a meta description (150-160 characters) to improve click-through rates.';
+            } else {
+                status = 'fail';
+                detail = 'Missing title or description';
+                fix = 'Add both title and meta description tags to improve SEO.';
+            }
+            
+            return { name: 'Meta Tags', status, detail, fix };
+        }
+
+        function checkImageAltTags(html) {
+            const imgMatches = html.match(/<img[^>]*>/gi) || [];
+            const total = imgMatches.length;
+            
+            if (total === 0) {
+                return {
+                    name: 'Image Alt Tags',
+                    status: 'pass',
+                    detail: 'No images found',
+                    fix: null
+                };
+            }
+            
+            const withAlt = imgMatches.filter(img => /alt\s*=\s*["'][^"']+["']/i.test(img)).length;
+            const percentage = Math.round((withAlt / total) * 100);
+            
+            let status, detail, fix;
+            if (percentage >= 90) {
+                status = 'pass';
+                detail = `${percentage}% have alt tags (${withAlt}/${total})`;
+                fix = null;
+            } else if (percentage >= 70) {
+                status = 'warning';
+                detail = `${percentage}% have alt tags (${withAlt}/${total})`;
+                fix = 'Add alt text to remaining images for better accessibility and SEO.';
+            } else {
+                status = 'fail';
+                detail = `Only ${percentage}% have alt tags (${withAlt}/${total})`;
+                fix = 'Add descriptive alt text to all images for accessibility and image SEO.';
+            }
+            
+            return { name: 'Image Alt Tags', status, detail, fix };
+        }
+
+        function checkSSL(url) {
+            const isHTTPS = url.startsWith('https://');
+            return {
+                name: 'SSL Certificate',
+                status: isHTTPS ? 'pass' : 'fail',
+                detail: isHTTPS ? 'Site uses HTTPS' : 'Site uses HTTP (not secure)',
+                fix: isHTTPS ? null : 'Install an SSL certificate to secure your site and improve rankings.'
+            };
+        }
+
+        async function checkXMLSitemap(domain) {
+            try {
+                const sitemapUrl = `${domain}/sitemap.xml`;
+                const apiUrl = `${FETCH_HTML_ENDPOINT}?url=${encodeURIComponent(sitemapUrl)}`;
+                const response = await fetch(apiUrl);
+                
+                if (!response.ok) {
+                    return {
+                        name: 'XML Sitemap',
+                        status: 'fail',
+                        detail: 'No sitemap found at /sitemap.xml',
+                        fix: 'Create and submit an XML sitemap to help search engines crawl your site.'
+                    };
+                }
+                
+                const data = await response.json();
+                // Check for both sitemap types: <urlset> (standard) or <sitemapindex> (sitemap index)
+                const found = data.html && (data.html.includes('<urlset') || data.html.includes('<sitemapindex'));
+                
+                return {
+                    name: 'XML Sitemap',
+                    status: found ? 'pass' : 'fail',
+                    detail: found ? 'Sitemap found at /sitemap.xml' : 'No sitemap found at /sitemap.xml',
+                    fix: found ? null : 'Create and submit an XML sitemap to help search engines crawl your site.'
+                };
+            } catch (error) {
+                return {
+                    name: 'XML Sitemap',
+                    status: 'fail',
+                    detail: 'Could not access /sitemap.xml',
+                    fix: 'Create and submit an XML sitemap to help search engines crawl your site.'
+                };
+            }
+        }
+
+        async function checkRobotsTxt(domain) {
+            try {
+                const robotsUrl = `${domain}/robots.txt`;
+                const apiUrl = `${FETCH_HTML_ENDPOINT}?url=${encodeURIComponent(robotsUrl)}`;
+                const response = await fetch(apiUrl);
+                
+                if (!response.ok) {
+                    return {
+                        name: 'Robots.txt',
+                        status: 'fail',
+                        detail: 'No robots.txt found',
+                        fix: 'Create a robots.txt file to guide search engine crawlers.'
+                    };
+                }
+                
+                const data = await response.json();
+                const found = data.html && data.html.length > 0;
+                
+                return {
+                    name: 'Robots.txt',
+                    status: found ? 'pass' : 'fail',
+                    detail: found ? `Found at /robots.txt (${data.html.length} bytes)` : 'No robots.txt found',
+                    fix: found ? null : 'Create a robots.txt file to guide search engine crawlers.'
+                };
+            } catch (error) {
+                return {
+                    name: 'Robots.txt',
+                    status: 'fail',
+                    detail: 'Could not access /robots.txt',
+                    fix: 'Create a robots.txt file to guide search engine crawlers.'
+                };
+            }
+        }
+
+        function checkH1(html) {
+            const h1Match = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+            const found = h1Match && h1Match[1].trim().length > 0;
+            
+            return {
+                name: 'H1 Heading',
+                status: found ? 'pass' : 'fail',
+                detail: found ? 'H1 tag present' : 'No H1 tag found',
+                fix: found ? null : 'Add an H1 heading to clearly define the main topic of the page.'
+            };
+        }
+
+        function checkOpenGraph(html) {
+            const ogTitle = /<meta\s+property=["']og:title["']/i.test(html);
+            const ogDesc = /<meta\s+property=["']og:description["']/i.test(html);
+            const ogImage = /<meta\s+property=["']og:image["']/i.test(html);
+            
+            const count = [ogTitle, ogDesc, ogImage].filter(Boolean).length;
+            
+            let status, detail, fix;
+            if (count === 3) {
+                status = 'pass';
+                detail = 'All Open Graph tags present';
+                fix = null;
+            } else if (count > 0) {
+                status = 'warning';
+                detail = `${count}/3 Open Graph tags found`;
+                fix = 'Add missing Open Graph tags (og:title, og:description, og:image) for better social sharing.';
+            } else {
+                status = 'fail';
+                detail = 'No Open Graph tags found';
+                fix = 'Add Open Graph meta tags to control how your page appears when shared on social media.';
+            }
+            
+            return { name: 'Open Graph Tags', status, detail, fix };
+        }
+
+        function checkSchemaMarkup(html) {
+            const hasSchema = /<script[^>]*type=["']application\/ld\+json["'][^>]*>/i.test(html);
+            
+            return {
+                name: 'Schema Markup',
+                status: hasSchema ? 'pass' : 'fail',
+                detail: hasSchema ? 'Structured data found' : 'No schema markup found',
+                fix: hasSchema ? null : 'Add JSON-LD structured data to help search engines understand your content.'
+            };
+        }
+
+        function checkMobileViewport(html) {
+            const hasViewport = /<meta\s+name=["']viewport["']/i.test(html);
+            
+            return {
+                name: 'Mobile Viewport',
+                status: hasViewport ? 'pass' : 'fail',
+                detail: hasViewport ? 'Viewport meta tag present' : 'No viewport meta tag',
+                fix: hasViewport ? null : 'Add viewport meta tag for proper mobile display.'
+            };
+        }
+
+        function checkInternalLinks(html, domain) {
+            const linkMatches = html.match(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>/gi) || [];
+            const domainPattern = domain.replace(/https?:\/\//, '').replace(/\//g, '\\/');
+            const internalLinks = linkMatches.filter(link => {
+                return link.includes(domain) || /href=["']\/[^\/]/.test(link);
+            }).length;
+            
+            let status, detail, fix;
+            if (internalLinks >= 10) {
+                status = 'pass';
+                detail = `${internalLinks} internal links found`;
+                fix = null;
+            } else if (internalLinks >= 3) {
+                status = 'warning';
+                detail = `Only ${internalLinks} internal links found`;
+                fix = 'Add more internal links to improve site navigation and SEO.';
+            } else {
+                status = 'fail';
+                detail = `Only ${internalLinks} internal links found`;
+                fix = 'Add internal links to help users navigate and distribute page authority.';
+            }
+            
+            return { name: 'Internal Links', status, detail, fix };
+        }
+
+        async function checkHTTPSRedirect(url) {
+            if (!url.startsWith('https://')) {
+                return {
+                    name: 'HTTPS Redirect',
+                    status: 'pass',
+                    detail: 'Already using HTTPS',
+                    fix: null
+                };
+            }
+            
+            try {
+                const httpUrl = url.replace('https://', 'http://');
+                const apiUrl = `${FETCH_HTML_ENDPOINT}?url=${encodeURIComponent(httpUrl)}`;
+                const response = await fetch(apiUrl);
+                
+                // If we successfully fetch the HTTP version, check if it's actually HTTPS
+                // This is a simplified check - in production you'd check response headers
+                const redirects = response.ok;
+                
+                return {
+                    name: 'HTTPS Redirect',
+                    status: redirects ? 'pass' : 'warning',
+                    detail: redirects ? 'HTTP version accessible' : 'Could not verify redirect',
+                    fix: redirects ? null : 'Ensure HTTP traffic redirects to HTTPS for security.'
+                };
+            } catch (error) {
+                return {
+                    name: 'HTTPS Redirect',
+                    status: 'warning',
+                    detail: 'Could not verify redirect',
+                    fix: 'Ensure HTTP traffic redirects to HTTPS for security.'
+                };
+            }
+        }
+
+        function checkFavicon(html) {
+            const hasFavicon = /<link[^>]*rel=["'](?:icon|shortcut icon)["']/i.test(html);
+            
+            return {
+                name: 'Favicon',
+                status: hasFavicon ? 'pass' : 'fail',
+                detail: hasFavicon ? 'Favicon present' : 'No favicon found',
+                fix: hasFavicon ? null : 'Add a favicon to improve brand recognition in browser tabs.'
+            };
+        }
+
+        function checkCanonical(html) {
+            const hasCanonical = /<link[^>]*rel=["']canonical["']/i.test(html);
+            
+            return {
+                name: 'Canonical Tag',
+                status: hasCanonical ? 'pass' : 'warning',
+                detail: hasCanonical ? 'Canonical URL present' : 'No canonical tag found',
+                fix: hasCanonical ? null : 'Add a canonical tag to prevent duplicate content issues.'
+            };
+        }
+
+        // PageSpeed Check Functions (from v3.1)
+        function checkLCP(value, device) {
+            let status, detail, fix;
+            if (value < 2.5) {
+                status = 'pass';
+                detail = `${value.toFixed(1)}s (target < 2.5s)`;
+                fix = null;
+            } else if (value <= 4.0) {
+                status = 'warning';
+                detail = `${value.toFixed(1)}s (target < 2.5s)`;
+                fix = 'Optimize largest visible element. Consider compressing images and using lazy loading.';
+            } else {
+                status = 'fail';
+                detail = `${value.toFixed(1)}s (target < 2.5s)`;
+                fix = 'Critical: Largest element loads too slowly. Compress images, optimize CSS, and use a CDN.';
+            }
+            return { name: `LCP (${device})`, status, detail, fix };
+        }
+
+        function checkPerformance(score, device) {
+            let status, detail, fix;
+            if (score >= 90) {
+                status = 'pass';
+                detail = `Score: ${score}/100`;
+                fix = null;
+            } else if (score >= 50) {
+                status = 'warning';
+                detail = `Score: ${score}/100 (target ≥ 90)`;
+                fix = 'Improve overall performance. Focus on image optimization and reducing JavaScript.';
+            } else {
+                status = 'fail';
+                detail = `Score: ${score}/100 (target ≥ 90)`;
+                fix = 'Critical performance issues. Optimize images, minimize CSS/JS, and enable caching.';
+            }
+            return { name: `Performance Score (${device})`, status, detail, fix };
+        }
+
+        function checkCLS(value, device) {
+            let status, detail, fix;
+            if (value < 0.1) {
+                status = 'pass';
+                detail = `${value.toFixed(3)} (target < 0.1)`;
+                fix = null;
+            } else if (value <= 0.25) {
+                status = 'warning';
+                detail = `${value.toFixed(3)} (target < 0.1)`;
+                fix = 'Reduce layout shifts. Set image dimensions and avoid inserting content above existing content.';
+            } else {
+                status = 'fail';
+                detail = `${value.toFixed(3)} (target < 0.1)`;
+                fix = 'Severe layout shifts. Reserve space for images/ads and avoid dynamic content insertion.';
+            }
+            return { name: `CLS (${device})`, status, detail, fix };
+        }
+
+        function checkTBT(value, device) {
+            let status, detail, fix;
+            if (value < 200) {
+                status = 'pass';
+                detail = `${Math.round(value)}ms (target < 200ms)`;
+                fix = null;
+            } else if (value <= 600) {
+                status = 'warning';
+                detail = `${Math.round(value)}ms (target < 200ms)`;
+                fix = 'Reduce JavaScript execution time. Break up long tasks and defer non-critical scripts.';
+            } else {
+                status = 'fail';
+                detail = `${Math.round(value)}ms (target < 200ms)`;
+                fix = 'Excessive blocking time. Minimize JavaScript, remove unused code, and optimize third-party scripts.';
+            }
+            return { name: `TBT (${device})`, status, detail, fix };
+        }
+
+        // Display results
+        function displayResults(checks) {
+            auditResults = checks;
+            auditDetailsList.innerHTML = '';
+
+            // STEP 1: Sort by urgency (fail → warning → pass)
+            const sortOrder = { 'fail': 0, 'warning': 1, 'pass': 2 };
+            checks.sort((a, b) => sortOrder[a.status] - sortOrder[b.status]);
+
+            let passes = 0, warnings = 0, issues = 0;
+            checks.forEach(check => {
+                if (check.status === 'pass') passes++;
+                else if (check.status === 'warning') warnings++;
+                else if (check.status === 'fail') issues++;
+            });
+
+            passCount.textContent = passes;
+            warningCount.textContent = warnings;
+            issueCount.textContent = issues;
+
+            // Calculate weighted score (passes = 1, warnings = 0.5, fails = 0)
+            const score = Math.round(((passes + (warnings * 0.5)) / checks.length) * 100);
+            scoreNumber.innerHTML = `${score}<span style="color: #adb5bd; font-size: 2rem;">/100</span>`;
+
+            const grade = getGrade(score);
+            gradeBadge.textContent = grade.letter;
+            gradeBadge.style.background = grade.gradient;
+
+            checks.forEach(check => {
+                const item = document.createElement('div');
+                item.className = `audit-item ${check.status}`;
+                
+                const icon = check.status === 'pass' ? '✓' : check.status === 'warning' ? '⚠' : '✗';
+                
+                // STEP 2: Watch Video button for warnings/failures
+                const videoButton = (check.status !== 'pass' && VIDEO_URLS[check.name]) ? 
+                    `<button class="btn-video" onclick="window.open('https://www.youtube.com/watch?v=${VIDEO_URLS[check.name]}', '_blank')">Watch Video</button>` : '';
+                
+                // STEP 3: Read Guide button for warnings/failures
+                const guideButton = (check.status !== 'pass' && GUIDE_TEXTS[check.name]) ? 
+                    `<button class="btn-guide" onclick="openGuide('${check.name}')">Read Guide</button>` : '';
+                
+                item.innerHTML = `
+                    <div class="audit-icon">${icon}</div>
+                    <div class="audit-content">
+                        <div class="audit-name">${check.name}</div>
+                        <div class="audit-detail">${check.detail}</div>
+                        ${check.fix ? `<div class="audit-fix"><strong>Fix:</strong> ${check.fix}</div>` : ''}
+                        ${videoButton}${guideButton}
+                    </div>
+                `;
+                
+                auditDetailsList.appendChild(item);
+            });
+        }
+
+        function getGrade(score) {
+            if (score >= 90) return { letter: 'A', gradient: 'linear-gradient(135deg, #4CAF50, #2E7D32)' };
+            if (score >= 80) return { letter: 'B', gradient: 'linear-gradient(135deg, #2196F3, #1565C0)' };
+            if (score >= 70) return { letter: 'C', gradient: 'linear-gradient(135deg, #FF9800, #F57C00)' };
+            if (score >= 60) return { letter: 'D', gradient: 'linear-gradient(135deg, #FF5722, #E64A19)' };
+            return { letter: 'F', gradient: 'linear-gradient(135deg, #F44336, #C62828)' };
+        }
+
+        async function runAudit() {
+            const rawInput = urlInput.value;
+            
+            errorMessage.classList.remove('active');
+            urlInput.classList.remove('error');
+            
+            const normalizedURL = normalizeURL(rawInput);
+            
+            if (!normalizedURL) {
+                showError('Please enter a URL');
+                return;
+            }
+
+            if (!isValidURL(normalizedURL)) {
+                showError('Please enter a valid URL (e.g., www.example.com or https://example.com)');
+                return;
+            }
+
+            urlInput.value = normalizedURL;
+
+            runAuditBtn.disabled = true;
+            runAuditBtn.textContent = 'Running...';
+            loadingMessage.classList.add('active');
+            resultsSection.classList.remove('active');
+
+            try {
+                const checks = await runAllChecks(normalizedURL);
+                
+                loadingMessage.classList.remove('active');
+                displayResults(checks);
+                resultsSection.classList.add('active');
+                resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } catch (error) {
+                loadingMessage.classList.remove('active');
+                showError(`Audit failed: ${error.message}`);
+            } finally {
+                runAuditBtn.disabled = false;
+                runAuditBtn.textContent = 'Run Audit';
+            }
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.add('active');
+            urlInput.classList.add('error');
+        }
+
+        // STEP 3: Modal functions
+        function openGuide(checkName) {
+            modalTitle.textContent = `How to Fix: ${checkName}`;
+            modalBody.innerHTML = GUIDE_TEXTS[checkName] || '<p>Guide not available.</p>';
+            guideModal.classList.add('active');
+        }
+
+        function closeGuide() {
+            guideModal.classList.remove('active');
+        }
+
+        modalClose.addEventListener('click', closeGuide);
+        guideModal.addEventListener('click', (e) => {
+            if (e.target === guideModal) closeGuide();
+        });
+
+        runAuditBtn.addEventListener('click', runAudit);
+        urlInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') runAudit();
+        });
+        urlInput.addEventListener('input', () => {
+            errorMessage.classList.remove('active');
+            urlInput.classList.remove('error');
+        });
+    </script>
+</body>
+</html>
