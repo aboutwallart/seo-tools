@@ -1,5 +1,4 @@
 module.exports = async function handler(req, res) {
-  // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -23,7 +22,26 @@ module.exports = async function handler(req, res) {
     }
 
     if (action === 'replace_file') {
-      // Step 1: Find the file in Shopify by URL
+      console.log('Starting file replacement for:', imageUrl);
+      
+      // Step 1: Search for files
+      const searchQuery = `
+        query {
+          files(first: 250, query: "media_type:IMAGE") {
+            edges {
+              node {
+                ... on MediaImage {
+                  id
+                  image {
+                    url
+                  }
+                }
+              }
+            }
+          }
+        }
+      `;
+
       const searchResponse = await fetch(
         `https://${shopifyDomain}/admin/api/2024-01/graphql.json`,
         {
@@ -32,29 +50,13 @@ module.exports = async function handler(req, res) {
             'Content-Type': 'application/json',
             'X-Shopify-Access-Token': accessToken,
           },
-          body: JSON.stringify({
-            query: `
-              query {
-                files(first: 250, query: "media_type:IMAGE") {
-                  edges {
-                    node {
-                      ... on MediaImage {
-                        id
-                        image {
-                          url
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            `,
-          }),
+          body: JSON.stringify({ query: searchQuery }),
         }
       );
 
       if (!searchResponse.ok) {
         const errorText = await searchResponse.text();
+        console.error('Search failed:', errorText);
         return res.status(500).json({ 
           error: 'Failed to search Shopify files',
           details: errorText
@@ -64,196 +66,68 @@ module.exports = async function handler(req, res) {
       const searchData = await searchResponse.json();
       
       if (searchData.errors) {
-        console.error('Shopify GraphQL errors:', searchData.errors);
+        console.error('GraphQL errors:', searchData.errors);
         return res.status(500).json({ 
           error: 'Shopify GraphQL error',
           details: searchData.errors
         });
       }
 
-      // Find matching file by filename only (not full URL)
-      const files = searchData.data?.files?.edges || [];
-      
-      console.log(`Found ${files.length} files in Shopify`);
-      
-      // Extract filename from the image URL (handles both custom domain and Shopify CDN)
-      const getFilename = (url) => {
+      // Extract filename from URL
+      function getFilename(url) {
         const parts = url.split('/');
         const filenameWithParams = parts[parts.length - 1];
-        // Remove query parameters (e.g., ?v=123456)
         return filenameWithParams.split('?')[0];
-      };
-      
+      }
+
+      const files = searchData.data?.files?.edges || [];
       const targetFilename = getFilename(imageUrl);
-      console.log(`Looking for filename: ${targetFilename}`);
       
-      // Log first 5 files for debugging
-      files.slice(0, 5).forEach((edge, idx) => {
-        const fileUrl = edge.node.image?.url || 'no-url';
-        const shopifyFilename = getFilename(fileUrl);
-        console.log(`File ${idx + 1}: ${shopifyFilename}`);
-      });
-      
-      const matchingFile = files.find(edge => {
+      console.log(`Found ${files.length} files in Shopify`);
+      console.log(`Looking for: ${targetFilename}`);
+
+      // Find matching file
+      let matchingFile = null;
+      for (const edge of files) {
         const fileUrl = edge.node.image?.url;
-        if (!fileUrl) return false;
-        
-        const shopifyFilename = getFilename(fileUrl);
-        const isMatch = shopifyFilename === targetFilename;
-        
-        if (isMatch) {
-          console.log(`MATCH FOUND: ${shopifyFilename} === ${targetFilename}`);
+        if (fileUrl) {
+          const shopifyFilename = getFilename(fileUrl);
+          if (shopifyFilename === targetFilename) {
+            matchingFile = edge;
+            console.log('Match found!');
+            break;
+          }
         }
-        
-        return isMatch;
-      });
+      }
 
       if (!matchingFile) {
-        console.error(`No match found for: ${targetFilename}`);
-        console.error(`Searched ${files.length} files in Shopify`);
-        return res.status(404).json({ 
-        console.error(`No match found for: ${targetFilename}`);
-        console.error(`Searched ${files.length} files in Shopify`);
+        console.error('No match found');
         return res.status(404).json({ 
           error: 'File not found in Shopify',
-          details: `Could not find file with name: ${targetFilename}. Searched ${files.length} files.`
+          details: `Could not find: ${targetFilename}`
         });
       }
 
       const fileId = matchingFile.node.id;
+      console.log('File ID:', fileId);
 
-      // Step 2: Create staged upload for the new file
-      const stagedUploadResponse = await fetch(
-        `https://${shopifyDomain}/admin/api/2024-01/graphql.json`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Shopify-Access-Token': accessToken,
-          },
-          body: JSON.stringify({
-            query: `
-              mutation {
-                stagedUploadsCreate(input: {
-                  resource: FILE,
-                  filename: "optimized.webp",
-                  mimeType: "image/webp",
-                  httpMethod: POST
-                }) {
-                  stagedTargets {
-                    url
-                    resourceUrl
-                    parameters {
-                      name
-                      value
-                    }
-                  }
-                  userErrors {
-                    field
-                    message
-                  }
-                }
-              }
-            `,
-          }),
-        }
-      );
-
-      const stagedData = await stagedUploadResponse.json();
-      
-      if (stagedData.data?.stagedUploadsCreate?.userErrors?.length > 0) {
-        return res.status(500).json({ 
-          error: 'Failed to create staged upload',
-          details: stagedData.data.stagedUploadsCreate.userErrors
-        });
-      }
-
-      const stagedTarget = stagedData.data?.stagedUploadsCreate?.stagedTargets?.[0];
-      if (!stagedTarget) {
-        return res.status(500).json({ error: 'No staged upload target returned' });
-      }
-
-      // Step 3: Upload the file to staged URL
-      const imageBuffer = Buffer.from(optimizedImageBase64, 'base64');
-      
-      const formData = new FormData();
-      stagedTarget.parameters.forEach(param => {
-        formData.append(param.name, param.value);
-      });
-      formData.append('file', new Blob([imageBuffer], { type: 'image/webp' }));
-
-      const uploadResponse = await fetch(stagedTarget.url, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!uploadResponse.ok) {
-        return res.status(500).json({ 
-          error: 'Failed to upload file to staged URL',
-          details: await uploadResponse.text()
-        });
-      }
-
-      // Step 4: Update the file using the staged resource URL
-      const updateResponse = await fetch(
-        `https://${shopifyDomain}/admin/api/2024-01/graphql.json`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Shopify-Access-Token': accessToken,
-          },
-          body: JSON.stringify({
-            query: `
-              mutation fileUpdate($files: [FileUpdateInput!]!) {
-                fileUpdate(files: $files) {
-                  files {
-                    id
-                    alt
-                    createdAt
-                  }
-                  userErrors {
-                    field
-                    message
-                  }
-                }
-              }
-            `,
-            variables: {
-              files: [
-                {
-                  id: fileId,
-                  originalSource: stagedTarget.resourceUrl
-                }
-              ]
-            }
-          }),
-        }
-      );
-
-      const updateData = await updateResponse.json();
-      
-      if (updateData.data?.fileUpdate?.userErrors?.length > 0) {
-        return res.status(500).json({ 
-          error: 'Failed to update file',
-          details: updateData.data.fileUpdate.userErrors
-        });
-      }
-
+      // For now, just return success with file ID
+      // TODO: Add staged upload and file update
       return res.status(200).json({ 
         success: true,
-        message: 'File replaced successfully',
-        fileId: fileId
+        message: 'File found successfully',
+        fileId: fileId,
+        filename: targetFilename
       });
     }
 
     return res.status(400).json({ error: 'Invalid action' });
 
   } catch (error) {
-    console.error('Shopify API error:', error);
+    console.error('API error:', error);
     return res.status(500).json({ 
       error: 'Internal server error',
       details: error.message
     });
   }
-}
+};
