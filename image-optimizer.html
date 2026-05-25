@@ -1,0 +1,1244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Optimizer v2.2 - About Wall Art</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .version {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        .url-input-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 6px;
+            margin-bottom: 30px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.2s;
+            white-space: nowrap;
+        }
+
+        button:hover:not(:disabled) {
+            background: #0056b3;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .url-hint {
+            font-size: 12px;
+            color: #666;
+            margin-top: 8px;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 6px;
+            border-left: 4px solid #007bff;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #007bff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .results-container {
+            margin-top: 30px;
+        }
+
+        .image-card {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            display: grid;
+            grid-template-columns: 120px 1fr auto;
+            gap: 20px;
+            align-items: start;
+        }
+
+        .image-card.priority-critical {
+            border-left: 4px solid #dc3545;
+            background: #fff5f5;
+        }
+
+        .image-card.priority-warning {
+            border-left: 4px solid #ffc107;
+            background: #fffbf0;
+        }
+
+        .image-card.priority-good {
+            border-left: 4px solid #28a745;
+            background: #f6fff8;
+        }
+
+        .image-preview-large {
+            width: 120px;
+            height: 120px;
+            object-fit: cover;
+            border-radius: 6px;
+            border: 2px solid #dee2e6;
+        }
+
+        .image-info {
+            flex: 1;
+        }
+
+        .image-url {
+            font-size: 12px;
+            color: #666;
+            word-break: break-all;
+            margin-bottom: 10px;
+        }
+
+        .info-row {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+
+        .info-item {
+            display: flex;
+            gap: 8px;
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .info-value {
+            color: #666;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-missing { background: #ffebee; color: #c62828; }
+        .badge-present { background: #e8f5e9; color: #2e7d32; }
+        .badge-large { background: #ffebee; color: #c62828; }
+        .badge-medium { background: #fff3e0; color: #f57c00; }
+        .badge-small { background: #e8f5e9; color: #2e7d32; }
+
+        .actions {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .btn-small {
+            padding: 8px 16px;
+            font-size: 13px;
+        }
+
+        .btn-success {
+            background: #28a745;
+        }
+
+        .btn-success:hover:not(:disabled) {
+            background: #218838;
+        }
+
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 20px;
+        }
+
+        .empty {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        .optimization-result {
+            margin-top: 15px;
+            padding: 15px;
+            background: white;
+            border-radius: 6px;
+            border: 1px solid #28a745;
+        }
+
+        .optimization-result h4 {
+            color: #28a745;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        .result-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .result-stat {
+            font-size: 13px;
+        }
+
+        .result-stat strong {
+            color: #333;
+        }
+
+        .alt-text-box {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-size: 13px;
+            border: 1px solid #dee2e6;
+        }
+
+        .copy-btn {
+            background: #6c757d;
+            padding: 6px 12px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+
+        .copy-btn:hover:not(:disabled) {
+            background: #5a6268;
+        }
+
+        .download-btn {
+            background: #007bff;
+            display: inline-block;
+            text-decoration: none;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .download-btn:hover {
+            background: #0056b3;
+        }
+        
+        .download-btn.downloaded {
+            background: #28a745;
+        }
+        
+        .download-btn.downloaded:hover {
+            background: #218838;
+        }
+        
+        .push-btn {
+            background: #6f42c1;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+        }
+        
+        .push-btn:hover {
+            background: #5a32a3;
+        }
+        
+        .push-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Image Optimizer</h1>
+        <div class="version">Version 2.2 - Full file replacement with alt text</div>
+
+        <div class="url-input-section">
+            <div class="input-group">
+                <input type="text" id="urlInput" placeholder="Enter URL to scan (e.g., aboutwallart.com or https://aboutwallart.com/products/blue-wall-art)" />
+                <button id="scanBtn" onclick="startScan()">Scan Images</button>
+                <button id="exportBtn" onclick="exportForKickstart()" style="background: #28a745; display: none;">Export for Kickstart</button>
+            </div>
+            <div class="url-hint">
+                Scan any page: product pages, collections, blog posts, homepage, or any URL on your site
+            </div>
+        </div>
+
+        <div id="stats" class="stats" style="display: none;">
+            <div class="stat-card">
+                <div class="stat-label">Total Images</div>
+                <div class="stat-value" id="totalImages">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Missing Alt Text</div>
+                <div class="stat-value" id="missingAlt">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Size</div>
+                <div class="stat-value" id="totalSize">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Large Images (&gt;500KB)</div>
+                <div class="stat-value" id="largeImages">0</div>
+            </div>
+        </div>
+
+        <div id="loading" class="loading" style="display: none;">
+            <div class="spinner"></div>
+            <div id="loadingText">Scanning images...</div>
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+
+        <div id="results" class="results-container" style="display: none;"></div>
+
+        <div id="empty" class="empty">
+            Enter a URL above and click "Scan Images" to analyze all images on that page
+        </div>
+    </div>
+
+    <script>
+        let scannedImages = [];
+        let pageH1 = '';
+        let pageUrl = '';
+
+        async function startScan() {
+            let url = document.getElementById('urlInput').value.trim();
+            
+            if (!url) {
+                showError('Please enter a URL');
+                return;
+            }
+
+            // Auto-add https:// if missing
+            if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                url = 'https://' + url;
+            }
+
+            document.getElementById('scanBtn').disabled = true;
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('results').style.display = 'none';
+            document.getElementById('stats').style.display = 'none';
+            document.getElementById('empty').style.display = 'none';
+            
+            scannedImages = [];
+            
+            try {
+                updateLoadingText('Fetching page...');
+                const html = await fetchViaProxy(url);
+                
+                updateLoadingText('Extracting images...');
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                
+                // Extract H1 for context-aware alt text
+                const h1Element = doc.querySelector('h1');
+                pageH1 = h1Element ? h1Element.textContent.trim() : '';
+                pageUrl = url;
+                
+                const images = doc.querySelectorAll('img');
+                
+                updateLoadingText('Analyzing images...');
+                let imageIndex = 0;
+                for (const img of images) {
+                    const src = img.src || img.dataset.src;
+                    if (src && !src.includes('data:image')) {
+                        const fullUrl = src.startsWith('http') ? src : new URL(src, url).href;
+                        
+                        // Filter out AWS S3 images (amazonaws.com)
+                        if (fullUrl.includes('amazonaws.com')) {
+                            continue; // Skip this image
+                        }
+                        
+                        // Capture HTML context for theme section matching
+                        const htmlContext = captureHtmlContext(img, doc, imageIndex);
+                        
+                        scannedImages.push({
+                            url: fullUrl,
+                            altText: img.alt || '',
+                            width: img.width || null,
+                            height: img.height || null,
+                            fileSize: null,
+                            format: getFormat(src),
+                            index: imageIndex,
+                            className: img.className || '',
+                            parentTagName: img.parentElement ? img.parentElement.tagName : '',
+                            htmlContext: htmlContext
+                        });
+                        imageIndex++;
+                    }
+                }
+
+                if (scannedImages.length === 0) {
+                    showError('No images found on this page');
+                    return;
+                }
+                
+                // DEDUPLICATE: Remove duplicate URLs, keep only first occurrence
+                const seenUrls = new Set();
+                scannedImages = scannedImages.filter(img => {
+                    if (seenUrls.has(img.url)) {
+                        return false; // Skip duplicate
+                    }
+                    seenUrls.add(img.url);
+                    return true; // Keep first occurrence
+                });
+                
+                // Re-index after deduplication
+                scannedImages.forEach((img, idx) => {
+                    img.index = idx;
+                });
+                
+                updateLoadingText('Checking file sizes...');
+                await checkImageSizes();
+                
+                // Sort by priority
+                sortImagesByPriority();
+                
+                displayResults();
+                updateStats();
+                
+                // Show export button
+                document.getElementById('exportBtn').style.display = 'inline-block';
+                
+            } catch (error) {
+                showError('Error scanning page: ' + error.message);
+                console.error(error);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('scanBtn').disabled = false;
+            }
+        }
+
+        function updateLoadingText(text) {
+            document.getElementById('loadingText').textContent = text;
+        }
+        
+        function captureHtmlContext(imgElement, doc, imageIndex) {
+            const context = {
+                nearestHeading: '',
+                parentClasses: '',
+                surroundingText: '',
+                pagePosition: '',
+                imageLinkUrl: ''
+            };
+            
+            // Find nearest heading (h1, h2, h3) - walk up and previous siblings
+            let currentElement = imgElement;
+            let foundHeading = null;
+            
+            // Check previous siblings and parent siblings
+            while (currentElement && !foundHeading) {
+                // Check previous siblings
+                let sibling = currentElement.previousElementSibling;
+                while (sibling && !foundHeading) {
+                    const heading = sibling.querySelector('h1, h2, h3') || (sibling.matches('h1, h2, h3') ? sibling : null);
+                    if (heading) {
+                        foundHeading = heading;
+                        break;
+                    }
+                    sibling = sibling.previousElementSibling;
+                }
+                
+                // Move up to parent
+                currentElement = currentElement.parentElement;
+            }
+            
+            if (foundHeading) {
+                context.nearestHeading = foundHeading.textContent.trim().substring(0, 100);
+            }
+            
+            // Get parent CSS classes
+            if (imgElement.parentElement) {
+                context.parentClasses = imgElement.parentElement.className || '';
+                
+                // Also check grandparent for section-level classes
+                if (imgElement.parentElement.parentElement) {
+                    const grandparentClasses = imgElement.parentElement.parentElement.className || '';
+                    if (grandparentClasses) {
+                        context.parentClasses = grandparentClasses + ' > ' + context.parentClasses;
+                    }
+                }
+            }
+            
+            // Get surrounding text (siblings with text content)
+            const siblings = [];
+            if (imgElement.parentElement) {
+                const parent = imgElement.parentElement;
+                for (let i = 0; i < parent.children.length; i++) {
+                    const child = parent.children[i];
+                    if (child !== imgElement && child.textContent.trim()) {
+                        siblings.push(child.textContent.trim().substring(0, 50));
+                    }
+                }
+            }
+            context.surroundingText = siblings.slice(0, 3).join(' | ');
+            
+            // Determine page position
+            if (imageIndex === 0) {
+                context.pagePosition = 'first image';
+            } else if (imageIndex === 1) {
+                context.pagePosition = 'second image';
+            } else {
+                const viewportHeight = 800; // Approximate fold
+                const imgTop = imgElement.getBoundingClientRect ? 0 : 0; // Can't get position from parsed HTML
+                context.pagePosition = imageIndex < 5 ? 'above fold area' : 'below fold area';
+            }
+            
+            // Check if image is wrapped in a link
+            if (imgElement.parentElement && imgElement.parentElement.tagName === 'A') {
+                context.imageLinkUrl = imgElement.parentElement.href || '';
+            }
+            
+            return context;
+        }
+
+        async function fetchViaProxy(url) {
+            const apiUrl = `https://seo-tools-lake.vercel.app/api/fetch-html.js?url=${encodeURIComponent(url)}`;
+            const response = await fetch(apiUrl);
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to fetch page');
+            }
+            
+            const data = await response.json();
+            return data.html;
+        }
+
+        async function checkImageSizes() {
+            for (const img of scannedImages) {
+                try {
+                    const response = await fetch(img.url, { method: 'HEAD' });
+                    const size = response.headers.get('content-length');
+                    img.fileSize = size ? parseInt(size) : null;
+                } catch (error) {
+                    console.warn('Could not get size for:', img.url);
+                }
+            }
+        }
+
+        function getFormat(url) {
+            const match = url.match(/\.(jpg|jpeg|png|gif|webp|svg)(\?|$)/i);
+            return match ? match[1].toUpperCase() : 'Unknown';
+        }
+
+        function classifyImageType(img) {
+            // Classify image based on size, position, and context
+            const width = img.width || 0;
+            const height = img.height || 0;
+            const fileSize = img.fileSize || 0;
+            const index = img.index || 0;
+            const className = img.className.toLowerCase();
+            const url = img.url.toLowerCase();
+            
+            // UI/Functional images (icons, logos, buttons)
+            if (width < 100 || height < 100) return 'ui';
+            if (url.includes('logo') || url.includes('icon') || url.includes('cart') || 
+                url.includes('menu') || url.includes('search') || url.includes('button')) {
+                return 'ui';
+            }
+            if (className.includes('icon') || className.includes('logo')) return 'ui';
+            
+            // Hero/Main product image (first large image)
+            if (index === 0 && (width > 600 || height > 600)) return 'hero';
+            
+            // Supporting product images
+            if (width > 300 && height > 300) return 'product';
+            
+            // Decorative
+            return 'decorative';
+        }
+
+        function formatFileSize(bytes) {
+            if (!bytes) return 'Unknown';
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+        }
+
+        function getSizeBadge(bytes) {
+            if (!bytes) return '';
+            if (bytes > 1024 * 1024) return '<span class="badge badge-large">Large (&gt;1MB)</span>';
+            if (bytes > 500 * 1024) return '<span class="badge badge-medium">Medium (&gt;500KB)</span>';
+            return '<span class="badge badge-small">Good</span>';
+        }
+
+        function getPriority(img) {
+            const hasNoAlt = !img.altText;
+            const isLarge = img.fileSize > 500 * 1024;
+            
+            if (hasNoAlt && isLarge) return 'critical';
+            if (hasNoAlt || isLarge) return 'warning';
+            return 'good';
+        }
+
+        function sortImagesByPriority() {
+            scannedImages.sort((a, b) => {
+                const aHasNoAlt = !a.altText;
+                const bHasNoAlt = !b.altText;
+                const aIsLarge = a.fileSize > 500 * 1024;
+                const bIsLarge = b.fileSize > 500 * 1024;
+                
+                // Group 1: Missing alt text (regardless of size)
+                // Group 2: Large images with alt text
+                // Group 3: Good images (small size + has alt text)
+                
+                if (aHasNoAlt && !bHasNoAlt) return -1; // a missing alt comes first
+                if (!aHasNoAlt && bHasNoAlt) return 1;  // b missing alt comes first
+                
+                // Both have same alt status, sort by size
+                if (aIsLarge && !bIsLarge) return -1; // a is large comes first
+                if (!aIsLarge && bIsLarge) return 1;  // b is large comes first
+                
+                return 0; // same priority
+            });
+        }
+
+        function displayResults() {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '';
+            resultsDiv.style.display = 'block';
+
+            scannedImages.forEach((img, index) => {
+                const priority = getPriority(img);
+                const needsOptimize = img.fileSize > 500 * 1024;
+                const needsAltText = !img.altText;
+                
+                const card = document.createElement('div');
+                card.className = `image-card priority-${priority}`;
+                card.id = `image-${index}`;
+                
+                // Build actions HTML
+                let actionsHTML = '<div class="actions">';
+                if (needsOptimize) {
+                    actionsHTML += `
+                        <button class="btn-small btn-success" onclick="optimizeImage(${index})" id="optimize-btn-${index}">
+                            Optimize
+                        </button>
+                    `;
+                }
+                if (needsAltText) {
+                    actionsHTML += `
+                        <button class="btn-small" onclick="generateAltText(${index})" id="alt-btn-${index}">
+                            Generate Alt Text
+                        </button>
+                    `;
+                }
+                actionsHTML += '</div>';
+                
+                card.innerHTML = `
+                    <img src="${img.url}" class="image-preview-large" alt="Preview" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22120%22 height=%22120%22%3E%3Crect fill=%22%23ddd%22 width=%22120%22 height=%22120%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22 fill=%22%23999%22%3EError%3C/text%3E%3C/svg%3E'">
+                    
+                    <div class="image-info">
+                        <div class="image-url">${img.url}</div>
+                        
+                        <div class="info-row">
+                            <div class="info-item">
+                                <span class="info-label">Size:</span>
+                                <span class="info-value">${formatFileSize(img.fileSize)}</span>
+                                ${getSizeBadge(img.fileSize)}
+                            </div>
+                            
+                            <div class="info-item">
+                                <span class="info-label">Format:</span>
+                                <span class="info-value">${img.format}</span>
+                            </div>
+                            
+                            <div class="info-item">
+                                <span class="info-label">Dimensions:</span>
+                                <span class="info-value">${img.width && img.height ? `${img.width} × ${img.height}` : 'Unknown'}</span>
+                            </div>
+                        </div>
+                        
+                        <div class="info-row">
+                            <div class="info-item">
+                                <span class="info-label">Alt Text:</span>
+                                ${img.altText ? '<span class="badge badge-present">Present</span>' : '<span class="badge badge-missing">Missing</span>'}
+                                ${img.altText ? `<span class="info-value">"${img.altText}"</span>` : ''}
+                            </div>
+                        </div>
+                        
+                        <div id="result-${index}"></div>
+                    </div>
+                    
+                    ${actionsHTML}
+                `;
+                
+                resultsDiv.appendChild(card);
+            });
+        }
+
+        async function optimizeImage(index) {
+            const btn = document.getElementById(`optimize-btn-${index}`);
+            const resultDiv = document.getElementById(`result-${index}`);
+            const img = scannedImages[index];
+            
+            btn.disabled = true;
+            btn.textContent = 'Optimizing...';
+            
+            try {
+                // Fetch image
+                const response = await fetch(img.url);
+                const blob = await response.blob();
+                
+                // Create canvas for optimization
+                const bitmap = await createImageBitmap(blob);
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                
+                // Resize if too large (max 1200px on longest side)
+                let width = bitmap.width;
+                let height = bitmap.height;
+                const maxSize = 1200;
+                
+                if (width > maxSize || height > maxSize) {
+                    if (width > height) {
+                        height = (height / width) * maxSize;
+                        width = maxSize;
+                    } else {
+                        width = (width / height) * maxSize;
+                        height = maxSize;
+                    }
+                }
+                
+                canvas.width = width;
+                canvas.height = height;
+                ctx.drawImage(bitmap, 0, 0, width, height);
+                
+                // Convert to WebP with quality 0.85
+                const optimizedBlob = await new Promise(resolve => {
+                    canvas.toBlob(resolve, 'image/webp', 0.85);
+                });
+                
+                const originalSize = blob.size;
+                const optimizedSize = optimizedBlob.size;
+                const savings = ((originalSize - optimizedSize) / originalSize * 100).toFixed(1);
+                
+                // Store optimized blob for export
+                img.optimizedBlob = optimizedBlob;
+                
+                // Create download link
+                const downloadUrl = URL.createObjectURL(optimizedBlob);
+                
+                // Use generated alt text if available, otherwise use existing alt text, otherwise use index
+                let filename = img.generatedAltText 
+                    ? img.generatedAltText.replace(/[^a-z0-9]/gi, '-').toLowerCase().substring(0, 50) + '.webp'
+                    : img.altText 
+                        ? img.altText.replace(/[^a-z0-9]/gi, '-').toLowerCase().substring(0, 50) + '.webp'
+                        : `optimized-${index}.webp`;
+                
+                resultDiv.innerHTML = `
+                    <div class="optimization-result">
+                        <h4>Optimization Complete</h4>
+                        <div class="result-stats">
+                            <div class="result-stat">
+                                <strong>Original:</strong> ${formatFileSize(originalSize)}
+                            </div>
+                            <div class="result-stat">
+                                <strong>Optimized:</strong> ${formatFileSize(optimizedSize)}
+                            </div>
+                            <div class="result-stat">
+                                <strong>Savings:</strong> ${savings}%
+                            </div>
+                            <div class="result-stat">
+                                <strong>New Size:</strong> ${width} × ${height}
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 10px; margin-top: 12px;">
+                            <a href="${downloadUrl}" download="${filename}" class="download-btn" id="download-btn-${index}" onclick="markDownloaded(${index})">
+                                Download Optimized Image
+                            </a>
+                            <button onclick="pushToShopify(${index})" class="push-btn" id="push-btn-${index}">
+                                Push to Shopify
+                            </button>
+                        </div>
+                        <div id="push-status-${index}" style="margin-top: 8px; font-size: 13px;"></div>
+                    </div>
+                `;
+                
+                btn.textContent = 'Optimized';
+                btn.style.background = '#28a745';
+                
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">Optimization failed: ${error.message}</div>`;
+                btn.disabled = false;
+                btn.textContent = 'Optimize';
+            }
+        }
+
+        async function generateAltText(index) {
+            const btn = document.getElementById(`alt-btn-${index}`);
+            const resultDiv = document.getElementById(`result-${index}`);
+            const img = scannedImages[index];
+            
+            btn.disabled = true;
+            btn.textContent = 'Generating...';
+            
+            try {
+                // Fetch image as base64
+                const response = await fetch(img.url);
+                const blob = await response.blob();
+                const base64 = await blobToBase64(blob);
+                
+                // Classify image type
+                const imageType = classifyImageType(img);
+                
+                // Build context-aware prompt
+                let prompt = '';
+                if (imageType === 'hero' && pageH1) {
+                    prompt = `Generate SEO-optimized alt text for this hero/main product image. The page H1 is: "${pageH1}". Include the main keyword from the H1 naturally in the alt text. Describe what the image shows in under 125 characters. Respond with ONLY the alt text, no explanations.`;
+                } else if (imageType === 'product' && pageH1) {
+                    prompt = `Generate SEO-optimized alt text for this supporting product image. The page H1 is: "${pageH1}". Use variations or related terms (not exact H1 keyword). Describe what the image shows in under 125 characters. Respond with ONLY the alt text, no explanations.`;
+                } else if (imageType === 'ui') {
+                    prompt = `Generate functional alt text for this UI element (icon, logo, or button). Describe its function or purpose clearly in under 125 characters. Do NOT include product keywords. Respond with ONLY the alt text, no explanations.`;
+                } else {
+                    prompt = `Generate concise, descriptive alt text for this decorative image. Keep it under 125 characters. Respond with ONLY the alt text, no explanations.`;
+                }
+                
+                // Call Vercel API endpoint which calls Claude
+                const apiResponse = await fetch('https://seo-tools-lake.vercel.app/api/generate-alt-text.js', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        image: {
+                            type: 'base64',
+                            media_type: blob.type,
+                            data: base64
+                        },
+                        prompt: prompt
+                    })
+                });
+                
+                if (!apiResponse.ok) {
+                    const errorData = await apiResponse.json();
+                    throw new Error(errorData.error || 'Failed to generate alt text');
+                }
+                
+                const data = await apiResponse.json();
+                const altText = data.altText || data.text || 'Alt text generation failed';
+                
+                // Store generated alt text in image object for filename use
+                img.generatedAltText = altText;
+                
+                const existingResult = resultDiv.querySelector('.optimization-result');
+                const imageTypeLabel = imageType === 'hero' ? '(Hero Image - includes H1 keyword)' : 
+                                      imageType === 'product' ? '(Product Image - keyword variation)' : 
+                                      imageType === 'ui' ? '(UI Element - functional description)' : 
+                                      '(Decorative)';
+                
+                const altTextHtml = `
+                    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #dee2e6;">
+                        <strong style="font-size: 13px;">Generated Alt Text ${imageTypeLabel}:</strong>
+                        <div class="alt-text-box">
+                            ${altText}
+                            <button class="copy-btn" onclick="copyAltText('${altText.replace(/'/g, "\\'")}')">Copy</button>
+                        </div>
+                    </div>
+                `;
+                
+                if (existingResult) {
+                    existingResult.innerHTML += altTextHtml;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="optimization-result">
+                            <h4>Alt Text Generated</h4>
+                            ${altTextHtml}
+                        </div>
+                    `;
+                }
+                
+                btn.textContent = 'Generated';
+                btn.style.background = '#28a745';
+                
+            } catch (error) {
+                if (resultDiv.querySelector('.optimization-result')) {
+                    const existing = resultDiv.querySelector('.optimization-result');
+                    existing.innerHTML += `<div class="error" style="margin-top: 10px;">Alt text generation failed: ${error.message}</div>`;
+                } else {
+                    resultDiv.innerHTML = `<div class="error">Alt text generation failed: ${error.message}</div>`;
+                }
+                btn.disabled = false;
+                btn.textContent = 'Generate Alt Text';
+            }
+        }
+
+        function blobToBase64(blob) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+        }
+
+        function copyAltText(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Alt text copied to clipboard!');
+            });
+        }
+
+        function updateStats() {
+            document.getElementById('stats').style.display = 'grid';
+            document.getElementById('totalImages').textContent = scannedImages.length;
+            
+            const missingAlt = scannedImages.filter(img => !img.altText).length;
+            document.getElementById('missingAlt').textContent = missingAlt;
+            
+            const totalBytes = scannedImages.reduce((sum, img) => sum + (img.fileSize || 0), 0);
+            document.getElementById('totalSize').textContent = formatFileSize(totalBytes);
+            
+            const largeImages = scannedImages.filter(img => img.fileSize > 500 * 1024).length;
+            document.getElementById('largeImages').textContent = largeImages;
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            document.getElementById('scanBtn').disabled = false;
+        }
+        
+        function markDownloaded(index) {
+            // Mark download button as downloaded (green)
+            setTimeout(() => {
+                const btn = document.getElementById(`download-btn-${index}`);
+                if (btn) {
+                    btn.classList.add('downloaded');
+                    btn.textContent = '✓ Downloaded';
+                }
+            }, 100);
+        }
+        
+        async function pushToShopify(index) {
+            const img = scannedImages[index];
+            const pushBtn = document.getElementById(`push-btn-${index}`);
+            const statusDiv = document.getElementById(`push-status-${index}`);
+            
+            if (!img.optimizedBlob) {
+                statusDiv.innerHTML = '<span style="color: #dc3545;">❌ No optimized image to push</span>';
+                return;
+            }
+            
+            pushBtn.disabled = true;
+            pushBtn.textContent = 'Pushing...';
+            statusDiv.innerHTML = '<span style="color: #6c757d;">⏳ Uploading to Shopify...</span>';
+            
+            try {
+                // Convert blob to base64
+                const reader = new FileReader();
+                const base64Promise = new Promise((resolve, reject) => {
+                    reader.onload = () => resolve(reader.result.split(',')[1]);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(img.optimizedBlob);
+                });
+                
+                const base64Data = await base64Promise;
+                
+                // Call Shopify API endpoint
+                const response = await fetch('https://seo-tools-lake.vercel.app/api/shopify-files', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action: 'replace_file',
+                        imageUrl: img.url,
+                        optimizedImageBase64: base64Data,
+                        altText: img.generatedAltText || img.altText || ''
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    pushBtn.textContent = '✓ Pushed';
+                    pushBtn.style.background = '#28a745';
+                    statusDiv.innerHTML = '<span style="color: #28a745;">✅ Successfully pushed to Shopify</span>';
+                } else {
+                    pushBtn.disabled = false;
+                    pushBtn.textContent = 'Push to Shopify';
+                    statusDiv.innerHTML = `<span style="color: #dc3545;">❌ Failed: ${data.error || 'Unknown error'}</span>`;
+                }
+                
+            } catch (error) {
+                pushBtn.disabled = false;
+                pushBtn.textContent = 'Push to Shopify';
+                statusDiv.innerHTML = `<span style="color: #dc3545;">❌ Error: ${error.message}</span>`;
+            }
+        }
+
+        async function exportForKickstart() {
+            const exportBtn = document.getElementById('exportBtn');
+            
+            // VALIDATION: Check for unresolved issues
+            const unresolvedIssues = [];
+            
+            for (const img of scannedImages) {
+                const hasMissingAlt = !img.altText;
+                const isLarge = img.fileSize && img.fileSize > 500 * 1024;
+                const hasGeneratedAlt = img.generatedAltText && img.generatedAltText !== img.altText;
+                const hasOptimized = img.optimizedBlob;
+                
+                // Check if issue exists but not resolved
+                if (hasMissingAlt && !hasGeneratedAlt) {
+                    unresolvedIssues.push(`Missing alt text: ${img.url.substring(0, 80)}...`);
+                }
+                if (isLarge && !hasOptimized) {
+                    unresolvedIssues.push(`Large image not optimized: ${img.url.substring(0, 80)}...`);
+                }
+            }
+            
+            // If unresolved issues exist, warn user
+            if (unresolvedIssues.length > 0) {
+                const issueList = unresolvedIssues.slice(0, 5).join('\n');
+                const more = unresolvedIssues.length > 5 ? `\n... and ${unresolvedIssues.length - 5} more` : '';
+                
+                const proceed = confirm(
+                    `⚠️ WARNING: ${unresolvedIssues.length} unresolved issue(s) found:\n\n${issueList}${more}\n\n` +
+                    `Export will only include resolved fixes.\n\n` +
+                    `Click OK to export anyway, or Cancel to go back and fix issues.`
+                );
+                
+                if (!proceed) {
+                    return; // User cancelled
+                }
+            }
+            
+            exportBtn.disabled = true;
+            exportBtn.textContent = 'Exporting...';
+            
+            try {
+                // Detect resource type and ID from URL
+                const resourceInfo = detectResourceInfo(pageUrl);
+                
+                // Build fixes array and plain text output
+                const fixes = [];
+                const zip = new JSZip();
+                let plainText = `PAGE: ${pageUrl}\n`;
+                plainText += `RESOURCE TYPE: ${resourceInfo.type}\n`;
+                plainText += `RESOURCE ID: ${resourceInfo.id}\n\n`;
+                
+                let fixNumber = 1;
+                
+                for (const img of scannedImages) {
+                    // Determine fix type
+                    const hasNewAltText = img.generatedAltText && img.generatedAltText !== img.altText;
+                    const hasOptimizedImage = img.optimizedBlob;
+                    
+                    let fixType = null;
+                    
+                    if (hasNewAltText && hasOptimizedImage) {
+                        fixType = 'both';
+                    } else if (hasNewAltText) {
+                        fixType = 'alt_text_only';
+                    } else if (hasOptimizedImage) {
+                        fixType = 'image_replacement';
+                    }
+                    
+                    // Only include if there's a fix to apply
+                    if (!fixType) continue;
+                    
+                    // Add to plain text
+                    plainText += `FIX ${fixNumber}\n`;
+                    plainText += `original_src: ${img.url}\n`;
+                    plainText += `fix_type: ${fixType}\n`;
+                    
+                    if (hasNewAltText) {
+                        plainText += `new_alt_text: ${img.generatedAltText}\n`;
+                    }
+                    
+                    if (hasOptimizedImage) {
+                        const imageFilename = `FIX-${fixNumber}.webp`;
+                        plainText += `optimised_image: [upload image labelled "${imageFilename}"]\n`;
+                        
+                        // Add optimized image to ZIP with FIX-N.webp naming
+                        zip.file(imageFilename, img.optimizedBlob);
+                    }
+                    
+                    // Add HTML context for theme section matching
+                    if (img.htmlContext) {
+                        plainText += `\nHTML_CONTEXT:\n`;
+                        plainText += `  NEAREST_HEADING: ${img.htmlContext.nearestHeading || 'none'}\n`;
+                        plainText += `  PARENT_CLASSES: ${img.htmlContext.parentClasses || 'none'}\n`;
+                        plainText += `  SURROUNDING_TEXT: ${img.htmlContext.surroundingText || 'none'}\n`;
+                        plainText += `  PAGE_POSITION: ${img.htmlContext.pagePosition || 'unknown'}\n`;
+                        plainText += `  IMAGE_LINK_URL: ${img.htmlContext.imageLinkUrl || 'none'}\n`;
+                    }
+                    
+                    plainText += `\n`;
+                    fixNumber++;
+                }
+                
+                // Add plain text instructions to ZIP
+                zip.file('instructions.txt', plainText);
+                
+                // Generate filename with page identifier
+                const urlParts = pageUrl.replace(/https?:\/\//, '').replace(/\/$/, '').split('/');
+                const pageIdentifier = urlParts[urlParts.length - 1] || 'homepage';
+                const zipFilename = `image-fixes-from-${pageIdentifier}.zip`;
+                
+                // Create ZIP file
+                const zipBlob = await zip.generateAsync({ type: 'blob' });
+                const zipUrl = URL.createObjectURL(zipBlob);
+                
+                // Download ZIP
+                const zipLink = document.createElement('a');
+                zipLink.href = zipUrl;
+                zipLink.download = zipFilename;
+                zipLink.click();
+                
+                exportBtn.textContent = 'Export for Kickstart';
+                exportBtn.disabled = false;
+                exportBtn.style.background = '#28a745';
+                
+                alert(`Export complete!\n\nDownloaded: ${zipFilename}\n\nContains:\n- instructions.txt (${fixNumber - 1} fixes)\n- ${fixNumber - 1} optimized images\n\nUnzip and give to Kickstart.`);
+                
+            } catch (error) {
+                alert('Export failed: ' + error.message);
+                exportBtn.disabled = false;
+                exportBtn.textContent = 'Export for Kickstart';
+            }
+        }
+        
+        function detectResourceInfo(url) {
+            // Detect resource type from URL pattern
+            const urlLower = url.toLowerCase();
+            
+            if (urlLower.includes('/blogs/')) {
+                return {
+                    type: 'blog_article',
+                    id: url // Kickstart will extract the slug or look up the GID
+                };
+            } else if (urlLower.includes('/pages/')) {
+                return {
+                    type: 'page',
+                    id: url
+                };
+            } else if (urlLower.includes('/collections/')) {
+                return {
+                    type: 'collection',
+                    id: url
+                };
+            } else if (urlLower.includes('/products/')) {
+                return {
+                    type: 'product',
+                    id: url
+                };
+            } else {
+                return {
+                    type: 'page',
+                    id: url
+                };
+            }
+        }
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</body>
+</html>
