@@ -70,16 +70,25 @@ export default async function handler(req, res) {
         });
       }
 
-      // Find matching file by URL
+      // Find matching file by filename only (not full URL)
       const files = searchData.data?.files?.edges || [];
+      
+      // Extract filename from the image URL (handles both custom domain and Shopify CDN)
+      const getFilename = (url) => {
+        const parts = url.split('/');
+        const filenameWithParams = parts[parts.length - 1];
+        // Remove query parameters (e.g., ?v=123456)
+        return filenameWithParams.split('?')[0];
+      };
+      
+      const targetFilename = getFilename(imageUrl);
+      
       const matchingFile = files.find(edge => {
         const fileUrl = edge.node.image?.url;
-        // Match by filename or full URL
-        return fileUrl && (
-          fileUrl === imageUrl || 
-          fileUrl.includes(imageUrl.split('/').pop()) ||
-          imageUrl.includes(fileUrl.split('/').pop())
-        );
+        if (!fileUrl) return false;
+        
+        const shopifyFilename = getFilename(fileUrl);
+        return shopifyFilename === targetFilename;
       });
 
       if (!matchingFile) {
