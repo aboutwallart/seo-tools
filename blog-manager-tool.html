@@ -292,7 +292,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v1.5</p>
+        <p class="version">v1.6</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -603,15 +603,33 @@
         }
 
         // ============================================
-        // UNDO MARK
+        // UNDO MARK → delete from registry
         // ============================================
-        function undoMark(index) {
+        async function undoMark(index) {
+            const idea = blogIdeas[index];
+            const keyword = idea.currentKeyword;
+
+            // Move card back to Blog Ideas tab immediately
             markedIdeas.delete(index);
             updateTabCounts();
             displayIdeas();
             displayToWrite();
-            // Note: does NOT remove from registry - registry entry stays
-            // as it may have already been saved
+
+            // Delete from registry
+            try {
+                const response = await fetch('/api/blogs', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ keyword })
+                });
+
+                const data = await response.json();
+                if (!data.success) {
+                    console.error('Failed to remove from registry:', data.error);
+                }
+            } catch (error) {
+                console.error('Error removing from registry:', error);
+            }
         }
 
         // ============================================
