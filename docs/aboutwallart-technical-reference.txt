@@ -1,1 +1,655 @@
+# TECHNICAL REFERENCE DOCUMENT
+## AboutWallArt SEO Tools Infrastructure
 
+**Last Updated:** May 26, 2026
+**Owner:** aboutwallart
+**Purpose:** Complete technical documentation for all SEO tools, infrastructure, API keys, and configurations
+
+---
+
+# GITHUB REPOSITORY
+
+## Repository Information
+- **Repository:** aboutwallart/seo-tools
+- **URL:** https://github.com/aboutwallart/seo-tools
+- **Visibility:** Public
+- **Main Branch:** main
+- **Languages:** HTML (84.9%), JavaScript (15.1%)
+
+## Repository Structure
+
+### Root Level Files
+- `blog-manager-tool.html` — Blog content management tool
+- `keyword-locker.html` — Keyword locking and conflict detection tool
+- `money-page-doctor.html` — Money page optimization tool (competitor analysis)
+- `rank-report-card.html` — Ranking report and tracking tool
+- `image-optimizer-v2.10.html` — **NEW** Shopify image optimization tool
+- `package.json` — Node.js dependencies
+- `vercel.json` — Vercel deployment configuration
+
+---
+
+# FOLDER STRUCTURE
+
+## `/api/` Folder
+**Purpose:** Serverless API endpoints (Vercel Functions)
+
+All API endpoints are called by the HTML tools to perform backend operations.
+
+### API Files:
+1. **`analyze-money-page.js`**
+   - Money Page Optimizer backend
+   - Analyzes competitor pages
+   - Returns optimization recommendations
+
+2. **`blogs.js`**
+   - Blog content generator backend
+   - Interfaces with AI APIs
+
+3. **`claude.js`**
+   - Claude (Anthropic) API integration
+   - Used for content generation
+
+4. **`fetch-html.js`**
+   - Fetches HTML content from URLs
+   - Used for scraping competitor pages
+
+5. **`migrate.js`**
+   - Data migration scripts
+   - Handles registry updates
+
+6. **`openai.js`**
+   - OpenAI API integration
+   - Alternative AI content generation
+
+7. **`pagespeed.js`**
+   - Google PageSpeed Insights API integration
+   - Returns performance metrics
+
+8. **`reddit.js`**
+   - Reddit scraper for blog topic ideas
+   - Finds questions with high volume, low competition
+
+9. **`serpapi.js`**
+   - SERP API integration
+   - Competitor SERP analysis
+
+10. **`shopify-files.js`** — **NEW**
+    - Shopify Admin GraphQL API integration
+    - Manages file uploads, replacements, and alt text updates
+    - Used by Image Optimizer tool
+    - See "Shopify API Integration" section below
+
+---
+
+## `/data/` Folder
+**Purpose:** Keyword tracking, registry files, and content management
+
+### Critical Files:
+
+#### **MASTER KEYWORD REGISTRY (ACTIVE)**
+- **File:** `keyword-locker-registry.csv`
+- **Location:** `/data/keyword-locker-registry.csv`
+- **GitHub URL:** https://github.com/aboutwallart/seo-tools/blob/main/data/keyword-locker-registry.csv
+- **Last Updated:** 4 days ago (May 21, 2026)
+- **Purpose:** 
+  - Central database of all locked keywords
+  - Prevents keyword cannibalization
+  - All tools read from and write to this file
+  - Shared across Keyword Locker, Money Page Doctor, Blog Manager
+
+#### **OLD/DEPRECATED FILES**
+- `keyword-master-registry.csv` — OLD VERSION, NOT IN USE
+
+### Backup System:
+- **Folder:** `registry-backups/`
+- **Purpose:** Automatic backups before major changes
+- **Naming:** `Backup before save - YYYY-MM-DDTHH-MM-SS`
+
+---
+
+# DEPLOYED TOOLS
+
+## Live URLs
+
+**Base URL:** https://seo-tools-lake.vercel.app
+
+### Available Tools:
+1. **Keyword Locker**
+   - URL: `/keyword-locker.html`
+   - Purpose: Lock keywords to pages, detect conflicts
+
+2. **Blog Manager**
+   - URL: `/blog-manager-tool.html`
+   - Purpose: Generate blog content from Reddit questions
+
+3. **Money Page Doctor**
+   - URL: `/money-page-doctor.html`
+   - Purpose: Analyze and optimize collection pages against competitors
+
+4. **Rank Report Card**
+   - URL: `/rank-report-card.html`
+   - Purpose: Technical SEO audits
+
+5. **Image Optimizer** — **NEW**
+   - URL: `/image-optimizer-v2.10.html`
+   - Purpose: Scan pages, optimize images, generate alt text, push to Shopify
+   - Status: Production-ready (v2.10)
+
+---
+
+# IMAGE OPTIMIZER TOOL
+
+## Overview
+**File:** `image-optimizer-v2.10.html`
+**API:** `api/shopify-files.js`
+**Status:** Production (May 26, 2026)
+**Purpose:** Automated image optimization and alt text generation for Shopify stores
+
+## Features
+
+### Core Functionality:
+1. **Page Scanning**
+   - Scans any URL on aboutwallart.com
+   - Extracts all images (product, blog, collection pages)
+   - Analyzes file size, format, dimensions, alt text
+
+2. **Image Optimization**
+   - Converts images to WebP format
+   - Compresses to ~85% quality
+   - Target: <500KB per image
+   - Client-side optimization (no server upload)
+
+3. **Alt Text Generation**
+   - Uses Claude Vision API (Anthropic)
+   - Generates descriptive, SEO-friendly alt text
+   - Context-aware (UI elements vs product images)
+   - Keyword-optimized descriptions
+
+4. **Shopify Integration**
+   - Direct upload to Shopify Files via Admin API
+   - Replaces existing files while preserving URLs
+   - Updates alt text in Shopify metadata
+   - Handles file conflicts and versioning
+
+### Color-Coded Issue Detection:
+- 🟦 **Blue:** Alt text missing only (AUTO - push to Shopify)
+- 🟨 **Yellow:** Image too large only (AUTO - optimize and push)
+- 🟧 **Orange:** Alt text missing (MANUAL - theme section)
+- 🟪 **Purple:** Image too large (MANUAL - theme section)
+- 🔴 **Red:** Both issues present (manual fix required)
+- 🟩 **Green:** No issues / resolved
+
+### Tab System:
+- **To Fix:** Shows all images needing attention (sorted by color)
+- **Resolved:** Shows fixed images (with undo functionality)
+
+## Technical Architecture
+
+### Frontend (image-optimizer-v2.10.html):
+- Pure HTML + vanilla JavaScript
+- No external dependencies except:
+  - Claude Vision API (via fetch)
+  - Shopify Admin API (via fetch to proxy)
+- Implements:
+  - Image scanning via HTML fetch + DOM parsing
+  - Canvas-based image optimization
+  - WebP conversion with quality control
+  - Base64 encoding for API transmission
+
+### Backend API (api/shopify-files.js):
+- **Endpoint:** `https://seo-tools-lake.vercel.app/api/shopify-files`
+- **Method:** POST
+- **Authentication:** Shopify access token (environment variable)
+- **API Version:** 2025-01
+
+### Supported Actions:
+
+#### 1. `replace_file`
+**Purpose:** Replace existing image file in Shopify
+**Flow:**
+1. Find file by filename using GraphQL query
+2. Create staged upload target
+3. Build multipart form data manually (no FormData dependency)
+4. Upload optimized image to staged URL
+5. Create new file with alt text via `fileCreate`
+6. Delete old file after 3-second delay
+
+**GraphQL Mutations Used:**
+- `files(query: "filename:...")` — Find file
+- `stagedUploadsCreate` — Get upload target
+- `fileCreate` — Create new file
+- `fileDelete` — Remove old file
+
+#### 2. `update_alt_only` (DEPRECATED - NOT WORKING)
+**Status:** Known Shopify API bug - silently fails
+**Issue:** `fileUpdate` mutation returns success but doesn't persist alt text
+**Replaced by:** `replace_file` for all operations
+
+## Shopify API Integration
+
+### Required Scopes:
+```
+write_content
+read_content
+write_files
+read_files
+write_product_listings
+read_product_listings
+write_products
+read_products
+```
+
+### Environment Variables (Vercel):
+```
+SHOPIFY_STORE_DOMAIN=aboutwallart.myshopify.com
+SHOPIFY_ACCESS_TOKEN=[admin API token]
+```
+
+### API Endpoint Configuration:
+- **URL:** `https://{SHOPIFY_STORE_DOMAIN}/admin/api/2025-01/graphql.json`
+- **Headers:**
+  - `Content-Type: application/json`
+  - `X-Shopify-Access-Token: {SHOPIFY_ACCESS_TOKEN}`
+
+### Key GraphQL Operations:
+
+#### Find File by Filename:
+```graphql
+query {
+  files(first: 5, query: "filename:image.jpg") {
+    edges {
+      node {
+        ... on MediaImage {
+          id
+          alt
+        }
+      }
+    }
+  }
+}
+```
+
+#### Create Staged Upload:
+```graphql
+mutation {
+  stagedUploadsCreate(input: [{
+    resource: IMAGE,
+    filename: "image.webp",
+    mimeType: "image/webp",
+    httpMethod: POST
+  }]) {
+    stagedTargets {
+      url
+      resourceUrl
+      parameters { name value }
+    }
+  }
+}
+```
+
+#### Create File with Alt Text:
+```graphql
+mutation {
+  fileCreate(files: [{
+    originalSource: "[staged URL]",
+    contentType: IMAGE,
+    alt: "Descriptive alt text here"
+  }]) {
+    files { id alt }
+    userErrors { field message }
+  }
+}
+```
+
+#### Delete File:
+```graphql
+mutation {
+  fileDelete(fileIds: ["gid://shopify/MediaImage/123"]) {
+    deletedFileIds
+    userErrors { field message }
+  }
+}
+```
+
+### Known Limitations:
+
+1. **Theme Section Images:**
+   - Alt text stored in `settings_data.json`, not Files API
+   - Cannot update via API
+   - Must be updated manually in theme editor
+   - Tool marks these as MANUAL (orange/purple)
+
+2. **File Matching:**
+   - Filename must match exactly (case-sensitive)
+   - Query parameter `?v=timestamp` stripped before matching
+   - CDN URLs cleaned before binary fetch
+
+3. **Async Processing:**
+   - 3-second delay required between create and delete
+   - Shopify processes file creation asynchronously
+   - Immediate delete can fail if file not yet ready
+
+## Version History
+
+### v2.10 (Current - May 26, 2026)
+- **Status:** PRODUCTION
+- Removed all bulk operations
+- Kept color coding and tab system
+- Fixed "Mark as Done" to move to Resolved tab
+- Fixed manual checkbox to move to Resolved tab
+- Individual buttons for each card (Optimize, Generate Alt Text, Push to Shopify)
+- Stable and working for blue (alt text) and yellow (optimize) cards
+
+### v2.10 Backup Files:
+- `image-optimizer-v2.10-BACKUP.html`
+- `shopify-files-v2.10-BACKUP.js` (API)
+
+### Previous Versions:
+- v2.8 — Working version before bulk operations
+- v2.9.x — Bulk operations (removed due to complexity)
+
+## Usage Workflow
+
+### Typical User Flow:
+1. Open Image Optimizer tool
+2. Enter page URL (e.g., `/collections/black-and-white`)
+3. Click "Scan Images"
+4. Review color-coded results in "To Fix" tab
+5. For each image:
+   - Click "Generate Alt Text" (uses Claude Vision)
+   - Review/edit alt text
+   - Click "Optimize" if needed (converts to WebP)
+   - Click "Push to Shopify" (individual purple button)
+   - Click "Mark as Done"
+6. Image moves to "Resolved" tab (green) with undo button
+7. Continue until "To Fix" tab is empty
+
+### Manual Workflow (Orange/Purple Cards):
+1. Orange (theme section alt text):
+   - Copy generated alt text
+   - Go to Shopify admin → Themes → Customize
+   - Find image in theme editor
+   - Paste alt text
+   - Check "Mark as manually fixed" checkbox
+   - Card moves to Resolved
+
+2. Purple (theme section optimization):
+   - Click "Optimize" to download WebP
+   - Manually upload to Shopify Files
+   - Update theme to use new file
+   - Check "Mark as manually fixed" checkbox
+   - Card moves to Resolved
+
+## Testing & Validation
+
+### Confirmed Working:
+✅ Page scanning (products, collections, blogs)
+✅ Image optimization (PNG/JPG → WebP, <500KB)
+✅ Alt text generation (Claude Vision API)
+✅ Push to Shopify (blue cards - alt text only)
+✅ Push to Shopify (yellow cards - optimize only)
+✅ Mark as Done → Resolved tab with undo
+✅ Manual fix checkbox → Resolved tab without undo
+✅ Color coding and sorting
+✅ Tab switching
+
+### Known Issues:
+⚠️ Files modified during testing may have different filenames
+⚠️ "File not found" error if filename was changed previously
+⚠️ Solution: Use untouched images or manually verify filename in Shopify
+
+## Performance Metrics
+
+### Optimization Results:
+- Average size reduction: 90-95%
+- Example: 1.49 MB → 88 KB (94% savings)
+- Format: WebP with 85% quality
+- Dimensions: Preserved (no resizing)
+
+### API Call Costs:
+- Claude Vision API: ~$0.01 per image
+- Shopify API: Free (within rate limits)
+- Total: Negligible for typical usage
+
+---
+
+# API KEYS & CREDENTIALS
+
+## Vercel Environment Variables
+
+### Current Environment Variables:
+```
+ANTHROPIC_API_KEY=[Anthropic Claude API key]
+OPENAI_API_KEY=[OpenAI API key]
+SHOPIFY_STORE_DOMAIN=aboutwallart.myshopify.com
+SHOPIFY_ACCESS_TOKEN=[Shopify Admin API token]
+```
+
+### How to Access:
+1. Go to: https://vercel.com/aboutwallart/seo-tools
+2. Click "Settings" → "Environment Variables"
+3. View or edit existing variables
+4. Click "Save" to apply changes
+5. Redeploy for changes to take effect
+
+### Security:
+- All keys encrypted by Vercel
+- Never exposed in frontend code
+- Only accessible by serverless functions
+- Environment-specific (production/preview/development)
+
+---
+
+# CORS CONFIGURATION
+
+## Vercel CORS Settings
+
+**File:** `vercel.json`
+
+```json
+{
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, PUT, DELETE, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" }
+      ]
+    }
+  ]
+}
+```
+
+### Purpose:
+- Allow API calls from any domain
+- Enable cross-origin resource sharing
+- Support OPTIONS preflight requests
+
+### Affected Endpoints:
+- All `/api/*` endpoints
+- Including `shopify-files.js`
+
+---
+
+# DEPLOYMENT
+
+## Vercel Deployment
+
+### Automatic Deployment:
+- **Trigger:** Push to `main` branch on GitHub
+- **Platform:** Vercel
+- **Build Command:** None (static site)
+- **Output Directory:** `.` (root)
+
+### Manual Deployment:
+```bash
+# Install Vercel CLI
+npm install -g vercel
+
+# Login
+vercel login
+
+# Deploy
+vercel --prod
+```
+
+### Deployment URL:
+- **Production:** https://seo-tools-lake.vercel.app
+- **Preview:** Auto-generated for each PR
+
+---
+
+# TROUBLESHOOTING
+
+## Common Issues
+
+### Image Optimizer: "File not found in Shopify"
+**Symptom:** Push to Shopify fails with "File not found"
+
+**Causes:**
+1. File was previously modified and filename changed
+2. Filename doesn't match Shopify exactly
+3. File exists in theme but not in Files
+
+**Solution:**
+1. Check Shopify Admin → Content → Files
+2. Search for the filename
+3. If missing: Download → Manually upload
+4. If exists but different name: Note actual filename in tool
+
+### Image Optimizer: Alt text not showing on page
+**Symptom:** Alt text updates in Shopify Files but not on website
+
+**Cause:** Image is in theme section, not managed by Files API
+
+**Solution:**
+1. Shopify Admin → Online Store → Themes → Customize
+2. Find the image in theme editor
+3. Manually update alt text field
+4. Save theme
+
+### Shopify API: Rate Limiting
+**Symptom:** 429 Too Many Requests error
+
+**Solution:**
+- Shopify Admin API: 2 requests/second
+- Wait and retry
+- Tool includes 3-second delays between operations
+
+### CORS Errors
+**Symptom:** "No 'Access-Control-Allow-Origin' header"
+
+**Solution:**
+- Verify `vercel.json` has correct CORS headers
+- Redeploy after any changes to `vercel.json`
+- Clear browser cache
+
+---
+
+# MAINTENANCE
+
+## Regular Tasks
+
+### Weekly:
+- Check Vercel deployment status
+- Review API usage (ensure within limits)
+- Backup `keyword-locker-registry.csv` (automatic via GitHub)
+
+### Monthly:
+- Review API key expiration dates (if applicable)
+- Check for tool updates or bug reports
+- Verify all tools still functioning correctly
+- Test Image Optimizer on sample pages
+
+### As Needed:
+- Update API keys if rotated
+- Deploy tool improvements
+- Add new API endpoints for new tools
+- Update Shopify access token if expired
+
+---
+
+# SECURITY NOTES
+
+## API Key Protection
+
+**CRITICAL:** API keys are stored in Vercel environment variables, NEVER in code.
+
+### What's Protected:
+- All keys in Vercel are encrypted
+- Keys never exposed in frontend code
+- Keys never committed to GitHub
+- API endpoints act as proxy, hiding keys from users
+
+### Access Control:
+- Only Vercel serverless functions can access environment variables
+- Frontend never sees actual API keys
+- Users can't extract keys from browser console
+
+### Shopify Token Security:
+- Admin API token has scoped permissions
+- Token stored as environment variable
+- Never transmitted to client
+- All Shopify calls proxied through `api/shopify-files.js`
+
+---
+
+# FUTURE PLANS
+
+## Planned Improvements
+
+1. **Custom Domain Setup**
+   - Target: `tools.aboutwallart.com`
+   - Status: Not yet configured
+   - Impact: Professional URL for all tools
+
+2. **Image Optimizer Enhancements** (Potential)
+   - Product image detection and smart routing
+   - Bulk operations (disabled in v2.10)
+   - ZIP download for manual uploads
+   - Kickstart integration
+
+3. **Additional Tools**
+   - ✅ Image SEO optimizer (COMPLETED - v2.10)
+   - Internal linking optimizer
+   - Content freshness tracker
+   - Backlink monitor
+
+4. **Enhanced Registry Features**
+   - Real-time conflict alerts
+   - Bulk keyword operations
+   - Historical keyword tracking
+   - Export/import functionality
+
+---
+
+# CONTACT & SUPPORT
+
+## Resources
+
+**GitHub Repository:**
+https://github.com/aboutwallart/seo-tools
+
+**Vercel Dashboard:**
+https://vercel.com/aboutwallart/seo-tools
+
+**Live Tools:**
+https://seo-tools-lake.vercel.app
+
+**Shopify Admin:**
+https://aboutwallart.myshopify.com/admin
+
+---
+
+**Document End**
+
+This document should be updated whenever:
+- New tools are added
+- API keys are changed
+- CORS configuration is modified
+- Deployment URLs change
+- File structure is reorganized
+- Shopify API scopes are updated
+- Image Optimizer versions are released
