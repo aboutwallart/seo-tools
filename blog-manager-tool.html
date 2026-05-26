@@ -6,11 +6,7 @@
     <title>Blog Manager Tool</title>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
             font-family: 'Poppins', sans-serif;
@@ -20,25 +16,12 @@
             padding: 40px 20px;
         }
 
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
+        .container { max-width: 1200px; margin: 0 auto; }
 
-        h1 {
-            font-size: 32px;
-            font-weight: 600;
-            margin-bottom: 4px;
-            color: #1a1a1a;
-        }
+        h1 { font-size: 32px; font-weight: 600; margin-bottom: 4px; color: #1a1a1a; }
 
-        .version {
-            color: #999999;
-            font-size: 13px;
-            margin-bottom: 30px;
-        }
+        .version { color: #999999; font-size: 13px; margin-bottom: 30px; }
 
-        /* STATS */
         .stats {
             background: #f5f5f5;
             border: 1px solid #e0e0e0;
@@ -49,17 +32,9 @@
             color: #666666;
         }
 
-        .stats strong {
-            color: #1a1a1a;
-        }
+        .stats strong { color: #1a1a1a; }
 
-        /* LOADING */
-        .loading {
-            text-align: center;
-            padding: 60px 20px;
-            color: #666666;
-            font-size: 14px;
-        }
+        .loading { text-align: center; padding: 60px 20px; color: #666666; font-size: 14px; }
 
         /* IDEA CARD */
         .idea-card {
@@ -68,23 +43,11 @@
             border-radius: 8px;
             padding: 20px;
             margin-bottom: 20px;
-            transition: all 0.2s ease;
         }
 
-        .idea-card.green {
-            border-color: #66bb6a;
-            background: #f1f8f4;
-        }
-
-        .idea-card.yellow {
-            border-color: #ffa726;
-            background: #fff8f1;
-        }
-
-        .idea-card.red {
-            border-color: #ef5350;
-            background: #fff1f1;
-        }
+        .idea-card.green { border-color: #66bb6a; background: #f1f8f4; }
+        .idea-card.yellow { border-color: #ffa726; background: #fff8f1; }
+        .idea-card.red { border-color: #ef5350; background: #fff1f1; }
 
         .card-header {
             display: flex;
@@ -93,11 +56,7 @@
             margin-bottom: 16px;
         }
 
-        .card-number {
-            font-size: 12px;
-            font-weight: 600;
-            color: #999999;
-        }
+        .card-number { font-size: 12px; font-weight: 600; color: #999999; }
 
         .status-badge {
             padding: 4px 12px;
@@ -106,69 +65,51 @@
             font-weight: 500;
         }
 
-        .badge-green {
-            background: #66bb6a;
-            color: #ffffff;
-        }
+        .badge-green { background: #66bb6a; color: #ffffff; }
+        .badge-yellow { background: #ffa726; color: #ffffff; }
+        .badge-red { background: #ef5350; color: #ffffff; }
 
-        .badge-yellow {
-            background: #ffa726;
-            color: #ffffff;
-        }
-
-        .badge-red {
-            background: #ef5350;
-            color: #ffffff;
-        }
-
-        .keyword {
-            font-size: 18px;
-            font-weight: 600;
-            color: #1a1a1a;
-            margin-bottom: 8px;
-        }
-
-        .title {
-            font-size: 15px;
-            color: #333333;
-            margin-bottom: 8px;
-            line-height: 1.5;
-        }
-
-        .perspective {
-            font-size: 13px;
-            color: #666666;
-            font-style: italic;
-            margin-bottom: 16px;
-        }
+        .keyword { font-size: 18px; font-weight: 600; color: #1a1a1a; margin-bottom: 8px; }
+        .title { font-size: 15px; color: #333333; margin-bottom: 8px; line-height: 1.5; }
+        .perspective { font-size: 13px; color: #666666; font-style: italic; margin-bottom: 16px; }
 
         /* CONFLICT WARNING */
         .conflict-warning {
-            background: #fff3e0;
-            border: 1px solid #ffa726;
             border-radius: 6px;
             padding: 12px;
             margin-bottom: 16px;
             font-size: 13px;
+        }
+
+        .conflict-warning.yellow {
+            background: #fff3e0;
+            border: 1px solid #ffa726;
             color: #ef6c00;
         }
 
         .conflict-warning.red {
             background: #ffebee;
-            border-color: #ef5350;
+            border: 1px solid #ef5350;
             color: #c62828;
         }
 
-        .conflict-details {
-            margin-top: 8px;
-            padding-top: 8px;
-            border-top: 1px solid rgba(0,0,0,0.1);
+        .conflict-warning .conflict-label {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .conflict-warning .conflict-keyword {
+            font-size: 13px;
+            margin-bottom: 4px;
+        }
+
+        .conflict-warning .conflict-url {
             font-size: 12px;
         }
 
-        .conflict-details strong {
-            display: block;
-            margin-bottom: 4px;
+        .conflict-warning .conflict-url a {
+            color: inherit;
+            text-decoration: underline;
         }
 
         /* KEYWORD OVERRIDE */
@@ -216,44 +157,13 @@
             transition: all 0.2s ease;
         }
 
-        .btn-regenerate:hover {
-            background: #1a1a1a;
-            color: #ffffff;
-        }
+        .btn-regenerate:hover { background: #1a1a1a; color: #ffffff; }
 
         .btn-regenerate:disabled {
             background: #f5f5f5;
             color: #cccccc;
             border-color: #e0e0e0;
             cursor: not-allowed;
-        }
-
-        /* MARK FOR WRITING BUTTON */
-        .btn-mark {
-            background: #2196F3;
-            color: #ffffff;
-            border: none;
-            padding: 12px 24px;
-            font-size: 14px;
-            font-weight: 500;
-            font-family: 'Poppins', sans-serif;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            width: 100%;
-            max-width: 200px;
-        }
-
-        .btn-mark:hover {
-            background: #1976D2;
-        }
-
-        .btn-mark.marked {
-            background: #66bb6a;
-        }
-
-        .btn-mark.marked:hover {
-            background: #4caf50;
         }
 
         /* SUGGESTED TITLE */
@@ -267,391 +177,199 @@
             color: #1565C0;
         }
 
-        .suggested-title strong {
-            display: block;
-            margin-bottom: 4px;
-        }
+        .suggested-title strong { display: block; margin-bottom: 4px; }
 
-        /* NEW CONFLICT CHECK */
-        .new-conflict-check {
-            background: #e8f5e9;
-            border: 1px solid #66bb6a;
+        /* MARK FOR WRITING BUTTON */
+        .btn-mark {
+            background: #2196F3;
+            color: #ffffff;
+            border: none;
+            padding: 12px 24px;
+            font-size: 14px;
+            font-weight: 500;
+            font-family: 'Poppins', sans-serif;
             border-radius: 6px;
-            padding: 12px;
-            margin-top: 12px;
-            font-size: 13px;
-            color: #2e7d32;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            min-width: 180px;
         }
 
-        .new-conflict-check.warning {
-            background: #fff3e0;
-            border-color: #ffa726;
-            color: #ef6c00;
-        }
-
-        .new-conflict-check.danger {
-            background: #ffebee;
-            border-color: #ef5350;
-            color: #c62828;
-        }
+        .btn-mark:hover { background: #1976D2; }
+        .btn-mark.marked { background: #66bb6a; }
+        .btn-mark.marked:hover { background: #4caf50; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v1.3</p>
-        
-        <div class="stats" id="stats">
-            Loading data...
-        </div>
-        
+        <p class="version">v1.4</p>
+
+        <div class="stats" id="stats">Loading blog ideas...</div>
+
         <div id="ideas-container">
-            <div class="loading">
-                🔄 Loading blog ideas and analyzing for conflicts...
-            </div>
+            <div class="loading">🔄 Loading blog ideas...</div>
         </div>
     </div>
 
     <script>
         // ============================================
-        // DATA STORAGE
+        // DATA
         // ============================================
-        
         let blogIdeas = [];
-        let publishedBlogs = [];
         let markedIdeas = new Set();
 
         // ============================================
-        // LOAD DATA
+        // CSV PARSER
         // ============================================
-        
+        function parseCSV(text) {
+            const lines = text.split('\n');
+            const headers = parseCSVLine(lines[0]);
+            const rows = [];
+
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim().replace(/\r/g, '');
+                if (!line) continue;
+                const cols = parseCSVLine(line);
+                const row = {};
+                headers.forEach((h, idx) => {
+                    row[h.trim()] = cols[idx] || '';
+                });
+                rows.push(row);
+            }
+            return rows;
+        }
+
+        function parseCSVLine(line) {
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                if (char === '"') {
+                    inQuotes = !inQuotes;
+                } else if (char === ',' && !inQuotes) {
+                    result.push(current.trim());
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+            result.push(current.trim());
+            return result;
+        }
+
+        // ============================================
+        // LOAD DATA FROM GITHUB CSV
+        // ============================================
         async function loadData() {
             try {
-                // Load published blogs from API
-                const response = await fetch('/api/blogs');
-                const data = await response.json();
-                publishedBlogs = data.blogs || [];
-                
-                console.log('Published blogs loaded:', publishedBlogs.length);
-                
-                // Hardcoded first 40 blog ideas (from Excel file)
-                blogIdeas = [
-                    {"Keyword": "Neutral Pictures", "Blog Post Title": "Why Are Neutral Pictures the Secret to Timeless Home Decor?", "Perspective": "Interior designer revealing why neutral pictures create calm, versatile spaces that never go out of style"},
-                    {"Keyword": "Tropical Art", "Blog Post Title": "Can Tropical Art Work in Modern Minimalist Homes?", "Perspective": "Designer showing how to blend tropical art with minimalist aesthetics without making your home feel like a beach resort"},
-                    {"Keyword": "Best Budget-Friendly Wall Art for Apartments", "Blog Post Title": "Best Budget-Friendly Wall Art for Apartments?", "Perspective": "Affordable options that still look good"},
-                    {"Keyword": "Best Wall Decor for Apartment Without Drilling", "Blog Post Title": "Best Wall Decor for Apartment Without Drilling?", "Perspective": "Seeking specific products and solutions"},
-                    {"Keyword": "Accent Walls in Open Floor Plans", "Blog Post Title": "Can Accent Walls Work in Open Floor Plans?", "Perspective": "Customer with modern layout questioning feasibility"},
-                    {"Keyword": "Biophilic design in dark apartments", "Blog Post Title": "Can biophilic design work in dark apartments?", "Perspective": "Customer with specific space constraints"},
-                    {"Keyword": "Bohemian Wall Art in Small Spaces", "Blog Post Title": "Can Bohemian Wall Art Work in Small Spaces?", "Perspective": "Whether bohemian decor is suitable for tiny apartments or rooms"},
-                    {"Keyword": "Decorators Transform Small Spaces Boho", "Blog Post Title": "Can Decorators Transform Small Spaces Boho?", "Perspective": "Making boho work in compact homes"},
-                    {"Keyword": "Blend Boho With Existing Furniture", "Blog Post Title": "Can I Blend Boho With My Existing Furniture?", "Perspective": "Working with current pieces to achieve style"},
-                    {"Keyword": "Combine Boho and Industrial Textures", "Blog Post Title": "Can I Combine Boho and Industrial Textures?", "Perspective": "Want to blend multiple style aesthetics through texture"},
-                    {"Keyword": "Hang Bohemian Art in a Rental", "Blog Post Title": "Can I Hang Bohemian Art in a Rental?", "Perspective": "Renter-friendly ways to display bohemian wall art"},
-                    {"Keyword": "Mix Japandi With Current Furniture", "Blog Post Title": "Can I Mix Japandi With My Current Furniture?", "Perspective": "Whether they need to replace everything"},
-                    {"Keyword": "Put a Gallery Wall in Small Spaces", "Blog Post Title": "Can I Put a Gallery Wall in Small Spaces?", "Perspective": "Planning multi-piece arrangements in tight areas"},
-                    {"Keyword": "Use Temporary Wall Art in a Rental Bathroom", "Blog Post Title": "Can I Use Temporary Wall Art in a Rental Bathroom?", "Perspective": "Customer wants bathroom decor without damaging landlord's walls"},
-                    {"Keyword": "Use Wall Art To for Color To Neutral Rooms", "Blog Post Title": "Can I Use Wall Art To Add Color To Neutral Rooms?", "Perspective": "Customer wanting to introduce color through artwork"},
-                    {"Keyword": "Kitchen Wall Art in Small Spaces", "Blog Post Title": "Can Kitchen Wall Art Work in Small Spaces?", "Perspective": "Customer with limited wall space wants to know if art is viable"},
-                    {"Keyword": "Mirrors as Dining Room Wall Art", "Blog Post Title": "Can Mirrors Work as Dining Room Wall Art?", "Perspective": "Customer considering alternative to traditional paintings"},
-                    {"Keyword": "Wall Art for Define Decorating Style", "Blog Post Title": "Can Wall Art Help Define My Decorating Style?", "Perspective": "Customer using wall pieces to establish a cohesive home aesthetic"},
-                    {"Keyword": "Wall Art for Apartment Noise", "Blog Post Title": "Can Wall Art Help with Apartment Noise Issues?", "Perspective": "Customer interested in decorative acoustic solutions"},
-                    {"Keyword": "Wall Art Replace Expensive Furniture Updates", "Blog Post Title": "Can Wall Art Replace Expensive Furniture Updates?", "Perspective": "Customer looking for affordable ways to refresh space"},
-                    {"Keyword": "Wall Art in Rental Apartments", "Blog Post Title": "Can Wall Art Work in Rental Apartments?", "Perspective": "Renter-friendly installation and options"},
-                    {"Keyword": "Accent Walls with Bold Furniture", "Blog Post Title": "Do Accent Walls Work With Bold Furniture?", "Perspective": "Customer with statement pieces wondering about balance"},
-                    {"Keyword": "Gold Accents in Coastal Interiors", "Blog Post Title": "Do Gold Accents Work in Coastal Interiors?", "Perspective": "Customer with beach-style home wondering about compatibility"},
-                    {"Keyword": "An Interior Designer for Japandi", "Blog Post Title": "Do I Need an Interior Designer for Japandi?", "Perspective": "Deciding between DIY and professional help"},
-                    {"Keyword": "Special Lighting for Japandi Spaces", "Blog Post Title": "Do I Need Special Lighting for Japandi Spaces?", "Perspective": "Functional design questions for style"},
-                    {"Keyword": "Biophilic design in small spaces", "Blog Post Title": "Does biophilic design work in small spaces?", "Perspective": "Customer with apartment/small home wondering if it's feasible"},
-                    {"Keyword": "Hallway Wall Art Lighting", "Blog Post Title": "Does Hallway Wall Art Need Lighting?", "Perspective": "Customer is considering accent lighting for art"},
-                    {"Keyword": "Japandi in Small Spaces", "Blog Post Title": "Does Japandi Work in Small Spaces?", "Perspective": "Whether japandi is suitable for apartments/small homes"},
-                    {"Keyword": "Wall Art to Match Furniture", "Blog Post Title": "Does Wall Art Need to Match My Furniture?", "Perspective": "Styling and coordination questions"},
-                    {"Keyword": "Do Decorators Handle Lighting in Boho", "Blog Post Title": "How Do Decorators Handle Lighting in Boho?", "Perspective": "Creating ambiance in bohemian spaces"},
-                    {"Keyword": "Do Layer Wall Art in Small Apartments", "Blog Post Title": "How Do I Layer Wall Art in Small Apartments?", "Perspective": "Customer in compact space looking for creative arrangements"},
-                    {"Keyword": "Do Style Kitchen Art With Lighting", "Blog Post Title": "How Do I Style Kitchen Art With Lighting?", "Perspective": "Customer wants to coordinate art with kitchen light fixtures"},
-                    {"Keyword": "Do Update Boho Without Redecorating", "Blog Post Title": "How Do I Update Boho Without Redecorating?", "Perspective": "Refreshing boho style affordably"},
-                    {"Keyword": "High Should Hang Apartment Wall Art", "Blog Post Title": "How High Should I Hang Apartment Wall Art?", "Perspective": "Seeking design guidelines for proper placement"},
-                    {"Keyword": "Long Does Apartment Wall Decorating Take", "Blog Post Title": "How Long Does Apartment Wall Decorating Take?", "Perspective": "Timeline and effort expectations"},
-                    {"Keyword": "Long Does Coastal Decorating Take", "Blog Post Title": "How Long Does Coastal Decorating Take?", "Perspective": "Timeline expectations for completing a coastal decor project"},
-                    {"Keyword": "Much Should Budget for Japandi Furniture", "Blog Post Title": "How Much Should I Budget for Japandi Furniture?", "Perspective": "Pricing for style-appropriate pieces"},
-                    {"Keyword": "Avoid Tacky Coastal Decorating", "Blog Post Title": "How to Avoid Tacky Coastal Decorating?", "Perspective": "Achieving sophisticated beach style instead of cliche themes"},
-                    {"Keyword": "Choose Coastal Furniture That Lasts", "Blog Post Title": "How to Choose Coastal Furniture That Lasts?", "Perspective": "Durability and quality considerations for beach home furnishings"},
-                    {"Keyword": "Choose Farmhouse Furniture That Lasts", "Blog Post Title": "How to Choose Farmhouse Furniture That Lasts?", "Perspective": "Making quality furniture purchases"}
-                ];
-                
-                // Show analyzing message
-                document.getElementById('stats').innerHTML = `
-                    <strong>Analyzing conflicts...</strong> Checking all 40 ideas against 378 published blogs using AI...
-                `;
-                
-                // Analyze ALL ideas in ONE batched AI call
-                const conflicts = await analyzeAllConflictsBatched(blogIdeas);
-                
-                // Apply conflicts to ideas
-                blogIdeas = blogIdeas.map((idea, i) => ({
-                    ...idea,
-                    index: i,
-                    conflict: conflicts[i].level,
-                    conflictMessage: conflicts[i].message,
-                    conflictBlog: conflicts[i].blog,
-                    conflictKeyword: conflicts[i].keyword,
-                    originalKeyword: idea.Keyword,
-                    originalTitle: idea['Blog Post Title']
+                const csvUrl = 'https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/blog_ideas.csv';
+                const response = await fetch(csvUrl);
+
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch CSV: ${response.status}`);
+                }
+
+                const csvText = await response.text();
+                const rows = parseCSV(csvText);
+
+                blogIdeas = rows.map((row, index) => ({
+                    index: index,
+                    keyword: row['Keyword'] || '',
+                    title: row['Blog Post Title'] || '',
+                    perspective: row['Perspective'] || '',
+                    cannibalization: row['CANNIBALIZATION'] || 'NO CONFLICT',
+                    conflictingKeyword: row['CONFLICTING KEYWORD'] || '',
+                    conflictingUrl: row['CONFLICTING BLOG URL'] || '',
+                    currentTitle: row['Blog Post Title'] || '',
+                    currentKeyword: row['Keyword'] || ''
                 }));
-                
-                // Update stats
-                const greenCount = blogIdeas.filter(i => i.conflict === 'green').length;
-                const yellowCount = blogIdeas.filter(i => i.conflict === 'yellow').length;
-                const redCount = blogIdeas.filter(i => i.conflict === 'red').length;
-                
+
+                // Stats
+                const green = blogIdeas.filter(i => i.cannibalization === 'NO CONFLICT').length;
+                const yellow = blogIdeas.filter(i => i.cannibalization === 'CAUTION').length;
+                const red = blogIdeas.filter(i => i.cannibalization === 'DANGER').length;
+
                 document.getElementById('stats').innerHTML = `
-                    <strong>Loaded:</strong> 40 blog ideas | 
-                    ${publishedBlogs.length} published blogs | 
-                    🟢 ${greenCount} safe | 
-                    🟡 ${yellowCount} caution | 
-                    🔴 ${redCount} conflict
+                    <strong>Loaded:</strong> ${blogIdeas.length} blog ideas &nbsp;|&nbsp;
+                    🟢 ${green} No Conflict &nbsp;|&nbsp;
+                    🟡 ${yellow} Caution &nbsp;|&nbsp;
+                    🔴 ${red} Danger
                 `;
-                
-                // Display ideas
+
                 displayIdeas();
-                
+
             } catch (error) {
                 console.error('Error loading data:', error);
-                document.getElementById('stats').innerHTML = `
-                    <strong>Error:</strong> Could not load data. Check console.
+                document.getElementById('stats').innerHTML = `<strong>Error:</strong> ${error.message}`;
+                document.getElementById('ideas-container').innerHTML = `
+                    <div class="loading">❌ Could not load blog ideas. Check console for details.</div>
                 `;
-            }
-        }
-
-        // ============================================
-        // CONFLICT ANALYSIS (AI-Based Intent Detection - BATCHED)
-        // ============================================
-        
-        async function analyzeAllConflictsBatched(ideas) {
-            // Quick pre-filter: if no published blogs, all green
-            if (publishedBlogs.length === 0) {
-                return ideas.map(() => ({
-                    level: 'green',
-                    message: '🟢 NO CONFLICT: Safe to write',
-                    blog: null,
-                    keyword: null
-                }));
-            }
-            
-            // Build list of published blog keywords for AI
-            const publishedList = publishedBlogs.slice(0, 100).map((b, i) => 
-                `${i + 1}. "${b.keyword || b.title}"`
-            ).join('\n');
-            
-            // Build list of new ideas for AI
-            const newIdeasList = ideas.map((idea, i) => 
-                `${i + 1}. "${idea.Keyword}"`
-            ).join('\n');
-            
-            try {
-                const prompt = `Analyze search intent conflicts between these NEW blog ideas and PUBLISHED blogs.
-
-NEW BLOG IDEAS (check each one):
-${newIdeasList}
-
-PUBLISHED BLOGS:
-${publishedList}
-
-RULES:
-- RED conflict: Same room + same topic (e.g., "bedroom art" vs "bedroom wall decor")
-- RED conflict: Same style + same aspect (e.g., "bohemian small spaces" vs "boho apartment decor")
-- YELLOW caution: Overlapping topic but different angle (e.g., "budget art" vs "luxury art")
-- GREEN safe: Different rooms (apartment vs office), different styles (bohemian vs minimalist), different colors (neutral vs teal), different purposes (budget vs premium)
-
-Return ONLY valid JSON array (no markdown, no backticks, no explanation):
-[
-  {"index": 1, "level": "green", "reason": "Different room", "conflictBlog": null},
-  {"index": 2, "level": "yellow", "reason": "Similar topic different angle", "conflictBlog": "Published Blog Title"},
-  {"index": 3, "level": "red", "reason": "Same room and topic", "conflictBlog": "Published Blog Title"}
-]
-
-Return JSON for ALL ${ideas.length} ideas.`;
-
-                const response = await fetch('/api/claude', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        model: 'claude-sonnet-4-6',
-                        prompt: prompt
-                    })
-                });
-                
-                if (!response.ok) {
-                    throw new Error(`API error: ${response.status}`);
-                }
-                
-                const data = await response.json();
-                const resultText = data.altText || data.text || data.content?.[0]?.text || '';
-                
-                // Extract JSON array from response
-                const jsonMatch = resultText.match(/\[[\s\S]*\]/);
-                if (!jsonMatch) {
-                    console.error('No JSON array in response:', resultText);
-                    throw new Error('No JSON in response');
-                }
-                
-                const results = JSON.parse(jsonMatch[0]);
-                
-                // Convert AI results to conflict objects
-                const conflicts = ideas.map((idea, i) => {
-                    const result = results.find(r => r.index === i + 1) || { level: 'green', reason: 'No analysis', conflictBlog: null };
-                    
-                    let message = '';
-                    if (result.level === 'red') {
-                        message = `🔴 CANNIBALIZATION DANGER: ${result.reason}`;
-                    } else if (result.level === 'yellow') {
-                        message = `🟡 SIMILAR INTENT: ${result.reason}`;
-                    } else {
-                        message = '🟢 NO CONFLICT: Safe to write';
-                    }
-                    
-                    // Find the conflicting blog keyword if specified
-                    let conflictKeyword = null;
-                    if (result.conflictBlog) {
-                        const matchingBlog = publishedBlogs.find(b => 
-                            (b.title || '').toLowerCase().includes(result.conflictBlog.toLowerCase()) ||
-                            (b.keyword || '').toLowerCase().includes(result.conflictBlog.toLowerCase())
-                        );
-                        if (matchingBlog) {
-                            conflictKeyword = matchingBlog.keyword || matchingBlog.title;
-                        }
-                    }
-                    
-                    return {
-                        level: result.level,
-                        message: message,
-                        blog: result.conflictBlog,
-                        keyword: conflictKeyword
-                    };
-                });
-                
-                return conflicts;
-                
-            } catch (error) {
-                console.error('AI batch conflict detection failed:', error);
-                // Fallback to simple word matching for all
-                return ideas.map(idea => fallbackConflictDetection(idea.Keyword));
-            }
-        }
-        
-        // Fallback simple detection if AI fails
-        function fallbackConflictDetection(keyword) {
-            const keywordLower = keyword.toLowerCase();
-            const keywordWords = keywordLower.split(' ').filter(w => w.length > 2);
-            
-            let maxSimilarity = 0;
-            let conflictBlog = null;
-            let conflictKeyword = null;
-            
-            for (const blog of publishedBlogs) {
-                const blogKeyword = (blog.keyword || blog.title || '').toLowerCase();
-                const blogWords = blogKeyword.split(' ').filter(w => w.length > 2);
-                
-                // Calculate Jaccard similarity
-                const intersection = keywordWords.filter(w => blogWords.includes(w)).length;
-                const union = new Set([...keywordWords, ...blogWords]).size;
-                const similarity = intersection / union;
-                
-                if (similarity > maxSimilarity) {
-                    maxSimilarity = similarity;
-                    conflictBlog = blog.title || blog.keyword;
-                    conflictKeyword = blog.keyword || blog.title;
-                }
-            }
-            
-            // Determine conflict level
-            if (maxSimilarity >= 0.6) {
-                return {
-                    level: 'red',
-                    message: `🔴 CANNIBALIZATION DANGER: ${Math.round(maxSimilarity * 100)}% match`,
-                    blog: conflictBlog,
-                    keyword: conflictKeyword
-                };
-            } else if (maxSimilarity >= 0.4) {
-                return {
-                    level: 'yellow',
-                    message: `🟡 SIMILAR INTENT: ${Math.round(maxSimilarity * 100)}% overlap`,
-                    blog: conflictBlog,
-                    keyword: conflictKeyword
-                };
-            } else {
-                return {
-                    level: 'green',
-                    message: '🟢 NO CONFLICT: Safe to write',
-                    blog: null,
-                    keyword: null
-                };
             }
         }
 
         // ============================================
         // DISPLAY IDEAS
         // ============================================
-        
         function displayIdeas() {
             const container = document.getElementById('ideas-container');
             let html = '';
-            
+
             blogIdeas.forEach((idea, index) => {
+                const level = idea.cannibalization;
+                const cardClass = level === 'NO CONFLICT' ? 'green' : level === 'CAUTION' ? 'yellow' : 'red';
+                const badgeClass = level === 'NO CONFLICT' ? 'badge-green' : level === 'CAUTION' ? 'badge-yellow' : 'badge-red';
                 const isMarked = markedIdeas.has(index);
-                const showOverride = idea.conflict === 'yellow' || idea.conflict === 'red';
-                
+                const showOverride = level === 'CAUTION' || level === 'DANGER';
+
                 html += `
-                    <div class="idea-card ${idea.conflict}">
+                    <div class="idea-card ${cardClass}" id="card-${index}">
                         <div class="card-header">
                             <span class="card-number">#${index + 1}</span>
-                            <span class="status-badge badge-${idea.conflict}">
-                                ${idea.conflict === 'green' ? 'NO CONFLICT' : 
-                                  idea.conflict === 'yellow' ? 'CAUTION' : 'CONFLICT'}
-                            </span>
+                            <span class="status-badge ${badgeClass}">${level}</span>
                         </div>
-                        
-                        <div class="keyword" id="keyword-${index}">${idea.Keyword}</div>
-                        <div class="title" id="title-${index}">${idea['Blog Post Title']}</div>
-                        <div class="perspective">${idea.Perspective}</div>
-                        
-                        ${idea.conflict !== 'green' ? `
-                            <div class="conflict-warning ${idea.conflict === 'red' ? 'red' : ''}">
-                                ${idea.conflictMessage}
-                                <div class="conflict-details">
-                                    <strong>Conflicting Blog:</strong>
-                                    ${idea.conflictBlog || 'Unknown'}
-                                    <br>
-                                    <strong>Locked Keyword:</strong>
-                                    ${idea.conflictKeyword || 'Unknown'}
-                                </div>
-                            </div>
-                        ` : ''}
-                        
+
+                        <div class="keyword" id="keyword-display-${index}">${idea.currentKeyword}</div>
+                        <div class="title" id="title-display-${index}">${idea.currentTitle}</div>
+                        <div class="perspective">${idea.perspective}</div>
+
                         ${showOverride ? `
-                            <div class="override-section" id="override-${index}">
+                            <div class="conflict-warning ${cardClass}">
+                                <div class="conflict-label">
+                                    ${level === 'DANGER' ? '🔴 Cannibalization Danger' : '🟡 Caution - Similar Intent'}
+                                </div>
+                                <div class="conflict-keyword">
+                                    <strong>Conflicting Keyword:</strong> ${idea.conflictingKeyword}
+                                </div>
+                                ${idea.conflictingUrl ? `
+                                    <div class="conflict-url">
+                                        <strong>Conflicting Blog:</strong> 
+                                        <a href="${idea.conflictingUrl}" target="_blank">${idea.conflictingUrl}</a>
+                                    </div>
+                                ` : ''}
+                            </div>
+
+                            <div class="override-section">
                                 <label>Change Keyword:</label>
                                 <input 
-                                    type="text" 
-                                    id="new-keyword-${index}" 
-                                    value="${idea.Keyword}"
+                                    type="text"
+                                    id="new-keyword-${index}"
+                                    value="${idea.currentKeyword}"
                                     placeholder="Enter new keyword"
                                 >
-                                
                                 <button 
-                                    class="btn-regenerate" 
+                                    class="btn-regenerate"
                                     onclick="generateNewTitle(${index})"
                                     id="regen-btn-${index}"
                                 >
                                     Generate New Title
                                 </button>
-                                
                                 <div id="suggested-title-${index}"></div>
-                                <div id="new-conflict-${index}"></div>
                             </div>
                         ` : ''}
-                        
-                        <button 
-                            class="btn-mark ${isMarked ? 'marked' : ''}" 
+
+                        <button
+                            class="btn-mark ${isMarked ? 'marked' : ''}"
                             onclick="toggleMark(${index})"
                             id="mark-btn-${index}"
                         >
@@ -660,121 +378,77 @@ Return JSON for ALL ${ideas.length} ideas.`;
                     </div>
                 `;
             });
-            
+
             container.innerHTML = html;
         }
 
         // ============================================
         // GENERATE NEW TITLE (AI)
         // ============================================
-        
         async function generateNewTitle(index) {
             const newKeyword = document.getElementById(`new-keyword-${index}`).value.trim();
-            
+
             if (!newKeyword) {
                 alert('Please enter a keyword first');
                 return;
             }
-            
+
             const btn = document.getElementById(`regen-btn-${index}`);
             btn.disabled = true;
             btn.textContent = 'Generating...';
-            
+
             try {
-                const originalTitle = blogIdeas[index].originalTitle;
-                
+                const originalTitle = blogIdeas[index].title;
+
                 const response = await fetch('/api/claude', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        model: 'claude-sonnet-4-6',
                         prompt: `Original blog title: "${originalTitle}"
-                        
+
 New keyword: "${newKeyword}"
 
 Generate a new blog title that:
 1. Uses the new keyword naturally
-2. Keeps the same style and tone as the original
-3. Maintains the same question format or structure
+2. Keeps the same style and tone as the original title
+3. Maintains the same question format or structure if the original has one
 
-Return ONLY the new title, nothing else.`
+Return ONLY the new title, nothing else. No explanation, no punctuation around it.`
                     })
                 });
-                
+
+                if (!response.ok) {
+                    throw new Error(`API error: ${response.status}`);
+                }
+
                 const data = await response.json();
-                console.log('API Response:', data);
-                
-                // Parse response - handle different possible formats (same as image optimizer)
-                let newTitle = data.altText || data.text || '';
-                
-                if (!newTitle && data.content && Array.isArray(data.content) && data.content[0]) {
-                    newTitle = data.content[0].text || data.content[0];
-                } else if (!newTitle && data.response) {
-                    newTitle = data.response;
-                }
-                
+                console.log('API response:', data);
+
+                // /api/claude returns { response: "text" }
+                const newTitle = (data.response || '').trim().replace(/^["']|["']$/g, '');
+
                 if (!newTitle) {
-                    throw new Error('No title in API response');
+                    throw new Error('Empty response from API');
                 }
-                
-                newTitle = newTitle.trim().replace(/^["']|["']$/g, '');
-                
+
                 // Update display
-                document.getElementById(`title-${index}`).textContent = newTitle;
-                document.getElementById(`keyword-${index}`).textContent = newKeyword;
-                
-                // Show suggested title
+                document.getElementById(`keyword-display-${index}`).textContent = newKeyword;
+                document.getElementById(`title-display-${index}`).textContent = newTitle;
+
+                // Update stored data
+                blogIdeas[index].currentKeyword = newKeyword;
+                blogIdeas[index].currentTitle = newTitle;
+
+                // Show suggested title box
                 document.getElementById(`suggested-title-${index}`).innerHTML = `
                     <div class="suggested-title">
-                        <strong>✨ AI Suggested Title:</strong>
+                        <strong>✨ New Title Generated:</strong>
                         ${newTitle}
-                        <br><br>
-                        <small>You can manually edit above if needed</small>
                     </div>
                 `;
-                
-                // Update idea data
-                blogIdeas[index].Keyword = newKeyword;
-                blogIdeas[index]['Blog Post Title'] = newTitle;
-                
-                // RE-CHECK CONFLICT WITH NEW KEYWORD (single call)
-                const newConflictArray = await analyzeAllConflictsBatched([{ Keyword: newKeyword }]);
-                const newConflict = newConflictArray[0];
-                
-                let conflictHTML = '';
-                let conflictClass = 'new-conflict-check';
-                
-                if (newConflict.level === 'green') {
-                    conflictHTML = `
-                        <div class="${conflictClass}">
-                            ✅ <strong>New keyword is safe!</strong> No conflicts detected.
-                        </div>
-                    `;
-                } else if (newConflict.level === 'yellow') {
-                    conflictClass += ' warning';
-                    conflictHTML = `
-                        <div class="${conflictClass}">
-                            ⚠️ <strong>Still some overlap:</strong> ${newConflict.message}
-                            <br><small>Conflicting blog: ${newConflict.blog || 'Unknown'}</small>
-                            <br><small>Keyword: ${newConflict.keyword || 'Unknown'}</small>
-                        </div>
-                    `;
-                } else {
-                    conflictClass += ' danger';
-                    conflictHTML = `
-                        <div class="${conflictClass}">
-                            🔴 <strong>Still conflicts!</strong> ${newConflict.message}
-                            <br><small>Conflicting blog: ${newConflict.blog || 'Unknown'}</small>
-                            <br><small>Keyword: ${newConflict.keyword || 'Unknown'}</small>
-                            <br><small>Try a different keyword</small>
-                        </div>
-                    `;
-                }
-                
-                document.getElementById(`new-conflict-${index}`).innerHTML = conflictHTML;
-                
+
                 btn.textContent = 'Regenerate Title';
-                
+
             } catch (error) {
                 console.error('Error generating title:', error);
                 alert('Error generating title: ' + error.message);
@@ -787,17 +461,15 @@ Return ONLY the new title, nothing else.`
         // ============================================
         // MARK FOR WRITING
         // ============================================
-        
         function toggleMark(index) {
             if (markedIdeas.has(index)) {
                 markedIdeas.delete(index);
             } else {
                 markedIdeas.add(index);
             }
-            
+
             const btn = document.getElementById(`mark-btn-${index}`);
             const isMarked = markedIdeas.has(index);
-            
             btn.className = `btn-mark ${isMarked ? 'marked' : ''}`;
             btn.textContent = isMarked ? '✓ To Write Blog' : 'Mark for Writing';
         }
@@ -805,7 +477,6 @@ Return ONLY the new title, nothing else.`
         // ============================================
         // INITIALIZE
         // ============================================
-        
         loadData();
     </script>
 </body>
