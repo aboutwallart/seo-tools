@@ -15,8 +15,18 @@ export default async function handler(req, res) {
 
   try {
     if (req.method === 'GET') {
-      // Read CSV file from the data directory (bundled at build time)
-      const csvPath = path.join(process.cwd(), 'data', 'keyword-locker-registry.csv');
+      // Use process.cwd() and path.resolve() for Vercel compatibility
+      const csvPath = path.resolve(process.cwd(), 'data', 'keyword-locker-registry.csv');
+      
+      // Check if file exists
+      if (!fs.existsSync(csvPath)) {
+        return res.status(404).json({ 
+          error: 'Registry file not found',
+          path: csvPath,
+          cwd: process.cwd()
+        });
+      }
+      
       const csvText = fs.readFileSync(csvPath, 'utf-8');
       
       // Proper CSV parsing that handles commas in quoted fields
@@ -86,6 +96,10 @@ export default async function handler(req, res) {
     
   } catch (error) {
     console.error('Error:', error);
-    return res.status(500).json({ error: error.message, stack: error.stack });
+    return res.status(500).json({ 
+      error: error.message, 
+      stack: error.stack,
+      cwd: process.cwd()
+    });
   }
 }
