@@ -181,6 +181,9 @@
 </head>
 <body>
     <div class="container">
+        <!-- Hidden iframe for Chrome password saving -->
+        <iframe name="hidden_iframe" style="display:none;"></iframe>
+
         <!-- Login Form -->
         <div id="loginForm" class="login-form">
             <h1>SEO Tools Dashboard</h1>
@@ -188,7 +191,7 @@
 
             <div id="errorMessage" class="error" style="display: none;"></div>
 
-            <form id="authForm" autocomplete="on">
+            <form id="authForm" autocomplete="on" action="/api/auth" method="post" target="hidden_iframe">
                 <div class="form-group">
                     <label for="username">Username</label>
                     <input 
@@ -306,7 +309,11 @@
                         expiry: expiryTime
                     }));
 
-                    showToolsList();
+                    // Let form submit naturally so Chrome saves password
+                    // Wait a tiny bit for Chrome to register the successful login
+                    setTimeout(() => {
+                        showToolsList();
+                    }, 100);
                 } else {
                     showError(data.message || 'Invalid credentials');
                 }
