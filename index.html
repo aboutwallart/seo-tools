@@ -181,17 +181,15 @@
 </head>
 <body>
     <div class="container">
-        <!-- Hidden iframe for Chrome password saving -->
-        <iframe name="hidden_iframe" style="display:none;"></iframe>
-
         <!-- Login Form -->
         <div id="loginForm" class="login-form">
             <h1>SEO Tools Dashboard</h1>
             <p class="subtitle">About Wall Art - Internal Tools</p>
+            <p class="subtitle" style="color: #999; font-size: 12px;">Version 4</p>
 
             <div id="errorMessage" class="error" style="display: none;"></div>
 
-            <form id="authForm" autocomplete="on" action="/api/auth" method="post" target="hidden_iframe">
+            <form id="authForm" autocomplete="on">
                 <div class="form-group">
                     <label for="username">Username</label>
                     <input 
@@ -205,13 +203,23 @@
 
                 <div class="form-group">
                     <label for="password">Password</label>
-                    <input 
-                        type="text" 
-                        id="password" 
-                        name="password"
-                        autocomplete="current-password"
-                        required
-                    >
+                    <div style="position: relative;">
+                        <input 
+                            type="password" 
+                            id="password" 
+                            name="password"
+                            autocomplete="current-password"
+                            required
+                            style="padding-right: 50px;"
+                        >
+                        <button 
+                            type="button" 
+                            id="togglePassword"
+                            style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); width: auto; padding: 5px 10px; font-size: 12px; background: transparent; color: #667eea; border: 1px solid #667eea;"
+                        >
+                            Show
+                        </button>
+                    </div>
                 </div>
 
                 <button type="submit" id="loginBtn">Login</button>
@@ -269,6 +277,20 @@
         const TOKEN_KEY = 'seo_tools_auth_token';
         const TOKEN_EXPIRY_DAYS = 90;
 
+        // Toggle password visibility
+        document.getElementById('togglePassword')?.addEventListener('click', function() {
+            const passwordField = document.getElementById('password');
+            const toggleBtn = this;
+            
+            if (passwordField.type === 'password') {
+                passwordField.type = 'text';
+                toggleBtn.textContent = 'Hide';
+            } else {
+                passwordField.type = 'password';
+                toggleBtn.textContent = 'Show';
+            }
+        });
+
         // Check if already authenticated on page load
         window.addEventListener('DOMContentLoaded', () => {
             if (isAuthenticated()) {
@@ -309,11 +331,7 @@
                         expiry: expiryTime
                     }));
 
-                    // Let form submit naturally so Chrome saves password
-                    // Wait a tiny bit for Chrome to register the successful login
-                    setTimeout(() => {
-                        showToolsList();
-                    }, 100);
+                    showToolsList();
                 } else {
                     showError(data.message || 'Invalid credentials');
                 }
