@@ -179,7 +179,97 @@
 
         .suggested-title strong { display: block; margin-bottom: 4px; }
 
-        /* MARK FOR WRITING BUTTON */
+        /* TABS */
+        .tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .tab-btn {
+            padding: 12px 28px;
+            font-size: 15px;
+            font-weight: 500;
+            font-family: 'Poppins', sans-serif;
+            background: none;
+            border: none;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+            cursor: pointer;
+            color: #666666;
+            transition: all 0.2s ease;
+        }
+
+        .tab-btn:hover { color: #1a1a1a; }
+
+        .tab-btn.active {
+            color: #1a1a1a;
+            border-bottom-color: #1a1a1a;
+            font-weight: 600;
+        }
+
+        .tab-count {
+            display: inline-block;
+            background: #e0e0e0;
+            color: #666666;
+            border-radius: 12px;
+            padding: 1px 8px;
+            font-size: 12px;
+            margin-left: 6px;
+        }
+
+        .tab-btn.active .tab-count {
+            background: #1a1a1a;
+            color: #ffffff;
+        }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999999;
+            font-size: 14px;
+        }
+
+        /* UNDO BUTTON */
+        .btn-undo {
+            background: #ffffff;
+            color: #ef5350;
+            border: 1px solid #ef5350;
+            padding: 8px 16px;
+            font-size: 13px;
+            font-weight: 500;
+            font-family: 'Poppins', sans-serif;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-left: 10px;
+        }
+
+        .btn-undo:hover {
+            background: #ef5350;
+            color: #ffffff;
+        }
+
+        .card-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        /* SAVING INDICATOR */
+        .saving-indicator {
+            font-size: 12px;
+            color: #66bb6a;
+            margin-left: 10px;
+        }
+
+        .saving-indicator.saving { color: #ffa726; }
+        .saving-indicator.error { color: #ef5350; }
         .btn-mark {
             background: #2196F3;
             color: #ffffff;
@@ -202,12 +292,29 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v1.4</p>
+        <p class="version">v1.5</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
-        <div id="ideas-container">
-            <div class="loading">🔄 Loading blog ideas...</div>
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('ideas')" id="tab-ideas">
+                Blog Ideas <span class="tab-count" id="count-ideas">0</span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('towrite')" id="tab-towrite">
+                To Write <span class="tab-count" id="count-towrite">0</span>
+            </button>
+        </div>
+
+        <div class="tab-content active" id="panel-ideas">
+            <div id="ideas-container">
+                <div class="loading">🔄 Loading blog ideas...</div>
+            </div>
+        </div>
+
+        <div class="tab-content" id="panel-towrite">
+            <div id="towrite-container">
+                <div class="empty-state">No blogs marked for writing yet.</div>
+            </div>
         </div>
     </div>
 
@@ -216,7 +323,24 @@
         // DATA
         // ============================================
         let blogIdeas = [];
-        let markedIdeas = new Set();
+        let markedIdeas = new Set(); // indexes marked for writing
+
+        // ============================================
+        // TAB SWITCHING
+        // ============================================
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(p => p.classList.remove('active'));
+            document.getElementById(`tab-${tab}`).classList.add('active');
+            document.getElementById(`panel-${tab}`).classList.add('active');
+        }
+
+        function updateTabCounts() {
+            const total = blogIdeas.length;
+            const marked = markedIdeas.size;
+            document.getElementById('count-ideas').textContent = total - marked;
+            document.getElementById('count-towrite').textContent = marked;
+        }
 
         // ============================================
         // CSV PARSER
@@ -225,15 +349,12 @@
             const lines = text.split('\n');
             const headers = parseCSVLine(lines[0]);
             const rows = [];
-
             for (let i = 1; i < lines.length; i++) {
                 const line = lines[i].trim().replace(/\r/g, '');
                 if (!line) continue;
                 const cols = parseCSVLine(line);
                 const row = {};
-                headers.forEach((h, idx) => {
-                    row[h.trim()] = cols[idx] || '';
-                });
+                headers.forEach((h, idx) => { row[h.trim()] = cols[idx] || ''; });
                 rows.push(row);
             }
             return rows;
@@ -245,17 +366,29 @@
             let inQuotes = false;
             for (let i = 0; i < line.length; i++) {
                 const char = line[i];
-                if (char === '"') {
-                    inQuotes = !inQuotes;
-                } else if (char === ',' && !inQuotes) {
-                    result.push(current.trim());
-                    current = '';
-                } else {
-                    current += char;
-                }
+                if (char === '"') { inQuotes = !inQuotes; }
+                else if (char === ',' && !inQuotes) { result.push(current.trim()); current = ''; }
+                else { current += char; }
             }
             result.push(current.trim());
             return result;
+        }
+
+        // ============================================
+        // SLUG GENERATOR
+        // ============================================
+        function titleToSlug(title) {
+            return title
+                .toLowerCase()
+                .replace(/[^a-z0-9\s-]/g, '')  // remove special chars
+                .replace(/\s+/g, '-')            // spaces to hyphens
+                .replace(/-+/g, '-')             // collapse multiple hyphens
+                .replace(/^-|-$/g, '');          // trim hyphens
+        }
+
+        function generateUrl(title) {
+            const slug = titleToSlug(title);
+            return `https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/${slug}`;
         }
 
         // ============================================
@@ -265,10 +398,7 @@
             try {
                 const csvUrl = 'https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/blog_ideas.csv';
                 const response = await fetch(csvUrl);
-
-                if (!response.ok) {
-                    throw new Error(`Failed to fetch CSV: ${response.status}`);
-                }
+                if (!response.ok) throw new Error(`Failed to fetch CSV: ${response.status}`);
 
                 const csvText = await response.text();
                 const rows = parseCSV(csvText);
@@ -285,7 +415,6 @@
                     currentKeyword: row['Keyword'] || ''
                 }));
 
-                // Stats
                 const green = blogIdeas.filter(i => i.cannibalization === 'NO CONFLICT').length;
                 const yellow = blogIdeas.filter(i => i.cannibalization === 'CAUTION').length;
                 const red = blogIdeas.filter(i => i.cannibalization === 'DANGER').length;
@@ -297,89 +426,192 @@
                     🔴 ${red} Danger
                 `;
 
+                updateTabCounts();
                 displayIdeas();
 
             } catch (error) {
                 console.error('Error loading data:', error);
                 document.getElementById('stats').innerHTML = `<strong>Error:</strong> ${error.message}`;
-                document.getElementById('ideas-container').innerHTML = `
-                    <div class="loading">❌ Could not load blog ideas. Check console for details.</div>
-                `;
+                document.getElementById('ideas-container').innerHTML = `<div class="loading">❌ Could not load blog ideas.</div>`;
             }
         }
 
         // ============================================
-        // DISPLAY IDEAS
+        // DISPLAY IDEAS (Tab 1 - unmarked only)
         // ============================================
         function displayIdeas() {
             const container = document.getElementById('ideas-container');
+            const visible = blogIdeas.filter(idea => !markedIdeas.has(idea.index));
+
+            if (visible.length === 0) {
+                container.innerHTML = `<div class="empty-state">All ideas have been marked for writing! 🎉</div>`;
+                return;
+            }
+
             let html = '';
+            visible.forEach(idea => {
+                html += buildIdeaCard(idea, false);
+            });
+            container.innerHTML = html;
+        }
 
-            blogIdeas.forEach((idea, index) => {
-                const level = idea.cannibalization;
-                const cardClass = level === 'NO CONFLICT' ? 'green' : level === 'CAUTION' ? 'yellow' : 'red';
-                const badgeClass = level === 'NO CONFLICT' ? 'badge-green' : level === 'CAUTION' ? 'badge-yellow' : 'badge-red';
-                const isMarked = markedIdeas.has(index);
-                const showOverride = level === 'CAUTION' || level === 'DANGER';
+        // ============================================
+        // DISPLAY TO WRITE (Tab 2 - marked only)
+        // ============================================
+        function displayToWrite() {
+            const container = document.getElementById('towrite-container');
+            const marked = blogIdeas.filter(idea => markedIdeas.has(idea.index));
 
-                html += `
-                    <div class="idea-card ${cardClass}" id="card-${index}">
-                        <div class="card-header">
-                            <span class="card-number">#${index + 1}</span>
-                            <span class="status-badge ${badgeClass}">${level}</span>
+            if (marked.length === 0) {
+                container.innerHTML = `<div class="empty-state">No blogs marked for writing yet.</div>`;
+                return;
+            }
+
+            let html = '';
+            marked.forEach(idea => {
+                html += buildIdeaCard(idea, true);
+            });
+            container.innerHTML = html;
+        }
+
+        // ============================================
+        // BUILD CARD HTML
+        // ============================================
+        function buildIdeaCard(idea, isInToWrite) {
+            const level = idea.cannibalization;
+            const cardClass = level === 'NO CONFLICT' ? 'green' : level === 'CAUTION' ? 'yellow' : 'red';
+            const badgeClass = level === 'NO CONFLICT' ? 'badge-green' : level === 'CAUTION' ? 'badge-yellow' : 'badge-red';
+            const showOverride = (level === 'CAUTION' || level === 'DANGER') && !isInToWrite;
+            const index = idea.index;
+
+            return `
+                <div class="idea-card ${cardClass}" id="card-${index}">
+                    <div class="card-header">
+                        <span class="card-number">#${index + 1}</span>
+                        <span class="status-badge ${badgeClass}">${level}</span>
+                    </div>
+
+                    <div class="keyword" id="keyword-display-${index}">${idea.currentKeyword}</div>
+                    <div class="title" id="title-display-${index}">${idea.currentTitle}</div>
+                    <div class="perspective">${idea.perspective}</div>
+
+                    ${showOverride ? `
+                        <div class="conflict-warning ${cardClass}">
+                            <div class="conflict-label">
+                                ${level === 'DANGER' ? '🔴 Cannibalization Danger' : '🟡 Caution - Similar Intent'}
+                            </div>
+                            <div class="conflict-keyword">
+                                <strong>Conflicting Keyword:</strong> ${idea.conflictingKeyword}
+                            </div>
+                            ${idea.conflictingUrl ? `
+                                <div class="conflict-url">
+                                    <strong>Conflicting Blog:</strong>
+                                    <a href="${idea.conflictingUrl}" target="_blank">${idea.conflictingUrl}</a>
+                                </div>
+                            ` : ''}
                         </div>
 
-                        <div class="keyword" id="keyword-display-${index}">${idea.currentKeyword}</div>
-                        <div class="title" id="title-display-${index}">${idea.currentTitle}</div>
-                        <div class="perspective">${idea.perspective}</div>
+                        <div class="override-section">
+                            <label>Change Keyword:</label>
+                            <input
+                                type="text"
+                                id="new-keyword-${index}"
+                                value="${idea.currentKeyword}"
+                                placeholder="Enter new keyword"
+                            >
+                            <button
+                                class="btn-regenerate"
+                                onclick="generateNewTitle(${index})"
+                                id="regen-btn-${index}"
+                            >
+                                Generate New Title
+                            </button>
+                            <div id="suggested-title-${index}"></div>
+                        </div>
+                    ` : ''}
 
-                        ${showOverride ? `
-                            <div class="conflict-warning ${cardClass}">
-                                <div class="conflict-label">
-                                    ${level === 'DANGER' ? '🔴 Cannibalization Danger' : '🟡 Caution - Similar Intent'}
-                                </div>
-                                <div class="conflict-keyword">
-                                    <strong>Conflicting Keyword:</strong> ${idea.conflictingKeyword}
-                                </div>
-                                ${idea.conflictingUrl ? `
-                                    <div class="conflict-url">
-                                        <strong>Conflicting Blog:</strong> 
-                                        <a href="${idea.conflictingUrl}" target="_blank">${idea.conflictingUrl}</a>
-                                    </div>
-                                ` : ''}
-                            </div>
-
-                            <div class="override-section">
-                                <label>Change Keyword:</label>
-                                <input 
-                                    type="text"
-                                    id="new-keyword-${index}"
-                                    value="${idea.currentKeyword}"
-                                    placeholder="Enter new keyword"
-                                >
-                                <button 
-                                    class="btn-regenerate"
-                                    onclick="generateNewTitle(${index})"
-                                    id="regen-btn-${index}"
-                                >
-                                    Generate New Title
-                                </button>
-                                <div id="suggested-title-${index}"></div>
-                            </div>
-                        ` : ''}
-
-                        <button
-                            class="btn-mark ${isMarked ? 'marked' : ''}"
-                            onclick="toggleMark(${index})"
-                            id="mark-btn-${index}"
-                        >
-                            ${isMarked ? '✓ To Write Blog' : 'Mark for Writing'}
-                        </button>
+                    <div class="card-actions">
+                        ${!isInToWrite ? `
+                            <button
+                                class="btn-mark"
+                                onclick="markForWriting(${index})"
+                                id="mark-btn-${index}"
+                            >
+                                Mark for Writing
+                            </button>
+                        ` : `
+                            <button class="btn-mark marked" disabled>✓ To Write Blog</button>
+                            <button class="btn-undo" onclick="undoMark(${index})">↩ Undo</button>
+                            <span class="saving-indicator" id="save-status-${index}">✅ Saved to registry</span>
+                        `}
                     </div>
-                `;
-            });
+                </div>
+            `;
+        }
 
-            container.innerHTML = html;
+        // ============================================
+        // MARK FOR WRITING → save to registry
+        // ============================================
+        async function markForWriting(index) {
+            const idea = blogIdeas[index];
+            const title = idea.currentTitle;
+            const keyword = idea.currentKeyword;
+            const url = generateUrl(title);
+
+            // Move to marked set
+            markedIdeas.add(index);
+            updateTabCounts();
+            displayIdeas();
+            displayToWrite();
+
+            // Switch to To Write tab
+            switchTab('towrite');
+
+            // Save to registry via API
+            const saveStatus = document.getElementById(`save-status-${index}`);
+            if (saveStatus) {
+                saveStatus.textContent = '⏳ Saving to registry...';
+                saveStatus.className = 'saving-indicator saving';
+            }
+
+            try {
+                const response = await fetch('/api/save-to-registry', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ keyword, url })
+                });
+
+                const data = await response.json();
+
+                if (saveStatus) {
+                    if (data.success) {
+                        saveStatus.textContent = '✅ Saved to registry';
+                        saveStatus.className = 'saving-indicator';
+                    } else {
+                        saveStatus.textContent = '❌ Save failed: ' + (data.error || 'Unknown error');
+                        saveStatus.className = 'saving-indicator error';
+                    }
+                }
+
+            } catch (error) {
+                console.error('Error saving to registry:', error);
+                if (saveStatus) {
+                    saveStatus.textContent = '❌ Save failed: ' + error.message;
+                    saveStatus.className = 'saving-indicator error';
+                }
+            }
+        }
+
+        // ============================================
+        // UNDO MARK
+        // ============================================
+        function undoMark(index) {
+            markedIdeas.delete(index);
+            updateTabCounts();
+            displayIdeas();
+            displayToWrite();
+            // Note: does NOT remove from registry - registry entry stays
+            // as it may have already been saved
         }
 
         // ============================================
@@ -387,24 +619,18 @@
         // ============================================
         async function generateNewTitle(index) {
             const newKeyword = document.getElementById(`new-keyword-${index}`).value.trim();
-
-            if (!newKeyword) {
-                alert('Please enter a keyword first');
-                return;
-            }
+            if (!newKeyword) { alert('Please enter a keyword first'); return; }
 
             const btn = document.getElementById(`regen-btn-${index}`);
             btn.disabled = true;
             btn.textContent = 'Generating...';
 
             try {
-                const originalTitle = blogIdeas[index].title;
-
                 const response = await fetch('/api/claude', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        prompt: `Original blog title: "${originalTitle}"
+                        prompt: `Original blog title: "${blogIdeas[index].title}"
 
 New keyword: "${newKeyword}"
 
@@ -417,29 +643,18 @@ Return ONLY the new title, nothing else. No explanation, no punctuation around i
                     })
                 });
 
-                if (!response.ok) {
-                    throw new Error(`API error: ${response.status}`);
-                }
+                if (!response.ok) throw new Error(`API error: ${response.status}`);
 
                 const data = await response.json();
-                console.log('API response:', data);
-
-                // /api/claude returns { response: "text" }
                 const newTitle = (data.response || '').trim().replace(/^["']|["']$/g, '');
+                if (!newTitle) throw new Error('Empty response from API');
 
-                if (!newTitle) {
-                    throw new Error('Empty response from API');
-                }
-
-                // Update display
                 document.getElementById(`keyword-display-${index}`).textContent = newKeyword;
                 document.getElementById(`title-display-${index}`).textContent = newTitle;
 
-                // Update stored data
                 blogIdeas[index].currentKeyword = newKeyword;
                 blogIdeas[index].currentTitle = newTitle;
 
-                // Show suggested title box
                 document.getElementById(`suggested-title-${index}`).innerHTML = `
                     <div class="suggested-title">
                         <strong>✨ New Title Generated:</strong>
@@ -456,22 +671,6 @@ Return ONLY the new title, nothing else. No explanation, no punctuation around i
             } finally {
                 btn.disabled = false;
             }
-        }
-
-        // ============================================
-        // MARK FOR WRITING
-        // ============================================
-        function toggleMark(index) {
-            if (markedIdeas.has(index)) {
-                markedIdeas.delete(index);
-            } else {
-                markedIdeas.add(index);
-            }
-
-            const btn = document.getElementById(`mark-btn-${index}`);
-            const isMarked = markedIdeas.has(index);
-            btn.className = `btn-mark ${isMarked ? 'marked' : ''}`;
-            btn.textContent = isMarked ? '✓ To Write Blog' : 'Mark for Writing';
         }
 
         // ============================================
