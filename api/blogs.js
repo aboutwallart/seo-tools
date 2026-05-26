@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+
 export default async function handler(req, res) {
   // CORS headers
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -12,10 +15,9 @@ export default async function handler(req, res) {
 
   try {
     if (req.method === 'GET') {
-      // Fetch CSV from GitHub
-      const csvUrl = 'https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keyword-locker-registry.csv';
-      const response = await fetch(csvUrl);
-      const csvText = await response.text();
+      // Read CSV file from the data directory (bundled at build time)
+      const csvPath = path.join(process.cwd(), 'data', 'keyword-locker-registry.csv');
+      const csvText = fs.readFileSync(csvPath, 'utf-8');
       
       // Proper CSV parsing that handles commas in quoted fields
       function parseCSVLine(line) {
@@ -73,10 +75,10 @@ export default async function handler(req, res) {
     }
     
     if (req.method === 'POST') {
-      // CSV is read-only
+      // CSV is read-only in this setup
       return res.status(200).json({ 
         success: false, 
-        message: 'CSV is read-only. Use GitHub to update.' 
+        message: 'CSV is read-only. Updates must be done via GitHub.' 
       });
     }
     
@@ -84,6 +86,6 @@ export default async function handler(req, res) {
     
   } catch (error) {
     console.error('Error:', error);
-    return res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message, stack: error.stack });
   }
 }
