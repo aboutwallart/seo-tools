@@ -185,7 +185,7 @@
         <div id="loginForm" class="login-form">
             <h1>SEO Tools Dashboard</h1>
             <p class="subtitle">About Wall Art - Internal Tools</p>
-            <p class="subtitle" style="color: #999; font-size: 12px;">Version 4</p>
+            <p class="subtitle" style="color: #999; font-size: 12px;">Version 5</p>
 
             <div id="errorMessage" class="error" style="display: none;"></div>
 
@@ -330,6 +330,21 @@
                         token: data.token,
                         expiry: expiryTime
                     }));
+
+                    // Use Credential Management API to save password in Chrome
+                    if (window.PasswordCredential) {
+                        try {
+                            const credential = new PasswordCredential({
+                                id: username,
+                                password: password,
+                                name: username
+                            });
+                            await navigator.credentials.store(credential);
+                        } catch (credError) {
+                            // Credential API failed, but login was successful
+                            console.log('Credential storage failed:', credError);
+                        }
+                    }
 
                     showToolsList();
                 } else {
