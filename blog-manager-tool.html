@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Keyword Manager Tool</title>
+    <title>Blog Manager Tool</title>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         * {
@@ -159,6 +159,18 @@
             color: #c62828;
         }
 
+        .conflict-details {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(0,0,0,0.1);
+            font-size: 12px;
+        }
+
+        .conflict-details strong {
+            display: block;
+            margin-bottom: 4px;
+        }
+
         /* KEYWORD OVERRIDE */
         .override-section {
             background: #f5f5f5;
@@ -259,12 +271,35 @@
             display: block;
             margin-bottom: 4px;
         }
+
+        /* NEW CONFLICT CHECK */
+        .new-conflict-check {
+            background: #e8f5e9;
+            border: 1px solid #66bb6a;
+            border-radius: 6px;
+            padding: 12px;
+            margin-top: 12px;
+            font-size: 13px;
+            color: #2e7d32;
+        }
+
+        .new-conflict-check.warning {
+            background: #fff3e0;
+            border-color: #ffa726;
+            color: #ef6c00;
+        }
+
+        .new-conflict-check.danger {
+            background: #ffebee;
+            border-color: #ef5350;
+            color: #c62828;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Keyword Manager Tool</h1>
-        <p class="version">v1.0</p>
+        <h1>Blog Manager Tool</h1>
+        <p class="version">v1.2</p>
         
         <div class="stats" id="stats">
             Loading data...
@@ -296,6 +331,8 @@
                 const response = await fetch('/api/blogs');
                 const data = await response.json();
                 publishedBlogs = data.blogs || [];
+                
+                console.log('Published blogs loaded:', publishedBlogs.length);
                 
                 // Hardcoded first 40 blog ideas (from Excel file)
                 blogIdeas = [
@@ -341,18 +378,26 @@
                     {"Keyword": "Choose Farmhouse Furniture That Lasts", "Blog Post Title": "How to Choose Farmhouse Furniture That Lasts?", "Perspective": "Making quality furniture purchases"}
                 ];
                 
-                // Analyze each idea for conflicts
-                blogIdeas = blogIdeas.map((idea, index) => {
-                    const conflict = analyzeConflict(idea.Keyword);
-                    return {
+                // Analyze each idea for conflicts (using AI)
+                for (let i = 0; i < blogIdeas.length; i++) {
+                    const idea = blogIdeas[i];
+                    const conflict = await analyzeConflict(idea.Keyword);
+                    blogIdeas[i] = {
                         ...idea,
-                        index: index,
+                        index: i,
                         conflict: conflict.level,
                         conflictMessage: conflict.message,
+                        conflictBlog: conflict.blog,
+                        conflictKeyword: conflict.keyword,
                         originalKeyword: idea.Keyword,
                         originalTitle: idea['Blog Post Title']
                     };
-                });
+                    
+                    // Update progress
+                    document.getElementById('stats').innerHTML = `
+                        <strong>Analyzing conflicts...</strong> ${i + 1} of ${blogIdeas.length} checked
+                    `;
+                }
                 
                 // Update stats
                 const greenCount = blogIdeas.filter(i => i.conflict === 'green').length;
@@ -379,15 +424,114 @@
         }
 
         // ============================================
-        // CONFLICT ANALYSIS (Smart Intent Detection)
+        // CONFLICT ANALYSIS (AI-Based Intent Detection)
         // ============================================
         
-        function analyzeConflict(keyword) {
+        async function analyzeConflict(keyword) {
+            // For initial load, use cached results if available
+            if (conflictCache[keyword]) {
+                return conflictCache[keyword];
+            }
+            
+            // Quick pre-filter: if no published blogs, always green
+            if (publishedBlogs.length === 0) {
+                return {
+                    level: 'green',
+                    message: '🟢 NO CONFLICT: Safe to write',
+                    blog: null,
+                    keyword: null
+                };
+            }
+            
+            // Check against all published blogs using AI
+            try {
+                const prompt = `Analyze if these two blog topics have conflicting search intent:
+
+NEW BLOG KEYWORD: "${keyword}"
+
+PUBLISHED BLOGS:
+${publishedBlogs.slice(0, 20).map((b, i) => `${i + 1}. "${b.keyword || b.title}"`).join('\n')}
+
+RULES FOR CONFLICT:
+- CONFLICT (red): Same room + same topic, same style + same aspect, same color + same use case
+- CAUTION (yellow): Overlapping topic but different angle (e.g., budget vs luxury, small spaces vs large)
+- NO CONFLICT (green): Different rooms, different styles, different colors, different purposes
+
+Return ONLY a JSON object (no markdown, no explanation):
+{
+  "level": "green" | "yellow" | "red",
+  "conflictIndex": null or number (index of conflicting blog, 1-based),
+  "reason": "brief explanation"
+}`;
+
+                const response = await fetch('/api/claude', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model: 'claude-sonnet-4-6',
+                        prompt: prompt
+                    })
+                });
+                
+                const data = await response.json();
+                const resultText = data.altText || data.text || data.content?.[0]?.text || '';
+                
+                // Parse JSON from response
+                const jsonMatch = resultText.match(/\{[\s\S]*\}/);
+                if (!jsonMatch) {
+                    throw new Error('No JSON in response');
+                }
+                
+                const result = JSON.parse(jsonMatch[0]);
+                
+                // Build conflict object
+                let conflictBlog = null;
+                let conflictKeyword = null;
+                
+                if (result.conflictIndex !== null && result.conflictIndex > 0) {
+                    const blogIndex = result.conflictIndex - 1;
+                    if (publishedBlogs[blogIndex]) {
+                        conflictBlog = publishedBlogs[blogIndex].title || publishedBlogs[blogIndex].keyword;
+                        conflictKeyword = publishedBlogs[blogIndex].keyword || publishedBlogs[blogIndex].title;
+                    }
+                }
+                
+                let message = '';
+                if (result.level === 'red') {
+                    message = `🔴 CANNIBALIZATION DANGER: ${result.reason}`;
+                } else if (result.level === 'yellow') {
+                    message = `🟡 SIMILAR INTENT: ${result.reason}`;
+                } else {
+                    message = '🟢 NO CONFLICT: Safe to write';
+                }
+                
+                const conflictResult = {
+                    level: result.level,
+                    message: message,
+                    blog: conflictBlog,
+                    keyword: conflictKeyword
+                };
+                
+                // Cache result
+                conflictCache[keyword] = conflictResult;
+                
+                return conflictResult;
+                
+            } catch (error) {
+                console.error('AI conflict detection failed:', error);
+                // Fallback to simple word matching if AI fails
+                return fallbackConflictDetection(keyword);
+            }
+        }
+        
+        // Fallback simple detection if AI fails
+        function fallbackConflictDetection(keyword) {
             const keywordLower = keyword.toLowerCase();
             const keywordWords = keywordLower.split(' ').filter(w => w.length > 2);
             
             let maxSimilarity = 0;
             let conflictBlog = null;
+            let conflictKeyword = null;
             
             for (const blog of publishedBlogs) {
                 const blogKeyword = (blog.keyword || blog.title || '').toLowerCase();
@@ -401,6 +545,7 @@
                 if (similarity > maxSimilarity) {
                     maxSimilarity = similarity;
                     conflictBlog = blog.title || blog.keyword;
+                    conflictKeyword = blog.keyword || blog.title;
                 }
             }
             
@@ -408,20 +553,28 @@
             if (maxSimilarity >= 0.6) {
                 return {
                     level: 'red',
-                    message: `🔴 CANNIBALIZATION DANGER: ${Math.round(maxSimilarity * 100)}% match with "${conflictBlog}"`
+                    message: `🔴 CANNIBALIZATION DANGER: ${Math.round(maxSimilarity * 100)}% match`,
+                    blog: conflictBlog,
+                    keyword: conflictKeyword
                 };
             } else if (maxSimilarity >= 0.4) {
                 return {
                     level: 'yellow',
-                    message: `🟡 SIMILAR INTENT: ${Math.round(maxSimilarity * 100)}% overlap with "${conflictBlog}"`
+                    message: `🟡 SIMILAR INTENT: ${Math.round(maxSimilarity * 100)}% overlap`,
+                    blog: conflictBlog,
+                    keyword: conflictKeyword
                 };
             } else {
                 return {
                     level: 'green',
-                    message: '🟢 NO CONFLICT: Safe to write'
+                    message: '🟢 NO CONFLICT: Safe to write',
+                    blog: null,
+                    keyword: null
                 };
             }
         }
+        
+        let conflictCache = {};
 
         // ============================================
         // DISPLAY IDEAS
@@ -452,6 +605,13 @@
                         ${idea.conflict !== 'green' ? `
                             <div class="conflict-warning ${idea.conflict === 'red' ? 'red' : ''}">
                                 ${idea.conflictMessage}
+                                <div class="conflict-details">
+                                    <strong>Conflicting Blog:</strong>
+                                    ${idea.conflictBlog || 'Unknown'}
+                                    <br>
+                                    <strong>Locked Keyword:</strong>
+                                    ${idea.conflictKeyword || 'Unknown'}
+                                </div>
                             </div>
                         ` : ''}
                         
@@ -474,6 +634,7 @@
                                 </button>
                                 
                                 <div id="suggested-title-${index}"></div>
+                                <div id="new-conflict-${index}"></div>
                             </div>
                         ` : ''}
                         
@@ -514,6 +675,7 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
+                        model: 'claude-sonnet-4-6',
                         prompt: `Original blog title: "${originalTitle}"
                         
 New keyword: "${newKeyword}"
@@ -528,7 +690,22 @@ Return ONLY the new title, nothing else.`
                 });
                 
                 const data = await response.json();
-                const newTitle = data.content[0].text.trim().replace(/^["']|["']$/g, '');
+                console.log('API Response:', data);
+                
+                // Parse response - handle different possible formats (same as image optimizer)
+                let newTitle = data.altText || data.text || '';
+                
+                if (!newTitle && data.content && Array.isArray(data.content) && data.content[0]) {
+                    newTitle = data.content[0].text || data.content[0];
+                } else if (!newTitle && data.response) {
+                    newTitle = data.response;
+                }
+                
+                if (!newTitle) {
+                    throw new Error('No title in API response');
+                }
+                
+                newTitle = newTitle.trim().replace(/^["']|["']$/g, '');
                 
                 // Update display
                 document.getElementById(`title-${index}`).textContent = newTitle;
@@ -548,11 +725,44 @@ Return ONLY the new title, nothing else.`
                 blogIdeas[index].Keyword = newKeyword;
                 blogIdeas[index]['Blog Post Title'] = newTitle;
                 
+                // RE-CHECK CONFLICT WITH NEW KEYWORD
+                const newConflict = analyzeConflict(newKeyword);
+                
+                let conflictHTML = '';
+                let conflictClass = 'new-conflict-check';
+                
+                if (newConflict.level === 'green') {
+                    conflictHTML = `
+                        <div class="${conflictClass}">
+                            ✅ <strong>New keyword is safe!</strong> No conflicts detected.
+                        </div>
+                    `;
+                } else if (newConflict.level === 'yellow') {
+                    conflictClass += ' warning';
+                    conflictHTML = `
+                        <div class="${conflictClass}">
+                            ⚠️ <strong>Still some overlap:</strong> ${Math.round(newConflict.level * 100)}% similarity with "${newConflict.blog}"
+                            <br><small>Keyword: ${newConflict.keyword}</small>
+                        </div>
+                    `;
+                } else {
+                    conflictClass += ' danger';
+                    conflictHTML = `
+                        <div class="${conflictClass}">
+                            🔴 <strong>Still conflicts!</strong> ${Math.round(newConflict.level * 100)}% match with "${newConflict.blog}"
+                            <br><small>Keyword: ${newConflict.keyword}</small>
+                            <br><small>Try a different keyword</small>
+                        </div>
+                    `;
+                }
+                
+                document.getElementById(`new-conflict-${index}`).innerHTML = conflictHTML;
+                
                 btn.textContent = 'Regenerate Title';
                 
             } catch (error) {
                 console.error('Error generating title:', error);
-                alert('Error generating title. Check console.');
+                alert('Error generating title: ' + error.message);
                 btn.textContent = 'Regenerate Title';
             } finally {
                 btn.disabled = false;
