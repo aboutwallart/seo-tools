@@ -1,7 +1,7 @@
 # TECHNICAL REFERENCE DOCUMENT
 ## AboutWallArt SEO Tools Infrastructure
 
-**Last Updated:** May 26, 2026
+**Last Updated:** May 26, 2026 (Password Protection System Added)
 **Owner:** aboutwallart
 **Purpose:** Complete technical documentation for all SEO tools, infrastructure, API keys, and configurations
 
@@ -19,13 +19,15 @@
 ## Repository Structure
 
 ### Root Level Files
-- `blog-manager-tool.html` — Blog content management tool
-- `keyword-locker.html` — Keyword locking and conflict detection tool
-- `money-page-doctor.html` — Money page optimization tool (competitor analysis)
-- `rank-report-card.html` — Ranking report and tracking tool
-- `image-optimizer-v2.10.html` — **NEW** Shopify image optimization tool
+- `index.html` — **NEW** Password-protected landing page with tools dashboard
+- `auth-check.js` — **NEW** Authentication check script (protects all tools)
+- `blog-manager-tool.html` — Blog content management tool (password protected)
+- `keyword-locker.html` — Keyword locking and conflict detection tool (password protected)
+- `money-page-doctor.html` — Money page optimization tool (password protected)
+- `rank-report-card.html` — Ranking report and tracking tool (password protected)
+- `image-optimizer.html` — Shopify image optimization tool (password protected)
 - `package.json` — Node.js dependencies
-- `vercel.json` — Vercel deployment configuration
+- `vercel.json` — Vercel deployment configuration with domain redirects
 
 ---
 
@@ -37,7 +39,13 @@
 All API endpoints are called by the HTML tools to perform backend operations.
 
 ### API Files:
-1. **`analyze-money-page.js`**
+1. **`auth.js`** — **NEW**
+   - Password authentication endpoint
+   - Validates credentials against TOOLS_PASSWORD environment variable
+   - Returns authentication token for 90-day sessions
+   - Uses Credential Management API for Chrome password saving
+
+2. **`analyze-money-page.js`**
    - Money Page Optimizer backend
    - Analyzes competitor pages
    - Returns optimization recommendations
@@ -112,29 +120,41 @@ All API endpoints are called by the HTML tools to perform backend operations.
 
 ## Live URLs
 
-**Base URL:** https://seo-tools-lake.vercel.app
+**Primary Domain:** https://tools.aboutwallart.com (Custom Domain - Password Protected)
+**Old Domain:** https://seo-tools-lake.vercel.app (Redirects to tools.aboutwallart.com)
+
+**Authentication Required:** All tools require login via password-protected index page
 
 ### Available Tools:
+0. **Dashboard (Login Page)**
+   - URL: `/` or `/index.html`
+   - Purpose: Password-protected landing page, lists all tools
+   - Features: Chrome password manager integration, 90-day token expiry
+
 1. **Keyword Locker**
    - URL: `/keyword-locker.html`
    - Purpose: Lock keywords to pages, detect conflicts
+   - Protection: Requires authentication
 
 2. **Blog Manager**
    - URL: `/blog-manager-tool.html`
    - Purpose: Generate blog content from Reddit questions
+   - Protection: Requires authentication
 
 3. **Money Page Doctor**
    - URL: `/money-page-doctor.html`
    - Purpose: Analyze and optimize collection pages against competitors
+   - Protection: Requires authentication
 
 4. **Rank Report Card**
    - URL: `/rank-report-card.html`
    - Purpose: Technical SEO audits
+   - Protection: Requires authentication
 
-5. **Image Optimizer** — **NEW**
-   - URL: `/image-optimizer-v2.10.html`
+5. **Image Optimizer**
+   - URL: `/image-optimizer.html`
    - Purpose: Scan pages, optimize images, generate alt text, push to Shopify
-   - Status: Production-ready (v2.10)
+   - Protection: Requires authentication
 
 ---
 
@@ -424,6 +444,7 @@ ANTHROPIC_API_KEY=[Anthropic Claude API key]
 OPENAI_API_KEY=[OpenAI API key]
 SHOPIFY_STORE_DOMAIN=aboutwallart.myshopify.com
 SHOPIFY_ACCESS_TOKEN=[Shopify Admin API token]
+TOOLS_PASSWORD=[Password for tools dashboard authentication - Added May 26, 2026]
 ```
 
 ### How to Access:
@@ -449,6 +470,19 @@ SHOPIFY_ACCESS_TOKEN=[Shopify Admin API token]
 
 ```json
 {
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "seo-tools-lake.vercel.app"
+        }
+      ],
+      "destination": "https://tools.aboutwallart.com/:path*",
+      "permanent": true
+    }
+  ],
   "headers": [
     {
       "source": "/api/(.*)",
@@ -463,6 +497,7 @@ SHOPIFY_ACCESS_TOKEN=[Shopify Admin API token]
 ```
 
 ### Purpose:
+- Redirect old domain (seo-tools-lake.vercel.app) to new domain (tools.aboutwallart.com)
 - Allow API calls from any domain
 - Enable cross-origin resource sharing
 - Support OPTIONS preflight requests
@@ -596,14 +631,220 @@ vercel --prod
 
 ---
 
+# PASSWORD PROTECTION SYSTEM
+
+## Overview
+
+**Implemented:** May 26, 2026
+**Purpose:** Secure all SEO tools behind password authentication to prevent unauthorized access and API credit abuse
+
+All tools are now protected by a centralized authentication system. Users must log in via the dashboard to access any tool.
+
+## Architecture
+
+### Components
+
+1. **index.html (Dashboard/Login Page)**
+   - Password-protected landing page
+   - Lists all 5 available tools after authentication
+   - Uses Credential Management API for Chrome password saving
+   - Token-based authentication with 90-day expiry
+   - Version 5 (current)
+
+2. **auth-check.js (Protection Script)**
+   - Loaded by all tool HTML files
+   - Checks for valid authentication token in localStorage
+   - Redirects to login page if token missing or expired
+   - Runs immediately on page load
+
+3. **/api/auth.js (Authentication Endpoint)**
+   - Validates credentials against TOOLS_PASSWORD environment variable
+   - Returns authentication token on successful login
+   - Token stored in browser localStorage with 90-day expiry
+   - Supports Chrome password manager via Credential Management API
+
+### Authentication Flow
+
+1. User visits any tool URL (e.g., `/keyword-locker.html`)
+2. `auth-check.js` runs immediately, checks localStorage for token
+3. If no token or token expired → redirect to `/` (login page)
+4. User enters credentials on index.html
+5. Form submits to `/api/auth` endpoint
+6. API validates password against `TOOLS_PASSWORD` environment variable
+7. On success: API returns token, stored in localStorage with 90-day expiry
+8. Chrome prompts to save password (via Credential Management API)
+9. User redirected to dashboard, can access all tools
+10. Token valid for 90 days, then user must login again
+
+### Token Structure
+
+```javascript
+{
+  token: "base64-encoded-username-timestamp",
+  expiry: timestamp (90 days from login)
+}
+```
+
+Stored in localStorage under key: `seo_tools_auth_token`
+
+## Domain Configuration
+
+### Primary Domain
+- **URL:** https://tools.aboutwallart.com
+- **Status:** Active, password protected
+- **DNS:** CNAME record pointing to Vercel
+
+### Old Domain (Redirect)
+- **URL:** https://seo-tools-lake.vercel.app
+- **Status:** Redirects to tools.aboutwallart.com
+- **Configuration:** Redirect rule in vercel.json
+
+### GitHub Pages
+- **URL:** https://aboutwallart.github.io/seo-tools/
+- **Status:** DISABLED (unpublished May 26, 2026)
+- **Reason:** Cannot password protect, would allow bypass of authentication
+
+## Password Management
+
+### Setting Password
+1. Go to Vercel → Project Settings → Environment Variables
+2. Variable: `TOOLS_PASSWORD`
+3. Value: Your chosen password
+4. Save and redeploy
+
+### Changing Password
+1. Update `TOOLS_PASSWORD` in Vercel environment variables
+2. Redeploy project
+3. All users must re-authenticate with new password
+
+### Password Recovery
+If you forget the password:
+1. Go to Vercel → Environment Variables
+2. View `TOOLS_PASSWORD` value
+3. Use that to login
+
+## Chrome Password Manager Integration
+
+### How It Works
+- Uses browser Credential Management API (`navigator.credentials.store()`)
+- Chrome recognizes successful login and offers to save password
+- Autofills username and password on subsequent visits
+- Works across devices if Chrome sync is enabled
+
+### Requirements for Chrome to Save
+- Form must have `type="password"` input (not text)
+- Form must use `autocomplete="username"` and `autocomplete="current-password"`
+- Successful login must call `navigator.credentials.store()`
+- User must confirm save when Chrome prompts
+
+## Protected Tools
+
+All 5 tools require authentication:
+1. Keyword Locker (`/keyword-locker.html`)
+2. Blog Manager (`/blog-manager-tool.html`)
+3. Money Page Doctor (`/money-page-doctor.html`)
+4. Rank Report Card (`/rank-report-card.html`)
+5. Image Optimizer (`/image-optimizer.html`)
+
+Each tool HTML file includes:
+```html
+<body>
+    <script src="/auth-check.js"></script>
+    <!-- rest of tool code -->
+</body>
+```
+
+## Security Features
+
+### What's Protected
+- All tool interfaces (cannot view without login)
+- All tool functionality (cannot use without valid token)
+- API endpoints still require authentication (tools can't be called externally without login)
+
+### What's NOT Protected
+- `/auth-check.js` file itself (public, but harmless - just checks for token)
+- `/api/auth` endpoint (public, but requires correct password)
+- Static assets, CSS, JavaScript libraries
+
+### Token Expiry
+- Tokens expire after 90 days
+- User must re-authenticate when token expires
+- Chrome autofills saved password for quick re-login
+
+### Logout
+- Logout button on dashboard
+- Clears token from localStorage
+- Redirects to login page
+- User must re-authenticate to access tools
+
+## Testing Authentication
+
+### Test Protection Works
+1. Open incognito/private browser window
+2. Visit any tool URL directly (e.g., `https://tools.aboutwallart.com/keyword-locker.html`)
+3. Should redirect to `https://tools.aboutwallart.com/` (login page)
+4. Cannot access tool without valid credentials
+
+### Test Successful Login
+1. Go to `https://tools.aboutwallart.com`
+2. Enter username and password
+3. Should see dashboard with all 5 tools listed
+4. Click any tool → should load without redirect
+5. Chrome should prompt to save password
+
+### Test Token Expiry
+1. Login successfully
+2. Open browser DevTools → Application → Local Storage
+3. Find `seo_tools_auth_token` → Delete it
+4. Refresh page or visit any tool URL
+5. Should redirect to login
+
+## Troubleshooting
+
+### Chrome Not Saving Password
+- Ensure `type="password"` (not `type="text"`)
+- Check Chrome settings: Password Manager → "Offer to save passwords" is ON
+- Clear Chrome cache and try login again
+- Ensure Credential Management API is working (check browser console for errors)
+
+### Tools Not Redirecting to Login
+- Verify `auth-check.js` is uploaded to GitHub root
+- Check browser console for JavaScript errors
+- Verify `auth-check.js` is loaded (Network tab in DevTools)
+- Ensure each tool has `<script src="/auth-check.js"></script>` after `<body>` tag
+
+### Domain Redirect Not Working
+- Verify `vercel.json` has redirect rule for old domain
+- Check Vercel deployment logs for errors
+- Wait 1-2 minutes after deployment for changes to propagate
+
+### Password Not Working
+- Verify `TOOLS_PASSWORD` environment variable is set in Vercel
+- Check that Vercel project has been redeployed after adding variable
+- Try clearing browser cache and cookies
+
+## Backup Files
+
+All password-protected files have backup copies:
+- `index-v5-BACKUP.html` (working login page)
+- `keyword-locker-BACKUP.html` (with auth protection)
+- `blog-manager-tool-BACKUP.html` (with auth protection)
+- `money-page-doctor-BACKUP.html` (with auth protection)
+- `rank-report-card-BACKUP.html` (with auth protection)
+- `image-optimizer-BACKUP.html` (with auth protection)
+- `vercel-BACKUP.json` (with redirect rules)
+- `auth-check-BACKUP.js` (authentication script)
+
+---
+
 # FUTURE PLANS
 
 ## Planned Improvements
 
 1. **Custom Domain Setup**
    - Target: `tools.aboutwallart.com`
-   - Status: Not yet configured
-   - Impact: Professional URL for all tools
+   - Status: ✅ COMPLETED (May 26, 2026)
+   - Impact: Professional URL for all tools with password protection
 
 2. **Image Optimizer Enhancements** (Potential)
    - Product image detection and smart routing
@@ -636,7 +877,7 @@ https://github.com/aboutwallart/seo-tools
 https://vercel.com/aboutwallart/seo-tools
 
 **Live Tools:**
-https://seo-tools-lake.vercel.app
+https://tools.aboutwallart.com (Password Protected)
 
 **Shopify Admin:**
 https://aboutwallart.myshopify.com/admin
