@@ -299,7 +299,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v1.2</p>
+        <p class="version">v1.3</p>
         
         <div class="stats" id="stats">
             Loading data...
@@ -378,26 +378,25 @@
                     {"Keyword": "Choose Farmhouse Furniture That Lasts", "Blog Post Title": "How to Choose Farmhouse Furniture That Lasts?", "Perspective": "Making quality furniture purchases"}
                 ];
                 
-                // Analyze each idea for conflicts (using AI)
-                for (let i = 0; i < blogIdeas.length; i++) {
-                    const idea = blogIdeas[i];
-                    const conflict = await analyzeConflict(idea.Keyword);
-                    blogIdeas[i] = {
-                        ...idea,
-                        index: i,
-                        conflict: conflict.level,
-                        conflictMessage: conflict.message,
-                        conflictBlog: conflict.blog,
-                        conflictKeyword: conflict.keyword,
-                        originalKeyword: idea.Keyword,
-                        originalTitle: idea['Blog Post Title']
-                    };
-                    
-                    // Update progress
-                    document.getElementById('stats').innerHTML = `
-                        <strong>Analyzing conflicts...</strong> ${i + 1} of ${blogIdeas.length} checked
-                    `;
-                }
+                // Show analyzing message
+                document.getElementById('stats').innerHTML = `
+                    <strong>Analyzing conflicts...</strong> Checking all 40 ideas against 378 published blogs using AI...
+                `;
+                
+                // Analyze ALL ideas in ONE batched AI call
+                const conflicts = await analyzeAllConflictsBatched(blogIdeas);
+                
+                // Apply conflicts to ideas
+                blogIdeas = blogIdeas.map((idea, i) => ({
+                    ...idea,
+                    index: i,
+                    conflict: conflicts[i].level,
+                    conflictMessage: conflicts[i].message,
+                    conflictBlog: conflicts[i].blog,
+                    conflictKeyword: conflicts[i].keyword,
+                    originalKeyword: idea.Keyword,
+                    originalTitle: idea['Blog Post Title']
+                }));
                 
                 // Update stats
                 const greenCount = blogIdeas.filter(i => i.conflict === 'green').length;
@@ -424,45 +423,53 @@
         }
 
         // ============================================
-        // CONFLICT ANALYSIS (AI-Based Intent Detection)
+        // CONFLICT ANALYSIS (AI-Based Intent Detection - BATCHED)
         // ============================================
         
-        async function analyzeConflict(keyword) {
-            // For initial load, use cached results if available
-            if (conflictCache[keyword]) {
-                return conflictCache[keyword];
-            }
-            
-            // Quick pre-filter: if no published blogs, always green
+        async function analyzeAllConflictsBatched(ideas) {
+            // Quick pre-filter: if no published blogs, all green
             if (publishedBlogs.length === 0) {
-                return {
+                return ideas.map(() => ({
                     level: 'green',
                     message: '🟢 NO CONFLICT: Safe to write',
                     blog: null,
                     keyword: null
-                };
+                }));
             }
             
-            // Check against all published blogs using AI
+            // Build list of published blog keywords for AI
+            const publishedList = publishedBlogs.slice(0, 100).map((b, i) => 
+                `${i + 1}. "${b.keyword || b.title}"`
+            ).join('\n');
+            
+            // Build list of new ideas for AI
+            const newIdeasList = ideas.map((idea, i) => 
+                `${i + 1}. "${idea.Keyword}"`
+            ).join('\n');
+            
             try {
-                const prompt = `Analyze if these two blog topics have conflicting search intent:
+                const prompt = `Analyze search intent conflicts between these NEW blog ideas and PUBLISHED blogs.
 
-NEW BLOG KEYWORD: "${keyword}"
+NEW BLOG IDEAS (check each one):
+${newIdeasList}
 
 PUBLISHED BLOGS:
-${publishedBlogs.slice(0, 20).map((b, i) => `${i + 1}. "${b.keyword || b.title}"`).join('\n')}
+${publishedList}
 
-RULES FOR CONFLICT:
-- CONFLICT (red): Same room + same topic, same style + same aspect, same color + same use case
-- CAUTION (yellow): Overlapping topic but different angle (e.g., budget vs luxury, small spaces vs large)
-- NO CONFLICT (green): Different rooms, different styles, different colors, different purposes
+RULES:
+- RED conflict: Same room + same topic (e.g., "bedroom art" vs "bedroom wall decor")
+- RED conflict: Same style + same aspect (e.g., "bohemian small spaces" vs "boho apartment decor")
+- YELLOW caution: Overlapping topic but different angle (e.g., "budget art" vs "luxury art")
+- GREEN safe: Different rooms (apartment vs office), different styles (bohemian vs minimalist), different colors (neutral vs teal), different purposes (budget vs premium)
 
-Return ONLY a JSON object (no markdown, no explanation):
-{
-  "level": "green" | "yellow" | "red",
-  "conflictIndex": null or number (index of conflicting blog, 1-based),
-  "reason": "brief explanation"
-}`;
+Return ONLY valid JSON array (no markdown, no backticks, no explanation):
+[
+  {"index": 1, "level": "green", "reason": "Different room", "conflictBlog": null},
+  {"index": 2, "level": "yellow", "reason": "Similar topic different angle", "conflictBlog": "Published Blog Title"},
+  {"index": 3, "level": "red", "reason": "Same room and topic", "conflictBlog": "Published Blog Title"}
+]
+
+Return JSON for ALL ${ideas.length} ideas.`;
 
                 const response = await fetch('/api/claude', {
                     method: 'POST',
@@ -473,54 +480,61 @@ Return ONLY a JSON object (no markdown, no explanation):
                     })
                 });
                 
+                if (!response.ok) {
+                    throw new Error(`API error: ${response.status}`);
+                }
+                
                 const data = await response.json();
                 const resultText = data.altText || data.text || data.content?.[0]?.text || '';
                 
-                // Parse JSON from response
-                const jsonMatch = resultText.match(/\{[\s\S]*\}/);
+                // Extract JSON array from response
+                const jsonMatch = resultText.match(/\[[\s\S]*\]/);
                 if (!jsonMatch) {
+                    console.error('No JSON array in response:', resultText);
                     throw new Error('No JSON in response');
                 }
                 
-                const result = JSON.parse(jsonMatch[0]);
+                const results = JSON.parse(jsonMatch[0]);
                 
-                // Build conflict object
-                let conflictBlog = null;
-                let conflictKeyword = null;
-                
-                if (result.conflictIndex !== null && result.conflictIndex > 0) {
-                    const blogIndex = result.conflictIndex - 1;
-                    if (publishedBlogs[blogIndex]) {
-                        conflictBlog = publishedBlogs[blogIndex].title || publishedBlogs[blogIndex].keyword;
-                        conflictKeyword = publishedBlogs[blogIndex].keyword || publishedBlogs[blogIndex].title;
+                // Convert AI results to conflict objects
+                const conflicts = ideas.map((idea, i) => {
+                    const result = results.find(r => r.index === i + 1) || { level: 'green', reason: 'No analysis', conflictBlog: null };
+                    
+                    let message = '';
+                    if (result.level === 'red') {
+                        message = `🔴 CANNIBALIZATION DANGER: ${result.reason}`;
+                    } else if (result.level === 'yellow') {
+                        message = `🟡 SIMILAR INTENT: ${result.reason}`;
+                    } else {
+                        message = '🟢 NO CONFLICT: Safe to write';
                     }
-                }
+                    
+                    // Find the conflicting blog keyword if specified
+                    let conflictKeyword = null;
+                    if (result.conflictBlog) {
+                        const matchingBlog = publishedBlogs.find(b => 
+                            (b.title || '').toLowerCase().includes(result.conflictBlog.toLowerCase()) ||
+                            (b.keyword || '').toLowerCase().includes(result.conflictBlog.toLowerCase())
+                        );
+                        if (matchingBlog) {
+                            conflictKeyword = matchingBlog.keyword || matchingBlog.title;
+                        }
+                    }
+                    
+                    return {
+                        level: result.level,
+                        message: message,
+                        blog: result.conflictBlog,
+                        keyword: conflictKeyword
+                    };
+                });
                 
-                let message = '';
-                if (result.level === 'red') {
-                    message = `🔴 CANNIBALIZATION DANGER: ${result.reason}`;
-                } else if (result.level === 'yellow') {
-                    message = `🟡 SIMILAR INTENT: ${result.reason}`;
-                } else {
-                    message = '🟢 NO CONFLICT: Safe to write';
-                }
-                
-                const conflictResult = {
-                    level: result.level,
-                    message: message,
-                    blog: conflictBlog,
-                    keyword: conflictKeyword
-                };
-                
-                // Cache result
-                conflictCache[keyword] = conflictResult;
-                
-                return conflictResult;
+                return conflicts;
                 
             } catch (error) {
-                console.error('AI conflict detection failed:', error);
-                // Fallback to simple word matching if AI fails
-                return fallbackConflictDetection(keyword);
+                console.error('AI batch conflict detection failed:', error);
+                // Fallback to simple word matching for all
+                return ideas.map(idea => fallbackConflictDetection(idea.Keyword));
             }
         }
         
@@ -573,8 +587,6 @@ Return ONLY a JSON object (no markdown, no explanation):
                 };
             }
         }
-        
-        let conflictCache = {};
 
         // ============================================
         // DISPLAY IDEAS
@@ -725,8 +737,9 @@ Return ONLY the new title, nothing else.`
                 blogIdeas[index].Keyword = newKeyword;
                 blogIdeas[index]['Blog Post Title'] = newTitle;
                 
-                // RE-CHECK CONFLICT WITH NEW KEYWORD
-                const newConflict = analyzeConflict(newKeyword);
+                // RE-CHECK CONFLICT WITH NEW KEYWORD (single call)
+                const newConflictArray = await analyzeAllConflictsBatched([{ Keyword: newKeyword }]);
+                const newConflict = newConflictArray[0];
                 
                 let conflictHTML = '';
                 let conflictClass = 'new-conflict-check';
@@ -741,16 +754,18 @@ Return ONLY the new title, nothing else.`
                     conflictClass += ' warning';
                     conflictHTML = `
                         <div class="${conflictClass}">
-                            ⚠️ <strong>Still some overlap:</strong> ${Math.round(newConflict.level * 100)}% similarity with "${newConflict.blog}"
-                            <br><small>Keyword: ${newConflict.keyword}</small>
+                            ⚠️ <strong>Still some overlap:</strong> ${newConflict.message}
+                            <br><small>Conflicting blog: ${newConflict.blog || 'Unknown'}</small>
+                            <br><small>Keyword: ${newConflict.keyword || 'Unknown'}</small>
                         </div>
                     `;
                 } else {
                     conflictClass += ' danger';
                     conflictHTML = `
                         <div class="${conflictClass}">
-                            🔴 <strong>Still conflicts!</strong> ${Math.round(newConflict.level * 100)}% match with "${newConflict.blog}"
-                            <br><small>Keyword: ${newConflict.keyword}</small>
+                            🔴 <strong>Still conflicts!</strong> ${newConflict.message}
+                            <br><small>Conflicting blog: ${newConflict.blog || 'Unknown'}</small>
+                            <br><small>Keyword: ${newConflict.keyword || 'Unknown'}</small>
                             <br><small>Try a different keyword</small>
                         </div>
                     `;
