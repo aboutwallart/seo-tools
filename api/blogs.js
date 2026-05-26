@@ -97,7 +97,7 @@ export default async function handler(req, res) {
 
       // Step 2: Build new CSV row
       // Format: Keyword, Page URL, LOCKED, Status, Action, Clicks, Position, Match Score, AI Score, Source
-      const newRow = `${keyword},${url || ''},LOCKED,TO_OPTIMIZE,DONE,N/A,N/A,N/A,N/A,To_Write_Blog`;
+      const newRow = `${keyword},${url || ''},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,To_Write_Blog`;
 
       // Step 3: Append row
       const updatedContent = currentContent.trimEnd() + '\n' + newRow + '\n';
