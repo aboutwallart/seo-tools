@@ -325,7 +325,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v1.7</p>
+        <p class="version">v1.8 - 2026-05-27</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -622,7 +622,7 @@
                 const response = await fetch('/api/blogs', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ keyword, url })
+                    body: JSON.stringify({ keyword, url, title: idea.currentTitle, perspective: idea.perspective })
                 });
                 const data = await response.json();
                 if (saveStatus) {
