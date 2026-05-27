@@ -287,12 +287,45 @@
         .btn-mark:hover { background: #1976D2; }
         .btn-mark.marked { background: #66bb6a; }
         .btn-mark.marked:hover { background: #4caf50; }
+
+        /* KEYWORD CHANGE BUTTON */
+        .btn-keyword-change {
+            background: #ffffff;
+            color: #ff9800;
+            border: 1px solid #ff9800;
+            padding: 12px 24px;
+            font-size: 14px;
+            font-weight: 500;
+            font-family: 'Poppins', sans-serif;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            min-width: 180px;
+        }
+
+        .btn-keyword-change:hover { background: #ff9800; color: #ffffff; }
+
+        /* DELETE BUTTON */
+        .btn-delete {
+            background: #ffffff;
+            color: #ef5350;
+            border: 1px solid #ef5350;
+            padding: 8px 16px;
+            font-size: 13px;
+            font-weight: 500;
+            font-family: 'Poppins', sans-serif;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-delete:hover { background: #ef5350; color: #ffffff; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v1.6</p>
+        <p class="version">v1.7</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -302,6 +335,9 @@
             </button>
             <button class="tab-btn" onclick="switchTab('towrite')" id="tab-towrite">
                 To Write <span class="tab-count" id="count-towrite">0</span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('kwchange')" id="tab-kwchange">
+                Keyword Change <span class="tab-count" id="count-kwchange">0</span>
             </button>
         </div>
 
@@ -316,6 +352,12 @@
                 <div class="empty-state">No blogs marked for writing yet.</div>
             </div>
         </div>
+
+        <div class="tab-content" id="panel-kwchange">
+            <div id="kwchange-container">
+                <div class="empty-state">No keywords marked for change yet.</div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -323,7 +365,8 @@
         // DATA
         // ============================================
         let blogIdeas = [];
-        let markedIdeas = new Set(); // indexes marked for writing
+        let markedForWriting = new Set();   // indexes marked for writing
+        let markedForKwChange = new Set();  // indexes marked for keyword change
 
         // ============================================
         // TAB SWITCHING
@@ -337,9 +380,11 @@
 
         function updateTabCounts() {
             const total = blogIdeas.length;
-            const marked = markedIdeas.size;
-            document.getElementById('count-ideas').textContent = total - marked;
-            document.getElementById('count-towrite').textContent = marked;
+            const writing = markedForWriting.size;
+            const kwchange = markedForKwChange.size;
+            document.getElementById('count-ideas').textContent = total - writing - kwchange;
+            document.getElementById('count-towrite').textContent = writing;
+            document.getElementById('count-kwchange').textContent = kwchange;
         }
 
         // ============================================
@@ -377,17 +422,12 @@
         // ============================================
         // SLUG GENERATOR
         // ============================================
-        function titleToSlug(title) {
-            return title
-                .toLowerCase()
-                .replace(/[^a-z0-9\s-]/g, '')  // remove special chars
-                .replace(/\s+/g, '-')            // spaces to hyphens
-                .replace(/-+/g, '-')             // collapse multiple hyphens
-                .replace(/^-|-$/g, '');          // trim hyphens
-        }
-
         function generateUrl(title) {
-            const slug = titleToSlug(title);
+            const slug = title.toLowerCase()
+                .replace(/[^a-z0-9\s-]/g, '')
+                .replace(/\s+/g, '-')
+                .replace(/-+/g, '-')
+                .replace(/^-|-$/g, '');
             return `https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/${slug}`;
         }
 
@@ -403,7 +443,16 @@
                 const csvText = await response.text();
                 const rows = parseCSV(csvText);
 
-                blogIdeas = rows.map((row, index) => ({
+                // Filter out already processed rows (TO_WRITE or KEYWORD_CHANGE)
+                const unprocessed = rows.filter(row => {
+                    const status = (row['STATUS'] || '').trim();
+                    return status !== 'TO_WRITE' && status !== 'KEYWORD_CHANGE';
+                });
+
+                // Take first 40 unprocessed
+                const first40 = unprocessed.slice(0, 40);
+
+                blogIdeas = first40.map((row, index) => ({
                     index: index,
                     keyword: row['Keyword'] || '',
                     title: row['Blog Post Title'] || '',
@@ -437,52 +486,89 @@
         }
 
         // ============================================
-        // DISPLAY IDEAS (Tab 1 - unmarked only)
+        // DISPLAY IDEAS (Tab 1)
         // ============================================
         function displayIdeas() {
             const container = document.getElementById('ideas-container');
-            const visible = blogIdeas.filter(idea => !markedIdeas.has(idea.index));
+            const visible = blogIdeas.filter(idea => 
+                !markedForWriting.has(idea.index) && !markedForKwChange.has(idea.index)
+            );
 
             if (visible.length === 0) {
-                container.innerHTML = `<div class="empty-state">All ideas have been marked for writing! 🎉</div>`;
+                container.innerHTML = `<div class="empty-state">All ideas have been processed! 🎉</div>`;
                 return;
             }
 
-            let html = '';
-            visible.forEach(idea => {
-                html += buildIdeaCard(idea, false);
-            });
-            container.innerHTML = html;
+            container.innerHTML = visible.map(idea => buildIdeaCard(idea, 'ideas')).join('');
         }
 
         // ============================================
-        // DISPLAY TO WRITE (Tab 2 - marked only)
+        // DISPLAY TO WRITE (Tab 2)
         // ============================================
         function displayToWrite() {
             const container = document.getElementById('towrite-container');
-            const marked = blogIdeas.filter(idea => markedIdeas.has(idea.index));
+            const marked = blogIdeas.filter(idea => markedForWriting.has(idea.index));
 
             if (marked.length === 0) {
                 container.innerHTML = `<div class="empty-state">No blogs marked for writing yet.</div>`;
                 return;
             }
 
-            let html = '';
-            marked.forEach(idea => {
-                html += buildIdeaCard(idea, true);
-            });
-            container.innerHTML = html;
+            container.innerHTML = marked.map(idea => buildIdeaCard(idea, 'towrite')).join('');
+        }
+
+        // ============================================
+        // DISPLAY KEYWORD CHANGE (Tab 3)
+        // ============================================
+        function displayKwChange() {
+            const container = document.getElementById('kwchange-container');
+            const marked = blogIdeas.filter(idea => markedForKwChange.has(idea.index));
+
+            if (marked.length === 0) {
+                container.innerHTML = `<div class="empty-state">No keywords marked for change yet.</div>`;
+                return;
+            }
+
+            container.innerHTML = marked.map(idea => buildIdeaCard(idea, 'kwchange')).join('');
+        }
+
+        function refreshAll() {
+            displayIdeas();
+            displayToWrite();
+            displayKwChange();
+            updateTabCounts();
         }
 
         // ============================================
         // BUILD CARD HTML
         // ============================================
-        function buildIdeaCard(idea, isInToWrite) {
+        function buildIdeaCard(idea, tab) {
             const level = idea.cannibalization;
             const cardClass = level === 'NO CONFLICT' ? 'green' : level === 'CAUTION' ? 'yellow' : 'red';
             const badgeClass = level === 'NO CONFLICT' ? 'badge-green' : level === 'CAUTION' ? 'badge-yellow' : 'badge-red';
-            const showOverride = (level === 'CAUTION' || level === 'DANGER') && !isInToWrite;
             const index = idea.index;
+
+            let actionsHTML = '';
+
+            if (tab === 'ideas') {
+                actionsHTML = `
+                    <button class="btn-mark" onclick="markForWriting(${index})">Mark for Writing</button>
+                    <button class="btn-keyword-change" onclick="markForKwChange(${index})">Change Keyword</button>
+                `;
+            } else if (tab === 'towrite') {
+                actionsHTML = `
+                    <button class="btn-mark marked" disabled>✓ To Write Blog</button>
+                    <button class="btn-undo" onclick="undoWriting(${index})">↩ Undo</button>
+                    <span class="saving-indicator" id="save-status-${index}">✅ Saved to registry</span>
+                `;
+            } else if (tab === 'kwchange') {
+                actionsHTML = `
+                    <button class="btn-keyword-change" style="opacity:0.6;cursor:default" disabled>⚠ Keyword Change</button>
+                    <button class="btn-undo" onclick="undoKwChange(${index})">↩ Undo</button>
+                    <button class="btn-delete" onclick="confirmDelete(${index})">🗑 Delete</button>
+                    <span class="saving-indicator" id="kw-status-${index}"></span>
+                `;
+            }
 
             return `
                 <div class="idea-card ${cardClass}" id="card-${index}">
@@ -491,11 +577,11 @@
                         <span class="status-badge ${badgeClass}">${level}</span>
                     </div>
 
-                    <div class="keyword" id="keyword-display-${index}">${idea.currentKeyword}</div>
-                    <div class="title" id="title-display-${index}">${idea.currentTitle}</div>
+                    <div class="keyword">${idea.currentKeyword}</div>
+                    <div class="title">${idea.currentTitle}</div>
                     <div class="perspective">${idea.perspective}</div>
 
-                    ${showOverride ? `
+                    ${level !== 'NO CONFLICT' && tab === 'ideas' ? `
                         <div class="conflict-warning ${cardClass}">
                             <div class="conflict-label">
                                 ${level === 'DANGER' ? '🔴 Cannibalization Danger' : '🟡 Caution - Similar Intent'}
@@ -510,69 +596,27 @@
                                 </div>
                             ` : ''}
                         </div>
-
-                        <div class="override-section">
-                            <label>Change Keyword:</label>
-                            <input
-                                type="text"
-                                id="new-keyword-${index}"
-                                value="${idea.currentKeyword}"
-                                placeholder="Enter new keyword"
-                            >
-                            <button
-                                class="btn-regenerate"
-                                onclick="generateNewTitle(${index})"
-                                id="regen-btn-${index}"
-                            >
-                                Generate New Title
-                            </button>
-                            <div id="suggested-title-${index}"></div>
-                        </div>
                     ` : ''}
 
-                    <div class="card-actions">
-                        ${!isInToWrite ? `
-                            <button
-                                class="btn-mark"
-                                onclick="markForWriting(${index})"
-                                id="mark-btn-${index}"
-                            >
-                                Mark for Writing
-                            </button>
-                        ` : `
-                            <button class="btn-mark marked" disabled>✓ To Write Blog</button>
-                            <button class="btn-undo" onclick="undoMark(${index})">↩ Undo</button>
-                            <span class="saving-indicator" id="save-status-${index}">✅ Saved to registry</span>
-                        `}
-                    </div>
+                    <div class="card-actions">${actionsHTML}</div>
                 </div>
             `;
         }
 
         // ============================================
-        // MARK FOR WRITING → save to registry
+        // MARK FOR WRITING
         // ============================================
         async function markForWriting(index) {
             const idea = blogIdeas[index];
-            const title = idea.currentTitle;
             const keyword = idea.currentKeyword;
-            const url = generateUrl(title);
+            const url = generateUrl(idea.currentTitle);
 
-            // Move to marked set
-            markedIdeas.add(index);
-            updateTabCounts();
-            displayIdeas();
-            displayToWrite();
-
-            // Switch to To Write tab
+            markedForWriting.add(index);
+            refreshAll();
             switchTab('towrite');
 
-            // Save to registry via API
             const saveStatus = document.getElementById(`save-status-${index}`);
-            if (saveStatus) {
-                saveStatus.textContent = '⏳ Saving to registry...';
-                saveStatus.className = 'saving-indicator saving';
-            }
+            if (saveStatus) { saveStatus.textContent = '⏳ Saving...'; saveStatus.className = 'saving-indicator saving'; }
 
             try {
                 const response = await fetch('/api/blogs', {
@@ -580,114 +624,82 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ keyword, url })
                 });
-
                 const data = await response.json();
-
                 if (saveStatus) {
-                    if (data.success) {
-                        saveStatus.textContent = '✅ Saved to registry';
-                        saveStatus.className = 'saving-indicator';
-                    } else {
-                        saveStatus.textContent = '❌ Save failed: ' + (data.error || 'Unknown error');
-                        saveStatus.className = 'saving-indicator error';
-                    }
+                    saveStatus.textContent = data.success ? '✅ Saved to registry' : '❌ ' + (data.error || 'Save failed');
+                    saveStatus.className = data.success ? 'saving-indicator' : 'saving-indicator error';
                 }
-
             } catch (error) {
-                console.error('Error saving to registry:', error);
-                if (saveStatus) {
-                    saveStatus.textContent = '❌ Save failed: ' + error.message;
-                    saveStatus.className = 'saving-indicator error';
-                }
+                console.error('Error saving:', error);
+                if (saveStatus) { saveStatus.textContent = '❌ ' + error.message; saveStatus.className = 'saving-indicator error'; }
             }
         }
 
         // ============================================
-        // UNDO MARK → delete from registry
+        // UNDO WRITING
         // ============================================
-        async function undoMark(index) {
-            const idea = blogIdeas[index];
-            const keyword = idea.currentKeyword;
+        async function undoWriting(index) {
+            const keyword = blogIdeas[index].currentKeyword;
+            markedForWriting.delete(index);
+            refreshAll();
 
-            // Move card back to Blog Ideas tab immediately
-            markedIdeas.delete(index);
-            updateTabCounts();
-            displayIdeas();
-            displayToWrite();
-
-            // Delete from registry
             try {
-                const response = await fetch('/api/blogs', {
+                await fetch('/api/blogs', {
                     method: 'DELETE',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ keyword })
                 });
-
-                const data = await response.json();
-                if (!data.success) {
-                    console.error('Failed to remove from registry:', data.error);
-                }
             } catch (error) {
-                console.error('Error removing from registry:', error);
+                console.error('Error undoing:', error);
             }
         }
 
         // ============================================
-        // GENERATE NEW TITLE (AI)
+        // MARK FOR KEYWORD CHANGE
         // ============================================
-        async function generateNewTitle(index) {
-            const newKeyword = document.getElementById(`new-keyword-${index}`).value.trim();
-            if (!newKeyword) { alert('Please enter a keyword first'); return; }
+        function markForKwChange(index) {
+            markedForKwChange.add(index);
+            refreshAll();
+            switchTab('kwchange');
+        }
 
-            const btn = document.getElementById(`regen-btn-${index}`);
-            btn.disabled = true;
-            btn.textContent = 'Generating...';
+        // ============================================
+        // UNDO KEYWORD CHANGE
+        // ============================================
+        function undoKwChange(index) {
+            markedForKwChange.delete(index);
+            refreshAll();
+        }
+
+        // ============================================
+        // CONFIRM DELETE (mark as KEYWORD_CHANGE in CSV)
+        // ============================================
+        async function confirmDelete(index) {
+            const idea = blogIdeas[index];
+            const keyword = idea.currentKeyword;
+
+            const statusEl = document.getElementById(`kw-status-${index}`);
+            if (statusEl) { statusEl.textContent = '⏳ Saving...'; statusEl.className = 'saving-indicator saving'; }
 
             try {
-                const response = await fetch('/api/claude', {
-                    method: 'POST',
+                const response = await fetch('/api/blogs', {
+                    method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        prompt: `Original blog title: "${blogIdeas[index].title}"
-
-New keyword: "${newKeyword}"
-
-Generate a new blog title that:
-1. Uses the new keyword naturally
-2. Keeps the same style and tone as the original title
-3. Maintains the same question format or structure if the original has one
-
-Return ONLY the new title, nothing else. No explanation, no punctuation around it.`
-                    })
+                    body: JSON.stringify({ keyword })
                 });
-
-                if (!response.ok) throw new Error(`API error: ${response.status}`);
-
                 const data = await response.json();
-                const newTitle = (data.response || '').trim().replace(/^["']|["']$/g, '');
-                if (!newTitle) throw new Error('Empty response from API');
 
-                document.getElementById(`keyword-display-${index}`).textContent = newKeyword;
-                document.getElementById(`title-display-${index}`).textContent = newTitle;
-
-                blogIdeas[index].currentKeyword = newKeyword;
-                blogIdeas[index].currentTitle = newTitle;
-
-                document.getElementById(`suggested-title-${index}`).innerHTML = `
-                    <div class="suggested-title">
-                        <strong>✨ New Title Generated:</strong>
-                        ${newTitle}
-                    </div>
-                `;
-
-                btn.textContent = 'Regenerate Title';
-
+                if (data.success) {
+                    // Remove from UI permanently
+                    markedForKwChange.delete(index);
+                    blogIdeas = blogIdeas.filter(i => i.index !== index);
+                    refreshAll();
+                } else {
+                    if (statusEl) { statusEl.textContent = '❌ ' + (data.error || 'Failed'); statusEl.className = 'saving-indicator error'; }
+                }
             } catch (error) {
-                console.error('Error generating title:', error);
-                alert('Error generating title: ' + error.message);
-                btn.textContent = 'Regenerate Title';
-            } finally {
-                btn.disabled = false;
+                console.error('Error deleting:', error);
+                if (statusEl) { statusEl.textContent = '❌ ' + error.message; statusEl.className = 'saving-indicator error'; }
             }
         }
 
@@ -695,6 +707,7 @@ Return ONLY the new title, nothing else. No explanation, no punctuation around i
         // INITIALIZE
         // ============================================
         loadData();
+
     </script>
 </body>
 </html>
