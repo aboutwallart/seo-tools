@@ -254,6 +254,22 @@
             color: #ffffff;
         }
 
+        .btn-send-sheet {
+            background: #ffffff;
+            color: #1976d2;
+            border: 1px solid #1976d2;
+            padding: 8px 16px;
+            font-size: 13px;
+            font-weight: 500;
+            font-family: 'Poppins', sans-serif;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-send-sheet:hover { background: #1976d2; color: #ffffff; }
+        .btn-send-sheet:disabled { opacity: 0.5; cursor: not-allowed; }
+
         .card-actions {
             display: flex;
             align-items: center;
@@ -325,7 +341,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v1.8 - 2026-05-27</p>
+        <p class="version">v1.9 - 2026-05-27</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -367,6 +383,7 @@
         let blogIdeas = [];
         let markedForWriting = new Set();   // indexes marked for writing
         let markedForKwChange = new Set();  // indexes marked for keyword change
+        let sentToSheet = new Set();        // indexes sent to Google Sheet (hidden from To Write)
 
         // ============================================
         // TAB SWITCHING
@@ -507,7 +524,7 @@
         // ============================================
         function displayToWrite() {
             const container = document.getElementById('towrite-container');
-            const marked = blogIdeas.filter(idea => markedForWriting.has(idea.index));
+            const marked = blogIdeas.filter(idea => markedForWriting.has(idea.index) && !sentToSheet.has(idea.index));
 
             if (marked.length === 0) {
                 container.innerHTML = `<div class="empty-state">No blogs marked for writing yet.</div>`;
@@ -559,6 +576,7 @@
                 actionsHTML = `
                     <button class="btn-mark marked" disabled>✓ To Write Blog</button>
                     <button class="btn-undo" onclick="undoWriting(${index})">↩ Undo</button>
+                    <button class="btn-send-sheet" id="sheet-btn-${index}" onclick="sendToSheet(${index})">📤 Send to Google Sheet</button>
                     <span class="saving-indicator" id="save-status-${index}">✅ Saved to registry</span>
                 `;
             } else if (tab === 'kwchange') {
@@ -651,6 +669,44 @@
                 });
             } catch (error) {
                 console.error('Error undoing:', error);
+            }
+        }
+
+        async function sendToSheet(index) {
+            const idea = blogIdeas[index];
+            const btn = document.getElementById(`sheet-btn-${index}`);
+            const saveStatus = document.getElementById(`save-status-${index}`);
+
+            btn.disabled = true;
+            btn.textContent = '⏳ Sending...';
+
+            try {
+                const response = await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        keyword: idea.currentKeyword,
+                        url: generateUrl(idea.currentTitle),
+                        title: idea.currentTitle,
+                        perspective: idea.perspective,
+                        sheetsOnly: true
+                    })
+                });
+                const data = await response.json();
+                if (data.success || data.sheetsResult) {
+                    // Remove card from view
+                    sentToSheet.add(index);
+                    refreshAll();
+                } else {
+                    btn.disabled = false;
+                    btn.textContent = '📤 Send to Google Sheet';
+                    if (saveStatus) saveStatus.textContent = '❌ Sheet error: ' + (data.error || 'Unknown');
+                }
+            } catch (error) {
+                console.error('Error sending to sheet:', error);
+                btn.disabled = false;
+                btn.textContent = '📤 Send to Google Sheet';
+                if (saveStatus) saveStatus.textContent = '❌ ' + error.message;
             }
         }
 
