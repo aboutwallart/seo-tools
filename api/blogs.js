@@ -15,6 +15,7 @@ export default async function handler(req, res) {
 
   const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
   const REPO = 'aboutwallart/seo-tools';
+  const SHEETS_WEBHOOK = process.env.SHEETS_WEBHOOK_URL; // Google Apps Script Web App URL
 
   // Helper: fetch file from GitHub
   async function getGitHubFile(filePath) {
@@ -69,6 +70,28 @@ export default async function handler(req, res) {
     return result;
   }
 
+  // Helper: append row to Google Sheet via Apps Script webhook
+  // Columns: A=BLOG MANAGER TOOL, B=Perspective, C=Keyword, F=Title, AS=READY TO GENERATE BLOG
+  async function appendToGoogleSheet(keyword, perspective, title) {
+    if (!SHEETS_WEBHOOK) {
+      console.log('SHEETS_WEBHOOK_URL not configured - skipping Google Sheets append');
+      return { skipped: true };
+    }
+    const response = await fetch(SHEETS_WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        colA: 'BLOG MANAGER TOOL',
+        colB: perspective || '',
+        colC: keyword || '',
+        colF: title || '',
+        colAS: 'READY TO GENERATE BLOG'
+      })
+    });
+    if (!response.ok) throw new Error(`Sheets webhook error: ${response.status}`);
+    return await response.json();
+  }
+
   try {
 
     // ============================================
@@ -104,9 +127,10 @@ export default async function handler(req, res) {
 
     // ============================================
     // POST - Save to registry + mark blog_ideas.csv as TO_WRITE
+    //        + append row to Google Sheet (non-blocking)
     // ============================================
     if (req.method === 'POST') {
-      const { keyword, url } = req.body;
+      const { keyword, url, title, perspective } = req.body;
       if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
       if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured in environment variables' });
 
@@ -124,7 +148,6 @@ export default async function handler(req, res) {
         if (!trimmed) return line;
         const cols = parseCSVLine(trimmed);
         if (cols[0] === keyword) {
-          // Add/update STATUS column (index 6)
           while (cols.length < 7) cols.push('');
           cols[6] = 'TO_WRITE';
           return cols.map(c => c.includes(',') ? `"${c}"` : c).join(',');
@@ -133,7 +156,16 @@ export default async function handler(req, res) {
       }).join('\n');
       await updateGitHubFile('data/blog_ideas.csv', updatedIdeas, ideasFile.sha, `Mark as TO_WRITE: ${keyword}`);
 
-      return res.status(200).json({ success: true, keyword, url });
+      // 3. Append to Google Sheet (non-blocking — won't fail the whole request)
+      let sheetsResult = null;
+      try {
+        sheetsResult = await appendToGoogleSheet(keyword, perspective, title);
+      } catch (sheetsError) {
+        console.error('Google Sheets append failed (non-fatal):', sheetsError.message);
+        sheetsResult = { error: sheetsError.message };
+      }
+
+      return res.status(200).json({ success: true, keyword, url, sheetsResult });
     }
 
     // ============================================
@@ -166,7 +198,7 @@ export default async function handler(req, res) {
     // DELETE - Undo: remove from registry + clear status in blog_ideas.csv
     // ============================================
     if (req.method === 'DELETE') {
-      const { keyword, action } = req.body;
+      const { keyword } = req.body;
       if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
       if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured in environment variables' });
 
