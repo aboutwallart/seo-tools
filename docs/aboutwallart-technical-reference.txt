@@ -1,7 +1,7 @@
 # TECHNICAL REFERENCE DOCUMENT
 ## AboutWallArt SEO Tools Infrastructure
 
-**Last Updated:** May 26, 2026 (Password Protection System Added)
+**Last Updated:** May 27, 2026 (Blog Manager Google Sheets Integration + Blog Ideas Pipeline)
 **Owner:** aboutwallart
 **Purpose:** Complete technical documentation for all SEO tools, infrastructure, API keys, and configurations
 
@@ -14,13 +14,13 @@
 - **URL:** https://github.com/aboutwallart/seo-tools
 - **Visibility:** Public
 - **Main Branch:** main
-- **Languages:** HTML (84.9%), JavaScript (15.1%)
+- **Languages:** HTML (84%), JavaScript (16%)
 
 ## Repository Structure
 
 ### Root Level Files
-- `index.html` — **NEW** Password-protected landing page with tools dashboard
-- `auth-check.js` — **NEW** Authentication check script (protects all tools)
+- `index.html` — Password-protected landing page with tools dashboard
+- `auth-check.js` — Authentication check script (protects all tools)
 - `blog-manager-tool.html` — Blog content management tool (password protected)
 - `keyword-locker.html` — Keyword locking and conflict detection tool (password protected)
 - `money-page-doctor.html` — Money page optimization tool (password protected)
@@ -36,851 +36,392 @@
 ## `/api/` Folder
 **Purpose:** Serverless API endpoints (Vercel Functions)
 
-All API endpoints are called by the HTML tools to perform backend operations.
+### ⚠️ CRITICAL: VERCEL FUNCTION LIMIT REACHED
+**Vercel Hobby Plan allows maximum 12 serverless functions.**
+**The project is currently AT the limit (12 functions).**
 
-### API Files:
-1. **`auth.js`** — **NEW**
-   - Password authentication endpoint
-   - Validates credentials against TOOLS_PASSWORD environment variable
-   - Returns authentication token for 90-day sessions
-   - Uses Credential Management API for Chrome password saving
+**DO NOT create new API files.** If a new tool needs a backend operation, it MUST be added as a new action inside an existing API file (e.g., a new `action` branch inside `blogs.js` POST handler, or a new method handler in an existing file).
 
-2. **`analyze-money-page.js`**
-   - Money Page Optimizer backend
-   - Analyzes competitor pages
-   - Returns optimization recommendations
+### Current API Files (12/12):
+1. **`auth.js`** — Password authentication endpoint
+2. **`analyze-money-page.js`** — Money Page Optimizer backend
+3. **`blogs.js`** — Blog Manager backend (see full details below)
+4. **`claude.js`** — Claude (Anthropic) API integration
+5. **`fetch-html.js`** — Fetches HTML content from URLs
+6. **`generate-alt-text.js`** — Alt text generation
+7. **`migrate.js`** — Data migration scripts
+8. **`openai.js`** — OpenAI API integration
+9. **`pagespeed.js`** — Google PageSpeed Insights API
+10. **`reddit.js`** — Reddit scraper for blog topic ideas
+11. **`serpapi.js`** — SERP API integration
+12. **`shopify-files.js`** — Shopify Admin GraphQL API integration
 
-2. **`blogs.js`**
-   - Blog content generator backend
-   - Interfaces with AI APIs
+---
 
-3. **`claude.js`**
-   - Claude (Anthropic) API integration
-   - Used for content generation
+## blogs.js — Full Technical Details
 
-4. **`fetch-html.js`**
-   - Fetches HTML content from URLs
-   - Used for scraping competitor pages
+**File:** `api/blogs.js`
+**Last Updated:** May 27, 2026
+**Purpose:** Blog Manager tool backend — handles all blog data operations AND Google Sheets integration
 
-5. **`migrate.js`**
-   - Data migration scripts
-   - Handles registry updates
+### Supported HTTP Methods:
 
-6. **`openai.js`**
-   - OpenAI API integration
-   - Alternative AI content generation
+#### GET — Read published blogs from registry
+- Reads `data/keyword-locker-registry.csv` from local filesystem
+- Filters rows where `Source` column (index 9) = `Published Blog`
+- Returns: `{ blogs: [{title, keyword, status, url, date}] }`
 
-7. **`pagespeed.js`**
-   - Google PageSpeed Insights API integration
-   - Returns performance metrics
+#### POST — Mark blog as "To Write"
+- Reads `keyword`, `url`, `title`, `perspective` from request body
+- Does 3 things in sequence:
+  1. Appends row to `data/keyword-locker-registry.csv` on GitHub (via GitHub API)
+  2. Updates `data/blog_ideas.csv` on GitHub — sets STATUS column to `TO_WRITE`
+  3. Calls Google Sheets webhook (non-blocking — won't fail if Sheets fails)
+- Returns: `{ success: true, keyword, url, sheetsResult }`
 
-8. **`reddit.js`**
-   - Reddit scraper for blog topic ideas
-   - Finds questions with high volume, low competition
+#### PATCH — Mark as Keyword Change
+- Updates `data/blog_ideas.csv` — sets STATUS to `KEYWORD_CHANGE`
 
-9. **`serpapi.js`**
-   - SERP API integration
-   - Competitor SERP analysis
+#### DELETE — Undo
+- Removes entry from `data/keyword-locker-registry.csv`
+- Clears STATUS in `data/blog_ideas.csv`
 
-10. **`shopify-files.js`** — **NEW**
-    - Shopify Admin GraphQL API integration
-    - Manages file uploads, replacements, and alt text updates
-    - Used by Image Optimizer tool
-    - See "Shopify API Integration" section below
+### Google Sheets Integration (added May 27, 2026):
+- Uses Google Apps Script Web App as webhook (no OAuth/credentials needed)
+- Apps Script runs as the Google account owner, has automatic Sheet access
+- Webhook URL stored in Vercel env var: `SHEETS_WEBHOOK_URL`
+- If `SHEETS_WEBHOOK_URL` not set, Sheets append is silently skipped
+- Non-blocking: if Sheets fails, the whole request still succeeds
+- Column mapping when row is appended:
+  - Column A (index 0) = `BLOG MANAGER TOOL` (fixed text)
+  - Column B (index 1) = Perspective
+  - Column C (index 2) = Main Keyword
+  - Column F (index 5) = Blog Post Title
+  - Column AS (index 44) = `READY TO GENERATE BLOG` (fixed text)
+  - All other columns = empty
+
+### Google Apps Script (Sheets Webhook):
+- **Script name:** Sheets Webhook
+- **Google Sheet ID:** `1W9AYH2Zcw-v2U6S47a3w5bs5rEBf6K30adDgNkaZ38k`
+- **Tab:** Sheet1
+- **Deployed as:** Web App, Execute as: Me, Who has access: Anyone
+- **Script code:**
+```javascript
+function doPost(e) {
+  const sheet = SpreadsheetApp.openById('1W9AYH2Zcw-v2U6S47a3w5bs5rEBf6K30adDgNkaZ38k').getSheetByName('Sheet1');
+  const data = JSON.parse(e.postData.contents);
+  const row = new Array(45).fill('');
+  row[0]  = data.colA;
+  row[1]  = data.colB;
+  row[2]  = data.colC;
+  row[5]  = data.colF;
+  row[44] = data.colAS;
+  sheet.appendRow(row);
+  return ContentService.createTextOutput(JSON.stringify({ success: true }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+```
+
+### CORS Headers (ALL api files must include):
+```javascript
+res.setHeader('Access-Control-Allow-Credentials', true);
+res.setHeader('Access-Control-Allow-Origin', '*');
+res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,PATCH,OPTIONS');
+res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
+if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+```
+
+---
+
+## claude.js — Full Technical Details
+
+**CRITICAL: Model name must be exactly `claude-sonnet-4-6`**
+Other model names will fail. Do not use `claude-3`, `claude-sonnet`, or any other variant.
+
+### Web Search Tool:
+To enable web search in Claude API calls, add to the API request:
+```javascript
+tools: [
+  {
+    type: "web_search_20250305",
+    name: "web_search"
+  }
+]
+```
+
+### Standard API Call:
+```javascript
+const response = await fetch('https://api.anthropic.com/v1/messages', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'x-api-key': process.env.ANTHROPIC_API_KEY,
+    'anthropic-version': '2023-06-01'
+  },
+  body: JSON.stringify({
+    model: 'claude-sonnet-4-6',  // MUST be exactly this
+    max_tokens: 4096,
+    messages: [{ role: 'user', content: prompt }],
+    tools: [{ type: 'web_search_20250305', name: 'web_search' }]  // if needed
+  })
+});
+```
 
 ---
 
 ## `/data/` Folder
-**Purpose:** Keyword tracking, registry files, and content management
 
-### Critical Files:
+### Active Data Files:
 
-#### **MASTER KEYWORD REGISTRY (ACTIVE)**
-- **File:** `keyword-locker-registry.csv`
-- **Location:** `/data/keyword-locker-registry.csv`
-- **GitHub URL:** https://github.com/aboutwallart/seo-tools/blob/main/data/keyword-locker-registry.csv
-- **Last Updated:** 4 days ago (May 21, 2026)
-- **Purpose:** 
-  - Central database of all locked keywords
-  - Prevents keyword cannibalization
-  - All tools read from and write to this file
-  - Shared across Keyword Locker, Money Page Doctor, Blog Manager
+#### `keyword-locker-registry.csv`
+- Central database of all locked keywords
+- Prevents keyword cannibalization
+- All tools read from and write to this file
+- Column structure: `Keyword, Page URL, LOCKED, Status, Action, Clicks, Position, Match Score, AI Score, Source`
+- Source values: `Published Blog`, `To_Write_Blog`, `Collection Page`, etc.
+- 378+ published blogs as of May 27, 2026
 
-#### **OLD/DEPRECATED FILES**
-- `keyword-master-registry.csv` — OLD VERSION, NOT IN USE
+#### `blog_ideas.csv` (NEW - May 27, 2026)
+- Blog idea pipeline — list of candidate blog posts with conflict detection
+- Column structure: `Keyword, Blog Post Title, Perspective, CANNIBALIZATION, CONFLICTING KEYWORD, CONFLICTING BLOG URL, STATUS`
+- CANNIBALIZATION values: `NO CONFLICT`, `CAUTION`, `DANGER`
+- STATUS values: `TO_WRITE`, `TO_WRITE` (from registry), `KEYWORD_CHANGE`, empty
+- Read by `blogs.js` GET handler
+- Updated by `blogs.js` POST/PATCH/DELETE handlers
+- Currently contains 50 processed ideas
 
-### Backup System:
-- **Folder:** `registry-backups/`
-- **Purpose:** Automatic backups before major changes
-- **Naming:** `Backup before save - YYYY-MM-DDTHH-MM-SS`
+
+
+### Blog Ideas Conflict Detection Algorithm:
+```python
+# Jaccard similarity on core words
+stop_words = {'how','to','a','an','the','your','my','for','in','with',...}
+def extract_core(keyword): return [w for w in keyword.lower().split() if w not in stop_words and len(w) > 2]
+def jaccard(k1, k2):
+    w1, w2 = set(extract_core(k1)), set(extract_core(k2))
+    return len(w1 & w2) / len(w1 | w2)
+
+# Thresholds:
+# >= 0.6 → DANGER
+# >= 0.4 → CAUTION
+# < 0.4  → NO CONFLICT
+```
+
+### STATUS sync rule:
+When processing new blog ideas, check `keyword-locker-registry.csv` for rows where Source = `To_Write_Blog`. If keyword matches, set STATUS = `TO_WRITE` in blog_ideas.csv.
+
+---
+
+# BLOG MANAGER TOOL
+
+## Overview
+**File:** `blog-manager-tool.html`
+**Current Version:** v1.9 (May 27, 2026)
+**URL:** https://tools.aboutwallart.com/blog-manager-tool.html
+
+## Features
+- 3 tabs: Blog Ideas | To Write | Keyword Change
+- Reads `blog_ideas.csv` from GitHub via `/api/blogs` GET
+- Conflict detection shown per card: NO CONFLICT (green), CAUTION (yellow), DANGER (red)
+- "Mark for Writing" button: saves to registry + marks blog_ideas.csv + sends to Google Sheet
+- "Send to Google Sheet" button (manual, in To Write tab): sends to Sheet and removes card from view
+- "Undo" button: removes from registry, clears status
+- "Change Keyword" button: marks for keyword review
+
+## Version History:
+- v1.7 — 3 tabs working, Mark for Writing saves to registry and blog_ideas.csv
+- v1.8 — Added `title` and `perspective` to POST body for Google Sheets
+- v1.9 — Added "Send to Google Sheet" button in To Write tab (manual trigger, card disappears on send)
+
+## Mark for Writing — POST body sent to /api/blogs:
+```javascript
+{
+  keyword: idea.currentKeyword,
+  url: generateUrl(idea.currentTitle),
+  title: idea.currentTitle,
+  perspective: idea.perspective
+}
+```
+
+---
+
+# API KEYS & CREDENTIALS
+
+## Vercel Environment Variables (current as of May 27, 2026)
+
+```
+ANTHROPIC_API_KEY        — Claude API key (Production only)
+OPENAI_API_KEY           — OpenAI API key
+SHOPIFY_STORE_DOMAIN     — aboutwallart.myshopify.com
+SHOPIFY_ACCESS_TOKEN     — Shopify Admin API token
+TOOLS_PASSWORD           — Password for tools dashboard authentication
+GOOGLE_API_KEY           — Google API key
+SERPAPI_KEY              — SerpAPI key (Production only)
+BLOGDATA_READ_WRITE_TOKEN — Vercel Blob storage token
+EDGE_CONFIG              — Edge config (all environments)
+GITHUB_TOKEN             — GitHub API token for reading/writing data files
+SHEETS_WEBHOOK_URL       — Google Apps Script Web App URL for Sheets integration (NEW May 27, 2026)
+```
+
+### How to Access:
+1. Go to: https://vercel.com/aboutwallart/seo-tools
+2. Settings → Environment Variables
+
+### After adding/changing env vars:
+**Must redeploy Vercel for changes to take effect.**
+Go to Vercel → Deployments → 3 dots on latest → Redeploy
+
+---
+
+# CORS CONFIGURATION
+
+All API files MUST include CORS headers at the top of the handler. See `blogs.js` section above for the standard headers block. This is required to prevent browser CORS errors when the frontend calls the API.
+
+**vercel.json** also sets CORS headers at infrastructure level:
+```json
+{
+  "redirects": [{
+    "source": "/:path*",
+    "has": [{ "type": "host", "value": "seo-tools-lake.vercel.app" }],
+    "destination": "https://tools.aboutwallart.com/:path*",
+    "permanent": true
+  }],
+  "headers": [{
+    "source": "/api/(.*)",
+    "headers": [
+      { "key": "Access-Control-Allow-Origin", "value": "*" },
+      { "key": "Access-Control-Allow-Methods", "value": "GET, POST, PUT, DELETE, OPTIONS" },
+      { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" }
+    ]
+  }]
+}
+```
+
+---
+
+# DEPLOYMENT
+
+## GitHub → Vercel Workflow
+1. Upload/edit file on GitHub (main branch)
+2. Vercel auto-deploys (takes 2-3 minutes)
+3. **Wait 2 minutes before testing**
+4. Hard refresh browser: Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows)
+
+## Debugging
+- Vercel logs: https://vercel.com/aboutwallarts-projects/seo-tools/logs
+- Check latest error timestamp
+- Common issues:
+  - Wrong Claude model name (must be `claude-sonnet-4-6`)
+  - Missing environment variable
+  - Vercel hasn't redeployed yet
+  - Browser cache (hard refresh)
 
 ---
 
 # DEPLOYED TOOLS
 
 ## Live URLs
-
-**Primary Domain:** https://tools.aboutwallart.com (Custom Domain - Password Protected)
+**Primary Domain:** https://tools.aboutwallart.com (Password Protected)
 **Old Domain:** https://seo-tools-lake.vercel.app (Redirects to tools.aboutwallart.com)
 
-**Authentication Required:** All tools require login via password-protected index page
-
 ### Available Tools:
-0. **Dashboard (Login Page)**
-   - URL: `/` or `/index.html`
-   - Purpose: Password-protected landing page, lists all tools
-   - Features: Chrome password manager integration, 90-day token expiry
-
-1. **Keyword Locker**
-   - URL: `/keyword-locker.html`
-   - Purpose: Lock keywords to pages, detect conflicts
-   - Protection: Requires authentication
-
-2. **Blog Manager**
-   - URL: `/blog-manager-tool.html`
-   - Purpose: Generate blog content from Reddit questions
-   - Protection: Requires authentication
-
-3. **Money Page Doctor**
-   - URL: `/money-page-doctor.html`
-   - Purpose: Analyze and optimize collection pages against competitors
-   - Protection: Requires authentication
-
-4. **Rank Report Card**
-   - URL: `/rank-report-card.html`
-   - Purpose: Technical SEO audits
-   - Protection: Requires authentication
-
-5. **Image Optimizer**
-   - URL: `/image-optimizer.html`
-   - Purpose: Scan pages, optimize images, generate alt text, push to Shopify
-   - Protection: Requires authentication
-
----
-
-# IMAGE OPTIMIZER TOOL
-
-## Overview
-**File:** `image-optimizer-v2.10.html`
-**API:** `api/shopify-files.js`
-**Status:** Production (May 26, 2026)
-**Purpose:** Automated image optimization and alt text generation for Shopify stores
-
-## Features
-
-### Core Functionality:
-1. **Page Scanning**
-   - Scans any URL on aboutwallart.com
-   - Extracts all images (product, blog, collection pages)
-   - Analyzes file size, format, dimensions, alt text
-
-2. **Image Optimization**
-   - Converts images to WebP format
-   - Compresses to ~85% quality
-   - Target: <500KB per image
-   - Client-side optimization (no server upload)
-
-3. **Alt Text Generation**
-   - Uses Claude Vision API (Anthropic)
-   - Generates descriptive, SEO-friendly alt text
-   - Context-aware (UI elements vs product images)
-   - Keyword-optimized descriptions
-
-4. **Shopify Integration**
-   - Direct upload to Shopify Files via Admin API
-   - Replaces existing files while preserving URLs
-   - Updates alt text in Shopify metadata
-   - Handles file conflicts and versioning
-
-### Color-Coded Issue Detection:
-- 🟦 **Blue:** Alt text missing only (AUTO - push to Shopify)
-- 🟨 **Yellow:** Image too large only (AUTO - optimize and push)
-- 🟧 **Orange:** Alt text missing (MANUAL - theme section)
-- 🟪 **Purple:** Image too large (MANUAL - theme section)
-- 🔴 **Red:** Both issues present (manual fix required)
-- 🟩 **Green:** No issues / resolved
-
-### Tab System:
-- **To Fix:** Shows all images needing attention (sorted by color)
-- **Resolved:** Shows fixed images (with undo functionality)
-
-## Technical Architecture
-
-### Frontend (image-optimizer-v2.10.html):
-- Pure HTML + vanilla JavaScript
-- No external dependencies except:
-  - Claude Vision API (via fetch)
-  - Shopify Admin API (via fetch to proxy)
-- Implements:
-  - Image scanning via HTML fetch + DOM parsing
-  - Canvas-based image optimization
-  - WebP conversion with quality control
-  - Base64 encoding for API transmission
-
-### Backend API (api/shopify-files.js):
-- **Endpoint:** `https://seo-tools-lake.vercel.app/api/shopify-files`
-- **Method:** POST
-- **Authentication:** Shopify access token (environment variable)
-- **API Version:** 2025-01
-
-### Supported Actions:
-
-#### 1. `replace_file`
-**Purpose:** Replace existing image file in Shopify
-**Flow:**
-1. Find file by filename using GraphQL query
-2. Create staged upload target
-3. Build multipart form data manually (no FormData dependency)
-4. Upload optimized image to staged URL
-5. Create new file with alt text via `fileCreate`
-6. Delete old file after 3-second delay
-
-**GraphQL Mutations Used:**
-- `files(query: "filename:...")` — Find file
-- `stagedUploadsCreate` — Get upload target
-- `fileCreate` — Create new file
-- `fileDelete` — Remove old file
-
-#### 2. `update_alt_only` (DEPRECATED - NOT WORKING)
-**Status:** Known Shopify API bug - silently fails
-**Issue:** `fileUpdate` mutation returns success but doesn't persist alt text
-**Replaced by:** `replace_file` for all operations
-
-## Shopify API Integration
-
-### Required Scopes:
-```
-write_content
-read_content
-write_files
-read_files
-write_product_listings
-read_product_listings
-write_products
-read_products
-```
-
-### Environment Variables (Vercel):
-```
-SHOPIFY_STORE_DOMAIN=aboutwallart.myshopify.com
-SHOPIFY_ACCESS_TOKEN=[admin API token]
-```
-
-### API Endpoint Configuration:
-- **URL:** `https://{SHOPIFY_STORE_DOMAIN}/admin/api/2025-01/graphql.json`
-- **Headers:**
-  - `Content-Type: application/json`
-  - `X-Shopify-Access-Token: {SHOPIFY_ACCESS_TOKEN}`
-
-### Key GraphQL Operations:
-
-#### Find File by Filename:
-```graphql
-query {
-  files(first: 5, query: "filename:image.jpg") {
-    edges {
-      node {
-        ... on MediaImage {
-          id
-          alt
-        }
-      }
-    }
-  }
-}
-```
-
-#### Create Staged Upload:
-```graphql
-mutation {
-  stagedUploadsCreate(input: [{
-    resource: IMAGE,
-    filename: "image.webp",
-    mimeType: "image/webp",
-    httpMethod: POST
-  }]) {
-    stagedTargets {
-      url
-      resourceUrl
-      parameters { name value }
-    }
-  }
-}
-```
-
-#### Create File with Alt Text:
-```graphql
-mutation {
-  fileCreate(files: [{
-    originalSource: "[staged URL]",
-    contentType: IMAGE,
-    alt: "Descriptive alt text here"
-  }]) {
-    files { id alt }
-    userErrors { field message }
-  }
-}
-```
-
-#### Delete File:
-```graphql
-mutation {
-  fileDelete(fileIds: ["gid://shopify/MediaImage/123"]) {
-    deletedFileIds
-    userErrors { field message }
-  }
-}
-```
-
-### Known Limitations:
-
-1. **Theme Section Images:**
-   - Alt text stored in `settings_data.json`, not Files API
-   - Cannot update via API
-   - Must be updated manually in theme editor
-   - Tool marks these as MANUAL (orange/purple)
-
-2. **File Matching:**
-   - Filename must match exactly (case-sensitive)
-   - Query parameter `?v=timestamp` stripped before matching
-   - CDN URLs cleaned before binary fetch
-
-3. **Async Processing:**
-   - 3-second delay required between create and delete
-   - Shopify processes file creation asynchronously
-   - Immediate delete can fail if file not yet ready
-
-## Version History
-
-### v2.10 (Current - May 26, 2026)
-- **Status:** PRODUCTION
-- Removed all bulk operations
-- Kept color coding and tab system
-- Fixed "Mark as Done" to move to Resolved tab
-- Fixed manual checkbox to move to Resolved tab
-- Individual buttons for each card (Optimize, Generate Alt Text, Push to Shopify)
-- Stable and working for blue (alt text) and yellow (optimize) cards
-
-### v2.10 Backup Files:
-- `image-optimizer-v2.10-BACKUP.html`
-- `shopify-files-v2.10-BACKUP.js` (API)
-
-### Previous Versions:
-- v2.8 — Working version before bulk operations
-- v2.9.x — Bulk operations (removed due to complexity)
-
-## Usage Workflow
-
-### Typical User Flow:
-1. Open Image Optimizer tool
-2. Enter page URL (e.g., `/collections/black-and-white`)
-3. Click "Scan Images"
-4. Review color-coded results in "To Fix" tab
-5. For each image:
-   - Click "Generate Alt Text" (uses Claude Vision)
-   - Review/edit alt text
-   - Click "Optimize" if needed (converts to WebP)
-   - Click "Push to Shopify" (individual purple button)
-   - Click "Mark as Done"
-6. Image moves to "Resolved" tab (green) with undo button
-7. Continue until "To Fix" tab is empty
-
-### Manual Workflow (Orange/Purple Cards):
-1. Orange (theme section alt text):
-   - Copy generated alt text
-   - Go to Shopify admin → Themes → Customize
-   - Find image in theme editor
-   - Paste alt text
-   - Check "Mark as manually fixed" checkbox
-   - Card moves to Resolved
-
-2. Purple (theme section optimization):
-   - Click "Optimize" to download WebP
-   - Manually upload to Shopify Files
-   - Update theme to use new file
-   - Check "Mark as manually fixed" checkbox
-   - Card moves to Resolved
-
-## Testing & Validation
-
-### Confirmed Working:
-✅ Page scanning (products, collections, blogs)
-✅ Image optimization (PNG/JPG → WebP, <500KB)
-✅ Alt text generation (Claude Vision API)
-✅ Push to Shopify (blue cards - alt text only)
-✅ Push to Shopify (yellow cards - optimize only)
-✅ Mark as Done → Resolved tab with undo
-✅ Manual fix checkbox → Resolved tab without undo
-✅ Color coding and sorting
-✅ Tab switching
-
-### Known Issues:
-⚠️ Files modified during testing may have different filenames
-⚠️ "File not found" error if filename was changed previously
-⚠️ Solution: Use untouched images or manually verify filename in Shopify
-
-## Performance Metrics
-
-### Optimization Results:
-- Average size reduction: 90-95%
-- Example: 1.49 MB → 88 KB (94% savings)
-- Format: WebP with 85% quality
-- Dimensions: Preserved (no resizing)
-
-### API Call Costs:
-- Claude Vision API: ~$0.01 per image
-- Shopify API: Free (within rate limits)
-- Total: Negligible for typical usage
-
----
-
-# API KEYS & CREDENTIALS
-
-## Vercel Environment Variables
-
-### Current Environment Variables:
-```
-ANTHROPIC_API_KEY=[Anthropic Claude API key]
-OPENAI_API_KEY=[OpenAI API key]
-SHOPIFY_STORE_DOMAIN=aboutwallart.myshopify.com
-SHOPIFY_ACCESS_TOKEN=[Shopify Admin API token]
-TOOLS_PASSWORD=[Password for tools dashboard authentication - Added May 26, 2026]
-```
-
-### How to Access:
-1. Go to: https://vercel.com/aboutwallart/seo-tools
-2. Click "Settings" → "Environment Variables"
-3. View or edit existing variables
-4. Click "Save" to apply changes
-5. Redeploy for changes to take effect
-
-### Security:
-- All keys encrypted by Vercel
-- Never exposed in frontend code
-- Only accessible by serverless functions
-- Environment-specific (production/preview/development)
-
----
-
-# CORS CONFIGURATION
-
-## Vercel CORS Settings
-
-**File:** `vercel.json`
-
-```json
-{
-  "redirects": [
-    {
-      "source": "/:path*",
-      "has": [
-        {
-          "type": "host",
-          "value": "seo-tools-lake.vercel.app"
-        }
-      ],
-      "destination": "https://tools.aboutwallart.com/:path*",
-      "permanent": true
-    }
-  ],
-  "headers": [
-    {
-      "source": "/api/(.*)",
-      "headers": [
-        { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, PUT, DELETE, OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" }
-      ]
-    }
-  ]
-}
-```
-
-### Purpose:
-- Redirect old domain (seo-tools-lake.vercel.app) to new domain (tools.aboutwallart.com)
-- Allow API calls from any domain
-- Enable cross-origin resource sharing
-- Support OPTIONS preflight requests
-
-### Affected Endpoints:
-- All `/api/*` endpoints
-- Including `shopify-files.js`
-
----
-
-# DEPLOYMENT
-
-## Vercel Deployment
-
-### Automatic Deployment:
-- **Trigger:** Push to `main` branch on GitHub
-- **Platform:** Vercel
-- **Build Command:** None (static site)
-- **Output Directory:** `.` (root)
-
-### Manual Deployment:
-```bash
-# Install Vercel CLI
-npm install -g vercel
-
-# Login
-vercel login
-
-# Deploy
-vercel --prod
-```
-
-### Deployment URL:
-- **Production:** https://seo-tools-lake.vercel.app
-- **Preview:** Auto-generated for each PR
-
----
-
-# TROUBLESHOOTING
-
-## Common Issues
-
-### Image Optimizer: "File not found in Shopify"
-**Symptom:** Push to Shopify fails with "File not found"
-
-**Causes:**
-1. File was previously modified and filename changed
-2. Filename doesn't match Shopify exactly
-3. File exists in theme but not in Files
-
-**Solution:**
-1. Check Shopify Admin → Content → Files
-2. Search for the filename
-3. If missing: Download → Manually upload
-4. If exists but different name: Note actual filename in tool
-
-### Image Optimizer: Alt text not showing on page
-**Symptom:** Alt text updates in Shopify Files but not on website
-
-**Cause:** Image is in theme section, not managed by Files API
-
-**Solution:**
-1. Shopify Admin → Online Store → Themes → Customize
-2. Find the image in theme editor
-3. Manually update alt text field
-4. Save theme
-
-### Shopify API: Rate Limiting
-**Symptom:** 429 Too Many Requests error
-
-**Solution:**
-- Shopify Admin API: 2 requests/second
-- Wait and retry
-- Tool includes 3-second delays between operations
-
-### CORS Errors
-**Symptom:** "No 'Access-Control-Allow-Origin' header"
-
-**Solution:**
-- Verify `vercel.json` has correct CORS headers
-- Redeploy after any changes to `vercel.json`
-- Clear browser cache
-
----
-
-# MAINTENANCE
-
-## Regular Tasks
-
-### Weekly:
-- Check Vercel deployment status
-- Review API usage (ensure within limits)
-- Backup `keyword-locker-registry.csv` (automatic via GitHub)
-
-### Monthly:
-- Review API key expiration dates (if applicable)
-- Check for tool updates or bug reports
-- Verify all tools still functioning correctly
-- Test Image Optimizer on sample pages
-
-### As Needed:
-- Update API keys if rotated
-- Deploy tool improvements
-- Add new API endpoints for new tools
-- Update Shopify access token if expired
-
----
-
-# SECURITY NOTES
-
-## API Key Protection
-
-**CRITICAL:** API keys are stored in Vercel environment variables, NEVER in code.
-
-### What's Protected:
-- All keys in Vercel are encrypted
-- Keys never exposed in frontend code
-- Keys never committed to GitHub
-- API endpoints act as proxy, hiding keys from users
-
-### Access Control:
-- Only Vercel serverless functions can access environment variables
-- Frontend never sees actual API keys
-- Users can't extract keys from browser console
-
-### Shopify Token Security:
-- Admin API token has scoped permissions
-- Token stored as environment variable
-- Never transmitted to client
-- All Shopify calls proxied through `api/shopify-files.js`
+1. **Keyword Locker** — `/keyword-locker.html`
+2. **Blog Manager** — `/blog-manager-tool.html`
+3. **Money Page Doctor** — `/money-page-doctor.html`
+4. **Rank Report Card** — `/rank-report-card.html`
+5. **Image Optimizer** — `/image-optimizer.html`
 
 ---
 
 # PASSWORD PROTECTION SYSTEM
 
-## Overview
-
-**Implemented:** May 26, 2026
-**Purpose:** Secure all SEO tools behind password authentication to prevent unauthorized access and API credit abuse
-
-All tools are now protected by a centralized authentication system. Users must log in via the dashboard to access any tool.
-
-## Architecture
-
-### Components
-
-1. **index.html (Dashboard/Login Page)**
-   - Password-protected landing page
-   - Lists all 5 available tools after authentication
-   - Uses Credential Management API for Chrome password saving
-   - Token-based authentication with 90-day expiry
-   - Version 5 (current)
-
-2. **auth-check.js (Protection Script)**
-   - Loaded by all tool HTML files
-   - Checks for valid authentication token in localStorage
-   - Redirects to login page if token missing or expired
-   - Runs immediately on page load
-
-3. **/api/auth.js (Authentication Endpoint)**
-   - Validates credentials against TOOLS_PASSWORD environment variable
-   - Returns authentication token on successful login
-   - Token stored in browser localStorage with 90-day expiry
-   - Supports Chrome password manager via Credential Management API
-
-### Authentication Flow
-
-1. User visits any tool URL (e.g., `/keyword-locker.html`)
-2. `auth-check.js` runs immediately, checks localStorage for token
-3. If no token or token expired → redirect to `/` (login page)
-4. User enters credentials on index.html
-5. Form submits to `/api/auth` endpoint
-6. API validates password against `TOOLS_PASSWORD` environment variable
-7. On success: API returns token, stored in localStorage with 90-day expiry
-8. Chrome prompts to save password (via Credential Management API)
-9. User redirected to dashboard, can access all tools
-10. Token valid for 90 days, then user must login again
-
-### Token Structure
-
-```javascript
-{
-  token: "base64-encoded-username-timestamp",
-  expiry: timestamp (90 days from login)
-}
-```
-
-Stored in localStorage under key: `seo_tools_auth_token`
-
-## Domain Configuration
-
-### Primary Domain
-- **URL:** https://tools.aboutwallart.com
-- **Status:** Active, password protected
-- **DNS:** CNAME record pointing to Vercel
-
-### Old Domain (Redirect)
-- **URL:** https://seo-tools-lake.vercel.app
-- **Status:** Redirects to tools.aboutwallart.com
-- **Configuration:** Redirect rule in vercel.json
-
-### GitHub Pages
-- **URL:** https://aboutwallart.github.io/seo-tools/
-- **Status:** DISABLED (unpublished May 26, 2026)
-- **Reason:** Cannot password protect, would allow bypass of authentication
-
-## Password Management
-
-### Setting Password
-1. Go to Vercel → Project Settings → Environment Variables
-2. Variable: `TOOLS_PASSWORD`
-3. Value: Your chosen password
-4. Save and redeploy
-
-### Changing Password
-1. Update `TOOLS_PASSWORD` in Vercel environment variables
-2. Redeploy project
-3. All users must re-authenticate with new password
-
-### Password Recovery
-If you forget the password:
-1. Go to Vercel → Environment Variables
-2. View `TOOLS_PASSWORD` value
-3. Use that to login
-
-## Chrome Password Manager Integration
-
-### How It Works
-- Uses browser Credential Management API (`navigator.credentials.store()`)
-- Chrome recognizes successful login and offers to save password
-- Autofills username and password on subsequent visits
-- Works across devices if Chrome sync is enabled
-
-### Requirements for Chrome to Save
-- Form must have `type="password"` input (not text)
-- Form must use `autocomplete="username"` and `autocomplete="current-password"`
-- Successful login must call `navigator.credentials.store()`
-- User must confirm save when Chrome prompts
-
-## Protected Tools
-
-All 5 tools require authentication:
-1. Keyword Locker (`/keyword-locker.html`)
-2. Blog Manager (`/blog-manager-tool.html`)
-3. Money Page Doctor (`/money-page-doctor.html`)
-4. Rank Report Card (`/rank-report-card.html`)
-5. Image Optimizer (`/image-optimizer.html`)
-
-Each tool HTML file includes:
+All tools require authentication. Each tool HTML file includes:
 ```html
 <body>
     <script src="/auth-check.js"></script>
-    <!-- rest of tool code -->
-</body>
 ```
 
-## Security Features
-
-### What's Protected
-- All tool interfaces (cannot view without login)
-- All tool functionality (cannot use without valid token)
-- API endpoints still require authentication (tools can't be called externally without login)
-
-### What's NOT Protected
-- `/auth-check.js` file itself (public, but harmless - just checks for token)
-- `/api/auth` endpoint (public, but requires correct password)
-- Static assets, CSS, JavaScript libraries
-
-### Token Expiry
-- Tokens expire after 90 days
-- User must re-authenticate when token expires
-- Chrome autofills saved password for quick re-login
-
-### Logout
-- Logout button on dashboard
-- Clears token from localStorage
-- Redirects to login page
-- User must re-authenticate to access tools
-
-## Testing Authentication
-
-### Test Protection Works
-1. Open incognito/private browser window
-2. Visit any tool URL directly (e.g., `https://tools.aboutwallart.com/keyword-locker.html`)
-3. Should redirect to `https://tools.aboutwallart.com/` (login page)
-4. Cannot access tool without valid credentials
-
-### Test Successful Login
-1. Go to `https://tools.aboutwallart.com`
-2. Enter username and password
-3. Should see dashboard with all 5 tools listed
-4. Click any tool → should load without redirect
-5. Chrome should prompt to save password
-
-### Test Token Expiry
-1. Login successfully
-2. Open browser DevTools → Application → Local Storage
-3. Find `seo_tools_auth_token` → Delete it
-4. Refresh page or visit any tool URL
-5. Should redirect to login
-
-## Troubleshooting
-
-### Chrome Not Saving Password
-- Ensure `type="password"` (not `type="text"`)
-- Check Chrome settings: Password Manager → "Offer to save passwords" is ON
-- Clear Chrome cache and try login again
-- Ensure Credential Management API is working (check browser console for errors)
-
-### Tools Not Redirecting to Login
-- Verify `auth-check.js` is uploaded to GitHub root
-- Check browser console for JavaScript errors
-- Verify `auth-check.js` is loaded (Network tab in DevTools)
-- Ensure each tool has `<script src="/auth-check.js"></script>` after `<body>` tag
-
-### Domain Redirect Not Working
-- Verify `vercel.json` has redirect rule for old domain
-- Check Vercel deployment logs for errors
-- Wait 1-2 minutes after deployment for changes to propagate
-
-### Password Not Working
-- Verify `TOOLS_PASSWORD` environment variable is set in Vercel
-- Check that Vercel project has been redeployed after adding variable
-- Try clearing browser cache and cookies
-
-## Backup Files
-
-All password-protected files have backup copies:
-- `index-v5-BACKUP.html` (working login page)
-- `keyword-locker-BACKUP.html` (with auth protection)
-- `blog-manager-tool-BACKUP.html` (with auth protection)
-- `money-page-doctor-BACKUP.html` (with auth protection)
-- `rank-report-card-BACKUP.html` (with auth protection)
-- `image-optimizer-BACKUP.html` (with auth protection)
-- `vercel-BACKUP.json` (with redirect rules)
-- `auth-check-BACKUP.js` (authentication script)
+- Token stored in localStorage, 90-day expiry
+- Password stored in Vercel env var: `TOOLS_PASSWORD`
+- Login page: `index.html`
+- Auth endpoint: `/api/auth.js`
 
 ---
 
-# FUTURE PLANS
+# IMAGE OPTIMIZER TOOL
 
-## Planned Improvements
+**File:** `image-optimizer.html`
+**API:** `api/shopify-files.js`
+**Status:** Production
 
-1. **Custom Domain Setup**
-   - Target: `tools.aboutwallart.com`
-   - Status: ✅ COMPLETED (May 26, 2026)
-   - Impact: Professional URL for all tools with password protection
+## Key Technical Details:
+- `fileUpdate` mutation is BROKEN in Shopify API — silently fails, does not persist alt text
+- Use `replace_file` action for ALL operations (creates new file, deletes old)
+- 3-second delay required between file create and delete
+- Theme section images cannot be updated via API — must be done manually in theme editor
 
-2. **Image Optimizer Enhancements** (Potential)
-   - Product image detection and smart routing
-   - Bulk operations (disabled in v2.10)
-   - ZIP download for manual uploads
-   - Kickstart integration
+## Shopify API:
+- Endpoint: `https://aboutwallart.myshopify.com/admin/api/2025-01/graphql.json`
+- Env vars: `SHOPIFY_STORE_DOMAIN`, `SHOPIFY_ACCESS_TOKEN`
 
-3. **Additional Tools**
-   - ✅ Image SEO optimizer (COMPLETED - v2.10)
-   - Internal linking optimizer
-   - Content freshness tracker
-   - Backlink monitor
+---
 
-4. **Enhanced Registry Features**
-   - Real-time conflict alerts
-   - Bulk keyword operations
-   - Historical keyword tracking
-   - Export/import functionality
+# BLOG IDEAS PROCESSING WORKFLOW
+
+## How to add more ideas to blog_ideas.csv:
+
+1. User provides a source file (xlsx or csv) with new blog ideas
+2. Download current `blog_ideas.csv` from GitHub — note which keywords are already in it
+3. Filter out rows already in blog_ideas.csv
+4. Take next N rows (recommend batches of 10-50)
+5. Run Jaccard conflict detection against `keyword-locker-registry.csv`
+6. For each new row: check if keyword exists in registry with Source=`To_Write_Blog` → if yes, set STATUS=`TO_WRITE`
+7. Append new rows to existing blog_ideas.csv (DO NOT replace — preserves previous work)
+8. Upload updated blog_ideas.csv to GitHub at `data/blog_ideas.csv`
+
+## Current state (May 27, 2026):
+- blog_ideas.csv: 50 rows processed
+
+---
+
+# TROUBLESHOOTING
+
+## CORS Errors
+- Verify CORS headers are in the API file
+- Verify `vercel.json` has correct CORS config
+- Redeploy after changes
+- Hard refresh browser
+
+## Claude API fails
+- Check model name: must be exactly `claude-sonnet-4-6`
+- Check `ANTHROPIC_API_KEY` is set in Vercel env vars
+- Check Vercel logs for specific error
+
+## Google Sheets not receiving data
+- Check `SHEETS_WEBHOOK_URL` is set in Vercel env vars
+- Verify Apps Script is deployed as Web App with "Anyone" access
+- Check Vercel logs — `sheetsResult` in API response shows success/error
+- Non-fatal: even if Sheets fails, the rest of the save still works
+
+## blog_ideas.csv not loading in tool
+- Check file exists at `data/blog_ideas.csv` in GitHub
+- Check `blogs.js` GET handler — reads from local filesystem, file must be in `data/` folder at repo root
+- Verify Vercel has redeployed after CSV update
+
+## Vercel function limit
+- Already at 12/12 functions
+- Cannot add new `.js` files to `/api/` folder
+- Add new functionality as new actions inside existing API files
 
 ---
 
 # CONTACT & SUPPORT
 
-## Resources
-
-**GitHub Repository:**
-https://github.com/aboutwallart/seo-tools
-
-**Vercel Dashboard:**
-https://vercel.com/aboutwallart/seo-tools
-
-**Live Tools:**
-https://tools.aboutwallart.com (Password Protected)
-
-**Shopify Admin:**
-https://aboutwallart.myshopify.com/admin
+**GitHub:** https://github.com/aboutwallart/seo-tools
+**Vercel:** https://vercel.com/aboutwallart/seo-tools
+**Live Tools:** https://tools.aboutwallart.com
+**Shopify Admin:** https://aboutwallart.myshopify.com/admin
+**Google Sheet (Blog Pipeline):** https://docs.google.com/spreadsheets/d/1W9AYH2Zcw-v2U6S47a3w5bs5rEBf6K30adDgNkaZ38k
 
 ---
 
@@ -889,8 +430,8 @@ https://aboutwallart.myshopify.com/admin
 This document should be updated whenever:
 - New tools are added
 - API keys are changed
+- New env vars are added to Vercel
 - CORS configuration is modified
-- Deployment URLs change
-- File structure is reorganized
-- Shopify API scopes are updated
-- Image Optimizer versions are released
+- File structure changes
+- New features added to existing tools
+- Vercel function count changes
