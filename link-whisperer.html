@@ -148,6 +148,23 @@
     .btn-page:hover:not(:disabled) { background:#f5f5f5; }
     .btn-page:disabled { opacity:0.4; cursor:default; }
 
+    /* PREVIEW MODAL */
+    #preview-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:9998; display:flex; align-items:center; justify-content:center; }
+    #preview-overlay.hidden { display:none; }
+    .preview-card { background:#fff; border-radius:8px; padding:28px; max-width:680px; width:95%; max-height:85vh; overflow-y:auto; box-shadow:0 8px 32px rgba(0,0,0,0.2); }
+    .preview-card h3 { font-size:16px; font-weight:700; margin-bottom:6px; }
+    .preview-card .preview-sub { font-size:13px; color:#666; margin-bottom:20px; }
+    .preview-link-block { background:#f9f9f9; border:1px solid #e0e0e0; border-radius:6px; padding:14px 16px; margin-bottom:12px; }
+    .preview-link-block .plb-target { font-size:12px; font-weight:700; text-transform:uppercase; color:#888; letter-spacing:0.4px; margin-bottom:6px; }
+    .preview-link-block .plb-anchor { font-size:14px; margin-bottom:6px; }
+    .preview-link-block .plb-anchor strong { color:#1565c0; background:#e3f2fd; padding:1px 5px; border-radius:3px; }
+    .preview-link-block .plb-sentence { font-size:13px; color:#444; line-height:1.7; background:#fff; border-left:3px solid #222; padding:8px 12px; border-radius:0 4px 4px 0; }
+    .preview-link-block .plb-sentence a { color:#1565c0; font-weight:600; }
+    .preview-link-block .plb-placement { font-size:11px; color:#888; margin-top:6px; font-style:italic; }
+    .preview-loading { text-align:center; padding:32px; color:#888; font-size:14px; }
+    .preview-loading .spinner { margin:0 auto 12px; }
+    .preview-buttons { display:flex; gap:10px; justify-content:flex-end; margin-top:20px; padding-top:16px; border-top:1px solid #eee; }
+
     #toast-container { position:fixed; bottom:24px; right:24px; z-index:9999; display:flex; flex-direction:column; gap:8px; }
     .toast { padding:12px 18px; border-radius:6px; font-size:13px; font-weight:600; color:#fff; box-shadow:0 4px 12px rgba(0,0,0,0.15); animation:slideIn 0.2s ease; }
     .toast.success { background:#43a047; }
@@ -171,7 +188,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v5.0</div>
+    <div class="version">v6.0</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -283,6 +300,21 @@
   <div id="tab-url-changer" class="tab-content"><p class="placeholder-msg">URL Changer — coming soon.</p></div>
   <div id="tab-target-keywords" class="tab-content"><p class="placeholder-msg">Target Keywords — coming soon.</p></div>
   <div id="tab-settings" class="tab-content"><p class="placeholder-msg">Settings — coming soon.</p></div>
+</div>
+
+<!-- PREVIEW MODAL -->
+<div id="preview-overlay" class="hidden">
+  <div class="preview-card">
+    <h3>📋 Preview Links Before Saving</h3>
+    <p class="preview-sub">Claude has analysed the content and prepared the following links. Review the anchor text and placement, then confirm to save to Shopify.</p>
+    <div id="preview-body">
+      <div class="preview-loading"><div class="spinner"></div>Claude is analysing the content...</div>
+    </div>
+    <div class="preview-buttons">
+      <button class="btn-outline" onclick="closePreview()">Cancel</button>
+      <button class="btn-action" id="preview-save-btn" onclick="savePreviewedLinks()" style="display:none">✅ Looks Good — Save to Shopify</button>
+    </div>
+  </div>
 </div>
 
 <div id="toast-container"></div>
@@ -544,6 +576,9 @@ function closeSuggestPanel() {
   renderLinksReport();
 }
 
+// Stored pending preview data
+let pendingPreview = null;
+
 async function confirmSelectedLinks(itemId) {
   const item = AppState.items.find(i=>i.id===itemId);
   if (!item) return;
@@ -551,14 +586,122 @@ async function confirmSelectedLinks(itemId) {
   if (!checkboxes.length) { showToast('Please select at least one page.','error'); return; }
   const selected = Array.from(checkboxes).map(cb=>({ id:cb.dataset.candidateId, url:cb.dataset.candidateUrl, title:cb.dataset.candidateTitle, type:cb.dataset.candidateType }));
 
-  // Close panel immediately, show saving status
+  // Close panel immediately, show preview modal in loading state
   AppState.suggestState = {};
-  AppState.saveStatuses[itemId] = { status:'saving', count:selected.length };
   renderLinksReport();
-  showToast('Saving '+selected.length+' link(s) via Claude...','info');
 
-  // Run in background
+  document.getElementById('preview-body').innerHTML = '<div class="preview-loading"><div class="spinner"></div>Claude is reading the content and preparing your link previews...</div>';
+  document.getElementById('preview-save-btn').style.display = 'none';
+  document.getElementById('preview-overlay').classList.remove('hidden');
+
   try {
+    // Ask Claude to preview — return JSON with anchor text, sentence, placement
+    const previewPrompt = buildPreviewPrompt(item, selected);
+    const claudeResponse = await fetch(CONFIG.proxyUrl+'/api/claude', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ prompt: previewPrompt, max_tokens:1500 })
+    });
+    if (!claudeResponse.ok) throw new Error('Claude API failed');
+    const claudeData = await claudeResponse.json();
+    const claudeText = claudeData.content||claudeData.text||'';
+
+    // Parse the JSON preview from Claude
+    const previews = parsePreviewJson(claudeText, selected);
+
+    // Store for later save
+    pendingPreview = { item, selected, previews };
+
+    // Render preview blocks
+    renderPreviewBlocks(previews);
+    document.getElementById('preview-save-btn').style.display = '';
+
+  } catch(err) {
+    document.getElementById('preview-body').innerHTML = '<p style="color:#e53935;padding:16px;">Error getting preview: '+escHtml(err.message)+'</p>';
+    showToast('Preview failed: '+err.message,'error');
+  }
+}
+
+function buildPreviewPrompt(item, selected) {
+  const selectedList = selected.map(s=>'- '+s.title+' ('+s.type+'): '+s.url).join('\n');
+  return `You are an internal linking expert for About Wall Art (aboutwallart.com).
+
+Analyse this page and plan where to place internal links. For each link, identify the exact anchor text and the sentence it will appear in.
+
+PAGE TYPE: ${item.type}
+PAGE TITLE: ${item.title}
+CURRENT BODY HTML:
+${item.bodyHtml||'(no content yet)'}
+
+PAGES TO LINK TO:
+${selectedList}
+
+RULES:
+- Products: blog link in first/second paragraph, collection link in last paragraph
+- Blog posts: links naturally within sentences throughout content
+- Collections: links in middle or end of description
+- Anchor text must be natural — never "click here" or "read more"
+
+Return ONLY a valid JSON array, no explanation, no markdown. Format:
+[
+  {
+    "targetUrl": "https://...",
+    "targetTitle": "Page title",
+    "anchorText": "the exact anchor text phrase",
+    "fullSentence": "The full sentence with <a href=\\"URL\\">anchor text</a> inserted naturally",
+    "placement": "e.g. Second paragraph, after the first sentence"
+  }
+]`;
+}
+
+function parsePreviewJson(claudeText, selected) {
+  try {
+    let clean = claudeText.trim().replace(/^```json\s*/i,'').replace(/^```\s*/i,'').replace(/\s*```$/i,'').trim();
+    const parsed = JSON.parse(clean);
+    if (Array.isArray(parsed)) return parsed;
+  } catch(e) {}
+  // Fallback: generate basic previews from selected items
+  return selected.map(s=>({
+    targetUrl: s.url,
+    targetTitle: s.title,
+    anchorText: s.title,
+    fullSentence: 'See also: <a href="'+s.url+'">'+s.title+'</a>.',
+    placement: 'End of content'
+  }));
+}
+
+function renderPreviewBlocks(previews) {
+  if (!previews.length) {
+    document.getElementById('preview-body').innerHTML = '<p style="color:#e53935;padding:16px;">No link previews could be generated.</p>';
+    return;
+  }
+  document.getElementById('preview-body').innerHTML = previews.map((p,i) => `
+    <div class="preview-link-block">
+      <div class="plb-target">Link ${i+1} → ${escHtml(p.targetTitle||p.targetUrl)}</div>
+      <div class="plb-anchor">Anchor text: <strong>${escHtml(p.anchorText)}</strong></div>
+      <div class="plb-sentence">${p.fullSentence||''}</div>
+      <div class="plb-placement">📍 Placement: ${escHtml(p.placement||'Within content')}</div>
+    </div>`).join('');
+}
+
+function closePreview() {
+  document.getElementById('preview-overlay').classList.add('hidden');
+  pendingPreview = null;
+}
+
+async function savePreviewedLinks() {
+  if (!pendingPreview) return;
+  const { item, selected } = pendingPreview;
+
+  closePreview();
+
+  // Show saving status on row
+  AppState.saveStatuses[item.id] = { status:'saving', count:selected.length };
+  renderLinksReport();
+  showToast('Saving '+selected.length+' link(s) to Shopify...','info');
+
+  try {
+    // Now ask Claude to produce the actual updated HTML
     const prompt = buildClaudePrompt(item, selected);
     const claudeResponse = await fetch(CONFIG.proxyUrl+'/api/claude', {
       method:'POST',
@@ -571,22 +714,19 @@ async function confirmSelectedLinks(itemId) {
     const updatedHtml = extractHtmlFromClaude(claudeText, item.bodyHtml, selected);
     await saveItemToShopify(item, updatedHtml);
 
-    // Update local state
     item.bodyHtml = updatedHtml;
     AppState.links=[];
     for (const i of AppState.items) AppState.links.push(...parseItemLinks(i));
     buildLinkGraph();
     detectBrokenLinks();
-    AppState.saveStatuses[itemId] = { status:'saved', count:selected.length };
+    AppState.saveStatuses[item.id] = { status:'saved', count:selected.length };
     renderLinksReport();
     renderDashboard();
     showToast('✅ '+selected.length+' link(s) saved to Shopify!','success');
-
-    // Clear status badge after 5 seconds
-    setTimeout(()=>{ delete AppState.saveStatuses[itemId]; renderLinksReport(); }, 5000);
+    setTimeout(()=>{ delete AppState.saveStatuses[item.id]; renderLinksReport(); }, 5000);
 
   } catch(err) {
-    AppState.saveStatuses[itemId] = { status:'failed', count:selected.length };
+    AppState.saveStatuses[item.id] = { status:'failed', count:selected.length };
     renderLinksReport();
     showToast('❌ Failed: '+err.message,'error');
   }
