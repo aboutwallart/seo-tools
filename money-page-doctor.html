@@ -255,7 +255,6 @@
     </style>
 </head>
 <body>
-    <script src="/auth-check.js"></script>
     <div class="container">
         <header>
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
@@ -1255,7 +1254,7 @@
             
             try {
                 // Fetch page HTML
-                const htmlResponse = await fetch(`https://seo-tools-lake.vercel.app/api/fetch-html?url=${encodeURIComponent(currentAuditURL)}`);
+                const htmlResponse = await fetch(`https://tools.aboutwallart.com/api/fetch-html?url=${encodeURIComponent(currentAuditURL)}`);
                 const htmlData = await htmlResponse.json();
                 
                 if (!htmlData.html) {
@@ -1456,7 +1455,7 @@
         // Fetch PageSpeed data
         async function fetchPageSpeedData(url, strategy) {
             try {
-                const response = await fetch(`https://seo-tools-lake.vercel.app/api/pagespeed?url=${encodeURIComponent(url)}&strategy=${strategy}`);
+                const response = await fetch(`https://tools.aboutwallart.com/api/pagespeed?url=${encodeURIComponent(url)}&strategy=${strategy}`);
                 const data = await response.json();
                 return data;
             } catch (error) {
