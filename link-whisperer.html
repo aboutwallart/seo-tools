@@ -9,7 +9,6 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; min-height: 100vh; }
 
-    /* HEADER */
     #header { background:#fff; width:100%; padding:0 24px; height:60px; display:flex; align-items:center; justify-content:space-between; box-shadow:0 1px 4px rgba(0,0,0,0.08); position:sticky; top:0; z-index:100; }
     #header-left h1 { font-size:18px; font-weight:700; color:#333; }
     #header-left .version { font-size:11px; color:#999; margin-top:1px; }
@@ -18,27 +17,24 @@
     #btn-refresh { background:#222; color:#fff; border:none; border-radius:4px; padding:8px 16px; font-size:12px; font-weight:600; text-transform:uppercase; cursor:pointer; letter-spacing:0.5px; }
     #btn-refresh:hover { background:#444; }
 
-    /* LOADING */
     #loading-overlay { position:fixed; inset:0; background:rgba(255,255,255,0.96); z-index:999; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px; }
     #loading-overlay.hidden { display:none; }
     .spinner { width:48px; height:48px; border:4px solid #e0e0e0; border-top-color:#222; border-radius:50%; animation:spin 0.8s linear infinite; }
+    .spinner-sm { width:14px; height:14px; border:2px solid #e0e0e0; border-top-color:#555; border-radius:50%; animation:spin 0.8s linear infinite; display:inline-block; vertical-align:middle; margin-right:4px; }
     @keyframes spin { to { transform:rotate(360deg); } }
     #loading-title { font-size:18px; font-weight:700; color:#333; }
     #loading-step { font-size:14px; color:#666; min-height:20px; }
     #loading-progress-wrap { width:320px; height:6px; background:#e0e0e0; border-radius:3px; overflow:hidden; }
     #loading-progress-bar { height:100%; background:#222; border-radius:3px; width:0%; transition:width 0.4s ease; }
 
-    /* APP */
     #app { display:none; }
     #app.visible { display:block; }
 
-    /* TABS */
     #tab-bar { background:#fff; border-bottom:1px solid #e0e0e0; padding:0 24px; display:flex; overflow-x:auto; white-space:nowrap; }
     .tab-btn { background:none; border:none; border-bottom:2px solid transparent; padding:16px 18px 14px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.6px; color:#888; cursor:pointer; transition:color 0.15s,border-color 0.15s; }
     .tab-btn:hover { color:#333; }
     .tab-btn.active { color:#222; border-bottom-color:#222; }
 
-    /* TAB CONTENT */
     .tab-content { display:none; padding:24px; }
     .tab-content.active { display:block; }
 
@@ -72,7 +68,7 @@
     .legend-item { display:flex; align-items:center; gap:6px; font-size:13px; color:#555; }
     .legend-dot { width:10px; height:10px; border-radius:50%; }
 
-    /* LINKS REPORT */
+    /* TABLE */
     .report-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
     .report-toolbar input[type=text] { padding:8px 12px; border:1px solid #ddd; border-radius:4px; font-size:13px; width:220px; font-family:inherit; }
     .report-toolbar select { padding:8px 12px; border:1px solid #ddd; border-radius:4px; font-size:13px; font-family:inherit; background:#fff; cursor:pointer; }
@@ -80,8 +76,6 @@
     .btn-action:hover { background:#444; }
     .btn-outline { background:#fff; color:#222; border:1px solid #222; border-radius:4px; padding:8px 16px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; cursor:pointer; }
     .btn-outline:hover { background:#f5f5f5; }
-
-    /* TABLE */
     .table-wrap { background:#fff; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.08); overflow:hidden; }
     table { width:100%; border-collapse:collapse; font-size:13px; }
     thead th { background:#f9f9f9; padding:12px 16px; text-align:left; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:#555; border-bottom:1px solid #e8e8e8; cursor:pointer; white-space:nowrap; user-select:none; }
@@ -97,13 +91,19 @@
     .td-title .item-type { display:inline-block; font-size:10px; color:#888; background:#f0f0f0; border-radius:3px; padding:1px 6px; margin-left:6px; text-transform:uppercase; }
     .td-date { color:#888; white-space:nowrap; }
     .td-links { white-space:nowrap; }
-    .link-cell { display:flex; align-items:center; gap:8px; }
+    .link-cell { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
     .link-count { background:#e3f2fd; color:#1565c0; font-weight:700; font-size:13px; padding:3px 10px; border-radius:4px; min-width:36px; text-align:center; }
     .link-count.zero { background:#f5f5f5; color:#bbb; }
     .btn-expand { background:none; border:1px solid #ddd; border-radius:4px; padding:3px 8px; font-size:11px; cursor:pointer; color:#555; transition:transform 0.2s; }
     .btn-expand.open { transform:rotate(180deg); }
     .btn-add { background:#222; color:#fff; border:none; border-radius:4px; padding:4px 10px; font-size:11px; font-weight:600; cursor:pointer; text-transform:uppercase; letter-spacing:0.3px; }
     .btn-add:hover { background:#444; }
+
+    /* SAVE STATUS BADGE */
+    .save-status { display:inline-flex; align-items:center; font-size:11px; padding:2px 8px; border-radius:10px; font-weight:600; gap:4px; }
+    .save-status.saving { background:#fff3e0; color:#e65100; }
+    .save-status.saved  { background:#e8f5e9; color:#2e7d32; }
+    .save-status.failed { background:#fce4ec; color:#c62828; }
 
     /* EXPAND ROW */
     .expand-row td { padding:0; }
@@ -116,35 +116,30 @@
     .expand-anchor { color:#666; font-style:italic; }
     .empty-expand { color:#aaa; font-size:13px; font-style:italic; }
 
-    /* SUGGESTIONS PANEL */
-    .suggest-panel { background:#fff8e1; border-left:3px solid #f9a825; padding:16px; }
-    .suggest-panel-title { font-size:12px; font-weight:700; text-transform:uppercase; color:#555; margin-bottom:4px; letter-spacing:0.4px; }
-    .suggest-panel-sub { font-size:12px; color:#888; margin-bottom:12px; }
-    .suggest-item { display:flex; align-items:flex-start; gap:10px; padding:8px 0; border-bottom:1px solid #f0e0a0; }
-    .suggest-item:last-child { border-bottom:none; }
+    /* SUGGEST PANEL */
+    .suggest-panel { background:#fffde7; border-left:3px solid #f9a825; padding:16px; }
+    .suggest-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:4px; gap:12px; }
+    .suggest-header-left h4 { font-size:13px; font-weight:700; color:#333; }
+    .suggest-header-left p { font-size:12px; color:#777; margin-top:3px; }
+    .suggest-top-actions { display:flex; gap:8px; flex-shrink:0; }
+    .suggest-section { margin-top:14px; }
+    .suggest-section-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; padding:4px 10px; border-radius:3px; margin-bottom:8px; display:inline-block; }
+    .st-collection { background:#e3f2fd; color:#1565c0; }
+    .st-article    { background:#f3e5f5; color:#6a1b9a; }
+    .st-product    { background:#e8f5e9; color:#1b5e20; }
+    .st-page       { background:#fff3e0; color:#e65100; }
+    .suggest-item { display:flex; align-items:flex-start; gap:10px; padding:8px; border-radius:6px; margin-bottom:6px; border:1px solid transparent; transition:background 0.1s; }
+    .suggest-item:hover { background:rgba(0,0,0,0.03); }
+    .suggest-item.pre-checked { border-color:#c8e6c9; background:#f1f8e9; }
     .suggest-item input[type=checkbox] { margin-top:2px; flex-shrink:0; width:15px; height:15px; cursor:pointer; }
     .suggest-item-info { flex:1; }
     .suggest-item-title { font-size:13px; font-weight:600; color:#222; }
-    .suggest-item-meta { font-size:11px; color:#888; margin-top:2px; }
+    .suggest-item-url { font-size:11px; color:#888; margin-top:1px; word-break:break-all; }
     .suggest-item-badges { display:flex; gap:4px; flex-wrap:wrap; margin-top:4px; }
     .badge { font-size:10px; padding:2px 6px; border-radius:3px; font-weight:600; text-transform:uppercase; }
     .badge-orphan { background:#fce4ec; color:#c62828; }
-    .badge-type { background:#f0f0f0; color:#555; }
-    .badge-match { background:#e8f5e9; color:#2e7d32; }
-    .suggest-actions { display:flex; gap:8px; margin-top:12px; padding-top:12px; border-top:1px solid #f0e0a0; align-items:center; }
-    .suggest-loading { font-size:13px; color:#888; font-style:italic; display:flex; align-items:center; gap:8px; }
-    .suggest-spinner { width:16px; height:16px; border:2px solid #e0e0e0; border-top-color:#222; border-radius:50%; animation:spin 0.8s linear infinite; flex-shrink:0; }
-
-    /* CONFIRM MODAL */
-    #modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9998; display:flex; align-items:center; justify-content:center; }
-    #modal-overlay.hidden { display:none; }
-    .modal-card { background:#fff; border-radius:8px; padding:32px; max-width:520px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.2); max-height:80vh; overflow-y:auto; }
-    .modal-card h3 { font-size:16px; font-weight:700; margin-bottom:8px; }
-    .modal-card .modal-sub { font-size:13px; color:#666; margin-bottom:16px; }
-    .modal-link-preview { background:#f5f5f5; border-radius:4px; padding:10px 12px; font-size:12px; color:#333; margin-bottom:8px; border-left:3px solid #222; }
-    .modal-link-preview strong { color:#222; }
-    .modal-buttons { display:flex; gap:10px; justify-content:flex-end; margin-top:20px; }
-    .modal-saving { font-size:13px; color:#888; font-style:italic; }
+    .badge-match  { background:#e8f5e9; color:#2e7d32; }
+    .badge-inbound { background:#f5f5f5; color:#888; }
 
     /* PAGINATION */
     .pagination { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; background:#fff; border-top:1px solid #f0f0f0; font-size:13px; color:#666; }
@@ -153,23 +148,19 @@
     .btn-page:hover:not(:disabled) { background:#f5f5f5; }
     .btn-page:disabled { opacity:0.4; cursor:default; }
 
-    /* TOAST */
     #toast-container { position:fixed; bottom:24px; right:24px; z-index:9999; display:flex; flex-direction:column; gap:8px; }
     .toast { padding:12px 18px; border-radius:6px; font-size:13px; font-weight:600; color:#fff; box-shadow:0 4px 12px rgba(0,0,0,0.15); animation:slideIn 0.2s ease; }
     .toast.success { background:#43a047; }
     .toast.error   { background:#e53935; }
     .toast.info    { background:#555; }
     @keyframes slideIn { from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);} }
-
     .placeholder-msg { color:#aaa; font-size:13px; padding:40px 0; text-align:center; }
     .empty-state { text-align:center; padding:48px 24px; color:#aaa; font-size:14px; }
   </style>
 </head>
 <body>
-
 <script src="/auth-check.js"></script>
 
-<!-- LOADING -->
 <div id="loading-overlay">
   <div class="spinner"></div>
   <div id="loading-title">Syncing from Shopify...</div>
@@ -177,11 +168,10 @@
   <div id="loading-progress-wrap"><div id="loading-progress-bar"></div></div>
 </div>
 
-<!-- HEADER -->
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v4.0</div>
+    <div class="version">v5.0</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -189,7 +179,6 @@
   </div>
 </div>
 
-<!-- MAIN APP -->
 <div id="app">
   <div id="tab-bar">
     <button class="tab-btn active" onclick="switchTab('dashboard')">Dashboard</button>
@@ -266,7 +255,7 @@
       <button class="btn-outline" onclick="exportLinksCSV()">EXPORT TO CSV</button>
     </div>
     <div class="table-wrap">
-      <table id="lr-table">
+      <table>
         <thead>
           <tr>
             <th onclick="sortLinksReport('title')">Title <span class="sort-icon" id="sort-title"></span></th>
@@ -288,27 +277,12 @@
     </div>
   </div>
 
-  <!-- PLACEHOLDER TABS -->
   <div id="tab-domains-report" class="tab-content"><p class="placeholder-msg">Domains Report — coming soon.</p></div>
   <div id="tab-broken-links" class="tab-content"><p class="placeholder-msg">Broken Links Report — coming soon.</p></div>
   <div id="tab-auto-linking" class="tab-content"><p class="placeholder-msg">Auto Linking — coming soon.</p></div>
   <div id="tab-url-changer" class="tab-content"><p class="placeholder-msg">URL Changer — coming soon.</p></div>
   <div id="tab-target-keywords" class="tab-content"><p class="placeholder-msg">Target Keywords — coming soon.</p></div>
   <div id="tab-settings" class="tab-content"><p class="placeholder-msg">Settings — coming soon.</p></div>
-</div>
-
-<!-- CONFIRM MODAL -->
-<div id="modal-overlay" class="hidden">
-  <div class="modal-card">
-    <h3 id="modal-title">Confirm & Save Links</h3>
-    <p class="modal-sub" id="modal-sub"></p>
-    <div id="modal-links-preview"></div>
-    <div id="modal-saving-msg" class="modal-saving" style="display:none">Saving to Shopify via Claude...</div>
-    <div class="modal-buttons">
-      <button class="btn-outline" onclick="closeModal()" id="modal-cancel-btn">Cancel</button>
-      <button class="btn-action" id="modal-confirm-btn" onclick="confirmModal()">Confirm & Save to Shopify</button>
-    </div>
-  </div>
 </div>
 
 <div id="toast-container"></div>
@@ -323,26 +297,29 @@ const CONFIG = {
 const ROOM_TYPES = ['bathroom','bedroom','living room','kitchen','hallway','office','nursery','staircase','dining','garden','study','playroom','conservatory'];
 const STYLES = ['japandi','minimalist','maximalist','botanical','abstract','vintage','modern','scandi','industrial','rustic','bohemian','monochrome','black and white','geometric','floral','tropical','coastal'];
 
+// Rules per item type: how many of each target type to show
+const LINK_RULES = {
+  product:    { collection: { count:1, label:'Collection (mandatory — the collection this product belongs to)', precheck:true }, article: { count:3, label:'Blog Posts (pick 1)', precheck:false } },
+  article:    { product: { count:3, label:'Products (pick 1)', precheck:false }, collection: { count:3, label:'Collections (pick 1)', precheck:false }, article: { count:3, label:'Other Blog Posts (pick 1)', precheck:false } },
+  collection: { article: { count:3, label:'Blog Posts (pick 1–2)', precheck:false } },
+  page:       { collection: { count:1, label:'Collection (pick 1)', precheck:false } }
+};
+
 const AppState = {
-  items: [], links: [], brokenLinks: [], lastSync: null,
-  linkGraph: { outbound:{}, inbound:{} },
-  lrPage: 1, lrSort: { col:'title', dir:'asc' },
-  expandState: {},
-  suggestState: {},
-  modalCallback: null,
-  pendingLinks: []
+  items:[], links:[], brokenLinks:[], lastSync:null,
+  linkGraph:{ outbound:{}, inbound:{} },
+  lrPage:1, lrSort:{ col:'title', dir:'asc' },
+  expandState:{}, suggestState:{},
+  saveStatuses:{} // itemId -> { status: 'saving'|'saved'|'failed', count: N }
 };
 
 let donutChart = null;
 
-// ── INIT ──
 document.addEventListener('DOMContentLoaded', () => {
-  const savedTab = localStorage.getItem('lw-active-tab') || 'dashboard';
-  switchTab(savedTab, true);
+  switchTab(localStorage.getItem('lw-active-tab')||'dashboard', true);
   syncFromShopify();
 });
 
-// ── SCREENS ──
 function showApp() { document.getElementById('app').classList.add('visible'); }
 function showLoading() { document.getElementById('loading-overlay').classList.remove('hidden'); }
 function hideLoading() { document.getElementById('loading-overlay').classList.add('hidden'); }
@@ -351,227 +328,215 @@ function setLoadingStep(step, progress) {
   if (progress !== undefined) document.getElementById('loading-progress-bar').style.width = progress + '%';
 }
 
-// ── TABS ──
 function switchTab(tabName, silent) {
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-  const content = document.getElementById('tab-' + tabName);
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  const content = document.getElementById('tab-'+tabName);
   if (content) content.classList.add('active');
-  document.querySelectorAll('.tab-btn').forEach(b => {
-    if ((b.getAttribute('onclick')||'').includes("'"+tabName+"'")) b.classList.add('active');
-  });
+  document.querySelectorAll('.tab-btn').forEach(b=>{ if((b.getAttribute('onclick')||'').includes("'"+tabName+"'")) b.classList.add('active'); });
   if (!silent) localStorage.setItem('lw-active-tab', tabName);
 }
 
-// ── SHOPIFY FETCH ──
 async function shopifyFetch(endpoint, method, body) {
-  method = method || 'GET';
-  let allResults = null;
-  let nextEndpoint = endpoint;
-  let page = 1;
-
+  method = method||'GET';
+  let allResults=null, nextEndpoint=endpoint, page=1;
   while (nextEndpoint) {
-    const url = CONFIG.proxyUrl + '/api/shopify-files?action=link-whisperer&endpoint=' + encodeURIComponent(nextEndpoint);
-    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    const url = CONFIG.proxyUrl+'/api/shopify-files?action=link-whisperer&endpoint='+encodeURIComponent(nextEndpoint);
+    const opts = { method, headers:{'Content-Type':'application/json'} };
     if (body) opts.body = JSON.stringify(body);
     const response = await fetch(url, opts);
-    if (!response.ok) throw new Error('Shopify fetch failed: ' + await response.text());
+    if (!response.ok) throw new Error('Shopify fetch failed: '+await response.text());
     const data = await response.json();
     if (method !== 'GET') return data;
-    if (allResults === null) { allResults = data; }
-    else { for (const key of Object.keys(data)) { if (Array.isArray(data[key]) && Array.isArray(allResults[key])) allResults[key] = allResults[key].concat(data[key]); } }
-    const linkHeader = response.headers.get('Link');
-    nextEndpoint = null;
-    if (linkHeader) {
-      for (const part of linkHeader.split(',')) {
-        if (part.includes('rel="next"')) {
-          const match = part.match(/<[^>]*\/admin\/api\/[^/]+\/(.+?)>/);
-          if (match) { nextEndpoint = match[1]; page++; setLoadingStep('Fetching page ' + page + '...'); }
-        }
-      }
-    }
+    if (allResults===null) { allResults=data; }
+    else { for (const k of Object.keys(data)) { if (Array.isArray(data[k])&&Array.isArray(allResults[k])) allResults[k]=allResults[k].concat(data[k]); } }
+    const lh = response.headers.get('Link');
+    nextEndpoint=null;
+    if (lh) { for (const p of lh.split(',')) { if (p.includes('rel="next"')) { const m=p.match(/<[^>]*\/admin\/api\/[^/]+\/(.+?)>/); if(m){nextEndpoint=m[1];page++;setLoadingStep('Fetching page '+page+'...');} } } }
   }
   return allResults;
 }
 
-// ── PARSE LINKS ──
 function parseItemLinks(item) {
-  const links = [];
+  const links=[];
   if (!item.bodyHtml) return links;
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(item.bodyHtml, 'text/html');
+  const doc = new DOMParser().parseFromString(item.bodyHtml,'text/html');
   doc.querySelectorAll('a[href]').forEach(a => {
-    const href = a.getAttribute('href') || '';
-    const anchorText = a.textContent.trim();
-    if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) return;
-    let fullUrl = href, type = 'external';
-    if (href.startsWith('/')) { fullUrl = 'https://aboutwallart.com' + href; type = 'internal'; }
-    else if (href.includes('aboutwallart.com')) { type = 'internal'; }
-    links.push({ sourceId: item.id, sourceUrl: item.url, targetUrl: fullUrl, anchorText, type });
+    const href=a.getAttribute('href')||'';
+    const anchorText=a.textContent.trim();
+    if (!href||href.startsWith('#')||href.startsWith('mailto:')||href.startsWith('tel:')) return;
+    let fullUrl=href, type='external';
+    if (href.startsWith('/')) { fullUrl='https://aboutwallart.com'+href; type='internal'; }
+    else if (href.includes('aboutwallart.com')) { type='internal'; }
+    links.push({sourceId:item.id, sourceUrl:item.url, targetUrl:fullUrl, anchorText, type});
   });
   return links;
 }
 
-// ── BUILD LINK GRAPH ──
 function buildLinkGraph() {
-  AppState.linkGraph = { outbound:{}, inbound:{} };
+  AppState.linkGraph={outbound:{},inbound:{}};
   for (const link of AppState.links) {
-    if (!AppState.linkGraph.outbound[link.sourceId]) AppState.linkGraph.outbound[link.sourceId] = [];
-    AppState.linkGraph.outbound[link.sourceId].push({ targetUrl:link.targetUrl, anchorText:link.anchorText, type:link.type });
-    if (link.type === 'internal') {
-      const target = AppState.items.find(i => {
-        const ct = link.targetUrl.replace(/\/$/,'').toLowerCase();
-        const ci = (i.url||'').replace(/\/$/,'').toLowerCase();
-        return ct === ci || ct.endsWith('/'+i.handle);
+    if (!AppState.linkGraph.outbound[link.sourceId]) AppState.linkGraph.outbound[link.sourceId]=[];
+    AppState.linkGraph.outbound[link.sourceId].push({targetUrl:link.targetUrl,anchorText:link.anchorText,type:link.type});
+    if (link.type==='internal') {
+      const target=AppState.items.find(i=>{
+        const ct=link.targetUrl.replace(/\/$/,'').toLowerCase();
+        const ci=(i.url||'').replace(/\/$/,'').toLowerCase();
+        return ct===ci||ct.endsWith('/'+i.handle);
       });
       if (target) {
-        if (!AppState.linkGraph.inbound[target.id]) AppState.linkGraph.inbound[target.id] = [];
-        AppState.linkGraph.inbound[target.id].push({ sourceId:link.sourceId, sourceUrl:link.sourceUrl, anchorText:link.anchorText });
+        if (!AppState.linkGraph.inbound[target.id]) AppState.linkGraph.inbound[target.id]=[];
+        AppState.linkGraph.inbound[target.id].push({sourceId:link.sourceId,sourceUrl:link.sourceUrl,anchorText:link.anchorText});
       }
     }
   }
 }
 
-// ── DETECT BROKEN ──
 function detectBrokenLinks() {
-  const knownUrls = new Set();
-  const knownHandles = new Set();
-  AppState.items.forEach(i => {
-    if (i.url) knownUrls.add(i.url.replace(/\/$/,'').toLowerCase());
-    if (i.handle) knownHandles.add(i.handle.toLowerCase());
-  });
-  AppState.brokenLinks = [];
-  AppState.links.forEach(link => {
-    if (link.type !== 'internal') return;
-    const cu = link.targetUrl.replace(/\/$/,'').toLowerCase();
-    const handle = cu.split('/').pop();
-    if (!knownUrls.has(cu) && !knownHandles.has(handle)) {
-      AppState.brokenLinks.push({ sourceId:link.sourceId, sourceUrl:link.sourceUrl, brokenUrl:link.targetUrl, anchorText:link.anchorText, type:link.type, status:'404 Not Found', discovered:new Date().toISOString() });
-    }
+  const knownUrls=new Set(), knownHandles=new Set();
+  AppState.items.forEach(i=>{ if(i.url) knownUrls.add(i.url.replace(/\/$/,'').toLowerCase()); if(i.handle) knownHandles.add(i.handle.toLowerCase()); });
+  AppState.brokenLinks=[];
+  AppState.links.forEach(link=>{
+    if(link.type!=='internal') return;
+    const cu=link.targetUrl.replace(/\/$/,'').toLowerCase();
+    const handle=cu.split('/').pop();
+    if(!knownUrls.has(cu)&&!knownHandles.has(handle)) AppState.brokenLinks.push({sourceId:link.sourceId,sourceUrl:link.sourceUrl,brokenUrl:link.targetUrl,anchorText:link.anchorText,type:link.type,status:'404 Not Found',discovered:new Date().toISOString()});
   });
 }
 
-// ── EXTRACT KEYWORDS FROM ITEM ──
 function extractKeywords(item) {
-  const text = ((item.title||'') + ' ' + (item.bodyHtml||'').replace(/<[^>]+>/g,' ') + ' ' + (item.tags||[]).join(' ')).toLowerCase();
-  const rooms = ROOM_TYPES.filter(r => text.includes(r));
-  const styles = STYLES.filter(s => text.includes(s));
-  const titleWords = (item.title||'').toLowerCase().split(/\s+/).filter(w => w.length > 3);
-  return { rooms, styles, titleWords, tags: item.tags || [] };
+  const text=((item.title||'')+' '+(item.bodyHtml||'').replace(/<[^>]+>/g,' ')+' '+(item.tags||[]).join(' ')).toLowerCase();
+  return {
+    rooms: ROOM_TYPES.filter(r=>text.includes(r)),
+    styles: STYLES.filter(s=>text.includes(s)),
+    titleWords: (item.title||'').toLowerCase().split(/\s+/).filter(w=>w.length>3),
+    tags: item.tags||[]
+  };
 }
 
-// ── SCORE RELEVANCE ──
-function scoreRelevance(sourceItem, targetItem) {
-  const s = extractKeywords(sourceItem);
-  const t = extractKeywords(targetItem);
-  let score = 0;
-
-  // Shared room types — highest weight
-  const sharedRooms = s.rooms.filter(r => t.rooms.includes(r));
-  score += sharedRooms.length * 10;
-
-  // Shared styles — high weight
-  const sharedStyles = s.styles.filter(st => t.styles.includes(st));
-  score += sharedStyles.length * 7;
-
-  // Shared tags — medium weight
-  const sharedTags = s.tags.filter(tag => t.tags.includes(tag));
-  score += sharedTags.length * 5;
-
-  // Shared title words — medium weight
-  const sharedWords = s.titleWords.filter(w => t.titleWords.includes(w));
-  score += sharedWords.length * 3;
-
-  return { score, sharedRooms, sharedStyles, sharedTags };
+function scoreRelevance(source, target) {
+  const s=extractKeywords(source), t=extractKeywords(target);
+  let score=0;
+  const sharedRooms=s.rooms.filter(r=>t.rooms.includes(r)); score+=sharedRooms.length*10;
+  const sharedStyles=s.styles.filter(st=>t.styles.includes(st)); score+=sharedStyles.length*7;
+  const sharedTags=s.tags.filter(tag=>t.tags.includes(tag)); score+=sharedTags.length*5;
+  const sharedWords=s.titleWords.filter(w=>t.titleWords.includes(w)); score+=sharedWords.length*3;
+  return {score, sharedRooms, sharedStyles, sharedTags};
 }
 
-// ── GET SUGGESTIONS FOR ITEM ──
-function getSuggestionsForItem(item) {
-  // Already linked targets from this item
-  const alreadyLinked = new Set(
-    (AppState.linkGraph.outbound[item.id] || [])
-      .filter(l => l.type === 'internal')
-      .map(l => l.targetUrl.replace(/\/$/,'').toLowerCase())
-  );
+// Get top N suggestions of a specific type for a source item
+function getTopByType(sourceItem, targetType, maxCount) {
+  const alreadyLinked=new Set((AppState.linkGraph.outbound[sourceItem.id]||[]).filter(l=>l.type==='internal').map(l=>l.targetUrl.replace(/\/$/,'').toLowerCase()));
+  const candidates=AppState.items.filter(i=>{
+    if(i.id===sourceItem.id) return false;
+    if(i.type!==targetType) return false;
+    if(alreadyLinked.has((i.url||'').replace(/\/$/,'').toLowerCase())) return false;
+    return true;
+  });
+  const scored=candidates.map(c=>{
+    const {score,sharedRooms,sharedStyles,sharedTags}=scoreRelevance(sourceItem,c);
+    const isOrphan=(AppState.linkGraph.inbound[c.id]||[]).length===0;
+    return {item:c, score:score+(isOrphan?15:0), isOrphan, inboundCount:(AppState.linkGraph.inbound[c.id]||[]).length, sharedRooms, sharedStyles, sharedTags};
+  });
+  scored.sort((a,b)=>b.score-a.score||(a.isOrphan?-1:1)||(a.inboundCount-b.inboundCount));
+  return scored.slice(0,maxCount);
+}
 
-  const suggestions = [];
+// Find which collection(s) this product belongs to by URL matching
+function getProductCollections(product) {
+  // Match collections whose handles appear in the product tags or title
+  const kw=extractKeywords(product);
+  return AppState.items.filter(i=>{
+    if(i.type!=='collection') return false;
+    const alreadyLinked=new Set((AppState.linkGraph.outbound[product.id]||[]).filter(l=>l.type==='internal').map(l=>l.targetUrl.replace(/\/$/,'').toLowerCase()));
+    if(alreadyLinked.has((i.url||'').replace(/\/$/,'').toLowerCase())) return false;
+    const {score}=scoreRelevance(product,i);
+    return score>0;
+  }).sort((a,b)=>{
+    const sa=scoreRelevance(product,a).score, sb=scoreRelevance(product,b).score;
+    return sb-sa;
+  }).slice(0,1);
+}
 
-  for (const candidate of AppState.items) {
-    if (candidate.id === item.id) continue;
-    if (alreadyLinked.has((candidate.url||'').replace(/\/$/,'').toLowerCase())) continue;
+// Build the suggestion panel HTML
+function buildSuggestPanel(item) {
+  const rules = LINK_RULES[item.type] || LINK_RULES['page'];
+  const typeLabels = { product:'PRODUCT', article:'BLOG POST', collection:'COLLECTION', page:'PAGE' };
+  const typeColors = { collection:'st-collection', article:'st-article', product:'st-product', page:'st-page' };
 
-    const { score, sharedRooms, sharedStyles, sharedTags } = scoreRelevance(item, candidate);
-    if (score === 0) continue;
+  let sections = '';
+  let totalSuggestions = 0;
 
-    const inboundCount = (AppState.linkGraph.inbound[candidate.id] || []).length;
-    const isOrphan = inboundCount === 0;
+  for (const [targetType, rule] of Object.entries(rules)) {
+    let suggestions;
+    if (item.type==='product' && targetType==='collection') {
+      suggestions = getProductCollections(item).map(c=>({item:c, score:100, isOrphan:(AppState.linkGraph.inbound[c.id]||[]).length===0, inboundCount:(AppState.linkGraph.inbound[c.id]||[]).length, sharedRooms:[], sharedStyles:[], sharedTags:[]}));
+      if (!suggestions.length) suggestions = getTopByType(item, 'collection', 1);
+    } else {
+      suggestions = getTopByType(item, targetType, rule.count);
+    }
 
-    // Boost orphans
-    const finalScore = score + (isOrphan ? 15 : 0);
+    if (!suggestions.length) continue;
+    totalSuggestions += suggestions.length;
 
-    suggestions.push({ item: candidate, score: finalScore, isOrphan, inboundCount, sharedRooms, sharedStyles, sharedTags });
+    const rows = suggestions.map((s,i) => {
+      const matchInfo=[...s.sharedRooms,...s.sharedStyles,...s.sharedTags.slice(0,2)].filter((v,i,a)=>a.indexOf(v)===i).slice(0,3).join(', ');
+      const precheck = rule.precheck || (i===0 && rule.count===1);
+      return `<div class="suggest-item ${precheck?'pre-checked':''}">
+        <input type="checkbox" ${precheck?'checked':''} class="sug-cb" data-item-id="${item.id}" data-candidate-id="${s.item.id}" data-candidate-url="${escHtml(s.item.url)}" data-candidate-title="${escHtml(s.item.title)}" data-candidate-type="${s.item.type}" />
+        <div class="suggest-item-info">
+          <div class="suggest-item-title">${escHtml(s.item.title)}</div>
+          <div class="suggest-item-url">${escHtml(s.item.url)}</div>
+          <div class="suggest-item-badges">
+            ${s.isOrphan?'<span class="badge badge-orphan">🚨 Orphan</span>':''}
+            ${matchInfo?'<span class="badge badge-match">'+escHtml(matchInfo)+'</span>':''}
+            <span class="badge badge-inbound">${s.inboundCount} inbound</span>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+
+    sections += `<div class="suggest-section">
+      <span class="suggest-section-title ${typeColors[targetType]||'st-page'}">${typeLabels[targetType]||targetType.toUpperCase()} — ${rule.label}</span>
+      ${rows}
+    </div>`;
   }
 
-  // Sort: orphans first within score bands, then by score
-  suggestions.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    if (a.isOrphan !== b.isOrphan) return a.isOrphan ? -1 : 1;
-    return a.inboundCount - b.inboundCount;
-  });
+  if (!totalSuggestions) {
+    return `<div class="suggest-panel"><p class="empty-expand">No relevant pages found to link to from this item.</p></div>`;
+  }
 
-  return suggestions.slice(0, 30);
+  const instructionMap = {
+    product: 'This is a <strong>Product</strong>. Select: 1 collection + 1 blog post.',
+    article: 'This is a <strong>Blog Post</strong>. Select: 1 product + 1 collection + 1 other blog post.',
+    collection: 'This is a <strong>Collection</strong>. Select: 1–2 blog posts.',
+    page: 'This is a <strong>Page</strong>. Select: 1 collection.'
+  };
+
+  return `<div class="suggest-panel">
+    <div class="suggest-header">
+      <div class="suggest-header-left">
+        <h4>🔗 Link Suggestions for "${escHtml(item.title)}"</h4>
+        <p>${instructionMap[item.type]||'Select pages to link to.'} Orphaned pages shown first (🚨). Pre-selected items are the best match.</p>
+      </div>
+      <div class="suggest-top-actions">
+        <button class="btn-action" onclick="confirmSelectedLinks('${item.id}')">✓ Add Selected Links</button>
+        <button class="btn-outline" onclick="closeSuggestPanel()">✕ Cancel</button>
+      </div>
+    </div>
+    ${sections}
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid #f0e0a0;display:flex;gap:8px;">
+      <button class="btn-action" onclick="confirmSelectedLinks('${item.id}')">✓ Add Selected Links</button>
+      <button class="btn-outline" onclick="closeSuggestPanel()">✕ Cancel</button>
+    </div>
+  </div>`;
 }
 
-// ── SHOW SUGGEST PANEL ──
 function openSuggestPanel(itemId) {
   const alreadyOpen = AppState.suggestState[itemId];
-  // Close all suggest panels
   AppState.suggestState = {};
   if (!alreadyOpen) AppState.suggestState[itemId] = true;
   renderLinksReport();
-}
-
-function buildSuggestPanel(item) {
-  const suggestions = getSuggestionsForItem(item);
-
-  if (suggestions.length === 0) {
-    return `<div class="suggest-panel">
-      <div class="suggest-panel-title">Link Suggestions</div>
-      <div class="empty-expand">No relevant pages found to link to.</div>
-    </div>`;
-  }
-
-  const rows = suggestions.map((s, i) => {
-    const matchInfo = [
-      ...s.sharedRooms.map(r => r),
-      ...s.sharedStyles.map(st => st),
-      ...s.sharedTags.slice(0,3)
-    ].filter((v,i,a) => a.indexOf(v)===i).slice(0,4).join(', ');
-
-    return `<div class="suggest-item">
-      <input type="checkbox" id="sug-${item.id}-${i}" data-item-id="${item.id}" data-candidate-id="${s.item.id}" data-candidate-url="${escHtml(s.item.url)}" data-candidate-title="${escHtml(s.item.title)}" data-candidate-type="${s.item.type}" />
-      <div class="suggest-item-info">
-        <div class="suggest-item-title">${escHtml(s.item.title)}</div>
-        <div class="suggest-item-meta">${escHtml(s.item.url)}</div>
-        <div class="suggest-item-badges">
-          ${s.isOrphan ? '<span class="badge badge-orphan">🚨 Orphan</span>' : ''}
-          <span class="badge badge-type">${s.item.type}</span>
-          ${matchInfo ? '<span class="badge badge-match">Matches: ' + escHtml(matchInfo) + '</span>' : ''}
-          <span style="font-size:10px;color:#aaa;margin-left:4px;">${s.inboundCount} inbound link${s.inboundCount!==1?'s':''}</span>
-        </div>
-      </div>
-    </div>`;
-  }).join('');
-
-  return `<div class="suggest-panel">
-    <div class="suggest-panel-title">🔗 Link Suggestions for "${escHtml(item.title)}"</div>
-    <div class="suggest-panel-sub">Orphaned pages shown first. Select pages to link to, then click Add Selected Links.</div>
-    ${rows}
-    <div class="suggest-actions">
-      <button class="btn-action" onclick="confirmSelectedLinks('${item.id}')">Add Selected Links</button>
-      <button class="btn-outline" onclick="closeSuggestPanel()">Cancel</button>
-    </div>
-  </div>`;
 }
 
 function closeSuggestPanel() {
@@ -579,156 +544,106 @@ function closeSuggestPanel() {
   renderLinksReport();
 }
 
-// ── CONFIRM SELECTED LINKS ──
 async function confirmSelectedLinks(itemId) {
-  const item = AppState.items.find(i => i.id === itemId);
+  const item = AppState.items.find(i=>i.id===itemId);
   if (!item) return;
+  const checkboxes = document.querySelectorAll('.sug-cb[data-item-id="'+itemId+'"]:checked');
+  if (!checkboxes.length) { showToast('Please select at least one page.','error'); return; }
+  const selected = Array.from(checkboxes).map(cb=>({ id:cb.dataset.candidateId, url:cb.dataset.candidateUrl, title:cb.dataset.candidateTitle, type:cb.dataset.candidateType }));
 
-  const checkboxes = document.querySelectorAll(`input[data-item-id="${itemId}"]:checked`);
-  if (checkboxes.length === 0) { showToast('Please select at least one page to link to.', 'error'); return; }
+  // Close panel immediately, show saving status
+  AppState.suggestState = {};
+  AppState.saveStatuses[itemId] = { status:'saving', count:selected.length };
+  renderLinksReport();
+  showToast('Saving '+selected.length+' link(s) via Claude...','info');
 
-  const selected = Array.from(checkboxes).map(cb => ({
-    id: cb.dataset.candidateId,
-    url: cb.dataset.candidateUrl,
-    title: cb.dataset.candidateTitle,
-    type: cb.dataset.candidateType
-  }));
-
-  // Show modal with preview
-  const previewHtml = selected.map(s =>
-    `<div class="modal-link-preview"><strong>${escHtml(s.title)}</strong><br><span style="color:#888;font-size:12px;">${escHtml(s.url)}</span><br><span style="font-size:11px;color:#555;">Type: ${s.type}</span></div>`
-  ).join('');
-
-  document.getElementById('modal-title').textContent = 'Confirm & Save Links';
-  document.getElementById('modal-sub').textContent = 'Claude will write ' + selected.length + ' link(s) into "' + item.title + '" and save directly to Shopify. This uses a small amount of Claude tokens.';
-  document.getElementById('modal-links-preview').innerHTML = previewHtml;
-  document.getElementById('modal-saving-msg').style.display = 'none';
-  document.getElementById('modal-confirm-btn').style.display = '';
-  document.getElementById('modal-cancel-btn').textContent = 'Cancel';
-
-  AppState.pendingLinks = { item, selected };
-  AppState.modalCallback = () => executeSaveLinks(item, selected);
-  document.getElementById('modal-overlay').classList.remove('hidden');
-}
-
-async function executeSaveLinks(item, selected) {
-  document.getElementById('modal-saving-msg').style.display = 'block';
-  document.getElementById('modal-confirm-btn').style.display = 'none';
-  document.getElementById('modal-cancel-btn').textContent = 'Close';
-
+  // Run in background
   try {
-    // Build Claude prompt
     const prompt = buildClaudePrompt(item, selected);
-
-    // Call Claude via proxy
-    const claudeResponse = await fetch(CONFIG.proxyUrl + '/api/claude', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt: prompt,
-        max_tokens: 1500
-      })
+    const claudeResponse = await fetch(CONFIG.proxyUrl+'/api/claude', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ prompt, max_tokens:1500 })
     });
-
-    if (!claudeResponse.ok) throw new Error('Claude API call failed');
+    if (!claudeResponse.ok) throw new Error('Claude API failed');
     const claudeData = await claudeResponse.json();
-
-    // Extract the updated HTML from Claude's response
-    const claudeText = claudeData.content || claudeData.text || '';
+    const claudeText = claudeData.content||claudeData.text||'';
     const updatedHtml = extractHtmlFromClaude(claudeText, item.bodyHtml, selected);
-
-    // Save to Shopify
     await saveItemToShopify(item, updatedHtml);
 
     // Update local state
     item.bodyHtml = updatedHtml;
-    AppState.links = [];
+    AppState.links=[];
     for (const i of AppState.items) AppState.links.push(...parseItemLinks(i));
     buildLinkGraph();
     detectBrokenLinks();
-    AppState.suggestState = {};
-    AppState.expandState = {};
-
+    AppState.saveStatuses[itemId] = { status:'saved', count:selected.length };
     renderLinksReport();
     renderDashboard();
-    closeModal();
-    showToast('Links saved to Shopify successfully!', 'success');
+    showToast('✅ '+selected.length+' link(s) saved to Shopify!','success');
+
+    // Clear status badge after 5 seconds
+    setTimeout(()=>{ delete AppState.saveStatuses[itemId]; renderLinksReport(); }, 5000);
 
   } catch(err) {
-    document.getElementById('modal-saving-msg').textContent = 'Error: ' + err.message;
-    showToast('Failed: ' + err.message, 'error');
+    AppState.saveStatuses[itemId] = { status:'failed', count:selected.length };
+    renderLinksReport();
+    showToast('❌ Failed: '+err.message,'error');
   }
 }
 
 function buildClaudePrompt(item, selected) {
-  const selectedList = selected.map(s => '- ' + s.title + ' (' + s.type + '): ' + s.url).join('\n');
-
+  const selectedList = selected.map(s=>'- '+s.title+' ('+s.type+'): '+s.url).join('\n');
   return `You are an internal linking expert for About Wall Art (aboutwallart.com), a UK wall art store.
 
-I need you to add internal links to the following page. Insert each link naturally within the existing content — do not add standalone lines, do not use "click here".
+Add internal links to this page. Insert each link naturally within the existing content.
 
 PAGE TYPE: ${item.type}
 PAGE TITLE: ${item.title}
 CURRENT BODY HTML:
-${item.bodyHtml || '(no content yet)'}
+${item.bodyHtml||'(no content yet)'}
 
 PAGES TO LINK TO:
 ${selectedList}
 
 RULES:
-- For products: add blog links in first/second paragraph, collection links in last paragraph
-- For blog posts: add links naturally within sentences throughout the content
-- For collections: add links in the middle or end of the description
-- Anchor text must be a natural phrase — never "click here" or "read more"
-- Match anchor text to the linked page's topic
-- Return ONLY the updated full HTML body content, nothing else, no explanation, no markdown code blocks`;
+- Products: blog link in first/second paragraph, collection link in last paragraph
+- Blog posts: links naturally within sentences throughout content
+- Collections: links in middle or end of description
+- Anchor text must be natural — never "click here" or "read more"
+- Return ONLY the updated full HTML body, no explanation, no markdown code blocks`;
 }
 
 function extractHtmlFromClaude(claudeText, originalHtml, selected) {
-  // Clean up Claude response — remove markdown code blocks if present
-  let html = claudeText.trim();
-  html = html.replace(/^```html\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
-
-  // If Claude returned something empty or very short, fall back to appending links
-  if (!html || html.length < 50) {
-    let fallback = originalHtml || '';
-    for (const s of selected) {
-      fallback += ' <a href="' + s.url + '">' + escHtml(s.title) + '</a>.';
-    }
+  let html = claudeText.trim().replace(/^```html\s*/i,'').replace(/^```\s*/i,'').replace(/\s*```$/i,'').trim();
+  if (!html||html.length<50) {
+    let fallback=originalHtml||'';
+    for (const s of selected) fallback+=' <a href="'+s.url+'">'+escHtml(s.title)+'</a>.';
     return fallback;
   }
-
   return html;
 }
 
 async function saveItemToShopify(item, updatedHtml) {
   let endpoint, bodyKey;
-  if (item.type === 'page') { endpoint = 'pages/' + item.shopifyId + '.json'; bodyKey = 'page'; }
-  else if (item.type === 'article') { endpoint = 'blogs/' + item.blogId + '/articles/' + item.shopifyId + '.json'; bodyKey = 'article'; }
-  else if (item.type === 'product') { endpoint = 'products/' + item.shopifyId + '.json'; bodyKey = 'product'; }
-  else if (item.type === 'collection') { endpoint = 'custom_collections/' + item.shopifyId + '.json'; bodyKey = 'custom_collection'; }
-  else throw new Error('Cannot write to this item type: ' + item.type);
-
-  const payload = { [bodyKey]: { id: item.shopifyId, body_html: updatedHtml } };
-  await shopifyFetch(endpoint, 'PUT', payload);
+  if (item.type==='page') { endpoint='pages/'+item.shopifyId+'.json'; bodyKey='page'; }
+  else if (item.type==='article') { endpoint='blogs/'+item.blogId+'/articles/'+item.shopifyId+'.json'; bodyKey='article'; }
+  else if (item.type==='product') { endpoint='products/'+item.shopifyId+'.json'; bodyKey='product'; }
+  else if (item.type==='collection') { endpoint='custom_collections/'+item.shopifyId+'.json'; bodyKey='custom_collection'; }
+  else throw new Error('Cannot write to item type: '+item.type);
+  await shopifyFetch(endpoint,'PUT',{ [bodyKey]:{ id:item.shopifyId, body_html:updatedHtml } });
 }
 
-// ── MODAL ──
-function closeModal() { document.getElementById('modal-overlay').classList.add('hidden'); AppState.modalCallback = null; }
-function confirmModal() { if (AppState.modalCallback) AppState.modalCallback(); }
-
-// ── COMPUTE STATS ──
 function computeStats() {
-  const internal = AppState.links.filter(l=>l.type==='internal');
-  const external = AppState.links.filter(l=>l.type==='external');
-  const orphaned = AppState.items.filter(i => !(AppState.linkGraph.inbound[i.id]||[]).length);
-  const e404 = AppState.brokenLinks.filter(b=>b.status==='404 Not Found');
+  const internal=AppState.links.filter(l=>l.type==='internal');
+  const external=AppState.links.filter(l=>l.type==='external');
+  const orphaned=AppState.items.filter(i=>!(AppState.linkGraph.inbound[i.id]||[]).length);
+  const e404=AppState.brokenLinks.filter(b=>b.status==='404 Not Found');
   return { itemsScanned:AppState.items.length, linksFound:AppState.links.length, internalLinks:internal.length, externalLinks:external.length, orphanedItems:orphaned.length, brokenLinks:AppState.brokenLinks.length, errors404:e404.length };
 }
 
-// ── RENDER DASHBOARD ──
 function renderDashboard() {
-  const s = computeStats();
+  const s=computeStats();
   document.getElementById('stat-items').textContent    = s.itemsScanned.toLocaleString();
   document.getElementById('stat-links').textContent    = s.linksFound.toLocaleString();
   document.getElementById('stat-internal').textContent = s.internalLinks.toLocaleString();
@@ -740,112 +655,98 @@ function renderDashboard() {
 }
 
 function renderDomainsCard() {
-  const counts = {};
-  AppState.links.forEach(link => {
-    try { const d = new URL(link.targetUrl).hostname.replace(/^www\./,''); counts[d]=(counts[d]||0)+1; } catch(e){}
-  });
-  const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,15);
-  const max = sorted.length ? sorted[0][1] : 1;
-  const el = document.getElementById('domains-list');
-  if (!sorted.length) { el.innerHTML='<p class="placeholder-msg">No domain data.</p>'; return; }
-  el.innerHTML = sorted.map(([d,c]) => {
-    const isInt = d.includes('aboutwallart.com');
-    const w = Math.round(c/max*100);
+  const counts={};
+  AppState.links.forEach(link=>{ try{const d=new URL(link.targetUrl).hostname.replace(/^www\./,'');counts[d]=(counts[d]||0)+1;}catch(e){} });
+  const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,15);
+  const max=sorted.length?sorted[0][1]:1;
+  const el=document.getElementById('domains-list');
+  if(!sorted.length){el.innerHTML='<p class="placeholder-msg">No domain data.</p>';return;}
+  el.innerHTML=sorted.map(([d,c])=>{
+    const isInt=d.includes('aboutwallart.com');
+    const w=Math.round(c/max*100);
     return `<div class="domain-row"><div class="domain-row-top"><a href="https://${d}" target="_blank" class="domain-link ${isInt?'internal':''}">${d}</a><span class="domain-count">${c.toLocaleString()}</span></div><div class="domain-bar-wrap"><div class="domain-bar" style="width:${w}%;background:${isInt?'#1976d2':'#222'}"></div></div></div>`;
   }).join('');
 }
 
 function renderDonutChart(internal, external) {
-  document.getElementById('legend-internal').textContent = 'Internal: ' + internal.toLocaleString();
-  document.getElementById('legend-external').textContent = 'External: ' + external.toLocaleString();
-  const ctx = document.getElementById('donut-chart').getContext('2d');
-  if (donutChart) { donutChart.destroy(); donutChart = null; }
-  donutChart = new Chart(ctx, {
-    type:'doughnut',
-    data:{ labels:['Internal','External'], datasets:[{ data:[internal,external], backgroundColor:['#222','#bbb'], borderWidth:0 }] },
-    options:{ responsive:true, maintainAspectRatio:true, cutout:'65%', plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: c => c.label+': '+c.parsed.toLocaleString() } } } }
-  });
+  document.getElementById('legend-internal').textContent='Internal: '+internal.toLocaleString();
+  document.getElementById('legend-external').textContent='External: '+external.toLocaleString();
+  const ctx=document.getElementById('donut-chart').getContext('2d');
+  if(donutChart){donutChart.destroy();donutChart=null;}
+  donutChart=new Chart(ctx,{type:'doughnut',data:{labels:['Internal','External'],datasets:[{data:[internal,external],backgroundColor:['#222','#bbb'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:true,cutout:'65%',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.label+': '+c.parsed.toLocaleString()}}}}});
 }
 
-// ── LINKS REPORT ──
 function getFilteredItems() {
-  const q = (document.getElementById('lr-search')||{value:''}).value.toLowerCase();
-  const type = (document.getElementById('lr-type')||{value:''}).value;
-  const filter = (document.getElementById('lr-filter')||{value:''}).value;
-
-  return AppState.items.filter(item => {
-    if (q && !item.title.toLowerCase().includes(q)) return false;
-    if (type && item.type !== type) return false;
-    if (filter === 'orphaned' && (AppState.linkGraph.inbound[item.id]||[]).length > 0) return false;
-    if (filter === 'has-inbound' && (AppState.linkGraph.inbound[item.id]||[]).length === 0) return false;
+  const q=(document.getElementById('lr-search')||{value:''}).value.toLowerCase();
+  const type=(document.getElementById('lr-type')||{value:''}).value;
+  const filter=(document.getElementById('lr-filter')||{value:''}).value;
+  return AppState.items.filter(item=>{
+    if(q&&!item.title.toLowerCase().includes(q)) return false;
+    if(type&&item.type!==type) return false;
+    if(filter==='orphaned'&&(AppState.linkGraph.inbound[item.id]||[]).length>0) return false;
+    if(filter==='has-inbound'&&(AppState.linkGraph.inbound[item.id]||[]).length===0) return false;
     return true;
   });
 }
 
 function sortLinksReport(col) {
-  if (AppState.lrSort.col === col) { AppState.lrSort.dir = AppState.lrSort.dir==='asc'?'desc':'asc'; }
-  else { AppState.lrSort.col = col; AppState.lrSort.dir = 'asc'; }
-  AppState.lrPage = 1;
-  renderLinksReport();
+  if(AppState.lrSort.col===col){AppState.lrSort.dir=AppState.lrSort.dir==='asc'?'desc':'asc';}
+  else{AppState.lrSort.col=col;AppState.lrSort.dir='asc';}
+  AppState.lrPage=1; renderLinksReport();
 }
 
 function renderLinksReport() {
-  let items = getFilteredItems();
-  const { col, dir } = AppState.lrSort;
-
-  items.sort((a, b) => {
-    let va, vb;
-    if (col==='title') { va=a.title.toLowerCase(); vb=b.title.toLowerCase(); }
-    else if (col==='published') { va=a.publishedAt||''; vb=b.publishedAt||''; }
-    else if (col==='inbound') { va=(AppState.linkGraph.inbound[a.id]||[]).length; vb=(AppState.linkGraph.inbound[b.id]||[]).length; }
-    else if (col==='outbound') { va=(AppState.linkGraph.outbound[a.id]||[]).filter(l=>l.type==='internal').length; vb=(AppState.linkGraph.outbound[b.id]||[]).filter(l=>l.type==='internal').length; }
-    else if (col==='external') { va=(AppState.linkGraph.outbound[a.id]||[]).filter(l=>l.type==='external').length; vb=(AppState.linkGraph.outbound[b.id]||[]).filter(l=>l.type==='external').length; }
-    if (va<vb) return dir==='asc'?-1:1;
-    if (va>vb) return dir==='asc'?1:-1;
+  let items=getFilteredItems();
+  const {col,dir}=AppState.lrSort;
+  items.sort((a,b)=>{
+    let va,vb;
+    if(col==='title'){va=a.title.toLowerCase();vb=b.title.toLowerCase();}
+    else if(col==='published'){va=a.publishedAt||'';vb=b.publishedAt||'';}
+    else if(col==='inbound'){va=(AppState.linkGraph.inbound[a.id]||[]).length;vb=(AppState.linkGraph.inbound[b.id]||[]).length;}
+    else if(col==='outbound'){va=(AppState.linkGraph.outbound[a.id]||[]).filter(l=>l.type==='internal').length;vb=(AppState.linkGraph.outbound[b.id]||[]).filter(l=>l.type==='internal').length;}
+    else if(col==='external'){va=(AppState.linkGraph.outbound[a.id]||[]).filter(l=>l.type==='external').length;vb=(AppState.linkGraph.outbound[b.id]||[]).filter(l=>l.type==='external').length;}
+    if(va<vb) return dir==='asc'?-1:1;
+    if(va>vb) return dir==='asc'?1:-1;
     return 0;
   });
-
-  ['title','published','inbound','outbound','external'].forEach(c => {
-    const el = document.getElementById('sort-'+c);
-    if (el) el.textContent = AppState.lrSort.col===c ? (AppState.lrSort.dir==='asc'?'↑':'↓') : '';
+  ['title','published','inbound','outbound','external'].forEach(c=>{
+    const el=document.getElementById('sort-'+c);
+    if(el) el.textContent=AppState.lrSort.col===c?(AppState.lrSort.dir==='asc'?'↑':'↓'):'';
   });
-
-  const total = items.length;
-  const perPage = CONFIG.itemsPerPage;
-  const totalPages = Math.ceil(total/perPage)||1;
-  if (AppState.lrPage > totalPages) AppState.lrPage = 1;
-
-  const start = (AppState.lrPage-1)*perPage;
-  const pageItems = items.slice(start, start+perPage);
-  const tbody = document.getElementById('lr-tbody');
-
-  if (pageItems.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state">No items found. Try adjusting your filters.</div></td></tr>';
-  } else {
-    tbody.innerHTML = pageItems.map(item => buildItemRow(item)).join('');
-  }
-
-  document.getElementById('lr-count').textContent = total===0 ? 'No items' : 'Showing '+(start+1)+'–'+Math.min(start+perPage,total)+' of '+total+' items';
-  document.getElementById('lr-prev').disabled = AppState.lrPage<=1;
-  document.getElementById('lr-next').disabled = AppState.lrPage>=totalPages;
+  const total=items.length, perPage=CONFIG.itemsPerPage;
+  const totalPages=Math.ceil(total/perPage)||1;
+  if(AppState.lrPage>totalPages) AppState.lrPage=1;
+  const start=(AppState.lrPage-1)*perPage;
+  const pageItems=items.slice(start,start+perPage);
+  const tbody=document.getElementById('lr-tbody');
+  tbody.innerHTML = pageItems.length===0
+    ? '<tr><td colspan="5"><div class="empty-state">No items found.</div></td></tr>'
+    : pageItems.map(item=>buildItemRow(item)).join('');
+  document.getElementById('lr-count').textContent=total===0?'No items':'Showing '+(start+1)+'–'+Math.min(start+perPage,total)+' of '+total+' items';
+  document.getElementById('lr-prev').disabled=AppState.lrPage<=1;
+  document.getElementById('lr-next').disabled=AppState.lrPage>=totalPages;
 }
 
 function buildItemRow(item) {
-  const inbound     = AppState.linkGraph.inbound[item.id] || [];
-  const outboundAll = AppState.linkGraph.outbound[item.id] || [];
-  const outInternal = outboundAll.filter(l=>l.type==='internal');
-  const outExternal = outboundAll.filter(l=>l.type==='external');
-  const date = item.publishedAt ? new Date(item.publishedAt).toLocaleDateString([],{day:'numeric',month:'short',year:'numeric'}) : '—';
+  const inbound=(AppState.linkGraph.inbound[item.id]||[]);
+  const outboundAll=(AppState.linkGraph.outbound[item.id]||[]);
+  const outInternal=outboundAll.filter(l=>l.type==='internal');
+  const outExternal=outboundAll.filter(l=>l.type==='external');
+  const date=item.publishedAt?new Date(item.publishedAt).toLocaleDateString([],{day:'numeric',month:'short',year:'numeric'}):'—';
+  const inOpen=AppState.expandState[item.id+'-inbound']?'open':'';
+  const outOpen=AppState.expandState[item.id+'-outbound']?'open':'';
+  const extOpen=AppState.expandState[item.id+'-external']?'open':'';
+  const suggestOpen=AppState.suggestState[item.id];
+  const saveStatus=AppState.saveStatuses[item.id];
 
-  const expandKeyIn  = item.id+'-inbound';
-  const expandKeyOut = item.id+'-outbound';
-  const expandKeyExt = item.id+'-external';
-  const inOpen  = AppState.expandState[expandKeyIn]  ? 'open':'';
-  const outOpen = AppState.expandState[expandKeyOut] ? 'open':'';
-  const extOpen = AppState.expandState[expandKeyExt] ? 'open':'';
-  const suggestOpen = AppState.suggestState[item.id];
+  let saveBadge='';
+  if(saveStatus){
+    if(saveStatus.status==='saving') saveBadge=`<span class="save-status saving"><span class="spinner-sm"></span>Saving ${saveStatus.count} link(s)...</span>`;
+    else if(saveStatus.status==='saved') saveBadge=`<span class="save-status saved">✅ ${saveStatus.count} link(s) saved</span>`;
+    else if(saveStatus.status==='failed') saveBadge=`<span class="save-status failed">❌ Failed</span>`;
+  }
 
-  let rows = `<tr class="${(inOpen||outOpen||extOpen||suggestOpen)?'expanded':''}" id="row-${item.id}">
+  let rows=`<tr class="${(inOpen||outOpen||extOpen||suggestOpen)?'expanded':''}" id="row-${item.id}">
     <td class="td-title">
       <a href="${escHtml(item.url)}" target="_blank">${escHtml(item.title)}</a>
       <span class="item-type">${item.type}</span>
@@ -854,165 +755,136 @@ function buildItemRow(item) {
     <td class="td-links">
       <div class="link-cell">
         <span class="link-count ${inbound.length===0?'zero':''}">→${inbound.length}</span>
-        <button class="btn-expand ${inOpen}" onclick="toggleExpand('${item.id}','inbound')" title="Show inbound links">▼</button>
+        <button class="btn-expand ${inOpen}" onclick="toggleExpand('${item.id}','inbound')">▼</button>
       </div>
     </td>
     <td class="td-links">
       <div class="link-cell">
         <span class="link-count ${outInternal.length===0?'zero':''}">${outInternal.length}→</span>
-        <button class="btn-expand ${outOpen}" onclick="toggleExpand('${item.id}','outbound')" title="Show outbound internal links">▼</button>
+        <button class="btn-expand ${outOpen}" onclick="toggleExpand('${item.id}','outbound')">▼</button>
         <button class="btn-add" onclick="openSuggestPanel('${item.id}')">+ Add</button>
+        ${saveBadge}
       </div>
     </td>
     <td class="td-links">
       <div class="link-cell">
         <span class="link-count ${outExternal.length===0?'zero':''}">${outExternal.length}↗</span>
-        <button class="btn-expand ${extOpen}" onclick="toggleExpand('${item.id}','external')" title="Show outbound external links">▼</button>
+        <button class="btn-expand ${extOpen}" onclick="toggleExpand('${item.id}','external')">▼</button>
       </div>
     </td>
   </tr>`;
 
-  // Inbound expand
-  if (AppState.expandState[expandKeyIn]) {
-    rows += `<tr class="expand-row"><td colspan="5"><div class="expand-panel">
-      <div class="expand-panel-title">Pages linking to this item (${inbound.length})</div>
-      ${inbound.length===0 ? '<div class="empty-expand">No pages link to this item yet.</div>'
-        : inbound.map(l=>`<div class="expand-link-item"><div><a href="${escHtml(l.sourceUrl)}" target="_blank">${escHtml(l.sourceUrl)}</a><div class="expand-anchor">Anchor: ${escHtml(l.anchorText||'—')}</div></div></div>`).join('')}
-    </div></td></tr>`;
+  if(AppState.expandState[item.id+'-inbound']){
+    rows+=`<tr class="expand-row"><td colspan="5"><div class="expand-panel"><div class="expand-panel-title">Pages linking to this item (${inbound.length})</div>${inbound.length===0?'<div class="empty-expand">No pages link to this item yet.</div>':inbound.map(l=>`<div class="expand-link-item"><div><a href="${escHtml(l.sourceUrl)}" target="_blank">${escHtml(l.sourceUrl)}</a><div class="expand-anchor">Anchor: ${escHtml(l.anchorText||'—')}</div></div></div>`).join('')}</div></td></tr>`;
   }
-
-  // Outbound internal expand
-  if (AppState.expandState[expandKeyOut]) {
-    rows += `<tr class="expand-row"><td colspan="5"><div class="expand-panel">
-      <div class="expand-panel-title">Internal links from this item (${outInternal.length})</div>
-      ${outInternal.length===0 ? '<div class="empty-expand">No internal links from this item.</div>'
-        : outInternal.map(l=>`<div class="expand-link-item"><div><a href="${escHtml(l.targetUrl)}" target="_blank">${escHtml(l.targetUrl)}</a><div class="expand-anchor">Anchor: ${escHtml(l.anchorText||'—')}</div></div></div>`).join('')}
-    </div></td></tr>`;
+  if(AppState.expandState[item.id+'-outbound']){
+    rows+=`<tr class="expand-row"><td colspan="5"><div class="expand-panel"><div class="expand-panel-title">Internal links from this item (${outInternal.length})</div>${outInternal.length===0?'<div class="empty-expand">No internal links from this item.</div>':outInternal.map(l=>`<div class="expand-link-item"><div><a href="${escHtml(l.targetUrl)}" target="_blank">${escHtml(l.targetUrl)}</a><div class="expand-anchor">Anchor: ${escHtml(l.anchorText||'—')}</div></div></div>`).join('')}</div></td></tr>`;
   }
-
-  // Outbound external expand
-  if (AppState.expandState[expandKeyExt]) {
-    rows += `<tr class="expand-row"><td colspan="5"><div class="expand-panel">
-      <div class="expand-panel-title">External links from this item (${outExternal.length})</div>
-      ${outExternal.length===0 ? '<div class="empty-expand">No external links from this item.</div>'
-        : outExternal.map(l=>`<div class="expand-link-item"><div><a href="${escHtml(l.targetUrl)}" target="_blank">${escHtml(l.targetUrl)}</a><div class="expand-anchor">Anchor: ${escHtml(l.anchorText||'—')}</div></div></div>`).join('')}
-    </div></td></tr>`;
+  if(AppState.expandState[item.id+'-external']){
+    rows+=`<tr class="expand-row"><td colspan="5"><div class="expand-panel"><div class="expand-panel-title">External links from this item (${outExternal.length})</div>${outExternal.length===0?'<div class="empty-expand">No external links from this item.</div>':outExternal.map(l=>`<div class="expand-link-item"><div><a href="${escHtml(l.targetUrl)}" target="_blank">${escHtml(l.targetUrl)}</a><div class="expand-anchor">Anchor: ${escHtml(l.anchorText||'—')}</div></div></div>`).join('')}</div></td></tr>`;
   }
-
-  // Suggest panel
-  if (suggestOpen) {
-    rows += `<tr class="expand-row"><td colspan="5">${buildSuggestPanel(item)}</td></tr>`;
+  if(suggestOpen){
+    rows+=`<tr class="expand-row"><td colspan="5">${buildSuggestPanel(item)}</td></tr>`;
   }
-
   return rows;
 }
 
-function toggleExpand(itemId, col) {
-  const key = itemId+'-'+col;
-  AppState.expandState[key] = !AppState.expandState[key];
+function toggleExpand(itemId,col){
+  const key=itemId+'-'+col;
+  AppState.expandState[key]=!AppState.expandState[key];
   renderLinksReport();
 }
 
-function lrChangePage(dir) { AppState.lrPage += dir; renderLinksReport(); }
+function lrChangePage(dir){ AppState.lrPage+=dir; renderLinksReport(); }
 
-// ── EXPORT CSV ──
-function exportLinksCSV() {
-  const items = getFilteredItems();
-  const rows = [['Title','Type','URL','Published','Inbound Links','Outbound Internal','Outbound External']];
-  items.forEach(item => {
-    const ib = (AppState.linkGraph.inbound[item.id]||[]).length;
-    const oi = (AppState.linkGraph.outbound[item.id]||[]).filter(l=>l.type==='internal').length;
-    const oe = (AppState.linkGraph.outbound[item.id]||[]).filter(l=>l.type==='external').length;
-    const date = item.publishedAt ? new Date(item.publishedAt).toLocaleDateString() : '';
-    rows.push([item.title, item.type, item.url, date, ib, oi, oe]);
+function exportLinksCSV(){
+  const items=getFilteredItems();
+  const rows=[['Title','Type','URL','Published','Inbound Links','Outbound Internal','Outbound External']];
+  items.forEach(item=>{
+    const ib=(AppState.linkGraph.inbound[item.id]||[]).length;
+    const oi=(AppState.linkGraph.outbound[item.id]||[]).filter(l=>l.type==='internal').length;
+    const oe=(AppState.linkGraph.outbound[item.id]||[]).filter(l=>l.type==='external').length;
+    const date=item.publishedAt?new Date(item.publishedAt).toLocaleDateString():'';
+    rows.push([item.title,item.type,item.url,date,ib,oi,oe]);
   });
-  downloadCSV(rows, 'link-whisperer-report.csv');
-}
-
-function downloadCSV(rows, filename) {
-  const csv = rows.map(r => r.map(v => '"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
-  const a = document.createElement('a');
-  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
-  a.download = filename;
+  const csv=rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download='link-whisperer-report.csv';
   a.click();
 }
 
-// ── SYNC ──
-async function syncFromShopify() {
+async function syncFromShopify(){
   showLoading();
-  try {
-    const allItems=[], allLinks=[];
-
-    setLoadingStep('Fetching products...', 5);
-    const pd = await shopifyFetch('products.json?limit=250&fields=id,title,handle,published_at,body_html,product_type,tags');
-    const products = (pd.products||[]).map(p=>({ id:'product-'+p.id, shopifyId:p.id, title:p.title, handle:p.handle, type:'product', publishedAt:p.published_at, bodyHtml:p.body_html||'', tags:(p.tags||'').split(',').map(t=>t.trim()).filter(Boolean), url:'https://aboutwallart.com/products/'+p.handle }));
+  try{
+    const allItems=[],allLinks=[];
+    setLoadingStep('Fetching products...',5);
+    const pd=await shopifyFetch('products.json?limit=250&fields=id,title,handle,published_at,body_html,product_type,tags');
+    const products=(pd.products||[]).map(p=>({id:'product-'+p.id,shopifyId:p.id,title:p.title,handle:p.handle,type:'product',publishedAt:p.published_at,bodyHtml:p.body_html||'',tags:(p.tags||'').split(',').map(t=>t.trim()).filter(Boolean),url:'https://aboutwallart.com/products/'+p.handle}));
     allItems.push(...products);
-    setLoadingStep('Products: '+products.length+' found', 20);
+    setLoadingStep('Products: '+products.length+' found',20);
 
-    setLoadingStep('Fetching pages...', 22);
-    const pagesD = await shopifyFetch('pages.json?limit=250&fields=id,title,handle,published_at,body_html');
-    const pages = (pagesD.pages||[]).map(p=>({ id:'page-'+p.id, shopifyId:p.id, title:p.title, handle:p.handle, type:'page', publishedAt:p.published_at, bodyHtml:p.body_html||'', tags:[], url:'https://aboutwallart.com/pages/'+p.handle }));
+    setLoadingStep('Fetching pages...',22);
+    const pagesD=await shopifyFetch('pages.json?limit=250&fields=id,title,handle,published_at,body_html');
+    const pages=(pagesD.pages||[]).map(p=>({id:'page-'+p.id,shopifyId:p.id,title:p.title,handle:p.handle,type:'page',publishedAt:p.published_at,bodyHtml:p.body_html||'',tags:[],url:'https://aboutwallart.com/pages/'+p.handle}));
     allItems.push(...pages);
-    setLoadingStep('Pages: '+pages.length+' found', 35);
+    setLoadingStep('Pages: '+pages.length+' found',35);
 
-    setLoadingStep('Fetching blogs...', 37);
-    const blogsD = await shopifyFetch('blogs.json?limit=250&fields=id,title,handle');
-    const blogs = blogsD.blogs||[];
+    setLoadingStep('Fetching blogs...',37);
+    const blogsD=await shopifyFetch('blogs.json?limit=250&fields=id,title,handle');
+    const blogs=blogsD.blogs||[];
     let totalArticles=0;
-    for (let i=0;i<blogs.length;i++) {
+    for(let i=0;i<blogs.length;i++){
       const blog=blogs[i];
-      setLoadingStep('Fetching articles from "'+blog.title+'"...', 37+Math.round(i/blogs.length*20));
-      const artD = await shopifyFetch('blogs/'+blog.id+'/articles.json?limit=250&fields=id,title,handle,published_at,body_html,blog_id,tags');
-      const articles = (artD.articles||[]).map(a=>({ id:'article-'+a.id, shopifyId:a.id, blogId:blog.id, title:a.title, handle:a.handle, type:'article', publishedAt:a.published_at, bodyHtml:a.body_html||'', tags:(a.tags||'').split(',').map(t=>t.trim()).filter(Boolean), blogHandle:blog.handle, url:'https://aboutwallart.com/blogs/'+blog.handle+'/'+a.handle }));
+      setLoadingStep('Fetching articles from "'+blog.title+'"...',37+Math.round(i/blogs.length*20));
+      const artD=await shopifyFetch('blogs/'+blog.id+'/articles.json?limit=250&fields=id,title,handle,published_at,body_html,blog_id,tags');
+      const articles=(artD.articles||[]).map(a=>({id:'article-'+a.id,shopifyId:a.id,blogId:blog.id,title:a.title,handle:a.handle,type:'article',publishedAt:a.published_at,bodyHtml:a.body_html||'',tags:(a.tags||'').split(',').map(t=>t.trim()).filter(Boolean),blogHandle:blog.handle,url:'https://aboutwallart.com/blogs/'+blog.handle+'/'+a.handle}));
       allItems.push(...articles);
       totalArticles+=articles.length;
     }
-    setLoadingStep('Articles: '+totalArticles+' found', 58);
+    setLoadingStep('Articles: '+totalArticles+' found',58);
 
-    setLoadingStep('Fetching collections...', 60);
-    const ccD = await shopifyFetch('custom_collections.json?limit=250&fields=id,title,handle,published_at,body_html');
-    const customCols = (ccD.custom_collections||[]).map(c=>({ id:'collection-'+c.id, shopifyId:c.id, title:c.title, handle:c.handle, type:'collection', publishedAt:c.published_at, bodyHtml:c.body_html||'', tags:[], url:'https://aboutwallart.com/collections/'+c.handle }));
+    setLoadingStep('Fetching collections...',60);
+    const ccD=await shopifyFetch('custom_collections.json?limit=250&fields=id,title,handle,published_at,body_html');
+    const customCols=(ccD.custom_collections||[]).map(c=>({id:'collection-'+c.id,shopifyId:c.id,title:c.title,handle:c.handle,type:'collection',publishedAt:c.published_at,bodyHtml:c.body_html||'',tags:[],url:'https://aboutwallart.com/collections/'+c.handle}));
     allItems.push(...customCols);
 
-    setLoadingStep('Fetching smart collections...', 70);
-    const scD = await shopifyFetch('smart_collections.json?limit=250&fields=id,title,handle,published_at,body_html');
-    const smartCols = (scD.smart_collections||[]).map(c=>({ id:'smart-'+c.id, shopifyId:c.id, title:c.title, handle:c.handle, type:'collection', publishedAt:c.published_at, bodyHtml:c.body_html||'', tags:[], url:'https://aboutwallart.com/collections/'+c.handle }));
+    setLoadingStep('Fetching smart collections...',70);
+    const scD=await shopifyFetch('smart_collections.json?limit=250&fields=id,title,handle,published_at,body_html');
+    const smartCols=(scD.smart_collections||[]).map(c=>({id:'smart-'+c.id,shopifyId:c.id,title:c.title,handle:c.handle,type:'collection',publishedAt:c.published_at,bodyHtml:c.body_html||'',tags:[],url:'https://aboutwallart.com/collections/'+c.handle}));
     allItems.push(...smartCols);
-    setLoadingStep('Collections: '+(customCols.length+smartCols.length)+' found', 78);
+    setLoadingStep('Collections: '+(customCols.length+smartCols.length)+' found',78);
 
-    setLoadingStep('Parsing links...', 80);
-    for (const item of allItems) allLinks.push(...parseItemLinks(item));
-    setLoadingStep('Links parsed: '+allLinks.length+' found', 90);
+    setLoadingStep('Parsing links...',80);
+    for(const item of allItems) allLinks.push(...parseItemLinks(item));
+    setLoadingStep('Links parsed: '+allLinks.length+' found',90);
 
     AppState.items=allItems; AppState.links=allLinks; AppState.lastSync=new Date().toISOString();
-
-    setLoadingStep('Building link graph...', 92);
+    setLoadingStep('Building link graph...',92);
     buildLinkGraph();
-    setLoadingStep('Detecting broken links...', 95);
+    setLoadingStep('Detecting broken links...',95);
     detectBrokenLinks();
-    setLoadingStep('Done!', 100);
+    setLoadingStep('Done!',100);
     await new Promise(r=>setTimeout(r,400));
 
     hideLoading(); showApp(); updateLastSynced(); renderDashboard(); renderLinksReport();
-    showToast('Sync complete — '+allItems.length+' items loaded', 'success');
-
-  } catch(err) {
+    showToast('Sync complete — '+allItems.length+' items loaded','success');
+  }catch(err){
     hideLoading(); showApp();
-    showToast('Sync failed: '+err.message, 'error');
-    console.error('Sync error:', err);
+    showToast('Sync failed: '+err.message,'error');
+    console.error('Sync error:',err);
   }
 }
 
-function refreshData() { syncFromShopify(); }
+function refreshData(){ syncFromShopify(); }
 
-// ── HELPERS ──
-function updateLastSynced() {
-  if (!AppState.lastSync) return;
-  const d = new Date(AppState.lastSync);
-  document.getElementById('last-synced').textContent = 'Last synced: '+d.toLocaleDateString([],{day:'numeric',month:'short'})+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+function updateLastSynced(){
+  if(!AppState.lastSync) return;
+  const d=new Date(AppState.lastSync);
+  document.getElementById('last-synced').textContent='Last synced: '+d.toLocaleDateString([],{day:'numeric',month:'short'})+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
 }
 
-function showToast(msg, type) {
+function showToast(msg,type){
   const t=document.createElement('div');
   t.className='toast '+(type||'info');
   t.textContent=msg;
@@ -1020,7 +892,7 @@ function showToast(msg, type) {
   setTimeout(()=>t.remove(),4000);
 }
 
-function escHtml(str) {
+function escHtml(str){
   return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 </script>
