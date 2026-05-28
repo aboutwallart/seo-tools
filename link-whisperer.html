@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>🔗 Link Whisperer</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -19,7 +20,7 @@
       background: #fff;
       width: 100%;
       padding: 0 24px;
-      height: 56px;
+      height: 60px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -28,22 +29,23 @@
       top: 0;
       z-index: 100;
     }
-    #header h1 { font-size: 18px; font-weight: 700; color: #333; }
+    #header-left h1 { font-size: 18px; font-weight: 700; color: #333; }
+    #header-left .version { font-size: 11px; color: #999; margin-top: 1px; }
     #header-right { display: flex; align-items: center; gap: 16px; }
     #last-synced { font-size: 12px; color: #888; }
     #btn-refresh {
-      background: #00bcd4;
+      background: #222;
       color: #fff;
       border: none;
       border-radius: 4px;
-      padding: 7px 14px;
+      padding: 8px 16px;
       font-size: 12px;
       font-weight: 600;
       text-transform: uppercase;
       cursor: pointer;
       letter-spacing: 0.5px;
     }
-    #btn-refresh:hover { background: #0097a7; }
+    #btn-refresh:hover { background: #444; }
 
     /* ── LOADING OVERLAY ── */
     #loading-overlay {
@@ -58,79 +60,49 @@
       gap: 20px;
     }
     #loading-overlay.hidden { display: none; }
-
     .spinner {
-      width: 48px;
-      height: 48px;
+      width: 48px; height: 48px;
       border: 4px solid #e0e0e0;
-      border-top-color: #00bcd4;
+      border-top-color: #222;
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
-
-    #loading-title {
-      font-size: 18px;
-      font-weight: 700;
-      color: #333;
-    }
-    #loading-step {
-      font-size: 14px;
-      color: #666;
-      min-height: 20px;
-    }
+    #loading-title { font-size: 18px; font-weight: 700; color: #333; }
+    #loading-step { font-size: 14px; color: #666; min-height: 20px; }
     #loading-progress-wrap {
-      width: 320px;
-      height: 6px;
-      background: #e0e0e0;
-      border-radius: 3px;
-      overflow: hidden;
+      width: 320px; height: 6px;
+      background: #e0e0e0; border-radius: 3px; overflow: hidden;
     }
     #loading-progress-bar {
-      height: 100%;
-      background: #00bcd4;
-      border-radius: 3px;
-      width: 0%;
-      transition: width 0.4s ease;
+      height: 100%; background: #222; border-radius: 3px;
+      width: 0%; transition: width 0.4s ease;
     }
 
     /* ── WELCOME SCREEN ── */
     #welcome-screen {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: calc(100vh - 56px);
-      gap: 16px;
-      padding: 40px 24px;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      min-height: calc(100vh - 60px);
+      gap: 16px; padding: 40px 24px;
     }
     #welcome-screen.hidden { display: none; }
-
     .welcome-card {
-      background: #fff;
-      border-radius: 8px;
+      background: #fff; border-radius: 8px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-      padding: 48px 40px;
-      text-align: center;
-      max-width: 480px;
-      width: 100%;
+      padding: 48px 40px; text-align: center;
+      max-width: 480px; width: 100%;
     }
     .welcome-card h2 { font-size: 24px; font-weight: 700; margin-bottom: 12px; }
-    .welcome-card p { color: #666; font-size: 14px; line-height: 1.6; margin-bottom: 28px; }
+    .welcome-card p { color: #666; font-size: 14px; line-height: 1.6; margin-bottom: 16px; }
     #btn-sync {
-      background: #00bcd4;
-      color: #fff;
-      border: none;
-      border-radius: 4px;
-      padding: 14px 32px;
-      font-size: 14px;
-      font-weight: 700;
-      text-transform: uppercase;
-      cursor: pointer;
-      letter-spacing: 0.8px;
-      width: 100%;
+      background: #222; color: #fff; border: none;
+      border-radius: 4px; padding: 14px 32px;
+      font-size: 14px; font-weight: 700;
+      text-transform: uppercase; cursor: pointer;
+      letter-spacing: 0.8px; width: 100%; margin-top: 12px;
     }
-    #btn-sync:hover { background: #0097a7; }
+    #btn-sync:hover { background: #444; }
 
     /* ── MAIN APP ── */
     #app { display: none; }
@@ -142,80 +114,127 @@
       border-bottom: 1px solid #e0e0e0;
       padding: 0 24px;
       display: flex;
-      gap: 0;
       overflow-x: auto;
       white-space: nowrap;
     }
     .tab-btn {
-      background: none;
-      border: none;
+      background: none; border: none;
       border-bottom: 2px solid transparent;
       padding: 16px 18px 14px;
-      font-size: 12px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.6px;
-      color: #888;
-      cursor: pointer;
+      font-size: 12px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.6px;
+      color: #888; cursor: pointer;
       transition: color 0.15s, border-color 0.15s;
     }
     .tab-btn:hover { color: #333; }
-    .tab-btn.active { color: #00bcd4; border-bottom-color: #00bcd4; }
+    .tab-btn.active { color: #222; border-bottom-color: #222; }
 
     /* ── TAB CONTENT ── */
     .tab-content { display: none; padding: 24px; }
     .tab-content.active { display: block; }
 
-    /* ── STATS GRID (dashboard placeholder) ── */
-    .stats-row {
+    /* ── DASHBOARD LAYOUT ── */
+    .dashboard-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      gap: 16px;
-      margin-bottom: 24px;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 20px;
     }
-    .stat-card {
+    @media (max-width: 900px) {
+      .dashboard-grid { grid-template-columns: 1fr; }
+    }
+    .dash-card {
       background: #fff;
       border-radius: 8px;
-      padding: 20px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-      text-align: center;
+      padding: 24px;
     }
-    .stat-card .stat-num {
-      font-size: 28px;
-      font-weight: 700;
-      color: #00bcd4;
+    .dash-card h3 {
+      font-size: 13px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      color: #333; margin-bottom: 16px;
     }
-    .stat-card .stat-label {
-      font-size: 12px;
-      color: #888;
-      margin-top: 4px;
-      text-transform: uppercase;
-      letter-spacing: 0.4px;
+    .dash-card h3 span { color: #888; font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 13px; }
+
+    /* ── STAT BUTTONS (card 1) ── */
+    .stat-btn {
+      display: flex; align-items: center;
+      width: 100%; border: none; border-radius: 6px;
+      padding: 12px 16px; margin-bottom: 8px;
+      cursor: pointer; text-align: left;
+      color: #fff; font-family: inherit;
+      transition: opacity 0.15s;
+    }
+    .stat-btn:last-child { margin-bottom: 0; }
+    .stat-btn:hover { opacity: 0.88; }
+    .stat-btn svg { width: 20px; height: 20px; flex-shrink: 0; margin-right: 12px; }
+    .stat-btn-label { flex: 1; font-size: 13px; font-weight: 600; }
+    .stat-btn-count { font-size: 18px; font-weight: 700; }
+
+    .sb-items    { background: linear-gradient(135deg, #1976d2, #42a5f5); }
+    .sb-links    { background: linear-gradient(135deg, #0097a7, #26c6da); }
+    .sb-internal { background: linear-gradient(135deg, #00796b, #26a69a); }
+    .sb-orphaned { background: linear-gradient(135deg, #ad1457, #ec407a); }
+    .sb-broken   { background: linear-gradient(135deg, #6a1b9a, #ab47bc); }
+    .sb-404      { background: linear-gradient(135deg, #4a148c, #7b1fa2); }
+
+    /* ── DOMAINS LIST (card 2) ── */
+    .domain-row {
+      margin-bottom: 10px;
+    }
+    .domain-row-top {
+      display: flex; justify-content: space-between;
+      font-size: 13px; margin-bottom: 4px;
+    }
+    .domain-link { color: #222; text-decoration: none; font-weight: 600; }
+    .domain-link:hover { text-decoration: underline; }
+    .domain-link.internal { color: #1976d2; }
+    .domain-count { color: #555; font-weight: 600; }
+    .domain-bar-wrap {
+      height: 4px; background: #f0f0f0; border-radius: 2px; overflow: hidden;
+    }
+    .domain-bar {
+      height: 100%; background: #222; border-radius: 2px;
+    }
+
+    /* ── DONUT CHART (card 3) ── */
+    .chart-wrap {
+      position: relative; width: 180px; height: 180px;
+      margin: 0 auto 16px;
+    }
+    .chart-legend {
+      display: flex; justify-content: center; gap: 24px;
+    }
+    .legend-item {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 13px; color: #555;
+    }
+    .legend-dot {
+      width: 10px; height: 10px; border-radius: 50%;
     }
 
     /* ── TOAST ── */
     #toast-container {
-      position: fixed;
-      bottom: 24px;
-      right: 24px;
-      z-index: 9999;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
+      position: fixed; bottom: 24px; right: 24px;
+      z-index: 9999; display: flex; flex-direction: column; gap: 8px;
     }
     .toast {
-      padding: 12px 18px;
-      border-radius: 6px;
-      font-size: 13px;
-      font-weight: 600;
-      color: #fff;
+      padding: 12px 18px; border-radius: 6px;
+      font-size: 13px; font-weight: 600; color: #fff;
       box-shadow: 0 4px 12px rgba(0,0,0,0.15);
       animation: slideIn 0.2s ease;
     }
     .toast.success { background: #43a047; }
-    .toast.error { background: #e53935; }
-    .toast.info { background: #00bcd4; }
-    @keyframes slideIn { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform: translateY(0); } }
+    .toast.error   { background: #e53935; }
+    .toast.info    { background: #555; }
+    @keyframes slideIn {
+      from { opacity:0; transform: translateY(10px); }
+      to   { opacity:1; transform: translateY(0); }
+    }
+
+    /* ── PLACEHOLDER TABS ── */
+    .placeholder-msg {
+      color: #aaa; font-size: 13px; padding: 40px 0; text-align: center;
+    }
   </style>
 </head>
 <body>
@@ -234,7 +253,10 @@
 
 <!-- HEADER -->
 <div id="header">
-  <h1>🔗 Link Whisperer</h1>
+  <div id="header-left">
+    <h1>🔗 Link Whisperer</h1>
+    <div class="version">v2.0</div>
+  </div>
   <div id="header-right">
     <span id="last-synced"></span>
     <button id="btn-refresh" onclick="refreshData()">🔄 Refresh Data</button>
@@ -245,8 +267,8 @@
 <div id="welcome-screen">
   <div class="welcome-card">
     <h2>Welcome to Link Whisperer</h2>
-    <p>This tool scans all your Shopify products, pages, blogs, and collections to build a complete map of your internal links — helping you find orphaned pages, broken links, and linking opportunities.</p>
-    <p style="margin-bottom: 28px;">Click below to pull your data from Shopify for the first time. This may take a minute depending on how many pages you have.</p>
+    <p>This tool scans all your Shopify products, pages, blogs, and collections to build a complete map of your internal links.</p>
+    <p>Click below to pull your data from Shopify for the first time. This may take a minute depending on how many pages you have.</p>
     <button id="btn-sync" onclick="syncFromShopify()">SYNC FROM SHOPIFY</button>
   </div>
 </div>
@@ -268,52 +290,99 @@
 
   <!-- DASHBOARD TAB -->
   <div id="tab-dashboard" class="tab-content active">
-    <div class="stats-row">
-      <div class="stat-card">
-        <div class="stat-num" id="stat-items">0</div>
-        <div class="stat-label">Items Scanned</div>
+    <div class="dashboard-grid">
+
+      <!-- CARD 1: STATS -->
+      <div class="dash-card">
+        <h3>Links Stats</h3>
+
+        <button class="stat-btn sb-items" onclick="switchTab('links-report')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          <span class="stat-btn-label">Items Scanned</span>
+          <span class="stat-btn-count" id="stat-items">0</span>
+        </button>
+
+        <button class="stat-btn sb-links" onclick="switchTab('links-report')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          <span class="stat-btn-label">Links Found</span>
+          <span class="stat-btn-count" id="stat-links">0</span>
+        </button>
+
+        <button class="stat-btn sb-internal" onclick="switchTab('links-report')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 10 4 15 9 20"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></svg>
+          <span class="stat-btn-label">Internal Links</span>
+          <span class="stat-btn-count" id="stat-internal">0</span>
+        </button>
+
+        <button class="stat-btn sb-orphaned" onclick="switchTab('links-report')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <span class="stat-btn-label">Orphaned Items</span>
+          <span class="stat-btn-count" id="stat-orphaned">0</span>
+        </button>
+
+        <button class="stat-btn sb-broken" onclick="switchTab('broken-links')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/><line x1="2" y1="2" x2="22" y2="22"/></svg>
+          <span class="stat-btn-label">Broken Links</span>
+          <span class="stat-btn-count" id="stat-broken">0</span>
+        </button>
+
+        <button class="stat-btn sb-404" onclick="switchTab('broken-links')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          <span class="stat-btn-label">404 Errors</span>
+          <span class="stat-btn-count" id="stat-404">0</span>
+        </button>
       </div>
-      <div class="stat-card">
-        <div class="stat-num" id="stat-links">0</div>
-        <div class="stat-label">Links Found</div>
+
+      <!-- CARD 2: TOP DOMAINS -->
+      <div class="dash-card">
+        <h3>Most linked to <span style="color:#1976d2">domains</span></h3>
+        <div id="domains-list">
+          <p class="placeholder-msg">Sync data to see domains.</p>
+        </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-num" id="stat-internal">0</div>
-        <div class="stat-label">Internal Links</div>
+
+      <!-- CARD 3: DONUT CHART -->
+      <div class="dash-card">
+        <h3>Internal vs External links</h3>
+        <div class="chart-wrap">
+          <canvas id="donut-chart"></canvas>
+        </div>
+        <div class="chart-legend">
+          <div class="legend-item">
+            <div class="legend-dot" style="background:#222"></div>
+            <span id="legend-internal">Internal: 0</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-dot" style="background:#bbb"></div>
+            <span id="legend-external">External: 0</span>
+          </div>
+        </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-num" id="stat-orphaned">0</div>
-        <div class="stat-label">Orphaned Items</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-num" id="stat-broken">0</div>
-        <div class="stat-label">Broken Links</div>
-      </div>
+
     </div>
-    <p style="color:#888; font-size:13px;">More dashboard details coming in the next batch.</p>
   </div>
 
-  <!-- OTHER TABS (placeholders for now) -->
+  <!-- PLACEHOLDER TABS -->
   <div id="tab-links-report" class="tab-content">
-    <p style="color:#888; font-size:13px;">Links Report — coming in Batch 4.</p>
+    <p class="placeholder-msg">Links Report — coming in Batch 4.</p>
   </div>
   <div id="tab-domains-report" class="tab-content">
-    <p style="color:#888; font-size:13px;">Domains Report — coming in Batch 5.</p>
+    <p class="placeholder-msg">Domains Report — coming in Batch 5.</p>
   </div>
   <div id="tab-broken-links" class="tab-content">
-    <p style="color:#888; font-size:13px;">Broken Links Report — coming in Batch 5.</p>
+    <p class="placeholder-msg">Broken Links Report — coming in Batch 5.</p>
   </div>
   <div id="tab-auto-linking" class="tab-content">
-    <p style="color:#888; font-size:13px;">Auto Linking — coming in Batch 6.</p>
+    <p class="placeholder-msg">Auto Linking — coming in Batch 6.</p>
   </div>
   <div id="tab-url-changer" class="tab-content">
-    <p style="color:#888; font-size:13px;">URL Changer — coming in Batch 6.</p>
+    <p class="placeholder-msg">URL Changer — coming in Batch 6.</p>
   </div>
   <div id="tab-target-keywords" class="tab-content">
-    <p style="color:#888; font-size:13px;">Target Keywords — coming in Batch 7.</p>
+    <p class="placeholder-msg">Target Keywords — coming in Batch 7.</p>
   </div>
   <div id="tab-settings" class="tab-content">
-    <p style="color:#888; font-size:13px;">Settings — coming in Batch 7.</p>
+    <p class="placeholder-msg">Settings — coming in Batch 7.</p>
   </div>
 
 </div>
@@ -330,7 +399,7 @@ const CONFIG = {
   apiVersion: '2025-01',
   itemsPerPage: 6,
   cacheKey: 'link-whisperer-cache',
-  cacheMaxAge: 60 * 60 * 1000 // 1 hour in ms
+  cacheMaxAge: 60 * 60 * 1000
 };
 
 // ─────────────────────────────────────────────
@@ -344,21 +413,21 @@ const AppState = {
   linkGraph: { outbound: {}, inbound: {} }
 };
 
+let donutChart = null;
+
 // ─────────────────────────────────────────────
 // INIT
 // ─────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  // Restore last active tab
   const savedTab = localStorage.getItem('lw-active-tab') || 'dashboard';
   switchTab(savedTab, true);
 
-  // Check for cached data
   const cached = loadFromStorage();
   if (cached && cached.items && cached.items.length > 0) {
     Object.assign(AppState, cached);
     showApp();
     updateLastSynced();
-    updateStats();
+    renderDashboard();
     showToast('Loaded from cache', 'info');
   } else {
     showWelcome();
@@ -372,21 +441,17 @@ function showWelcome() {
   document.getElementById('welcome-screen').classList.remove('hidden');
   document.getElementById('app').classList.remove('visible');
 }
-
 function showApp() {
   document.getElementById('welcome-screen').classList.add('hidden');
   document.getElementById('app').classList.add('visible');
 }
-
 function showLoading(step, progress) {
   document.getElementById('loading-overlay').classList.remove('hidden');
   setLoadingStep(step, progress);
 }
-
 function hideLoading() {
   document.getElementById('loading-overlay').classList.add('hidden');
 }
-
 function setLoadingStep(step, progress) {
   document.getElementById('loading-step').textContent = step;
   if (progress !== undefined) {
@@ -405,9 +470,8 @@ function switchTab(tabName, silent) {
   if (targetContent) targetContent.classList.add('active');
 
   document.querySelectorAll('.tab-btn').forEach(btn => {
-    if (btn.getAttribute('onclick') && btn.getAttribute('onclick').includes("'" + tabName + "'")) {
-      btn.classList.add('active');
-    }
+    const onclick = btn.getAttribute('onclick') || '';
+    if (onclick.includes("'" + tabName + "'")) btn.classList.add('active');
   });
 
   if (!silent) localStorage.setItem('lw-active-tab', tabName);
@@ -423,19 +487,14 @@ async function shopifyFetch(endpoint) {
 
   while (nextEndpoint) {
     const url = CONFIG.proxyUrl + '/api/shopify-files?action=link-whisperer&endpoint=' + encodeURIComponent(nextEndpoint);
-
     const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error('Shopify fetch failed for: ' + nextEndpoint);
-    }
+    if (!response.ok) throw new Error('Shopify fetch failed for: ' + nextEndpoint);
 
     const data = await response.json();
 
-    // Merge results — find the first array key in the response
     if (allResults === null) {
       allResults = data;
     } else {
-      // Find the array key and concatenate
       for (const key of Object.keys(data)) {
         if (Array.isArray(data[key]) && Array.isArray(allResults[key])) {
           allResults[key] = allResults[key].concat(data[key]);
@@ -443,12 +502,10 @@ async function shopifyFetch(endpoint) {
       }
     }
 
-    // Check for next page via Link header
     const linkHeader = response.headers.get('Link');
     nextEndpoint = null;
 
     if (linkHeader) {
-      // Parse Link header: looks for rel="next"
       const parts = linkHeader.split(',');
       for (const part of parts) {
         if (part.includes('rel="next"')) {
@@ -467,20 +524,19 @@ async function shopifyFetch(endpoint) {
 }
 
 // ─────────────────────────────────────────────
-// PARSE LINKS FROM HTML
+// PARSE LINKS
 // ─────────────────────────────────────────────
 function parseItemLinks(item) {
   const links = [];
-  if (!item.body_html) return links;
+  if (!item.bodyHtml) return links;
 
   const parser = new DOMParser();
-  const doc = parser.parseFromString(item.body_html, 'text/html');
+  const doc = parser.parseFromString(item.bodyHtml, 'text/html');
   const anchors = doc.querySelectorAll('a[href]');
 
   anchors.forEach(a => {
     const href = a.getAttribute('href') || '';
     const anchorText = a.textContent.trim();
-
     if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) return;
 
     let fullUrl = href;
@@ -494,13 +550,7 @@ function parseItemLinks(item) {
       fullUrl = href;
     }
 
-    links.push({
-      sourceId: item.id,
-      sourceUrl: item.url,
-      targetUrl: fullUrl,
-      anchorText: anchorText,
-      type: type
-    });
+    links.push({ sourceId: item.id, sourceUrl: item.url, targetUrl: fullUrl, anchorText, type });
   });
 
   return links;
@@ -513,17 +563,9 @@ function buildLinkGraph() {
   AppState.linkGraph = { outbound: {}, inbound: {} };
 
   for (const link of AppState.links) {
-    // Outbound
-    if (!AppState.linkGraph.outbound[link.sourceId]) {
-      AppState.linkGraph.outbound[link.sourceId] = [];
-    }
-    AppState.linkGraph.outbound[link.sourceId].push({
-      targetUrl: link.targetUrl,
-      anchorText: link.anchorText,
-      type: link.type
-    });
+    if (!AppState.linkGraph.outbound[link.sourceId]) AppState.linkGraph.outbound[link.sourceId] = [];
+    AppState.linkGraph.outbound[link.sourceId].push({ targetUrl: link.targetUrl, anchorText: link.anchorText, type: link.type });
 
-    // Inbound — find item that matches target URL
     if (link.type === 'internal') {
       const targetItem = AppState.items.find(i => {
         const cleanTarget = link.targetUrl.replace(/\/$/, '');
@@ -531,14 +573,8 @@ function buildLinkGraph() {
         return cleanTarget === cleanItem || link.targetUrl.includes('/' + i.handle);
       });
       if (targetItem) {
-        if (!AppState.linkGraph.inbound[targetItem.id]) {
-          AppState.linkGraph.inbound[targetItem.id] = [];
-        }
-        AppState.linkGraph.inbound[targetItem.id].push({
-          sourceId: link.sourceId,
-          sourceUrl: link.sourceUrl,
-          anchorText: link.anchorText
-        });
+        if (!AppState.linkGraph.inbound[targetItem.id]) AppState.linkGraph.inbound[targetItem.id] = [];
+        AppState.linkGraph.inbound[targetItem.id].push({ sourceId: link.sourceId, sourceUrl: link.sourceUrl, anchorText: link.anchorText });
       }
     }
   }
@@ -550,31 +586,21 @@ function buildLinkGraph() {
 function detectBrokenLinks() {
   const knownUrls = new Set();
   const knownHandles = new Set();
-
   AppState.items.forEach(item => {
     if (item.url) knownUrls.add(item.url.replace(/\/$/, '').toLowerCase());
     if (item.handle) knownHandles.add(item.handle.toLowerCase());
   });
 
   AppState.brokenLinks = [];
-
   AppState.links.forEach(link => {
     if (link.type !== 'internal') return;
-
     const cleanUrl = link.targetUrl.replace(/\/$/, '').toLowerCase();
-    const urlParts = cleanUrl.split('/');
-    const handle = urlParts[urlParts.length - 1];
-
-    const found = knownUrls.has(cleanUrl) || knownHandles.has(handle);
-
-    if (!found) {
+    const handle = cleanUrl.split('/').pop();
+    if (!knownUrls.has(cleanUrl) && !knownHandles.has(handle)) {
       AppState.brokenLinks.push({
-        sourceId: link.sourceId,
-        sourceUrl: link.sourceUrl,
-        brokenUrl: link.targetUrl,
-        anchorText: link.anchorText,
-        type: link.type,
-        status: '404 Not Found',
+        sourceId: link.sourceId, sourceUrl: link.sourceUrl,
+        brokenUrl: link.targetUrl, anchorText: link.anchorText,
+        type: link.type, status: '404 Not Found',
         discovered: new Date().toISOString()
       });
     }
@@ -586,31 +612,123 @@ function detectBrokenLinks() {
 // ─────────────────────────────────────────────
 function computeStats() {
   const internalLinks = AppState.links.filter(l => l.type === 'internal');
+  const externalLinks = AppState.links.filter(l => l.type === 'external');
   const orphaned = AppState.items.filter(item => {
     const inbound = AppState.linkGraph.inbound[item.id];
     return !inbound || inbound.length === 0;
   });
+  const errors404 = AppState.brokenLinks.filter(b => b.status === '404 Not Found');
 
   return {
     itemsScanned: AppState.items.length,
     linksFound: AppState.links.length,
     internalLinks: internalLinks.length,
+    externalLinks: externalLinks.length,
     orphanedItems: orphaned.length,
-    brokenLinks: AppState.brokenLinks.length
+    brokenLinks: AppState.brokenLinks.length,
+    errors404: errors404.length
   };
 }
 
-function updateStats() {
+// ─────────────────────────────────────────────
+// RENDER DASHBOARD
+// ─────────────────────────────────────────────
+function renderDashboard() {
   const stats = computeStats();
-  document.getElementById('stat-items').textContent = stats.itemsScanned.toLocaleString();
-  document.getElementById('stat-links').textContent = stats.linksFound.toLocaleString();
+
+  // Stat buttons
+  document.getElementById('stat-items').textContent    = stats.itemsScanned.toLocaleString();
+  document.getElementById('stat-links').textContent    = stats.linksFound.toLocaleString();
   document.getElementById('stat-internal').textContent = stats.internalLinks.toLocaleString();
   document.getElementById('stat-orphaned').textContent = stats.orphanedItems.toLocaleString();
-  document.getElementById('stat-broken').textContent = stats.brokenLinks.toLocaleString();
+  document.getElementById('stat-broken').textContent   = stats.brokenLinks.toLocaleString();
+  document.getElementById('stat-404').textContent      = stats.errors404.toLocaleString();
+
+  // Domains list
+  renderDomainsCard();
+
+  // Donut chart
+  renderDonutChart(stats.internalLinks, stats.externalLinks);
+}
+
+function renderDomainsCard() {
+  const domainCounts = {};
+
+  AppState.links.forEach(link => {
+    try {
+      const url = new URL(link.targetUrl);
+      const domain = url.hostname.replace(/^www\./, '');
+      domainCounts[domain] = (domainCounts[domain] || 0) + 1;
+    } catch(e) {}
+  });
+
+  const sorted = Object.entries(domainCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 15);
+
+  const maxCount = sorted.length > 0 ? sorted[0][1] : 1;
+  const container = document.getElementById('domains-list');
+
+  if (sorted.length === 0) {
+    container.innerHTML = '<p class="placeholder-msg">No domain data found.</p>';
+    return;
+  }
+
+  container.innerHTML = sorted.map(([domain, count]) => {
+    const isInternal = domain.includes('aboutwallart.com');
+    const barWidth = Math.round((count / maxCount) * 100);
+    return `
+      <div class="domain-row">
+        <div class="domain-row-top">
+          <a href="https://${domain}" target="_blank" class="domain-link ${isInternal ? 'internal' : ''}">${domain}</a>
+          <span class="domain-count">${count.toLocaleString()}</span>
+        </div>
+        <div class="domain-bar-wrap">
+          <div class="domain-bar" style="width:${barWidth}%; background:${isInternal ? '#1976d2' : '#222'}"></div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function renderDonutChart(internal, external) {
+  document.getElementById('legend-internal').textContent = 'Internal: ' + internal.toLocaleString();
+  document.getElementById('legend-external').textContent = 'External: ' + external.toLocaleString();
+
+  const ctx = document.getElementById('donut-chart').getContext('2d');
+
+  if (donutChart) {
+    donutChart.destroy();
+    donutChart = null;
+  }
+
+  donutChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Internal', 'External'],
+      datasets: [{
+        data: [internal, external],
+        backgroundColor: ['#222', '#bbb'],
+        borderWidth: 0
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      cutout: '65%',
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.label + ': ' + ctx.parsed.toLocaleString()
+          }
+        }
+      }
+    }
+  });
 }
 
 // ─────────────────────────────────────────────
-// MAIN SYNC FUNCTION
+// MAIN SYNC
 // ─────────────────────────────────────────────
 async function syncFromShopify() {
   showLoading('Starting sync...', 0);
@@ -619,39 +737,29 @@ async function syncFromShopify() {
     const allItems = [];
     const allLinks = [];
 
-    // ── PRODUCTS ──
+    // Products
     setLoadingStep('Fetching products...', 5);
     const productsData = await shopifyFetch('products.json?limit=250&fields=id,title,handle,published_at,body_html,product_type');
     const products = (productsData.products || []).map(p => ({
-      id: 'product-' + p.id,
-      shopifyId: p.id,
-      title: p.title,
-      handle: p.handle,
-      type: 'product',
-      publishedAt: p.published_at,
-      bodyHtml: p.body_html || '',
+      id: 'product-' + p.id, shopifyId: p.id, title: p.title, handle: p.handle,
+      type: 'product', publishedAt: p.published_at, bodyHtml: p.body_html || '',
       url: 'https://aboutwallart.com/products/' + p.handle
     }));
     allItems.push(...products);
     setLoadingStep('Products: ' + products.length + ' found', 20);
 
-    // ── PAGES ──
+    // Pages
     setLoadingStep('Fetching pages...', 22);
     const pagesData = await shopifyFetch('pages.json?limit=250&fields=id,title,handle,published_at,body_html');
     const pages = (pagesData.pages || []).map(p => ({
-      id: 'page-' + p.id,
-      shopifyId: p.id,
-      title: p.title,
-      handle: p.handle,
-      type: 'page',
-      publishedAt: p.published_at,
-      bodyHtml: p.body_html || '',
+      id: 'page-' + p.id, shopifyId: p.id, title: p.title, handle: p.handle,
+      type: 'page', publishedAt: p.published_at, bodyHtml: p.body_html || '',
       url: 'https://aboutwallart.com/pages/' + p.handle
     }));
     allItems.push(...pages);
     setLoadingStep('Pages: ' + pages.length + ' found', 35);
 
-    // ── BLOGS + ARTICLES ──
+    // Blogs + Articles
     setLoadingStep('Fetching blogs...', 37);
     const blogsData = await shopifyFetch('blogs.json?limit=250&fields=id,title,handle');
     const blogs = blogsData.blogs || [];
@@ -661,35 +769,23 @@ async function syncFromShopify() {
       const blog = blogs[i];
       const progress = 37 + Math.round((i / blogs.length) * 20);
       setLoadingStep('Fetching articles from "' + blog.title + '"...', progress);
-
       const articlesData = await shopifyFetch('blogs/' + blog.id + '/articles.json?limit=250&fields=id,title,handle,published_at,body_html,blog_id');
       const articles = (articlesData.articles || []).map(a => ({
-        id: 'article-' + a.id,
-        shopifyId: a.id,
-        title: a.title,
-        handle: a.handle,
-        type: 'article',
-        publishedAt: a.published_at,
-        bodyHtml: a.body_html || '',
-        blogHandle: blog.handle,
-        url: 'https://aboutwallart.com/blogs/' + blog.handle + '/' + a.handle
+        id: 'article-' + a.id, shopifyId: a.id, title: a.title, handle: a.handle,
+        type: 'article', publishedAt: a.published_at, bodyHtml: a.body_html || '',
+        blogHandle: blog.handle, url: 'https://aboutwallart.com/blogs/' + blog.handle + '/' + a.handle
       }));
       allItems.push(...articles);
       totalArticles += articles.length;
     }
     setLoadingStep('Articles: ' + totalArticles + ' found', 58);
 
-    // ── COLLECTIONS ──
+    // Collections
     setLoadingStep('Fetching custom collections...', 60);
     const customColData = await shopifyFetch('custom_collections.json?limit=250&fields=id,title,handle,published_at,body_html');
     const customCols = (customColData.custom_collections || []).map(c => ({
-      id: 'collection-' + c.id,
-      shopifyId: c.id,
-      title: c.title,
-      handle: c.handle,
-      type: 'collection',
-      publishedAt: c.published_at,
-      bodyHtml: c.body_html || '',
+      id: 'collection-' + c.id, shopifyId: c.id, title: c.title, handle: c.handle,
+      type: 'collection', publishedAt: c.published_at, bodyHtml: c.body_html || '',
       url: 'https://aboutwallart.com/collections/' + c.handle
     }));
     allItems.push(...customCols);
@@ -697,39 +793,32 @@ async function syncFromShopify() {
     setLoadingStep('Fetching smart collections...', 70);
     const smartColData = await shopifyFetch('smart_collections.json?limit=250&fields=id,title,handle,published_at,body_html');
     const smartCols = (smartColData.smart_collections || []).map(c => ({
-      id: 'smart-' + c.id,
-      shopifyId: c.id,
-      title: c.title,
-      handle: c.handle,
-      type: 'collection',
-      publishedAt: c.published_at,
-      bodyHtml: c.body_html || '',
+      id: 'smart-' + c.id, shopifyId: c.id, title: c.title, handle: c.handle,
+      type: 'collection', publishedAt: c.published_at, bodyHtml: c.body_html || '',
       url: 'https://aboutwallart.com/collections/' + c.handle
     }));
     allItems.push(...smartCols);
     setLoadingStep('Collections: ' + (customCols.length + smartCols.length) + ' found', 78);
 
-    // ── PARSE LINKS ──
+    // Parse links
     setLoadingStep('Parsing links from all content...', 80);
     for (const item of allItems) {
-      const itemLinks = parseItemLinks({ ...item, body_html: item.bodyHtml });
+      const itemLinks = parseItemLinks(item);
       allLinks.push(...itemLinks);
     }
     setLoadingStep('Links parsed: ' + allLinks.length + ' found', 90);
 
-    // ── SAVE TO STATE ──
+    // Save state
     AppState.items = allItems;
     AppState.links = allLinks;
     AppState.lastSync = new Date().toISOString();
 
-    // ── BUILD GRAPH + DETECT BROKEN ──
     setLoadingStep('Building link graph...', 92);
     buildLinkGraph();
 
     setLoadingStep('Detecting broken links...', 95);
     detectBrokenLinks();
 
-    // ── SAVE TO CACHE ──
     setLoadingStep('Saving to cache...', 98);
     saveToStorage();
 
@@ -739,7 +828,7 @@ async function syncFromShopify() {
     hideLoading();
     showApp();
     updateLastSynced();
-    updateStats();
+    renderDashboard();
     showToast('Sync complete — ' + allItems.length + ' items loaded', 'success');
 
   } catch (err) {
@@ -761,17 +850,12 @@ function refreshData() {
 function saveToStorage() {
   try {
     const data = {
-      items: AppState.items,
-      links: AppState.links,
-      brokenLinks: AppState.brokenLinks,
-      lastSync: AppState.lastSync,
-      linkGraph: AppState.linkGraph,
-      savedAt: Date.now()
+      items: AppState.items, links: AppState.links,
+      brokenLinks: AppState.brokenLinks, lastSync: AppState.lastSync,
+      linkGraph: AppState.linkGraph, savedAt: Date.now()
     };
     localStorage.setItem(CONFIG.cacheKey, JSON.stringify(data));
-  } catch (e) {
-    console.warn('Could not save to localStorage:', e);
-  }
+  } catch(e) { console.warn('Could not save to localStorage:', e); }
 }
 
 function loadFromStorage() {
@@ -780,14 +864,9 @@ function loadFromStorage() {
     if (!raw) return null;
     const data = JSON.parse(raw);
     const age = Date.now() - (data.savedAt || 0);
-    if (age > CONFIG.cacheMaxAge) {
-      localStorage.removeItem(CONFIG.cacheKey);
-      return null;
-    }
+    if (age > CONFIG.cacheMaxAge) { localStorage.removeItem(CONFIG.cacheKey); return null; }
     return data;
-  } catch (e) {
-    return null;
-  }
+  } catch(e) { return null; }
 }
 
 // ─────────────────────────────────────────────
@@ -810,6 +889,5 @@ function showToast(message, type) {
   setTimeout(() => toast.remove(), 4000);
 }
 </script>
-
 </body>
 </html>
