@@ -1,5 +1,4 @@
 module.exports = async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,PATCH,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
@@ -85,7 +84,6 @@ module.exports = async function handler(req, res) {
         return url.split('/').pop().split('?')[0];
       }
       
-      // Determine if this is a product image
       const isProductImage = pageUrl.includes('/products/') && imageUrl.includes('/products/');
       
       const graphqlUrl = 'https://' + shopifyDomain + '/admin/api/2025-01/graphql.json';
