@@ -188,7 +188,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v6.0</div>
+    <div class="version">v7.0</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -624,32 +624,50 @@ async function confirmSelectedLinks(itemId) {
 
 function buildPreviewPrompt(item, selected) {
   const selectedList = selected.map(s=>'- '+s.title+' ('+s.type+'): '+s.url).join('\n');
-  return `You are an internal linking expert for About Wall Art (aboutwallart.com).
+  return `You are an internal linking expert for About Wall Art (aboutwallart.com), a UK premium framed wall art brand.
 
-Analyse this page and plan where to place internal links. For each link, identify the exact anchor text and the sentence it will appear in.
+Your job is to plan EXACTLY where to place internal links inside existing content. You must find existing sentences in the content and rewrite them naturally to include the link.
 
 PAGE TYPE: ${item.type}
 PAGE TITLE: ${item.title}
 CURRENT BODY HTML:
-${item.bodyHtml||'(no content yet)'}
+${item.bodyHtml||''}
 
 PAGES TO LINK TO:
 ${selectedList}
 
-RULES:
-- Products: blog link in first/second paragraph, collection link in last paragraph
-- Blog posts: links naturally within sentences throughout content
-- Collections: links in middle or end of description
-- Anchor text must be natural — never "click here" or "read more"
+STRICT PLACEMENT RULES BY PAGE TYPE:
 
-Return ONLY a valid JSON array, no explanation, no markdown. Format:
+FOR PRODUCTS:
+- If linking to a BLOG POST: find a sentence in the FIRST or SECOND paragraph that relates to the blog topic. Rewrite that sentence to include the link naturally. Example: if the blog is about bathroom styling, find a sentence mentioning bathrooms and add "— explore our guide to bathroom wall art styling" as a linked phrase within it.
+- If linking to a COLLECTION: find a sentence in the LAST paragraph. Rewrite it to include a natural call to browse, e.g. "browse our full bathroom wall art collection".
+
+FOR BLOG POSTS:
+- Find 2-4 existing sentences spread throughout the content that relate to each target page.
+- Rewrite each sentence to include the link as a natural phrase within it.
+- Spread links throughout — do not place them all in one section.
+
+FOR COLLECTIONS:
+- Find a sentence in the MIDDLE or END of the description.
+- Rewrite it to include the link naturally as an editorial phrase.
+
+ABSOLUTE RULES — VIOLATIONS ARE NOT ACCEPTABLE:
+- NEVER add "See also:", "Read more:", "Click here", or any standalone link line
+- NEVER append a new sentence at the end just for the link
+- NEVER create a new paragraph just for the link
+- You MUST find an EXISTING sentence and rewrite it to include the link naturally
+- Anchor text must be a natural descriptive phrase (3-8 words), never the full page title
+- The linked phrase must make grammatical sense within the sentence
+
+Return ONLY a valid JSON array, no explanation, no markdown code blocks. Format:
 [
   {
     "targetUrl": "https://...",
     "targetTitle": "Page title",
-    "anchorText": "the exact anchor text phrase",
-    "fullSentence": "The full sentence with <a href=\\"URL\\">anchor text</a> inserted naturally",
-    "placement": "e.g. Second paragraph, after the first sentence"
+    "anchorText": "natural 3-8 word phrase",
+    "originalSentence": "The original sentence from the content before editing",
+    "fullSentence": "The rewritten sentence with <a href=\\"URL\\">anchor text</a> naturally inserted",
+    "placement": "e.g. First paragraph, third sentence"
   }
 ]`;
 }
@@ -679,6 +697,8 @@ function renderPreviewBlocks(previews) {
     <div class="preview-link-block">
       <div class="plb-target">Link ${i+1} → ${escHtml(p.targetTitle||p.targetUrl)}</div>
       <div class="plb-anchor">Anchor text: <strong>${escHtml(p.anchorText)}</strong></div>
+      ${p.originalSentence ? `<div style="font-size:11px;color:#999;margin-bottom:6px;font-style:italic;">Original: "${escHtml(p.originalSentence)}"</div>` : ''}
+      <div style="font-size:11px;font-weight:700;color:#555;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.3px;">Rewritten as:</div>
       <div class="plb-sentence">${p.fullSentence||''}</div>
       <div class="plb-placement">📍 Placement: ${escHtml(p.placement||'Within content')}</div>
     </div>`).join('');
@@ -734,24 +754,40 @@ async function savePreviewedLinks() {
 
 function buildClaudePrompt(item, selected) {
   const selectedList = selected.map(s=>'- '+s.title+' ('+s.type+'): '+s.url).join('\n');
-  return `You are an internal linking expert for About Wall Art (aboutwallart.com), a UK wall art store.
+  return `You are an internal linking expert for About Wall Art (aboutwallart.com), a UK premium framed wall art brand.
 
-Add internal links to this page. Insert each link naturally within the existing content.
+Add internal links to this page by finding existing sentences and rewriting them naturally to include the links.
 
 PAGE TYPE: ${item.type}
 PAGE TITLE: ${item.title}
 CURRENT BODY HTML:
-${item.bodyHtml||'(no content yet)'}
+${item.bodyHtml||''}
 
 PAGES TO LINK TO:
 ${selectedList}
 
-RULES:
-- Products: blog link in first/second paragraph, collection link in last paragraph
-- Blog posts: links naturally within sentences throughout content
-- Collections: links in middle or end of description
-- Anchor text must be natural — never "click here" or "read more"
-- Return ONLY the updated full HTML body, no explanation, no markdown code blocks`;
+STRICT PLACEMENT RULES BY PAGE TYPE:
+
+FOR PRODUCTS:
+- BLOG POST link: find an existing sentence in the FIRST or SECOND paragraph that relates to the blog topic. Rewrite it to include the link naturally within the sentence.
+- COLLECTION link: find an existing sentence in the LAST paragraph. Rewrite it to include a natural browse call within the sentence.
+
+FOR BLOG POSTS:
+- Find existing sentences spread throughout the content that relate to each target page.
+- Rewrite each sentence to include the link as a natural phrase within it.
+
+FOR COLLECTIONS:
+- Find an existing sentence in the MIDDLE or END of the description and rewrite it.
+
+ABSOLUTE RULES — ANY VIOLATION MAKES THE OUTPUT UNUSABLE:
+- NEVER add "See also:", "Read more:", "Click here", or any standalone link line
+- NEVER append a new sentence at the end just for a link
+- NEVER create a new paragraph just for a link
+- You MUST find EXISTING sentences and rewrite them to include the link
+- Anchor text must be a natural descriptive phrase (3-8 words), never the full page title
+- The linked phrase must make grammatical sense within the sentence
+
+Return ONLY the complete updated HTML body content. No explanation. No markdown code blocks. No preamble.`;
 }
 
 function extractHtmlFromClaude(claudeText, originalHtml, selected) {
