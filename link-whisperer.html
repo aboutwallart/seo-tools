@@ -102,10 +102,10 @@
     .link-count.zero { background:#f5f5f5; color:#bbb; }
     .btn-expand { background:none; border:1px solid #ddd; border-radius:4px; padding:3px 8px; font-size:11px; cursor:pointer; color:#555; transition:transform 0.2s; }
     .btn-expand.open { transform:rotate(180deg); }
-    .btn-add { background:none; border:none; color:#1565c0; font-size:12px; cursor:pointer; text-decoration:underline; padding:0; }
-    .btn-add:hover { color:#0d47a1; }
+    .btn-add { background:#222; color:#fff; border:none; border-radius:4px; padding:4px 10px; font-size:11px; font-weight:600; cursor:pointer; text-transform:uppercase; letter-spacing:0.3px; }
+    .btn-add:hover { background:#444; }
 
-    /* EXPANDED ROW */
+    /* EXPAND ROW */
     .expand-row td { padding:0; }
     .expand-panel { background:#e8f4f8; border-left:3px solid #222; padding:12px 16px; }
     .expand-panel-title { font-size:11px; font-weight:700; text-transform:uppercase; color:#555; margin-bottom:8px; letter-spacing:0.4px; }
@@ -116,14 +116,35 @@
     .expand-anchor { color:#666; font-style:italic; }
     .empty-expand { color:#aaa; font-size:13px; font-style:italic; }
 
+    /* SUGGESTIONS PANEL */
+    .suggest-panel { background:#fff8e1; border-left:3px solid #f9a825; padding:16px; }
+    .suggest-panel-title { font-size:12px; font-weight:700; text-transform:uppercase; color:#555; margin-bottom:4px; letter-spacing:0.4px; }
+    .suggest-panel-sub { font-size:12px; color:#888; margin-bottom:12px; }
+    .suggest-item { display:flex; align-items:flex-start; gap:10px; padding:8px 0; border-bottom:1px solid #f0e0a0; }
+    .suggest-item:last-child { border-bottom:none; }
+    .suggest-item input[type=checkbox] { margin-top:2px; flex-shrink:0; width:15px; height:15px; cursor:pointer; }
+    .suggest-item-info { flex:1; }
+    .suggest-item-title { font-size:13px; font-weight:600; color:#222; }
+    .suggest-item-meta { font-size:11px; color:#888; margin-top:2px; }
+    .suggest-item-badges { display:flex; gap:4px; flex-wrap:wrap; margin-top:4px; }
+    .badge { font-size:10px; padding:2px 6px; border-radius:3px; font-weight:600; text-transform:uppercase; }
+    .badge-orphan { background:#fce4ec; color:#c62828; }
+    .badge-type { background:#f0f0f0; color:#555; }
+    .badge-match { background:#e8f5e9; color:#2e7d32; }
+    .suggest-actions { display:flex; gap:8px; margin-top:12px; padding-top:12px; border-top:1px solid #f0e0a0; align-items:center; }
+    .suggest-loading { font-size:13px; color:#888; font-style:italic; display:flex; align-items:center; gap:8px; }
+    .suggest-spinner { width:16px; height:16px; border:2px solid #e0e0e0; border-top-color:#222; border-radius:50%; animation:spin 0.8s linear infinite; flex-shrink:0; }
+
     /* CONFIRM MODAL */
     #modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9998; display:flex; align-items:center; justify-content:center; }
     #modal-overlay.hidden { display:none; }
-    .modal-card { background:#fff; border-radius:8px; padding:32px; max-width:440px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.2); }
-    .modal-card h3 { font-size:16px; font-weight:700; margin-bottom:12px; }
-    .modal-card p { font-size:13px; color:#555; line-height:1.6; margin-bottom:8px; }
-    .modal-card pre { background:#f5f5f5; border-radius:4px; padding:10px 12px; font-size:12px; color:#333; overflow-x:auto; margin-bottom:16px; white-space:pre-wrap; word-break:break-all; }
+    .modal-card { background:#fff; border-radius:8px; padding:32px; max-width:520px; width:90%; box-shadow:0 8px 32px rgba(0,0,0,0.2); max-height:80vh; overflow-y:auto; }
+    .modal-card h3 { font-size:16px; font-weight:700; margin-bottom:8px; }
+    .modal-card .modal-sub { font-size:13px; color:#666; margin-bottom:16px; }
+    .modal-link-preview { background:#f5f5f5; border-radius:4px; padding:10px 12px; font-size:12px; color:#333; margin-bottom:8px; border-left:3px solid #222; }
+    .modal-link-preview strong { color:#222; }
     .modal-buttons { display:flex; gap:10px; justify-content:flex-end; margin-top:20px; }
+    .modal-saving { font-size:13px; color:#888; font-style:italic; }
 
     /* PAGINATION */
     .pagination { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; background:#fff; border-top:1px solid #f0f0f0; font-size:13px; color:#666; }
@@ -160,7 +181,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v3.0</div>
+    <div class="version">v4.0</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -268,22 +289,23 @@
   </div>
 
   <!-- PLACEHOLDER TABS -->
-  <div id="tab-domains-report" class="tab-content"><p class="placeholder-msg">Domains Report — coming in Batch 5.</p></div>
-  <div id="tab-broken-links" class="tab-content"><p class="placeholder-msg">Broken Links Report — coming in Batch 5.</p></div>
-  <div id="tab-auto-linking" class="tab-content"><p class="placeholder-msg">Auto Linking — coming in Batch 6.</p></div>
-  <div id="tab-url-changer" class="tab-content"><p class="placeholder-msg">URL Changer — coming in Batch 6.</p></div>
-  <div id="tab-target-keywords" class="tab-content"><p class="placeholder-msg">Target Keywords — coming in Batch 7.</p></div>
-  <div id="tab-settings" class="tab-content"><p class="placeholder-msg">Settings — coming in Batch 7.</p></div>
+  <div id="tab-domains-report" class="tab-content"><p class="placeholder-msg">Domains Report — coming soon.</p></div>
+  <div id="tab-broken-links" class="tab-content"><p class="placeholder-msg">Broken Links Report — coming soon.</p></div>
+  <div id="tab-auto-linking" class="tab-content"><p class="placeholder-msg">Auto Linking — coming soon.</p></div>
+  <div id="tab-url-changer" class="tab-content"><p class="placeholder-msg">URL Changer — coming soon.</p></div>
+  <div id="tab-target-keywords" class="tab-content"><p class="placeholder-msg">Target Keywords — coming soon.</p></div>
+  <div id="tab-settings" class="tab-content"><p class="placeholder-msg">Settings — coming soon.</p></div>
 </div>
 
 <!-- CONFIRM MODAL -->
 <div id="modal-overlay" class="hidden">
   <div class="modal-card">
-    <h3 id="modal-title">Confirm Change</h3>
-    <p id="modal-desc"></p>
-    <pre id="modal-preview"></pre>
+    <h3 id="modal-title">Confirm & Save Links</h3>
+    <p class="modal-sub" id="modal-sub"></p>
+    <div id="modal-links-preview"></div>
+    <div id="modal-saving-msg" class="modal-saving" style="display:none">Saving to Shopify via Claude...</div>
     <div class="modal-buttons">
-      <button class="btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn-outline" onclick="closeModal()" id="modal-cancel-btn">Cancel</button>
       <button class="btn-action" id="modal-confirm-btn" onclick="confirmModal()">Confirm & Save to Shopify</button>
     </div>
   </div>
@@ -294,16 +316,21 @@
 <script>
 const CONFIG = {
   proxyUrl: 'https://tools.aboutwallart.com',
-  itemsPerPage: 6,
+  itemsPerPage: 100,
   cacheKey: 'link-whisperer-cache'
 };
+
+const ROOM_TYPES = ['bathroom','bedroom','living room','kitchen','hallway','office','nursery','staircase','dining','garden','study','playroom','conservatory'];
+const STYLES = ['japandi','minimalist','maximalist','botanical','abstract','vintage','modern','scandi','industrial','rustic','bohemian','monochrome','black and white','geometric','floral','tropical','coastal'];
 
 const AppState = {
   items: [], links: [], brokenLinks: [], lastSync: null,
   linkGraph: { outbound:{}, inbound:{} },
   lrPage: 1, lrSort: { col:'title', dir:'asc' },
   expandState: {},
-  modalCallback: null
+  suggestState: {},
+  modalCallback: null,
+  pendingLinks: []
 };
 
 let donutChart = null;
@@ -312,20 +339,13 @@ let donutChart = null;
 document.addEventListener('DOMContentLoaded', () => {
   const savedTab = localStorage.getItem('lw-active-tab') || 'dashboard';
   switchTab(savedTab, true);
-  // Always sync on page load
   syncFromShopify();
 });
 
 // ── SCREENS ──
-function showApp() {
-  document.getElementById('app').classList.add('visible');
-}
-function showLoading() {
-  document.getElementById('loading-overlay').classList.remove('hidden');
-}
-function hideLoading() {
-  document.getElementById('loading-overlay').classList.add('hidden');
-}
+function showApp() { document.getElementById('app').classList.add('visible'); }
+function showLoading() { document.getElementById('loading-overlay').classList.remove('hidden'); }
+function hideLoading() { document.getElementById('loading-overlay').classList.add('hidden'); }
 function setLoadingStep(step, progress) {
   document.getElementById('loading-step').textContent = step;
   if (progress !== undefined) document.getElementById('loading-progress-bar').style.width = progress + '%';
@@ -343,25 +363,23 @@ function switchTab(tabName, silent) {
   if (!silent) localStorage.setItem('lw-active-tab', tabName);
 }
 
-// ── SHOPIFY FETCH WITH PAGINATION ──
-async function shopifyFetch(endpoint) {
+// ── SHOPIFY FETCH ──
+async function shopifyFetch(endpoint, method, body) {
+  method = method || 'GET';
   let allResults = null;
   let nextEndpoint = endpoint;
   let page = 1;
+
   while (nextEndpoint) {
     const url = CONFIG.proxyUrl + '/api/shopify-files?action=link-whisperer&endpoint=' + encodeURIComponent(nextEndpoint);
-    const response = await fetch(url);
-    if (!response.ok) throw new Error('Shopify fetch failed for: ' + nextEndpoint);
+    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    if (body) opts.body = JSON.stringify(body);
+    const response = await fetch(url, opts);
+    if (!response.ok) throw new Error('Shopify fetch failed: ' + await response.text());
     const data = await response.json();
-    if (allResults === null) {
-      allResults = data;
-    } else {
-      for (const key of Object.keys(data)) {
-        if (Array.isArray(data[key]) && Array.isArray(allResults[key])) {
-          allResults[key] = allResults[key].concat(data[key]);
-        }
-      }
-    }
+    if (method !== 'GET') return data;
+    if (allResults === null) { allResults = data; }
+    else { for (const key of Object.keys(data)) { if (Array.isArray(data[key]) && Array.isArray(allResults[key])) allResults[key] = allResults[key].concat(data[key]); } }
     const linkHeader = response.headers.get('Link');
     nextEndpoint = null;
     if (linkHeader) {
@@ -388,7 +406,7 @@ function parseItemLinks(item) {
     if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) return;
     let fullUrl = href, type = 'external';
     if (href.startsWith('/')) { fullUrl = 'https://aboutwallart.com' + href; type = 'internal'; }
-    else if (href.includes('aboutwallart.com')) { type = 'internal'; fullUrl = href; }
+    else if (href.includes('aboutwallart.com')) { type = 'internal'; }
     links.push({ sourceId: item.id, sourceUrl: item.url, targetUrl: fullUrl, anchorText, type });
   });
   return links;
@@ -402,9 +420,9 @@ function buildLinkGraph() {
     AppState.linkGraph.outbound[link.sourceId].push({ targetUrl:link.targetUrl, anchorText:link.anchorText, type:link.type });
     if (link.type === 'internal') {
       const target = AppState.items.find(i => {
-        const ct = link.targetUrl.replace(/\/$/,'');
-        const ci = (i.url||'').replace(/\/$/,'');
-        return ct === ci || link.targetUrl.includes('/'+i.handle);
+        const ct = link.targetUrl.replace(/\/$/,'').toLowerCase();
+        const ci = (i.url||'').replace(/\/$/,'').toLowerCase();
+        return ct === ci || ct.endsWith('/'+i.handle);
       });
       if (target) {
         if (!AppState.linkGraph.inbound[target.id]) AppState.linkGraph.inbound[target.id] = [];
@@ -432,6 +450,272 @@ function detectBrokenLinks() {
     }
   });
 }
+
+// ── EXTRACT KEYWORDS FROM ITEM ──
+function extractKeywords(item) {
+  const text = ((item.title||'') + ' ' + (item.bodyHtml||'').replace(/<[^>]+>/g,' ') + ' ' + (item.tags||[]).join(' ')).toLowerCase();
+  const rooms = ROOM_TYPES.filter(r => text.includes(r));
+  const styles = STYLES.filter(s => text.includes(s));
+  const titleWords = (item.title||'').toLowerCase().split(/\s+/).filter(w => w.length > 3);
+  return { rooms, styles, titleWords, tags: item.tags || [] };
+}
+
+// ── SCORE RELEVANCE ──
+function scoreRelevance(sourceItem, targetItem) {
+  const s = extractKeywords(sourceItem);
+  const t = extractKeywords(targetItem);
+  let score = 0;
+
+  // Shared room types — highest weight
+  const sharedRooms = s.rooms.filter(r => t.rooms.includes(r));
+  score += sharedRooms.length * 10;
+
+  // Shared styles — high weight
+  const sharedStyles = s.styles.filter(st => t.styles.includes(st));
+  score += sharedStyles.length * 7;
+
+  // Shared tags — medium weight
+  const sharedTags = s.tags.filter(tag => t.tags.includes(tag));
+  score += sharedTags.length * 5;
+
+  // Shared title words — medium weight
+  const sharedWords = s.titleWords.filter(w => t.titleWords.includes(w));
+  score += sharedWords.length * 3;
+
+  return { score, sharedRooms, sharedStyles, sharedTags };
+}
+
+// ── GET SUGGESTIONS FOR ITEM ──
+function getSuggestionsForItem(item) {
+  // Already linked targets from this item
+  const alreadyLinked = new Set(
+    (AppState.linkGraph.outbound[item.id] || [])
+      .filter(l => l.type === 'internal')
+      .map(l => l.targetUrl.replace(/\/$/,'').toLowerCase())
+  );
+
+  const suggestions = [];
+
+  for (const candidate of AppState.items) {
+    if (candidate.id === item.id) continue;
+    if (alreadyLinked.has((candidate.url||'').replace(/\/$/,'').toLowerCase())) continue;
+
+    const { score, sharedRooms, sharedStyles, sharedTags } = scoreRelevance(item, candidate);
+    if (score === 0) continue;
+
+    const inboundCount = (AppState.linkGraph.inbound[candidate.id] || []).length;
+    const isOrphan = inboundCount === 0;
+
+    // Boost orphans
+    const finalScore = score + (isOrphan ? 15 : 0);
+
+    suggestions.push({ item: candidate, score: finalScore, isOrphan, inboundCount, sharedRooms, sharedStyles, sharedTags });
+  }
+
+  // Sort: orphans first within score bands, then by score
+  suggestions.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (a.isOrphan !== b.isOrphan) return a.isOrphan ? -1 : 1;
+    return a.inboundCount - b.inboundCount;
+  });
+
+  return suggestions.slice(0, 30);
+}
+
+// ── SHOW SUGGEST PANEL ──
+function openSuggestPanel(itemId) {
+  const alreadyOpen = AppState.suggestState[itemId];
+  // Close all suggest panels
+  AppState.suggestState = {};
+  if (!alreadyOpen) AppState.suggestState[itemId] = true;
+  renderLinksReport();
+}
+
+function buildSuggestPanel(item) {
+  const suggestions = getSuggestionsForItem(item);
+
+  if (suggestions.length === 0) {
+    return `<div class="suggest-panel">
+      <div class="suggest-panel-title">Link Suggestions</div>
+      <div class="empty-expand">No relevant pages found to link to.</div>
+    </div>`;
+  }
+
+  const rows = suggestions.map((s, i) => {
+    const matchInfo = [
+      ...s.sharedRooms.map(r => r),
+      ...s.sharedStyles.map(st => st),
+      ...s.sharedTags.slice(0,3)
+    ].filter((v,i,a) => a.indexOf(v)===i).slice(0,4).join(', ');
+
+    return `<div class="suggest-item">
+      <input type="checkbox" id="sug-${item.id}-${i}" data-item-id="${item.id}" data-candidate-id="${s.item.id}" data-candidate-url="${escHtml(s.item.url)}" data-candidate-title="${escHtml(s.item.title)}" data-candidate-type="${s.item.type}" />
+      <div class="suggest-item-info">
+        <div class="suggest-item-title">${escHtml(s.item.title)}</div>
+        <div class="suggest-item-meta">${escHtml(s.item.url)}</div>
+        <div class="suggest-item-badges">
+          ${s.isOrphan ? '<span class="badge badge-orphan">🚨 Orphan</span>' : ''}
+          <span class="badge badge-type">${s.item.type}</span>
+          ${matchInfo ? '<span class="badge badge-match">Matches: ' + escHtml(matchInfo) + '</span>' : ''}
+          <span style="font-size:10px;color:#aaa;margin-left:4px;">${s.inboundCount} inbound link${s.inboundCount!==1?'s':''}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `<div class="suggest-panel">
+    <div class="suggest-panel-title">🔗 Link Suggestions for "${escHtml(item.title)}"</div>
+    <div class="suggest-panel-sub">Orphaned pages shown first. Select pages to link to, then click Add Selected Links.</div>
+    ${rows}
+    <div class="suggest-actions">
+      <button class="btn-action" onclick="confirmSelectedLinks('${item.id}')">Add Selected Links</button>
+      <button class="btn-outline" onclick="closeSuggestPanel()">Cancel</button>
+    </div>
+  </div>`;
+}
+
+function closeSuggestPanel() {
+  AppState.suggestState = {};
+  renderLinksReport();
+}
+
+// ── CONFIRM SELECTED LINKS ──
+async function confirmSelectedLinks(itemId) {
+  const item = AppState.items.find(i => i.id === itemId);
+  if (!item) return;
+
+  const checkboxes = document.querySelectorAll(`input[data-item-id="${itemId}"]:checked`);
+  if (checkboxes.length === 0) { showToast('Please select at least one page to link to.', 'error'); return; }
+
+  const selected = Array.from(checkboxes).map(cb => ({
+    id: cb.dataset.candidateId,
+    url: cb.dataset.candidateUrl,
+    title: cb.dataset.candidateTitle,
+    type: cb.dataset.candidateType
+  }));
+
+  // Show modal with preview
+  const previewHtml = selected.map(s =>
+    `<div class="modal-link-preview"><strong>${escHtml(s.title)}</strong><br><span style="color:#888;font-size:12px;">${escHtml(s.url)}</span><br><span style="font-size:11px;color:#555;">Type: ${s.type}</span></div>`
+  ).join('');
+
+  document.getElementById('modal-title').textContent = 'Confirm & Save Links';
+  document.getElementById('modal-sub').textContent = 'Claude will write ' + selected.length + ' link(s) into "' + item.title + '" and save directly to Shopify. This uses a small amount of Claude tokens.';
+  document.getElementById('modal-links-preview').innerHTML = previewHtml;
+  document.getElementById('modal-saving-msg').style.display = 'none';
+  document.getElementById('modal-confirm-btn').style.display = '';
+  document.getElementById('modal-cancel-btn').textContent = 'Cancel';
+
+  AppState.pendingLinks = { item, selected };
+  AppState.modalCallback = () => executeSaveLinks(item, selected);
+  document.getElementById('modal-overlay').classList.remove('hidden');
+}
+
+async function executeSaveLinks(item, selected) {
+  document.getElementById('modal-saving-msg').style.display = 'block';
+  document.getElementById('modal-confirm-btn').style.display = 'none';
+  document.getElementById('modal-cancel-btn').textContent = 'Close';
+
+  try {
+    // Build Claude prompt
+    const prompt = buildClaudePrompt(item, selected);
+
+    // Call Claude via proxy
+    const claudeResponse = await fetch(CONFIG.proxyUrl + '/api/claude', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: prompt,
+        max_tokens: 1500
+      })
+    });
+
+    if (!claudeResponse.ok) throw new Error('Claude API call failed');
+    const claudeData = await claudeResponse.json();
+
+    // Extract the updated HTML from Claude's response
+    const claudeText = claudeData.content || claudeData.text || '';
+    const updatedHtml = extractHtmlFromClaude(claudeText, item.bodyHtml, selected);
+
+    // Save to Shopify
+    await saveItemToShopify(item, updatedHtml);
+
+    // Update local state
+    item.bodyHtml = updatedHtml;
+    AppState.links = [];
+    for (const i of AppState.items) AppState.links.push(...parseItemLinks(i));
+    buildLinkGraph();
+    detectBrokenLinks();
+    AppState.suggestState = {};
+    AppState.expandState = {};
+
+    renderLinksReport();
+    renderDashboard();
+    closeModal();
+    showToast('Links saved to Shopify successfully!', 'success');
+
+  } catch(err) {
+    document.getElementById('modal-saving-msg').textContent = 'Error: ' + err.message;
+    showToast('Failed: ' + err.message, 'error');
+  }
+}
+
+function buildClaudePrompt(item, selected) {
+  const selectedList = selected.map(s => '- ' + s.title + ' (' + s.type + '): ' + s.url).join('\n');
+
+  return `You are an internal linking expert for About Wall Art (aboutwallart.com), a UK wall art store.
+
+I need you to add internal links to the following page. Insert each link naturally within the existing content — do not add standalone lines, do not use "click here".
+
+PAGE TYPE: ${item.type}
+PAGE TITLE: ${item.title}
+CURRENT BODY HTML:
+${item.bodyHtml || '(no content yet)'}
+
+PAGES TO LINK TO:
+${selectedList}
+
+RULES:
+- For products: add blog links in first/second paragraph, collection links in last paragraph
+- For blog posts: add links naturally within sentences throughout the content
+- For collections: add links in the middle or end of the description
+- Anchor text must be a natural phrase — never "click here" or "read more"
+- Match anchor text to the linked page's topic
+- Return ONLY the updated full HTML body content, nothing else, no explanation, no markdown code blocks`;
+}
+
+function extractHtmlFromClaude(claudeText, originalHtml, selected) {
+  // Clean up Claude response — remove markdown code blocks if present
+  let html = claudeText.trim();
+  html = html.replace(/^```html\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+
+  // If Claude returned something empty or very short, fall back to appending links
+  if (!html || html.length < 50) {
+    let fallback = originalHtml || '';
+    for (const s of selected) {
+      fallback += ' <a href="' + s.url + '">' + escHtml(s.title) + '</a>.';
+    }
+    return fallback;
+  }
+
+  return html;
+}
+
+async function saveItemToShopify(item, updatedHtml) {
+  let endpoint, bodyKey;
+  if (item.type === 'page') { endpoint = 'pages/' + item.shopifyId + '.json'; bodyKey = 'page'; }
+  else if (item.type === 'article') { endpoint = 'blogs/' + item.blogId + '/articles/' + item.shopifyId + '.json'; bodyKey = 'article'; }
+  else if (item.type === 'product') { endpoint = 'products/' + item.shopifyId + '.json'; bodyKey = 'product'; }
+  else if (item.type === 'collection') { endpoint = 'custom_collections/' + item.shopifyId + '.json'; bodyKey = 'custom_collection'; }
+  else throw new Error('Cannot write to this item type: ' + item.type);
+
+  const payload = { [bodyKey]: { id: item.shopifyId, body_html: updatedHtml } };
+  await shopifyFetch(endpoint, 'PUT', payload);
+}
+
+// ── MODAL ──
+function closeModal() { document.getElementById('modal-overlay').classList.add('hidden'); AppState.modalCallback = null; }
+function confirmModal() { if (AppState.modalCallback) AppState.modalCallback(); }
 
 // ── COMPUTE STATS ──
 function computeStats() {
@@ -492,25 +776,15 @@ function getFilteredItems() {
   return AppState.items.filter(item => {
     if (q && !item.title.toLowerCase().includes(q)) return false;
     if (type && item.type !== type) return false;
-    if (filter === 'orphaned') {
-      const inbound = AppState.linkGraph.inbound[item.id] || [];
-      if (inbound.length > 0) return false;
-    }
-    if (filter === 'has-inbound') {
-      const inbound = AppState.linkGraph.inbound[item.id] || [];
-      if (inbound.length === 0) return false;
-    }
+    if (filter === 'orphaned' && (AppState.linkGraph.inbound[item.id]||[]).length > 0) return false;
+    if (filter === 'has-inbound' && (AppState.linkGraph.inbound[item.id]||[]).length === 0) return false;
     return true;
   });
 }
 
 function sortLinksReport(col) {
-  if (AppState.lrSort.col === col) {
-    AppState.lrSort.dir = AppState.lrSort.dir === 'asc' ? 'desc' : 'asc';
-  } else {
-    AppState.lrSort.col = col;
-    AppState.lrSort.dir = 'asc';
-  }
+  if (AppState.lrSort.col === col) { AppState.lrSort.dir = AppState.lrSort.dir==='asc'?'desc':'asc'; }
+  else { AppState.lrSort.col = col; AppState.lrSort.dir = 'asc'; }
   AppState.lrPage = 1;
   renderLinksReport();
 }
@@ -519,26 +793,18 @@ function renderLinksReport() {
   let items = getFilteredItems();
   const { col, dir } = AppState.lrSort;
 
-  // Sort
   items.sort((a, b) => {
     let va, vb;
-    if (col === 'title') { va = a.title.toLowerCase(); vb = b.title.toLowerCase(); }
-    else if (col === 'published') { va = a.publishedAt||''; vb = b.publishedAt||''; }
-    else if (col === 'inbound') { va = (AppState.linkGraph.inbound[a.id]||[]).length; vb = (AppState.linkGraph.inbound[b.id]||[]).length; }
-    else if (col === 'outbound') {
-      va = (AppState.linkGraph.outbound[a.id]||[]).filter(l=>l.type==='internal').length;
-      vb = (AppState.linkGraph.outbound[b.id]||[]).filter(l=>l.type==='internal').length;
-    }
-    else if (col === 'external') {
-      va = (AppState.linkGraph.outbound[a.id]||[]).filter(l=>l.type==='external').length;
-      vb = (AppState.linkGraph.outbound[b.id]||[]).filter(l=>l.type==='external').length;
-    }
-    if (va < vb) return dir==='asc'?-1:1;
-    if (va > vb) return dir==='asc'?1:-1;
+    if (col==='title') { va=a.title.toLowerCase(); vb=b.title.toLowerCase(); }
+    else if (col==='published') { va=a.publishedAt||''; vb=b.publishedAt||''; }
+    else if (col==='inbound') { va=(AppState.linkGraph.inbound[a.id]||[]).length; vb=(AppState.linkGraph.inbound[b.id]||[]).length; }
+    else if (col==='outbound') { va=(AppState.linkGraph.outbound[a.id]||[]).filter(l=>l.type==='internal').length; vb=(AppState.linkGraph.outbound[b.id]||[]).filter(l=>l.type==='internal').length; }
+    else if (col==='external') { va=(AppState.linkGraph.outbound[a.id]||[]).filter(l=>l.type==='external').length; vb=(AppState.linkGraph.outbound[b.id]||[]).filter(l=>l.type==='external').length; }
+    if (va<vb) return dir==='asc'?-1:1;
+    if (va>vb) return dir==='asc'?1:-1;
     return 0;
   });
 
-  // Sort icons
   ['title','published','inbound','outbound','external'].forEach(c => {
     const el = document.getElementById('sort-'+c);
     if (el) el.textContent = AppState.lrSort.col===c ? (AppState.lrSort.dir==='asc'?'↑':'↓') : '';
@@ -546,12 +812,11 @@ function renderLinksReport() {
 
   const total = items.length;
   const perPage = CONFIG.itemsPerPage;
-  const totalPages = Math.ceil(total / perPage) || 1;
+  const totalPages = Math.ceil(total/perPage)||1;
   if (AppState.lrPage > totalPages) AppState.lrPage = 1;
 
-  const start = (AppState.lrPage - 1) * perPage;
-  const pageItems = items.slice(start, start + perPage);
-
+  const start = (AppState.lrPage-1)*perPage;
+  const pageItems = items.slice(start, start+perPage);
   const tbody = document.getElementById('lr-tbody');
 
   if (pageItems.length === 0) {
@@ -560,30 +825,29 @@ function renderLinksReport() {
     tbody.innerHTML = pageItems.map(item => buildItemRow(item)).join('');
   }
 
-  document.getElementById('lr-count').textContent = total === 0 ? 'No items' : 'Showing ' + (start+1) + '–' + Math.min(start+perPage, total) + ' of ' + total + ' items';
-  document.getElementById('lr-prev').disabled = AppState.lrPage <= 1;
-  document.getElementById('lr-next').disabled = AppState.lrPage >= totalPages;
+  document.getElementById('lr-count').textContent = total===0 ? 'No items' : 'Showing '+(start+1)+'–'+Math.min(start+perPage,total)+' of '+total+' items';
+  document.getElementById('lr-prev').disabled = AppState.lrPage<=1;
+  document.getElementById('lr-next').disabled = AppState.lrPage>=totalPages;
 }
 
 function buildItemRow(item) {
-  const inbound  = AppState.linkGraph.inbound[item.id] || [];
+  const inbound     = AppState.linkGraph.inbound[item.id] || [];
   const outboundAll = AppState.linkGraph.outbound[item.id] || [];
   const outInternal = outboundAll.filter(l=>l.type==='internal');
   const outExternal = outboundAll.filter(l=>l.type==='external');
-
   const date = item.publishedAt ? new Date(item.publishedAt).toLocaleDateString([],{day:'numeric',month:'short',year:'numeric'}) : '—';
 
-  const expandKeyIn  = item.id + '-inbound';
-  const expandKeyOut = item.id + '-outbound';
-  const expandKeyExt = item.id + '-external';
+  const expandKeyIn  = item.id+'-inbound';
+  const expandKeyOut = item.id+'-outbound';
+  const expandKeyExt = item.id+'-external';
+  const inOpen  = AppState.expandState[expandKeyIn]  ? 'open':'';
+  const outOpen = AppState.expandState[expandKeyOut] ? 'open':'';
+  const extOpen = AppState.expandState[expandKeyExt] ? 'open':'';
+  const suggestOpen = AppState.suggestState[item.id];
 
-  const inOpen  = AppState.expandState[expandKeyIn]  ? 'open' : '';
-  const outOpen = AppState.expandState[expandKeyOut] ? 'open' : '';
-  const extOpen = AppState.expandState[expandKeyExt] ? 'open' : '';
-
-  let rows = `<tr class="${inOpen||outOpen||extOpen?'expanded':''}" id="row-${item.id}">
+  let rows = `<tr class="${(inOpen||outOpen||extOpen||suggestOpen)?'expanded':''}" id="row-${item.id}">
     <td class="td-title">
-      <a href="${item.url}" target="_blank">${escHtml(item.title)}</a>
+      <a href="${escHtml(item.url)}" target="_blank">${escHtml(item.title)}</a>
       <span class="item-type">${item.type}</span>
     </td>
     <td class="td-date">${date}</td>
@@ -597,7 +861,7 @@ function buildItemRow(item) {
       <div class="link-cell">
         <span class="link-count ${outInternal.length===0?'zero':''}">${outInternal.length}→</span>
         <button class="btn-expand ${outOpen}" onclick="toggleExpand('${item.id}','outbound')" title="Show outbound internal links">▼</button>
-        <button class="btn-add" onclick="openAddLinkPanel('${item.id}')">Add</button>
+        <button class="btn-add" onclick="openSuggestPanel('${item.id}')">+ Add</button>
       </div>
     </td>
     <td class="td-links">
@@ -608,157 +872,59 @@ function buildItemRow(item) {
     </td>
   </tr>`;
 
-  // Inbound expand panel
+  // Inbound expand
   if (AppState.expandState[expandKeyIn]) {
-    rows += `<tr class="expand-row"><td colspan="5">
-      <div class="expand-panel">
-        <div class="expand-panel-title">Pages linking to this item (${inbound.length})</div>
-        ${inbound.length === 0
-          ? '<div class="empty-expand">No pages link to this item yet.</div>'
-          : inbound.map(l => `<div class="expand-link-item"><div><div><a href="${escHtml(l.sourceUrl)}" target="_blank">${escHtml(l.sourceUrl)}</a></div><div class="expand-anchor">Anchor: ${escHtml(l.anchorText||'—')}</div></div></div>`).join('')
-        }
-      </div>
-    </td></tr>`;
+    rows += `<tr class="expand-row"><td colspan="5"><div class="expand-panel">
+      <div class="expand-panel-title">Pages linking to this item (${inbound.length})</div>
+      ${inbound.length===0 ? '<div class="empty-expand">No pages link to this item yet.</div>'
+        : inbound.map(l=>`<div class="expand-link-item"><div><a href="${escHtml(l.sourceUrl)}" target="_blank">${escHtml(l.sourceUrl)}</a><div class="expand-anchor">Anchor: ${escHtml(l.anchorText||'—')}</div></div></div>`).join('')}
+    </div></td></tr>`;
   }
 
-  // Outbound internal expand panel
+  // Outbound internal expand
   if (AppState.expandState[expandKeyOut]) {
-    rows += `<tr class="expand-row"><td colspan="5">
-      <div class="expand-panel">
-        <div class="expand-panel-title">Internal links from this item (${outInternal.length})</div>
-        ${outInternal.length === 0
-          ? '<div class="empty-expand">No internal links from this item.</div>'
-          : outInternal.map(l => `<div class="expand-link-item"><div><div><a href="${escHtml(l.targetUrl)}" target="_blank">${escHtml(l.targetUrl)}</a></div><div class="expand-anchor">Anchor: ${escHtml(l.anchorText||'—')}</div></div></div>`).join('')
-        }
-      </div>
-    </td></tr>`;
+    rows += `<tr class="expand-row"><td colspan="5"><div class="expand-panel">
+      <div class="expand-panel-title">Internal links from this item (${outInternal.length})</div>
+      ${outInternal.length===0 ? '<div class="empty-expand">No internal links from this item.</div>'
+        : outInternal.map(l=>`<div class="expand-link-item"><div><a href="${escHtml(l.targetUrl)}" target="_blank">${escHtml(l.targetUrl)}</a><div class="expand-anchor">Anchor: ${escHtml(l.anchorText||'—')}</div></div></div>`).join('')}
+    </div></td></tr>`;
   }
 
-  // Outbound external expand panel
+  // Outbound external expand
   if (AppState.expandState[expandKeyExt]) {
-    rows += `<tr class="expand-row"><td colspan="5">
-      <div class="expand-panel">
-        <div class="expand-panel-title">External links from this item (${outExternal.length})</div>
-        ${outExternal.length === 0
-          ? '<div class="empty-expand">No external links from this item.</div>'
-          : outExternal.map(l => `<div class="expand-link-item"><div><div><a href="${escHtml(l.targetUrl)}" target="_blank">${escHtml(l.targetUrl)}</a></div><div class="expand-anchor">Anchor: ${escHtml(l.anchorText||'—')}</div></div></div>`).join('')
-        }
-      </div>
-    </td></tr>`;
+    rows += `<tr class="expand-row"><td colspan="5"><div class="expand-panel">
+      <div class="expand-panel-title">External links from this item (${outExternal.length})</div>
+      ${outExternal.length===0 ? '<div class="empty-expand">No external links from this item.</div>'
+        : outExternal.map(l=>`<div class="expand-link-item"><div><a href="${escHtml(l.targetUrl)}" target="_blank">${escHtml(l.targetUrl)}</a><div class="expand-anchor">Anchor: ${escHtml(l.anchorText||'—')}</div></div></div>`).join('')}
+    </div></td></tr>`;
+  }
+
+  // Suggest panel
+  if (suggestOpen) {
+    rows += `<tr class="expand-row"><td colspan="5">${buildSuggestPanel(item)}</td></tr>`;
   }
 
   return rows;
 }
 
 function toggleExpand(itemId, col) {
-  const key = itemId + '-' + col;
+  const key = itemId+'-'+col;
   AppState.expandState[key] = !AppState.expandState[key];
   renderLinksReport();
 }
 
-function lrChangePage(dir) {
-  AppState.lrPage += dir;
-  renderLinksReport();
-}
-
-// ── ADD LINK PANEL ──
-function openAddLinkPanel(itemId) {
-  const item = AppState.items.find(i => i.id === itemId);
-  if (!item) return;
-
-  const targetUrl = prompt('Enter the URL you want to link TO (e.g. https://aboutwallart.com/collections/wall-art):');
-  if (!targetUrl) return;
-
-  const anchorText = prompt('Enter the anchor text (the words that will become the clickable link):');
-  if (!anchorText) return;
-
-  // Show confirmation modal
-  showModal(
-    'Add Link to Shopify',
-    'You are about to add the following link into "' + item.title + '":',
-    'Anchor text: "' + anchorText + '"\nLinks to: ' + targetUrl,
-    () => saveLink(item, targetUrl, anchorText)
-  );
-}
-
-async function saveLink(item, targetUrl, anchorText) {
-  try {
-    showToast('Saving link to Shopify...', 'info');
-
-    // Build the new link HTML
-    const newLink = `<a href="${targetUrl}">${anchorText}</a>`;
-
-    // Append link to end of body HTML
-    const updatedHtml = (item.bodyHtml || '') + ' ' + newLink;
-
-    // Determine correct REST endpoint
-    let endpoint, bodyKey;
-    if (item.type === 'page') {
-      endpoint = 'pages/' + item.shopifyId + '.json';
-      bodyKey = 'page';
-    } else if (item.type === 'article') {
-      endpoint = 'blogs/' + getBlogId(item) + '/articles/' + item.shopifyId + '.json';
-      bodyKey = 'article';
-    } else if (item.type === 'product') {
-      endpoint = 'products/' + item.shopifyId + '.json';
-      bodyKey = 'product';
-    } else if (item.type === 'collection') {
-      endpoint = 'custom_collections/' + item.shopifyId + '.json';
-      bodyKey = 'custom_collection';
-    } else {
-      throw new Error('Cannot write links to this item type.');
-    }
-
-    const url = CONFIG.proxyUrl + '/api/shopify-files?action=link-whisperer&endpoint=' + encodeURIComponent(endpoint);
-    const payload = { [bodyKey]: { id: item.shopifyId, body_html: updatedHtml } };
-
-    const response = await fetch(url, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    if (!response.ok) {
-      const err = await response.text();
-      throw new Error('Shopify returned an error: ' + err);
-    }
-
-    // Update local state
-    item.bodyHtml = updatedHtml;
-    AppState.links = [];
-    for (const i of AppState.items) AppState.links.push(...parseItemLinks(i));
-    buildLinkGraph();
-    detectBrokenLinks();
-
-    renderLinksReport();
-    renderDashboard();
-    showToast('Link saved to Shopify successfully!', 'success');
-
-  } catch(err) {
-    showToast('Failed to save: ' + err.message, 'error');
-  }
-}
-
-function getBlogId(item) {
-  // Find blog ID from the article URL
-  const match = (item.url||'').match(/\/blogs\/([^/]+)\//);
-  if (!match) return '';
-  const blogHandle = match[1];
-  // We don't store blog IDs directly, but the endpoint needs it
-  // Store blogId on item during sync — handled in sync function
-  return item.blogId || '';
-}
+function lrChangePage(dir) { AppState.lrPage += dir; renderLinksReport(); }
 
 // ── EXPORT CSV ──
 function exportLinksCSV() {
   const items = getFilteredItems();
   const rows = [['Title','Type','URL','Published','Inbound Links','Outbound Internal','Outbound External']];
   items.forEach(item => {
-    const inbound  = (AppState.linkGraph.inbound[item.id]||[]).length;
-    const outInt   = (AppState.linkGraph.outbound[item.id]||[]).filter(l=>l.type==='internal').length;
-    const outExt   = (AppState.linkGraph.outbound[item.id]||[]).filter(l=>l.type==='external').length;
+    const ib = (AppState.linkGraph.inbound[item.id]||[]).length;
+    const oi = (AppState.linkGraph.outbound[item.id]||[]).filter(l=>l.type==='internal').length;
+    const oe = (AppState.linkGraph.outbound[item.id]||[]).filter(l=>l.type==='external').length;
     const date = item.publishedAt ? new Date(item.publishedAt).toLocaleDateString() : '';
-    rows.push([item.title, item.type, item.url, date, inbound, outInt, outExt]);
+    rows.push([item.title, item.type, item.url, date, ib, oi, oe]);
   });
   downloadCSV(rows, 'link-whisperer-report.csv');
 }
@@ -771,57 +937,46 @@ function downloadCSV(rows, filename) {
   a.click();
 }
 
-// ── MODAL ──
-function showModal(title, desc, preview, onConfirm) {
-  document.getElementById('modal-title').textContent = title;
-  document.getElementById('modal-desc').textContent = desc;
-  document.getElementById('modal-preview').textContent = preview;
-  AppState.modalCallback = onConfirm;
-  document.getElementById('modal-overlay').classList.remove('hidden');
-}
-function closeModal() { document.getElementById('modal-overlay').classList.add('hidden'); AppState.modalCallback = null; }
-function confirmModal() { closeModal(); if (AppState.modalCallback) AppState.modalCallback(); }
-
 // ── SYNC ──
 async function syncFromShopify() {
   showLoading();
   try {
-    const allItems = [], allLinks = [];
+    const allItems=[], allLinks=[];
 
     setLoadingStep('Fetching products...', 5);
-    const productsData = await shopifyFetch('products.json?limit=250&fields=id,title,handle,published_at,body_html,product_type');
-    const products = (productsData.products||[]).map(p => ({ id:'product-'+p.id, shopifyId:p.id, title:p.title, handle:p.handle, type:'product', publishedAt:p.published_at, bodyHtml:p.body_html||'', url:'https://aboutwallart.com/products/'+p.handle }));
+    const pd = await shopifyFetch('products.json?limit=250&fields=id,title,handle,published_at,body_html,product_type,tags');
+    const products = (pd.products||[]).map(p=>({ id:'product-'+p.id, shopifyId:p.id, title:p.title, handle:p.handle, type:'product', publishedAt:p.published_at, bodyHtml:p.body_html||'', tags:(p.tags||'').split(',').map(t=>t.trim()).filter(Boolean), url:'https://aboutwallart.com/products/'+p.handle }));
     allItems.push(...products);
     setLoadingStep('Products: '+products.length+' found', 20);
 
     setLoadingStep('Fetching pages...', 22);
-    const pagesData = await shopifyFetch('pages.json?limit=250&fields=id,title,handle,published_at,body_html');
-    const pages = (pagesData.pages||[]).map(p => ({ id:'page-'+p.id, shopifyId:p.id, title:p.title, handle:p.handle, type:'page', publishedAt:p.published_at, bodyHtml:p.body_html||'', url:'https://aboutwallart.com/pages/'+p.handle }));
+    const pagesD = await shopifyFetch('pages.json?limit=250&fields=id,title,handle,published_at,body_html');
+    const pages = (pagesD.pages||[]).map(p=>({ id:'page-'+p.id, shopifyId:p.id, title:p.title, handle:p.handle, type:'page', publishedAt:p.published_at, bodyHtml:p.body_html||'', tags:[], url:'https://aboutwallart.com/pages/'+p.handle }));
     allItems.push(...pages);
     setLoadingStep('Pages: '+pages.length+' found', 35);
 
     setLoadingStep('Fetching blogs...', 37);
-    const blogsData = await shopifyFetch('blogs.json?limit=250&fields=id,title,handle');
-    const blogs = blogsData.blogs||[];
-    let totalArticles = 0;
-    for (let i=0; i<blogs.length; i++) {
-      const blog = blogs[i];
+    const blogsD = await shopifyFetch('blogs.json?limit=250&fields=id,title,handle');
+    const blogs = blogsD.blogs||[];
+    let totalArticles=0;
+    for (let i=0;i<blogs.length;i++) {
+      const blog=blogs[i];
       setLoadingStep('Fetching articles from "'+blog.title+'"...', 37+Math.round(i/blogs.length*20));
-      const articlesData = await shopifyFetch('blogs/'+blog.id+'/articles.json?limit=250&fields=id,title,handle,published_at,body_html,blog_id');
-      const articles = (articlesData.articles||[]).map(a => ({ id:'article-'+a.id, shopifyId:a.id, blogId:blog.id, title:a.title, handle:a.handle, type:'article', publishedAt:a.published_at, bodyHtml:a.body_html||'', blogHandle:blog.handle, url:'https://aboutwallart.com/blogs/'+blog.handle+'/'+a.handle }));
+      const artD = await shopifyFetch('blogs/'+blog.id+'/articles.json?limit=250&fields=id,title,handle,published_at,body_html,blog_id,tags');
+      const articles = (artD.articles||[]).map(a=>({ id:'article-'+a.id, shopifyId:a.id, blogId:blog.id, title:a.title, handle:a.handle, type:'article', publishedAt:a.published_at, bodyHtml:a.body_html||'', tags:(a.tags||'').split(',').map(t=>t.trim()).filter(Boolean), blogHandle:blog.handle, url:'https://aboutwallart.com/blogs/'+blog.handle+'/'+a.handle }));
       allItems.push(...articles);
-      totalArticles += articles.length;
+      totalArticles+=articles.length;
     }
     setLoadingStep('Articles: '+totalArticles+' found', 58);
 
     setLoadingStep('Fetching collections...', 60);
-    const customColData = await shopifyFetch('custom_collections.json?limit=250&fields=id,title,handle,published_at,body_html');
-    const customCols = (customColData.custom_collections||[]).map(c => ({ id:'collection-'+c.id, shopifyId:c.id, title:c.title, handle:c.handle, type:'collection', publishedAt:c.published_at, bodyHtml:c.body_html||'', url:'https://aboutwallart.com/collections/'+c.handle }));
+    const ccD = await shopifyFetch('custom_collections.json?limit=250&fields=id,title,handle,published_at,body_html');
+    const customCols = (ccD.custom_collections||[]).map(c=>({ id:'collection-'+c.id, shopifyId:c.id, title:c.title, handle:c.handle, type:'collection', publishedAt:c.published_at, bodyHtml:c.body_html||'', tags:[], url:'https://aboutwallart.com/collections/'+c.handle }));
     allItems.push(...customCols);
 
     setLoadingStep('Fetching smart collections...', 70);
-    const smartColData = await shopifyFetch('smart_collections.json?limit=250&fields=id,title,handle,published_at,body_html');
-    const smartCols = (smartColData.smart_collections||[]).map(c => ({ id:'smart-'+c.id, shopifyId:c.id, title:c.title, handle:c.handle, type:'collection', publishedAt:c.published_at, bodyHtml:c.body_html||'', url:'https://aboutwallart.com/collections/'+c.handle }));
+    const scD = await shopifyFetch('smart_collections.json?limit=250&fields=id,title,handle,published_at,body_html');
+    const smartCols = (scD.smart_collections||[]).map(c=>({ id:'smart-'+c.id, shopifyId:c.id, title:c.title, handle:c.handle, type:'collection', publishedAt:c.published_at, bodyHtml:c.body_html||'', tags:[], url:'https://aboutwallart.com/collections/'+c.handle }));
     allItems.push(...smartCols);
     setLoadingStep('Collections: '+(customCols.length+smartCols.length)+' found', 78);
 
@@ -829,29 +984,20 @@ async function syncFromShopify() {
     for (const item of allItems) allLinks.push(...parseItemLinks(item));
     setLoadingStep('Links parsed: '+allLinks.length+' found', 90);
 
-    AppState.items = allItems;
-    AppState.links = allLinks;
-    AppState.lastSync = new Date().toISOString();
+    AppState.items=allItems; AppState.links=allLinks; AppState.lastSync=new Date().toISOString();
 
     setLoadingStep('Building link graph...', 92);
     buildLinkGraph();
-
     setLoadingStep('Detecting broken links...', 95);
     detectBrokenLinks();
-
     setLoadingStep('Done!', 100);
     await new Promise(r=>setTimeout(r,400));
 
-    hideLoading();
-    showApp();
-    updateLastSynced();
-    renderDashboard();
-    renderLinksReport();
+    hideLoading(); showApp(); updateLastSynced(); renderDashboard(); renderLinksReport();
     showToast('Sync complete — '+allItems.length+' items loaded', 'success');
 
   } catch(err) {
-    hideLoading();
-    showApp();
+    hideLoading(); showApp();
     showToast('Sync failed: '+err.message, 'error');
     console.error('Sync error:', err);
   }
@@ -863,15 +1009,15 @@ function refreshData() { syncFromShopify(); }
 function updateLastSynced() {
   if (!AppState.lastSync) return;
   const d = new Date(AppState.lastSync);
-  document.getElementById('last-synced').textContent = 'Last synced: ' + d.toLocaleDateString([],{day:'numeric',month:'short'}) + ' ' + d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  document.getElementById('last-synced').textContent = 'Last synced: '+d.toLocaleDateString([],{day:'numeric',month:'short'})+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
 }
 
 function showToast(msg, type) {
-  const t = document.createElement('div');
-  t.className = 'toast '+(type||'info');
-  t.textContent = msg;
+  const t=document.createElement('div');
+  t.className='toast '+(type||'info');
+  t.textContent=msg;
   document.getElementById('toast-container').appendChild(t);
-  setTimeout(()=>t.remove(), 4000);
+  setTimeout(()=>t.remove(),4000);
 }
 
 function escHtml(str) {
