@@ -1,12 +1,67 @@
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
+  const shopifyDomain = process.env.SHOPIFY_STORE_DOMAIN;
+  const accessToken = process.env.SHOPIFY_ACCESS_TOKEN;
+
+  if (!shopifyDomain || !accessToken) {
+    return res.status(500).json({ error: 'Shopify credentials not configured' });
+  }
+
+  // -------------------------------------------------------
+  // LINK WHISPERER — triggered by GET ?action=link-whisperer
+  // -------------------------------------------------------
+  if (req.method === 'GET' && req.query.action === 'link-whisperer') {
+    const endpoint = req.query.endpoint;
+
+    if (!endpoint) {
+      return res.status(400).json({ error: 'Missing endpoint parameter' });
+    }
+
+    const shopifyUrl = 'https://' + shopifyDomain + '/admin/api/2025-01/' + endpoint;
+
+    try {
+      const shopifyResponse = await fetch(shopifyUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': accessToken,
+        },
+      });
+
+      const responseText = await shopifyResponse.text();
+
+      if (!shopifyResponse.ok) {
+        return res.status(shopifyResponse.status).json({
+          error: true,
+          status: shopifyResponse.status,
+          message: responseText,
+        });
+      }
+
+      // Pass through the Shopify Link header for pagination
+      const linkHeader = shopifyResponse.headers.get('Link');
+      if (linkHeader) {
+        res.setHeader('Link', linkHeader);
+      }
+
+      res.setHeader('Content-Type', 'application/json');
+      return res.status(200).send(responseText);
+
+    } catch (err) {
+      return res.status(500).json({ error: true, message: err.message });
+    }
+  }
+
+  // -------------------------------------------------------
+  // EXISTING IMAGE OPTIMIZER ACTIONS — POST only
+  // -------------------------------------------------------
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -19,13 +74,6 @@ module.exports = async function handler(req, res) {
     const altText = body.altText || '';
     const safeAltText = altText.replace(/"/g, '\\"').replace(/\n/g, ' ');
 
-    const shopifyDomain = process.env.SHOPIFY_STORE_DOMAIN;
-    const accessToken = process.env.SHOPIFY_ACCESS_TOKEN;
-
-    if (!shopifyDomain || !accessToken) {
-      return res.status(500).json({ error: 'Shopify credentials not configured' });
-    }
-
     if (action === 'update_alt_only') {
       console.log('Updating alt text for: ' + imageUrl);
 
@@ -36,7 +84,6 @@ module.exports = async function handler(req, res) {
       const filename = extractFilename(imageUrl);
       const searchUrl = 'https://' + shopifyDomain + '/admin/api/2025-01/graphql.json';
 
-      // Step 1: Find file by filename
       const searchQuery = 'query { files(first: 5, query: "filename:' + filename + '") { edges { node { ... on MediaImage { id alt } } } } }';
 
       const searchResponse = await fetch(searchUrl, {
@@ -58,7 +105,6 @@ module.exports = async function handler(req, res) {
       const fileId = files[0].node.id;
       console.log('Found file: ' + fileId);
 
-      // Step 2: Update alt text only
       const safeAlt = (body.altText || '').replace(/"/g, '\\"').replace(/\n/g, ' ');
 
       const updateMutation = 'mutation { fileUpdate(files: [{ id: "' + fileId + '", alt: "' + safeAlt + '" }]) { files { id alt } userErrors { field message } } }';
@@ -93,7 +139,6 @@ module.exports = async function handler(req, res) {
     if (action === 'replace_file') {
       console.log('Starting file replacement for: ' + imageUrl);
       
-      // Extract filename from URL
       function extractFilename(url) {
         return url.split('/').pop().split('?')[0];
       }
@@ -101,7 +146,6 @@ module.exports = async function handler(req, res) {
       const filename = extractFilename(imageUrl);
       console.log('Extracted filename: ' + filename);
       
-      // Search for file by filename using GraphQL filter
       const searchQuery = 'query { files(first: 5, query: "filename:' + filename + '") { edges { node { ... on MediaImage { id image { url } alt } } } } }';
 
       const searchUrl = 'https://' + shopifyDomain + '/admin/api/2025-01/graphql.json';
@@ -150,7 +194,6 @@ module.exports = async function handler(req, res) {
       const fileId = matchingFile.node.id;
       console.log('File ID: ' + fileId);
 
-      // Step 2: Create staged upload
       console.log('Creating staged upload...');
       
       const stagedUploadMutation = 'mutation { stagedUploadsCreate(input: { resource: FILE, filename: "' + filename + '", mimeType: "image/webp", httpMethod: POST }) { stagedTargets { url resourceUrl parameters { name value } } userErrors { field message } } }';
@@ -177,23 +220,19 @@ module.exports = async function handler(req, res) {
       const stagedTarget = stagedData.data.stagedUploadsCreate.stagedTargets[0];
       console.log('Staged upload URL created');
 
-      // Step 3: Upload file to staged URL
       console.log('Uploading optimized image...');
       
       const imageBuffer = Buffer.from(optimizedImageBase64, 'base64');
       
-      // Build form data manually
       const boundary = '----WebKitFormBoundary' + Math.random().toString(36).substring(2);
       let formBody = '';
       
-      // Add parameters
       for (const param of stagedTarget.parameters) {
         formBody += '--' + boundary + '\r\n';
         formBody += 'Content-Disposition: form-data; name="' + param.name + '"\r\n\r\n';
         formBody += param.value + '\r\n';
       }
       
-      // Add file
       formBody += '--' + boundary + '\r\n';
       formBody += 'Content-Disposition: form-data; name="file"; filename="' + filename + '"\r\n';
       formBody += 'Content-Type: image/webp\r\n\r\n';
@@ -223,7 +262,6 @@ module.exports = async function handler(req, res) {
 
       console.log('Upload successful');
 
-      // Step 4: Create new file with staged resource
       console.log('Creating new file in Shopify...');
       
       const createMutation = 'mutation { fileCreate(files: [{ originalSource: "' + stagedTarget.resourceUrl + '", contentType: IMAGE, alt: "' + safeAltText + '" }]) { files { id } userErrors { field message } } }';
@@ -250,11 +288,9 @@ module.exports = async function handler(req, res) {
       const newFileId = createData.data.fileCreate.files[0].id;
       console.log('New file created: ' + newFileId);
 
-      // Wait for Shopify to process the new file
       console.log('Waiting 3 seconds for file processing...');
       await new Promise(resolve => setTimeout(resolve, 3000));
 
-      // Step 5: Delete old file
       console.log('Deleting old file...');
       
       const deleteMutation = 'mutation { fileDelete(fileIds: ["' + fileId + '"]) { deletedFileIds userErrors { field message } } }';
