@@ -459,7 +459,6 @@
     </style>
 </head>
 <body>
-    <script src="/auth-check.js"></script>
     <div class="container">
         <h1>Image Optimizer</h1>
         <div class="version">Version 2.10 - No bulk operations, color coding only</div>
@@ -767,7 +766,7 @@
         }
 
         async function fetchViaProxy(url) {
-            const apiUrl = `https://seo-tools-lake.vercel.app/api/fetch-html.js?url=${encodeURIComponent(url)}`;
+            const apiUrl = `https://tools.aboutwallart.com/api/fetch-html.js?url=${encodeURIComponent(url)}`;
             const response = await fetch(apiUrl);
             
             if (!response.ok) {
@@ -1270,7 +1269,7 @@
                 }
                 
                 // Call Vercel API endpoint which calls Claude
-                const apiResponse = await fetch('https://seo-tools-lake.vercel.app/api/generate-alt-text.js', {
+                const apiResponse = await fetch('https://tools.aboutwallart.com/api/generate-alt-text.js', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1374,7 +1373,7 @@
             
             try {
                 // Call Shopify API endpoint with update_alt_smart action
-                const response = await fetch('https://seo-tools-lake.vercel.app/api/shopify-files', {
+                const response = await fetch('https://tools.aboutwallart.com/api/shopify-files', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1589,7 +1588,7 @@
                 const base64Data = await base64Promise;
                 
                 // Call Shopify API endpoint
-                const response = await fetch('https://seo-tools-lake.vercel.app/api/shopify-files', {
+                const response = await fetch('https://tools.aboutwallart.com/api/shopify-files', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
