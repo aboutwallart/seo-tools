@@ -98,7 +98,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v15.0</div>
+      <div class="tool-version">v16.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -195,6 +195,10 @@
             <span style="color:#fff;font-size:16px;font-weight:600;" id="blogTrackingTitle">Blog Tracking</span>
             <select id="blogMonthSelect" onchange="loadBlogTracking()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">
             </select>
+            <select id="blogCompare" onchange="loadBlogTracking()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="30">vs last 30 days</option>
+              <option value="90">vs last 90 days</option>
+            </select>
           </div>
           <div style="display:flex;gap:32px;">
             <div style="text-align:right;">
@@ -226,7 +230,6 @@
             <h2 id="blogTableTitle">Blog Posts</h2>
             <div style="display:flex;align-items:center;gap:12px;">
               <input type="text" placeholder="Search blogs..." oninput="filterTable('blogBody', this.value)" style="padding:6px 12px;border:1px solid #e5e5e5;border-radius:4px;font-size:12px;outline:none;width:200px;">
-              <button class="download-btn" onclick="downloadBlogCSV()">⬇ Download CSV</button>
             </div>
           </div>
           <div id="blogLoading" style="text-align:center;padding:32px;color:#aaa;font-size:13px;">Select a month to load blog tracking data</div>
@@ -236,6 +239,7 @@
                 <th>#</th>
                 <th>Landing Page</th>
                 <th class="num">Url Clicks</th>
+                <th class="num">% vs prev</th>
                 <th class="num">Impressions</th>
                 <th class="num">URL CTR</th>
                 <th class="num">Avg Position</th>
@@ -708,26 +712,37 @@
         document.getElementById('blogMetPages').textContent = articles.length;
         document.getElementById('blogMetPagesSub').textContent = monthLabel;
 
-        // Step 2: Fetch ALL GSC page data — max 16 months lookback, no filter
-        const start = getDate(480); // 16 months
+        // Step 2: Fetch GSC data — max 16 months lookback
+        const compareDays = parseInt(document.getElementById('blogCompare').value);
         const end = getDate(0);
+        const start = getDate(480);
+        const prevEnd = getDate(compareDays);
+        const prevStart = getDate(compareDays * 2);
 
-        const curRes = await fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`);
-        const curJson = await curRes.json();
+        const [curRes, prevRes] = await Promise.all([
+          fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`),
+          fetch(`${API}?action=pages&startDate=${prevStart}&endDate=${prevEnd}`)
+        ]);
+        const [curJson, prevJson] = await Promise.all([curRes.json(), prevRes.json()]);
 
-        // Build URL map
+        // Build URL maps
         const curMap = {};
         (curJson.data?.rows || []).forEach(r => {
           const url = r.keys ? r.keys[0] : '';
           curMap[url] = { clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: r.position };
         });
+        const prevMap = {};
+        (prevJson.data?.rows || []).forEach(r => {
+          const url = r.keys ? r.keys[0] : '';
+          prevMap[url] = { clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: r.position };
+        });
 
-        // Step 3: Match blog URLs to GSC data
-        // GSC returns URLs without www, Shopify builds with www — normalise both
+        // Step 3: Match blog URLs — strip www to match GSC format
         blogData = articles.map(article => {
           const normalizedUrl = article.url.replace('https://www.aboutwallart.com', 'https://aboutwallart.com');
           const cur = curMap[normalizedUrl] || { clicks: 0, impressions: 0, ctr: 0, position: 0 };
-          return { ...article, ...cur };
+          const prev = prevMap[normalizedUrl] || null;
+          return { ...article, ...cur, prev };
         }).sort((a, b) => b.clicks - a.clicks);
 
         // Summary metrics
@@ -764,18 +779,44 @@
     function renderBlogTable() {
       const tbody = document.getElementById('blogBody');
       if (!blogData.length) {
-        tbody.innerHTML = '<tr class="loading-row"><td colspan="6">No data found</td></tr>';
+        tbody.innerHTML = '<tr class="loading-row"><td colspan="7">No data found</td></tr>';
         return;
       }
       tbody.innerHTML = blogData.map((r, i) => {
         const hasClicks = r.clicks > 0;
-        const rowBg = hasClicks ? 'background:#f0fdf4;' : '';
+        const p = r.prev;
+
+        // Calculate % change for clicks
+        let clicksPct = null;
+        if (p && p.clicks > 0) clicksPct = ((r.clicks - p.clicks) / p.clicks * 100);
+        else if (p && p.clicks === 0 && r.clicks > 0) clicksPct = 100;
+
+        // Row colour: green=growing, yellow=same/neutral, red=shrinking, white=no data
+        let rowBg = '';
+        if (hasClicks && clicksPct !== null) {
+          if (clicksPct > 5) rowBg = 'background:#f0fdf4;';
+          else if (clicksPct < -5) rowBg = 'background:#fef2f2;';
+          else rowBg = 'background:#fefce8;'; // yellow — same
+        } else if (hasClicks) {
+          rowBg = 'background:#f0fdf4;';
+        }
+
+        // % change badge
+        let changeBadge = '<span style="color:#aaa;font-size:11px;">—</span>';
+        if (clicksPct !== null) {
+          const color = clicksPct > 5 ? '#16a34a' : clicksPct < -5 ? '#dc2626' : '#92400e';
+          const arrow = clicksPct > 0 ? '↑' : clicksPct < 0 ? '↓' : '→';
+          changeBadge = `<span style="color:${color};font-size:11px;font-weight:600;">${arrow} ${Math.abs(clicksPct).toFixed(1)}%</span>`;
+        }
+
         const titleLink = `<a href="${r.url}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:13px;">${r.title || r.url}</a>`;
+
         return `<tr style="${rowBg}">
           <td style="color:#aaa;font-size:12px;">${i+1}.</td>
           <td>${titleLink}</td>
-          <td class="num" style="${hasClicks?'color:#16a34a;font-weight:600;':''}">${fmt(r.clicks)}</td>
-          <td class="num" style="${r.impressions>0?'color:#2563eb;':''}">${fmt(r.impressions)}</td>
+          <td class="num" style="${hasClicks?'font-weight:600;':''}">${fmt(r.clicks)}</td>
+          <td class="num">${changeBadge}</td>
+          <td class="num">${fmt(r.impressions)}</td>
           <td class="num">${fmtCTR(r.ctr)}</td>
           <td class="num">${r.position > 0 ? fmtPos(r.position) : '—'}</td>
         </tr>`;
