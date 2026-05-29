@@ -184,7 +184,41 @@
 
       <!-- SECTION: LLM Traffic -->
       <div class="section" id="section-llm">
-        <div class="coming-soon">🤖 LLM Traffic — Coming in Phase 6</div>
+
+        <!-- Header bar -->
+        <div style="background:#1a1a1a;border-radius:8px;padding:20px 24px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span style="color:#fff;font-size:16px;font-weight:600;">LLM Traffic</span>
+            <select id="llmDays" onchange="loadLLMTraffic()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="30">Last 30 days</option>
+              <option value="90" selected>Last 90 days</option>
+              <option value="180">Last 180 days</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:32px;">
+            <div style="text-align:right;">
+              <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.08em;">Total Sessions</div>
+              <div style="font-size:22px;font-weight:700;color:#fff;" id="llmMetSessions">—</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.08em;">Total Views</div>
+              <div style="font-size:22px;font-weight:700;color:#fff;" id="llmMetViews">—</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.08em;">AI Sources</div>
+              <div style="font-size:22px;font-weight:700;color:#fff;" id="llmMetSources">—</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Per-source cards -->
+        <div id="llmSourceCards"></div>
+
+        <!-- Fallback table (hidden, used for no-data state) -->
+        <div id="llmNoData" style="display:none;">
+          <div class="coming-soon">No LLM traffic found in this period. AI tools may not be sending referral data yet.</div>
+        </div>
+
       </div>
 
       <!-- SECTION: Blog Tracking -->
@@ -1014,11 +1048,35 @@
     }
 
     let llmLoaded = false;
+    let llmChartInstances = [];
+
+    // Source display names + colours
+    const llmSourceConfig = {
+      'chat.openai.com': { label: 'ChatGPT Traffic',    color: '#10a37f' },
+      'chatgpt.com':     { label: 'ChatGPT Traffic',    color: '#10a37f' },
+      'perplexity.ai':   { label: 'Perplexity Traffic', color: '#7c3aed' },
+      'claude.ai':       { label: 'Claude Traffic',     color: '#d97706' },
+      'gemini.google.com':{ label: 'Gemini Traffic',    color: '#1a73e8' },
+      'copilot.microsoft.com':{ label: 'Copilot Traffic', color: '#0078d4' },
+      'you.com':         { label: 'You.com Traffic',    color: '#ef4444' },
+      'phind.com':       { label: 'Phind Traffic',      color: '#6366f1' },
+      'poe.com':         { label: 'Poe Traffic',        color: '#ec4899' }
+    };
+
+    function getLLMConfig(source) {
+      const key = Object.keys(llmSourceConfig).find(k => source.toLowerCase().includes(k.split('.')[0]));
+      return key ? llmSourceConfig[key] : { label: source + ' Traffic', color: '#6b7280' };
+    }
 
     async function loadLLMTraffic() {
-      const days = document.getElementById('llmDays')?.value || 90;
-      document.getElementById('llmSourceBody').innerHTML = '<tr class="loading-row"><td colspan="4">Loading GA4 data...</td></tr>';
+      const days = parseInt(document.getElementById('llmDays')?.value || 90);
       ['llmMetSessions','llmMetViews','llmMetSources'].forEach(id => document.getElementById(id).textContent = '—');
+      document.getElementById('llmSourceCards').innerHTML = '<div style="text-align:center;padding:48px;color:#aaa;font-size:13px;">Loading GA4 data...</div>';
+      document.getElementById('llmNoData').style.display = 'none';
+
+      // Destroy previous chart instances
+      llmChartInstances.forEach(c => { try { c.destroy(); } catch(e){} });
+      llmChartInstances = [];
 
       try {
         const res = await fetch(`${API}?action=ga4-llm&days=${days}`);
@@ -1027,53 +1085,107 @@
 
         const rows = json.data.rows || [];
 
-        // Aggregate by source
+        // Aggregate by source + date
         const sourceMap = {};
         rows.forEach(r => {
           const source = r.dimensionValues?.[0]?.value || 'unknown';
+          const date   = r.dimensionValues?.[1]?.value || '';
           const sessions = parseInt(r.metricValues?.[0]?.value || 0);
-          const views = parseInt(r.metricValues?.[1]?.value || 0);
-          if (!sourceMap[source]) sourceMap[source] = { sessions: 0, views: 0 };
+          const views    = parseInt(r.metricValues?.[1]?.value || 0);
+          if (!sourceMap[source]) sourceMap[source] = { sessions: 0, views: 0, byDate: {} };
           sourceMap[source].sessions += sessions;
-          sourceMap[source].views += views;
+          sourceMap[source].views    += views;
+          if (date) {
+            if (!sourceMap[source].byDate[date]) sourceMap[source].byDate[date] = 0;
+            sourceMap[source].byDate[date] += views;
+          }
         });
 
-        // Sort by sessions
-        const sorted = Object.entries(sourceMap)
-          .sort((a, b) => b[1].sessions - a[1].sessions);
+        const sorted = Object.entries(sourceMap).sort((a, b) => b[1].views - a[1].views);
 
         const totalSessions = sorted.reduce((s, [,v]) => s + v.sessions, 0);
-        const totalViews = sorted.reduce((s, [,v]) => s + v.views, 0);
+        const totalViews    = sorted.reduce((s, [,v]) => s + v.views, 0);
 
         document.getElementById('llmMetSessions').textContent = fmt(totalSessions);
-        document.getElementById('llmMetViews').textContent = fmt(totalViews);
-        document.getElementById('llmMetSources').textContent = sorted.length;
-
-        // AI source icons
-        const icons = {
-          'chatgpt': '🤖', 'openai': '🤖', 'perplexity': '🔍',
-          'claude': '🟠', 'gemini': '💎', 'copilot': '🪟',
-          'you': '🔎', 'phind': '🔎', 'poe': '💬', 'bing': '🔵'
-        };
+        document.getElementById('llmMetViews').textContent    = fmt(totalViews);
+        document.getElementById('llmMetSources').textContent  = sorted.length;
 
         if (!sorted.length) {
-          document.getElementById('llmSourceBody').innerHTML = '<tr class="loading-row"><td colspan="4">No LLM traffic found in this period. AI tools may not be sending referral data yet.</td></tr>';
+          document.getElementById('llmSourceCards').innerHTML = '';
+          document.getElementById('llmNoData').style.display = 'block';
           return;
         }
 
-        document.getElementById('llmSourceBody').innerHTML = sorted.map(([source, v], i) => {
-          const iconKey = Object.keys(icons).find(k => source.toLowerCase().includes(k)) || '';
-          const icon = icons[iconKey] || '🌐';
-          return `<tr>
-            <td style="color:#aaa;font-size:12px;">${i+1}.</td>
-            <td style="font-size:13px;">${icon} ${source}</td>
-            <td class="num" style="font-weight:600;color:#2563eb;">${fmt(v.sessions)}</td>
-            <td class="num">${fmt(v.views)}</td>
-          </tr>`;
-        }).join('');
+        // Build monthly buckets from date data
+        function buildMonthlyBuckets(byDate) {
+          const monthly = {};
+          Object.entries(byDate).forEach(([dateStr, views]) => {
+            // dateStr from GA4 is YYYYMMDD
+            const y = dateStr.slice(0,4), m = dateStr.slice(4,6);
+            const key = y + '-' + m;
+            if (!monthly[key]) monthly[key] = 0;
+            monthly[key] += views;
+          });
+          // Sort keys
+          const keys = Object.keys(monthly).sort();
+          return { labels: keys.map(k => { const [y,m] = k.split('-'); return new Date(y,parseInt(m)-1).toLocaleString('default',{month:'short',year:'2-digit'}); }), values: keys.map(k => monthly[k]) };
+        }
+
+        // Render cards
+        document.getElementById('llmSourceCards').innerHTML = sorted.map(([source], i) => `
+          <div class="hist-row" style="margin-bottom:24px;">
+            <div class="hist-gauge-side" style="min-width:260px;width:260px;">
+              <div class="hist-gauge-title" id="llmTitle_${i}">${getLLMConfig(source).label}</div>
+              <div class="hist-gauge-wrap">
+                <canvas id="llmGauge_${i}"></canvas>
+                <div class="hist-gauge-center">
+                  <div class="hist-gauge-value" id="llmGaugeVal_${i}">—</div>
+                  <div class="hist-gauge-change" id="llmGaugeChange_${i}"></div>
+                </div>
+              </div>
+              <div class="hist-gauge-sub">Comparison: Previous Year - Same Month</div>
+            </div>
+            <div class="hist-chart-side" style="flex:1;">
+              <h3><span style="background:#2563eb;"></span> Views</h3>
+              <canvas id="llmBarChart_${i}" height="120"></canvas>
+            </div>
+          </div>
+        `).join('');
+
+        // Draw gauge + bar chart per source
+        sorted.forEach(([source, data], i) => {
+          const cfg = getLLMConfig(source);
+          const views = data.views;
+
+          // Gauge — use views as value, max = views * 1.5 so gauge fills proportionally
+          const maxVal = Math.max(views * 1.5, 1);
+          const existing = Chart.getChart('llmGauge_' + i);
+          if (existing) existing.destroy();
+          const pct = Math.min(views / maxVal, 1);
+          const filled = pct * 0.75;
+          const gaugeChart = new Chart(document.getElementById('llmGauge_' + i).getContext('2d'), {
+            type: 'doughnut',
+            data: { datasets: [{ data: [filled, 0.75 - filled, 0.25], backgroundColor: [cfg.color, '#e5e5e5', 'transparent'], borderWidth: 0, circumference: 270, rotation: 225 }] },
+            options: { responsive: false, cutout: '75%', plugins: { legend: { display: false }, tooltip: { enabled: false } } }
+          });
+          llmChartInstances.push(gaugeChart);
+
+          document.getElementById('llmGaugeVal_' + i).innerHTML = '<span style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Views</span>' + fmt(views);
+
+          // Bar chart
+          const { labels, values } = buildMonthlyBuckets(data.byDate);
+          const barExisting = Chart.getChart('llmBarChart_' + i);
+          if (barExisting) barExisting.destroy();
+          const barChart = new Chart(document.getElementById('llmBarChart_' + i).getContext('2d'), {
+            type: 'bar',
+            data: { labels, datasets: [{ data: values, backgroundColor: '#2563eb', borderRadius: 3, borderSkipped: false }] },
+            options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { font: { size: 10 } } }, y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 10 } } } } }
+          });
+          llmChartInstances.push(barChart);
+        });
 
       } catch(e) {
-        document.getElementById('llmSourceBody').innerHTML = `<tr class="loading-row"><td colspan="4" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
+        document.getElementById('llmSourceCards').innerHTML = `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:16px;color:#dc2626;font-size:13px;">Error loading LLM data: ${e.message}</div>`;
       }
     }
 
