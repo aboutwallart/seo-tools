@@ -125,6 +125,24 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true, publishedBlogs });
       }
 
+      // ── ACTION: get-registry ──
+      if (req.query.action === 'get-registry') {
+        const csvPath = path.resolve(process.cwd(), 'data', 'keyword-locker-registry.csv');
+        if (!fs.existsSync(csvPath)) return res.status(200).json({ success: true, registry: [] });
+        const csvText = fs.readFileSync(csvPath, 'utf-8');
+        const lines = csvText.split('\n');
+        const registry = [];
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim().replace(/\r/g, '');
+          if (!line) continue;
+          const cols = parseCSVLine(line);
+          if (cols.length >= 2 && cols[0]) {
+            registry.push({ keyword: cols[0], url: cols[1], locked: cols[2] === 'LOCKED' });
+          }
+        }
+        return res.status(200).json({ success: true, registry });
+      }
+
       // ── ACTION: get-tracked-keywords ──
       if (req.query.action === 'get-tracked-keywords') {
         try {
@@ -181,6 +199,18 @@ export default async function handler(req, res) {
     //        + append row to Google Sheet (non-blocking)
     // ============================================
     if (req.method === 'POST') {
+
+      // ── ACTION: lock-keyword ──
+      if (req.body.action === 'lock-keyword') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { keyword, url } = req.body;
+        if (!keyword || !url) return res.status(400).json({ error: 'keyword and url required' });
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const newRow = `${keyword},${url},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,Keyword Rankings`;
+        const updated = registry.content.trimEnd() + '\n' + newRow + '\n';
+        await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Lock keyword from rankings: ${keyword}`);
+        return res.status(200).json({ success: true, keyword, url });
+      }
 
       // ── ACTION: save-tracked-keywords ──
       if (req.body.action === 'save-tracked-keywords') {
