@@ -98,7 +98,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v29.0</div>
+      <div class="tool-version">v30.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -542,14 +542,17 @@
             <thead><tr>
               <th style="width:32px;"><input type="checkbox" id="kwrSelectAll" onchange="kwrToggleAll(this.checked)" title="Select all visible"></th>
               <th>Keyword</th>
+              <th>Ranking URL</th>
               <th class="num">Position</th>
               <th class="num">Impressions</th>
               <th class="num">Clicks</th>
               <th class="num">CTR</th>
               <th class="num">Difficulty</th>
+              <th class="num">Registry</th>
+              <th class="num">Action</th>
               <th class="num" id="kwrTrendHeader" style="display:none;">Trend (90d)</th>
             </tr></thead>
-            <tbody id="kwrBody"><tr class="loading-row"><td colspan="8">Loading keyword rankings...</td></tr></tbody>
+            <tbody id="kwrBody"><tr class="loading-row"><td colspan="11">Loading keyword rankings...</td></tr></tbody>
           </table>
         </div>
 
@@ -1770,26 +1773,23 @@
     // ═══════════════════════════════════════════════════════
 
     let kwrAllData      = [];   // full dataset current 90d
-    let kwrPrevData     = {};   // keyword -> {clicks, impressions, position} for prev 90d
+    let kwrPrevData     = {};   // keyword -> metrics for prev 90d
     let kwrTrackedSet   = new Set();
     let kwrActiveTab    = 'all';
     let kwrLoaded       = false;
+    let kwrRegistry     = {};   // keyword.lower -> {url, locked}
+    let kwrPageQuery    = {};   // keyword -> ranking URL
 
     function kwrDifficulty(position, impressions, ctr) {
-      // Score: higher = harder
       let score = 0;
-      // Position factor — further from 1 = harder to improve
       if (position > 50) score += 3;
       else if (position > 20) score += 2;
       else if (position > 10) score += 1;
-      // Volume factor — more impressions = more competitive
       if (impressions > 10000) score += 3;
       else if (impressions > 2000) score += 2;
       else if (impressions > 500) score += 1;
-      // CTR factor — very low CTR at decent position = strong competitors above
       if (position <= 10 && ctr < 0.005) score += 2;
       else if (position <= 10 && ctr < 0.02) score += 1;
-
       if (score >= 5) return 'Hard';
       if (score >= 3) return 'Medium';
       return 'Easy';
@@ -1804,24 +1804,49 @@
     async function kwrInit() {
       if (kwrLoaded) return;
       kwrLoaded = true;
-
-      document.getElementById('kwrBody').innerHTML = '<tr class="loading-row"><td colspan="8">Loading keyword data...</td></tr>';
+      document.getElementById('kwrBody').innerHTML = '<tr class="loading-row"><td colspan="11">Loading keyword data...</td></tr>';
 
       try {
-        // Load tracked keywords from GitHub
-        try {
-          const tRes = await fetch('/api/blogs?action=get-tracked-keywords');
+        // Load tracked keywords + registry in parallel
+        const [tRes, rRes, pqRes] = await Promise.all([
+          fetch('/api/blogs?action=get-tracked-keywords').catch(() => null),
+          fetch('/api/blogs?action=get-registry').catch(() => null),
+          fetch(`${API}?action=page-query&startDate=${getDate(90)}&endDate=${getDate(0)}`).catch(() => null)
+        ]);
+
+        if (tRes) {
           const tJson = await tRes.json();
-          if (tJson.success && Array.isArray(tJson.keywords)) {
-            kwrTrackedSet = new Set(tJson.keywords);
+          if (tJson.success && Array.isArray(tJson.keywords)) kwrTrackedSet = new Set(tJson.keywords);
+        }
+
+        if (rRes) {
+          const rJson = await rRes.json();
+          if (rJson.success && rJson.registry) {
+            kwrRegistry = {};
+            rJson.registry.forEach(row => {
+              kwrRegistry[row.keyword.toLowerCase()] = { url: row.url, locked: row.locked };
+            });
           }
-        } catch(e) { /* no tracked keywords yet */ }
+        }
 
-        // Fetch current 90 days
-        const end   = getDate(0);
-        const start = getDate(90);
-        const startPrev = getDate(180);
+        // Build page-query lookup: keyword -> top ranking URL
+        if (pqRes) {
+          const pqJson = await pqRes.json();
+          if (pqJson.success) {
+            const pqMap = {};
+            (pqJson.data.rows || []).forEach(r => {
+              const page  = (r.keys?.[0] || '').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','') || '/';
+              const query = r.keys?.[1] || '';
+              if (!pqMap[query] || r.clicks > (pqMap[query].clicks || 0)) {
+                pqMap[query] = { url: page, clicks: r.clicks };
+              }
+            });
+            kwrPageQuery = pqMap;
+          }
+        }
 
+        // Fetch current + previous 90 days
+        const end = getDate(0), start = getDate(90), startPrev = getDate(180);
         const [resCurr, resPrev] = await Promise.all([
           fetch(`${API}?action=queries&startDate=${start}&endDate=${end}`),
           fetch(`${API}?action=queries&startDate=${startPrev}&endDate=${start}`)
@@ -1829,10 +1854,8 @@
 
         const jsonCurr = await resCurr.json();
         const jsonPrev = await resPrev.json();
-
         if (!jsonCurr.success) throw new Error(jsonCurr.error);
 
-        // Build prev lookup
         kwrPrevData = {};
         if (jsonPrev.success) {
           (jsonPrev.data.rows || []).forEach(r => {
@@ -1841,7 +1864,6 @@
           });
         }
 
-        // Build current data with difficulty
         kwrAllData = (jsonCurr.data.rows || []).map(r => {
           const kw   = r.keys?.[0] || '';
           const pos  = r.position || 0;
@@ -1851,31 +1873,34 @@
           const diff = kwrDifficulty(pos, imp, ctr);
           const prev = kwrPrevData[kw];
           let trend = null;
-          if (prev && prev.impressions > 0) {
-            trend = ((imp - prev.impressions) / prev.impressions) * 100;
+          if (prev && prev.impressions > 0) trend = ((imp - prev.impressions) / prev.impressions) * 100;
+          const rankingUrl = kwrPageQuery[kw]?.url || '—';
+          const reg = kwrRegistry[kw.toLowerCase()] || null;
+          let regStatus = 'unlocked';
+          if (reg) {
+            const regUrl = (reg.url || '').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
+            regStatus = regUrl === rankingUrl ? 'locked-same' : 'locked-other';
           }
-          return { kw, pos, imp, clk, ctr, diff, trend, tracked: kwrTrackedSet.has(kw) };
+          return { kw, pos, imp, clk, ctr, diff, trend, rankingUrl, regStatus, regUrl: reg?.url || '', tracked: kwrTrackedSet.has(kw) };
         }).sort((a, b) => a.pos - b.pos);
 
-        document.getElementById('kwrCountAll').textContent = kwrAllData.length;
-        kwrRenderSortRules();
+        document.getElementById('kwrCountAll').textContent = kwrAllData.filter(r => !kwrTrackedSet.has(r.kw)).length;
         document.getElementById('kwrCountTracked').textContent = kwrTrackedSet.size;
-
+        kwrRenderSortRules();
         kwrFilterTable();
 
       } catch(e) {
-        document.getElementById('kwrBody').innerHTML = `<tr class="loading-row"><td colspan="8" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
+        document.getElementById('kwrBody').innerHTML = `<tr class="loading-row"><td colspan="11" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
       }
     }
 
-    // Sort rules: [{field, dir}]
+    // Sort rules
     let kwrSortRules = [];
     const kwrDiffOrder = { Easy: 1, Medium: 2, Hard: 3 };
 
     function kwrAddSort() {
       const field = document.getElementById('kwrSortField').value;
       const dir   = document.getElementById('kwrSortDir').value;
-      // Remove existing rule for same field
       kwrSortRules = kwrSortRules.filter(r => r.field !== field);
       kwrSortRules.push({ field, dir });
       kwrRenderSortRules();
@@ -1928,18 +1953,17 @@
     }
 
     function kwrFilterTable() {
-      const search  = (document.getElementById('kwrSearch')?.value || '').toLowerCase();
-      const diff    = document.getElementById('kwrFilterDiff')?.value || '';
+      const search   = (document.getElementById('kwrSearch')?.value || '').toLowerCase();
+      const diff     = document.getElementById('kwrFilterDiff')?.value || '';
       const posRange = document.getElementById('kwrFilterPos')?.value || '';
-      const minImp  = parseInt(document.getElementById('kwrFilterMinImp')?.value || '0');
-      const minClk  = parseInt(document.getElementById('kwrFilterMinClk')?.value || '0');
-      const limit   = parseInt(document.getElementById('kwrLimit')?.value || '50');
+      const minImp   = parseInt(document.getElementById('kwrFilterMinImp')?.value || '0');
+      const minClk   = parseInt(document.getElementById('kwrFilterMinClk')?.value || '0');
+      const limit    = parseInt(document.getElementById('kwrLimit')?.value || '50');
 
       let data = kwrActiveTab === 'tracked'
         ? kwrAllData.filter(r => kwrTrackedSet.has(r.kw))
-        : [...kwrAllData];
+        : kwrAllData.filter(r => !kwrTrackedSet.has(r.kw));
 
-      // Filters
       if (search)   data = data.filter(r => r.kw.includes(search));
       if (diff)     data = data.filter(r => r.diff === diff);
       if (minImp)   data = data.filter(r => r.imp >= minImp);
@@ -1950,8 +1974,6 @@
         if (posRange === '11-20') data = data.filter(r => r.pos >= 11 && r.pos <= 20);
         if (posRange === '21+')   data = data.filter(r => r.pos > 20);
       }
-
-      // Multi-sort: apply rules in priority order (last applied = highest priority in reduce)
       if (kwrSortRules.length) {
         data.sort((a, b) => {
           for (const rule of kwrSortRules) {
@@ -1967,23 +1989,43 @@
           return 0;
         });
       }
-
       kwrRenderRows(data.slice(0, limit));
     }
 
     function kwrRenderRows(rows) {
       const tbody = document.getElementById('kwrBody');
       const showTrend = kwrActiveTab === 'tracked';
+      const isTracked = kwrActiveTab === 'tracked';
 
       if (!rows.length) {
-        tbody.innerHTML = `<tr class="loading-row"><td colspan="8">No keywords found.</td></tr>`;
+        tbody.innerHTML = `<tr class="loading-row"><td colspan="11">No keywords found.</td></tr>`;
         return;
       }
 
       tbody.innerHTML = rows.map(r => {
         const posColor = r.pos <= 3 ? '#16a34a' : r.pos <= 10 ? '#d97706' : '#dc2626';
-        const checked  = kwrTrackedSet.has(r.kw) ? 'checked' : '';
 
+        // Registry status cell
+        let regCell = '<span style="color:#ccc;font-size:12px;">—</span>';
+        if (r.regStatus === 'locked-same') {
+          regCell = '<span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🔒 Locked</span>';
+        } else if (r.regStatus === 'locked-other') {
+          const short = (r.regUrl || '').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
+          regCell = `<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Locked for: ${short}">⚠️ Other URL</span>`;
+        }
+
+        // Action cell
+        let actionCell = '';
+        if (isTracked) {
+          actionCell = `
+            <button onclick="kwrUndo('${r.kw.replace(/'/g,"\'")}')" style="padding:4px 10px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↩ Undo</button>
+            ${r.regStatus === 'unlocked' ? `<button onclick="kwrLock('${r.kw.replace(/'/g,"\'")}','${r.rankingUrl.replace(/'/g,"\'")}' )" style="padding:4px 10px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;margin-left:4px;">🔒 Lock</button>` : ''}
+          `;
+        } else {
+          actionCell = `<input type="checkbox" onchange="kwrToggleTrack('${r.kw.replace(/'/g,"\'")}', this.checked)" title="Track this keyword">`;
+        }
+
+        // Trend cell
         let trendCell = '';
         if (showTrend) {
           if (r.trend === null) {
@@ -1995,48 +2037,93 @@
           }
         }
 
+        const shortUrl = r.rankingUrl === '—' ? '—' : r.rankingUrl;
+
         return `<tr>
-          <td><input type="checkbox" ${checked} onchange="kwrToggleTrack('${r.kw.replace(/'/g,"\'")}', this.checked)"></td>
+          <td style="text-align:center;">${isTracked ? '' : `<input type="checkbox" onchange="kwrToggleTrack('${r.kw.replace(/'/g,"\'")}', this.checked)">`}</td>
           <td style="font-size:13px;">${r.kw}</td>
+          <td style="font-size:11px;color:#2563eb;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${shortUrl}">${shortUrl}</td>
           <td class="num" style="color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>
           <td class="num">${fmt(r.imp)}</td>
           <td class="num">${fmt(r.clk)}</td>
           <td class="num">${fmtCTR(r.ctr)}</td>
           <td class="num"><span style="${kwrDifficultyStyle(r.diff)}">${r.diff}</span></td>
-          ${showTrend ? trendCell : ''}
+          <td class="num">${regCell}</td>
+          <td class="num">${actionCell}</td>
+          ${showTrend ? trendCell : '<td></td>'}
         </tr>`;
       }).join('');
     }
 
     function kwrToggleAll(checked) {
-      const checkboxes = document.querySelectorAll('#kwrBody input[type=checkbox]');
-      checkboxes.forEach(cb => {
-        const kw = cb.closest('tr')?.querySelector('td:nth-child(2)')?.textContent?.trim();
+      const rows = document.querySelectorAll('#kwrBody tr');
+      rows.forEach(row => {
+        const kw = row.querySelector('td:nth-child(2)')?.textContent?.trim();
         if (!kw) return;
-        if (checked) kwrTrackedSet.add(kw);
-        else kwrTrackedSet.delete(kw);
-        cb.checked = checked;
+        if (checked) { kwrTrackedSet.add(kw); }
+        else { kwrTrackedSet.delete(kw); }
       });
       kwrAllData.forEach(r => r.tracked = kwrTrackedSet.has(r.kw));
-      document.getElementById('kwrCountTracked').textContent = kwrTrackedSet.size;
+      kwrUpdateCounts();
       kwrSaveTracked();
+      kwrFilterTable();
     }
 
     function kwrToggleTrack(kw, checked) {
       if (checked) kwrTrackedSet.add(kw);
       else kwrTrackedSet.delete(kw);
       kwrAllData.forEach(r => { if (r.kw === kw) r.tracked = checked; });
-      document.getElementById('kwrCountTracked').textContent = kwrTrackedSet.size;
+      kwrUpdateCounts();
       kwrSaveTracked();
+      kwrFilterTable();
+    }
+
+    function kwrUndo(kw) {
+      kwrTrackedSet.delete(kw);
+      kwrAllData.forEach(r => { if (r.kw === kw) r.tracked = false; });
+      kwrUpdateCounts();
+      kwrSaveTracked();
+      kwrFilterTable();
+    }
+
+    function kwrUpdateCounts() {
+      document.getElementById('kwrCountAll').textContent     = kwrAllData.filter(r => !kwrTrackedSet.has(r.kw)).length;
+      document.getElementById('kwrCountTracked').textContent = kwrTrackedSet.size;
+    }
+
+    async function kwrLock(kw, url) {
+      if (!confirm(`Lock keyword "${kw}" for URL "${url}"?`)) return;
+      kwrShowStatus('⏳ Locking... 3s', '#f0f9ff', '#7dd3fc', '#0369a1');
+      let secs = 2;
+      const interval = setInterval(() => { secs--; if (secs > 0) kwrShowStatus(`⏳ Locking... ${secs}s`, '#f0f9ff', '#7dd3fc', '#0369a1'); }, 1000);
+      try {
+        const fullUrl = url.startsWith('http') ? url : 'https://www.aboutwallart.com' + url;
+        const res = await fetch('/api/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'lock-keyword', keyword: kw, url: fullUrl })
+        });
+        clearInterval(interval);
+        const json = await res.json();
+        if (json.success) {
+          kwrRegistry[kw.toLowerCase()] = { url: fullUrl, locked: true };
+          kwrAllData.forEach(r => { if (r.kw === kw) { r.regStatus = 'locked-same'; r.regUrl = fullUrl; } });
+          kwrShowStatus('✅ Keyword locked in registry', '#f0fdf4', '#86efac', '#16a34a');
+          setTimeout(() => { document.getElementById('kwrSaveStatus').style.display = 'none'; }, 3000);
+          kwrFilterTable();
+        } else {
+          kwrShowStatus('❌ Lock failed: ' + (json.error || 'unknown'), '#fef2f2', '#fecaca', '#dc2626');
+        }
+      } catch(e) {
+        clearInterval(interval);
+        kwrShowStatus('❌ ' + e.message, '#fef2f2', '#fecaca', '#dc2626');
+      }
     }
 
     async function kwrSaveTracked() {
       kwrShowStatus('⏳ Saving... 3s', '#f0f9ff', '#7dd3fc', '#0369a1');
       let secs = 2;
-      const interval = setInterval(() => {
-        secs--;
-        if (secs > 0) kwrShowStatus(`⏳ Saving... ${secs}s`, '#f0f9ff', '#7dd3fc', '#0369a1');
-      }, 1000);
+      const interval = setInterval(() => { secs--; if (secs > 0) kwrShowStatus(`⏳ Saving... ${secs}s`, '#f0f9ff', '#7dd3fc', '#0369a1'); }, 1000);
       try {
         const res = await fetch('/api/blogs', {
           method: 'POST',
