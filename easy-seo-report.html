@@ -96,7 +96,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v10.0</div>
+      <div class="tool-version">v11.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -235,9 +235,9 @@
         <div class="content-section-card">
           <div class="content-section-header">
             <h2>🎯 Low Ranking Opportunities <span class="count-badge" id="createCount">—</span></h2>
-            <p>These are search queries where your site is ranking very low (position 15+) and you have NO existing blog post covering this keyword. Pure content gaps — write a new blog post targeting these keywords to capture this traffic.</p>
+            <p>These are search queries people are typing into Google where you have NO existing blog post covering this keyword. Write a new blog post targeting these keywords to capture this traffic.</p>
           </div>
-          <div class="data-note">Data: last 180 days · Position 15+ · No matching content in your registry · At least 10 impressions · Sorted by impressions</div>
+          <div class="data-note">Data: last 180 days · Real search queries only · No matching content in your registry · At least 10 impressions · English queries only · Sorted by impressions</div>
           <div class="content-controls">
             <label>Search:</label>
             <input type="text" placeholder="Filter by query..." oninput="filterTable('createBody', this.value)">
@@ -247,8 +247,8 @@
             </select>
           </div>
           <table>
-            <thead><tr><th>#</th><th>Priority</th><th>Query / Page</th><th class="num">Impressions</th><th class="num">Position</th></tr></thead>
-            <tbody id="createBody"><tr class="loading-row"><td colspan="5">Loading...</td></tr></tbody>
+            <thead><tr><th>#</th><th>Priority</th><th>Query</th><th class="num">Impressions</th></tr></thead>
+            <tbody id="createBody"><tr class="loading-row"><td colspan="4">Loading...</td></tr></tbody>
           </table>
         </div>
 
@@ -495,31 +495,41 @@
         document.getElementById('optimiseCount').textContent=optimiseData.length+' pages';
         renderOptimise(50);
 
-        // Table 3: Low Ranking Opportunities — position 15+, 10+ impressions
-        // Only show queries with NO matching content in registry (pure content gaps)
-        // Also filter out pagination, category index pages, and foreign language pages
-        createData=pages
-          .filter(p=>{
-            if(assigned.has(p.page)) return false;
-            if(p.impressions<10||p.position<=15) return false;
-            const url=p.page.toLowerCase();
-            // Filter out pagination pages
-            if(url.includes('?page=')) return false;
-            // Filter out foreign language pages
-            if(url.includes('/fr/')||url.includes('/es/')||url.includes('/de/')||url.includes('/it/')) return false;
-            // Filter out bare category index (no slug after /blogs/)
-            if(/\/blogs\/[^/]+\/?$/.test(url.replace('https://www.aboutwallart.com',''))) return false;
-            return true;
+        // Table 3: Low Ranking Opportunities — use queries directly
+        // Only queries with no matching content in registry, 10+ impressions, English only
+        const queriesRes=await fetch(`${API}?action=queries&startDate=${start}&endDate=${end}`);
+        const queriesJson=await queriesRes.json();
+        const allQueries=queriesJson.success?queriesJson.data.rows||[]:[];
+
+        // Helper: detect non-English query (contains non-ASCII chars or common Spanish/French words)
+        function isEnglish(q){
+          if(/[^\x00-\x7F]/.test(q)) return false; // non-ASCII characters
+          const nonEnglish=['para','casas','como','que','con','los','las','una','del','por','este','esta','sono','per','dans','pour','avec','les','des','von','und','die','der'];
+          const words=q.toLowerCase().split(' ');
+          return !words.some(w=>nonEnglish.includes(w));
+        }
+
+        createData=allQueries
+          .filter(r=>{
+            const q=r.keys?r.keys[0]:'';
+            if(!q) return false;
+            if(r.impressions<10) return false;
+            // Must be a real query not a URL
+            if(q.startsWith('/')) return false;
+            if(q.startsWith('http')) return false;
+            // English only
+            if(!isEnglish(q)) return false;
+            // No matching content in registry
+            const matchUrl=findMatchingBlog(q);
+            return !matchUrl;
           })
           .sort((a,b)=>b.impressions-a.impressions)
-          .map(p=>{
-            const short=p.page.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','')||'/';
-            const displayQuery=p.query||short;
-            const matchUrl=findMatchingBlog(p.query||short);
-            return {...p,query:displayQuery,status:matchUrl?'Improve':'Create',matchUrl:matchUrl||''};
-          })
-          // Only show pure content gaps — no existing content
-          .filter(p=>p.status==='Create');
+          .map(r=>({
+            query:r.keys?r.keys[0]:'',
+            impressions:r.impressions,
+            clicks:r.clicks,
+            position:r.position
+          }));
         document.getElementById('createCount').textContent=createData.length+' opportunities';
         renderCreate(50);
 
@@ -550,14 +560,13 @@
 
     function renderCreate(limit){
       const tbody=document.getElementById('createBody'),rows=createData.slice(0,limit);
-      if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="5">No content gaps found</td></tr>';return;}
+      if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="4">No content gaps found</td></tr>';return;}
       tbody.innerHTML=rows.map((r,i)=>{
         return `<tr>
           <td style="color:#aaa;font-size:12px;">${i+1}.</td>
           <td style="font-size:12px;">${priority(r.impressions)}</td>
           <td style="font-size:13px;color:#333;">${r.query}</td>
           <td class="num">${fmt(r.impressions)}</td>
-          <td class="num">${fmtPos(r.position)}</td>
         </tr>`;
       }).join('');
     }
