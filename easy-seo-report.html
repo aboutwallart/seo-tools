@@ -236,13 +236,9 @@
                 <th>#</th>
                 <th>Landing Page</th>
                 <th class="num">Url Clicks</th>
-                <th class="num">% Δ</th>
                 <th class="num">Impressions</th>
-                <th class="num">% Δ</th>
                 <th class="num">URL CTR</th>
-                <th class="num">% Δ</th>
                 <th class="num">Avg Position</th>
-                <th class="num">% Δ</th>
               </tr>
             </thead>
             <tbody id="blogBody"></tbody>
@@ -685,7 +681,6 @@
 
     async function loadBlogTracking() {
       const month = document.getElementById('blogMonthSelect').value;
-      const days = parseInt(document.getElementById('dateRange').value);
       const [year, mon] = month.split('-');
       const monthLabel = new Date(parseInt(year), parseInt(mon)-1, 1).toLocaleString('default', { month: 'long', year: 'numeric' });
 
@@ -713,38 +708,24 @@
         document.getElementById('blogMetPages').textContent = articles.length;
         document.getElementById('blogMetPagesSub').textContent = monthLabel;
 
-        // Step 2: Get GSC data using CURRENT date range (not publish date)
-        const start = getDate(days);
+        // Step 2: Fetch ALL GSC page data — max 16 months lookback, no filter
+        const start = getDate(480); // 16 months
         const end = getDate(0);
 
-        // Previous period for comparison
-        const startPrev = getDate(days * 2);
-        const endPrev = getDate(days);
+        const curRes = await fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`);
+        const curJson = await curRes.json();
 
-        // Fetch current + previous GSC page data in parallel
-        const [curRes, prevRes] = await Promise.all([
-          fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`),
-          fetch(`${API}?action=pages&startDate=${startPrev}&endDate=${endPrev}`)
-        ]);
-        const [curJson, prevJson] = await Promise.all([curRes.json(), prevRes.json()]);
-
-        // Build URL maps from GSC
+        // Build URL map
         const curMap = {};
         (curJson.data?.rows || []).forEach(r => {
           const url = r.keys ? r.keys[0] : '';
           curMap[url] = { clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: r.position };
         });
-        const prevMap = {};
-        (prevJson.data?.rows || []).forEach(r => {
-          const url = r.keys ? r.keys[0] : '';
-          prevMap[url] = { clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: r.position };
-        });
 
         // Step 3: Match blog URLs to GSC data
         blogData = articles.map(article => {
           const cur = curMap[article.url] || { clicks: 0, impressions: 0, ctr: 0, position: 0 };
-          const prev = prevMap[article.url] || null;
-          return { ...article, ...cur, prev };
+          return { ...article, ...cur };
         }).sort((a, b) => b.clicks - a.clicks);
 
         // Summary metrics
@@ -781,30 +762,20 @@
     function renderBlogTable() {
       const tbody = document.getElementById('blogBody');
       if (!blogData.length) {
-        tbody.innerHTML = '<tr class="loading-row"><td colspan="10">No data found</td></tr>';
+        tbody.innerHTML = '<tr class="loading-row"><td colspan="6">No data found</td></tr>';
         return;
       }
       tbody.innerHTML = blogData.map((r, i) => {
         const hasClicks = r.clicks > 0;
         const rowBg = hasClicks ? 'background:#f0fdf4;' : '';
-        const p = r.prev;
-        const clicksPct = p ? pctChange(r.clicks, p.clicks) : null;
-        const impPct = p ? pctChange(r.impressions, p.impressions) : null;
-        const ctrPct = p ? pctChange(r.ctr, p.ctr) : null;
-        const posPct = p ? pctChange(r.position, p.position) : null;
         const titleLink = `<a href="${r.url}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:13px;">${r.title || r.url}</a>`;
-
         return `<tr style="${rowBg}">
           <td style="color:#aaa;font-size:12px;">${i+1}.</td>
           <td>${titleLink}</td>
           <td class="num" style="${hasClicks?'color:#16a34a;font-weight:600;':''}">${fmt(r.clicks)}</td>
-          <td class="num">${renderChange(clicksPct)}</td>
           <td class="num" style="${r.impressions>0?'color:#2563eb;':''}">${fmt(r.impressions)}</td>
-          <td class="num">${renderChange(impPct)}</td>
           <td class="num">${fmtCTR(r.ctr)}</td>
-          <td class="num">${renderChange(ctrPct)}</td>
           <td class="num">${r.position > 0 ? fmtPos(r.position) : '—'}</td>
-          <td class="num">${renderChange(posPct, true)}</td>
         </tr>`;
       }).join('');
     }
