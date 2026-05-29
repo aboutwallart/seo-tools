@@ -98,7 +98,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v26.0</div>
+      <div class="tool-version">v27.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -436,12 +436,12 @@
         </div>
 
         <!-- Save status -->
-        <div id="kwSaveStatus" style="display:none;background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#16a34a;display:flex;align-items:center;gap:8px;">
+        <div id="kwSaveStatus" style="display:none;border-radius:6px;padding:10px 16px;margin-bottom:16px;font-size:13px;align-items:center;gap:8px;">
           <span id="kwSaveStatusText"></span>
         </div>
 
         <!-- Tabs row -->
-        <div id="kwTabsRow" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:24px;"></div>
+        <div id="kwTabsRow" style="margin-bottom:24px;"></div>
 
         <!-- Active tab content -->
         <div id="kwContent">
@@ -1471,14 +1471,16 @@
     function kwRenderTabsRow() {
       const row = document.getElementById('kwTabsRow');
       if (!kwTabs.length) { row.innerHTML = ''; return; }
-      row.innerHTML = kwTabs.map(t => {
-        const isActive = t.id === kwActiveId;
-        return `<div style="display:flex;align-items:center;gap:0;border-radius:6px;overflow:hidden;border:1px solid ${isActive ? '#1a1a1a' : '#e5e5e5'};">
-          <button onclick="kwActivate('${t.id}')" style="padding:7px 14px;border:none;background:${isActive ? '#1a1a1a' : '#fff'};color:${isActive ? '#fff' : '#555'};font-size:12px;font-weight:${isActive ? '600' : '400'};cursor:pointer;">${t.label}</button>
-          <button onclick="kwRenameTab('${t.id}')" title="Rename" style="padding:7px 8px;border:none;border-left:1px solid ${isActive ? '#333' : '#e5e5e5'};background:${isActive ? '#1a1a1a' : '#f9f9f9'};color:${isActive ? '#aaa' : '#888'};font-size:11px;cursor:pointer;">✏️</button>
-          <button onclick="kwDeleteTab('${t.id}')" title="Delete" style="padding:7px 8px;border:none;border-left:1px solid ${isActive ? '#333' : '#e5e5e5'};background:${isActive ? '#1a1a1a' : '#f9f9f9'};color:${isActive ? '#f87171' : '#dc2626'};font-size:11px;cursor:pointer;">✕</button>
-        </div>`;
-      }).join('');
+      row.innerHTML = `<div style="display:flex;align-items:center;border-bottom:2px solid #e5e5e5;width:100%;gap:0;">` +
+        kwTabs.map(t => {
+          const isActive = t.id === kwActiveId;
+          return `<div style="display:flex;align-items:center;border-bottom:${isActive ? '2px solid #1a1a1a' : '2px solid transparent'};margin-bottom:-2px;">
+            <button onclick="kwActivate('${t.id}')" style="padding:10px 16px;border:none;background:transparent;color:${isActive ? '#1a1a1a' : '#888'};font-size:13px;font-weight:${isActive ? '600' : '400'};cursor:pointer;white-space:nowrap;">${t.label}</button>
+            <button onclick="kwRenameTab('${t.id}')" title="Rename" style="padding:4px 6px;border:none;background:transparent;color:#bbb;font-size:11px;cursor:pointer;">✏️</button>
+            <button onclick="kwDeleteTab('${t.id}')" title="Delete" style="padding:4px 6px;border:none;background:transparent;color:#ddd;font-size:11px;cursor:pointer;margin-right:4px;">✕</button>
+          </div>`;
+        }).join('') +
+      `</div>`;
     }
 
     async function kwActivate(id) {
@@ -1618,8 +1620,7 @@
                 pointRadius: 3,
                 tension: 0.3,
                 fill: true,
-                yAxisID: 'yImp'
-              },
+
               {
                 label: 'Clicks',
                 data: chartClicks,
@@ -1629,8 +1630,7 @@
                 pointRadius: 3,
                 tension: 0.3,
                 fill: false,
-                yAxisID: 'yClicks'
-              }
+
             ]
           },
           options: {
@@ -1638,9 +1638,8 @@
             interaction: { mode: 'index', intersect: false },
             plugins: { legend: { display: true, position: 'top', labels: { font: { size: 11 }, boxWidth: 12 } } },
             scales: {
-              x:       { grid: { display: false }, ticks: { font: { size: 10 } } },
-              yImp:    { position: 'left',  grid: { color: '#f0f0f0' }, ticks: { font: { size: 10 } }, title: { display: true, text: 'Impressions', font: { size: 10 } } },
-              yClicks: { position: 'right', grid: { display: false },   ticks: { font: { size: 10 } }, title: { display: true, text: 'Clicks',      font: { size: 10 } } }
+              x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+              y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 10 } }, beginAtZero: true }
             }
           }
         });
