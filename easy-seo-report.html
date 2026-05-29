@@ -98,7 +98,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v27.0</div>
+      <div class="tool-version">v28.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -107,6 +107,7 @@
     <div class="nav-item" onclick="showSection('blogopt', this)">Blog Optimizations</div>
     <div class="nav-item" onclick="showSection('content', this)">Content Optimizations</div>
     <div class="nav-item" onclick="showSection('kwtracker', this)">Keyword Tracker</div>
+    <div class="nav-item" onclick="showSection('kwrankings', this)">Keyword Rankings</div>
   </div>
 
   <div class="main">
@@ -450,6 +451,60 @@
 
       </div>
 
+
+      <!-- SECTION: Keyword Rankings -->
+      <div class="section" id="section-kwrankings">
+
+        <!-- Top bar -->
+        <div style="background:#1a1a1a;border-radius:8px;padding:20px 24px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+          <span style="color:#fff;font-size:16px;font-weight:600;">Keyword Rankings</span>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <input id="kwrSearch" type="text" placeholder="Search keywords..." oninput="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:220px;outline:none;placeholder-color:#888;">
+            <select id="kwrDifficulty" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="">All Difficulties</option>
+              <option value="Easy">Easy</option>
+              <option value="Medium">Medium</option>
+              <option value="Hard">Hard</option>
+            </select>
+            <select id="kwrLimit" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="50">50 rows</option>
+              <option value="100">100 rows</option>
+              <option value="250">250 rows</option>
+              <option value="500">500 rows</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Sub tabs -->
+        <div style="display:flex;align-items:center;border-bottom:2px solid #e5e5e5;margin-bottom:24px;">
+          <button id="kwrTabAll" onclick="kwrSwitchTab('all')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">All Keywords <span id="kwrCountAll" class="count-badge">—</span></button>
+          <button id="kwrTabTracked" onclick="kwrSwitchTab('tracked')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Tracked <span id="kwrCountTracked" class="count-badge">—</span></button>
+        </div>
+
+        <!-- Save status -->
+        <div id="kwrSaveStatus" style="display:none;border-radius:6px;padding:10px 16px;margin-bottom:16px;font-size:13px;align-items:center;gap:8px;">
+          <span id="kwrSaveStatusText"></span>
+        </div>
+
+        <!-- Table -->
+        <div class="table-card">
+          <table id="kwrTable">
+            <thead><tr>
+              <th style="width:32px;"><input type="checkbox" id="kwrSelectAll" onchange="kwrToggleAll(this.checked)" title="Select all visible"></th>
+              <th>Keyword</th>
+              <th class="num">Position</th>
+              <th class="num">Impressions</th>
+              <th class="num">Clicks</th>
+              <th class="num">CTR</th>
+              <th class="num">Difficulty</th>
+              <th class="num" id="kwrTrendHeader" style="display:none;">Trend (90d)</th>
+            </tr></thead>
+            <tbody id="kwrBody"><tr class="loading-row"><td colspan="8">Loading keyword rankings...</td></tr></tbody>
+          </table>
+        </div>
+
+      </div>
+
     </div>
   </div>
 
@@ -486,6 +541,7 @@
       if(id==='blogopt'&&!blogOptLoaded){loadBlogOptimizations();blogOptLoaded=true;}
       if(id==='llm'&&!llmLoaded){loadLLMTraffic();llmLoaded=true;}
       if(id==='kwtracker'){kwInit();}
+      if(id==='kwrankings'&&!kwrLoaded){kwrInit();}
     }
 
     function onRangeChange(){
@@ -1656,6 +1712,236 @@
         const text = row.textContent.toLowerCase();
         row.style.display = (!s || text.includes(s)) ? '' : 'none';
       });
+    }
+
+
+    // ═══════════════════════════════════════════════════════
+    // KEYWORD RANKINGS
+    // ═══════════════════════════════════════════════════════
+
+    let kwrAllData      = [];   // full dataset current 90d
+    let kwrPrevData     = {};   // keyword -> {clicks, impressions, position} for prev 90d
+    let kwrTrackedSet   = new Set();
+    let kwrActiveTab    = 'all';
+    let kwrLoaded       = false;
+
+    function kwrDifficulty(position, impressions, ctr) {
+      // Score: higher = harder
+      let score = 0;
+      // Position factor — further from 1 = harder to improve
+      if (position > 50) score += 3;
+      else if (position > 20) score += 2;
+      else if (position > 10) score += 1;
+      // Volume factor — more impressions = more competitive
+      if (impressions > 10000) score += 3;
+      else if (impressions > 2000) score += 2;
+      else if (impressions > 500) score += 1;
+      // CTR factor — very low CTR at decent position = strong competitors above
+      if (position <= 10 && ctr < 0.005) score += 2;
+      else if (position <= 10 && ctr < 0.02) score += 1;
+
+      if (score >= 5) return 'Hard';
+      if (score >= 3) return 'Medium';
+      return 'Easy';
+    }
+
+    function kwrDifficultyStyle(diff) {
+      if (diff === 'Hard')   return 'background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;';
+      if (diff === 'Medium') return 'background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;';
+      return 'background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;';
+    }
+
+    async function kwrInit() {
+      if (kwrLoaded) return;
+      kwrLoaded = true;
+
+      document.getElementById('kwrBody').innerHTML = '<tr class="loading-row"><td colspan="8">Loading keyword data...</td></tr>';
+
+      try {
+        // Load tracked keywords from GitHub
+        try {
+          const tRes = await fetch('/api/blogs?action=get-tracked-keywords');
+          const tJson = await tRes.json();
+          if (tJson.success && Array.isArray(tJson.keywords)) {
+            kwrTrackedSet = new Set(tJson.keywords);
+          }
+        } catch(e) { /* no tracked keywords yet */ }
+
+        // Fetch current 90 days
+        const end   = getDate(0);
+        const start = getDate(90);
+        const startPrev = getDate(180);
+
+        const [resCurr, resPrev] = await Promise.all([
+          fetch(`${API}?action=queries&startDate=${start}&endDate=${end}`),
+          fetch(`${API}?action=queries&startDate=${startPrev}&endDate=${start}`)
+        ]);
+
+        const jsonCurr = await resCurr.json();
+        const jsonPrev = await resPrev.json();
+
+        if (!jsonCurr.success) throw new Error(jsonCurr.error);
+
+        // Build prev lookup
+        kwrPrevData = {};
+        if (jsonPrev.success) {
+          (jsonPrev.data.rows || []).forEach(r => {
+            const kw = r.keys?.[0] || '';
+            kwrPrevData[kw] = { clicks: r.clicks || 0, impressions: r.impressions || 0, position: r.position || 0 };
+          });
+        }
+
+        // Build current data with difficulty
+        kwrAllData = (jsonCurr.data.rows || []).map(r => {
+          const kw   = r.keys?.[0] || '';
+          const pos  = r.position || 0;
+          const imp  = r.impressions || 0;
+          const clk  = r.clicks || 0;
+          const ctr  = r.ctr || 0;
+          const diff = kwrDifficulty(pos, imp, ctr);
+          const prev = kwrPrevData[kw];
+          let trend = null;
+          if (prev && prev.impressions > 0) {
+            trend = ((imp - prev.impressions) / prev.impressions) * 100;
+          }
+          return { kw, pos, imp, clk, ctr, diff, trend, tracked: kwrTrackedSet.has(kw) };
+        }).sort((a, b) => a.pos - b.pos);
+
+        document.getElementById('kwrCountAll').textContent = kwrAllData.length;
+        document.getElementById('kwrCountTracked').textContent = kwrTrackedSet.size;
+
+        kwrFilterTable();
+
+      } catch(e) {
+        document.getElementById('kwrBody').innerHTML = `<tr class="loading-row"><td colspan="8" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
+      }
+    }
+
+    function kwrSwitchTab(tab) {
+      kwrActiveTab = tab;
+      // Style tabs
+      const allBtn     = document.getElementById('kwrTabAll');
+      const trackedBtn = document.getElementById('kwrTabTracked');
+      allBtn.style.fontWeight     = tab === 'all'     ? '600' : '400';
+      allBtn.style.color          = tab === 'all'     ? '#1a1a1a' : '#888';
+      allBtn.style.borderBottomColor = tab === 'all' ? '#1a1a1a' : 'transparent';
+      trackedBtn.style.fontWeight    = tab === 'tracked' ? '600' : '400';
+      trackedBtn.style.color         = tab === 'tracked' ? '#1a1a1a' : '#888';
+      trackedBtn.style.borderBottomColor = tab === 'tracked' ? '#1a1a1a' : 'transparent';
+      // Show trend column only in tracked tab
+      document.getElementById('kwrTrendHeader').style.display = tab === 'tracked' ? '' : 'none';
+      kwrFilterTable();
+    }
+
+    function kwrFilterTable() {
+      const search = (document.getElementById('kwrSearch')?.value || '').toLowerCase();
+      const diff   = document.getElementById('kwrDifficulty')?.value || '';
+      const limit  = parseInt(document.getElementById('kwrLimit')?.value || '50');
+
+      let data = kwrActiveTab === 'tracked'
+        ? kwrAllData.filter(r => kwrTrackedSet.has(r.kw))
+        : kwrAllData;
+
+      if (search) data = data.filter(r => r.kw.includes(search));
+      if (diff)   data = data.filter(r => r.diff === diff);
+
+      const visible = data.slice(0, limit);
+      kwrRenderRows(visible);
+    }
+
+    function kwrRenderRows(rows) {
+      const tbody = document.getElementById('kwrBody');
+      const showTrend = kwrActiveTab === 'tracked';
+
+      if (!rows.length) {
+        tbody.innerHTML = `<tr class="loading-row"><td colspan="8">No keywords found.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = rows.map(r => {
+        const posColor = r.pos <= 3 ? '#16a34a' : r.pos <= 10 ? '#d97706' : '#dc2626';
+        const checked  = kwrTrackedSet.has(r.kw) ? 'checked' : '';
+
+        let trendCell = '';
+        if (showTrend) {
+          if (r.trend === null) {
+            trendCell = `<td class="num" style="color:#aaa;">—</td>`;
+          } else {
+            const trendColor = r.trend > 5 ? '#16a34a' : r.trend < -5 ? '#dc2626' : '#d97706';
+            const trendArrow = r.trend > 5 ? '▲' : r.trend < -5 ? '▼' : '▶';
+            trendCell = `<td class="num" style="color:${trendColor};font-weight:600;">${trendArrow} ${r.trend > 0 ? '+' : ''}${r.trend.toFixed(1)}%</td>`;
+          }
+        }
+
+        return `<tr>
+          <td><input type="checkbox" ${checked} onchange="kwrToggleTrack('${r.kw.replace(/'/g,"\'")}', this.checked)"></td>
+          <td style="font-size:13px;">${r.kw}</td>
+          <td class="num" style="color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>
+          <td class="num">${fmt(r.imp)}</td>
+          <td class="num">${fmt(r.clk)}</td>
+          <td class="num">${fmtCTR(r.ctr)}</td>
+          <td class="num"><span style="${kwrDifficultyStyle(r.diff)}">${r.diff}</span></td>
+          ${showTrend ? trendCell : ''}
+        </tr>`;
+      }).join('');
+    }
+
+    function kwrToggleAll(checked) {
+      const checkboxes = document.querySelectorAll('#kwrBody input[type=checkbox]');
+      checkboxes.forEach(cb => {
+        const kw = cb.closest('tr')?.querySelector('td:nth-child(2)')?.textContent?.trim();
+        if (!kw) return;
+        if (checked) kwrTrackedSet.add(kw);
+        else kwrTrackedSet.delete(kw);
+        cb.checked = checked;
+      });
+      kwrAllData.forEach(r => r.tracked = kwrTrackedSet.has(r.kw));
+      document.getElementById('kwrCountTracked').textContent = kwrTrackedSet.size;
+      kwrSaveTracked();
+    }
+
+    function kwrToggleTrack(kw, checked) {
+      if (checked) kwrTrackedSet.add(kw);
+      else kwrTrackedSet.delete(kw);
+      kwrAllData.forEach(r => { if (r.kw === kw) r.tracked = checked; });
+      document.getElementById('kwrCountTracked').textContent = kwrTrackedSet.size;
+      kwrSaveTracked();
+    }
+
+    async function kwrSaveTracked() {
+      kwrShowStatus('⏳ Saving... 3s', '#f0f9ff', '#7dd3fc', '#0369a1');
+      let secs = 2;
+      const interval = setInterval(() => {
+        secs--;
+        if (secs > 0) kwrShowStatus(`⏳ Saving... ${secs}s`, '#f0f9ff', '#7dd3fc', '#0369a1');
+      }, 1000);
+      try {
+        const res = await fetch('/api/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'save-tracked-keywords', keywords: Array.from(kwrTrackedSet) })
+        });
+        clearInterval(interval);
+        const json = await res.json();
+        if (json.success) {
+          kwrShowStatus('✅ Saved', '#f0fdf4', '#86efac', '#16a34a');
+          setTimeout(() => { document.getElementById('kwrSaveStatus').style.display = 'none'; }, 2000);
+        } else {
+          kwrShowStatus('❌ Save failed: ' + (json.error || 'unknown'), '#fef2f2', '#fecaca', '#dc2626');
+        }
+      } catch(e) {
+        clearInterval(interval);
+        kwrShowStatus('❌ ' + e.message, '#fef2f2', '#fecaca', '#dc2626');
+      }
+    }
+
+    function kwrShowStatus(text, bg, border, color) {
+      const el = document.getElementById('kwrSaveStatus');
+      el.style.display = 'flex';
+      el.style.background = bg;
+      el.style.borderColor = border;
+      el.style.color = color;
+      document.getElementById('kwrSaveStatusText').textContent = text;
     }
 
     loadOverview(28);loadClicksChart(28);loadDeviceChart(28);loadPages(28);loadQueries(28);
