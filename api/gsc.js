@@ -36,7 +36,7 @@ module.exports = async (req, res) => {
     } else if (action === 'monthly') {
       // Monthly breakdown for historical view (last 12 months)
       data = await gscQuery(accessToken, siteUrl, {
-        startDate: getDateDaysAgo(365),
+        startDate: start,
         endDate: end,
         dimensions: ['date'],
         rowLimit: 500
