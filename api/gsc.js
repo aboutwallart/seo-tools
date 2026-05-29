@@ -57,6 +57,14 @@ module.exports = async (req, res) => {
         dimensions: ['page'],
         rowLimit: 500
       });
+    } else if (action === 'page-query') {
+      // Page + query combined — for content optimizations
+      data = await gscQuery(accessToken, siteUrl, {
+        startDate: start,
+        endDate: end,
+        dimensions: ['page', 'query'],
+        rowLimit: 5000
+      });
     } else if (action === 'device') {
       // Device breakdown
       data = await gscQuery(accessToken, siteUrl, {
