@@ -98,7 +98,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v17.0</div>
+      <div class="tool-version">v18.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -196,10 +196,7 @@
             <span style="color:#fff;font-size:16px;font-weight:600;" id="blogTrackingTitle">Blog Tracking</span>
             <select id="blogMonthSelect" onchange="loadBlogTracking()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">
             </select>
-            <select id="blogCompare" onchange="loadBlogTracking()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">
-              <option value="30">vs last 30 days</option>
-              <option value="90">vs last 90 days</option>
-            </select>
+
           </div>
           <div style="display:flex;gap:32px;">
             <div style="text-align:right;">
@@ -240,7 +237,8 @@
                 <th>#</th>
                 <th>Landing Page</th>
                 <th class="num">Url Clicks</th>
-                <th class="num">% vs prev</th>
+                <th class="num">% vs 30d</th>
+                <th class="num">% vs 90d</th>
                 <th class="num">Impressions</th>
                 <th class="num">URL CTR</th>
                 <th class="num">Avg Position</th>
@@ -257,15 +255,29 @@
 
         <div class="content-section-card">
           <div class="content-section-header">
-            <h2>📊 Blog Optimizations <span class="count-badge" id="blogOptCount">—</span></h2>
-            <p>These are your blog posts getting high impressions but low CTR. People are seeing them in Google results but not clicking. Improving the title or meta description of these blogs could significantly increase your traffic without writing anything new.</p>
+            <h2>📊 Blog Optimizations</h2>
+            <p>Blog posts getting high impressions but low CTR — published more than 90 days ago. Improving the title or meta description could significantly increase traffic without writing anything new. Sorted by lowest clicks first within each group.</p>
           </div>
-          <div class="data-note" id="blogOptNote">Data: last 180 days · Blog posts only · Sorted by impressions (highest first)</div>
-          <div class="content-controls">
+          <div class="data-note">Data: last 180 days · Blog posts older than 90 days · Grouped by urgency · Sorted by clicks (lowest first)</div>
+
+          <!-- Tab buttons -->
+          <div style="display:flex;gap:0;border-bottom:2px solid #f0f0f0;margin-bottom:0;">
+            <button id="blogOptTab-urgent" onclick="switchBlogOptTab('urgent')" style="padding:10px 20px;border:none;background:#fef2f2;color:#dc2626;font-weight:600;font-size:13px;cursor:pointer;border-bottom:2px solid #dc2626;margin-bottom:-2px;">
+              🔴 Urgent <span id="blogOptCountUrgent" style="background:#fecaca;padding:1px 7px;border-radius:10px;font-size:11px;margin-left:4px;">—</span>
+            </button>
+            <button id="blogOptTab-improve" onclick="switchBlogOptTab('improve')" style="padding:10px 20px;border:none;background:#fff;color:#92400e;font-weight:600;font-size:13px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">
+              🟡 Improve <span id="blogOptCountImprove" style="background:#fef9c3;padding:1px 7px;border-radius:10px;font-size:11px;margin-left:4px;">—</span>
+            </button>
+            <button id="blogOptTab-monitor" onclick="switchBlogOptTab('monitor')" style="padding:10px 20px;border:none;background:#fff;color:#555;font-weight:600;font-size:13px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">
+              ⚪ Monitor <span id="blogOptCountMonitor" style="background:#f0f0f0;padding:1px 7px;border-radius:10px;font-size:11px;margin-left:4px;">—</span>
+            </button>
+          </div>
+
+          <div class="content-controls" style="border-top:none;">
             <label>Search:</label>
-            <input type="text" placeholder="Filter by title or URL..." oninput="filterTable('blogOptBody', this.value)">
+            <input type="text" id="blogOptSearch" placeholder="Filter by URL..." oninput="renderBlogOptActive()">
             <label>Show:</label>
-            <select onchange="renderBlogOpt(parseInt(this.value))">
+            <select id="blogOptLimit" onchange="renderBlogOptActive()">
               <option value="50">50 rows</option>
               <option value="100">100 rows</option>
               <option value="150">150 rows</option>
@@ -749,18 +761,15 @@
         document.getElementById('blogMetPages').textContent = articles.length;
         document.getElementById('blogMetPagesSub').textContent = monthLabel;
 
-        // Step 2: Fetch GSC data — max 16 months lookback
-        const compareDays = parseInt(document.getElementById('blogCompare').value);
+        // Step 2: Fetch GSC — 16 months total + 30d prev + 90d prev in parallel
         const end = getDate(0);
         const start = getDate(480);
-        const prevEnd = getDate(compareDays);
-        const prevStart = getDate(compareDays * 2);
-
-        const [curRes, prevRes] = await Promise.all([
+        const [curRes, prev30Res, prev90Res] = await Promise.all([
           fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`),
-          fetch(`${API}?action=pages&startDate=${prevStart}&endDate=${prevEnd}`)
+          fetch(`${API}?action=pages&startDate=${getDate(60)}&endDate=${getDate(30)}`),
+          fetch(`${API}?action=pages&startDate=${getDate(180)}&endDate=${getDate(90)}`)
         ]);
-        const [curJson, prevJson] = await Promise.all([curRes.json(), prevRes.json()]);
+        const [curJson, prev30Json, prev90Json] = await Promise.all([curRes.json(), prev30Res.json(), prev90Res.json()]);
 
         // Build URL maps
         const curMap = {};
@@ -768,18 +777,18 @@
           const url = r.keys ? r.keys[0] : '';
           curMap[url] = { clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: r.position };
         });
-        const prevMap = {};
-        (prevJson.data?.rows || []).forEach(r => {
-          const url = r.keys ? r.keys[0] : '';
-          prevMap[url] = { clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: r.position };
-        });
+        const prev30Map = {};
+        (prev30Json.data?.rows || []).forEach(r => { prev30Map[r.keys?r.keys[0]:''] = r; });
+        const prev90Map = {};
+        (prev90Json.data?.rows || []).forEach(r => { prev90Map[r.keys?r.keys[0]:''] = r; });
 
         // Step 3: Match blog URLs — strip www to match GSC format
         blogData = articles.map(article => {
           const normalizedUrl = article.url.replace('https://www.aboutwallart.com', 'https://aboutwallart.com');
           const cur = curMap[normalizedUrl] || { clicks: 0, impressions: 0, ctr: 0, position: 0 };
-          const prev = prevMap[normalizedUrl] || null;
-          return { ...article, ...cur, prev };
+          const p30 = prev30Map[normalizedUrl] || null;
+          const p90 = prev90Map[normalizedUrl] || null;
+          return { ...article, ...cur, prev30: p30, prev90: p90 };
         }).sort((a, b) => b.clicks - a.clicks);
 
         // Summary metrics
@@ -813,50 +822,52 @@
       return `<span style="color:${color};font-size:11px;font-weight:600;">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
     }
 
+    function calcPct(cur, prev) {
+      if (!prev || prev.clicks < 20) return null;
+      return ((cur - prev.clicks) / prev.clicks * 100);
+    }
+    function pctBadge(pct, isBigger) {
+      if (pct === null) return '<span style="color:#aaa;font-size:11px;">—</span>';
+      const base = pct > 5 ? '#16a34a' : pct < -5 ? '#dc2626' : '#92400e';
+      const dark = pct > 5 ? '#14532d' : pct < -5 ? '#7f1d1d' : '#451a03';
+      const color = isBigger ? dark : base;
+      const arrow = pct > 0 ? '↑' : pct < 0 ? '↓' : '→';
+      const weight = isBigger ? '700' : '600';
+      return `<span style="color:${color};font-size:11px;font-weight:${weight};">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
+    }
     function renderBlogTable() {
       const tbody = document.getElementById('blogBody');
       if (!blogData.length) {
-        tbody.innerHTML = '<tr class="loading-row"><td colspan="7">No data found</td></tr>';
+        tbody.innerHTML = '<tr class="loading-row"><td colspan="8">No data found</td></tr>';
         return;
       }
       tbody.innerHTML = blogData.map((r, i) => {
         const hasClicks = r.clicks > 0;
-        const p = r.prev;
+        const pct30 = calcPct(r.clicks, r.prev30);
+        const pct90 = calcPct(r.clicks, r.prev90);
 
-        // Calculate % change for clicks — only meaningful if prev had 20+ clicks
-        let clicksPct = null;
-        if (p && p.clicks >= 20) {
-          clicksPct = ((r.clicks - p.clicks) / p.clicks * 100);
-        } else if (p && p.clicks < 20 && r.clicks > 0) {
-          // Not enough previous data to compare meaningfully — show neutral
-          clicksPct = null;
-        }
-
-        // Row colour: green=growing, yellow=same/neutral, red=shrinking, white=no data
+        // Row colour based on 30d comparison
         let rowBg = '';
-        if (hasClicks && clicksPct !== null) {
-          if (clicksPct > 5) rowBg = 'background:#f0fdf4;';
-          else if (clicksPct < -5) rowBg = 'background:#fef2f2;';
-          else rowBg = 'background:#fefce8;'; // yellow — same
+        if (hasClicks && pct30 !== null) {
+          if (pct30 > 5) rowBg = 'background:#f0fdf4;';
+          else if (pct30 < -5) rowBg = 'background:#fef2f2;';
+          else rowBg = 'background:#fefce8;';
         } else if (hasClicks) {
           rowBg = 'background:#f0fdf4;';
         }
 
-        // % change badge
-        let changeBadge = '<span style="color:#aaa;font-size:11px;">—</span>';
-        if (clicksPct !== null) {
-          const color = clicksPct > 5 ? '#16a34a' : clicksPct < -5 ? '#dc2626' : '#92400e';
-          const arrow = clicksPct > 0 ? '↑' : clicksPct < 0 ? '↓' : '→';
-          changeBadge = `<span style="color:${color};font-size:11px;font-weight:600;">${arrow} ${Math.abs(clicksPct).toFixed(1)}%</span>`;
-        }
+        // Darker colour on whichever % is bigger (more change)
+        const abs30 = pct30 !== null ? Math.abs(pct30) : 0;
+        const abs90 = pct90 !== null ? Math.abs(pct90) : 0;
+        const col30bigger = abs30 >= abs90;
 
         const titleLink = `<a href="${r.url}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:13px;">${r.title || r.url}</a>`;
-
         return `<tr style="${rowBg}">
           <td style="color:#aaa;font-size:12px;">${i+1}.</td>
           <td>${titleLink}</td>
           <td class="num" style="${hasClicks?'font-weight:600;':''}">${fmt(r.clicks)}</td>
-          <td class="num">${changeBadge}</td>
+          <td class="num">${pctBadge(pct30, col30bigger)}</td>
+          <td class="num">${pctBadge(pct90, !col30bigger)}</td>
           <td class="num">${fmt(r.impressions)}</td>
           <td class="num">${fmtCTR(r.ctr)}</td>
           <td class="num">${r.position > 0 ? fmtPos(r.position) : '—'}</td>
@@ -877,69 +888,127 @@
     }
 
     let blogOptLoaded = false;
-    let blogOptData = [];
+    let blogOptAllData = { urgent: [], improve: [], monitor: [] };
+    let blogOptActiveTab = 'urgent';
 
     async function loadBlogOptimizations() {
       const start = getDate(180);
       const end = getDate(0);
-      document.getElementById('blogOptNote').textContent = `Data: last 180 days · Blog posts only · Sorted by impressions (highest first)`;
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
       try {
-        const res = await fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`);
-        const json = await res.json();
-        if (!json.success) throw new Error(json.error);
+        // Fetch GSC pages + Shopify published dates in parallel
+        const [gscRes, shopRes] = await Promise.all([
+          fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`),
+          fetch('/api/shopify-files?action=get-blogs-by-month&month=all')
+        ]);
+        const gscJson = await gscRes.json();
+        if (!gscJson.success) throw new Error(gscJson.error);
 
-        // Filter to blog posts only, with at least 100 impressions
-        blogOptData = (json.data.rows || [])
+        // Build published date map from recent months (last 16 months)
+        const publishedMap = {};
+        const now = new Date();
+        const monthFetches = [];
+        for (let i = 0; i < 16; i++) {
+          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          const m = d.toISOString().slice(0,7);
+          monthFetches.push(fetch('/api/shopify-files?action=get-blogs-by-month&month=' + m).then(r=>r.json()));
+        }
+        const monthResults = await Promise.all(monthFetches);
+        monthResults.forEach(r => {
+          if (r.success && r.articles) {
+            r.articles.forEach(a => {
+              const normUrl = a.url.replace('https://www.aboutwallart.com','https://aboutwallart.com');
+              publishedMap[normUrl] = new Date(a.publishedAt);
+            });
+          }
+        });
+
+        // Filter blogs: /blogs/ only, 100+ impressions, older than 90 days
+        const allBlogs = (gscJson.data.rows || [])
           .filter(r => {
             const url = r.keys ? r.keys[0] : '';
-            return url.includes('/blogs/') && r.impressions >= 100;
+            if (!url.includes('/blogs/') || r.impressions < 100) return false;
+            // Filter out foreign language blogs
+            if (url.includes('/es/blogs/') || url.includes('/fr/blogs/')) return false;
+            // Filter out new blogs (published within last 90 days)
+            const pubDate = publishedMap[url];
+            if (pubDate && pubDate > cutoff) return false;
+            return true;
           })
-          .sort((a, b) => b.impressions - a.impressions)
           .map(r => ({
-            url: r.keys ? r.keys[0] : '',
+            url: r.keys[0],
             clicks: r.clicks,
             impressions: r.impressions,
             ctr: r.ctr,
             position: r.position
-          }));
+          }))
+          .sort((a,b) => a.clicks - b.clicks); // lowest clicks first within groups
 
-        document.getElementById('blogOptCount').textContent = blogOptData.length + ' blogs';
-        renderBlogOpt(50);
+        // Split into 3 groups
+        blogOptAllData.urgent  = allBlogs.filter(r => r.ctr < 0.005);
+        blogOptAllData.improve = allBlogs.filter(r => r.ctr >= 0.005 && r.ctr < 0.01);
+        blogOptAllData.monitor = allBlogs.filter(r => r.ctr >= 0.01);
+
+        document.getElementById('blogOptCountUrgent').textContent  = blogOptAllData.urgent.length;
+        document.getElementById('blogOptCountImprove').textContent = blogOptAllData.improve.length;
+        document.getElementById('blogOptCountMonitor').textContent = blogOptAllData.monitor.length;
+
+        switchBlogOptTab('urgent');
       } catch(e) {
         document.getElementById('blogOptBody').innerHTML = `<tr class="loading-row"><td colspan="6" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
       }
     }
 
-    function renderBlogOpt(limit) {
+    function switchBlogOptTab(tab) {
+      blogOptActiveTab = tab;
+      // Update tab styles
+      ['urgent','improve','monitor'].forEach(t => {
+        const btn = document.getElementById('blogOptTab-' + t);
+        const isActive = t === tab;
+        const colors = { urgent: '#dc2626', improve: '#92400e', monitor: '#555' };
+        const bgs = { urgent: '#fef2f2', improve: '#fefce8', monitor: '#f9f9f9' };
+        btn.style.borderBottomColor = isActive ? colors[t] : 'transparent';
+        btn.style.background = isActive ? bgs[t] : '#fff';
+      });
+      renderBlogOptActive();
+    }
+
+    function renderBlogOptActive() {
+      const search = (document.getElementById('blogOptSearch')?.value || '').toLowerCase();
+      const limit = parseInt(document.getElementById('blogOptLimit')?.value || '50');
+      const data = blogOptAllData[blogOptActiveTab];
+      const filtered = search ? data.filter(r => r.url.toLowerCase().includes(search)) : data;
+      renderBlogOptRows(filtered.slice(0, limit));
+    }
+
+    function renderBlogOptRows(rows) {
       const tbody = document.getElementById('blogOptBody');
-      const rows = blogOptData.slice(0, limit);
-      if (!rows.length) { tbody.innerHTML = '<tr class="loading-row"><td colspan="6">No data found</td></tr>'; return; }
-      tbody.innerHTML = rows.map((r, i) => {
-        const short = r.url.replace('https://aboutwallart.com', '').replace('https://www.aboutwallart.com', '');
-        // Highlight low CTR rows
-        const ctrPct = r.ctr * 100;
-        const rowBg = ctrPct < 0.5 ? 'background:#fef2f2;' : ctrPct < 1 ? 'background:#fefce8;' : '';
-        const ctrColor = ctrPct < 0.5 ? 'color:#dc2626;font-weight:600;' : ctrPct < 1 ? 'color:#92400e;font-weight:600;' : 'color:#16a34a;';
-        return `<tr style="${rowBg}">
+      if (!rows.length) { tbody.innerHTML = '<tr class="loading-row"><td colspan="6">No blogs found</td></tr>'; return; }
+      const colors = { urgent: { row:'background:#fef2f2;', ctr:'color:#dc2626;font-weight:600;' }, improve: { row:'background:#fefce8;', ctr:'color:#92400e;font-weight:600;' }, monitor: { row:'', ctr:'color:#16a34a;' } };
+      const c = colors[blogOptActiveTab];
+      tbody.innerHTML = rows.map((r,i) => {
+        const short = r.url.replace('https://aboutwallart.com','');
+        return `<tr style="${c.row}">
           <td style="color:#aaa;font-size:12px;">${i+1}.</td>
           <td><a href="${r.url}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:13px;">${short}</a></td>
           <td class="num">${fmt(r.impressions)}</td>
           <td class="num">${fmt(r.clicks)}</td>
-          <td class="num" style="${ctrColor}">${fmtCTR(r.ctr)}</td>
+          <td class="num" style="${c.ctr}">${fmtCTR(r.ctr)}</td>
           <td class="num">${fmtPos(r.position)}</td>
         </tr>`;
       }).join('');
     }
 
     function downloadBlogOptCSV() {
-      if (!blogOptData.length) return;
+      const data = blogOptAllData[blogOptActiveTab];
+      if (!data.length) return;
       const headers = ['URL','Impressions','Clicks','CTR','Position'];
-      const rows = blogOptData.map(r => [r.url, r.impressions, r.clicks, (r.ctr*100).toFixed(2)+'%', r.position.toFixed(1)]);
+      const rows = data.map(r => [r.url, r.impressions, r.clicks, (r.ctr*100).toFixed(2)+'%', r.position.toFixed(1)]);
       const csv = [headers, ...rows].map(row => row.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
       const blob = new Blob([csv], {type:'text/csv'});
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = 'blog-optimizations-' + new Date().toISOString().split('T')[0] + '.csv';
+      a.download = 'blog-opt-' + blogOptActiveTab + '-' + new Date().toISOString().split('T')[0] + '.csv';
       a.click();
     }
 
