@@ -57,6 +57,14 @@ module.exports = async (req, res) => {
         dimensions: ['page'],
         rowLimit: 500
       });
+    } else if (action === 'device') {
+      // Device breakdown
+      data = await gscQuery(accessToken, siteUrl, {
+        startDate: start,
+        endDate: end,
+        dimensions: ['device'],
+        rowLimit: 10
+      });
     } else if (action === 'blog-tracking') {
       // Performance of specific URLs (for blog tracking)
       // Pass urls as comma-separated string
