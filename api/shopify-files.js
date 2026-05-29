@@ -43,7 +43,6 @@ module.exports = async function handler(req, res) {
                 handle
                 publishedAt
                 blog { handle title }
-                seo { title description }
               }
             }
           }
