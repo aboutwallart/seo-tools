@@ -98,7 +98,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v14.0</div>
+      <div class="tool-version">v15.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -723,8 +723,10 @@
         });
 
         // Step 3: Match blog URLs to GSC data
+        // GSC returns URLs without www, Shopify builds with www — normalise both
         blogData = articles.map(article => {
-          const cur = curMap[article.url] || { clicks: 0, impressions: 0, ctr: 0, position: 0 };
+          const normalizedUrl = article.url.replace('https://www.aboutwallart.com', 'https://aboutwallart.com');
+          const cur = curMap[normalizedUrl] || { clicks: 0, impressions: 0, ctr: 0, position: 0 };
           return { ...article, ...cur };
         }).sort((a, b) => b.clicks - a.clicks);
 
