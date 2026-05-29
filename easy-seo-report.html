@@ -98,12 +98,13 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v16.0</div>
+      <div class="tool-version">v17.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
     <div class="nav-item" onclick="showSection('llm', this)">LLM Traffic</div>
     <div class="nav-item" onclick="showSection('blog', this)">Blog Tracking</div>
+    <div class="nav-item" onclick="showSection('blogopt', this)">Blog Optimizations</div>
     <div class="nav-item" onclick="showSection('content', this)">Content Optimizations</div>
   </div>
 
@@ -251,6 +252,41 @@
 
       </div>
 
+      <!-- SECTION: Blog Optimizations -->
+      <div class="section" id="section-blogopt">
+
+        <div class="content-section-card">
+          <div class="content-section-header">
+            <h2>📊 Blog Optimizations <span class="count-badge" id="blogOptCount">—</span></h2>
+            <p>These are your blog posts getting high impressions but low CTR. People are seeing them in Google results but not clicking. Improving the title or meta description of these blogs could significantly increase your traffic without writing anything new.</p>
+          </div>
+          <div class="data-note" id="blogOptNote">Data: last 180 days · Blog posts only · Sorted by impressions (highest first)</div>
+          <div class="content-controls">
+            <label>Search:</label>
+            <input type="text" placeholder="Filter by title or URL..." oninput="filterTable('blogOptBody', this.value)">
+            <label>Show:</label>
+            <select onchange="renderBlogOpt(parseInt(this.value))">
+              <option value="50">50 rows</option>
+              <option value="100">100 rows</option>
+              <option value="150">150 rows</option>
+            </select>
+            <button class="download-btn" onclick="downloadBlogOptCSV()">⬇ Download CSV</button>
+          </div>
+          <table>
+            <thead><tr>
+              <th>#</th>
+              <th>Blog Post</th>
+              <th class="num">Impressions</th>
+              <th class="num">Clicks</th>
+              <th class="num">CTR</th>
+              <th class="num">Position</th>
+            </tr></thead>
+            <tbody id="blogOptBody"><tr class="loading-row"><td colspan="6">Loading...</td></tr></tbody>
+          </table>
+        </div>
+
+      </div>
+
       <!-- SECTION: Content Optimizations -->
       <div class="section" id="section-content">
 
@@ -346,11 +382,12 @@
       document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
       document.getElementById('section-'+id).classList.add('active');
       navEl.classList.add('active');
-      const titles={overview:'High Level SEO Metrics',historical:'Historical View (1 Year)',llm:'LLM Traffic',blog:'Blog Tracking',content:'Content Optimizations'};
+      const titles={overview:'High Level SEO Metrics',historical:'Historical View (1 Year)',llm:'LLM Traffic',blog:'Blog Tracking',blogopt:'Blog Optimizations',content:'Content Optimizations'};
       document.getElementById('pageTitle').textContent=titles[id]||'';
       if(id==='historical'&&!histLoaded){loadHistorical();histLoaded=true;}
       if(id==='content'&&!contentLoaded){loadContentOptimizations();contentLoaded=true;}
       if(id==='blog'){initBlogMonthSelector();}
+      if(id==='blogopt'&&!blogOptLoaded){loadBlogOptimizations();blogOptLoaded=true;}
     }
 
     function onRangeChange(){
@@ -786,10 +823,14 @@
         const hasClicks = r.clicks > 0;
         const p = r.prev;
 
-        // Calculate % change for clicks
+        // Calculate % change for clicks — only meaningful if prev had 20+ clicks
         let clicksPct = null;
-        if (p && p.clicks > 0) clicksPct = ((r.clicks - p.clicks) / p.clicks * 100);
-        else if (p && p.clicks === 0 && r.clicks > 0) clicksPct = 100;
+        if (p && p.clicks >= 20) {
+          clicksPct = ((r.clicks - p.clicks) / p.clicks * 100);
+        } else if (p && p.clicks < 20 && r.clicks > 0) {
+          // Not enough previous data to compare meaningfully — show neutral
+          clicksPct = null;
+        }
 
         // Row colour: green=growing, yellow=same/neutral, red=shrinking, white=no data
         let rowBg = '';
@@ -832,6 +873,73 @@
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = 'blog-tracking-' + (document.getElementById('blogMonthSelect').value) + '.csv';
+      a.click();
+    }
+
+    let blogOptLoaded = false;
+    let blogOptData = [];
+
+    async function loadBlogOptimizations() {
+      const start = getDate(180);
+      const end = getDate(0);
+      document.getElementById('blogOptNote').textContent = `Data: last 180 days · Blog posts only · Sorted by impressions (highest first)`;
+      try {
+        const res = await fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`);
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error);
+
+        // Filter to blog posts only, with at least 100 impressions
+        blogOptData = (json.data.rows || [])
+          .filter(r => {
+            const url = r.keys ? r.keys[0] : '';
+            return url.includes('/blogs/') && r.impressions >= 100;
+          })
+          .sort((a, b) => b.impressions - a.impressions)
+          .map(r => ({
+            url: r.keys ? r.keys[0] : '',
+            clicks: r.clicks,
+            impressions: r.impressions,
+            ctr: r.ctr,
+            position: r.position
+          }));
+
+        document.getElementById('blogOptCount').textContent = blogOptData.length + ' blogs';
+        renderBlogOpt(50);
+      } catch(e) {
+        document.getElementById('blogOptBody').innerHTML = `<tr class="loading-row"><td colspan="6" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
+      }
+    }
+
+    function renderBlogOpt(limit) {
+      const tbody = document.getElementById('blogOptBody');
+      const rows = blogOptData.slice(0, limit);
+      if (!rows.length) { tbody.innerHTML = '<tr class="loading-row"><td colspan="6">No data found</td></tr>'; return; }
+      tbody.innerHTML = rows.map((r, i) => {
+        const short = r.url.replace('https://aboutwallart.com', '').replace('https://www.aboutwallart.com', '');
+        // Highlight low CTR rows
+        const ctrPct = r.ctr * 100;
+        const rowBg = ctrPct < 0.5 ? 'background:#fef2f2;' : ctrPct < 1 ? 'background:#fefce8;' : '';
+        const ctrColor = ctrPct < 0.5 ? 'color:#dc2626;font-weight:600;' : ctrPct < 1 ? 'color:#92400e;font-weight:600;' : 'color:#16a34a;';
+        return `<tr style="${rowBg}">
+          <td style="color:#aaa;font-size:12px;">${i+1}.</td>
+          <td><a href="${r.url}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:13px;">${short}</a></td>
+          <td class="num">${fmt(r.impressions)}</td>
+          <td class="num">${fmt(r.clicks)}</td>
+          <td class="num" style="${ctrColor}">${fmtCTR(r.ctr)}</td>
+          <td class="num">${fmtPos(r.position)}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    function downloadBlogOptCSV() {
+      if (!blogOptData.length) return;
+      const headers = ['URL','Impressions','Clicks','CTR','Position'];
+      const rows = blogOptData.map(r => [r.url, r.impressions, r.clicks, (r.ctr*100).toFixed(2)+'%', r.position.toFixed(1)]);
+      const csv = [headers, ...rows].map(row => row.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+      const blob = new Blob([csv], {type:'text/csv'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'blog-optimizations-' + new Date().toISOString().split('T')[0] + '.csv';
       a.click();
     }
 
