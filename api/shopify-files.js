@@ -15,6 +15,78 @@ module.exports = async function handler(req, res) {
   }
 
   // -------------------------------------------------------
+  // NEW: GET BLOGS BY MONTH — uses published_at date
+  // -------------------------------------------------------
+  if (req.query.action === 'get-blogs-by-month') {
+    const month = req.query.month; // format: YYYY-MM
+    if (!month) return res.status(400).json({ error: 'Missing month parameter (format: YYYY-MM)' });
+
+    try {
+      const [year, mon] = month.split('-');
+      const startDate = `${year}-${mon}-01T00:00:00Z`;
+      const lastDay = new Date(parseInt(year), parseInt(mon), 0).getDate();
+      const endDate = `${year}-${mon}-${lastDay}T23:59:59Z`;
+
+      const articles = [];
+      let cursor = null;
+      let hasMore = true;
+
+      while (hasMore) {
+        const cursorPart = cursor ? `, after: "${cursor}"` : '';
+        const query = `{
+          articles(first: 250${cursorPart}, query: "published_at:>=${startDate} published_at:<=${endDate}") {
+            pageInfo { hasNextPage endCursor }
+            edges {
+              node {
+                id
+                title
+                handle
+                publishedAt
+                blog { handle title }
+                seo { title description }
+              }
+            }
+          }
+        }`;
+
+        const response = await fetch(`https://${shopifyDomain}/admin/api/2025-01/graphql.json`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken },
+          body: JSON.stringify({ query })
+        });
+
+        const data = await response.json();
+        if (data.errors) throw new Error(data.errors[0].message);
+
+        const edges = data.data.articles.edges;
+        edges.forEach(edge => {
+          const node = edge.node;
+          const blogHandle = node.blog ? node.blog.handle : 'news-articles-home-decor-inspiration';
+          articles.push({
+            id: node.id,
+            title: node.title,
+            handle: node.handle,
+            publishedAt: node.publishedAt,
+            url: `https://www.aboutwallart.com/blogs/${blogHandle}/${node.handle}`,
+            blogTitle: node.blog ? node.blog.title : ''
+          });
+        });
+
+        if (data.data.articles.pageInfo.hasNextPage) {
+          cursor = data.data.articles.pageInfo.endCursor;
+        } else {
+          hasMore = false;
+        }
+      }
+
+      return res.status(200).json({ success: true, month, articles });
+
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // -------------------------------------------------------
   // LINK WHISPERER — GET (read) and PUT (write links)
   // -------------------------------------------------------
   if (req.query.action === 'link-whisperer') {
