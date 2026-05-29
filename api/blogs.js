@@ -125,6 +125,18 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true, publishedBlogs });
       }
 
+      // ── ACTION: get-keyword-tabs ──
+      if (req.query.action === 'get-keyword-tabs') {
+        try {
+          const file = await getGitHubFile('data/keyword-tracker.json');
+          const tabs = JSON.parse(file.content);
+          return res.status(200).json({ success: true, tabs });
+        } catch(e) {
+          // File doesn't exist yet — return empty array
+          return res.status(200).json({ success: true, tabs: [] });
+        }
+      }
+
       // ── ORIGINAL GET: Read published blogs from registry ──
       const csvPath = path.resolve(process.cwd(), 'data', 'keyword-locker-registry.csv');
 
@@ -158,6 +170,40 @@ export default async function handler(req, res) {
     //        + append row to Google Sheet (non-blocking)
     // ============================================
     if (req.method === 'POST') {
+
+      // ── ACTION: save-keyword-tabs ──
+      if (req.body.action === 'save-keyword-tabs') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { tabs } = req.body;
+        if (!Array.isArray(tabs)) return res.status(400).json({ error: 'tabs must be an array' });
+        const jsonContent = JSON.stringify(tabs, null, 2);
+        // Try to get existing file SHA (needed for update), or create new
+        let sha = null;
+        try {
+          const existing = await getGitHubFile('data/keyword-tracker.json');
+          sha = existing.sha;
+        } catch(e) {
+          // File doesn't exist yet — will be created
+        }
+        const response = await fetch(`https://api.github.com/repos/${REPO}/contents/data/keyword-tracker.json`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `token ${GITHUB_TOKEN}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            message: 'Update keyword tracker tabs',
+            content: Buffer.from(jsonContent).toString('base64'),
+            ...(sha ? { sha } : {})
+          })
+        });
+        if (!response.ok) {
+          const err = await response.text();
+          return res.status(500).json({ error: `GitHub save failed: ${err}` });
+        }
+        return res.status(200).json({ success: true, count: tabs.length });
+      }
       const { keyword, url, title, perspective } = req.body;
       if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
       if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured in environment variables' });
