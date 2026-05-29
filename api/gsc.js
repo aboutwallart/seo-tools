@@ -95,6 +95,24 @@ module.exports = async (req, res) => {
         results.push({ url: url.trim(), data: result });
       }
       data = results;
+    } else if (action === 'keyword-monthly') {
+      // Monthly impressions + clicks for an exact keyword — for Keyword Tracker growth chart
+      const keyword = req.query.keyword || req.body?.keyword || '';
+      if (!keyword) throw new Error('keyword param required');
+      data = await gscQuery(accessToken, siteUrl, {
+        startDate: start,
+        endDate: end,
+        dimensions: ['date', 'query'],
+        dimensionFilterGroups: [{
+          filters: [{
+            dimension: 'query',
+            operator: 'equals',
+            expression: keyword.toLowerCase()
+          }]
+        }],
+        rowLimit: 500
+      });
+
     } else if (action === 'ga4-llm') {
       // GA4 LLM Traffic — referral sessions from AI tools
       const propertyId = process.env.GA4_PROPERTY_ID;
