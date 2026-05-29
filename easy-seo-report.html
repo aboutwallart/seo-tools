@@ -96,7 +96,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v7.0</div>
+      <div class="tool-version">v8.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -234,10 +234,10 @@
 
         <div class="content-section-card">
           <div class="content-section-header">
-            <h2>✍️ Content to Create <span class="count-badge" id="createCount">—</span></h2>
-            <p>Google is showing your site for these searches but you are ranking very low (position 15+). These are content gaps. Writing a new blog post targeting these keywords could bring you new traffic.</p>
+            <h2>🎯 Low Ranking Opportunities <span class="count-badge" id="createCount">—</span></h2>
+            <p>These pages are ranking too low to get clicks (position 15+). Each row is labelled: <strong>Improve</strong> = you already have content for this keyword but it needs to rank better. <strong>Create</strong> = no content found for this keyword, write a new blog post.</p>
           </div>
-          <div class="data-note">Data: last 180 days · Zero clicks · Ranking position 15+ · At least 10 impressions · Sorted by impressions</div>
+          <div class="data-note">Data: last 180 days · Ranking position 15+ · At least 10 impressions · Cross-referenced with your keyword registry · Sorted by impressions</div>
           <div class="content-controls">
             <label>Search:</label>
             <input type="text" placeholder="Filter by query..." oninput="filterTable('createBody', this.value)">
@@ -247,8 +247,8 @@
             </select>
           </div>
           <table>
-            <thead><tr><th>#</th><th>Priority</th><th>Query</th><th class="num">Impressions</th><th class="num">Position</th></tr></thead>
-            <tbody id="createBody"><tr class="loading-row"><td colspan="5">Loading...</td></tr></tbody>
+            <thead><tr><th>#</th><th>Priority</th><th>Status</th><th>Query</th><th>Matching Blog URL</th><th class="num">Impressions</th><th class="num">Position</th></tr></thead>
+            <tbody id="createBody"><tr class="loading-row"><td colspan="7">Loading...</td></tr></tbody>
           </table>
         </div>
 
@@ -426,18 +426,16 @@
     async function loadContentOptimizations(){
       const start=getDate(180),end=getDate(0);
       try{
-        // Fetch pages (total clicks/impressions per page)
+        // Fetch pages from GSC
         const pagesRes=await fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`);
         const pagesJson=await pagesRes.json();
         if(!pagesJson.success)throw new Error(pagesJson.error);
         const allPages=pagesJson.data.rows||[];
 
-        // Fetch page+query to get top query per page
+        // Fetch top query per page
         const pqRes=await fetch(`${API}?action=page-query&startDate=${start}&endDate=${end}`);
         const pqJson=await pqRes.json();
         const pqRows=pqJson.success?pqJson.data.rows||[]:[];
-
-        // Build top query map per page
         const topQueryMap={};
         pqRows.forEach(r=>{
           const page=r.keys?r.keys[0]:'',query=r.keys?r.keys[1]:'';
@@ -446,7 +444,12 @@
           }
         });
 
-        // Build page objects using page-level totals
+        // Fetch published keywords from registry
+        const kwRes=await fetch('/api/blogs?action=get-published-keywords');
+        const kwJson=await kwRes.json();
+        const publishedKeywords=kwJson.success?kwJson.publishedBlogs:[];
+
+        // Build page objects
         const pages=allPages.map(r=>{
           const page=r.keys?r.keys[0]:'';
           return {
@@ -458,6 +461,21 @@
             position:r.position
           };
         });
+
+        // Helper: check if query matches any published keyword
+        function findMatchingBlog(query){
+          if(!query)return null;
+          const stopWords=new Set(['the','for','and','with','how','why','what','where','which','your','this','that','are','can','you','from','have']);
+          const qWords=query.toLowerCase().split(' ').filter(w=>w.length>2&&!stopWords.has(w));
+          let bestMatch=null, bestScore=0;
+          for(const blog of publishedKeywords){
+            const kWords=blog.keyword.split(' ').filter(w=>w.length>2&&!stopWords.has(w));
+            const matches=qWords.filter(w=>kWords.includes(w));
+            const score=matches.length/Math.max(qWords.length,kWords.length,1);
+            if(score>bestScore&&score>=0.4){bestScore=score;bestMatch=blog.url;}
+          }
+          return bestMatch;
+        }
 
         const assigned=new Set();
 
@@ -477,11 +495,15 @@
         document.getElementById('optimiseCount').textContent=optimiseData.length+' pages';
         renderOptimise(50);
 
-        // Table 3: Content to Create — zero clicks, position 15+, 10+ impressions
+        // Table 3: Low Ranking Opportunities — position 15+, 10+ impressions
         createData=pages
-          .filter(p=>!assigned.has(p.page)&&p.clicks===0&&p.impressions>=10&&p.position>15)
-          .sort((a,b)=>b.impressions-a.impressions);
-        document.getElementById('createCount').textContent=createData.length+' queries';
+          .filter(p=>!assigned.has(p.page)&&p.impressions>=10&&p.position>15)
+          .sort((a,b)=>b.impressions-a.impressions)
+          .map(p=>{
+            const matchUrl=findMatchingBlog(p.query);
+            return {...p,status:matchUrl?'Improve':'Create',matchUrl:matchUrl||''};
+          });
+        document.getElementById('createCount').textContent=createData.length+' opportunities';
         renderCreate(50);
 
       }catch(e){
@@ -511,10 +533,24 @@
 
     function renderCreate(limit){
       const tbody=document.getElementById('createBody'),rows=createData.slice(0,limit);
-      if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="5">No queries found</td></tr>';return;}
+      if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="7">No opportunities found</td></tr>';return;}
       tbody.innerHTML=rows.map((r,i)=>{
         const short=r.page.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','')||'/';
-        return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:12px;">${priority(r.impressions)}</td><td style="font-size:13px;color:#333;">${r.query||short}</td><td class="num">${fmt(r.impressions)}</td><td class="num">${fmtPos(r.position)}</td></tr>`;
+        const statusBadge=r.status==='Improve'
+          ? '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">Improve</span>'
+          : '<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">Create</span>';
+        const matchLink=r.matchUrl
+          ? `<a href="${r.matchUrl}" target="_blank" style="font-size:11px;color:#2563eb;text-decoration:none;max-width:180px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.matchUrl.replace('https://www.aboutwallart.com','')}</a>`
+          : '<span style="color:#aaa;font-size:11px;">—</span>';
+        return `<tr>
+          <td style="color:#aaa;font-size:12px;">${i+1}.</td>
+          <td style="font-size:12px;">${priority(r.impressions)}</td>
+          <td>${statusBadge}</td>
+          <td style="font-size:13px;color:#333;">${r.query}</td>
+          <td>${matchLink}</td>
+          <td class="num">${fmt(r.impressions)}</td>
+          <td class="num">${fmtPos(r.position)}</td>
+        </tr>`;
       }).join('');
     }
 
