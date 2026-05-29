@@ -125,6 +125,17 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true, publishedBlogs });
       }
 
+      // ── ACTION: get-tracked-keywords ──
+      if (req.query.action === 'get-tracked-keywords') {
+        try {
+          const file = await getGitHubFile('data/tracked-keywords.json');
+          const keywords = JSON.parse(file.content);
+          return res.status(200).json({ success: true, keywords });
+        } catch(e) {
+          return res.status(200).json({ success: true, keywords: [] });
+        }
+      }
+
       // ── ACTION: get-keyword-tabs ──
       if (req.query.action === 'get-keyword-tabs') {
         try {
@@ -170,6 +181,37 @@ export default async function handler(req, res) {
     //        + append row to Google Sheet (non-blocking)
     // ============================================
     if (req.method === 'POST') {
+
+      // ── ACTION: save-tracked-keywords ──
+      if (req.body.action === 'save-tracked-keywords') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { keywords } = req.body;
+        if (!Array.isArray(keywords)) return res.status(400).json({ error: 'keywords must be an array' });
+        const jsonContent = JSON.stringify(keywords, null, 2);
+        let sha = null;
+        try {
+          const existing = await getGitHubFile('data/tracked-keywords.json');
+          sha = existing.sha;
+        } catch(e) {}
+        const response = await fetch(`https://api.github.com/repos/${REPO}/contents/data/tracked-keywords.json`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `token ${GITHUB_TOKEN}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            message: 'Update tracked keywords',
+            content: Buffer.from(jsonContent).toString('base64'),
+            ...(sha ? { sha } : {})
+          })
+        });
+        if (!response.ok) {
+          const err = await response.text();
+          return res.status(500).json({ error: `GitHub save failed: ${err}` });
+        }
+        return res.status(200).json({ success: true, count: keywords.length });
+      }
 
       // ── ACTION: save-keyword-tabs ──
       if (req.body.action === 'save-keyword-tabs') {
