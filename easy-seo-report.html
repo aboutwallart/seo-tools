@@ -98,7 +98,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v28.0</div>
+      <div class="tool-version">v29.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -456,22 +456,72 @@
       <div class="section" id="section-kwrankings">
 
         <!-- Top bar -->
-        <div style="background:#1a1a1a;border-radius:8px;padding:20px 24px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
-          <span style="color:#fff;font-size:16px;font-weight:600;">Keyword Rankings</span>
-          <div style="display:flex;align-items:center;gap:10px;">
-            <input id="kwrSearch" type="text" placeholder="Search keywords..." oninput="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:220px;outline:none;placeholder-color:#888;">
-            <select id="kwrDifficulty" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">
+        <div style="background:#1a1a1a;border-radius:8px;padding:20px 24px;margin-bottom:16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+            <span style="color:#fff;font-size:16px;font-weight:600;">Keyword Rankings</span>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <input id="kwrSearch" type="text" placeholder="Search keywords..." oninput="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:220px;outline:none;">
+              <select id="kwrLimit" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">
+                <option value="50">50 rows</option>
+                <option value="100">100 rows</option>
+                <option value="250">250 rows</option>
+                <option value="500">500 rows</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Filters row -->
+          <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px;align-items:center;">
+            <span style="color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;">Filter:</span>
+            <select id="kwrFilterDiff" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:5px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
               <option value="">All Difficulties</option>
               <option value="Easy">Easy</option>
               <option value="Medium">Medium</option>
               <option value="Hard">Hard</option>
             </select>
-            <select id="kwrLimit" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">
-              <option value="50">50 rows</option>
-              <option value="100">100 rows</option>
-              <option value="250">250 rows</option>
-              <option value="500">500 rows</option>
+            <select id="kwrFilterPos" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:5px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="">All Positions</option>
+              <option value="1-3">Position 1–3</option>
+              <option value="4-10">Position 4–10</option>
+              <option value="11-20">Position 11–20</option>
+              <option value="21+">Position 21+</option>
             </select>
+            <select id="kwrFilterMinImp" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:5px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="0">Any Impressions</option>
+              <option value="100">100+ Impressions</option>
+              <option value="500">500+ Impressions</option>
+              <option value="1000">1,000+ Impressions</option>
+              <option value="5000">5,000+ Impressions</option>
+            </select>
+            <select id="kwrFilterMinClk" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:5px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="0">Any Clicks</option>
+              <option value="1">1+ Clicks</option>
+              <option value="10">10+ Clicks</option>
+              <option value="50">50+ Clicks</option>
+              <option value="100">100+ Clicks</option>
+            </select>
+            <button onclick="kwrResetFilters()" style="background:#333;color:#aaa;border:1px solid #444;padding:5px 12px;border-radius:4px;font-size:12px;cursor:pointer;">✕ Reset</button>
+          </div>
+
+          <!-- Sort rules -->
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+            <span style="color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;">Sort:</span>
+            <div id="kwrSortRules" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;"></div>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <select id="kwrSortField" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:5px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+                <option value="pos">Position</option>
+                <option value="imp">Impressions</option>
+                <option value="clk">Clicks</option>
+                <option value="ctr">CTR</option>
+                <option value="diff">Difficulty</option>
+                <option value="trend">Trend</option>
+              </select>
+              <select id="kwrSortDir" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:5px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+                <option value="asc">↑ Asc</option>
+                <option value="desc">↓ Desc</option>
+              </select>
+              <button onclick="kwrAddSort()" style="background:#2563eb;color:#fff;border:none;padding:5px 12px;border-radius:4px;font-size:12px;cursor:pointer;font-weight:600;">+ Add Sort</button>
+            </div>
           </div>
         </div>
 
@@ -1808,6 +1858,7 @@
         }).sort((a, b) => a.pos - b.pos);
 
         document.getElementById('kwrCountAll').textContent = kwrAllData.length;
+        kwrRenderSortRules();
         document.getElementById('kwrCountTracked').textContent = kwrTrackedSet.size;
 
         kwrFilterTable();
@@ -1817,36 +1868,107 @@
       }
     }
 
+    // Sort rules: [{field, dir}]
+    let kwrSortRules = [];
+    const kwrDiffOrder = { Easy: 1, Medium: 2, Hard: 3 };
+
+    function kwrAddSort() {
+      const field = document.getElementById('kwrSortField').value;
+      const dir   = document.getElementById('kwrSortDir').value;
+      // Remove existing rule for same field
+      kwrSortRules = kwrSortRules.filter(r => r.field !== field);
+      kwrSortRules.push({ field, dir });
+      kwrRenderSortRules();
+      kwrFilterTable();
+    }
+
+    function kwrRemoveSort(field) {
+      kwrSortRules = kwrSortRules.filter(r => r.field !== field);
+      kwrRenderSortRules();
+      kwrFilterTable();
+    }
+
+    function kwrRenderSortRules() {
+      const fieldLabels = { pos: 'Position', imp: 'Impressions', clk: 'Clicks', ctr: 'CTR', diff: 'Difficulty', trend: 'Trend' };
+      const container = document.getElementById('kwrSortRules');
+      if (!kwrSortRules.length) { container.innerHTML = '<span style="color:#555;font-size:12px;">None</span>'; return; }
+      container.innerHTML = kwrSortRules.map((r, i) => `
+        <div style="display:flex;align-items:center;gap:4px;background:#2d2d2d;border:1px solid #444;border-radius:4px;padding:3px 8px;">
+          <span style="color:#aaa;font-size:10px;min-width:12px;">${i+1}.</span>
+          <span style="color:#fff;font-size:12px;">${fieldLabels[r.field]}</span>
+          <span style="color:#6366f1;font-size:11px;">${r.dir === 'asc' ? '↑' : '↓'}</span>
+          <button onclick="kwrRemoveSort('${r.field}')" style="background:none;border:none;color:#666;cursor:pointer;font-size:11px;padding:0 0 0 4px;">✕</button>
+        </div>
+      `).join('');
+    }
+
+    function kwrResetFilters() {
+      document.getElementById('kwrSearch').value = '';
+      document.getElementById('kwrFilterDiff').value = '';
+      document.getElementById('kwrFilterPos').value = '';
+      document.getElementById('kwrFilterMinImp').value = '0';
+      document.getElementById('kwrFilterMinClk').value = '0';
+      kwrSortRules = [];
+      kwrRenderSortRules();
+      kwrFilterTable();
+    }
+
     function kwrSwitchTab(tab) {
       kwrActiveTab = tab;
-      // Style tabs
       const allBtn     = document.getElementById('kwrTabAll');
       const trackedBtn = document.getElementById('kwrTabTracked');
-      allBtn.style.fontWeight     = tab === 'all'     ? '600' : '400';
-      allBtn.style.color          = tab === 'all'     ? '#1a1a1a' : '#888';
-      allBtn.style.borderBottomColor = tab === 'all' ? '#1a1a1a' : 'transparent';
-      trackedBtn.style.fontWeight    = tab === 'tracked' ? '600' : '400';
-      trackedBtn.style.color         = tab === 'tracked' ? '#1a1a1a' : '#888';
+      allBtn.style.fontWeight        = tab === 'all'     ? '600' : '400';
+      allBtn.style.color             = tab === 'all'     ? '#1a1a1a' : '#888';
+      allBtn.style.borderBottomColor = tab === 'all'     ? '#1a1a1a' : 'transparent';
+      trackedBtn.style.fontWeight        = tab === 'tracked' ? '600' : '400';
+      trackedBtn.style.color             = tab === 'tracked' ? '#1a1a1a' : '#888';
       trackedBtn.style.borderBottomColor = tab === 'tracked' ? '#1a1a1a' : 'transparent';
-      // Show trend column only in tracked tab
       document.getElementById('kwrTrendHeader').style.display = tab === 'tracked' ? '' : 'none';
       kwrFilterTable();
     }
 
     function kwrFilterTable() {
-      const search = (document.getElementById('kwrSearch')?.value || '').toLowerCase();
-      const diff   = document.getElementById('kwrDifficulty')?.value || '';
-      const limit  = parseInt(document.getElementById('kwrLimit')?.value || '50');
+      const search  = (document.getElementById('kwrSearch')?.value || '').toLowerCase();
+      const diff    = document.getElementById('kwrFilterDiff')?.value || '';
+      const posRange = document.getElementById('kwrFilterPos')?.value || '';
+      const minImp  = parseInt(document.getElementById('kwrFilterMinImp')?.value || '0');
+      const minClk  = parseInt(document.getElementById('kwrFilterMinClk')?.value || '0');
+      const limit   = parseInt(document.getElementById('kwrLimit')?.value || '50');
 
       let data = kwrActiveTab === 'tracked'
         ? kwrAllData.filter(r => kwrTrackedSet.has(r.kw))
-        : kwrAllData;
+        : [...kwrAllData];
 
-      if (search) data = data.filter(r => r.kw.includes(search));
-      if (diff)   data = data.filter(r => r.diff === diff);
+      // Filters
+      if (search)   data = data.filter(r => r.kw.includes(search));
+      if (diff)     data = data.filter(r => r.diff === diff);
+      if (minImp)   data = data.filter(r => r.imp >= minImp);
+      if (minClk)   data = data.filter(r => r.clk >= minClk);
+      if (posRange) {
+        if (posRange === '1-3')   data = data.filter(r => r.pos >= 1  && r.pos <= 3);
+        if (posRange === '4-10')  data = data.filter(r => r.pos >= 4  && r.pos <= 10);
+        if (posRange === '11-20') data = data.filter(r => r.pos >= 11 && r.pos <= 20);
+        if (posRange === '21+')   data = data.filter(r => r.pos > 20);
+      }
 
-      const visible = data.slice(0, limit);
-      kwrRenderRows(visible);
+      // Multi-sort: apply rules in priority order (last applied = highest priority in reduce)
+      if (kwrSortRules.length) {
+        data.sort((a, b) => {
+          for (const rule of kwrSortRules) {
+            let av, bv;
+            if (rule.field === 'pos')   { av = a.pos;  bv = b.pos; }
+            if (rule.field === 'imp')   { av = a.imp;  bv = b.imp; }
+            if (rule.field === 'clk')   { av = a.clk;  bv = b.clk; }
+            if (rule.field === 'ctr')   { av = a.ctr;  bv = b.ctr; }
+            if (rule.field === 'diff')  { av = kwrDiffOrder[a.diff]; bv = kwrDiffOrder[b.diff]; }
+            if (rule.field === 'trend') { av = a.trend ?? -999; bv = b.trend ?? -999; }
+            if (av !== bv) return rule.dir === 'asc' ? av - bv : bv - av;
+          }
+          return 0;
+        });
+      }
+
+      kwrRenderRows(data.slice(0, limit));
     }
 
     function kwrRenderRows(rows) {
