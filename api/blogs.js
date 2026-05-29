@@ -15,7 +15,7 @@ export default async function handler(req, res) {
 
   const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
   const REPO = 'aboutwallart/seo-tools';
-  const SHEETS_WEBHOOK = process.env.SHEETS_WEBHOOK_URL; // Google Apps Script Web App URL
+  const SHEETS_WEBHOOK = process.env.SHEETS_WEBHOOK_URL;
 
   // Helper: fetch file from GitHub
   async function getGitHubFile(filePath) {
@@ -71,7 +71,6 @@ export default async function handler(req, res) {
   }
 
   // Helper: append row to Google Sheet via Apps Script webhook
-  // Columns: A=BLOG MANAGER TOOL, B=Perspective, C=Keyword, F=Title, AS=READY TO GENERATE BLOG
   async function appendToGoogleSheet(keyword, perspective, title) {
     if (!SHEETS_WEBHOOK) {
       console.log('SHEETS_WEBHOOK_URL not configured - skipping Google Sheets append');
@@ -98,6 +97,35 @@ export default async function handler(req, res) {
     // GET - Read published blogs from registry
     // ============================================
     if (req.method === 'GET') {
+
+      // ── NEW ACTION: get-published-keywords ──
+      // Returns all published blog keywords for cross-referencing with GSC queries
+      if (req.query.action === 'get-published-keywords') {
+        const csvPath = path.resolve(process.cwd(), 'data', 'keyword-locker-registry.csv');
+        if (!fs.existsSync(csvPath)) {
+          return res.status(404).json({ error: 'Registry file not found' });
+        }
+        const csvText = fs.readFileSync(csvPath, 'utf-8');
+        const lines = csvText.split('\n');
+        const publishedBlogs = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim().replace(/\r/g, '');
+          if (!line) continue;
+          const cols = parseCSVLine(line);
+          if (cols.length >= 10) {
+            const keyword = cols[0];
+            const url = cols[1];
+            const source = cols[9];
+            if ((source === 'Published Blog' || source === 'To_Write_Blog') && keyword) {
+              publishedBlogs.push({ keyword: keyword.toLowerCase(), url });
+            }
+          }
+        }
+        return res.status(200).json({ success: true, publishedBlogs });
+      }
+
+      // ── ORIGINAL GET: Read published blogs from registry ──
       const csvPath = path.resolve(process.cwd(), 'data', 'keyword-locker-registry.csv');
 
       if (!fs.existsSync(csvPath)) {
@@ -156,7 +184,7 @@ export default async function handler(req, res) {
       }).join('\n');
       await updateGitHubFile('data/blog_ideas.csv', updatedIdeas, ideasFile.sha, `Mark as TO_WRITE: ${keyword}`);
 
-      // 3. Append to Google Sheet (non-blocking — won't fail the whole request)
+      // 3. Append to Google Sheet (non-blocking)
       let sheetsResult = null;
       try {
         sheetsResult = await appendToGoogleSheet(keyword, perspective, title);
@@ -202,7 +230,6 @@ export default async function handler(req, res) {
       if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
       if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured in environment variables' });
 
-      // Remove from registry (To_Write_Blog entries only)
       const registry = await getGitHubFile('data/keyword-locker-registry.csv');
       const registryLines = registry.content.split('\n');
       const filteredRegistry = registryLines.filter(line => {
@@ -213,7 +240,6 @@ export default async function handler(req, res) {
       }).join('\n');
       await updateGitHubFile('data/keyword-locker-registry.csv', filteredRegistry, registry.sha, `Undo to write blog: ${keyword}`);
 
-      // Clear status in blog_ideas.csv
       const ideasFile = await getGitHubFile('data/blog_ideas.csv');
       const ideasLines = ideasFile.content.split('\n');
       const updatedIdeas = ideasLines.map(line => {
