@@ -98,7 +98,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v25.0</div>
+      <div class="tool-version">v26.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1533,10 +1533,14 @@
         const mClicks = {}, mImpressions = {};
         if (jsonMonthly.success) {
           (jsonMonthly.data.rows || []).forEach(r => {
+            // keys[0] = date — GSC returns YYYY-MM-DD for date dimension
             const dateStr = r.keys?.[0] || '';
-            const monthKey = dateStr.slice(0, 7); // YYYY-MM
-            mClicks[monthKey]      = (mClicks[monthKey] || 0) + (r.clicks || 0);
+            // Handle both YYYY-MM-DD and YYYYMMDD formats
+            const monthKey = dateStr.length === 8
+              ? dateStr.slice(0,4) + '-' + dateStr.slice(4,6)
+              : dateStr.slice(0, 7);
             mImpressions[monthKey] = (mImpressions[monthKey] || 0) + (r.impressions || 0);
+            mClicks[monthKey]      = (mClicks[monthKey] || 0) + (r.clicks || 0);
           });
         }
 
