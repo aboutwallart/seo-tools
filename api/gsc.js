@@ -97,12 +97,13 @@ module.exports = async (req, res) => {
       data = results;
     } else if (action === 'keyword-monthly') {
       // Monthly impressions + clicks for an exact keyword — for Keyword Tracker growth chart
+      // Uses dimensions: ['date'] with exact query filter so GSC aggregates daily totals
       const keyword = req.query.keyword || req.body?.keyword || '';
       if (!keyword) throw new Error('keyword param required');
       data = await gscQuery(accessToken, siteUrl, {
         startDate: start,
         endDate: end,
-        dimensions: ['date', 'query'],
+        dimensions: ['date'],
         dimensionFilterGroups: [{
           filters: [{
             dimension: 'query',
