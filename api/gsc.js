@@ -95,6 +95,39 @@ module.exports = async (req, res) => {
         results.push({ url: url.trim(), data: result });
       }
       data = results;
+    } else if (action === 'ga4-llm') {
+      // GA4 LLM Traffic — referral sessions from AI tools
+      const propertyId = process.env.GA4_PROPERTY_ID;
+      if (!propertyId) throw new Error('GA4_PROPERTY_ID not configured');
+
+      const days = parseInt(req.query.days || '90');
+      const ga4End = getTodayDate();
+      const ga4Start = getDateDaysAgo(days);
+
+      const llmSources = [
+        'chat.openai.com','chatgpt.com','perplexity.ai','claude.ai',
+        'gemini.google.com','copilot.microsoft.com','you.com','phind.com','poe.com'
+      ];
+
+      const ga4Body = {
+        dateRanges: [{ startDate: ga4Start, endDate: ga4End }],
+        dimensions: [{ name: 'sessionSource' }, { name: 'date' }],
+        metrics: [{ name: 'sessions' }, { name: 'screenPageViews' }],
+        dimensionFilter: {
+          orGroup: {
+            expressions: llmSources.map(source => ({
+              filter: {
+                fieldName: 'sessionSource',
+                stringFilter: { matchType: 'CONTAINS', value: source.replace('www.','').split('.')[0] }
+              }
+            }))
+          }
+        },
+        limit: 1000
+      };
+
+      data = await ga4Query(accessToken, propertyId, ga4Body);
+
     } else {
       // Default: overview
       data = await gscQuery(accessToken, siteUrl, {
@@ -191,6 +224,40 @@ async function gscQuery(accessToken, siteUrl, body) {
       });
     });
 
+    reqHttp.on('error', reject);
+    reqHttp.write(postBody);
+    reqHttp.end();
+  });
+}
+
+// ─── Helper: Query GA4 Data API ───────────────────────────────────────────────
+async function ga4Query(accessToken, propertyId, body) {
+  const path = `/v1beta/properties/${propertyId}:runReport`;
+  return new Promise((resolve, reject) => {
+    const postBody = JSON.stringify(body);
+    const options = {
+      hostname: 'analyticsdata.googleapis.com',
+      path,
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postBody)
+      }
+    };
+    const reqHttp = https.request(options, (response) => {
+      let data = '';
+      response.on('data', chunk => data += chunk);
+      response.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.error) reject(new Error(parsed.error.message));
+          else resolve(parsed);
+        } catch (e) {
+          reject(new Error('Failed to parse GA4 response: ' + data));
+        }
+      });
+    });
     reqHttp.on('error', reject);
     reqHttp.write(postBody);
     reqHttp.end();
