@@ -8,21 +8,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #f5f5f5;
-      color: #1a1a1a;
-      display: flex;
-      min-height: 100vh;
-    }
-    .sidebar {
-      width: 220px; min-width: 220px;
-      background: #fff;
-      border-right: 1px solid #e5e5e5;
-      display: flex; flex-direction: column;
-      position: fixed; top: 0; left: 0; bottom: 0;
-      z-index: 100; overflow-y: auto;
-    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #1a1a1a; display: flex; min-height: 100vh; }
+    .sidebar { width: 220px; min-width: 220px; background: #fff; border-right: 1px solid #e5e5e5; display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 100; overflow-y: auto; }
     .sidebar-header { background: #1a1a1a; color: #fff; padding: 20px 16px; }
     .sidebar-header .tool-name { font-size: 13px; font-weight: 700; }
     .sidebar-header .tool-version { font-size: 11px; color: #888; margin-top: 3px; }
@@ -36,15 +23,20 @@
     .page-content { padding: 28px 32px; flex: 1; }
     .section { display: none; }
     .section.active { display: block; }
+
+    /* Metric Cards */
     .metrics-row { display: flex; background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; overflow: hidden; margin-bottom: 24px; }
     .metric-card { flex: 1; padding: 20px 24px; border-right: 1px solid #e5e5e5; }
     .metric-card:last-child { border-right: none; }
     .metric-label { font-size: 11px; font-weight: 500; color: #888; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
     .metric-value { font-size: 28px; font-weight: 700; color: #1a1a1a; line-height: 1; margin-bottom: 4px; }
     .metric-sub { font-size: 12px; color: #aaa; }
+
+    /* Two column */
     .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
-    .full-col { margin-bottom: 24px; }
-    .chart-card { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; overflow: hidden; }
+
+    /* Chart cards */
+    .chart-card { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; overflow: hidden; margin-bottom: 24px; }
     .chart-card-header { padding: 16px 20px; border-bottom: 1px solid #e5e5e5; display: flex; align-items: center; justify-content: space-between; }
     .chart-card-header h2 { font-size: 14px; font-weight: 600; }
     .chart-card-header span { font-size: 12px; color: #888; }
@@ -56,6 +48,8 @@
     .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
     .legend-label { color: #555; flex: 1; }
     .legend-pct { font-weight: 600; color: #1a1a1a; }
+
+    /* Tables */
     .table-card { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; overflow: hidden; }
     .table-card-header { padding: 16px 20px; border-bottom: 1px solid #e5e5e5; display: flex; align-items: center; justify-content: space-between; }
     .table-card-header h2 { font-size: 14px; font-weight: 600; }
@@ -74,11 +68,31 @@
     .loading-row td { text-align: center; padding: 32px; color: #aaa; font-size: 13px; }
     .error-msg { background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 12px 16px; color: #dc2626; font-size: 13px; margin-bottom: 16px; display: none; }
     .coming-soon { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 48px; text-align: center; color: #aaa; font-size: 14px; }
-    .hist-metric-row { display: flex; gap: 16px; margin-bottom: 24px; }
-    .hist-metric { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 20px 24px; flex: 1; text-align: center; }
-    .hist-metric .lbl { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
-    .hist-metric .val { font-size: 26px; font-weight: 700; }
-    .hist-metric .sub { font-size: 12px; color: #aaa; margin-top: 4px; }
+
+    /* Historical View */
+    .hist-row { display: grid; grid-template-columns: 300px 1fr; gap: 0; background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; overflow: hidden; margin-bottom: 24px; }
+    .hist-gauge-side { border-right: 1px solid #e5e5e5; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 24px; }
+    .hist-gauge-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-bottom: 24px; text-align: center; }
+    .hist-gauge-wrap { position: relative; width: 160px; height: 160px; }
+    .hist-gauge-wrap canvas { width: 160px !important; height: 160px !important; }
+    .hist-gauge-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; }
+    .hist-gauge-value { font-size: 22px; font-weight: 700; color: #1a1a1a; line-height: 1; }
+    .hist-gauge-change { font-size: 12px; margin-top: 4px; }
+    .hist-gauge-change.up { color: #16a34a; }
+    .hist-gauge-change.down { color: #dc2626; }
+    .hist-gauge-sub { font-size: 12px; color: #888; margin-top: 12px; text-align: center; }
+    .hist-chart-side { padding: 20px 24px; }
+    .hist-chart-side h3 { font-size: 12px; color: #888; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+    .hist-chart-side h3 span { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+
+    /* Content Optimizations */
+    .content-group { margin-bottom: 32px; }
+    .content-group-header { background: #1a1a1a; color: #fff; padding: 10px 16px; border-radius: 6px 6px 0 0; display: flex; align-items: center; justify-content: space-between; }
+    .content-group-header h3 { font-size: 13px; font-weight: 600; }
+    .content-group-header span { font-size: 11px; color: #aaa; }
+    .content-search { padding: 16px; background: #fff; border: 1px solid #e5e5e5; border-top: none; }
+    .content-search input { width: 100%; padding: 8px 12px; border: 1px solid #e5e5e5; border-radius: 4px; font-size: 13px; outline: none; }
+    .content-search input:focus { border-color: #1a1a1a; }
   </style>
 </head>
 <body>
@@ -86,7 +100,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v3.0</div>
+      <div class="tool-version">v4.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -136,7 +150,7 @@
         </div>
 
         <div class="two-col">
-          <div class="chart-card">
+          <div class="chart-card" style="margin-bottom:0;">
             <div class="chart-card-header">
               <h2>Clicks Over Time</h2>
               <span id="clicksChartLabel">—</span>
@@ -145,7 +159,7 @@
               <canvas id="clicksChart" height="160"></canvas>
             </div>
           </div>
-          <div class="chart-card">
+          <div class="chart-card" style="margin-bottom:0;">
             <div class="chart-card-header">
               <h2>Device Breakdown</h2>
               <span>by clicks</span>
@@ -178,46 +192,41 @@
       <!-- SECTION: Historical View (1 Year) -->
       <div class="section" id="section-historical">
 
-        <div class="hist-metric-row">
-          <div class="hist-metric">
-            <div class="lbl">Total Clicks</div>
-            <div class="val" id="histClicks">—</div>
-            <div class="sub">last 12 months</div>
+        <!-- Monthly Clicks Row -->
+        <div class="hist-row">
+          <div class="hist-gauge-side">
+            <div class="hist-gauge-title">Monthly Clicks</div>
+            <div class="hist-gauge-wrap">
+              <canvas id="gaugeClicks"></canvas>
+              <div class="hist-gauge-center">
+                <div class="hist-gauge-value" id="gaugeClicksVal">—</div>
+                <div class="hist-gauge-change" id="gaugeClicksChange">—</div>
+              </div>
+            </div>
+            <div class="hist-gauge-sub" id="gaugeClicksSub">Comparison: Previous Year</div>
           </div>
-          <div class="hist-metric">
-            <div class="lbl">Total Impressions</div>
-            <div class="val" id="histImpressions">—</div>
-            <div class="sub">last 12 months</div>
-          </div>
-          <div class="hist-metric">
-            <div class="lbl">Avg CTR</div>
-            <div class="val" id="histCTR">—</div>
-            <div class="sub">last 12 months</div>
-          </div>
-          <div class="hist-metric">
-            <div class="lbl">Avg Position</div>
-            <div class="val" id="histPosition">—</div>
-            <div class="sub">last 12 months</div>
+          <div class="hist-chart-side">
+            <h3><span style="background:#6366f1;"></span> Impressions</h3>
+            <canvas id="histClicksChart" height="120"></canvas>
           </div>
         </div>
 
-        <div class="full-col chart-card">
-          <div class="chart-card-header">
-            <h2>Monthly Clicks</h2>
-            <span id="histClicksLabel">last 12 months</span>
+        <!-- Monthly Impressions Row -->
+        <div class="hist-row">
+          <div class="hist-gauge-side">
+            <div class="hist-gauge-title">Monthly Impressions</div>
+            <div class="hist-gauge-wrap">
+              <canvas id="gaugeImpressions"></canvas>
+              <div class="hist-gauge-center">
+                <div class="hist-gauge-value" id="gaugeImpressionsVal">—</div>
+                <div class="hist-gauge-change" id="gaugeImpressionsChange">—</div>
+              </div>
+            </div>
+            <div class="hist-gauge-sub" id="gaugeImpressionsSub">Comparison: Previous Year</div>
           </div>
-          <div class="chart-body">
-            <canvas id="histClicksChart" height="100"></canvas>
-          </div>
-        </div>
-
-        <div class="full-col chart-card" style="margin-top:24px;">
-          <div class="chart-card-header">
-            <h2>Monthly Impressions</h2>
-            <span id="histImpressionsLabel">last 12 months</span>
-          </div>
-          <div class="chart-body">
-            <canvas id="histImpressionsChart" height="100"></canvas>
+          <div class="hist-chart-side">
+            <h3><span style="background:#8b5cf6;"></span> Clicks</h3>
+            <canvas id="histImpressionsChart" height="120"></canvas>
           </div>
         </div>
 
@@ -235,7 +244,9 @@
 
       <!-- SECTION: Content Optimizations -->
       <div class="section" id="section-content">
-        <div class="coming-soon">💡 Content Optimizations — Coming in Phase 4</div>
+        <div id="contentOptimizations">
+          <div class="loading-row" style="text-align:center;padding:48px;color:#aaa;background:#fff;border:1px solid #e5e5e5;border-radius:8px;">Loading content optimization ideas...</div>
+        </div>
       </div>
 
     </div>
@@ -245,9 +256,12 @@
     const API = '/api/gsc';
     let clicksChartInstance = null;
     let deviceChartInstance = null;
-    let histClicksChartInstance = null;
-    let histImpressionsChartInstance = null;
+    let histClicksChart = null;
+    let histImpressionsChart = null;
+    let gaugeClicksChart = null;
+    let gaugeImpressionsChart = null;
     let histLoaded = false;
+    let contentLoaded = false;
 
     function getDate(daysAgo) {
       const d = new Date();
@@ -258,12 +272,9 @@
     function fmt(n) { return n != null ? n.toLocaleString() : '—'; }
     function fmtCTR(n) { return n != null ? (n * 100).toFixed(2) + '%' : '—'; }
     function fmtPos(n) { return n != null ? n.toFixed(1) : '—'; }
+    function fmtK(n) { if (n >= 1000000) return (n/1000000).toFixed(1) + 'M'; if (n >= 1000) return (n/1000).toFixed(1) + 'K'; return n.toString(); }
 
-    function showError(msg) {
-      const el = document.getElementById('errorMsg');
-      el.style.display = 'block';
-      el.textContent = '⚠ ' + msg;
-    }
+    function showError(msg) { const el = document.getElementById('errorMsg'); el.style.display = 'block'; el.textContent = '⚠ ' + msg; }
     function hideError() { document.getElementById('errorMsg').style.display = 'none'; }
 
     function showSection(id, navEl) {
@@ -271,19 +282,10 @@
       document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
       document.getElementById('section-' + id).classList.add('active');
       navEl.classList.add('active');
-      const titles = {
-        overview: 'High Level SEO Metrics',
-        historical: 'Historical View (1 Year)',
-        llm: 'LLM Traffic',
-        blog: 'Blog Tracking',
-        content: 'Content Optimizations'
-      };
+      const titles = { overview: 'High Level SEO Metrics', historical: 'Historical View (1 Year)', llm: 'LLM Traffic', blog: 'Blog Tracking', content: 'Content Optimizations' };
       document.getElementById('pageTitle').textContent = titles[id] || '';
-      // Load historical only once when tab opened
-      if (id === 'historical' && !histLoaded) {
-        loadHistorical();
-        histLoaded = true;
-      }
+      if (id === 'historical' && !histLoaded) { loadHistorical(); histLoaded = true; }
+      if (id === 'content' && !contentLoaded) { loadContentOptimizations(); contentLoaded = true; }
     }
 
     function onRangeChange() {
@@ -296,8 +298,7 @@
     }
 
     async function loadOverview(days) {
-      const start = getDate(days);
-      const end = getDate(0);
+      const start = getDate(days); const end = getDate(0);
       hideError();
       try {
         const res = await fetch(`${API}?action=overview&startDate=${start}&endDate=${end}`);
@@ -310,16 +311,13 @@
           document.getElementById('metImpressions').textContent = fmt(row.impressions);
           document.getElementById('metPosition').textContent = fmtPos(row.position);
           const sub = 'last ' + days + ' days';
-          ['metClicksSub','metCTRSub','metImpressionsSub','metPositionSub'].forEach(id => {
-            document.getElementById(id).textContent = sub;
-          });
+          ['metClicksSub','metCTRSub','metImpressionsSub','metPositionSub'].forEach(id => document.getElementById(id).textContent = sub);
         }
       } catch(e) { showError(e.message); }
     }
 
     async function loadClicksChart(days) {
-      const start = getDate(days);
-      const end = getDate(0);
+      const start = getDate(days); const end = getDate(0);
       document.getElementById('clicksChartLabel').textContent = start + ' → ' + end;
       try {
         const res = await fetch(`${API}?action=monthly&startDate=${start}&endDate=${end}`);
@@ -329,37 +327,16 @@
         const labels = rows.map(r => r.keys ? r.keys[0].slice(5) : '');
         const clicks = rows.map(r => r.clicks);
         if (clicksChartInstance) clicksChartInstance.destroy();
-        const ctx = document.getElementById('clicksChart').getContext('2d');
-        clicksChartInstance = new Chart(ctx, {
+        clicksChartInstance = new Chart(document.getElementById('clicksChart').getContext('2d'), {
           type: 'line',
-          data: {
-            labels,
-            datasets: [{
-              label: 'Clicks',
-              data: clicks,
-              borderColor: '#6366f1',
-              backgroundColor: 'rgba(99,102,241,0.08)',
-              borderWidth: 2,
-              pointRadius: 2,
-              tension: 0.3,
-              fill: true
-            }]
-          },
-          options: {
-            responsive: true,
-            plugins: { legend: { display: false } },
-            scales: {
-              x: { grid: { display: false }, ticks: { font: { size: 10 }, maxTicksLimit: 10 } },
-              y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 10 } } }
-            }
-          }
+          data: { labels, datasets: [{ label: 'Clicks', data: clicks, borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.08)', borderWidth: 2, pointRadius: 2, tension: 0.3, fill: true }] },
+          options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { font: { size: 10 }, maxTicksLimit: 10 } }, y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 10 } } } } }
         });
-      } catch(e) { console.error('Chart error:', e.message); }
+      } catch(e) { console.error(e.message); }
     }
 
     async function loadDeviceChart(days) {
-      const start = getDate(days);
-      const end = getDate(0);
+      const start = getDate(days); const end = getDate(0);
       try {
         const res = await fetch(`${API}?action=device&startDate=${start}&endDate=${end}`);
         const json = await res.json();
@@ -367,11 +344,10 @@
         const rows = json.data.rows || [];
         const labels = rows.map(r => r.keys ? r.keys[0] : '');
         const values = rows.map(r => r.clicks);
-        const total = values.reduce((a,b) => a + b, 0) || 1;
-        const colors = ['#2563eb', '#dc2626', '#f59e0b', '#10b981'];
+        const total = values.reduce((a,b) => a+b, 0) || 1;
+        const colors = ['#2563eb','#dc2626','#f59e0b','#10b981'];
         if (deviceChartInstance) deviceChartInstance.destroy();
-        const ctx = document.getElementById('deviceChart').getContext('2d');
-        deviceChartInstance = new Chart(ctx, {
+        deviceChartInstance = new Chart(document.getElementById('deviceChart').getContext('2d'), {
           type: 'doughnut',
           data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 0 }] },
           options: { responsive: false, cutout: '65%', plugins: { legend: { display: false } } }
@@ -382,14 +358,11 @@
             <div class="legend-label">${l.toUpperCase()}</div>
             <div class="legend-pct">${((values[i]/total)*100).toFixed(1)}%</div>
           </div>`).join('');
-      } catch(e) {
-        document.getElementById('deviceLegend').innerHTML = '<div style="color:#aaa;font-size:12px;">No data</div>';
-      }
+      } catch(e) { document.getElementById('deviceLegend').innerHTML = '<div style="color:#aaa;font-size:12px;">No data</div>'; }
     }
 
     async function loadPages(days) {
-      const start = getDate(days);
-      const end = getDate(0);
+      const start = getDate(days); const end = getDate(0);
       const tbody = document.getElementById('pagesBody');
       tbody.innerHTML = '<tr class="loading-row"><td colspan="4">Loading...</td></tr>';
       try {
@@ -400,20 +373,14 @@
         if (!rows.length) { tbody.innerHTML = '<tr class="loading-row"><td colspan="4">No data</td></tr>'; return; }
         tbody.innerHTML = rows.map((r, i) => {
           const url = r.keys ? r.keys[0] : '';
-          const short = url.replace('https://www.aboutwallart.com', '').replace('https://aboutwallart.com', '') || '/';
-          return `<tr>
-            <td style="color:#aaa;font-size:12px;">${i+1}.</td>
-            <td><div class="page-url" title="${url}">${short}</div></td>
-            <td class="num">${fmt(r.clicks)}</td>
-            <td class="num">${fmt(r.impressions)}</td>
-          </tr>`;
+          const short = url.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','') || '/';
+          return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td><div class="page-url" title="${url}">${short}</div></td><td class="num">${fmt(r.clicks)}</td><td class="num">${fmt(r.impressions)}</td></tr>`;
         }).join('');
-      } catch(e) { document.getElementById('pagesBody').innerHTML = `<tr class="loading-row"><td colspan="4" style="color:#dc2626;">Error: ${e.message}</td></tr>`; }
+      } catch(e) { tbody.innerHTML = `<tr class="loading-row"><td colspan="4" style="color:#dc2626;">Error: ${e.message}</td></tr>`; }
     }
 
     async function loadQueries(days) {
-      const start = getDate(days);
-      const end = getDate(0);
+      const start = getDate(days); const end = getDate(0);
       const tbody = document.getElementById('queriesBody');
       tbody.innerHTML = '<tr class="loading-row"><td colspan="2">Loading...</td></tr>';
       try {
@@ -426,104 +393,194 @@
         tbody.innerHTML = rows.map(r => {
           const q = r.keys ? r.keys[0] : '';
           const barW = Math.max(4, Math.round((r.clicks / maxC) * 100));
-          return `<tr>
-            <td>${q}</td>
-            <td class="num"><div class="bar-wrap"><span>${fmt(r.clicks)}</span><div class="bar" style="width:${barW}px"></div></div></td>
-          </tr>`;
+          return `<tr><td>${q}</td><td class="num"><div class="bar-wrap"><span>${fmt(r.clicks)}</span><div class="bar" style="width:${barW}px"></div></div></td></tr>`;
         }).join('');
-      } catch(e) { document.getElementById('queriesBody').innerHTML = `<tr class="loading-row"><td colspan="2" style="color:#dc2626;">Error: ${e.message}</td></tr>`; }
+      } catch(e) { tbody.innerHTML = `<tr class="loading-row"><td colspan="2" style="color:#dc2626;">Error: ${e.message}</td></tr>`; }
+    }
+
+    function makeGauge(canvasId, value, maxValue, color) {
+      const existing = Chart.getChart(canvasId);
+      if (existing) existing.destroy();
+      const pct = Math.min(value / maxValue, 1);
+      const filled = pct * 0.75;
+      return new Chart(document.getElementById(canvasId).getContext('2d'), {
+        type: 'doughnut',
+        data: {
+          datasets: [{
+            data: [filled, 0.75 - filled, 0.25],
+            backgroundColor: [color, '#e5e5e5', 'transparent'],
+            borderWidth: 0,
+            circumference: 270,
+            rotation: 225
+          }]
+        },
+        options: { responsive: false, cutout: '75%', plugins: { legend: { display: false }, tooltip: { enabled: false } } }
+      });
     }
 
     async function loadHistorical() {
-      const start = getDate(365);
       const end = getDate(0);
-      document.getElementById('histClicksLabel').textContent = start + ' → ' + end;
-      document.getElementById('histImpressionsLabel').textContent = start + ' → ' + end;
+      const start = getDate(365);
+      const prevStart = getDate(730);
+      const prevEnd = getDate(365);
 
       try {
-        // Overview totals for 12 months
-        const ovRes = await fetch(`${API}?action=overview&startDate=${start}&endDate=${end}`);
-        const ovJson = await ovRes.json();
-        if (ovJson.success && ovJson.data.rows && ovJson.data.rows[0]) {
-          const r = ovJson.data.rows[0];
-          document.getElementById('histClicks').textContent = fmt(r.clicks);
-          document.getElementById('histImpressions').textContent = fmt(r.impressions);
-          document.getElementById('histCTR').textContent = fmtCTR(r.ctr);
-          document.getElementById('histPosition').textContent = fmtPos(r.position);
-        }
+        // Current year overview
+        const curRes = await fetch(`${API}?action=overview&startDate=${start}&endDate=${end}`);
+        const curJson = await curRes.json();
+        const curRow = curJson.success && curJson.data.rows && curJson.data.rows[0];
+
+        // Previous year overview
+        const prevRes = await fetch(`${API}?action=overview&startDate=${prevStart}&endDate=${prevEnd}`);
+        const prevJson = await prevRes.json();
+        const prevRow = prevJson.success && prevJson.data.rows && prevJson.data.rows[0];
+
+        const curClicks = curRow ? curRow.clicks : 0;
+        const prevClicks = prevRow ? prevRow.clicks : 1;
+        const curImpressions = curRow ? curRow.impressions : 0;
+        const prevImpressions = prevRow ? prevRow.impressions : 1;
+
+        const clicksChangePct = ((curClicks - prevClicks) / prevClicks * 100).toFixed(2);
+        const impressionsChangePct = ((curImpressions - prevImpressions) / prevImpressions * 100).toFixed(2);
+
+        // Gauge for clicks
+        document.getElementById('gaugeClicksVal').textContent = fmtK(curClicks);
+        const clicksChangeEl = document.getElementById('gaugeClicksChange');
+        clicksChangeEl.textContent = (clicksChangePct >= 0 ? '↑' : '↓') + Math.abs(clicksChangePct) + '%';
+        clicksChangeEl.className = 'hist-gauge-change ' + (clicksChangePct >= 0 ? 'up' : 'down');
+        makeGauge('gaugeClicks', curClicks, Math.max(curClicks, prevClicks) * 1.2, '#6366f1');
+
+        // Gauge for impressions
+        document.getElementById('gaugeImpressionsVal').textContent = fmtK(curImpressions);
+        const impChangeEl = document.getElementById('gaugeImpressionsChange');
+        impChangeEl.textContent = (impressionsChangePct >= 0 ? '↑' : '↓') + Math.abs(impressionsChangePct) + '%';
+        impChangeEl.className = 'hist-gauge-change ' + (impressionsChangePct >= 0 ? 'up' : 'down');
+        makeGauge('gaugeImpressions', curImpressions, Math.max(curImpressions, prevImpressions) * 1.2, '#8b5cf6');
 
         // Monthly data
-        const res = await fetch(`${API}?action=monthly&startDate=${start}&endDate=${end}`);
-        const json = await res.json();
-        if (!json.success) throw new Error(json.error);
-        const rows = json.data.rows || [];
+        const mRes = await fetch(`${API}?action=monthly&startDate=${start}&endDate=${end}`);
+        const mJson = await mRes.json();
+        const rows = mJson.data.rows || [];
 
-        // Group by month (YYYY-MM)
+        // Group by month
         const monthMap = {};
         rows.forEach(r => {
-          const date = r.keys ? r.keys[0] : '';
-          const month = date.slice(0, 7);
+          const month = (r.keys ? r.keys[0] : '').slice(0, 7);
           if (!monthMap[month]) monthMap[month] = { clicks: 0, impressions: 0 };
           monthMap[month].clicks += r.clicks;
           monthMap[month].impressions += r.impressions;
         });
-
         const months = Object.keys(monthMap).sort();
         const clicks = months.map(m => monthMap[m].clicks);
         const impressions = months.map(m => monthMap[m].impressions);
         const labels = months.map(m => {
           const [y, mo] = m.split('-');
-          const d = new Date(y, parseInt(mo) - 1);
-          return d.toLocaleString('default', { month: 'short', year: '2-digit' });
+          return new Date(y, parseInt(mo)-1).toLocaleString('default', { month: 'short', year: '2-digit' });
         });
 
-        // Clicks chart
-        if (histClicksChartInstance) histClicksChartInstance.destroy();
-        histClicksChartInstance = new Chart(document.getElementById('histClicksChart').getContext('2d'), {
+        if (histClicksChart) histClicksChart.destroy();
+        histClicksChart = new Chart(document.getElementById('histClicksChart').getContext('2d'), {
           type: 'bar',
-          data: {
-            labels,
-            datasets: [{
-              label: 'Clicks',
-              data: clicks,
-              backgroundColor: '#6366f1',
-              borderRadius: 3
-            }]
-          },
-          options: {
-            responsive: true,
-            plugins: { legend: { display: false } },
-            scales: {
-              x: { grid: { display: false }, ticks: { font: { size: 11 } } },
-              y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 11 } } }
-            }
-          }
+          data: { labels, datasets: [{ label: 'Impressions', data: impressions, backgroundColor: '#6366f1', borderRadius: 3 }] },
+          options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { font: { size: 11 } } }, y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 11 } } } } }
         });
 
-        // Impressions chart
-        if (histImpressionsChartInstance) histImpressionsChartInstance.destroy();
-        histImpressionsChartInstance = new Chart(document.getElementById('histImpressionsChart').getContext('2d'), {
+        if (histImpressionsChart) histImpressionsChart.destroy();
+        histImpressionsChart = new Chart(document.getElementById('histImpressionsChart').getContext('2d'), {
           type: 'bar',
-          data: {
-            labels,
-            datasets: [{
-              label: 'Impressions',
-              data: impressions,
-              backgroundColor: '#8b5cf6',
-              borderRadius: 3
-            }]
-          },
-          options: {
-            responsive: true,
-            plugins: { legend: { display: false } },
-            scales: {
-              x: { grid: { display: false }, ticks: { font: { size: 11 } } },
-              y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 11 } } }
-            }
-          }
+          data: { labels, datasets: [{ label: 'Clicks', data: clicks, backgroundColor: '#8b5cf6', borderRadius: 3 }] },
+          options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { font: { size: 11 } } }, y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 11 } } } } }
         });
 
       } catch(e) { console.error('Historical error:', e.message); }
+    }
+
+    async function loadContentOptimizations() {
+      const start = getDate(90); const end = getDate(0);
+      const container = document.getElementById('contentOptimizations');
+      container.innerHTML = '<div style="text-align:center;padding:48px;color:#aaa;background:#fff;border:1px solid #e5e5e5;border-radius:8px;">Loading...</div>';
+      try {
+        const res = await fetch(`${API}?action=queries&startDate=${start}&endDate=${end}`);
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error);
+
+        const allRows = json.data.rows || [];
+        // Filter: impressions > 0, clicks = 0
+        const opportunities = allRows.filter(r => r.impressions > 50 && r.clicks === 0);
+
+        // Group by question word
+        const groups = { WHY: [], WHAT: [], HOW: [], WHERE: [], WHICH: [], OTHER: [] };
+        opportunities.forEach(r => {
+          const q = r.keys ? r.keys[0].toLowerCase() : '';
+          if (q.startsWith('why')) groups.WHY.push(r);
+          else if (q.startsWith('what')) groups.WHAT.push(r);
+          else if (q.startsWith('how')) groups.HOW.push(r);
+          else if (q.startsWith('where')) groups.WHERE.push(r);
+          else if (q.startsWith('which')) groups.WHICH.push(r);
+          else groups.OTHER.push(r);
+        });
+
+        // Sort each group by impressions desc
+        Object.keys(groups).forEach(k => groups[k].sort((a,b) => b.impressions - a.impressions));
+
+        let html = '';
+        const searchId = 'contentSearch';
+        html += `<div style="margin-bottom:16px;"><input type="text" id="${searchId}" placeholder="Search queries..." oninput="filterContent(this.value)" style="width:100%;padding:10px 14px;border:1px solid #e5e5e5;border-radius:6px;font-size:13px;outline:none;"></div>`;
+        html += '<div id="contentGroups">';
+
+        Object.entries(groups).forEach(([key, rows]) => {
+          if (!rows.length) return;
+          html += `<div class="content-group" data-group="${key}">
+            <div class="content-group-header">
+              <h3>KEYWORD = "${key}"</h3>
+              <span>${rows.length} opportunities · ${rows.reduce((a,r) => a + r.impressions, 0).toLocaleString()} impressions</span>
+            </div>
+            <table style="background:#fff;border:1px solid #e5e5e5;border-top:none;width:100%;">
+              <thead><tr>
+                <th style="padding:10px 16px;font-size:11px;font-weight:600;color:#fff;background:#1a1a1a;text-align:left;">#</th>
+                <th style="padding:10px 16px;font-size:11px;font-weight:600;color:#fff;background:#1a1a1a;text-align:left;">Query</th>
+                <th style="padding:10px 16px;font-size:11px;font-weight:600;color:#fff;background:#1a1a1a;text-align:right;">Url Clicks</th>
+                <th style="padding:10px 16px;font-size:11px;font-weight:600;color:#fff;background:#1a1a1a;text-align:right;">Impressions</th>
+                <th style="padding:10px 16px;font-size:11px;font-weight:600;color:#fff;background:#1a1a1a;text-align:right;">URL CTR</th>
+                <th style="padding:10px 16px;font-size:11px;font-weight:600;color:#fff;background:#1a1a1a;text-align:right;">Avg Position</th>
+              </tr></thead>
+              <tbody>`;
+          rows.slice(0, 25).forEach((r, i) => {
+            const q = r.keys ? r.keys[0] : '';
+            html += `<tr style="border-bottom:1px solid #f0f0f0;">
+              <td style="padding:10px 16px;font-size:12px;color:#aaa;">${i+1}.</td>
+              <td style="padding:10px 16px;font-size:13px;color:#333;">${q}</td>
+              <td style="padding:10px 16px;font-size:12px;color:#555;text-align:right;">${fmt(r.clicks)}</td>
+              <td style="padding:10px 16px;font-size:12px;color:#555;text-align:right;">${fmt(r.impressions)}</td>
+              <td style="padding:10px 16px;font-size:12px;color:#555;text-align:right;">${fmtCTR(r.ctr)}</td>
+              <td style="padding:10px 16px;font-size:12px;color:#555;text-align:right;">${fmtPos(r.position)}</td>
+            </tr>`;
+          });
+          html += `</tbody></table></div>`;
+        });
+
+        if (html === `<div style="margin-bottom:16px;"><input type="text" id="${searchId}" placeholder="Search queries..." oninput="filterContent(this.value)" style="width:100%;padding:10px 14px;border:1px solid #e5e5e5;border-radius:6px;font-size:13px;outline:none;"></div><div id="contentGroups">`) {
+          html += '<div class="coming-soon">No zero-click opportunities found with 50+ impressions in the last 90 days.</div>';
+        }
+        html += '</div>';
+        container.innerHTML = html;
+      } catch(e) {
+        container.innerHTML = `<div class="coming-soon" style="color:#dc2626;">Error: ${e.message}</div>`;
+      }
+    }
+
+    function filterContent(val) {
+      const q = val.toLowerCase();
+      document.querySelectorAll('#contentGroups .content-group').forEach(group => {
+        let anyVisible = false;
+        group.querySelectorAll('tbody tr').forEach(row => {
+          const text = row.textContent.toLowerCase();
+          const show = text.includes(q);
+          row.style.display = show ? '' : 'none';
+          if (show) anyVisible = true;
+        });
+        group.style.display = anyVisible ? '' : 'none';
+      });
     }
 
     // Initial load
