@@ -1,7 +1,7 @@
 # TECHNICAL REFERENCE DOCUMENT
 ## AboutWallArt SEO Tools Infrastructure
 
-**Last Updated:** May 27, 2026 (Blog Manager Google Sheets Integration + Blog Ideas Pipeline)
+**Last Updated:** May 29, 2026 (GSC API Setup + OAuth Credentials + GSC Report Tool in progress)
 **Owner:** aboutwallart
 **Purpose:** Complete technical documentation for all SEO tools, infrastructure, API keys, and configurations
 
@@ -26,6 +26,7 @@
 - `money-page-doctor.html` — Money page optimization tool (password protected)
 - `rank-report-card.html` — Ranking report and tracking tool (password protected)
 - `image-optimizer.html` — Shopify image optimization tool (password protected)
+- `gsc-report.html` — GSC SEO Report dashboard (IN PROGRESS - May 29, 2026)
 - `package.json` — Node.js dependencies
 - `vercel.json` — Vercel deployment configuration with domain redirects
 
@@ -36,13 +37,19 @@
 ## `/api/` Folder
 **Purpose:** Serverless API endpoints (Vercel Functions)
 
-### ⚠️ CRITICAL: VERCEL FUNCTION LIMIT REACHED
+### ⚠️ VERCEL FUNCTION STATUS (Updated May 29, 2026)
 **Vercel Hobby Plan allows maximum 12 serverless functions.**
-**The project is currently AT the limit (12 functions).**
+**The project was AT the limit (12 functions) but now has 1 free slot available.**
 
-**DO NOT create new API files.** If a new tool needs a backend operation, it MUST be added as a new action inside an existing API file (e.g., a new `action` branch inside `blogs.js` POST handler, or a new method handler in an existing file).
+**Why a slot is available:**
+- `reddit.js` — No longer in use
+- `openai.js` — No longer in use
+- One slot was used to create `gsc.js` (May 29, 2026)
+- Current count: 11/12 (1 slot remaining: either reddit.js or openai.js can still be replaced)
 
-### Current API Files (12/12):
+**DO NOT create new API files beyond the remaining slot.** If a new tool needs a backend operation, add it as a new action inside an existing API file.
+
+### Current API Files (11/12 after gsc.js added):
 1. **`auth.js`** — Password authentication endpoint
 2. **`analyze-money-page.js`** — Money Page Optimizer backend
 3. **`blogs.js`** — Blog Manager backend (see full details below)
@@ -50,11 +57,60 @@
 5. **`fetch-html.js`** — Fetches HTML content from URLs
 6. **`generate-alt-text.js`** — Alt text generation
 7. **`migrate.js`** — Data migration scripts
-8. **`openai.js`** — OpenAI API integration
+8. **`openai.js`** — OpenAI API integration (NO LONGER IN USE)
 9. **`pagespeed.js`** — Google PageSpeed Insights API
-10. **`reddit.js`** — Reddit scraper for blog topic ideas
+10. **`reddit.js`** — Reddit scraper for blog topic ideas (NO LONGER IN USE)
 11. **`serpapi.js`** — SERP API integration
 12. **`shopify-files.js`** — Shopify Admin GraphQL API integration
+13. **`gsc.js`** — Google Search Console API integration (NEW - May 29, 2026) *(see full details below)*
+
+---
+
+## gsc.js — Full Technical Details
+
+**File:** `api/gsc.js`
+**Added:** May 29, 2026
+**Purpose:** GSC Report tool backend — connects to Google Search Console API using OAuth 2.0
+
+### Authentication Flow:
+- Uses OAuth 2.0 with offline access (refresh token — never expires)
+- Credentials stored as Vercel env vars (see API Keys section)
+- No user login required — uses pre-authorized refresh token for mae@aboutwallart.com
+- GSC property: `https://www.aboutwallart.com/`
+
+### Google Cloud Project:
+- **Project:** Money Page Optimizer (reused existing project)
+- **Project ID:** `money-page-optimizer`
+- **Project Number:** `15466013888`
+- **GSC API:** Enabled (Google Search Console API)
+
+### OAuth App Details:
+- **App Name:** About Wall Art GSO Tools
+- **OAuth Client Name:** About Wall Art GSO Tools
+- **Client Type:** Web application
+- **Authorized JavaScript Origins:** `https://tools.aboutwallart.com`
+- **Authorized Redirect URIs:** `https://tools.aboutwallart.com/api/gsc`
+- **User Type:** External (testing mode)
+- **Test User:** mae@aboutwallart.com
+
+### How to get a new Refresh Token (if needed):
+1. Go to this URL in browser:
+```
+https://accounts.google.com/o/oauth2/auth?client_id=15466013888-deual871humreqd3uqhrve8chp3bci3s.apps.googleusercontent.com&redirect_uri=https://tools.aboutwallart.com/api/gsc&response_type=code&scope=https://www.googleapis.com/auth/webmasters.readonly&access_type=offline&prompt=consent
+```
+2. Sign in as mae@aboutwallart.com
+3. Allow access
+4. Copy the `code` parameter from the redirect URL
+5. Go to hoppscotch.io → POST → `https://oauth2.googleapis.com/token`
+6. Body: application/x-www-form-urlencoded with these 5 params:
+   - `code` = the code from step 4
+   - `client_id` = `15466013888-deual871humreqd3uqhrve8chp3bci3s.apps.googleusercontent.com`
+   - `client_secret` = `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`
+   - `redirect_uri` = `https://tools.aboutwallart.com/api/gsc`
+   - `grant_type` = `authorization_code`
+7. Send — copy `refresh_token` from response
+8. Update `GSC_REFRESH_TOKEN` in Vercel env vars
+9. Redeploy Vercel
 
 ---
 
@@ -190,8 +246,6 @@ const response = await fetch('https://api.anthropic.com/v1/messages', {
 - Updated by `blogs.js` POST/PATCH/DELETE handlers
 - Currently contains 50 processed ideas
 
-
-
 ### Blog Ideas Conflict Detection Algorithm:
 ```python
 # Jaccard similarity on core words
@@ -245,9 +299,26 @@ When processing new blog ideas, check `keyword-locker-registry.csv` for rows whe
 
 ---
 
+# GSC REPORT TOOL (IN PROGRESS - May 29, 2026)
+
+## Overview
+**File:** `gsc-report.html` (to be created)
+**API:** `api/gsc.js` (to be created)
+**Status:** IN PROGRESS
+**Goal:** Replicate HeyTony SEO Report dashboard using live GSC data
+
+## Planned Sections:
+1. High Level SEO Metrics (clicks, impressions, CTR, avg position)
+2. Historical View - 1 Year (monthly trends)
+3. LLM Traffic tracking (ChatGPT, Perplexity referrals)
+4. Blog Tracking (track performance of specific blog posts)
+5. Content Optimization Ideas (WHY/WHAT/HOW queries with no clicks)
+
+---
+
 # API KEYS & CREDENTIALS
 
-## Vercel Environment Variables (current as of May 27, 2026)
+## Vercel Environment Variables (current as of May 29, 2026)
 
 ```
 ANTHROPIC_API_KEY        — Claude API key (Production only)
@@ -255,12 +326,15 @@ OPENAI_API_KEY           — OpenAI API key
 SHOPIFY_STORE_DOMAIN     — aboutwallart.myshopify.com
 SHOPIFY_ACCESS_TOKEN     — Shopify Admin API token
 TOOLS_PASSWORD           — Password for tools dashboard authentication
-GOOGLE_API_KEY           — Google API key
+GOOGLE_API_KEY           — Google API key (PageSpeed)
 SERPAPI_KEY              — SerpAPI key (Production only)
 BLOGDATA_READ_WRITE_TOKEN — Vercel Blob storage token
 EDGE_CONFIG              — Edge config (all environments)
 GITHUB_TOKEN             — GitHub API token for reading/writing data files
-SHEETS_WEBHOOK_URL       — Google Apps Script Web App URL for Sheets integration (NEW May 27, 2026)
+SHEETS_WEBHOOK_URL       — Google Apps Script Web App URL for Sheets integration (added May 27, 2026)
+GSC_CLIENT_ID            — Google OAuth Client ID for GSC API (added May 29, 2026)
+GSC_CLIENT_SECRET        — Google OAuth Client Secret for GSC API (added May 29, 2026)
+GSC_REFRESH_TOKEN        — Google OAuth Refresh Token for GSC API (added May 29, 2026)
 ```
 
 ### How to Access:
@@ -330,6 +404,7 @@ All API files MUST include CORS headers at the top of the handler. See `blogs.js
 3. **Money Page Doctor** — `/money-page-doctor.html`
 4. **Rank Report Card** — `/rank-report-card.html`
 5. **Image Optimizer** — `/image-optimizer.html`
+6. **GSC Report** — `/gsc-report.html` *(IN PROGRESS)*
 
 ---
 
@@ -409,9 +484,14 @@ All tools require authentication. Each tool HTML file includes:
 - Verify Vercel has redeployed after CSV update
 
 ## Vercel function limit
-- Already at 12/12 functions
-- Cannot add new `.js` files to `/api/` folder
-- Add new functionality as new actions inside existing API files
+- Was at 12/12, now at 11/12 after adding gsc.js (reddit.js and openai.js are unused)
+- Do not add more than 1 additional API file without removing unused ones first
+
+## GSC API fails
+- Check `GSC_CLIENT_ID`, `GSC_CLIENT_SECRET`, `GSC_REFRESH_TOKEN` are set in Vercel env vars
+- Refresh token may have expired — follow "How to get a new Refresh Token" steps in gsc.js section
+- Check Vercel logs for specific error
+- Verify Vercel has redeployed after env var changes
 
 ---
 
@@ -422,6 +502,7 @@ All tools require authentication. Each tool HTML file includes:
 **Live Tools:** https://tools.aboutwallart.com
 **Shopify Admin:** https://aboutwallart.myshopify.com/admin
 **Google Sheet (Blog Pipeline):** https://docs.google.com/spreadsheets/d/1W9AYH2Zcw-v2U6S47a3w5bs5rEBf6K30adDgNkaZ38k
+**Google Cloud Console:** https://console.cloud.google.com (project: money-page-optimizer)
 
 ---
 
