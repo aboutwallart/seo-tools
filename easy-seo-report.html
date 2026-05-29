@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>About Wall Art — SEO Report</title>
+  <script src="/auth-check.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      color: #1a1a1a;
+      display: flex;
+      min-height: 100vh;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 220px;
+      min-width: 220px;
+      background: #fff;
+      border-right: 1px solid #e5e5e5;
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
+      z-index: 100;
+      overflow-y: auto;
+    }
+
+    .sidebar-header {
+      background: #1a1a1a;
+      color: #fff;
+      padding: 20px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .sidebar-header span {
+      display: block;
+      font-size: 11px;
+      font-weight: 400;
+      color: #999;
+      margin-top: 2px;
+    }
+
+    .nav-item {
+      padding: 11px 16px;
+      font-size: 13px;
+      color: #555;
+      cursor: pointer;
+      border-left: 3px solid transparent;
+      transition: all 0.15s;
+    }
+
+    .nav-item:hover {
+      background: #f9f9f9;
+      color: #1a1a1a;
+    }
+
+    .nav-item.active {
+      background: #f0f0f0;
+      color: #1a1a1a;
+      font-weight: 500;
+      border-left-color: #1a1a1a;
+    }
+
+    /* ── Main Content ── */
+    .main {
+      margin-left: 220px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Top Header ── */
+    .top-header {
+      background: #1a1a1a;
+      color: #fff;
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .top-header h1 {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .date-picker {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .date-picker select {
+      background: #2d2d2d;
+      color: #fff;
+      border: 1px solid #444;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    /* ── Page Content ── */
+    .page-content {
+      padding: 28px 32px;
+      flex: 1;
+    }
+
+    .section { display: none; }
+    .section.active { display: block; }
+
+    /* ── Metric Cards Row ── */
+    .metrics-row {
+      display: flex;
+      gap: 0;
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+
+    .metric-card {
+      flex: 1;
+      padding: 20px 24px;
+      border-right: 1px solid #e5e5e5;
+    }
+
+    .metric-card:last-child { border-right: none; }
+
+    .metric-label {
+      font-size: 11px;
+      font-weight: 500;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 6px;
+    }
+
+    .metric-value {
+      font-size: 28px;
+      font-weight: 700;
+      color: #1a1a1a;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+
+    .metric-change {
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .metric-change.up { color: #16a34a; }
+    .metric-change.down { color: #dc2626; }
+    .metric-change.neutral { color: #888; }
+
+    /* ── Tables ── */
+    .table-card {
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+
+    .table-card-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #e5e5e5;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .table-card-header h2 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #1a1a1a;
+    }
+
+    .table-card-header span {
+      font-size: 12px;
+      color: #888;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    thead {
+      background: #1a1a1a;
+    }
+
+    thead th {
+      padding: 10px 16px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #fff;
+      text-align: left;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    thead th.num { text-align: right; }
+
+    tbody td {
+      padding: 10px 16px;
+      font-size: 13px;
+      color: #333;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    tbody td.num {
+      text-align: right;
+      font-size: 12px;
+      color: #555;
+    }
+
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: #fafafa; }
+
+    .page-url {
+      max-width: 420px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 12px;
+      color: #2563eb;
+    }
+
+    /* ── Clicks bar ── */
+    .bar-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .bar {
+      height: 8px;
+      background: #2563eb;
+      border-radius: 2px;
+      min-width: 4px;
+    }
+
+    /* ── Loading / Error ── */
+    .loading-row td {
+      text-align: center;
+      padding: 32px;
+      color: #aaa;
+      font-size: 13px;
+    }
+
+    .error-msg {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 6px;
+      padding: 12px 16px;
+      color: #dc2626;
+      font-size: 13px;
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    /* ── Coming Soon ── */
+    .coming-soon {
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      border-radius: 8px;
+      padding: 48px;
+      text-align: center;
+      color: #aaa;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      About Wall Art
+      <span>SEO Report</span>
+    </div>
+    <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
+    <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
+    <div class="nav-item" onclick="showSection('llm', this)">LLM Traffic</div>
+    <div class="nav-item" onclick="showSection('blog', this)">Blog Tracking</div>
+    <div class="nav-item" onclick="showSection('content', this)">Content Optimizations</div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+
+    <!-- Top Header -->
+    <div class="top-header">
+      <h1 id="pageTitle">High Level SEO Metrics</h1>
+      <div class="date-picker">
+        <select id="dateRange" onchange="onRangeChange()">
+          <option value="28">Last 28 days</option>
+          <option value="90">Last 90 days</option>
+          <option value="180">Last 6 months</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Page Content -->
+    <div class="page-content">
+
+      <div class="error-msg" id="errorMsg"></div>
+
+      <!-- SECTION: High Level SEO Metrics -->
+      <div class="section active" id="section-overview">
+
+        <!-- Metric Cards -->
+        <div class="metrics-row">
+          <div class="metric-card">
+            <div class="metric-label">Clicks</div>
+            <div class="metric-value" id="metClicks">—</div>
+            <div class="metric-change neutral" id="metClicksChange">loading...</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Site CTR</div>
+            <div class="metric-value" id="metCTR">—</div>
+            <div class="metric-change neutral" id="metCTRChange">loading...</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Impressions</div>
+            <div class="metric-value" id="metImpressions">—</div>
+            <div class="metric-change neutral" id="metImpressionsChange">loading...</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Average Position</div>
+            <div class="metric-value" id="metPosition">—</div>
+            <div class="metric-change neutral" id="metPositionChange">loading...</div>
+          </div>
+        </div>
+
+        <!-- Top Landing Pages -->
+        <div class="table-card">
+          <div class="table-card-header">
+            <h2>Landing Page</h2>
+            <span id="pagesCount">—</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Landing Page</th>
+                <th class="num">Url Clicks</th>
+                <th class="num">Impressions</th>
+                <th class="num">URL CTR</th>
+                <th class="num">Average Position</th>
+              </tr>
+            </thead>
+            <tbody id="pagesBody">
+              <tr class="loading-row"><td colspan="6">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Top Queries -->
+        <div class="table-card">
+          <div class="table-card-header">
+            <h2>Query</h2>
+            <span id="queriesCount">—</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Query</th>
+                <th class="num">Clicks</th>
+              </tr>
+            </thead>
+            <tbody id="queriesBody">
+              <tr class="loading-row"><td colspan="2">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+
+      <!-- SECTION: Historical View -->
+      <div class="section" id="section-historical">
+        <div class="coming-soon">📅 Historical View — Coming in Phase 3</div>
+      </div>
+
+      <!-- SECTION: LLM Traffic -->
+      <div class="section" id="section-llm">
+        <div class="coming-soon">🤖 LLM Traffic — Coming in Phase 6</div>
+      </div>
+
+      <!-- SECTION: Blog Tracking -->
+      <div class="section" id="section-blog">
+        <div class="coming-soon">📝 Blog Tracking — Coming in Phase 5</div>
+      </div>
+
+      <!-- SECTION: Content Optimizations -->
+      <div class="section" id="section-content">
+        <div class="coming-soon">💡 Content Optimizations — Coming in Phase 4</div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    const API = '/api/gsc';
+    let maxClicks = 1;
+
+    function getDate(daysAgo) {
+      const d = new Date();
+      d.setDate(d.getDate() - daysAgo);
+      return d.toISOString().split('T')[0];
+    }
+
+    function fmt(n) { return n != null ? n.toLocaleString() : '—'; }
+    function fmtCTR(n) { return n != null ? (n * 100).toFixed(2) + '%' : '—'; }
+    function fmtPos(n) { return n != null ? n.toFixed(1) : '—'; }
+
+    function showError(msg) {
+      const el = document.getElementById('errorMsg');
+      el.style.display = 'block';
+      el.textContent = '⚠ ' + msg;
+    }
+
+    function hideError() {
+      document.getElementById('errorMsg').style.display = 'none';
+    }
+
+    function showSection(id, navEl) {
+      document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+      document.getElementById('section-' + id).classList.add('active');
+      navEl.classList.add('active');
+      const titles = {
+        overview: 'High Level SEO Metrics',
+        historical: 'Historical View (1 Year)',
+        llm: 'LLM Traffic',
+        blog: 'Blog Tracking',
+        content: 'Content Optimizations'
+      };
+      document.getElementById('pageTitle').textContent = titles[id] || '';
+    }
+
+    function onRangeChange() {
+      const days = parseInt(document.getElementById('dateRange').value);
+      loadOverview(days);
+      loadPages(days);
+      loadQueries(days);
+    }
+
+    async function loadOverview(days) {
+      const start = getDate(days);
+      const end = getDate(0);
+      hideError();
+      try {
+        const res = await fetch(`${API}?action=overview&startDate=${start}&endDate=${end}`);
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error);
+        const row = json.data.rows && json.data.rows[0];
+        if (row) {
+          document.getElementById('metClicks').textContent = fmt(row.clicks);
+          document.getElementById('metCTR').textContent = fmtCTR(row.ctr);
+          document.getElementById('metImpressions').textContent = fmt(row.impressions);
+          document.getElementById('metPosition').textContent = fmtPos(row.position);
+          ['metClicksChange','metCTRChange','metImpressionsChange','metPositionChange'].forEach(id => {
+            const el = document.getElementById(id);
+            el.textContent = 'last ' + days + ' days';
+            el.className = 'metric-change neutral';
+          });
+        }
+      } catch(e) {
+        showError(e.message);
+      }
+    }
+
+    async function loadPages(days) {
+      const start = getDate(days);
+      const end = getDate(0);
+      const tbody = document.getElementById('pagesBody');
+      tbody.innerHTML = '<tr class="loading-row"><td colspan="6">Loading...</td></tr>';
+      try {
+        const res = await fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`);
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error);
+        const rows = (json.data.rows || []).sort((a,b) => b.clicks - a.clicks).slice(0, 25);
+        document.getElementById('pagesCount').textContent = 'Url Clicks ▼';
+        if (!rows.length) {
+          tbody.innerHTML = '<tr class="loading-row"><td colspan="6">No data found</td></tr>';
+          return;
+        }
+        tbody.innerHTML = rows.map((r, i) => {
+          const url = r.keys ? r.keys[0] : '';
+          const short = url.replace('https://www.aboutwallart.com', '') || '/';
+          return `<tr>
+            <td style="color:#aaa;font-size:12px;">${i+1}.</td>
+            <td><div class="page-url" title="${url}">${url}</div></td>
+            <td class="num">${fmt(r.clicks)}</td>
+            <td class="num">${fmt(r.impressions)}</td>
+            <td class="num">${fmtCTR(r.ctr)}</td>
+            <td class="num">${fmtPos(r.position)}</td>
+          </tr>`;
+        }).join('');
+      } catch(e) {
+        tbody.innerHTML = `<tr class="loading-row"><td colspan="6" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
+      }
+    }
+
+    async function loadQueries(days) {
+      const start = getDate(days);
+      const end = getDate(0);
+      const tbody = document.getElementById('queriesBody');
+      tbody.innerHTML = '<tr class="loading-row"><td colspan="2">Loading...</td></tr>';
+      try {
+        const res = await fetch(`${API}?action=queries&startDate=${start}&endDate=${end}`);
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error);
+        const rows = (json.data.rows || []).sort((a,b) => b.clicks - a.clicks).slice(0, 25);
+        document.getElementById('queriesCount').textContent = 'Clicks ▼';
+        if (!rows.length) {
+          tbody.innerHTML = '<tr class="loading-row"><td colspan="2">No data found</td></tr>';
+          return;
+        }
+        maxClicks = rows[0].clicks || 1;
+        tbody.innerHTML = rows.map(r => {
+          const q = r.keys ? r.keys[0] : '';
+          const barW = Math.max(4, Math.round((r.clicks / maxClicks) * 120));
+          return `<tr>
+            <td>${q}</td>
+            <td class="num">
+              <div class="bar-wrap">
+                <span>${fmt(r.clicks)}</span>
+                <div class="bar" style="width:${barW}px"></div>
+              </div>
+            </td>
+          </tr>`;
+        }).join('');
+      } catch(e) {
+        tbody.innerHTML = `<tr class="loading-row"><td colspan="2" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
+      }
+    }
+
+    // Initial load
+    loadOverview(28);
+    loadPages(28);
+    loadQueries(28);
+  </script>
+</body>
+</html>
