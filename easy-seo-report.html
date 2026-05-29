@@ -98,7 +98,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v20.0</div>
+      <div class="tool-version">v22.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1101,7 +1101,22 @@
           }
         });
 
-        const sorted = Object.entries(sourceMap).sort((a, b) => b[1].views - a[1].views);
+        // Merge sources that map to the same display label (e.g. chatgpt.com + chat.openai.com)
+        const labelMap = {};
+        Object.entries(sourceMap).forEach(([source, data]) => {
+          const label = getLLMConfig(source).label;
+          if (!labelMap[label]) {
+            labelMap[label] = { sessions: 0, views: 0, byDate: {}, source };
+          }
+          labelMap[label].sessions += data.sessions;
+          labelMap[label].views    += data.views;
+          Object.entries(data.byDate).forEach(([date, v]) => {
+            if (!labelMap[label].byDate[date]) labelMap[label].byDate[date] = 0;
+            labelMap[label].byDate[date] += v;
+          });
+        });
+
+        const sorted = Object.entries(labelMap).sort((a, b) => b[1].views - a[1].views);
 
         const totalSessions = sorted.reduce((s, [,v]) => s + v.sessions, 0);
         const totalViews    = sorted.reduce((s, [,v]) => s + v.views, 0);
@@ -1132,10 +1147,10 @@
         }
 
         // Render cards
-        document.getElementById('llmSourceCards').innerHTML = sorted.map(([source], i) => `
+        document.getElementById('llmSourceCards').innerHTML = sorted.map(([label], i) => `
           <div class="hist-row" style="margin-bottom:24px;">
             <div class="hist-gauge-side" style="min-width:260px;width:260px;">
-              <div class="hist-gauge-title" id="llmTitle_${i}">${getLLMConfig(source).label}</div>
+              <div class="hist-gauge-title" id="llmTitle_${i}">${label}</div>
               <div class="hist-gauge-wrap">
                 <canvas id="llmGauge_${i}"></canvas>
                 <div class="hist-gauge-center">
@@ -1153,8 +1168,8 @@
         `).join('');
 
         // Draw gauge + bar chart per source
-        sorted.forEach(([source, data], i) => {
-          const cfg = getLLMConfig(source);
+        sorted.forEach(([label, data], i) => {
+          const cfg = getLLMConfig(data.source);
           const views = data.views;
 
           // Gauge — use views as value, max = views * 1.5 so gauge fills proportionally
