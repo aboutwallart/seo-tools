@@ -17,7 +17,7 @@ module.exports = async (req, res) => {
       ? req.body
       : req.query;
 
-    const siteUrl = 'https://www.aboutwallart.com/';
+    const siteUrl = 'sc-domain:aboutwallart.com';
 
     // Default date range: last 28 days
     const end = endDate || getTodayDate();
