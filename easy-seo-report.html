@@ -98,16 +98,18 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v33.0</div>
+      <div class="tool-version">v35.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
-    <div class="nav-item" onclick="showSection('llm', this)">LLM Traffic</div>
+    <div class="nav-item" onclick="showSection('llm', this)">🤖 AI Traffic</div>
     <div class="nav-item" onclick="showSection('blog', this)">Blog Tracking</div>
     <div class="nav-item" onclick="showSection('blogopt', this)">Blog Optimizations</div>
     <div class="nav-item" onclick="showSection('content', this)">Content Optimizations</div>
     <div class="nav-item" onclick="showSection('kwtracker', this)">Keyword Tracker</div>
     <div class="nav-item" onclick="showSection('kwrankings', this)">Keyword Rankings</div>
+    <div class="nav-item" onclick="showSection('quickwins', this)">🔥 Quick Wins</div>
+    <div class="nav-item" onclick="showSection('dangerpages', this)">⚠️ Danger Pages</div>
   </div>
 
   <div class="main">
@@ -190,7 +192,7 @@
         <!-- Header bar -->
         <div style="background:#1a1a1a;border-radius:8px;padding:20px 24px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
           <div style="display:flex;align-items:center;gap:12px;">
-            <span style="color:#fff;font-size:16px;font-weight:600;">LLM Traffic</span>
+            <span style="color:#fff;font-size:16px;font-weight:600;">🤖 AI Traffic</span>
             <select id="llmDays" onchange="loadLLMTraffic()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">
               <option value="30">Last 30 days</option>
               <option value="90" selected>Last 90 days</option>
@@ -514,6 +516,67 @@
 
       </div>
 
+
+      <!-- SECTION: Quick Wins -->
+      <div class="section" id="section-quickwins">
+        <div style="background:#1a1a1a;border-radius:8px;padding:16px 24px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+          <div>
+            <span style="color:#fff;font-size:16px;font-weight:600;">🔥 Quick Wins</span>
+            <span style="color:#888;font-size:12px;margin-left:12px;">Position 1–20 · 100+ impressions · not in Blog/Content Optimizations</span>
+          </div>
+          <input id="qwSearch" type="text" placeholder="Search..." oninput="qwFilter()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:200px;outline:none;">
+        </div>
+        <div style="display:flex;align-items:center;border-bottom:2px solid #e5e5e5;margin-bottom:24px;">
+          <button id="qwTabCollections" onclick="qwSwitchTab('collections')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">Collections <span id="qwCountCollections" class="count-badge">—</span></button>
+          <button id="qwTabBlogs" onclick="qwSwitchTab('blogs')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Blogs <span id="qwCountBlogs" class="count-badge">—</span></button>
+          <button id="qwTabProducts" onclick="qwSwitchTab('products')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Products <span id="qwCountProducts" class="count-badge">—</span></button>
+          <button id="qwTabPages" onclick="qwSwitchTab('pages')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Pages <span id="qwCountPages" class="count-badge">—</span></button>
+        </div>
+        <div class="table-card">
+          <table style="table-layout:fixed;width:100%;">
+            <thead><tr>
+              <th style="width:280px;">Page URL</th>
+              <th class="num" style="width:80px;">Position</th>
+              <th class="num" style="width:100px;">Impressions</th>
+              <th class="num" style="width:70px;">Clicks</th>
+              <th class="num" style="width:65px;">CTR</th>
+              <th style="width:200px;">Top Query</th>
+            </tr></thead>
+            <tbody id="qwBody"><tr class="loading-row"><td colspan="6">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- SECTION: Danger Pages -->
+      <div class="section" id="section-dangerpages">
+        <div style="background:#1a1a1a;border-radius:8px;padding:16px 24px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+          <div>
+            <span style="color:#fff;font-size:16px;font-weight:600;">⚠️ Danger Pages</span>
+            <span style="color:#888;font-size:12px;margin-left:12px;">Clicks dropped 20%+ vs previous 90 days · min 10 clicks · not in Quick Wins</span>
+          </div>
+          <input id="dpSearch" type="text" placeholder="Search..." oninput="dpFilter()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:200px;outline:none;">
+        </div>
+        <div style="display:flex;align-items:center;border-bottom:2px solid #e5e5e5;margin-bottom:24px;">
+          <button id="dpTabCollections" onclick="dpSwitchTab('collections')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">Collections <span id="dpCountCollections" class="count-badge">—</span></button>
+          <button id="dpTabBlogs" onclick="dpSwitchTab('blogs')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Blogs <span id="dpCountBlogs" class="count-badge">—</span></button>
+          <button id="dpTabProducts" onclick="dpSwitchTab('products')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Products <span id="dpCountProducts" class="count-badge">—</span></button>
+          <button id="dpTabPages" onclick="dpSwitchTab('pages')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Pages <span id="dpCountPages" class="count-badge">—</span></button>
+        </div>
+        <div class="table-card">
+          <table style="table-layout:fixed;width:100%;">
+            <thead><tr>
+              <th style="width:280px;">Page URL</th>
+              <th class="num" style="width:80px;">Position</th>
+              <th class="num" style="width:100px;">Clicks (now)</th>
+              <th class="num" style="width:100px;">Clicks (prev)</th>
+              <th class="num" style="width:90px;">Change</th>
+              <th class="num" style="width:100px;">Impressions</th>
+            </tr></thead>
+            <tbody id="dpBody"><tr class="loading-row"><td colspan="6">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -551,6 +614,8 @@
       if(id==='llm'&&!llmLoaded){loadLLMTraffic();llmLoaded=true;}
       if(id==='kwtracker'){kwInit();}
       if(id==='kwrankings'&&!kwrLoaded){kwrInit();}
+      if(id==='quickwins'){loadQuickWins();}
+      if(id==='dangerpages'){if(!qwLoaded){loadQuickWins().then(()=>loadDangerPages());}else{loadDangerPages();}}
     }
 
     function onRangeChange(){
@@ -748,7 +813,7 @@
         // Table 1: Fix CTR — position 1-7, has clicks, CTR under 2%, 100+ impressions
         // Sort: highest position first (most urgent — hardest to get clicks from)
         ctrData=pages
-          .filter(p=>p.clicks>0&&p.ctr<0.02&&p.impressions>=100&&p.position<=7&&!p.page.includes('/blogs/'))
+          .filter(p=>p.clicks>0&&p.ctr<0.02&&p.impressions>=100&&p.position<=7&&!p.page.includes('/blogs/')&&!qwExcludeUrls.has(p.page)&&!dpExcludeUrls.has(p.page))
           .sort((a,b)=>b.position-a.position);
         ctrData.forEach(p=>assigned.add(p.page));
         document.getElementById('ctrCount').textContent=ctrData.length+' pages';
@@ -757,7 +822,7 @@
         // Table 2: Pages to Optimise — position 8-15, CTR under 2%, 100+ impressions
         // Sort: lowest position first (closest to page 1 — most likely to jump up)
         optimiseData=pages
-          .filter(p=>!assigned.has(p.page)&&p.impressions>=100&&p.position>7&&p.position<=15&&p.ctr<0.02&&!p.page.includes('/blogs/'))
+          .filter(p=>!assigned.has(p.page)&&p.impressions>=100&&p.position>7&&p.position<=15&&p.ctr<0.02&&!p.page.includes('/blogs/')&&!qwExcludeUrls.has(p.page)&&!dpExcludeUrls.has(p.page))
           .sort((a,b)=>a.position-b.position);
         optimiseData.forEach(p=>assigned.add(p.page));
         document.getElementById('optimiseCount').textContent=optimiseData.length+' pages';
@@ -1079,6 +1144,7 @@
           .filter(r => {
             const url = r.keys ? r.keys[0] : '';
             if (!url.includes('/blogs/') || r.impressions < 100) return false;
+            if (qwExcludeUrls.has(url.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','')) || dpExcludeUrls.has(url.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com',''))) return false;
             // Filter out foreign language blogs
             if (url.includes('/es/blogs/') || url.includes('/fr/blogs/')) return false;
             // Filter out new blogs (published within last 90 days)
@@ -2097,6 +2163,222 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
       el.style.borderColor = border;
       el.style.color = color;
       document.getElementById('kwrSaveStatusText').textContent = text;
+    }
+
+
+    // ═══════════════════════════════════════════════════════
+    // QUICK WINS + DANGER PAGES
+    // ═══════════════════════════════════════════════════════
+
+    let qwData = { collections:[], blogs:[], products:[], pages:[] };
+    let dpData = { collections:[], blogs:[], products:[], pages:[] };
+    let qwActiveTab = 'collections';
+    let dpActiveTab = 'collections';
+    let qwLoaded = false;
+    let dpLoaded = false;
+    let qwExcludeUrls = new Set(); // URLs in QW — excluded from Blog/Content Opts
+    let dpExcludeUrls = new Set(); // URLs in DP — excluded from Blog/Content Opts
+
+    function getPageType(url) {
+      if (url.includes('/collections/')) return 'collections';
+      if (url.includes('/blogs/'))       return 'blogs';
+      if (url.includes('/products/'))    return 'products';
+      return 'pages';
+    }
+
+    async function loadQuickWins() {
+      if (qwLoaded) return;
+      qwLoaded = true;
+      document.getElementById('qwBody').innerHTML = '<tr class="loading-row"><td colspan="6">Loading Quick Wins...</td></tr>';
+
+      try {
+        const end = getDate(0), start = getDate(90), startPrev = getDate(180);
+
+        const [resPages, resPQ, resPrev] = await Promise.all([
+          fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`),
+          fetch(`${API}?action=page-query&startDate=${start}&endDate=${end}`),
+          fetch(`${API}?action=pages&startDate=${startPrev}&endDate=${start}`)
+        ]);
+
+        const jPages = await resPages.json();
+        const jPQ    = await resPQ.json();
+        const jPrev  = await resPrev.json();
+
+        if (!jPages.success) throw new Error(jPages.error);
+
+        // Build top query per page
+        const topQuery = {};
+        if (jPQ.success) {
+          (jPQ.data.rows || []).forEach(r => {
+            const page  = (r.keys?.[0]||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
+            const query = r.keys?.[1]||'';
+            if (!topQuery[page] || r.impressions > (topQuery[page].imp||0)) {
+              topQuery[page] = { query, imp: r.impressions };
+            }
+          });
+        }
+
+        // Build prev lookup
+        const prevMap = {};
+        if (jPrev.success) {
+          (jPrev.data.rows||[]).forEach(r => {
+            const page = (r.keys?.[0]||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
+            prevMap[page] = { clicks: r.clicks||0 };
+          });
+        }
+
+        // Filter Quick Wins: pos 1-20, 100+ impressions
+        qwData = { collections:[], blogs:[], products:[], pages:[] };
+        qwExcludeUrls = new Set();
+
+        (jPages.data.rows||[]).forEach(r => {
+          const page = (r.keys?.[0]||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
+          const pos  = r.position||0;
+          const imp  = r.impressions||0;
+          if (pos >= 1 && pos <= 20 && imp >= 100) {
+            const type = getPageType(page);
+            const entry = { page, pos, imp, clk: r.clicks||0, ctr: r.ctr||0, topQuery: topQuery[page]?.query||'—' };
+            qwData[type].push(entry);
+            qwExcludeUrls.add(page);
+          }
+        });
+
+        // Sort by impressions desc within each type
+        Object.keys(qwData).forEach(t => qwData[t].sort((a,b) => b.imp - a.imp));
+
+        // Update counts
+        ['collections','blogs','products','pages'].forEach(t => {
+          document.getElementById('qwCount' + t.charAt(0).toUpperCase() + t.slice(1)).textContent = qwData[t].length;
+        });
+
+        qwSwitchTab('collections');
+
+      } catch(e) {
+        document.getElementById('qwBody').innerHTML = `<tr class="loading-row"><td colspan="6" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
+      }
+    }
+
+    async function loadDangerPages() {
+      if (dpLoaded) return;
+      dpLoaded = true;
+      document.getElementById('dpBody').innerHTML = '<tr class="loading-row"><td colspan="6">Loading Danger Pages...</td></tr>';
+
+      try {
+        const end = getDate(0), start = getDate(90), startPrev = getDate(180);
+
+        const [resCurr, resPrev] = await Promise.all([
+          fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`),
+          fetch(`${API}?action=pages&startDate=${startPrev}&endDate=${start}`)
+        ]);
+
+        const jCurr = await resCurr.json();
+        const jPrev = await resPrev.json();
+        if (!jCurr.success) throw new Error(jCurr.error);
+
+        const prevMap = {};
+        if (jPrev.success) {
+          (jPrev.data.rows||[]).forEach(r => {
+            const page = (r.keys?.[0]||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
+            prevMap[page] = { clicks: r.clicks||0, imp: r.impressions||0 };
+          });
+        }
+
+        dpData = { collections:[], blogs:[], products:[], pages:[] };
+        dpExcludeUrls = new Set();
+
+        (jCurr.data.rows||[]).forEach(r => {
+          const page     = (r.keys?.[0]||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
+          const currClk  = r.clicks||0;
+          const prevClk  = prevMap[page]?.clicks||0;
+          // Skip if already in Quick Wins
+          if (qwExcludeUrls.has(page)) return;
+          // Must have 10+ clicks previous period and 20%+ drop
+          if (prevClk < 10) return;
+          const drop = (currClk - prevClk) / prevClk * 100;
+          if (drop > -20) return;
+
+          const type = getPageType(page);
+          dpData[type].push({ page, pos: r.position||0, currClk, prevClk, drop, imp: r.impressions||0 });
+          dpExcludeUrls.add(page);
+        });
+
+        Object.keys(dpData).forEach(t => dpData[t].sort((a,b) => a.drop - b.drop));
+
+        ['collections','blogs','products','pages'].forEach(t => {
+          document.getElementById('dpCount' + t.charAt(0).toUpperCase() + t.slice(1)).textContent = dpData[t].length;
+        });
+
+        dpSwitchTab('collections');
+
+      } catch(e) {
+        document.getElementById('dpBody').innerHTML = `<tr class="loading-row"><td colspan="6" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
+      }
+    }
+
+    function qwSwitchTab(tab) {
+      qwActiveTab = tab;
+      ['collections','blogs','products','pages'].forEach(t => {
+        const btn = document.getElementById('qwTab' + t.charAt(0).toUpperCase() + t.slice(1));
+        const active = t === tab;
+        btn.style.fontWeight = active?'600':'400';
+        btn.style.color = active?'#1a1a1a':'#888';
+        btn.style.borderBottomColor = active?'#1a1a1a':'transparent';
+      });
+      qwRenderRows();
+    }
+
+    function dpSwitchTab(tab) {
+      dpActiveTab = tab;
+      ['collections','blogs','products','pages'].forEach(t => {
+        const btn = document.getElementById('dpTab' + t.charAt(0).toUpperCase() + t.slice(1));
+        const active = t === tab;
+        btn.style.fontWeight = active?'600':'400';
+        btn.style.color = active?'#1a1a1a':'#888';
+        btn.style.borderBottomColor = active?'#1a1a1a':'transparent';
+      });
+      dpRenderRows();
+    }
+
+    function qwFilter() { qwRenderRows(); }
+    function dpFilter() { dpRenderRows(); }
+
+    function qwRenderRows() {
+      const search = (document.getElementById('qwSearch')?.value||'').toLowerCase();
+      let rows = qwData[qwActiveTab] || [];
+      if (search) rows = rows.filter(r => r.page.includes(search) || r.topQuery.includes(search));
+      const tbody = document.getElementById('qwBody');
+      if (!rows.length) { tbody.innerHTML = '<tr class="loading-row"><td colspan="6">No Quick Win pages found in this category.</td></tr>'; return; }
+      tbody.innerHTML = rows.map(r => {
+        const posColor = r.pos<=3?'#16a34a':r.pos<=10?'#d97706':'#dc2626';
+        return `<tr>
+          <td style="font-size:11px;color:#2563eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.page}">${r.page}</td>
+          <td class="num" style="color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>
+          <td class="num">${fmt(r.imp)}</td>
+          <td class="num">${fmt(r.clk)}</td>
+          <td class="num">${fmtCTR(r.ctr)}</td>
+          <td style="font-size:11px;color:#555;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.topQuery}">${r.topQuery}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    function dpRenderRows() {
+      const search = (document.getElementById('dpSearch')?.value||'').toLowerCase();
+      let rows = dpData[dpActiveTab] || [];
+      if (search) rows = rows.filter(r => r.page.includes(search));
+      const tbody = document.getElementById('dpBody');
+      if (!rows.length) { tbody.innerHTML = '<tr class="loading-row"><td colspan="6">No Danger pages found in this category.</td></tr>'; return; }
+      tbody.innerHTML = rows.map(r => {
+        const dropColor = r.drop < -50 ? '#dc2626' : '#ef4444';
+        const posColor = r.pos<=3?'#16a34a':r.pos<=10?'#d97706':'#dc2626';
+        return `<tr>
+          <td style="font-size:11px;color:#2563eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.page}">${r.page}</td>
+          <td class="num" style="color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>
+          <td class="num">${fmt(r.currClk)}</td>
+          <td class="num">${fmt(r.prevClk)}</td>
+          <td class="num" style="color:${dropColor};font-weight:600;">▼ ${Math.abs(r.drop).toFixed(1)}%</td>
+          <td class="num">${fmt(r.imp)}</td>
+        </tr>`;
+      }).join('');
     }
 
     loadOverview(28);loadClicksChart(28);loadDeviceChart(28);loadPages(28);loadQueries(28);
