@@ -114,6 +114,23 @@ module.exports = async (req, res) => {
         rowLimit: 500
       });
 
+    } else if (action === 'ga4-suspicious') {
+      // GA4 suspicious traffic — sessions with 0 engaged sessions (bounced) per month
+      const propertyId = process.env.GA4_PROPERTY_ID;
+      if (!propertyId) throw new Error('GA4_PROPERTY_ID not configured');
+
+      const ga4Body = {
+        dateRanges: [{ startDate: getDateDaysAgo(365), endDate: getTodayDate() }],
+        dimensions: [{ name: 'yearMonth' }],
+        metrics: [
+          { name: 'sessions' },
+          { name: 'bounceRate' },
+          { name: 'engagedSessions' }
+        ],
+        limit: 20
+      };
+      data = await ga4Query(accessToken, propertyId, ga4Body);
+
     } else if (action === 'ga4-llm') {
       // GA4 LLM Traffic — referral sessions from AI tools
       const propertyId = process.env.GA4_PROPERTY_ID;
