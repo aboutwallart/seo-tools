@@ -454,7 +454,7 @@
                     <h1>🔒 Keyword Locker</h1>
                     <p>Lock each keyword to its best URL - resolve cannibalization by choosing winners</p>
                     <p class="subtitle">One keyword = One winner URL. Lock keywords, not URLs.</p>
-                    <p style="font-size: 11px; color: #999; margin-top: 10px;">v9.6</p>
+                    <p style="font-size: 11px; color: #999; margin-top: 10px;">v9.7</p>
                 </div>
                 <button onclick="showHelp()" style="background: #0969da; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; white-space: nowrap;">
                     ❓ How to Clear Cache Safely
@@ -744,8 +744,8 @@
                     
                     if (!keyword) continue;
                     
-                    // Load LOCKED keywords (TO_OPTIMIZE)
-                    if (locked === 'LOCKED' && status === 'DONE' && action === 'TO_OPTIMIZE') {
+                    // Load LOCKED keywords (TO_OPTIMIZE or OPTIMIZED - all sources)
+                    if (locked === 'LOCKED' && status === 'DONE' && (action === 'TO_OPTIMIZE' || action === 'OPTIMIZED')) {
                         resolvedKeywords[keyword] = {
                             winnerUrl: url,
                             date: new Date().toISOString(),
@@ -1048,7 +1048,7 @@
                 .filter(p => {
                     const url = p['Top pages'] || '';
                     // Filter out foreign language URLs
-                    if (url.match(/\/(es|fr|de|it|pt|nl|ru|ja|zh|ko|ar)\//)) return false;
+                    if (url.match(/\/(es|fr|de|it|pt|nl|ru|ja|zh|ko|ar)(\/|$)/)) return false;
                     // Filter out CDN URLs
                     if (url.includes('/cdn/')) {
                         console.log(`🚫 Filtered CDN URL: ${url}`);
@@ -1167,14 +1167,15 @@
         
         // Update stats
         function updateStats() {
-            // Count only user-resolved keywords (Source = "User Resolved")
             const userResolved = Object.values(resolvedKeywords).filter(r => r.source === 'User Resolved').length;
+            const preLocked = Object.values(resolvedKeywords).filter(r => r.source !== 'User Resolved').length;
             
             document.getElementById('conflictsCount').textContent = conflictsData.length;
             document.getElementById('resolvedCount').textContent = userResolved;
             document.getElementById('savedCount').textContent = Object.keys(savedKeywords).length;
             document.getElementById('deletedCount').textContent = Object.keys(deletedKeywords).length;
             document.getElementById('redirectsCount').textContent = Object.keys(redirectKeywords).length;
+            document.getElementById('prelockedCount').textContent = preLocked;
             document.getElementById('activeConflictCount').textContent = conflictsData.length;
         }
         
