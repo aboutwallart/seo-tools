@@ -149,6 +149,16 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true, registry });
       }
 
+      // ── ACTION: get-optimisations ──
+      if (req.query.action === 'get-optimisations') {
+        try {
+          const file = await getGitHubFile('data/keyword-optimisations.json');
+          return res.status(200).json({ success: true, optimisations: JSON.parse(file.content) });
+        } catch(e) {
+          return res.status(200).json({ success: true, optimisations: {} });
+        }
+      }
+
       // ── ACTION: get-tracked-keywords ──
       if (req.query.action === 'get-tracked-keywords') {
         try {
@@ -216,6 +226,22 @@ export default async function handler(req, res) {
         const updated = registry.content.trimEnd() + '\n' + newRow + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Lock keyword from rankings: ${keyword}`);
         return res.status(200).json({ success: true, keyword, url });
+      }
+
+      // ── ACTION: save-optimisations ──
+      if (req.body.action === 'save-optimisations') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { optimisations } = req.body;
+        const jsonContent = JSON.stringify(optimisations, null, 2);
+        let sha = null;
+        try { const existing = await getGitHubFile('data/keyword-optimisations.json'); sha = existing.sha; } catch(e) {}
+        const response = await fetch(`https://api.github.com/repos/${REPO}/contents/data/keyword-optimisations.json`, {
+          method: 'PUT',
+          headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'Update keyword optimisations', content: Buffer.from(jsonContent).toString('base64'), ...(sha ? { sha } : {}) })
+        });
+        if (!response.ok) { const err = await response.text(); return res.status(500).json({ error: `GitHub save failed: ${err}` }); }
+        return res.status(200).json({ success: true });
       }
 
       // ── ACTION: save-tracked-keywords ──
