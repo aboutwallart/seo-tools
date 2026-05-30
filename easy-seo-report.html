@@ -98,7 +98,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v45.0</div>
+      <div class="tool-version">v46.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -3144,30 +3144,51 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
         }
 
         // Stacked bar chart
-        const labels   = monthly.map(m=>m.label);
+        // For the breakdown bar: we need all segments to sum to total sessions.
+        // Suspicious = bounced sessions (from aggregate)
+        // Page type segments = from page-level data, scaled to fit non-suspicious sessions
+        // Any remainder = unclassified
+        const labels = monthly.map(m=>m.label);
+
+        // Normalise page type data to fill total sessions
+        const normMonthly = monthly.map(m => {
+          const typeSessions = m.collections + m.blogs + m.products + m.pages + m.adintent;
+          // Scale factor: distribute non-suspicious sessions across page types
+          const nonSusp = m.sessions - m.bounced;
+          const scale   = typeSessions > 0 ? nonSusp / typeSessions : 0;
+          return {
+            ...m,
+            normCollections: Math.round(m.collections * scale),
+            normBlogs:       Math.round(m.blogs * scale),
+            normProducts:    Math.round(m.products * scale),
+            normPages:       Math.round(m.pages * scale),
+            normAdIntent:    Math.round(m.adintent * scale),
+          };
+        });
+
         const existingB=Chart.getChart('suspBarChart');if(existingB)existingB.destroy();
         new Chart(document.getElementById('suspBarChart').getContext('2d'),{
           type:'bar',
           data:{
             labels,
             datasets:[
-              // Left bar = total (violet, not stacked)
-              { label:'Total', data:monthly.map(m=>m.sessions), backgroundColor:'rgba(99,102,241,0.5)', borderRadius:2, stack:'total', order:2 },
-              // Right bar = stacked breakdown (order: suspicious bottom, then types, adintent top)
-              { label:'Suspicious',  data:monthly.map(m=>m.bounced),     backgroundColor:'#ef4444', stack:'breakdown', order:1 },
-              { label:'Collections', data:monthly.map(m=>m.collections), backgroundColor:'#8b5cf6', stack:'breakdown', order:1 },
-              { label:'Blogs',       data:monthly.map(m=>m.blogs),       backgroundColor:'#22c55e', stack:'breakdown', order:1 },
-              { label:'Products',    data:monthly.map(m=>m.products),    backgroundColor:'#f97316', stack:'breakdown', order:1 },
-              { label:'Pages',       data:monthly.map(m=>m.pages),       backgroundColor:'#3b82f6', stack:'breakdown', order:1 },
-              { label:'Ad Intent',   data:monthly.map(m=>m.adintent),    backgroundColor:'#eab308', stack:'breakdown', order:1 },
+              // Left bar = total (violet, separate stack)
+              { label:'Total',       data:monthly.map(m=>m.sessions),              backgroundColor:'rgba(99,102,241,0.4)', borderRadius:2, stack:'total' },
+              // Right bar = stacked breakdown, sums to total
+              { label:'Suspicious',  data:normMonthly.map(m=>m.bounced),           backgroundColor:'#ef4444', stack:'breakdown' },
+              { label:'Collections', data:normMonthly.map(m=>m.normCollections),   backgroundColor:'#8b5cf6', stack:'breakdown' },
+              { label:'Blogs',       data:normMonthly.map(m=>m.normBlogs),         backgroundColor:'#22c55e', stack:'breakdown' },
+              { label:'Products',    data:normMonthly.map(m=>m.normProducts),      backgroundColor:'#f97316', stack:'breakdown' },
+              { label:'Pages',       data:normMonthly.map(m=>m.normPages),         backgroundColor:'#3b82f6', stack:'breakdown' },
+              { label:'Ad Intent',   data:normMonthly.map(m=>m.normAdIntent),      backgroundColor:'#eab308', stack:'breakdown' },
             ]
           },
           options:{
             responsive:true,
-            plugins:{legend:{display:false}},
+            plugins:{ legend:{ display:false } },
             scales:{
-              x:{grid:{display:false},ticks:{font:{size:10}}},
-              y:{grid:{color:'#f0f0f0'},ticks:{font:{size:10}},stacked:false}
+              x:{ grid:{display:false}, ticks:{font:{size:10}} },
+              y:{ grid:{color:'#f0f0f0'}, ticks:{font:{size:10}}, stacked:true }
             }
           }
         });
