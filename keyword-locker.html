@@ -315,7 +315,7 @@
             <h1>🔒 Keyword Locker</h1>
             <p>Live GSC data · One keyword = One winner URL</p>
         </div>
-        <span class="version-badge">v10.1</span>
+        <span class="version-badge">v10.2</span>
     </div>
 
     <!-- TOKEN -->
@@ -604,7 +604,8 @@ function loadRegistry(csv) {
                 deletedKeywords[keyword] = { keyword, date: new Date().toISOString() };
             } else if (action === 'REDIRECT') {
                 const cleanUrl = url.split('?')[0];
-                redirectKeywords[keyword] = { keyword, oldUrl: url, newUrl: cleanUrl, date: new Date().toISOString() };
+                const redirKey = `${keyword}|${url}`;
+                redirectKeywords[redirKey] = { keyword, oldUrl: url, newUrl: cleanUrl, date: new Date().toISOString() };
             }
         }
     }
