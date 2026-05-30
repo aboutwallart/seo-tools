@@ -98,7 +98,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v41.0</div>
+      <div class="tool-version">v42.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1695,16 +1695,22 @@
     // ═══════════════════════════════════════════════════════
 
     let kwTabs = [];         // [{ id, label, keyword }]
+    let kwOptimisations = {};  // { tabId: 'YYYY-MM-DD' }
     let kwActiveId = null;
     let kwSaveTimer = null;
 
     // Load tabs from GitHub on init
     async function kwInit() {
       try {
-        const res = await fetch('/api/blogs?action=get-keyword-tabs');
-        const json = await res.json();
-        if (json.success && json.tabs.length) {
-          kwTabs = json.tabs;
+        const [tabsRes, optRes] = await Promise.all([
+          fetch('/api/blogs?action=get-keyword-tabs'),
+          fetch('/api/blogs?action=get-optimisations')
+        ]);
+        const tabsJson = await tabsRes.json();
+        const optJson  = await optRes.json();
+        if (optJson.success) kwOptimisations = optJson.optimisations || {};
+        if (tabsJson.success && tabsJson.tabs.length) {
+          kwTabs = tabsJson.tabs;
           kwRenderTabsRow();
           kwActivate(kwTabs[0].id);
         }
@@ -1893,6 +1899,16 @@
             <div class="metric-card"><div class="metric-label">Avg Position</div><div class="metric-value">${fmtPos(avgPos)}</div><div class="metric-sub">across all queries</div></div>
           </div>
 
+          <!-- Optimisation marker -->
+          <div style="background:#f9f9f9;border:1px solid #e5e5e5;border-radius:8px;padding:14px 20px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <span style="font-size:13px;font-weight:600;color:#1a1a1a;">📅 Page Optimised:</span>
+            ${kwOptimisations[tab.id] ? `<span style="background:#f0fdf4;color:#16a34a;padding:4px 12px;border-radius:6px;font-size:13px;font-weight:600;">${kwOptimisations[tab.id]}</span>` : '<span style="color:#aaa;font-size:12px;">Not marked yet</span>'}
+            <input type="date" id="kwOptDate_${tab.id}" value="${kwOptimisations[tab.id] || new Date().toISOString().slice(0,10)}" style="padding:5px 10px;border:1px solid #e5e5e5;border-radius:4px;font-size:12px;outline:none;">
+            <button onclick="kwSaveOptimisation('${tab.id}')" style="padding:6px 14px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer;font-weight:600;">✓ Save Date</button>
+            ${kwOptimisations[tab.id] ? `<button onclick="kwClearOptimisation('${tab.id}')" style="padding:6px 14px;background:#fff;color:#dc2626;border:1px solid #fecaca;border-radius:4px;font-size:12px;cursor:pointer;">✕ Clear</button>` : ''}
+            <span id="kwOptStatus_${tab.id}" style="font-size:12px;color:#16a34a;"></span>
+          </div>
+
           <!-- Growth chart -->
           <div class="chart-card" style="margin-bottom:24px;">
             <div class="chart-card-header">
@@ -1940,11 +1956,54 @@
           </div>
         `;
 
+        // Build optimisation line annotation if date set
+        const optDate = kwOptimisations[tab.id];
+        let optLineIndex = -1;
+        if (optDate) {
+          const optD = new Date(optDate);
+          chartLabels.forEach((lbl, idx) => {
+            // Match month label like "May 26" to the date
+            const parts = lbl.split(' ');
+            const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            const mIdx = monthNames.indexOf(parts[0]);
+            const yr = 2000 + parseInt(parts[1]);
+            if (mIdx !== -1 && optD.getFullYear() === yr && optD.getMonth() === mIdx) optLineIndex = idx;
+          });
+        }
+
         // Draw growth chart
         const existingKwChart = Chart.getChart('kwGrowthChart');
         if (existingKwChart) existingKwChart.destroy();
+
+        // Custom plugin: vertical line at optimisation date
+        const optLinePlugin = {
+          id: 'optLine',
+          afterDraw(chart) {
+            if (optLineIndex < 0) return;
+            const ctx = chart.ctx;
+            const xScale = chart.scales.x;
+            const yScale = chart.scales.y;
+            const x = xScale.getPixelForValue(optLineIndex);
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(x, yScale.top);
+            ctx.lineTo(x, yScale.bottom);
+            ctx.strokeStyle = '#16a34a';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 4]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            // Label
+            ctx.fillStyle = '#16a34a';
+            ctx.font = 'bold 10px sans-serif';
+            ctx.fillText('✓ Optimised', x + 4, yScale.top + 14);
+            ctx.restore();
+          }
+        };
+
         new Chart(document.getElementById('kwGrowthChart').getContext('2d'), {
           type: 'line',
+          plugins: [optLinePlugin],
           data: {
             labels: chartLabels,
             datasets: [
@@ -1984,6 +2043,43 @@
       } catch(e) {
         content.innerHTML = `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:16px;color:#dc2626;font-size:13px;">Error: ${e.message}</div>`;
       }
+    }
+
+    async function kwSaveOptimisation(tabId) {
+      const dateEl = document.getElementById('kwOptDate_' + tabId);
+      const date = dateEl?.value;
+      if (!date) return;
+      kwOptimisations[tabId] = date;
+      const statusEl = document.getElementById('kwOptStatus_' + tabId);
+      if (statusEl) statusEl.textContent = '⏳ Saving...';
+      try {
+        const res = await fetch('/api/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'save-optimisations', optimisations: kwOptimisations })
+        });
+        const json = await res.json();
+        if (json.success) {
+          if (statusEl) { statusEl.textContent = '✅ Saved'; setTimeout(() => { statusEl.textContent = ''; }, 2000); }
+          // Re-render to show green badge and update chart
+          kwActivate(tabId);
+        }
+      } catch(e) {
+        if (statusEl) statusEl.textContent = '❌ ' + e.message;
+      }
+    }
+
+    async function kwClearOptimisation(tabId) {
+      if (!confirm('Clear optimisation date for this keyword?')) return;
+      delete kwOptimisations[tabId];
+      try {
+        await fetch('/api/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'save-optimisations', optimisations: kwOptimisations })
+        });
+      } catch(e) {}
+      kwActivate(tabId);
     }
 
     function kwFilterTable(search) {
