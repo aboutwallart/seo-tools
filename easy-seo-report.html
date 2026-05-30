@@ -98,12 +98,11 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v38.0</div>
+      <div class="tool-version">v39.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
     <div class="nav-item" onclick="showSection('llm', this)">🤖 AI Traffic</div>
-    <div class="nav-item" onclick="showSection('blog', this)">Blog Tracking</div>
     <div class="nav-item" onclick="showSection('blogopt', this)">Blog Optimizations</div>
     <div class="nav-item" onclick="showSection('content', this)">Content Optimizations</div>
     <div class="nav-item" onclick="showSection('kwtracker', this)">Keyword Tracker</div>
@@ -517,6 +516,178 @@
       </div>
 
 
+
+      <!-- SECTION: Quick Wins -->
+      <div class="section" id="section-quickwins">
+        <div style="background:#1a1a1a;border-radius:8px;padding:16px 24px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+          <div>
+            <span style="color:#fff;font-size:16px;font-weight:600;">🔥 Quick Wins</span>
+            <span style="color:#888;font-size:12px;margin-left:12px;">Position 1–20 · 100+ impressions</span>
+          </div>
+          <input id="qwSearch" type="text" placeholder="Search..." oninput="qwFilter()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:200px;outline:none;">
+        </div>
+
+        <!-- Page type tabs -->
+        <div style="display:flex;align-items:center;border-bottom:2px solid #e5e5e5;margin-bottom:16px;">
+          <button id="qwTabCollections" onclick="qwSwitchPageType('collections')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">Collections <span id="qwCountCollections" class="count-badge">—</span></button>
+          <button id="qwTabBlogs" onclick="qwSwitchPageType('blogs')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Blogs <span id="qwCountBlogs" class="count-badge">—</span></button>
+          <button id="qwTabProducts" onclick="qwSwitchPageType('products')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Products <span id="qwCountProducts" class="count-badge">—</span></button>
+          <button id="qwTabPages" onclick="qwSwitchPageType('pages')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Pages <span id="qwCountPages" class="count-badge">—</span></button>
+          <div style="flex:1;"></div>
+          <!-- All / Selected sub-tabs -->
+          <button id="qwSubAll" onclick="qwSwitchSub('all')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">All <span id="qwSubCountAll" class="count-badge">—</span></button>
+          <button id="qwSubSelected" onclick="qwSwitchSub('selected')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Selected <span id="qwSubCountSelected" class="count-badge">0</span></button>
+        </div>
+
+        <!-- Save status -->
+        <div id="qwSaveStatus" style="display:none;border-radius:6px;padding:10px 16px;margin-bottom:12px;font-size:13px;align-items:center;gap:8px;"><span id="qwSaveStatusText"></span></div>
+
+                <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;padding:10px 16px;background:#f9f9f9;border:1px solid #e5e5e5;border-radius:6px;font-size:12px;flex-wrap:wrap;">
+          <span style="color:#888;font-weight:600;">Registry:</span>
+          <span><span style="background:#f0fdf4;color:#16a34a;padding:1px 8px;border-radius:8px;font-size:11px;font-weight:600;">🔒 Locked</span> — this exact URL + keyword locked together</span>
+          <span><span style="background:#fefce8;color:#92400e;padding:1px 8px;border-radius:8px;font-size:11px;font-weight:600;">🟡 Keyword taken</span> — keyword locked to a different URL</span>
+          <span><span style="background:#fef2f2;color:#dc2626;padding:1px 8px;border-radius:8px;font-size:11px;font-weight:600;">🔴 URL taken</span> — URL locked to a different keyword</span>
+        </div>
+
+        <div class="table-card">
+          <table style="width:100%;" id="qwTable">
+            <thead id="qwTableHead"></thead>
+            <tbody id="qwBody"><tr class="loading-row"><td colspan="7">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- SECTION: Danger Pages -->
+      <div class="section" id="section-dangerpages">
+        <div style="background:#1a1a1a;border-radius:8px;padding:16px 24px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+          <div>
+            <span style="color:#fff;font-size:16px;font-weight:600;">⚠️ Danger Pages</span>
+            <span style="color:#888;font-size:12px;margin-left:12px;">Clicks dropped 20%+ vs previous 90 days · min 10 clicks</span>
+          </div>
+          <input id="dpSearch" type="text" placeholder="Search..." oninput="dpFilter()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:200px;outline:none;">
+        </div>
+
+        <!-- Page type tabs -->
+        <div style="display:flex;align-items:center;border-bottom:2px solid #e5e5e5;margin-bottom:16px;">
+          <button id="dpTabCollections" onclick="dpSwitchPageType('collections')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">Collections <span id="dpCountCollections" class="count-badge">—</span></button>
+          <button id="dpTabBlogs" onclick="dpSwitchPageType('blogs')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Blogs <span id="dpCountBlogs" class="count-badge">—</span></button>
+          <button id="dpTabProducts" onclick="dpSwitchPageType('products')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Products <span id="dpCountProducts" class="count-badge">—</span></button>
+          <button id="dpTabPages" onclick="dpSwitchPageType('pages')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Pages <span id="dpCountPages" class="count-badge">—</span></button>
+          <div style="flex:1;"></div>
+          <button id="dpSubAll" onclick="dpSwitchSub('all')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">All <span id="dpSubCountAll" class="count-badge">—</span></button>
+          <button id="dpSubSelected" onclick="dpSwitchSub('selected')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Selected <span id="dpSubCountSelected" class="count-badge">0</span></button>
+        </div>
+
+        <!-- Save status -->
+        <div id="dpSaveStatus" style="display:none;border-radius:6px;padding:10px 16px;margin-bottom:12px;font-size:13px;align-items:center;gap:8px;"><span id="dpSaveStatusText"></span></div>
+
+                <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;padding:10px 16px;background:#f9f9f9;border:1px solid #e5e5e5;border-radius:6px;font-size:12px;flex-wrap:wrap;">
+          <span style="color:#888;font-weight:600;">Registry:</span>
+          <span><span style="background:#f0fdf4;color:#16a34a;padding:1px 8px;border-radius:8px;font-size:11px;font-weight:600;">🔒 Locked</span> — this exact URL + keyword locked together</span>
+          <span><span style="background:#fefce8;color:#92400e;padding:1px 8px;border-radius:8px;font-size:11px;font-weight:600;">🟡 Keyword taken</span> — keyword locked to a different URL</span>
+          <span><span style="background:#fef2f2;color:#dc2626;padding:1px 8px;border-radius:8px;font-size:11px;font-weight:600;">🔴 URL taken</span> — URL locked to a different keyword</span>
+        </div>
+
+        <div class="table-card">
+          <table style="width:100%;" id="dpTable">
+            <thead id="dpTableHead"></thead>
+            <tbody id="dpBody"><tr class="loading-row"><td colspan="7">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- SECTION: Keyword Tracker -->
+      <div class="section" id="section-kwtracker">
+
+        <!-- Top bar -->
+        <div style="background:#1a1a1a;border-radius:8px;padding:20px 24px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+          <span style="color:#fff;font-size:16px;font-weight:600;">Keyword Tracker</span>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <input id="kwNewLabel" type="text" placeholder="Tab label (e.g. Hamilton)" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:160px;outline:none;">
+            <input id="kwNewKeyword" type="text" placeholder="Keyword to track" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:200px;outline:none;">
+            <button onclick="kwAddTab()" style="background:#2563eb;color:#fff;border:none;padding:7px 16px;border-radius:4px;font-size:12px;cursor:pointer;font-weight:600;">+ Add Tab</button>
+          </div>
+        </div>
+
+        <!-- Save status -->
+        <div id="kwSaveStatus" style="display:none;border-radius:6px;padding:10px 16px;margin-bottom:16px;font-size:13px;align-items:center;gap:8px;">
+          <span id="kwSaveStatusText"></span>
+        </div>
+
+        <!-- Tabs row -->
+        <div id="kwTabsRow" style="margin-bottom:24px;"></div>
+
+        <!-- Active tab content -->
+        <div id="kwContent">
+          <div style="text-align:center;padding:48px;color:#aaa;font-size:13px;">Add a keyword tab above to get started.</div>
+        </div>
+
+      </div>
+
+
+      <!-- SECTION: Keyword Rankings -->
+      <div class="section" id="section-kwrankings">
+
+        <!-- Top bar -->
+        <div style="background:#1a1a1a;border-radius:8px;padding:16px 24px;margin-bottom:16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
+            <span style="color:#fff;font-size:16px;font-weight:600;">Keyword Rankings</span>
+          </div>
+          <div style="color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Filters</div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <input id="kwrSearch" type="text" placeholder="Search keywords..." oninput="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:240px;outline:none;">
+            <select id="kwrFilterPos" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="">All Positions</option>
+              <option value="1-3">Pos 1–3</option>
+              <option value="4-10">Pos 4–10</option>
+              <option value="11-20">Pos 11–20</option>
+              <option value="21+">Pos 21+</option>
+            </select>
+            <select id="kwrFilterDiff" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="">All Difficulties</option>
+              <option value="Easy">Easy</option>
+              <option value="Medium">Medium</option>
+              <option value="Hard">Hard</option>
+            </select>
+            <select id="kwrFilterMinImp" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="0">Any Impressions</option>
+              <option value="100">100+</option>
+              <option value="500">500+</option>
+              <option value="1000">1K+</option>
+              <option value="5000">5K+</option>
+            </select>
+            <select id="kwrLimit" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="50">50 rows</option>
+              <option value="100">100 rows</option>
+              <option value="250">250 rows</option>
+              <option value="500">500 rows</option>
+            </select>
+            <button onclick="kwrResetFilters()" style="background:#333;color:#aaa;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">✕ Reset</button>
+          </div>
+        </div>
+
+        <!-- Sub tabs -->
+        <div style="display:flex;align-items:center;border-bottom:2px solid #e5e5e5;margin-bottom:24px;">
+          <button id="kwrTabAll" onclick="kwrSwitchTab('all')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">All Keywords <span id="kwrCountAll" class="count-badge">—</span></button>
+          <button id="kwrTabTracked" onclick="kwrSwitchTab('tracked')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Selected <span id="kwrCountTracked" class="count-badge">—</span></button>
+        </div>
+
+        <!-- Save status -->
+        <div id="kwrSaveStatus" style="display:none;border-radius:6px;padding:10px 16px;margin-bottom:16px;font-size:13px;align-items:center;gap:8px;">
+          <span id="kwrSaveStatusText"></span>
+        </div>
+
+        <!-- Table -->
+        <div class="table-card">
+          <table id="kwrTable" style="table-layout:fixed;width:100%;">
+            <thead id="kwrTableHead"></thead>
+            <tbody id="kwrBody"><tr class="loading-row"><td colspan="8">Loading keyword rankings...</td></tr></tbody>
+          </table>
+        </div>
+
+      </div>
+
+
       <!-- SECTION: Quick Wins -->
       <div class="section" id="section-quickwins">
         <div style="background:#1a1a1a;border-radius:8px;padding:16px 24px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
@@ -621,7 +792,7 @@
       document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
       document.getElementById('section-'+id).classList.add('active');
       navEl.classList.add('active');
-      const titles={overview:'High Level SEO Metrics',historical:'Historical View (1 Year)',llm:'LLM Traffic',blog:'Blog Tracking',blogopt:'Blog Optimizations',content:'Content Optimizations'};
+      const titles={overview:'High Level SEO Metrics',historical:'Historical View (1 Year)',llm:'LLM Traffic',blogopt:'Blog Optimizations',content:'Content Optimizations'};
       document.getElementById('pageTitle').textContent=titles[id]||'';
       if(id==='historical'&&!histLoaded){loadHistorical();histLoaded=true;}
       if(id==='content'&&!contentLoaded){loadContentOptimizations();contentLoaded=true;}
@@ -630,8 +801,13 @@
       if(id==='llm'&&!llmLoaded){loadLLMTraffic();llmLoaded=true;}
       if(id==='kwtracker'){kwInit();}
       if(id==='kwrankings'&&!kwrLoaded){kwrInit();}
-      if(id==='quickwins'){loadQuickWins();}
-      if(id==='dangerpages'&&!dpLoaded){loadDangerPages();}
+      if(id==='quickwins'&&!qwLoaded){
+        // Ensure registry is loaded before QW
+        if(!kwrLoaded){kwrInit().then(()=>loadQuickWins());}else{loadQuickWins();}
+      }
+      if(id==='dangerpages'&&!dpLoaded){
+        if(!kwrLoaded){kwrInit().then(()=>loadDangerPages());}else{loadDangerPages();}
+      }
     }
 
     function onRangeChange(){
@@ -2232,14 +2408,22 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
     // QUICK WINS + DANGER PAGES
     // ═══════════════════════════════════════════════════════
 
-    let qwData = { collections:[], blogs:[], products:[], pages:[] };
-    let dpData = { collections:[], blogs:[], products:[], pages:[] };
-    let qwActiveTab = 'collections';
-    let dpActiveTab = 'collections';
-    let qwLoaded = false;
-    let dpLoaded = false;
-    let qwExcludeUrls = new Set(); // URLs in QW — excluded from Blog/Content Opts
-    let dpExcludeUrls = new Set(); // URLs in DP — excluded from Blog/Content Opts
+    let qwData       = { collections:[], blogs:[], products:[], pages:[] };
+    let dpData       = { collections:[], blogs:[], products:[], pages:[] };
+    let qwPageType   = 'collections';
+    let dpPageType   = 'collections';
+    let qwSub        = 'all';   // 'all' | 'selected'
+    let dpSub        = 'all';
+    let qwSelectedSet = new Set();
+    let dpSelectedSet = new Set();
+    let qwColSorts   = {};
+    let dpColSorts   = {};
+    let qwSortCtr    = 0;
+    let dpSortCtr    = 0;
+    let qwLoaded     = false;
+    let dpLoaded     = false;
+    let qwExcludeUrls = new Set();
+    let dpExcludeUrls = new Set();
 
     function getPageType(url) {
       if (url.includes('/collections/')) return 'collections';
@@ -2248,225 +2432,391 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
       return 'pages';
     }
 
+    // ── QUICK WINS LOAD ───────────────────────────────────────────────────────
     async function loadQuickWins() {
       if (qwLoaded) return;
       qwLoaded = true;
-      document.getElementById('qwBody').innerHTML = '<tr class="loading-row"><td colspan="6">Loading Quick Wins...</td></tr>';
-
+      document.getElementById('qwBody').innerHTML = '<tr class="loading-row"><td colspan="7">Loading Quick Wins...</td></tr>';
       try {
-        const end = getDate(0), start = getDate(90), startPrev = getDate(180);
-
-        const [resPages, resPQ, resPrev] = await Promise.all([
+        const end=getDate(0), start=getDate(90);
+        const [resPages, resPQ] = await Promise.all([
           fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`),
-          fetch(`${API}?action=page-query&startDate=${start}&endDate=${end}`),
-          fetch(`${API}?action=pages&startDate=${startPrev}&endDate=${start}`)
+          fetch(`${API}?action=page-query&startDate=${start}&endDate=${end}`)
         ]);
-
         const jPages = await resPages.json();
         const jPQ    = await resPQ.json();
-        const jPrev  = await resPrev.json();
-
         if (!jPages.success) throw new Error(jPages.error);
 
         // Build top query per page
         const topQuery = {};
         if (jPQ.success) {
-          (jPQ.data.rows || []).forEach(r => {
+          (jPQ.data.rows||[]).forEach(r => {
             const page  = cleanUrl(r.keys?.[0]||'');
             const query = r.keys?.[1]||'';
-            if (!topQuery[page] || r.impressions > (topQuery[page].imp||0)) {
-              topQuery[page] = { query, imp: r.impressions };
-            }
+            if (!topQuery[page] || r.impressions > (topQuery[page].imp||0)) topQuery[page] = { query, imp: r.impressions };
           });
         }
 
-        // Build prev lookup
-        const prevMap = {};
-        if (jPrev.success) {
-          (jPrev.data.rows||[]).forEach(r => {
-            const page = cleanUrl(r.keys?.[0]||'');
-            if (!prevMap[page] || r.clicks > (prevMap[page].clicks||0)) prevMap[page] = { clicks: r.clicks||0 };
-          });
-        }
-
-        // Filter Quick Wins: pos 1-20, 100+ impressions
         qwData = { collections:[], blogs:[], products:[], pages:[] };
         qwExcludeUrls = new Set();
-
-        // Deduplicate cleaned URLs — keep highest impressions
         const qwMap = {};
         (jPages.data.rows||[]).forEach(r => {
           const page = cleanUrl(r.keys?.[0]||'');
           if (shouldExcludeUrl(page)) return;
-          const pos = r.position||0, imp = r.impressions||0;
-          if (pos < 1 || pos > 20 || imp < 100) return;
-          if (!qwMap[page] || imp > qwMap[page].imp) {
-            qwMap[page] = { page, pos, imp, clk: r.clicks||0, ctr: r.ctr||0, keyword: topQuery[page]?.query||'—' };
-          }
+          const pos=r.position||0, imp=r.impressions||0;
+          if (pos<1||pos>20||imp<100) return;
+          if (!qwMap[page]||imp>qwMap[page].imp) qwMap[page]={ page, pos, imp, clk:r.clicks||0, ctr:r.ctr||0, keyword:topQuery[page]?.query||'—' };
         });
         Object.values(qwMap).forEach(entry => {
-          const type = getPageType(entry.page);
-          // Registry check
+          const regByKw  = kwrRegistry?.byKw?.[entry.keyword?.toLowerCase()];
           const regByUrl = kwrRegistry?.byUrl?.[entry.page.toLowerCase()];
-          entry.regStatus = regByUrl ? 'url-taken' : 'unlocked';
-          entry.regOtherKw = regByUrl?.keyword || '';
-          qwData[type].push(entry);
+          if (regByKw) {
+            const lockedUrl=(regByKw.url||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
+            entry.regStatus = lockedUrl===entry.page?'locked-same':'kw-taken';
+            entry.regOtherUrl=lockedUrl; entry.regOtherKw='';
+          } else if (regByUrl) {
+            entry.regStatus='url-taken'; entry.regOtherKw=regByUrl.keyword; entry.regOtherUrl='';
+          } else { entry.regStatus='unlocked'; entry.regOtherKw=''; entry.regOtherUrl=''; }
+          qwData[getPageType(entry.page)].push(entry);
           qwExcludeUrls.add(entry.page);
         });
-
-        // Sort by impressions desc within each type
-        Object.keys(qwData).forEach(t => qwData[t].sort((a,b) => b.imp - a.imp));
-
-        // Update counts
+        Object.keys(qwData).forEach(t => qwData[t].sort((a,b)=>b.imp-a.imp));
         ['collections','blogs','products','pages'].forEach(t => {
-          document.getElementById('qwCount' + t.charAt(0).toUpperCase() + t.slice(1)).textContent = qwData[t].length;
+          document.getElementById('qwCount'+t.charAt(0).toUpperCase()+t.slice(1)).textContent = qwData[t].length;
         });
-
-        qwSwitchTab('collections');
-
+        qwUpdateSubCounts();
+        qwRenderHeader();
+        qwRenderRows();
       } catch(e) {
-        document.getElementById('qwBody').innerHTML = `<tr class="loading-row"><td colspan="6" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
+        document.getElementById('qwBody').innerHTML=`<tr class="loading-row"><td colspan="7" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
       }
     }
 
+    // ── DANGER PAGES LOAD ─────────────────────────────────────────────────────
     async function loadDangerPages() {
       if (dpLoaded) return;
       dpLoaded = true;
-      document.getElementById('dpBody').innerHTML = '<tr class="loading-row"><td colspan="6">Loading Danger Pages...</td></tr>';
-
+      document.getElementById('dpBody').innerHTML = '<tr class="loading-row"><td colspan="7">Loading Danger Pages...</td></tr>';
       try {
-        const end = getDate(0), start = getDate(90), startPrev = getDate(180);
-
-        const [resCurr, resPrev] = await Promise.all([
+        const end=getDate(0), start=getDate(90), startPrev=getDate(180);
+        const [resCurr,resPrev] = await Promise.all([
           fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`),
           fetch(`${API}?action=pages&startDate=${startPrev}&endDate=${start}`)
         ]);
-
-        const jCurr = await resCurr.json();
-        const jPrev = await resPrev.json();
+        const jCurr=await resCurr.json(), jPrev=await resPrev.json();
         if (!jCurr.success) throw new Error(jCurr.error);
 
-        const prevMap = {};
-        if (jPrev.success) {
-          (jPrev.data.rows||[]).forEach(r => {
-            const page = cleanUrl(r.keys?.[0]||'');
-            if (!prevMap[page] || r.clicks > prevMap[page].clicks) {
-              prevMap[page] = { clicks: r.clicks||0, imp: r.impressions||0 };
-            }
-          });
-        }
-
-        dpData = { collections:[], blogs:[], products:[], pages:[] };
-        dpExcludeUrls = new Set();
-
-        // Deduplicate cleaned URLs — no dependency on qwExcludeUrls
-        const dpMap = {};
-        (jCurr.data.rows||[]).forEach(r => {
-          const page = cleanUrl(r.keys?.[0]||'');
-          if (shouldExcludeUrl(page)) return;
-          if (!dpMap[page] || r.clicks > (dpMap[page].currClk||0)) {
-            dpMap[page] = { page, pos: r.position||0, currClk: r.clicks||0, imp: r.impressions||0 };
-          }
+        const prevMap={};
+        if (jPrev.success) (jPrev.data.rows||[]).forEach(r=>{
+          const page=cleanUrl(r.keys?.[0]||'');
+          if (!prevMap[page]||r.clicks>prevMap[page].clicks) prevMap[page]={clicks:r.clicks||0};
         });
 
-        Object.values(dpMap).forEach(entry => {
-          const prevClk = prevMap[entry.page]?.clicks||0;
-          if (prevClk < 10) return;
-          const drop = (entry.currClk - prevClk) / prevClk * 100;
-          if (drop > -20) return;
-          const type = getPageType(entry.page);
-          const regByUrl = kwrRegistry?.byUrl?.[entry.page.toLowerCase()];
-          entry.prevClk    = prevClk;
-          entry.drop       = drop;
-          entry.regStatus  = regByUrl ? 'url-taken' : 'unlocked';
-          entry.regOtherKw = regByUrl?.keyword || '';
-          dpData[type].push(entry);
+        dpData={ collections:[], blogs:[], products:[], pages:[] };
+        dpExcludeUrls=new Set();
+        const dpMap={};
+        (jCurr.data.rows||[]).forEach(r=>{
+          const page=cleanUrl(r.keys?.[0]||'');
+          if (shouldExcludeUrl(page)) return;
+          if (!dpMap[page]||r.clicks>(dpMap[page].currClk||0)) dpMap[page]={page,pos:r.position||0,currClk:r.clicks||0,imp:r.impressions||0};
+        });
+        Object.values(dpMap).forEach(entry=>{
+          const prevClk=prevMap[entry.page]?.clicks||0;
+          if (prevClk<10) return;
+          const drop=(entry.currClk-prevClk)/prevClk*100;
+          if (drop>-20) return;
+          const regByUrl=kwrRegistry?.byUrl?.[entry.page.toLowerCase()];
+          entry.prevClk=prevClk; entry.drop=drop;
+          if (regByUrl){entry.regStatus='url-taken';entry.regOtherKw=regByUrl.keyword;}
+          else {entry.regStatus='unlocked';entry.regOtherKw='';}
+          dpData[getPageType(entry.page)].push(entry);
           dpExcludeUrls.add(entry.page);
         });
-
-        Object.keys(dpData).forEach(t => dpData[t].sort((a,b) => a.drop - b.drop));
-
-        ['collections','blogs','products','pages'].forEach(t => {
-          document.getElementById('dpCount' + t.charAt(0).toUpperCase() + t.slice(1)).textContent = dpData[t].length;
+        Object.keys(dpData).forEach(t=>dpData[t].sort((a,b)=>a.drop-b.drop));
+        ['collections','blogs','products','pages'].forEach(t=>{
+          document.getElementById('dpCount'+t.charAt(0).toUpperCase()+t.slice(1)).textContent=dpData[t].length;
         });
-
-        dpSwitchTab('collections');
-
-      } catch(e) {
-        document.getElementById('dpBody').innerHTML = `<tr class="loading-row"><td colspan="6" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
+        dpUpdateSubCounts();
+        dpRenderHeader();
+        dpRenderRows();
+      } catch(e){
+        document.getElementById('dpBody').innerHTML=`<tr class="loading-row"><td colspan="7" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
       }
     }
 
-    function qwSwitchTab(tab) {
-      qwActiveTab = tab;
-      ['collections','blogs','products','pages'].forEach(t => {
-        const btn = document.getElementById('qwTab' + t.charAt(0).toUpperCase() + t.slice(1));
-        const active = t === tab;
-        btn.style.fontWeight = active?'600':'400';
-        btn.style.color = active?'#1a1a1a':'#888';
-        btn.style.borderBottomColor = active?'#1a1a1a':'transparent';
-      });
-      qwRenderRows();
+    // ── QW HEADER + SORT ──────────────────────────────────────────────────────
+    function qwRenderHeader() {
+      const head = document.getElementById('qwTableHead');
+      if (!head) return;
+      const isSelected = qwSub === 'selected';
+      const cols = isSelected
+        ? [{k:'pos',l:'Position',n:true},{k:'imp',l:'Impressions',n:true},{k:'clk',l:'Clicks',n:true},{k:'ctr',l:'CTR',n:true},{k:'keyword',l:'Keyword',n:false}]
+        : [{k:'pos',l:'Position',n:true},{k:'imp',l:'Impressions',n:true},{k:'clk',l:'Clicks',n:true},{k:'ctr',l:'CTR',n:true},{k:'keyword',l:'Keyword',n:false}];
+      const urlBadge = qwColSorts['url'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;">${qwColSorts['url'].priority}${qwColSorts['url'].dir==='asc'?'↑':'↓'}</span>` : '';
+      head.innerHTML = '<tr>' +
+        `<th style="width:60px;">${isSelected?'':'Select'}</th>` +
+        `<th style="cursor:pointer;" onclick="qwCycleSort('url')">Page URL${urlBadge}</th>` +
+        cols.map(c=>{const s=qwColSorts[c.k];const b=s?`<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;">${s.priority}${s.dir==='asc'?'↑':'↓'}</span>`:'';return`<th class="${c.n?'num':''}" style="cursor:pointer;white-space:nowrap;" onclick="qwCycleSort('${c.k}')">${c.l}${b}</th>`;}).join('') +
+        `<th>Registry</th>` +
+        (isSelected?`<th>Action</th>`:'') +
+      '</tr>';
     }
 
-    function dpSwitchTab(tab) {
-      dpActiveTab = tab;
-      ['collections','blogs','products','pages'].forEach(t => {
-        const btn = document.getElementById('dpTab' + t.charAt(0).toUpperCase() + t.slice(1));
-        const active = t === tab;
-        btn.style.fontWeight = active?'600':'400';
-        btn.style.color = active?'#1a1a1a':'#888';
-        btn.style.borderBottomColor = active?'#1a1a1a':'transparent';
+    function qwCycleSort(key) {
+      const e=qwColSorts[key];
+      if (!e){qwSortCtr++;qwColSorts[key]={priority:qwSortCtr,dir:'asc'};}
+      else if (e.dir==='asc'){e.dir='desc';}
+      else {delete qwColSorts[key];const sorted=Object.entries(qwColSorts).sort((a,b)=>a[1].priority-b[1].priority);qwSortCtr=0;sorted.forEach(([k])=>{qwSortCtr++;qwColSorts[k].priority=qwSortCtr;});}
+      qwRenderHeader(); qwRenderRows();
+    }
+
+    // ── DP HEADER + SORT ──────────────────────────────────────────────────────
+    function dpRenderHeader() {
+      const head = document.getElementById('dpTableHead');
+      if (!head) return;
+      const isSelected = dpSub === 'selected';
+      const urlBadge = dpColSorts['url'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;">${dpColSorts['url'].priority}${dpColSorts['url'].dir==='asc'?'↑':'↓'}</span>` : '';
+      head.innerHTML = '<tr>' +
+        `<th style="width:60px;">${isSelected?'':'Select'}</th>` +
+        `<th style="cursor:pointer;" onclick="dpCycleSort('url')">Page URL${urlBadge}</th>` +
+        ['pos','currClk','prevClk','drop','imp'].map(k=>{
+          const labels={pos:'Position',currClk:'Clicks (now)',prevClk:'Clicks (prev)',drop:'Change',imp:'Impressions'};
+          const s=dpColSorts[k];const b=s?`<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;">${s.priority}${s.dir==='asc'?'↑':'↓'}</span>`:'';
+          return`<th class="num" style="cursor:pointer;white-space:nowrap;" onclick="dpCycleSort('${k}')">${labels[k]}${b}</th>`;
+        }).join('') +
+        `<th>Registry</th>` +
+        (isSelected?`<th>Action</th>`:'') +
+      '</tr>';
+    }
+
+    function dpCycleSort(key) {
+      const e=dpColSorts[key];
+      if (!e){dpSortCtr++;dpColSorts[key]={priority:dpSortCtr,dir:'asc'};}
+      else if (e.dir==='asc'){e.dir='desc';}
+      else {delete dpColSorts[key];const sorted=Object.entries(dpColSorts).sort((a,b)=>a[1].priority-b[1].priority);dpSortCtr=0;sorted.forEach(([k])=>{dpSortCtr++;dpColSorts[k].priority=dpSortCtr;});}
+      dpRenderHeader(); dpRenderRows();
+    }
+
+    // ── QW TABS + FILTER + RENDER ─────────────────────────────────────────────
+    function qwSwitchPageType(type) {
+      qwPageType=type;
+      ['collections','blogs','products','pages'].forEach(t=>{
+        const btn=document.getElementById('qwTab'+t.charAt(0).toUpperCase()+t.slice(1));
+        const active=t===type;
+        btn.style.fontWeight=active?'600':'400';btn.style.color=active?'#1a1a1a':'#888';btn.style.borderBottomColor=active?'#1a1a1a':'transparent';
       });
-      dpRenderRows();
+      qwColSorts={}; qwSortCtr=0;
+      qwUpdateSubCounts(); qwRenderHeader(); qwRenderRows();
+    }
+
+    function qwSwitchSub(sub) {
+      qwSub=sub;
+      ['all','selected'].forEach(s=>{
+        const btn=document.getElementById('qwSub'+s.charAt(0).toUpperCase()+s.slice(1));
+        const active=s===sub;
+        btn.style.fontWeight=active?'600':'400';btn.style.color=active?'#1a1a1a':'#888';btn.style.borderBottomColor=active?'#1a1a1a':'transparent';
+      });
+      qwRenderHeader(); qwRenderRows();
     }
 
     function qwFilter() { qwRenderRows(); }
-    function dpFilter() { dpRenderRows(); }
 
-    function qwRenderRows() {
-      const search = (document.getElementById('qwSearch')?.value||'').toLowerCase();
-      let rows = qwData[qwActiveTab] || [];
-      if (search) rows = rows.filter(r => r.page.includes(search) || r.topQuery.includes(search));
-      const tbody = document.getElementById('qwBody');
-      if (!rows.length) { tbody.innerHTML = '<tr class="loading-row"><td colspan="6">No Quick Win pages found in this category.</td></tr>'; return; }
-      tbody.innerHTML = rows.map(r => {
-        const posColor = r.pos<=3?'#16a34a':r.pos<=10?'#d97706':'#dc2626';
-        let regBadge = '';
-        if (r.regStatus==='locked-same')  regBadge = '<span style="background:#f0fdf4;color:#16a34a;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;margin-left:4px;">🔒</span>';
-        else if (r.regStatus==='kw-taken') regBadge = `<span style="background:#fefce8;color:#92400e;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;margin-left:4px;" title="Keyword taken: ${r.regOtherUrl}">🟡</span>`;
-        else if (r.regStatus==='url-taken') regBadge = `<span style="background:#fef2f2;color:#dc2626;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;margin-left:4px;" title="URL taken by: ${r.regOtherKw}">🔴</span>`;
-        return `<tr>
-          <td style="font-size:11px;" title="${r.page}"><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;text-decoration:none;word-break:break-all;">${r.page}</a>${regBadge}</td>
-          <td class="num" style="color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>
-          <td class="num">${fmt(r.imp)}</td>
-          <td class="num">${fmt(r.clk)}</td>
-          <td class="num">${fmtCTR(r.ctr)}</td>
-          <td style="font-size:11px;color:#555;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.keyword}">${r.keyword}</td>
-        </tr>`;
-      }).join('');
+    function qwUpdateSubCounts() {
+      const all = qwData[qwPageType]||[];
+      document.getElementById('qwSubCountAll').textContent = all.filter(r=>!qwSelectedSet.has(r.page)).length;
+      document.getElementById('qwSubCountSelected').textContent = all.filter(r=>qwSelectedSet.has(r.page)).length;
     }
 
-    function dpRenderRows() {
-      const search = (document.getElementById('dpSearch')?.value||'').toLowerCase();
-      let rows = dpData[dpActiveTab] || [];
-      if (search) rows = rows.filter(r => r.page.includes(search));
-      const tbody = document.getElementById('dpBody');
-      if (!rows.length) { tbody.innerHTML = '<tr class="loading-row"><td colspan="6">No Danger pages found in this category.</td></tr>'; return; }
-      tbody.innerHTML = rows.map(r => {
-        const dropColor = r.drop < -50 ? '#dc2626' : '#ef4444';
-        const posColor = r.pos<=3?'#16a34a':r.pos<=10?'#d97706':'#dc2626';
-        let regBadge = '';
-        if (r.regStatus==='url-taken') regBadge = `<span style="background:#fef2f2;color:#dc2626;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;margin-left:4px;" title="URL taken by: ${r.regOtherKw}">🔴</span>`;
-        return `<tr>
-          <td style="font-size:11px;" title="${r.page}"><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;text-decoration:none;word-break:break-all;">${r.page}</a>${regBadge}</td>
-          <td class="num" style="color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>
+    function qwRenderRows() {
+      const search=(document.getElementById('qwSearch')?.value||'').toLowerCase();
+      let rows=qwData[qwPageType]||[];
+      rows = qwSub==='selected' ? rows.filter(r=>qwSelectedSet.has(r.page)) : rows.filter(r=>!qwSelectedSet.has(r.page));
+      if (search) rows=rows.filter(r=>r.page.includes(search)||r.keyword.includes(search));
+      // Sort
+      const sortEntries=Object.entries(qwColSorts).sort((a,b)=>a[1].priority-b[1].priority);
+      if (sortEntries.length) rows=[...rows].sort((a,b)=>{
+        for (const [k,s] of sortEntries){
+          let av,bv;
+          if(k==='url'){return s.dir==='asc'?a.page.localeCompare(b.page):b.page.localeCompare(a.page);}
+          if(k==='pos'){av=a.pos;bv=b.pos;}if(k==='imp'){av=a.imp;bv=b.imp;}if(k==='clk'){av=a.clk;bv=b.clk;}if(k==='ctr'){av=a.ctr;bv=b.ctr;}
+          if(k==='keyword'){return s.dir==='asc'?a.keyword.localeCompare(b.keyword):b.keyword.localeCompare(a.keyword);}
+          if(av!==bv)return s.dir==='asc'?av-bv:bv-av;
+        }return 0;
+      });
+      const isSelected=qwSub==='selected';
+      const tbody=document.getElementById('qwBody');
+      if (!rows.length){tbody.innerHTML=`<tr class="loading-row"><td colspan="7">No pages found.</td></tr>`;return;}
+      const posColor=pos=>pos<=3?'#16a34a':pos<=10?'#d97706':'#dc2626';
+      const regCell=r=>{
+        if(r.regStatus==='locked-same') return`<td><span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🔒 Locked</span></td>`;
+        if(r.regStatus==='kw-taken')    return`<td><span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Keyword locked to: ${r.regOtherUrl}">🟡 Keyword taken</span></td>`;
+        if(r.regStatus==='url-taken')   return`<td><span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="URL locked to: ${r.regOtherKw}">🔴 URL taken</span></td>`;
+        return`<td><span style="color:#ccc;font-size:12px;">—</span></td>`;
+      };
+      tbody.innerHTML=rows.map(r=>`<tr>
+        <td style="vertical-align:middle;">${isSelected
+          ?`<button onclick="qwUndo('${r.page.replace(/'/g,"\'")}' )" style="padding:4px 8px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↩ Undo</button>`
+          :`<button onclick="qwSelect('${r.page.replace(/'/g,"\'")}' )" style="padding:4px 8px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;">+ Select</button>`
+        }</td>
+        <td><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:12px;word-break:break-all;">${r.page}</a></td>
+        <td class="num" style="color:${posColor(r.pos)};font-weight:600;">${fmtPos(r.pos)}</td>
+        <td class="num">${fmt(r.imp)}</td>
+        <td class="num">${fmt(r.clk)}</td>
+        <td class="num">${fmtCTR(r.ctr)}</td>
+        <td style="font-size:12px;color:#555;">${r.keyword}</td>
+        ${regCell(r)}
+        ${isSelected?`<td style="white-space:nowrap;">${r.regStatus==='unlocked'?`<button onclick="qwConfirmLock('${r.page.replace(/'/g,"\'")}','${r.keyword.replace(/'/g,"\'")}' )" style="padding:4px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Save to Registry</button>`:`<span style="font-size:11px;color:#aaa;">Cannot save</span>`}</td>`:''}
+      </tr>`).join('');
+    }
+
+    function qwSelect(page){qwSelectedSet.add(page);qwUpdateSubCounts();qwRenderRows();}
+    function qwUndo(page){qwSelectedSet.delete(page);qwUpdateSubCounts();qwRenderRows();}
+
+    function qwConfirmLock(page,keyword){
+      const fullUrl='https://www.aboutwallart.com'+page;
+      if(!confirm(`Save to Registry?
+
+URL: ${fullUrl}
+Keyword: ${keyword}
+
+Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
+      qwDoLock(page,keyword,fullUrl);
+    }
+
+    async function qwDoLock(page,keyword,fullUrl){
+      qwShowStatus('⏳ Saving... 3s','#f0f9ff','#7dd3fc','#0369a1');
+      let s=2;const iv=setInterval(()=>{s--;if(s>0)qwShowStatus(`⏳ Saving... ${s}s`,'#f0f9ff','#7dd3fc','#0369a1');},1000);
+      try{
+        const res=await fetch('/api/blogs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'lock-keyword',keyword,url:fullUrl})});
+        clearInterval(iv);const json=await res.json();
+        if(json.success){
+          if(!kwrRegistry.byKw)kwrRegistry.byKw={};if(!kwrRegistry.byUrl)kwrRegistry.byUrl={};
+          kwrRegistry.byKw[keyword.toLowerCase()]={url:fullUrl,keyword};
+          kwrRegistry.byUrl[page.toLowerCase()]={url:fullUrl,keyword};
+          qwData[qwPageType].forEach(r=>{if(r.page===page){r.regStatus='locked-same';}});
+          qwShowStatus('✅ Saved to registry','#f0fdf4','#86efac','#16a34a');
+          setTimeout(()=>{document.getElementById('qwSaveStatus').style.display='none';},3000);
+          qwRenderRows();
+        }else{qwShowStatus('❌ '+(json.error||'unknown'),'#fef2f2','#fecaca','#dc2626');}
+      }catch(e){clearInterval(iv);qwShowStatus('❌ '+e.message,'#fef2f2','#fecaca','#dc2626');}
+    }
+
+    function qwShowStatus(text,bg,border,color){
+      const el=document.getElementById('qwSaveStatus');
+      el.style.display='flex';el.style.background=bg;el.style.borderColor=border;el.style.color=color;
+      document.getElementById('qwSaveStatusText').textContent=text;
+    }
+
+    // ── DP TABS + FILTER + RENDER ─────────────────────────────────────────────
+    function dpSwitchPageType(type){
+      dpPageType=type;
+      ['collections','blogs','products','pages'].forEach(t=>{
+        const btn=document.getElementById('dpTab'+t.charAt(0).toUpperCase()+t.slice(1));
+        const active=t===type;
+        btn.style.fontWeight=active?'600':'400';btn.style.color=active?'#1a1a1a':'#888';btn.style.borderBottomColor=active?'#1a1a1a':'transparent';
+      });
+      dpColSorts={};dpSortCtr=0;
+      dpUpdateSubCounts();dpRenderHeader();dpRenderRows();
+    }
+
+    function dpSwitchSub(sub){
+      dpSub=sub;
+      ['all','selected'].forEach(s=>{
+        const btn=document.getElementById('dpSub'+s.charAt(0).toUpperCase()+s.slice(1));
+        const active=s===sub;
+        btn.style.fontWeight=active?'600':'400';btn.style.color=active?'#1a1a1a':'#888';btn.style.borderBottomColor=active?'#1a1a1a':'transparent';
+      });
+      dpRenderHeader();dpRenderRows();
+    }
+
+    function dpFilter(){dpRenderRows();}
+
+    function dpUpdateSubCounts(){
+      const all=dpData[dpPageType]||[];
+      document.getElementById('dpSubCountAll').textContent=all.filter(r=>!dpSelectedSet.has(r.page)).length;
+      document.getElementById('dpSubCountSelected').textContent=all.filter(r=>dpSelectedSet.has(r.page)).length;
+    }
+
+    function dpRenderRows(){
+      const search=(document.getElementById('dpSearch')?.value||'').toLowerCase();
+      let rows=dpData[dpPageType]||[];
+      rows=dpSub==='selected'?rows.filter(r=>dpSelectedSet.has(r.page)):rows.filter(r=>!dpSelectedSet.has(r.page));
+      if(search)rows=rows.filter(r=>r.page.includes(search));
+      const sortEntries=Object.entries(dpColSorts).sort((a,b)=>a[1].priority-b[1].priority);
+      if(sortEntries.length)rows=[...rows].sort((a,b)=>{
+        for(const [k,s] of sortEntries){
+          let av,bv;
+          if(k==='url'){return s.dir==='asc'?a.page.localeCompare(b.page):b.page.localeCompare(a.page);}
+          if(k==='pos'){av=a.pos;bv=b.pos;}if(k==='currClk'){av=a.currClk;bv=b.currClk;}if(k==='prevClk'){av=a.prevClk;bv=b.prevClk;}
+          if(k==='drop'){av=a.drop;bv=b.drop;}if(k==='imp'){av=a.imp;bv=b.imp;}
+          if(av!==bv)return s.dir==='asc'?av-bv:bv-av;
+        }return 0;
+      });
+      const isSelected=dpSub==='selected';
+      const tbody=document.getElementById('dpBody');
+      if(!rows.length){tbody.innerHTML=`<tr class="loading-row"><td colspan="7">No Danger pages found.</td></tr>`;return;}
+      const posColor=pos=>pos<=3?'#16a34a':pos<=10?'#d97706':'#dc2626';
+      const regCell=r=>{
+        if(r.regStatus==='url-taken') return`<td><span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="URL locked to: ${r.regOtherKw}">🔴 URL taken</span></td>`;
+        return`<td><span style="color:#ccc;font-size:12px;">—</span></td>`;
+      };
+      tbody.innerHTML=rows.map(r=>{
+        const dropColor=r.drop<-50?'#dc2626':'#ef4444';
+        return`<tr>
+          <td style="vertical-align:middle;">${isSelected
+            ?`<button onclick="dpUndo('${r.page.replace(/'/g,"\'")}' )" style="padding:4px 8px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↩ Undo</button>`
+            :`<button onclick="dpSelect('${r.page.replace(/'/g,"\'")}' )" style="padding:4px 8px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;">+ Select</button>`
+          }</td>
+          <td><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:12px;word-break:break-all;">${r.page}</a></td>
+          <td class="num" style="color:${posColor(r.pos)};font-weight:600;">${fmtPos(r.pos)}</td>
           <td class="num">${fmt(r.currClk)}</td>
           <td class="num">${fmt(r.prevClk)}</td>
           <td class="num" style="color:${dropColor};font-weight:600;">▼ ${Math.abs(r.drop).toFixed(1)}%</td>
           <td class="num">${fmt(r.imp)}</td>
+          ${regCell(r)}
+          ${isSelected?`<td style="white-space:nowrap;">${r.regStatus==='unlocked'?`<button onclick="dpConfirmLock('${r.page.replace(/'/g,"\'")}' )" style="padding:4px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Save to Registry</button>`:`<span style="font-size:11px;color:#aaa;">Cannot save</span>`}</td>`:''}
         </tr>`;
       }).join('');
+    }
+
+    function dpSelect(page){dpSelectedSet.add(page);dpUpdateSubCounts();dpRenderRows();}
+    function dpUndo(page){dpSelectedSet.delete(page);dpUpdateSubCounts();dpRenderRows();}
+
+    function dpConfirmLock(page){
+      const fullUrl='https://www.aboutwallart.com'+page;
+      const keyword=prompt(`Enter keyword to lock for:
+${fullUrl}`,'');
+      if(!keyword)return;
+      if(!confirm(`Save to Registry?
+
+URL: ${fullUrl}
+Keyword: ${keyword}
+
+Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
+      dpDoLock(page,keyword,fullUrl);
+    }
+
+    async function dpDoLock(page,keyword,fullUrl){
+      dpShowStatus('⏳ Saving... 3s','#f0f9ff','#7dd3fc','#0369a1');
+      let s=2;const iv=setInterval(()=>{s--;if(s>0)dpShowStatus(`⏳ Saving... ${s}s`,'#f0f9ff','#7dd3fc','#0369a1');},1000);
+      try{
+        const res=await fetch('/api/blogs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'lock-keyword',keyword,url:fullUrl})});
+        clearInterval(iv);const json=await res.json();
+        if(json.success){
+          if(!kwrRegistry.byUrl)kwrRegistry.byUrl={};
+          kwrRegistry.byUrl[page.toLowerCase()]={url:fullUrl,keyword};
+          dpData[dpPageType].forEach(r=>{if(r.page===page){r.regStatus='url-taken';r.regOtherKw=keyword;}});
+          dpShowStatus('✅ Saved to registry','#f0fdf4','#86efac','#16a34a');
+          setTimeout(()=>{document.getElementById('dpSaveStatus').style.display='none';},3000);
+          dpRenderRows();
+        }else{dpShowStatus('❌ '+(json.error||'unknown'),'#fef2f2','#fecaca','#dc2626');}
+      }catch(e){clearInterval(iv);dpShowStatus('❌ '+e.message,'#fef2f2','#fecaca','#dc2626');}
+    }
+
+    function dpShowStatus(text,bg,border,color){
+      const el=document.getElementById('dpSaveStatus');
+      el.style.display='flex';el.style.background=bg;el.style.borderColor=border;el.style.color=color;
+      document.getElementById('dpSaveStatusText').textContent=text;
     }
 
     loadOverview(28);loadClicksChart(28);loadDeviceChart(28);loadPages(28);loadQueries(28);
