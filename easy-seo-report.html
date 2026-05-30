@@ -98,7 +98,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v37.0</div>
+      <div class="tool-version">v38.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -532,15 +532,23 @@
           <button id="qwTabProducts" onclick="qwSwitchTab('products')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Products <span id="qwCountProducts" class="count-badge">—</span></button>
           <button id="qwTabPages" onclick="qwSwitchTab('pages')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Pages <span id="qwCountPages" class="count-badge">—</span></button>
         </div>
+        <!-- Registry legend -->
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;padding:10px 16px;background:#f9f9f9;border:1px solid #e5e5e5;border-radius:6px;font-size:12px;flex-wrap:wrap;">
+          <span style="color:#888;font-weight:600;">Registry:</span>
+          <span><span style="background:#f0fdf4;color:#16a34a;padding:1px 8px;border-radius:8px;font-size:11px;font-weight:600;">🔒 Locked</span> — this exact URL + keyword are locked together</span>
+          <span><span style="background:#fefce8;color:#92400e;padding:1px 8px;border-radius:8px;font-size:11px;font-weight:600;">🟡 Keyword taken</span> — keyword locked to a different URL</span>
+          <span><span style="background:#fef2f2;color:#dc2626;padding:1px 8px;border-radius:8px;font-size:11px;font-weight:600;">🔴 URL taken</span> — URL locked to a different keyword</span>
+        </div>
+
         <div class="table-card">
-          <table style="table-layout:fixed;width:100%;">
+          <table style="width:100%;">
             <thead><tr>
-              <th style="width:280px;">Page URL</th>
-              <th class="num" style="width:80px;">Position</th>
-              <th class="num" style="width:100px;">Impressions</th>
-              <th class="num" style="width:70px;">Clicks</th>
-              <th class="num" style="width:65px;">CTR</th>
-              <th style="width:200px;">Keyword</th>
+              <th style="width:45%;">Page URL</th>
+              <th class="num">Position</th>
+              <th class="num">Impressions</th>
+              <th class="num">Clicks</th>
+              <th class="num">CTR</th>
+              <th>Keyword</th>
             </tr></thead>
             <tbody id="qwBody"><tr class="loading-row"><td colspan="6">Loading...</td></tr></tbody>
           </table>
@@ -562,15 +570,23 @@
           <button id="dpTabProducts" onclick="dpSwitchTab('products')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Products <span id="dpCountProducts" class="count-badge">—</span></button>
           <button id="dpTabPages" onclick="dpSwitchTab('pages')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Pages <span id="dpCountPages" class="count-badge">—</span></button>
         </div>
+        <!-- Registry legend -->
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;padding:10px 16px;background:#f9f9f9;border:1px solid #e5e5e5;border-radius:6px;font-size:12px;flex-wrap:wrap;">
+          <span style="color:#888;font-weight:600;">Registry:</span>
+          <span><span style="background:#f0fdf4;color:#16a34a;padding:1px 8px;border-radius:8px;font-size:11px;font-weight:600;">🔒 Locked</span> — this exact URL + keyword are locked together</span>
+          <span><span style="background:#fefce8;color:#92400e;padding:1px 8px;border-radius:8px;font-size:11px;font-weight:600;">🟡 Keyword taken</span> — keyword locked to a different URL</span>
+          <span><span style="background:#fef2f2;color:#dc2626;padding:1px 8px;border-radius:8px;font-size:11px;font-weight:600;">🔴 URL taken</span> — URL locked to a different keyword</span>
+        </div>
+
         <div class="table-card">
-          <table style="table-layout:fixed;width:100%;">
+          <table style="width:100%;">
             <thead><tr>
-              <th style="width:280px;">Page URL</th>
-              <th class="num" style="width:80px;">Position</th>
-              <th class="num" style="width:100px;">Clicks (now)</th>
-              <th class="num" style="width:100px;">Clicks (prev)</th>
-              <th class="num" style="width:90px;">Change</th>
-              <th class="num" style="width:100px;">Impressions</th>
+              <th style="width:45%;">Page URL</th>
+              <th class="num">Position</th>
+              <th class="num">Clicks (now)</th>
+              <th class="num">Clicks (prev)</th>
+              <th class="num">Change</th>
+              <th class="num">Impressions</th>
             </tr></thead>
             <tbody id="dpBody"><tr class="loading-row"><td colspan="6">Loading...</td></tr></tbody>
           </table>
@@ -886,7 +902,7 @@
       if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="8">No pages found</td></tr>';return;}
       tbody.innerHTML=rows.map((r,i)=>{
         const short=r.page.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','')||'/';
-        return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:12px;">${priority(r.impressions)}</td><td><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;max-width:300px;" title="${r.page}">${r.page}</a></td><td style="font-size:12px;color:#555;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.query}</td><td class="num">${fmt(r.impressions)}</td><td class="num">${fmt(r.clicks)}</td><td class="num">${fmtCTR(r.ctr)}</td><td class="num">${fmtPos(r.position)}</td></tr>`;
+        return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:12px;">${priority(r.impressions)}</td><td><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;word-break:break-all;" title="${r.page}">${r.page}</a></td><td style="font-size:12px;color:#555;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.query}</td><td class="num">${fmt(r.impressions)}</td><td class="num">${fmt(r.clicks)}</td><td class="num">${fmtCTR(r.ctr)}</td><td class="num">${fmtPos(r.position)}</td></tr>`;
       }).join('');
     }
 
@@ -895,7 +911,7 @@
       if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="6">No pages found</td></tr>';return;}
       tbody.innerHTML=rows.map((r,i)=>{
         const short=r.page.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','')||'/';
-        return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:12px;">${priority(r.impressions)}</td><td><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;max-width:300px;" title="${r.page}">${r.page}</a></td><td style="font-size:12px;color:#555;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.query}</td><td class="num">${fmt(r.impressions)}</td><td class="num">${fmtPos(r.position)}</td></tr>`;
+        return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:12px;">${priority(r.impressions)}</td><td><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;word-break:break-all;" title="${r.page}">${r.page}</a></td><td style="font-size:12px;color:#555;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.query}</td><td class="num">${fmt(r.impressions)}</td><td class="num">${fmtPos(r.position)}</td></tr>`;
       }).join('');
     }
 
@@ -1216,7 +1232,7 @@
         const short = r.url.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
         return `<tr style="${c.row}">
           <td style="color:#aaa;font-size:12px;">${i+1}.</td>
-          <td><a href="${r.url}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:13px;">${short}</a></td>
+          <td><a href="${r.url}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:13px;word-break:break-all;">${short}</a></td>
           <td class="num">${fmt(r.impressions)}</td>
           <td class="num">${fmt(r.clicks)}</td>
           <td class="num" style="${c.ctr}">${fmtCTR(r.ctr)}</td>
@@ -2097,7 +2113,7 @@
             : `<td style="width:${wMap.trend};text-align:right;color:${r.trend>5?'#16a34a':r.trend<-5?'#dc2626':'#d97706'};font-weight:600;">${r.trend>5?'▲':r.trend<-5?'▼':'▶'} ${r.trend>0?'+':''}${r.trend.toFixed(1)}%</td>`] : [])
         ].join('');
 
-        const urlCell = isSelected ? `<td style="width:160px;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.rankingUrl}"><a href="https://www.aboutwallart.com${r.rankingUrl}" target="_blank" style="color:#2563eb;text-decoration:none;">${r.rankingUrl}</a></td>` : '';
+        const urlCell = isSelected ? `<td style="width:160px;font-size:11px;" title="${r.rankingUrl}"><a href="https://www.aboutwallart.com${r.rankingUrl}" target="_blank" style="color:#2563eb;text-decoration:none;word-break:break-all;">${r.rankingUrl}</a></td>` : '';
 
         return `<tr>
           <td style="width:${isSelected?'90px':'70px'};vertical-align:middle;">${isSelected ? '' : `<button onclick="kwrSelect('${r.kw.replace(/'/g,"\'")}' )" style="padding:4px 10px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;">+ Select</button>`}</td>
@@ -2421,7 +2437,7 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
         else if (r.regStatus==='kw-taken') regBadge = `<span style="background:#fefce8;color:#92400e;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;margin-left:4px;" title="Keyword taken: ${r.regOtherUrl}">🟡</span>`;
         else if (r.regStatus==='url-taken') regBadge = `<span style="background:#fef2f2;color:#dc2626;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;margin-left:4px;" title="URL taken by: ${r.regOtherKw}">🔴</span>`;
         return `<tr>
-          <td style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.page}"><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;text-decoration:none;">${r.page}</a>${regBadge}</td>
+          <td style="font-size:11px;" title="${r.page}"><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;text-decoration:none;word-break:break-all;">${r.page}</a>${regBadge}</td>
           <td class="num" style="color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>
           <td class="num">${fmt(r.imp)}</td>
           <td class="num">${fmt(r.clk)}</td>
@@ -2443,7 +2459,7 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
         let regBadge = '';
         if (r.regStatus==='url-taken') regBadge = `<span style="background:#fef2f2;color:#dc2626;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;margin-left:4px;" title="URL taken by: ${r.regOtherKw}">🔴</span>`;
         return `<tr>
-          <td style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.page}"><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;text-decoration:none;">${r.page}</a>${regBadge}</td>
+          <td style="font-size:11px;" title="${r.page}"><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;text-decoration:none;word-break:break-all;">${r.page}</a>${regBadge}</td>
           <td class="num" style="color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>
           <td class="num">${fmt(r.currClk)}</td>
           <td class="num">${fmt(r.prevClk)}</td>
