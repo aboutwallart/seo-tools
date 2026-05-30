@@ -98,7 +98,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v47.0</div>
+      <div class="tool-version">v48.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1076,15 +1076,32 @@
         iEl.textContent=(impPct>=0?'↑':'↓')+Math.abs(impPct)+'%';
         iEl.className='hist-gauge-change '+(impPct>=0?'up':'down');
         makeGauge('gaugeImpressions',curImp,Math.max(curImp,prevImp)*1.2,'#8b5cf6');
-        const mRes=await fetch(`${API}?action=monthly&startDate=${start}&endDate=${end}`);
+        const [mRes, revRes] = await Promise.all([
+          fetch(`${API}?action=monthly&startDate=${start}&endDate=${end}`),
+          fetch('/api/blogs?action=get-revenue-by-month')
+        ]);
         const mJson=await mRes.json();
+        let revenueMap={};
+        try { const rj=await revRes.json(); if(rj.success) revenueMap=rj.revenue||{}; } catch(e){}
+
         const rows=mJson.data.rows||[],monthMap={};
         rows.forEach(r=>{const month=(r.keys?r.keys[0]:'').slice(0,7);if(!monthMap[month])monthMap[month]={clicks:0,impressions:0};monthMap[month].clicks+=r.clicks;monthMap[month].impressions+=r.impressions;});
         const months=Object.keys(monthMap).sort();
-        const clicks=months.map(m=>monthMap[m].clicks),impressions=months.map(m=>monthMap[m].impressions);
+        const clicks=months.map(m=>monthMap[m].clicks);
+        const impressions=months.map(m=>monthMap[m].impressions);
+        // Map revenue: revenueMap keys are YYYYMM, months are YYYY-MM
+        const revenue=months.map(m=>Math.round(revenueMap[m.replace('-','')]||0));
         const labels=months.map(m=>{const[y,mo]=m.split('-');return new Date(y,parseInt(mo)-1).toLocaleString('default',{month:'short',year:'2-digit'});});
+
         if(histClicksChart)histClicksChart.destroy();
-        histClicksChart=new Chart(document.getElementById('histClicksChart').getContext('2d'),{type:'bar',data:{labels,datasets:[{label:'Impressions',data:impressions,backgroundColor:'#6366f1',borderRadius:3}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{font:{size:11}}},y:{grid:{color:'#f0f0f0'},ticks:{font:{size:11}}}}}});
+        histClicksChart=new Chart(document.getElementById('histClicksChart').getContext('2d'),{
+          type:'bar',
+          data:{labels,datasets:[
+            {label:'Impressions',data:impressions,backgroundColor:'#6366f1',borderRadius:3,stack:'a'},
+            {label:'Revenue (£)',data:revenue,backgroundColor:'rgba(34,197,94,0.85)',borderRadius:3,stack:'a'}
+          ]},
+          options:{responsive:true,plugins:{legend:{display:true,position:'top',labels:{font:{size:11},boxWidth:12}}},scales:{x:{grid:{display:false},ticks:{font:{size:11}}},y:{grid:{color:'#f0f0f0'},ticks:{font:{size:11}},stacked:true}}}
+        });
         if(histImpressionsChart)histImpressionsChart.destroy();
         histImpressionsChart=new Chart(document.getElementById('histImpressionsChart').getContext('2d'),{type:'bar',data:{labels,datasets:[{label:'Clicks',data:clicks,backgroundColor:'#8b5cf6',borderRadius:3}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{font:{size:11}}},y:{grid:{color:'#f0f0f0'},ticks:{font:{size:11}}}}}});
       }catch(e){console.error('Historical error:',e.message);}
