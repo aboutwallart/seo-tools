@@ -315,7 +315,7 @@
             <h1>🔒 Keyword Locker</h1>
             <p>Live GSC data · One keyword = One winner URL</p>
         </div>
-        <span class="version-badge">v10.3</span>
+        <span class="version-badge">v11.0</span>
     </div>
 
     <!-- TOKEN -->
@@ -824,12 +824,35 @@ function renderConflicts() {
         return;
     }
 
+    // Build set of ALL winner URLs (User Resolved + Pre-locked)
+    const winnerUrls = new Set([
+        ...Object.values(resolvedKeywords).map(d => d.winnerUrl.toLowerCase()),
+        ...Object.values(prelockedKeywords).map(d => d.winnerUrl.toLowerCase())
+    ]);
+
+    const toAutoSave = [];
+
     conflictsData.forEach((conflict, idx) => {
+        // Filter out URLs that are already winners for other keywords
+        const availableUrls = conflict.urls.filter(u => !winnerUrls.has(u.url.toLowerCase()));
+
+        // If all URLs are locked, auto-save as SAVED_FOR_FUTURE
+        if (availableUrls.length === 0) {
+            toAutoSave.push(conflict.keyword);
+            return;
+        }
+
+        // If only 1 URL left after filtering, also auto-save (no real conflict)
+        if (availableUrls.length < 2) {
+            toAutoSave.push(conflict.keyword);
+            return;
+        }
+
         const div = document.createElement('div');
         div.className = 'conflict-item';
         div.id = `ci-${idx}`;
 
-        let urlsHtml = conflict.urls.map((u, ui) => `
+        let urlsHtml = availableUrls.map((u, ui) => `
             <div class="url-option ${ui === 0 ? 'selected' : ''}" onclick="selectUrl(${idx},${ui})">
                 <input type="radio" name="url-${idx}" value="${encodeURIComponent(u.url)}" ${ui === 0 ? 'checked' : ''} onclick="event.stopPropagation()">
                 <div class="url-info">
@@ -852,7 +875,7 @@ function renderConflicts() {
                     <span>📊 ${conflict.totalImpressions.toLocaleString()} impressions</span>
                     <span>👆 ${conflict.totalClicks} clicks</span>
                     <span>📍 Best pos ${conflict.bestPosition.toFixed(1)}</span>
-                    <span>🔗 ${conflict.urls.length} pages</span>
+                    <span>🔗 ${availableUrls.length} pages</span>
                 </div>
             </div>
             <div class="url-options">${urlsHtml}</div>
@@ -865,6 +888,20 @@ function renderConflicts() {
 
         container.appendChild(div);
     });
+
+    // Auto-save conflicts where all URLs are locked
+    if (toAutoSave.length > 0) {
+        toAutoSave.forEach(keyword => {
+            savedKeywords[keyword.toLowerCase()] = {
+                keyword,
+                date: new Date().toISOString(),
+                source: 'Auto-Saved'
+            };
+            conflictsData = conflictsData.filter(c => c.keyword !== keyword);
+        });
+        updateStats();
+        saveAutoSavedBatch(toAutoSave);
+    }
 }
 
 function selectUrl(conflictIdx, urlIdx) {
@@ -1112,7 +1149,30 @@ async function startTool() {
     }
 }
 
-function esc(str) { return str.replace(/'/g, "\\'"); }
+// Auto-save batch of keywords as SAVED_FOR_FUTURE to GitHub
+async function saveAutoSavedBatch(keywords) {
+    const token = getToken();
+    if (!token) return;
+    try {
+        const csv = await githubFetch(REGISTRY_PATH, token);
+        const { headerLines, rows } = parseRegistryCSV(csv);
+        const existingKeys = new Set(rows.map(r => (r['Keyword'] || '').toLowerCase().trim()));
+        const newRows = keywords
+            .filter(kw => !existingKeys.has(kw.toLowerCase()))
+            .map(kw => `${kw},N/A,LOCKED,DONE,SAVED_FOR_FUTURE,N/A,N/A,N/A,N/A,Auto-Saved`);
+        if (!newRows.length) return;
+        const allRows = [
+            ...rows.map(r => Object.values(r).join(',')),
+            ...newRows
+        ].sort((a, b) => a.split(',')[0].toLowerCase().localeCompare(b.split(',')[0].toLowerCase()));
+        const finalCsv = headerLines.join('\n') + '\n' + allRows.join('\n') + '\n';
+        await githubUpload(REGISTRY_PATH, finalCsv, token);
+    } catch (err) {
+        console.error('Auto-save batch failed:', err);
+    }
+}
+
+function esc(str) { return str.replace(/'/g, "\'"); }
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
