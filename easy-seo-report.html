@@ -98,17 +98,17 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v40.0</div>
+      <div class="tool-version">v41.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
     <div class="nav-item" onclick="showSection('llm', this)">🤖 AI Traffic</div>
-    <div class="nav-item" onclick="showSection('blogopt', this)">Blog Optimizations</div>
-    <div class="nav-item" onclick="showSection('content', this)">Content Optimizations</div>
-    <div class="nav-item" onclick="showSection('kwtracker', this)">Keyword Tracker</div>
-    <div class="nav-item" onclick="showSection('kwrankings', this)">Keyword Rankings</div>
     <div class="nav-item" onclick="showSection('quickwins', this)">🔥 Quick Wins</div>
     <div class="nav-item" onclick="showSection('dangerpages', this)">⚠️ Danger Pages</div>
+    <div class="nav-item" onclick="showSection('kwtracker', this)">Keyword Tracker</div>
+    <div class="nav-item" onclick="showSection('kwrankings', this)">Keyword Rankings</div>
+    <div class="nav-item" onclick="showSection('blogopt', this)">Blog Optimizations</div>
+    <div class="nav-item" onclick="showSection('content', this)">Content Optimizations</div>
   </div>
 
   <div class="main">
@@ -1924,7 +1924,7 @@
                   const pos = r.position || 0;
                   const posColor = pos <= 3 ? '#16a34a' : pos <= 10 ? '#d97706' : '#dc2626';
                   const rankUrl = kwPqMap[q.toLowerCase()]?.url || '—';
-                  const urlLink = rankUrl === '—' ? '—' : `<a href="https://www.aboutwallart.com${rankUrl}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px;word-break:break-all;">${rankUrl}</a>`;
+                  const urlLink = rankUrl === '—' ? '—' : rankUrl === '/' ? `<a href="https://www.aboutwallart.com" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px;">Home Page</a>` : `<a href="https://www.aboutwallart.com${rankUrl}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px;word-break:break-all;">${rankUrl}</a>`;
                   return `<tr>
                     <td style="color:#aaa;font-size:12px;">${i+1}.</td>
                     <td style="font-size:13px;">${q}</td>
@@ -2672,7 +2672,7 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
           ?`<button onclick="qwUndo('${r.page.replace(/'/g,"\'")}' )" style="padding:4px 8px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↩ Undo</button>`
           :`<button onclick="qwSelect('${r.page.replace(/'/g,"\'")}' )" style="padding:4px 8px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;">+ Select</button>`
         }</td>
-        <td><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:12px;word-break:break-all;">${r.page}</a></td>
+        <td><a href="https://www.aboutwallart.com${r.page === '/' ? '' : r.page}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:12px;word-break:break-all;">${r.page === '/' ? 'Home Page' : r.page}</a></td>
         <td class="num" style="color:${posColor(r.pos)};font-weight:600;">${fmtPos(r.pos)}</td>
         <td class="num">${fmt(r.imp)}</td>
         <td class="num">${fmt(r.clk)}</td>
@@ -2782,7 +2782,7 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
             ?`<button onclick="dpUndo('${r.page.replace(/'/g,"\'")}' )" style="padding:4px 8px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↩ Undo</button>`
             :`<button onclick="dpSelect('${r.page.replace(/'/g,"\'")}' )" style="padding:4px 8px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;">+ Select</button>`
           }</td>
-          <td><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:12px;word-break:break-all;">${r.page}</a></td>
+          <td><a href="https://www.aboutwallart.com${r.page === '/' ? '' : r.page}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:12px;word-break:break-all;">${r.page === '/' ? 'Home Page' : r.page}</a></td>
           <td class="num" style="color:${posColor(r.pos)};font-weight:600;">${fmtPos(r.pos)}</td>
           <td class="num">${fmt(r.currClk)}</td>
           <td class="num">${fmt(r.prevClk)}</td>
@@ -2835,4 +2835,4 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
     loadOverview(28);loadClicksChart(28);loadDeviceChart(28);loadPages(28);loadQueries(28);
   </script>
 </body>
-</html>
+</html>  
