@@ -1,0 +1,3209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Easy SEO Report Tool</title>
+  <script src="/auth-check.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #1a1a1a; display: flex; min-height: 100vh; }
+    .sidebar { width: 220px; min-width: 220px; background: #fff; border-right: 1px solid #e5e5e5; display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; z-index: 100; overflow-y: auto; }
+    .sidebar-header { background: #1a1a1a; color: #fff; padding: 20px 16px; }
+    .sidebar-header .tool-name { font-size: 13px; font-weight: 700; }
+    .sidebar-header .tool-version { font-size: 11px; color: #888; margin-top: 3px; }
+    .nav-item { padding: 11px 16px; font-size: 13px; color: #555; cursor: pointer; border-left: 3px solid transparent; transition: all 0.15s; }
+    .nav-item:hover { background: #f9f9f9; color: #1a1a1a; }
+    .nav-item.active { background: #f0f0f0; color: #1a1a1a; font-weight: 500; border-left-color: #1a1a1a; }
+    .main { margin-left: 220px; flex: 1; display: flex; flex-direction: column; }
+    .top-header { background: #1a1a1a; color: #fff; padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; }
+    .top-header h1 { font-size: 16px; font-weight: 600; }
+    .date-picker select { background: #2d2d2d; color: #fff; border: 1px solid #444; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; }
+    .page-content { padding: 28px 32px; flex: 1; }
+    .section { display: none; }
+    .section.active { display: block; }
+    .metrics-row { display: flex; background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; overflow: hidden; margin-bottom: 24px; }
+    .metric-card { flex: 1; padding: 20px 24px; border-right: 1px solid #e5e5e5; }
+    .metric-card:last-child { border-right: none; }
+    .metric-label { font-size: 11px; font-weight: 500; color: #888; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+    .metric-value { font-size: 28px; font-weight: 700; color: #1a1a1a; line-height: 1; margin-bottom: 4px; }
+    .metric-sub { font-size: 12px; color: #aaa; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
+    .chart-card { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; overflow: hidden; margin-bottom: 24px; }
+    .chart-card-header { padding: 16px 20px; border-bottom: 1px solid #e5e5e5; display: flex; align-items: center; justify-content: space-between; }
+    .chart-card-header h2 { font-size: 14px; font-weight: 600; }
+    .chart-card-header span { font-size: 12px; color: #888; }
+    .chart-body { padding: 20px; }
+    .chart-body.donut { display: flex; align-items: center; gap: 24px; }
+    .donut-canvas { width: 160px !important; height: 160px !important; flex-shrink: 0; }
+    .donut-legend { flex: 1; }
+    .legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 13px; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .legend-label { color: #555; flex: 1; }
+    .legend-pct { font-weight: 600; color: #1a1a1a; }
+    .table-card { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; overflow: hidden; }
+    .table-card-header { padding: 16px 20px; border-bottom: 1px solid #e5e5e5; display: flex; align-items: center; justify-content: space-between; }
+    .table-card-header h2 { font-size: 14px; font-weight: 600; }
+    .table-card-header span { font-size: 12px; color: #888; }
+    table { width: 100%; border-collapse: collapse; }
+    thead { background: #1a1a1a; }
+    thead th { padding: 10px 16px; font-size: 11px; font-weight: 600; color: #fff; text-align: left; text-transform: uppercase; letter-spacing: 0.05em; }
+    thead th.num { text-align: right; }
+    tbody td { padding: 10px 16px; font-size: 13px; color: #333; border-bottom: 1px solid #f0f0f0; }
+    tbody td.num { text-align: right; font-size: 12px; color: #555; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: #fafafa; }
+    .page-url { max-width: 320px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: #2563eb; }
+    .bar-wrap { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+    .bar { height: 8px; background: #2563eb; border-radius: 2px; min-width: 4px; }
+    .loading-row td { text-align: center; padding: 32px; color: #aaa; font-size: 13px; }
+    .error-msg { background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 12px 16px; color: #dc2626; font-size: 13px; margin-bottom: 16px; display: none; }
+    .coming-soon { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 48px; text-align: center; color: #aaa; font-size: 14px; }
+    .hist-row { display: grid; grid-template-columns: 300px 1fr; gap: 0; background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; overflow: hidden; margin-bottom: 24px; }
+    .hist-gauge-side { border-right: 1px solid #e5e5e5; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 24px; }
+    .hist-gauge-title { font-size: 20px; font-weight: 700; color: #1a1a1a; margin-bottom: 24px; text-align: center; }
+    .hist-gauge-wrap { position: relative; width: 160px; height: 160px; }
+    .hist-gauge-wrap canvas { width: 160px !important; height: 160px !important; }
+    .hist-gauge-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; }
+    .hist-gauge-value { font-size: 22px; font-weight: 700; color: #1a1a1a; line-height: 1; }
+    .hist-gauge-change { font-size: 12px; margin-top: 4px; }
+    .hist-gauge-change.up { color: #16a34a; }
+    .hist-gauge-change.down { color: #dc2626; }
+    .hist-gauge-sub { font-size: 12px; color: #888; margin-top: 12px; text-align: center; }
+    .hist-chart-side { padding: 20px 24px; }
+    .hist-chart-side h3 { font-size: 12px; color: #888; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+    .hist-chart-side h3 span { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+    .content-section-card { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; overflow: hidden; margin-bottom: 32px; }
+    .content-section-header { padding: 20px 24px; border-bottom: 1px solid #e5e5e5; }
+    .content-section-header h2 { font-size: 16px; font-weight: 700; color: #1a1a1a; margin-bottom: 6px; }
+    .content-section-header p { font-size: 13px; color: #666; line-height: 1.5; }
+    .content-controls { padding: 12px 16px; background: #f9f9f9; border-bottom: 1px solid #e5e5e5; display: flex; align-items: center; gap: 12px; }
+    .content-controls input { flex: 1; padding: 7px 12px; border: 1px solid #e5e5e5; border-radius: 4px; font-size: 13px; outline: none; }
+    .content-controls input:focus { border-color: #1a1a1a; }
+    .content-controls select { padding: 7px 12px; border: 1px solid #e5e5e5; border-radius: 4px; font-size: 13px; background: #fff; cursor: pointer; outline: none; }
+    .content-controls label { font-size: 12px; color: #888; white-space: nowrap; }
+    .priority-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    .priority-high { background: #dc2626; }
+    .priority-medium { background: #f59e0b; }
+    .priority-low { background: #16a34a; }
+    .count-badge { font-size: 11px; color: #888; background: #f0f0f0; padding: 2px 8px; border-radius: 10px; margin-left: 8px; }
+    .data-note { font-size: 11px; color: #888; padding: 8px 16px; background: #fafafa; border-bottom: 1px solid #f0f0f0; }
+    .download-btn { padding: 6px 14px; background: #1a1a1a; color: #fff; border: none; border-radius: 4px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .download-btn:hover { background: #333; }
+  </style>
+</head>
+<body>
+
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <div class="tool-name">Easy SEO Report Tool</div>
+      <div class="tool-version">v45.0</div>
+    </div>
+    <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
+    <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
+    <div class="nav-item" onclick="showSection('suspicious', this)">🚨 Suspicious Traffic</div>
+    <div class="nav-item" onclick="showSection('llm', this)">🤖 AI Traffic</div>
+    <div class="nav-item" onclick="showSection('quickwins', this)">🔥 Quick Wins</div>
+    <div class="nav-item" onclick="showSection('dangerpages', this)">⚠️ Danger Pages</div>
+    <div class="nav-item" onclick="showSection('kwtracker', this)">Keyword Tracker</div>
+    <div class="nav-item" onclick="showSection('kwrankings', this)">Keyword Rankings</div>
+    <div class="nav-item" onclick="showSection('blogopt', this)">Blog Optimizations</div>
+    <div class="nav-item" onclick="showSection('content', this)">Content Optimizations</div>
+  </div>
+
+  <div class="main">
+    <div class="top-header">
+      <h1 id="pageTitle">High Level SEO Metrics</h1>
+      <div class="date-picker">
+        <select id="dateRange" onchange="onRangeChange()">
+          <option value="28">Last 28 days</option>
+          <option value="90">Last 90 days</option>
+          <option value="180">Last 6 months</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="page-content">
+      <div class="error-msg" id="errorMsg"></div>
+
+      <!-- SECTION: High Level SEO Metrics -->
+      <div class="section active" id="section-overview">
+        <div class="metrics-row">
+          <div class="metric-card"><div class="metric-label">Clicks</div><div class="metric-value" id="metClicks">—</div><div class="metric-sub" id="metClicksSub">loading...</div></div>
+          <div class="metric-card"><div class="metric-label">Site CTR</div><div class="metric-value" id="metCTR">—</div><div class="metric-sub" id="metCTRSub">loading...</div></div>
+          <div class="metric-card"><div class="metric-label">Impressions</div><div class="metric-value" id="metImpressions">—</div><div class="metric-sub" id="metImpressionsSub">loading...</div></div>
+          <div class="metric-card"><div class="metric-label">Average Position</div><div class="metric-value" id="metPosition">—</div><div class="metric-sub" id="metPositionSub">loading...</div></div>
+        </div>
+        <div class="two-col">
+          <div class="chart-card" style="margin-bottom:0;">
+            <div class="chart-card-header"><h2>Clicks Over Time</h2><span id="clicksChartLabel">—</span></div>
+            <div class="chart-body"><canvas id="clicksChart" height="160"></canvas></div>
+          </div>
+          <div class="chart-card" style="margin-bottom:0;">
+            <div class="chart-card-header"><h2>Device Breakdown</h2><span>by clicks</span></div>
+            <div class="chart-body donut">
+              <canvas class="donut-canvas" id="deviceChart"></canvas>
+              <div class="donut-legend" id="deviceLegend"><div style="color:#aaa;font-size:13px;">Loading...</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="two-col">
+          <div class="table-card">
+            <div class="table-card-header"><h2>Landing Page</h2><span>Url Clicks ▼</span></div>
+            <table>
+              <thead><tr><th>#</th><th>Landing Page</th><th class="num">Url Clicks</th><th class="num">Impressions</th></tr></thead>
+              <tbody id="pagesBody"><tr class="loading-row"><td colspan="4">Loading...</td></tr></tbody>
+            </table>
+          </div>
+          <div class="table-card">
+            <div class="table-card-header"><h2>Query</h2><span>Clicks ▼</span></div>
+            <table>
+              <thead><tr><th>Query</th><th class="num">Clicks</th></tr></thead>
+              <tbody id="queriesBody"><tr class="loading-row"><td colspan="2">Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- SECTION: Historical View -->
+      <div class="section" id="section-historical">
+        <div class="hist-row">
+          <div class="hist-gauge-side">
+            <div class="hist-gauge-title">Monthly Clicks</div>
+            <div class="hist-gauge-wrap"><canvas id="gaugeClicks"></canvas><div class="hist-gauge-center"><div class="hist-gauge-value" id="gaugeClicksVal">—</div><div class="hist-gauge-change" id="gaugeClicksChange">—</div></div></div>
+            <div class="hist-gauge-sub">Comparison: Previous Year</div>
+          </div>
+          <div class="hist-chart-side"><h3><span style="background:#6366f1;"></span> Impressions</h3><canvas id="histClicksChart" height="120"></canvas></div>
+        </div>
+        <div class="hist-row">
+          <div class="hist-gauge-side">
+            <div class="hist-gauge-title">Monthly Impressions</div>
+            <div class="hist-gauge-wrap"><canvas id="gaugeImpressions"></canvas><div class="hist-gauge-center"><div class="hist-gauge-value" id="gaugeImpressionsVal">—</div><div class="hist-gauge-change" id="gaugeImpressionsChange">—</div></div></div>
+            <div class="hist-gauge-sub">Comparison: Previous Year</div>
+          </div>
+          <div class="hist-chart-side"><h3><span style="background:#8b5cf6;"></span> Clicks</h3><canvas id="histImpressionsChart" height="120"></canvas></div>
+        </div>
+      </div>
+
+      <!-- SECTION: LLM Traffic -->
+      <div class="section" id="section-llm">
+
+        <!-- Header bar -->
+        <div style="background:#1a1a1a;border-radius:8px;padding:20px 24px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span style="color:#fff;font-size:16px;font-weight:600;">🤖 AI Traffic</span>
+            <select id="llmDays" onchange="loadLLMTraffic()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="30">Last 30 days</option>
+              <option value="90" selected>Last 90 days</option>
+              <option value="180">Last 180 days</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:32px;">
+            <div style="text-align:right;">
+              <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.08em;">Total Sessions</div>
+              <div style="font-size:22px;font-weight:700;color:#fff;" id="llmMetSessions">—</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.08em;">Total Views</div>
+              <div style="font-size:22px;font-weight:700;color:#fff;" id="llmMetViews">—</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.08em;">AI Sources</div>
+              <div style="font-size:22px;font-weight:700;color:#fff;" id="llmMetSources">—</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Top overview: donut + line chart -->
+        <div id="llmOverview" style="display:none;background:#fff;border:1px solid #e5e5e5;border-radius:8px;overflow:hidden;margin-bottom:24px;">
+          <div style="display:flex;align-items:stretch;">
+            <!-- Donut side (40%) -->
+            <div style="width:40%;border-right:1px solid #e5e5e5;padding:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+              <div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:16px;text-align:center;">Sessions by AI Source</div>
+              <div style="position:relative;width:220px;height:220px;">
+                <canvas id="llmDonutSessions" style="position:absolute;top:0;left:0;width:220px!important;height:220px!important;"></canvas>
+                <canvas id="llmDonutViews" style="position:absolute;top:22px;left:22px;width:176px!important;height:176px!important;"></canvas>
+              </div>
+              <div id="llmDonutLegend" style="margin-top:16px;width:100%;"></div>
+            </div>
+            <!-- Line chart side (60%) -->
+            <div style="flex:1;padding:24px;">
+              <div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:16px;">Sessions Growth Over Time (1 Year)</div>
+              <canvas id="llmLineChart" height="200"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Per-source cards -->
+        <div id="llmSourceCards"></div>
+
+        <!-- No data state -->
+        <div id="llmNoData" style="display:none;">
+          <div class="coming-soon">No LLM traffic found in this period. AI tools may not be sending referral data yet.</div>
+        </div>
+
+      </div>
+
+      <!-- SECTION: Blog Tracking -->
+      <div class="section" id="section-blog">
+
+        <!-- Month selector + summary metrics -->
+        <div style="background:#1a1a1a;border-radius:8px;padding:20px 24px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span style="color:#fff;font-size:16px;font-weight:600;" id="blogTrackingTitle">Blog Tracking</span>
+            <select id="blogMonthSelect" onchange="loadBlogTracking()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">
+            </select>
+
+          </div>
+          <div style="display:flex;gap:32px;">
+            <div style="text-align:right;">
+              <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.08em;">URL CTR</div>
+              <div style="font-size:22px;font-weight:700;color:#fff;" id="blogMetCTR">—</div>
+              <div style="font-size:11px;" id="blogMetCTRChange"></div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.08em;">Landing Pages</div>
+              <div style="font-size:22px;font-weight:700;color:#fff;" id="blogMetPages">—</div>
+              <div style="font-size:11px;color:#888;" id="blogMetPagesSub"></div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.08em;">Url Clicks</div>
+              <div style="font-size:22px;font-weight:700;color:#fff;" id="blogMetClicks">—</div>
+              <div style="font-size:11px;" id="blogMetClicksChange"></div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.08em;">Impressions</div>
+              <div style="font-size:22px;font-weight:700;color:#fff;" id="blogMetImpressions">—</div>
+              <div style="font-size:11px;" id="blogMetImpressionsChange"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Blog table -->
+        <div class="table-card">
+          <div class="table-card-header">
+            <h2 id="blogTableTitle">Blog Posts</h2>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <input type="text" placeholder="Search blogs..." oninput="filterTable('blogBody', this.value)" style="padding:6px 12px;border:1px solid #e5e5e5;border-radius:4px;font-size:12px;outline:none;width:200px;">
+            </div>
+          </div>
+          <div id="blogLoading" style="text-align:center;padding:32px;color:#aaa;font-size:13px;">Select a month to load blog tracking data</div>
+          <table id="blogTable" style="display:none;">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Landing Page</th>
+                <th class="num">Url Clicks</th>
+                <th class="num">% vs 30d</th>
+                <th class="num">% vs 90d</th>
+                <th class="num">Impressions</th>
+                <th class="num">URL CTR</th>
+                <th class="num">Avg Position</th>
+              </tr>
+            </thead>
+            <tbody id="blogBody"></tbody>
+          </table>
+        </div>
+
+      </div>
+
+      <!-- SECTION: Blog Optimizations -->
+      <div class="section" id="section-blogopt">
+
+        <div class="content-section-card">
+          <div class="content-section-header">
+            <h2>📊 Blog Optimizations</h2>
+            <p>Blog posts getting high impressions but low CTR — published more than 90 days ago. Improving the title or meta description could significantly increase traffic without writing anything new. Sorted by lowest clicks first within each group.</p>
+          </div>
+          <div class="data-note">Data: last 180 days · Blog posts older than 90 days · Grouped by urgency · Sorted by clicks (lowest first)</div>
+
+          <!-- Tab buttons -->
+          <div style="display:flex;gap:0;border-bottom:2px solid #f0f0f0;margin-bottom:0;">
+            <button id="blogOptTab-urgent" onclick="switchBlogOptTab('urgent')" style="padding:10px 20px;border:none;background:#fef2f2;color:#dc2626;font-weight:600;font-size:13px;cursor:pointer;border-bottom:2px solid #dc2626;margin-bottom:-2px;">
+              🔴 Urgent <span id="blogOptCountUrgent" style="background:#fecaca;padding:1px 7px;border-radius:10px;font-size:11px;margin-left:4px;">—</span>
+            </button>
+            <button id="blogOptTab-improve" onclick="switchBlogOptTab('improve')" style="padding:10px 20px;border:none;background:#fff;color:#92400e;font-weight:600;font-size:13px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">
+              🟡 Improve <span id="blogOptCountImprove" style="background:#fef9c3;padding:1px 7px;border-radius:10px;font-size:11px;margin-left:4px;">—</span>
+            </button>
+            <button id="blogOptTab-monitor" onclick="switchBlogOptTab('monitor')" style="padding:10px 20px;border:none;background:#fff;color:#555;font-weight:600;font-size:13px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">
+              ⚪ Monitor <span id="blogOptCountMonitor" style="background:#f0f0f0;padding:1px 7px;border-radius:10px;font-size:11px;margin-left:4px;">—</span>
+            </button>
+          </div>
+
+          <div class="content-controls" style="border-top:none;">
+            <label>Search:</label>
+            <input type="text" id="blogOptSearch" placeholder="Filter by URL..." oninput="renderBlogOptActive()">
+            <label>Show:</label>
+            <select id="blogOptLimit" onchange="renderBlogOptActive()">
+              <option value="50">50 rows</option>
+              <option value="100">100 rows</option>
+              <option value="150">150 rows</option>
+            </select>
+            <button class="download-btn" onclick="downloadBlogOptCSV()">⬇ Download CSV</button>
+          </div>
+          <table>
+            <thead><tr>
+              <th>#</th>
+              <th>Blog Post</th>
+              <th class="num">Impressions</th>
+              <th class="num">Clicks</th>
+              <th class="num">CTR</th>
+              <th class="num">Position</th>
+            </tr></thead>
+            <tbody id="blogOptBody"><tr class="loading-row"><td colspan="6">Loading...</td></tr></tbody>
+          </table>
+        </div>
+
+      </div>
+
+      <!-- SECTION: Content Optimizations -->
+      <div class="section" id="section-content">
+
+        <div class="content-section-card">
+          <div class="content-section-header">
+            <h2>🔧 Fix CTR <span class="count-badge" id="ctrCount">—</span></h2>
+            <p>These pages are already ranking well (position 1–7) and getting clicks, but not enough people click on them. A quick improvement to the page title or meta description could increase clicks without needing to rewrite the content.</p>
+          </div>
+          <div class="data-note">Data: last 180 days · Position 1–7 · Has clicks · CTR under 2% · At least 100 impressions · Sorted by impressions</div>
+          <div class="content-controls">
+            <label>Search:</label>
+            <input type="text" placeholder="Filter by URL or query..." oninput="filterTable('ctrBody', this.value)">
+            <label>Show:</label>
+            <select onchange="renderCTR(parseInt(this.value))">
+              <option value="50">50 rows</option><option value="100">100 rows</option><option value="150">150 rows</option>
+            </select>
+            <button class="download-btn" onclick="downloadCSV('ctr')">⬇ Download CSV</button>
+          </div>
+          <table>
+            <thead><tr><th>#</th><th>Priority</th><th>Page URL</th><th>Top Query</th><th class="num">Impressions</th><th class="num">Clicks</th><th class="num">CTR</th><th class="num">Position</th></tr></thead>
+            <tbody id="ctrBody"><tr class="loading-row"><td colspan="8">Loading...</td></tr></tbody>
+          </table>
+        </div>
+
+        <div class="content-section-card">
+          <div class="content-section-header">
+            <h2>📝 Pages to Optimise <span class="count-badge" id="optimiseCount">—</span></h2>
+            <p>These pages are ranking between position 8–15 — on page 1 but not at the top. They have good potential but need deeper work: better content, stronger keyword targeting, or more internal links. These have more room to grow than Fix CTR pages.</p>
+          </div>
+          <div class="data-note">Data: last 180 days · Position 8–15 · CTR under 2% · At least 100 impressions · Sorted by impressions</div>
+          <div class="content-controls">
+            <label>Search:</label>
+            <input type="text" placeholder="Filter by URL or query..." oninput="filterTable('optimiseBody', this.value)">
+            <label>Show:</label>
+            <select onchange="renderOptimise(parseInt(this.value))">
+              <option value="50">50 rows</option><option value="100">100 rows</option><option value="150">150 rows</option>
+            </select>
+            <button class="download-btn" onclick="downloadCSV('optimise')">⬇ Download CSV</button>
+          </div>
+          <table>
+            <thead><tr><th>#</th><th>Priority</th><th>Page URL</th><th>Top Query</th><th class="num">Impressions</th><th class="num">Position</th></tr></thead>
+            <tbody id="optimiseBody"><tr class="loading-row"><td colspan="6">Loading...</td></tr></tbody>
+          </table>
+        </div>
+
+        <div class="content-section-card">
+          <div class="content-section-header">
+            <h2>🎯 Low Ranking Opportunities <span class="count-badge" id="createCount">—</span></h2>
+            <p>These are search queries people are typing into Google where you have NO existing blog post covering this keyword. Write a new blog post targeting these keywords to capture this traffic.</p>
+          </div>
+          <div class="data-note">Data: last 180 days · Real search queries only · No matching content in your registry · At least 10 impressions · English queries only · Sorted by impressions</div>
+          <div class="content-controls">
+            <label>Search:</label>
+            <input type="text" placeholder="Filter by query..." oninput="filterTable('createBody', this.value)">
+            <label>Show:</label>
+            <select onchange="renderCreate(parseInt(this.value))">
+              <option value="50">50 rows</option><option value="100">100 rows</option><option value="150">150 rows</option>
+            </select>
+            <button class="download-btn" onclick="downloadCSV('create')">⬇ Download CSV</button>
+          </div>
+          <table>
+            <thead><tr><th>#</th><th>Priority</th><th>Query</th><th class="num">Impressions</th></tr></thead>
+            <tbody id="createBody"><tr class="loading-row"><td colspan="4">Loading...</td></tr></tbody>
+          </table>
+        </div>
+
+      </div>
+
+
+      <!-- SECTION: Suspicious Traffic -->
+      <div class="section" id="section-suspicious">
+        <div style="margin-bottom:24px;">
+          <h2 style="font-size:20px;font-weight:700;margin-bottom:6px;">🚨 Suspicious Traffic</h2>
+          <p style="color:#666;font-size:13px;">Traffic signals that may indicate bot or low-quality visits. Based on GA4 bounce rate vs same month last year. High suspicious % = potential bot inflation.</p>
+        </div>
+
+        <!-- Gauge + Bar chart row (like Historical View) -->
+        <div id="suspLoading" style="text-align:center;padding:48px;color:#aaa;font-size:13px;">Loading suspicious traffic data...</div>
+
+        <div id="suspChartRow" style="display:none;">
+          <!-- Gauge card -->
+          <div class="hist-row" style="margin-bottom:24px;">
+            <div class="hist-gauge-side">
+              <div class="hist-gauge-title">Suspicious Sessions</div>
+              <div class="hist-gauge-wrap">
+                <canvas id="suspGauge"></canvas>
+                <div class="hist-gauge-center">
+                  <div id="suspGaugeValue" class="hist-gauge-value">—</div>
+                  <div id="suspGaugeChange" class="hist-gauge-change"></div>
+                </div>
+              </div>
+              <div class="hist-gauge-sub">Comparison: Previous Year - Same Month</div>
+            </div>
+            <div class="hist-chart-side">
+              <!-- Legend -->
+              <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:12px;font-size:11px;">
+                <span><span style="display:inline-block;width:10px;height:10px;background:#6366f1;border-radius:2px;margin-right:4px;"></span>Total</span>
+                <span><span style="display:inline-block;width:10px;height:10px;background:#ef4444;border-radius:2px;margin-right:4px;"></span>Suspicious</span>
+                <span><span style="display:inline-block;width:10px;height:10px;background:#8b5cf6;border-radius:2px;margin-right:4px;"></span>Collections</span>
+                <span><span style="display:inline-block;width:10px;height:10px;background:#22c55e;border-radius:2px;margin-right:4px;"></span>Blogs</span>
+                <span><span style="display:inline-block;width:10px;height:10px;background:#f97316;border-radius:2px;margin-right:4px;"></span>Products</span>
+                <span><span style="display:inline-block;width:10px;height:10px;background:#3b82f6;border-radius:2px;margin-right:4px;"></span>Pages</span>
+                <span><span style="display:inline-block;width:10px;height:10px;background:#eab308;border-radius:2px;margin-right:4px;"></span>Ad Intent</span>
+              </div>
+              <canvas id="suspBarChart" height="160"></canvas>
+            </div>
+          </div>
+
+          <!-- Summary table -->
+          <div class="table-card">
+            <div class="table-card-header"><h2>Monthly Breakdown</h2></div>
+            <table style="width:100%;">
+              <thead><tr>
+                <th>Month</th>
+                <th class="num">Total</th>
+                <th class="num" style="color:#ef4444;">Suspicious</th>
+                <th class="num" style="color:#8b5cf6;">Collections</th>
+                <th class="num" style="color:#22c55e;">Blogs</th>
+                <th class="num" style="color:#f97316;">Products</th>
+                <th class="num" style="color:#3b82f6;">Pages</th>
+                <th class="num" style="color:#eab308;">Ad Intent</th>
+                <th class="num">vs Last Year</th>
+                <th class="num">Risk</th>
+              </tr></thead>
+              <tbody id="suspTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- SECTION: Keyword Tracker -->
+      <div class="section" id="section-kwtracker">
+
+        <!-- Top bar -->
+        <div style="background:#1a1a1a;border-radius:8px;padding:20px 24px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+          <span style="color:#fff;font-size:16px;font-weight:600;">Keyword Tracker</span>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <input id="kwNewLabel" type="text" placeholder="Tab label (e.g. Hamilton)" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:160px;outline:none;">
+            <input id="kwNewKeyword" type="text" placeholder="Keyword to track" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:200px;outline:none;">
+            <button onclick="kwAddTab()" style="background:#2563eb;color:#fff;border:none;padding:7px 16px;border-radius:4px;font-size:12px;cursor:pointer;font-weight:600;">+ Add Tab</button>
+          </div>
+        </div>
+
+        <!-- Save status -->
+        <div id="kwSaveStatus" style="display:none;border-radius:6px;padding:10px 16px;margin-bottom:16px;font-size:13px;align-items:center;gap:8px;">
+          <span id="kwSaveStatusText"></span>
+        </div>
+
+        <!-- Tabs row -->
+        <div id="kwTabsRow" style="margin-bottom:24px;"></div>
+
+        <!-- Active tab content -->
+        <div id="kwContent">
+          <div style="text-align:center;padding:48px;color:#aaa;font-size:13px;">Add a keyword tab above to get started.</div>
+        </div>
+
+      </div>
+
+
+      <!-- SECTION: Keyword Rankings -->
+      <div class="section" id="section-kwrankings">
+
+        <!-- Top bar -->
+        <div style="background:#1a1a1a;border-radius:8px;padding:16px 24px;margin-bottom:16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
+            <span style="color:#fff;font-size:16px;font-weight:600;">Keyword Rankings</span>
+          </div>
+          <div style="color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Filters</div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <input id="kwrSearch" type="text" placeholder="Search keywords..." oninput="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:240px;outline:none;">
+            <select id="kwrFilterPos" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="">All Positions</option>
+              <option value="1-3">Pos 1–3</option>
+              <option value="4-10">Pos 4–10</option>
+              <option value="11-20">Pos 11–20</option>
+              <option value="21+">Pos 21+</option>
+            </select>
+            <select id="kwrFilterDiff" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="">All Difficulties</option>
+              <option value="Easy">Easy</option>
+              <option value="Medium">Medium</option>
+              <option value="Hard">Hard</option>
+            </select>
+            <select id="kwrFilterMinImp" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="0">Any Impressions</option>
+              <option value="100">100+</option>
+              <option value="500">500+</option>
+              <option value="1000">1K+</option>
+              <option value="5000">5K+</option>
+            </select>
+            <select id="kwrLimit" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="50">50 rows</option>
+              <option value="100">100 rows</option>
+              <option value="250">250 rows</option>
+              <option value="500">500 rows</option>
+            </select>
+            <button onclick="kwrResetFilters()" style="background:#333;color:#aaa;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">✕ Reset</button>
+          </div>
+        </div>
+
+        <!-- Sub tabs -->
+        <div style="display:flex;align-items:center;border-bottom:2px solid #e5e5e5;margin-bottom:24px;">
+          <button id="kwrTabAll" onclick="kwrSwitchTab('all')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">All Keywords <span id="kwrCountAll" class="count-badge">—</span></button>
+          <button id="kwrTabTracked" onclick="kwrSwitchTab('tracked')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Selected <span id="kwrCountTracked" class="count-badge">—</span></button>
+        </div>
+
+        <!-- Save status -->
+        <div id="kwrSaveStatus" style="display:none;border-radius:6px;padding:10px 16px;margin-bottom:16px;font-size:13px;align-items:center;gap:8px;">
+          <span id="kwrSaveStatusText"></span>
+        </div>
+
+        <!-- Table -->
+        <div class="table-card">
+          <table id="kwrTable" style="table-layout:fixed;width:100%;">
+            <thead id="kwrTableHead"></thead>
+            <tbody id="kwrBody"><tr class="loading-row"><td colspan="8">Loading keyword rankings...</td></tr></tbody>
+          </table>
+        </div>
+
+      </div>
+
+
+
+      <!-- SECTION: Quick Wins -->
+      <div class="section" id="section-quickwins">
+        <div style="background:#1a1a1a;border-radius:8px;padding:16px 24px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+          <div>
+            <span style="color:#fff;font-size:16px;font-weight:600;">🔥 Quick Wins</span>
+            <span style="color:#888;font-size:12px;margin-left:12px;">Position 1–20 · 100+ impressions</span>
+          </div>
+          <input id="qwSearch" type="text" placeholder="Search..." oninput="qwFilter()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:200px;outline:none;">
+        </div>
+
+        <!-- Page type tabs -->
+        <div style="display:flex;align-items:center;border-bottom:2px solid #e5e5e5;margin-bottom:16px;">
+          <button id="qwTabCollections" onclick="qwSwitchPageType('collections')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">Collections <span id="qwCountCollections" class="count-badge">—</span></button>
+          <button id="qwTabBlogs" onclick="qwSwitchPageType('blogs')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Blogs <span id="qwCountBlogs" class="count-badge">—</span></button>
+          <button id="qwTabProducts" onclick="qwSwitchPageType('products')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Products <span id="qwCountProducts" class="count-badge">—</span></button>
+          <button id="qwTabPages" onclick="qwSwitchPageType('pages')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Pages <span id="qwCountPages" class="count-badge">—</span></button>
+          <div style="flex:1;"></div>
+          <!-- All / Selected sub-tabs -->
+          <button id="qwSubAll" onclick="qwSwitchSub('all')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">All <span id="qwSubCountAll" class="count-badge">—</span></button>
+          <button id="qwSubSelected" onclick="qwSwitchSub('selected')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Selected <span id="qwSubCountSelected" class="count-badge">0</span></button>
+        </div>
+
+        <!-- Save status -->
+        <div id="qwSaveStatus" style="display:none;border-radius:6px;padding:10px 16px;margin-bottom:12px;font-size:13px;align-items:center;gap:8px;"><span id="qwSaveStatusText"></span></div>
+
+        
+
+        <div class="table-card">
+          <table style="width:100%;" id="qwTable">
+            <thead id="qwTableHead"></thead>
+            <tbody id="qwBody"><tr class="loading-row"><td colspan="7">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- SECTION: Danger Pages -->
+      <div class="section" id="section-dangerpages">
+        <div style="background:#1a1a1a;border-radius:8px;padding:16px 24px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+          <div>
+            <span style="color:#fff;font-size:16px;font-weight:600;">⚠️ Danger Pages</span>
+            <span style="color:#888;font-size:12px;margin-left:12px;">Clicks dropped 20%+ vs previous 90 days · min 10 clicks</span>
+          </div>
+          <input id="dpSearch" type="text" placeholder="Search..." oninput="dpFilter()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:200px;outline:none;">
+        </div>
+
+        <!-- Page type tabs -->
+        <div style="display:flex;align-items:center;border-bottom:2px solid #e5e5e5;margin-bottom:16px;">
+          <button id="dpTabCollections" onclick="dpSwitchPageType('collections')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">Collections <span id="dpCountCollections" class="count-badge">—</span></button>
+          <button id="dpTabBlogs" onclick="dpSwitchPageType('blogs')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Blogs <span id="dpCountBlogs" class="count-badge">—</span></button>
+          <button id="dpTabProducts" onclick="dpSwitchPageType('products')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Products <span id="dpCountProducts" class="count-badge">—</span></button>
+          <button id="dpTabPages" onclick="dpSwitchPageType('pages')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Pages <span id="dpCountPages" class="count-badge">—</span></button>
+          <div style="flex:1;"></div>
+          <button id="dpSubAll" onclick="dpSwitchSub('all')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">All <span id="dpSubCountAll" class="count-badge">—</span></button>
+          <button id="dpSubSelected" onclick="dpSwitchSub('selected')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Selected <span id="dpSubCountSelected" class="count-badge">0</span></button>
+        </div>
+
+        <!-- Save status -->
+        <div id="dpSaveStatus" style="display:none;border-radius:6px;padding:10px 16px;margin-bottom:12px;font-size:13px;align-items:center;gap:8px;"><span id="dpSaveStatusText"></span></div>
+
+        
+
+        <div class="table-card">
+          <table style="width:100%;" id="dpTable">
+            <thead id="dpTableHead"></thead>
+            <tbody id="dpBody"><tr class="loading-row"><td colspan="7">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+
+      <!-- SECTION: Suspicious Traffic -->
+      <div class="section" id="section-suspicious">
+        <div style="margin-bottom:24px;">
+          <h2 style="font-size:20px;font-weight:700;margin-bottom:6px;">🚨 Suspicious Traffic</h2>
+          <p style="color:#666;font-size:13px;">Traffic signals that may indicate bot or low-quality visits. Based on GA4 bounce rate vs same month last year. High suspicious % = potential bot inflation.</p>
+        </div>
+
+        <!-- Gauge + Bar chart row (like Historical View) -->
+        <div id="suspLoading" style="text-align:center;padding:48px;color:#aaa;font-size:13px;">Loading suspicious traffic data...</div>
+
+        <div id="suspChartRow" style="display:none;">
+          <!-- Gauge card -->
+          <div class="hist-row" style="margin-bottom:24px;">
+            <div class="hist-gauge-side">
+              <div class="hist-gauge-title">Suspicious Sessions</div>
+              <div class="hist-gauge-wrap">
+                <canvas id="suspGauge"></canvas>
+                <div class="hist-gauge-center">
+                  <div id="suspGaugeValue" class="hist-gauge-value">—</div>
+                  <div id="suspGaugeChange" class="hist-gauge-change"></div>
+                </div>
+              </div>
+              <div class="hist-gauge-sub">Comparison: Previous Year - Same Month</div>
+            </div>
+            <div class="hist-chart-side">
+              <!-- Legend -->
+              <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:12px;font-size:11px;">
+                <span><span style="display:inline-block;width:10px;height:10px;background:#6366f1;border-radius:2px;margin-right:4px;"></span>Total</span>
+                <span><span style="display:inline-block;width:10px;height:10px;background:#ef4444;border-radius:2px;margin-right:4px;"></span>Suspicious</span>
+                <span><span style="display:inline-block;width:10px;height:10px;background:#8b5cf6;border-radius:2px;margin-right:4px;"></span>Collections</span>
+                <span><span style="display:inline-block;width:10px;height:10px;background:#22c55e;border-radius:2px;margin-right:4px;"></span>Blogs</span>
+                <span><span style="display:inline-block;width:10px;height:10px;background:#f97316;border-radius:2px;margin-right:4px;"></span>Products</span>
+                <span><span style="display:inline-block;width:10px;height:10px;background:#3b82f6;border-radius:2px;margin-right:4px;"></span>Pages</span>
+                <span><span style="display:inline-block;width:10px;height:10px;background:#eab308;border-radius:2px;margin-right:4px;"></span>Ad Intent</span>
+              </div>
+              <canvas id="suspBarChart" height="160"></canvas>
+            </div>
+          </div>
+
+          <!-- Summary table -->
+          <div class="table-card">
+            <div class="table-card-header"><h2>Monthly Breakdown</h2></div>
+            <table style="width:100%;">
+              <thead><tr>
+                <th>Month</th>
+                <th class="num">Total</th>
+                <th class="num" style="color:#ef4444;">Suspicious</th>
+                <th class="num" style="color:#8b5cf6;">Collections</th>
+                <th class="num" style="color:#22c55e;">Blogs</th>
+                <th class="num" style="color:#f97316;">Products</th>
+                <th class="num" style="color:#3b82f6;">Pages</th>
+                <th class="num" style="color:#eab308;">Ad Intent</th>
+                <th class="num">vs Last Year</th>
+                <th class="num">Risk</th>
+              </tr></thead>
+              <tbody id="suspTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- SECTION: Keyword Tracker -->
+      <div class="section" id="section-kwtracker">
+
+        <!-- Top bar -->
+        <div style="background:#1a1a1a;border-radius:8px;padding:20px 24px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+          <span style="color:#fff;font-size:16px;font-weight:600;">Keyword Tracker</span>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <input id="kwNewLabel" type="text" placeholder="Tab label (e.g. Hamilton)" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:160px;outline:none;">
+            <input id="kwNewKeyword" type="text" placeholder="Keyword to track" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:200px;outline:none;">
+            <button onclick="kwAddTab()" style="background:#2563eb;color:#fff;border:none;padding:7px 16px;border-radius:4px;font-size:12px;cursor:pointer;font-weight:600;">+ Add Tab</button>
+          </div>
+        </div>
+
+        <!-- Save status -->
+        <div id="kwSaveStatus" style="display:none;border-radius:6px;padding:10px 16px;margin-bottom:16px;font-size:13px;align-items:center;gap:8px;">
+          <span id="kwSaveStatusText"></span>
+        </div>
+
+        <!-- Tabs row -->
+        <div id="kwTabsRow" style="margin-bottom:24px;"></div>
+
+        <!-- Active tab content -->
+        <div id="kwContent">
+          <div style="text-align:center;padding:48px;color:#aaa;font-size:13px;">Add a keyword tab above to get started.</div>
+        </div>
+
+      </div>
+
+
+      <!-- SECTION: Keyword Rankings -->
+      <div class="section" id="section-kwrankings">
+
+        <!-- Top bar -->
+        <div style="background:#1a1a1a;border-radius:8px;padding:16px 24px;margin-bottom:16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
+            <span style="color:#fff;font-size:16px;font-weight:600;">Keyword Rankings</span>
+          </div>
+          <div style="color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Filters</div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <input id="kwrSearch" type="text" placeholder="Search keywords..." oninput="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:240px;outline:none;">
+            <select id="kwrFilterPos" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="">All Positions</option>
+              <option value="1-3">Pos 1–3</option>
+              <option value="4-10">Pos 4–10</option>
+              <option value="11-20">Pos 11–20</option>
+              <option value="21+">Pos 21+</option>
+            </select>
+            <select id="kwrFilterDiff" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="">All Difficulties</option>
+              <option value="Easy">Easy</option>
+              <option value="Medium">Medium</option>
+              <option value="Hard">Hard</option>
+            </select>
+            <select id="kwrFilterMinImp" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="0">Any Impressions</option>
+              <option value="100">100+</option>
+              <option value="500">500+</option>
+              <option value="1000">1K+</option>
+              <option value="5000">5K+</option>
+            </select>
+            <select id="kwrLimit" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="50">50 rows</option>
+              <option value="100">100 rows</option>
+              <option value="250">250 rows</option>
+              <option value="500">500 rows</option>
+            </select>
+            <button onclick="kwrResetFilters()" style="background:#333;color:#aaa;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">✕ Reset</button>
+          </div>
+        </div>
+
+        <!-- Sub tabs -->
+        <div style="display:flex;align-items:center;border-bottom:2px solid #e5e5e5;margin-bottom:24px;">
+          <button id="kwrTabAll" onclick="kwrSwitchTab('all')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">All Keywords <span id="kwrCountAll" class="count-badge">—</span></button>
+          <button id="kwrTabTracked" onclick="kwrSwitchTab('tracked')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Selected <span id="kwrCountTracked" class="count-badge">—</span></button>
+        </div>
+
+        <!-- Save status -->
+        <div id="kwrSaveStatus" style="display:none;border-radius:6px;padding:10px 16px;margin-bottom:16px;font-size:13px;align-items:center;gap:8px;">
+          <span id="kwrSaveStatusText"></span>
+        </div>
+
+        <!-- Table -->
+        <div class="table-card">
+          <table id="kwrTable" style="table-layout:fixed;width:100%;">
+            <thead id="kwrTableHead"></thead>
+            <tbody id="kwrBody"><tr class="loading-row"><td colspan="8">Loading keyword rankings...</td></tr></tbody>
+          </table>
+        </div>
+
+      </div>
+
+
+      <!-- SECTION: Quick Wins -->
+      <div class="section" id="section-quickwins">
+        <div style="background:#1a1a1a;border-radius:8px;padding:16px 24px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+          <div>
+            <span style="color:#fff;font-size:16px;font-weight:600;">🔥 Quick Wins</span>
+            <span style="color:#888;font-size:12px;margin-left:12px;">Position 1–20 · 100+ impressions · not in Blog/Content Optimizations</span>
+          </div>
+          <input id="qwSearch" type="text" placeholder="Search..." oninput="qwFilter()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:200px;outline:none;">
+        </div>
+        <div style="display:flex;align-items:center;border-bottom:2px solid #e5e5e5;margin-bottom:24px;">
+          <button id="qwTabCollections" onclick="qwSwitchTab('collections')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">Collections <span id="qwCountCollections" class="count-badge">—</span></button>
+          <button id="qwTabBlogs" onclick="qwSwitchTab('blogs')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Blogs <span id="qwCountBlogs" class="count-badge">—</span></button>
+          <button id="qwTabProducts" onclick="qwSwitchTab('products')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Products <span id="qwCountProducts" class="count-badge">—</span></button>
+          <button id="qwTabPages" onclick="qwSwitchTab('pages')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Pages <span id="qwCountPages" class="count-badge">—</span></button>
+        </div>
+        <!-- Registry legend -->
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;padding:10px 16px;background:#f9f9f9;border:1px solid #e5e5e5;border-radius:6px;font-size:12px;flex-wrap:wrap;">
+          <span style="color:#888;font-weight:600;">Registry:</span>
+          <span><span style="background:#f0fdf4;color:#16a34a;padding:1px 8px;border-radius:8px;font-size:11px;font-weight:600;">🔒 Locked</span> — this exact URL + keyword are locked together</span>
+          <span><span style="background:#fefce8;color:#92400e;padding:1px 8px;border-radius:8px;font-size:11px;font-weight:600;">🟡 Keyword taken</span> — keyword locked to a different URL</span>
+          <span><span style="background:#fef2f2;color:#dc2626;padding:1px 8px;border-radius:8px;font-size:11px;font-weight:600;">🔴 URL taken</span> — URL locked to a different keyword</span>
+        </div>
+
+        <div class="table-card">
+          <table style="width:100%;">
+            <thead><tr>
+              <th style="width:45%;">Page URL</th>
+              <th class="num">Position</th>
+              <th class="num">Impressions</th>
+              <th class="num">Clicks</th>
+              <th class="num">CTR</th>
+              <th>Keyword</th>
+            </tr></thead>
+            <tbody id="qwBody"><tr class="loading-row"><td colspan="6">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- SECTION: Danger Pages -->
+      <div class="section" id="section-dangerpages">
+        <div style="background:#1a1a1a;border-radius:8px;padding:16px 24px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+          <div>
+            <span style="color:#fff;font-size:16px;font-weight:600;">⚠️ Danger Pages</span>
+            <span style="color:#888;font-size:12px;margin-left:12px;">Clicks dropped 20%+ vs previous 90 days · min 10 clicks · not in Quick Wins</span>
+          </div>
+          <input id="dpSearch" type="text" placeholder="Search..." oninput="dpFilter()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:200px;outline:none;">
+        </div>
+        <div style="display:flex;align-items:center;border-bottom:2px solid #e5e5e5;margin-bottom:24px;">
+          <button id="dpTabCollections" onclick="dpSwitchTab('collections')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">Collections <span id="dpCountCollections" class="count-badge">—</span></button>
+          <button id="dpTabBlogs" onclick="dpSwitchTab('blogs')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Blogs <span id="dpCountBlogs" class="count-badge">—</span></button>
+          <button id="dpTabProducts" onclick="dpSwitchTab('products')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Products <span id="dpCountProducts" class="count-badge">—</span></button>
+          <button id="dpTabPages" onclick="dpSwitchTab('pages')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Pages <span id="dpCountPages" class="count-badge">—</span></button>
+        </div>
+        <!-- Registry legend -->
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;padding:10px 16px;background:#f9f9f9;border:1px solid #e5e5e5;border-radius:6px;font-size:12px;flex-wrap:wrap;">
+          <span style="color:#888;font-weight:600;">Registry:</span>
+          <span><span style="background:#f0fdf4;color:#16a34a;padding:1px 8px;border-radius:8px;font-size:11px;font-weight:600;">🔒 Locked</span> — this exact URL + keyword are locked together</span>
+          <span><span style="background:#fefce8;color:#92400e;padding:1px 8px;border-radius:8px;font-size:11px;font-weight:600;">🟡 Keyword taken</span> — keyword locked to a different URL</span>
+          <span><span style="background:#fef2f2;color:#dc2626;padding:1px 8px;border-radius:8px;font-size:11px;font-weight:600;">🔴 URL taken</span> — URL locked to a different keyword</span>
+        </div>
+
+        <div class="table-card">
+          <table style="width:100%;">
+            <thead><tr>
+              <th style="width:45%;">Page URL</th>
+              <th class="num">Position</th>
+              <th class="num">Clicks (now)</th>
+              <th class="num">Clicks (prev)</th>
+              <th class="num">Change</th>
+              <th class="num">Impressions</th>
+            </tr></thead>
+            <tbody id="dpBody"><tr class="loading-row"><td colspan="6">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    const API = '/api/gsc';
+    let clicksChartInstance=null, deviceChartInstance=null, histClicksChart=null, histImpressionsChart=null;
+    let histLoaded=false, contentLoaded=false;
+    let ctrData=[], optimiseData=[], createData=[];
+
+    function getDate(daysAgo){const d=new Date();d.setDate(d.getDate()-daysAgo);return d.toISOString().split('T')[0];}
+    function fmt(n){return n!=null?n.toLocaleString():'—';}
+    function fmtCTR(n){return n!=null?(n*100).toFixed(2)+'%':'—';}
+    function fmtPos(n){return n!=null?n.toFixed(1):'—';}
+    function fmtK(n){if(n>=1000000)return(n/1000000).toFixed(1)+'M';if(n>=1000)return(n/1000).toFixed(1)+'K';return String(n);}
+    function showError(msg){const el=document.getElementById('errorMsg');el.style.display='block';el.textContent='⚠ '+msg;}
+    function hideError(){document.getElementById('errorMsg').style.display='none';}
+
+    function priority(impressions){
+      if(impressions>=500)return '<span class="priority-dot priority-high"></span>High';
+      if(impressions>=100)return '<span class="priority-dot priority-medium"></span>Medium';
+      return '<span class="priority-dot priority-low"></span>Low';
+    }
+
+    function showSection(id,navEl){
+      document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+      document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+      document.getElementById('section-'+id).classList.add('active');
+      navEl.classList.add('active');
+      const titles={overview:'High Level SEO Metrics',historical:'Historical View (1 Year)',llm:'LLM Traffic',blogopt:'Blog Optimizations',content:'Content Optimizations'};
+      document.getElementById('pageTitle').textContent=titles[id]||'';
+      if(id==='historical'&&!histLoaded){loadHistorical();histLoaded=true;}
+      if(id==='content'&&!contentLoaded){loadContentOptimizations();contentLoaded=true;}
+      if(id==='blog'){initBlogMonthSelector();}
+      if(id==='blogopt'&&!blogOptLoaded){loadBlogOptimizations();blogOptLoaded=true;}
+      if(id==='llm'&&!llmLoaded){loadLLMTraffic();llmLoaded=true;}
+      if(id==='kwtracker'){kwInit();}
+      if(id==='suspicious'&&!suspLoaded){loadSuspiciousTraffic();}
+      if(id==='kwrankings'&&!kwrLoaded){kwrInit();}
+      if(id==='quickwins'&&!qwLoaded){
+        // Ensure registry is loaded before QW
+        if(!kwrLoaded){kwrInit().then(()=>loadQuickWins());}else{loadQuickWins();}
+      }
+      if(id==='dangerpages'&&!dpLoaded){
+        if(!kwrLoaded){kwrInit().then(()=>loadDangerPages());}else{loadDangerPages();}
+      }
+    }
+
+    function onRangeChange(){
+      const days=parseInt(document.getElementById('dateRange').value);
+      loadOverview(days);loadClicksChart(days);loadDeviceChart(days);loadPages(days);loadQueries(days);
+    }
+
+    async function loadOverview(days){
+      const start=getDate(days),end=getDate(0);hideError();
+      try{
+        const res=await fetch(`${API}?action=overview&startDate=${start}&endDate=${end}`);
+        const json=await res.json();if(!json.success)throw new Error(json.error);
+        const row=json.data.rows&&json.data.rows[0];
+        if(row){
+          document.getElementById('metClicks').textContent=fmt(row.clicks);
+          document.getElementById('metCTR').textContent=fmtCTR(row.ctr);
+          document.getElementById('metImpressions').textContent=fmt(row.impressions);
+          document.getElementById('metPosition').textContent=fmtPos(row.position);
+          const sub='last '+days+' days';
+          ['metClicksSub','metCTRSub','metImpressionsSub','metPositionSub'].forEach(id=>document.getElementById(id).textContent=sub);
+        }
+      }catch(e){showError(e.message);}
+    }
+
+    async function loadClicksChart(days){
+      const start=getDate(days),end=getDate(0);
+      document.getElementById('clicksChartLabel').textContent=start+' → '+end;
+      try{
+        const res=await fetch(`${API}?action=monthly&startDate=${start}&endDate=${end}`);
+        const json=await res.json();if(!json.success)throw new Error(json.error);
+        const rows=json.data.rows||[];
+        const labels=rows.map(r=>r.keys?r.keys[0].slice(5):''),clicks=rows.map(r=>r.clicks);
+        if(clicksChartInstance)clicksChartInstance.destroy();
+        clicksChartInstance=new Chart(document.getElementById('clicksChart').getContext('2d'),{
+          type:'line',data:{labels,datasets:[{label:'Clicks',data:clicks,borderColor:'#6366f1',backgroundColor:'rgba(99,102,241,0.08)',borderWidth:2,pointRadius:2,tension:0.3,fill:true}]},
+          options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{font:{size:10},maxTicksLimit:10}},y:{grid:{color:'#f0f0f0'},ticks:{font:{size:10}}}}}
+        });
+      }catch(e){console.error(e.message);}
+    }
+
+    async function loadDeviceChart(days){
+      const start=getDate(days),end=getDate(0);
+      try{
+        const res=await fetch(`${API}?action=device&startDate=${start}&endDate=${end}`);
+        const json=await res.json();if(!json.success)throw new Error(json.error);
+        const rows=json.data.rows||[],labels=rows.map(r=>r.keys?r.keys[0]:''),values=rows.map(r=>r.clicks);
+        const total=values.reduce((a,b)=>a+b,0)||1,colors=['#2563eb','#dc2626','#f59e0b','#10b981'];
+        if(deviceChartInstance)deviceChartInstance.destroy();
+        deviceChartInstance=new Chart(document.getElementById('deviceChart').getContext('2d'),{
+          type:'doughnut',data:{labels,datasets:[{data:values,backgroundColor:colors,borderWidth:0}]},
+          options:{responsive:false,cutout:'65%',plugins:{legend:{display:false}}}
+        });
+        document.getElementById('deviceLegend').innerHTML=labels.map((l,i)=>`
+          <div class="legend-item"><div class="legend-dot" style="background:${colors[i]}"></div><div class="legend-label">${l.toUpperCase()}</div><div class="legend-pct">${((values[i]/total)*100).toFixed(1)}%</div></div>`).join('');
+      }catch(e){document.getElementById('deviceLegend').innerHTML='<div style="color:#aaa;font-size:12px;">No data</div>';}
+    }
+
+    async function loadPages(days){
+      const start=getDate(days),end=getDate(0);
+      const tbody=document.getElementById('pagesBody');
+      tbody.innerHTML='<tr class="loading-row"><td colspan="4">Loading...</td></tr>';
+      try{
+        const res=await fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`);
+        const json=await res.json();if(!json.success)throw new Error(json.error);
+        const rows=(json.data.rows||[]).sort((a,b)=>b.clicks-a.clicks).slice(0,20);
+        if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="4">No data</td></tr>';return;}
+        tbody.innerHTML=rows.map((r,i)=>{
+          const url=cleanUrl(r.keys?r.keys[0]:''),short=url;
+          return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td><div class="page-url" title="${url}">${short}</div></td><td class="num">${fmt(r.clicks)}</td><td class="num">${fmt(r.impressions)}</td></tr>`;
+        }).join('');
+      }catch(e){tbody.innerHTML=`<tr class="loading-row"><td colspan="4" style="color:#dc2626;">Error: ${e.message}</td></tr>`;}
+    }
+
+    async function loadQueries(days){
+      const start=getDate(days),end=getDate(0);
+      const tbody=document.getElementById('queriesBody');
+      tbody.innerHTML='<tr class="loading-row"><td colspan="2">Loading...</td></tr>';
+      try{
+        const res=await fetch(`${API}?action=queries&startDate=${start}&endDate=${end}`);
+        const json=await res.json();if(!json.success)throw new Error(json.error);
+        const rows=(json.data.rows||[]).sort((a,b)=>b.clicks-a.clicks).slice(0,20);
+        if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="2">No data</td></tr>';return;}
+        const maxC=rows[0].clicks||1;
+        tbody.innerHTML=rows.map(r=>{
+          const q=r.keys?r.keys[0]:'',barW=Math.max(4,Math.round((r.clicks/maxC)*100));
+          return `<tr><td>${q}</td><td class="num"><div class="bar-wrap"><span>${fmt(r.clicks)}</span><div class="bar" style="width:${barW}px"></div></div></td></tr>`;
+        }).join('');
+      }catch(e){tbody.innerHTML=`<tr class="loading-row"><td colspan="2" style="color:#dc2626;">Error: ${e.message}</td></tr>`;}
+    }
+
+    function makeGauge(canvasId,value,maxValue,color){
+      const existing=Chart.getChart(canvasId);if(existing)existing.destroy();
+      const pct=Math.min(value/maxValue,1),filled=pct*0.75;
+      return new Chart(document.getElementById(canvasId).getContext('2d'),{
+        type:'doughnut',
+        data:{datasets:[{data:[filled,0.75-filled,0.25],backgroundColor:[color,'#e5e5e5','transparent'],borderWidth:0,circumference:270,rotation:225}]},
+        options:{responsive:false,cutout:'75%',plugins:{legend:{display:false},tooltip:{enabled:false}}}
+      });
+    }
+
+    async function loadHistorical(){
+      const end=getDate(0),start=getDate(365),prevStart=getDate(730),prevEnd=getDate(365);
+      try{
+        const [curRes,prevRes]=await Promise.all([
+          fetch(`${API}?action=overview&startDate=${start}&endDate=${end}`),
+          fetch(`${API}?action=overview&startDate=${prevStart}&endDate=${prevEnd}`)
+        ]);
+        const [curJson,prevJson]=await Promise.all([curRes.json(),prevRes.json()]);
+        const curRow=curJson.success&&curJson.data.rows&&curJson.data.rows[0];
+        const prevRow=prevJson.success&&prevJson.data.rows&&prevJson.data.rows[0];
+        const curClicks=curRow?curRow.clicks:0,prevClicks=prevRow?prevRow.clicks:1;
+        const curImp=curRow?curRow.impressions:0,prevImp=prevRow?prevRow.impressions:1;
+        const clicksPct=((curClicks-prevClicks)/prevClicks*100).toFixed(2);
+        const impPct=((curImp-prevImp)/prevImp*100).toFixed(2);
+        document.getElementById('gaugeClicksVal').textContent=fmtK(curClicks);
+        const cEl=document.getElementById('gaugeClicksChange');
+        cEl.textContent=(clicksPct>=0?'↑':'↓')+Math.abs(clicksPct)+'%';
+        cEl.className='hist-gauge-change '+(clicksPct>=0?'up':'down');
+        makeGauge('gaugeClicks',curClicks,Math.max(curClicks,prevClicks)*1.2,'#6366f1');
+        document.getElementById('gaugeImpressionsVal').textContent=fmtK(curImp);
+        const iEl=document.getElementById('gaugeImpressionsChange');
+        iEl.textContent=(impPct>=0?'↑':'↓')+Math.abs(impPct)+'%';
+        iEl.className='hist-gauge-change '+(impPct>=0?'up':'down');
+        makeGauge('gaugeImpressions',curImp,Math.max(curImp,prevImp)*1.2,'#8b5cf6');
+        const mRes=await fetch(`${API}?action=monthly&startDate=${start}&endDate=${end}`);
+        const mJson=await mRes.json();
+        const rows=mJson.data.rows||[],monthMap={};
+        rows.forEach(r=>{const month=(r.keys?r.keys[0]:'').slice(0,7);if(!monthMap[month])monthMap[month]={clicks:0,impressions:0};monthMap[month].clicks+=r.clicks;monthMap[month].impressions+=r.impressions;});
+        const months=Object.keys(monthMap).sort();
+        const clicks=months.map(m=>monthMap[m].clicks),impressions=months.map(m=>monthMap[m].impressions);
+        const labels=months.map(m=>{const[y,mo]=m.split('-');return new Date(y,parseInt(mo)-1).toLocaleString('default',{month:'short',year:'2-digit'});});
+        if(histClicksChart)histClicksChart.destroy();
+        histClicksChart=new Chart(document.getElementById('histClicksChart').getContext('2d'),{type:'bar',data:{labels,datasets:[{label:'Impressions',data:impressions,backgroundColor:'#6366f1',borderRadius:3}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{font:{size:11}}},y:{grid:{color:'#f0f0f0'},ticks:{font:{size:11}}}}}});
+        if(histImpressionsChart)histImpressionsChart.destroy();
+        histImpressionsChart=new Chart(document.getElementById('histImpressionsChart').getContext('2d'),{type:'bar',data:{labels,datasets:[{label:'Clicks',data:clicks,backgroundColor:'#8b5cf6',borderRadius:3}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{font:{size:11}}},y:{grid:{color:'#f0f0f0'},ticks:{font:{size:11}}}}}});
+      }catch(e){console.error('Historical error:',e.message);}
+    }
+
+    async function loadContentOptimizations(){
+      const start=getDate(180),end=getDate(0);
+      try{
+        // Fetch pages from GSC
+        const pagesRes=await fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`);
+        const pagesJson=await pagesRes.json();
+        if(!pagesJson.success)throw new Error(pagesJson.error);
+        const allPages=pagesJson.data.rows||[];
+
+        // Fetch top query per page
+        const pqRes=await fetch(`${API}?action=page-query&startDate=${start}&endDate=${end}`);
+        const pqJson=await pqRes.json();
+        const pqRows=pqJson.success?pqJson.data.rows||[]:[];
+        const topQueryMap={};
+        pqRows.forEach(r=>{
+          const page=r.keys?r.keys[0]:'',query=r.keys?r.keys[1]:'';
+          if(!topQueryMap[page]||r.impressions>topQueryMap[page].impressions){
+            topQueryMap[page]={query,impressions:r.impressions};
+          }
+          // Also index by clean URL
+          const cleanPage = cleanUrl(page);
+          if(!topQueryMap[cleanPage]||r.impressions>topQueryMap[cleanPage].impressions){
+            topQueryMap[cleanPage]={query,impressions:r.impressions};
+          }
+        });
+
+        // Fetch published keywords from registry
+        const kwRes=await fetch('/api/blogs?action=get-published-keywords');
+        const kwJson=await kwRes.json();
+        const publishedKeywords=kwJson.success?kwJson.publishedBlogs:[];
+
+        // Build page objects — clean URLs, exclude CDN/translations/variants
+        const pages=allPages
+          .filter(r => !shouldExcludeUrl(cleanUrl(r.keys?r.keys[0]:'')))
+          .map(r=>{
+          const rawPage = r.keys?r.keys[0]:'';
+          const page = cleanUrl(rawPage);
+          return {
+            page,
+            query:topQueryMap[rawPage]?topQueryMap[rawPage].query:'',
+            clicks:r.clicks,
+            impressions:r.impressions,
+            ctr:r.ctr,
+            position:r.position
+          };
+        });
+
+        // Helper: check if query matches any published keyword
+        function findMatchingBlog(query){
+          if(!query)return null;
+          const stopWords=new Set(['the','for','and','with','how','why','what','where','which','your','this','that','are','can','you','from','have']);
+          const qWords=query.toLowerCase().split(' ').filter(w=>w.length>2&&!stopWords.has(w));
+          let bestMatch=null, bestScore=0;
+          for(const blog of publishedKeywords){
+            const kWords=blog.keyword.split(' ').filter(w=>w.length>2&&!stopWords.has(w));
+            const matches=qWords.filter(w=>kWords.includes(w));
+            const score=matches.length/Math.max(qWords.length,kWords.length,1);
+            if(score>bestScore&&score>=0.4){bestScore=score;bestMatch=blog.url;}
+          }
+          return bestMatch;
+        }
+
+        const assigned=new Set();
+
+        // Table 1: Fix CTR — position 1-7, has clicks, CTR under 2%, 100+ impressions
+        // Sort: highest position first (most urgent — hardest to get clicks from)
+        ctrData=pages
+          .filter(p=>p.clicks>0&&p.ctr<0.02&&p.impressions>=100&&p.position<=7&&!p.page.includes('/blogs/')&&!qwExcludeUrls.has(p.page)&&!dpExcludeUrls.has(p.page))
+          .sort((a,b)=>b.position-a.position);
+        ctrData.forEach(p=>assigned.add(p.page));
+        document.getElementById('ctrCount').textContent=ctrData.length+' pages';
+        renderCTR(50);
+
+        // Table 2: Pages to Optimise — position 8-15, CTR under 2%, 100+ impressions
+        // Sort: lowest position first (closest to page 1 — most likely to jump up)
+        optimiseData=pages
+          .filter(p=>!assigned.has(p.page)&&p.impressions>=100&&p.position>7&&p.position<=15&&p.ctr<0.02&&!p.page.includes('/blogs/')&&!qwExcludeUrls.has(p.page)&&!dpExcludeUrls.has(p.page))
+          .sort((a,b)=>a.position-b.position);
+        optimiseData.forEach(p=>assigned.add(p.page));
+        document.getElementById('optimiseCount').textContent=optimiseData.length+' pages';
+        renderOptimise(50);
+
+        // Table 3: Low Ranking Opportunities — use queries directly
+        // Only queries with no matching content in registry, 10+ impressions, English only
+        const queriesRes=await fetch(`${API}?action=queries&startDate=${start}&endDate=${end}`);
+        const queriesJson=await queriesRes.json();
+        const allQueries=queriesJson.success?queriesJson.data.rows||[]:[];
+
+        // Helper: detect non-English query (contains non-ASCII chars or common Spanish/French words)
+        function isEnglish(q){
+          if(/[^\x00-\x7F]/.test(q)) return false; // non-ASCII characters
+          const nonEnglish=['para','casas','como','que','con','los','las','una','del','por','este','esta','sono','per','dans','pour','avec','les','des','von','und','die','der'];
+          const words=q.toLowerCase().split(' ');
+          return !words.some(w=>nonEnglish.includes(w));
+        }
+
+        createData=allQueries
+          .filter(r=>{
+            const q=r.keys?r.keys[0]:'';
+            if(!q) return false;
+            if(r.impressions<10) return false;
+            // Must be a real query not a URL
+            if(q.startsWith('/')) return false;
+            if(q.startsWith('http')) return false;
+            // English only
+            if(!isEnglish(q)) return false;
+            // No matching content in registry
+            const matchUrl=findMatchingBlog(q);
+            return !matchUrl;
+          })
+          .sort((a,b)=>b.impressions-a.impressions)
+          .map(r=>({
+            query:r.keys?r.keys[0]:'',
+            impressions:r.impressions,
+            clicks:r.clicks,
+            position:r.position
+          }));
+        document.getElementById('createCount').textContent=createData.length+' opportunities';
+        renderCreate(50);
+
+      }catch(e){
+        ['ctrBody','optimiseBody','createBody'].forEach(id=>{
+          document.getElementById(id).innerHTML=`<tr class="loading-row"><td colspan="8" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
+        });
+      }
+    }
+
+    function renderCTR(limit){
+      const tbody=document.getElementById('ctrBody'),rows=ctrData.slice(0,limit);
+      if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="8">No pages found</td></tr>';return;}
+      tbody.innerHTML=rows.map((r,i)=>{
+        const short=r.page.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','')||'/';
+        return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:12px;">${priority(r.impressions)}</td><td><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;word-break:break-all;" title="${r.page}">${r.page}</a></td><td style="font-size:12px;color:#555;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.query}</td><td class="num">${fmt(r.impressions)}</td><td class="num">${fmt(r.clicks)}</td><td class="num">${fmtCTR(r.ctr)}</td><td class="num">${fmtPos(r.position)}</td></tr>`;
+      }).join('');
+    }
+
+    function renderOptimise(limit){
+      const tbody=document.getElementById('optimiseBody'),rows=optimiseData.slice(0,limit);
+      if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="6">No pages found</td></tr>';return;}
+      tbody.innerHTML=rows.map((r,i)=>{
+        const short=r.page.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','')||'/';
+        return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:12px;">${priority(r.impressions)}</td><td><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;word-break:break-all;" title="${r.page}">${r.page}</a></td><td style="font-size:12px;color:#555;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.query}</td><td class="num">${fmt(r.impressions)}</td><td class="num">${fmtPos(r.position)}</td></tr>`;
+      }).join('');
+    }
+
+    function renderCreate(limit){
+      const tbody=document.getElementById('createBody'),rows=createData.slice(0,limit);
+      if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="4">No content gaps found</td></tr>';return;}
+      tbody.innerHTML=rows.map((r,i)=>{
+        return `<tr>
+          <td style="color:#aaa;font-size:12px;">${i+1}.</td>
+          <td style="font-size:12px;">${priority(r.impressions)}</td>
+          <td style="font-size:13px;color:#333;">${r.query}</td>
+          <td class="num">${fmt(r.impressions)}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    function filterTable(tbodyId,val){
+      const q=val.toLowerCase();
+      document.querySelectorAll(`#${tbodyId} tr`).forEach(row=>{row.style.display=row.textContent.toLowerCase().includes(q)?'':'none';});
+    }
+
+    function downloadCSV(type){
+      let headers, rows, filename;
+      if(type==='ctr'){
+        headers=['Page URL','Top Query','Impressions','Clicks','CTR','Position'];
+        rows=ctrData.map(r=>[r.page,r.query,r.impressions,r.clicks,(r.ctr*100).toFixed(2)+'%',r.position.toFixed(1)]);
+        filename='fix-ctr-'+new Date().toISOString().split('T')[0]+'.csv';
+      } else if(type==='optimise'){
+        headers=['Page URL','Top Query','Impressions','Clicks','CTR','Position'];
+        rows=optimiseData.map(r=>[r.page,r.query,r.impressions,r.clicks,(r.ctr*100).toFixed(2)+'%',r.position.toFixed(1)]);
+        filename='pages-to-optimise-'+new Date().toISOString().split('T')[0]+'.csv';
+      } else {
+        headers=['Query','Impressions'];
+        rows=createData.map(r=>[r.query,r.impressions]);
+        filename='low-ranking-opportunities-'+new Date().toISOString().split('T')[0]+'.csv';
+      }
+      const csvContent=[headers,...rows].map(row=>row.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+      const blob=new Blob([csvContent],{type:'text/csv'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url; a.download=filename; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // ── Blog Tracking ─────────────────────────────────────────────────────────
+    let blogData = [];
+
+    function initBlogMonthSelector() {
+      const select = document.getElementById('blogMonthSelect');
+      const months = [];
+      const now = new Date();
+      for (let i = 0; i < 12; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const val = d.toISOString().slice(0, 7);
+        const label = d.toLocaleString('default', { month: 'long', year: 'numeric' });
+        months.push({ val, label });
+      }
+      select.innerHTML = months.map(m => `<option value="${m.val}">${m.label}</option>`).join('');
+    }
+
+    async function loadBlogTracking() {
+      const month = document.getElementById('blogMonthSelect').value;
+      const [year, mon] = month.split('-');
+      const monthLabel = new Date(parseInt(year), parseInt(mon)-1, 1).toLocaleString('default', { month: 'long', year: 'numeric' });
+
+      document.getElementById('blogTrackingTitle').textContent = monthLabel + ' Blog Tracking';
+      document.getElementById('blogTableTitle').textContent = monthLabel + ' — Blog Posts';
+      document.getElementById('blogLoading').textContent = 'Loading blog posts from Shopify...';
+      document.getElementById('blogLoading').style.display = 'block';
+      document.getElementById('blogTable').style.display = 'none';
+
+      ['blogMetCTR','blogMetClicks','blogMetImpressions','blogMetPages'].forEach(id => document.getElementById(id).textContent = '—');
+
+      try {
+        // Step 1: Get blogs published this month from Shopify
+        const shopRes = await fetch(`/api/shopify-files?action=get-blogs-by-month&month=${month}`);
+        const shopJson = await shopRes.json();
+        if (!shopJson.success) throw new Error(shopJson.error || 'Failed to fetch blogs from Shopify');
+
+        const articles = shopJson.articles || [];
+        if (!articles.length) {
+          document.getElementById('blogLoading').textContent = `No blog posts found published in ${monthLabel}.`;
+          return;
+        }
+
+        document.getElementById('blogLoading').textContent = `Found ${articles.length} blogs. Loading GSC data...`;
+        document.getElementById('blogMetPages').textContent = articles.length;
+        document.getElementById('blogMetPagesSub').textContent = monthLabel;
+
+        // Step 2: Fetch GSC — 16 months total + 30d prev + 90d prev in parallel
+        const end = getDate(0);
+        const start = getDate(480);
+        const [curRes, prev30Res, prev90Res] = await Promise.all([
+          fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`),
+          fetch(`${API}?action=pages&startDate=${getDate(60)}&endDate=${getDate(30)}`),
+          fetch(`${API}?action=pages&startDate=${getDate(180)}&endDate=${getDate(90)}`)
+        ]);
+        const [curJson, prev30Json, prev90Json] = await Promise.all([curRes.json(), prev30Res.json(), prev90Res.json()]);
+
+        // Build URL maps
+        const curMap = {};
+        (curJson.data?.rows || []).forEach(r => {
+          const url = r.keys ? r.keys[0] : '';
+          curMap[url] = { clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: r.position };
+        });
+        const prev30Map = {};
+        (prev30Json.data?.rows || []).forEach(r => { prev30Map[r.keys?r.keys[0]:''] = r; });
+        const prev90Map = {};
+        (prev90Json.data?.rows || []).forEach(r => { prev90Map[r.keys?r.keys[0]:''] = r; });
+
+        // Step 3: Match blog URLs — strip www to match GSC format
+        blogData = articles.map(article => {
+          const normalizedUrl = article.url.replace('https://www.aboutwallart.com', 'https://aboutwallart.com');
+          const cur = curMap[normalizedUrl] || { clicks: 0, impressions: 0, ctr: 0, position: 0 };
+          const p30 = prev30Map[normalizedUrl] || null;
+          const p90 = prev90Map[normalizedUrl] || null;
+          return { ...article, ...cur, prev30: p30, prev90: p90 };
+        }).sort((a, b) => b.clicks - a.clicks);
+
+        // Summary metrics
+        const totalClicks = blogData.reduce((s, r) => s + r.clicks, 0);
+        const totalImpressions = blogData.reduce((s, r) => s + r.impressions, 0);
+        const avgCTR = totalClicks / Math.max(totalImpressions, 1);
+
+        document.getElementById('blogMetClicks').textContent = fmt(totalClicks);
+        document.getElementById('blogMetImpressions').textContent = fmt(totalImpressions);
+        document.getElementById('blogMetCTR').textContent = fmtCTR(avgCTR);
+
+        renderBlogTable();
+        document.getElementById('blogLoading').style.display = 'none';
+        document.getElementById('blogTable').style.display = 'table';
+
+      } catch(e) {
+        document.getElementById('blogLoading').textContent = 'Error: ' + e.message;
+      }
+    }
+
+    function pctChange(cur, prev) {
+      if (!prev || prev === 0) return null;
+      return ((cur - prev) / prev * 100);
+    }
+
+    function renderChange(pct, invert = false) {
+      if (pct === null) return '<span style="color:#aaa;font-size:11px;">—</span>';
+      const up = invert ? pct < 0 : pct > 0;
+      const color = up ? '#16a34a' : '#dc2626';
+      const arrow = pct > 0 ? '↑' : '↓';
+      return `<span style="color:${color};font-size:11px;font-weight:600;">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
+    }
+
+    function calcPct(cur, prev) {
+      if (!prev || prev.clicks < 20) return null;
+      return ((cur - prev.clicks) / prev.clicks * 100);
+    }
+    function pctBadge(pct, isBigger) {
+      if (pct === null) return '<span style="color:#aaa;font-size:11px;">—</span>';
+      const base = pct > 5 ? '#16a34a' : pct < -5 ? '#dc2626' : '#92400e';
+      const dark = pct > 5 ? '#14532d' : pct < -5 ? '#7f1d1d' : '#451a03';
+      const color = isBigger ? dark : base;
+      const arrow = pct > 0 ? '↑' : pct < 0 ? '↓' : '→';
+      const weight = isBigger ? '700' : '600';
+      return `<span style="color:${color};font-size:11px;font-weight:${weight};">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
+    }
+    function renderBlogTable() {
+      const tbody = document.getElementById('blogBody');
+      if (!blogData.length) {
+        tbody.innerHTML = '<tr class="loading-row"><td colspan="8">No data found</td></tr>';
+        return;
+      }
+      tbody.innerHTML = blogData.map((r, i) => {
+        const hasClicks = r.clicks > 0;
+        const pct30 = calcPct(r.clicks, r.prev30);
+        const pct90 = calcPct(r.clicks, r.prev90);
+
+        // Row colour based on 30d comparison
+        let rowBg = '';
+        if (hasClicks && pct30 !== null) {
+          if (pct30 > 5) rowBg = 'background:#f0fdf4;';
+          else if (pct30 < -5) rowBg = 'background:#fef2f2;';
+          else rowBg = 'background:#fefce8;';
+        } else if (hasClicks) {
+          rowBg = 'background:#f0fdf4;';
+        }
+
+        // Darker colour on whichever % is bigger (more change)
+        const abs30 = pct30 !== null ? Math.abs(pct30) : 0;
+        const abs90 = pct90 !== null ? Math.abs(pct90) : 0;
+        const col30bigger = abs30 >= abs90;
+
+        const titleLink = `<a href="${r.url}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:13px;">${r.title || r.url}</a>`;
+        return `<tr style="${rowBg}">
+          <td style="color:#aaa;font-size:12px;">${i+1}.</td>
+          <td>${titleLink}</td>
+          <td class="num" style="${hasClicks?'font-weight:600;':''}">${fmt(r.clicks)}</td>
+          <td class="num">${pctBadge(pct30, col30bigger)}</td>
+          <td class="num">${pctBadge(pct90, !col30bigger)}</td>
+          <td class="num">${fmt(r.impressions)}</td>
+          <td class="num">${fmtCTR(r.ctr)}</td>
+          <td class="num">${r.position > 0 ? fmtPos(r.position) : '—'}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    function downloadBlogCSV() {
+      if (!blogData.length) return;
+      const headers = ['Title','URL','Clicks','Impressions','CTR','Avg Position'];
+      const rows = blogData.map(r => [r.title, r.url, r.clicks, r.impressions, (r.ctr*100).toFixed(2)+'%', r.position.toFixed(1)]);
+      const csv = [headers, ...rows].map(row => row.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+      const blob = new Blob([csv], {type:'text/csv'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'blog-tracking-' + (document.getElementById('blogMonthSelect').value) + '.csv';
+      a.click();
+    }
+
+    let blogOptLoaded = false;
+    let blogOptAllData = { urgent: [], improve: [], monitor: [] };
+    let blogOptActiveTab = 'urgent';
+
+    async function loadBlogOptimizations() {
+      const start = getDate(180);
+      const end = getDate(0);
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
+      try {
+        // Fetch GSC pages + Shopify published dates in parallel
+        const [gscRes, shopRes] = await Promise.all([
+          fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`),
+          fetch('/api/shopify-files?action=get-blogs-by-month&month=all')
+        ]);
+        const gscJson = await gscRes.json();
+        if (!gscJson.success) throw new Error(gscJson.error);
+
+        // Build published date map from recent months (last 16 months)
+        const publishedMap = {};
+        const now = new Date();
+        const monthFetches = [];
+        for (let i = 0; i < 16; i++) {
+          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          const m = d.toISOString().slice(0,7);
+          monthFetches.push(fetch('/api/shopify-files?action=get-blogs-by-month&month=' + m).then(r=>r.json()));
+        }
+        const monthResults = await Promise.all(monthFetches);
+        monthResults.forEach(r => {
+          if (r.success && r.articles) {
+            r.articles.forEach(a => {
+              const normUrl = a.url.replace('https://www.aboutwallart.com','https://aboutwallart.com');
+              publishedMap[normUrl] = new Date(a.publishedAt);
+            });
+          }
+        });
+
+        // Filter blogs: /blogs/ only, 100+ impressions, older than 90 days
+        const allBlogs = (gscJson.data.rows || [])
+          .filter(r => {
+            const url = cleanUrl(r.keys ? r.keys[0] : '');
+            if (shouldExcludeUrl(url)) return false;
+            if (!url.includes('/blogs/') || r.impressions < 100) return false;
+            if (qwExcludeUrls.has(url) || dpExcludeUrls.has(url)) return false;
+            // Filter out foreign language blogs
+            if (url.includes('/es/blogs/') || url.includes('/fr/blogs/')) return false;
+            // Filter out new blogs (published within last 90 days)
+            const pubDate = publishedMap['https://www.aboutwallart.com' + url] || publishedMap[url];
+            if (pubDate && pubDate > cutoff) return false;
+            return true;
+          })
+          .map(r => ({
+            url: 'https://www.aboutwallart.com' + cleanUrl(r.keys[0]),
+            clicks: r.clicks,
+            impressions: r.impressions,
+            ctr: r.ctr,
+            position: r.position
+          }))
+          .sort((a,b) => a.clicks - b.clicks); // lowest clicks first within groups
+
+        // Split into 3 groups
+        blogOptAllData.urgent  = allBlogs.filter(r => r.ctr < 0.005);
+        blogOptAllData.improve = allBlogs.filter(r => r.ctr >= 0.005 && r.ctr < 0.01);
+        blogOptAllData.monitor = allBlogs.filter(r => r.ctr >= 0.01);
+
+        document.getElementById('blogOptCountUrgent').textContent  = blogOptAllData.urgent.length;
+        document.getElementById('blogOptCountImprove').textContent = blogOptAllData.improve.length;
+        document.getElementById('blogOptCountMonitor').textContent = blogOptAllData.monitor.length;
+
+        switchBlogOptTab('urgent');
+      } catch(e) {
+        document.getElementById('blogOptBody').innerHTML = `<tr class="loading-row"><td colspan="6" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
+      }
+    }
+
+    function switchBlogOptTab(tab) {
+      blogOptActiveTab = tab;
+      // Update tab styles
+      ['urgent','improve','monitor'].forEach(t => {
+        const btn = document.getElementById('blogOptTab-' + t);
+        const isActive = t === tab;
+        const colors = { urgent: '#dc2626', improve: '#92400e', monitor: '#555' };
+        const bgs = { urgent: '#fef2f2', improve: '#fefce8', monitor: '#f9f9f9' };
+        btn.style.borderBottomColor = isActive ? colors[t] : 'transparent';
+        btn.style.background = isActive ? bgs[t] : '#fff';
+      });
+      renderBlogOptActive();
+    }
+
+    function renderBlogOptActive() {
+      const search = (document.getElementById('blogOptSearch')?.value || '').toLowerCase();
+      const limit = parseInt(document.getElementById('blogOptLimit')?.value || '50');
+      const data = blogOptAllData[blogOptActiveTab];
+      const filtered = search ? data.filter(r => r.url.toLowerCase().includes(search)) : data;
+      renderBlogOptRows(filtered.slice(0, limit));
+    }
+
+    function renderBlogOptRows(rows) {
+      const tbody = document.getElementById('blogOptBody');
+      if (!rows.length) { tbody.innerHTML = '<tr class="loading-row"><td colspan="6">No blogs found</td></tr>'; return; }
+      const colors = { urgent: { row:'background:#fef2f2;', ctr:'color:#dc2626;font-weight:600;' }, improve: { row:'background:#fefce8;', ctr:'color:#92400e;font-weight:600;' }, monitor: { row:'', ctr:'color:#16a34a;' } };
+      const c = colors[blogOptActiveTab];
+      tbody.innerHTML = rows.map((r,i) => {
+        const short = r.url.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
+        return `<tr style="${c.row}">
+          <td style="color:#aaa;font-size:12px;">${i+1}.</td>
+          <td><a href="${r.url}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:13px;word-break:break-all;">${short}</a></td>
+          <td class="num">${fmt(r.impressions)}</td>
+          <td class="num">${fmt(r.clicks)}</td>
+          <td class="num" style="${c.ctr}">${fmtCTR(r.ctr)}</td>
+          <td class="num">${fmtPos(r.position)}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    function downloadBlogOptCSV() {
+      const data = blogOptAllData[blogOptActiveTab];
+      if (!data.length) return;
+      const headers = ['URL','Impressions','Clicks','CTR','Position'];
+      const rows = data.map(r => [r.url, r.impressions, r.clicks, (r.ctr*100).toFixed(2)+'%', r.position.toFixed(1)]);
+      const csv = [headers, ...rows].map(row => row.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+      const blob = new Blob([csv], {type:'text/csv'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'blog-opt-' + blogOptActiveTab + '-' + new Date().toISOString().split('T')[0] + '.csv';
+      a.click();
+    }
+
+    let llmLoaded = false;
+    let llmChartInstances = [];
+
+    // Source display names + colours
+    const llmSourceConfig = {
+      'chat.openai.com': { label: 'ChatGPT Traffic',    color: '#10a37f' },
+      'chatgpt.com':     { label: 'ChatGPT Traffic',    color: '#10a37f' },
+      'perplexity.ai':   { label: 'Perplexity Traffic', color: '#7c3aed' },
+      'claude.ai':       { label: 'Claude Traffic',     color: '#d97706' },
+      'gemini.google.com':{ label: 'Gemini Traffic',    color: '#1a73e8' },
+      'copilot.microsoft.com':{ label: 'Copilot Traffic', color: '#0078d4' },
+      'you.com':         { label: 'You.com Traffic',    color: '#ef4444' },
+      'phind.com':       { label: 'Phind Traffic',      color: '#6366f1' },
+      'poe.com':         { label: 'Poe Traffic',        color: '#ec4899' }
+    };
+
+    function getLLMConfig(source) {
+      const key = Object.keys(llmSourceConfig).find(k => source.toLowerCase().includes(k.split('.')[0]));
+      return key ? llmSourceConfig[key] : { label: source + ' Traffic', color: '#6b7280' };
+    }
+
+    // Make a lighter version of a hex colour for sessions overlay
+    function lightenColor(hex, amount) {
+      const num = parseInt(hex.replace('#',''), 16);
+      const r = Math.min(255, (num >> 16) + amount);
+      const g = Math.min(255, ((num >> 8) & 0xff) + amount);
+      const b = Math.min(255, (num & 0xff) + amount);
+      return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+    }
+
+    // Build fixed 6-month bucket labels ending this month
+    function getFixed6Months() {
+      const months = [];
+      const now = new Date();
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+        const label = d.toLocaleString('default', { month: 'short', year: '2-digit' });
+        months.push({ key, label });
+      }
+      return months;
+    }
+
+    // Build fixed 12-month bucket labels ending this month
+    function getFixed12Months() {
+      const months = [];
+      const now = new Date();
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+        const label = d.toLocaleString('default', { month: 'short', year: '2-digit' });
+        months.push({ key, label });
+      }
+      return months;
+    }
+
+    function aggregateByMonth(byDateSessions, byDateViews) {
+      const mSessions = {}, mViews = {};
+      Object.entries(byDateSessions).forEach(([dateStr, v]) => {
+        const key = dateStr.slice(0,4) + '-' + dateStr.slice(4,6);
+        mSessions[key] = (mSessions[key] || 0) + v;
+      });
+      Object.entries(byDateViews).forEach(([dateStr, v]) => {
+        const key = dateStr.slice(0,4) + '-' + dateStr.slice(4,6);
+        mViews[key] = (mViews[key] || 0) + v;
+      });
+      return { mSessions, mViews };
+    }
+
+    async function loadLLMTraffic() {
+      const days = parseInt(document.getElementById('llmDays')?.value || 90);
+      ['llmMetSessions','llmMetViews','llmMetSources'].forEach(id => document.getElementById(id).textContent = '—');
+      document.getElementById('llmSourceCards').innerHTML = '<div style="text-align:center;padding:48px;color:#aaa;font-size:13px;">Loading GA4 data...</div>';
+      document.getElementById('llmNoData').style.display = 'none';
+      document.getElementById('llmOverview').style.display = 'none';
+
+      // Destroy previous chart instances
+      llmChartInstances.forEach(c => { try { c.destroy(); } catch(e){} });
+      llmChartInstances = [];
+
+      try {
+        // Always fetch 180 days so we have enough for 6-month bars + 1 year line chart
+        const res = await fetch(`${API}?action=ga4-llm&days=365`);
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error);
+
+        const rows = json.data.rows || [];
+
+        // Aggregate by source + date (sessions AND views separately)
+        const sourceMap = {};
+        rows.forEach(r => {
+          const source = r.dimensionValues?.[0]?.value || 'unknown';
+          const date   = r.dimensionValues?.[1]?.value || '';
+          const sessions = parseInt(r.metricValues?.[0]?.value || 0);
+          const views    = parseInt(r.metricValues?.[1]?.value || 0);
+          if (!sourceMap[source]) sourceMap[source] = { sessions: 0, views: 0, byDateSessions: {}, byDateViews: {} };
+          sourceMap[source].sessions += sessions;
+          sourceMap[source].views    += views;
+          if (date) {
+            sourceMap[source].byDateSessions[date] = (sourceMap[source].byDateSessions[date] || 0) + sessions;
+            sourceMap[source].byDateViews[date]    = (sourceMap[source].byDateViews[date] || 0) + views;
+          }
+        });
+
+        // Merge sources that map to the same display label
+        const labelMap = {};
+        Object.entries(sourceMap).forEach(([source, data]) => {
+          const cfg = getLLMConfig(source);
+          const label = cfg.label;
+          if (!labelMap[label]) {
+            labelMap[label] = { sessions: 0, views: 0, byDateSessions: {}, byDateViews: {}, color: cfg.color, source };
+          }
+          labelMap[label].sessions += data.sessions;
+          labelMap[label].views    += data.views;
+          Object.entries(data.byDateSessions).forEach(([d, v]) => { labelMap[label].byDateSessions[d] = (labelMap[label].byDateSessions[d] || 0) + v; });
+          Object.entries(data.byDateViews).forEach(([d, v]) => { labelMap[label].byDateViews[d] = (labelMap[label].byDateViews[d] || 0) + v; });
+        });
+
+        const sorted = Object.entries(labelMap).sort((a, b) => b[1].views - a[1].views);
+
+        const totalSessions = sorted.reduce((s, [,v]) => s + v.sessions, 0);
+        const totalViews    = sorted.reduce((s, [,v]) => s + v.views, 0);
+
+        document.getElementById('llmMetSessions').textContent = fmt(totalSessions);
+        document.getElementById('llmMetViews').textContent    = fmt(totalViews);
+        document.getElementById('llmMetSources').textContent  = sorted.length;
+
+        if (!sorted.length) {
+          document.getElementById('llmSourceCards').innerHTML = '';
+          document.getElementById('llmNoData').style.display = 'block';
+          return;
+        }
+
+        // ── TOP OVERVIEW ──────────────────────────────────────────────────────
+
+        document.getElementById('llmOverview').style.display = 'block';
+
+        // Donut: outer = sessions, inner = views (lighter)
+        const donutLabels = sorted.map(([label]) => label.replace(' Traffic',''));
+        const donutSessions = sorted.map(([,d]) => d.sessions);
+        const donutViews    = sorted.map(([,d]) => d.views);
+        const donutColors   = sorted.map(([,d]) => d.color);
+        const donutColorsLight = donutColors.map(c => lightenColor(c, 100));
+
+        const existingDS = Chart.getChart('llmDonutSessions'); if (existingDS) existingDS.destroy();
+        const existingDV = Chart.getChart('llmDonutViews');    if (existingDV) existingDV.destroy();
+
+        const donutSessionsChart = new Chart(document.getElementById('llmDonutSessions').getContext('2d'), {
+          type: 'doughnut',
+          data: { labels: donutLabels, datasets: [{ data: donutSessions, backgroundColor: donutColors, borderWidth: 2, borderColor: '#fff' }] },
+          options: { responsive: false, cutout: '55%', plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ' ' + ctx.label + ': ' + fmt(ctx.raw) + ' sessions' } } } }
+        });
+        llmChartInstances.push(donutSessionsChart);
+
+        const donutViewsChart = new Chart(document.getElementById('llmDonutViews').getContext('2d'), {
+          type: 'doughnut',
+          data: { labels: donutLabels, datasets: [{ data: donutViews, backgroundColor: donutColorsLight, borderWidth: 2, borderColor: '#fff' }] },
+          options: { responsive: false, cutout: '55%', plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ' ' + ctx.label + ': ' + fmt(ctx.raw) + ' views' } } } }
+        });
+        llmChartInstances.push(donutViewsChart);
+
+        // Donut legend
+        document.getElementById('llmDonutLegend').innerHTML = sorted.map(([label, d]) => `
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;">
+            <div style="width:10px;height:10px;border-radius:50%;background:${d.color};flex-shrink:0;"></div>
+            <span style="color:#555;flex:1;">${label.replace(' Traffic','')}</span>
+            <span style="font-weight:600;color:#1a1a1a;">${fmt(d.sessions)} <span style="font-weight:400;color:#aaa;">/ ${fmt(d.views)}</span></span>
+          </div>
+        `).join('');
+
+        // Line chart: 12 months, one line per source, sessions only
+        const months12 = getFixed12Months();
+        const lineLabels = months12.map(m => m.label);
+        const lineDatasets = sorted.map(([label, d]) => {
+          const { mSessions } = aggregateByMonth(d.byDateSessions, d.byDateViews);
+          return {
+            label: label.replace(' Traffic',''),
+            data: months12.map(m => mSessions[m.key] || 0),
+            borderColor: d.color,
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            pointRadius: 3,
+            tension: 0.3
+          };
+        });
+
+        const existingLine = Chart.getChart('llmLineChart'); if (existingLine) existingLine.destroy();
+        const lineChart = new Chart(document.getElementById('llmLineChart').getContext('2d'), {
+          type: 'line',
+          data: { labels: lineLabels, datasets: lineDatasets },
+          options: { responsive: true, plugins: { legend: { display: true, position: 'top', labels: { font: { size: 11 }, boxWidth: 12 } } }, scales: { x: { grid: { display: false }, ticks: { font: { size: 10 } } }, y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 10 } } } } }
+        });
+        llmChartInstances.push(lineChart);
+
+        // ── PER-SOURCE CARDS ──────────────────────────────────────────────────
+
+        const months6 = getFixed6Months();
+        const barLabels = months6.map(m => m.label);
+
+        document.getElementById('llmSourceCards').innerHTML = sorted.map(([label, d], i) => `
+          <div class="hist-row" style="margin-bottom:24px;">
+            <div class="hist-gauge-side" style="min-width:260px;width:260px;">
+              <div class="hist-gauge-title">${label}</div>
+              <div class="hist-gauge-wrap" style="position:relative;width:160px;height:160px;">
+                <canvas id="llmGaugeViews_${i}" style="position:absolute;top:0;left:0;width:160px!important;height:160px!important;"></canvas>
+                <canvas id="llmGaugeSessions_${i}" style="position:absolute;top:16px;left:16px;width:128px!important;height:128px!important;"></canvas>
+                <div class="hist-gauge-center">
+                  <div style="font-size:10px;color:#888;">Views</div>
+                  <div style="font-size:18px;font-weight:700;color:#1a1a1a;">${fmt(d.views)}</div>
+                  <div style="font-size:10px;color:#888;margin-top:2px;">Sessions</div>
+                  <div style="font-size:14px;font-weight:600;" id="llmSessVal_${i}">${fmt(d.sessions)}</div>
+                </div>
+              </div>
+              <div class="hist-gauge-sub">Views (outer) · Sessions (inner)</div>
+            </div>
+            <div class="hist-chart-side" style="flex:1;">
+              <h3>
+                <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${d.color};margin-right:4px;"></span> Views &nbsp;
+                <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${lightenColor(d.color,100)};margin-right:4px;"></span> Sessions
+              </h3>
+              <canvas id="llmBarChart_${i}" height="120"></canvas>
+            </div>
+          </div>
+        `).join('');
+
+        // Draw charts per card
+        sorted.forEach(([label, d], i) => {
+          const { mSessions, mViews } = aggregateByMonth(d.byDateSessions, d.byDateViews);
+          const lightColor = lightenColor(d.color, 100);
+
+          // Outer gauge = Views
+          const maxViews = Math.max(d.views * 1.5, 1);
+          const pctV = Math.min(d.views / maxViews, 1) * 0.75;
+          const gV = new Chart(document.getElementById('llmGaugeViews_' + i).getContext('2d'), {
+            type: 'doughnut',
+            data: { datasets: [{ data: [pctV, 0.75 - pctV, 0.25], backgroundColor: [d.color, '#e5e5e5', 'transparent'], borderWidth: 0, circumference: 270, rotation: 225 }] },
+            options: { responsive: false, cutout: '72%', plugins: { legend: { display: false }, tooltip: { enabled: false } } }
+          });
+          llmChartInstances.push(gV);
+
+          // Inner gauge = Sessions (lighter)
+          const pctS = Math.min(d.sessions / maxViews, 1) * 0.75;
+          const gS = new Chart(document.getElementById('llmGaugeSessions_' + i).getContext('2d'), {
+            type: 'doughnut',
+            data: { datasets: [{ data: [pctS, 0.75 - pctS, 0.25], backgroundColor: [lightColor, '#efefef', 'transparent'], borderWidth: 0, circumference: 270, rotation: 225 }] },
+            options: { responsive: false, cutout: '72%', plugins: { legend: { display: false }, tooltip: { enabled: false } } }
+          });
+          llmChartInstances.push(gS);
+
+          // Bar chart: views (full) + sessions (lighter), fixed 6 months
+          const viewsData    = months6.map(m => mViews[m.key] || 0);
+          const sessionsData = months6.map(m => mSessions[m.key] || 0);
+          const barExisting = Chart.getChart('llmBarChart_' + i); if (barExisting) barExisting.destroy();
+          const barChart = new Chart(document.getElementById('llmBarChart_' + i).getContext('2d'), {
+            type: 'bar',
+            data: { labels: barLabels, datasets: [
+              { label: 'Views',    data: viewsData,    backgroundColor: d.color,    borderRadius: 3, borderSkipped: false },
+              { label: 'Sessions', data: sessionsData, backgroundColor: lightColor, borderRadius: 3, borderSkipped: false }
+            ]},
+            options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { font: { size: 10 } } }, y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 10 } } } } }
+          });
+          llmChartInstances.push(barChart);
+        });
+
+      } catch(e) {
+        document.getElementById('llmSourceCards').innerHTML = `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:16px;color:#dc2626;font-size:13px;">Error loading LLM data: ${e.message}</div>`;
+      }
+    }
+
+
+    // ═══════════════════════════════════════════════════════
+    // KEYWORD TRACKER
+    // ═══════════════════════════════════════════════════════
+
+    let kwTabs = [];         // [{ id, label, keyword }]
+    let kwOptimisations = {};  // { tabId: 'YYYY-MM-DD' }
+    let kwActiveId = null;
+    let kwSaveTimer = null;
+
+    // Load tabs from GitHub on init
+    async function kwInit() {
+      try {
+        const [tabsRes, optRes] = await Promise.all([
+          fetch('/api/blogs?action=get-keyword-tabs'),
+          fetch('/api/blogs?action=get-optimisations')
+        ]);
+        const tabsJson = await tabsRes.json();
+        const optJson  = await optRes.json();
+        if (optJson.success) kwOptimisations = optJson.optimisations || {};
+        if (tabsJson.success && tabsJson.tabs.length) {
+          kwTabs = tabsJson.tabs;
+          kwRenderTabsRow();
+          kwActivate(kwTabs[0].id);
+        }
+      } catch(e) {
+        console.error('kwInit error:', e.message);
+      }
+    }
+
+    // Save tabs to GitHub with status indicator
+    async function kwSave() {
+      kwShowStatus('⏳ Saving...', '#f0f9ff', '#7dd3fc', '#0369a1');
+      // Countdown
+      let secs = 3;
+      const interval = setInterval(() => {
+        secs--;
+        if (secs > 0) kwShowStatus(`⏳ Saving... ${secs}s`, '#f0f9ff', '#7dd3fc', '#0369a1');
+      }, 1000);
+      try {
+        const res = await fetch('/api/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'save-keyword-tabs', tabs: kwTabs })
+        });
+        clearInterval(interval);
+        const json = await res.json();
+        if (json.success) {
+          kwShowStatus('✅ Saved successfully', '#f0fdf4', '#86efac', '#16a34a');
+          setTimeout(() => { document.getElementById('kwSaveStatus').style.display = 'none'; }, 3000);
+        } else {
+          kwShowStatus('❌ Save failed: ' + (json.error || 'unknown error'), '#fef2f2', '#fecaca', '#dc2626');
+        }
+      } catch(e) {
+        clearInterval(interval);
+        kwShowStatus('❌ Save failed: ' + e.message, '#fef2f2', '#fecaca', '#dc2626');
+      }
+    }
+
+    function kwShowStatus(text, bg, border, color) {
+      const el = document.getElementById('kwSaveStatus');
+      el.style.display = 'flex';
+      el.style.background = bg;
+      el.style.borderColor = border;
+      el.style.color = color;
+      document.getElementById('kwSaveStatusText').textContent = text;
+    }
+
+    function kwAddTab() {
+      const label   = document.getElementById('kwNewLabel').value.trim();
+      const keyword = document.getElementById('kwNewKeyword').value.trim();
+      if (!label || !keyword) { alert('Please enter both a tab label and a keyword.'); return; }
+      const id = 'kw_' + Date.now();
+      kwTabs.push({ id, label, keyword });
+      document.getElementById('kwNewLabel').value = '';
+      document.getElementById('kwNewKeyword').value = '';
+      kwRenderTabsRow();
+      kwActivate(id);
+      kwSave();
+    }
+
+    function kwDeleteTab(id) {
+      if (!confirm('Delete this keyword tab?')) return;
+      kwTabs = kwTabs.filter(t => t.id !== id);
+      kwRenderTabsRow();
+      if (kwTabs.length) kwActivate(kwTabs[0].id);
+      else {
+        kwActiveId = null;
+        document.getElementById('kwContent').innerHTML = '<div style="text-align:center;padding:48px;color:#aaa;font-size:13px;">Add a keyword tab above to get started.</div>';
+      }
+      kwSave();
+    }
+
+    function kwRenameTab(id) {
+      const tab = kwTabs.find(t => t.id === id);
+      if (!tab) return;
+      const newLabel   = prompt('New label:', tab.label);
+      if (!newLabel) return;
+      const newKeyword = prompt('New keyword:', tab.keyword);
+      if (!newKeyword) return;
+      tab.label   = newLabel.trim();
+      tab.keyword = newKeyword.trim();
+      kwRenderTabsRow();
+      if (kwActiveId === id) kwActivate(id);
+      kwSave();
+    }
+
+    function kwRenderTabsRow() {
+      const row = document.getElementById('kwTabsRow');
+      if (!kwTabs.length) { row.innerHTML = ''; return; }
+      row.innerHTML = `<div style="display:flex;align-items:center;border-bottom:2px solid #e5e5e5;width:100%;gap:0;">` +
+        kwTabs.map(t => {
+          const isActive = t.id === kwActiveId;
+          return `<div style="display:flex;align-items:center;border-bottom:${isActive ? '2px solid #1a1a1a' : '2px solid transparent'};margin-bottom:-2px;">
+            <button onclick="kwActivate('${t.id}')" style="padding:10px 16px;border:none;background:transparent;color:${isActive ? '#1a1a1a' : '#888'};font-size:13px;font-weight:${isActive ? '600' : '400'};cursor:pointer;white-space:nowrap;">${t.label}</button>
+            <button onclick="kwRenameTab('${t.id}')" title="Rename" style="padding:4px 6px;border:none;background:transparent;color:#bbb;font-size:11px;cursor:pointer;">✏️</button>
+            <button onclick="kwDeleteTab('${t.id}')" title="Delete" style="padding:4px 6px;border:none;background:transparent;color:#ddd;font-size:11px;cursor:pointer;margin-right:4px;">✕</button>
+          </div>`;
+        }).join('') +
+      `</div>`;
+    }
+
+    async function kwActivate(id) {
+      kwActiveId = id;
+      kwRenderTabsRow();
+      const tab = kwTabs.find(t => t.id === id);
+      if (!tab) return;
+
+      const content = document.getElementById('kwContent');
+      content.innerHTML = `<div style="text-align:center;padding:48px;color:#aaa;font-size:13px;">Loading data for "${tab.keyword}"...</div>`;
+
+      try {
+        const kw = tab.keyword.toLowerCase();
+
+        // Fetch 1: all queries (last 180 days) — for table + metrics
+        const start180 = getDate(180), end = getDate(0);
+        const [resQueries, resMonthly, resPQ] = await Promise.all([
+          fetch(`${API}?action=queries&startDate=${start180}&endDate=${end}`),
+          fetch(`${API}?action=keyword-monthly&keyword=${encodeURIComponent(kw)}&startDate=${getDate(365)}&endDate=${end}`),
+          fetch(`${API}?action=page-query&startDate=${start180}&endDate=${end}`)
+        ]);
+        // Build query -> top ranking URL map
+        const kwPqMap = {};
+        try {
+          const jPQ = await resPQ.json();
+          if (jPQ.success) (jPQ.data.rows||[]).forEach(r => {
+            const page  = cleanUrl(r.keys?.[0]||'');
+            const query = (r.keys?.[1]||'').toLowerCase();
+            if (!kwPqMap[query] || r.clicks > (kwPqMap[query].clicks||0)) kwPqMap[query] = { url: page, clicks: r.clicks };
+          });
+        } catch(e) {}
+
+        const jsonQueries = await resQueries.json();
+        const jsonMonthly = await resMonthly.json();
+
+        if (!jsonQueries.success) throw new Error(jsonQueries.error);
+
+        const allRows = jsonQueries.data.rows || [];
+
+        // Filter queries containing the keyword
+        const filtered = allRows.filter(r => {
+          const q = (r.keys?.[0] || '').toLowerCase();
+          return q.includes(kw);
+        }).sort((a, b) => b.impressions - a.impressions);
+
+        // Totals
+        const totalClicks      = filtered.reduce((s, r) => s + (r.clicks || 0), 0);
+        const totalImpressions = filtered.reduce((s, r) => s + (r.impressions || 0), 0);
+        const avgCTR           = totalImpressions ? totalClicks / totalImpressions : 0;
+        const avgPos           = filtered.length ? filtered.reduce((s, r) => s + (r.position || 0), 0) / filtered.length : 0;
+
+        // Build 12-month buckets for chart (exact keyword only)
+        const months12 = [];
+        const now = new Date();
+        for (let i = 11; i >= 0; i--) {
+          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+          const label = d.toLocaleString('default', { month: 'short', year: '2-digit' });
+          months12.push({ key, label });
+        }
+
+        // Aggregate monthly data from keyword-monthly action
+        const mClicks = {}, mImpressions = {};
+        if (jsonMonthly.success) {
+          (jsonMonthly.data.rows || []).forEach(r => {
+            // keys[0] = date — GSC returns YYYY-MM-DD for date dimension
+            const dateStr = r.keys?.[0] || '';
+            // Handle both YYYY-MM-DD and YYYYMMDD formats
+            const monthKey = dateStr.length === 8
+              ? dateStr.slice(0,4) + '-' + dateStr.slice(4,6)
+              : dateStr.slice(0, 7);
+            mImpressions[monthKey] = (mImpressions[monthKey] || 0) + (r.impressions || 0);
+            mClicks[monthKey]      = (mClicks[monthKey] || 0) + (r.clicks || 0);
+          });
+        }
+
+        const chartLabels      = months12.map(m => m.label);
+        const chartClicks      = months12.map(m => mClicks[m.key] || 0);
+        const chartImpressions = months12.map(m => mImpressions[m.key] || 0);
+
+        content.innerHTML = `
+          <!-- Metrics -->
+          <div class="metrics-row" style="margin-bottom:24px;">
+            <div class="metric-card"><div class="metric-label">Queries Found</div><div class="metric-value">${filtered.length}</div><div class="metric-sub">containing "${tab.keyword}"</div></div>
+            <div class="metric-card"><div class="metric-label">Total Clicks</div><div class="metric-value">${fmt(totalClicks)}</div><div class="metric-sub">last 180 days</div></div>
+            <div class="metric-card"><div class="metric-label">Total Impressions</div><div class="metric-value">${fmt(totalImpressions)}</div><div class="metric-sub">last 180 days</div></div>
+            <div class="metric-card"><div class="metric-label">Avg CTR</div><div class="metric-value">${fmtCTR(avgCTR)}</div><div class="metric-sub">across all queries</div></div>
+            <div class="metric-card"><div class="metric-label">Avg Position</div><div class="metric-value">${fmtPos(avgPos)}</div><div class="metric-sub">across all queries</div></div>
+          </div>
+
+          <!-- Optimisation marker -->
+          <div style="background:#f9f9f9;border:1px solid #e5e5e5;border-radius:8px;padding:14px 20px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <span style="font-size:13px;font-weight:600;color:#1a1a1a;">📅 Page Optimised:</span>
+            ${kwOptimisations[tab.id] ? `<span style="background:#f0fdf4;color:#16a34a;padding:4px 12px;border-radius:6px;font-size:13px;font-weight:600;">${kwOptimisations[tab.id]}</span>` : '<span style="color:#aaa;font-size:12px;">Not marked yet</span>'}
+            <input type="date" id="kwOptDate_${tab.id}" value="${kwOptimisations[tab.id] || new Date().toISOString().slice(0,10)}" style="padding:5px 10px;border:1px solid #e5e5e5;border-radius:4px;font-size:12px;outline:none;">
+            <button onclick="kwSaveOptimisation('${tab.id}')" style="padding:6px 14px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer;font-weight:600;">✓ Save Date</button>
+            ${kwOptimisations[tab.id] ? `<button onclick="kwClearOptimisation('${tab.id}')" style="padding:6px 14px;background:#fff;color:#dc2626;border:1px solid #fecaca;border-radius:4px;font-size:12px;cursor:pointer;">✕ Clear</button>` : ''}
+            <span id="kwOptStatus_${tab.id}" style="font-size:12px;color:#16a34a;"></span>
+          </div>
+
+          <!-- Growth chart -->
+          <div class="chart-card" style="margin-bottom:24px;">
+            <div class="chart-card-header">
+              <h2>Keyword Growth — exact: "${tab.keyword}"</h2>
+              <span>last 12 months</span>
+            </div>
+            <div class="chart-body"><canvas id="kwGrowthChart" height="140"></canvas></div>
+          </div>
+
+          <!-- Table -->
+          <div class="table-card">
+            <div class="table-card-header">
+              <h2>All queries containing "${tab.keyword}" <span class="count-badge">${filtered.length}</span></h2>
+              <input type="text" placeholder="Search queries..." oninput="kwFilterTable(this.value)" style="padding:6px 12px;border:1px solid #e5e5e5;border-radius:4px;font-size:12px;outline:none;width:220px;">
+            </div>
+            <table>
+              <thead><tr>
+                <th>#</th>
+                <th>Query</th>
+                <th>Ranking URL</th>
+                <th class="num">Impressions</th>
+                <th class="num">Clicks</th>
+                <th class="num">CTR</th>
+                <th class="num">Avg Position</th>
+              </tr></thead>
+              <tbody id="kwTableBody">
+                ${filtered.length ? filtered.map((r, i) => {
+                  const q = r.keys?.[0] || '';
+                  const pos = r.position || 0;
+                  const posColor = pos <= 3 ? '#16a34a' : pos <= 10 ? '#d97706' : '#dc2626';
+                  const rankUrl = kwPqMap[q.toLowerCase()]?.url || '—';
+                  const urlLink = rankUrl === '—' ? '—' : rankUrl === '/' ? `<a href="https://www.aboutwallart.com" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px;">Home Page</a>` : `<a href="https://www.aboutwallart.com${rankUrl}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px;word-break:break-all;">${rankUrl}</a>`;
+                  return `<tr>
+                    <td style="color:#aaa;font-size:12px;">${i+1}.</td>
+                    <td style="font-size:13px;">${q}</td>
+                    <td style="font-size:11px;">${urlLink}</td>
+                    <td class="num">${fmt(r.impressions)}</td>
+                    <td class="num">${fmt(r.clicks)}</td>
+                    <td class="num">${fmtCTR(r.ctr)}</td>
+                    <td class="num" style="color:${posColor};font-weight:600;">${fmtPos(pos)}</td>
+                  </tr>`;
+                }).join('') : '<tr class="loading-row"><td colspan="7">No queries found containing this keyword.</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        `;
+
+        // Build optimisation line annotation if date set
+        const optDate = kwOptimisations[tab.id];
+        let optLineIndex = -1;
+        if (optDate) {
+          const optD = new Date(optDate);
+          chartLabels.forEach((lbl, idx) => {
+            // Match month label like "May 26" to the date
+            const parts = lbl.split(' ');
+            const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            const mIdx = monthNames.indexOf(parts[0]);
+            const yr = 2000 + parseInt(parts[1]);
+            if (mIdx !== -1 && optD.getFullYear() === yr && optD.getMonth() === mIdx) optLineIndex = idx;
+          });
+        }
+
+        // Draw growth chart
+        const existingKwChart = Chart.getChart('kwGrowthChart');
+        if (existingKwChart) existingKwChart.destroy();
+
+        // Custom plugin: vertical line at optimisation date
+        const optLinePlugin = {
+          id: 'optLine',
+          afterDraw(chart) {
+            if (optLineIndex < 0) return;
+            const ctx = chart.ctx;
+            const xScale = chart.scales.x;
+            const yScale = chart.scales.y;
+            const x = xScale.getPixelForValue(optLineIndex);
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(x, yScale.top);
+            ctx.lineTo(x, yScale.bottom);
+            ctx.strokeStyle = '#16a34a';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 4]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            // Label
+            ctx.fillStyle = '#16a34a';
+            ctx.font = 'bold 10px sans-serif';
+            ctx.fillText('✓ Optimised', x + 4, yScale.top + 14);
+            ctx.restore();
+          }
+        };
+
+        new Chart(document.getElementById('kwGrowthChart').getContext('2d'), {
+          type: 'line',
+          plugins: [optLinePlugin],
+          data: {
+            labels: chartLabels,
+            datasets: [
+              {
+                label: 'Impressions',
+                data: chartImpressions,
+                borderColor: '#6366f1',
+                backgroundColor: 'rgba(99,102,241,0.08)',
+                borderWidth: 2,
+                pointRadius: 3,
+                tension: 0.3,
+                fill: true
+              },
+              {
+                label: 'Clicks',
+                data: chartClicks,
+                borderColor: '#10b981',
+                backgroundColor: 'transparent',
+                borderWidth: 2,
+                pointRadius: 3,
+                tension: 0.3,
+                fill: false
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { display: true, position: 'top', labels: { font: { size: 11 }, boxWidth: 12 } } },
+            scales: {
+              x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+              y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 10 } }, beginAtZero: true }
+            }
+          }
+        });
+
+      } catch(e) {
+        content.innerHTML = `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:16px;color:#dc2626;font-size:13px;">Error: ${e.message}</div>`;
+      }
+    }
+
+    async function kwSaveOptimisation(tabId) {
+      const dateEl = document.getElementById('kwOptDate_' + tabId);
+      const date = dateEl?.value;
+      if (!date) return;
+      kwOptimisations[tabId] = date;
+      const statusEl = document.getElementById('kwOptStatus_' + tabId);
+      if (statusEl) statusEl.textContent = '⏳ Saving...';
+      try {
+        const res = await fetch('/api/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'save-optimisations', optimisations: kwOptimisations })
+        });
+        const json = await res.json();
+        if (json.success) {
+          if (statusEl) { statusEl.textContent = '✅ Saved'; setTimeout(() => { statusEl.textContent = ''; }, 2000); }
+          // Re-render to show green badge and update chart
+          kwActivate(tabId);
+        }
+      } catch(e) {
+        if (statusEl) statusEl.textContent = '❌ ' + e.message;
+      }
+    }
+
+    async function kwClearOptimisation(tabId) {
+      if (!confirm('Clear optimisation date for this keyword?')) return;
+      delete kwOptimisations[tabId];
+      try {
+        await fetch('/api/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'save-optimisations', optimisations: kwOptimisations })
+        });
+      } catch(e) {}
+      kwActivate(tabId);
+    }
+
+    function kwFilterTable(search) {
+      const rows = document.querySelectorAll('#kwTableBody tr');
+      const s = search.toLowerCase();
+      rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = (!s || text.includes(s)) ? '' : 'none';
+      });
+    }
+
+
+    // ═══════════════════════════════════════════════════════
+    // KEYWORD RANKINGS
+    // ═══════════════════════════════════════════════════════
+
+    let kwrAllData    = [];
+    let kwrPrevData   = {};
+    let kwrSelectedSet = new Set();
+    let kwrActiveTab  = 'all';
+    let kwrLoaded     = false;
+    let kwrRegistry   = { byKw:{}, byUrl:{} };
+    let kwrPageQuery  = {};
+
+    // Sort state: { field, dir } per column
+    // colSorts: { pos:{priority,dir}, imp:{priority,dir}, clk:{priority,dir}, ctr:{priority,dir}, diff:{priority,dir}, trend:{priority,dir} }
+    let kwrColSorts = {};
+    let kwrSortCounter = 0;
+    const kwrDiffOrder = { Easy:1, Medium:2, Hard:3 };
+
+    const kwrColDefs = [
+      { key:'pos',  label:'Position',    num:true  },
+      { key:'imp',  label:'Impressions', num:true  },
+      { key:'clk',  label:'Clicks',      num:true  },
+      { key:'ctr',  label:'CTR',         num:true  },
+      { key:'diff', label:'Difficulty',  num:false },
+      { key:'trend',label:'Trend (90d)', num:true, selectedOnly:true }
+    ];
+    // Extra sortable columns (rendered separately but sortable)
+    const kwrExtraSorts = ['kw','url'];
+
+    function kwrDifficulty(position, impressions, ctr) {
+      let score = 0;
+      if (position > 50) score += 3; else if (position > 20) score += 2; else if (position > 10) score += 1;
+      if (impressions > 10000) score += 3; else if (impressions > 2000) score += 2; else if (impressions > 500) score += 1;
+      if (position <= 10 && ctr < 0.005) score += 2; else if (position <= 10 && ctr < 0.02) score += 1;
+      if (score >= 5) return 'Hard'; if (score >= 3) return 'Medium'; return 'Easy';
+    }
+
+    function kwrDiffStyle(diff) {
+      if (diff==='Hard')   return 'background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;';
+      if (diff==='Medium') return 'background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;';
+      return 'background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;';
+    }
+
+    function kwrRenderHeader() {
+      const isSelected = kwrActiveTab === 'tracked';
+      const cols = kwrColDefs.filter(c => !c.selectedOnly || isSelected);
+      const head = document.getElementById('kwrTableHead');
+      if (!head) return;
+
+      const kwBadge  = kwrColSorts['kw']  ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;">${kwrColSorts['kw'].priority}${kwrColSorts['kw'].dir==='asc'?'↑':'↓'}</span>` : '';
+      const urlBadge = kwrColSorts['url'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;">${kwrColSorts['url'].priority}${kwrColSorts['url'].dir==='asc'?'↑':'↓'}</span>` : '';
+      // Fixed column widths — must match td widths in kwrRenderRows
+      const colWidths = isSelected
+        ? { action:'90px', kw:'140px', url:'160px', pos:'70px', imp:'90px', clk:'60px', ctr:'55px', diff:'80px', trend:'90px', reg:'110px', actBtn:'180px' }
+        : { action:'70px', kw:'200px', pos:'80px', imp:'100px', clk:'70px', ctr:'65px', diff:'90px' };
+
+      head.innerHTML = '<tr>' +
+        `<th style="width:${colWidths.action};"></th>` +
+        `<th style="width:${colWidths.kw};cursor:pointer;user-select:none;" onclick="kwrCycleSort('kw')">Keyword${kwBadge}</th>` +
+        (isSelected ? `<th style="width:${colWidths.url};cursor:pointer;user-select:none;" onclick="kwrCycleSort('url')">Ranking URL${urlBadge}</th>` : '') +
+        `<th style="width:${colWidths.pos};cursor:pointer;user-select:none;text-align:right;" onclick="kwrCycleSort('pos')">Position${kwrColSorts['pos'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;">${kwrColSorts['pos'].priority}${kwrColSorts['pos'].dir==='asc'?'↑':'↓'}</span>` : ''}</th>` +
+        `<th style="width:${colWidths.imp};cursor:pointer;user-select:none;text-align:right;" onclick="kwrCycleSort('imp')">Impressions${kwrColSorts['imp'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;">${kwrColSorts['imp'].priority}${kwrColSorts['imp'].dir==='asc'?'↑':'↓'}</span>` : ''}</th>` +
+        `<th style="width:${colWidths.clk};cursor:pointer;user-select:none;text-align:right;" onclick="kwrCycleSort('clk')">Clicks${kwrColSorts['clk'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;">${kwrColSorts['clk'].priority}${kwrColSorts['clk'].dir==='asc'?'↑':'↓'}</span>` : ''}</th>` +
+        `<th style="width:${colWidths.ctr};cursor:pointer;user-select:none;text-align:right;" onclick="kwrCycleSort('ctr')">CTR${kwrColSorts['ctr'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;">${kwrColSorts['ctr'].priority}${kwrColSorts['ctr'].dir==='asc'?'↑':'↓'}</span>` : ''}</th>` +
+        `<th style="width:${colWidths.diff};cursor:pointer;user-select:none;" onclick="kwrCycleSort('diff')">Difficulty${kwrColSorts['diff'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;">${kwrColSorts['diff'].priority}${kwrColSorts['diff'].dir==='asc'?'↑':'↓'}</span>` : ''}</th>` +
+        (isSelected ? `<th style="width:${colWidths.trend};cursor:pointer;user-select:none;text-align:right;" onclick="kwrCycleSort('trend')">Trend (90d)${kwrColSorts['trend'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;">${kwrColSorts['trend'].priority}${kwrColSorts['trend'].dir==='asc'?'↑':'↓'}</span>` : ''}</th>` : '') +
+        (isSelected ? `<th style="width:${colWidths.reg};">Registry</th><th style="width:${colWidths.actBtn};">Action</th>` : '') +
+      '</tr>';
+    }
+
+    function kwrCycleSort(key) {
+      const existing = kwrColSorts[key];
+      if (!existing) {
+        kwrSortCounter++;
+        kwrColSorts[key] = { priority: kwrSortCounter, dir: 'asc' };
+      } else if (existing.dir === 'asc') {
+        existing.dir = 'desc';
+      } else {
+        // Remove sort
+        delete kwrColSorts[key];
+        // Re-number remaining
+        const sorted = Object.entries(kwrColSorts).sort((a,b) => a[1].priority - b[1].priority);
+        kwrSortCounter = 0;
+        sorted.forEach(([k]) => { kwrSortCounter++; kwrColSorts[k].priority = kwrSortCounter; });
+      }
+      kwrRenderHeader();
+      kwrFilterTable();
+    }
+
+    async function kwrInit() {
+      if (kwrLoaded) return;
+      kwrLoaded = true;
+      kwrRenderHeader();
+      document.getElementById('kwrBody').innerHTML = '<tr class="loading-row"><td colspan="8">Loading keyword data...</td></tr>';
+
+      try {
+        const [tRes, rRes, pqRes] = await Promise.all([
+          fetch('/api/blogs?action=get-tracked-keywords').catch(()=>null),
+          fetch('/api/blogs?action=get-registry').catch(()=>null),
+          fetch(`${API}?action=page-query&startDate=${getDate(90)}&endDate=${getDate(0)}`).catch(()=>null)
+        ]);
+
+        if (tRes) { const j = await tRes.json(); if (j.success && j.keywords) kwrSelectedSet = new Set(j.keywords); }
+
+        if (rRes) {
+          const j = await rRes.json();
+          if (j.success && j.registry) {
+            kwrRegistry = { byKw: {}, byUrl: {} };
+            j.registry.forEach(row => {
+              const isRealLock = row.locked === true &&
+                (row.status || '').toUpperCase() === 'DONE' &&
+                ['TO_OPTIMIZE','OPTIMIZED'].includes((row.action || '').toUpperCase());
+              if (!isRealLock) return;
+              const kwKey  = (row.keyword||'').toLowerCase();
+              const urlKey = (row.url||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','').toLowerCase();
+              kwrRegistry.byKw[kwKey]   = { url: row.url, keyword: row.keyword };
+              kwrRegistry.byUrl[urlKey] = { url: row.url, keyword: row.keyword };
+            });
+          }
+        }
+
+        if (pqRes) {
+          const j = await pqRes.json();
+          if (j.success) {
+            kwrPageQuery = {};
+            (j.data.rows||[]).forEach(r => {
+              const page  = cleanUrl(r.keys?.[0]||'');
+              const query = r.keys?.[1]||'';
+              if (shouldExcludeUrl(page)) return;
+              if (!kwrPageQuery[query] || r.clicks > (kwrPageQuery[query].clicks||0)) kwrPageQuery[query] = { url:page, clicks:r.clicks };
+            });
+          }
+        }
+
+        const end=getDate(0), start=getDate(90), startPrev=getDate(180);
+        const [resCurr,resPrev] = await Promise.all([
+          fetch(`${API}?action=queries&startDate=${start}&endDate=${end}`),
+          fetch(`${API}?action=queries&startDate=${startPrev}&endDate=${start}`)
+        ]);
+        const jCurr = await resCurr.json(), jPrev = await resPrev.json();
+        if (!jCurr.success) throw new Error(jCurr.error);
+
+        kwrPrevData = {};
+        if (jPrev.success) (jPrev.data.rows||[]).forEach(r => { kwrPrevData[r.keys?.[0]||''] = { imp:r.impressions||0, clk:r.clicks||0 }; });
+
+        kwrAllData = (jCurr.data.rows||[]).map(r => {
+          const kw  = r.keys?.[0]||'';
+          const pos = r.position||0, imp = r.impressions||0, clk = r.clicks||0, ctr = r.ctr||0;
+          // Note: kw is a query string not a URL — no URL cleaning needed here
+          const diff = kwrDifficulty(pos, imp, ctr);
+          const prev = kwrPrevData[kw];
+          const trend = (prev && prev.imp > 0) ? ((imp - prev.imp) / prev.imp * 100) : null;
+          const rankingUrl = kwrPageQuery[kw]?.url || '—';
+          // Registry cross-reference — 3 states:
+          // locked-same: this kw + this url locked together (green)
+          // kw-taken: this kw locked to a different url (yellow)
+          // url-taken: this url locked to a different kw (red)
+          // unlocked: neither kw nor url found in registry
+          const regByKw  = kwrRegistry.byKw[kw.toLowerCase()];
+          const regByUrl = kwrRegistry.byUrl[rankingUrl.toLowerCase()];
+          let regStatus = 'unlocked';
+          let regOtherKw = '', regOtherUrl = '';
+          if (regByKw) {
+            const lockedUrl = (regByKw.url||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
+            if (lockedUrl === rankingUrl) { regStatus = 'locked-same'; }
+            else { regStatus = 'kw-taken'; regOtherUrl = lockedUrl; }
+          } else if (regByUrl) {
+            regStatus = 'url-taken';
+            regOtherKw = regByUrl.keyword;
+          }
+          return { kw, pos, imp, clk, ctr, diff, trend, rankingUrl, regStatus, regOtherUrl, regOtherKw };
+        }).sort((a,b) => a.pos - b.pos);
+
+        kwrUpdateCounts();
+        kwrFilterTable();
+
+      } catch(e) {
+        document.getElementById('kwrBody').innerHTML = `<tr class="loading-row"><td colspan="8" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
+      }
+    }
+
+    function kwrResetFilters() {
+      document.getElementById('kwrSearch').value = '';
+      document.getElementById('kwrFilterPos').value = '';
+      document.getElementById('kwrFilterDiff').value = '';
+      document.getElementById('kwrFilterMinImp').value = '0';
+      kwrColSorts = {}; kwrSortCounter = 0;
+      kwrRenderHeader();
+      kwrFilterTable();
+    }
+
+    function kwrSwitchTab(tab) {
+      kwrActiveTab = tab;
+      ['all','tracked'].forEach(t => {
+        const btn = document.getElementById('kwrTab' + (t==='all'?'All':'Tracked'));
+        const active = t===tab;
+        btn.style.fontWeight = active?'600':'400';
+        btn.style.color = active?'#1a1a1a':'#888';
+        btn.style.borderBottomColor = active?'#1a1a1a':'transparent';
+      });
+      kwrRenderHeader();
+      kwrFilterTable();
+    }
+
+    function kwrFilterTable() {
+      const search   = (document.getElementById('kwrSearch')?.value||'').toLowerCase();
+      const posRange = document.getElementById('kwrFilterPos')?.value||'';
+      const diff     = document.getElementById('kwrFilterDiff')?.value||'';
+      const minImp   = parseInt(document.getElementById('kwrFilterMinImp')?.value||'0');
+      const limit    = parseInt(document.getElementById('kwrLimit')?.value||'50');
+
+      let data = kwrActiveTab==='tracked'
+        ? kwrAllData.filter(r => kwrSelectedSet.has(r.kw))
+        : kwrAllData.filter(r => !kwrSelectedSet.has(r.kw));
+
+      if (search)   data = data.filter(r => r.kw.includes(search));
+      if (diff)     data = data.filter(r => r.diff===diff);
+      if (minImp)   data = data.filter(r => r.imp>=minImp);
+      if (posRange) {
+        if (posRange==='1-3')   data = data.filter(r => r.pos>=1  && r.pos<=3);
+        if (posRange==='4-10')  data = data.filter(r => r.pos>=4  && r.pos<=10);
+        if (posRange==='11-20') data = data.filter(r => r.pos>=11 && r.pos<=20);
+        if (posRange==='21+')   data = data.filter(r => r.pos>20);
+      }
+
+      // Sort by column priority
+      const sortEntries = Object.entries(kwrColSorts).sort((a,b) => a[1].priority - b[1].priority);
+      if (sortEntries.length) {
+        data.sort((a,b) => {
+          for (const [key, s] of sortEntries) {
+            let av, bv;
+            if (key==='pos')   { av=a.pos;  bv=b.pos; }
+            if (key==='imp')   { av=a.imp;  bv=b.imp; }
+            if (key==='clk')   { av=a.clk;  bv=b.clk; }
+            if (key==='ctr')   { av=a.ctr;  bv=b.ctr; }
+            if (key==='diff')  { av=kwrDiffOrder[a.diff]; bv=kwrDiffOrder[b.diff]; }
+            if (key==='trend') { av=a.trend??-999; bv=b.trend??-999; }
+            if (key==='kw')    { return s.dir==='asc' ? a.kw.localeCompare(b.kw) : b.kw.localeCompare(a.kw); }
+            if (key==='url')   { return s.dir==='asc' ? a.rankingUrl.localeCompare(b.rankingUrl) : b.rankingUrl.localeCompare(a.rankingUrl); }
+            if (av!==bv) return s.dir==='asc' ? av-bv : bv-av;
+          }
+          return 0;
+        });
+      }
+
+      kwrRenderRows(data.slice(0, limit));
+    }
+
+    function kwrRenderRows(rows) {
+      const tbody = document.getElementById('kwrBody');
+      const isSelected = kwrActiveTab === 'tracked';
+      const cols = kwrColDefs.filter(c => !c.selectedOnly || isSelected);
+
+      if (!rows.length) {
+        tbody.innerHTML = `<tr class="loading-row"><td colspan="8">No keywords found.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = rows.map(r => {
+        const posColor = r.pos<=3?'#16a34a':r.pos<=10?'#d97706':'#dc2626';
+
+        // Action cell handled inline in row
+
+        // Registry cell (Selected tab only)
+        let regCell = '';
+        if (isSelected) {
+          if (r.regStatus==='locked-same') {
+            regCell = `<td><span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🔒 Locked</span></td>`;
+          } else if (r.regStatus==='kw-taken') {
+            regCell = `<td><span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Keyword locked to: ${r.regOtherUrl}">🟡 Keyword taken</span></td>`;
+          } else if (r.regStatus==='url-taken') {
+            regCell = `<td><span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="URL locked to keyword: ${r.regOtherKw}">🔴 URL taken</span></td>`;
+          } else {
+            regCell = `<td><span style="color:#ccc;font-size:12px;">—</span></td>`;
+          }
+        }
+
+        // Selected tab action = Undo + Save to Registry (only if unlocked)
+        const selectedActions = isSelected ? `<td style="white-space:nowrap;">
+          <button onclick="kwrUndo('${r.kw.replace(/'/g,"\'")}' )" style="padding:4px 10px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;margin-right:4px;">↩ Undo</button>
+          ${r.regStatus==='unlocked' ? `<button onclick="kwrConfirmLock('${r.kw.replace(/'/g,"\'")}','${r.rankingUrl.replace(/'/g,"\'")}' )" style="padding:4px 10px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Save to Registry</button>` : `<span style="font-size:11px;color:#aaa;">Cannot save</span>`}
+        </td>` : '';
+
+        // Metric cells
+        const wMap = isSelected
+          ? { pos:'70px', imp:'90px', clk:'60px', ctr:'55px', diff:'80px', trend:'90px' }
+          : { pos:'80px', imp:'100px', clk:'70px', ctr:'65px', diff:'90px' };
+        const metricCells = [
+          `<td style="width:${wMap.pos};text-align:right;color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>`,
+          `<td style="width:${wMap.imp};text-align:right;">${fmt(r.imp)}</td>`,
+          `<td style="width:${wMap.clk};text-align:right;">${fmt(r.clk)}</td>`,
+          `<td style="width:${wMap.ctr};text-align:right;">${fmtCTR(r.ctr)}</td>`,
+          `<td style="width:${wMap.diff};"><span style="${kwrDiffStyle(r.diff)}">${r.diff}</span></td>`,
+          ...(isSelected ? [r.trend===null
+            ? `<td style="width:${wMap.trend};text-align:right;color:#aaa;">—</td>`
+            : `<td style="width:${wMap.trend};text-align:right;color:${r.trend>5?'#16a34a':r.trend<-5?'#dc2626':'#d97706'};font-weight:600;">${r.trend>5?'▲':r.trend<-5?'▼':'▶'} ${r.trend>0?'+':''}${r.trend.toFixed(1)}%</td>`] : [])
+        ].join('');
+
+        const urlCell = isSelected ? `<td style="width:160px;font-size:11px;" title="${r.rankingUrl}"><a href="https://www.aboutwallart.com${r.rankingUrl}" target="_blank" style="color:#2563eb;text-decoration:none;word-break:break-all;">${r.rankingUrl}</a></td>` : '';
+
+        return `<tr>
+          <td style="width:${isSelected?'90px':'70px'};vertical-align:middle;">${isSelected ? '' : `<button onclick="kwrSelect('${r.kw.replace(/'/g,"\'")}' )" style="padding:4px 10px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;">+ Select</button>`}</td>
+          <td style="width:${isSelected?'140px':'200px'};font-size:13px;word-break:break-word;">${r.kw}</td>
+          ${urlCell}
+          ${metricCells}
+          ${regCell}
+          ${selectedActions}
+        </tr>`;
+      }).join('');
+    }
+
+    function kwrSelect(kw) {
+      kwrSelectedSet.add(kw);
+      kwrUpdateCounts();
+      kwrFilterTable();
+    }
+
+    function kwrUndo(kw) {
+      kwrSelectedSet.delete(kw);
+      kwrUpdateCounts();
+      kwrFilterTable();
+    }
+
+    function kwrUpdateCounts() {
+      document.getElementById('kwrCountAll').textContent     = kwrAllData.filter(r => !kwrSelectedSet.has(r.kw)).length;
+      document.getElementById('kwrCountTracked').textContent = kwrSelectedSet.size;
+    }
+
+    function kwrConfirmLock(kw, url) {
+      const fullUrl = url.startsWith('http') ? url : 'https://www.aboutwallart.com' + url;
+      const msg = `Save to Registry?
+
+Keyword: ${kw}
+URL: ${fullUrl}
+
+This will lock the keyword in keyword-locker-registry.csv with:
+LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
+      if (!confirm(msg)) return;
+      kwrLock(kw, fullUrl);
+    }
+
+    async function kwrLock(kw, url) {
+      kwrShowStatus('⏳ Saving to registry... 3s', '#f0f9ff', '#7dd3fc', '#0369a1');
+      let secs = 2;
+      const interval = setInterval(() => { secs--; if (secs>0) kwrShowStatus(`⏳ Saving to registry... ${secs}s`, '#f0f9ff', '#7dd3fc', '#0369a1'); }, 1000);
+      try {
+        const res = await fetch('/api/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'lock-keyword', keyword: kw, url })
+        });
+        clearInterval(interval);
+        const json = await res.json();
+        if (json.success) {
+          kwrRegistry[kw.toLowerCase()] = { url };
+          kwrAllData.forEach(r => { if (r.kw===kw) { r.regStatus='locked-same'; r.regUrl=url; } });
+          kwrShowStatus('✅ Keyword saved to registry', '#f0fdf4', '#86efac', '#16a34a');
+          setTimeout(() => { document.getElementById('kwrSaveStatus').style.display='none'; }, 3000);
+          kwrFilterTable();
+        } else {
+          kwrShowStatus('❌ Failed: ' + (json.error||'unknown'), '#fef2f2', '#fecaca', '#dc2626');
+        }
+      } catch(e) {
+        clearInterval(interval);
+        kwrShowStatus('❌ ' + e.message, '#fef2f2', '#fecaca', '#dc2626');
+      }
+    }
+
+    function kwrShowStatus(text, bg, border, color) {
+      const el = document.getElementById('kwrSaveStatus');
+      el.style.display = 'flex';
+      el.style.background = bg;
+      el.style.borderColor = border;
+      el.style.color = color;
+      document.getElementById('kwrSaveStatusText').textContent = text;
+    }
+
+
+
+    // ═══════════════════════════════════════════════════════
+    // URL CLEANING UTILITY
+    // ═══════════════════════════════════════════════════════
+
+    function cleanUrl(rawUrl) {
+      let url = (rawUrl||'')
+        .replace('https://www.aboutwallart.com','')
+        .replace('https://aboutwallart.com','')
+        .replace('http://www.aboutwallart.com','')
+        .replace('http://aboutwallart.com','');
+      // Strip query string (everything from ? onwards) — handles ?_pos=, ?variant=, ?_sid= etc
+      const qIdx = url.indexOf('?');
+      if (qIdx > -1) url = url.slice(0, qIdx);
+      // Strip trailing slash for consistency
+      if (url.length > 1 && url.endsWith('/')) url = url.slice(0,-1);
+      // Ensure leading slash
+      if (url && !url.startsWith('/')) url = '/' + url;
+      return url || '/';
+    }
+
+    function shouldExcludeUrl(url) {
+      if (!url) return true;
+      if (url.includes('/cdn/'))      return true;  // CDN files
+      if (url.includes('/es/'))       return true;  // Spanish translations
+      if (url.includes('/fr/'))       return true;  // French translations
+      if (url === '/es' || url === '/fr') return true; // Root translation pages
+      if (url.startsWith('/es?') || url.startsWith('/fr?')) return true;
+      if (url.includes('.js'))        return true;  // JS files
+      if (url.includes('.css'))       return true;  // CSS files
+      if (url.includes('_pos='))      return true;  // Shopify variant/session params
+      if (url.includes('_sid='))      return true;  // Shopify session params
+      return false;
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // QUICK WINS + DANGER PAGES
+    // ═══════════════════════════════════════════════════════
+
+    let qwData       = { collections:[], blogs:[], products:[], pages:[] };
+    let dpData       = { collections:[], blogs:[], products:[], pages:[] };
+    let qwPageType   = 'collections';
+    let dpPageType   = 'collections';
+    let qwSub        = 'all';   // 'all' | 'selected'
+    let dpSub        = 'all';
+    let qwSelectedSet = new Set();
+    let dpSelectedSet = new Set();
+    let qwColSorts   = {};
+    let dpColSorts   = {};
+    let qwSortCtr    = 0;
+    let dpSortCtr    = 0;
+    let qwLoaded     = false;
+    let dpLoaded     = false;
+    let qwExcludeUrls = new Set();
+    let dpExcludeUrls = new Set();
+
+    function getPageType(url) {
+      if (url.includes('/collections/')) return 'collections';
+      if (url.includes('/blogs/'))       return 'blogs';
+      if (url.includes('/products/'))    return 'products';
+      return 'pages';
+    }
+
+    // ── QUICK WINS LOAD ───────────────────────────────────────────────────────
+    async function loadQuickWins() {
+      if (qwLoaded) return;
+      qwLoaded = true;
+      document.getElementById('qwBody').innerHTML = '<tr class="loading-row"><td colspan="7">Loading Quick Wins...</td></tr>';
+      try {
+        const end=getDate(0), start=getDate(90);
+        const [resPages, resPQ] = await Promise.all([
+          fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`),
+          fetch(`${API}?action=page-query&startDate=${start}&endDate=${end}`)
+        ]);
+        const jPages = await resPages.json();
+        const jPQ    = await resPQ.json();
+        if (!jPages.success) throw new Error(jPages.error);
+
+        // Build top query per page
+        const topQuery = {};
+        if (jPQ.success) {
+          (jPQ.data.rows||[]).forEach(r => {
+            const page  = cleanUrl(r.keys?.[0]||'');
+            const query = r.keys?.[1]||'';
+            if (!topQuery[page] || r.impressions > (topQuery[page].imp||0)) topQuery[page] = { query, imp: r.impressions };
+          });
+        }
+
+        qwData = { collections:[], blogs:[], products:[], pages:[] };
+        qwExcludeUrls = new Set();
+        const qwMap = {};
+        (jPages.data.rows||[]).forEach(r => {
+          const page = cleanUrl(r.keys?.[0]||'');
+          if (shouldExcludeUrl(page)) return;
+          const pos=r.position||0, imp=r.impressions||0;
+          if (pos<1||pos>20||imp<100) return;
+          if (!qwMap[page]||imp>qwMap[page].imp) qwMap[page]={ page, pos, imp, clk:r.clicks||0, ctr:r.ctr||0, keyword:topQuery[page]?.query||'—' };
+        });
+        Object.values(qwMap).forEach(entry => {
+          const regByKw  = kwrRegistry?.byKw?.[entry.keyword?.toLowerCase()];
+          const regByUrl = kwrRegistry?.byUrl?.[entry.page.toLowerCase()];
+          if (regByKw) {
+            const lockedUrl=(regByKw.url||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
+            entry.regStatus = lockedUrl===entry.page?'locked-same':'kw-taken';
+            entry.regOtherUrl=lockedUrl; entry.regOtherKw='';
+          } else if (regByUrl) {
+            entry.regStatus='url-taken'; entry.regOtherKw=regByUrl.keyword; entry.regOtherUrl='';
+          } else { entry.regStatus='unlocked'; entry.regOtherKw=''; entry.regOtherUrl=''; }
+          qwData[getPageType(entry.page)].push(entry);
+          qwExcludeUrls.add(entry.page);
+        });
+        Object.keys(qwData).forEach(t => qwData[t].sort((a,b)=>b.imp-a.imp));
+        ['collections','blogs','products','pages'].forEach(t => {
+          document.getElementById('qwCount'+t.charAt(0).toUpperCase()+t.slice(1)).textContent = qwData[t].length;
+        });
+        qwUpdateSubCounts();
+        qwRenderHeader();
+        qwRenderRows();
+      } catch(e) {
+        document.getElementById('qwBody').innerHTML=`<tr class="loading-row"><td colspan="7" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
+      }
+    }
+
+    // ── DANGER PAGES LOAD ─────────────────────────────────────────────────────
+    async function loadDangerPages() {
+      if (dpLoaded) return;
+      dpLoaded = true;
+      document.getElementById('dpBody').innerHTML = '<tr class="loading-row"><td colspan="7">Loading Danger Pages...</td></tr>';
+      try {
+        const end=getDate(0), start=getDate(90), startPrev=getDate(180);
+        const [resCurr,resPrev,resPQ] = await Promise.all([
+          fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`),
+          fetch(`${API}?action=pages&startDate=${startPrev}&endDate=${start}`),
+          fetch(`${API}?action=page-query&startDate=${start}&endDate=${end}`)
+        ]);
+        const jCurr=await resCurr.json(), jPrev=await resPrev.json(), jPQ=await resPQ.json();
+        // Build top query per page for DP
+        const dpTopQuery={};
+        if(jPQ.success)(jPQ.data.rows||[]).forEach(r=>{
+          const page=cleanUrl(r.keys?.[0]||''), query=r.keys?.[1]||'';
+          if(!dpTopQuery[page]||r.impressions>(dpTopQuery[page].imp||0)) dpTopQuery[page]={query,imp:r.impressions};
+        });
+        if (!jCurr.success) throw new Error(jCurr.error);
+
+        const prevMap={};
+        if (jPrev.success) (jPrev.data.rows||[]).forEach(r=>{
+          const page=cleanUrl(r.keys?.[0]||'');
+          if (!prevMap[page]||r.clicks>prevMap[page].clicks) prevMap[page]={clicks:r.clicks||0};
+        });
+
+        dpData={ collections:[], blogs:[], products:[], pages:[] };
+        dpExcludeUrls=new Set();
+        const dpMap={};
+        (jCurr.data.rows||[]).forEach(r=>{
+          const page=cleanUrl(r.keys?.[0]||'');
+          if (shouldExcludeUrl(page)) return;
+          if (!dpMap[page]||r.clicks>(dpMap[page].currClk||0)) dpMap[page]={page,pos:r.position||0,currClk:r.clicks||0,imp:r.impressions||0,keyword:dpTopQuery[page]?.query||'—'};
+        });
+        Object.values(dpMap).forEach(entry=>{
+          const prevClk=prevMap[entry.page]?.clicks||0;
+          if (prevClk<10) return;
+          const drop=(entry.currClk-prevClk)/prevClk*100;
+          if (drop>-20) return;
+          const regByUrl=kwrRegistry?.byUrl?.[entry.page.toLowerCase()];
+          entry.prevClk=prevClk; entry.drop=drop;
+          if (regByUrl){entry.regStatus='url-taken';entry.regOtherKw=regByUrl.keyword;}
+          else {entry.regStatus='unlocked';entry.regOtherKw='';}
+          dpData[getPageType(entry.page)].push(entry);
+          dpExcludeUrls.add(entry.page);
+        });
+        Object.keys(dpData).forEach(t=>dpData[t].sort((a,b)=>a.drop-b.drop));
+        ['collections','blogs','products','pages'].forEach(t=>{
+          document.getElementById('dpCount'+t.charAt(0).toUpperCase()+t.slice(1)).textContent=dpData[t].length;
+        });
+        dpUpdateSubCounts();
+        dpRenderHeader();
+        dpRenderRows();
+      } catch(e){
+        document.getElementById('dpBody').innerHTML=`<tr class="loading-row"><td colspan="7" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
+      }
+    }
+
+    // ── QW HEADER + SORT ──────────────────────────────────────────────────────
+    function qwRenderHeader() {
+      const head = document.getElementById('qwTableHead');
+      if (!head) return;
+      const isSelected = qwSub === 'selected';
+      const cols = isSelected
+        ? [{k:'pos',l:'Position',n:true},{k:'imp',l:'Impressions',n:true},{k:'clk',l:'Clicks',n:true},{k:'ctr',l:'CTR',n:true},{k:'keyword',l:'Keyword',n:false}]
+        : [{k:'pos',l:'Position',n:true},{k:'imp',l:'Impressions',n:true},{k:'clk',l:'Clicks',n:true},{k:'ctr',l:'CTR',n:true},{k:'keyword',l:'Keyword',n:false}];
+      const urlBadge = qwColSorts['url'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;">${qwColSorts['url'].priority}${qwColSorts['url'].dir==='asc'?'↑':'↓'}</span>` : '';
+      head.innerHTML = '<tr>' +
+        `<th style="width:60px;">${isSelected?'':'Select'}</th>` +
+        `<th style="cursor:pointer;" onclick="qwCycleSort('url')">Page URL${urlBadge}</th>` +
+        cols.map(c=>{const s=qwColSorts[c.k];const b=s?`<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;">${s.priority}${s.dir==='asc'?'↑':'↓'}</span>`:'';return`<th class="${c.n?'num':''}" style="cursor:pointer;white-space:nowrap;" onclick="qwCycleSort('${c.k}')">${c.l}${b}</th>`;}).join('') +
+        `<th>Registry</th>` +
+        (isSelected?`<th>Action</th>`:'') +
+      '</tr>';
+    }
+
+    function qwCycleSort(key) {
+      const e=qwColSorts[key];
+      if (!e){qwSortCtr++;qwColSorts[key]={priority:qwSortCtr,dir:'asc'};}
+      else if (e.dir==='asc'){e.dir='desc';}
+      else {delete qwColSorts[key];const sorted=Object.entries(qwColSorts).sort((a,b)=>a[1].priority-b[1].priority);qwSortCtr=0;sorted.forEach(([k])=>{qwSortCtr++;qwColSorts[k].priority=qwSortCtr;});}
+      qwRenderHeader(); qwRenderRows();
+    }
+
+    // ── DP HEADER + SORT ──────────────────────────────────────────────────────
+    function dpRenderHeader() {
+      const head = document.getElementById('dpTableHead');
+      if (!head) return;
+      const isSelected = dpSub === 'selected';
+      const urlBadge = dpColSorts['url'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;">${dpColSorts['url'].priority}${dpColSorts['url'].dir==='asc'?'↑':'↓'}</span>` : '';
+      const kwBadgeDP = dpColSorts['keyword'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;">${dpColSorts['keyword'].priority}${dpColSorts['keyword'].dir==='asc'?'↑':'↓'}</span>` : '';
+      head.innerHTML = '<tr>' +
+        `<th style="width:60px;">${isSelected?'':'Select'}</th>` +
+        `<th style="cursor:pointer;" onclick="dpCycleSort('url')">Page URL${urlBadge}</th>` +
+        ['pos','currClk','prevClk','drop','imp'].map(k=>{
+          const labels={pos:'Position',currClk:'Clicks (now)',prevClk:'Clicks (prev)',drop:'Change',imp:'Impressions'};
+          const s=dpColSorts[k];const b=s?`<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;">${s.priority}${s.dir==='asc'?'↑':'↓'}</span>`:'';
+          return`<th class="num" style="cursor:pointer;white-space:nowrap;" onclick="dpCycleSort('${k}')">${labels[k]}${b}</th>`;
+        }).join('') +
+        `<th style="cursor:pointer;" onclick="dpCycleSort('keyword')">Keyword${kwBadgeDP}</th>` +
+        `<th>Registry</th>` +
+        (isSelected?`<th>Action</th>`:'') +
+      '</tr>';
+    }
+
+    function dpCycleSort(key) {
+      const e=dpColSorts[key];
+      if (!e){dpSortCtr++;dpColSorts[key]={priority:dpSortCtr,dir:'asc'};}
+      else if (e.dir==='asc'){e.dir='desc';}
+      else {delete dpColSorts[key];const sorted=Object.entries(dpColSorts).sort((a,b)=>a[1].priority-b[1].priority);dpSortCtr=0;sorted.forEach(([k])=>{dpSortCtr++;dpColSorts[k].priority=dpSortCtr;});}
+      dpRenderHeader(); dpRenderRows();
+    }
+
+    // ── QW TABS + FILTER + RENDER ─────────────────────────────────────────────
+    function qwSwitchPageType(type) {
+      qwPageType=type;
+      ['collections','blogs','products','pages'].forEach(t=>{
+        const btn=document.getElementById('qwTab'+t.charAt(0).toUpperCase()+t.slice(1));
+        const active=t===type;
+        btn.style.fontWeight=active?'600':'400';btn.style.color=active?'#1a1a1a':'#888';btn.style.borderBottomColor=active?'#1a1a1a':'transparent';
+      });
+      qwColSorts={}; qwSortCtr=0;
+      qwUpdateSubCounts(); qwRenderHeader(); qwRenderRows();
+    }
+
+    function qwSwitchSub(sub) {
+      qwSub=sub;
+      ['all','selected'].forEach(s=>{
+        const btn=document.getElementById('qwSub'+s.charAt(0).toUpperCase()+s.slice(1));
+        const active=s===sub;
+        btn.style.fontWeight=active?'600':'400';btn.style.color=active?'#1a1a1a':'#888';btn.style.borderBottomColor=active?'#1a1a1a':'transparent';
+      });
+      qwRenderHeader(); qwRenderRows();
+    }
+
+    function qwFilter() { qwRenderRows(); }
+
+    function qwUpdateSubCounts() {
+      const all = qwData[qwPageType]||[];
+      document.getElementById('qwSubCountAll').textContent = all.filter(r=>!qwSelectedSet.has(r.page)).length;
+      document.getElementById('qwSubCountSelected').textContent = all.filter(r=>qwSelectedSet.has(r.page)).length;
+    }
+
+    function qwRenderRows() {
+      const search=(document.getElementById('qwSearch')?.value||'').toLowerCase();
+      let rows=qwData[qwPageType]||[];
+      rows = qwSub==='selected' ? rows.filter(r=>qwSelectedSet.has(r.page)) : rows.filter(r=>!qwSelectedSet.has(r.page));
+      if (search) rows=rows.filter(r=>r.page.includes(search)||r.keyword.includes(search));
+      // Sort
+      const sortEntries=Object.entries(qwColSorts).sort((a,b)=>a[1].priority-b[1].priority);
+      if (sortEntries.length) rows=[...rows].sort((a,b)=>{
+        for (const [k,s] of sortEntries){
+          let av,bv;
+          if(k==='url'){return s.dir==='asc'?a.page.localeCompare(b.page):b.page.localeCompare(a.page);}
+          if(k==='pos'){av=a.pos;bv=b.pos;}if(k==='imp'){av=a.imp;bv=b.imp;}if(k==='clk'){av=a.clk;bv=b.clk;}if(k==='ctr'){av=a.ctr;bv=b.ctr;}
+          if(k==='keyword'){return s.dir==='asc'?a.keyword.localeCompare(b.keyword):b.keyword.localeCompare(a.keyword);}
+          if(av!==bv)return s.dir==='asc'?av-bv:bv-av;
+        }return 0;
+      });
+      const isSelected=qwSub==='selected';
+      const tbody=document.getElementById('qwBody');
+      if (!rows.length){tbody.innerHTML=`<tr class="loading-row"><td colspan="7">No pages found.</td></tr>`;return;}
+      const posColor=pos=>pos<=3?'#16a34a':pos<=10?'#d97706':'#dc2626';
+      const regCell=r=>{
+        if(r.regStatus==='locked-same') return`<td><span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🔒 Locked</span></td>`;
+        if(r.regStatus==='kw-taken')    return`<td><span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Keyword locked to: ${r.regOtherUrl}">🟡 Keyword taken</span></td>`;
+        if(r.regStatus==='url-taken')   return`<td><span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="URL locked to: ${r.regOtherKw}">🔴 URL taken</span></td>`;
+        return`<td><span style="color:#ccc;font-size:12px;">—</span></td>`;
+      };
+      tbody.innerHTML=rows.map(r=>`<tr>
+        <td style="vertical-align:middle;">${isSelected
+          ?`<button onclick="qwUndo('${r.page.replace(/'/g,"\'")}' )" style="padding:4px 8px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↩ Undo</button>`
+          :`<button onclick="qwSelect('${r.page.replace(/'/g,"\'")}' )" style="padding:4px 8px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;">+ Select</button>`
+        }</td>
+        <td><a href="https://www.aboutwallart.com${r.page === '/' ? '' : r.page}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:12px;word-break:break-all;">${r.page === '/' ? 'Home Page' : r.page}</a></td>
+        <td class="num" style="color:${posColor(r.pos)};font-weight:600;">${fmtPos(r.pos)}</td>
+        <td class="num">${fmt(r.imp)}</td>
+        <td class="num">${fmt(r.clk)}</td>
+        <td class="num">${fmtCTR(r.ctr)}</td>
+        <td style="font-size:12px;color:#555;">${r.keyword}</td>
+        ${regCell(r)}
+        ${isSelected?`<td style="white-space:nowrap;">${r.regStatus==='unlocked'?`<button onclick="qwConfirmLock('${r.page.replace(/'/g,"\'")}','${r.keyword.replace(/'/g,"\'")}' )" style="padding:4px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Save to Registry</button>`:`<span style="font-size:11px;color:#aaa;">Cannot save</span>`}</td>`:''}
+      </tr>`).join('');
+    }
+
+    function qwSelect(page){qwSelectedSet.add(page);qwUpdateSubCounts();qwRenderRows();}
+    function qwUndo(page){qwSelectedSet.delete(page);qwUpdateSubCounts();qwRenderRows();}
+
+    function qwConfirmLock(page,keyword){
+      const fullUrl='https://www.aboutwallart.com'+page;
+      if(!confirm(`Save to Registry?
+
+URL: ${fullUrl}
+Keyword: ${keyword}
+
+Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
+      qwDoLock(page,keyword,fullUrl);
+    }
+
+    async function qwDoLock(page,keyword,fullUrl){
+      qwShowStatus('⏳ Saving... 3s','#f0f9ff','#7dd3fc','#0369a1');
+      let s=2;const iv=setInterval(()=>{s--;if(s>0)qwShowStatus(`⏳ Saving... ${s}s`,'#f0f9ff','#7dd3fc','#0369a1');},1000);
+      try{
+        const res=await fetch('/api/blogs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'lock-keyword',keyword,url:fullUrl})});
+        clearInterval(iv);const json=await res.json();
+        if(json.success){
+          if(!kwrRegistry.byKw)kwrRegistry.byKw={};if(!kwrRegistry.byUrl)kwrRegistry.byUrl={};
+          kwrRegistry.byKw[keyword.toLowerCase()]={url:fullUrl,keyword};
+          kwrRegistry.byUrl[page.toLowerCase()]={url:fullUrl,keyword};
+          qwData[qwPageType].forEach(r=>{if(r.page===page){r.regStatus='locked-same';}});
+          qwShowStatus('✅ Saved to registry','#f0fdf4','#86efac','#16a34a');
+          setTimeout(()=>{document.getElementById('qwSaveStatus').style.display='none';},3000);
+          qwRenderRows();
+        }else{qwShowStatus('❌ '+(json.error||'unknown'),'#fef2f2','#fecaca','#dc2626');}
+      }catch(e){clearInterval(iv);qwShowStatus('❌ '+e.message,'#fef2f2','#fecaca','#dc2626');}
+    }
+
+    function qwShowStatus(text,bg,border,color){
+      const el=document.getElementById('qwSaveStatus');
+      el.style.display='flex';el.style.background=bg;el.style.borderColor=border;el.style.color=color;
+      document.getElementById('qwSaveStatusText').textContent=text;
+    }
+
+    // ── DP TABS + FILTER + RENDER ─────────────────────────────────────────────
+    function dpSwitchPageType(type){
+      dpPageType=type;
+      ['collections','blogs','products','pages'].forEach(t=>{
+        const btn=document.getElementById('dpTab'+t.charAt(0).toUpperCase()+t.slice(1));
+        const active=t===type;
+        btn.style.fontWeight=active?'600':'400';btn.style.color=active?'#1a1a1a':'#888';btn.style.borderBottomColor=active?'#1a1a1a':'transparent';
+      });
+      dpColSorts={};dpSortCtr=0;
+      dpUpdateSubCounts();dpRenderHeader();dpRenderRows();
+    }
+
+    function dpSwitchSub(sub){
+      dpSub=sub;
+      ['all','selected'].forEach(s=>{
+        const btn=document.getElementById('dpSub'+s.charAt(0).toUpperCase()+s.slice(1));
+        const active=s===sub;
+        btn.style.fontWeight=active?'600':'400';btn.style.color=active?'#1a1a1a':'#888';btn.style.borderBottomColor=active?'#1a1a1a':'transparent';
+      });
+      dpRenderHeader();dpRenderRows();
+    }
+
+    function dpFilter(){dpRenderRows();}
+
+    function dpUpdateSubCounts(){
+      const all=dpData[dpPageType]||[];
+      document.getElementById('dpSubCountAll').textContent=all.filter(r=>!dpSelectedSet.has(r.page)).length;
+      document.getElementById('dpSubCountSelected').textContent=all.filter(r=>dpSelectedSet.has(r.page)).length;
+    }
+
+    function dpRenderRows(){
+      const search=(document.getElementById('dpSearch')?.value||'').toLowerCase();
+      let rows=dpData[dpPageType]||[];
+      rows=dpSub==='selected'?rows.filter(r=>dpSelectedSet.has(r.page)):rows.filter(r=>!dpSelectedSet.has(r.page));
+      if(search)rows=rows.filter(r=>r.page.includes(search));
+      const sortEntries=Object.entries(dpColSorts).sort((a,b)=>a[1].priority-b[1].priority);
+      if(sortEntries.length)rows=[...rows].sort((a,b)=>{
+        for(const [k,s] of sortEntries){
+          let av,bv;
+          if(k==='url'){return s.dir==='asc'?a.page.localeCompare(b.page):b.page.localeCompare(a.page);}
+          if(k==='pos'){av=a.pos;bv=b.pos;}if(k==='currClk'){av=a.currClk;bv=b.currClk;}if(k==='prevClk'){av=a.prevClk;bv=b.prevClk;}
+          if(k==='drop'){av=a.drop;bv=b.drop;}if(k==='imp'){av=a.imp;bv=b.imp;}
+          if(k==='keyword'){return s.dir==='asc'?a.keyword.localeCompare(b.keyword):b.keyword.localeCompare(a.keyword);}
+          if(av!==bv)return s.dir==='asc'?av-bv:bv-av;
+        }return 0;
+      });
+      const isSelected=dpSub==='selected';
+      const tbody=document.getElementById('dpBody');
+      if(!rows.length){tbody.innerHTML=`<tr class="loading-row"><td colspan="7">No Danger pages found.</td></tr>`;return;}
+      const posColor=pos=>pos<=3?'#16a34a':pos<=10?'#d97706':'#dc2626';
+      const regCell=r=>{
+        if(r.regStatus==='url-taken') return`<td><span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="URL locked to: ${r.regOtherKw}">🔴 URL taken</span></td>`;
+        return`<td><span style="color:#ccc;font-size:12px;">—</span></td>`;
+      };
+      tbody.innerHTML=rows.map(r=>{
+        const dropColor=r.drop<-50?'#dc2626':'#ef4444';
+        return`<tr>
+          <td style="vertical-align:middle;">${isSelected
+            ?`<button onclick="dpUndo('${r.page.replace(/'/g,"\'")}' )" style="padding:4px 8px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↩ Undo</button>`
+            :`<button onclick="dpSelect('${r.page.replace(/'/g,"\'")}' )" style="padding:4px 8px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;">+ Select</button>`
+          }</td>
+          <td><a href="https://www.aboutwallart.com${r.page === '/' ? '' : r.page}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:12px;word-break:break-all;">${r.page === '/' ? 'Home Page' : r.page}</a></td>
+          <td class="num" style="color:${posColor(r.pos)};font-weight:600;">${fmtPos(r.pos)}</td>
+          <td class="num">${fmt(r.currClk)}</td>
+          <td class="num">${fmt(r.prevClk)}</td>
+          <td class="num" style="color:${dropColor};font-weight:600;">▼ ${Math.abs(r.drop).toFixed(1)}%</td>
+          <td class="num">${fmt(r.imp)}</td>
+          <td style="font-size:12px;color:#555;">${r.keyword}</td>
+          ${regCell(r)}
+          ${isSelected?`<td style="white-space:nowrap;">${r.regStatus==='unlocked'?`<button onclick="dpConfirmLock('${r.page.replace(/'/g,"\'")}','${r.keyword.replace(/'/g,"\'")}' )" style="padding:4px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Save to Registry</button>`:`<span style="font-size:11px;color:#aaa;">Cannot save</span>`}</td>`:''}
+        </tr>`;
+      }).join('');
+    }
+
+    function dpSelect(page){dpSelectedSet.add(page);dpUpdateSubCounts();dpRenderRows();}
+    function dpUndo(page){dpSelectedSet.delete(page);dpUpdateSubCounts();dpRenderRows();}
+
+    function dpConfirmLock(page,keyword){
+      const fullUrl='https://www.aboutwallart.com'+page;
+      if(!confirm(`Save to Registry?
+
+URL: ${fullUrl}
+Keyword: ${keyword}
+
+Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
+      dpDoLock(page,keyword,fullUrl);
+    }
+
+    async function dpDoLock(page,keyword,fullUrl){
+      dpShowStatus('⏳ Saving... 3s','#f0f9ff','#7dd3fc','#0369a1');
+      let s=2;const iv=setInterval(()=>{s--;if(s>0)dpShowStatus(`⏳ Saving... ${s}s`,'#f0f9ff','#7dd3fc','#0369a1');},1000);
+      try{
+        const res=await fetch('/api/blogs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'lock-keyword',keyword,url:fullUrl})});
+        clearInterval(iv);const json=await res.json();
+        if(json.success){
+          if(!kwrRegistry.byUrl)kwrRegistry.byUrl={};
+          kwrRegistry.byUrl[page.toLowerCase()]={url:fullUrl,keyword};
+          dpData[dpPageType].forEach(r=>{if(r.page===page){r.regStatus='url-taken';r.regOtherKw=keyword;}});
+          dpShowStatus('✅ Saved to registry','#f0fdf4','#86efac','#16a34a');
+          setTimeout(()=>{document.getElementById('dpSaveStatus').style.display='none';},3000);
+          dpRenderRows();
+        }else{dpShowStatus('❌ '+(json.error||'unknown'),'#fef2f2','#fecaca','#dc2626');}
+      }catch(e){clearInterval(iv);dpShowStatus('❌ '+e.message,'#fef2f2','#fecaca','#dc2626');}
+    }
+
+    function dpShowStatus(text,bg,border,color){
+      const el=document.getElementById('dpSaveStatus');
+      el.style.display='flex';el.style.background=bg;el.style.borderColor=border;el.style.color=color;
+      document.getElementById('dpSaveStatusText').textContent=text;
+    }
+
+
+    // ═══════════════════════════════════════════════════════
+    // SUSPICIOUS TRAFFIC
+    // ═══════════════════════════════════════════════════════
+
+    let suspLoaded = false;
+    const AD_INTENT_PATH = '/collections/art-prints-for-wall';
+
+    function getSuspPageType(path) {
+      if (!path) return 'pages';
+      if (path === AD_INTENT_PATH || path.startsWith(AD_INTENT_PATH + '?')) return 'adintent';
+      if (path.includes('/collections/')) return 'collections';
+      if (path.includes('/blogs/'))       return 'blogs';
+      if (path.includes('/products/'))    return 'products';
+      return 'pages';
+    }
+
+    async function loadSuspiciousTraffic() {
+      if (suspLoaded) return;
+      suspLoaded = true;
+
+      try {
+        // Fetch both: monthly aggregate + page-level breakdown
+        const [resMonthly, resBreakdown] = await Promise.all([
+          fetch(`${API}?action=ga4-suspicious`),
+          fetch(`${API}?action=ga4-traffic-breakdown`)
+        ]);
+        const jMonthly   = await resMonthly.json();
+        const jBreakdown = await resBreakdown.json();
+        if (!jMonthly.success) throw new Error(jMonthly.error);
+
+        // Build monthly aggregate
+        const monthlyMap = {};
+        (jMonthly.data.rows||[]).forEach(r => {
+          const ym       = r.dimensionValues?.[0]?.value||'';
+          const sessions = parseInt(r.metricValues?.[0]?.value||0);
+          const bounceR  = parseFloat(r.metricValues?.[1]?.value||0);
+          const engaged  = parseInt(r.metricValues?.[2]?.value||0);
+          const bounced  = Math.round(sessions * bounceR);
+          const year=parseInt(ym.slice(0,4)), month=parseInt(ym.slice(4,6))-1;
+          const label = new Date(year,month).toLocaleString('default',{month:'short',year:'2-digit'});
+          monthlyMap[ym] = { ym, label, sessions, bounced, engaged, suspPct: sessions>0?(bounced/sessions*100):0,
+            collections:0, blogs:0, products:0, pages:0, adintent:0 };
+        });
+
+        // Build page type breakdown per month
+        if (jBreakdown.success) {
+          (jBreakdown.data.rows||[]).forEach(r => {
+            const ym   = r.dimensionValues?.[0]?.value||'';
+            const path = r.dimensionValues?.[1]?.value||'';
+            const sess = parseInt(r.metricValues?.[0]?.value||0);
+            if (!monthlyMap[ym]) return;
+            const type = getSuspPageType(path);
+            monthlyMap[ym][type] = (monthlyMap[ym][type]||0) + sess;
+          });
+        }
+
+        const monthly = Object.values(monthlyMap).sort((a,b)=>a.ym.localeCompare(b.ym));
+
+        if (!monthly.length) {
+          document.getElementById('suspLoading').textContent='No data available.';
+          return;
+        }
+
+        // Current month vs same month last year
+        const current  = monthly[monthly.length-1];
+        const lastYearYM = (parseInt(current.ym.slice(0,4))-1)+current.ym.slice(4);
+        const lastYear = monthly.find(m=>m.ym===lastYearYM);
+        let pctChange = null;
+        if (lastYear && lastYear.suspPct>0) pctChange = ((current.suspPct-lastYear.suspPct)/lastYear.suspPct)*100;
+
+        document.getElementById('suspLoading').style.display='none';
+        document.getElementById('suspChartRow').style.display='block';
+
+        // Gauge
+        const gaugeColor = current.suspPct>40?'#dc2626':current.suspPct>20?'#d97706':'#16a34a';
+        const gpct = Math.min(current.suspPct/100,1)*0.75;
+        const existingG=Chart.getChart('suspGauge');if(existingG)existingG.destroy();
+        new Chart(document.getElementById('suspGauge').getContext('2d'),{
+          type:'doughnut',
+          data:{datasets:[{data:[gpct,0.75-gpct,0.25],backgroundColor:[gaugeColor,'#e5e5e5','transparent'],borderWidth:0,circumference:270,rotation:225}]},
+          options:{responsive:false,cutout:'75%',plugins:{legend:{display:false},tooltip:{enabled:false}}}
+        });
+        document.getElementById('suspGaugeValue').innerHTML=`<span style="font-size:11px;color:#888;display:block;">Suspicious</span><span style="color:${gaugeColor};">${current.suspPct.toFixed(1)}%</span>`;
+        if (pctChange!==null) {
+          const dc=pctChange>0?'#dc2626':'#16a34a';
+          document.getElementById('suspGaugeChange').innerHTML=`<span style="color:${dc};font-size:12px;">${pctChange>0?'↑':'↓'}${Math.abs(pctChange).toFixed(1)}%</span>`;
+        }
+
+        // Stacked bar chart
+        const labels   = monthly.map(m=>m.label);
+        const existingB=Chart.getChart('suspBarChart');if(existingB)existingB.destroy();
+        new Chart(document.getElementById('suspBarChart').getContext('2d'),{
+          type:'bar',
+          data:{
+            labels,
+            datasets:[
+              // Left bar = total (violet, not stacked)
+              { label:'Total', data:monthly.map(m=>m.sessions), backgroundColor:'rgba(99,102,241,0.5)', borderRadius:2, stack:'total', order:2 },
+              // Right bar = stacked breakdown (order: suspicious bottom, then types, adintent top)
+              { label:'Suspicious',  data:monthly.map(m=>m.bounced),     backgroundColor:'#ef4444', stack:'breakdown', order:1 },
+              { label:'Collections', data:monthly.map(m=>m.collections), backgroundColor:'#8b5cf6', stack:'breakdown', order:1 },
+              { label:'Blogs',       data:monthly.map(m=>m.blogs),       backgroundColor:'#22c55e', stack:'breakdown', order:1 },
+              { label:'Products',    data:monthly.map(m=>m.products),    backgroundColor:'#f97316', stack:'breakdown', order:1 },
+              { label:'Pages',       data:monthly.map(m=>m.pages),       backgroundColor:'#3b82f6', stack:'breakdown', order:1 },
+              { label:'Ad Intent',   data:monthly.map(m=>m.adintent),    backgroundColor:'#eab308', stack:'breakdown', order:1 },
+            ]
+          },
+          options:{
+            responsive:true,
+            plugins:{legend:{display:false}},
+            scales:{
+              x:{grid:{display:false},ticks:{font:{size:10}}},
+              y:{grid:{color:'#f0f0f0'},ticks:{font:{size:10}},stacked:false}
+            }
+          }
+        });
+
+        // Table
+        const prevMap={};
+        monthly.forEach(m=>{const ny=(parseInt(m.ym.slice(0,4))+1)+m.ym.slice(4);prevMap[ny]=m;});
+        document.getElementById('suspTableBody').innerHTML=[...monthly].reverse().map(m=>{
+          const prev=prevMap[m.ym];
+          const rc=m.suspPct>40?'#dc2626':m.suspPct>20?'#d97706':'#16a34a';
+          const rb=m.suspPct>40?'#fef2f2':m.suspPct>20?'#fefce8':'#f0fdf4';
+          const risk=m.suspPct>40?'High':m.suspPct>20?'Medium':'Low';
+          let vsLY='—';
+          if(prev){const d=m.suspPct-prev.suspPct;const dc=d>2?'#dc2626':d<-2?'#16a34a':'#888';vsLY=`<span style="color:${dc};font-weight:600;">${d>0?'+':''}${d.toFixed(1)}pp</span>`;}
+          const adPct=m.sessions>0?(m.adintent/m.sessions*100):0;
+          return`<tr>
+            <td style="font-weight:600;">${m.label}</td>
+            <td class="num">${fmt(m.sessions)}</td>
+            <td class="num" style="color:#ef4444;">${fmt(m.bounced)} (${m.suspPct.toFixed(1)}%)</td>
+            <td class="num" style="color:#8b5cf6;">${fmt(m.collections)}</td>
+            <td class="num" style="color:#22c55e;">${fmt(m.blogs)}</td>
+            <td class="num" style="color:#f97316;">${fmt(m.products)}</td>
+            <td class="num" style="color:#3b82f6;">${fmt(m.pages)}</td>
+            <td class="num" style="color:#eab308;font-weight:600;">${fmt(m.adintent)} (${adPct.toFixed(1)}%)</td>
+            <td class="num">${vsLY}</td>
+            <td class="num"><span style="background:${rb};color:${rc};padding:2px 10px;border-radius:10px;font-size:11px;font-weight:600;">${risk}</span></td>
+          </tr>`;
+        }).join('');
+
+      } catch(e) {
+        document.getElementById('suspLoading').innerHTML=`<span style="color:#dc2626;">Error: ${e.message}</span>`;
+      }
+    }
+
+
+    loadOverview(28);loadClicksChart(28);loadDeviceChart(28);loadPages(28);loadQueries(28);
+  </script>
+</body>
+</html>  
