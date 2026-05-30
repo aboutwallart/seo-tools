@@ -156,23 +156,32 @@ export default async function handler(req, res) {
         const shopifyToken  = process.env.SHOPIFY_ACCESS_TOKEN;
         if (!shopifyDomain || !shopifyToken) return res.status(500).json({ error: 'Shopify credentials not configured' });
 
+        // Use plain string query to avoid triple-quote escaping issues
+        const shopifyqlStr = [
+          'FROM sales',
+          'SHOW net_sales',
+          'GROUP BY month',
+          'TIMESERIES month',
+          'SINCE startOfMonth(-13m)',
+          'UNTIL endOfMonth(-1m)',
+          'ORDER BY month ASC'
+        ].join(' ');
+
         const gqlQuery = `{
-          shopifyqlQuery(query: """
-            FROM sales
-            SHOW net_sales
-            GROUP BY month
-            TIMESERIES month
-            SINCE startOfMonth(-13m)
-            UNTIL endOfMonth(-1m)
-            ORDER BY month ASC
-          """) {
+          shopifyqlQuery(query: "${shopifyqlStr}") {
             ... on TableResponse {
               tableData {
                 rowData
                 columns { name dataType displayName }
               }
             }
-            parseErrors { code message }
+            ... on ParseErrorResponse {
+              parseErrors {
+                code
+                message
+                range { start { line column } end { line column } }
+              }
+            }
           }
         }`;
 
@@ -186,10 +195,26 @@ export default async function handler(req, res) {
         );
 
         const json = await response.json();
-        const result = json?.data?.shopifyqlQuery;
 
+        // Check GraphQL-level errors
+        if (json?.errors?.length > 0) {
+          console.error('GraphQL errors:', JSON.stringify(json.errors));
+          return res.status(400).json({ error: json.errors[0].message });
+        }
+
+        const result = json?.data?.shopifyqlQuery;
+        console.log('shopifyqlQuery result:', JSON.stringify(result));
+
+        // Check ShopifyQL parse errors (ParseErrorResponse branch)
         if (result?.parseErrors?.length > 0) {
+          console.error('ShopifyQL parse errors:', JSON.stringify(result.parseErrors));
           return res.status(400).json({ error: result.parseErrors[0].message });
+        }
+
+        // Check tableData exists
+        if (!result?.tableData) {
+          console.error('tableData missing, raw result:', JSON.stringify(result));
+          return res.status(500).json({ error: 'tableData missing — check read_analytics scope on token', raw: result });
         }
 
         const { columns, rowData } = result.tableData;
@@ -197,7 +222,6 @@ export default async function handler(req, res) {
         const revenue = {};
         rowData.forEach(row => {
           const obj = Object.fromEntries(columns.map((col, i) => [col.name, row[i]]));
-          // month format from ShopifyQL: "2025-05"
           const key = (obj.month || '').replace('-', '');
           revenue[key] = parseFloat(obj.net_sales || 0);
         });
