@@ -315,7 +315,7 @@
             <h1>🔒 Keyword Locker</h1>
             <p>Live GSC data · One keyword = One winner URL</p>
         </div>
-        <span class="version-badge">v12.0</span>
+        <span class="version-badge">v12.1</span>
     </div>
 
     <!-- TOKEN -->
@@ -838,21 +838,12 @@ function renderConflicts() {
         ...Object.values(prelockedKeywords).map(d => d.winnerUrl.toLowerCase())
     ]);
 
-    const toAutoSave = [];
-
     conflictsData.forEach((conflict, idx) => {
         // Filter out URLs that are already winners for other keywords
         const availableUrls = conflict.urls.filter(u => !winnerUrls.has(u.url.toLowerCase()));
 
-        // If all URLs are locked, auto-save as SAVED_FOR_FUTURE
-        if (availableUrls.length === 0) {
-            toAutoSave.push(conflict.keyword);
-            return;
-        }
-
-        // If only 1 URL left after filtering, also auto-save (no real conflict)
+        // If 0 or 1 URLs left after filtering, silently hide - no real conflict
         if (availableUrls.length < 2) {
-            toAutoSave.push(conflict.keyword);
             return;
         }
 
@@ -897,19 +888,6 @@ function renderConflicts() {
         container.appendChild(div);
     });
 
-    // Auto-save conflicts where all URLs are locked
-    if (toAutoSave.length > 0) {
-        toAutoSave.forEach(keyword => {
-            savedKeywords[keyword.toLowerCase()] = {
-                keyword,
-                date: new Date().toISOString(),
-                source: 'Auto-Saved'
-            };
-            conflictsData = conflictsData.filter(c => c.keyword !== keyword);
-        });
-        updateStats();
-        saveAutoSavedBatch(toAutoSave);
-    }
 }
 
 function selectUrl(conflictIdx, urlIdx) {
