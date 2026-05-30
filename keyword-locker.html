@@ -315,7 +315,7 @@
             <h1>🔒 Keyword Locker</h1>
             <p>Live GSC data · One keyword = One winner URL</p>
         </div>
-        <span class="version-badge">v10.2</span>
+        <span class="version-badge">v10.3</span>
     </div>
 
     <!-- TOKEN -->
@@ -630,13 +630,14 @@ async function fetchGSCPageQuery() {
 
 // ─── CONFLICT DETECTION ───────────────────────────────────────────────────────
 function buildConflicts(gscRows) {
-    // Build skip set from all processed keywords
+    // Build skip set - redirectKeywords keys are "keyword|url" so extract just keyword
+    const redirectKws = Object.keys(redirectKeywords).map(k => k.split('|')[0]);
     const skipSet = new Set([
         ...Object.keys(resolvedKeywords),
         ...Object.keys(savedKeywords),
         ...Object.keys(deletedKeywords),
         ...Object.keys(prelockedKeywords),
-        ...Object.keys(redirectKeywords)
+        ...redirectKws
     ]);
 
     // Group by keyword
