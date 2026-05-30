@@ -150,80 +150,43 @@ export default async function handler(req, res) {
       }
 
       // ── ACTION: get-revenue-by-month ──
-      // Fetches last 13 months of gross sales via ShopifyQL
+      // Fetches last 13 months of net sales via REST Orders API (works on all Shopify plans)
       if (req.query.action === 'get-revenue-by-month') {
         const shopifyDomain = process.env.SHOPIFY_STORE_DOMAIN;
         const shopifyToken  = process.env.SHOPIFY_ACCESS_TOKEN;
         if (!shopifyDomain || !shopifyToken) return res.status(500).json({ error: 'Shopify credentials not configured' });
 
-        // Use plain string query to avoid triple-quote escaping issues
-        const shopifyqlStr = [
-          'FROM sales',
-          'SHOW net_sales',
-          'GROUP BY month',
-          'TIMESERIES month',
-          'SINCE startOfMonth(-13m)',
-          'UNTIL endOfMonth(-1m)',
-          'ORDER BY month ASC'
-        ].join(' ');
+        const months = {};
+        const since = new Date();
+        since.setMonth(since.getMonth() - 13);
+        since.setDate(1);
+        since.setHours(0, 0, 0, 0);
 
-        const gqlQuery = `{
-          shopifyqlQuery(query: "${shopifyqlStr}") {
-            ... on TableResponse {
-              tableData {
-                rowData
-                columns { name dataType displayName }
-              }
-            }
-            ... on ParseErrorResponse {
-              parseErrors {
-                code
-                message
-                range { start { line column } end { line column } }
-              }
-            }
+        let url = `https://${shopifyDomain}/admin/api/2025-01/orders.json?status=any&created_at_min=${since.toISOString()}&limit=250&fields=created_at,total_price,financial_status`;
+
+        while (url) {
+          const orderRes = await fetch(url, {
+            headers: { 'X-Shopify-Access-Token': shopifyToken }
+          });
+          if (!orderRes.ok) throw new Error('Shopify Orders API error: ' + orderRes.status);
+          const data = await orderRes.json();
+
+          for (const order of (data.orders || [])) {
+            if (['voided', 'refunded'].includes(order.financial_status)) continue;
+            const month = order.created_at.slice(0, 7); // YYYY-MM
+            months[month] = (months[month] || 0) + parseFloat(order.total_price || 0);
           }
-        }`;
 
-        const response = await fetch(
-          `https://${shopifyDomain}/admin/api/2025-01/graphql.json`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': shopifyToken },
-            body: JSON.stringify({ query: gqlQuery })
-          }
-        );
-
-        const json = await response.json();
-
-        // Check GraphQL-level errors
-        if (json?.errors?.length > 0) {
-          console.error('GraphQL errors:', JSON.stringify(json.errors));
-          return res.status(400).json({ error: json.errors[0].message });
+          // Pagination via Link header
+          const linkHeader = orderRes.headers.get('Link') || '';
+          const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+          url = nextMatch ? nextMatch[1] : null;
         }
 
-        const result = json?.data?.shopifyqlQuery;
-        console.log('shopifyqlQuery result:', JSON.stringify(result));
-
-        // Check ShopifyQL parse errors (ParseErrorResponse branch)
-        if (result?.parseErrors?.length > 0) {
-          console.error('ShopifyQL parse errors:', JSON.stringify(result.parseErrors));
-          return res.status(400).json({ error: result.parseErrors[0].message });
-        }
-
-        // Check tableData exists
-        if (!result?.tableData) {
-          console.error('tableData missing, raw result:', JSON.stringify(result));
-          return res.status(500).json({ error: 'tableData missing — check read_analytics scope on token', raw: result });
-        }
-
-        const { columns, rowData } = result.tableData;
-        // Build YYYYMM -> revenue map
+        // Build YYYYMM -> revenue map (strip the dash)
         const revenue = {};
-        rowData.forEach(row => {
-          const obj = Object.fromEntries(columns.map((col, i) => [col.name, row[i]]));
-          const key = (obj.month || '').replace('-', '');
-          revenue[key] = parseFloat(obj.net_sales || 0);
+        Object.entries(months).forEach(([month, total]) => {
+          revenue[month.replace('-', '')] = Math.round(total);
         });
 
         return res.status(200).json({ success: true, revenue });
