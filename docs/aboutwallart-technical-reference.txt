@@ -1,7 +1,7 @@
 # TECHNICAL REFERENCE DOCUMENT
 ## AboutWallArt SEO Tools Infrastructure
 
-**Last Updated:** May 29, 2026 (GSC Report Tool v20 — LLM Traffic complete)
+**Last Updated:** May 30, 2026 (Easy SEO Report Tool v52 — full build complete)
 **Owner:** aboutwallart
 **Purpose:** Complete technical documentation for all SEO tools, infrastructure, API keys, and configurations
 
@@ -26,7 +26,7 @@
 - `money-page-doctor.html` — Money page optimization tool (password protected)
 - `rank-report-card.html` — Ranking report and tracking tool (password protected)
 - `image-optimizer.html` — Shopify image optimization tool (password protected)
-- `gsc-report.html` — GSC SEO Report dashboard (LIVE - v20 as of May 29, 2026)
+- `gsc-report.html` — Easy SEO Report Tool (LIVE - v52 as of May 30, 2026)
 - `package.json` — Node.js dependencies
 - `vercel.json` — Vercel deployment configuration with domain redirects
 
@@ -37,7 +37,7 @@
 ## `/api/` Folder
 **Purpose:** Serverless API endpoints (Vercel Functions)
 
-### VERCEL FUNCTION STATUS (Updated May 29, 2026)
+### VERCEL FUNCTION STATUS (Updated May 30, 2026)
 **Vercel Hobby Plan allows maximum 12 serverless functions.**
 **Current count: 11/12 (1 slot remaining)**
 - `reddit.js` — No longer in use (can be replaced)
@@ -47,7 +47,7 @@
 ### Current API Files (11/12):
 1. `auth.js` — Password authentication endpoint
 2. `analyze-money-page.js` — Money Page Optimizer backend
-3. `blogs.js` — Blog Manager backend + get-published-keywords action
+3. `blogs.js` — Blog Manager + GSC Report backend (see full details below)
 4. `claude.js` — Claude (Anthropic) API integration
 5. `fetch-html.js` — Fetches HTML content from URLs
 6. `generate-alt-text.js` — Alt text generation
@@ -57,15 +57,15 @@
 10. `reddit.js` — Reddit scraper (NO LONGER IN USE)
 11. `serpapi.js` — SERP API integration
 12. `shopify-files.js` — Shopify Admin GraphQL API + get-blogs-by-month action
-13. `gsc.js` — Google Search Console API + GA4 LLM Traffic (NEW - May 29, 2026)
+13. `gsc.js` — Google Search Console API + GA4 (see full details below)
 
 ---
 
 ## gsc.js — Full Technical Details
 
 **File:** `api/gsc.js`
-**Added:** May 29, 2026
-**Purpose:** GSC Report tool backend — connects to Google Search Console API AND Google Analytics 4 API
+**Last Updated:** May 30, 2026
+**Purpose:** Easy SEO Report backend — GSC + GA4 data
 
 ### Authentication:
 - OAuth 2.0 with offline access (refresh token)
@@ -87,12 +87,15 @@
 ### Supported Actions (GET ?action=):
 - `overview` — total clicks, impressions, CTR, avg position
 - `monthly` — monthly breakdown for historical view
-- `queries` — all queries with impressions
+- `queries` — all queries with impressions (rowLimit: 1000)
 - `pages` — top pages by clicks (rowLimit: 500)
 - `page-query` — page + query combined (rowLimit: 5000)
 - `device` — device breakdown
 - `blog-tracking` — performance of specific URLs (pass urls= param)
-- `ga4-llm` — GA4 LLM traffic from AI referrers (?days=30/90/180)
+- `keyword-monthly` — monthly impressions+clicks for exact keyword (pass keyword= param) — used by Keyword Tracker growth chart
+- `ga4-traffic-breakdown` — GA4 sessions by page path and month (rowLimit: 5000) — used by Suspicious Traffic stacked chart
+- `ga4-suspicious` — GA4 sessions with bounce rate by month — used by Suspicious Traffic gauge
+- `ga4-llm` — GA4 LLM/AI referral traffic (?days=30/90/180)
 
 ### CRITICAL: URL Format
 GSC returns URLs WITHOUT www: `https://aboutwallart.com/`
@@ -126,65 +129,109 @@ https://accounts.google.com/o/oauth2/v2/auth?client_id=15466013888-deual871humre
 ## blogs.js — Full Technical Details
 
 **File:** `api/blogs.js`
-**Last Updated:** May 29, 2026
+**Last Updated:** May 30, 2026
+**Purpose:** Blog Manager tool backend + all Easy SEO Report data storage actions
 
-### Actions:
+### GET Actions (?action=):
 
-#### GET ?action=get-published-keywords
-- Used by GSC Report Content Optimizations
+#### get-published-keywords
 - Returns all Published Blog + To_Write_Blog keywords from registry CSV
 - Returns: `{ success: true, publishedBlogs: [{keyword, url}] }`
 
-#### GET (no action) — Blog ideas pipeline (for Blog Manager tool)
-#### POST — Mark blog as To Write
-#### PATCH — Mark as Keyword Change
-#### DELETE — Undo
+#### get-registry
+- Returns full keyword-locker-registry.csv as structured array
+- Returns: `{ success: true, registry: [{keyword, url, locked, status, action}] }`
+- Only rows with locked=LOCKED + status=DONE + action=TO_OPTIMIZE or OPTIMIZED count as truly locked
 
-### Google Sheets:
+#### get-revenue-by-month
+- Fetches last 13 months of revenue via Shopify REST Orders API
+- Returns: `{ success: true, revenue: { YYYYMM: amount } }`
+- NOTE: Currently returning 0 values — Shopify read_orders scope may need verifying
+- Skips voided/refunded orders
+
+#### get-susp-events
+- Returns saved suspicious traffic chart events from data/suspicious-events.json
+- Returns: `{ success: true, events: [{label, date}] }`
+
+#### get-optimisations
+- Returns keyword optimisation dates from data/keyword-optimisations.json
+- Returns: `{ success: true, optimisations: { tabId: 'YYYY-MM-DD' } }`
+
+#### get-tracked-keywords
+- Returns tracked keyword list from data/tracked-keywords.json
+- Returns: `{ success: true, keywords: ['kw1', 'kw2', ...] }`
+
+#### get-keyword-tabs
+- Returns keyword tracker tabs from data/keyword-tracker.json
+- Returns: `{ success: true, tabs: [{id, label, keyword}] }`
+
+#### GET (no action) — Blog ideas pipeline (for Blog Manager tool)
+
+### POST Actions (req.body.action):
+
+#### lock-keyword
+- Saves keyword+URL to keyword-locker-registry.csv on GitHub
+- Format: LOCKED, DONE, TO_OPTIMIZE, User Resolved
+- Body: `{ action: 'lock-keyword', keyword, url }`
+
+#### save-susp-events
+- Saves suspicious traffic chart events to data/suspicious-events.json
+- Body: `{ action: 'save-susp-events', events: [{label, date}] }`
+
+#### save-optimisations
+- Saves keyword optimisation dates to data/keyword-optimisations.json
+- Body: `{ action: 'save-optimisations', optimisations: { tabId: 'YYYY-MM-DD' } }`
+
+#### save-tracked-keywords
+- Saves tracked keywords list to data/tracked-keywords.json
+- Body: `{ action: 'save-tracked-keywords', keywords: [...] }`
+
+#### save-keyword-tabs
+- Saves keyword tracker tabs to data/keyword-tracker.json
+- Body: `{ action: 'save-keyword-tabs', tabs: [{id, label, keyword}] }`
+
+#### POST (no action) — Mark blog as To Write (Blog Manager)
+#### PATCH — Mark as Keyword Change (Blog Manager)
+#### DELETE — Undo (Blog Manager)
+
+### Google Sheets Integration:
 - Webhook URL in Vercel env var: SHEETS_WEBHOOK_URL
 - Non-blocking
 - Google Sheet ID: 1W9AYH2Zcw-v2U6S47a3w5bs5rEBf6K30adDgNkaZ38k
 
 ---
 
-## shopify-files.js — Full Technical Details
+## /data/ Folder — Data Files
 
-**File:** `api/shopify-files.js`
-**Last Updated:** May 29, 2026
+### Existing files:
+- `keyword-locker-registry.csv` — Central keyword registry (378+ locked keywords)
+- `blog_ideas.csv` — Blog idea pipeline with conflict detection
 
-### Actions:
-
-#### GET ?action=get-blogs-by-month&month=YYYY-MM
-- Used by GSC Report Blog Tracking
-- Fetches articles by published_at date (NOT createdAt — blogs are scheduled months ahead)
-- Returns: `{ success: true, month, articles: [{id, title, handle, publishedAt, url, blogTitle}] }`
-- URL format: https://www.aboutwallart.com/blogs/{blogHandle}/{articleHandle}
-- DO NOT include `seo` field in GraphQL query — doesn't exist on Article type
-
-#### GET ?action=link-whisperer — Internal link data
-#### POST action=update_alt_only — Update image alt text
-#### POST action=replace_file — Full image replacement
-
-### Known Issues:
-- fileUpdate mutation is BROKEN in Shopify API
-- Always use replace_file for image operations
-- 3-second delay required between create and delete
+### New files added May 30, 2026:
+- `keyword-tracker.json` — Keyword Tracker tab definitions `[{id, label, keyword}]`
+- `tracked-keywords.json` — Selected keywords in Keyword Rankings `['kw1', 'kw2']`
+- `keyword-optimisations.json` — Optimisation dates per keyword tab `{ tabId: 'YYYY-MM-DD' }`
+- `suspicious-events.json` — Suspicious Traffic chart event markers `[{label, date}]`
 
 ---
 
-# GSC REPORT TOOL — COMPLETE DOCUMENTATION
+# EASY SEO REPORT TOOL — COMPLETE DOCUMENTATION
 
 **File:** `gsc-report.html`
-**Current Version:** v20 (May 29, 2026)
+**Current Version:** v52 (May 30, 2026)
 **URL:** https://tools.aboutwallart.com/gsc-report.html
 
-## Sidebar Sections:
+## Sidebar Sections (in order):
 1. High Level SEO Metrics
 2. Historical View (1 Year)
-3. LLM Traffic
-4. Blog Tracking
-5. Blog Optimizations
-6. Content Optimizations
+3. 🚨 Suspicious Traffic
+4. 🤖 AI Traffic
+5. 🔥 Quick Wins
+6. ⚠️ Danger Pages
+7. Keyword Tracker
+8. Keyword Rankings
+9. Blog Optimizations
+10. Content Optimizations
 
 ---
 
@@ -197,41 +244,92 @@ https://accounts.google.com/o/oauth2/v2/auth?client_id=15466013888-deual871humre
 
 ## 2. Historical View (1 Year)
 - Gauge charts with % change vs same month previous year
-- Monthly bar charts: impressions and clicks
-- Uses monthly GSC action
+- Monthly Clicks bar chart with Net Sales overlay (dual Y axis — impressions left, revenue right)
+- Monthly Impressions bar chart
+- NOTE: Net Sales currently showing 0 — Shopify revenue API needs debugging
 
-## 3. LLM Traffic
-- GA4 Data API via ga4-llm action in gsc.js
-- Sessions and page views per AI source
-- Date range: 30/90/180 days
-- AI sources tracked: chat.openai.com, chatgpt.com, perplexity.ai, claude.ai, gemini.google.com, copilot.microsoft.com, you.com, phind.com, poe.com
-- **STATUS: v20 shows black screen — needs debugging (see Handover section)**
+## 3. 🚨 Suspicious Traffic
+- GA4 bounce rate data as proxy for suspicious/bot traffic
+- Gauge: current month suspicious % vs same month last year
+- Stacked bar chart: two bars per month
+  - Left bar: total sessions (violet)
+  - Right bar: stacked breakdown — 🔴 Suspicious | 🟣 Collections | 🟢 Blogs | 🟠 Products | 🔵 Pages | 🟡 Ad Intent
+- Ad Intent URL tracked: `/collections/art-prints-for-wall`
+- 📌 Chart Events panel: add named events with dates (e.g. "Ad Intent budget added")
+  - Saved to data/suspicious-events.json on GitHub
+  - Shows as vertical coloured dashed lines on chart with labels
+- Summary table: monthly breakdown with risk levels (Low/Medium/High)
 
-## 4. Blog Tracking
-- Month selector (last 12 months) — selects blogs by Shopify published_at
-- Fetches blogs from Shopify via get-blogs-by-month
-- Fetches GSC data for ALL time (getDate(480) = 16 months) — not filtered by date
-- URL matching: strips www to match GSC format
-- Columns: Title (link), Url Clicks, % vs 30d, % vs 90d, Impressions, CTR, Avg Position
-- % change only shown if previous period had 20+ clicks
-- Row colours: green >5% growth, yellow ±5%, red >5% decline (based on 30d)
-- Darker cell colour on whichever % column shows bigger change
-- No download button
+## 4. 🤖 AI Traffic
+- GA4 Data API via ga4-llm action
+- Per-source cards (ChatGPT, Perplexity, Claude, Gemini, Copilot, etc.)
+- Each card: gauge (outer=views, inner=sessions) + bar chart (6 months fixed)
+- Top overview: donut chart (sessions by source) + 12-month line chart
+- Date range: 30/90/180 days selector
+- Duplicate sources merged (chatgpt.com + chat.openai.com = one card)
 
-## 5. Blog Optimizations
-- 3 tabs: Urgent (CTR <0.5%) | Improve (CTR 0.5%-1%) | Monitor (CTR >1%)
-- Within each tab: sorted by lowest clicks first
-- Filters: /blogs/ only, 100+ impressions, published >90 days ago, English only, no /es/ /fr/
-- 90-day filter: fetches 16 months of Shopify data to build exclusion list
+## 5. 🔥 Quick Wins
+- Pages ranking position 1–20 with 100+ impressions
+- Page type sub-tabs: Collections | Blogs | Products | Pages
+- All / Selected sub-tabs with + Select and ↩ Undo buttons
+- Column sort: click any header for priority-based sorting (1↑ badges)
+- Registry column: 🔒 Locked | 🟡 Keyword taken | 🔴 URL taken
+- Save to Registry: locks keyword+URL with LOCKED/DONE/TO_OPTIMIZE/User Resolved
+- Search bar + data loads independently
+
+## 6. ⚠️ Danger Pages
+- Pages where clicks dropped 20%+ vs previous 90 days (min 10 clicks previous period)
+- Same structure as Quick Wins: page type sub-tabs, All/Selected, sort, registry
+- Keyword column showing top ranking keyword per URL
+- Save to Registry: same rules as Quick Wins
+- Loads independently (does not depend on Quick Wins loading first)
+
+## 7. Keyword Tracker
+- Named tabs saved to GitHub (keyword-tracker.json)
+- Each tab tracks a keyword and shows:
+  - 5 metric cards (Queries Found, Clicks, Impressions, CTR, Avg Position)
+  - 📅 Optimisation date marker: date input, Save Date button, green badge, Clear button
+  - Growth chart (12 months): Impressions + Clicks on single Y axis
+  - Vertical green dashed line on chart at optimisation month
+  - Query table: all queries containing the keyword with Ranking URL column (clickable)
+- Tabs are renameable and deletable
+- Optimisation dates saved to data/keyword-optimisations.json
+
+## 8. Keyword Rankings
+- All GSC queries with metrics for last 90 days
+- Filters: Search, Position range, Difficulty, Min Impressions, Row limit
+- Column sort: click any header, priority badge system (1↑, 2↓ etc), ✕ to remove
+- Difficulty: Easy/Medium/Hard calculated from position + impressions + CTR
+- All tab: + Select button moves keyword to Selected tab
+- Selected tab: Ranking URL, Registry (🔒/🟡/🔴), ↩ Undo, Save to Registry
+- Trend column in Selected tab: ▲ green / ▼ red / ▶ amber vs previous 90 days
+- Saved selections in data/tracked-keywords.json
+
+## 9. Blog Optimizations
+- Blog posts only (/blogs/ URLs)
+- Excludes: CDN, /es/, /fr/, ?param URLs, Quick Wins URLs, Danger Pages URLs
+- 3 tabs: 🔴 Urgent (CTR <0.5%) | 🟡 Improve (0.5%-1%) | ⚪ Monitor (>1%)
+- Sorted by lowest clicks first within each tab
+- Filters: 100+ impressions, published >90 days ago, English only
 - Download CSV per tab
-- Data: last 180 days
 
-## 6. Content Optimizations
-- **Fix CTR:** position 1-7, has clicks, CTR <2%, 100+ impressions, NO /blogs/, highest position first
-- **Pages to Optimise:** position 8-15, CTR <2%, 100+ impressions, NO /blogs/, lowest position first
-- **Low Ranking Opportunities:** real English queries, no matching content in registry, 10+ impressions, sorted by impressions
-- All 3 tables: search, row count, Download CSV
-- Cross-references /api/blogs?action=get-published-keywords
+## 10. Content Optimizations
+- Non-blog pages only
+- Excludes: CDN, /es/, /fr/, ?param URLs, Quick Wins URLs, Danger Pages URLs
+- Fix CTR: position 1-7, has clicks, CTR <2%, 100+ impressions
+- Pages to Optimise: position 8-15, CTR <2%, 100+ impressions
+- Low Ranking Opportunities: queries with no matching registry content, 10+ impressions
+- All tables: search, row count, Download CSV
+
+## URL Cleaning Rules (applied everywhere):
+```javascript
+function cleanUrl(rawUrl) {
+  // Strip domain, strip ?query params, strip trailing slash
+}
+function shouldExcludeUrl(url) {
+  // Exclude: /cdn/, /es/, /fr/, /es, /fr, ?_pos=, ?_sid=, .js, .css
+}
+```
 
 ## API Calls Made by gsc-report.html:
 - /api/gsc?action=overview
@@ -241,31 +339,40 @@ https://accounts.google.com/o/oauth2/v2/auth?client_id=15466013888-deual871humre
 - /api/gsc?action=page-query
 - /api/gsc?action=device
 - /api/gsc?action=ga4-llm
+- /api/gsc?action=ga4-suspicious
+- /api/gsc?action=ga4-traffic-breakdown
+- /api/gsc?action=keyword-monthly&keyword=X
 - /api/shopify-files?action=get-blogs-by-month&month=YYYY-MM
 - /api/blogs?action=get-published-keywords
+- /api/blogs?action=get-registry
+- /api/blogs?action=get-keyword-tabs
+- /api/blogs?action=get-tracked-keywords
+- /api/blogs?action=get-optimisations
+- /api/blogs?action=get-susp-events
+- /api/blogs?action=get-revenue-by-month
 
 ---
 
 # API KEYS & CREDENTIALS
 
-## Vercel Environment Variables (May 29, 2026)
+## Vercel Environment Variables (May 30, 2026)
 
 ```
 ANTHROPIC_API_KEY         — Claude API key (Production only)
 OPENAI_API_KEY            — OpenAI API key (unused)
 SHOPIFY_STORE_DOMAIN      — aboutwallart.myshopify.com
-SHOPIFY_ACCESS_TOKEN      — Shopify Admin API token
+SHOPIFY_ACCESS_TOKEN      — Shopify Admin API token (read_analytics scope added May 30)
 TOOLS_PASSWORD            — Password for tools dashboard
 GOOGLE_API_KEY            — Google API key (PageSpeed)
 SERPAPI_KEY               — SerpAPI key (Production only)
 BLOGDATA_READ_WRITE_TOKEN — Vercel Blob storage token
 EDGE_CONFIG               — Edge config (all environments)
-GITHUB_TOKEN              — GitHub API token for CSV files
+GITHUB_TOKEN              — GitHub API token for CSV/JSON files
 SHEETS_WEBHOOK_URL        — Google Apps Script webhook URL
 GSC_CLIENT_ID             — 15466013888-deual871humreqd3uqhrve8chp3bci3s.apps.googleusercontent.com
 GSC_CLIENT_SECRET         — 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
 GSC_REFRESH_TOKEN         — Updated May 29, 2026 (includes GSC + GA4 scopes)
-GA4_PROPERTY_ID           — 359661193 (NEW - May 29, 2026)
+GA4_PROPERTY_ID           — 359661193
 ```
 
 ---
@@ -292,7 +399,22 @@ GA4_PROPERTY_ID           — 359661193 (NEW - May 29, 2026)
 3. Money Page Doctor — /money-page-doctor.html
 4. Rank Report Card — /rank-report-card.html
 5. Image Optimizer — /image-optimizer.html
-6. GSC Report — /gsc-report.html (LIVE v20)
+6. Easy SEO Report — /gsc-report.html (LIVE v52)
+
+---
+
+# KNOWN ISSUES & TODO
+
+## Revenue Chart (Historical View)
+- Net Sales bars showing £0 — Shopify Orders REST API returning empty
+- Tried ShopifyQL (requires read_analytics scope — Basic plan limitation)
+- Tried REST Orders API — returning empty
+- TODO: Debug with Shopify support or regenerate access token with read_orders scope confirmed
+
+## Shopify Access Token
+- read_analytics scope was added May 30, 2026 but token was NOT regenerated
+- ShopifyQL requires token reinstall to pick up new scopes
+- TODO: Reinstall app in Shopify admin to regenerate token, update SHOPIFY_ACCESS_TOKEN in Vercel
 
 ---
 
@@ -303,24 +425,21 @@ GA4_PROPERTY_ID           — 359661193 (NEW - May 29, 2026)
 - Refresh token must include BOTH scopes
 - Follow "How to get a new Refresh Token" steps above
 
-## GA4 LLM Traffic fails / black screen
+## GA4 data fails
 - Check GA4_PROPERTY_ID = 359661193 in Vercel
 - Check GSC_REFRESH_TOKEN includes analytics.readonly scope
 - GA4 Data API must be enabled in money-page-optimizer Google Cloud project
-- Open browser console on LLM Traffic tab — check for JS errors
-- Call API directly: https://tools.aboutwallart.com/api/gsc?action=ga4-llm&days=90
-- Check Vercel logs for specific error
 
-## Blog Tracking shows 0 data
-- URL mismatch — strip www before matching (already in v15+)
-- Check Shopify get-blogs-by-month returns articles
+## Revenue showing £0
+- See Known Issues above
+- Check Vercel logs for /api/blogs?action=get-revenue-by-month errors
+
+## Quick Wins / Danger Pages showing 0
+- These load independently — check browser console for errors
+- Registry cross-reference requires kwrInit() to complete first
 
 ## Blog Optimizations slow
-- Fetches 16 months of Shopify data (16 API calls) — expected, takes a few seconds
-
-## Content Optimizations shows blogs
-- Should not happen in v19+ — /blogs/ URLs filtered out
-- Check filter: !p.page.includes('/blogs/')
+- Fetches 16 months of Shopify data — expected, takes a few seconds
 
 ## CORS Errors
 - Verify CORS headers in API file
@@ -330,33 +449,6 @@ GA4_PROPERTY_ID           — 359661193 (NEW - May 29, 2026)
 ## Vercel function limit
 - 11/12 (reddit.js and openai.js unused)
 - Max 1 more API file before removing unused ones
-
----
-
-# HANDOVER — NEXT SESSION PRIORITIES
-
-## 1. FIX: LLM Traffic Black Screen (v20)
-The LLM Traffic tab shows black. This is the first thing to fix.
-
-**Debug steps:**
-1. Check browser console for JS errors on LLM Traffic tab
-2. Call API directly: https://tools.aboutwallart.com/api/gsc?action=ga4-llm&days=90
-3. If API errors — likely authentication issue with GA4 scope
-4. If API returns data but screen black — JS rendering bug in loadLLMTraffic() function
-5. Check Vercel logs for ga4-llm errors
-
-**Most likely fix:** The GA4 dimensionFilter syntax may be wrong. Try simplifying to just return all referral traffic without the filter, then filter in JS.
-
-## 2. CONFIRM: v19 Content Optimizations
-v19 added /blogs/ exclusion from Fix CTR and Pages to Optimise. Confirm these tables no longer show blog posts.
-
-## 3. SAVE BACKUPS
-After LLM fix is confirmed working:
-- Save easy-seo-report-vXX-BACKUP.html
-- Save gsc-updated.js as gsc-vXX-BACKUP.js
-
-## 4. UPDATE TECHNICAL REFERENCE
-After any new changes, update this document.
 
 ---
 
@@ -380,3 +472,4 @@ Update this document when:
 - Bugs fixed
 - Features added
 - Vercel function count changes
+- New data files added to /data/ folder
