@@ -150,45 +150,59 @@ export default async function handler(req, res) {
       }
 
       // ── ACTION: get-revenue-by-month ──
-      // Fetches last 13 months of revenue from Shopify Orders API
+      // Fetches last 13 months of gross sales via ShopifyQL
       if (req.query.action === 'get-revenue-by-month') {
         const shopifyDomain = process.env.SHOPIFY_STORE_DOMAIN;
         const shopifyToken  = process.env.SHOPIFY_ACCESS_TOKEN;
         if (!shopifyDomain || !shopifyToken) return res.status(500).json({ error: 'Shopify credentials not configured' });
 
-        // Build monthly buckets for last 13 months
-        const now = new Date();
-        const monthlyRevenue = {};
-        for (let i = 12; i >= 0; i--) {
-          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-          const key = d.getFullYear() + String(d.getMonth()+1).padStart(2,'0');
-          monthlyRevenue[key] = 0;
-        }
-
-        // Fetch orders from 13 months ago
-        const since = new Date(now.getFullYear(), now.getMonth() - 12, 1).toISOString();
-        let url = `https://${shopifyDomain}/admin/api/2025-01/orders.json?status=any&financial_status=paid&created_at_min=${since}&limit=250&fields=created_at,total_price`;
-
-        while (url) {
-          const orderRes = await fetch(url, {
-            headers: { 'X-Shopify-Access-Token': shopifyToken, 'Content-Type': 'application/json' }
-          });
-          if (!orderRes.ok) throw new Error('Shopify API error: ' + orderRes.status);
-          const orderJson = await orderRes.json();
-          (orderJson.orders || []).forEach(order => {
-            const d   = new Date(order.created_at);
-            const key = d.getFullYear() + String(d.getMonth()+1).padStart(2,'0');
-            if (monthlyRevenue[key] !== undefined) {
-              monthlyRevenue[key] += parseFloat(order.total_price || 0);
+        const gqlQuery = `{
+          shopifyqlQuery(query: """
+            FROM sales
+            SHOW net_sales
+            GROUP BY month
+            TIMESERIES month
+            SINCE startOfMonth(-13m)
+            UNTIL endOfMonth(-1m)
+            ORDER BY month ASC
+          """) {
+            ... on TableResponse {
+              tableData {
+                rowData
+                columns { name dataType displayName }
+              }
             }
-          });
-          // Handle pagination
-          const linkHeader = orderRes.headers.get('Link') || '';
-          const nextMatch  = linkHeader.match(/<([^>]+)>; rel="next"/);
-          url = nextMatch ? nextMatch[1] : null;
+            parseErrors { code message }
+          }
+        }`;
+
+        const response = await fetch(
+          `https://${shopifyDomain}/admin/api/2025-01/graphql.json`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': shopifyToken },
+            body: JSON.stringify({ query: gqlQuery })
+          }
+        );
+
+        const json = await response.json();
+        const result = json?.data?.shopifyqlQuery;
+
+        if (result?.parseErrors?.length > 0) {
+          return res.status(400).json({ error: result.parseErrors[0].message });
         }
 
-        return res.status(200).json({ success: true, revenue: monthlyRevenue });
+        const { columns, rowData } = result.tableData;
+        // Build YYYYMM -> revenue map
+        const revenue = {};
+        rowData.forEach(row => {
+          const obj = Object.fromEntries(columns.map((col, i) => [col.name, row[i]]));
+          // month format from ShopifyQL: "2025-05"
+          const key = (obj.month || '').replace('-', '');
+          revenue[key] = parseFloat(obj.net_sales || 0);
+        });
+
+        return res.status(200).json({ success: true, revenue });
       }
 
       // ── ACTION: get-susp-events ──
