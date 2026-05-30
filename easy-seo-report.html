@@ -98,7 +98,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v36.0</div>
+      <div class="tool-version">v37.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -615,7 +615,7 @@
       if(id==='kwtracker'){kwInit();}
       if(id==='kwrankings'&&!kwrLoaded){kwrInit();}
       if(id==='quickwins'){loadQuickWins();}
-      if(id==='dangerpages'){if(!qwLoaded){loadQuickWins().then(()=>loadDangerPages());}else{loadDangerPages();}}
+      if(id==='dangerpages'&&!dpLoaded){loadDangerPages();}
     }
 
     function onRangeChange(){
@@ -886,7 +886,7 @@
       if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="8">No pages found</td></tr>';return;}
       tbody.innerHTML=rows.map((r,i)=>{
         const short=r.page.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','')||'/';
-        return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:12px;">${priority(r.impressions)}</td><td><div class="page-url" title="${r.page}">${short}</div></td><td style="font-size:12px;color:#555;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.query}</td><td class="num">${fmt(r.impressions)}</td><td class="num">${fmt(r.clicks)}</td><td class="num">${fmtCTR(r.ctr)}</td><td class="num">${fmtPos(r.position)}</td></tr>`;
+        return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:12px;">${priority(r.impressions)}</td><td><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;max-width:300px;" title="${r.page}">${r.page}</a></td><td style="font-size:12px;color:#555;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.query}</td><td class="num">${fmt(r.impressions)}</td><td class="num">${fmt(r.clicks)}</td><td class="num">${fmtCTR(r.ctr)}</td><td class="num">${fmtPos(r.position)}</td></tr>`;
       }).join('');
     }
 
@@ -895,7 +895,7 @@
       if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="6">No pages found</td></tr>';return;}
       tbody.innerHTML=rows.map((r,i)=>{
         const short=r.page.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','')||'/';
-        return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:12px;">${priority(r.impressions)}</td><td><div class="page-url" title="${r.page}">${short}</div></td><td style="font-size:12px;color:#555;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.query}</td><td class="num">${fmt(r.impressions)}</td><td class="num">${fmtPos(r.position)}</td></tr>`;
+        return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:12px;">${priority(r.impressions)}</td><td><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;max-width:300px;" title="${r.page}">${r.page}</a></td><td style="font-size:12px;color:#555;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.query}</td><td class="num">${fmt(r.impressions)}</td><td class="num">${fmtPos(r.position)}</td></tr>`;
       }).join('');
     }
 
@@ -1150,19 +1150,19 @@
         // Filter blogs: /blogs/ only, 100+ impressions, older than 90 days
         const allBlogs = (gscJson.data.rows || [])
           .filter(r => {
-            const url = r.keys ? r.keys[0] : '';
+            const url = cleanUrl(r.keys ? r.keys[0] : '');
             if (shouldExcludeUrl(url)) return false;
             if (!url.includes('/blogs/') || r.impressions < 100) return false;
-            if (qwExcludeUrls.has(url.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','')) || dpExcludeUrls.has(url.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com',''))) return false;
+            if (qwExcludeUrls.has(url) || dpExcludeUrls.has(url)) return false;
             // Filter out foreign language blogs
             if (url.includes('/es/blogs/') || url.includes('/fr/blogs/')) return false;
             // Filter out new blogs (published within last 90 days)
-            const pubDate = publishedMap[url];
+            const pubDate = publishedMap['https://www.aboutwallart.com' + url] || publishedMap[url];
             if (pubDate && pubDate > cutoff) return false;
             return true;
           })
           .map(r => ({
-            url: r.keys[0],
+            url: 'https://www.aboutwallart.com' + cleanUrl(r.keys[0]),
             clicks: r.clicks,
             impressions: r.impressions,
             ctr: r.ctr,
@@ -1213,7 +1213,7 @@
       const colors = { urgent: { row:'background:#fef2f2;', ctr:'color:#dc2626;font-weight:600;' }, improve: { row:'background:#fefce8;', ctr:'color:#92400e;font-weight:600;' }, monitor: { row:'', ctr:'color:#16a34a;' } };
       const c = colors[blogOptActiveTab];
       tbody.innerHTML = rows.map((r,i) => {
-        const short = r.url.replace('https://aboutwallart.com','');
+        const short = r.url.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
         return `<tr style="${c.row}">
           <td style="color:#aaa;font-size:12px;">${i+1}.</td>
           <td><a href="${r.url}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:13px;">${short}</a></td>
@@ -2097,7 +2097,7 @@
             : `<td style="width:${wMap.trend};text-align:right;color:${r.trend>5?'#16a34a':r.trend<-5?'#dc2626':'#d97706'};font-weight:600;">${r.trend>5?'▲':r.trend<-5?'▼':'▶'} ${r.trend>0?'+':''}${r.trend.toFixed(1)}%</td>`] : [])
         ].join('');
 
-        const urlCell = isSelected ? `<td style="width:160px;font-size:11px;color:#2563eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.rankingUrl}">${r.rankingUrl}</td>` : '';
+        const urlCell = isSelected ? `<td style="width:160px;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.rankingUrl}"><a href="https://www.aboutwallart.com${r.rankingUrl}" target="_blank" style="color:#2563eb;text-decoration:none;">${r.rankingUrl}</a></td>` : '';
 
         return `<tr>
           <td style="width:${isSelected?'90px':'70px'};vertical-align:middle;">${isSelected ? '' : `<button onclick="kwrSelect('${r.kw.replace(/'/g,"\'")}' )" style="padding:4px 10px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;">+ Select</button>`}</td>
@@ -2183,13 +2183,16 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
     // ═══════════════════════════════════════════════════════
 
     function cleanUrl(rawUrl) {
-      // Strip domain
       let url = (rawUrl||'')
         .replace('https://www.aboutwallart.com','')
-        .replace('https://aboutwallart.com','');
-      // Strip query string (everything from ? onwards)
+        .replace('https://aboutwallart.com','')
+        .replace('http://www.aboutwallart.com','')
+        .replace('http://aboutwallart.com','');
+      // Strip query string (everything from ? onwards) — handles ?_pos=, ?variant=, ?_sid= etc
       const qIdx = url.indexOf('?');
       if (qIdx > -1) url = url.slice(0, qIdx);
+      // Strip trailing slash for consistency
+      if (url.length > 1 && url.endsWith('/')) url = url.slice(0,-1);
       // Ensure leading slash
       if (url && !url.startsWith('/')) url = '/' + url;
       return url || '/';
@@ -2197,11 +2200,15 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
 
     function shouldExcludeUrl(url) {
       if (!url) return true;
-      if (url.includes('/cdn/'))   return true;  // CDN files
-      if (url.includes('/es/'))    return true;  // Spanish translations
-      if (url.includes('/fr/'))    return true;  // French translations
-      if (url.includes('.js'))     return true;  // JS files
-      if (url.includes('.css'))    return true;  // CSS files
+      if (url.includes('/cdn/'))      return true;  // CDN files
+      if (url.includes('/es/'))       return true;  // Spanish translations
+      if (url.includes('/fr/'))       return true;  // French translations
+      if (url === '/es' || url === '/fr') return true; // Root translation pages
+      if (url.startsWith('/es?') || url.startsWith('/fr?')) return true;
+      if (url.includes('.js'))        return true;  // JS files
+      if (url.includes('.css'))       return true;  // CSS files
+      if (url.includes('_pos='))      return true;  // Shopify variant/session params
+      if (url.includes('_sid='))      return true;  // Shopify session params
       return false;
     }
 
@@ -2336,12 +2343,11 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
         dpData = { collections:[], blogs:[], products:[], pages:[] };
         dpExcludeUrls = new Set();
 
-        // Deduplicate cleaned URLs
+        // Deduplicate cleaned URLs — no dependency on qwExcludeUrls
         const dpMap = {};
         (jCurr.data.rows||[]).forEach(r => {
           const page = cleanUrl(r.keys?.[0]||'');
           if (shouldExcludeUrl(page)) return;
-          if (qwExcludeUrls.has(page)) return;
           if (!dpMap[page] || r.clicks > (dpMap[page].currClk||0)) {
             dpMap[page] = { page, pos: r.position||0, currClk: r.clicks||0, imp: r.impressions||0 };
           }
@@ -2353,10 +2359,9 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
           const drop = (entry.currClk - prevClk) / prevClk * 100;
           if (drop > -20) return;
           const type = getPageType(entry.page);
-          // Registry check
           const regByUrl = kwrRegistry?.byUrl?.[entry.page.toLowerCase()];
-          entry.prevClk = prevClk;
-          entry.drop    = drop;
+          entry.prevClk    = prevClk;
+          entry.drop       = drop;
           entry.regStatus  = regByUrl ? 'url-taken' : 'unlocked';
           entry.regOtherKw = regByUrl?.keyword || '';
           dpData[type].push(entry);
@@ -2416,7 +2421,7 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
         else if (r.regStatus==='kw-taken') regBadge = `<span style="background:#fefce8;color:#92400e;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;margin-left:4px;" title="Keyword taken: ${r.regOtherUrl}">🟡</span>`;
         else if (r.regStatus==='url-taken') regBadge = `<span style="background:#fef2f2;color:#dc2626;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;margin-left:4px;" title="URL taken by: ${r.regOtherKw}">🔴</span>`;
         return `<tr>
-          <td style="font-size:11px;color:#2563eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.page}">${r.page}${regBadge}</td>
+          <td style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.page}"><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;text-decoration:none;">${r.page}</a>${regBadge}</td>
           <td class="num" style="color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>
           <td class="num">${fmt(r.imp)}</td>
           <td class="num">${fmt(r.clk)}</td>
@@ -2438,7 +2443,7 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
         let regBadge = '';
         if (r.regStatus==='url-taken') regBadge = `<span style="background:#fef2f2;color:#dc2626;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;margin-left:4px;" title="URL taken by: ${r.regOtherKw}">🔴</span>`;
         return `<tr>
-          <td style="font-size:11px;color:#2563eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.page}">${r.page}${regBadge}</td>
+          <td style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.page}"><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;text-decoration:none;">${r.page}</a>${regBadge}</td>
           <td class="num" style="color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>
           <td class="num">${fmt(r.currClk)}</td>
           <td class="num">${fmt(r.prevClk)}</td>
