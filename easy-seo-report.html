@@ -98,7 +98,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v31.0</div>
+      <div class="tool-version">v32.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -456,9 +456,12 @@
       <div class="section" id="section-kwrankings">
 
         <!-- Top bar -->
-        <div style="background:#1a1a1a;border-radius:8px;padding:16px 24px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
-          <span style="color:#fff;font-size:16px;font-weight:600;">Keyword Rankings</span>
-          <div style="display:flex;align-items:center;gap:10px;">
+        <div style="background:#1a1a1a;border-radius:8px;padding:16px 24px;margin-bottom:16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
+            <span style="color:#fff;font-size:16px;font-weight:600;">Keyword Rankings</span>
+          </div>
+          <div style="color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Filters</div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <input id="kwrSearch" type="text" placeholder="Search keywords..." oninput="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:240px;outline:none;">
             <select id="kwrFilterPos" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
               <option value="">All Positions</option>
@@ -1730,7 +1733,7 @@
     let kwrSelectedSet = new Set();
     let kwrActiveTab  = 'all';
     let kwrLoaded     = false;
-    let kwrRegistry   = {};
+    let kwrRegistry   = { byKw:{}, byUrl:{} };
     let kwrPageQuery  = {};
 
     // Sort state: { field, dir } per column
@@ -1747,6 +1750,8 @@
       { key:'diff', label:'Difficulty',  num:false },
       { key:'trend',label:'Trend (90d)', num:true, selectedOnly:true }
     ];
+    // Extra sortable columns (rendered separately but sortable)
+    const kwrExtraSorts = ['kw','url'];
 
     function kwrDifficulty(position, impressions, ctr) {
       let score = 0;
@@ -1768,10 +1773,12 @@
       const head = document.getElementById('kwrTableHead');
       if (!head) return;
 
+      const kwBadge  = kwrColSorts['kw']  ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;">${kwrColSorts['kw'].priority}${kwrColSorts['kw'].dir==='asc'?'↑':'↓'}</span>` : '';
+      const urlBadge = kwrColSorts['url'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;">${kwrColSorts['url'].priority}${kwrColSorts['url'].dir==='asc'?'↑':'↓'}</span>` : '';
       head.innerHTML = '<tr>' +
         '<th style="width:80px;">' + (isSelected ? '' : 'Select') + '</th>' +
-        '<th>Keyword</th>' +
-        (isSelected ? '<th>Ranking URL</th>' : '') +
+        `<th style="cursor:pointer;user-select:none;" onclick="kwrCycleSort('kw')">Keyword${kwBadge}</th>` +
+        (isSelected ? `<th style="cursor:pointer;user-select:none;" onclick="kwrCycleSort('url')">Ranking URL${urlBadge}</th>` : '') +
         cols.map(c => {
           const s = kwrColSorts[c.key];
           const badge = s ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;">${s.priority}${s.dir==='asc'?'↑':'↓'}</span>` : '';
@@ -1818,13 +1825,16 @@
         if (rRes) {
           const j = await rRes.json();
           if (j.success && j.registry) {
-            kwrRegistry = {};
+            kwrRegistry = { byKw: {}, byUrl: {} };
             j.registry.forEach(row => {
-              // Only count as locked if: LOCKED=LOCKED, STATUS=DONE, ACTION=TO_OPTIMIZE or OPTIMIZED
               const isRealLock = row.locked === true &&
                 (row.status || '').toUpperCase() === 'DONE' &&
                 ['TO_OPTIMIZE','OPTIMIZED'].includes((row.action || '').toUpperCase());
-              if (isRealLock) kwrRegistry[row.keyword.toLowerCase()] = { url: row.url };
+              if (!isRealLock) return;
+              const kwKey  = (row.keyword||'').toLowerCase();
+              const urlKey = (row.url||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','').toLowerCase();
+              kwrRegistry.byKw[kwKey]   = { url: row.url, keyword: row.keyword };
+              kwrRegistry.byUrl[urlKey] = { url: row.url, keyword: row.keyword };
             });
           }
         }
@@ -1859,13 +1869,24 @@
           const prev = kwrPrevData[kw];
           const trend = (prev && prev.imp > 0) ? ((imp - prev.imp) / prev.imp * 100) : null;
           const rankingUrl = kwrPageQuery[kw]?.url || '—';
-          const reg = kwrRegistry[kw.toLowerCase()];
+          // Registry cross-reference — 3 states:
+          // locked-same: this kw + this url locked together (green)
+          // kw-taken: this kw locked to a different url (yellow)
+          // url-taken: this url locked to a different kw (red)
+          // unlocked: neither kw nor url found in registry
+          const regByKw  = kwrRegistry.byKw[kw.toLowerCase()];
+          const regByUrl = kwrRegistry.byUrl[rankingUrl.toLowerCase()];
           let regStatus = 'unlocked';
-          if (reg) {
-            const regUrl = (reg.url||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
-            regStatus = regUrl === rankingUrl ? 'locked-same' : 'locked-other';
+          let regOtherKw = '', regOtherUrl = '';
+          if (regByKw) {
+            const lockedUrl = (regByKw.url||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
+            if (lockedUrl === rankingUrl) { regStatus = 'locked-same'; }
+            else { regStatus = 'kw-taken'; regOtherUrl = lockedUrl; }
+          } else if (regByUrl) {
+            regStatus = 'url-taken';
+            regOtherKw = regByUrl.keyword;
           }
-          return { kw, pos, imp, clk, ctr, diff, trend, rankingUrl, regStatus, regUrl: reg?.url||'' };
+          return { kw, pos, imp, clk, ctr, diff, trend, rankingUrl, regStatus, regOtherUrl, regOtherKw };
         }).sort((a,b) => a.pos - b.pos);
 
         kwrUpdateCounts();
@@ -1932,6 +1953,8 @@
             if (key==='ctr')   { av=a.ctr;  bv=b.ctr; }
             if (key==='diff')  { av=kwrDiffOrder[a.diff]; bv=kwrDiffOrder[b.diff]; }
             if (key==='trend') { av=a.trend??-999; bv=b.trend??-999; }
+            if (key==='kw')    { return s.dir==='asc' ? a.kw.localeCompare(b.kw) : b.kw.localeCompare(a.kw); }
+            if (key==='url')   { return s.dir==='asc' ? a.rankingUrl.localeCompare(b.rankingUrl) : b.rankingUrl.localeCompare(a.rankingUrl); }
             if (av!==bv) return s.dir==='asc' ? av-bv : bv-av;
           }
           return 0;
@@ -1962,19 +1985,20 @@
         let regCell = '';
         if (isSelected) {
           if (r.regStatus==='locked-same') {
-            regCell = `<td class="num"><span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🔒 Locked</span></td>`;
-          } else if (r.regStatus==='locked-other') {
-            const short = (r.regUrl||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
-            regCell = `<td class="num"><span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Locked for: ${short}">⚠️ Other URL</span></td>`;
+            regCell = `<td><span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🔒 Locked</span></td>`;
+          } else if (r.regStatus==='kw-taken') {
+            regCell = `<td><span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Keyword locked to: ${r.regOtherUrl}">🟡 Keyword taken</span></td>`;
+          } else if (r.regStatus==='url-taken') {
+            regCell = `<td><span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="URL locked to keyword: ${r.regOtherKw}">🔴 URL taken</span></td>`;
           } else {
-            regCell = `<td class="num"><span style="color:#ccc;font-size:12px;">—</span></td>`;
+            regCell = `<td><span style="color:#ccc;font-size:12px;">—</span></td>`;
           }
         }
 
-        // Selected tab action = Undo + Save to Registry
+        // Selected tab action = Undo + Save to Registry (only if unlocked)
         const selectedActions = isSelected ? `<td style="white-space:nowrap;">
           <button onclick="kwrUndo('${r.kw.replace(/'/g,"\'")}' )" style="padding:4px 10px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;margin-right:4px;">↩ Undo</button>
-          ${r.regStatus==='unlocked' ? `<button onclick="kwrConfirmLock('${r.kw.replace(/'/g,"\'")}','${r.rankingUrl.replace(/'/g,"\'")}' )" style="padding:4px 10px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Save to Registry</button>` : ''}
+          ${r.regStatus==='unlocked' ? `<button onclick="kwrConfirmLock('${r.kw.replace(/'/g,"\'")}','${r.rankingUrl.replace(/'/g,"\'")}' )" style="padding:4px 10px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Save to Registry</button>` : `<span style="font-size:11px;color:#aaa;">Cannot save</span>`}
         </td>` : '';
 
         // Metric cells
