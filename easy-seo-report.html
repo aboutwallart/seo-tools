@@ -98,7 +98,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v35.0</div>
+      <div class="tool-version">v36.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -540,7 +540,7 @@
               <th class="num" style="width:100px;">Impressions</th>
               <th class="num" style="width:70px;">Clicks</th>
               <th class="num" style="width:65px;">CTR</th>
-              <th style="width:200px;">Top Query</th>
+              <th style="width:200px;">Keyword</th>
             </tr></thead>
             <tbody id="qwBody"><tr class="loading-row"><td colspan="6">Loading...</td></tr></tbody>
           </table>
@@ -683,7 +683,7 @@
         const rows=(json.data.rows||[]).sort((a,b)=>b.clicks-a.clicks).slice(0,20);
         if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="4">No data</td></tr>';return;}
         tbody.innerHTML=rows.map((r,i)=>{
-          const url=r.keys?r.keys[0]:'',short=url.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','')||'/';
+          const url=cleanUrl(r.keys?r.keys[0]:''),short=url;
           return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td><div class="page-url" title="${url}">${short}</div></td><td class="num">${fmt(r.clicks)}</td><td class="num">${fmt(r.impressions)}</td></tr>`;
         }).join('');
       }catch(e){tbody.innerHTML=`<tr class="loading-row"><td colspan="4" style="color:#dc2626;">Error: ${e.message}</td></tr>`;}
@@ -773,6 +773,11 @@
           if(!topQueryMap[page]||r.impressions>topQueryMap[page].impressions){
             topQueryMap[page]={query,impressions:r.impressions};
           }
+          // Also index by clean URL
+          const cleanPage = cleanUrl(page);
+          if(!topQueryMap[cleanPage]||r.impressions>topQueryMap[cleanPage].impressions){
+            topQueryMap[cleanPage]={query,impressions:r.impressions};
+          }
         });
 
         // Fetch published keywords from registry
@@ -780,12 +785,15 @@
         const kwJson=await kwRes.json();
         const publishedKeywords=kwJson.success?kwJson.publishedBlogs:[];
 
-        // Build page objects
-        const pages=allPages.map(r=>{
-          const page=r.keys?r.keys[0]:'';
+        // Build page objects — clean URLs, exclude CDN/translations/variants
+        const pages=allPages
+          .filter(r => !shouldExcludeUrl(cleanUrl(r.keys?r.keys[0]:'')))
+          .map(r=>{
+          const rawPage = r.keys?r.keys[0]:'';
+          const page = cleanUrl(rawPage);
           return {
             page,
-            query:topQueryMap[page]?topQueryMap[page].query:'',
+            query:topQueryMap[rawPage]?topQueryMap[rawPage].query:'',
             clicks:r.clicks,
             impressions:r.impressions,
             ctr:r.ctr,
@@ -1143,6 +1151,7 @@
         const allBlogs = (gscJson.data.rows || [])
           .filter(r => {
             const url = r.keys ? r.keys[0] : '';
+            if (shouldExcludeUrl(url)) return false;
             if (!url.includes('/blogs/') || r.impressions < 100) return false;
             if (qwExcludeUrls.has(url.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','')) || dpExcludeUrls.has(url.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com',''))) return false;
             // Filter out foreign language blogs
@@ -1916,8 +1925,9 @@
           if (j.success) {
             kwrPageQuery = {};
             (j.data.rows||[]).forEach(r => {
-              const page  = (r.keys?.[0]||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','')||'/';
+              const page  = cleanUrl(r.keys?.[0]||'');
               const query = r.keys?.[1]||'';
+              if (shouldExcludeUrl(page)) return;
               if (!kwrPageQuery[query] || r.clicks > (kwrPageQuery[query].clicks||0)) kwrPageQuery[query] = { url:page, clicks:r.clicks };
             });
           }
@@ -1937,6 +1947,7 @@
         kwrAllData = (jCurr.data.rows||[]).map(r => {
           const kw  = r.keys?.[0]||'';
           const pos = r.position||0, imp = r.impressions||0, clk = r.clicks||0, ctr = r.ctr||0;
+          // Note: kw is a query string not a URL — no URL cleaning needed here
           const diff = kwrDifficulty(pos, imp, ctr);
           const prev = kwrPrevData[kw];
           const trend = (prev && prev.imp > 0) ? ((imp - prev.imp) / prev.imp * 100) : null;
@@ -2166,6 +2177,34 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
     }
 
 
+
+    // ═══════════════════════════════════════════════════════
+    // URL CLEANING UTILITY
+    // ═══════════════════════════════════════════════════════
+
+    function cleanUrl(rawUrl) {
+      // Strip domain
+      let url = (rawUrl||'')
+        .replace('https://www.aboutwallart.com','')
+        .replace('https://aboutwallart.com','');
+      // Strip query string (everything from ? onwards)
+      const qIdx = url.indexOf('?');
+      if (qIdx > -1) url = url.slice(0, qIdx);
+      // Ensure leading slash
+      if (url && !url.startsWith('/')) url = '/' + url;
+      return url || '/';
+    }
+
+    function shouldExcludeUrl(url) {
+      if (!url) return true;
+      if (url.includes('/cdn/'))   return true;  // CDN files
+      if (url.includes('/es/'))    return true;  // Spanish translations
+      if (url.includes('/fr/'))    return true;  // French translations
+      if (url.includes('.js'))     return true;  // JS files
+      if (url.includes('.css'))    return true;  // CSS files
+      return false;
+    }
+
     // ═══════════════════════════════════════════════════════
     // QUICK WINS + DANGER PAGES
     // ═══════════════════════════════════════════════════════
@@ -2210,7 +2249,7 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
         const topQuery = {};
         if (jPQ.success) {
           (jPQ.data.rows || []).forEach(r => {
-            const page  = (r.keys?.[0]||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
+            const page  = cleanUrl(r.keys?.[0]||'');
             const query = r.keys?.[1]||'';
             if (!topQuery[page] || r.impressions > (topQuery[page].imp||0)) {
               topQuery[page] = { query, imp: r.impressions };
@@ -2222,8 +2261,8 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
         const prevMap = {};
         if (jPrev.success) {
           (jPrev.data.rows||[]).forEach(r => {
-            const page = (r.keys?.[0]||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
-            prevMap[page] = { clicks: r.clicks||0 };
+            const page = cleanUrl(r.keys?.[0]||'');
+            if (!prevMap[page] || r.clicks > (prevMap[page].clicks||0)) prevMap[page] = { clicks: r.clicks||0 };
           });
         }
 
@@ -2231,16 +2270,25 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
         qwData = { collections:[], blogs:[], products:[], pages:[] };
         qwExcludeUrls = new Set();
 
+        // Deduplicate cleaned URLs — keep highest impressions
+        const qwMap = {};
         (jPages.data.rows||[]).forEach(r => {
-          const page = (r.keys?.[0]||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
-          const pos  = r.position||0;
-          const imp  = r.impressions||0;
-          if (pos >= 1 && pos <= 20 && imp >= 100) {
-            const type = getPageType(page);
-            const entry = { page, pos, imp, clk: r.clicks||0, ctr: r.ctr||0, topQuery: topQuery[page]?.query||'—' };
-            qwData[type].push(entry);
-            qwExcludeUrls.add(page);
+          const page = cleanUrl(r.keys?.[0]||'');
+          if (shouldExcludeUrl(page)) return;
+          const pos = r.position||0, imp = r.impressions||0;
+          if (pos < 1 || pos > 20 || imp < 100) return;
+          if (!qwMap[page] || imp > qwMap[page].imp) {
+            qwMap[page] = { page, pos, imp, clk: r.clicks||0, ctr: r.ctr||0, keyword: topQuery[page]?.query||'—' };
           }
+        });
+        Object.values(qwMap).forEach(entry => {
+          const type = getPageType(entry.page);
+          // Registry check
+          const regByUrl = kwrRegistry?.byUrl?.[entry.page.toLowerCase()];
+          entry.regStatus = regByUrl ? 'url-taken' : 'unlocked';
+          entry.regOtherKw = regByUrl?.keyword || '';
+          qwData[type].push(entry);
+          qwExcludeUrls.add(entry.page);
         });
 
         // Sort by impressions desc within each type
@@ -2278,28 +2326,41 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
         const prevMap = {};
         if (jPrev.success) {
           (jPrev.data.rows||[]).forEach(r => {
-            const page = (r.keys?.[0]||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
-            prevMap[page] = { clicks: r.clicks||0, imp: r.impressions||0 };
+            const page = cleanUrl(r.keys?.[0]||'');
+            if (!prevMap[page] || r.clicks > prevMap[page].clicks) {
+              prevMap[page] = { clicks: r.clicks||0, imp: r.impressions||0 };
+            }
           });
         }
 
         dpData = { collections:[], blogs:[], products:[], pages:[] };
         dpExcludeUrls = new Set();
 
+        // Deduplicate cleaned URLs
+        const dpMap = {};
         (jCurr.data.rows||[]).forEach(r => {
-          const page     = (r.keys?.[0]||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
-          const currClk  = r.clicks||0;
-          const prevClk  = prevMap[page]?.clicks||0;
-          // Skip if already in Quick Wins
+          const page = cleanUrl(r.keys?.[0]||'');
+          if (shouldExcludeUrl(page)) return;
           if (qwExcludeUrls.has(page)) return;
-          // Must have 10+ clicks previous period and 20%+ drop
-          if (prevClk < 10) return;
-          const drop = (currClk - prevClk) / prevClk * 100;
-          if (drop > -20) return;
+          if (!dpMap[page] || r.clicks > (dpMap[page].currClk||0)) {
+            dpMap[page] = { page, pos: r.position||0, currClk: r.clicks||0, imp: r.impressions||0 };
+          }
+        });
 
-          const type = getPageType(page);
-          dpData[type].push({ page, pos: r.position||0, currClk, prevClk, drop, imp: r.impressions||0 });
-          dpExcludeUrls.add(page);
+        Object.values(dpMap).forEach(entry => {
+          const prevClk = prevMap[entry.page]?.clicks||0;
+          if (prevClk < 10) return;
+          const drop = (entry.currClk - prevClk) / prevClk * 100;
+          if (drop > -20) return;
+          const type = getPageType(entry.page);
+          // Registry check
+          const regByUrl = kwrRegistry?.byUrl?.[entry.page.toLowerCase()];
+          entry.prevClk = prevClk;
+          entry.drop    = drop;
+          entry.regStatus  = regByUrl ? 'url-taken' : 'unlocked';
+          entry.regOtherKw = regByUrl?.keyword || '';
+          dpData[type].push(entry);
+          dpExcludeUrls.add(entry.page);
         });
 
         Object.keys(dpData).forEach(t => dpData[t].sort((a,b) => a.drop - b.drop));
@@ -2350,13 +2411,17 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
       if (!rows.length) { tbody.innerHTML = '<tr class="loading-row"><td colspan="6">No Quick Win pages found in this category.</td></tr>'; return; }
       tbody.innerHTML = rows.map(r => {
         const posColor = r.pos<=3?'#16a34a':r.pos<=10?'#d97706':'#dc2626';
+        let regBadge = '';
+        if (r.regStatus==='locked-same')  regBadge = '<span style="background:#f0fdf4;color:#16a34a;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;margin-left:4px;">🔒</span>';
+        else if (r.regStatus==='kw-taken') regBadge = `<span style="background:#fefce8;color:#92400e;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;margin-left:4px;" title="Keyword taken: ${r.regOtherUrl}">🟡</span>`;
+        else if (r.regStatus==='url-taken') regBadge = `<span style="background:#fef2f2;color:#dc2626;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;margin-left:4px;" title="URL taken by: ${r.regOtherKw}">🔴</span>`;
         return `<tr>
-          <td style="font-size:11px;color:#2563eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.page}">${r.page}</td>
+          <td style="font-size:11px;color:#2563eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.page}">${r.page}${regBadge}</td>
           <td class="num" style="color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>
           <td class="num">${fmt(r.imp)}</td>
           <td class="num">${fmt(r.clk)}</td>
           <td class="num">${fmtCTR(r.ctr)}</td>
-          <td style="font-size:11px;color:#555;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.topQuery}">${r.topQuery}</td>
+          <td style="font-size:11px;color:#555;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.keyword}">${r.keyword}</td>
         </tr>`;
       }).join('');
     }
@@ -2370,8 +2435,10 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
       tbody.innerHTML = rows.map(r => {
         const dropColor = r.drop < -50 ? '#dc2626' : '#ef4444';
         const posColor = r.pos<=3?'#16a34a':r.pos<=10?'#d97706':'#dc2626';
+        let regBadge = '';
+        if (r.regStatus==='url-taken') regBadge = `<span style="background:#fef2f2;color:#dc2626;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;margin-left:4px;" title="URL taken by: ${r.regOtherKw}">🔴</span>`;
         return `<tr>
-          <td style="font-size:11px;color:#2563eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.page}">${r.page}</td>
+          <td style="font-size:11px;color:#2563eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.page}">${r.page}${regBadge}</td>
           <td class="num" style="color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>
           <td class="num">${fmt(r.currClk)}</td>
           <td class="num">${fmt(r.prevClk)}</td>
