@@ -137,7 +137,13 @@ export default async function handler(req, res) {
           if (!line) continue;
           const cols = parseCSVLine(line);
           if (cols.length >= 2 && cols[0]) {
-            registry.push({ keyword: cols[0], url: cols[1], locked: cols[2] === 'LOCKED' });
+            registry.push({
+              keyword: cols[0],
+              url: cols[1],
+              locked: cols[2] === 'LOCKED',
+              status: cols[3] || '',
+              action: cols[4] || ''
+            });
           }
         }
         return res.status(200).json({ success: true, registry });
