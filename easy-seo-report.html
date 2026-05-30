@@ -98,7 +98,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v32.0</div>
+      <div class="tool-version">v33.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -506,7 +506,7 @@
 
         <!-- Table -->
         <div class="table-card">
-          <table id="kwrTable">
+          <table id="kwrTable" style="table-layout:fixed;width:100%;">
             <thead id="kwrTableHead"></thead>
             <tbody id="kwrBody"><tr class="loading-row"><td colspan="8">Loading keyword rankings...</td></tr></tbody>
           </table>
@@ -1775,16 +1775,22 @@
 
       const kwBadge  = kwrColSorts['kw']  ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;">${kwrColSorts['kw'].priority}${kwrColSorts['kw'].dir==='asc'?'↑':'↓'}</span>` : '';
       const urlBadge = kwrColSorts['url'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;">${kwrColSorts['url'].priority}${kwrColSorts['url'].dir==='asc'?'↑':'↓'}</span>` : '';
+      // Fixed column widths — must match td widths in kwrRenderRows
+      const colWidths = isSelected
+        ? { action:'90px', kw:'140px', url:'160px', pos:'70px', imp:'90px', clk:'60px', ctr:'55px', diff:'80px', trend:'90px', reg:'110px', actBtn:'180px' }
+        : { action:'70px', kw:'200px', pos:'80px', imp:'100px', clk:'70px', ctr:'65px', diff:'90px' };
+
       head.innerHTML = '<tr>' +
-        '<th style="width:80px;">' + (isSelected ? '' : 'Select') + '</th>' +
-        `<th style="cursor:pointer;user-select:none;" onclick="kwrCycleSort('kw')">Keyword${kwBadge}</th>` +
-        (isSelected ? `<th style="cursor:pointer;user-select:none;" onclick="kwrCycleSort('url')">Ranking URL${urlBadge}</th>` : '') +
-        cols.map(c => {
-          const s = kwrColSorts[c.key];
-          const badge = s ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;">${s.priority}${s.dir==='asc'?'↑':'↓'}</span>` : '';
-          return `<th class="${c.num?'num':''}" style="cursor:pointer;user-select:none;white-space:nowrap;" onclick="kwrCycleSort('${c.key}')">${c.label}${badge}</th>`;
-        }).join('') +
-        (isSelected ? '<th>Registry</th><th>Action</th>' : '') +
+        `<th style="width:${colWidths.action};"></th>` +
+        `<th style="width:${colWidths.kw};cursor:pointer;user-select:none;" onclick="kwrCycleSort('kw')">Keyword${kwBadge}</th>` +
+        (isSelected ? `<th style="width:${colWidths.url};cursor:pointer;user-select:none;" onclick="kwrCycleSort('url')">Ranking URL${urlBadge}</th>` : '') +
+        `<th style="width:${colWidths.pos};cursor:pointer;user-select:none;text-align:right;" onclick="kwrCycleSort('pos')">Position${kwrColSorts['pos'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;">${kwrColSorts['pos'].priority}${kwrColSorts['pos'].dir==='asc'?'↑':'↓'}</span>` : ''}</th>` +
+        `<th style="width:${colWidths.imp};cursor:pointer;user-select:none;text-align:right;" onclick="kwrCycleSort('imp')">Impressions${kwrColSorts['imp'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;">${kwrColSorts['imp'].priority}${kwrColSorts['imp'].dir==='asc'?'↑':'↓'}</span>` : ''}</th>` +
+        `<th style="width:${colWidths.clk};cursor:pointer;user-select:none;text-align:right;" onclick="kwrCycleSort('clk')">Clicks${kwrColSorts['clk'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;">${kwrColSorts['clk'].priority}${kwrColSorts['clk'].dir==='asc'?'↑':'↓'}</span>` : ''}</th>` +
+        `<th style="width:${colWidths.ctr};cursor:pointer;user-select:none;text-align:right;" onclick="kwrCycleSort('ctr')">CTR${kwrColSorts['ctr'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;">${kwrColSorts['ctr'].priority}${kwrColSorts['ctr'].dir==='asc'?'↑':'↓'}</span>` : ''}</th>` +
+        `<th style="width:${colWidths.diff};cursor:pointer;user-select:none;" onclick="kwrCycleSort('diff')">Difficulty${kwrColSorts['diff'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;">${kwrColSorts['diff'].priority}${kwrColSorts['diff'].dir==='asc'?'↑':'↓'}</span>` : ''}</th>` +
+        (isSelected ? `<th style="width:${colWidths.trend};cursor:pointer;user-select:none;text-align:right;" onclick="kwrCycleSort('trend')">Trend (90d)${kwrColSorts['trend'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;">${kwrColSorts['trend'].priority}${kwrColSorts['trend'].dir==='asc'?'↑':'↓'}</span>` : ''}</th>` : '') +
+        (isSelected ? `<th style="width:${colWidths.reg};">Registry</th><th style="width:${colWidths.actBtn};">Action</th>` : '') +
       '</tr>';
     }
 
@@ -1977,9 +1983,7 @@
       tbody.innerHTML = rows.map(r => {
         const posColor = r.pos<=3?'#16a34a':r.pos<=10?'#d97706':'#dc2626';
 
-        // Action cell (All tab = select button)
-        const actionCell = isSelected ? '' :
-          `<td><button onclick="kwrSelect('${r.kw.replace(/'/g,"\'")}' )" style="padding:4px 10px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;">+ Select</button></td>`;
+        // Action cell handled inline in row
 
         // Registry cell (Selected tab only)
         let regCell = '';
@@ -2002,26 +2006,25 @@
         </td>` : '';
 
         // Metric cells
-        const metricCells = cols.map(c => {
-          if (c.key==='pos')   return `<td class="num" style="color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>`;
-          if (c.key==='imp')   return `<td class="num">${fmt(r.imp)}</td>`;
-          if (c.key==='clk')   return `<td class="num">${fmt(r.clk)}</td>`;
-          if (c.key==='ctr')   return `<td class="num">${fmtCTR(r.ctr)}</td>`;
-          if (c.key==='diff')  return `<td class="num"><span style="${kwrDiffStyle(r.diff)}">${r.diff}</span></td>`;
-          if (c.key==='trend') {
-            if (r.trend===null) return `<td class="num" style="color:#aaa;">—</td>`;
-            const tc = r.trend>5?'#16a34a':r.trend<-5?'#dc2626':'#d97706';
-            const ta = r.trend>5?'▲':r.trend<-5?'▼':'▶';
-            return `<td class="num" style="color:${tc};font-weight:600;">${ta} ${r.trend>0?'+':''}${r.trend.toFixed(1)}%</td>`;
-          }
-          return '<td>—</td>';
-        }).join('');
+        const wMap = isSelected
+          ? { pos:'70px', imp:'90px', clk:'60px', ctr:'55px', diff:'80px', trend:'90px' }
+          : { pos:'80px', imp:'100px', clk:'70px', ctr:'65px', diff:'90px' };
+        const metricCells = [
+          `<td style="width:${wMap.pos};text-align:right;color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>`,
+          `<td style="width:${wMap.imp};text-align:right;">${fmt(r.imp)}</td>`,
+          `<td style="width:${wMap.clk};text-align:right;">${fmt(r.clk)}</td>`,
+          `<td style="width:${wMap.ctr};text-align:right;">${fmtCTR(r.ctr)}</td>`,
+          `<td style="width:${wMap.diff};"><span style="${kwrDiffStyle(r.diff)}">${r.diff}</span></td>`,
+          ...(isSelected ? [r.trend===null
+            ? `<td style="width:${wMap.trend};text-align:right;color:#aaa;">—</td>`
+            : `<td style="width:${wMap.trend};text-align:right;color:${r.trend>5?'#16a34a':r.trend<-5?'#dc2626':'#d97706'};font-weight:600;">${r.trend>5?'▲':r.trend<-5?'▼':'▶'} ${r.trend>0?'+':''}${r.trend.toFixed(1)}%</td>`] : [])
+        ].join('');
 
-        const urlCell = isSelected ? `<td style="font-size:11px;color:#2563eb;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.rankingUrl}">${r.rankingUrl}</td>` : '';
+        const urlCell = isSelected ? `<td style="width:160px;font-size:11px;color:#2563eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.rankingUrl}">${r.rankingUrl}</td>` : '';
 
         return `<tr>
-          ${actionCell}
-          <td style="font-size:13px;">${r.kw}</td>
+          <td style="width:${isSelected?'90px':'70px'};vertical-align:middle;">${isSelected ? '' : `<button onclick="kwrSelect('${r.kw.replace(/'/g,"\'")}' )" style="padding:4px 10px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;">+ Select</button>`}</td>
+          <td style="width:${isSelected?'140px':'200px'};font-size:13px;word-break:break-word;">${r.kw}</td>
           ${urlCell}
           ${metricCells}
           ${regCell}
