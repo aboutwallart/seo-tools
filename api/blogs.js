@@ -212,7 +212,7 @@ export default async function handler(req, res) {
         const { keyword, url } = req.body;
         if (!keyword || !url) return res.status(400).json({ error: 'keyword and url required' });
         const registry = await getGitHubFile('data/keyword-locker-registry.csv');
-        const newRow = `${keyword},${url},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,Keyword Rankings`;
+        const newRow = `${keyword},${url},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,User Resolved`;
         const updated = registry.content.trimEnd() + '\n' + newRow + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Lock keyword from rankings: ${keyword}`);
         return res.status(200).json({ success: true, keyword, url });
