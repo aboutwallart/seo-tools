@@ -98,7 +98,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v30.0</div>
+      <div class="tool-version">v31.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -456,79 +456,44 @@
       <div class="section" id="section-kwrankings">
 
         <!-- Top bar -->
-        <div style="background:#1a1a1a;border-radius:8px;padding:20px 24px;margin-bottom:16px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
-            <span style="color:#fff;font-size:16px;font-weight:600;">Keyword Rankings</span>
-            <div style="display:flex;align-items:center;gap:10px;">
-              <input id="kwrSearch" type="text" placeholder="Search keywords..." oninput="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:220px;outline:none;">
-              <select id="kwrLimit" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">
-                <option value="50">50 rows</option>
-                <option value="100">100 rows</option>
-                <option value="250">250 rows</option>
-                <option value="500">500 rows</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Filters row -->
-          <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px;align-items:center;">
-            <span style="color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;">Filter:</span>
-            <select id="kwrFilterDiff" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:5px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+        <div style="background:#1a1a1a;border-radius:8px;padding:16px 24px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+          <span style="color:#fff;font-size:16px;font-weight:600;">Keyword Rankings</span>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <input id="kwrSearch" type="text" placeholder="Search keywords..." oninput="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:240px;outline:none;">
+            <select id="kwrFilterPos" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="">All Positions</option>
+              <option value="1-3">Pos 1–3</option>
+              <option value="4-10">Pos 4–10</option>
+              <option value="11-20">Pos 11–20</option>
+              <option value="21+">Pos 21+</option>
+            </select>
+            <select id="kwrFilterDiff" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
               <option value="">All Difficulties</option>
               <option value="Easy">Easy</option>
               <option value="Medium">Medium</option>
               <option value="Hard">Hard</option>
             </select>
-            <select id="kwrFilterPos" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:5px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
-              <option value="">All Positions</option>
-              <option value="1-3">Position 1–3</option>
-              <option value="4-10">Position 4–10</option>
-              <option value="11-20">Position 11–20</option>
-              <option value="21+">Position 21+</option>
-            </select>
-            <select id="kwrFilterMinImp" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:5px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+            <select id="kwrFilterMinImp" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
               <option value="0">Any Impressions</option>
-              <option value="100">100+ Impressions</option>
-              <option value="500">500+ Impressions</option>
-              <option value="1000">1,000+ Impressions</option>
-              <option value="5000">5,000+ Impressions</option>
+              <option value="100">100+</option>
+              <option value="500">500+</option>
+              <option value="1000">1K+</option>
+              <option value="5000">5K+</option>
             </select>
-            <select id="kwrFilterMinClk" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:5px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
-              <option value="0">Any Clicks</option>
-              <option value="1">1+ Clicks</option>
-              <option value="10">10+ Clicks</option>
-              <option value="50">50+ Clicks</option>
-              <option value="100">100+ Clicks</option>
+            <select id="kwrLimit" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="50">50 rows</option>
+              <option value="100">100 rows</option>
+              <option value="250">250 rows</option>
+              <option value="500">500 rows</option>
             </select>
-            <button onclick="kwrResetFilters()" style="background:#333;color:#aaa;border:1px solid #444;padding:5px 12px;border-radius:4px;font-size:12px;cursor:pointer;">✕ Reset</button>
-          </div>
-
-          <!-- Sort rules -->
-          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
-            <span style="color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;">Sort:</span>
-            <div id="kwrSortRules" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;"></div>
-            <div style="display:flex;gap:6px;align-items:center;">
-              <select id="kwrSortField" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:5px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
-                <option value="pos">Position</option>
-                <option value="imp">Impressions</option>
-                <option value="clk">Clicks</option>
-                <option value="ctr">CTR</option>
-                <option value="diff">Difficulty</option>
-                <option value="trend">Trend</option>
-              </select>
-              <select id="kwrSortDir" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:5px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
-                <option value="asc">↑ Asc</option>
-                <option value="desc">↓ Desc</option>
-              </select>
-              <button onclick="kwrAddSort()" style="background:#2563eb;color:#fff;border:none;padding:5px 12px;border-radius:4px;font-size:12px;cursor:pointer;font-weight:600;">+ Add Sort</button>
-            </div>
+            <button onclick="kwrResetFilters()" style="background:#333;color:#aaa;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">✕ Reset</button>
           </div>
         </div>
 
         <!-- Sub tabs -->
         <div style="display:flex;align-items:center;border-bottom:2px solid #e5e5e5;margin-bottom:24px;">
           <button id="kwrTabAll" onclick="kwrSwitchTab('all')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">All Keywords <span id="kwrCountAll" class="count-badge">—</span></button>
-          <button id="kwrTabTracked" onclick="kwrSwitchTab('tracked')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Tracked <span id="kwrCountTracked" class="count-badge">—</span></button>
+          <button id="kwrTabTracked" onclick="kwrSwitchTab('tracked')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Selected <span id="kwrCountTracked" class="count-badge">—</span></button>
         </div>
 
         <!-- Save status -->
@@ -539,20 +504,8 @@
         <!-- Table -->
         <div class="table-card">
           <table id="kwrTable">
-            <thead><tr>
-              <th style="width:32px;"><input type="checkbox" id="kwrSelectAll" onchange="kwrToggleAll(this.checked)" title="Select all visible"></th>
-              <th>Keyword</th>
-              <th>Ranking URL</th>
-              <th class="num">Position</th>
-              <th class="num">Impressions</th>
-              <th class="num">Clicks</th>
-              <th class="num">CTR</th>
-              <th class="num">Difficulty</th>
-              <th class="num">Registry</th>
-              <th class="num">Action</th>
-              <th class="num" id="kwrTrendHeader" style="display:none;">Trend (90d)</th>
-            </tr></thead>
-            <tbody id="kwrBody"><tr class="loading-row"><td colspan="11">Loading keyword rankings...</td></tr></tbody>
+            <thead id="kwrTableHead"></thead>
+            <tbody id="kwrBody"><tr class="loading-row"><td colspan="8">Loading keyword rankings...</td></tr></tbody>
           </table>
         </div>
 
@@ -1772,371 +1725,337 @@
     // KEYWORD RANKINGS
     // ═══════════════════════════════════════════════════════
 
-    let kwrAllData      = [];   // full dataset current 90d
-    let kwrPrevData     = {};   // keyword -> metrics for prev 90d
-    let kwrTrackedSet   = new Set();
-    let kwrActiveTab    = 'all';
-    let kwrLoaded       = false;
-    let kwrRegistry     = {};   // keyword.lower -> {url, locked}
-    let kwrPageQuery    = {};   // keyword -> ranking URL
+    let kwrAllData    = [];
+    let kwrPrevData   = {};
+    let kwrSelectedSet = new Set();
+    let kwrActiveTab  = 'all';
+    let kwrLoaded     = false;
+    let kwrRegistry   = {};
+    let kwrPageQuery  = {};
+
+    // Sort state: { field, dir } per column
+    // colSorts: { pos:{priority,dir}, imp:{priority,dir}, clk:{priority,dir}, ctr:{priority,dir}, diff:{priority,dir}, trend:{priority,dir} }
+    let kwrColSorts = {};
+    let kwrSortCounter = 0;
+    const kwrDiffOrder = { Easy:1, Medium:2, Hard:3 };
+
+    const kwrColDefs = [
+      { key:'pos',  label:'Position',    num:true  },
+      { key:'imp',  label:'Impressions', num:true  },
+      { key:'clk',  label:'Clicks',      num:true  },
+      { key:'ctr',  label:'CTR',         num:true  },
+      { key:'diff', label:'Difficulty',  num:false },
+      { key:'trend',label:'Trend (90d)', num:true, selectedOnly:true }
+    ];
 
     function kwrDifficulty(position, impressions, ctr) {
       let score = 0;
-      if (position > 50) score += 3;
-      else if (position > 20) score += 2;
-      else if (position > 10) score += 1;
-      if (impressions > 10000) score += 3;
-      else if (impressions > 2000) score += 2;
-      else if (impressions > 500) score += 1;
-      if (position <= 10 && ctr < 0.005) score += 2;
-      else if (position <= 10 && ctr < 0.02) score += 1;
-      if (score >= 5) return 'Hard';
-      if (score >= 3) return 'Medium';
-      return 'Easy';
+      if (position > 50) score += 3; else if (position > 20) score += 2; else if (position > 10) score += 1;
+      if (impressions > 10000) score += 3; else if (impressions > 2000) score += 2; else if (impressions > 500) score += 1;
+      if (position <= 10 && ctr < 0.005) score += 2; else if (position <= 10 && ctr < 0.02) score += 1;
+      if (score >= 5) return 'Hard'; if (score >= 3) return 'Medium'; return 'Easy';
     }
 
-    function kwrDifficultyStyle(diff) {
-      if (diff === 'Hard')   return 'background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;';
-      if (diff === 'Medium') return 'background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;';
+    function kwrDiffStyle(diff) {
+      if (diff==='Hard')   return 'background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;';
+      if (diff==='Medium') return 'background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;';
       return 'background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;';
+    }
+
+    function kwrRenderHeader() {
+      const isSelected = kwrActiveTab === 'tracked';
+      const cols = kwrColDefs.filter(c => !c.selectedOnly || isSelected);
+      const head = document.getElementById('kwrTableHead');
+      if (!head) return;
+
+      head.innerHTML = '<tr>' +
+        '<th style="width:80px;">' + (isSelected ? '' : 'Select') + '</th>' +
+        '<th>Keyword</th>' +
+        (isSelected ? '<th>Ranking URL</th>' : '') +
+        cols.map(c => {
+          const s = kwrColSorts[c.key];
+          const badge = s ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;">${s.priority}${s.dir==='asc'?'↑':'↓'}</span>` : '';
+          return `<th class="${c.num?'num':''}" style="cursor:pointer;user-select:none;white-space:nowrap;" onclick="kwrCycleSort('${c.key}')">${c.label}${badge}</th>`;
+        }).join('') +
+        (isSelected ? '<th>Registry</th><th>Action</th>' : '') +
+      '</tr>';
+    }
+
+    function kwrCycleSort(key) {
+      const existing = kwrColSorts[key];
+      if (!existing) {
+        kwrSortCounter++;
+        kwrColSorts[key] = { priority: kwrSortCounter, dir: 'asc' };
+      } else if (existing.dir === 'asc') {
+        existing.dir = 'desc';
+      } else {
+        // Remove sort
+        delete kwrColSorts[key];
+        // Re-number remaining
+        const sorted = Object.entries(kwrColSorts).sort((a,b) => a[1].priority - b[1].priority);
+        kwrSortCounter = 0;
+        sorted.forEach(([k]) => { kwrSortCounter++; kwrColSorts[k].priority = kwrSortCounter; });
+      }
+      kwrRenderHeader();
+      kwrFilterTable();
     }
 
     async function kwrInit() {
       if (kwrLoaded) return;
       kwrLoaded = true;
-      document.getElementById('kwrBody').innerHTML = '<tr class="loading-row"><td colspan="11">Loading keyword data...</td></tr>';
+      kwrRenderHeader();
+      document.getElementById('kwrBody').innerHTML = '<tr class="loading-row"><td colspan="8">Loading keyword data...</td></tr>';
 
       try {
-        // Load tracked keywords + registry in parallel
         const [tRes, rRes, pqRes] = await Promise.all([
-          fetch('/api/blogs?action=get-tracked-keywords').catch(() => null),
-          fetch('/api/blogs?action=get-registry').catch(() => null),
-          fetch(`${API}?action=page-query&startDate=${getDate(90)}&endDate=${getDate(0)}`).catch(() => null)
+          fetch('/api/blogs?action=get-tracked-keywords').catch(()=>null),
+          fetch('/api/blogs?action=get-registry').catch(()=>null),
+          fetch(`${API}?action=page-query&startDate=${getDate(90)}&endDate=${getDate(0)}`).catch(()=>null)
         ]);
 
-        if (tRes) {
-          const tJson = await tRes.json();
-          if (tJson.success && Array.isArray(tJson.keywords)) kwrTrackedSet = new Set(tJson.keywords);
-        }
+        if (tRes) { const j = await tRes.json(); if (j.success && j.keywords) kwrSelectedSet = new Set(j.keywords); }
 
         if (rRes) {
-          const rJson = await rRes.json();
-          if (rJson.success && rJson.registry) {
+          const j = await rRes.json();
+          if (j.success && j.registry) {
             kwrRegistry = {};
-            rJson.registry.forEach(row => {
-              kwrRegistry[row.keyword.toLowerCase()] = { url: row.url, locked: row.locked };
+            j.registry.forEach(row => {
+              // Only count as locked if: LOCKED=LOCKED, STATUS=DONE, ACTION=TO_OPTIMIZE or OPTIMIZED
+              const isRealLock = row.locked === true &&
+                (row.status || '').toUpperCase() === 'DONE' &&
+                ['TO_OPTIMIZE','OPTIMIZED'].includes((row.action || '').toUpperCase());
+              if (isRealLock) kwrRegistry[row.keyword.toLowerCase()] = { url: row.url };
             });
           }
         }
 
-        // Build page-query lookup: keyword -> top ranking URL
         if (pqRes) {
-          const pqJson = await pqRes.json();
-          if (pqJson.success) {
-            const pqMap = {};
-            (pqJson.data.rows || []).forEach(r => {
-              const page  = (r.keys?.[0] || '').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','') || '/';
-              const query = r.keys?.[1] || '';
-              if (!pqMap[query] || r.clicks > (pqMap[query].clicks || 0)) {
-                pqMap[query] = { url: page, clicks: r.clicks };
-              }
+          const j = await pqRes.json();
+          if (j.success) {
+            kwrPageQuery = {};
+            (j.data.rows||[]).forEach(r => {
+              const page  = (r.keys?.[0]||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','')||'/';
+              const query = r.keys?.[1]||'';
+              if (!kwrPageQuery[query] || r.clicks > (kwrPageQuery[query].clicks||0)) kwrPageQuery[query] = { url:page, clicks:r.clicks };
             });
-            kwrPageQuery = pqMap;
           }
         }
 
-        // Fetch current + previous 90 days
-        const end = getDate(0), start = getDate(90), startPrev = getDate(180);
-        const [resCurr, resPrev] = await Promise.all([
+        const end=getDate(0), start=getDate(90), startPrev=getDate(180);
+        const [resCurr,resPrev] = await Promise.all([
           fetch(`${API}?action=queries&startDate=${start}&endDate=${end}`),
           fetch(`${API}?action=queries&startDate=${startPrev}&endDate=${start}`)
         ]);
-
-        const jsonCurr = await resCurr.json();
-        const jsonPrev = await resPrev.json();
-        if (!jsonCurr.success) throw new Error(jsonCurr.error);
+        const jCurr = await resCurr.json(), jPrev = await resPrev.json();
+        if (!jCurr.success) throw new Error(jCurr.error);
 
         kwrPrevData = {};
-        if (jsonPrev.success) {
-          (jsonPrev.data.rows || []).forEach(r => {
-            const kw = r.keys?.[0] || '';
-            kwrPrevData[kw] = { clicks: r.clicks || 0, impressions: r.impressions || 0, position: r.position || 0 };
-          });
-        }
+        if (jPrev.success) (jPrev.data.rows||[]).forEach(r => { kwrPrevData[r.keys?.[0]||''] = { imp:r.impressions||0, clk:r.clicks||0 }; });
 
-        kwrAllData = (jsonCurr.data.rows || []).map(r => {
-          const kw   = r.keys?.[0] || '';
-          const pos  = r.position || 0;
-          const imp  = r.impressions || 0;
-          const clk  = r.clicks || 0;
-          const ctr  = r.ctr || 0;
+        kwrAllData = (jCurr.data.rows||[]).map(r => {
+          const kw  = r.keys?.[0]||'';
+          const pos = r.position||0, imp = r.impressions||0, clk = r.clicks||0, ctr = r.ctr||0;
           const diff = kwrDifficulty(pos, imp, ctr);
           const prev = kwrPrevData[kw];
-          let trend = null;
-          if (prev && prev.impressions > 0) trend = ((imp - prev.impressions) / prev.impressions) * 100;
+          const trend = (prev && prev.imp > 0) ? ((imp - prev.imp) / prev.imp * 100) : null;
           const rankingUrl = kwrPageQuery[kw]?.url || '—';
-          const reg = kwrRegistry[kw.toLowerCase()] || null;
+          const reg = kwrRegistry[kw.toLowerCase()];
           let regStatus = 'unlocked';
           if (reg) {
-            const regUrl = (reg.url || '').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
+            const regUrl = (reg.url||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
             regStatus = regUrl === rankingUrl ? 'locked-same' : 'locked-other';
           }
-          return { kw, pos, imp, clk, ctr, diff, trend, rankingUrl, regStatus, regUrl: reg?.url || '', tracked: kwrTrackedSet.has(kw) };
-        }).sort((a, b) => a.pos - b.pos);
+          return { kw, pos, imp, clk, ctr, diff, trend, rankingUrl, regStatus, regUrl: reg?.url||'' };
+        }).sort((a,b) => a.pos - b.pos);
 
-        document.getElementById('kwrCountAll').textContent = kwrAllData.filter(r => !kwrTrackedSet.has(r.kw)).length;
-        document.getElementById('kwrCountTracked').textContent = kwrTrackedSet.size;
-        kwrRenderSortRules();
+        kwrUpdateCounts();
         kwrFilterTable();
 
       } catch(e) {
-        document.getElementById('kwrBody').innerHTML = `<tr class="loading-row"><td colspan="11" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
+        document.getElementById('kwrBody').innerHTML = `<tr class="loading-row"><td colspan="8" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
       }
-    }
-
-    // Sort rules
-    let kwrSortRules = [];
-    const kwrDiffOrder = { Easy: 1, Medium: 2, Hard: 3 };
-
-    function kwrAddSort() {
-      const field = document.getElementById('kwrSortField').value;
-      const dir   = document.getElementById('kwrSortDir').value;
-      kwrSortRules = kwrSortRules.filter(r => r.field !== field);
-      kwrSortRules.push({ field, dir });
-      kwrRenderSortRules();
-      kwrFilterTable();
-    }
-
-    function kwrRemoveSort(field) {
-      kwrSortRules = kwrSortRules.filter(r => r.field !== field);
-      kwrRenderSortRules();
-      kwrFilterTable();
-    }
-
-    function kwrRenderSortRules() {
-      const fieldLabels = { pos: 'Position', imp: 'Impressions', clk: 'Clicks', ctr: 'CTR', diff: 'Difficulty', trend: 'Trend' };
-      const container = document.getElementById('kwrSortRules');
-      if (!kwrSortRules.length) { container.innerHTML = '<span style="color:#555;font-size:12px;">None</span>'; return; }
-      container.innerHTML = kwrSortRules.map((r, i) => `
-        <div style="display:flex;align-items:center;gap:4px;background:#2d2d2d;border:1px solid #444;border-radius:4px;padding:3px 8px;">
-          <span style="color:#aaa;font-size:10px;min-width:12px;">${i+1}.</span>
-          <span style="color:#fff;font-size:12px;">${fieldLabels[r.field]}</span>
-          <span style="color:#6366f1;font-size:11px;">${r.dir === 'asc' ? '↑' : '↓'}</span>
-          <button onclick="kwrRemoveSort('${r.field}')" style="background:none;border:none;color:#666;cursor:pointer;font-size:11px;padding:0 0 0 4px;">✕</button>
-        </div>
-      `).join('');
     }
 
     function kwrResetFilters() {
       document.getElementById('kwrSearch').value = '';
-      document.getElementById('kwrFilterDiff').value = '';
       document.getElementById('kwrFilterPos').value = '';
+      document.getElementById('kwrFilterDiff').value = '';
       document.getElementById('kwrFilterMinImp').value = '0';
-      document.getElementById('kwrFilterMinClk').value = '0';
-      kwrSortRules = [];
-      kwrRenderSortRules();
+      kwrColSorts = {}; kwrSortCounter = 0;
+      kwrRenderHeader();
       kwrFilterTable();
     }
 
     function kwrSwitchTab(tab) {
       kwrActiveTab = tab;
-      const allBtn     = document.getElementById('kwrTabAll');
-      const trackedBtn = document.getElementById('kwrTabTracked');
-      allBtn.style.fontWeight        = tab === 'all'     ? '600' : '400';
-      allBtn.style.color             = tab === 'all'     ? '#1a1a1a' : '#888';
-      allBtn.style.borderBottomColor = tab === 'all'     ? '#1a1a1a' : 'transparent';
-      trackedBtn.style.fontWeight        = tab === 'tracked' ? '600' : '400';
-      trackedBtn.style.color             = tab === 'tracked' ? '#1a1a1a' : '#888';
-      trackedBtn.style.borderBottomColor = tab === 'tracked' ? '#1a1a1a' : 'transparent';
-      document.getElementById('kwrTrendHeader').style.display = tab === 'tracked' ? '' : 'none';
+      ['all','tracked'].forEach(t => {
+        const btn = document.getElementById('kwrTab' + (t==='all'?'All':'Tracked'));
+        const active = t===tab;
+        btn.style.fontWeight = active?'600':'400';
+        btn.style.color = active?'#1a1a1a':'#888';
+        btn.style.borderBottomColor = active?'#1a1a1a':'transparent';
+      });
+      kwrRenderHeader();
       kwrFilterTable();
     }
 
     function kwrFilterTable() {
-      const search   = (document.getElementById('kwrSearch')?.value || '').toLowerCase();
-      const diff     = document.getElementById('kwrFilterDiff')?.value || '';
-      const posRange = document.getElementById('kwrFilterPos')?.value || '';
-      const minImp   = parseInt(document.getElementById('kwrFilterMinImp')?.value || '0');
-      const minClk   = parseInt(document.getElementById('kwrFilterMinClk')?.value || '0');
-      const limit    = parseInt(document.getElementById('kwrLimit')?.value || '50');
+      const search   = (document.getElementById('kwrSearch')?.value||'').toLowerCase();
+      const posRange = document.getElementById('kwrFilterPos')?.value||'';
+      const diff     = document.getElementById('kwrFilterDiff')?.value||'';
+      const minImp   = parseInt(document.getElementById('kwrFilterMinImp')?.value||'0');
+      const limit    = parseInt(document.getElementById('kwrLimit')?.value||'50');
 
-      let data = kwrActiveTab === 'tracked'
-        ? kwrAllData.filter(r => kwrTrackedSet.has(r.kw))
-        : kwrAllData.filter(r => !kwrTrackedSet.has(r.kw));
+      let data = kwrActiveTab==='tracked'
+        ? kwrAllData.filter(r => kwrSelectedSet.has(r.kw))
+        : kwrAllData.filter(r => !kwrSelectedSet.has(r.kw));
 
       if (search)   data = data.filter(r => r.kw.includes(search));
-      if (diff)     data = data.filter(r => r.diff === diff);
-      if (minImp)   data = data.filter(r => r.imp >= minImp);
-      if (minClk)   data = data.filter(r => r.clk >= minClk);
+      if (diff)     data = data.filter(r => r.diff===diff);
+      if (minImp)   data = data.filter(r => r.imp>=minImp);
       if (posRange) {
-        if (posRange === '1-3')   data = data.filter(r => r.pos >= 1  && r.pos <= 3);
-        if (posRange === '4-10')  data = data.filter(r => r.pos >= 4  && r.pos <= 10);
-        if (posRange === '11-20') data = data.filter(r => r.pos >= 11 && r.pos <= 20);
-        if (posRange === '21+')   data = data.filter(r => r.pos > 20);
+        if (posRange==='1-3')   data = data.filter(r => r.pos>=1  && r.pos<=3);
+        if (posRange==='4-10')  data = data.filter(r => r.pos>=4  && r.pos<=10);
+        if (posRange==='11-20') data = data.filter(r => r.pos>=11 && r.pos<=20);
+        if (posRange==='21+')   data = data.filter(r => r.pos>20);
       }
-      if (kwrSortRules.length) {
-        data.sort((a, b) => {
-          for (const rule of kwrSortRules) {
+
+      // Sort by column priority
+      const sortEntries = Object.entries(kwrColSorts).sort((a,b) => a[1].priority - b[1].priority);
+      if (sortEntries.length) {
+        data.sort((a,b) => {
+          for (const [key, s] of sortEntries) {
             let av, bv;
-            if (rule.field === 'pos')   { av = a.pos;  bv = b.pos; }
-            if (rule.field === 'imp')   { av = a.imp;  bv = b.imp; }
-            if (rule.field === 'clk')   { av = a.clk;  bv = b.clk; }
-            if (rule.field === 'ctr')   { av = a.ctr;  bv = b.ctr; }
-            if (rule.field === 'diff')  { av = kwrDiffOrder[a.diff]; bv = kwrDiffOrder[b.diff]; }
-            if (rule.field === 'trend') { av = a.trend ?? -999; bv = b.trend ?? -999; }
-            if (av !== bv) return rule.dir === 'asc' ? av - bv : bv - av;
+            if (key==='pos')   { av=a.pos;  bv=b.pos; }
+            if (key==='imp')   { av=a.imp;  bv=b.imp; }
+            if (key==='clk')   { av=a.clk;  bv=b.clk; }
+            if (key==='ctr')   { av=a.ctr;  bv=b.ctr; }
+            if (key==='diff')  { av=kwrDiffOrder[a.diff]; bv=kwrDiffOrder[b.diff]; }
+            if (key==='trend') { av=a.trend??-999; bv=b.trend??-999; }
+            if (av!==bv) return s.dir==='asc' ? av-bv : bv-av;
           }
           return 0;
         });
       }
+
       kwrRenderRows(data.slice(0, limit));
     }
 
     function kwrRenderRows(rows) {
       const tbody = document.getElementById('kwrBody');
-      const showTrend = kwrActiveTab === 'tracked';
-      const isTracked = kwrActiveTab === 'tracked';
+      const isSelected = kwrActiveTab === 'tracked';
+      const cols = kwrColDefs.filter(c => !c.selectedOnly || isSelected);
 
       if (!rows.length) {
-        tbody.innerHTML = `<tr class="loading-row"><td colspan="11">No keywords found.</td></tr>`;
+        tbody.innerHTML = `<tr class="loading-row"><td colspan="8">No keywords found.</td></tr>`;
         return;
       }
 
       tbody.innerHTML = rows.map(r => {
-        const posColor = r.pos <= 3 ? '#16a34a' : r.pos <= 10 ? '#d97706' : '#dc2626';
+        const posColor = r.pos<=3?'#16a34a':r.pos<=10?'#d97706':'#dc2626';
 
-        // Registry status cell
-        let regCell = '<span style="color:#ccc;font-size:12px;">—</span>';
-        if (r.regStatus === 'locked-same') {
-          regCell = '<span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🔒 Locked</span>';
-        } else if (r.regStatus === 'locked-other') {
-          const short = (r.regUrl || '').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
-          regCell = `<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Locked for: ${short}">⚠️ Other URL</span>`;
-        }
+        // Action cell (All tab = select button)
+        const actionCell = isSelected ? '' :
+          `<td><button onclick="kwrSelect('${r.kw.replace(/'/g,"\'")}' )" style="padding:4px 10px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;">+ Select</button></td>`;
 
-        // Action cell
-        let actionCell = '';
-        if (isTracked) {
-          actionCell = `
-            <button onclick="kwrUndo('${r.kw.replace(/'/g,"\'")}')" style="padding:4px 10px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↩ Undo</button>
-            ${r.regStatus === 'unlocked' ? `<button onclick="kwrLock('${r.kw.replace(/'/g,"\'")}','${r.rankingUrl.replace(/'/g,"\'")}' )" style="padding:4px 10px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;margin-left:4px;">🔒 Lock</button>` : ''}
-          `;
-        } else {
-          actionCell = `<input type="checkbox" onchange="kwrToggleTrack('${r.kw.replace(/'/g,"\'")}', this.checked)" title="Track this keyword">`;
-        }
-
-        // Trend cell
-        let trendCell = '';
-        if (showTrend) {
-          if (r.trend === null) {
-            trendCell = `<td class="num" style="color:#aaa;">—</td>`;
+        // Registry cell (Selected tab only)
+        let regCell = '';
+        if (isSelected) {
+          if (r.regStatus==='locked-same') {
+            regCell = `<td class="num"><span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🔒 Locked</span></td>`;
+          } else if (r.regStatus==='locked-other') {
+            const short = (r.regUrl||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
+            regCell = `<td class="num"><span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Locked for: ${short}">⚠️ Other URL</span></td>`;
           } else {
-            const trendColor = r.trend > 5 ? '#16a34a' : r.trend < -5 ? '#dc2626' : '#d97706';
-            const trendArrow = r.trend > 5 ? '▲' : r.trend < -5 ? '▼' : '▶';
-            trendCell = `<td class="num" style="color:${trendColor};font-weight:600;">${trendArrow} ${r.trend > 0 ? '+' : ''}${r.trend.toFixed(1)}%</td>`;
+            regCell = `<td class="num"><span style="color:#ccc;font-size:12px;">—</span></td>`;
           }
         }
 
-        const shortUrl = r.rankingUrl === '—' ? '—' : r.rankingUrl;
+        // Selected tab action = Undo + Save to Registry
+        const selectedActions = isSelected ? `<td style="white-space:nowrap;">
+          <button onclick="kwrUndo('${r.kw.replace(/'/g,"\'")}' )" style="padding:4px 10px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;margin-right:4px;">↩ Undo</button>
+          ${r.regStatus==='unlocked' ? `<button onclick="kwrConfirmLock('${r.kw.replace(/'/g,"\'")}','${r.rankingUrl.replace(/'/g,"\'")}' )" style="padding:4px 10px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Save to Registry</button>` : ''}
+        </td>` : '';
+
+        // Metric cells
+        const metricCells = cols.map(c => {
+          if (c.key==='pos')   return `<td class="num" style="color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>`;
+          if (c.key==='imp')   return `<td class="num">${fmt(r.imp)}</td>`;
+          if (c.key==='clk')   return `<td class="num">${fmt(r.clk)}</td>`;
+          if (c.key==='ctr')   return `<td class="num">${fmtCTR(r.ctr)}</td>`;
+          if (c.key==='diff')  return `<td class="num"><span style="${kwrDiffStyle(r.diff)}">${r.diff}</span></td>`;
+          if (c.key==='trend') {
+            if (r.trend===null) return `<td class="num" style="color:#aaa;">—</td>`;
+            const tc = r.trend>5?'#16a34a':r.trend<-5?'#dc2626':'#d97706';
+            const ta = r.trend>5?'▲':r.trend<-5?'▼':'▶';
+            return `<td class="num" style="color:${tc};font-weight:600;">${ta} ${r.trend>0?'+':''}${r.trend.toFixed(1)}%</td>`;
+          }
+          return '<td>—</td>';
+        }).join('');
+
+        const urlCell = isSelected ? `<td style="font-size:11px;color:#2563eb;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.rankingUrl}">${r.rankingUrl}</td>` : '';
 
         return `<tr>
-          <td style="text-align:center;">${isTracked ? '' : `<input type="checkbox" onchange="kwrToggleTrack('${r.kw.replace(/'/g,"\'")}', this.checked)">`}</td>
+          ${actionCell}
           <td style="font-size:13px;">${r.kw}</td>
-          <td style="font-size:11px;color:#2563eb;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${shortUrl}">${shortUrl}</td>
-          <td class="num" style="color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>
-          <td class="num">${fmt(r.imp)}</td>
-          <td class="num">${fmt(r.clk)}</td>
-          <td class="num">${fmtCTR(r.ctr)}</td>
-          <td class="num"><span style="${kwrDifficultyStyle(r.diff)}">${r.diff}</span></td>
-          <td class="num">${regCell}</td>
-          <td class="num">${actionCell}</td>
-          ${showTrend ? trendCell : '<td></td>'}
+          ${urlCell}
+          ${metricCells}
+          ${regCell}
+          ${selectedActions}
         </tr>`;
       }).join('');
     }
 
-    function kwrToggleAll(checked) {
-      const rows = document.querySelectorAll('#kwrBody tr');
-      rows.forEach(row => {
-        const kw = row.querySelector('td:nth-child(2)')?.textContent?.trim();
-        if (!kw) return;
-        if (checked) { kwrTrackedSet.add(kw); }
-        else { kwrTrackedSet.delete(kw); }
-      });
-      kwrAllData.forEach(r => r.tracked = kwrTrackedSet.has(r.kw));
+    function kwrSelect(kw) {
+      kwrSelectedSet.add(kw);
       kwrUpdateCounts();
-      kwrSaveTracked();
-      kwrFilterTable();
-    }
-
-    function kwrToggleTrack(kw, checked) {
-      if (checked) kwrTrackedSet.add(kw);
-      else kwrTrackedSet.delete(kw);
-      kwrAllData.forEach(r => { if (r.kw === kw) r.tracked = checked; });
-      kwrUpdateCounts();
-      kwrSaveTracked();
       kwrFilterTable();
     }
 
     function kwrUndo(kw) {
-      kwrTrackedSet.delete(kw);
-      kwrAllData.forEach(r => { if (r.kw === kw) r.tracked = false; });
+      kwrSelectedSet.delete(kw);
       kwrUpdateCounts();
-      kwrSaveTracked();
       kwrFilterTable();
     }
 
     function kwrUpdateCounts() {
-      document.getElementById('kwrCountAll').textContent     = kwrAllData.filter(r => !kwrTrackedSet.has(r.kw)).length;
-      document.getElementById('kwrCountTracked').textContent = kwrTrackedSet.size;
+      document.getElementById('kwrCountAll').textContent     = kwrAllData.filter(r => !kwrSelectedSet.has(r.kw)).length;
+      document.getElementById('kwrCountTracked').textContent = kwrSelectedSet.size;
+    }
+
+    function kwrConfirmLock(kw, url) {
+      const fullUrl = url.startsWith('http') ? url : 'https://www.aboutwallart.com' + url;
+      const msg = `Save to Registry?
+
+Keyword: ${kw}
+URL: ${fullUrl}
+
+This will lock the keyword in keyword-locker-registry.csv with:
+LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
+      if (!confirm(msg)) return;
+      kwrLock(kw, fullUrl);
     }
 
     async function kwrLock(kw, url) {
-      if (!confirm(`Lock keyword "${kw}" for URL "${url}"?`)) return;
-      kwrShowStatus('⏳ Locking... 3s', '#f0f9ff', '#7dd3fc', '#0369a1');
+      kwrShowStatus('⏳ Saving to registry... 3s', '#f0f9ff', '#7dd3fc', '#0369a1');
       let secs = 2;
-      const interval = setInterval(() => { secs--; if (secs > 0) kwrShowStatus(`⏳ Locking... ${secs}s`, '#f0f9ff', '#7dd3fc', '#0369a1'); }, 1000);
+      const interval = setInterval(() => { secs--; if (secs>0) kwrShowStatus(`⏳ Saving to registry... ${secs}s`, '#f0f9ff', '#7dd3fc', '#0369a1'); }, 1000);
       try {
-        const fullUrl = url.startsWith('http') ? url : 'https://www.aboutwallart.com' + url;
         const res = await fetch('/api/blogs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'lock-keyword', keyword: kw, url: fullUrl })
+          body: JSON.stringify({ action: 'lock-keyword', keyword: kw, url })
         });
         clearInterval(interval);
         const json = await res.json();
         if (json.success) {
-          kwrRegistry[kw.toLowerCase()] = { url: fullUrl, locked: true };
-          kwrAllData.forEach(r => { if (r.kw === kw) { r.regStatus = 'locked-same'; r.regUrl = fullUrl; } });
-          kwrShowStatus('✅ Keyword locked in registry', '#f0fdf4', '#86efac', '#16a34a');
-          setTimeout(() => { document.getElementById('kwrSaveStatus').style.display = 'none'; }, 3000);
+          kwrRegistry[kw.toLowerCase()] = { url };
+          kwrAllData.forEach(r => { if (r.kw===kw) { r.regStatus='locked-same'; r.regUrl=url; } });
+          kwrShowStatus('✅ Keyword saved to registry', '#f0fdf4', '#86efac', '#16a34a');
+          setTimeout(() => { document.getElementById('kwrSaveStatus').style.display='none'; }, 3000);
           kwrFilterTable();
         } else {
-          kwrShowStatus('❌ Lock failed: ' + (json.error || 'unknown'), '#fef2f2', '#fecaca', '#dc2626');
-        }
-      } catch(e) {
-        clearInterval(interval);
-        kwrShowStatus('❌ ' + e.message, '#fef2f2', '#fecaca', '#dc2626');
-      }
-    }
-
-    async function kwrSaveTracked() {
-      kwrShowStatus('⏳ Saving... 3s', '#f0f9ff', '#7dd3fc', '#0369a1');
-      let secs = 2;
-      const interval = setInterval(() => { secs--; if (secs > 0) kwrShowStatus(`⏳ Saving... ${secs}s`, '#f0f9ff', '#7dd3fc', '#0369a1'); }, 1000);
-      try {
-        const res = await fetch('/api/blogs', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'save-tracked-keywords', keywords: Array.from(kwrTrackedSet) })
-        });
-        clearInterval(interval);
-        const json = await res.json();
-        if (json.success) {
-          kwrShowStatus('✅ Saved', '#f0fdf4', '#86efac', '#16a34a');
-          setTimeout(() => { document.getElementById('kwrSaveStatus').style.display = 'none'; }, 2000);
-        } else {
-          kwrShowStatus('❌ Save failed: ' + (json.error || 'unknown'), '#fef2f2', '#fecaca', '#dc2626');
+          kwrShowStatus('❌ Failed: ' + (json.error||'unknown'), '#fef2f2', '#fecaca', '#dc2626');
         }
       } catch(e) {
         clearInterval(interval);
