@@ -315,7 +315,7 @@
             <h1>🔒 Keyword Locker</h1>
             <p>Live GSC data · One keyword = One winner URL</p>
         </div>
-        <span class="version-badge">v11.0</span>
+        <span class="version-badge">v12.0</span>
     </div>
 
     <!-- TOKEN -->
@@ -679,17 +679,25 @@ function buildConflicts(gscRows) {
         conflicts.push({ keyword, urls, totalClicks, totalImpressions, bestPosition });
     }
 
-    // Sort by priority: total impressions * total clicks
-    conflicts.sort((a, b) => (b.totalImpressions * b.totalClicks) - (a.totalImpressions * a.totalClicks));
+    // Sort by: best position of top recommended URL (asc), then clicks (desc)
+    conflicts.sort((a, b) => {
+        const topA = a.urls[0];
+        const topB = b.urls[0];
+        // Primary: best position ascending (lower = better)
+        if (topA.position !== topB.position) return topA.position - topB.position;
+        // Secondary: clicks descending
+        return topB.clicks - topA.clicks;
+    });
     return conflicts;
 }
 
 function normaliseUrl(url) {
-    return url.replace('https://www.aboutwallart.com', 'https://aboutwallart.com').split('?')[0].replace(/\/$/, '');
+    return url.replace('https://www.aboutwallart.com', 'https://aboutwallart.com').split('?')[0].split('#')[0].replace(/\/$/, '');
 }
 
 function shouldExclude(url) {
-    return /\/(es|fr|de|it|pt|nl|ru|ja|zh|ko|ar)\//.test(url) ||
+    // Match language paths with or without trailing slash: /fr, /fr/, /es, /es/ etc
+    return /\/(es|fr|de|it|pt|nl|ru|ja|zh|ko|ar)(\/?$|\/)/.test(url) ||
            url.includes('/cdn/') ||
            url.endsWith('.js') ||
            url.endsWith('.css');
