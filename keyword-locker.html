@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Keyword Locker v1</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f2f5;
+            min-height: 100vh;
+            padding: 24px;
+            color: #1a1a2e;
+        }
+
+        .container { max-width: 1300px; margin: 0 auto; }
+
+        /* HEADER */
+        .header {
+            background: white;
+            padding: 28px 32px;
+            border-radius: 16px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+            margin-bottom: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { font-size: 28px; color: #667eea; font-weight: 700; }
+        .header p { color: #888; font-size: 14px; margin-top: 4px; }
+        .version-badge {
+            background: #f0f2f5;
+            color: #999;
+            font-size: 11px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-weight: 500;
+        }
+
+        /* TOKEN SECTION */
+        .token-section {
+            background: white;
+            padding: 28px 32px;
+            border-radius: 16px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+            margin-bottom: 24px;
+        }
+        .token-section h2 { font-size: 18px; font-weight: 600; margin-bottom: 16px; color: #333; }
+        .token-row { display: flex; gap: 12px; align-items: flex-end; }
+        .token-row input {
+            flex: 1;
+            padding: 12px 14px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+        .token-row input:focus { outline: none; border-color: #667eea; }
+        .btn-primary {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 28px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .btn-primary:hover { background: #5a6fd6; transform: translateY(-1px); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .token-hint { font-size: 12px; color: #999; margin-top: 8px; }
+
+        /* LOADING */
+        .loading-section {
+            background: white;
+            padding: 48px;
+            border-radius: 16px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+            text-align: center;
+            margin-bottom: 24px;
+        }
+        .spinner {
+            width: 44px; height: 44px;
+            border: 4px solid #f0f0f0;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 16px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-section p { color: #666; font-size: 15px; }
+
+        /* ERROR */
+        .error-box {
+            background: #fff5f5;
+            border: 2px solid #fed7d7;
+            border-radius: 12px;
+            padding: 16px 20px;
+            color: #c53030;
+            margin-bottom: 24px;
+            font-size: 14px;
+        }
+
+        /* STATS */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: white;
+            padding: 22px 18px;
+            border-radius: 14px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+        .stat-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.1); }
+        .stat-card.active { border-color: #667eea; }
+        .stat-card h3 { font-size: 40px; font-weight: 700; margin-bottom: 6px; line-height: 1; }
+        .stat-card p { color: #888; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-conflicts h3 { color: #f59e0b; }
+        .stat-resolved h3 { color: #10b981; }
+        .stat-saved h3 { color: #3b82f6; }
+        .stat-deleted h3 { color: #ef4444; }
+        .stat-redirects h3 { color: #f97316; }
+        .stat-prelocked h3 { color: #8b5cf6; }
+
+        /* PANEL (resolved/saved/deleted/redirects/prelocked views) */
+        .panel {
+            background: white;
+            padding: 28px 32px;
+            border-radius: 16px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+            margin-bottom: 24px;
+        }
+        .panel h2 { font-size: 20px; font-weight: 700; margin-bottom: 20px; }
+        .panel table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .panel th { text-align: left; padding: 10px 12px; font-weight: 600; color: #888; border-bottom: 2px solid #f0f0f0; font-size: 11px; text-transform: uppercase; }
+        .panel td { padding: 10px 12px; border-bottom: 1px solid #f5f5f5; color: #333; vertical-align: middle; }
+        .panel tr:last-child td { border-bottom: none; }
+        .panel tr:hover td { background: #fafafa; }
+        .tag {
+            display: inline-block; padding: 3px 8px; border-radius: 5px;
+            font-size: 11px; font-weight: 600;
+        }
+        .tag-source { background: #f0f2ff; color: #667eea; }
+        .tag-action { background: #e0fdf4; color: #065f46; }
+        .btn-undo {
+            background: #fef3c7; color: #92400e; border: none;
+            padding: 5px 12px; border-radius: 6px; font-size: 12px;
+            font-weight: 600; cursor: pointer; transition: all 0.2s;
+        }
+        .btn-undo:hover { background: #fde68a; }
+        .empty-state { text-align: center; color: #bbb; padding: 40px; font-size: 14px; }
+
+        /* CONFLICTS SECTION */
+        .conflicts-section {
+            background: white;
+            padding: 28px 32px;
+            border-radius: 16px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+            margin-bottom: 24px;
+        }
+        .conflicts-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .conflicts-header h2 { font-size: 22px; font-weight: 700; }
+
+        .search-bar {
+            position: relative;
+            flex: 1;
+            max-width: 380px;
+        }
+        .search-bar input {
+            width: 100%;
+            padding: 10px 36px 10px 14px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 14px;
+        }
+        .search-bar input:focus { outline: none; border-color: #667eea; }
+        .search-clear {
+            position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+            background: none; border: none; color: #bbb; font-size: 18px;
+            cursor: pointer; line-height: 1;
+        }
+
+        .btn-bulk {
+            background: #10b981; color: white; border: none;
+            padding: 10px 22px; border-radius: 10px; font-size: 14px;
+            font-weight: 600; cursor: pointer; transition: all 0.2s;
+        }
+        .btn-bulk:hover { background: #059669; }
+
+        /* CONFLICT ITEM */
+        .conflict-item {
+            border: 2px solid #f0f0f0;
+            border-radius: 14px;
+            padding: 20px;
+            margin-bottom: 16px;
+            background: #fafafa;
+            transition: border-color 0.2s;
+        }
+        .conflict-item:hover { border-color: #e0e0e0; }
+
+        .conflict-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 14px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid #ebebeb;
+            gap: 12px;
+        }
+        .conflict-left { display: flex; align-items: center; gap: 10px; }
+        .conflict-left input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+        .conflict-keyword { font-size: 17px; font-weight: 700; color: #1a1a2e; }
+        .conflict-meta { display: flex; gap: 16px; font-size: 13px; color: #888; flex-wrap: wrap; }
+        .conflict-meta span { display: flex; align-items: center; gap: 4px; }
+
+        /* URL OPTIONS */
+        .url-options { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+        .url-option {
+            background: white;
+            border: 2px solid #e8e8e8;
+            border-radius: 10px;
+            padding: 12px 14px;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .url-option:hover { border-color: #667eea; background: #f8f9ff; }
+        .url-option.selected { border-color: #667eea; background: #f0f4ff; border-width: 2px; }
+        .url-option input[type="radio"] { margin-top: 2px; width: 16px; height: 16px; cursor: pointer; }
+        .url-info { flex: 1; }
+        .url-text { font-size: 13px; color: #667eea; word-break: break-all; margin-bottom: 5px; font-weight: 500; }
+        .url-metrics { display: flex; gap: 14px; font-size: 12px; color: #888; }
+
+        /* ACTION ROW */
+        .action-row {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            padding-top: 14px;
+            border-top: 1px solid #ebebeb;
+            flex-wrap: wrap;
+        }
+        .action-row label { font-weight: 600; color: #555; font-size: 13px; }
+        .action-option {
+            display: flex; align-items: center; gap: 6px;
+            font-size: 13px; cursor: pointer; color: #555;
+        }
+        .action-option input[type="radio"] { cursor: pointer; }
+
+        /* MODAL */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.5); z-index: 1000;
+            align-items: center; justify-content: center;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal-box {
+            background: white; border-radius: 16px; padding: 32px;
+            max-width: 480px; width: 90%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+        }
+        .modal-title { font-size: 20px; font-weight: 700; margin-bottom: 12px; color: #333; }
+        .modal-body { font-size: 14px; color: #666; line-height: 1.7; margin-bottom: 20px; white-space: pre-wrap; }
+        .modal-footer { display: flex; justify-content: flex-end; }
+        .btn-ok {
+            background: #667eea; color: white; border: none;
+            padding: 10px 24px; border-radius: 8px; font-size: 14px;
+            font-weight: 600; cursor: pointer;
+        }
+
+        .hidden { display: none !important; }
+
+        /* Redirect panel extra */
+        .panel-actions { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+        .btn-secondary {
+            background: #f0f2f5; color: #555; border: none;
+            padding: 9px 18px; border-radius: 8px; font-size: 13px;
+            font-weight: 600; cursor: pointer; transition: all 0.2s;
+        }
+        .btn-secondary:hover { background: #e4e7ec; }
+        .btn-danger {
+            background: #fff5f5; color: #c53030; border: none;
+            padding: 9px 18px; border-radius: 8px; font-size: 13px;
+            font-weight: 600; cursor: pointer; transition: all 0.2s;
+        }
+        .btn-danger:hover { background: #fed7d7; }
+    </style>
+</head>
+<body>
+<div class="container">
+
+    <!-- HEADER -->
+    <div class="header">
+        <div>
+            <h1>🔒 Keyword Locker</h1>
+            <p>Live GSC data · One keyword = One winner URL</p>
+        </div>
+        <span class="version-badge">v12.1</span>
+    </div>
+
+    <!-- TOKEN -->
+    <div class="token-section" id="tokenSection">
+        <h2>GitHub Token</h2>
+        <div class="token-row">
+            <input type="password" id="githubToken" placeholder="ghp_...">
+            <button class="btn-primary" id="startBtn" onclick="startTool()">🚀 Load Conflicts</button>
+        </div>
+        <p class="token-hint">Stored in your browser. Used only to save resolutions to GitHub.</p>
+    </div>
+
+    <!-- LOADING -->
+    <div class="loading-section hidden" id="loadingSection">
+        <div class="spinner"></div>
+        <p id="loadingText">Loading...</p>
+    </div>
+
+    <!-- ERROR -->
+    <div class="error-box hidden" id="errorBox"></div>
+
+    <!-- STATS -->
+    <div class="stats-grid hidden" id="statsGrid">
+        <div class="stat-card stat-conflicts" onclick="showSection('conflicts')">
+            <h3 id="statConflicts">0</h3>
+            <p>Active Conflicts</p>
+        </div>
+        <div class="stat-card stat-resolved" onclick="showSection('resolved')">
+            <h3 id="statResolved">0</h3>
+            <p>Resolved</p>
+        </div>
+        <div class="stat-card stat-saved" onclick="showSection('saved')">
+            <h3 id="statSaved">0</h3>
+            <p>Saved for Future</p>
+        </div>
+        <div class="stat-card stat-deleted" onclick="showSection('deleted')">
+            <h3 id="statDeleted">0</h3>
+            <p>Deleted</p>
+        </div>
+        <div class="stat-card stat-redirects" onclick="showSection('redirects')">
+            <h3 id="statRedirects">0</h3>
+            <p>Redirects</p>
+        </div>
+        <div class="stat-card stat-prelocked" onclick="showSection('prelocked')">
+            <h3 id="statPrelocked">0</h3>
+            <p>Pre-locked</p>
+        </div>
+    </div>
+
+    <!-- RESOLVED PANEL -->
+    <div class="panel hidden" id="panelResolved">
+        <h2 style="color:#10b981">✅ Resolved Keywords</h2>
+        <div id="resolvedContent"></div>
+    </div>
+
+    <!-- SAVED PANEL -->
+    <div class="panel hidden" id="panelSaved">
+        <h2 style="color:#3b82f6">💾 Saved for Future</h2>
+        <div id="savedContent"></div>
+    </div>
+
+    <!-- DELETED PANEL -->
+    <div class="panel hidden" id="panelDeleted">
+        <h2 style="color:#ef4444">🗑️ Deleted Keywords</h2>
+        <div id="deletedContent"></div>
+    </div>
+
+    <!-- REDIRECTS PANEL -->
+    <div class="panel hidden" id="panelRedirects">
+        <h2 style="color:#f97316">🔀 Redirects</h2>
+        <div class="panel-actions">
+            <button class="btn-secondary" onclick="downloadRedirectsCSV()">📥 Download CSV</button>
+            <button class="btn-danger" onclick="clearRedirects()">🗑️ Clear All</button>
+        </div>
+        <div id="redirectsContent"></div>
+    </div>
+
+    <!-- PRELOCKED PANEL -->
+    <div class="panel hidden" id="panelPrelocked">
+        <h2 style="color:#8b5cf6">🔒 Pre-locked Keywords</h2>
+        <div id="prelockedContent"></div>
+    </div>
+
+    <!-- CONFLICTS SECTION -->
+    <div class="conflicts-section hidden" id="conflictsSection">
+        <div class="conflicts-header">
+            <h2>🎯 Active Conflicts (<span id="conflictCount">0</span>)</h2>
+            <div class="search-bar">
+                <input type="text" id="searchInput" placeholder="🔍 Search keywords or URLs..." oninput="filterConflicts()">
+                <button class="search-clear hidden" id="searchClear" onclick="clearSearch()">✕</button>
+            </div>
+            <button class="btn-bulk hidden" id="bulkBtn" onclick="processBulk()">
+                ⚡ Process Selected (<span id="bulkCount">0</span>)
+            </button>
+        </div>
+        <div id="conflictsList"></div>
+    </div>
+
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modal">
+    <div class="modal-box">
+        <div class="modal-title" id="modalTitle"></div>
+        <div class="modal-body" id="modalBody"></div>
+        <div class="modal-footer">
+            <button class="btn-ok" onclick="closeModal()">OK</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// ─── CONFIG ───────────────────────────────────────────────────────────────────
+const GITHUB_OWNER = 'aboutwallart';
+const GITHUB_REPO  = 'seo-tools';
+const GITHUB_BRANCH = 'main';
+const REGISTRY_PATH = 'data/keyword-locker-registry.csv';
+const API_BASE = 'https://tools.aboutwallart.com/api';
+
+// ─── STATE ────────────────────────────────────────────────────────────────────
+let resolvedKeywords  = {};  // keyword → { winnerUrl, date, source }
+let savedKeywords     = {};  // keyword → { keyword, date, source }
+let deletedKeywords   = {};  // keyword → { keyword, date }
+let redirectKeywords  = {};  // key → { keyword, oldUrl, newUrl, date }
+let prelockedKeywords = {};  // keyword → { winnerUrl, source }
+let conflictsData     = [];  // array of conflict objects
+let activeSection     = null;
+
+// ─── IndexedDB ────────────────────────────────────────────────────────────────
+let db;
+async function initDB() {
+    return new Promise((res, rej) => {
+        const req = indexedDB.open('KeywordLockerV1', 1);
+        req.onerror = () => rej(req.error);
+        req.onsuccess = () => { db = req.result; res(); };
+        req.onupgradeneeded = e => {
+            if (!e.target.result.objectStoreNames.contains('settings'))
+                e.target.result.createObjectStore('settings');
+        };
+    });
+}
+function saveToken(token) {
+    if (!db) return;
+    db.transaction(['settings'], 'readwrite').objectStore('settings').put(token, 'github_token');
+    localStorage.setItem('github_token', token);
+}
+async function loadToken() {
+    return new Promise(res => {
+        if (!db) return res(localStorage.getItem('github_token'));
+        const req = db.transaction(['settings'], 'readonly').objectStore('settings').get('github_token');
+        req.onsuccess = () => res(req.result || localStorage.getItem('github_token'));
+        req.onerror  = () => res(localStorage.getItem('github_token'));
+    });
+}
+function getToken() {
+    return document.getElementById('githubToken').value.trim();
+}
+
+// ─── UI HELPERS ───────────────────────────────────────────────────────────────
+function showLoading(text) {
+    document.getElementById('loadingSection').classList.remove('hidden');
+    document.getElementById('loadingText').textContent = text;
+}
+function hideLoading() {
+    document.getElementById('loadingSection').classList.add('hidden');
+}
+function showError(msg) {
+    const el = document.getElementById('errorBox');
+    el.textContent = '❌ ' + msg;
+    el.classList.remove('hidden');
+}
+function hideError() {
+    document.getElementById('errorBox').classList.add('hidden');
+}
+function showModal(title, body) {
+    document.getElementById('modalTitle').textContent = title;
+    document.getElementById('modalBody').textContent = body;
+    document.getElementById('modal').classList.add('show');
+}
+function closeModal() {
+    document.getElementById('modal').classList.remove('show');
+}
+
+// ─── GITHUB API ───────────────────────────────────────────────────────────────
+async function githubFetch(path, token) {
+    const res = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`, {
+        headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.raw' }
+    });
+    if (!res.ok) throw new Error(`GitHub fetch failed: ${res.statusText}`);
+    return res.text();
+}
+
+async function githubUpload(path, content, token, retries = 0) {
+    const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`;
+    // Get SHA
+    let sha = null;
+    const getRes = await fetch(`${url}?ref=${GITHUB_BRANCH}`, {
+        headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' }
+    });
+    if (getRes.ok) sha = (await getRes.json()).sha;
+
+    const body = {
+        message: `Update ${path} - ${new Date().toISOString()}`,
+        content: btoa(unescape(encodeURIComponent(content))),
+        branch: GITHUB_BRANCH
+    };
+    if (sha) body.sha = sha;
+
+    const putRes = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    });
+
+    if ((putRes.status === 409 || putRes.status === 422) && retries < 3) {
+        await new Promise(r => setTimeout(r, 500));
+        return githubUpload(path, content, token, retries + 1);
+    }
+    if (!putRes.ok) {
+        const err = await putRes.json();
+        throw new Error(`GitHub upload failed: ${err.message}`);
+    }
+}
+
+// ─── REGISTRY PARSER ──────────────────────────────────────────────────────────
+function parseRegistryCSV(csv) {
+    const lines = csv.trim().split('\n');
+    let headerIdx = -1, headers = [];
+    for (let i = 0; i < Math.min(5, lines.length); i++) {
+        const cols = lines[i].split(',').map(h => h.trim().replace(/^"|"$/g,''));
+        if (cols.some(c => c.toLowerCase() === 'keyword')) { headerIdx = i; headers = cols; break; }
+    }
+    if (headerIdx === -1) throw new Error('Registry CSV headers not found');
+
+    const rows = [];
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        const values = [];
+        let cur = '', inQ = false;
+        for (const ch of lines[i]) {
+            if (ch === '"') inQ = !inQ;
+            else if (ch === ',' && !inQ) { values.push(cur.trim()); cur = ''; }
+            else cur += ch;
+        }
+        values.push(cur.trim());
+        const row = {};
+        headers.forEach((h, idx) => row[h] = values[idx] || '');
+        rows.push(row);
+    }
+    return { headers, rows, headerLines: lines.slice(0, headerIdx + 1) };
+}
+
+function loadRegistry(csv) {
+    resolvedKeywords  = {};
+    savedKeywords     = {};
+    deletedKeywords   = {};
+    redirectKeywords  = {};
+    prelockedKeywords = {};
+
+    const { rows } = parseRegistryCSV(csv);
+
+    for (const row of rows) {
+        const keyword = (row['Keyword'] || '').toLowerCase().trim();
+        const url     = row['Page URL'] || row['Ranking URL'] || '';
+        const locked  = (row['LOCKED'] || '').trim();
+        const status  = (row['Status'] || '').trim();
+        const action  = (row['Action'] || '').trim();
+        const source  = (row['Source'] || '').trim();
+
+        if (!keyword) continue;
+
+        // Skip INTERNAL_LINK entirely
+        if (action === 'INTERNAL_LINK') continue;
+
+        if (locked === 'LOCKED' && status === 'DONE') {
+            if (action === 'TO_OPTIMIZE' || action === 'OPTIMIZED') {
+                if (source === 'User Resolved') {
+                    resolvedKeywords[keyword] = { winnerUrl: url, date: new Date().toISOString(), source };
+                } else {
+                    // Pre-locked: Published Blog or Pre-Optimized Page
+                    prelockedKeywords[keyword] = { winnerUrl: url, source };
+                }
+            } else if (action === 'SAVED_FOR_FUTURE') {
+                savedKeywords[keyword] = { keyword, date: new Date().toISOString(), source };
+            } else if (action === 'DELETED') {
+                deletedKeywords[keyword] = { keyword, date: new Date().toISOString() };
+            } else if (action === 'REDIRECT') {
+                const cleanUrl = url.split('?')[0];
+                const redirKey = `${keyword}|${url}`;
+                redirectKeywords[redirKey] = { keyword, oldUrl: url, newUrl: cleanUrl, date: new Date().toISOString() };
+            }
+        }
+    }
+}
+
+// ─── GSC FETCH ────────────────────────────────────────────────────────────────
+async function fetchGSCPageQuery() {
+    const res = await fetch(`${API_BASE}/gsc?action=page-query`);
+    if (!res.ok) throw new Error(`GSC API error: ${res.statusText}`);
+    const data = await res.json();
+    if (!data.success || !data.data || !data.data.rows) throw new Error('GSC returned unexpected format');
+    // Each row: { keys: [url, query], clicks, impressions, ctr, position }
+    return data.data.rows.map(row => ({
+        page:        row.keys[0],
+        query:       row.keys[1],
+        clicks:      row.clicks,
+        impressions: row.impressions,
+        ctr:         row.ctr,
+        position:    row.position
+    }));
+}
+
+// ─── CONFLICT DETECTION ───────────────────────────────────────────────────────
+function buildConflicts(gscRows) {
+    // Build skip set - redirectKeywords keys are "keyword|url" so extract just keyword
+    const redirectKws = Object.keys(redirectKeywords).map(k => k.split('|')[0]);
+    const skipSet = new Set([
+        ...Object.keys(resolvedKeywords),
+        ...Object.keys(savedKeywords),
+        ...Object.keys(deletedKeywords),
+        ...Object.keys(prelockedKeywords),
+        ...redirectKws
+    ]);
+
+    // Group by keyword
+    const byKeyword = {};
+    for (const row of gscRows) {
+        const kw  = (row.query || row.keys?.[0] || '').toLowerCase().trim();
+        const url = normaliseUrl(row.page || row.keys?.[1] || '');
+        if (!kw || !url) continue;
+        if (skipSet.has(kw)) continue;
+        if (shouldExclude(url)) continue;
+
+        if (!byKeyword[kw]) byKeyword[kw] = {};
+        // If same URL appears multiple times, keep best metrics
+        if (!byKeyword[kw][url] || row.clicks > byKeyword[kw][url].clicks) {
+            byKeyword[kw][url] = {
+                url,
+                clicks:      parseInt(row.clicks)      || 0,
+                impressions: parseInt(row.impressions)  || 0,
+                ctr:         parseFloat(row.ctr)        || 0,
+                position:    parseFloat(row.position)   || 0
+            };
+        }
+    }
+
+    // Find conflicts (2+ pages for same keyword)
+    const conflicts = [];
+    for (const [keyword, urlMap] of Object.entries(byKeyword)) {
+        const urls = Object.values(urlMap);
+        if (urls.length < 2) continue;
+
+        // Sort by clicks desc, then position asc
+        urls.sort((a, b) => b.clicks - a.clicks || a.position - b.position);
+
+        // Get keyword-level metrics (sum impressions, use best position, total clicks)
+        const totalClicks      = urls.reduce((s, u) => s + u.clicks, 0);
+        const totalImpressions = urls.reduce((s, u) => s + u.impressions, 0);
+        const bestPosition     = Math.min(...urls.map(u => u.position));
+
+        conflicts.push({ keyword, urls, totalClicks, totalImpressions, bestPosition });
+    }
+
+    // Sort by: best position of top recommended URL (asc), then clicks (desc)
+    conflicts.sort((a, b) => {
+        const topA = a.urls[0];
+        const topB = b.urls[0];
+        // Primary: best position ascending (lower = better)
+        if (topA.position !== topB.position) return topA.position - topB.position;
+        // Secondary: clicks descending
+        return topB.clicks - topA.clicks;
+    });
+    return conflicts;
+}
+
+function normaliseUrl(url) {
+    return url.replace('https://www.aboutwallart.com', 'https://aboutwallart.com').split('?')[0].split('#')[0].replace(/\/$/, '');
+}
+
+function shouldExclude(url) {
+    // Match language paths with or without trailing slash: /fr, /fr/, /es, /es/ etc
+    return /\/(es|fr|de|it|pt|nl|ru|ja|zh|ko|ar)(\/?$|\/)/.test(url) ||
+           url.includes('/cdn/') ||
+           url.endsWith('.js') ||
+           url.endsWith('.css');
+}
+
+// ─── STATS ────────────────────────────────────────────────────────────────────
+function updateStats() {
+    document.getElementById('statConflicts').textContent = conflictsData.length;
+    document.getElementById('statResolved').textContent  = Object.keys(resolvedKeywords).length;
+    document.getElementById('statSaved').textContent     = Object.keys(savedKeywords).length;
+    document.getElementById('statDeleted').textContent   = Object.keys(deletedKeywords).length;
+    document.getElementById('statRedirects').textContent = Object.keys(redirectKeywords).length;
+    document.getElementById('statPrelocked').textContent = Object.keys(prelockedKeywords).length;
+    document.getElementById('conflictCount').textContent = conflictsData.length;
+}
+
+// ─── SECTION TOGGLE ───────────────────────────────────────────────────────────
+const panels = {
+    conflicts: 'conflictsSection',
+    resolved:  'panelResolved',
+    saved:     'panelSaved',
+    deleted:   'panelDeleted',
+    redirects: 'panelRedirects',
+    prelocked: 'panelPrelocked'
+};
+
+function showSection(name) {
+    // Toggle off if already active
+    if (activeSection === name) {
+        document.getElementById(panels[name]).classList.add('hidden');
+        activeSection = null;
+        return;
+    }
+    // Hide all
+    Object.values(panels).forEach(id => document.getElementById(id).classList.add('hidden'));
+    activeSection = name;
+    document.getElementById(panels[name]).classList.remove('hidden');
+
+    // Render content
+    if (name === 'resolved')  renderResolved();
+    if (name === 'saved')     renderSaved();
+    if (name === 'deleted')   renderDeleted();
+    if (name === 'redirects') renderRedirects();
+    if (name === 'prelocked') renderPrelocked();
+    if (name === 'conflicts') renderConflicts();
+}
+
+// ─── RENDER HELPERS ───────────────────────────────────────────────────────────
+function renderResolved() {
+    const entries = Object.entries(resolvedKeywords).sort((a,b) => b[1].date.localeCompare(a[1].date));
+    const el = document.getElementById('resolvedContent');
+    if (!entries.length) { el.innerHTML = '<p class="empty-state">No resolved keywords yet.</p>'; return; }
+    el.innerHTML = `<table>
+        <thead><tr><th>Keyword</th><th>Locked URL</th><th>Action</th></tr></thead>
+        <tbody>${entries.map(([kw, d]) => `
+        <tr>
+            <td>${kw}</td>
+            <td style="color:#667eea;font-size:12px">${d.winnerUrl}</td>
+            <td><button class="btn-undo" onclick="undoKeyword('resolved','${esc(kw)}')">↩️ Undo</button></td>
+        </tr>`).join('')}</tbody>
+    </table>`;
+}
+
+function renderSaved() {
+    const entries = Object.entries(savedKeywords).sort((a,b) => b[1].date.localeCompare(a[1].date));
+    const el = document.getElementById('savedContent');
+    if (!entries.length) { el.innerHTML = '<p class="empty-state">No saved keywords yet.</p>'; return; }
+    el.innerHTML = `<table>
+        <thead><tr><th>Keyword</th><th>Source</th><th>Action</th></tr></thead>
+        <tbody>${entries.map(([kw, d]) => `
+        <tr>
+            <td>${kw}</td>
+            <td><span class="tag tag-source">${d.source}</span></td>
+            <td><button class="btn-undo" onclick="undoKeyword('saved','${esc(kw)}')">↩️ Undo</button></td>
+        </tr>`).join('')}</tbody>
+    </table>`;
+}
+
+function renderDeleted() {
+    const entries = Object.entries(deletedKeywords).sort((a,b) => b[1].date.localeCompare(a[1].date));
+    const el = document.getElementById('deletedContent');
+    if (!entries.length) { el.innerHTML = '<p class="empty-state">No deleted keywords yet.</p>'; return; }
+    el.innerHTML = `<table>
+        <thead><tr><th>Keyword</th><th>Action</th></tr></thead>
+        <tbody>${entries.map(([kw]) => `
+        <tr>
+            <td>${kw}</td>
+            <td><button class="btn-undo" onclick="undoKeyword('deleted','${esc(kw)}')">↩️ Undo</button></td>
+        </tr>`).join('')}</tbody>
+    </table>`;
+}
+
+function renderRedirects() {
+    const entries = Object.values(redirectKeywords);
+    const el = document.getElementById('redirectsContent');
+    if (!entries.length) { el.innerHTML = '<p class="empty-state">No redirects detected.</p>'; return; }
+    el.innerHTML = `<p style="font-size:13px;color:#888;margin-bottom:12px">Showing ${entries.length} redirects</p>
+    <table>
+        <thead><tr><th>Keyword</th><th>Old URL</th><th>New URL</th></tr></thead>
+        <tbody>${entries.map(r => `
+        <tr>
+            <td>${r.keyword}</td>
+            <td style="font-size:12px;color:#888;word-break:break-all">${r.oldUrl}</td>
+            <td style="font-size:12px;color:#10b981;word-break:break-all">${r.newUrl}</td>
+        </tr>`).join('')}</tbody>
+    </table>`;
+}
+
+function renderPrelocked() {
+    const entries = Object.entries(prelockedKeywords).sort((a,b) => a[0].localeCompare(b[0]));
+    const el = document.getElementById('prelockedContent');
+    if (!entries.length) { el.innerHTML = '<p class="empty-state">No pre-locked keywords.</p>'; return; }
+    el.innerHTML = `<p style="font-size:13px;color:#888;margin-bottom:12px">Showing ${entries.length} pre-locked keywords</p>
+    <table>
+        <thead><tr><th>Keyword</th><th>Locked URL</th><th>Source</th></tr></thead>
+        <tbody>${entries.map(([kw, d]) => `
+        <tr>
+            <td>${kw}</td>
+            <td style="color:#667eea;font-size:12px">${d.winnerUrl}</td>
+            <td><span class="tag tag-source">${d.source}</span></td>
+        </tr>`).join('')}</tbody>
+    </table>`;
+}
+
+// ─── CONFLICTS RENDER ─────────────────────────────────────────────────────────
+function renderConflicts() {
+    const container = document.getElementById('conflictsList');
+    container.innerHTML = '';
+
+    if (!conflictsData.length) {
+        container.innerHTML = '<p class="empty-state">No conflicts found! 🎉</p>';
+        return;
+    }
+
+    // Build set of ALL winner URLs (User Resolved + Pre-locked)
+    const winnerUrls = new Set([
+        ...Object.values(resolvedKeywords).map(d => d.winnerUrl.toLowerCase()),
+        ...Object.values(prelockedKeywords).map(d => d.winnerUrl.toLowerCase())
+    ]);
+
+    conflictsData.forEach((conflict, idx) => {
+        // Filter out URLs that are already winners for other keywords
+        const availableUrls = conflict.urls.filter(u => !winnerUrls.has(u.url.toLowerCase()));
+
+        // If 0 or 1 URLs left after filtering, silently hide - no real conflict
+        if (availableUrls.length < 2) {
+            return;
+        }
+
+        const div = document.createElement('div');
+        div.className = 'conflict-item';
+        div.id = `ci-${idx}`;
+
+        let urlsHtml = availableUrls.map((u, ui) => `
+            <div class="url-option ${ui === 0 ? 'selected' : ''}" onclick="selectUrl(${idx},${ui})">
+                <input type="radio" name="url-${idx}" value="${encodeURIComponent(u.url)}" ${ui === 0 ? 'checked' : ''} onclick="event.stopPropagation()">
+                <div class="url-info">
+                    <div class="url-text">${u.url}</div>
+                    <div class="url-metrics">
+                        <span>👆 ${u.clicks} clicks</span>
+                        <span>👁 ${u.impressions} impressions</span>
+                        <span>📍 Pos ${u.position.toFixed(1)}</span>
+                    </div>
+                </div>
+            </div>`).join('');
+
+        div.innerHTML = `
+            <div class="conflict-top">
+                <div class="conflict-left">
+                    <input type="checkbox" id="chk-${idx}" class="conflict-chk" onchange="updateBulkBtn()">
+                    <span class="conflict-keyword">${conflict.keyword}</span>
+                </div>
+                <div class="conflict-meta">
+                    <span>📊 ${conflict.totalImpressions.toLocaleString()} impressions</span>
+                    <span>👆 ${conflict.totalClicks} clicks</span>
+                    <span>📍 Best pos ${conflict.bestPosition.toFixed(1)}</span>
+                    <span>🔗 ${availableUrls.length} pages</span>
+                </div>
+            </div>
+            <div class="url-options">${urlsHtml}</div>
+            <div class="action-row">
+                <label>Action:</label>
+                <label class="action-option"><input type="radio" name="act-${idx}" value="resolve" checked> ✅ Resolve</label>
+                <label class="action-option"><input type="radio" name="act-${idx}" value="save"> 💾 Save for Future</label>
+                <label class="action-option"><input type="radio" name="act-${idx}" value="delete"> 🗑️ Delete</label>
+            </div>`;
+
+        container.appendChild(div);
+    });
+
+}
+
+function selectUrl(conflictIdx, urlIdx) {
+    const options = document.querySelectorAll(`#ci-${conflictIdx} .url-option`);
+    options.forEach((o, i) => {
+        o.classList.toggle('selected', i === urlIdx);
+        o.querySelector('input[type="radio"]').checked = (i === urlIdx);
+    });
+}
+
+function filterConflicts() {
+    const q = document.getElementById('searchInput').value.toLowerCase().trim();
+    document.getElementById('searchClear').classList.toggle('hidden', !q);
+    document.querySelectorAll('.conflict-item').forEach(el => {
+        const kw = el.querySelector('.conflict-keyword').textContent.toLowerCase();
+        const urls = [...el.querySelectorAll('.url-text')].map(u => u.textContent.toLowerCase());
+        el.style.display = (!q || kw.includes(q) || urls.some(u => u.includes(q))) ? '' : 'none';
+    });
+}
+
+function clearSearch() {
+    document.getElementById('searchInput').value = '';
+    document.getElementById('searchClear').classList.add('hidden');
+    document.querySelectorAll('.conflict-item').forEach(el => el.style.display = '');
+}
+
+function updateBulkBtn() {
+    const count = document.querySelectorAll('.conflict-chk:checked').length;
+    const btn = document.getElementById('bulkBtn');
+    document.getElementById('bulkCount').textContent = count;
+    btn.classList.toggle('hidden', count === 0);
+}
+
+// ─── PROCESS SINGLE (not used — bulk handles everything) ──────────────────────
+
+// ─── BULK PROCESS ─────────────────────────────────────────────────────────────
+async function processBulk() {
+    const checked = [...document.querySelectorAll('.conflict-chk:checked')];
+    if (!checked.length) return;
+
+    const indices = checked.map(c => parseInt(c.id.replace('chk-', '')));
+    const resolutions = [], saves = [], deletes = [];
+
+    for (const idx of indices) {
+        const conflict = conflictsData[idx];
+        const action = document.querySelector(`input[name="act-${idx}"]:checked`)?.value;
+        if (!action) { showModal('❌ Error', `No action selected for: "${conflict.keyword}"`); return; }
+
+        if (action === 'resolve') {
+            const radio = document.querySelector(`#ci-${idx} input[name="url-${idx}"]:checked`);
+            if (!radio) { showModal('❌ Error', `No URL selected for: "${conflict.keyword}"`); return; }
+            const url = decodeURIComponent(radio.value);
+            resolutions.push({ idx, keyword: conflict.keyword, url });
+        } else if (action === 'save') {
+            saves.push({ idx, keyword: conflict.keyword });
+        } else {
+            deletes.push({ idx, keyword: conflict.keyword });
+        }
+    }
+
+    const token = getToken();
+    if (!token) { showModal('❌ Error', 'GitHub token required'); return; }
+
+    try {
+        const total = resolutions.length + saves.length + deletes.length;
+        showLoading(`Saving ${total} actions to GitHub...`);
+
+        // Update in-memory
+        resolutions.forEach(r => {
+            resolvedKeywords[r.keyword.toLowerCase()] = { winnerUrl: r.url, date: new Date().toISOString(), source: 'User Resolved' };
+        });
+        saves.forEach(s => {
+            savedKeywords[s.keyword.toLowerCase()] = { keyword: s.keyword, date: new Date().toISOString(), source: 'User Action' };
+        });
+        deletes.forEach(d => {
+            deletedKeywords[d.keyword.toLowerCase()] = { keyword: d.keyword, date: new Date().toISOString() };
+        });
+
+        // Save to GitHub
+        await saveRegistryActions(resolutions, saves, deletes, token);
+
+        // Remove from conflictsData (reverse order)
+        indices.sort((a,b) => b-a).forEach(i => conflictsData.splice(i, 1));
+
+        updateStats();
+        renderConflicts();
+        hideLoading();
+
+        showModal('✅ Saved', `Processed ${total} conflicts:\n• ${resolutions.length} resolved\n• ${saves.length} saved for future\n• ${deletes.length} deleted`);
+
+    } catch (err) {
+        hideLoading();
+        // Rollback
+        resolutions.forEach(r => delete resolvedKeywords[r.keyword.toLowerCase()]);
+        saves.forEach(s => delete savedKeywords[s.keyword.toLowerCase()]);
+        deletes.forEach(d => delete deletedKeywords[d.keyword.toLowerCase()]);
+        showModal('❌ Failed', err.message);
+    }
+}
+
+// ─── GITHUB SAVE ──────────────────────────────────────────────────────────────
+async function saveRegistryActions(resolutions, saves, deletes, token) {
+    const csv = await githubFetch(REGISTRY_PATH, token);
+    const { headerLines, rows } = parseRegistryCSV(csv);
+
+    const existingKeys = new Set(rows.map(r => {
+        const kw = (r['Keyword'] || '').toLowerCase();
+        const url = r['Page URL'] || r['Ranking URL'] || '';
+        return `${kw}|${url.toLowerCase()}`;
+    }));
+
+    const newRows = [];
+
+    resolutions.forEach(r => {
+        const key = `${r.keyword.toLowerCase()}|${r.url.toLowerCase()}`;
+        if (!existingKeys.has(key)) {
+            newRows.push(`${r.keyword},${r.url},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,User Resolved`);
+            existingKeys.add(key);
+        }
+    });
+    saves.forEach(s => {
+        const key = `${s.keyword.toLowerCase()}|n/a`;
+        if (!existingKeys.has(key)) {
+            newRows.push(`${s.keyword},N/A,LOCKED,DONE,SAVED_FOR_FUTURE,N/A,N/A,N/A,N/A,User Action`);
+            existingKeys.add(key);
+        }
+    });
+    deletes.forEach(d => {
+        const key = `${d.keyword.toLowerCase()}|n/a`;
+        if (!existingKeys.has(key)) {
+            newRows.push(`${d.keyword},N/A,LOCKED,DONE,DELETED,N/A,N/A,N/A,N/A,User Action`);
+            existingKeys.add(key);
+        }
+    });
+
+    if (!newRows.length) return; // Nothing new to save
+
+    // Combine existing rows + new rows, sort alphabetically
+    const allDataRows = [
+        ...rows.map(r => {
+            const vals = Object.values(r);
+            return vals.join(',');
+        }),
+        ...newRows
+    ].sort((a, b) => a.split(',')[0].toLowerCase().localeCompare(b.split(',')[0].toLowerCase()));
+
+    const finalCsv = headerLines.join('\n') + '\n' + allDataRows.join('\n') + '\n';
+    await githubUpload(REGISTRY_PATH, finalCsv, token);
+}
+
+// ─── UNDO ─────────────────────────────────────────────────────────────────────
+async function undoKeyword(type, keyword) {
+    if (!confirm(`Restore "${keyword}" back to active conflicts?`)) return;
+    const token = getToken();
+    if (!token) { showModal('❌ Error', 'GitHub token required'); return; }
+
+    try {
+        showLoading('Removing from registry...');
+        await removeFromRegistry(keyword, token);
+
+        if (type === 'resolved')  delete resolvedKeywords[keyword];
+        if (type === 'saved')     delete savedKeywords[keyword];
+        if (type === 'deleted')   delete deletedKeywords[keyword];
+
+        // Re-add to conflicts if it was in GSC data
+        // (we'd need to re-fetch but for now just refresh)
+        updateStats();
+        if (type === 'resolved')  renderResolved();
+        if (type === 'saved')     renderSaved();
+        if (type === 'deleted')   renderDeleted();
+        hideLoading();
+        showModal('✅ Done', `"${keyword}" removed from registry.\n\nRefresh the tool to see it back in Active Conflicts.`);
+    } catch (err) {
+        hideLoading();
+        showModal('❌ Failed', err.message);
+    }
+}
+
+async function removeFromRegistry(keyword, token) {
+    const csv = await githubFetch(REGISTRY_PATH, token);
+    const { headerLines, rows } = parseRegistryCSV(csv);
+    const filtered = rows.filter(r => (r['Keyword'] || '').toLowerCase() !== keyword.toLowerCase());
+    const dataRows = filtered.map(r => Object.values(r).join(','));
+    const finalCsv = headerLines.join('\n') + '\n' + dataRows.join('\n') + '\n';
+    await githubUpload(REGISTRY_PATH, finalCsv, token);
+}
+
+// ─── REDIRECTS ────────────────────────────────────────────────────────────────
+function downloadRedirectsCSV() {
+    const redirects = Object.values(redirectKeywords);
+    if (!redirects.length) { alert('No redirects to download'); return; }
+    let csv = 'Old URL,New URL\n';
+    redirects.forEach(r => csv += `${r.oldUrl},${r.newUrl}\n`);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = `redirects-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+}
+
+function clearRedirects() {
+    if (!Object.keys(redirectKeywords).length) { alert('No redirects to clear'); return; }
+    if (!confirm('Clear all redirects from this session?')) return;
+    redirectKeywords = {};
+    updateStats();
+    renderRedirects();
+}
+
+// ─── MAIN LOADER ──────────────────────────────────────────────────────────────
+async function startTool() {
+    const token = document.getElementById('githubToken').value.trim();
+    if (!token) { showError('Please enter your GitHub token'); return; }
+
+    saveToken(token);
+    hideError();
+    document.getElementById('startBtn').disabled = true;
+
+    try {
+        // Step 1: Load registry
+        showLoading('Loading registry from GitHub...');
+        const registryCsv = await githubFetch(REGISTRY_PATH, token);
+        loadRegistry(registryCsv);
+
+        // Step 2: Fetch live GSC data
+        showLoading('Fetching live data from GSC...');
+        const gscRows = await fetchGSCPageQuery();
+
+        // Step 3: Find conflicts
+        showLoading('Detecting conflicts...');
+        conflictsData = buildConflicts(gscRows);
+
+        // Step 4: Show UI
+        hideLoading();
+        document.getElementById('statsGrid').classList.remove('hidden');
+        updateStats();
+
+        // Auto-show conflicts
+        showSection('conflicts');
+
+        showModal('✅ Done', `Loaded ${gscRows.length.toLocaleString()} GSC rows.\nFound ${conflictsData.length} active conflicts.`);
+
+    } catch (err) {
+        hideLoading();
+        showError(err.message);
+        document.getElementById('startBtn').disabled = false;
+    }
+}
+
+// Auto-save batch of keywords as SAVED_FOR_FUTURE to GitHub
+async function saveAutoSavedBatch(keywords) {
+    const token = getToken();
+    if (!token) return;
+    try {
+        const csv = await githubFetch(REGISTRY_PATH, token);
+        const { headerLines, rows } = parseRegistryCSV(csv);
+        const existingKeys = new Set(rows.map(r => (r['Keyword'] || '').toLowerCase().trim()));
+        const newRows = keywords
+            .filter(kw => !existingKeys.has(kw.toLowerCase()))
+            .map(kw => `${kw},N/A,LOCKED,DONE,SAVED_FOR_FUTURE,N/A,N/A,N/A,N/A,Auto-Saved`);
+        if (!newRows.length) return;
+        const allRows = [
+            ...rows.map(r => Object.values(r).join(',')),
+            ...newRows
+        ].sort((a, b) => a.split(',')[0].toLowerCase().localeCompare(b.split(',')[0].toLowerCase()));
+        const finalCsv = headerLines.join('\n') + '\n' + allRows.join('\n') + '\n';
+        await githubUpload(REGISTRY_PATH, finalCsv, token);
+    } catch (err) {
+        console.error('Auto-save batch failed:', err);
+    }
+}
+
+function esc(str) { return str.replace(/'/g, "\'"); }
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', async () => {
+    await initDB();
+    const saved = await loadToken();
+    if (saved) document.getElementById('githubToken').value = saved;
+});
+</script>
+</body>
+</html>
