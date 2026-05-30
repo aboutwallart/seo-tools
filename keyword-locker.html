@@ -315,7 +315,7 @@
             <h1>🔒 Keyword Locker</h1>
             <p>Live GSC data · One keyword = One winner URL</p>
         </div>
-        <span class="version-badge">v1.0 · 2026-05-30</span>
+        <span class="version-badge">v10.1</span>
     </div>
 
     <!-- TOKEN -->
@@ -615,9 +615,16 @@ async function fetchGSCPageQuery() {
     const res = await fetch(`${API_BASE}/gsc?action=page-query`);
     if (!res.ok) throw new Error(`GSC API error: ${res.statusText}`);
     const data = await res.json();
-    // Expected: array of { query, page, clicks, impressions, ctr, position }
-    if (!Array.isArray(data)) throw new Error('GSC returned unexpected format');
-    return data;
+    if (!data.success || !data.data || !data.data.rows) throw new Error('GSC returned unexpected format');
+    // Each row: { keys: [url, query], clicks, impressions, ctr, position }
+    return data.data.rows.map(row => ({
+        page:        row.keys[0],
+        query:       row.keys[1],
+        clicks:      row.clicks,
+        impressions: row.impressions,
+        ctr:         row.ctr,
+        position:    row.position
+    }));
 }
 
 // ─── CONFLICT DETECTION ───────────────────────────────────────────────────────
