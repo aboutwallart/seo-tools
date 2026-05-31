@@ -192,7 +192,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v11.1</div>
+    <div class="version">v11.2</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -623,12 +623,25 @@ function buildSuggestPanel(item) {
       .sort((a,b)=>b.score-a.score).slice(0,6);
   }
 
-  // For products: get all matched collections for dropdown
+  // For products: get actual collections the product belongs to
   function getProductCollectionOptions() {
-    const allCols = getAllCollectionsSorted();
-    const best = allCols.slice(0,1);
-    const rest = allCols.slice(1, 8); // up to 7 more for dropdown
-    return { best, rest, all: allCols.slice(0,8) };
+    const memberIds = new Set((item.collectionIds || []).map(String));
+    // Get all collection items the product actually belongs to
+    const memberCols = AppState.items.filter(i =>
+      i.type === 'collection' && memberIds.has(String(i.shopifyId))
+    );
+    // Sort: best keyword match first
+    memberCols.sort((a,b) => scoreRelevance(item,b).score - scoreRelevance(item,a).score);
+    // If no membership data, fall back to keyword scoring
+    if(!memberCols.length) {
+      const scored = AppState.items
+        .filter(i=>i.type==='collection')
+        .map(c=>({ item:c, score:scoreRelevance(item,c).score }))
+        .sort((a,b)=>b.score-a.score)
+        .slice(0,8);
+      return { best: scored.slice(0,1).map(s=>s.item), rest: scored.slice(1).map(s=>s.item) };
+    }
+    return { best: memberCols.slice(0,1), rest: memberCols.slice(1) };
   }
 
   let sections = '';
@@ -652,19 +665,19 @@ function buildSuggestPanel(item) {
     let collectionHtml = '';
     if(linkType === 'product') {
       const { best, rest } = getProductCollectionOptions();
-      const bestItem = best.length ? best[0].item : null;
+      const bestItem = best.length ? best[0] : null;
       if(bestItem) {
-        const dropdownOptions = rest.map(s=>`<option value="${escHtml(s.item.id)}" data-url="${escHtml(s.item.url)}" data-title="${escHtml(s.item.title)}">${escHtml(s.item.title)}</option>`).join('');
+        const dropdownOptions = rest.map(c=>`<option value="${escHtml(c.id)}" data-url="${escHtml(c.url)}" data-title="${escHtml(c.title)}">${escHtml(c.title)}</option>`).join('');
         collectionHtml = `
           <div class="suggest-item pre-checked" id="col-item-${item.id}">
             <input type="checkbox" checked class="sug-cb sug-collection"
-              data-item-id="${item.id}" data-candidate-id="${bestItem.id}"
+              data-item-id="${item.id}" data-candidate-id="${escHtml(bestItem.id)}"
               data-candidate-url="${escHtml(bestItem.url)}" data-candidate-title="${escHtml(bestItem.title)}"
               data-candidate-type="collection" id="sug-col-cb-${item.id}" />
             <div class="suggest-item-info">
               <div class="suggest-item-title" id="sug-col-title-${item.id}">${escHtml(bestItem.title)}</div>
               <div class="suggest-item-url" id="sug-col-url-${item.id}">${escHtml(bestItem.url)}</div>
-              <div class="suggest-item-badges"><span class="badge" style="background:#e3f2fd;color:#1565c0;">COLLECTION</span></div>
+              <div class="suggest-item-badges"><span class="badge" style="background:#e3f2fd;color:#1565c0;">COLLECTION</span><span class="badge badge-inbound">${(AppState.linkGraph.inbound[bestItem.id]||[]).length} inbound</span></div>
               ${dropdownOptions ? `<div style="margin-top:6px;"><label style="font-size:11px;color:#888;">Change collection: </label><select onchange="changeCollectionSelection(this,'${item.id}')" style="font-size:12px;padding:3px 6px;border:1px solid #ddd;border-radius:4px;"><option value="">— keep current —</option>${dropdownOptions}</select></div>` : ''}
             </div>
           </div>`;
@@ -1160,6 +1173,26 @@ async function syncFromShopify(){
     const smartCols=(scD.smart_collections||[]).map(c=>({id:'smart-'+c.id,shopifyId:c.id,title:c.title,handle:c.handle,type:'collection',publishedAt:c.published_at,bodyHtml:c.body_html||'',tags:[],vendor:'',url:'https://aboutwallart.com/collections/'+c.handle}));
     allItems.push(...smartCols);
     setLoadingStep('Collections: '+(customCols.length+smartCols.length)+' found',78);
+
+    // Fetch product→collection membership (collects)
+    setLoadingStep('Fetching product-collection memberships...',79);
+    try {
+      const collectsD = await shopifyFetch('collects.json?limit=250&fields=product_id,collection_id');
+      const collects = collectsD.collects || [];
+      // Build map: shopify product id -> [shopify collection ids]
+      const productCollectMap = {};
+      collects.forEach(c => {
+        const pid = String(c.product_id);
+        if(!productCollectMap[pid]) productCollectMap[pid] = [];
+        productCollectMap[pid].push(String(c.collection_id));
+      });
+      // Attach collectionIds to each product
+      allItems.forEach(item => {
+        if(item.type === 'product') {
+          item.collectionIds = productCollectMap[String(item.shopifyId)] || [];
+        }
+      });
+    } catch(e) { console.warn('Collects fetch failed:', e); }
 
     setLoadingStep('Parsing links...',80);
     for(const item of allItems) allLinks.push(...parseItemLinks(item));
