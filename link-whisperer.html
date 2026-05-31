@@ -192,7 +192,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v12.1</div>
+    <div class="version">v13.0</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -300,7 +300,32 @@
     </div>
   </div>
 
-  <div id="tab-domains-report" class="tab-content"><p class="placeholder-msg">Domains Report — coming soon.</p></div>
+  <div id="tab-domains-report" class="tab-content">
+    <div class="report-toolbar">
+      <input type="text" id="dr-search" placeholder="Filter by domain..." oninput="renderDomainsReport()" />
+      <button class="btn-outline" onclick="exportDomainsDetailed()">DETAILED EXPORT TO CSV</button>
+      <button class="btn-outline" onclick="exportDomainsSummary()">SUMMARY EXPORT TO CSV</button>
+    </div>
+    <div class="table-wrap">
+      <table style="table-layout:fixed;">
+        <thead>
+          <tr>
+            <th style="width:45%;cursor:pointer;" onclick="sortDomainsReport('domain')">Domain <span class="sort-icon" id="dr-sort-domain"></span></th>
+            <th style="width:25%;cursor:pointer;" onclick="sortDomainsReport('items')">Linking Items <span class="sort-icon" id="dr-sort-items"></span></th>
+            <th style="width:30%;cursor:pointer;" onclick="sortDomainsReport('links')">Links <span class="sort-icon" id="dr-sort-links"></span></th>
+          </tr>
+        </thead>
+        <tbody id="dr-tbody"></tbody>
+      </table>
+      <div class="pagination">
+        <span id="dr-count">Showing 0–0 of 0 domains</span>
+        <div class="pagination-btns">
+          <button class="btn-page" id="dr-prev" onclick="drChangePage(-1)">&#8592;</button>
+          <button class="btn-page" id="dr-next" onclick="drChangePage(1)">&#8594;</button>
+        </div>
+      </div>
+    </div>
+  </div>
   <div id="tab-broken-links" class="tab-content"><p class="placeholder-msg">Broken Links Report — coming soon.</p></div>
   <div id="tab-auto-linking" class="tab-content"><p class="placeholder-msg">Auto Linking — coming soon.</p></div>
   <div id="tab-url-changer" class="tab-content"><p class="placeholder-msg">URL Changer — coming soon.</p></div>
@@ -518,6 +543,7 @@ function switchTab(tabName, silent) {
   if (content) content.classList.add('active');
   document.querySelectorAll('.tab-btn').forEach(b=>{ if((b.getAttribute('onclick')||'').includes("'"+tabName+"'")) b.classList.add('active'); });
   if (!silent) localStorage.setItem('lw-active-tab', tabName);
+  if (tabName==='domains-report') renderDomainsReport();
 }
 
 async function shopifyFetch(endpoint, method, body) {
@@ -1439,6 +1465,154 @@ function toggleExpand(itemId,col){
 }
 
 function lrChangePage(dir){ AppState.lrPage+=dir; renderLinksReport(); }
+
+// ─── DOMAINS REPORT ──────────────────────────────────────────────────────────
+
+// Build domain data from AppState.links
+function buildDomainsData() {
+  const domainMap = {}; // domain -> { domain, items: Set of sourceIds, links: [targetUrl] }
+  AppState.links.forEach(link => {
+    let domain;
+    try { domain = new URL(link.targetUrl).origin; } catch(e) { return; }
+    if(!domainMap[domain]) domainMap[domain] = { domain, itemIds: new Set(), links: [] };
+    domainMap[domain].itemIds.add(link.sourceId);
+    domainMap[domain].links.push({ targetUrl: link.targetUrl, sourceId: link.sourceId });
+  });
+  return Object.values(domainMap).map(d => ({
+    domain: d.domain,
+    itemCount: d.itemIds.size,
+    itemIds: [...d.itemIds],
+    links: d.links,
+    linkCount: d.links.length
+  }));
+}
+
+const DrState = { page:1, sort:{ col:'links', dir:'desc' }, expandItems:{}, expandLinks:{} };
+
+function sortDomainsReport(col) {
+  if(DrState.sort.col===col) DrState.sort.dir = DrState.sort.dir==='asc'?'desc':'asc';
+  else { DrState.sort.col=col; DrState.sort.dir='desc'; }
+  DrState.page=1;
+  renderDomainsReport();
+}
+
+function drChangePage(dir) { DrState.page+=dir; renderDomainsReport(); }
+
+function renderDomainsReport() {
+  const q = (document.getElementById('dr-search')||{value:''}).value.toLowerCase();
+  let data = buildDomainsData();
+
+  // Filter
+  if(q) data = data.filter(d => d.domain.toLowerCase().includes(q));
+
+  // Sort
+  data.sort((a,b) => {
+    let va, vb;
+    if(DrState.sort.col==='domain') { va=a.domain; vb=b.domain; }
+    else if(DrState.sort.col==='items') { va=a.itemCount; vb=b.itemCount; }
+    else { va=a.linkCount; vb=b.linkCount; }
+    if(va<vb) return DrState.sort.dir==='asc'?-1:1;
+    if(va>vb) return DrState.sort.dir==='asc'?1:-1;
+    return 0;
+  });
+
+  // Update sort icons
+  ['domain','items','links'].forEach(c => {
+    const el = document.getElementById('dr-sort-'+c);
+    if(!el) return;
+    el.textContent = DrState.sort.col===c ? (DrState.sort.dir==='asc'?'↑':'↓') : '';
+  });
+
+  const total = data.length, perPage = 100;
+  const totalPages = Math.ceil(total/perPage)||1;
+  if(DrState.page > totalPages) DrState.page=1;
+  const start = (DrState.page-1)*perPage;
+  const pageData = data.slice(start, start+perPage);
+
+  const tbody = document.getElementById('dr-tbody');
+  if(!tbody) return;
+
+  if(!pageData.length) {
+    tbody.innerHTML = '<tr><td colspan="3"><div class="empty-state">No domains found.</div></td></tr>';
+  } else {
+    tbody.innerHTML = pageData.map(d => buildDomainRow(d)).join('');
+  }
+
+  document.getElementById('dr-count').textContent = total===0 ? 'No domains' : 'Showing '+(start+1)+'–'+Math.min(start+perPage,total)+' of '+total+' domains';
+  document.getElementById('dr-prev').disabled = DrState.page<=1;
+  document.getElementById('dr-next').disabled = DrState.page>=totalPages;
+}
+
+function buildDomainRow(d) {
+  const itemsOpen = DrState.expandItems[d.domain];
+  const linksOpen = DrState.expandLinks[d.domain];
+  const domainKey = escHtml(d.domain).replace(/[^a-zA-Z0-9]/g,'_');
+
+  // Get unique source items
+  const sourceItems = d.itemIds.map(id => AppState.items.find(i=>i.id===id)).filter(Boolean);
+  // Get unique target URLs
+  const uniqueLinks = [...new Set(d.links.map(l=>l.targetUrl))];
+
+  let rows = `<tr id="dr-row-${domainKey}">
+    <td><a href="${escHtml(d.domain)}" target="_blank" style="color:#1565c0;text-decoration:none;font-weight:500;">${escHtml(d.domain)}</a></td>
+    <td class="td-links">
+      <div class="link-cell">
+        <span class="link-count" style="cursor:pointer;" onclick="toggleDrExpand('items','${escHtml(d.domain)}')">${d.itemCount}</span>
+        <button class="btn-expand ${itemsOpen?'open':''}" onclick="toggleDrExpand('items','${escHtml(d.domain)}')">▼</button>
+      </div>
+    </td>
+    <td class="td-links">
+      <div class="link-cell">
+        <a href="${escHtml(d.domain)}" target="_blank" style="color:#1565c0;font-weight:700;">${d.linkCount}</a>
+        <button class="btn-expand ${linksOpen?'open':''}" onclick="toggleDrExpand('links','${escHtml(d.domain)}')">▼</button>
+      </div>
+    </td>
+  </tr>`;
+
+  if(itemsOpen) {
+    const itemList = sourceItems.map(i=>`<div class="expand-link-item"><a href="${escHtml(i.url)}" target="_blank">${escHtml(i.title)}</a></div>`).join('');
+    rows += `<tr class="expand-row"><td colspan="3"><div class="expand-panel"><div class="expand-panel-title">Pages linking to ${escHtml(d.domain)} (${sourceItems.length})</div>${itemList||'<div class="empty-expand">None found.</div>'}</div></td></tr>`;
+  }
+  if(linksOpen) {
+    const linkList = uniqueLinks.map(u=>`<div class="expand-link-item"><a href="${escHtml(u)}" target="_blank">${escHtml(u)}</a></div>`).join('');
+    rows += `<tr class="expand-row"><td colspan="3"><div class="expand-panel"><div class="expand-panel-title">Links to ${escHtml(d.domain)} (${uniqueLinks.length})</div>${linkList||'<div class="empty-expand">None found.</div>'}</div></td></tr>`;
+  }
+
+  return rows;
+}
+
+function toggleDrExpand(type, domain) {
+  if(type==='items') DrState.expandItems[domain] = !DrState.expandItems[domain];
+  else DrState.expandLinks[domain] = !DrState.expandLinks[domain];
+  renderDomainsReport();
+}
+
+function exportDomainsDetailed() {
+  const data = buildDomainsData();
+  const rows = [['Domain','Source Page Title','Source Page URL','Target URL']];
+  data.forEach(d => {
+    d.links.forEach(l => {
+      const sourceItem = AppState.items.find(i=>i.id===l.sourceId);
+      rows.push([d.domain, sourceItem?sourceItem.title:'', sourceItem?sourceItem.url:'', l.targetUrl]);
+    });
+  });
+  const csv = rows.map(r=>r.map(v=>'"'+String(v||'').replace(/"/g,'""')+'"').join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download = 'domains-report-detailed.csv';
+  a.click();
+}
+
+function exportDomainsSummary() {
+  const data = buildDomainsData();
+  const rows = [['Domain','Linking Items','Total Links']];
+  data.sort((a,b)=>b.linkCount-a.linkCount).forEach(d => rows.push([d.domain, d.itemCount, d.linkCount]));
+  const csv = rows.map(r=>r.map(v=>'"'+String(v||'').replace(/"/g,'""')+'"').join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download = 'domains-report-summary.csv';
+  a.click();
+}
 
 function exportLinksCSV(){
   const items=getFilteredItems();
