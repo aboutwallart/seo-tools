@@ -79,10 +79,13 @@
     .table-wrap { background:#fff; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.08); overflow:hidden; }
     table { width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed; }
     thead th { background:#f9f9f9; padding:12px 16px; text-align:left; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:#555; border-bottom:1px solid #e8e8e8; cursor:pointer; white-space:nowrap; user-select:none; overflow:hidden; }
-    thead th:nth-child(1) { width:55%; }
-    thead th:nth-child(2) { width:9%; }
-    thead th:nth-child(3) { width:18%; }
-    thead th:nth-child(4) { width:18%; }
+    thead th:nth-child(1) { width:auto; min-width:0; }
+    thead th:nth-child(2) { width:120px; }
+    thead th:nth-child(3) { width:230px; }
+    thead th:nth-child(4) { width:230px; }
+    tbody td:nth-child(2) { width:120px; }
+    tbody td:nth-child(3) { width:230px; white-space:nowrap; }
+    tbody td:nth-child(4) { width:230px; white-space:nowrap; }
     thead th:hover { background:#f0f0f0; }
     thead th .sort-icon { margin-left:4px; color:#bbb; }
     tbody tr { border-bottom:1px solid #f0f0f0; }
@@ -92,7 +95,11 @@
     tbody td { padding:12px 16px; vertical-align:middle; }
     .td-title a { color:#222; text-decoration:none; font-weight:600; }
     .td-title a:hover { text-decoration:underline; }
-    .td-title .item-type { display:inline-block; font-size:10px; color:#888; background:#f0f0f0; border-radius:3px; padding:1px 6px; margin-left:6px; text-transform:uppercase; }
+    .td-title .item-type { display:inline-block; font-size:10px; font-weight:700; border-radius:3px; padding:2px 7px; margin-left:6px; text-transform:uppercase; letter-spacing:0.3px; }
+    .item-type-product    { background:#e8f5e9; color:#2e7d32; }
+    .item-type-collection { background:#e3f2fd; color:#1565c0; }
+    .item-type-article    { background:#f3e5f5; color:#6a1b9a; }
+    .item-type-page       { background:#fff3e0; color:#e65100; }
     .td-date { color:#888; white-space:nowrap; }
     .td-links { white-space:nowrap; }
     .link-cell { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
@@ -192,7 +199,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v13.1</div>
+    <div class="version">v13.2</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -1417,7 +1424,7 @@ function buildItemRow(item) {
   let rows=`<tr class="${(inOpen||outOpen||suggestOpen||inboundSuggestOpen)?'expanded':''}" id="row-${item.id}">
     <td class="td-title">
       <a href="${escHtml(item.url)}" target="_blank">${escHtml(item.title)}</a>
-      <span class="item-type">${item.type}</span>
+      <span class="item-type item-type-${item.type}">${item.type}</span>
     </td>
     <td class="td-date">${date}</td>
     <td class="td-links">
