@@ -77,8 +77,12 @@
     .btn-outline { background:#fff; color:#222; border:1px solid #222; border-radius:4px; padding:8px 16px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; cursor:pointer; }
     .btn-outline:hover { background:#f5f5f5; }
     .table-wrap { background:#fff; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.08); overflow:hidden; }
-    table { width:100%; border-collapse:collapse; font-size:13px; }
-    thead th { background:#f9f9f9; padding:12px 16px; text-align:left; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:#555; border-bottom:1px solid #e8e8e8; cursor:pointer; white-space:nowrap; user-select:none; }
+    table { width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed; }
+    thead th { background:#f9f9f9; padding:12px 16px; text-align:left; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:#555; border-bottom:1px solid #e8e8e8; cursor:pointer; white-space:nowrap; user-select:none; overflow:hidden; }
+    thead th:nth-child(1) { width:45%; }
+    thead th:nth-child(2) { width:12%; }
+    thead th:nth-child(3) { width:18%; }
+    thead th:nth-child(4) { width:25%; }
     thead th:hover { background:#f0f0f0; }
     thead th .sort-icon { margin-left:4px; color:#bbb; }
     tbody tr { border-bottom:1px solid #f0f0f0; }
@@ -188,7 +192,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v10.0</div>
+    <div class="version">v11.0</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -307,11 +311,9 @@
 <!-- PREVIEW MODAL -->
 <div id="preview-overlay" class="hidden">
   <div class="preview-card">
-    <h3>📋 Preview Links Before Saving</h3>
-    <p class="preview-sub">Claude has analysed the content and prepared the following links. Review the anchor text and placement, then confirm to save to Shopify.</p>
-    <div id="preview-body">
-      <div class="preview-loading"><div class="spinner"></div>Claude is analysing the content...</div>
-    </div>
+    <h3 id="preview-modal-title">📋 Approve Links Before Saving</h3>
+    <p class="preview-sub">Review the phrases below. These will be appended to the end of the page content in Shopify. Click Approve to save.</p>
+    <div id="preview-body"></div>
     <div class="preview-buttons">
       <button class="btn-outline" onclick="closePreview()">Cancel</button>
       <button class="btn-action" id="preview-save-btn" onclick="savePreviewedLinks()" style="display:none">✅ Looks Good — Save to Shopify</button>
@@ -331,13 +333,64 @@ const CONFIG = {
 const ROOM_TYPES = ['bathroom','bedroom','living room','kitchen','hallway','office','nursery','staircase','dining','garden','study','playroom','conservatory'];
 const STYLES = ['japandi','minimalist','maximalist','botanical','abstract','vintage','modern','scandi','industrial','rustic','bohemian','monochrome','black and white','geometric','floral','tropical','coastal'];
 
-// Rules per item type: how many of each target type to show
-const LINK_RULES = {
-  product:    { collection: { count:1, label:'Collection (mandatory — the collection this product belongs to)', precheck:true }, article: { count:3, label:'Blog Posts (pick 1)', precheck:false } },
-  article:    { product: { count:3, label:'Products (pick 1)', precheck:false }, collection: { count:3, label:'Collections (pick 1)', precheck:false }, article: { count:3, label:'Other Blog Posts (pick 1)', precheck:false } },
-  collection: { article: { count:3, label:'Blog Posts (pick 1–2)', precheck:false } },
-  page:       { collection: { count:1, label:'Collection (pick 1)', precheck:false } }
-};
+// Pages that must never have + Add button shown
+const PAGES_TO_NEVER_TOUCH = new Set([
+  'free interior design education & guides','free home decor & interior design tools',
+  'home decor by trend','home decor by room','home decor by product',
+  'wall art size calculator - find the perfect print size for your wall',
+  'art hanging height calculator - perfect height for your wall art',
+  'gallery wall planner — plan your perfect gallery wall layout',
+  'room colour & art matcher','interior style quiz - find your design style & inspiration',
+  'color matching guide for wall art - how to choose perfect colours?',
+  'interior design styles explained - complete guide to 24+ styles',
+  'interior design guide: principles & concepts explained',
+  'gallery wall ideas & layouts',
+  'how to choose the right wall art size - complete guide',
+  'free diy interior design workbook: transform your home like a pro',
+  '404 - page not found','wishlist','loyalty page','confirm your email',
+  'keep in touch','spread the love and win money to spend on your orders',
+  "let's celebrate your birthday!",'free workbook!','product bundles',
+  'unsure about the size?','write for us – guest posts & contributor opportunities',
+  'homepage','home'
+]);
+
+// Trend pages — these are pages (not collections) describing design trends
+const TREND_PAGES = new Set([
+  'biophilic interior design trend','zen room decorations trend',
+  'tropical decor for home style trend','transitional interior design trend',
+  'preppy style interiors decor trend','old money home decor trend',
+  'coffee house interior design trend','masculine living room ideas',
+  'black & white home decor trend','wildlife home decor trend',
+  'scandi home decor trend','country cottage home decor trend',
+  'morroccan home decor trend','cosy minimalism home decor trend',
+  'mediterranean home decor trend','japandi home decor trend',
+  'industrial home decor trend','french country home decor trends',
+  'modern farmhouse home decor trend','eclectic maximalist home decor trend',
+  'modern contemporary home decor trend','coastal home decor trend',
+  'boho home decor trend','modern glam luxe interiors decor trend',
+  'mid century home decor trend'
+]);
+
+// Content Hub URL — used in static page phrases
+const CONTENT_HUB_URL = 'https://aboutwallart.com/pages/free-interior-design-education-guides';
+
+// Determine the effective page type for linking rules
+function getPageLinkType(item) {
+  const titleLower = (item.title||'').toLowerCase().trim();
+  if(item.type === 'product') return 'product';
+  if(item.type === 'collection') return 'collection';
+  if(item.type === 'article') return 'blog';
+  if(item.type === 'page') {
+    if(TREND_PAGES.has(titleLower)) return 'trend';
+    return 'static';
+  }
+  return 'static';
+}
+
+function shouldShowAddButton(item) {
+  const titleLower = (item.title||'').toLowerCase().trim();
+  return !PAGES_TO_NEVER_TOUCH.has(titleLower);
+}
 
 const AppState = {
   items:[], links:[], brokenLinks:[], lastSync:null,
@@ -360,7 +413,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if(age < maxAge){
       const cached = JSON.parse(localStorage.getItem('lw-cache')||'null');
       if(cached && cached.items && cached.items.length > 0){
-        AppState.items = cached.items;
+        // Restore bodyHtml from separate cache
+        const bodyCache = JSON.parse(localStorage.getItem('lw-body-cache')||'{}');
+        AppState.items = cached.items.map(item=>({ ...item, bodyHtml: bodyCache[item.id]||'' }));
         AppState.links = cached.links || [];
         AppState.lastSync = cached.lastSync;
         buildLinkGraph();
@@ -516,75 +571,122 @@ function getProductCollections(product) {
   }).slice(0,1);
 }
 
-// Build the suggestion panel HTML
+// Build the new suggestion panel based on page type rules
 function buildSuggestPanel(item) {
-  const rules = LINK_RULES[item.type] || LINK_RULES['page'];
-  const typeLabels = { product:'PRODUCT', article:'BLOG POST', collection:'COLLECTION', page:'PAGE' };
-  const typeColors = { collection:'st-collection', article:'st-article', product:'st-product', page:'st-page' };
+  if(!shouldShowAddButton(item)) return '';
+  const linkType = getPageLinkType(item);
+
+  // Get best matching collection (pre-selected)
+  function getBestCollection() {
+    const cols = AppState.items.filter(i=>i.type==='collection');
+    const scored = cols.map(c=>({ item:c, score:scoreRelevance(item,c).score })).filter(s=>s.score>0);
+    scored.sort((a,b)=>b.score-a.score);
+    return scored.slice(0,1);
+  }
+
+  // Get best matching blogs (not pre-selected, show top 6)
+  function getBestBlogs(count) {
+    const blogs = AppState.items.filter(i=>i.type==='article');
+    const scored = blogs.map(b=>({ item:b, score:scoreRelevance(item,b).score }));
+    scored.sort((a,b)=>b.score-a.score);
+    return scored.slice(0,count);
+  }
+
+  // For products: find collection this product belongs to
+  function getProductCollection() {
+    const cols = getProductCollections(item);
+    if(cols.length) return [{ item:cols[0], score:100 }];
+    return getBestCollection();
+  }
+
+  let collectionSuggestions = [];
+  let blogSuggestions = [];
+  let showCollection = false;
+  let showBlog = false;
+  let instructions = '';
+
+  if(linkType === 'trend') {
+    collectionSuggestions = getBestCollection();
+    blogSuggestions = getBestBlogs(6);
+    showCollection = true; showBlog = true;
+    instructions = 'This is a <strong>Trend Page</strong>. The collection is pre-selected — verify it\'s the right match. Then pick one blog post.';
+  } else if(linkType === 'collection') {
+    blogSuggestions = getBestBlogs(6);
+    showBlog = true;
+    instructions = 'This is a <strong>Collection Page</strong>. Pick one blog post to link to.';
+  } else if(linkType === 'product') {
+    collectionSuggestions = getProductCollection();
+    blogSuggestions = getBestBlogs(6);
+    showCollection = true; showBlog = true;
+    instructions = 'This is a <strong>Product Page</strong>. The collection is pre-selected — verify it\'s correct. Then pick one blog post.';
+  } else if(linkType === 'blog') {
+    collectionSuggestions = getBestCollection();
+    showCollection = true;
+    instructions = 'This is a <strong>Blog Post</strong>. The best matching collection is pre-selected — verify it\'s correct.';
+  } else if(linkType === 'static') {
+    collectionSuggestions = getBestCollection();
+    showCollection = true;
+    instructions = 'This is a <strong>Static Page</strong>. The best matching collection is pre-selected. The Content Hub link is always included.';
+  }
+
+  const noResults = !collectionSuggestions.length && !blogSuggestions.length;
+  if(noResults) return `<div class="suggest-panel"><p class="empty-expand">No relevant pages found to link to.</p></div>`;
 
   let sections = '';
-  let totalSuggestions = 0;
 
-  for (const [targetType, rule] of Object.entries(rules)) {
-    let suggestions;
-    if (item.type==='product' && targetType==='collection') {
-      suggestions = getProductCollections(item).map(c=>({item:c, score:100, isOrphan:(AppState.linkGraph.inbound[c.id]||[]).length===0, inboundCount:(AppState.linkGraph.inbound[c.id]||[]).length, sharedRooms:[], sharedStyles:[], sharedTags:[]}));
-      if (!suggestions.length) suggestions = getTopByType(item, 'collection', 1);
-    } else {
-      suggestions = getTopByType(item, targetType, rule.count);
-    }
-
-    if (!suggestions.length) continue;
-    totalSuggestions += suggestions.length;
-
-    const rows = suggestions.map((s,i) => {
-      const matchInfo=[...s.sharedRooms,...s.sharedStyles,...s.sharedTags.slice(0,2)].filter((v,i,a)=>a.indexOf(v)===i).slice(0,3).join(', ');
-      const precheck = rule.precheck || (i===0 && rule.count===1);
-      return `<div class="suggest-item ${precheck?'pre-checked':''}">
-        <input type="checkbox" ${precheck?'checked':''} class="sug-cb" data-item-id="${item.id}" data-candidate-id="${s.item.id}" data-candidate-url="${escHtml(s.item.url)}" data-candidate-title="${escHtml(s.item.title)}" data-candidate-type="${s.item.type}" />
+  if(showCollection && collectionSuggestions.length) {
+    const rows = collectionSuggestions.map(s=>`
+      <div class="suggest-item pre-checked">
+        <input type="checkbox" checked class="sug-cb sug-collection"
+          data-item-id="${item.id}" data-candidate-id="${s.item.id}"
+          data-candidate-url="${escHtml(s.item.url)}" data-candidate-title="${escHtml(s.item.title)}"
+          data-candidate-type="collection" />
         <div class="suggest-item-info">
           <div class="suggest-item-title">${escHtml(s.item.title)}</div>
           <div class="suggest-item-url">${escHtml(s.item.url)}</div>
-          <div class="suggest-item-badges">
-            ${s.isOrphan?'<span class="badge badge-orphan">🚨 Orphan</span>':''}
-            ${matchInfo?'<span class="badge badge-match">'+escHtml(matchInfo)+'</span>':''}
-            <span class="badge badge-inbound">${s.inboundCount} inbound</span>
-          </div>
+          <div class="suggest-item-badges"><span class="badge" style="background:#e3f2fd;color:#1565c0;">COLLECTION</span><span class="badge badge-inbound">${(AppState.linkGraph.inbound[s.item.id]||[]).length} inbound</span></div>
         </div>
-      </div>`;
-    }).join('');
-
+      </div>`).join('');
     sections += `<div class="suggest-section">
-      <span class="suggest-section-title ${typeColors[targetType]||'st-page'}">${typeLabels[targetType]||targetType.toUpperCase()} — ${rule.label}</span>
+      <span class="suggest-section-title st-collection">STEP 1 — Collection Link (pre-selected)</span>
       ${rows}
     </div>`;
   }
 
-  if (!totalSuggestions) {
-    return `<div class="suggest-panel"><p class="empty-expand">No relevant pages found to link to from this item.</p></div>`;
+  if(showBlog && blogSuggestions.length) {
+    const rows = blogSuggestions.map(s=>`
+      <div class="suggest-item">
+        <input type="checkbox" class="sug-cb sug-blog"
+          data-item-id="${item.id}" data-candidate-id="${s.item.id}"
+          data-candidate-url="${escHtml(s.item.url)}" data-candidate-title="${escHtml(s.item.title)}"
+          data-candidate-type="article" />
+        <div class="suggest-item-info">
+          <div class="suggest-item-title">${escHtml(s.item.title)}</div>
+          <div class="suggest-item-url">${escHtml(s.item.url)}</div>
+          <div class="suggest-item-badges"><span class="badge" style="background:#f3e5f5;color:#6a1b9a;">BLOG</span><span class="badge badge-inbound">${(AppState.linkGraph.inbound[s.item.id]||[]).length} inbound</span></div>
+        </div>
+      </div>`).join('');
+    const stepNum = showCollection ? 'STEP 2' : 'STEP 1';
+    sections += `<div class="suggest-section">
+      <span class="suggest-section-title st-article">${stepNum} — Blog Post Link (pick one)</span>
+      ${rows}
+    </div>`;
   }
-
-  const instructionMap = {
-    product: 'This is a <strong>Product</strong>. Select: 1 collection + 1 blog post.',
-    article: 'This is a <strong>Blog Post</strong>. Select: 1 product + 1 collection + 1 other blog post.',
-    collection: 'This is a <strong>Collection</strong>. Select: 1–2 blog posts.',
-    page: 'This is a <strong>Page</strong>. Select: 1 collection.'
-  };
 
   return `<div class="suggest-panel">
     <div class="suggest-header">
       <div class="suggest-header-left">
-        <h4>🔗 Link Suggestions for "${escHtml(item.title)}"</h4>
-        <p>${instructionMap[item.type]||'Select pages to link to.'} Orphaned pages shown first (🚨). Pre-selected items are the best match.</p>
+        <h4>🔗 Add Links to "${escHtml(item.title)}"</h4>
+        <p>${instructions}</p>
       </div>
       <div class="suggest-top-actions">
-        <button class="btn-action" onclick="confirmSelectedLinks('${item.id}')">✓ Add Selected Links</button>
+        <button class="btn-action" onclick="confirmSelectedLinks('${item.id}')">✓ Confirm Selections</button>
         <button class="btn-outline" onclick="closeSuggestPanel()">✕ Cancel</button>
       </div>
     </div>
     ${sections}
     <div style="margin-top:12px;padding-top:12px;border-top:1px solid #f0e0a0;display:flex;gap:8px;">
-      <button class="btn-action" onclick="confirmSelectedLinks('${item.id}')">✓ Add Selected Links</button>
+      <button class="btn-action" onclick="confirmSelectedLinks('${item.id}')">✓ Confirm Selections</button>
       <button class="btn-outline" onclick="closeSuggestPanel()">✕ Cancel</button>
     </div>
   </div>`;
@@ -605,129 +707,41 @@ function closeSuggestPanel() {
 // Stored pending preview data
 let pendingPreview = null;
 
-async function confirmSelectedLinks(itemId) {
+function confirmSelectedLinks(itemId) {
   const item = AppState.items.find(i=>i.id===itemId);
   if (!item) return;
-  const checkboxes = document.querySelectorAll('.sug-cb[data-item-id="'+itemId+'"]:checked');
-  if (!checkboxes.length) { showToast('Please select at least one page.','error'); return; }
-  const selected = Array.from(checkboxes).map(cb=>({ id:cb.dataset.candidateId, url:cb.dataset.candidateUrl, title:cb.dataset.candidateTitle, type:cb.dataset.candidateType }));
-
-  // Close panel immediately, show preview modal in loading state
+  const linkType = getPageLinkType(item);
+  const colCb = document.querySelector('.sug-collection[data-item-id="'+itemId+'"]:checked');
+  const blogCbs = document.querySelectorAll('.sug-blog[data-item-id="'+itemId+'"]:checked');
+  const needsBlog = ['trend','collection','product'].includes(linkType);
+  if(needsBlog && blogCbs.length === 0) { showToast('Please select one blog post.','error'); return; }
+  if(needsBlog && blogCbs.length > 1) { showToast('Please select only one blog post.','error'); return; }
+  const colData = colCb ? { url: colCb.dataset.candidateUrl, title: colCb.dataset.candidateTitle } : null;
+  const blogData = blogCbs.length ? { url: blogCbs[0].dataset.candidateUrl, title: blogCbs[0].dataset.candidateTitle } : null;
+  const phrases = buildPhrases(item, linkType, colData, blogData);
+  if(!phrases.length) { showToast('Nothing to add — no phrases could be built.','error'); return; }
   AppState.suggestState = {};
   renderLinksReport();
-
-  document.getElementById('preview-body').innerHTML = '<div class="preview-loading"><div class="spinner"></div>Claude is reading the content and preparing your link previews...</div>';
-  document.getElementById('preview-save-btn').style.display = 'none';
-  document.getElementById('preview-overlay').classList.remove('hidden');
-
-  try {
-    // Ask Claude to preview — return JSON with anchor text, sentence, placement
-    const previewPrompt = buildPreviewPrompt(item, selected);
-    const claudeResponse = await fetch(CONFIG.proxyUrl+'/api/claude', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ prompt: previewPrompt, max_tokens:1500 })
-    });
-    if (!claudeResponse.ok) throw new Error('Claude API failed');
-    const claudeData = await claudeResponse.json();
-    const claudeText = claudeData.content||claudeData.text||'';
-
-    // Parse the JSON preview from Claude
-    const previews = parsePreviewJson(claudeText, selected);
-
-    // Store for later save
-    pendingPreview = { item, selected, previews };
-
-    // Render preview blocks
-    renderPreviewBlocks(previews);
-    document.getElementById('preview-save-btn').style.display = '';
-
-  } catch(err) {
-    document.getElementById('preview-body').innerHTML = '<p style="color:#e53935;padding:16px;">Error getting preview: '+escHtml(err.message)+'</p>';
-    showToast('Preview failed: '+err.message,'error');
-  }
+  showApprovalModal(item, phrases);
 }
 
-function buildPreviewPrompt(item, selected) {
-  const selectedList = selected.map(s=>'- '+s.title+' ('+s.type+'): '+s.url).join('\n');
-  return `You are an internal linking expert for About Wall Art (aboutwallart.com), a UK premium framed wall art brand.
-
-Your job is to plan EXACTLY where to place internal links inside existing content. You must find existing sentences in the content and rewrite them naturally to include the link.
-
-PAGE TYPE: ${item.type}
-PAGE TITLE: ${item.title}
-CURRENT BODY HTML:
-${item.bodyHtml||''}
-
-PAGES TO LINK TO:
-${selectedList}
-
-STRICT PLACEMENT RULES BY PAGE TYPE:
-
-FOR PRODUCTS:
-- If linking to a BLOG POST: find a sentence in the FIRST or SECOND paragraph that relates to the blog topic. Rewrite that sentence to include the link naturally. Example: if the blog is about bathroom styling, find a sentence mentioning bathrooms and add "— explore our guide to bathroom wall art styling" as a linked phrase within it.
-- If linking to a COLLECTION: find a sentence in the LAST paragraph. Rewrite it to include a natural call to browse, e.g. "browse our full bathroom wall art collection".
-
-FOR BLOG POSTS:
-- Find 2-4 existing sentences spread throughout the content that relate to each target page.
-- Rewrite each sentence to include the link as a natural phrase within it.
-- Spread links throughout — do not place them all in one section.
-
-FOR COLLECTIONS:
-- Find a sentence in the MIDDLE or END of the description.
-- Rewrite it to include the link naturally as an editorial phrase.
-
-ABSOLUTE RULES — VIOLATIONS ARE NOT ACCEPTABLE:
-- NEVER add "See also:", "Read more:", "Click here", or any standalone link line
-- NEVER append a new sentence at the end just for the link
-- NEVER create a new paragraph just for the link
-- You MUST find an EXISTING sentence and rewrite it to include the link naturally
-- Anchor text must be a natural descriptive phrase (3-8 words), never the full page title
-- The linked phrase must make grammatical sense within the sentence
-
-Return ONLY a valid JSON array, no explanation, no markdown code blocks. Format:
-[
-  {
-    "targetUrl": "https://...",
-    "targetTitle": "Page title",
-    "anchorText": "natural 3-8 word phrase",
-    "originalSentence": "The original sentence from the content before editing",
-    "fullSentence": "The rewritten sentence with <a href=\\"URL\\">anchor text</a> naturally inserted",
-    "placement": "e.g. First paragraph, third sentence"
+// Build the exact pre-written phrases for each page type
+function buildPhrases(item, linkType, colData, blogData) {
+  const phrases = [];
+  if(linkType === 'trend') {
+    if(colData) phrases.push({ type:'collection', html:`Explore our <a href="${escHtml(colData.url)}">${escHtml(colData.title)}</a> collection to shop this trend.` });
+    if(blogData) phrases.push({ type:'blog', html:`You may also want to read our article <a href="${escHtml(blogData.url)}">${escHtml(blogData.title)}</a> for more styling ideas.` });
+  } else if(linkType === 'collection') {
+    if(blogData) phrases.push({ type:'blog', html:`Not sure where to start? Our guide <a href="${escHtml(blogData.url)}">${escHtml(blogData.title)}</a> is packed with ideas to help you style these pieces in your home.` });
+  } else if(linkType === 'product') {
+    if(colData) phrases.push({ type:'collection', html:`This product is part of our <a href="${escHtml(colData.url)}">${escHtml(colData.title)}</a> collection — explore in full to discover more pieces that complement this style perfectly.` });
+    if(blogData) phrases.push({ type:'blog', html:`Looking for inspiration? Our article <a href="${escHtml(blogData.url)}">${escHtml(blogData.title)}</a> is full of ideas to help you style this piece in your home.` });
+  } else if(linkType === 'blog') {
+    if(colData) phrases.push({ type:'collection', html:`Browse our <a href="${escHtml(colData.url)}">${escHtml(colData.title)}</a> collection to find pieces that bring this look to life in your home.` });
+  } else if(linkType === 'static') {
+    if(colData) phrases.push({ type:'collection+hub', html:`Browse our <a href="${escHtml(colData.url)}">${escHtml(colData.title)}</a> collection or visit our <a href="${CONTENT_HUB_URL}">Content Hub</a> for styling inspiration and decorating guides.` });
   }
-]`;
-}
-
-function parsePreviewJson(claudeText, selected) {
-  try {
-    let clean = claudeText.trim().replace(/^```json\s*/i,'').replace(/^```\s*/i,'').replace(/\s*```$/i,'').trim();
-    const parsed = JSON.parse(clean);
-    if (Array.isArray(parsed)) return parsed;
-  } catch(e) {}
-  // Fallback: generate basic previews from selected items
-  return selected.map(s=>({
-    targetUrl: s.url,
-    targetTitle: s.title,
-    anchorText: s.title,
-    fullSentence: 'See also: <a href="'+s.url+'">'+s.title+'</a>.',
-    placement: 'End of content'
-  }));
-}
-
-function renderPreviewBlocks(previews) {
-  if (!previews.length) {
-    document.getElementById('preview-body').innerHTML = '<p style="color:#e53935;padding:16px;">No link previews could be generated.</p>';
-    return;
-  }
-  document.getElementById('preview-body').innerHTML = previews.map((p,i) => `
-    <div class="preview-link-block">
-      <div class="plb-target">Link ${i+1} → ${escHtml(p.targetTitle||p.targetUrl)}</div>
-      <div class="plb-anchor">Anchor text: <strong>${escHtml(p.anchorText)}</strong></div>
-      ${p.originalSentence ? `<div style="font-size:11px;color:#999;margin-bottom:6px;font-style:italic;">Original: "${escHtml(p.originalSentence)}"</div>` : ''}
-      <div style="font-size:11px;font-weight:700;color:#555;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.3px;">Rewritten as:</div>
-      <div class="plb-sentence">${p.fullSentence||''}</div>
-      <div class="plb-placement">📍 Placement: ${escHtml(p.placement||'Within content')}</div>
-    </div>`).join('');
+  return phrases;
 }
 
 function closePreview() {
@@ -735,95 +749,79 @@ function closePreview() {
   pendingPreview = null;
 }
 
+// Show the approval modal with pre-written phrases
+function showApprovalModal(item, phrases) {
+  pendingPreview = { item, phrases };
+
+  const phraseHtml = phrases.map((p,i)=>`
+    <div class="preview-link-block">
+      <div class="plb-target">Link ${i+1} — ${p.type==='collection'?'Collection':'Blog Post'} phrase</div>
+      <div style="font-size:11px;font-weight:700;color:#555;margin:8px 0 6px;text-transform:uppercase;letter-spacing:0.3px;">Phrase to be added at the end of the page:</div>
+      <div class="plb-sentence">${p.html}</div>
+    </div>`).join('');
+
+  document.getElementById('preview-body').innerHTML = phraseHtml +
+    '<p style="font-size:12px;color:#888;margin-top:12px;">These phrases will be appended to the end of the page content in Shopify.</p>';
+  document.getElementById('preview-modal-title').textContent = '📋 Approve Links for "'+item.title+'"';
+  document.getElementById('preview-save-btn').style.display = '';
+  document.getElementById('preview-overlay').classList.remove('hidden');
+}
+
+
 async function savePreviewedLinks() {
   if (!pendingPreview) return;
-  const { item, selected } = pendingPreview;
+  const { item, phrases } = pendingPreview;
 
-  closePreview();
-
-  // Show saving status on row
-  AppState.saveStatuses[item.id] = { status:'saving', count:selected.length };
-  renderLinksReport();
-  showToast('Saving '+selected.length+' link(s) to Shopify...','info');
+  // Show spinner in save button
+  const saveBtn = document.getElementById('preview-save-btn');
+  saveBtn.disabled = true;
+  saveBtn.innerHTML = '<span class="spinner-sm"></span> Saving...';
 
   try {
-    // Now ask Claude to produce the actual updated HTML
-    const prompt = buildClaudePrompt(item, selected);
-    const claudeResponse = await fetch(CONFIG.proxyUrl+'/api/claude', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ prompt, max_tokens:1500 })
-    });
-    if (!claudeResponse.ok) throw new Error('Claude API failed');
-    const claudeData = await claudeResponse.json();
-    const claudeText = claudeData.content||claudeData.text||'';
-    const updatedHtml = extractHtmlFromClaude(claudeText, item.bodyHtml, selected);
+    // Append each phrase as a new paragraph at the end of bodyHtml
+    let updatedHtml = item.bodyHtml || '';
+    for (const p of phrases) {
+      updatedHtml += '\n<p>' + p.html + '</p>';
+    }
+
     await saveItemToShopify(item, updatedHtml);
 
+    // Update local state
     item.bodyHtml = updatedHtml;
-    AppState.links=[];
+    AppState.links = [];
     for (const i of AppState.items) AppState.links.push(...parseItemLinks(i));
     buildLinkGraph();
     detectBrokenLinks();
-    AppState.saveStatuses[item.id] = { status:'saved', count:selected.length };
+
+    // Update body cache
+    try {
+      const bodyCache = JSON.parse(localStorage.getItem('lw-body-cache')||'{}');
+      bodyCache[item.id] = updatedHtml;
+      localStorage.setItem('lw-body-cache', JSON.stringify(bodyCache));
+    } catch(e) {}
+
+    // Show confirmation in modal
+    saveBtn.innerHTML = '✅ Saved!';
+    document.getElementById('preview-body').innerHTML =
+      '<div style="text-align:center;padding:32px;">' +
+      '<div style="font-size:40px;margin-bottom:12px;">✅</div>' +
+      '<div style="font-size:16px;font-weight:700;color:#2e7d32;margin-bottom:8px;">Saved to Shopify!</div>' +
+      '<div style="font-size:13px;color:#666;">'+phrases.length+' link(s) added to "'+escHtml(item.title)+'".<br>You can now move to the next item.</div>' +
+      '</div>';
+
+    // Update outbound count badge on the row
+    AppState.saveStatuses[item.id] = { status:'saved', count:phrases.length };
     renderLinksReport();
     renderDashboard();
-    showToast('✅ '+selected.length+' link(s) saved to Shopify!','success');
+    showToast('✅ '+phrases.length+' link(s) saved to Shopify!','success');
     setTimeout(()=>{ delete AppState.saveStatuses[item.id]; renderLinksReport(); }, 5000);
 
   } catch(err) {
-    AppState.saveStatuses[item.id] = { status:'failed', count:selected.length };
-    renderLinksReport();
-    showToast('❌ Failed: '+err.message,'error');
+    saveBtn.disabled = false;
+    saveBtn.innerHTML = '✅ Looks Good — Save to Shopify';
+    document.getElementById('preview-body').innerHTML += '<p style="color:#e53935;padding:8px 0;">❌ Save failed: '+escHtml(err.message)+'</p>';
+    showToast('❌ Save failed: '+err.message,'error');
   }
-}
-
-function buildClaudePrompt(item, selected) {
-  const selectedList = selected.map(s=>'- '+s.title+' ('+s.type+'): '+s.url).join('\n');
-  return `You are an internal linking expert for About Wall Art (aboutwallart.com), a UK premium framed wall art brand.
-
-Add internal links to this page by finding existing sentences and rewriting them naturally to include the links.
-
-PAGE TYPE: ${item.type}
-PAGE TITLE: ${item.title}
-CURRENT BODY HTML:
-${item.bodyHtml||''}
-
-PAGES TO LINK TO:
-${selectedList}
-
-STRICT PLACEMENT RULES BY PAGE TYPE:
-
-FOR PRODUCTS:
-- BLOG POST link: find an existing sentence in the FIRST or SECOND paragraph that relates to the blog topic. Rewrite it to include the link naturally within the sentence.
-- COLLECTION link: find an existing sentence in the LAST paragraph. Rewrite it to include a natural browse call within the sentence.
-
-FOR BLOG POSTS:
-- Find existing sentences spread throughout the content that relate to each target page.
-- Rewrite each sentence to include the link as a natural phrase within it.
-
-FOR COLLECTIONS:
-- Find an existing sentence in the MIDDLE or END of the description and rewrite it.
-
-ABSOLUTE RULES — ANY VIOLATION MAKES THE OUTPUT UNUSABLE:
-- NEVER add "See also:", "Read more:", "Click here", or any standalone link line
-- NEVER append a new sentence at the end just for a link
-- NEVER create a new paragraph just for a link
-- You MUST find EXISTING sentences and rewrite them to include the link
-- Anchor text must be a natural descriptive phrase (3-8 words), never the full page title
-- The linked phrase must make grammatical sense within the sentence
-
-Return ONLY the complete updated HTML body content. No explanation. No markdown code blocks. No preamble.`;
-}
-
-function extractHtmlFromClaude(claudeText, originalHtml, selected) {
-  let html = claudeText.trim().replace(/^```html\s*/i,'').replace(/^```\s*/i,'').replace(/\s*```$/i,'').trim();
-  if (!html||html.length<50) {
-    let fallback=originalHtml||'';
-    for (const s of selected) fallback+=' <a href="'+s.url+'">'+escHtml(s.title)+'</a>.';
-    return fallback;
-  }
-  return html;
 }
 
 async function saveItemToShopify(item, updatedHtml) {
@@ -831,7 +829,11 @@ async function saveItemToShopify(item, updatedHtml) {
   if (item.type==='page') { endpoint='pages/'+item.shopifyId+'.json'; bodyKey='page'; }
   else if (item.type==='article') { endpoint='blogs/'+item.blogId+'/articles/'+item.shopifyId+'.json'; bodyKey='article'; }
   else if (item.type==='product') { endpoint='products/'+item.shopifyId+'.json'; bodyKey='product'; }
-  else if (item.type==='collection') { endpoint='custom_collections/'+item.shopifyId+'.json'; bodyKey='custom_collection'; }
+  else if (item.type==='collection') {
+    // Try custom collection first, fall back to smart
+    endpoint = (item.id.startsWith('smart-') ? 'smart_collections/' : 'custom_collections/') + item.shopifyId + '.json';
+    bodyKey = item.id.startsWith('smart-') ? 'smart_collection' : 'custom_collection';
+  }
   else throw new Error('Cannot write to item type: '+item.type);
   await shopifyFetch(endpoint,'PUT',{ [bodyKey]:{ id:item.shopifyId, body_html:updatedHtml } });
 }
@@ -993,7 +995,7 @@ function buildItemRow(item) {
       <div class="link-cell">
         <span class="link-count ${outInternal.length===0?'zero':''}" id="out-count-${item.id}">${outInternal.length}→</span>
         <button class="btn-expand ${outOpen}" onclick="toggleExpand('${item.id}','outbound')">▼</button>
-        <button class="btn-add" onclick="openSuggestPanel('${item.id}')">+ Add</button>
+        ${shouldShowAddButton(item) ? `<button class="btn-add" onclick="openSuggestPanel('${item.id}')">+ Add</button>` : ''}
         ${saveBadge}
       </div>
     </td>
@@ -1087,10 +1089,26 @@ async function syncFromShopify(){
     detectBrokenLinks();
 
     // Save to localStorage cache (24 hours)
+    // Split bodyHtml into separate cache to avoid localStorage size limits
     try {
-      localStorage.setItem('lw-cache', JSON.stringify({ items:allItems, links:allLinks, lastSync:AppState.lastSync }));
+      const bodyCache = {};
+      const slimItems = allItems.map(item => {
+        bodyCache[item.id] = item.bodyHtml || '';
+        const { bodyHtml, ...slim } = item;
+        return slim;
+      });
+      localStorage.setItem('lw-cache', JSON.stringify({ items:slimItems, links:allLinks, lastSync:AppState.lastSync }));
+      localStorage.setItem('lw-body-cache', JSON.stringify(bodyCache));
       localStorage.setItem('lw-cache-time', Date.now().toString());
-    } catch(e) { console.warn('Cache save failed:', e); }
+    } catch(e) {
+      // If body cache also too large, save without body
+      try {
+        const slimItems = allItems.map(({ bodyHtml, ...slim }) => slim);
+        localStorage.setItem('lw-cache', JSON.stringify({ items:slimItems, links:allLinks, lastSync:AppState.lastSync }));
+        localStorage.setItem('lw-cache-time', Date.now().toString());
+        console.warn('Saved slim cache (no bodyHtml):', e);
+      } catch(e2) { console.warn('Cache save failed entirely:', e2); }
+    }
 
     setLoadingStep('Done!',100);
     await new Promise(r=>setTimeout(r,400));
