@@ -192,7 +192,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v11.3</div>
+    <div class="version">v11.4</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -626,13 +626,14 @@ function buildSuggestPanel(item) {
   // For products: get actual collections the product belongs to
   function getProductCollectionOptions() {
     const memberIds = new Set((item.collectionIds || []).map(String));
-    // Get all collection items the product actually belongs to
+    // Match against both collection- and smart- prefixed items
+    // item.shopifyId on collection items is the raw numeric Shopify ID
     const memberCols = AppState.items.filter(i =>
       i.type === 'collection' && memberIds.has(String(i.shopifyId))
     );
-    // Sort: best keyword match first
+    // Sort best keyword match first
     memberCols.sort((a,b) => scoreRelevance(item,b).score - scoreRelevance(item,a).score);
-    // If no membership data, fall back to keyword scoring
+    // Fall back to keyword scoring if no membership data yet
     if(!memberCols.length) {
       const scored = AppState.items
         .filter(i=>i.type==='collection')
@@ -786,14 +787,19 @@ async function openSuggestPanel(itemId) {
 
   const item = AppState.items.find(i=>i.id===itemId);
 
-  // For products, fetch their actual collection memberships if not already loaded
+  // For products, fetch actual collection memberships on demand
   if (item && item.type === 'product' && !item.collectionIds) {
     try {
-      const data = await shopifyFetch('products/'+item.shopifyId+'/collect.json?limit=250&fields=collection_id');
-      const collects = data.collects || [];
-      item.collectionIds = collects.map(c=>String(c.collection_id));
+      // Two separate calls as per Shopify REST API — custom + smart collections
+      const [ccData, scData] = await Promise.all([
+        shopifyFetch('custom_collections.json?product_id='+item.shopifyId+'&fields=id,title,handle&limit=250'),
+        shopifyFetch('smart_collections.json?product_id='+item.shopifyId+'&fields=id,title,handle&limit=250')
+      ]);
+      const customIds = (ccData.custom_collections||[]).map(c=>String(c.id));
+      const smartIds  = (scData.smart_collections||[]).map(c=>String(c.id));
+      item.collectionIds = [...customIds, ...smartIds];
     } catch(e) {
-      console.warn('Could not fetch collects for product:', e);
+      console.warn('Could not fetch collection memberships:', e);
       item.collectionIds = [];
     }
   }
