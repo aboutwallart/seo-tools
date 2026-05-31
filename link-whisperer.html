@@ -518,6 +518,7 @@ document.addEventListener('DOMContentLoaded', () => {
           updateLastSynced();
           renderDashboard();
           renderLinksReport();
+          renderDomainsReport();
           showToast('Loaded from cache — '+AppState.items.length+' items','info');
           return;
         }
@@ -1470,6 +1471,12 @@ function lrChangePage(dir){ AppState.lrPage+=dir; renderLinksReport(); }
 
 // Build domain data from AppState.links
 function buildDomainsData() {
+  // If links array is empty but items exist, rebuild it
+  if(AppState.links.length === 0 && AppState.items.length > 0) {
+    AppState.links = [];
+    for(const item of AppState.items) AppState.links.push(...parseItemLinks(item));
+    buildLinkGraph();
+  }
   const domainMap = {}; // domain -> { domain, items: Set of sourceIds, links: [targetUrl] }
   AppState.links.forEach(link => {
     let domain;
@@ -1715,7 +1722,7 @@ async function syncFromShopify(){
     setLoadingStep('Done!',100);
     await new Promise(r=>setTimeout(r,400));
 
-    hideLoading(); showApp(); updateLastSynced(); renderDashboard(); renderLinksReport();
+    hideLoading(); showApp(); updateLastSynced(); renderDashboard(); renderLinksReport(); renderDomainsReport();
     showToast('Sync complete — '+allItems.length+' items loaded','success');
   }catch(err){
     hideLoading(); showApp();
