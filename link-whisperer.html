@@ -192,7 +192,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v11.0</div>
+    <div class="version">v11.1</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -317,6 +317,7 @@
     <div class="preview-buttons">
       <button class="btn-outline" onclick="closePreview()">Cancel</button>
       <button class="btn-action" id="preview-save-btn" onclick="savePreviewedLinks()" style="display:none">✅ Looks Good — Save to Shopify</button>
+      <button class="btn-action" id="preview-close-btn" onclick="closePreview()" style="display:none;background:#2e7d32;">✕ Close</button>
     </div>
   </div>
 </div>
@@ -392,6 +393,35 @@ function shouldShowAddButton(item) {
   return !PAGES_TO_NEVER_TOUCH.has(titleLower);
 }
 
+// Check which requirements are already met for an item
+// Returns { needsCollection, needsBlog, hasCollection, hasBlog, fullyDone }
+function checkItemRequirements(item) {
+  const linkType = getPageLinkType(item);
+  const outbound = (AppState.linkGraph.outbound[item.id]||[]).filter(l=>l.type==='internal');
+
+  // Check if any outbound link points to a collection or blog
+  const hasCollection = outbound.some(l => {
+    const target = AppState.items.find(i=>(i.url||'').replace(/\/$/,'').toLowerCase() === l.targetUrl.replace(/\/$/,'').toLowerCase());
+    return target && target.type === 'collection';
+  });
+  const hasBlog = outbound.some(l => {
+    const target = AppState.items.find(i=>(i.url||'').replace(/\/$/,'').toLowerCase() === l.targetUrl.replace(/\/$/,'').toLowerCase());
+    return target && target.type === 'article';
+  });
+
+  let needsCollection = false, needsBlog = false;
+  if(linkType === 'product' || linkType === 'trend') { needsCollection = true; needsBlog = true; }
+  else if(linkType === 'collection' || linkType === 'blog' || linkType === 'static') { needsCollection = (linkType !== 'collection'); needsBlog = (linkType === 'collection'); }
+
+  // For static pages needsCollection only
+  if(linkType === 'static') { needsCollection = true; needsBlog = false; }
+  if(linkType === 'blog') { needsCollection = true; needsBlog = false; }
+  if(linkType === 'collection') { needsCollection = false; needsBlog = true; }
+
+  const fullyDone = (!needsCollection || hasCollection) && (!needsBlog || hasBlog);
+  return { needsCollection, needsBlog, hasCollection, hasBlog, fullyDone, linkType };
+}
+
 const AppState = {
   items:[], links:[], brokenLinks:[], lastSync:null,
   linkGraph:{ outbound:{}, inbound:{} },
@@ -411,24 +441,26 @@ document.addEventListener('DOMContentLoaded', () => {
     const age = Date.now() - cacheTime;
     const maxAge = 24 * 60 * 60 * 1000; // 24 hours
     if(age < maxAge){
-      const cached = JSON.parse(localStorage.getItem('lw-cache')||'null');
-      if(cached && cached.items && cached.items.length > 0){
-        // Restore bodyHtml from separate cache
-        const bodyCache = JSON.parse(localStorage.getItem('lw-body-cache')||'{}');
-        AppState.items = cached.items.map(item=>({ ...item, bodyHtml: bodyCache[item.id]||'' }));
-        AppState.links = cached.links || [];
-        AppState.lastSync = cached.lastSync;
-        buildLinkGraph();
-        detectBrokenLinks();
-        showApp();
-        updateLastSynced();
-        renderDashboard();
-        renderLinksReport();
-        showToast('Loaded from cache — '+AppState.items.length+' items','info');
-        return;
+      const cachedRaw = localStorage.getItem('lw-cache');
+      if(cachedRaw){
+        const cached = JSON.parse(cachedRaw);
+        if(cached && Array.isArray(cached.items) && cached.items.length > 0){
+          const bodyCache = JSON.parse(localStorage.getItem('lw-body-cache')||'{}');
+          AppState.items = cached.items.map(item=>({ ...item, bodyHtml: bodyCache[item.id]||'' }));
+          AppState.links = cached.links || [];
+          AppState.lastSync = cached.lastSync;
+          buildLinkGraph();
+          detectBrokenLinks();
+          showApp();
+          updateLastSynced();
+          renderDashboard();
+          renderLinksReport();
+          showToast('Loaded from cache — '+AppState.items.length+' items','info');
+          return;
+        }
       }
     }
-  } catch(e) { console.warn('Cache load failed:', e); }
+  } catch(e) { console.warn('Cache load failed, syncing fresh:', e); }
 
   syncFromShopify();
 });
@@ -575,103 +607,119 @@ function getProductCollections(product) {
 function buildSuggestPanel(item) {
   if(!shouldShowAddButton(item)) return '';
   const linkType = getPageLinkType(item);
+  const req = checkItemRequirements(item);
 
-  // Get best matching collection (pre-selected)
-  function getBestCollection() {
+  // Get all collections scored by relevance for dropdown
+  function getAllCollectionsSorted() {
     const cols = AppState.items.filter(i=>i.type==='collection');
-    const scored = cols.map(c=>({ item:c, score:scoreRelevance(item,c).score })).filter(s=>s.score>0);
-    scored.sort((a,b)=>b.score-a.score);
-    return scored.slice(0,1);
+    return cols.map(c=>({ item:c, score:scoreRelevance(item,c).score }))
+      .sort((a,b)=>b.score-a.score);
   }
 
-  // Get best matching blogs (not pre-selected, show top 6)
-  function getBestBlogs(count) {
+  // Get best matching blogs (top 6)
+  function getBestBlogs() {
     const blogs = AppState.items.filter(i=>i.type==='article');
-    const scored = blogs.map(b=>({ item:b, score:scoreRelevance(item,b).score }));
-    scored.sort((a,b)=>b.score-a.score);
-    return scored.slice(0,count);
+    return blogs.map(b=>({ item:b, score:scoreRelevance(item,b).score }))
+      .sort((a,b)=>b.score-a.score).slice(0,6);
   }
 
-  // For products: find collection this product belongs to
-  function getProductCollection() {
-    const cols = getProductCollections(item);
-    if(cols.length) return [{ item:cols[0], score:100 }];
-    return getBestCollection();
+  // For products: get all matched collections for dropdown
+  function getProductCollectionOptions() {
+    const allCols = getAllCollectionsSorted();
+    const best = allCols.slice(0,1);
+    const rest = allCols.slice(1, 8); // up to 7 more for dropdown
+    return { best, rest, all: allCols.slice(0,8) };
   }
-
-  let collectionSuggestions = [];
-  let blogSuggestions = [];
-  let showCollection = false;
-  let showBlog = false;
-  let instructions = '';
-
-  if(linkType === 'trend') {
-    collectionSuggestions = getBestCollection();
-    blogSuggestions = getBestBlogs(6);
-    showCollection = true; showBlog = true;
-    instructions = 'This is a <strong>Trend Page</strong>. The collection is pre-selected — verify it\'s the right match. Then pick one blog post.';
-  } else if(linkType === 'collection') {
-    blogSuggestions = getBestBlogs(6);
-    showBlog = true;
-    instructions = 'This is a <strong>Collection Page</strong>. Pick one blog post to link to.';
-  } else if(linkType === 'product') {
-    collectionSuggestions = getProductCollection();
-    blogSuggestions = getBestBlogs(6);
-    showCollection = true; showBlog = true;
-    instructions = 'This is a <strong>Product Page</strong>. The collection is pre-selected — verify it\'s correct. Then pick one blog post.';
-  } else if(linkType === 'blog') {
-    collectionSuggestions = getBestCollection();
-    showCollection = true;
-    instructions = 'This is a <strong>Blog Post</strong>. The best matching collection is pre-selected — verify it\'s correct.';
-  } else if(linkType === 'static') {
-    collectionSuggestions = getBestCollection();
-    showCollection = true;
-    instructions = 'This is a <strong>Static Page</strong>. The best matching collection is pre-selected. The Content Hub link is always included.';
-  }
-
-  const noResults = !collectionSuggestions.length && !blogSuggestions.length;
-  if(noResults) return `<div class="suggest-panel"><p class="empty-expand">No relevant pages found to link to.</p></div>`;
 
   let sections = '';
+  let instructions = '';
+  const showCollection = req.needsCollection && !req.hasCollection;
+  const showBlog = req.needsBlog && !req.hasBlog;
 
-  if(showCollection && collectionSuggestions.length) {
-    const rows = collectionSuggestions.map(s=>`
-      <div class="suggest-item pre-checked">
-        <input type="checkbox" checked class="sug-cb sug-collection"
-          data-item-id="${item.id}" data-candidate-id="${s.item.id}"
-          data-candidate-url="${escHtml(s.item.url)}" data-candidate-title="${escHtml(s.item.title)}"
-          data-candidate-type="collection" />
-        <div class="suggest-item-info">
-          <div class="suggest-item-title">${escHtml(s.item.title)}</div>
-          <div class="suggest-item-url">${escHtml(s.item.url)}</div>
-          <div class="suggest-item-badges"><span class="badge" style="background:#e3f2fd;color:#1565c0;">COLLECTION</span><span class="badge badge-inbound">${(AppState.linkGraph.inbound[s.item.id]||[]).length} inbound</span></div>
-        </div>
-      </div>`).join('');
-    sections += `<div class="suggest-section">
-      <span class="suggest-section-title st-collection">STEP 1 — Collection Link (pre-selected)</span>
-      ${rows}
-    </div>`;
+  // Build instructions based on what's missing
+  if(req.fullyDone) {
+    return `<div class="suggest-panel"><p class="empty-expand">✅ This item already has all required links.</p></div>`;
   }
 
-  if(showBlog && blogSuggestions.length) {
-    const rows = blogSuggestions.map(s=>`
-      <div class="suggest-item">
-        <input type="checkbox" class="sug-cb sug-blog"
-          data-item-id="${item.id}" data-candidate-id="${s.item.id}"
-          data-candidate-url="${escHtml(s.item.url)}" data-candidate-title="${escHtml(s.item.title)}"
-          data-candidate-type="article" />
-        <div class="suggest-item-info">
-          <div class="suggest-item-title">${escHtml(s.item.title)}</div>
-          <div class="suggest-item-url">${escHtml(s.item.url)}</div>
-          <div class="suggest-item-badges"><span class="badge" style="background:#f3e5f5;color:#6a1b9a;">BLOG</span><span class="badge badge-inbound">${(AppState.linkGraph.inbound[s.item.id]||[]).length} inbound</span></div>
-        </div>
-      </div>`).join('');
-    const stepNum = showCollection ? 'STEP 2' : 'STEP 1';
-    sections += `<div class="suggest-section">
-      <span class="suggest-section-title st-article">${stepNum} — Blog Post Link (pick one)</span>
-      ${rows}
-    </div>`;
+  if(linkType === 'trend') instructions = 'This is a <strong>Trend Page</strong>.' + (!req.hasCollection ? ' Verify the collection.' : ' ✅ Collection done.') + (!req.hasBlog ? ' Pick one blog post.' : ' ✅ Blog done.');
+  else if(linkType === 'product') instructions = 'This is a <strong>Product Page</strong>.' + (!req.hasCollection ? ' Verify the collection.' : ' ✅ Collection done.') + (!req.hasBlog ? ' Pick one blog post.' : ' ✅ Blog done.');
+  else if(linkType === 'collection') instructions = 'This is a <strong>Collection Page</strong>. Pick one blog post to link to.';
+  else if(linkType === 'blog') instructions = 'This is a <strong>Blog Post</strong>. The best matching collection is pre-selected.';
+  else if(linkType === 'static') instructions = 'This is a <strong>Static Page</strong>. The best matching collection is pre-selected.';
+
+  // COLLECTION SECTION
+  if(showCollection) {
+    let collectionHtml = '';
+    if(linkType === 'product') {
+      const { best, rest } = getProductCollectionOptions();
+      const bestItem = best.length ? best[0].item : null;
+      if(bestItem) {
+        const dropdownOptions = rest.map(s=>`<option value="${escHtml(s.item.id)}" data-url="${escHtml(s.item.url)}" data-title="${escHtml(s.item.title)}">${escHtml(s.item.title)}</option>`).join('');
+        collectionHtml = `
+          <div class="suggest-item pre-checked" id="col-item-${item.id}">
+            <input type="checkbox" checked class="sug-cb sug-collection"
+              data-item-id="${item.id}" data-candidate-id="${bestItem.id}"
+              data-candidate-url="${escHtml(bestItem.url)}" data-candidate-title="${escHtml(bestItem.title)}"
+              data-candidate-type="collection" id="sug-col-cb-${item.id}" />
+            <div class="suggest-item-info">
+              <div class="suggest-item-title" id="sug-col-title-${item.id}">${escHtml(bestItem.title)}</div>
+              <div class="suggest-item-url" id="sug-col-url-${item.id}">${escHtml(bestItem.url)}</div>
+              <div class="suggest-item-badges"><span class="badge" style="background:#e3f2fd;color:#1565c0;">COLLECTION</span></div>
+              ${dropdownOptions ? `<div style="margin-top:6px;"><label style="font-size:11px;color:#888;">Change collection: </label><select onchange="changeCollectionSelection(this,'${item.id}')" style="font-size:12px;padding:3px 6px;border:1px solid #ddd;border-radius:4px;"><option value="">— keep current —</option>${dropdownOptions}</select></div>` : ''}
+            </div>
+          </div>`;
+      }
+    } else {
+      const allCols = getAllCollectionsSorted();
+      const best = allCols.slice(0,1);
+      if(best.length) {
+        const s = best[0];
+        const rest = allCols.slice(1, 8);
+        const dropdownOptions = rest.map(c=>`<option value="${escHtml(c.item.id)}" data-url="${escHtml(c.item.url)}" data-title="${escHtml(c.item.title)}">${escHtml(c.item.title)}</option>`).join('');
+        collectionHtml = `
+          <div class="suggest-item pre-checked">
+            <input type="checkbox" checked class="sug-cb sug-collection"
+              data-item-id="${item.id}" data-candidate-id="${s.item.id}"
+              data-candidate-url="${escHtml(s.item.url)}" data-candidate-title="${escHtml(s.item.title)}"
+              data-candidate-type="collection" id="sug-col-cb-${item.id}" />
+            <div class="suggest-item-info">
+              <div class="suggest-item-title" id="sug-col-title-${item.id}">${escHtml(s.item.title)}</div>
+              <div class="suggest-item-url" id="sug-col-url-${item.id}">${escHtml(s.item.url)}</div>
+              <div class="suggest-item-badges"><span class="badge" style="background:#e3f2fd;color:#1565c0;">COLLECTION</span></div>
+              ${dropdownOptions ? `<div style="margin-top:6px;"><label style="font-size:11px;color:#888;">Change collection: </label><select onchange="changeCollectionSelection(this,'${item.id}')" style="font-size:12px;padding:3px 6px;border:1px solid #ddd;border-radius:4px;"><option value="">— keep current —</option>${dropdownOptions}</select></div>` : ''}
+            </div>
+          </div>`;
+      }
+    }
+    if(collectionHtml) {
+      const stepNum = 'STEP ' + (sections ? '2' : '1');
+      sections += `<div class="suggest-section"><span class="suggest-section-title st-collection">${stepNum} — Collection Link (pre-selected, verify)</span>${collectionHtml}</div>`;
+    }
   }
+
+  // BLOG SECTION — single select enforced via JS
+  if(showBlog) {
+    const blogs = getBestBlogs();
+    if(blogs.length) {
+      const stepNum = 'STEP ' + (sections ? (sections.includes('STEP 1') ? '2' : '1') : '1');
+      const rows = blogs.map(s=>`
+        <div class="suggest-item">
+          <input type="checkbox" class="sug-cb sug-blog"
+            data-item-id="${item.id}" data-candidate-id="${s.item.id}"
+            data-candidate-url="${escHtml(s.item.url)}" data-candidate-title="${escHtml(s.item.title)}"
+            data-candidate-type="article"
+            onchange="enforceSingleBlog(this,'${item.id}')" />
+          <div class="suggest-item-info">
+            <div class="suggest-item-title">${escHtml(s.item.title)}</div>
+            <div class="suggest-item-url">${escHtml(s.item.url)}</div>
+            <div class="suggest-item-badges"><span class="badge" style="background:#f3e5f5;color:#6a1b9a;">BLOG</span><span class="badge badge-inbound">${(AppState.linkGraph.inbound[s.item.id]||[]).length} inbound</span></div>
+          </div>
+        </div>`).join('');
+      sections += `<div class="suggest-section"><span class="suggest-section-title st-article">${stepNum} — Blog Post Link (pick ONE)</span>${rows}</div>`;
+    }
+  }
+
+  if(!sections) return `<div class="suggest-panel"><p class="empty-expand">No relevant pages found to link to.</p></div>`;
 
   return `<div class="suggest-panel">
     <div class="suggest-header">
@@ -690,6 +738,32 @@ function buildSuggestPanel(item) {
       <button class="btn-outline" onclick="closeSuggestPanel()">✕ Cancel</button>
     </div>
   </div>`;
+}
+
+// Enforce single blog selection — untick others when one is ticked
+function enforceSingleBlog(checkbox, itemId) {
+  if(!checkbox.checked) return;
+  document.querySelectorAll('.sug-blog[data-item-id="'+itemId+'"]').forEach(cb => {
+    if(cb !== checkbox) cb.checked = false;
+  });
+}
+
+// Change collection selection via dropdown
+function changeCollectionSelection(select, itemId) {
+  if(!select.value) return;
+  const opt = select.options[select.selectedIndex];
+  const cb = document.getElementById('sug-col-cb-'+itemId);
+  const titleEl = document.getElementById('sug-col-title-'+itemId);
+  const urlEl = document.getElementById('sug-col-url-'+itemId);
+  if(cb) {
+    cb.dataset.candidateId = select.value;
+    cb.dataset.candidateUrl = opt.dataset.url;
+    cb.dataset.candidateTitle = opt.dataset.title;
+    cb.checked = true;
+  }
+  if(titleEl) titleEl.textContent = opt.dataset.title;
+  if(urlEl) urlEl.textContent = opt.dataset.url;
+  select.value = ''; // reset dropdown back to placeholder
 }
 
 function openSuggestPanel(itemId) {
@@ -764,6 +838,9 @@ function showApprovalModal(item, phrases) {
     '<p style="font-size:12px;color:#888;margin-top:12px;">These phrases will be appended to the end of the page content in Shopify.</p>';
   document.getElementById('preview-modal-title').textContent = '📋 Approve Links for "'+item.title+'"';
   document.getElementById('preview-save-btn').style.display = '';
+  document.getElementById('preview-save-btn').disabled = false;
+  document.getElementById('preview-save-btn').innerHTML = '✅ Looks Good — Save to Shopify';
+  document.getElementById('preview-close-btn').style.display = 'none';
   document.getElementById('preview-overlay').classList.remove('hidden');
 }
 
@@ -800,21 +877,23 @@ async function savePreviewedLinks() {
       localStorage.setItem('lw-body-cache', JSON.stringify(bodyCache));
     } catch(e) {}
 
-    // Show confirmation in modal
-    saveBtn.innerHTML = '✅ Saved!';
+    // Hide save button, show Close button
+    saveBtn.style.display = 'none';
+    const closeBtn = document.getElementById('preview-close-btn');
+    if(closeBtn) closeBtn.style.display = '';
+
+    // Show confirmation
     document.getElementById('preview-body').innerHTML =
       '<div style="text-align:center;padding:32px;">' +
       '<div style="font-size:40px;margin-bottom:12px;">✅</div>' +
       '<div style="font-size:16px;font-weight:700;color:#2e7d32;margin-bottom:8px;">Saved to Shopify!</div>' +
-      '<div style="font-size:13px;color:#666;">'+phrases.length+' link(s) added to "'+escHtml(item.title)+'".<br>You can now move to the next item.</div>' +
+      '<div style="font-size:13px;color:#666;">'+phrases.length+' link(s) added to "'+escHtml(item.title)+'".<br>Click Close to move to the next item.</div>' +
       '</div>';
 
-    // Update outbound count badge on the row
-    AppState.saveStatuses[item.id] = { status:'saved', count:phrases.length };
+    // Re-render the table so the outbound count updates immediately
     renderLinksReport();
     renderDashboard();
     showToast('✅ '+phrases.length+' link(s) saved to Shopify!','success');
-    setTimeout(()=>{ delete AppState.saveStatuses[item.id]; renderLinksReport(); }, 5000);
 
   } catch(err) {
     saveBtn.disabled = false;
@@ -995,7 +1074,11 @@ function buildItemRow(item) {
       <div class="link-cell">
         <span class="link-count ${outInternal.length===0?'zero':''}" id="out-count-${item.id}">${outInternal.length}→</span>
         <button class="btn-expand ${outOpen}" onclick="toggleExpand('${item.id}','outbound')">▼</button>
-        ${shouldShowAddButton(item) ? `<button class="btn-add" onclick="openSuggestPanel('${item.id}')">+ Add</button>` : ''}
+        ${shouldShowAddButton(item) ? (() => {
+          const req = checkItemRequirements(item);
+          if(req.fullyDone) return `<button class="btn-add" disabled style="opacity:0.35;cursor:default;background:#aaa;" title="All required links already present">✓ Done</button>`;
+          return `<button class="btn-add" onclick="openSuggestPanel('${item.id}')">+ Add</button>`;
+        })() : ''}
         ${saveBadge}
       </div>
     </td>
@@ -1089,7 +1172,7 @@ async function syncFromShopify(){
     detectBrokenLinks();
 
     // Save to localStorage cache (24 hours)
-    // Split bodyHtml into separate cache to avoid localStorage size limits
+    // Store items without bodyHtml, bodyHtml separately, links as slim objects
     try {
       const bodyCache = {};
       const slimItems = allItems.map(item => {
@@ -1097,16 +1180,25 @@ async function syncFromShopify(){
         const { bodyHtml, ...slim } = item;
         return slim;
       });
-      localStorage.setItem('lw-cache', JSON.stringify({ items:slimItems, links:allLinks, lastSync:AppState.lastSync }));
-      localStorage.setItem('lw-body-cache', JSON.stringify(bodyCache));
+      // Slim links: only keep what's needed for link graph
+      const slimLinks = allLinks.map(l=>({
+        sourceId:l.sourceId, sourceUrl:l.sourceUrl,
+        targetUrl:l.targetUrl, anchorText:l.anchorText, type:l.type
+      }));
+      const cacheObj = JSON.stringify({ items:slimItems, links:slimLinks, lastSync:AppState.lastSync });
+      const bodyObj = JSON.stringify(bodyCache);
+      // Try saving both
+      localStorage.setItem('lw-cache', cacheObj);
+      localStorage.setItem('lw-body-cache', bodyObj);
       localStorage.setItem('lw-cache-time', Date.now().toString());
     } catch(e) {
-      // If body cache also too large, save without body
+      // Body cache too large — try without it
       try {
         const slimItems = allItems.map(({ bodyHtml, ...slim }) => slim);
-        localStorage.setItem('lw-cache', JSON.stringify({ items:slimItems, links:allLinks, lastSync:AppState.lastSync }));
+        const slimLinks = allLinks.map(l=>({ sourceId:l.sourceId, sourceUrl:l.sourceUrl, targetUrl:l.targetUrl, anchorText:l.anchorText, type:l.type }));
+        localStorage.setItem('lw-cache', JSON.stringify({ items:slimItems, links:slimLinks, lastSync:AppState.lastSync }));
         localStorage.setItem('lw-cache-time', Date.now().toString());
-        console.warn('Saved slim cache (no bodyHtml):', e);
+        localStorage.removeItem('lw-body-cache');
       } catch(e2) { console.warn('Cache save failed entirely:', e2); }
     }
 
