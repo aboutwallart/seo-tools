@@ -217,7 +217,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v14.1</div>
+    <div class="version">v14.2</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -365,6 +365,16 @@
   <div id="tab-url-changer" class="tab-content"><p class="placeholder-msg">URL Changer — coming soon.</p></div>
   <div id="tab-target-keywords" class="tab-content"><p class="placeholder-msg">Target Keywords — coming soon.</p></div>
   <div id="tab-settings" class="tab-content"><p class="placeholder-msg">Settings — coming soon.</p></div>
+</div>
+
+<!-- QUEUE RESULT MODAL -->
+<div id="queue-result-overlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:8px;padding:32px;max-width:500px;width:95%;box-shadow:0 8px 32px rgba(0,0,0,0.2);text-align:center;">
+    <div id="queue-result-icon" style="font-size:48px;margin-bottom:12px;">✅</div>
+    <div id="queue-result-title" style="font-size:18px;font-weight:700;margin-bottom:8px;"></div>
+    <div id="queue-result-body" style="font-size:13px;color:#666;margin-bottom:20px;text-align:left;"></div>
+    <button onclick="document.getElementById('queue-result-overlay').classList.add('hidden')" style="background:#222;color:#fff;border:none;border-radius:4px;padding:10px 28px;font-size:13px;font-weight:700;cursor:pointer;">Close</button>
+  </div>
 </div>
 
 <!-- PREVIEW MODAL -->
@@ -979,72 +989,77 @@ async function saveQueue() {
   const failedItems = [];
   const queue = [...AppState.linkQueue];
 
-  for(const q of queue) {
-    try {
-      if(q.isInbound) {
-        for(const sel of q.selections) {
-          const updatedHtml = (sel.sourceItem.bodyHtml||'') + '\n<p>' + sel.phraseHtml + '</p>';
-          await saveItemToShopify(sel.sourceItem, updatedHtml);
-          sel.sourceItem.bodyHtml = updatedHtml;
+  try {
+    for(const q of queue) {
+      try {
+        if(q.isInbound) {
+          for(const sel of q.selections) {
+            const updatedHtml = (sel.sourceItem.bodyHtml||'') + '\n<p>' + sel.phraseHtml + '</p>';
+            await saveItemToShopify(sel.sourceItem, updatedHtml);
+            sel.sourceItem.bodyHtml = updatedHtml;
+            try {
+              const bc = JSON.parse(localStorage.getItem('lw-body-cache')||'{}');
+              bc[sel.sourceItem.id] = updatedHtml;
+              localStorage.setItem('lw-body-cache', JSON.stringify(bc));
+            } catch(e) {}
+          }
+          delete AppState.saveStatuses[q.targetItem.id];
+        } else {
+          let updatedHtml = q.item.bodyHtml || '';
+          for(const p of q.phrases) updatedHtml += '\n<p>' + p.html + '</p>';
+          await saveItemToShopify(q.item, updatedHtml);
+          q.item.bodyHtml = updatedHtml;
           try {
             const bc = JSON.parse(localStorage.getItem('lw-body-cache')||'{}');
-            bc[sel.sourceItem.id] = updatedHtml;
+            bc[q.item.id] = updatedHtml;
             localStorage.setItem('lw-body-cache', JSON.stringify(bc));
           } catch(e) {}
+          delete AppState.saveStatuses[q.item.id];
         }
-        delete AppState.saveStatuses[q.targetItem.id];
-      } else {
-        let updatedHtml = q.item.bodyHtml || '';
-        for(const p of q.phrases) updatedHtml += '\n<p>' + p.html + '</p>';
-        await saveItemToShopify(q.item, updatedHtml);
-        q.item.bodyHtml = updatedHtml;
-        try {
-          const bc = JSON.parse(localStorage.getItem('lw-body-cache')||'{}');
-          bc[q.item.id] = updatedHtml;
-          localStorage.setItem('lw-body-cache', JSON.stringify(bc));
-        } catch(e) {}
-        delete AppState.saveStatuses[q.item.id];
+        saved++;
+        btn.textContent = 'Saving ' + saved + ' of ' + total + '...';
+      } catch(err) {
+        const name = q.isInbound ? (q.targetItem.title||'Unknown') : (q.item.title||'Unknown');
+        failedItems.push(name.substring(0,60) + ' — ' + err.message);
       }
-      saved++;
-      btn.textContent = 'Saving ' + saved + ' of ' + total + '...';
-    } catch(err) {
-      const name = q.isInbound ? q.targetItem.title : q.item.title;
-      failedItems.push((name||'Unknown').substring(0,50) + ': ' + err.message);
-      console.error('Queue save failed:', err);
     }
+  } finally {
+    // Always runs — re-enable button and clean up regardless of errors
+    AppState.links = [];
+    for(const i of AppState.items) AppState.links.push(...parseItemLinks(i));
+    buildLinkGraph();
+    detectBrokenLinks();
+    AppState.linkQueue = [];
+    updateQueueBar();
+    renderLinksReport();
+    renderDashboard();
+    btn.disabled = false;
+    btn.textContent = '💾 Save Queue (0)';
+    showQueueResultModal(saved, failedItems);
   }
-
-  // Rebuild link graph
-  AppState.links = [];
-  for(const i of AppState.items) AppState.links.push(...parseItemLinks(i));
-  buildLinkGraph();
-  detectBrokenLinks();
-  AppState.linkQueue = [];
-  updateQueueBar();
-  renderLinksReport();
-  renderDashboard();
-
-  if(failed) showQueueResultModal(saved, failedItems);
-  else showQueueResultModal(saved, []);
-
-  btn.disabled = false;
 }
 
 function showQueueResultModal(saved, failedItems) {
-  const title = failedItems.length ? '⚠️ Queue Save Complete' : '✅ Queue Saved!';
-  const body = `
-    <div style="text-align:center;padding:8px 0 20px;">
-      <div style="font-size:40px;margin-bottom:12px;">${failedItems.length ? '⚠️' : '✅'}</div>
-      <div style="font-size:16px;font-weight:700;color:${failedItems.length?'#e65100':'#2e7d32'};margin-bottom:8px;">${saved} item(s) saved to Shopify successfully.</div>
-      ${failedItems.length ? `<div style="font-size:13px;color:#c62828;margin-top:12px;text-align:left;background:#fce4ec;padding:12px;border-radius:6px;"><strong>Failed (${failedItems.length}):</strong><br>${failedItems.map(e=>`• ${escHtml(e)}`).join('<br>')}</div>` : ''}
-    </div>`;
-  document.getElementById('preview-modal-title').textContent = title;
-  document.getElementById('preview-body').innerHTML = body;
-  document.getElementById('preview-save-btn').style.display = 'none';
-  document.getElementById('preview-queue-btn').style.display = 'none';
-  document.getElementById('preview-close-btn').style.display = '';
-  document.getElementById('preview-close-btn').textContent = '✕ Close';
-  document.getElementById('preview-overlay').classList.remove('hidden');
+  const overlay = document.getElementById('queue-result-overlay');
+  const icon    = document.getElementById('queue-result-icon');
+  const title   = document.getElementById('queue-result-title');
+  const body    = document.getElementById('queue-result-body');
+  if(!overlay) return;
+
+  if(failedItems.length === 0) {
+    icon.textContent  = '✅';
+    title.textContent = saved + ' item(s) saved to Shopify successfully!';
+    title.style.color = '#2e7d32';
+    body.innerHTML    = '<p style="text-align:center;color:#666;">All done — you can move on to the next batch.</p>';
+  } else {
+    icon.textContent  = '⚠️';
+    title.textContent = saved + ' saved, ' + failedItems.length + ' failed.';
+    title.style.color = '#e65100';
+    body.innerHTML    = '<p style="color:#666;margin-bottom:8px;">The following items could not be saved:</p>'
+      + failedItems.map(e=>`<div style="background:#fce4ec;color:#c62828;padding:6px 10px;border-radius:4px;margin-bottom:4px;font-size:12px;">• ${escHtml(e)}</div>`).join('');
+  }
+
+  overlay.classList.remove('hidden');
 }
 
 // ─── SEARCH BAR IN SUGGEST PANEL ──────────────────────────────────────────────
