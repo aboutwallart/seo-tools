@@ -149,7 +149,28 @@
     .badge-match  { background:#e8f5e9; color:#2e7d32; }
     .badge-inbound { background:#f5f5f5; color:#888; }
 
-    /* PAGINATION */
+    /* QUEUE SYSTEM */
+    .save-status.queued { background:#e3f2fd; color:#1565c0; }
+    #queue-bar { background:#1565c0; color:#fff; padding:10px 24px; display:flex; align-items:center; justify-content:space-between; font-size:13px; font-weight:600; }
+    #queue-bar.hidden { display:none; }
+    #queue-bar-right { display:flex; gap:10px; align-items:center; }
+    #btn-save-queue { background:#fff; color:#1565c0; border:none; border-radius:4px; padding:6px 16px; font-size:12px; font-weight:700; cursor:pointer; text-transform:uppercase; }
+    #btn-save-queue:hover { background:#e3f2fd; }
+    #btn-clear-queue { background:transparent; color:#fff; border:1px solid rgba(255,255,255,0.5); border-radius:4px; padding:6px 12px; font-size:12px; cursor:pointer; }
+    #btn-clear-queue:hover { background:rgba(255,255,255,0.1); }
+
+    /* SUGGEST SEARCH BAR */
+    .suggest-search-wrap { margin-top:12px; padding-top:12px; border-top:1px solid #f0e0a0; }
+    .suggest-search-label { font-size:11px; font-weight:700; text-transform:uppercase; color:#888; margin-bottom:6px; letter-spacing:0.4px; }
+    .suggest-search-input-wrap { position:relative; }
+    .suggest-search-input { width:100%; padding:8px 12px; border:1px solid #ddd; border-radius:4px; font-size:13px; font-family:inherit; }
+    .suggest-search-input:focus { outline:none; border-color:#1565c0; }
+    .suggest-search-dropdown { position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid #ddd; border-top:none; border-radius:0 0 4px 4px; max-height:220px; overflow-y:auto; z-index:100; box-shadow:0 4px 12px rgba(0,0,0,0.1); }
+    .suggest-search-item { padding:8px 12px; cursor:pointer; font-size:13px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #f5f5f5; }
+    .suggest-search-item:last-child { border-bottom:none; }
+    .suggest-search-item:hover { background:#f0f7ff; }
+    .suggest-search-item-title { font-weight:600; color:#222; flex:1; }
+    .suggest-search-item-inbound { font-size:11px; color:#888; margin-left:8px; white-space:nowrap; }
     .pagination { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; background:#fff; border-top:1px solid #f0f0f0; font-size:13px; color:#666; }
     .pagination-btns { display:flex; gap:6px; }
     .btn-page { background:#fff; border:1px solid #ddd; border-radius:4px; padding:5px 12px; font-size:13px; cursor:pointer; }
@@ -196,7 +217,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v13.3</div>
+    <div class="version">v14.0</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -205,6 +226,15 @@
 </div>
 
 <div id="app">
+  <!-- QUEUE BAR -->
+  <div id="queue-bar" class="hidden">
+    <span id="queue-bar-label">0 items in queue</span>
+    <div id="queue-bar-right">
+      <button id="btn-clear-queue" onclick="clearQueue()">✕ Clear Queue</button>
+      <button id="btn-save-queue" onclick="saveQueue()">💾 Save Queue (0)</button>
+    </div>
+  </div>
+
   <div id="tab-bar">
     <button class="tab-btn active" onclick="switchTab('dashboard')">Dashboard</button>
     <button class="tab-btn" onclick="switchTab('links-report')">Links Report</button>
@@ -345,7 +375,8 @@
     <div id="preview-body"></div>
     <div class="preview-buttons">
       <button class="btn-outline" onclick="closePreview()">Cancel</button>
-      <button class="btn-action" id="preview-save-btn" onclick="savePreviewedLinks()" style="display:none">✅ Looks Good — Save to Shopify</button>
+      <button class="btn-action" id="preview-queue-btn" onclick="addToQueue()" style="display:none;background:#1565c0;">+ Add to Queue</button>
+      <button class="btn-action" id="preview-save-btn" onclick="savePreviewedLinks()" style="display:none">✅ Save Now</button>
       <button class="btn-action" id="preview-close-btn" onclick="closePreview()" style="display:none;background:#2e7d32;">✕ Close</button>
     </div>
   </div>
@@ -494,7 +525,8 @@ const AppState = {
   linkGraph:{ outbound:{}, inbound:{} },
   lrPage:1, lrSort:[],
   expandState:{}, suggestState:{}, inboundSuggestState:{},
-  saveStatuses:{}
+  saveStatuses:{},
+  linkQueue:[] // [{itemId, phrases, label}]
 };
 
 let donutChart = null;
@@ -776,7 +808,11 @@ function buildSuggestPanel(item) {
     }
     if(collectionHtml) {
       const stepNum = 'STEP ' + (sections ? '2' : '1');
-      sections += `<div class="suggest-section"><span class="suggest-section-title st-collection">${stepNum} — Collection Link (pre-selected, verify)</span>${collectionHtml}</div>`;
+      sections += `<div class="suggest-section">
+        <span class="suggest-section-title st-collection">${stepNum} — Collection Link (pre-selected, verify)</span>
+        <div class="sug-collection-section-${item.id}">${collectionHtml}</div>
+        ${buildSearchBar(item, 'collection', 'sug-collection')}
+      </div>`;
     }
   }
 
@@ -798,7 +834,7 @@ function buildSuggestPanel(item) {
             <div class="suggest-item-badges"><span class="badge" style="background:#f3e5f5;color:#6a1b9a;">BLOG</span><span class="badge badge-inbound">${(AppState.linkGraph.inbound[s.item.id]||[]).length} inbound</span></div>
           </div>
         </div>`).join('');
-      sections += `<div class="suggest-section"><span class="suggest-section-title st-article">${stepNum} — Blog Post Link (pick ONE)</span>${rows}</div>`;
+      sections += `<div class="suggest-section"><span class="suggest-section-title st-article">${stepNum} — Blog Post Link (pick ONE)</span><div class="sug-article-section-${item.id}">${rows}</div>${buildSearchBar(item,'article','sug-blog')}</div>`;
     }
   }
 
@@ -880,6 +916,191 @@ async function openSuggestPanel(itemId) {
 function closeSuggestPanel() {
   AppState.suggestState = {};
   renderLinksReport();
+}
+
+// ─── QUEUE SYSTEM ─────────────────────────────────────────────────────────────
+
+function addToQueue() {
+  if(!pendingPreview) return;
+  const { item, phrases, targetItem, selections, isInbound } = pendingPreview;
+
+  if(isInbound) {
+    const label = selections.length + ' inbound link(s) → "' + (targetItem.title||'').substring(0,40) + '"';
+    AppState.linkQueue.push({ isInbound:true, targetItem, selections, label });
+    AppState.saveStatuses[targetItem.id] = { status:'queued', count: selections.length };
+  } else {
+    const label = phrases.length + ' link(s) → "' + (item.title||'').substring(0,40) + '"';
+    AppState.linkQueue.push({ isInbound:false, item, phrases, label });
+    AppState.saveStatuses[item.id] = { status:'queued', count: phrases.length };
+  }
+
+  closePreview();
+  updateQueueBar();
+  renderLinksReport();
+  showToast('Added to queue — '+AppState.linkQueue.length+' item(s) queued','info');
+}
+
+function updateQueueBar() {
+  const bar = document.getElementById('queue-bar');
+  const label = document.getElementById('queue-bar-label');
+  const btn = document.getElementById('btn-save-queue');
+  if(!bar) return;
+  if(AppState.linkQueue.length === 0) {
+    bar.classList.add('hidden');
+  } else {
+    bar.classList.remove('hidden');
+    label.textContent = AppState.linkQueue.length + ' item(s) ready to save';
+    btn.textContent = '💾 Save Queue (' + AppState.linkQueue.length + ')';
+  }
+}
+
+function clearQueue() {
+  // Remove queued badges
+  AppState.linkQueue.forEach(q => {
+    const id = q.isInbound ? q.targetItem.id : q.item.id;
+    delete AppState.saveStatuses[id];
+  });
+  AppState.linkQueue = [];
+  updateQueueBar();
+  renderLinksReport();
+  showToast('Queue cleared','info');
+}
+
+async function saveQueue() {
+  if(!AppState.linkQueue.length) return;
+  const total = AppState.linkQueue.length;
+  const btn = document.getElementById('btn-save-queue');
+  btn.disabled = true;
+  btn.textContent = 'Saving 0 of ' + total + '...';
+
+  let saved = 0, failed = 0;
+  const queue = [...AppState.linkQueue];
+
+  for(const q of queue) {
+    try {
+      if(q.isInbound) {
+        for(const sel of q.selections) {
+          const updatedHtml = (sel.sourceItem.bodyHtml||'') + '\n<p>' + sel.phraseHtml + '</p>';
+          await saveItemToShopify(sel.sourceItem, updatedHtml);
+          sel.sourceItem.bodyHtml = updatedHtml;
+          try {
+            const bc = JSON.parse(localStorage.getItem('lw-body-cache')||'{}');
+            bc[sel.sourceItem.id] = updatedHtml;
+            localStorage.setItem('lw-body-cache', JSON.stringify(bc));
+          } catch(e) {}
+        }
+        delete AppState.saveStatuses[q.targetItem.id];
+      } else {
+        let updatedHtml = q.item.bodyHtml || '';
+        for(const p of q.phrases) updatedHtml += '\n<p>' + p.html + '</p>';
+        await saveItemToShopify(q.item, updatedHtml);
+        q.item.bodyHtml = updatedHtml;
+        try {
+          const bc = JSON.parse(localStorage.getItem('lw-body-cache')||'{}');
+          bc[q.item.id] = updatedHtml;
+          localStorage.setItem('lw-body-cache', JSON.stringify(bc));
+        } catch(e) {}
+        delete AppState.saveStatuses[q.item.id];
+      }
+      saved++;
+      btn.textContent = 'Saving ' + saved + ' of ' + total + '...';
+    } catch(err) {
+      failed++;
+      console.error('Queue save failed:', err);
+    }
+  }
+
+  // Rebuild link graph
+  AppState.links = [];
+  for(const i of AppState.items) AppState.links.push(...parseItemLinks(i));
+  buildLinkGraph();
+  detectBrokenLinks();
+  AppState.linkQueue = [];
+  updateQueueBar();
+  renderLinksReport();
+  renderDashboard();
+
+  if(failed) showToast('⚠️ '+saved+' saved, '+failed+' failed','error');
+  else showToast('✅ All '+saved+' item(s) saved to Shopify!','success');
+
+  btn.disabled = false;
+}
+
+// ─── SEARCH BAR IN SUGGEST PANEL ──────────────────────────────────────────────
+
+function buildSearchBar(item, searchType, cbClass) {
+  const typeLabel = searchType === 'collection' ? 'collection' : searchType === 'article' ? 'blog post' : 'page';
+  const inputId = 'sug-search-'+item.id+'-'+searchType;
+  const dropId  = 'sug-drop-'+item.id+'-'+searchType;
+  return `<div class="suggest-search-wrap">
+    <div class="suggest-search-label">🔍 Search for a different ${typeLabel}:</div>
+    <div class="suggest-search-input-wrap">
+      <input type="text" class="suggest-search-input" id="${inputId}"
+        placeholder="Type to search..."
+        oninput="searchSuggest('${item.id}','${searchType}','${cbClass}','${inputId}','${dropId}')"
+        autocomplete="off" />
+      <div class="suggest-search-dropdown" id="${dropId}" style="display:none;"></div>
+    </div>
+  </div>`;
+}
+
+function searchSuggest(itemId, searchType, cbClass, inputId, dropId) {
+  const input = document.getElementById(inputId);
+  const drop  = document.getElementById(dropId);
+  if(!input || !drop) return;
+  const q = input.value.toLowerCase().trim();
+  if(!q) { drop.style.display='none'; return; }
+
+  const results = AppState.items
+    .filter(i => {
+      if(i.id === itemId) return false;
+      if(searchType === 'collection') return i.type === 'collection';
+      if(searchType === 'article') return i.type === 'article';
+      if(searchType === 'trend') return getPageLinkType(i) === 'trend';
+      return false;
+    })
+    .filter(i => i.title.toLowerCase().includes(q))
+    .slice(0, 8);
+
+  if(!results.length) { drop.style.display='none'; return; }
+
+  drop.style.display = 'block';
+  drop.innerHTML = results.map(i => {
+    const inbound = (AppState.linkGraph.inbound[i.id]||[]).length;
+    return `<div class="suggest-search-item" onclick="selectSearchResult('${itemId}','${escHtml(i.id)}','${escHtml(i.url)}','${escHtml(i.title).replace(/'/g,"\\'")}','${searchType}','${cbClass}','${inputId}','${dropId}')">
+      <span class="suggest-search-item-title">${escHtml(i.title)}</span>
+      <span class="suggest-search-item-inbound">${inbound} inbound</span>
+    </div>`;
+  }).join('');
+}
+
+function selectSearchResult(itemId, candidateId, candidateUrl, candidateTitle, searchType, cbClass, inputId, dropId) {
+  // Add a new checkbox item to the suggest section
+  const sectionEl = document.querySelector('.sug-'+searchType+'-section-'+itemId);
+  if(sectionEl) {
+    const newItem = document.createElement('div');
+    newItem.className = 'suggest-item pre-checked';
+    newItem.innerHTML = `
+      <input type="checkbox" checked class="sug-cb ${cbClass}"
+        data-item-id="${itemId}" data-candidate-id="${escHtml(candidateId)}"
+        data-candidate-url="${escHtml(candidateUrl)}" data-candidate-title="${escHtml(candidateTitle)}"
+        data-candidate-type="${searchType}"
+        ${cbClass==='sug-blog'?'onchange="enforceSingleBlog(this,\''+itemId+'\')"':''}
+        ${cbClass==='inb-trend'?'onchange="enforceInboundSingle(this,\''+itemId+'\',\'inb-trend\')"':''} />
+      <div class="suggest-item-info">
+        <div class="suggest-item-title">${escHtml(candidateTitle)}</div>
+        <div class="suggest-item-url">${escHtml(candidateUrl)}</div>
+        <div class="suggest-item-badges"><span class="badge" style="background:#e8f5e9;color:#1b5e20;">ADDED FROM SEARCH</span></div>
+      </div>`;
+    sectionEl.appendChild(newItem);
+    // If blog, enforce single select
+    if(cbClass==='sug-blog') enforceSingleBlog(newItem.querySelector('input'), itemId);
+  }
+  // Clear search
+  const input = document.getElementById(inputId);
+  const drop  = document.getElementById(dropId);
+  if(input) input.value = '';
+  if(drop)  drop.style.display = 'none';
 }
 
 // ─── INBOUND SUGGEST PANEL ──────────────────────────────────────────────────
@@ -996,9 +1217,12 @@ function buildInboundSection(label, styleClass, cbClass, itemId, candidates) {
         </div>
       </div>
     </div>`).join('');
+  const searchType = cbClass === 'inb-trend' ? 'trend' : 'article';
+  const fakeItem = { id: itemId };
   return `<div class="suggest-section">
     <span class="suggest-section-title ${styleClass}">${label}</span>
-    ${rows}
+    <div class="sug-${searchType}-section-${itemId}">${rows}</div>
+    ${buildSearchBar(fakeItem, searchType, cbClass)}
   </div>`;
 }
 
@@ -1075,7 +1299,8 @@ function showInboundApprovalModal(targetItem, selections) {
   document.getElementById('preview-modal-title').textContent = '← Approve Inbound Links for "'+targetItem.title+'"';
   document.getElementById('preview-save-btn').style.display = '';
   document.getElementById('preview-save-btn').disabled = false;
-  document.getElementById('preview-save-btn').innerHTML = '✅ Looks Good — Save to Shopify';
+  document.getElementById('preview-save-btn').innerHTML = '✅ Save Now';
+  document.getElementById('preview-queue-btn').style.display = '';
   document.getElementById('preview-close-btn').style.display = 'none';
   document.getElementById('preview-overlay').classList.remove('hidden');
 }
@@ -1141,7 +1366,8 @@ function showApprovalModal(item, phrases) {
   document.getElementById('preview-modal-title').textContent = '📋 Approve Links for "'+item.title+'"';
   document.getElementById('preview-save-btn').style.display = '';
   document.getElementById('preview-save-btn').disabled = false;
-  document.getElementById('preview-save-btn').innerHTML = '✅ Looks Good — Save to Shopify';
+  document.getElementById('preview-save-btn').innerHTML = '✅ Save Now';
+  document.getElementById('preview-queue-btn').style.display = '';
   document.getElementById('preview-close-btn').style.display = 'none';
   document.getElementById('preview-overlay').classList.remove('hidden');
 }
@@ -1413,6 +1639,7 @@ function buildItemRow(item) {
     if(saveStatus.status==='saving') saveBadge=`<span class="save-status saving"><span class="spinner-sm"></span>Saving ${saveStatus.count} link(s)...</span>`;
     else if(saveStatus.status==='saved') saveBadge=`<span class="save-status saved">✅ ${saveStatus.count} link(s) saved</span>`;
     else if(saveStatus.status==='failed') saveBadge=`<span class="save-status failed">❌ Failed</span>`;
+    else if(saveStatus.status==='queued') saveBadge=`<span class="save-status queued">⏳ ${saveStatus.count} link(s) queued</span>`;
   }
 
   const inboundSuggestOpen = AppState.inboundSuggestState[item.id];
