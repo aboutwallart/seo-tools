@@ -161,13 +161,6 @@
     .preview-link-block .plb-sentence { font-size:13px; color:#444; line-height:1.7; background:#fff; border-left:3px solid #222; padding:8px 12px; border-radius:0 4px 4px 0; }
     .preview-link-block .plb-sentence a { color:#1565c0; font-weight:600; }
     .preview-link-block .plb-placement { font-size:11px; color:#888; margin-top:6px; font-style:italic; }
-    .plb-edit-area { display:none; margin-top:8px; }
-    .plb-edit-area textarea { width:100%; padding:8px 10px; border:1px solid #bbb; border-radius:4px; font-size:13px; font-family:inherit; line-height:1.6; resize:vertical; min-height:72px; }
-    .plb-edit-hint { font-size:11px; color:#888; margin-top:4px; font-style:italic; }
-    .btn-edit-sentence { background:#fff; border:1px solid #bbb; border-radius:4px; padding:4px 10px; font-size:11px; color:#555; cursor:pointer; margin-top:6px; }
-    .btn-edit-sentence:hover { background:#f5f5f5; }
-    .btn-edit-done { background:#222; color:#fff; border:none; border-radius:4px; padding:4px 10px; font-size:11px; cursor:pointer; margin-top:6px; margin-left:6px; }
-    .plb-no-match { font-size:12px; color:#e65100; background:#fff3e0; border-radius:4px; padding:6px 10px; margin-top:6px; }
     .preview-loading { text-align:center; padding:32px; color:#888; font-size:14px; }
     .preview-loading .spinner { margin:0 auto 12px; }
     .preview-buttons { display:flex; gap:10px; justify-content:flex-end; margin-top:20px; padding-top:16px; border-top:1px solid #eee; }
@@ -195,7 +188,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v9.0</div>
+    <div class="version">v10.0</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -276,6 +269,9 @@
         <option value="orphaned">Orphaned Only</option>
         <option value="has-inbound">Has Inbound Links</option>
       </select>
+      <select id="lr-vendor" onchange="renderLinksReport()">
+        <option value="">All Vendors</option>
+      </select>
       <button class="btn-outline" onclick="exportLinksCSV()">EXPORT TO CSV</button>
     </div>
     <div class="table-wrap">
@@ -283,10 +279,9 @@
         <thead>
           <tr>
             <th onclick="sortLinksReport('title')">Title <span class="sort-icon" id="sort-title"></span></th>
-            <th onclick="sortLinksReport('published')">Published <span class="sort-icon" id="sort-published"></span></th>
+            <th>Published</th>
             <th onclick="sortLinksReport('inbound')">Inbound Internal Links <span class="sort-icon" id="sort-inbound"></span></th>
             <th onclick="sortLinksReport('outbound')">Outbound Internal Links <span class="sort-icon" id="sort-outbound"></span></th>
-            <th onclick="sortLinksReport('external')">Outbound External Links <span class="sort-icon" id="sort-external"></span></th>
           </tr>
         </thead>
         <tbody id="lr-tbody"></tbody>
@@ -347,7 +342,7 @@ const LINK_RULES = {
 const AppState = {
   items:[], links:[], brokenLinks:[], lastSync:null,
   linkGraph:{ outbound:{}, inbound:{} },
-  lrPage:1, lrSort:{ col:'title', dir:'asc' },
+  lrPage:1, lrSort:[], // array of {col, dir} for multi-column sort
   expandState:{}, suggestState:{},
   saveStatuses:{} // itemId -> { status: 'saving'|'saved'|'failed', count: N }
 };
@@ -356,6 +351,30 @@ let donutChart = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   switchTab(localStorage.getItem('lw-active-tab')||'dashboard', true);
+
+  // Load from cache if under 24 hours old
+  try {
+    const cacheTime = parseInt(localStorage.getItem('lw-cache-time')||'0');
+    const age = Date.now() - cacheTime;
+    const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+    if(age < maxAge){
+      const cached = JSON.parse(localStorage.getItem('lw-cache')||'null');
+      if(cached && cached.items && cached.items.length > 0){
+        AppState.items = cached.items;
+        AppState.links = cached.links || [];
+        AppState.lastSync = cached.lastSync;
+        buildLinkGraph();
+        detectBrokenLinks();
+        showApp();
+        updateLastSynced();
+        renderDashboard();
+        renderLinksReport();
+        showToast('Loaded from cache — '+AppState.items.length+' items','info');
+        return;
+      }
+    }
+  } catch(e) { console.warn('Cache load failed:', e); }
+
   syncFromShopify();
 });
 
@@ -586,214 +605,129 @@ function closeSuggestPanel() {
 // Stored pending preview data
 let pendingPreview = null;
 
-// ─── PURE JS TEXT MATCHING — no Claude needed ───────────────────────────────
-
-// Strip HTML tags and decode entities to get plain text
-function stripHtml(html) {
-  const tmp = document.createElement('div');
-  tmp.innerHTML = html || '';
-  return tmp.textContent || tmp.innerText || '';
-}
-
-// Split plain text into sentences
-function splitSentences(text) {
-  // Split on . ! ? followed by space or end, keeping the delimiter
-  return text.match(/[^.!?]+[.!?]+[\s]*/g) || [text];
-}
-
-// Extract keywords from a page title (words > 3 chars, skip stop words)
-function titleKeywords(title) {
-  const stop = new Set(['with','this','that','from','your','have','more','into','they','been','will','what','when','where','which','their','there','about','would','could','should','these','those','then','than','also','some','just','like','very','only','even','over','such','both','each','much','most','many','same','other','after','before','while','since','until','because','though','although','however','therefore','moreover','furthermore','nevertheless','nonetheless']);
-  return title.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !stop.has(w.replace(/[^a-z]/g,'')));
-}
-
-// Find the best matching sentence in bodyHtml for a target page
-// Returns { sentence, anchorText, plainSentence, paragraphIndex }
-function findBestSentence(bodyHtml, targetTitle, targetUrl) {
-  const keywords = titleKeywords(targetTitle);
-  if (!keywords.length) return null;
-
-  // Parse HTML into paragraphs
-  const tmp = document.createElement('div');
-  tmp.innerHTML = bodyHtml || '';
-  const paragraphs = Array.from(tmp.querySelectorAll('p, li, h2, h3, h4'));
-  // If no block elements, treat whole thing as one block
-  const blocks = paragraphs.length ? paragraphs : [tmp];
-
-  let bestMatch = null;
-  let bestScore = 0;
-
-  blocks.forEach((block, pIdx) => {
-    const plainBlock = block.textContent || '';
-    const sentences = splitSentences(plainBlock);
-    sentences.forEach(sentence => {
-      const sl = sentence.toLowerCase();
-      let score = 0;
-      let matchedKeyword = '';
-      for (const kw of keywords) {
-        if (sl.includes(kw)) {
-          score += kw.length; // longer keyword = higher score
-          if (kw.length > matchedKeyword.length) matchedKeyword = kw;
-        }
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        bestMatch = { sentence: sentence.trim(), anchorText: matchedKeyword, paragraphIndex: pIdx };
-      }
-    });
-  });
-
-  if (!bestMatch || bestScore === 0) return null;
-
-  // Build the anchor text — use the matched keyword or best 2-3 word phrase from title
-  // Try to find a natural 2-4 word phrase containing the matched keyword
-  let anchorText = bestMatch.anchorText;
-  const titleWords = targetTitle.toLowerCase().split(/\s+/).filter(w=>w.length>2);
-  // Try to find the longest consecutive title word sequence in the sentence
-  let bestPhrase = anchorText;
-  for (let len = Math.min(4, titleWords.length); len >= 2; len--) {
-    for (let i = 0; i <= titleWords.length - len; i++) {
-      const phrase = titleWords.slice(i, i+len).join(' ');
-      if (bestMatch.sentence.toLowerCase().includes(phrase) && phrase.length > bestPhrase.length) {
-        bestPhrase = phrase;
-      }
-    }
-  }
-  anchorText = bestPhrase;
-
-  // Find the actual cased version of the anchor in the sentence
-  const idx = bestMatch.sentence.toLowerCase().indexOf(anchorText.toLowerCase());
-  if (idx >= 0) {
-    anchorText = bestMatch.sentence.substring(idx, idx + anchorText.length);
-  }
-
-  return {
-    plainSentence: bestMatch.sentence,
-    anchorText,
-    paragraphIndex: bestMatch.paragraphIndex
-  };
-}
-
-// Build preview data for all selected links — pure JS, instant, no API
-function buildPreviews(item, selected) {
-  return selected.map(s => {
-    const match = findBestSentence(item.bodyHtml, s.title, s.url);
-    if (!match) {
-      return {
-        targetUrl: s.url,
-        targetTitle: s.title,
-        anchorText: s.title,
-        plainSentence: null,
-        fullSentence: null,
-        noMatch: true
-      };
-    }
-    // Build the highlighted sentence (for display only — anchor wrapped in <mark>)
-    const anchorLower = match.anchorText.toLowerCase();
-    const sentLower = match.plainSentence.toLowerCase();
-    const anchorIdx = sentLower.indexOf(anchorLower);
-    let highlighted = escHtml(match.plainSentence);
-    if (anchorIdx >= 0) {
-      const before = escHtml(match.plainSentence.substring(0, anchorIdx));
-      const anchor = escHtml(match.plainSentence.substring(anchorIdx, anchorIdx + match.anchorText.length));
-      const after  = escHtml(match.plainSentence.substring(anchorIdx + match.anchorText.length));
-      highlighted = before + '<a href="'+escHtml(s.url)+'" style="color:#1565c0;font-weight:600;text-decoration:underline;">'+anchor+'</a>' + after;
-    }
-    return {
-      targetUrl: s.url,
-      targetTitle: s.title,
-      anchorText: match.anchorText,
-      plainSentence: match.plainSentence,
-      fullSentence: highlighted,
-      noMatch: false
-    };
-  });
-}
-
-function confirmSelectedLinks(itemId) {
+async function confirmSelectedLinks(itemId) {
   const item = AppState.items.find(i=>i.id===itemId);
   if (!item) return;
   const checkboxes = document.querySelectorAll('.sug-cb[data-item-id="'+itemId+'"]:checked');
   if (!checkboxes.length) { showToast('Please select at least one page.','error'); return; }
   const selected = Array.from(checkboxes).map(cb=>({ id:cb.dataset.candidateId, url:cb.dataset.candidateUrl, title:cb.dataset.candidateTitle, type:cb.dataset.candidateType }));
 
-  // Close suggest panel
+  // Close panel immediately, show preview modal in loading state
   AppState.suggestState = {};
   renderLinksReport();
 
-  // Build previews instantly — no API call
-  const previews = buildPreviews(item, selected);
-  pendingPreview = { item, selected, previews };
-
-  // Show modal
-  renderPreviewBlocks(previews);
-  document.getElementById('preview-save-btn').style.display = '';
+  document.getElementById('preview-body').innerHTML = '<div class="preview-loading"><div class="spinner"></div>Claude is reading the content and preparing your link previews...</div>';
+  document.getElementById('preview-save-btn').style.display = 'none';
   document.getElementById('preview-overlay').classList.remove('hidden');
+
+  try {
+    // Ask Claude to preview — return JSON with anchor text, sentence, placement
+    const previewPrompt = buildPreviewPrompt(item, selected);
+    const claudeResponse = await fetch(CONFIG.proxyUrl+'/api/claude', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ prompt: previewPrompt, max_tokens:1500 })
+    });
+    if (!claudeResponse.ok) throw new Error('Claude API failed');
+    const claudeData = await claudeResponse.json();
+    const claudeText = claudeData.content||claudeData.text||'';
+
+    // Parse the JSON preview from Claude
+    const previews = parsePreviewJson(claudeText, selected);
+
+    // Store for later save
+    pendingPreview = { item, selected, previews };
+
+    // Render preview blocks
+    renderPreviewBlocks(previews);
+    document.getElementById('preview-save-btn').style.display = '';
+
+  } catch(err) {
+    document.getElementById('preview-body').innerHTML = '<p style="color:#e53935;padding:16px;">Error getting preview: '+escHtml(err.message)+'</p>';
+    showToast('Preview failed: '+err.message,'error');
+  }
+}
+
+function buildPreviewPrompt(item, selected) {
+  const selectedList = selected.map(s=>'- '+s.title+' ('+s.type+'): '+s.url).join('\n');
+  return `You are an internal linking expert for About Wall Art (aboutwallart.com), a UK premium framed wall art brand.
+
+Your job is to plan EXACTLY where to place internal links inside existing content. You must find existing sentences in the content and rewrite them naturally to include the link.
+
+PAGE TYPE: ${item.type}
+PAGE TITLE: ${item.title}
+CURRENT BODY HTML:
+${item.bodyHtml||''}
+
+PAGES TO LINK TO:
+${selectedList}
+
+STRICT PLACEMENT RULES BY PAGE TYPE:
+
+FOR PRODUCTS:
+- If linking to a BLOG POST: find a sentence in the FIRST or SECOND paragraph that relates to the blog topic. Rewrite that sentence to include the link naturally. Example: if the blog is about bathroom styling, find a sentence mentioning bathrooms and add "— explore our guide to bathroom wall art styling" as a linked phrase within it.
+- If linking to a COLLECTION: find a sentence in the LAST paragraph. Rewrite it to include a natural call to browse, e.g. "browse our full bathroom wall art collection".
+
+FOR BLOG POSTS:
+- Find 2-4 existing sentences spread throughout the content that relate to each target page.
+- Rewrite each sentence to include the link as a natural phrase within it.
+- Spread links throughout — do not place them all in one section.
+
+FOR COLLECTIONS:
+- Find a sentence in the MIDDLE or END of the description.
+- Rewrite it to include the link naturally as an editorial phrase.
+
+ABSOLUTE RULES — VIOLATIONS ARE NOT ACCEPTABLE:
+- NEVER add "See also:", "Read more:", "Click here", or any standalone link line
+- NEVER append a new sentence at the end just for the link
+- NEVER create a new paragraph just for the link
+- You MUST find an EXISTING sentence and rewrite it to include the link naturally
+- Anchor text must be a natural descriptive phrase (3-8 words), never the full page title
+- The linked phrase must make grammatical sense within the sentence
+
+Return ONLY a valid JSON array, no explanation, no markdown code blocks. Format:
+[
+  {
+    "targetUrl": "https://...",
+    "targetTitle": "Page title",
+    "anchorText": "natural 3-8 word phrase",
+    "originalSentence": "The original sentence from the content before editing",
+    "fullSentence": "The rewritten sentence with <a href=\\"URL\\">anchor text</a> naturally inserted",
+    "placement": "e.g. First paragraph, third sentence"
+  }
+]`;
+}
+
+function parsePreviewJson(claudeText, selected) {
+  try {
+    let clean = claudeText.trim().replace(/^```json\s*/i,'').replace(/^```\s*/i,'').replace(/\s*```$/i,'').trim();
+    const parsed = JSON.parse(clean);
+    if (Array.isArray(parsed)) return parsed;
+  } catch(e) {}
+  // Fallback: generate basic previews from selected items
+  return selected.map(s=>({
+    targetUrl: s.url,
+    targetTitle: s.title,
+    anchorText: s.title,
+    fullSentence: 'See also: <a href="'+s.url+'">'+s.title+'</a>.',
+    placement: 'End of content'
+  }));
 }
 
 function renderPreviewBlocks(previews) {
   if (!previews.length) {
-    document.getElementById('preview-body').innerHTML = '<p style="color:#e53935;padding:16px;">No links selected.</p>';
+    document.getElementById('preview-body').innerHTML = '<p style="color:#e53935;padding:16px;">No link previews could be generated.</p>';
     return;
   }
-  document.getElementById('preview-body').innerHTML = previews.map((p,i) => {
-    if (p.noMatch) {
-      return `<div class="preview-link-block" id="plb-${i}">
-        <div class="plb-target">Link ${i+1} → ${escHtml(p.targetTitle||p.targetUrl)}</div>
-        <div class="plb-no-match">⚠️ No matching sentence found in this item's content. Use Edit Sentence to write one manually.</div>
-        <div class="plb-edit-area" id="plb-edit-${i}" style="display:block;">
-          <textarea id="plb-textarea-${i}" placeholder="Write a sentence that naturally includes a link to ${escHtml(p.targetTitle)}. The anchor text will be: ${escHtml(p.anchorText)}"></textarea>
-          <div class="plb-hint" style="font-size:11px;color:#888;margin-top:4px;">Type the sentence. The anchor text "<strong>${escHtml(p.anchorText)}</strong>" will be linked automatically when you save.</div>
-        </div>
-      </div>`;
-    }
-    return `<div class="preview-link-block" id="plb-${i}">
+  document.getElementById('preview-body').innerHTML = previews.map((p,i) => `
+    <div class="preview-link-block">
       <div class="plb-target">Link ${i+1} → ${escHtml(p.targetTitle||p.targetUrl)}</div>
-      <div class="plb-anchor">Anchor text: <strong style="color:#1565c0;background:#e3f2fd;padding:1px 5px;border-radius:3px;">${escHtml(p.anchorText)}</strong></div>
-      <div style="font-size:11px;font-weight:700;color:#555;margin:8px 0 4px;text-transform:uppercase;letter-spacing:0.3px;">Suggested sentence:</div>
-      <div class="plb-sentence" id="plb-display-${i}">${p.fullSentence}</div>
-      <button class="btn-edit-sentence" onclick="toggleEditSentence(${i})">✏️ Edit Sentence</button>
-      <div class="plb-edit-area" id="plb-edit-${i}">
-        <textarea id="plb-textarea-${i}">${escHtml(p.plainSentence||'')}</textarea>
-        <div class="plb-hint" style="font-size:11px;color:#888;margin-top:4px;">Edit the sentence. The anchor text "<strong>${escHtml(p.anchorText)}</strong>" will be linked automatically when you save.</div>
-        <button class="btn-edit-done" onclick="toggleEditSentence(${i})">✓ Done</button>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-function toggleEditSentence(idx) {
-  const editArea = document.getElementById('plb-edit-'+idx);
-  const display  = document.getElementById('plb-display-'+idx);
-  const isOpen = editArea.style.display === 'block';
-  if (isOpen) {
-    // Done — update the display with the edited sentence
-    const textarea = document.getElementById('plb-textarea-'+idx);
-    const newSentence = textarea.value.trim();
-    if (newSentence && pendingPreview && pendingPreview.previews[idx]) {
-      pendingPreview.previews[idx].plainSentence = newSentence;
-      // Re-highlight anchor in new sentence
-      const p = pendingPreview.previews[idx];
-      const anchorLower = p.anchorText.toLowerCase();
-      const sentLower = newSentence.toLowerCase();
-      const anchorIdx = sentLower.indexOf(anchorLower);
-      let highlighted = escHtml(newSentence);
-      if (anchorIdx >= 0) {
-        const before = escHtml(newSentence.substring(0, anchorIdx));
-        const anchor = escHtml(newSentence.substring(anchorIdx, anchorIdx + p.anchorText.length));
-        const after  = escHtml(newSentence.substring(anchorIdx + p.anchorText.length));
-        highlighted = before + '<a href="'+escHtml(p.targetUrl)+'" style="color:#1565c0;font-weight:600;text-decoration:underline;">'+anchor+'</a>' + after;
-      }
-      if (display) display.innerHTML = highlighted;
-    }
-    editArea.style.display = 'none';
-  } else {
-    editArea.style.display = 'block';
-    const textarea = document.getElementById('plb-textarea-'+idx);
-    if (textarea && pendingPreview && pendingPreview.previews[idx]) {
-      textarea.value = pendingPreview.previews[idx].plainSentence || '';
-    }
-  }
+      <div class="plb-anchor">Anchor text: <strong>${escHtml(p.anchorText)}</strong></div>
+      ${p.originalSentence ? `<div style="font-size:11px;color:#999;margin-bottom:6px;font-style:italic;">Original: "${escHtml(p.originalSentence)}"</div>` : ''}
+      <div style="font-size:11px;font-weight:700;color:#555;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.3px;">Rewritten as:</div>
+      <div class="plb-sentence">${p.fullSentence||''}</div>
+      <div class="plb-placement">📍 Placement: ${escHtml(p.placement||'Within content')}</div>
+    </div>`).join('');
 }
 
 function closePreview() {
@@ -803,79 +737,93 @@ function closePreview() {
 
 async function savePreviewedLinks() {
   if (!pendingPreview) return;
-  const { item, previews } = pendingPreview;
+  const { item, selected } = pendingPreview;
 
   closePreview();
 
-  AppState.saveStatuses[item.id] = { status:'saving', count: previews.length };
+  // Show saving status on row
+  AppState.saveStatuses[item.id] = { status:'saving', count:selected.length };
   renderLinksReport();
-  showToast('Saving '+previews.length+' link(s) to Shopify...','info');
+  showToast('Saving '+selected.length+' link(s) to Shopify...','info');
 
   try {
-    let updatedHtml = item.bodyHtml || '';
-
-    for (const p of previews) {
-      if (!p.plainSentence || !p.anchorText) continue;
-      updatedHtml = insertLinkIntoHtml(updatedHtml, p.plainSentence, p.anchorText, p.targetUrl);
-    }
-
+    // Now ask Claude to produce the actual updated HTML
+    const prompt = buildClaudePrompt(item, selected);
+    const claudeResponse = await fetch(CONFIG.proxyUrl+'/api/claude', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ prompt, max_tokens:1500 })
+    });
+    if (!claudeResponse.ok) throw new Error('Claude API failed');
+    const claudeData = await claudeResponse.json();
+    const claudeText = claudeData.content||claudeData.text||'';
+    const updatedHtml = extractHtmlFromClaude(claudeText, item.bodyHtml, selected);
     await saveItemToShopify(item, updatedHtml);
 
     item.bodyHtml = updatedHtml;
-    AppState.links = [];
+    AppState.links=[];
     for (const i of AppState.items) AppState.links.push(...parseItemLinks(i));
     buildLinkGraph();
     detectBrokenLinks();
-    AppState.saveStatuses[item.id] = { status:'saved', count: previews.length };
+    AppState.saveStatuses[item.id] = { status:'saved', count:selected.length };
     renderLinksReport();
     renderDashboard();
-    showToast('✅ '+previews.length+' link(s) saved to Shopify!','success');
+    showToast('✅ '+selected.length+' link(s) saved to Shopify!','success');
     setTimeout(()=>{ delete AppState.saveStatuses[item.id]; renderLinksReport(); }, 5000);
 
   } catch(err) {
-    AppState.saveStatuses[item.id] = { status:'failed', count: previews.length };
+    AppState.saveStatuses[item.id] = { status:'failed', count:selected.length };
     renderLinksReport();
     showToast('❌ Failed: '+err.message,'error');
   }
 }
 
-// Insert a link into the HTML by finding the plain sentence and wrapping the anchor phrase
-function insertLinkIntoHtml(bodyHtml, plainSentence, anchorText, targetUrl) {
-  if (!plainSentence || !anchorText) return bodyHtml;
+function buildClaudePrompt(item, selected) {
+  const selectedList = selected.map(s=>'- '+s.title+' ('+s.type+'): '+s.url).join('\n');
+  return `You are an internal linking expert for About Wall Art (aboutwallart.com), a UK premium framed wall art brand.
 
-  // Build the linked version of the sentence
-  const anchorLower = anchorText.toLowerCase();
-  const sentLower = plainSentence.toLowerCase();
-  const anchorIdx = sentLower.indexOf(anchorLower);
-  if (anchorIdx < 0) {
-    // Anchor not found in sentence — append as fallback
-    return bodyHtml + ' <a href="'+targetUrl+'">'+escHtml(anchorText)+'</a>.';
+Add internal links to this page by finding existing sentences and rewriting them naturally to include the links.
+
+PAGE TYPE: ${item.type}
+PAGE TITLE: ${item.title}
+CURRENT BODY HTML:
+${item.bodyHtml||''}
+
+PAGES TO LINK TO:
+${selectedList}
+
+STRICT PLACEMENT RULES BY PAGE TYPE:
+
+FOR PRODUCTS:
+- BLOG POST link: find an existing sentence in the FIRST or SECOND paragraph that relates to the blog topic. Rewrite it to include the link naturally within the sentence.
+- COLLECTION link: find an existing sentence in the LAST paragraph. Rewrite it to include a natural browse call within the sentence.
+
+FOR BLOG POSTS:
+- Find existing sentences spread throughout the content that relate to each target page.
+- Rewrite each sentence to include the link as a natural phrase within it.
+
+FOR COLLECTIONS:
+- Find an existing sentence in the MIDDLE or END of the description and rewrite it.
+
+ABSOLUTE RULES — ANY VIOLATION MAKES THE OUTPUT UNUSABLE:
+- NEVER add "See also:", "Read more:", "Click here", or any standalone link line
+- NEVER append a new sentence at the end just for a link
+- NEVER create a new paragraph just for a link
+- You MUST find EXISTING sentences and rewrite them to include the link
+- Anchor text must be a natural descriptive phrase (3-8 words), never the full page title
+- The linked phrase must make grammatical sense within the sentence
+
+Return ONLY the complete updated HTML body content. No explanation. No markdown code blocks. No preamble.`;
+}
+
+function extractHtmlFromClaude(claudeText, originalHtml, selected) {
+  let html = claudeText.trim().replace(/^```html\s*/i,'').replace(/^```\s*/i,'').replace(/\s*```$/i,'').trim();
+  if (!html||html.length<50) {
+    let fallback=originalHtml||'';
+    for (const s of selected) fallback+=' <a href="'+s.url+'">'+escHtml(s.title)+'</a>.';
+    return fallback;
   }
-
-  const before = plainSentence.substring(0, anchorIdx);
-  const anchor = plainSentence.substring(anchorIdx, anchorIdx + anchorText.length);
-  const after  = plainSentence.substring(anchorIdx + anchorText.length);
-  const linkedSentence = before + '<a href="'+targetUrl+'">'+anchor+'</a>' + after;
-
-  // Try to find and replace the plain sentence in the HTML
-  // We need to be careful — the HTML may have tags inside the sentence
-  // Strategy: find the plain sentence text in the stripped version, then do a string replace
-  const escapedSentence = plainSentence.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const regex = new RegExp(escapedSentence, 'i');
-  if (regex.test(bodyHtml)) {
-    return bodyHtml.replace(regex, linkedSentence);
-  }
-
-  // Fallback: sentence not found verbatim in HTML (HTML tags may be interspersed)
-  // Try matching just the anchor text directly in HTML
-  const anchorEscaped = anchorText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const anchorRegex = new RegExp('(?<!["\'>])'+anchorEscaped+'(?!["\'])','i');
-  if (anchorRegex.test(bodyHtml)) {
-    return bodyHtml.replace(anchorRegex, '<a href="'+targetUrl+'">'+anchor+'</a>');
-  }
-
-  // Last fallback — append
-  return bodyHtml + ' <a href="'+targetUrl+'">'+escHtml(anchorText)+'</a>.';
+  return html;
 }
 
 async function saveItemToShopify(item, updatedHtml) {
@@ -934,39 +882,70 @@ function getFilteredItems() {
   const q=(document.getElementById('lr-search')||{value:''}).value.toLowerCase();
   const type=(document.getElementById('lr-type')||{value:''}).value;
   const filter=(document.getElementById('lr-filter')||{value:''}).value;
+  const vendor=(document.getElementById('lr-vendor')||{value:''}).value.toLowerCase();
   return AppState.items.filter(item=>{
     if(q&&!item.title.toLowerCase().includes(q)) return false;
     if(type&&item.type!==type) return false;
     if(filter==='orphaned'&&(AppState.linkGraph.inbound[item.id]||[]).length>0) return false;
     if(filter==='has-inbound'&&(AppState.linkGraph.inbound[item.id]||[]).length===0) return false;
+    if(vendor&&(item.vendor||'').toLowerCase()!==vendor) return false;
     return true;
   });
 }
 
+// Multi-column sort: click = asc, click again = desc, click again = remove from sort
 function sortLinksReport(col) {
-  if(AppState.lrSort.col===col){AppState.lrSort.dir=AppState.lrSort.dir==='asc'?'desc':'asc';}
-  else{AppState.lrSort.col=col;AppState.lrSort.dir='asc';}
-  AppState.lrPage=1; renderLinksReport();
+  const existing = AppState.lrSort.findIndex(s=>s.col===col);
+  if(existing===-1){
+    // Add new sort column as ascending
+    AppState.lrSort.push({col, dir:'asc'});
+  } else if(AppState.lrSort[existing].dir==='asc'){
+    // Second click: switch to descending
+    AppState.lrSort[existing].dir='desc';
+  } else {
+    // Third click: remove this column from sort
+    AppState.lrSort.splice(existing,1);
+  }
+  AppState.lrPage=1;
+  renderLinksReport();
 }
 
 function renderLinksReport() {
+  // Populate vendor dropdown from items
+  const vendorSel = document.getElementById('lr-vendor');
+  if(vendorSel && vendorSel.options.length<=1){
+    const vendors=[...new Set(AppState.items.filter(i=>i.vendor).map(i=>i.vendor))].sort();
+    vendors.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; vendorSel.appendChild(o); });
+  }
+
   let items=getFilteredItems();
-  const {col,dir}=AppState.lrSort;
-  items.sort((a,b)=>{
-    let va,vb;
-    if(col==='title'){va=a.title.toLowerCase();vb=b.title.toLowerCase();}
-    else if(col==='published'){va=a.publishedAt||'';vb=b.publishedAt||'';}
-    else if(col==='inbound'){va=(AppState.linkGraph.inbound[a.id]||[]).length;vb=(AppState.linkGraph.inbound[b.id]||[]).length;}
-    else if(col==='outbound'){va=(AppState.linkGraph.outbound[a.id]||[]).filter(l=>l.type==='internal').length;vb=(AppState.linkGraph.outbound[b.id]||[]).filter(l=>l.type==='internal').length;}
-    else if(col==='external'){va=(AppState.linkGraph.outbound[a.id]||[]).filter(l=>l.type==='external').length;vb=(AppState.linkGraph.outbound[b.id]||[]).filter(l=>l.type==='external').length;}
-    if(va<vb) return dir==='asc'?-1:1;
-    if(va>vb) return dir==='asc'?1:-1;
-    return 0;
-  });
-  ['title','published','inbound','outbound','external'].forEach(c=>{
+
+  // Multi-column sort
+  if(AppState.lrSort.length>0){
+    items.sort((a,b)=>{
+      for(const {col,dir} of AppState.lrSort){
+        let va,vb;
+        if(col==='title'){va=a.title.toLowerCase();vb=b.title.toLowerCase();}
+        else if(col==='inbound'){va=(AppState.linkGraph.inbound[a.id]||[]).length;vb=(AppState.linkGraph.inbound[b.id]||[]).length;}
+        else if(col==='outbound'){va=(AppState.linkGraph.outbound[a.id]||[]).filter(l=>l.type==='internal').length;vb=(AppState.linkGraph.outbound[b.id]||[]).filter(l=>l.type==='internal').length;}
+        if(va<vb) return dir==='asc'?-1:1;
+        if(va>vb) return dir==='asc'?1:-1;
+      }
+      return 0;
+    });
+  }
+
+  // Update sort icons — show sort order number for multi-sort
+  ['title','inbound','outbound'].forEach(c=>{
     const el=document.getElementById('sort-'+c);
-    if(el) el.textContent=AppState.lrSort.col===c?(AppState.lrSort.dir==='asc'?'↑':'↓'):'';
+    if(!el) return;
+    const idx=AppState.lrSort.findIndex(s=>s.col===c);
+    if(idx===-1){ el.textContent=''; return; }
+    const {dir}=AppState.lrSort[idx];
+    const num=AppState.lrSort.length>1?' '+(idx+1):'';
+    el.textContent=(dir==='asc'?'↑':'↓')+num;
   });
+
   const total=items.length, perPage=CONFIG.itemsPerPage;
   const totalPages=Math.ceil(total/perPage)||1;
   if(AppState.lrPage>totalPages) AppState.lrPage=1;
@@ -974,7 +953,7 @@ function renderLinksReport() {
   const pageItems=items.slice(start,start+perPage);
   const tbody=document.getElementById('lr-tbody');
   tbody.innerHTML = pageItems.length===0
-    ? '<tr><td colspan="5"><div class="empty-state">No items found.</div></td></tr>'
+    ? '<tr><td colspan="4"><div class="empty-state">No items found.</div></td></tr>'
     : pageItems.map(item=>buildItemRow(item)).join('');
   document.getElementById('lr-count').textContent=total===0?'No items':'Showing '+(start+1)+'–'+Math.min(start+perPage,total)+' of '+total+' items';
   document.getElementById('lr-prev').disabled=AppState.lrPage<=1;
@@ -985,11 +964,9 @@ function buildItemRow(item) {
   const inbound=(AppState.linkGraph.inbound[item.id]||[]);
   const outboundAll=(AppState.linkGraph.outbound[item.id]||[]);
   const outInternal=outboundAll.filter(l=>l.type==='internal');
-  const outExternal=outboundAll.filter(l=>l.type==='external');
   const date=item.publishedAt?new Date(item.publishedAt).toLocaleDateString([],{day:'numeric',month:'short',year:'numeric'}):'—';
   const inOpen=AppState.expandState[item.id+'-inbound']?'open':'';
   const outOpen=AppState.expandState[item.id+'-outbound']?'open':'';
-  const extOpen=AppState.expandState[item.id+'-external']?'open':'';
   const suggestOpen=AppState.suggestState[item.id];
   const saveStatus=AppState.saveStatuses[item.id];
 
@@ -1000,7 +977,7 @@ function buildItemRow(item) {
     else if(saveStatus.status==='failed') saveBadge=`<span class="save-status failed">❌ Failed</span>`;
   }
 
-  let rows=`<tr class="${(inOpen||outOpen||extOpen||suggestOpen)?'expanded':''}" id="row-${item.id}">
+  let rows=`<tr class="${(inOpen||outOpen||suggestOpen)?'expanded':''}" id="row-${item.id}">
     <td class="td-title">
       <a href="${escHtml(item.url)}" target="_blank">${escHtml(item.title)}</a>
       <span class="item-type">${item.type}</span>
@@ -1014,31 +991,22 @@ function buildItemRow(item) {
     </td>
     <td class="td-links">
       <div class="link-cell">
-        <span class="link-count ${outInternal.length===0?'zero':''}">${outInternal.length}→</span>
+        <span class="link-count ${outInternal.length===0?'zero':''}" id="out-count-${item.id}">${outInternal.length}→</span>
         <button class="btn-expand ${outOpen}" onclick="toggleExpand('${item.id}','outbound')">▼</button>
         <button class="btn-add" onclick="openSuggestPanel('${item.id}')">+ Add</button>
         ${saveBadge}
       </div>
     </td>
-    <td class="td-links">
-      <div class="link-cell">
-        <span class="link-count ${outExternal.length===0?'zero':''}">${outExternal.length}↗</span>
-        <button class="btn-expand ${extOpen}" onclick="toggleExpand('${item.id}','external')">▼</button>
-      </div>
-    </td>
   </tr>`;
 
   if(AppState.expandState[item.id+'-inbound']){
-    rows+=`<tr class="expand-row"><td colspan="5"><div class="expand-panel"><div class="expand-panel-title">Pages linking to this item (${inbound.length})</div>${inbound.length===0?'<div class="empty-expand">No pages link to this item yet.</div>':inbound.map(l=>`<div class="expand-link-item"><div><a href="${escHtml(l.sourceUrl)}" target="_blank">${escHtml(l.sourceUrl)}</a><div class="expand-anchor">Anchor: ${escHtml(l.anchorText||'—')}</div></div></div>`).join('')}</div></td></tr>`;
+    rows+=`<tr class="expand-row"><td colspan="4"><div class="expand-panel"><div class="expand-panel-title">Pages linking to this item (${inbound.length})</div>${inbound.length===0?'<div class="empty-expand">No pages link to this item yet.</div>':inbound.map(l=>`<div class="expand-link-item"><div><a href="${escHtml(l.sourceUrl)}" target="_blank">${escHtml(l.sourceUrl)}</a><div class="expand-anchor">Anchor: ${escHtml(l.anchorText||'—')}</div></div></div>`).join('')}</div></td></tr>`;
   }
   if(AppState.expandState[item.id+'-outbound']){
-    rows+=`<tr class="expand-row"><td colspan="5"><div class="expand-panel"><div class="expand-panel-title">Internal links from this item (${outInternal.length})</div>${outInternal.length===0?'<div class="empty-expand">No internal links from this item.</div>':outInternal.map(l=>`<div class="expand-link-item"><div><a href="${escHtml(l.targetUrl)}" target="_blank">${escHtml(l.targetUrl)}</a><div class="expand-anchor">Anchor: ${escHtml(l.anchorText||'—')}</div></div></div>`).join('')}</div></td></tr>`;
-  }
-  if(AppState.expandState[item.id+'-external']){
-    rows+=`<tr class="expand-row"><td colspan="5"><div class="expand-panel"><div class="expand-panel-title">External links from this item (${outExternal.length})</div>${outExternal.length===0?'<div class="empty-expand">No external links from this item.</div>':outExternal.map(l=>`<div class="expand-link-item"><div><a href="${escHtml(l.targetUrl)}" target="_blank">${escHtml(l.targetUrl)}</a><div class="expand-anchor">Anchor: ${escHtml(l.anchorText||'—')}</div></div></div>`).join('')}</div></td></tr>`;
+    rows+=`<tr class="expand-row"><td colspan="4"><div class="expand-panel"><div class="expand-panel-title">Internal links from this item (${outInternal.length})</div>${outInternal.length===0?'<div class="empty-expand">No internal links from this item.</div>':outInternal.map(l=>`<div class="expand-link-item"><div><a href="${escHtml(l.targetUrl)}" target="_blank">${escHtml(l.targetUrl)}</a><div class="expand-anchor">Anchor: ${escHtml(l.anchorText||'—')}</div></div></div>`).join('')}</div></td></tr>`;
   }
   if(suggestOpen){
-    rows+=`<tr class="expand-row"><td colspan="5">${buildSuggestPanel(item)}</td></tr>`;
+    rows+=`<tr class="expand-row"><td colspan="4">${buildSuggestPanel(item)}</td></tr>`;
   }
   return rows;
 }
@@ -1053,13 +1021,12 @@ function lrChangePage(dir){ AppState.lrPage+=dir; renderLinksReport(); }
 
 function exportLinksCSV(){
   const items=getFilteredItems();
-  const rows=[['Title','Type','URL','Published','Inbound Links','Outbound Internal','Outbound External']];
+  const rows=[['Title','Type','URL','Published','Inbound Links','Outbound Internal']];
   items.forEach(item=>{
     const ib=(AppState.linkGraph.inbound[item.id]||[]).length;
     const oi=(AppState.linkGraph.outbound[item.id]||[]).filter(l=>l.type==='internal').length;
-    const oe=(AppState.linkGraph.outbound[item.id]||[]).filter(l=>l.type==='external').length;
     const date=item.publishedAt?new Date(item.publishedAt).toLocaleDateString():'';
-    rows.push([item.title,item.type,item.url,date,ib,oi,oe]);
+    rows.push([item.title,item.type,item.url,date,ib,oi]);
   });
   const csv=rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
   const a=document.createElement('a');
@@ -1073,14 +1040,14 @@ async function syncFromShopify(){
   try{
     const allItems=[],allLinks=[];
     setLoadingStep('Fetching products...',5);
-    const pd=await shopifyFetch('products.json?limit=250&fields=id,title,handle,published_at,body_html,product_type,tags');
-    const products=(pd.products||[]).map(p=>({id:'product-'+p.id,shopifyId:p.id,title:p.title,handle:p.handle,type:'product',publishedAt:p.published_at,bodyHtml:p.body_html||'',tags:(p.tags||'').split(',').map(t=>t.trim()).filter(Boolean),url:'https://aboutwallart.com/products/'+p.handle}));
+    const pd=await shopifyFetch('products.json?limit=250&fields=id,title,handle,published_at,body_html,product_type,tags,vendor');
+    const products=(pd.products||[]).map(p=>({id:'product-'+p.id,shopifyId:p.id,title:p.title,handle:p.handle,type:'product',publishedAt:p.published_at,bodyHtml:p.body_html||'',tags:(p.tags||'').split(',').map(t=>t.trim()).filter(Boolean),vendor:p.vendor||'',url:'https://aboutwallart.com/products/'+p.handle}));
     allItems.push(...products);
     setLoadingStep('Products: '+products.length+' found',20);
 
     setLoadingStep('Fetching pages...',22);
     const pagesD=await shopifyFetch('pages.json?limit=250&fields=id,title,handle,published_at,body_html');
-    const pages=(pagesD.pages||[]).map(p=>({id:'page-'+p.id,shopifyId:p.id,title:p.title,handle:p.handle,type:'page',publishedAt:p.published_at,bodyHtml:p.body_html||'',tags:[],url:'https://aboutwallart.com/pages/'+p.handle}));
+    const pages=(pagesD.pages||[]).map(p=>({id:'page-'+p.id,shopifyId:p.id,title:p.title,handle:p.handle,type:'page',publishedAt:p.published_at,bodyHtml:p.body_html||'',tags:[],vendor:'',url:'https://aboutwallart.com/pages/'+p.handle}));
     allItems.push(...pages);
     setLoadingStep('Pages: '+pages.length+' found',35);
 
@@ -1092,7 +1059,7 @@ async function syncFromShopify(){
       const blog=blogs[i];
       setLoadingStep('Fetching articles from "'+blog.title+'"...',37+Math.round(i/blogs.length*20));
       const artD=await shopifyFetch('blogs/'+blog.id+'/articles.json?limit=250&fields=id,title,handle,published_at,body_html,blog_id,tags');
-      const articles=(artD.articles||[]).map(a=>({id:'article-'+a.id,shopifyId:a.id,blogId:blog.id,title:a.title,handle:a.handle,type:'article',publishedAt:a.published_at,bodyHtml:a.body_html||'',tags:(a.tags||'').split(',').map(t=>t.trim()).filter(Boolean),blogHandle:blog.handle,url:'https://aboutwallart.com/blogs/'+blog.handle+'/'+a.handle}));
+      const articles=(artD.articles||[]).map(a=>({id:'article-'+a.id,shopifyId:a.id,blogId:blog.id,title:a.title,handle:a.handle,type:'article',publishedAt:a.published_at,bodyHtml:a.body_html||'',tags:(a.tags||'').split(',').map(t=>t.trim()).filter(Boolean),vendor:'',blogHandle:blog.handle,url:'https://aboutwallart.com/blogs/'+blog.handle+'/'+a.handle}));
       allItems.push(...articles);
       totalArticles+=articles.length;
     }
@@ -1100,12 +1067,12 @@ async function syncFromShopify(){
 
     setLoadingStep('Fetching collections...',60);
     const ccD=await shopifyFetch('custom_collections.json?limit=250&fields=id,title,handle,published_at,body_html');
-    const customCols=(ccD.custom_collections||[]).map(c=>({id:'collection-'+c.id,shopifyId:c.id,title:c.title,handle:c.handle,type:'collection',publishedAt:c.published_at,bodyHtml:c.body_html||'',tags:[],url:'https://aboutwallart.com/collections/'+c.handle}));
+    const customCols=(ccD.custom_collections||[]).map(c=>({id:'collection-'+c.id,shopifyId:c.id,title:c.title,handle:c.handle,type:'collection',publishedAt:c.published_at,bodyHtml:c.body_html||'',tags:[],vendor:'',url:'https://aboutwallart.com/collections/'+c.handle}));
     allItems.push(...customCols);
 
     setLoadingStep('Fetching smart collections...',70);
     const scD=await shopifyFetch('smart_collections.json?limit=250&fields=id,title,handle,published_at,body_html');
-    const smartCols=(scD.smart_collections||[]).map(c=>({id:'smart-'+c.id,shopifyId:c.id,title:c.title,handle:c.handle,type:'collection',publishedAt:c.published_at,bodyHtml:c.body_html||'',tags:[],url:'https://aboutwallart.com/collections/'+c.handle}));
+    const smartCols=(scD.smart_collections||[]).map(c=>({id:'smart-'+c.id,shopifyId:c.id,title:c.title,handle:c.handle,type:'collection',publishedAt:c.published_at,bodyHtml:c.body_html||'',tags:[],vendor:'',url:'https://aboutwallart.com/collections/'+c.handle}));
     allItems.push(...smartCols);
     setLoadingStep('Collections: '+(customCols.length+smartCols.length)+' found',78);
 
@@ -1118,6 +1085,13 @@ async function syncFromShopify(){
     buildLinkGraph();
     setLoadingStep('Detecting broken links...',95);
     detectBrokenLinks();
+
+    // Save to localStorage cache (24 hours)
+    try {
+      localStorage.setItem('lw-cache', JSON.stringify({ items:allItems, links:allLinks, lastSync:AppState.lastSync }));
+      localStorage.setItem('lw-cache-time', Date.now().toString());
+    } catch(e) { console.warn('Cache save failed:', e); }
+
     setLoadingStep('Done!',100);
     await new Promise(r=>setTimeout(r,400));
 
