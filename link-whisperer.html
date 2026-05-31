@@ -192,7 +192,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v11.4</div>
+    <div class="version">v12.0</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -422,12 +422,49 @@ function checkItemRequirements(item) {
   return { needsCollection, needsBlog, hasCollection, hasBlog, fullyDone, linkType };
 }
 
-const AppState = {
+// Check which inbound requirements are already met for an item
+// Returns { needsBlogInbound, needsTrendInbound, hasBlogInbound, hasTrendInbound, fullyDone, linkType }
+function checkInboundRequirements(item) {
+  const linkType = getPageLinkType(item);
+  // Products and static pages have no inbound rules
+  if(['product','static'].includes(linkType)) return { fullyDone: true, noRules: true };
+
+  // Get all items that currently link TO this item
+  const sources = (AppState.linkGraph.inbound[item.id]||[]).map(l=>
+    AppState.items.find(i=>i.id===l.sourceId)
+  ).filter(Boolean);
+
+  const hasBlogInbound  = sources.some(s=>s.type==='article');
+  const hasTrendInbound = sources.some(s=>getPageLinkType(s)==='trend');
+
+  let needsBlog=false, needsTrend=false;
+  if(linkType==='trend')      { needsBlog=true;  needsTrend=true; }
+  if(linkType==='collection') { needsBlog=true;  needsTrend=true; }
+  if(linkType==='blog')       { needsBlog=true;  needsTrend=true; }
+
+  const fullyDone = (!needsBlog||hasBlogInbound) && (!needsTrend||hasTrendInbound);
+  return { needsBlog, needsTrend, hasBlogInbound, hasTrendInbound, fullyDone, linkType, noRules:false };
+}
+
+const INBOUND_PHRASES = {
+  // Phrase added to a BLOG linking to a TREND PAGE
+  blogToTrend:   (t,u) => `If you love this style, explore our full guide to <a href="${u}">${escHtml(t)}</a> for more ideas and inspiration.`,
+  // Phrase added to a TREND PAGE linking to another TREND PAGE
+  trendToTrend:  (t,u) => `If you enjoy this style, you may also love our guide to <a href="${u}">${escHtml(t)}</a>.`,
+  // Phrase added to a TREND PAGE linking to a COLLECTION
+  trendToCol:    (t,u) => `Explore our <a href="${u}">${escHtml(t)}</a> collection to find the perfect items for this trend.`,
+  // Phrase added to a BLOG linking to a COLLECTION
+  blogToCol:     (t,u) => `Browse our <a href="${u}">${escHtml(t)}</a> collection to find pieces that will bring this look to life in your home.`,
+  // Phrase added to a BLOG linking to another BLOG
+  blogToBlog:    (t,u) => `You may also enjoy our article <a href="${u}">${escHtml(t)}</a> for more styling ideas.`,
+  // Phrase added to a TREND PAGE linking to a BLOG
+  trendToBlog:   (t,u) => `You may also want to read our article <a href="${u}">${escHtml(t)}</a> for more styling ideas.`,
+};
   items:[], links:[], brokenLinks:[], lastSync:null,
   linkGraph:{ outbound:{}, inbound:{} },
-  lrPage:1, lrSort:[], // array of {col, dir} for multi-column sort
-  expandState:{}, suggestState:{},
-  saveStatuses:{} // itemId -> { status: 'saving'|'saved'|'failed', count: N }
+  lrPage:1, lrSort:[],
+  expandState:{}, suggestState:{}, inboundSuggestState:{},
+  saveStatuses:{}
 };
 
 let donutChart = null;
@@ -813,6 +850,204 @@ function closeSuggestPanel() {
   renderLinksReport();
 }
 
+// ─── INBOUND SUGGEST PANEL ──────────────────────────────────────────────────
+
+function openInboundSuggestPanel(itemId) {
+  const alreadyOpen = AppState.inboundSuggestState[itemId];
+  AppState.inboundSuggestState = {};
+  AppState.suggestState = {};
+  if(!alreadyOpen) AppState.inboundSuggestState[itemId] = true;
+  renderLinksReport();
+}
+
+function closeInboundSuggestPanel() {
+  AppState.inboundSuggestState = {};
+  renderLinksReport();
+}
+
+function buildInboundSuggestPanel(item) {
+  const linkType = getPageLinkType(item);
+  const req = checkInboundRequirements(item);
+  if(req.noRules || req.fullyDone) return `<div class="suggest-panel" style="border-left-color:#1565c0;background:#e8f4f8;"><p class="empty-expand">✅ All required inbound links already present.</p></div>`;
+
+  // Already-linked source IDs (so we don't suggest pages already linking here)
+  const alreadyLinkingIds = new Set((AppState.linkGraph.inbound[item.id]||[]).map(l=>l.sourceId));
+
+  function getCandidates(type, maxCount) {
+    return AppState.items
+      .filter(i => {
+        if(i.id === item.id) return false;
+        if(alreadyLinkingIds.has(i.id)) return false;
+        if(PAGES_TO_NEVER_TOUCH.has((i.title||'').toLowerCase().trim())) return false;
+        if(type === 'trend') return getPageLinkType(i) === 'trend';
+        if(type === 'blog')  return i.type === 'article';
+        return false;
+      })
+      .map(i => ({ item:i, score:scoreRelevance(item,i).score }))
+      .sort((a,b) => b.score - a.score)
+      .slice(0, maxCount);
+  }
+
+  let sections = '';
+  let instructions = '';
+
+  if(linkType === 'trend') {
+    instructions = 'This is a <strong>Trend Page</strong>. It needs inbound links from 2 blog posts and 1 trend page.';
+    if(!req.hasBlogInbound) {
+      const blogs = getCandidates('blog', 6);
+      if(blogs.length) sections += buildInboundSection('BLOG POSTS — Pick 2 to link here', 'st-article', 'inb-blog', item.id, blogs);
+    }
+    if(!req.hasTrendInbound) {
+      const trends = getCandidates('trend', 6);
+      if(trends.length) sections += buildInboundSection('TREND PAGES — Pick 1 to link here', 'st-page', 'inb-trend', item.id, trends);
+    }
+  } else if(linkType === 'collection') {
+    instructions = 'This is a <strong>Collection Page</strong>. It needs inbound links from 1 trend page and 1 blog post.';
+    if(!req.hasTrendInbound) {
+      const trends = getCandidates('trend', 6);
+      if(trends.length) sections += buildInboundSection('TREND PAGES — Pick 1 to link here', 'st-page', 'inb-trend', item.id, trends);
+    }
+    if(!req.hasBlogInbound) {
+      const blogs = getCandidates('blog', 6);
+      if(blogs.length) sections += buildInboundSection('BLOG POSTS — Pick 1 to link here', 'st-article', 'inb-blog', item.id, blogs);
+    }
+  } else if(linkType === 'blog') {
+    instructions = 'This is a <strong>Blog Post</strong>. It needs inbound links from 1 related blog post and 1 trend page.';
+    if(!req.hasBlogInbound) {
+      const blogs = getCandidates('blog', 6);
+      if(blogs.length) sections += buildInboundSection('RELATED BLOG POSTS — Pick 1 to link here', 'st-article', 'inb-blog', item.id, blogs);
+    }
+    if(!req.hasTrendInbound) {
+      const trends = getCandidates('trend', 6);
+      if(trends.length) sections += buildInboundSection('TREND PAGES — Pick 1 to link here', 'st-page', 'inb-trend', item.id, trends);
+    }
+  }
+
+  if(!sections) return `<div class="suggest-panel" style="border-left-color:#1565c0;background:#e8f4f8;"><p class="empty-expand">No suitable source pages found to add inbound links from.</p></div>`;
+
+  return `<div class="suggest-panel" style="border-left-color:#1565c0;background:#e8f4f8;">
+    <div class="suggest-header">
+      <div class="suggest-header-left">
+        <h4>← Add Inbound Links to "${escHtml(item.title)}"</h4>
+        <p>${instructions}</p>
+      </div>
+      <div class="suggest-top-actions">
+        <button class="btn-action" style="background:#1565c0;" onclick="confirmInboundLinks('${item.id}')">✓ Confirm Selections</button>
+        <button class="btn-outline" onclick="closeInboundSuggestPanel()">✕ Cancel</button>
+      </div>
+    </div>
+    ${sections}
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid #bbdefb;display:flex;gap:8px;">
+      <button class="btn-action" style="background:#1565c0;" onclick="confirmInboundLinks('${item.id}')">✓ Confirm Selections</button>
+      <button class="btn-outline" onclick="closeInboundSuggestPanel()">✕ Cancel</button>
+    </div>
+  </div>`;
+}
+
+function buildInboundSection(label, styleClass, cbClass, itemId, candidates) {
+  const rows = candidates.map(s=>`
+    <div class="suggest-item">
+      <input type="checkbox" class="inb-cb ${cbClass}"
+        data-target-id="${itemId}"
+        data-source-id="${s.item.id}"
+        data-source-url="${escHtml(s.item.url)}"
+        data-source-title="${escHtml(s.item.title)}"
+        data-source-type="${s.item.type}"
+        data-link-type="${getPageLinkType(s.item)}"
+        onchange="enforceInboundSingle(this,'${itemId}','${cbClass}')" />
+      <div class="suggest-item-info">
+        <div class="suggest-item-title">${escHtml(s.item.title)}</div>
+        <div class="suggest-item-url">${escHtml(s.item.url)}</div>
+        <div class="suggest-item-badges">
+          <span class="badge" style="background:#e3f2fd;color:#1565c0;">${s.item.type.toUpperCase()}</span>
+          <span class="badge badge-inbound">${(AppState.linkGraph.inbound[s.item.id]||[]).length} inbound</span>
+        </div>
+      </div>
+    </div>`).join('');
+  return `<div class="suggest-section">
+    <span class="suggest-section-title ${styleClass}">${label}</span>
+    ${rows}
+  </div>`;
+}
+
+// For inbound: trend pages can only pick 1, blogs can pick up to 2 (for trend target only)
+function enforceInboundSingle(checkbox, itemId, cbClass) {
+  // For trend source (inb-trend) always single select
+  if(cbClass === 'inb-trend' && checkbox.checked) {
+    document.querySelectorAll('.inb-trend[data-target-id="'+itemId+'"]').forEach(cb=>{
+      if(cb !== checkbox) cb.checked = false;
+    });
+  }
+}
+
+function confirmInboundLinks(itemId) {
+  const item = AppState.items.find(i=>i.id===itemId);
+  if(!item) return;
+  const linkType = getPageLinkType(item);
+
+  const blogCbs  = Array.from(document.querySelectorAll('.inb-blog[data-target-id="'+itemId+'"]:checked'));
+  const trendCbs = Array.from(document.querySelectorAll('.inb-trend[data-target-id="'+itemId+'"]:checked'));
+
+  if(!blogCbs.length && !trendCbs.length) { showToast('Please select at least one source page.','error'); return; }
+
+  // For trend target: need 2 blogs — warn but don't block
+  if(linkType==='trend' && blogCbs.length > 0 && blogCbs.length < 2) {
+    showToast('Tip: Trend pages ideally need 2 blog posts linking to them.','info');
+  }
+
+  // Build list of { sourceItem, phrase, sourceHtml }
+  const selections = [];
+
+  blogCbs.forEach(cb => {
+    const sourceItem = AppState.items.find(i=>i.id===cb.dataset.sourceId);
+    if(!sourceItem) return;
+    const sourceLinkType = getPageLinkType(sourceItem);
+    let phraseHtml = '';
+    if(linkType==='trend')      phraseHtml = INBOUND_PHRASES.blogToTrend(item.title, item.url);
+    else if(linkType==='collection') phraseHtml = INBOUND_PHRASES.blogToCol(item.title, item.url);
+    else if(linkType==='blog')  phraseHtml = INBOUND_PHRASES.blogToBlog(item.title, item.url);
+    selections.push({ sourceItem, phraseHtml });
+  });
+
+  trendCbs.forEach(cb => {
+    const sourceItem = AppState.items.find(i=>i.id===cb.dataset.sourceId);
+    if(!sourceItem) return;
+    let phraseHtml = '';
+    if(linkType==='trend')      phraseHtml = INBOUND_PHRASES.trendToTrend(item.title, item.url);
+    else if(linkType==='collection') phraseHtml = INBOUND_PHRASES.trendToCol(item.title, item.url);
+    else if(linkType==='blog')  phraseHtml = INBOUND_PHRASES.trendToBlog(item.title, item.url);
+    selections.push({ sourceItem, phraseHtml });
+  });
+
+  // Close panel
+  AppState.inboundSuggestState = {};
+  renderLinksReport();
+
+  // Show approval modal
+  showInboundApprovalModal(item, selections);
+}
+
+function showInboundApprovalModal(targetItem, selections) {
+  pendingPreview = { targetItem, selections, isInbound: true };
+
+  const phraseHtml = selections.map((s,i)=>`
+    <div class="preview-link-block">
+      <div class="plb-target">Phrase ${i+1} — to be added to: <strong>${escHtml(s.sourceItem.title)}</strong></div>
+      <div style="font-size:11px;font-weight:700;color:#555;margin:8px 0 6px;text-transform:uppercase;letter-spacing:0.3px;">Phrase to be appended to that page:</div>
+      <div class="plb-sentence">${s.phraseHtml}</div>
+      <div style="font-size:11px;color:#888;margin-top:4px;font-style:italic;">📍 Added at end of: ${escHtml(s.sourceItem.url)}</div>
+    </div>`).join('');
+
+  document.getElementById('preview-body').innerHTML = phraseHtml +
+    `<p style="font-size:12px;color:#888;margin-top:12px;">These phrases will be appended to the end of the listed pages in Shopify, creating inbound links to "${escHtml(targetItem.title)}".</p>`;
+  document.getElementById('preview-modal-title').textContent = '← Approve Inbound Links for "'+targetItem.title+'"';
+  document.getElementById('preview-save-btn').style.display = '';
+  document.getElementById('preview-save-btn').disabled = false;
+  document.getElementById('preview-save-btn').innerHTML = '✅ Looks Good — Save to Shopify';
+  document.getElementById('preview-close-btn').style.display = 'none';
+  document.getElementById('preview-overlay').classList.remove('hidden');
+}
+
 // Stored pending preview data
 let pendingPreview = null;
 
@@ -882,6 +1117,10 @@ function showApprovalModal(item, phrases) {
 
 async function savePreviewedLinks() {
   if (!pendingPreview) return;
+
+  // Route to inbound save if flagged
+  if(pendingPreview.isInbound) { await saveInboundLinks(); return; }
+
   const { item, phrases } = pendingPreview;
 
   // Show spinner in save button
@@ -890,7 +1129,6 @@ async function savePreviewedLinks() {
   saveBtn.innerHTML = '<span class="spinner-sm"></span> Saving...';
 
   try {
-    // Append each phrase as a new paragraph at the end of bodyHtml
     let updatedHtml = item.bodyHtml || '';
     for (const p of phrases) {
       updatedHtml += '\n<p>' + p.html + '</p>';
@@ -898,26 +1136,22 @@ async function savePreviewedLinks() {
 
     await saveItemToShopify(item, updatedHtml);
 
-    // Update local state
     item.bodyHtml = updatedHtml;
     AppState.links = [];
     for (const i of AppState.items) AppState.links.push(...parseItemLinks(i));
     buildLinkGraph();
     detectBrokenLinks();
 
-    // Update body cache
     try {
       const bodyCache = JSON.parse(localStorage.getItem('lw-body-cache')||'{}');
       bodyCache[item.id] = updatedHtml;
       localStorage.setItem('lw-body-cache', JSON.stringify(bodyCache));
     } catch(e) {}
 
-    // Hide save button, show Close button
     saveBtn.style.display = 'none';
     const closeBtn = document.getElementById('preview-close-btn');
     if(closeBtn) closeBtn.style.display = '';
 
-    // Show confirmation
     document.getElementById('preview-body').innerHTML =
       '<div style="text-align:center;padding:32px;">' +
       '<div style="font-size:40px;margin-bottom:12px;">✅</div>' +
@@ -925,7 +1159,6 @@ async function savePreviewedLinks() {
       '<div style="font-size:13px;color:#666;">'+phrases.length+' link(s) added to "'+escHtml(item.title)+'".<br>Click Close to move to the next item.</div>' +
       '</div>';
 
-    // Re-render the table so the outbound count updates immediately
     renderLinksReport();
     renderDashboard();
     showToast('✅ '+phrases.length+' link(s) saved to Shopify!','success');
@@ -936,6 +1169,63 @@ async function savePreviewedLinks() {
     document.getElementById('preview-body').innerHTML += '<p style="color:#e53935;padding:8px 0;">❌ Save failed: '+escHtml(err.message)+'</p>';
     showToast('❌ Save failed: '+err.message,'error');
   }
+}
+
+async function saveInboundLinks() {
+  const { targetItem, selections } = pendingPreview;
+  const saveBtn = document.getElementById('preview-save-btn');
+  saveBtn.disabled = true;
+  saveBtn.innerHTML = '<span class="spinner-sm"></span> Saving '+selections.length+' page(s)...';
+
+  const failed = [];
+  let saved = 0;
+
+  for(const sel of selections) {
+    try {
+      const sourceItem = sel.sourceItem;
+      const updatedHtml = (sourceItem.bodyHtml||'') + '\n<p>' + sel.phraseHtml + '</p>';
+      await saveItemToShopify(sourceItem, updatedHtml);
+      sourceItem.bodyHtml = updatedHtml;
+      // Update body cache
+      try {
+        const bodyCache = JSON.parse(localStorage.getItem('lw-body-cache')||'{}');
+        bodyCache[sourceItem.id] = updatedHtml;
+        localStorage.setItem('lw-body-cache', JSON.stringify(bodyCache));
+      } catch(e) {}
+      saved++;
+    } catch(err) {
+      failed.push(sel.sourceItem.title+': '+err.message);
+    }
+  }
+
+  // Rebuild link graph
+  AppState.links = [];
+  for(const i of AppState.items) AppState.links.push(...parseItemLinks(i));
+  buildLinkGraph();
+  detectBrokenLinks();
+
+  saveBtn.style.display = 'none';
+  document.getElementById('preview-close-btn').style.display = '';
+
+  if(failed.length) {
+    document.getElementById('preview-body').innerHTML =
+      '<div style="text-align:center;padding:24px;">' +
+      '<div style="font-size:30px;margin-bottom:8px;">⚠️</div>' +
+      '<div style="font-size:14px;font-weight:700;color:#e65100;margin-bottom:8px;">'+saved+' saved, '+failed.length+' failed</div>' +
+      '<div style="font-size:12px;color:#888;">'+failed.map(escHtml).join('<br>')+'</div></div>';
+    showToast('⚠️ '+saved+' saved, '+failed.length+' failed','error');
+  } else {
+    document.getElementById('preview-body').innerHTML =
+      '<div style="text-align:center;padding:32px;">' +
+      '<div style="font-size:40px;margin-bottom:12px;">✅</div>' +
+      '<div style="font-size:16px;font-weight:700;color:#2e7d32;margin-bottom:8px;">Saved to Shopify!</div>' +
+      '<div style="font-size:13px;color:#666;">'+saved+' page(s) now link to "'+escHtml(targetItem.title)+'".<br>Click Close to move to the next item.</div>' +
+      '</div>';
+    showToast('✅ '+saved+' inbound link(s) saved!','success');
+  }
+
+  renderLinksReport();
+  renderDashboard();
 }
 
 async function saveItemToShopify(item, updatedHtml) {
@@ -1093,7 +1383,10 @@ function buildItemRow(item) {
     else if(saveStatus.status==='failed') saveBadge=`<span class="save-status failed">❌ Failed</span>`;
   }
 
-  let rows=`<tr class="${(inOpen||outOpen||suggestOpen)?'expanded':''}" id="row-${item.id}">
+  const inboundSuggestOpen = AppState.inboundSuggestState[item.id];
+  const inboundReq = checkInboundRequirements(item);
+
+  let rows=`<tr class="${(inOpen||outOpen||suggestOpen||inboundSuggestOpen)?'expanded':''}" id="row-${item.id}">
     <td class="td-title">
       <a href="${escHtml(item.url)}" target="_blank">${escHtml(item.title)}</a>
       <span class="item-type">${item.type}</span>
@@ -1103,6 +1396,10 @@ function buildItemRow(item) {
       <div class="link-cell">
         <span class="link-count ${inbound.length===0?'zero':''}">→${inbound.length}</span>
         <button class="btn-expand ${inOpen}" onclick="toggleExpand('${item.id}','inbound')">▼</button>
+        ${(!inboundReq.noRules && shouldShowAddButton(item)) ? (() => {
+          if(inboundReq.fullyDone) return `<button class="btn-add" disabled style="opacity:0.35;cursor:default;background:#aaa;" title="All required inbound links already present">✓ Done</button>`;
+          return `<button class="btn-add" style="background:#1565c0;" onclick="openInboundSuggestPanel('${item.id}')">+ Add</button>`;
+        })() : ''}
       </div>
     </td>
     <td class="td-links">
@@ -1127,6 +1424,9 @@ function buildItemRow(item) {
   }
   if(suggestOpen){
     rows+=`<tr class="expand-row"><td colspan="4">${buildSuggestPanel(item)}</td></tr>`;
+  }
+  if(inboundSuggestOpen){
+    rows+=`<tr class="expand-row"><td colspan="4">${buildInboundSuggestPanel(item)}</td></tr>`;
   }
   return rows;
 }
