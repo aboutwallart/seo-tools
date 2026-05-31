@@ -192,7 +192,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v11.2</div>
+    <div class="version">v11.3</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -779,10 +779,26 @@ function changeCollectionSelection(select, itemId) {
   select.value = ''; // reset dropdown back to placeholder
 }
 
-function openSuggestPanel(itemId) {
+async function openSuggestPanel(itemId) {
   const alreadyOpen = AppState.suggestState[itemId];
   AppState.suggestState = {};
-  if (!alreadyOpen) AppState.suggestState[itemId] = true;
+  if (alreadyOpen) { renderLinksReport(); return; }
+
+  const item = AppState.items.find(i=>i.id===itemId);
+
+  // For products, fetch their actual collection memberships if not already loaded
+  if (item && item.type === 'product' && !item.collectionIds) {
+    try {
+      const data = await shopifyFetch('products/'+item.shopifyId+'/collect.json?limit=250&fields=collection_id');
+      const collects = data.collects || [];
+      item.collectionIds = collects.map(c=>String(c.collection_id));
+    } catch(e) {
+      console.warn('Could not fetch collects for product:', e);
+      item.collectionIds = [];
+    }
+  }
+
+  AppState.suggestState[itemId] = true;
   renderLinksReport();
 }
 
@@ -1173,26 +1189,6 @@ async function syncFromShopify(){
     const smartCols=(scD.smart_collections||[]).map(c=>({id:'smart-'+c.id,shopifyId:c.id,title:c.title,handle:c.handle,type:'collection',publishedAt:c.published_at,bodyHtml:c.body_html||'',tags:[],vendor:'',url:'https://aboutwallart.com/collections/'+c.handle}));
     allItems.push(...smartCols);
     setLoadingStep('Collections: '+(customCols.length+smartCols.length)+' found',78);
-
-    // Fetch product→collection membership (collects)
-    setLoadingStep('Fetching product-collection memberships...',79);
-    try {
-      const collectsD = await shopifyFetch('collects.json?limit=250&fields=product_id,collection_id');
-      const collects = collectsD.collects || [];
-      // Build map: shopify product id -> [shopify collection ids]
-      const productCollectMap = {};
-      collects.forEach(c => {
-        const pid = String(c.product_id);
-        if(!productCollectMap[pid]) productCollectMap[pid] = [];
-        productCollectMap[pid].push(String(c.collection_id));
-      });
-      // Attach collectionIds to each product
-      allItems.forEach(item => {
-        if(item.type === 'product') {
-          item.collectionIds = productCollectMap[String(item.shopifyId)] || [];
-        }
-      });
-    } catch(e) { console.warn('Collects fetch failed:', e); }
 
     setLoadingStep('Parsing links...',80);
     for(const item of allItems) allLinks.push(...parseItemLinks(item));
