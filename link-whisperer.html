@@ -217,7 +217,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v14.0</div>
+    <div class="version">v14.1</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -847,13 +847,15 @@ function buildSuggestPanel(item) {
         <p>${instructions}</p>
       </div>
       <div class="suggest-top-actions">
-        <button class="btn-action" onclick="confirmSelectedLinks('${item.id}')">✓ Confirm Selections</button>
+        <button class="btn-action" onclick="confirmSelectedLinks('${item.id}')">✓ Review & Save Now</button>
+        <button class="btn-action" style="background:#1565c0;" onclick="confirmSelectedLinks('${item.id}', true)">+ Add to Queue</button>
         <button class="btn-outline" onclick="closeSuggestPanel()">✕ Cancel</button>
       </div>
     </div>
     ${sections}
     <div style="margin-top:12px;padding-top:12px;border-top:1px solid #f0e0a0;display:flex;gap:8px;">
-      <button class="btn-action" onclick="confirmSelectedLinks('${item.id}')">✓ Confirm Selections</button>
+      <button class="btn-action" onclick="confirmSelectedLinks('${item.id}')">✓ Review & Save Now</button>
+      <button class="btn-action" style="background:#1565c0;" onclick="confirmSelectedLinks('${item.id}', true)">+ Add to Queue</button>
       <button class="btn-outline" onclick="closeSuggestPanel()">✕ Cancel</button>
     </div>
   </div>`;
@@ -973,7 +975,8 @@ async function saveQueue() {
   btn.disabled = true;
   btn.textContent = 'Saving 0 of ' + total + '...';
 
-  let saved = 0, failed = 0;
+  let saved = 0;
+  const failedItems = [];
   const queue = [...AppState.linkQueue];
 
   for(const q of queue) {
@@ -1005,7 +1008,8 @@ async function saveQueue() {
       saved++;
       btn.textContent = 'Saving ' + saved + ' of ' + total + '...';
     } catch(err) {
-      failed++;
+      const name = q.isInbound ? q.targetItem.title : q.item.title;
+      failedItems.push((name||'Unknown').substring(0,50) + ': ' + err.message);
       console.error('Queue save failed:', err);
     }
   }
@@ -1020,10 +1024,27 @@ async function saveQueue() {
   renderLinksReport();
   renderDashboard();
 
-  if(failed) showToast('⚠️ '+saved+' saved, '+failed+' failed','error');
-  else showToast('✅ All '+saved+' item(s) saved to Shopify!','success');
+  if(failed) showQueueResultModal(saved, failedItems);
+  else showQueueResultModal(saved, []);
 
   btn.disabled = false;
+}
+
+function showQueueResultModal(saved, failedItems) {
+  const title = failedItems.length ? '⚠️ Queue Save Complete' : '✅ Queue Saved!';
+  const body = `
+    <div style="text-align:center;padding:8px 0 20px;">
+      <div style="font-size:40px;margin-bottom:12px;">${failedItems.length ? '⚠️' : '✅'}</div>
+      <div style="font-size:16px;font-weight:700;color:${failedItems.length?'#e65100':'#2e7d32'};margin-bottom:8px;">${saved} item(s) saved to Shopify successfully.</div>
+      ${failedItems.length ? `<div style="font-size:13px;color:#c62828;margin-top:12px;text-align:left;background:#fce4ec;padding:12px;border-radius:6px;"><strong>Failed (${failedItems.length}):</strong><br>${failedItems.map(e=>`• ${escHtml(e)}`).join('<br>')}</div>` : ''}
+    </div>`;
+  document.getElementById('preview-modal-title').textContent = title;
+  document.getElementById('preview-body').innerHTML = body;
+  document.getElementById('preview-save-btn').style.display = 'none';
+  document.getElementById('preview-queue-btn').style.display = 'none';
+  document.getElementById('preview-close-btn').style.display = '';
+  document.getElementById('preview-close-btn').textContent = '✕ Close';
+  document.getElementById('preview-overlay').classList.remove('hidden');
 }
 
 // ─── SEARCH BAR IN SUGGEST PANEL ──────────────────────────────────────────────
@@ -1185,13 +1206,15 @@ function buildInboundSuggestPanel(item) {
         <p>${instructions}</p>
       </div>
       <div class="suggest-top-actions">
-        <button class="btn-action" style="background:#1565c0;" onclick="confirmInboundLinks('${item.id}')">✓ Confirm Selections</button>
+        <button class="btn-action" style="background:#1565c0;" onclick="confirmInboundLinks('${item.id}')">✓ Review & Save Now</button>
+        <button class="btn-action" style="background:#0d47a1;" onclick="confirmInboundLinks('${item.id}', true)">+ Add to Queue</button>
         <button class="btn-outline" onclick="closeInboundSuggestPanel()">✕ Cancel</button>
       </div>
     </div>
     ${sections}
     <div style="margin-top:12px;padding-top:12px;border-top:1px solid #bbdefb;display:flex;gap:8px;">
-      <button class="btn-action" style="background:#1565c0;" onclick="confirmInboundLinks('${item.id}')">✓ Confirm Selections</button>
+      <button class="btn-action" style="background:#1565c0;" onclick="confirmInboundLinks('${item.id}')">✓ Review & Save Now</button>
+      <button class="btn-action" style="background:#0d47a1;" onclick="confirmInboundLinks('${item.id}', true)">+ Add to Queue</button>
       <button class="btn-outline" onclick="closeInboundSuggestPanel()">✕ Cancel</button>
     </div>
   </div>`;
@@ -1236,51 +1259,45 @@ function enforceInboundSingle(checkbox, itemId, cbClass) {
   }
 }
 
-function confirmInboundLinks(itemId) {
+function confirmInboundLinks(itemId, queueMode) {
   const item = AppState.items.find(i=>i.id===itemId);
   if(!item) return;
   const linkType = getPageLinkType(item);
-
   const blogCbs  = Array.from(document.querySelectorAll('.inb-blog[data-target-id="'+itemId+'"]:checked'));
   const trendCbs = Array.from(document.querySelectorAll('.inb-trend[data-target-id="'+itemId+'"]:checked'));
-
   if(!blogCbs.length && !trendCbs.length) { showToast('Please select at least one source page.','error'); return; }
-
-  // For trend target: need 2 blogs — warn but don't block
-  if(linkType==='trend' && blogCbs.length > 0 && blogCbs.length < 2) {
-    showToast('Tip: Trend pages ideally need 2 blog posts linking to them.','info');
-  }
-
-  // Build list of { sourceItem, phrase, sourceHtml }
+  if(linkType==='trend' && blogCbs.length > 0 && blogCbs.length < 2) showToast('Tip: Trend pages ideally need 2 blog posts linking to them.','info');
   const selections = [];
-
   blogCbs.forEach(cb => {
     const sourceItem = AppState.items.find(i=>i.id===cb.dataset.sourceId);
     if(!sourceItem) return;
-    const sourceLinkType = getPageLinkType(sourceItem);
     let phraseHtml = '';
-    if(linkType==='trend')      phraseHtml = INBOUND_PHRASES.blogToTrend(item.title, item.url);
+    if(linkType==='trend')           phraseHtml = INBOUND_PHRASES.blogToTrend(item.title, item.url);
     else if(linkType==='collection') phraseHtml = INBOUND_PHRASES.blogToCol(item.title, item.url);
-    else if(linkType==='blog')  phraseHtml = INBOUND_PHRASES.blogToBlog(item.title, item.url);
+    else if(linkType==='blog')       phraseHtml = INBOUND_PHRASES.blogToBlog(item.title, item.url);
     selections.push({ sourceItem, phraseHtml });
   });
-
   trendCbs.forEach(cb => {
     const sourceItem = AppState.items.find(i=>i.id===cb.dataset.sourceId);
     if(!sourceItem) return;
     let phraseHtml = '';
-    if(linkType==='trend')      phraseHtml = INBOUND_PHRASES.trendToTrend(item.title, item.url);
+    if(linkType==='trend')           phraseHtml = INBOUND_PHRASES.trendToTrend(item.title, item.url);
     else if(linkType==='collection') phraseHtml = INBOUND_PHRASES.trendToCol(item.title, item.url);
-    else if(linkType==='blog')  phraseHtml = INBOUND_PHRASES.trendToBlog(item.title, item.url);
+    else if(linkType==='blog')       phraseHtml = INBOUND_PHRASES.trendToBlog(item.title, item.url);
     selections.push({ sourceItem, phraseHtml });
   });
-
-  // Close panel
   AppState.inboundSuggestState = {};
   renderLinksReport();
-
-  // Show approval modal
-  showInboundApprovalModal(item, selections);
+  if(queueMode) {
+    const label = selections.length + ' inbound link(s) → "' + (item.title||'').substring(0,40) + '"';
+    AppState.linkQueue.push({ isInbound:true, targetItem:item, selections, label });
+    AppState.saveStatuses[item.id] = { status:'queued', count: selections.length };
+    updateQueueBar();
+    renderLinksReport();
+    showToast('Added to queue — '+AppState.linkQueue.length+' item(s) queued','info');
+  } else {
+    showInboundApprovalModal(item, selections);
+  }
 }
 
 function showInboundApprovalModal(targetItem, selections) {
@@ -1308,7 +1325,7 @@ function showInboundApprovalModal(targetItem, selections) {
 // Stored pending preview data
 let pendingPreview = null;
 
-function confirmSelectedLinks(itemId) {
+function confirmSelectedLinks(itemId, queueMode) {
   const item = AppState.items.find(i=>i.id===itemId);
   if (!item) return;
   const linkType = getPageLinkType(item);
@@ -1323,7 +1340,16 @@ function confirmSelectedLinks(itemId) {
   if(!phrases.length) { showToast('Nothing to add — no phrases could be built.','error'); return; }
   AppState.suggestState = {};
   renderLinksReport();
-  showApprovalModal(item, phrases);
+  if(queueMode) {
+    const label = phrases.length + ' link(s) → "' + (item.title||'').substring(0,40) + '"';
+    AppState.linkQueue.push({ isInbound:false, item, phrases, label });
+    AppState.saveStatuses[item.id] = { status:'queued', count: phrases.length };
+    updateQueueBar();
+    renderLinksReport();
+    showToast('Added to queue — '+AppState.linkQueue.length+' item(s) queued','info');
+  } else {
+    showApprovalModal(item, phrases);
+  }
 }
 
 // Build the exact pre-written phrases for each page type
