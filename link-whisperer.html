@@ -1,0 +1,2441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🔗 Link Whisperer</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; min-height: 100vh; }
+
+    #header { background:#fff; width:100%; padding:0 24px; height:60px; display:flex; align-items:center; justify-content:space-between; box-shadow:0 1px 4px rgba(0,0,0,0.08); position:sticky; top:0; z-index:100; }
+    #header-left h1 { font-size:18px; font-weight:700; color:#333; }
+    #header-left .version { font-size:11px; color:#999; margin-top:1px; }
+    #header-right { display:flex; align-items:center; gap:16px; }
+    #last-synced { font-size:12px; color:#888; }
+    #btn-refresh { background:#222; color:#fff; border:none; border-radius:4px; padding:8px 16px; font-size:12px; font-weight:600; text-transform:uppercase; cursor:pointer; letter-spacing:0.5px; }
+    #btn-refresh:hover { background:#444; }
+
+    #loading-overlay { position:fixed; inset:0; background:rgba(255,255,255,0.96); z-index:999; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px; }
+    #loading-overlay.hidden { display:none; }
+    .spinner { width:48px; height:48px; border:4px solid #e0e0e0; border-top-color:#222; border-radius:50%; animation:spin 0.8s linear infinite; }
+    .spinner-sm { width:14px; height:14px; border:2px solid #e0e0e0; border-top-color:#555; border-radius:50%; animation:spin 0.8s linear infinite; display:inline-block; vertical-align:middle; margin-right:4px; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    #loading-title { font-size:18px; font-weight:700; color:#333; }
+    #loading-step { font-size:14px; color:#666; min-height:20px; }
+    #loading-progress-wrap { width:320px; height:6px; background:#e0e0e0; border-radius:3px; overflow:hidden; }
+    #loading-progress-bar { height:100%; background:#222; border-radius:3px; width:0%; transition:width 0.4s ease; }
+
+    #app { display:none; }
+    #app.visible { display:block; }
+
+    #tab-bar { background:#fff; border-bottom:1px solid #e0e0e0; padding:0 24px; display:flex; overflow-x:auto; white-space:nowrap; }
+    .tab-btn { background:none; border:none; border-bottom:2px solid transparent; padding:16px 18px 14px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.6px; color:#888; cursor:pointer; transition:color 0.15s,border-color 0.15s; }
+    .tab-btn:hover { color:#333; }
+    .tab-btn.active { color:#222; border-bottom-color:#222; }
+
+    .tab-content { display:none; padding:24px; }
+    .tab-content.active { display:block; }
+
+    /* DASHBOARD */
+    .dashboard-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:20px; }
+    @media(max-width:900px) { .dashboard-grid { grid-template-columns:1fr; } }
+    .dash-card { background:#fff; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.08); padding:24px; }
+    .dash-card h3 { font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:#333; margin-bottom:16px; }
+    .stat-btn { display:flex; align-items:center; width:100%; border:none; border-radius:6px; padding:12px 16px; margin-bottom:8px; cursor:pointer; text-align:left; color:#fff; font-family:inherit; transition:opacity 0.15s; }
+    .stat-btn:last-child { margin-bottom:0; }
+    .stat-btn:hover { opacity:0.88; }
+    .stat-btn svg { width:20px; height:20px; flex-shrink:0; margin-right:12px; }
+    .stat-btn-label { flex:1; font-size:13px; font-weight:600; }
+    .stat-btn-count { font-size:18px; font-weight:700; }
+    .sb-items    { background:linear-gradient(135deg,#1976d2,#42a5f5); }
+    .sb-links    { background:linear-gradient(135deg,#0097a7,#26c6da); }
+    .sb-internal { background:linear-gradient(135deg,#00796b,#26a69a); }
+    .sb-orphaned { background:linear-gradient(135deg,#ad1457,#ec407a); }
+    .sb-broken   { background:linear-gradient(135deg,#6a1b9a,#ab47bc); }
+    .sb-404      { background:linear-gradient(135deg,#4a148c,#7b1fa2); }
+    .domain-row { margin-bottom:10px; }
+    .domain-row-top { display:flex; justify-content:space-between; font-size:13px; margin-bottom:4px; }
+    .domain-link { color:#222; text-decoration:none; font-weight:600; }
+    .domain-link:hover { text-decoration:underline; }
+    .domain-link.internal { color:#1976d2; }
+    .domain-count { color:#555; font-weight:600; }
+    .domain-bar-wrap { height:4px; background:#f0f0f0; border-radius:2px; overflow:hidden; }
+    .domain-bar { height:100%; background:#222; border-radius:2px; }
+    .chart-wrap { position:relative; width:180px; height:180px; margin:0 auto 16px; }
+    .chart-legend { display:flex; justify-content:center; gap:24px; }
+    .legend-item { display:flex; align-items:center; gap:6px; font-size:13px; color:#555; }
+    .legend-dot { width:10px; height:10px; border-radius:50%; }
+
+    /* TABLE */
+    .report-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
+    .report-toolbar input[type=text] { padding:8px 12px; border:1px solid #ddd; border-radius:4px; font-size:13px; width:220px; font-family:inherit; }
+    .report-toolbar select { padding:8px 12px; border:1px solid #ddd; border-radius:4px; font-size:13px; font-family:inherit; background:#fff; cursor:pointer; }
+    .btn-action { background:#222; color:#fff; border:none; border-radius:4px; padding:8px 16px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; cursor:pointer; }
+    .btn-action:hover { background:#444; }
+    .btn-outline { background:#fff; color:#222; border:1px solid #222; border-radius:4px; padding:8px 16px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; cursor:pointer; }
+    .btn-outline:hover { background:#f5f5f5; }
+    .table-wrap { background:#fff; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.08); overflow:hidden; }
+    table { width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed; }
+    thead th { background:#f9f9f9; padding:12px 16px; text-align:left; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:#555; border-bottom:1px solid #e8e8e8; cursor:pointer; white-space:nowrap; user-select:none; overflow:hidden; }
+    thead th:nth-child(1), tbody td:nth-child(1) { width:44%; }
+    thead th:nth-child(2), tbody td:nth-child(2) { width:10%; }
+    thead th:nth-child(3), tbody td:nth-child(3) { width:23%; overflow:hidden; }
+    thead th:nth-child(4), tbody td:nth-child(4) { width:23%; overflow:hidden; }
+    thead th:hover { background:#f0f0f0; }
+    thead th .sort-icon { margin-left:4px; color:#bbb; }
+    tbody tr { border-bottom:1px solid #f0f0f0; }
+    tbody tr:last-child { border-bottom:none; }
+    tbody tr:hover { background:#f9f9f9; }
+    tbody tr.expanded { background:#e8f4f8; }
+    tbody td { padding:12px 16px; vertical-align:middle; }
+    .td-title a { color:#222; text-decoration:none; font-weight:600; }
+    .td-title a:hover { text-decoration:underline; }
+    .td-title .item-type { display:inline-block; font-size:10px; font-weight:700; border-radius:3px; padding:2px 7px; margin-left:6px; text-transform:uppercase; letter-spacing:0.3px; }
+    .item-type-product    { background:#e8f5e9; color:#2e7d32; }
+    .item-type-collection { background:#e3f2fd; color:#1565c0; }
+    .item-type-article    { background:#f3e5f5; color:#6a1b9a; }
+    .item-type-page       { background:#fff3e0; color:#e65100; }
+    .td-date { color:#888; white-space:nowrap; }
+    .td-links { white-space:nowrap; }
+    .link-cell { display:flex; align-items:center; gap:6px; flex-wrap:nowrap; overflow:hidden; }
+    .link-count { background:#e3f2fd; color:#1565c0; font-weight:700; font-size:13px; padding:3px 10px; border-radius:4px; min-width:36px; text-align:center; }
+    .link-count.zero { background:#f5f5f5; color:#bbb; }
+    .btn-expand { background:none; border:1px solid #ddd; border-radius:4px; padding:3px 8px; font-size:11px; cursor:pointer; color:#555; transition:transform 0.2s; }
+    .btn-expand.open { transform:rotate(180deg); }
+    .btn-add { background:#222; color:#fff; border:none; border-radius:4px; padding:4px 10px; font-size:11px; font-weight:600; cursor:pointer; text-transform:uppercase; letter-spacing:0.3px; }
+    .btn-add:hover { background:#444; }
+
+    /* SAVE STATUS BADGE */
+    .save-status { display:inline-flex; align-items:center; font-size:11px; padding:2px 8px; border-radius:10px; font-weight:600; gap:4px; }
+    .save-status.saving { background:#fff3e0; color:#e65100; }
+    .save-status.saved  { background:#e8f5e9; color:#2e7d32; }
+    .save-status.failed { background:#fce4ec; color:#c62828; }
+
+    /* EXPAND ROW */
+    .expand-row td { padding:0; }
+    .expand-panel { background:#e8f4f8; border-left:3px solid #222; padding:12px 16px; }
+    .expand-panel-title { font-size:11px; font-weight:700; text-transform:uppercase; color:#555; margin-bottom:8px; letter-spacing:0.4px; }
+    .expand-link-item { display:flex; align-items:flex-start; gap:12px; padding:6px 0; border-bottom:1px solid #d0e8f0; font-size:13px; }
+    .expand-link-item:last-child { border-bottom:none; }
+    .expand-link-item a { color:#1565c0; text-decoration:none; word-break:break-all; }
+    .expand-link-item a:hover { text-decoration:underline; }
+    .expand-anchor { color:#666; font-style:italic; }
+    .empty-expand { color:#aaa; font-size:13px; font-style:italic; }
+
+    /* SUGGEST PANEL */
+    .suggest-panel { background:#fffde7; border-left:3px solid #f9a825; padding:16px; }
+    .suggest-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:4px; gap:12px; }
+    .suggest-header-left h4 { font-size:13px; font-weight:700; color:#333; }
+    .suggest-header-left p { font-size:12px; color:#777; margin-top:3px; }
+    .suggest-top-actions { display:flex; gap:8px; flex-shrink:0; }
+    .suggest-section { margin-top:14px; }
+    .suggest-section-title { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; padding:4px 10px; border-radius:3px; margin-bottom:8px; display:inline-block; }
+    .st-collection { background:#e3f2fd; color:#1565c0; }
+    .st-article    { background:#f3e5f5; color:#6a1b9a; }
+    .st-product    { background:#e8f5e9; color:#1b5e20; }
+    .st-page       { background:#fff3e0; color:#e65100; }
+    .suggest-item { display:flex; align-items:flex-start; gap:10px; padding:8px; border-radius:6px; margin-bottom:6px; border:1px solid transparent; transition:background 0.1s; }
+    .suggest-item:hover { background:rgba(0,0,0,0.03); }
+    .suggest-item.pre-checked { border-color:#c8e6c9; background:#f1f8e9; }
+    .suggest-item input[type=checkbox] { margin-top:2px; flex-shrink:0; width:15px; height:15px; cursor:pointer; }
+    .suggest-item-info { flex:1; }
+    .suggest-item-title { font-size:13px; font-weight:600; color:#222; }
+    .suggest-item-url { font-size:11px; color:#888; margin-top:1px; word-break:break-all; }
+    .suggest-item-badges { display:flex; gap:4px; flex-wrap:wrap; margin-top:4px; }
+    .badge { font-size:10px; padding:2px 6px; border-radius:3px; font-weight:600; text-transform:uppercase; }
+    .badge-orphan { background:#fce4ec; color:#c62828; }
+    .badge-match  { background:#e8f5e9; color:#2e7d32; }
+    .badge-inbound { background:#f5f5f5; color:#888; }
+
+    #queue-result-overlay { display:none; }
+    #queue-result-overlay:not(.hidden) { display:flex; }
+    .save-status.queued { background:#e3f2fd; color:#1565c0; }
+    #queue-bar { background:#1565c0; color:#fff; padding:10px 24px; display:flex; align-items:center; justify-content:space-between; font-size:13px; font-weight:600; }
+    #queue-bar.hidden { display:none; }
+    #queue-bar-right { display:flex; gap:10px; align-items:center; }
+    #btn-save-queue { background:#fff; color:#1565c0; border:none; border-radius:4px; padding:6px 16px; font-size:12px; font-weight:700; cursor:pointer; text-transform:uppercase; }
+    #btn-save-queue:hover { background:#e3f2fd; }
+    #btn-clear-queue { background:transparent; color:#fff; border:1px solid rgba(255,255,255,0.5); border-radius:4px; padding:6px 12px; font-size:12px; cursor:pointer; }
+    #btn-clear-queue:hover { background:rgba(255,255,255,0.1); }
+
+    /* SUGGEST SEARCH BAR */
+    .suggest-search-wrap { margin-top:12px; padding-top:12px; border-top:1px solid #f0e0a0; }
+    .suggest-search-label { font-size:11px; font-weight:700; text-transform:uppercase; color:#888; margin-bottom:6px; letter-spacing:0.4px; }
+    .suggest-search-input-wrap { position:relative; }
+    .suggest-search-input { width:100%; padding:8px 12px; border:1px solid #ddd; border-radius:4px; font-size:13px; font-family:inherit; }
+    .suggest-search-input:focus { outline:none; border-color:#1565c0; }
+    .suggest-search-dropdown { position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid #ddd; border-top:none; border-radius:0 0 4px 4px; max-height:220px; overflow-y:auto; z-index:100; box-shadow:0 4px 12px rgba(0,0,0,0.1); }
+    .suggest-search-item { padding:8px 12px; cursor:pointer; font-size:13px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #f5f5f5; }
+    .suggest-search-item:last-child { border-bottom:none; }
+    .suggest-search-item:hover { background:#f0f7ff; }
+    .suggest-search-item-title { font-weight:600; color:#222; flex:1; }
+    .suggest-search-item-inbound { font-size:11px; color:#888; margin-left:8px; white-space:nowrap; }
+    .pagination { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; background:#fff; border-top:1px solid #f0f0f0; font-size:13px; color:#666; }
+    .pagination-btns { display:flex; gap:6px; }
+    .btn-page { background:#fff; border:1px solid #ddd; border-radius:4px; padding:5px 12px; font-size:13px; cursor:pointer; }
+    .btn-page:hover:not(:disabled) { background:#f5f5f5; }
+    .btn-page:disabled { opacity:0.4; cursor:default; }
+
+    /* PREVIEW MODAL */
+    #preview-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:9998; display:flex; align-items:center; justify-content:center; }
+    #preview-overlay.hidden { display:none; }
+    .preview-card { background:#fff; border-radius:8px; padding:28px; max-width:680px; width:95%; max-height:85vh; overflow-y:auto; box-shadow:0 8px 32px rgba(0,0,0,0.2); }
+    .preview-card h3 { font-size:16px; font-weight:700; margin-bottom:6px; }
+    .preview-card .preview-sub { font-size:13px; color:#666; margin-bottom:20px; }
+    .preview-link-block { background:#f9f9f9; border:1px solid #e0e0e0; border-radius:6px; padding:14px 16px; margin-bottom:12px; }
+    .preview-link-block .plb-target { font-size:12px; font-weight:700; text-transform:uppercase; color:#888; letter-spacing:0.4px; margin-bottom:6px; }
+    .preview-link-block .plb-anchor { font-size:14px; margin-bottom:6px; }
+    .preview-link-block .plb-anchor strong { color:#1565c0; background:#e3f2fd; padding:1px 5px; border-radius:3px; }
+    .preview-link-block .plb-sentence { font-size:13px; color:#444; line-height:1.7; background:#fff; border-left:3px solid #222; padding:8px 12px; border-radius:0 4px 4px 0; }
+    .preview-link-block .plb-sentence a { color:#1565c0; font-weight:600; }
+    .preview-link-block .plb-placement { font-size:11px; color:#888; margin-top:6px; font-style:italic; }
+    .preview-loading { text-align:center; padding:32px; color:#888; font-size:14px; }
+    .preview-loading .spinner { margin:0 auto 12px; }
+    .preview-buttons { display:flex; gap:10px; justify-content:flex-end; margin-top:20px; padding-top:16px; border-top:1px solid #eee; }
+
+    #toast-container { position:fixed; bottom:24px; right:24px; z-index:9999; display:flex; flex-direction:column; gap:8px; }
+    .toast { padding:12px 18px; border-radius:6px; font-size:13px; font-weight:600; color:#fff; box-shadow:0 4px 12px rgba(0,0,0,0.15); animation:slideIn 0.2s ease; }
+    .toast.success { background:#43a047; }
+    .toast.error   { background:#e53935; }
+    .toast.info    { background:#555; }
+    @keyframes slideIn { from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);} }
+    .placeholder-msg { color:#aaa; font-size:13px; padding:40px 0; text-align:center; }
+    .empty-state { text-align:center; padding:48px 24px; color:#aaa; font-size:14px; }
+  </style>
+</head>
+<body>
+<script src="/auth-check.js"></script>
+
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div id="loading-title">Syncing from Shopify...</div>
+  <div id="loading-step">Starting...</div>
+  <div id="loading-progress-wrap"><div id="loading-progress-bar"></div></div>
+</div>
+
+<div id="header">
+  <div id="header-left">
+    <h1>🔗 Link Whisperer</h1>
+    <div class="version">v16.2</div>
+  </div>
+  <div id="header-right">
+    <span id="last-synced"></span>
+    <button id="btn-refresh" onclick="refreshData()">🔄 Refresh Data</button>
+  </div>
+</div>
+
+<div id="app">
+  <!-- QUEUE BAR -->
+  <div id="queue-bar" class="hidden">
+    <span id="queue-bar-label">0 items in queue</span>
+    <div id="queue-bar-right">
+      <button id="btn-clear-queue" onclick="clearQueue()">✕ Clear Queue</button>
+      <button id="btn-save-queue" onclick="saveQueue()">💾 Save Queue (0)</button>
+    </div>
+  </div>
+
+  <div id="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('dashboard')">Dashboard</button>
+    <button class="tab-btn" onclick="switchTab('links-report')">Links Report</button>
+    <button class="tab-btn" onclick="switchTab('domains-report')">Domains Report</button>
+    <button class="tab-btn" onclick="switchTab('broken-links')">Broken Links Report</button>
+    <button class="tab-btn" onclick="switchTab('auto-linking')">Auto Linking</button>
+    <button class="tab-btn" onclick="switchTab('url-changer')">URL Changer</button>
+    <button class="tab-btn" onclick="switchTab('target-keywords')">Target Keywords</button>
+    <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="tab-dashboard" class="tab-content active">
+    <div class="dashboard-grid">
+      <div class="dash-card">
+        <h3>Links Stats</h3>
+        <button class="stat-btn sb-items" onclick="switchTab('links-report')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          <span class="stat-btn-label">Items Scanned</span><span class="stat-btn-count" id="stat-items">0</span>
+        </button>
+        <button class="stat-btn sb-links" onclick="switchTab('links-report')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          <span class="stat-btn-label">Links Found</span><span class="stat-btn-count" id="stat-links">0</span>
+        </button>
+        <button class="stat-btn sb-internal" onclick="switchTab('links-report')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 10 4 15 9 20"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></svg>
+          <span class="stat-btn-label">Internal Links</span><span class="stat-btn-count" id="stat-internal">0</span>
+        </button>
+        <button class="stat-btn sb-orphaned" onclick="switchTab('links-report')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <span class="stat-btn-label">Orphaned Items</span><span class="stat-btn-count" id="stat-orphaned">0</span>
+        </button>
+        <button class="stat-btn sb-broken" onclick="switchTab('broken-links')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/><line x1="2" y1="2" x2="22" y2="22"/></svg>
+          <span class="stat-btn-label">Broken Links</span><span class="stat-btn-count" id="stat-broken">0</span>
+        </button>
+        <button class="stat-btn sb-404" onclick="switchTab('broken-links')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          <span class="stat-btn-label">404 Errors</span><span class="stat-btn-count" id="stat-404">0</span>
+        </button>
+      </div>
+      <div class="dash-card">
+        <h3>Most linked to <span style="color:#1976d2">domains</span></h3>
+        <div id="domains-list"><p class="placeholder-msg">Loading...</p></div>
+      </div>
+      <div class="dash-card">
+        <h3>Internal vs External links</h3>
+        <div class="chart-wrap"><canvas id="donut-chart"></canvas></div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#222"></div><span id="legend-internal">Internal: 0</span></div>
+          <div class="legend-item"><div class="legend-dot" style="background:#bbb"></div><span id="legend-external">External: 0</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LINKS REPORT -->
+  <div id="tab-links-report" class="tab-content">
+    <div class="report-toolbar">
+      <input type="text" id="lr-search" placeholder="Filter by title..." oninput="renderLinksReport()" />
+      <select id="lr-type" onchange="renderLinksReport()">
+        <option value="">All Item Types</option>
+        <option value="product">Products</option>
+        <option value="page">Pages</option>
+        <option value="article">Blog Posts</option>
+        <option value="collection">Collections</option>
+      </select>
+      <select id="lr-filter" onchange="renderLinksReport()">
+        <option value="">All Items</option>
+        <option value="orphaned">Orphaned Only</option>
+        <option value="has-inbound">Has Inbound Links</option>
+      </select>
+      <select id="lr-vendor" onchange="renderLinksReport()">
+        <option value="">All Vendors</option>
+      </select>
+      <button class="btn-outline" onclick="exportLinksCSV()">EXPORT TO CSV</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th onclick="sortLinksReport('title')">Title <span class="sort-icon" id="sort-title"></span></th>
+            <th>Published</th>
+            <th onclick="sortLinksReport('inbound')">Inbound Internal Links <span class="sort-icon" id="sort-inbound"></span></th>
+            <th onclick="sortLinksReport('outbound')">Outbound Internal Links <span class="sort-icon" id="sort-outbound"></span></th>
+          </tr>
+        </thead>
+        <tbody id="lr-tbody"></tbody>
+      </table>
+      <div class="pagination">
+        <span id="lr-count">Showing 0–0 of 0 items</span>
+        <div class="pagination-btns">
+          <button class="btn-page" id="lr-prev" onclick="lrChangePage(-1)">&#8592;</button>
+          <button class="btn-page" id="lr-next" onclick="lrChangePage(1)">&#8594;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-domains-report" class="tab-content">
+    <div class="report-toolbar">
+      <input type="text" id="dr-search" placeholder="Filter by domain..." oninput="renderDomainsReport()" />
+      <button class="btn-outline" onclick="exportDomainsDetailed()">DETAILED EXPORT TO CSV</button>
+      <button class="btn-outline" onclick="exportDomainsSummary()">SUMMARY EXPORT TO CSV</button>
+    </div>
+    <div class="table-wrap">
+      <table style="table-layout:fixed;">
+        <thead>
+          <tr>
+            <th style="width:45%;cursor:pointer;" onclick="sortDomainsReport('domain')">Domain <span class="sort-icon" id="dr-sort-domain"></span></th>
+            <th style="width:25%;cursor:pointer;" onclick="sortDomainsReport('items')">Linking Items <span class="sort-icon" id="dr-sort-items"></span></th>
+            <th style="width:30%;cursor:pointer;" onclick="sortDomainsReport('links')">Links <span class="sort-icon" id="dr-sort-links"></span></th>
+          </tr>
+        </thead>
+        <tbody id="dr-tbody"></tbody>
+      </table>
+      <div class="pagination">
+        <span id="dr-count">Showing 0–0 of 0 domains</span>
+        <div class="pagination-btns">
+          <button class="btn-page" id="dr-prev" onclick="drChangePage(-1)">&#8592;</button>
+          <button class="btn-page" id="dr-next" onclick="drChangePage(1)">&#8594;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="tab-broken-links" class="tab-content">
+    <div class="report-toolbar" style="flex-wrap:wrap;gap:8px;">
+      <button class="btn-outline" id="bl-delete-btn" onclick="deleteSelectedBrokenLinks()" disabled>DELETE SELECTED</button>
+      <select id="bl-status-filter" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+        <option value="">All Status Codes</option>
+        <option value="404 Not Found">404 Not Found</option>
+        <option value="Unknown">Unknown</option>
+      </select>
+      <button class="btn-outline" onclick="renderBrokenLinksReport()">FILTER CODES</button>
+      <button class="btn-outline" onclick="exportBrokenLinksCSV()">EXPORT TO CSV</button>
+      <button class="btn-action" style="margin-left:auto;" onclick="clearBrokenLinksData()">CLEAR ERROR DATA</button>
+    </div>
+    <div class="table-wrap">
+      <table style="table-layout:fixed;">
+        <thead>
+          <tr>
+            <th style="width:36px;"><input type="checkbox" id="bl-master-cb" onchange="toggleAllBrokenLinks(this.checked)" /></th>
+            <th style="width:17%;cursor:pointer;" onclick="sortBrokenLinks('post')">Post <span id="bl-sort-post"></span></th>
+            <th style="width:18%;cursor:pointer;" onclick="sortBrokenLinks('url')">Broken URL <span id="bl-sort-url"></span></th>
+            <th style="width:10%;cursor:pointer;" onclick="sortBrokenLinks('anchor')">Anchor <span id="bl-sort-anchor"></span></th>
+            <th style="width:22%;">Suggested Fix</th>
+            <th style="width:7%;cursor:pointer;" onclick="sortBrokenLinks('type')">Type <span id="bl-sort-type"></span></th>
+            <th style="width:9%;cursor:pointer;" onclick="sortBrokenLinks('status')">Status <span id="bl-sort-status"></span></th>
+            <th style="width:11%;cursor:pointer;" onclick="sortBrokenLinks('discovered')">Discovered <span id="bl-sort-discovered"></span></th>
+          </tr>
+        </thead>
+        <tbody id="bl-tbody"></tbody>
+      </table>
+      <div class="pagination">
+        <span id="bl-count">Showing 0–0 of 0 broken urls</span>
+        <div class="pagination-btns">
+          <button class="btn-page" id="bl-prev" onclick="blChangePage(-1)">&#8592;</button>
+          <button class="btn-page" id="bl-next" onclick="blChangePage(1)">&#8594;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="tab-auto-linking" class="tab-content"><p class="placeholder-msg">Auto Linking — coming soon.</p></div>
+  <div id="tab-url-changer" class="tab-content"><p class="placeholder-msg">URL Changer — coming soon.</p></div>
+  <div id="tab-target-keywords" class="tab-content"><p class="placeholder-msg">Target Keywords — coming soon.</p></div>
+  <div id="tab-settings" class="tab-content"><p class="placeholder-msg">Settings — coming soon.</p></div>
+</div>
+
+<!-- QUEUE RESULT MODAL -->
+<div id="queue-result-overlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:8px;padding:32px;max-width:500px;width:95%;box-shadow:0 8px 32px rgba(0,0,0,0.2);text-align:center;">
+    <div id="queue-result-icon" style="font-size:48px;margin-bottom:12px;">✅</div>
+    <div id="queue-result-title" style="font-size:18px;font-weight:700;margin-bottom:8px;"></div>
+    <div id="queue-result-body" style="font-size:13px;color:#666;margin-bottom:20px;text-align:left;"></div>
+    <button onclick="var o=document.getElementById('queue-result-overlay');o.classList.add('hidden');o.style.display='none';" style="background:#222;color:#fff;border:none;border-radius:4px;padding:10px 28px;font-size:13px;font-weight:700;cursor:pointer;">Close</button>
+  </div>
+</div>
+
+<!-- PREVIEW MODAL -->
+<div id="preview-overlay" class="hidden">
+  <div class="preview-card">
+    <h3 id="preview-modal-title">📋 Approve Links Before Saving</h3>
+    <p class="preview-sub">Review the phrases below. These will be appended to the end of the page content in Shopify. Click Approve to save.</p>
+    <div id="preview-body"></div>
+    <div class="preview-buttons">
+      <button class="btn-outline" onclick="closePreview()">Cancel</button>
+      <button class="btn-action" id="preview-queue-btn" onclick="addToQueue()" style="display:none;background:#1565c0;">+ Add to Queue</button>
+      <button class="btn-action" id="preview-save-btn" onclick="savePreviewedLinks()" style="display:none">✅ Save Now</button>
+      <button class="btn-action" id="preview-close-btn" onclick="closePreview()" style="display:none;background:#2e7d32;">✕ Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script>
+const CONFIG = {
+  proxyUrl: 'https://tools.aboutwallart.com',
+  itemsPerPage: 100,
+  cacheKey: 'link-whisperer-cache'
+};
+
+const ROOM_TYPES = ['bathroom','bedroom','living room','kitchen','hallway','office','nursery','staircase','dining','garden','study','playroom','conservatory'];
+const STYLES = ['japandi','minimalist','maximalist','botanical','abstract','vintage','modern','scandi','industrial','rustic','bohemian','monochrome','black and white','geometric','floral','tropical','coastal'];
+
+// Pages that must never have + Add button shown
+const PAGES_TO_NEVER_TOUCH = new Set([
+  'free interior design education & guides','free home decor & interior design tools',
+  'home decor by trend','home decor by room','home decor by product',
+  'wall art size calculator - find the perfect print size for your wall',
+  'art hanging height calculator - perfect height for your wall art',
+  'gallery wall planner — plan your perfect gallery wall layout',
+  'room colour & art matcher','interior style quiz - find your design style & inspiration',
+  'color matching guide for wall art - how to choose perfect colours?',
+  'interior design styles explained - complete guide to 24+ styles',
+  'interior design guide: principles & concepts explained',
+  'gallery wall ideas & layouts',
+  'how to choose the right wall art size - complete guide',
+  'free diy interior design workbook: transform your home like a pro',
+  '404 - page not found','wishlist','loyalty page','confirm your email',
+  'keep in touch','spread the love and win money to spend on your orders',
+  "let's celebrate your birthday!",'free workbook!','product bundles',
+  'unsure about the size?','write for us – guest posts & contributor opportunities',
+  'homepage','home'
+]);
+
+// Trend pages — these are pages (not collections) describing design trends
+const TREND_PAGES = new Set([
+  'biophilic interior design trend','zen room decorations trend',
+  'tropical decor for home style trend','transitional interior design trend',
+  'preppy style interiors decor trend','old money home decor trend',
+  'coffee house interior design trend','masculine living room ideas',
+  'black & white home decor trend','wildlife home decor trend',
+  'scandi home decor trend','country cottage home decor trend',
+  'morroccan home decor trend','cosy minimalism home decor trend',
+  'mediterranean home decor trend','japandi home decor trend',
+  'industrial home decor trend','french country home decor trends',
+  'modern farmhouse home decor trend','eclectic maximalist home decor trend',
+  'modern contemporary home decor trend','coastal home decor trend',
+  'boho home decor trend','modern glam luxe interiors decor trend',
+  'mid century home decor trend'
+]);
+
+// Content Hub URL — used in static page phrases
+const CONTENT_HUB_URL = 'https://aboutwallart.com/pages/free-interior-design-education-guides';
+
+// Determine the effective page type for linking rules
+function getPageLinkType(item) {
+  const titleLower = (item.title||'').toLowerCase().trim();
+  if(item.type === 'product') return 'product';
+  if(item.type === 'collection') return 'collection';
+  if(item.type === 'article') return 'blog';
+  if(item.type === 'page') {
+    if(TREND_PAGES.has(titleLower)) return 'trend';
+    return 'static';
+  }
+  return 'static';
+}
+
+function shouldShowAddButton(item) {
+  const titleLower = (item.title||'').toLowerCase().trim();
+  return !PAGES_TO_NEVER_TOUCH.has(titleLower);
+}
+
+// Check which requirements are already met for an item
+// Returns { needsCollection, needsBlog, hasCollection, hasBlog, fullyDone }
+function checkItemRequirements(item) {
+  const linkType = getPageLinkType(item);
+  const outbound = (AppState.linkGraph.outbound[item.id]||[]).filter(l=>l.type==='internal');
+
+  // Check if any outbound link points to a collection or blog
+  const hasCollection = outbound.some(l => {
+    const target = AppState.items.find(i=>(i.url||'').replace(/\/$/,'').toLowerCase() === l.targetUrl.replace(/\/$/,'').toLowerCase());
+    return target && target.type === 'collection';
+  });
+  const hasBlog = outbound.some(l => {
+    const target = AppState.items.find(i=>(i.url||'').replace(/\/$/,'').toLowerCase() === l.targetUrl.replace(/\/$/,'').toLowerCase());
+    return target && target.type === 'article';
+  });
+
+  let needsCollection = false, needsBlog = false;
+  if(linkType === 'product' || linkType === 'trend') { needsCollection = true; needsBlog = true; }
+  else if(linkType === 'collection' || linkType === 'blog' || linkType === 'static') { needsCollection = (linkType !== 'collection'); needsBlog = (linkType === 'collection'); }
+
+  // For static pages needsCollection only
+  if(linkType === 'static') { needsCollection = true; needsBlog = false; }
+  if(linkType === 'blog') { needsCollection = true; needsBlog = false; }
+  if(linkType === 'collection') { needsCollection = false; needsBlog = true; }
+
+  const fullyDone = (!needsCollection || hasCollection) && (!needsBlog || hasBlog);
+  return { needsCollection, needsBlog, hasCollection, hasBlog, fullyDone, linkType };
+}
+
+// Check which inbound requirements are already met for an item
+// Returns { needsBlogInbound, needsTrendInbound, hasBlogInbound, hasTrendInbound, fullyDone, linkType }
+function checkInboundRequirements(item) {
+  const linkType = getPageLinkType(item);
+  // Products and static pages have no inbound rules
+  if(['product','static'].includes(linkType)) return { fullyDone: true, noRules: true };
+
+  // Get all items that currently link TO this item
+  const sources = (AppState.linkGraph.inbound[item.id]||[]).map(l=>
+    AppState.items.find(i=>i.id===l.sourceId)
+  ).filter(Boolean);
+
+  const hasBlogInbound  = sources.some(s=>s.type==='article');
+  const hasTrendInbound = sources.some(s=>getPageLinkType(s)==='trend');
+
+  let needsBlog=false, needsTrend=false;
+  if(linkType==='trend')      { needsBlog=true;  needsTrend=true; }
+  if(linkType==='collection') { needsBlog=true;  needsTrend=true; }
+  if(linkType==='blog')       { needsBlog=true;  needsTrend=true; }
+
+  const fullyDone = (!needsBlog||hasBlogInbound) && (!needsTrend||hasTrendInbound);
+  return { needsBlog, needsTrend, hasBlogInbound, hasTrendInbound, fullyDone, linkType, noRules:false };
+}
+
+const INBOUND_PHRASES = {
+  // Phrase added to a BLOG linking to a TREND PAGE
+  blogToTrend:   (t,u) => `If you love this style, explore our full guide to <a href="${u}">${escHtml(t)}</a> for more ideas and inspiration.`,
+  // Phrase added to a TREND PAGE linking to another TREND PAGE
+  trendToTrend:  (t,u) => `If you enjoy this style, you may also love our guide to <a href="${u}">${escHtml(t)}</a>.`,
+  // Phrase added to a TREND PAGE linking to a COLLECTION
+  trendToCol:    (t,u) => `Explore our <a href="${u}">${escHtml(t)}</a> collection to find the perfect items for this trend.`,
+  // Phrase added to a BLOG linking to a COLLECTION
+  blogToCol:     (t,u) => `Browse our <a href="${u}">${escHtml(t)}</a> collection to find pieces that will bring this look to life in your home.`,
+  // Phrase added to a BLOG linking to another BLOG
+  blogToBlog:    (t,u) => `You may also enjoy our article <a href="${u}">${escHtml(t)}</a> for more styling ideas.`,
+  // Phrase added to a TREND PAGE linking to a BLOG
+  trendToBlog:   (t,u) => `You may also want to read our article <a href="${u}">${escHtml(t)}</a> for more styling ideas.`,
+};
+const AppState = {
+  items:[], links:[], brokenLinks:[], lastSync:null,
+  linkGraph:{ outbound:{}, inbound:{} },
+  lrPage:1, lrSort:[],
+  expandState:{}, suggestState:{}, inboundSuggestState:{},
+  saveStatuses:{},
+  linkQueue:[]
+};
+
+const BlState = { page:1, selected: new Set(), sort:{ col:'', dir:'' } };
+let blSuggestionsComputed = false;
+
+let donutChart = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+  switchTab(localStorage.getItem('lw-active-tab')||'dashboard', true);
+
+  // Load from cache if under 24 hours old
+  try {
+    const cacheTime = parseInt(localStorage.getItem('lw-cache-time')||'0');
+    const age = Date.now() - cacheTime;
+    const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+    if(age < maxAge){
+      const cachedRaw = localStorage.getItem('lw-cache');
+      if(cachedRaw){
+        const cached = JSON.parse(cachedRaw);
+        if(cached && Array.isArray(cached.items) && cached.items.length > 0){
+          const bodyCache = JSON.parse(localStorage.getItem('lw-body-cache')||'{}');
+          AppState.items = cached.items.map(item=>({ ...item, bodyHtml: bodyCache[item.id]||'' }));
+          AppState.links = cached.links || [];
+          AppState.lastSync = cached.lastSync;
+          buildLinkGraph();
+          detectBrokenLinks();
+          showApp();
+          updateLastSynced();
+          renderDashboard();
+          renderLinksReport();
+          renderDomainsReport();
+          renderBrokenLinksReport();
+          showToast('Loaded from cache — '+AppState.items.length+' items','info');
+          return;
+        }
+      }
+    }
+  } catch(e) { console.warn('Cache load failed, syncing fresh:', e); }
+
+  syncFromShopify();
+});
+
+function showApp() { document.getElementById('app').classList.add('visible'); }
+function showLoading() { document.getElementById('loading-overlay').classList.remove('hidden'); }
+function hideLoading() { document.getElementById('loading-overlay').classList.add('hidden'); }
+function setLoadingStep(step, progress) {
+  document.getElementById('loading-step').textContent = step;
+  if (progress !== undefined) document.getElementById('loading-progress-bar').style.width = progress + '%';
+}
+
+function switchTab(tabName, silent) {
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  const content = document.getElementById('tab-'+tabName);
+  if (content) content.classList.add('active');
+  document.querySelectorAll('.tab-btn').forEach(b=>{ if((b.getAttribute('onclick')||'').includes("'"+tabName+"'")) b.classList.add('active'); });
+  if (!silent) localStorage.setItem('lw-active-tab', tabName);
+  if (tabName==='domains-report') renderDomainsReport();
+  if (tabName==='broken-links') { computeBrokenLinkSuggestions(); renderBrokenLinksReport(); }
+}
+
+async function shopifyFetch(endpoint, method, body) {
+  method = method||'GET';
+  let allResults=null, nextEndpoint=endpoint, page=1;
+  while (nextEndpoint) {
+    const url = CONFIG.proxyUrl+'/api/shopify-files?action=link-whisperer&endpoint='+encodeURIComponent(nextEndpoint);
+    const opts = { method, headers:{'Content-Type':'application/json'} };
+    if (body) opts.body = JSON.stringify(body);
+    const response = await fetch(url, opts);
+    if (!response.ok) throw new Error('Shopify fetch failed: '+await response.text());
+    const data = await response.json();
+    if (method !== 'GET') return data;
+    if (allResults===null) { allResults=data; }
+    else { for (const k of Object.keys(data)) { if (Array.isArray(data[k])&&Array.isArray(allResults[k])) allResults[k]=allResults[k].concat(data[k]); } }
+    const lh = response.headers.get('Link');
+    nextEndpoint=null;
+    if (lh) { for (const p of lh.split(',')) { if (p.includes('rel="next"')) { const m=p.match(/<[^>]*\/admin\/api\/[^/]+\/(.+?)>/); if(m){nextEndpoint=m[1];page++;setLoadingStep('Fetching page '+page+'...');} } } }
+  }
+  return allResults;
+}
+
+function parseItemLinks(item) {
+  const links=[];
+  if (!item.bodyHtml) return links;
+  const doc = new DOMParser().parseFromString(item.bodyHtml,'text/html');
+  doc.querySelectorAll('a[href]').forEach(a => {
+    const href=a.getAttribute('href')||'';
+    const anchorText=a.textContent.trim();
+    if (!href||href.startsWith('#')||href.startsWith('mailto:')||href.startsWith('tel:')) return;
+    let fullUrl=href, type='external';
+    if (href.startsWith('/')) { fullUrl='https://aboutwallart.com'+href; type='internal'; }
+    else if (href.includes('aboutwallart.com')) { type='internal'; }
+    links.push({sourceId:item.id, sourceUrl:item.url, targetUrl:fullUrl, anchorText, type});
+  });
+  return links;
+}
+
+function buildLinkGraph() {
+  AppState.linkGraph={outbound:{},inbound:{}};
+  for (const link of AppState.links) {
+    if (!AppState.linkGraph.outbound[link.sourceId]) AppState.linkGraph.outbound[link.sourceId]=[];
+    AppState.linkGraph.outbound[link.sourceId].push({targetUrl:link.targetUrl,anchorText:link.anchorText,type:link.type});
+    if (link.type==='internal') {
+      const target=AppState.items.find(i=>{
+        const ct=link.targetUrl.replace(/\/$/,'').toLowerCase();
+        const ci=(i.url||'').replace(/\/$/,'').toLowerCase();
+        return ct===ci||ct.endsWith('/'+i.handle);
+      });
+      if (target) {
+        if (!AppState.linkGraph.inbound[target.id]) AppState.linkGraph.inbound[target.id]=[];
+        AppState.linkGraph.inbound[target.id].push({sourceId:link.sourceId,sourceUrl:link.sourceUrl,anchorText:link.anchorText});
+      }
+    }
+  }
+}
+
+function detectBrokenLinks() {
+  const knownUrls = new Set();
+  const knownHandles = new Set();
+  AppState.items.forEach(i => {
+    if(i.url) knownUrls.add(i.url.replace(/\/$/,'').toLowerCase());
+    if(i.handle) knownHandles.add(i.handle.toLowerCase());
+  });
+
+  AppState.brokenLinks = [];
+  AppState.links.forEach(link => {
+    if(link.type !== 'internal') return;
+
+    // Skip links FROM archived/unpublished pages
+    const sourceItem = AppState.items.find(i => i.id === link.sourceId);
+    if(!sourceItem) return;
+    if(sourceItem.publishedAt === null || sourceItem.publishedAt === undefined || sourceItem.publishedAt === '') return;
+
+    const cu = link.targetUrl.replace(/\/$/,'').toLowerCase();
+    const handle = cu.split('/').pop();
+    if(!knownUrls.has(cu) && !knownHandles.has(handle)) {
+      const suggested = null; // computed lazily when tab opens
+      AppState.brokenLinks.push({
+        sourceId: link.sourceId,
+        sourceUrl: link.sourceUrl,
+        brokenUrl: link.targetUrl,
+        anchorText: link.anchorText,
+        type: link.type,
+        status: '404 Not Found',
+        discovered: new Date().toISOString(),
+        suggested // { item, confidence, label } or null
+      });
+    }
+  });
+}
+
+// Smart URL matching — find the best live page for a broken URL
+function findBestUrlMatch(brokenUrl) {
+  const slug = brokenUrl.replace(/\/$/,'').split('/').pop().toLowerCase();
+  if(!slug) return null;
+
+  const candidates = [];
+
+  AppState.items.forEach(item => {
+    if(!item.url || !item.publishedAt) return;
+    const itemHandle = (item.handle||'').toLowerCase();
+    const itemSlug = item.url.replace(/\/$/,'').split('/').pop().toLowerCase();
+
+    // Score this candidate
+    let score = 0;
+
+    // Exact handle match
+    if(itemHandle === slug || itemSlug === slug) { score = 100; }
+    // Slug contains the broken slug
+    else if(itemHandle.includes(slug) || slug.includes(itemHandle)) { score = Math.max(score, 80); }
+    // Fuzzy similarity
+    else {
+      const sim = slugSimilarity(slug, itemHandle);
+      if(sim > 0.6) score = Math.max(score, Math.round(sim * 90));
+    }
+
+    // Keyword overlap bonus
+    const slugWords = slug.split('-').filter(w=>w.length>3);
+    const handleWords = itemHandle.split('-').filter(w=>w.length>3);
+    const overlap = slugWords.filter(w=>handleWords.includes(w)).length;
+    if(overlap > 0) score = Math.max(score, Math.min(75, 40 + overlap*15));
+
+    if(score >= 40) candidates.push({ item, score });
+  });
+
+  candidates.sort((a,b) => b.score - a.score);
+  if(!candidates.length) return null;
+
+  const best = candidates[0];
+  return {
+    item: best.item,
+    confidence: best.score,
+    label: best.score >= 80 ? 'high' : 'low',
+    alternatives: candidates.slice(1, 3).map(c => c.item) // up to 2 alternatives
+  };
+}
+
+// Simple slug similarity score (0-1)
+function slugSimilarity(a, b) {
+  if(a === b) return 1;
+  const longer = a.length > b.length ? a : b;
+  const shorter = a.length > b.length ? b : a;
+  if(longer.length === 0) return 1;
+  const editDist = levenshtein(longer, shorter);
+  return (longer.length - editDist) / longer.length;
+}
+
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  const dp = Array.from({length:m+1}, (_,i) => Array.from({length:n+1}, (_,j) => i===0?j:j===0?i:0));
+  for(let i=1;i<=m;i++) for(let j=1;j<=n;j++)
+    dp[i][j] = a[i-1]===b[j-1] ? dp[i-1][j-1] : 1+Math.min(dp[i-1][j],dp[i][j-1],dp[i-1][j-1]);
+  return dp[m][n];
+}
+
+function extractKeywords(item) {
+  const text=((item.title||'')+' '+(item.bodyHtml||'').replace(/<[^>]+>/g,' ')+' '+(item.tags||[]).join(' ')).toLowerCase();
+  return {
+    rooms: ROOM_TYPES.filter(r=>text.includes(r)),
+    styles: STYLES.filter(s=>text.includes(s)),
+    titleWords: (item.title||'').toLowerCase().split(/\s+/).filter(w=>w.length>3),
+    tags: item.tags||[]
+  };
+}
+
+function scoreRelevance(source, target) {
+  const s=extractKeywords(source), t=extractKeywords(target);
+  let score=0;
+  const sharedRooms=s.rooms.filter(r=>t.rooms.includes(r)); score+=sharedRooms.length*10;
+  const sharedStyles=s.styles.filter(st=>t.styles.includes(st)); score+=sharedStyles.length*7;
+  const sharedTags=s.tags.filter(tag=>t.tags.includes(tag)); score+=sharedTags.length*5;
+  const sharedWords=s.titleWords.filter(w=>t.titleWords.includes(w)); score+=sharedWords.length*3;
+  return {score, sharedRooms, sharedStyles, sharedTags};
+}
+
+// Get top N suggestions of a specific type for a source item
+function getTopByType(sourceItem, targetType, maxCount) {
+  const alreadyLinked=new Set((AppState.linkGraph.outbound[sourceItem.id]||[]).filter(l=>l.type==='internal').map(l=>l.targetUrl.replace(/\/$/,'').toLowerCase()));
+  const candidates=AppState.items.filter(i=>{
+    if(i.id===sourceItem.id) return false;
+    if(i.type!==targetType) return false;
+    if(alreadyLinked.has((i.url||'').replace(/\/$/,'').toLowerCase())) return false;
+    return true;
+  });
+  const scored=candidates.map(c=>{
+    const {score,sharedRooms,sharedStyles,sharedTags}=scoreRelevance(sourceItem,c);
+    const isOrphan=(AppState.linkGraph.inbound[c.id]||[]).length===0;
+    return {item:c, score:score+(isOrphan?15:0), isOrphan, inboundCount:(AppState.linkGraph.inbound[c.id]||[]).length, sharedRooms, sharedStyles, sharedTags};
+  });
+  scored.sort((a,b)=>b.score-a.score||(a.isOrphan?-1:1)||(a.inboundCount-b.inboundCount));
+  return scored.slice(0,maxCount);
+}
+
+// Find which collection(s) this product belongs to by URL matching
+function getProductCollections(product) {
+  // Match collections whose handles appear in the product tags or title
+  const kw=extractKeywords(product);
+  return AppState.items.filter(i=>{
+    if(i.type!=='collection') return false;
+    const alreadyLinked=new Set((AppState.linkGraph.outbound[product.id]||[]).filter(l=>l.type==='internal').map(l=>l.targetUrl.replace(/\/$/,'').toLowerCase()));
+    if(alreadyLinked.has((i.url||'').replace(/\/$/,'').toLowerCase())) return false;
+    const {score}=scoreRelevance(product,i);
+    return score>0;
+  }).sort((a,b)=>{
+    const sa=scoreRelevance(product,a).score, sb=scoreRelevance(product,b).score;
+    return sb-sa;
+  }).slice(0,1);
+}
+
+// Build the new suggestion panel based on page type rules
+function buildSuggestPanel(item) {
+  if(!shouldShowAddButton(item)) return '';
+  const linkType = getPageLinkType(item);
+  const req = checkItemRequirements(item);
+
+  // Get all collections scored by relevance for dropdown
+  function getAllCollectionsSorted() {
+    const cols = AppState.items.filter(i=>i.type==='collection');
+    return cols.map(c=>({ item:c, score:scoreRelevance(item,c).score }))
+      .sort((a,b)=>b.score-a.score);
+  }
+
+  // Get best matching blogs (top 6)
+  function getBestBlogs() {
+    const blogs = AppState.items.filter(i=>i.type==='article');
+    return blogs.map(b=>({ item:b, score:scoreRelevance(item,b).score }))
+      .sort((a,b)=>b.score-a.score).slice(0,6);
+  }
+
+  // For products: get actual collections the product belongs to
+  function getProductCollectionOptions() {
+    const memberIds = new Set((item.collectionIds || []).map(String));
+    // Match against both collection- and smart- prefixed items
+    // item.shopifyId on collection items is the raw numeric Shopify ID
+    const memberCols = AppState.items.filter(i =>
+      i.type === 'collection' && memberIds.has(String(i.shopifyId))
+    );
+    // Sort best keyword match first
+    memberCols.sort((a,b) => scoreRelevance(item,b).score - scoreRelevance(item,a).score);
+    // Fall back to keyword scoring if no membership data yet
+    if(!memberCols.length) {
+      const scored = AppState.items
+        .filter(i=>i.type==='collection')
+        .map(c=>({ item:c, score:scoreRelevance(item,c).score }))
+        .sort((a,b)=>b.score-a.score)
+        .slice(0,8);
+      return { best: scored.slice(0,1).map(s=>s.item), rest: scored.slice(1).map(s=>s.item) };
+    }
+    return { best: memberCols.slice(0,1), rest: memberCols.slice(1) };
+  }
+
+  let sections = '';
+  let instructions = '';
+  const showCollection = req.needsCollection && !req.hasCollection;
+  const showBlog = req.needsBlog && !req.hasBlog;
+
+  // Build instructions based on what's missing
+  if(req.fullyDone) {
+    return `<div class="suggest-panel"><p class="empty-expand">✅ This item already has all required links.</p></div>`;
+  }
+
+  if(linkType === 'trend') instructions = 'This is a <strong>Trend Page</strong>.' + (!req.hasCollection ? ' Verify the collection.' : ' ✅ Collection done.') + (!req.hasBlog ? ' Pick one blog post.' : ' ✅ Blog done.');
+  else if(linkType === 'product') instructions = 'This is a <strong>Product Page</strong>.' + (!req.hasCollection ? ' Verify the collection.' : ' ✅ Collection done.') + (!req.hasBlog ? ' Pick one blog post.' : ' ✅ Blog done.');
+  else if(linkType === 'collection') instructions = 'This is a <strong>Collection Page</strong>. Pick one blog post to link to.';
+  else if(linkType === 'blog') instructions = 'This is a <strong>Blog Post</strong>. The best matching collection is pre-selected.';
+  else if(linkType === 'static') instructions = 'This is a <strong>Static Page</strong>. The best matching collection is pre-selected.';
+
+  // COLLECTION SECTION
+  if(showCollection) {
+    let collectionHtml = '';
+    if(linkType === 'product') {
+      const { best, rest } = getProductCollectionOptions();
+      const bestItem = best.length ? best[0] : null;
+      if(bestItem) {
+        const dropdownOptions = rest.map(c=>`<option value="${escHtml(c.id)}" data-url="${escHtml(c.url)}" data-title="${escHtml(c.title)}">${escHtml(c.title)}</option>`).join('');
+        collectionHtml = `
+          <div class="suggest-item pre-checked" id="col-item-${item.id}">
+            <input type="checkbox" checked class="sug-cb sug-collection"
+              data-item-id="${item.id}" data-candidate-id="${escHtml(bestItem.id)}"
+              data-candidate-url="${escHtml(bestItem.url)}" data-candidate-title="${escHtml(bestItem.title)}"
+              data-candidate-type="collection" id="sug-col-cb-${item.id}" />
+            <div class="suggest-item-info">
+              <div class="suggest-item-title" id="sug-col-title-${item.id}">${escHtml(bestItem.title)}</div>
+              <div class="suggest-item-url" id="sug-col-url-${item.id}">${escHtml(bestItem.url)}</div>
+              <div class="suggest-item-badges"><span class="badge" style="background:#e3f2fd;color:#1565c0;">COLLECTION</span><span class="badge badge-inbound">${(AppState.linkGraph.inbound[bestItem.id]||[]).length} inbound</span></div>
+              ${dropdownOptions ? `<div style="margin-top:6px;"><label style="font-size:11px;color:#888;">Change collection: </label><select onchange="changeCollectionSelection(this,'${item.id}')" style="font-size:12px;padding:3px 6px;border:1px solid #ddd;border-radius:4px;"><option value="">— keep current —</option>${dropdownOptions}</select></div>` : ''}
+            </div>
+          </div>`;
+      }
+    } else {
+      const allCols = getAllCollectionsSorted();
+      const best = allCols.slice(0,1);
+      if(best.length) {
+        const s = best[0];
+        const rest = allCols.slice(1, 8);
+        const dropdownOptions = rest.map(c=>`<option value="${escHtml(c.item.id)}" data-url="${escHtml(c.item.url)}" data-title="${escHtml(c.item.title)}">${escHtml(c.item.title)}</option>`).join('');
+        collectionHtml = `
+          <div class="suggest-item pre-checked">
+            <input type="checkbox" checked class="sug-cb sug-collection"
+              data-item-id="${item.id}" data-candidate-id="${s.item.id}"
+              data-candidate-url="${escHtml(s.item.url)}" data-candidate-title="${escHtml(s.item.title)}"
+              data-candidate-type="collection" id="sug-col-cb-${item.id}" />
+            <div class="suggest-item-info">
+              <div class="suggest-item-title" id="sug-col-title-${item.id}">${escHtml(s.item.title)}</div>
+              <div class="suggest-item-url" id="sug-col-url-${item.id}">${escHtml(s.item.url)}</div>
+              <div class="suggest-item-badges"><span class="badge" style="background:#e3f2fd;color:#1565c0;">COLLECTION</span></div>
+              ${dropdownOptions ? `<div style="margin-top:6px;"><label style="font-size:11px;color:#888;">Change collection: </label><select onchange="changeCollectionSelection(this,'${item.id}')" style="font-size:12px;padding:3px 6px;border:1px solid #ddd;border-radius:4px;"><option value="">— keep current —</option>${dropdownOptions}</select></div>` : ''}
+            </div>
+          </div>`;
+      }
+    }
+    if(collectionHtml) {
+      const stepNum = 'STEP ' + (sections ? '2' : '1');
+      sections += `<div class="suggest-section">
+        <span class="suggest-section-title st-collection">${stepNum} — Collection Link (pre-selected, verify)</span>
+        <div class="sug-collection-section-${item.id}">${collectionHtml}</div>
+        ${buildSearchBar(item, 'collection', 'sug-collection')}
+      </div>`;
+    }
+  }
+
+  // BLOG SECTION — single select enforced via JS
+  if(showBlog) {
+    const blogs = getBestBlogs();
+    if(blogs.length) {
+      const stepNum = 'STEP ' + (sections ? (sections.includes('STEP 1') ? '2' : '1') : '1');
+      const rows = blogs.map(s=>`
+        <div class="suggest-item">
+          <input type="checkbox" class="sug-cb sug-blog"
+            data-item-id="${item.id}" data-candidate-id="${s.item.id}"
+            data-candidate-url="${escHtml(s.item.url)}" data-candidate-title="${escHtml(s.item.title)}"
+            data-candidate-type="article"
+            onchange="enforceSingleBlog(this,'${item.id}')" />
+          <div class="suggest-item-info">
+            <div class="suggest-item-title">${escHtml(s.item.title)}</div>
+            <div class="suggest-item-url">${escHtml(s.item.url)}</div>
+            <div class="suggest-item-badges"><span class="badge" style="background:#f3e5f5;color:#6a1b9a;">BLOG</span><span class="badge badge-inbound">${(AppState.linkGraph.inbound[s.item.id]||[]).length} inbound</span></div>
+          </div>
+        </div>`).join('');
+      sections += `<div class="suggest-section"><span class="suggest-section-title st-article">${stepNum} — Blog Post Link (pick ONE)</span><div class="sug-article-section-${item.id}">${rows}</div>${buildSearchBar(item,'article','sug-blog')}</div>`;
+    }
+  }
+
+  if(!sections) return `<div class="suggest-panel"><p class="empty-expand">No relevant pages found to link to.</p></div>`;
+
+  return `<div class="suggest-panel">
+    <div class="suggest-header">
+      <div class="suggest-header-left">
+        <h4>🔗 Add Links to "${escHtml(item.title)}"</h4>
+        <p>${instructions}</p>
+      </div>
+      <div class="suggest-top-actions">
+        <button class="btn-action" onclick="confirmSelectedLinks('${item.id}')">✓ Review & Save Now</button>
+        <button class="btn-action" style="background:#1565c0;" onclick="confirmSelectedLinks('${item.id}', true)">+ Add to Queue</button>
+        <button class="btn-outline" onclick="closeSuggestPanel()">✕ Cancel</button>
+      </div>
+    </div>
+    ${sections}
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid #f0e0a0;display:flex;gap:8px;">
+      <button class="btn-action" onclick="confirmSelectedLinks('${item.id}')">✓ Review & Save Now</button>
+      <button class="btn-action" style="background:#1565c0;" onclick="confirmSelectedLinks('${item.id}', true)">+ Add to Queue</button>
+      <button class="btn-outline" onclick="closeSuggestPanel()">✕ Cancel</button>
+    </div>
+  </div>`;
+}
+
+// Enforce single blog selection — untick others when one is ticked
+function enforceSingleBlog(checkbox, itemId) {
+  if(!checkbox.checked) return;
+  document.querySelectorAll('.sug-blog[data-item-id="'+itemId+'"]').forEach(cb => {
+    if(cb !== checkbox) cb.checked = false;
+  });
+}
+
+// Change collection selection via dropdown
+function changeCollectionSelection(select, itemId) {
+  if(!select.value) return;
+  const opt = select.options[select.selectedIndex];
+  const cb = document.getElementById('sug-col-cb-'+itemId);
+  const titleEl = document.getElementById('sug-col-title-'+itemId);
+  const urlEl = document.getElementById('sug-col-url-'+itemId);
+  if(cb) {
+    cb.dataset.candidateId = select.value;
+    cb.dataset.candidateUrl = opt.dataset.url;
+    cb.dataset.candidateTitle = opt.dataset.title;
+    cb.checked = true;
+  }
+  if(titleEl) titleEl.textContent = opt.dataset.title;
+  if(urlEl) urlEl.textContent = opt.dataset.url;
+  select.value = ''; // reset dropdown back to placeholder
+}
+
+async function openSuggestPanel(itemId) {
+  const alreadyOpen = AppState.suggestState[itemId];
+  AppState.suggestState = {};
+  if (alreadyOpen) { renderLinksReport(); return; }
+
+  const item = AppState.items.find(i=>i.id===itemId);
+
+  // For products, fetch actual collection memberships on demand
+  if (item && item.type === 'product' && !item.collectionIds) {
+    try {
+      // Two separate calls as per Shopify REST API — custom + smart collections
+      const [ccData, scData] = await Promise.all([
+        shopifyFetch('custom_collections.json?product_id='+item.shopifyId+'&fields=id,title,handle&limit=250'),
+        shopifyFetch('smart_collections.json?product_id='+item.shopifyId+'&fields=id,title,handle&limit=250')
+      ]);
+      const customIds = (ccData.custom_collections||[]).map(c=>String(c.id));
+      const smartIds  = (scData.smart_collections||[]).map(c=>String(c.id));
+      item.collectionIds = [...customIds, ...smartIds];
+    } catch(e) {
+      console.warn('Could not fetch collection memberships:', e);
+      item.collectionIds = [];
+    }
+  }
+
+  AppState.suggestState[itemId] = true;
+  renderLinksReport();
+}
+
+function closeSuggestPanel() {
+  AppState.suggestState = {};
+  renderLinksReport();
+}
+
+// ─── QUEUE SYSTEM ─────────────────────────────────────────────────────────────
+
+function addToQueue() {
+  if(!pendingPreview) return;
+  const { item, phrases, targetItem, selections, isInbound } = pendingPreview;
+
+  if(isInbound) {
+    const label = selections.length + ' inbound link(s) → "' + (targetItem.title||'').substring(0,40) + '"';
+    AppState.linkQueue.push({ isInbound:true, targetItem, selections, label });
+    AppState.saveStatuses[targetItem.id] = { status:'queued', count: selections.length };
+  } else {
+    const label = phrases.length + ' link(s) → "' + (item.title||'').substring(0,40) + '"';
+    AppState.linkQueue.push({ isInbound:false, item, phrases, label });
+    AppState.saveStatuses[item.id] = { status:'queued', count: phrases.length };
+  }
+
+  closePreview();
+  updateQueueBar();
+  renderLinksReport();
+  showToast('Added to queue — '+AppState.linkQueue.length+' item(s) queued','info');
+}
+
+function updateQueueBar() {
+  const bar = document.getElementById('queue-bar');
+  const label = document.getElementById('queue-bar-label');
+  const btn = document.getElementById('btn-save-queue');
+  if(!bar) return;
+  if(AppState.linkQueue.length === 0) {
+    bar.classList.add('hidden');
+  } else {
+    bar.classList.remove('hidden');
+    label.textContent = AppState.linkQueue.length + ' item(s) ready to save';
+    btn.textContent = '💾 Save Queue (' + AppState.linkQueue.length + ')';
+  }
+}
+
+function clearQueue() {
+  // Remove queued badges
+  AppState.linkQueue.forEach(q => {
+    const id = q.isInbound ? q.targetItem.id : q.item.id;
+    delete AppState.saveStatuses[id];
+  });
+  AppState.linkQueue = [];
+  updateQueueBar();
+  renderLinksReport();
+  showToast('Queue cleared','info');
+}
+
+async function saveQueue() {
+  if(!AppState.linkQueue.length) return;
+  const total = AppState.linkQueue.length;
+  const btn = document.getElementById('btn-save-queue');
+  btn.disabled = true;
+  btn.textContent = 'Saving 0 of ' + total + '...';
+
+  let saved = 0;
+  const failedItems = [];
+  const queue = [...AppState.linkQueue];
+
+  try {
+    for(const q of queue) {
+      try {
+        if(q.isInbound) {
+          for(const sel of q.selections) {
+            const updatedHtml = (sel.sourceItem.bodyHtml||'') + '\n<p>' + sel.phraseHtml + '</p>';
+            await saveItemToShopify(sel.sourceItem, updatedHtml);
+            sel.sourceItem.bodyHtml = updatedHtml;
+            try {
+              const bc = JSON.parse(localStorage.getItem('lw-body-cache')||'{}');
+              bc[sel.sourceItem.id] = updatedHtml;
+              localStorage.setItem('lw-body-cache', JSON.stringify(bc));
+            } catch(e) {}
+          }
+          delete AppState.saveStatuses[q.targetItem.id];
+        } else {
+          let updatedHtml = q.item.bodyHtml || '';
+          for(const p of q.phrases) updatedHtml += '\n<p>' + p.html + '</p>';
+          await saveItemToShopify(q.item, updatedHtml);
+          q.item.bodyHtml = updatedHtml;
+          try {
+            const bc = JSON.parse(localStorage.getItem('lw-body-cache')||'{}');
+            bc[q.item.id] = updatedHtml;
+            localStorage.setItem('lw-body-cache', JSON.stringify(bc));
+          } catch(e) {}
+          delete AppState.saveStatuses[q.item.id];
+        }
+        saved++;
+        btn.textContent = 'Saving ' + saved + ' of ' + total + '...';
+      } catch(err) {
+        const name = q.isInbound ? (q.targetItem.title||'Unknown') : (q.item.title||'Unknown');
+        failedItems.push(name.substring(0,60) + ' — ' + err.message);
+      }
+    }
+  } finally {
+    // Always runs — re-enable button and clean up regardless of errors
+    AppState.links = [];
+    for(const i of AppState.items) AppState.links.push(...parseItemLinks(i));
+    buildLinkGraph();
+    detectBrokenLinks();
+    AppState.linkQueue = [];
+    updateQueueBar();
+    renderLinksReport();
+    renderDashboard();
+    btn.disabled = false;
+    btn.textContent = '💾 Save Queue (0)';
+    showQueueResultModal(saved, failedItems);
+  }
+}
+
+function showQueueResultModal(saved, failedItems) {
+  const overlay = document.getElementById('queue-result-overlay');
+  const icon    = document.getElementById('queue-result-icon');
+  const title   = document.getElementById('queue-result-title');
+  const body    = document.getElementById('queue-result-body');
+  if(!overlay) return;
+
+  if(failedItems.length === 0) {
+    icon.textContent  = '✅';
+    title.textContent = saved + ' item(s) saved to Shopify successfully!';
+    title.style.color = '#2e7d32';
+    body.innerHTML    = '<p style="text-align:center;color:#666;">All done — you can move on to the next batch.</p>';
+  } else {
+    icon.textContent  = '⚠️';
+    title.textContent = saved + ' saved, ' + failedItems.length + ' failed.';
+    title.style.color = '#e65100';
+    body.innerHTML    = '<p style="color:#666;margin-bottom:8px;">The following items could not be saved:</p>'
+      + failedItems.map(e=>`<div style="background:#fce4ec;color:#c62828;padding:6px 10px;border-radius:4px;margin-bottom:4px;font-size:12px;">• ${escHtml(e)}</div>`).join('');
+  }
+
+  overlay.classList.remove('hidden');
+  overlay.style.display = 'flex';
+}
+
+// ─── SEARCH BAR IN SUGGEST PANEL ──────────────────────────────────────────────
+
+function buildSearchBar(item, searchType, cbClass) {
+  const typeLabel = searchType === 'collection' ? 'collection' : searchType === 'article' ? 'blog post' : 'page';
+  const inputId = 'sug-search-'+item.id+'-'+searchType;
+  const dropId  = 'sug-drop-'+item.id+'-'+searchType;
+  return `<div class="suggest-search-wrap">
+    <div class="suggest-search-label">🔍 Search for a different ${typeLabel}:</div>
+    <div class="suggest-search-input-wrap">
+      <input type="text" class="suggest-search-input" id="${inputId}"
+        placeholder="Type to search..."
+        oninput="searchSuggest('${item.id}','${searchType}','${cbClass}','${inputId}','${dropId}')"
+        autocomplete="off" />
+      <div class="suggest-search-dropdown" id="${dropId}" style="display:none;"></div>
+    </div>
+  </div>`;
+}
+
+function searchSuggest(itemId, searchType, cbClass, inputId, dropId) {
+  const input = document.getElementById(inputId);
+  const drop  = document.getElementById(dropId);
+  if(!input || !drop) return;
+  const q = input.value.toLowerCase().trim();
+  if(!q) { drop.style.display='none'; return; }
+
+  const results = AppState.items
+    .filter(i => {
+      if(i.id === itemId) return false;
+      if(searchType === 'collection') return i.type === 'collection';
+      if(searchType === 'article') return i.type === 'article';
+      if(searchType === 'trend') return getPageLinkType(i) === 'trend';
+      return false;
+    })
+    .filter(i => i.title.toLowerCase().includes(q))
+    .slice(0, 8);
+
+  if(!results.length) { drop.style.display='none'; return; }
+
+  drop.style.display = 'block';
+  drop.innerHTML = results.map(i => {
+    const inbound = (AppState.linkGraph.inbound[i.id]||[]).length;
+    return `<div class="suggest-search-item" onclick="selectSearchResult('${itemId}','${escHtml(i.id)}','${escHtml(i.url)}','${escHtml(i.title).replace(/'/g,"\\'")}','${searchType}','${cbClass}','${inputId}','${dropId}')">
+      <span class="suggest-search-item-title">${escHtml(i.title)}</span>
+      <span class="suggest-search-item-inbound">${inbound} inbound</span>
+    </div>`;
+  }).join('');
+}
+
+function selectSearchResult(itemId, candidateId, candidateUrl, candidateTitle, searchType, cbClass, inputId, dropId) {
+  // Add a new checkbox item to the suggest section
+  const sectionEl = document.querySelector('.sug-'+searchType+'-section-'+itemId);
+  if(sectionEl) {
+    const newItem = document.createElement('div');
+    newItem.className = 'suggest-item pre-checked';
+    newItem.innerHTML = `
+      <input type="checkbox" checked class="sug-cb ${cbClass}"
+        data-item-id="${itemId}" data-candidate-id="${escHtml(candidateId)}"
+        data-candidate-url="${escHtml(candidateUrl)}" data-candidate-title="${escHtml(candidateTitle)}"
+        data-candidate-type="${searchType}"
+        ${cbClass==='sug-blog'?'onchange="enforceSingleBlog(this,\''+itemId+'\')"':''}
+        ${cbClass==='inb-trend'?'onchange="enforceInboundSingle(this,\''+itemId+'\',\'inb-trend\')"':''} />
+      <div class="suggest-item-info">
+        <div class="suggest-item-title">${escHtml(candidateTitle)}</div>
+        <div class="suggest-item-url">${escHtml(candidateUrl)}</div>
+        <div class="suggest-item-badges"><span class="badge" style="background:#e8f5e9;color:#1b5e20;">ADDED FROM SEARCH</span></div>
+      </div>`;
+    sectionEl.appendChild(newItem);
+    // If blog, enforce single select
+    if(cbClass==='sug-blog') enforceSingleBlog(newItem.querySelector('input'), itemId);
+  }
+  // Clear search
+  const input = document.getElementById(inputId);
+  const drop  = document.getElementById(dropId);
+  if(input) input.value = '';
+  if(drop)  drop.style.display = 'none';
+}
+
+// ─── INBOUND SUGGEST PANEL ──────────────────────────────────────────────────
+
+function openInboundSuggestPanel(itemId) {
+  const alreadyOpen = AppState.inboundSuggestState[itemId];
+  AppState.inboundSuggestState = {};
+  AppState.suggestState = {};
+  if(!alreadyOpen) AppState.inboundSuggestState[itemId] = true;
+  renderLinksReport();
+}
+
+function closeInboundSuggestPanel() {
+  AppState.inboundSuggestState = {};
+  renderLinksReport();
+}
+
+function buildInboundSuggestPanel(item) {
+  const linkType = getPageLinkType(item);
+  const req = checkInboundRequirements(item);
+  if(req.noRules || req.fullyDone) return `<div class="suggest-panel" style="border-left-color:#1565c0;background:#e8f4f8;"><p class="empty-expand">✅ All required inbound links already present.</p></div>`;
+
+  // Already-linked source IDs (so we don't suggest pages already linking here)
+  const alreadyLinkingIds = new Set((AppState.linkGraph.inbound[item.id]||[]).map(l=>l.sourceId));
+
+  function getCandidates(type, maxCount) {
+    return AppState.items
+      .filter(i => {
+        if(i.id === item.id) return false;
+        if(alreadyLinkingIds.has(i.id)) return false;
+        if(PAGES_TO_NEVER_TOUCH.has((i.title||'').toLowerCase().trim())) return false;
+        if(type === 'trend') return getPageLinkType(i) === 'trend';
+        if(type === 'blog')  return i.type === 'article';
+        return false;
+      })
+      .map(i => ({ item:i, score:scoreRelevance(item,i).score }))
+      .sort((a,b) => b.score - a.score)
+      .slice(0, maxCount);
+  }
+
+  let sections = '';
+  let instructions = '';
+
+  if(linkType === 'trend') {
+    instructions = 'This is a <strong>Trend Page</strong>. It needs inbound links from 2 blog posts and 1 trend page.';
+    if(!req.hasBlogInbound) {
+      const blogs = getCandidates('blog', 6);
+      if(blogs.length) sections += buildInboundSection('BLOG POSTS — Pick 2 to link here', 'st-article', 'inb-blog', item.id, blogs);
+    }
+    if(!req.hasTrendInbound) {
+      const trends = getCandidates('trend', 6);
+      if(trends.length) sections += buildInboundSection('TREND PAGES — Pick 1 to link here', 'st-page', 'inb-trend', item.id, trends);
+    }
+  } else if(linkType === 'collection') {
+    instructions = 'This is a <strong>Collection Page</strong>. It needs inbound links from 1 trend page and 1 blog post.';
+    if(!req.hasTrendInbound) {
+      const trends = getCandidates('trend', 6);
+      if(trends.length) sections += buildInboundSection('TREND PAGES — Pick 1 to link here', 'st-page', 'inb-trend', item.id, trends);
+    }
+    if(!req.hasBlogInbound) {
+      const blogs = getCandidates('blog', 6);
+      if(blogs.length) sections += buildInboundSection('BLOG POSTS — Pick 1 to link here', 'st-article', 'inb-blog', item.id, blogs);
+    }
+  } else if(linkType === 'blog') {
+    instructions = 'This is a <strong>Blog Post</strong>. It needs inbound links from 1 related blog post and 1 trend page.';
+    if(!req.hasBlogInbound) {
+      const blogs = getCandidates('blog', 6);
+      if(blogs.length) sections += buildInboundSection('RELATED BLOG POSTS — Pick 1 to link here', 'st-article', 'inb-blog', item.id, blogs);
+    }
+    if(!req.hasTrendInbound) {
+      const trends = getCandidates('trend', 6);
+      if(trends.length) sections += buildInboundSection('TREND PAGES — Pick 1 to link here', 'st-page', 'inb-trend', item.id, trends);
+    }
+  }
+
+  if(!sections) return `<div class="suggest-panel" style="border-left-color:#1565c0;background:#e8f4f8;"><p class="empty-expand">No suitable source pages found to add inbound links from.</p></div>`;
+
+  return `<div class="suggest-panel" style="border-left-color:#1565c0;background:#e8f4f8;">
+    <div class="suggest-header">
+      <div class="suggest-header-left">
+        <h4>← Add Inbound Links to "${escHtml(item.title)}"</h4>
+        <p>${instructions}</p>
+      </div>
+      <div class="suggest-top-actions">
+        <button class="btn-action" style="background:#1565c0;" onclick="confirmInboundLinks('${item.id}')">✓ Review & Save Now</button>
+        <button class="btn-action" style="background:#0d47a1;" onclick="confirmInboundLinks('${item.id}', true)">+ Add to Queue</button>
+        <button class="btn-outline" onclick="closeInboundSuggestPanel()">✕ Cancel</button>
+      </div>
+    </div>
+    ${sections}
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid #bbdefb;display:flex;gap:8px;">
+      <button class="btn-action" style="background:#1565c0;" onclick="confirmInboundLinks('${item.id}')">✓ Review & Save Now</button>
+      <button class="btn-action" style="background:#0d47a1;" onclick="confirmInboundLinks('${item.id}', true)">+ Add to Queue</button>
+      <button class="btn-outline" onclick="closeInboundSuggestPanel()">✕ Cancel</button>
+    </div>
+  </div>`;
+}
+
+function buildInboundSection(label, styleClass, cbClass, itemId, candidates) {
+  const rows = candidates.map(s=>`
+    <div class="suggest-item">
+      <input type="checkbox" class="inb-cb ${cbClass}"
+        data-target-id="${itemId}"
+        data-source-id="${s.item.id}"
+        data-source-url="${escHtml(s.item.url)}"
+        data-source-title="${escHtml(s.item.title)}"
+        data-source-type="${s.item.type}"
+        data-link-type="${getPageLinkType(s.item)}"
+        onchange="enforceInboundSingle(this,'${itemId}','${cbClass}')" />
+      <div class="suggest-item-info">
+        <div class="suggest-item-title">${escHtml(s.item.title)}</div>
+        <div class="suggest-item-url">${escHtml(s.item.url)}</div>
+        <div class="suggest-item-badges">
+          <span class="badge" style="background:#e3f2fd;color:#1565c0;">${s.item.type.toUpperCase()}</span>
+          <span class="badge badge-inbound">${(AppState.linkGraph.inbound[s.item.id]||[]).length} inbound</span>
+        </div>
+      </div>
+    </div>`).join('');
+  const searchType = cbClass === 'inb-trend' ? 'trend' : 'article';
+  const fakeItem = { id: itemId };
+  return `<div class="suggest-section">
+    <span class="suggest-section-title ${styleClass}">${label}</span>
+    <div class="sug-${searchType}-section-${itemId}">${rows}</div>
+    ${buildSearchBar(fakeItem, searchType, cbClass)}
+  </div>`;
+}
+
+// For inbound: trend pages can only pick 1, blogs can pick up to 2 (for trend target only)
+function enforceInboundSingle(checkbox, itemId, cbClass) {
+  // For trend source (inb-trend) always single select
+  if(cbClass === 'inb-trend' && checkbox.checked) {
+    document.querySelectorAll('.inb-trend[data-target-id="'+itemId+'"]').forEach(cb=>{
+      if(cb !== checkbox) cb.checked = false;
+    });
+  }
+}
+
+function confirmInboundLinks(itemId, queueMode) {
+  const item = AppState.items.find(i=>i.id===itemId);
+  if(!item) return;
+  const linkType = getPageLinkType(item);
+  const blogCbs  = Array.from(document.querySelectorAll('.inb-blog[data-target-id="'+itemId+'"]:checked'));
+  const trendCbs = Array.from(document.querySelectorAll('.inb-trend[data-target-id="'+itemId+'"]:checked'));
+  if(!blogCbs.length && !trendCbs.length) { showToast('Please select at least one source page.','error'); return; }
+  if(linkType==='trend' && blogCbs.length > 0 && blogCbs.length < 2) showToast('Tip: Trend pages ideally need 2 blog posts linking to them.','info');
+  const selections = [];
+  blogCbs.forEach(cb => {
+    const sourceItem = AppState.items.find(i=>i.id===cb.dataset.sourceId);
+    if(!sourceItem) return;
+    let phraseHtml = '';
+    if(linkType==='trend')           phraseHtml = INBOUND_PHRASES.blogToTrend(item.title, item.url);
+    else if(linkType==='collection') phraseHtml = INBOUND_PHRASES.blogToCol(item.title, item.url);
+    else if(linkType==='blog')       phraseHtml = INBOUND_PHRASES.blogToBlog(item.title, item.url);
+    selections.push({ sourceItem, phraseHtml });
+  });
+  trendCbs.forEach(cb => {
+    const sourceItem = AppState.items.find(i=>i.id===cb.dataset.sourceId);
+    if(!sourceItem) return;
+    let phraseHtml = '';
+    if(linkType==='trend')           phraseHtml = INBOUND_PHRASES.trendToTrend(item.title, item.url);
+    else if(linkType==='collection') phraseHtml = INBOUND_PHRASES.trendToCol(item.title, item.url);
+    else if(linkType==='blog')       phraseHtml = INBOUND_PHRASES.trendToBlog(item.title, item.url);
+    selections.push({ sourceItem, phraseHtml });
+  });
+  AppState.inboundSuggestState = {};
+  renderLinksReport();
+  if(queueMode) {
+    const label = selections.length + ' inbound link(s) → "' + (item.title||'').substring(0,40) + '"';
+    AppState.linkQueue.push({ isInbound:true, targetItem:item, selections, label });
+    AppState.saveStatuses[item.id] = { status:'queued', count: selections.length };
+    updateQueueBar();
+    renderLinksReport();
+    showToast('Added to queue — '+AppState.linkQueue.length+' item(s) queued','info');
+  } else {
+    showInboundApprovalModal(item, selections);
+  }
+}
+
+function showInboundApprovalModal(targetItem, selections) {
+  pendingPreview = { targetItem, selections, isInbound: true };
+
+  const phraseHtml = selections.map((s,i)=>`
+    <div class="preview-link-block">
+      <div class="plb-target">Phrase ${i+1} — to be added to: <strong>${escHtml(s.sourceItem.title)}</strong></div>
+      <div style="font-size:11px;font-weight:700;color:#555;margin:8px 0 6px;text-transform:uppercase;letter-spacing:0.3px;">Phrase to be appended to that page:</div>
+      <div class="plb-sentence">${s.phraseHtml}</div>
+      <div style="font-size:11px;color:#888;margin-top:4px;font-style:italic;">📍 Added at end of: ${escHtml(s.sourceItem.url)}</div>
+    </div>`).join('');
+
+  document.getElementById('preview-body').innerHTML = phraseHtml +
+    `<p style="font-size:12px;color:#888;margin-top:12px;">These phrases will be appended to the end of the listed pages in Shopify, creating inbound links to "${escHtml(targetItem.title)}".</p>`;
+  document.getElementById('preview-modal-title').textContent = '← Approve Inbound Links for "'+targetItem.title+'"';
+  document.getElementById('preview-save-btn').style.display = '';
+  document.getElementById('preview-save-btn').disabled = false;
+  document.getElementById('preview-save-btn').innerHTML = '✅ Save Now';
+  document.getElementById('preview-queue-btn').style.display = '';
+  document.getElementById('preview-close-btn').style.display = 'none';
+  document.getElementById('preview-overlay').classList.remove('hidden');
+}
+
+// Stored pending preview data
+let pendingPreview = null;
+
+function confirmSelectedLinks(itemId, queueMode) {
+  const item = AppState.items.find(i=>i.id===itemId);
+  if (!item) return;
+  const linkType = getPageLinkType(item);
+  const colCb = document.querySelector('.sug-collection[data-item-id="'+itemId+'"]:checked');
+  const blogCbs = document.querySelectorAll('.sug-blog[data-item-id="'+itemId+'"]:checked');
+  const needsBlog = ['trend','collection','product'].includes(linkType);
+  if(needsBlog && blogCbs.length === 0) { showToast('Please select one blog post.','error'); return; }
+  if(needsBlog && blogCbs.length > 1) { showToast('Please select only one blog post.','error'); return; }
+  const colData = colCb ? { url: colCb.dataset.candidateUrl, title: colCb.dataset.candidateTitle } : null;
+  const blogData = blogCbs.length ? { url: blogCbs[0].dataset.candidateUrl, title: blogCbs[0].dataset.candidateTitle } : null;
+  const phrases = buildPhrases(item, linkType, colData, blogData);
+  if(!phrases.length) { showToast('Nothing to add — no phrases could be built.','error'); return; }
+  AppState.suggestState = {};
+  renderLinksReport();
+  if(queueMode) {
+    const label = phrases.length + ' link(s) → "' + (item.title||'').substring(0,40) + '"';
+    AppState.linkQueue.push({ isInbound:false, item, phrases, label });
+    AppState.saveStatuses[item.id] = { status:'queued', count: phrases.length };
+    updateQueueBar();
+    renderLinksReport();
+    showToast('Added to queue — '+AppState.linkQueue.length+' item(s) queued','info');
+  } else {
+    showApprovalModal(item, phrases);
+  }
+}
+
+// Build the exact pre-written phrases for each page type
+function buildPhrases(item, linkType, colData, blogData) {
+  const phrases = [];
+  if(linkType === 'trend') {
+    if(colData) phrases.push({ type:'collection', html:`Explore our <a href="${escHtml(colData.url)}">${escHtml(colData.title)}</a> collection to shop this trend.` });
+    if(blogData) phrases.push({ type:'blog', html:`You may also want to read our article <a href="${escHtml(blogData.url)}">${escHtml(blogData.title)}</a> for more styling ideas.` });
+  } else if(linkType === 'collection') {
+    if(blogData) phrases.push({ type:'blog', html:`Not sure where to start? Our guide <a href="${escHtml(blogData.url)}">${escHtml(blogData.title)}</a> is packed with ideas to help you style these pieces in your home.` });
+  } else if(linkType === 'product') {
+    if(colData) phrases.push({ type:'collection', html:`This product is part of our <a href="${escHtml(colData.url)}">${escHtml(colData.title)}</a> collection — explore in full to discover more pieces that complement this style perfectly.` });
+    if(blogData) phrases.push({ type:'blog', html:`Looking for inspiration? Our article <a href="${escHtml(blogData.url)}">${escHtml(blogData.title)}</a> is full of ideas to help you style this piece in your home.` });
+  } else if(linkType === 'blog') {
+    if(colData) phrases.push({ type:'collection', html:`Browse our <a href="${escHtml(colData.url)}">${escHtml(colData.title)}</a> collection to find pieces that bring this look to life in your home.` });
+  } else if(linkType === 'static') {
+    if(colData) phrases.push({ type:'collection+hub', html:`Browse our <a href="${escHtml(colData.url)}">${escHtml(colData.title)}</a> collection or visit our <a href="${CONTENT_HUB_URL}">Content Hub</a> for styling inspiration and decorating guides.` });
+  }
+  return phrases;
+}
+
+function closePreview() {
+  document.getElementById('preview-overlay').classList.add('hidden');
+  pendingPreview = null;
+}
+
+// Show the approval modal with pre-written phrases
+function showApprovalModal(item, phrases) {
+  pendingPreview = { item, phrases };
+
+  const phraseHtml = phrases.map((p,i)=>`
+    <div class="preview-link-block">
+      <div class="plb-target">Link ${i+1} — ${p.type==='collection'?'Collection':'Blog Post'} phrase</div>
+      <div style="font-size:11px;font-weight:700;color:#555;margin:8px 0 6px;text-transform:uppercase;letter-spacing:0.3px;">Phrase to be added at the end of the page:</div>
+      <div class="plb-sentence">${p.html}</div>
+    </div>`).join('');
+
+  document.getElementById('preview-body').innerHTML = phraseHtml +
+    '<p style="font-size:12px;color:#888;margin-top:12px;">These phrases will be appended to the end of the page content in Shopify.</p>';
+  document.getElementById('preview-modal-title').textContent = '📋 Approve Links for "'+item.title+'"';
+  document.getElementById('preview-save-btn').style.display = '';
+  document.getElementById('preview-save-btn').disabled = false;
+  document.getElementById('preview-save-btn').innerHTML = '✅ Save Now';
+  document.getElementById('preview-queue-btn').style.display = '';
+  document.getElementById('preview-close-btn').style.display = 'none';
+  document.getElementById('preview-overlay').classList.remove('hidden');
+}
+
+
+async function savePreviewedLinks() {
+  if (!pendingPreview) return;
+
+  // Route to inbound save if flagged
+  if(pendingPreview.isInbound) { await saveInboundLinks(); return; }
+
+  const { item, phrases } = pendingPreview;
+
+  // Show spinner in save button
+  const saveBtn = document.getElementById('preview-save-btn');
+  saveBtn.disabled = true;
+  saveBtn.innerHTML = '<span class="spinner-sm"></span> Saving...';
+
+  try {
+    let updatedHtml = item.bodyHtml || '';
+    for (const p of phrases) {
+      updatedHtml += '\n<p>' + p.html + '</p>';
+    }
+
+    await saveItemToShopify(item, updatedHtml);
+
+    item.bodyHtml = updatedHtml;
+    AppState.links = [];
+    for (const i of AppState.items) AppState.links.push(...parseItemLinks(i));
+    buildLinkGraph();
+    detectBrokenLinks();
+
+    try {
+      const bodyCache = JSON.parse(localStorage.getItem('lw-body-cache')||'{}');
+      bodyCache[item.id] = updatedHtml;
+      localStorage.setItem('lw-body-cache', JSON.stringify(bodyCache));
+    } catch(e) {}
+
+    saveBtn.style.display = 'none';
+    const closeBtn = document.getElementById('preview-close-btn');
+    if(closeBtn) closeBtn.style.display = '';
+
+    document.getElementById('preview-body').innerHTML =
+      '<div style="text-align:center;padding:32px;">' +
+      '<div style="font-size:40px;margin-bottom:12px;">✅</div>' +
+      '<div style="font-size:16px;font-weight:700;color:#2e7d32;margin-bottom:8px;">Saved to Shopify!</div>' +
+      '<div style="font-size:13px;color:#666;">'+phrases.length+' link(s) added to "'+escHtml(item.title)+'".<br>Click Close to move to the next item.</div>' +
+      '</div>';
+
+    renderLinksReport();
+    renderDashboard();
+    showToast('✅ '+phrases.length+' link(s) saved to Shopify!','success');
+
+  } catch(err) {
+    saveBtn.disabled = false;
+    saveBtn.innerHTML = '✅ Looks Good — Save to Shopify';
+    document.getElementById('preview-body').innerHTML += '<p style="color:#e53935;padding:8px 0;">❌ Save failed: '+escHtml(err.message)+'</p>';
+    showToast('❌ Save failed: '+err.message,'error');
+  }
+}
+
+async function saveInboundLinks() {
+  const { targetItem, selections } = pendingPreview;
+  const saveBtn = document.getElementById('preview-save-btn');
+  saveBtn.disabled = true;
+  saveBtn.innerHTML = '<span class="spinner-sm"></span> Saving '+selections.length+' page(s)...';
+
+  const failed = [];
+  let saved = 0;
+
+  for(const sel of selections) {
+    try {
+      const sourceItem = sel.sourceItem;
+      const updatedHtml = (sourceItem.bodyHtml||'') + '\n<p>' + sel.phraseHtml + '</p>';
+      await saveItemToShopify(sourceItem, updatedHtml);
+      sourceItem.bodyHtml = updatedHtml;
+      // Update body cache
+      try {
+        const bodyCache = JSON.parse(localStorage.getItem('lw-body-cache')||'{}');
+        bodyCache[sourceItem.id] = updatedHtml;
+        localStorage.setItem('lw-body-cache', JSON.stringify(bodyCache));
+      } catch(e) {}
+      saved++;
+    } catch(err) {
+      failed.push(sel.sourceItem.title+': '+err.message);
+    }
+  }
+
+  // Rebuild link graph
+  AppState.links = [];
+  for(const i of AppState.items) AppState.links.push(...parseItemLinks(i));
+  buildLinkGraph();
+  detectBrokenLinks();
+
+  saveBtn.style.display = 'none';
+  document.getElementById('preview-close-btn').style.display = '';
+
+  if(failed.length) {
+    document.getElementById('preview-body').innerHTML =
+      '<div style="text-align:center;padding:24px;">' +
+      '<div style="font-size:30px;margin-bottom:8px;">⚠️</div>' +
+      '<div style="font-size:14px;font-weight:700;color:#e65100;margin-bottom:8px;">'+saved+' saved, '+failed.length+' failed</div>' +
+      '<div style="font-size:12px;color:#888;">'+failed.map(escHtml).join('<br>')+'</div></div>';
+    showToast('⚠️ '+saved+' saved, '+failed.length+' failed','error');
+  } else {
+    document.getElementById('preview-body').innerHTML =
+      '<div style="text-align:center;padding:32px;">' +
+      '<div style="font-size:40px;margin-bottom:12px;">✅</div>' +
+      '<div style="font-size:16px;font-weight:700;color:#2e7d32;margin-bottom:8px;">Saved to Shopify!</div>' +
+      '<div style="font-size:13px;color:#666;">'+saved+' page(s) now link to "'+escHtml(targetItem.title)+'".<br>Click Close to move to the next item.</div>' +
+      '</div>';
+    showToast('✅ '+saved+' inbound link(s) saved!','success');
+  }
+
+  renderLinksReport();
+  renderDashboard();
+}
+
+async function saveItemToShopify(item, updatedHtml) {
+  let endpoint, bodyKey;
+  if (item.type==='page') { endpoint='pages/'+item.shopifyId+'.json'; bodyKey='page'; }
+  else if (item.type==='article') { endpoint='blogs/'+item.blogId+'/articles/'+item.shopifyId+'.json'; bodyKey='article'; }
+  else if (item.type==='product') { endpoint='products/'+item.shopifyId+'.json'; bodyKey='product'; }
+  else if (item.type==='collection') {
+    // Try custom collection first, fall back to smart
+    endpoint = (item.id.startsWith('smart-') ? 'smart_collections/' : 'custom_collections/') + item.shopifyId + '.json';
+    bodyKey = item.id.startsWith('smart-') ? 'smart_collection' : 'custom_collection';
+  }
+  else throw new Error('Cannot write to item type: '+item.type);
+  await shopifyFetch(endpoint,'PUT',{ [bodyKey]:{ id:item.shopifyId, body_html:updatedHtml } });
+}
+
+function computeStats() {
+  const internal=AppState.links.filter(l=>l.type==='internal');
+  const external=AppState.links.filter(l=>l.type==='external');
+  const orphaned=AppState.items.filter(i=>!(AppState.linkGraph.inbound[i.id]||[]).length);
+  const e404=AppState.brokenLinks.filter(b=>b.status==='404 Not Found');
+  return { itemsScanned:AppState.items.length, linksFound:AppState.links.length, internalLinks:internal.length, externalLinks:external.length, orphanedItems:orphaned.length, brokenLinks:AppState.brokenLinks.length, errors404:e404.length };
+}
+
+function renderDashboard() {
+  const s=computeStats();
+  document.getElementById('stat-items').textContent    = s.itemsScanned.toLocaleString();
+  document.getElementById('stat-links').textContent    = s.linksFound.toLocaleString();
+  document.getElementById('stat-internal').textContent = s.internalLinks.toLocaleString();
+  document.getElementById('stat-orphaned').textContent = s.orphanedItems.toLocaleString();
+  document.getElementById('stat-broken').textContent   = s.brokenLinks.toLocaleString();
+  document.getElementById('stat-404').textContent      = s.errors404.toLocaleString();
+  renderDomainsCard();
+  renderDonutChart(s.internalLinks, s.externalLinks);
+}
+
+function renderDomainsCard() {
+  const counts={};
+  AppState.links.forEach(link=>{ try{const d=new URL(link.targetUrl).hostname.replace(/^www\./,'');counts[d]=(counts[d]||0)+1;}catch(e){} });
+  const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,15);
+  const max=sorted.length?sorted[0][1]:1;
+  const el=document.getElementById('domains-list');
+  if(!sorted.length){el.innerHTML='<p class="placeholder-msg">No domain data.</p>';return;}
+  el.innerHTML=sorted.map(([d,c])=>{
+    const isInt=d.includes('aboutwallart.com');
+    const w=Math.round(c/max*100);
+    return `<div class="domain-row"><div class="domain-row-top"><a href="https://${d}" target="_blank" class="domain-link ${isInt?'internal':''}">${d}</a><span class="domain-count">${c.toLocaleString()}</span></div><div class="domain-bar-wrap"><div class="domain-bar" style="width:${w}%;background:${isInt?'#1976d2':'#222'}"></div></div></div>`;
+  }).join('');
+}
+
+function renderDonutChart(internal, external) {
+  document.getElementById('legend-internal').textContent='Internal: '+internal.toLocaleString();
+  document.getElementById('legend-external').textContent='External: '+external.toLocaleString();
+  const ctx=document.getElementById('donut-chart').getContext('2d');
+  if(donutChart){donutChart.destroy();donutChart=null;}
+  donutChart=new Chart(ctx,{type:'doughnut',data:{labels:['Internal','External'],datasets:[{data:[internal,external],backgroundColor:['#222','#bbb'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:true,cutout:'65%',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.label+': '+c.parsed.toLocaleString()}}}}});
+}
+
+function getFilteredItems() {
+  const q=(document.getElementById('lr-search')||{value:''}).value.toLowerCase();
+  const type=(document.getElementById('lr-type')||{value:''}).value;
+  const filter=(document.getElementById('lr-filter')||{value:''}).value;
+  const vendor=(document.getElementById('lr-vendor')||{value:''}).value.toLowerCase();
+  return AppState.items.filter(item=>{
+    if(q&&!item.title.toLowerCase().includes(q)) return false;
+    if(type&&item.type!==type) return false;
+    if(filter==='orphaned'&&(AppState.linkGraph.inbound[item.id]||[]).length>0) return false;
+    if(filter==='has-inbound'&&(AppState.linkGraph.inbound[item.id]||[]).length===0) return false;
+    if(vendor&&(item.vendor||'').toLowerCase()!==vendor) return false;
+    return true;
+  });
+}
+
+// Multi-column sort: click = asc, click again = desc, click again = remove from sort
+function sortLinksReport(col) {
+  const existing = AppState.lrSort.findIndex(s=>s.col===col);
+  if(existing===-1){
+    // Add new sort column as ascending
+    AppState.lrSort.push({col, dir:'asc'});
+  } else if(AppState.lrSort[existing].dir==='asc'){
+    // Second click: switch to descending
+    AppState.lrSort[existing].dir='desc';
+  } else {
+    // Third click: remove this column from sort
+    AppState.lrSort.splice(existing,1);
+  }
+  AppState.lrPage=1;
+  renderLinksReport();
+}
+
+function renderLinksReport() {
+  // Populate vendor dropdown from items
+  const vendorSel = document.getElementById('lr-vendor');
+  if(vendorSel && vendorSel.options.length<=1){
+    const vendors=[...new Set(AppState.items.filter(i=>i.vendor).map(i=>i.vendor))].sort();
+    vendors.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; vendorSel.appendChild(o); });
+  }
+
+  let items=getFilteredItems();
+
+  // Multi-column sort
+  if(AppState.lrSort.length>0){
+    items.sort((a,b)=>{
+      for(const {col,dir} of AppState.lrSort){
+        let va,vb;
+        if(col==='title'){va=a.title.toLowerCase();vb=b.title.toLowerCase();}
+        else if(col==='inbound'){va=(AppState.linkGraph.inbound[a.id]||[]).length;vb=(AppState.linkGraph.inbound[b.id]||[]).length;}
+        else if(col==='outbound'){va=(AppState.linkGraph.outbound[a.id]||[]).filter(l=>l.type==='internal').length;vb=(AppState.linkGraph.outbound[b.id]||[]).filter(l=>l.type==='internal').length;}
+        if(va<vb) return dir==='asc'?-1:1;
+        if(va>vb) return dir==='asc'?1:-1;
+      }
+      return 0;
+    });
+  }
+
+  // Update sort icons — show sort order number for multi-sort
+  ['title','inbound','outbound'].forEach(c=>{
+    const el=document.getElementById('sort-'+c);
+    if(!el) return;
+    const idx=AppState.lrSort.findIndex(s=>s.col===c);
+    if(idx===-1){ el.textContent=''; return; }
+    const {dir}=AppState.lrSort[idx];
+    const num=AppState.lrSort.length>1?' '+(idx+1):'';
+    el.textContent=(dir==='asc'?'↑':'↓')+num;
+  });
+
+  const total=items.length, perPage=CONFIG.itemsPerPage;
+  const totalPages=Math.ceil(total/perPage)||1;
+  if(AppState.lrPage>totalPages) AppState.lrPage=1;
+  const start=(AppState.lrPage-1)*perPage;
+  const pageItems=items.slice(start,start+perPage);
+  const tbody=document.getElementById('lr-tbody');
+  tbody.innerHTML = pageItems.length===0
+    ? '<tr><td colspan="4"><div class="empty-state">No items found.</div></td></tr>'
+    : pageItems.map(item=>buildItemRow(item)).join('');
+  document.getElementById('lr-count').textContent=total===0?'No items':'Showing '+(start+1)+'–'+Math.min(start+perPage,total)+' of '+total+' items';
+  document.getElementById('lr-prev').disabled=AppState.lrPage<=1;
+  document.getElementById('lr-next').disabled=AppState.lrPage>=totalPages;
+}
+
+function buildItemRow(item) {
+  const inbound=(AppState.linkGraph.inbound[item.id]||[]);
+  const outboundAll=(AppState.linkGraph.outbound[item.id]||[]);
+  const outInternal=outboundAll.filter(l=>l.type==='internal');
+  const date=item.publishedAt?new Date(item.publishedAt).toLocaleDateString([],{day:'numeric',month:'short',year:'numeric'}):'—';
+  const inOpen=AppState.expandState[item.id+'-inbound']?'open':'';
+  const outOpen=AppState.expandState[item.id+'-outbound']?'open':'';
+  const suggestOpen=AppState.suggestState[item.id];
+  const saveStatus=AppState.saveStatuses[item.id];
+
+  let saveBadge='';
+  if(saveStatus){
+    if(saveStatus.status==='saving') saveBadge=`<span class="save-status saving"><span class="spinner-sm"></span>Saving ${saveStatus.count} link(s)...</span>`;
+    else if(saveStatus.status==='saved') saveBadge=`<span class="save-status saved">✅ ${saveStatus.count} link(s) saved</span>`;
+    else if(saveStatus.status==='failed') saveBadge=`<span class="save-status failed">❌ Failed</span>`;
+    else if(saveStatus.status==='queued') saveBadge=`<span class="save-status queued">⏳ ${saveStatus.count} link(s) queued</span>`;
+  }
+
+  const inboundSuggestOpen = AppState.inboundSuggestState[item.id];
+  const inboundReq = checkInboundRequirements(item);
+
+  let rows=`<tr class="${(inOpen||outOpen||suggestOpen||inboundSuggestOpen)?'expanded':''}" id="row-${item.id}">
+    <td class="td-title">
+      <a href="${escHtml(item.url)}" target="_blank">${escHtml(item.title)}</a>
+      <span class="item-type item-type-${item.type}">${item.type}</span>
+    </td>
+    <td class="td-date">${date}</td>
+    <td class="td-links">
+      <div class="link-cell">
+        <span class="link-count ${inbound.length===0?'zero':''}">→${inbound.length}</span>
+        <button class="btn-expand ${inOpen}" onclick="toggleExpand('${item.id}','inbound')">▼</button>
+        ${(!inboundReq.noRules && shouldShowAddButton(item)) ? (() => {
+          if(inboundReq.fullyDone) return `<button class="btn-add" disabled style="opacity:0.35;cursor:default;background:#aaa;" title="All required inbound links already present">✓ Done</button>`;
+          return `<button class="btn-add" style="background:#1565c0;" onclick="openInboundSuggestPanel('${item.id}')">+ Add</button>`;
+        })() : ''}
+      </div>
+    </td>
+    <td class="td-links">
+      <div class="link-cell">
+        <span class="link-count ${outInternal.length===0?'zero':''}" id="out-count-${item.id}">${outInternal.length}→</span>
+        <button class="btn-expand ${outOpen}" onclick="toggleExpand('${item.id}','outbound')">▼</button>
+        ${shouldShowAddButton(item) ? (() => {
+          const req = checkItemRequirements(item);
+          if(req.fullyDone) return `<button class="btn-add" disabled style="opacity:0.35;cursor:default;background:#aaa;" title="All required links already present">✓ Done</button>`;
+          return `<button class="btn-add" onclick="openSuggestPanel('${item.id}')">+ Add</button>`;
+        })() : ''}
+        ${saveBadge}
+      </div>
+    </td>
+  </tr>`;
+
+  if(AppState.expandState[item.id+'-inbound']){
+    rows+=`<tr class="expand-row"><td colspan="4"><div class="expand-panel"><div class="expand-panel-title">Pages linking to this item (${inbound.length})</div>${inbound.length===0?'<div class="empty-expand">No pages link to this item yet.</div>':inbound.map(l=>`<div class="expand-link-item"><div><a href="${escHtml(l.sourceUrl)}" target="_blank">${escHtml(l.sourceUrl)}</a><div class="expand-anchor">Anchor: ${escHtml(l.anchorText||'—')}</div></div></div>`).join('')}</div></td></tr>`;
+  }
+  if(AppState.expandState[item.id+'-outbound']){
+    rows+=`<tr class="expand-row"><td colspan="4"><div class="expand-panel"><div class="expand-panel-title">Internal links from this item (${outInternal.length})</div>${outInternal.length===0?'<div class="empty-expand">No internal links from this item.</div>':outInternal.map(l=>`<div class="expand-link-item"><div><a href="${escHtml(l.targetUrl)}" target="_blank">${escHtml(l.targetUrl)}</a><div class="expand-anchor">Anchor: ${escHtml(l.anchorText||'—')}</div></div></div>`).join('')}</div></td></tr>`;
+  }
+  if(suggestOpen){
+    rows+=`<tr class="expand-row"><td colspan="4">${buildSuggestPanel(item)}</td></tr>`;
+  }
+  if(inboundSuggestOpen){
+    rows+=`<tr class="expand-row"><td colspan="4">${buildInboundSuggestPanel(item)}</td></tr>`;
+  }
+  return rows;
+}
+
+function toggleExpand(itemId,col){
+  const key=itemId+'-'+col;
+  AppState.expandState[key]=!AppState.expandState[key];
+  renderLinksReport();
+}
+
+function lrChangePage(dir){ AppState.lrPage+=dir; renderLinksReport(); }
+
+// ─── BROKEN LINKS REPORT ─────────────────────────────────────────────────────
+
+// Compute URL match suggestions lazily — only when tab is first opened
+function computeBrokenLinkSuggestions() {
+  if(blSuggestionsComputed && AppState.brokenLinks.every(b => b.suggested !== null || b.suggestedChecked)) return;
+  AppState.brokenLinks.forEach(b => {
+    if(!b.suggestedChecked) {
+      b.suggested = findBestUrlMatch(b.brokenUrl);
+      b.suggestedChecked = true;
+    }
+  });
+  blSuggestionsComputed = true;
+}
+
+// Reset flag when data is refreshed
+function resetBrokenLinkSuggestions() {
+  blSuggestionsComputed = false;
+  AppState.brokenLinks.forEach(b => { b.suggestedChecked = false; b.suggested = null; });
+}
+
+function blChangePage(dir) { BlState.page+=dir; renderBrokenLinksReport(); }
+
+function sortBrokenLinks(col) {
+  if(BlState.sort.col===col) {
+    if(BlState.sort.dir==='asc') BlState.sort.dir='desc';
+    else if(BlState.sort.dir==='desc') { BlState.sort.col=''; BlState.sort.dir=''; }
+    else BlState.sort.dir='asc';
+  } else { BlState.sort.col=col; BlState.sort.dir='asc'; }
+  BlState.page=1;
+  renderBrokenLinksReport();
+}
+
+function renderBrokenLinksReport() {
+  const statusFilter = (document.getElementById('bl-status-filter')||{value:''}).value;
+  let data = AppState.brokenLinks.filter(b => !statusFilter || b.status === statusFilter);
+
+  // Sort
+  if(BlState.sort.col) {
+    data.sort((a,b) => {
+      let va='', vb='';
+      const srcA = AppState.items.find(i=>i.id===a.sourceId);
+      const srcB = AppState.items.find(i=>i.id===b.sourceId);
+      if(BlState.sort.col==='post')       { va=(srcA?srcA.title:'').toLowerCase(); vb=(srcB?srcB.title:'').toLowerCase(); }
+      else if(BlState.sort.col==='url')   { va=a.brokenUrl.toLowerCase(); vb=b.brokenUrl.toLowerCase(); }
+      else if(BlState.sort.col==='anchor'){ va=(a.anchorText||'').toLowerCase(); vb=(b.anchorText||'').toLowerCase(); }
+      else if(BlState.sort.col==='type')  { va=(a.type||'').toLowerCase(); vb=(b.type||'').toLowerCase(); }
+      else if(BlState.sort.col==='status'){ va=(a.status||'').toLowerCase(); vb=(b.status||'').toLowerCase(); }
+      else if(BlState.sort.col==='discovered'){ va=a.discovered||''; vb=b.discovered||''; }
+      if(va<vb) return BlState.sort.dir==='asc'?-1:1;
+      if(va>vb) return BlState.sort.dir==='asc'?1:-1;
+      return 0;
+    });
+  }
+
+  // Update sort icons
+  ['post','url','anchor','type','status','discovered'].forEach(c => {
+    const el = document.getElementById('bl-sort-'+c);
+    if(!el) return;
+    el.textContent = BlState.sort.col===c ? (BlState.sort.dir==='asc'?'↑':'↓') : '';
+  });
+
+  const total = data.length, perPage = 100;
+  const totalPages = Math.ceil(total/perPage)||1;
+  if(BlState.page > totalPages) BlState.page = 1;
+  const start = (BlState.page-1)*perPage;
+  const pageData = data.slice(start, start+perPage);
+
+  const tbody = document.getElementById('bl-tbody');
+  if(!tbody) return;
+
+  if(!pageData.length) {
+    tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state">No broken links found. Great work! 🎉</div></td></tr>';
+  } else {
+    tbody.innerHTML = pageData.map((b,i) => buildBrokenLinkRow(b, start+i)).join('');
+  }
+
+  document.getElementById('bl-count').textContent = total===0 ? 'No broken urls' : 'Showing '+(start+1)+'–'+Math.min(start+perPage,total)+' of '+total+' broken urls';
+  document.getElementById('bl-prev').disabled = BlState.page<=1;
+  document.getElementById('bl-next').disabled = BlState.page>=totalPages;
+  updateDeleteBtn();
+}
+
+function buildBrokenLinkRow(b, idx) {
+  const sourceItem = AppState.items.find(i=>i.id===b.sourceId);
+  const postTitle  = sourceItem ? sourceItem.title : (b.sourceUrl||'Unknown');
+  const postUrl    = sourceItem ? sourceItem.url : (b.sourceUrl||'#');
+  const discovered = b.discovered ? new Date(b.discovered).toLocaleDateString([],{day:'numeric',month:'short',year:'numeric'}) : '—';
+  const isSelected = BlState.selected.has(b.sourceId+'|'+b.brokenUrl);
+  const confirmId  = 'bl-confirm-'+idx;
+
+  // Build suggested fix cell
+  let suggestedHtml = '';
+  if(b.suggested) {
+    const s = b.suggested;
+    const altOptions = (s.alternatives||[]).map(alt =>
+      `<option value="${escHtml(alt.url)}" data-title="${escHtml(alt.title)}">${escHtml(alt.title)}</option>`
+    ).join('');
+
+    if(s.label === 'high') {
+      suggestedHtml = `
+        <div style="font-size:12px;">
+          <div style="color:#2e7d32;font-weight:600;margin-bottom:4px;">✅ ${escHtml(s.item.title)}</div>
+          <div style="color:#888;font-size:11px;margin-bottom:6px;">${escHtml(s.item.url)}</div>
+          <div id="${confirmId}" style="display:none;background:#f5f5f5;padding:6px 8px;border-radius:4px;font-size:11px;margin-bottom:4px;">
+            Apply fix: replace broken URL with suggested URL in source page?
+            <div style="margin-top:4px;display:flex;gap:6px;">
+              <button onclick="applyBrokenLinkFix('${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}','${escHtml(s.item.url)}',${idx})" style="background:#2e7d32;color:#fff;border:none;border-radius:3px;padding:3px 10px;font-size:11px;cursor:pointer;">Yes, fix it</button>
+              <button onclick="document.getElementById('${confirmId}').style.display='none'" style="background:#eee;border:none;border-radius:3px;padding:3px 10px;font-size:11px;cursor:pointer;">Cancel</button>
+            </div>
+          </div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;">
+            <button onclick="document.getElementById('${confirmId}').style.display='block'" style="background:#2e7d32;color:#fff;border:none;border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer;">Apply Fix</button>
+            ${altOptions ? `<select onchange="showAltFix(this,'${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}',${idx})" style="font-size:11px;padding:2px 4px;border:1px solid #ddd;border-radius:3px;"><option value="">Other options...</option>${altOptions}</select>` : ''}
+            <button onclick="confirmRemoveLink('${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}',${idx})" style="background:#fff;color:#c62828;border:1px solid #c62828;border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer;">Remove Link</button>
+          </div>
+        </div>`;
+    } else {
+      // Low confidence — show dropdown of options
+      const opts = [s.item, ...(s.alternatives||[])].map(item =>
+        `<option value="${escHtml(item.url)}" data-title="${escHtml(item.title)}">${escHtml(item.title)}</option>`
+      ).join('');
+      suggestedHtml = `
+        <div style="font-size:12px;">
+          <div style="color:#e65100;font-weight:600;margin-bottom:4px;">🔍 Possible matches:</div>
+          <select id="bl-alt-${idx}" style="font-size:11px;padding:3px 6px;border:1px solid #ddd;border-radius:3px;width:100%;margin-bottom:6px;">
+            <option value="">— pick a replacement —</option>${opts}
+          </select>
+          <div style="display:flex;gap:4px;">
+            <button onclick="applySelectedAlt('${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}','bl-alt-${idx}',${idx})" style="background:#e65100;color:#fff;border:none;border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer;">Apply Fix</button>
+            <button onclick="confirmRemoveLink('${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}',${idx})" style="background:#fff;color:#c62828;border:1px solid #c62828;border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer;">Remove Link</button>
+          </div>
+        </div>`;
+    }
+  } else {
+    suggestedHtml = `
+      <div style="font-size:12px;">
+        <div style="color:#888;margin-bottom:6px;">❌ No match found</div>
+        <button onclick="confirmRemoveLink('${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}',${idx})" style="background:#fff;color:#c62828;border:1px solid #c62828;border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer;">Remove Link</button>
+      </div>`;
+  }
+
+  return `<tr id="bl-row-${idx}">
+    <td><input type="checkbox" class="bl-cb" ${isSelected?'checked':''} onchange="toggleBrokenLinkSelect(this,'${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}')" /></td>
+    <td style="word-break:break-word;font-size:12px;"><a href="${escHtml(postUrl)}" target="_blank" style="color:#1565c0;font-weight:600;text-decoration:none;">${escHtml(postTitle)}</a></td>
+    <td style="word-break:break-all;font-size:11px;"><a href="${escHtml(b.brokenUrl)}" target="_blank" style="color:#c62828;text-decoration:none;">${escHtml(b.brokenUrl)}</a></td>
+    <td style="font-size:12px;color:#555;">${escHtml(b.anchorText||'—')}</td>
+    <td>${suggestedHtml}</td>
+    <td style="font-size:12px;">${escHtml(b.type||'internal')}</td>
+    <td><span style="background:#fce4ec;color:#c62828;font-size:11px;font-weight:700;padding:2px 7px;border-radius:3px;">${escHtml(b.status||'404 Not Found')}</span></td>
+    <td style="font-size:11px;color:#888;">${discovered}</td>
+  </tr>`;
+}
+
+// Apply a fix — replace broken URL with suggested URL in source page bodyHtml
+async function applyBrokenLinkFix(sourceId, brokenUrl, newUrl, idx) {
+  const item = AppState.items.find(i=>i.id===sourceId);
+  if(!item) return;
+  const row = document.getElementById('bl-row-'+idx);
+  if(row) row.style.opacity='0.5';
+  try {
+    // Replace the href in the body HTML
+    const escaped = brokenUrl.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    const updatedHtml = (item.bodyHtml||'').replace(new RegExp(escaped,'g'), newUrl);
+    await saveItemToShopify(item, updatedHtml);
+    item.bodyHtml = updatedHtml;
+    // Update cache
+    try { const bc=JSON.parse(localStorage.getItem('lw-body-cache')||'{}'); bc[item.id]=updatedHtml; localStorage.setItem('lw-body-cache',JSON.stringify(bc)); } catch(e){}
+    // Remove from broken links list
+    AppState.brokenLinks = AppState.brokenLinks.filter(b=>!(b.sourceId===sourceId&&b.brokenUrl===brokenUrl));
+    AppState.links=[]; for(const i of AppState.items) AppState.links.push(...parseItemLinks(i));
+    buildLinkGraph(); detectBrokenLinks();
+    renderBrokenLinksReport(); renderDashboard();
+    showToast('✅ Link fixed — updated to '+newUrl,'success');
+  } catch(err) {
+    if(row) row.style.opacity='1';
+    showToast('❌ Fix failed: '+err.message,'error');
+  }
+}
+
+function showAltFix(select, sourceId, brokenUrl, idx) {
+  if(!select.value) return;
+  applyBrokenLinkFix(sourceId, brokenUrl, select.value, idx);
+}
+
+function applySelectedAlt(sourceId, brokenUrl, selectId, idx) {
+  const sel = document.getElementById(selectId);
+  if(!sel||!sel.value) { showToast('Please select a replacement URL first.','error'); return; }
+  applyBrokenLinkFix(sourceId, brokenUrl, sel.value, idx);
+}
+
+// Remove link — strip the <a href> tag, keep anchor text as plain text
+async function confirmRemoveLink(sourceId, brokenUrl, idx) {
+  if(!confirm('Remove this link from the page? The anchor text will remain as plain text.')) return;
+  const item = AppState.items.find(i=>i.id===sourceId);
+  if(!item) return;
+  const row = document.getElementById('bl-row-'+idx);
+  if(row) row.style.opacity='0.5';
+  try {
+    const escaped = brokenUrl.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    // Remove the <a> tag wrapping this URL, keep inner text
+    const updatedHtml = (item.bodyHtml||'').replace(
+      new RegExp('<a[^>]+href=["\']'+escaped+'["\'][^>]*>([^<]*)<\\/a>','gi'),
+      '$1'
+    );
+    await saveItemToShopify(item, updatedHtml);
+    item.bodyHtml = updatedHtml;
+    try { const bc=JSON.parse(localStorage.getItem('lw-body-cache')||'{}'); bc[item.id]=updatedHtml; localStorage.setItem('lw-body-cache',JSON.stringify(bc)); } catch(e){}
+    AppState.brokenLinks = AppState.brokenLinks.filter(b=>!(b.sourceId===sourceId&&b.brokenUrl===brokenUrl));
+    AppState.links=[]; for(const i of AppState.items) AppState.links.push(...parseItemLinks(i));
+    buildLinkGraph(); detectBrokenLinks();
+    renderBrokenLinksReport(); renderDashboard();
+    showToast('✅ Link removed successfully.','success');
+  } catch(err) {
+    if(row) row.style.opacity='1';
+    showToast('❌ Remove failed: '+err.message,'error');
+  }
+}
+
+function toggleBrokenLinkSelect(cb, sourceId, brokenUrl) {
+  const key = sourceId+'|'+brokenUrl;
+  if(cb.checked) BlState.selected.add(key);
+  else BlState.selected.delete(key);
+  updateDeleteBtn();
+}
+
+function toggleAllBrokenLinks(checked) {
+  const statusFilter = (document.getElementById('bl-status-filter')||{value:''}).value;
+  const data = AppState.brokenLinks.filter(b => !statusFilter || b.status === statusFilter);
+  const perPage = 100;
+  const start = (BlState.page-1)*perPage;
+  const pageData = data.slice(start, start+perPage);
+  pageData.forEach(b => {
+    const key = b.sourceId+'|'+b.brokenUrl;
+    if(checked) BlState.selected.add(key);
+    else BlState.selected.delete(key);
+  });
+  document.querySelectorAll('.bl-cb').forEach(cb => cb.checked = checked);
+  updateDeleteBtn();
+}
+
+function updateDeleteBtn() {
+  const btn = document.getElementById('bl-delete-btn');
+  if(btn) btn.disabled = BlState.selected.size === 0;
+}
+
+function deleteSelectedBrokenLinks() {
+  AppState.brokenLinks = AppState.brokenLinks.filter(b => !BlState.selected.has(b.sourceId+'|'+b.brokenUrl));
+  BlState.selected.clear();
+  renderBrokenLinksReport();
+  renderDashboard();
+  showToast('Selected broken links removed.','success');
+}
+
+function clearBrokenLinksData() {
+  if(!confirm('Clear all broken link data? This cannot be undone.')) return;
+  AppState.brokenLinks = [];
+  BlState.selected.clear();
+  renderBrokenLinksReport();
+  renderDashboard();
+  showToast('All broken link data cleared.','info');
+}
+
+function exportBrokenLinksCSV() {
+  const rows = [['Post Title','Post URL','Broken URL','Anchor Text','Suggested Fix URL','Type','Status','Discovered']];
+  AppState.brokenLinks.forEach(b => {
+    const sourceItem = AppState.items.find(i=>i.id===b.sourceId);
+    rows.push([
+      sourceItem?sourceItem.title:'',
+      sourceItem?sourceItem.url:(b.sourceUrl||''),
+      b.brokenUrl||'',
+      b.anchorText||'',
+      b.suggested?b.suggested.item.url:'',
+      b.type||'internal',
+      b.status||'404 Not Found',
+      b.discovered ? new Date(b.discovered).toLocaleString() : ''
+    ]);
+  });
+  const csv = rows.map(r=>r.map(v=>'"'+String(v||'').replace(/"/g,'""')+'"').join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download = 'broken-links-report.csv';
+  a.click();
+}
+
+// ─── DOMAINS REPORT ──────────────────────────────────────────────────────────
+
+// Build domain data from AppState.links
+function buildDomainsData() {
+  // If links array is empty but items exist, rebuild it
+  if(AppState.links.length === 0 && AppState.items.length > 0) {
+    AppState.links = [];
+    for(const item of AppState.items) AppState.links.push(...parseItemLinks(item));
+    buildLinkGraph();
+  }
+  const domainMap = {}; // domain -> { domain, items: Set of sourceIds, links: [targetUrl] }
+  AppState.links.forEach(link => {
+    let domain;
+    try { domain = new URL(link.targetUrl).origin; } catch(e) { return; }
+    if(!domainMap[domain]) domainMap[domain] = { domain, itemIds: new Set(), links: [] };
+    domainMap[domain].itemIds.add(link.sourceId);
+    domainMap[domain].links.push({ targetUrl: link.targetUrl, sourceId: link.sourceId });
+  });
+  return Object.values(domainMap).map(d => ({
+    domain: d.domain,
+    itemCount: d.itemIds.size,
+    itemIds: [...d.itemIds],
+    links: d.links,
+    linkCount: d.links.length
+  }));
+}
+
+const DrState = { page:1, sort:{ col:'links', dir:'desc' }, expandItems:{}, expandLinks:{} };
+
+function sortDomainsReport(col) {
+  if(DrState.sort.col===col) DrState.sort.dir = DrState.sort.dir==='asc'?'desc':'asc';
+  else { DrState.sort.col=col; DrState.sort.dir='desc'; }
+  DrState.page=1;
+  renderDomainsReport();
+}
+
+function drChangePage(dir) { DrState.page+=dir; renderDomainsReport(); }
+
+function renderDomainsReport() {
+  const q = (document.getElementById('dr-search')||{value:''}).value.toLowerCase();
+  let data = buildDomainsData();
+
+  // Filter
+  if(q) data = data.filter(d => d.domain.toLowerCase().includes(q));
+
+  // Sort
+  data.sort((a,b) => {
+    let va, vb;
+    if(DrState.sort.col==='domain') { va=a.domain; vb=b.domain; }
+    else if(DrState.sort.col==='items') { va=a.itemCount; vb=b.itemCount; }
+    else { va=a.linkCount; vb=b.linkCount; }
+    if(va<vb) return DrState.sort.dir==='asc'?-1:1;
+    if(va>vb) return DrState.sort.dir==='asc'?1:-1;
+    return 0;
+  });
+
+  // Update sort icons
+  ['domain','items','links'].forEach(c => {
+    const el = document.getElementById('dr-sort-'+c);
+    if(!el) return;
+    el.textContent = DrState.sort.col===c ? (DrState.sort.dir==='asc'?'↑':'↓') : '';
+  });
+
+  const total = data.length, perPage = 100;
+  const totalPages = Math.ceil(total/perPage)||1;
+  if(DrState.page > totalPages) DrState.page=1;
+  const start = (DrState.page-1)*perPage;
+  const pageData = data.slice(start, start+perPage);
+
+  const tbody = document.getElementById('dr-tbody');
+  if(!tbody) return;
+
+  if(!pageData.length) {
+    tbody.innerHTML = '<tr><td colspan="3"><div class="empty-state">No domains found.</div></td></tr>';
+  } else {
+    tbody.innerHTML = pageData.map(d => buildDomainRow(d)).join('');
+  }
+
+  document.getElementById('dr-count').textContent = total===0 ? 'No domains' : 'Showing '+(start+1)+'–'+Math.min(start+perPage,total)+' of '+total+' domains';
+  document.getElementById('dr-prev').disabled = DrState.page<=1;
+  document.getElementById('dr-next').disabled = DrState.page>=totalPages;
+}
+
+function buildDomainRow(d) {
+  const itemsOpen = DrState.expandItems[d.domain];
+  const linksOpen = DrState.expandLinks[d.domain];
+  const domainKey = escHtml(d.domain).replace(/[^a-zA-Z0-9]/g,'_');
+
+  // Get unique source items
+  const sourceItems = d.itemIds.map(id => AppState.items.find(i=>i.id===id)).filter(Boolean);
+  // Get unique target URLs
+  const uniqueLinks = [...new Set(d.links.map(l=>l.targetUrl))];
+
+  let rows = `<tr id="dr-row-${domainKey}">
+    <td><a href="${escHtml(d.domain)}" target="_blank" style="color:#1565c0;text-decoration:none;font-weight:500;">${escHtml(d.domain)}</a></td>
+    <td class="td-links">
+      <div class="link-cell">
+        <span class="link-count" style="cursor:pointer;" onclick="toggleDrExpand('items','${escHtml(d.domain)}')">${d.itemCount}</span>
+        <button class="btn-expand ${itemsOpen?'open':''}" onclick="toggleDrExpand('items','${escHtml(d.domain)}')">▼</button>
+      </div>
+    </td>
+    <td class="td-links">
+      <div class="link-cell">
+        <a href="${escHtml(d.domain)}" target="_blank" style="color:#1565c0;font-weight:700;">${d.linkCount}</a>
+        <button class="btn-expand ${linksOpen?'open':''}" onclick="toggleDrExpand('links','${escHtml(d.domain)}')">▼</button>
+      </div>
+    </td>
+  </tr>`;
+
+  if(itemsOpen) {
+    const itemList = sourceItems.map(i=>`<div class="expand-link-item"><a href="${escHtml(i.url)}" target="_blank">${escHtml(i.title)}</a></div>`).join('');
+    rows += `<tr class="expand-row"><td colspan="3"><div class="expand-panel"><div class="expand-panel-title">Pages linking to ${escHtml(d.domain)} (${sourceItems.length})</div>${itemList||'<div class="empty-expand">None found.</div>'}</div></td></tr>`;
+  }
+  if(linksOpen) {
+    const linkList = uniqueLinks.map(u=>`<div class="expand-link-item"><a href="${escHtml(u)}" target="_blank">${escHtml(u)}</a></div>`).join('');
+    rows += `<tr class="expand-row"><td colspan="3"><div class="expand-panel"><div class="expand-panel-title">Links to ${escHtml(d.domain)} (${uniqueLinks.length})</div>${linkList||'<div class="empty-expand">None found.</div>'}</div></td></tr>`;
+  }
+
+  return rows;
+}
+
+function toggleDrExpand(type, domain) {
+  if(type==='items') DrState.expandItems[domain] = !DrState.expandItems[domain];
+  else DrState.expandLinks[domain] = !DrState.expandLinks[domain];
+  renderDomainsReport();
+}
+
+function exportDomainsDetailed() {
+  const data = buildDomainsData();
+  const rows = [['Domain','Source Page Title','Source Page URL','Target URL']];
+  data.forEach(d => {
+    d.links.forEach(l => {
+      const sourceItem = AppState.items.find(i=>i.id===l.sourceId);
+      rows.push([d.domain, sourceItem?sourceItem.title:'', sourceItem?sourceItem.url:'', l.targetUrl]);
+    });
+  });
+  const csv = rows.map(r=>r.map(v=>'"'+String(v||'').replace(/"/g,'""')+'"').join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download = 'domains-report-detailed.csv';
+  a.click();
+}
+
+function exportDomainsSummary() {
+  const data = buildDomainsData();
+  const rows = [['Domain','Linking Items','Total Links']];
+  data.sort((a,b)=>b.linkCount-a.linkCount).forEach(d => rows.push([d.domain, d.itemCount, d.linkCount]));
+  const csv = rows.map(r=>r.map(v=>'"'+String(v||'').replace(/"/g,'""')+'"').join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download = 'domains-report-summary.csv';
+  a.click();
+}
+
+function exportLinksCSV(){
+  const items=getFilteredItems();
+  const rows=[['Title','Type','URL','Published','Inbound Links','Outbound Internal']];
+  items.forEach(item=>{
+    const ib=(AppState.linkGraph.inbound[item.id]||[]).length;
+    const oi=(AppState.linkGraph.outbound[item.id]||[]).filter(l=>l.type==='internal').length;
+    const date=item.publishedAt?new Date(item.publishedAt).toLocaleDateString():'';
+    rows.push([item.title,item.type,item.url,date,ib,oi]);
+  });
+  const csv=rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download='link-whisperer-report.csv';
+  a.click();
+}
+
+async function syncFromShopify(){
+  showLoading();
+  try{
+    const allItems=[],allLinks=[];
+    setLoadingStep('Fetching products...',5);
+    const pd=await shopifyFetch('products.json?limit=250&fields=id,title,handle,published_at,body_html,product_type,tags,vendor');
+    const products=(pd.products||[]).map(p=>({id:'product-'+p.id,shopifyId:p.id,title:p.title,handle:p.handle,type:'product',publishedAt:p.published_at,bodyHtml:p.body_html||'',tags:(p.tags||'').split(',').map(t=>t.trim()).filter(Boolean),vendor:p.vendor||'',url:'https://aboutwallart.com/products/'+p.handle}));
+    allItems.push(...products);
+    setLoadingStep('Products: '+products.length+' found',20);
+
+    setLoadingStep('Fetching pages...',22);
+    const pagesD=await shopifyFetch('pages.json?limit=250&fields=id,title,handle,published_at,body_html');
+    const pages=(pagesD.pages||[]).map(p=>({id:'page-'+p.id,shopifyId:p.id,title:p.title,handle:p.handle,type:'page',publishedAt:p.published_at,bodyHtml:p.body_html||'',tags:[],vendor:'',url:'https://aboutwallart.com/pages/'+p.handle}));
+    allItems.push(...pages);
+    setLoadingStep('Pages: '+pages.length+' found',35);
+
+    setLoadingStep('Fetching blogs...',37);
+    const blogsD=await shopifyFetch('blogs.json?limit=250&fields=id,title,handle');
+    const blogs=blogsD.blogs||[];
+    let totalArticles=0;
+    for(let i=0;i<blogs.length;i++){
+      const blog=blogs[i];
+      setLoadingStep('Fetching articles from "'+blog.title+'"...',37+Math.round(i/blogs.length*20));
+      const artD=await shopifyFetch('blogs/'+blog.id+'/articles.json?limit=250&fields=id,title,handle,published_at,body_html,blog_id,tags');
+      const articles=(artD.articles||[]).map(a=>({id:'article-'+a.id,shopifyId:a.id,blogId:blog.id,title:a.title,handle:a.handle,type:'article',publishedAt:a.published_at,bodyHtml:a.body_html||'',tags:(a.tags||'').split(',').map(t=>t.trim()).filter(Boolean),vendor:'',blogHandle:blog.handle,url:'https://aboutwallart.com/blogs/'+blog.handle+'/'+a.handle}));
+      allItems.push(...articles);
+      totalArticles+=articles.length;
+    }
+    setLoadingStep('Articles: '+totalArticles+' found',58);
+
+    setLoadingStep('Fetching collections...',60);
+    const ccD=await shopifyFetch('custom_collections.json?limit=250&fields=id,title,handle,published_at,body_html');
+    const customCols=(ccD.custom_collections||[]).map(c=>({id:'collection-'+c.id,shopifyId:c.id,title:c.title,handle:c.handle,type:'collection',publishedAt:c.published_at,bodyHtml:c.body_html||'',tags:[],vendor:'',url:'https://aboutwallart.com/collections/'+c.handle}));
+    allItems.push(...customCols);
+
+    setLoadingStep('Fetching smart collections...',70);
+    const scD=await shopifyFetch('smart_collections.json?limit=250&fields=id,title,handle,published_at,body_html');
+    const smartCols=(scD.smart_collections||[]).map(c=>({id:'smart-'+c.id,shopifyId:c.id,title:c.title,handle:c.handle,type:'collection',publishedAt:c.published_at,bodyHtml:c.body_html||'',tags:[],vendor:'',url:'https://aboutwallart.com/collections/'+c.handle}));
+    allItems.push(...smartCols);
+    setLoadingStep('Collections: '+(customCols.length+smartCols.length)+' found',78);
+
+    setLoadingStep('Parsing links...',80);
+    for(const item of allItems) allLinks.push(...parseItemLinks(item));
+    setLoadingStep('Links parsed: '+allLinks.length+' found',90);
+
+    AppState.items=allItems; AppState.links=allLinks; AppState.lastSync=new Date().toISOString();
+    setLoadingStep('Building link graph...',92);
+    buildLinkGraph();
+    setLoadingStep('Detecting broken links...',95);
+    detectBrokenLinks();
+
+    // Save to localStorage cache (24 hours)
+    // Store items without bodyHtml, bodyHtml separately, links as slim objects
+    try {
+      const bodyCache = {};
+      const slimItems = allItems.map(item => {
+        bodyCache[item.id] = item.bodyHtml || '';
+        const { bodyHtml, ...slim } = item;
+        return slim;
+      });
+      // Slim links: only keep what's needed for link graph
+      const slimLinks = allLinks.map(l=>({
+        sourceId:l.sourceId, sourceUrl:l.sourceUrl,
+        targetUrl:l.targetUrl, anchorText:l.anchorText, type:l.type
+      }));
+      const cacheObj = JSON.stringify({ items:slimItems, links:slimLinks, lastSync:AppState.lastSync });
+      const bodyObj = JSON.stringify(bodyCache);
+      // Try saving both
+      localStorage.setItem('lw-cache', cacheObj);
+      localStorage.setItem('lw-body-cache', bodyObj);
+      localStorage.setItem('lw-cache-time', Date.now().toString());
+    } catch(e) {
+      // Body cache too large — try without it
+      try {
+        const slimItems = allItems.map(({ bodyHtml, ...slim }) => slim);
+        const slimLinks = allLinks.map(l=>({ sourceId:l.sourceId, sourceUrl:l.sourceUrl, targetUrl:l.targetUrl, anchorText:l.anchorText, type:l.type }));
+        localStorage.setItem('lw-cache', JSON.stringify({ items:slimItems, links:slimLinks, lastSync:AppState.lastSync }));
+        localStorage.setItem('lw-cache-time', Date.now().toString());
+        localStorage.removeItem('lw-body-cache');
+      } catch(e2) { console.warn('Cache save failed entirely:', e2); }
+    }
+
+    setLoadingStep('Done!',100);
+    await new Promise(r=>setTimeout(r,400));
+
+    hideLoading(); showApp(); updateLastSynced(); renderDashboard(); renderLinksReport(); renderDomainsReport(); renderBrokenLinksReport(); resetBrokenLinkSuggestions();
+    showToast('Sync complete — '+allItems.length+' items loaded','success');
+  }catch(err){
+    hideLoading(); showApp();
+    showToast('Sync failed: '+err.message,'error');
+    console.error('Sync error:',err);
+  }
+}
+
+function refreshData(){ syncFromShopify(); }
+
+function updateLastSynced(){
+  if(!AppState.lastSync) return;
+  const d=new Date(AppState.lastSync);
+  document.getElementById('last-synced').textContent='Last synced: '+d.toLocaleDateString([],{day:'numeric',month:'short'})+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+}
+
+function showToast(msg,type){
+  const t=document.createElement('div');
+  t.className='toast '+(type||'info');
+  t.textContent=msg;
+  document.getElementById('toast-container').appendChild(t);
+  setTimeout(()=>t.remove(),4000);
+}
+
+function escHtml(str){
+  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>
