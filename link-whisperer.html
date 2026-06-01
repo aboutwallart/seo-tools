@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v15.0</div>
+    <div class="version">v16.0</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -378,13 +378,13 @@
         <thead>
           <tr>
             <th style="width:36px;"><input type="checkbox" id="bl-master-cb" onchange="toggleAllBrokenLinks(this.checked)" /></th>
-            <th style="width:18%;">Post</th>
-            <th style="width:22%;">Broken URL</th>
-            <th style="width:14%;">Anchor</th>
-            <th style="width:18%;">Sentence</th>
-            <th style="width:8%;">Type</th>
-            <th style="width:10%;">Status</th>
-            <th style="width:10%;">Discovered</th>
+            <th style="width:17%;cursor:pointer;" onclick="sortBrokenLinks('post')">Post <span id="bl-sort-post"></span></th>
+            <th style="width:18%;cursor:pointer;" onclick="sortBrokenLinks('url')">Broken URL <span id="bl-sort-url"></span></th>
+            <th style="width:10%;cursor:pointer;" onclick="sortBrokenLinks('anchor')">Anchor <span id="bl-sort-anchor"></span></th>
+            <th style="width:22%;">Suggested Fix</th>
+            <th style="width:7%;cursor:pointer;" onclick="sortBrokenLinks('type')">Type <span id="bl-sort-type"></span></th>
+            <th style="width:9%;cursor:pointer;" onclick="sortBrokenLinks('status')">Status <span id="bl-sort-status"></span></th>
+            <th style="width:11%;cursor:pointer;" onclick="sortBrokenLinks('discovered')">Discovered <span id="bl-sort-discovered"></span></th>
           </tr>
         </thead>
         <tbody id="bl-tbody"></tbody>
@@ -688,15 +688,102 @@ function buildLinkGraph() {
 }
 
 function detectBrokenLinks() {
-  const knownUrls=new Set(), knownHandles=new Set();
-  AppState.items.forEach(i=>{ if(i.url) knownUrls.add(i.url.replace(/\/$/,'').toLowerCase()); if(i.handle) knownHandles.add(i.handle.toLowerCase()); });
-  AppState.brokenLinks=[];
-  AppState.links.forEach(link=>{
-    if(link.type!=='internal') return;
-    const cu=link.targetUrl.replace(/\/$/,'').toLowerCase();
-    const handle=cu.split('/').pop();
-    if(!knownUrls.has(cu)&&!knownHandles.has(handle)) AppState.brokenLinks.push({sourceId:link.sourceId,sourceUrl:link.sourceUrl,brokenUrl:link.targetUrl,anchorText:link.anchorText,type:link.type,status:'404 Not Found',discovered:new Date().toISOString()});
+  const knownUrls = new Set();
+  const knownHandles = new Set();
+  AppState.items.forEach(i => {
+    if(i.url) knownUrls.add(i.url.replace(/\/$/,'').toLowerCase());
+    if(i.handle) knownHandles.add(i.handle.toLowerCase());
   });
+
+  AppState.brokenLinks = [];
+  AppState.links.forEach(link => {
+    if(link.type !== 'internal') return;
+
+    // Skip links FROM archived/unpublished pages
+    const sourceItem = AppState.items.find(i => i.id === link.sourceId);
+    if(!sourceItem) return;
+    if(sourceItem.publishedAt === null || sourceItem.publishedAt === undefined || sourceItem.publishedAt === '') return;
+
+    const cu = link.targetUrl.replace(/\/$/,'').toLowerCase();
+    const handle = cu.split('/').pop();
+    if(!knownUrls.has(cu) && !knownHandles.has(handle)) {
+      const suggested = findBestUrlMatch(link.targetUrl);
+      AppState.brokenLinks.push({
+        sourceId: link.sourceId,
+        sourceUrl: link.sourceUrl,
+        brokenUrl: link.targetUrl,
+        anchorText: link.anchorText,
+        type: link.type,
+        status: '404 Not Found',
+        discovered: new Date().toISOString(),
+        suggested // { item, confidence, label } or null
+      });
+    }
+  });
+}
+
+// Smart URL matching — find the best live page for a broken URL
+function findBestUrlMatch(brokenUrl) {
+  const slug = brokenUrl.replace(/\/$/,'').split('/').pop().toLowerCase();
+  if(!slug) return null;
+
+  const candidates = [];
+
+  AppState.items.forEach(item => {
+    if(!item.url || !item.publishedAt) return;
+    const itemHandle = (item.handle||'').toLowerCase();
+    const itemSlug = item.url.replace(/\/$/,'').split('/').pop().toLowerCase();
+
+    // Score this candidate
+    let score = 0;
+
+    // Exact handle match
+    if(itemHandle === slug || itemSlug === slug) { score = 100; }
+    // Slug contains the broken slug
+    else if(itemHandle.includes(slug) || slug.includes(itemHandle)) { score = Math.max(score, 80); }
+    // Fuzzy similarity
+    else {
+      const sim = slugSimilarity(slug, itemHandle);
+      if(sim > 0.6) score = Math.max(score, Math.round(sim * 90));
+    }
+
+    // Keyword overlap bonus
+    const slugWords = slug.split('-').filter(w=>w.length>3);
+    const handleWords = itemHandle.split('-').filter(w=>w.length>3);
+    const overlap = slugWords.filter(w=>handleWords.includes(w)).length;
+    if(overlap > 0) score = Math.max(score, Math.min(75, 40 + overlap*15));
+
+    if(score >= 40) candidates.push({ item, score });
+  });
+
+  candidates.sort((a,b) => b.score - a.score);
+  if(!candidates.length) return null;
+
+  const best = candidates[0];
+  return {
+    item: best.item,
+    confidence: best.score,
+    label: best.score >= 80 ? 'high' : 'low',
+    alternatives: candidates.slice(1, 3).map(c => c.item) // up to 2 alternatives
+  };
+}
+
+// Simple slug similarity score (0-1)
+function slugSimilarity(a, b) {
+  if(a === b) return 1;
+  const longer = a.length > b.length ? a : b;
+  const shorter = a.length > b.length ? b : a;
+  if(longer.length === 0) return 1;
+  const editDist = levenshtein(longer, shorter);
+  return (longer.length - editDist) / longer.length;
+}
+
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  const dp = Array.from({length:m+1}, (_,i) => Array.from({length:n+1}, (_,j) => i===0?j:j===0?i:0));
+  for(let i=1;i<=m;i++) for(let j=1;j<=n;j++)
+    dp[i][j] = a[i-1]===b[j-1] ? dp[i-1][j-1] : 1+Math.min(dp[i-1][j],dp[i][j-1],dp[i-1][j-1]);
+  return dp[m][n];
 }
 
 function extractKeywords(item) {
@@ -1781,13 +1868,48 @@ function lrChangePage(dir){ AppState.lrPage+=dir; renderLinksReport(); }
 
 // ─── BROKEN LINKS REPORT ─────────────────────────────────────────────────────
 
-const BlState = { page:1, selected: new Set() };
+const BlState = { page:1, selected: new Set(), sort:{ col:'', dir:'' } };
 
 function blChangePage(dir) { BlState.page+=dir; renderBrokenLinksReport(); }
+
+function sortBrokenLinks(col) {
+  if(BlState.sort.col===col) {
+    if(BlState.sort.dir==='asc') BlState.sort.dir='desc';
+    else if(BlState.sort.dir==='desc') { BlState.sort.col=''; BlState.sort.dir=''; }
+    else BlState.sort.dir='asc';
+  } else { BlState.sort.col=col; BlState.sort.dir='asc'; }
+  BlState.page=1;
+  renderBrokenLinksReport();
+}
 
 function renderBrokenLinksReport() {
   const statusFilter = (document.getElementById('bl-status-filter')||{value:''}).value;
   let data = AppState.brokenLinks.filter(b => !statusFilter || b.status === statusFilter);
+
+  // Sort
+  if(BlState.sort.col) {
+    data.sort((a,b) => {
+      let va='', vb='';
+      const srcA = AppState.items.find(i=>i.id===a.sourceId);
+      const srcB = AppState.items.find(i=>i.id===b.sourceId);
+      if(BlState.sort.col==='post')       { va=(srcA?srcA.title:'').toLowerCase(); vb=(srcB?srcB.title:'').toLowerCase(); }
+      else if(BlState.sort.col==='url')   { va=a.brokenUrl.toLowerCase(); vb=b.brokenUrl.toLowerCase(); }
+      else if(BlState.sort.col==='anchor'){ va=(a.anchorText||'').toLowerCase(); vb=(b.anchorText||'').toLowerCase(); }
+      else if(BlState.sort.col==='type')  { va=(a.type||'').toLowerCase(); vb=(b.type||'').toLowerCase(); }
+      else if(BlState.sort.col==='status'){ va=(a.status||'').toLowerCase(); vb=(b.status||'').toLowerCase(); }
+      else if(BlState.sort.col==='discovered'){ va=a.discovered||''; vb=b.discovered||''; }
+      if(va<vb) return BlState.sort.dir==='asc'?-1:1;
+      if(va>vb) return BlState.sort.dir==='asc'?1:-1;
+      return 0;
+    });
+  }
+
+  // Update sort icons
+  ['post','url','anchor','type','status','discovered'].forEach(c => {
+    const el = document.getElementById('bl-sort-'+c);
+    if(!el) return;
+    el.textContent = BlState.sort.col===c ? (BlState.sort.dir==='asc'?'↑':'↓') : '';
+  });
 
   const total = data.length, perPage = 100;
   const totalPages = Math.ceil(total/perPage)||1;
@@ -1814,57 +1936,136 @@ function buildBrokenLinkRow(b, idx) {
   const sourceItem = AppState.items.find(i=>i.id===b.sourceId);
   const postTitle  = sourceItem ? sourceItem.title : (b.sourceUrl||'Unknown');
   const postUrl    = sourceItem ? sourceItem.url : (b.sourceUrl||'#');
-  const discovered = b.discovered ? new Date(b.discovered).toLocaleDateString([],{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+  const discovered = b.discovered ? new Date(b.discovered).toLocaleDateString([],{day:'numeric',month:'short',year:'numeric'}) : '—';
   const isSelected = BlState.selected.has(b.sourceId+'|'+b.brokenUrl);
-  const rowId = 'bl-row-'+idx;
-  const sentenceId = 'bl-sentence-'+idx;
+  const confirmId  = 'bl-confirm-'+idx;
 
-  return `<tr id="${rowId}">
+  // Build suggested fix cell
+  let suggestedHtml = '';
+  if(b.suggested) {
+    const s = b.suggested;
+    const altOptions = (s.alternatives||[]).map(alt =>
+      `<option value="${escHtml(alt.url)}" data-title="${escHtml(alt.title)}">${escHtml(alt.title)}</option>`
+    ).join('');
+
+    if(s.label === 'high') {
+      suggestedHtml = `
+        <div style="font-size:12px;">
+          <div style="color:#2e7d32;font-weight:600;margin-bottom:4px;">✅ ${escHtml(s.item.title)}</div>
+          <div style="color:#888;font-size:11px;margin-bottom:6px;">${escHtml(s.item.url)}</div>
+          <div id="${confirmId}" style="display:none;background:#f5f5f5;padding:6px 8px;border-radius:4px;font-size:11px;margin-bottom:4px;">
+            Apply fix: replace broken URL with suggested URL in source page?
+            <div style="margin-top:4px;display:flex;gap:6px;">
+              <button onclick="applyBrokenLinkFix('${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}','${escHtml(s.item.url)}',${idx})" style="background:#2e7d32;color:#fff;border:none;border-radius:3px;padding:3px 10px;font-size:11px;cursor:pointer;">Yes, fix it</button>
+              <button onclick="document.getElementById('${confirmId}').style.display='none'" style="background:#eee;border:none;border-radius:3px;padding:3px 10px;font-size:11px;cursor:pointer;">Cancel</button>
+            </div>
+          </div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;">
+            <button onclick="document.getElementById('${confirmId}').style.display='block'" style="background:#2e7d32;color:#fff;border:none;border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer;">Apply Fix</button>
+            ${altOptions ? `<select onchange="showAltFix(this,'${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}',${idx})" style="font-size:11px;padding:2px 4px;border:1px solid #ddd;border-radius:3px;"><option value="">Other options...</option>${altOptions}</select>` : ''}
+            <button onclick="confirmRemoveLink('${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}',${idx})" style="background:#fff;color:#c62828;border:1px solid #c62828;border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer;">Remove Link</button>
+          </div>
+        </div>`;
+    } else {
+      // Low confidence — show dropdown of options
+      const opts = [s.item, ...(s.alternatives||[])].map(item =>
+        `<option value="${escHtml(item.url)}" data-title="${escHtml(item.title)}">${escHtml(item.title)}</option>`
+      ).join('');
+      suggestedHtml = `
+        <div style="font-size:12px;">
+          <div style="color:#e65100;font-weight:600;margin-bottom:4px;">🔍 Possible matches:</div>
+          <select id="bl-alt-${idx}" style="font-size:11px;padding:3px 6px;border:1px solid #ddd;border-radius:3px;width:100%;margin-bottom:6px;">
+            <option value="">— pick a replacement —</option>${opts}
+          </select>
+          <div style="display:flex;gap:4px;">
+            <button onclick="applySelectedAlt('${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}','bl-alt-${idx}',${idx})" style="background:#e65100;color:#fff;border:none;border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer;">Apply Fix</button>
+            <button onclick="confirmRemoveLink('${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}',${idx})" style="background:#fff;color:#c62828;border:1px solid #c62828;border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer;">Remove Link</button>
+          </div>
+        </div>`;
+    }
+  } else {
+    suggestedHtml = `
+      <div style="font-size:12px;">
+        <div style="color:#888;margin-bottom:6px;">❌ No match found</div>
+        <button onclick="confirmRemoveLink('${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}',${idx})" style="background:#fff;color:#c62828;border:1px solid #c62828;border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer;">Remove Link</button>
+      </div>`;
+  }
+
+  return `<tr id="bl-row-${idx}">
     <td><input type="checkbox" class="bl-cb" ${isSelected?'checked':''} onchange="toggleBrokenLinkSelect(this,'${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}')" /></td>
-    <td style="word-break:break-word;"><a href="${escHtml(postUrl)}" target="_blank" style="color:#1565c0;font-weight:600;text-decoration:none;">${escHtml(postTitle)}</a></td>
-    <td style="word-break:break-all;"><a href="${escHtml(b.brokenUrl)}" target="_blank" style="color:#c62828;text-decoration:none;font-size:12px;">${escHtml(b.brokenUrl)}</a></td>
+    <td style="word-break:break-word;font-size:12px;"><a href="${escHtml(postUrl)}" target="_blank" style="color:#1565c0;font-weight:600;text-decoration:none;">${escHtml(postTitle)}</a></td>
+    <td style="word-break:break-all;font-size:11px;"><a href="${escHtml(b.brokenUrl)}" target="_blank" style="color:#c62828;text-decoration:none;">${escHtml(b.brokenUrl)}</a></td>
     <td style="font-size:12px;color:#555;">${escHtml(b.anchorText||'—')}</td>
-    <td id="${sentenceId}">
-      <button class="btn-outline" style="font-size:11px;padding:3px 8px;color:#1565c0;border-color:#1565c0;" onclick="getSentenceText('${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}','${sentenceId}')">GET SENTENCE TEXT</button>
-    </td>
+    <td>${suggestedHtml}</td>
     <td style="font-size:12px;">${escHtml(b.type||'internal')}</td>
     <td><span style="background:#fce4ec;color:#c62828;font-size:11px;font-weight:700;padding:2px 7px;border-radius:3px;">${escHtml(b.status||'404 Not Found')}</span></td>
     <td style="font-size:11px;color:#888;">${discovered}</td>
   </tr>`;
 }
 
-function getSentenceText(sourceId, brokenUrl, cellId) {
+// Apply a fix — replace broken URL with suggested URL in source page bodyHtml
+async function applyBrokenLinkFix(sourceId, brokenUrl, newUrl, idx) {
   const item = AppState.items.find(i=>i.id===sourceId);
-  const cell = document.getElementById(cellId);
-  if(!item || !cell) return;
-
-  const html = item.bodyHtml || '';
-  // Strip tags and find text around the broken URL
-  const plainText = html.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
-  const urlIdx = plainText.indexOf(brokenUrl);
-
-  if(urlIdx >= 0) {
-    const start = Math.max(0, urlIdx-120);
-    const end   = Math.min(plainText.length, urlIdx+brokenUrl.length+120);
-    const excerpt = '...' + plainText.substring(start,end) + '...';
-    cell.innerHTML = '<span style="font-size:12px;color:#555;line-height:1.5;">'+escHtml(excerpt)+'</span>';
-    return;
+  if(!item) return;
+  const row = document.getElementById('bl-row-'+idx);
+  if(row) row.style.opacity='0.5';
+  try {
+    // Replace the href in the body HTML
+    const escaped = brokenUrl.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    const updatedHtml = (item.bodyHtml||'').replace(new RegExp(escaped,'g'), newUrl);
+    await saveItemToShopify(item, updatedHtml);
+    item.bodyHtml = updatedHtml;
+    // Update cache
+    try { const bc=JSON.parse(localStorage.getItem('lw-body-cache')||'{}'); bc[item.id]=updatedHtml; localStorage.setItem('lw-body-cache',JSON.stringify(bc)); } catch(e){}
+    // Remove from broken links list
+    AppState.brokenLinks = AppState.brokenLinks.filter(b=>!(b.sourceId===sourceId&&b.brokenUrl===brokenUrl));
+    AppState.links=[]; for(const i of AppState.items) AppState.links.push(...parseItemLinks(i));
+    buildLinkGraph(); detectBrokenLinks();
+    renderBrokenLinksReport(); renderDashboard();
+    showToast('✅ Link fixed — updated to '+newUrl,'success');
+  } catch(err) {
+    if(row) row.style.opacity='1';
+    showToast('❌ Fix failed: '+err.message,'error');
   }
+}
 
-  // Try finding the anchor text in the HTML near the broken URL
-  const anchorMatch = html.match(new RegExp('<a[^>]+href=["\']'+brokenUrl.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'["\'][^>]*>([^<]+)<\/a>','i'));
-  if(anchorMatch) {
-    const anchor = anchorMatch[1];
-    const anchorIdx = plainText.indexOf(anchor);
-    if(anchorIdx >= 0) {
-      const start = Math.max(0, anchorIdx-100);
-      const end   = Math.min(plainText.length, anchorIdx+anchor.length+100);
-      cell.innerHTML = '<span style="font-size:12px;color:#555;line-height:1.5;">...'+escHtml(plainText.substring(start,end))+'...</span>';
-      return;
-    }
+function showAltFix(select, sourceId, brokenUrl, idx) {
+  if(!select.value) return;
+  applyBrokenLinkFix(sourceId, brokenUrl, select.value, idx);
+}
+
+function applySelectedAlt(sourceId, brokenUrl, selectId, idx) {
+  const sel = document.getElementById(selectId);
+  if(!sel||!sel.value) { showToast('Please select a replacement URL first.','error'); return; }
+  applyBrokenLinkFix(sourceId, brokenUrl, sel.value, idx);
+}
+
+// Remove link — strip the <a href> tag, keep anchor text as plain text
+async function confirmRemoveLink(sourceId, brokenUrl, idx) {
+  if(!confirm('Remove this link from the page? The anchor text will remain as plain text.')) return;
+  const item = AppState.items.find(i=>i.id===sourceId);
+  if(!item) return;
+  const row = document.getElementById('bl-row-'+idx);
+  if(row) row.style.opacity='0.5';
+  try {
+    const escaped = brokenUrl.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    // Remove the <a> tag wrapping this URL, keep inner text
+    const updatedHtml = (item.bodyHtml||'').replace(
+      new RegExp('<a[^>]+href=["\']'+escaped+'["\'][^>]*>([^<]*)<\\/a>','gi'),
+      '$1'
+    );
+    await saveItemToShopify(item, updatedHtml);
+    item.bodyHtml = updatedHtml;
+    try { const bc=JSON.parse(localStorage.getItem('lw-body-cache')||'{}'); bc[item.id]=updatedHtml; localStorage.setItem('lw-body-cache',JSON.stringify(bc)); } catch(e){}
+    AppState.brokenLinks = AppState.brokenLinks.filter(b=>!(b.sourceId===sourceId&&b.brokenUrl===brokenUrl));
+    AppState.links=[]; for(const i of AppState.items) AppState.links.push(...parseItemLinks(i));
+    buildLinkGraph(); detectBrokenLinks();
+    renderBrokenLinksReport(); renderDashboard();
+    showToast('✅ Link removed successfully.','success');
+  } catch(err) {
+    if(row) row.style.opacity='1';
+    showToast('❌ Remove failed: '+err.message,'error');
   }
-
-  cell.innerHTML = '<span style="font-size:11px;color:#aaa;font-style:italic;">Sentence not found in cached content.</span>';
 }
 
 function toggleBrokenLinkSelect(cb, sourceId, brokenUrl) {
@@ -1912,7 +2113,7 @@ function clearBrokenLinksData() {
 }
 
 function exportBrokenLinksCSV() {
-  const rows = [['Post Title','Post URL','Broken URL','Anchor Text','Type','Status','Discovered']];
+  const rows = [['Post Title','Post URL','Broken URL','Anchor Text','Suggested Fix URL','Type','Status','Discovered']];
   AppState.brokenLinks.forEach(b => {
     const sourceItem = AppState.items.find(i=>i.id===b.sourceId);
     rows.push([
@@ -1920,6 +2121,7 @@ function exportBrokenLinksCSV() {
       sourceItem?sourceItem.url:(b.sourceUrl||''),
       b.brokenUrl||'',
       b.anchorText||'',
+      b.suggested?b.suggested.item.url:'',
       b.type||'internal',
       b.status||'404 Not Found',
       b.discovered ? new Date(b.discovered).toLocaleString() : ''
