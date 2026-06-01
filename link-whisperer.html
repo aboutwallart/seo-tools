@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v14.3</div>
+    <div class="version">v15.0</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -361,7 +361,43 @@
       </div>
     </div>
   </div>
-  <div id="tab-broken-links" class="tab-content"><p class="placeholder-msg">Broken Links Report — coming soon.</p></div>
+  <div id="tab-broken-links" class="tab-content">
+    <div class="report-toolbar" style="flex-wrap:wrap;gap:8px;">
+      <button class="btn-outline" id="bl-delete-btn" onclick="deleteSelectedBrokenLinks()" disabled>DELETE SELECTED</button>
+      <select id="bl-status-filter" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+        <option value="">All Status Codes</option>
+        <option value="404 Not Found">404 Not Found</option>
+        <option value="Unknown">Unknown</option>
+      </select>
+      <button class="btn-outline" onclick="renderBrokenLinksReport()">FILTER CODES</button>
+      <button class="btn-outline" onclick="exportBrokenLinksCSV()">EXPORT TO CSV</button>
+      <button class="btn-action" style="margin-left:auto;" onclick="clearBrokenLinksData()">CLEAR ERROR DATA</button>
+    </div>
+    <div class="table-wrap">
+      <table style="table-layout:fixed;">
+        <thead>
+          <tr>
+            <th style="width:36px;"><input type="checkbox" id="bl-master-cb" onchange="toggleAllBrokenLinks(this.checked)" /></th>
+            <th style="width:18%;">Post</th>
+            <th style="width:22%;">Broken URL</th>
+            <th style="width:14%;">Anchor</th>
+            <th style="width:18%;">Sentence</th>
+            <th style="width:8%;">Type</th>
+            <th style="width:10%;">Status</th>
+            <th style="width:10%;">Discovered</th>
+          </tr>
+        </thead>
+        <tbody id="bl-tbody"></tbody>
+      </table>
+      <div class="pagination">
+        <span id="bl-count">Showing 0–0 of 0 broken urls</span>
+        <div class="pagination-btns">
+          <button class="btn-page" id="bl-prev" onclick="blChangePage(-1)">&#8592;</button>
+          <button class="btn-page" id="bl-next" onclick="blChangePage(1)">&#8594;</button>
+        </div>
+      </div>
+    </div>
+  </div>
   <div id="tab-auto-linking" class="tab-content"><p class="placeholder-msg">Auto Linking — coming soon.</p></div>
   <div id="tab-url-changer" class="tab-content"><p class="placeholder-msg">URL Changer — coming soon.</p></div>
   <div id="tab-target-keywords" class="tab-content"><p class="placeholder-msg">Target Keywords — coming soon.</p></div>
@@ -566,6 +602,7 @@ document.addEventListener('DOMContentLoaded', () => {
           renderDashboard();
           renderLinksReport();
           renderDomainsReport();
+          renderBrokenLinksReport();
           showToast('Loaded from cache — '+AppState.items.length+' items','info');
           return;
         }
@@ -592,6 +629,7 @@ function switchTab(tabName, silent) {
   document.querySelectorAll('.tab-btn').forEach(b=>{ if((b.getAttribute('onclick')||'').includes("'"+tabName+"'")) b.classList.add('active'); });
   if (!silent) localStorage.setItem('lw-active-tab', tabName);
   if (tabName==='domains-report') renderDomainsReport();
+  if (tabName==='broken-links') renderBrokenLinksReport();
 }
 
 async function shopifyFetch(endpoint, method, body) {
@@ -1741,6 +1779,159 @@ function toggleExpand(itemId,col){
 
 function lrChangePage(dir){ AppState.lrPage+=dir; renderLinksReport(); }
 
+// ─── BROKEN LINKS REPORT ─────────────────────────────────────────────────────
+
+const BlState = { page:1, selected: new Set() };
+
+function blChangePage(dir) { BlState.page+=dir; renderBrokenLinksReport(); }
+
+function renderBrokenLinksReport() {
+  const statusFilter = (document.getElementById('bl-status-filter')||{value:''}).value;
+  let data = AppState.brokenLinks.filter(b => !statusFilter || b.status === statusFilter);
+
+  const total = data.length, perPage = 100;
+  const totalPages = Math.ceil(total/perPage)||1;
+  if(BlState.page > totalPages) BlState.page = 1;
+  const start = (BlState.page-1)*perPage;
+  const pageData = data.slice(start, start+perPage);
+
+  const tbody = document.getElementById('bl-tbody');
+  if(!tbody) return;
+
+  if(!pageData.length) {
+    tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state">No broken links found. Great work! 🎉</div></td></tr>';
+  } else {
+    tbody.innerHTML = pageData.map((b,i) => buildBrokenLinkRow(b, start+i)).join('');
+  }
+
+  document.getElementById('bl-count').textContent = total===0 ? 'No broken urls' : 'Showing '+(start+1)+'–'+Math.min(start+perPage,total)+' of '+total+' broken urls';
+  document.getElementById('bl-prev').disabled = BlState.page<=1;
+  document.getElementById('bl-next').disabled = BlState.page>=totalPages;
+  updateDeleteBtn();
+}
+
+function buildBrokenLinkRow(b, idx) {
+  const sourceItem = AppState.items.find(i=>i.id===b.sourceId);
+  const postTitle  = sourceItem ? sourceItem.title : (b.sourceUrl||'Unknown');
+  const postUrl    = sourceItem ? sourceItem.url : (b.sourceUrl||'#');
+  const discovered = b.discovered ? new Date(b.discovered).toLocaleDateString([],{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+  const isSelected = BlState.selected.has(b.sourceId+'|'+b.brokenUrl);
+  const rowId = 'bl-row-'+idx;
+  const sentenceId = 'bl-sentence-'+idx;
+
+  return `<tr id="${rowId}">
+    <td><input type="checkbox" class="bl-cb" ${isSelected?'checked':''} onchange="toggleBrokenLinkSelect(this,'${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}')" /></td>
+    <td style="word-break:break-word;"><a href="${escHtml(postUrl)}" target="_blank" style="color:#1565c0;font-weight:600;text-decoration:none;">${escHtml(postTitle)}</a></td>
+    <td style="word-break:break-all;"><a href="${escHtml(b.brokenUrl)}" target="_blank" style="color:#c62828;text-decoration:none;font-size:12px;">${escHtml(b.brokenUrl)}</a></td>
+    <td style="font-size:12px;color:#555;">${escHtml(b.anchorText||'—')}</td>
+    <td id="${sentenceId}">
+      <button class="btn-outline" style="font-size:11px;padding:3px 8px;color:#1565c0;border-color:#1565c0;" onclick="getSentenceText('${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}','${sentenceId}')">GET SENTENCE TEXT</button>
+    </td>
+    <td style="font-size:12px;">${escHtml(b.type||'internal')}</td>
+    <td><span style="background:#fce4ec;color:#c62828;font-size:11px;font-weight:700;padding:2px 7px;border-radius:3px;">${escHtml(b.status||'404 Not Found')}</span></td>
+    <td style="font-size:11px;color:#888;">${discovered}</td>
+  </tr>`;
+}
+
+function getSentenceText(sourceId, brokenUrl, cellId) {
+  const item = AppState.items.find(i=>i.id===sourceId);
+  const cell = document.getElementById(cellId);
+  if(!item || !cell) return;
+
+  const html = item.bodyHtml || '';
+  // Strip tags and find text around the broken URL
+  const plainText = html.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+  const urlIdx = plainText.indexOf(brokenUrl);
+
+  if(urlIdx >= 0) {
+    const start = Math.max(0, urlIdx-120);
+    const end   = Math.min(plainText.length, urlIdx+brokenUrl.length+120);
+    const excerpt = '...' + plainText.substring(start,end) + '...';
+    cell.innerHTML = '<span style="font-size:12px;color:#555;line-height:1.5;">'+escHtml(excerpt)+'</span>';
+    return;
+  }
+
+  // Try finding the anchor text in the HTML near the broken URL
+  const anchorMatch = html.match(new RegExp('<a[^>]+href=["\']'+brokenUrl.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'["\'][^>]*>([^<]+)<\/a>','i'));
+  if(anchorMatch) {
+    const anchor = anchorMatch[1];
+    const anchorIdx = plainText.indexOf(anchor);
+    if(anchorIdx >= 0) {
+      const start = Math.max(0, anchorIdx-100);
+      const end   = Math.min(plainText.length, anchorIdx+anchor.length+100);
+      cell.innerHTML = '<span style="font-size:12px;color:#555;line-height:1.5;">...'+escHtml(plainText.substring(start,end))+'...</span>';
+      return;
+    }
+  }
+
+  cell.innerHTML = '<span style="font-size:11px;color:#aaa;font-style:italic;">Sentence not found in cached content.</span>';
+}
+
+function toggleBrokenLinkSelect(cb, sourceId, brokenUrl) {
+  const key = sourceId+'|'+brokenUrl;
+  if(cb.checked) BlState.selected.add(key);
+  else BlState.selected.delete(key);
+  updateDeleteBtn();
+}
+
+function toggleAllBrokenLinks(checked) {
+  const statusFilter = (document.getElementById('bl-status-filter')||{value:''}).value;
+  const data = AppState.brokenLinks.filter(b => !statusFilter || b.status === statusFilter);
+  const perPage = 100;
+  const start = (BlState.page-1)*perPage;
+  const pageData = data.slice(start, start+perPage);
+  pageData.forEach(b => {
+    const key = b.sourceId+'|'+b.brokenUrl;
+    if(checked) BlState.selected.add(key);
+    else BlState.selected.delete(key);
+  });
+  document.querySelectorAll('.bl-cb').forEach(cb => cb.checked = checked);
+  updateDeleteBtn();
+}
+
+function updateDeleteBtn() {
+  const btn = document.getElementById('bl-delete-btn');
+  if(btn) btn.disabled = BlState.selected.size === 0;
+}
+
+function deleteSelectedBrokenLinks() {
+  AppState.brokenLinks = AppState.brokenLinks.filter(b => !BlState.selected.has(b.sourceId+'|'+b.brokenUrl));
+  BlState.selected.clear();
+  renderBrokenLinksReport();
+  renderDashboard();
+  showToast('Selected broken links removed.','success');
+}
+
+function clearBrokenLinksData() {
+  if(!confirm('Clear all broken link data? This cannot be undone.')) return;
+  AppState.brokenLinks = [];
+  BlState.selected.clear();
+  renderBrokenLinksReport();
+  renderDashboard();
+  showToast('All broken link data cleared.','info');
+}
+
+function exportBrokenLinksCSV() {
+  const rows = [['Post Title','Post URL','Broken URL','Anchor Text','Type','Status','Discovered']];
+  AppState.brokenLinks.forEach(b => {
+    const sourceItem = AppState.items.find(i=>i.id===b.sourceId);
+    rows.push([
+      sourceItem?sourceItem.title:'',
+      sourceItem?sourceItem.url:(b.sourceUrl||''),
+      b.brokenUrl||'',
+      b.anchorText||'',
+      b.type||'internal',
+      b.status||'404 Not Found',
+      b.discovered ? new Date(b.discovered).toLocaleString() : ''
+    ]);
+  });
+  const csv = rows.map(r=>r.map(v=>'"'+String(v||'').replace(/"/g,'""')+'"').join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download = 'broken-links-report.csv';
+  a.click();
+}
+
 // ─── DOMAINS REPORT ──────────────────────────────────────────────────────────
 
 // Build domain data from AppState.links
@@ -1996,7 +2187,7 @@ async function syncFromShopify(){
     setLoadingStep('Done!',100);
     await new Promise(r=>setTimeout(r,400));
 
-    hideLoading(); showApp(); updateLastSynced(); renderDashboard(); renderLinksReport(); renderDomainsReport();
+    hideLoading(); showApp(); updateLastSynced(); renderDashboard(); renderLinksReport(); renderDomainsReport(); renderBrokenLinksReport();
     showToast('Sync complete — '+allItems.length+' items loaded','success');
   }catch(err){
     hideLoading(); showApp();
