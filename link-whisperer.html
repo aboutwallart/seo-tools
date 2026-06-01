@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.4</div>
+    <div class="version">v16.6</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -307,8 +307,6 @@
         <option value="">All Items</option>
         <option value="orphaned">Orphaned Only</option>
         <option value="has-inbound">Has Inbound Links</option>
-        <option value="add-active">+ Add Active (needs links)</option>
-        <option value="done">✓ Done (all links added)</option>
       </select>
       <select id="lr-vendor" onchange="renderLinksReport()">
         <option value="">All Vendors</option>
@@ -324,15 +322,16 @@
         <button onclick="closeBulkMode()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#6a1b9a;">✕</button>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
-        <input type="text" id="bulk-search" placeholder="Type a keyword..." style="flex:1;min-width:180px;padding:8px 12px;border:1px solid #ce93d8;border-radius:4px;font-size:13px;" oninput="renderBulkResults()" />
-        <select id="bulk-type" onchange="renderBulkResults()" style="padding:8px 10px;border:1px solid #ce93d8;border-radius:4px;font-size:13px;">
+        <input type="text" id="bulk-search" placeholder="Type a keyword..." style="flex:1;min-width:180px;padding:8px 12px;border:1px solid #ce93d8;border-radius:4px;font-size:13px;" onkeydown="if(event.key==='Enter')renderBulkResults()" />
+        <button onclick="renderBulkResults()" class="btn-action" style="background:#6a1b9a;">SEARCH</button>
+        <select id="bulk-type" style="padding:8px 10px;border:1px solid #ce93d8;border-radius:4px;font-size:13px;">
           <option value="">All Item Types</option>
           <option value="product">Products</option>
           <option value="article">Blog Posts</option>
           <option value="collection">Collections</option>
           <option value="page">Pages</option>
         </select>
-        <select id="bulk-vendor" onchange="renderBulkResults()" style="padding:8px 10px;border:1px solid #ce93d8;border-radius:4px;font-size:13px;">
+        <select id="bulk-vendor" style="padding:8px 10px;border:1px solid #ce93d8;border-radius:4px;font-size:13px;">
           <option value="">All Vendors</option>
         </select>
       </div>
@@ -1748,8 +1747,6 @@ function getFilteredItems() {
     if(type&&item.type!==type) return false;
     if(filter==='orphaned'&&(AppState.linkGraph.inbound[item.id]||[]).length>0) return false;
     if(filter==='has-inbound'&&(AppState.linkGraph.inbound[item.id]||[]).length===0) return false;
-    if(filter==='add-active') { const req=checkItemRequirements(item); if(!shouldShowAddButton(item)||req.fullyDone||req.noRules) return false; }
-    if(filter==='done') { const req=checkItemRequirements(item); if(!shouldShowAddButton(item)||!req.fullyDone) return false; }
     if(vendor&&(item.vendor||'').toLowerCase()!==vendor) return false;
     return true;
   });
