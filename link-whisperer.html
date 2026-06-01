@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.0</div>
+    <div class="version">v16.1</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -629,7 +629,7 @@ function switchTab(tabName, silent) {
   document.querySelectorAll('.tab-btn').forEach(b=>{ if((b.getAttribute('onclick')||'').includes("'"+tabName+"'")) b.classList.add('active'); });
   if (!silent) localStorage.setItem('lw-active-tab', tabName);
   if (tabName==='domains-report') renderDomainsReport();
-  if (tabName==='broken-links') renderBrokenLinksReport();
+  if (tabName==='broken-links') { computeBrokenLinkSuggestions(); renderBrokenLinksReport(); }
 }
 
 async function shopifyFetch(endpoint, method, body) {
@@ -707,7 +707,7 @@ function detectBrokenLinks() {
     const cu = link.targetUrl.replace(/\/$/,'').toLowerCase();
     const handle = cu.split('/').pop();
     if(!knownUrls.has(cu) && !knownHandles.has(handle)) {
-      const suggested = findBestUrlMatch(link.targetUrl);
+      const suggested = null; // computed lazily when tab opens
       AppState.brokenLinks.push({
         sourceId: link.sourceId,
         sourceUrl: link.sourceUrl,
@@ -1868,7 +1868,25 @@ function lrChangePage(dir){ AppState.lrPage+=dir; renderLinksReport(); }
 
 // ─── BROKEN LINKS REPORT ─────────────────────────────────────────────────────
 
-const BlState = { page:1, selected: new Set(), sort:{ col:'', dir:'' } };
+let blSuggestionsComputed = false;
+
+// Compute URL match suggestions lazily — only when tab is first opened
+function computeBrokenLinkSuggestions() {
+  if(blSuggestionsComputed && AppState.brokenLinks.every(b => b.suggested !== null || b.suggestedChecked)) return;
+  AppState.brokenLinks.forEach(b => {
+    if(!b.suggestedChecked) {
+      b.suggested = findBestUrlMatch(b.brokenUrl);
+      b.suggestedChecked = true;
+    }
+  });
+  blSuggestionsComputed = true;
+}
+
+// Reset flag when data is refreshed
+function resetBrokenLinkSuggestions() {
+  blSuggestionsComputed = false;
+  AppState.brokenLinks.forEach(b => { b.suggestedChecked = false; b.suggested = null; });
+}
 
 function blChangePage(dir) { BlState.page+=dir; renderBrokenLinksReport(); }
 
@@ -2389,7 +2407,7 @@ async function syncFromShopify(){
     setLoadingStep('Done!',100);
     await new Promise(r=>setTimeout(r,400));
 
-    hideLoading(); showApp(); updateLastSynced(); renderDashboard(); renderLinksReport(); renderDomainsReport(); renderBrokenLinksReport();
+    hideLoading(); showApp(); updateLastSynced(); renderDashboard(); renderLinksReport(); renderDomainsReport(); renderBrokenLinksReport(); resetBrokenLinkSuggestions();
     showToast('Sync complete — '+allItems.length+' items loaded','success');
   }catch(err){
     hideLoading(); showApp();
