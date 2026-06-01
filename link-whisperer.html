@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.2</div>
+    <div class="version">v16.3</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -632,7 +632,7 @@ function switchTab(tabName, silent) {
   document.querySelectorAll('.tab-btn').forEach(b=>{ if((b.getAttribute('onclick')||'').includes("'"+tabName+"'")) b.classList.add('active'); });
   if (!silent) localStorage.setItem('lw-active-tab', tabName);
   if (tabName==='domains-report') renderDomainsReport();
-  if (tabName==='broken-links') { computeBrokenLinkSuggestions(); renderBrokenLinksReport(); }
+  if (tabName==='broken-links') { renderBrokenLinksReport(); }
 }
 
 async function shopifyFetch(endpoint, method, body) {
@@ -1957,72 +1957,84 @@ function buildBrokenLinkRow(b, idx) {
   const postUrl    = sourceItem ? sourceItem.url : (b.sourceUrl||'#');
   const discovered = b.discovered ? new Date(b.discovered).toLocaleDateString([],{day:'numeric',month:'short',year:'numeric'}) : '—';
   const isSelected = BlState.selected.has(b.sourceId+'|'+b.brokenUrl);
-  const confirmId  = 'bl-confirm-'+idx;
 
-  // Build suggested fix cell
-  let suggestedHtml = '';
-  if(b.suggested) {
-    const s = b.suggested;
-    const altOptions = (s.alternatives||[]).map(alt =>
-      `<option value="${escHtml(alt.url)}" data-title="${escHtml(alt.title)}">${escHtml(alt.title)}</option>`
-    ).join('');
+  // Detect what type the broken URL was pointing to
+  const bu = b.brokenUrl.toLowerCase();
+  let searchType = 'all';
+  if(bu.includes('/collections/')) searchType = 'collection';
+  else if(bu.includes('/products/')) searchType = 'product';
+  else if(bu.includes('/blogs/')) searchType = 'article';
+  else if(bu.includes('/pages/')) searchType = 'page';
 
-    if(s.label === 'high') {
-      suggestedHtml = `
-        <div style="font-size:12px;">
-          <div style="color:#2e7d32;font-weight:600;margin-bottom:4px;">✅ ${escHtml(s.item.title)}</div>
-          <div style="color:#888;font-size:11px;margin-bottom:6px;">${escHtml(s.item.url)}</div>
-          <div id="${confirmId}" style="display:none;background:#f5f5f5;padding:6px 8px;border-radius:4px;font-size:11px;margin-bottom:4px;">
-            Apply fix: replace broken URL with suggested URL in source page?
-            <div style="margin-top:4px;display:flex;gap:6px;">
-              <button onclick="applyBrokenLinkFix('${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}','${escHtml(s.item.url)}',${idx})" style="background:#2e7d32;color:#fff;border:none;border-radius:3px;padding:3px 10px;font-size:11px;cursor:pointer;">Yes, fix it</button>
-              <button onclick="document.getElementById('${confirmId}').style.display='none'" style="background:#eee;border:none;border-radius:3px;padding:3px 10px;font-size:11px;cursor:pointer;">Cancel</button>
-            </div>
-          </div>
-          <div style="display:flex;gap:4px;flex-wrap:wrap;">
-            <button onclick="document.getElementById('${confirmId}').style.display='block'" style="background:#2e7d32;color:#fff;border:none;border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer;">Apply Fix</button>
-            ${altOptions ? `<select onchange="showAltFix(this,'${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}',${idx})" style="font-size:11px;padding:2px 4px;border:1px solid #ddd;border-radius:3px;"><option value="">Other options...</option>${altOptions}</select>` : ''}
-            <button onclick="confirmRemoveLink('${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}',${idx})" style="background:#fff;color:#c62828;border:1px solid #c62828;border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer;">Remove Link</button>
-          </div>
-        </div>`;
-    } else {
-      // Low confidence — show dropdown of options
-      const opts = [s.item, ...(s.alternatives||[])].map(item =>
-        `<option value="${escHtml(item.url)}" data-title="${escHtml(item.title)}">${escHtml(item.title)}</option>`
-      ).join('');
-      suggestedHtml = `
-        <div style="font-size:12px;">
-          <div style="color:#e65100;font-weight:600;margin-bottom:4px;">🔍 Possible matches:</div>
-          <select id="bl-alt-${idx}" style="font-size:11px;padding:3px 6px;border:1px solid #ddd;border-radius:3px;width:100%;margin-bottom:6px;">
-            <option value="">— pick a replacement —</option>${opts}
-          </select>
-          <div style="display:flex;gap:4px;">
-            <button onclick="applySelectedAlt('${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}','bl-alt-${idx}',${idx})" style="background:#e65100;color:#fff;border:none;border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer;">Apply Fix</button>
-            <button onclick="confirmRemoveLink('${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}',${idx})" style="background:#fff;color:#c62828;border:1px solid #c62828;border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer;">Remove Link</button>
-          </div>
-        </div>`;
-    }
-  } else {
-    suggestedHtml = `
-      <div style="font-size:12px;">
-        <div style="color:#888;margin-bottom:6px;">❌ No match found</div>
-        <button onclick="confirmRemoveLink('${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}',${idx})" style="background:#fff;color:#c62828;border:1px solid #c62828;border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer;">Remove Link</button>
-      </div>`;
-  }
+  const typeLabel = searchType === 'all' ? 'page' : searchType;
+  const inputId = 'bl-search-'+idx;
+  const dropId  = 'bl-drop-'+idx;
+
+  const fixCell = `
+    <div style="font-size:12px;">
+      <div style="font-size:11px;color:#888;margin-bottom:4px;">Search for a replacement ${typeLabel}:</div>
+      <div style="position:relative;">
+        <input type="text" id="${inputId}" placeholder="Type keyword..."
+          style="width:100%;padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:12px;box-sizing:border-box;"
+          oninput="blSearch('${inputId}','${dropId}','${searchType}','${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}',${idx})"
+          autocomplete="off" />
+        <div id="${dropId}" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ddd;border-top:none;border-radius:0 0 4px 4px;max-height:180px;overflow-y:auto;z-index:100;box-shadow:0 4px 8px rgba(0,0,0,0.1);"></div>
+      </div>
+      <button onclick="confirmRemoveLink('${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}',${idx})" style="margin-top:4px;background:#fff;color:#c62828;border:1px solid #c62828;border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;">Remove Link</button>
+    </div>`;
 
   return `<tr id="bl-row-${idx}">
     <td><input type="checkbox" class="bl-cb" ${isSelected?'checked':''} onchange="toggleBrokenLinkSelect(this,'${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}')" /></td>
     <td style="word-break:break-word;font-size:12px;"><a href="${escHtml(postUrl)}" target="_blank" style="color:#1565c0;font-weight:600;text-decoration:none;">${escHtml(postTitle)}</a></td>
     <td style="word-break:break-all;font-size:11px;"><a href="${escHtml(b.brokenUrl)}" target="_blank" style="color:#c62828;text-decoration:none;">${escHtml(b.brokenUrl)}</a></td>
     <td style="font-size:12px;color:#555;">${escHtml(b.anchorText||'—')}</td>
-    <td>${suggestedHtml}</td>
+    <td>${fixCell}</td>
     <td style="font-size:12px;">${escHtml(b.type||'internal')}</td>
     <td><span style="background:#fce4ec;color:#c62828;font-size:11px;font-weight:700;padding:2px 7px;border-radius:3px;">${escHtml(b.status||'404 Not Found')}</span></td>
     <td style="font-size:11px;color:#888;">${discovered}</td>
   </tr>`;
 }
 
-// Apply a fix — replace broken URL with suggested URL in source page bodyHtml
+// Search bar for broken link fix
+function blSearch(inputId, dropId, searchType, sourceId, brokenUrl, idx) {
+  const input = document.getElementById(inputId);
+  const drop  = document.getElementById(dropId);
+  if(!input||!drop) return;
+  const q = input.value.toLowerCase().trim();
+  if(!q) { drop.style.display='none'; return; }
+
+  const results = AppState.items.filter(i => {
+    if(!i.publishedAt) return false;
+    if(searchType==='collection') return i.type==='collection';
+    if(searchType==='product')    return i.type==='product';
+    if(searchType==='article')    return i.type==='article';
+    if(searchType==='page')       return i.type==='page';
+    return true; // 'all'
+  }).filter(i => i.title.toLowerCase().includes(q) || (i.handle||'').toLowerCase().includes(q))
+    .slice(0, 8);
+
+  if(!results.length) { drop.style.display='none'; return; }
+
+  drop.style.display = 'block';
+  drop.innerHTML = results.map(i => `
+    <div onclick="blSelectFix('${escHtml(sourceId)}','${escHtml(brokenUrl)}','${escHtml(i.url)}',${idx},'${inputId}','${dropId}')"
+      style="padding:7px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid #f5f5f5;display:flex;justify-content:space-between;align-items:center;"
+      onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background='#fff'">
+      <span style="font-weight:600;color:#222;">${escHtml(i.title)}</span>
+      <span style="font-size:11px;color:#888;margin-left:8px;white-space:nowrap;">${(AppState.linkGraph.inbound[i.id]||[]).length} inbound</span>
+    </div>`).join('');
+}
+
+function blSelectFix(sourceId, brokenUrl, newUrl, idx, inputId, dropId) {
+  // Hide dropdown
+  const drop = document.getElementById(dropId);
+  const input = document.getElementById(inputId);
+  if(drop) drop.style.display='none';
+  if(input) input.value='';
+  // Apply the fix
+  applyBrokenLinkFix(sourceId, brokenUrl, newUrl, idx);
+}
+
 async function applyBrokenLinkFix(sourceId, brokenUrl, newUrl, idx) {
   const item = AppState.items.find(i=>i.id===sourceId);
   if(!item) return;
@@ -2408,7 +2420,7 @@ async function syncFromShopify(){
     setLoadingStep('Done!',100);
     await new Promise(r=>setTimeout(r,400));
 
-    hideLoading(); showApp(); updateLastSynced(); renderDashboard(); renderLinksReport(); renderDomainsReport(); renderBrokenLinksReport(); resetBrokenLinkSuggestions();
+    hideLoading(); showApp(); updateLastSynced(); renderDashboard(); renderLinksReport(); renderDomainsReport(); renderBrokenLinksReport();
     showToast('Sync complete — '+allItems.length+' items loaded','success');
   }catch(err){
     hideLoading(); showApp();
