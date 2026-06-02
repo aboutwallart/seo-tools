@@ -301,7 +301,7 @@
       <button id="subtab-btn-bulk" onclick="switchLinksSubTab('bulk')" style="padding:8px 20px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;border:none;cursor:pointer;background:#fff;color:#6a1b9a;border-left:1px solid #ddd;">🔍 Keyword Bulk Mode</button>
     </div>
 
-    <!-- REGULAR MODE PANEL -->
+    <!-- REGULAR MODE -->
     <div id="subtab-regular">
       <div class="report-toolbar">
         <input type="text" id="lr-search" placeholder="Filter by title..." oninput="renderLinksReport()" />
@@ -323,33 +323,33 @@
         <button class="btn-outline" onclick="exportLinksCSV()">EXPORT TO CSV</button>
       </div>
       <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th onclick="sortLinksReport('title')">Title <span class="sort-icon" id="sort-title"></span></th>
-            <th>Published</th>
-            <th onclick="sortLinksReport('inbound')">Inbound Internal Links <span class="sort-icon" id="sort-inbound"></span></th>
-            <th onclick="sortLinksReport('outbound')">Outbound Internal Links <span class="sort-icon" id="sort-outbound"></span></th>
-          </tr>
-        </thead>
-        <tbody id="lr-tbody"></tbody>
-      </table>
-      <div class="pagination">
-        <span id="lr-count">Showing 0–0 of 0 items</span>
-        <div class="pagination-btns">
-          <button class="btn-page" id="lr-prev" onclick="lrChangePage(-1)">&#8592;</button>
-          <button class="btn-page" id="lr-next" onclick="lrChangePage(1)">&#8594;</button>
+        <table>
+          <thead>
+            <tr>
+              <th onclick="sortLinksReport('title')">Title <span class="sort-icon" id="sort-title"></span></th>
+              <th>Published</th>
+              <th onclick="sortLinksReport('inbound')">Inbound Internal Links <span class="sort-icon" id="sort-inbound"></span></th>
+              <th onclick="sortLinksReport('outbound')">Outbound Internal Links <span class="sort-icon" id="sort-outbound"></span></th>
+            </tr>
+          </thead>
+          <tbody id="lr-tbody"></tbody>
+        </table>
+        <div class="pagination">
+          <span id="lr-count">Showing 0–0 of 0 items</span>
+          <div class="pagination-btns">
+            <button class="btn-page" id="lr-prev" onclick="lrChangePage(-1)">&#8592;</button>
+            <button class="btn-page" id="lr-next" onclick="lrChangePage(1)">&#8594;</button>
+          </div>
         </div>
       </div>
-    </div><!-- end table-wrap -->
-    </div><!-- end subtab-regular -->
+    </div>
 
-    <!-- KEYWORD BULK MODE PANEL -->
+    <!-- KEYWORD BULK MODE -->
     <div id="subtab-bulk" style="display:none;">
       <div style="background:#f3e5f5;border:2px solid #6a1b9a;border-radius:8px;padding:20px;">
         <h3 style="color:#6a1b9a;font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:14px;">🔍 Keyword Based Bulk Mode — Outbound Links</h3>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
-          <input type="text" id="bulk-search" placeholder="Type keywords, comma-separated for multiple..." style="flex:1;min-width:220px;padding:8px 12px;border:1px solid #ce93d8;border-radius:4px;font-size:13px;" onkeydown="if(event.key==='Enter')renderBulkResults()" />
+          <input type="text" id="bulk-search" placeholder="Keywords, comma-separated for multiple..." style="flex:1;min-width:220px;padding:8px 12px;border:1px solid #ce93d8;border-radius:4px;font-size:13px;" onkeydown="if(event.key==='Enter')renderBulkResults()" />
           <button onclick="renderBulkResults()" class="btn-action" style="background:#6a1b9a;">SEARCH</button>
           <select id="bulk-type" style="padding:8px 10px;border:1px solid #ce93d8;border-radius:4px;font-size:13px;">
             <option value="">All Item Types</option>
@@ -364,9 +364,9 @@
         </div>
         <div id="bulk-results"><p style="color:#888;font-size:13px;">Type a keyword to find items to process.</p></div>
       </div>
-    </div><!-- end subtab-bulk -->
+    </div>
 
-  </div><!-- end tab-links-report -->
+  </div>
 
   <div id="tab-domains-report" class="tab-content">
     <div class="report-toolbar">
@@ -1195,9 +1195,9 @@ async function saveQueue() {
     updateQueueBar();
     renderLinksReport();
     renderDashboard();
-    // Re-render bulk results so completed items disappear
-    const bulkVisible = document.getElementById('subtab-bulk');
-    if(bulkVisible && bulkVisible.style.display !== 'none') renderBulkResults();
+    // Re-render bulk results if bulk tab is active — done items disappear automatically
+    const bulkPanel = document.getElementById('subtab-bulk');
+    if(bulkPanel && bulkPanel.style.display !== 'none') renderBulkResults();
     btn.disabled = false;
     btn.textContent = '💾 Save Queue (0)';
     showQueueResultModal(saved, failedItems);
@@ -1799,13 +1799,7 @@ function renderLinksReport() {
         let va,vb;
         if(col==='title'){va=a.title.toLowerCase();vb=b.title.toLowerCase();}
         else if(col==='inbound'){va=(AppState.linkGraph.inbound[a.id]||[]).length;vb=(AppState.linkGraph.inbound[b.id]||[]).length;}
-        else if(col==='outbound'){
-          const reqA = checkItemRequirements(a);
-          const reqB = checkItemRequirements(b);
-          // Group: needs work (0) before done (1)
-          va = reqA.fullyDone ? 1 : 0;
-          vb = reqB.fullyDone ? 1 : 0;
-        }
+        else if(col==='outbound'){va=checkItemRequirements(a).fullyDone?1:0;vb=checkItemRequirements(b).fullyDone?1:0;}
         if(va<vb) return dir==='asc'?-1:1;
         if(va>vb) return dir==='asc'?1:-1;
       }
@@ -1915,29 +1909,32 @@ function lrChangePage(dir){ AppState.lrPage+=dir; renderLinksReport(); }
 // ─── KEYWORD BASED BULK MODE ──────────────────────────────────────────────────
 
 function switchLinksSubTab(name) {
-  // Toggle panels
-  document.getElementById('subtab-regular').style.display = name === 'regular' ? '' : 'none';
-  document.getElementById('subtab-bulk').style.display    = name === 'bulk'    ? '' : 'none';
-  // Style buttons
-  const btnR = document.getElementById('subtab-btn-regular');
-  const btnB = document.getElementById('subtab-btn-bulk');
-  if(name === 'regular') {
-    btnR.style.background='#222'; btnR.style.color='#fff';
-    btnB.style.background='#fff'; btnB.style.color='#6a1b9a';
-  } else {
-    btnB.style.background='#6a1b9a'; btnB.style.color='#fff';
+  const regular = document.getElementById('subtab-regular');
+  const bulk    = document.getElementById('subtab-bulk');
+  const btnR    = document.getElementById('subtab-btn-regular');
+  const btnB    = document.getElementById('subtab-btn-bulk');
+  if(!regular || !bulk || !btnR || !btnB) return;
+
+  if(name === 'bulk') {
+    regular.style.display = 'none';
+    bulk.style.display    = '';
     btnR.style.background='#fff'; btnR.style.color='#222';
-    // Populate bulk vendor dropdown if needed
+    btnB.style.background='#6a1b9a'; btnB.style.color='#fff';
+    // Populate bulk vendor dropdown if not yet done
     const vendorSel = document.getElementById('bulk-vendor');
     if(vendorSel && vendorSel.options.length <= 1) {
       const vendors = [...new Set(AppState.items.filter(i=>i.vendor).map(i=>i.vendor))].sort();
       vendors.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; vendorSel.appendChild(o); });
     }
+  } else {
+    bulk.style.display    = 'none';
+    regular.style.display = '';
+    btnR.style.background='#222'; btnR.style.color='#fff';
+    btnB.style.background='#fff'; btnB.style.color='#6a1b9a';
   }
 }
 
-// Keep these as no-ops for any residual references
-function openBulkMode() { switchLinksSubTab('bulk'); }
+function openBulkMode()  { switchLinksSubTab('bulk'); }
 function closeBulkMode() { switchLinksSubTab('regular'); }
 
 function renderBulkResults() {
@@ -1949,15 +1946,14 @@ function renderBulkResults() {
 
   if(!rawQ) { container.innerHTML = '<p style="color:#888;font-size:13px;">Type a keyword to find items to process.</p>'; return; }
 
-  // Show spinner immediately
+  // Show spinner immediately so user knows it's working
   container.innerHTML = '<div style="display:flex;align-items:center;gap:10px;padding:16px 0;color:#6a1b9a;font-size:13px;font-weight:600;"><div class="spinner" style="width:24px;height:24px;border-width:3px;border-top-color:#6a1b9a;"></div> Searching...</div>';
 
-  // Defer actual work so spinner renders first
+  // Defer actual filtering so spinner renders first
   setTimeout(() => {
-    // Split by comma — support up to 5 keywords
+    // Support multiple keywords separated by commas
     const keywords = rawQ.split(',').map(k=>k.trim().toLowerCase()).filter(Boolean).slice(0,5);
 
-    // Filter items — must match ANY keyword, not fully done, have + Add button
     const results = AppState.items.filter(item => {
       if(!shouldShowAddButton(item)) return false;
       const req = checkItemRequirements(item);
@@ -1970,34 +1966,32 @@ function renderBulkResults() {
 
     if(!results.length) { container.innerHTML = '<p style="color:#888;font-size:13px;">No items found needing links for those keywords.</p>'; return; }
 
-    const keywordDisplay = keywords.join(', ');
+    // Use first keyword for blog filtering inside panels
+    const firstKeyword = keywords[0];
 
     container.innerHTML = `
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #ce93d8;">
         <label style="font-size:13px;font-weight:600;color:#6a1b9a;display:flex;align-items:center;gap:6px;">
           <input type="checkbox" id="bulk-select-all" onchange="bulkToggleAll(this.checked)" /> Select all (${results.length} items)
         </label>
-        <button onclick="bulkAddAllToQueue('${escHtml(rawQ)}')" class="btn-action" style="background:#6a1b9a;font-size:12px;">+ Add All Selected to Queue</button>
+        <button onclick="bulkAddAllToQueue('${escHtml(firstKeyword)}')" class="btn-action" style="background:#6a1b9a;font-size:12px;">+ Add All Selected to Queue</button>
       </div>
       <div id="bulk-items-list">
-        ${results.map((item,i) => buildBulkItemRow(item, i, rawQ)).join('')}
+        ${results.map((item,i) => buildBulkItemRow(item, i, firstKeyword)).join('')}
       </div>`;
   }, 0);
 }
 
-function buildBulkItemRow(item, idx, rawQ) {
+function buildBulkItemRow(item, idx, keyword) {
   const req = checkItemRequirements(item);
   const rowId = 'bulk-row-'+item.id;
   const panelId = 'bulk-panel-'+item.id;
-  // Use first keyword for blog filtering in panel
-  const keywords = rawQ.split(',').map(k=>k.trim()).filter(Boolean);
-  const firstKeyword = keywords[0] || rawQ;
 
   return `<div id="${rowId}" style="background:#fff;border:1px solid #ce93d8;border-radius:6px;margin-bottom:8px;overflow:hidden;">
-    <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;" onclick="toggleBulkItemPanel('${item.id}','${escHtml(firstKeyword)}')">
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;" onclick="toggleBulkItemPanel('${item.id}','${escHtml(keyword)}')">
       <input type="checkbox" class="bulk-item-cb" data-item-id="${item.id}"
         onclick="event.stopPropagation()"
-        onchange="onBulkItemCheck(this,'${item.id}','${escHtml(firstKeyword)}')" />
+        onchange="if(this.checked){var p=document.getElementById('bulk-panel-${item.id}');if(p&&p.style.display==='none')toggleBulkItemPanel('${item.id}','${escHtml(keyword)}')}" />
       <div style="flex:1;">
         <div style="font-weight:600;font-size:13px;color:#222;">${escHtml(item.title)}</div>
         <div style="font-size:11px;color:#888;margin-top:2px;">
@@ -2009,24 +2003,12 @@ function buildBulkItemRow(item, idx, rawQ) {
       <span style="font-size:11px;color:#6a1b9a;">▼ expand</span>
     </div>
     <div id="${panelId}" style="display:none;border-top:1px solid #f3e5f5;padding:12px 14px;background:#faf5ff;">
-      <p style="color:#aaa;font-size:12px;font-style:italic;">Click to expand or tick the checkbox to load options.</p>
     </div>
   </div>`;
 }
 
-function onBulkItemCheck(checkbox, itemId, keyword) {
-  // Auto-expand when ticked so user can verify/change selections
-  if(checkbox.checked) {
-    const panel = document.getElementById('bulk-panel-'+itemId);
-    if(panel && panel.style.display === 'none') {
-      toggleBulkItemPanel(itemId, keyword);
-    }
-  }
-}
-
 function toggleBulkItemPanel(itemId, keyword) {
-  const panelId = 'bulk-panel-'+itemId;
-  const panel = document.getElementById(panelId);
+  const panel = document.getElementById('bulk-panel-'+itemId);
   if(!panel) return;
   if(panel.style.display === 'none') {
     panel.style.display = 'block';
