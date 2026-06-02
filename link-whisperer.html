@@ -1813,8 +1813,7 @@ function updateNeedsOutboundCount() {
   const countIn = AppState.items.filter(item => {
     if(type && item.type !== type) return false;
     if(vendor && (item.vendor||'').toLowerCase() !== vendor) return false;
-    const req = checkInboundRequirements(item);
-    return !req.noRules && !req.fullyDone;
+    return (AppState.linkGraph.inbound[item.id]||[]).length === 0;
   }).length;
   optIn.textContent = 'Needs Inbound Links (' + countIn + ')';
 }
@@ -1834,8 +1833,7 @@ function getFilteredItems() {
       if(checkItemRequirements(item).fullyDone) return false;
     }
     if(filter==='needs-inbound'){
-      const req = checkInboundRequirements(item);
-      if(req.noRules || req.fullyDone) return false;
+      if((AppState.linkGraph.inbound[item.id]||[]).length > 0) return false;
     }
     if(vendor&&(item.vendor||'').toLowerCase()!==vendor) return false;
     return true;
