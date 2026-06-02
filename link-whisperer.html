@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.18</div>
+    <div class="version">v16.19</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -460,7 +460,115 @@
   <div id="tab-auto-linking" class="tab-content"><p class="placeholder-msg">Auto Linking — coming soon.</p></div>
   <div id="tab-url-changer" class="tab-content"><p class="placeholder-msg">URL Changer — coming soon.</p></div>
   <div id="tab-target-keywords" class="tab-content"><p class="placeholder-msg">Target Keywords — coming soon.</p></div>
-  <div id="tab-settings" class="tab-content"><p class="placeholder-msg">Settings — coming soon.</p></div>
+  <div id="tab-settings" class="tab-content">
+    <div style="max-width:800px;">
+      <h2 style="font-size:18px;font-weight:700;margin-bottom:24px;">Settings</h2>
+
+      <!-- TOGGLES -->
+      <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:24px;margin-bottom:20px;">
+        <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#333;margin-bottom:20px;">General</h3>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #f0f0f0;">
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#333;">Ignore Numbers</div>
+            <div style="font-size:12px;color:#888;margin-top:2px;">Numbers will not be used as anchor text for links.</div>
+          </div>
+          <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0;">
+            <input type="checkbox" id="setting-ignore-numbers" onchange="saveSetting('ignoreNumbers',this.checked)" style="opacity:0;width:0;height:0;">
+            <span onclick="toggleSettingSwitch('setting-ignore-numbers')" style="position:absolute;cursor:pointer;inset:0;background:#ccc;border-radius:24px;transition:0.3s;" id="sw-ignore-numbers"></span>
+          </label>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #f0f0f0;">
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#333;">Suggest Links Between Products</div>
+            <div style="font-size:12px;color:#888;margin-top:2px;">When off, products will not suggest links to other products. Recommended: off.</div>
+          </div>
+          <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0;">
+            <input type="checkbox" id="setting-suggest-products" onchange="saveSetting('suggestBetweenProducts',this.checked)" style="opacity:0;width:0;height:0;">
+            <span onclick="toggleSettingSwitch('setting-suggest-products')" style="position:absolute;cursor:pointer;inset:0;background:#ccc;border-radius:24px;transition:0.3s;" id="sw-suggest-products"></span>
+          </label>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #f0f0f0;">
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#333;">Open Links in a New Tab</div>
+            <div style="font-size:12px;color:#888;margin-top:2px;">Not recommended for internal links — keep off for best SEO.</div>
+          </div>
+          <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0;">
+            <input type="checkbox" id="setting-new-tab" onchange="saveSetting('openNewTab',this.checked)" style="opacity:0;width:0;height:0;">
+            <span onclick="toggleSettingSwitch('setting-new-tab')" style="position:absolute;cursor:pointer;inset:0;background:#ccc;border-radius:24px;transition:0.3s;" id="sw-new-tab"></span>
+          </label>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #f0f0f0;">
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#333;">Add rel="noreferrer" to Created Links</div>
+            <div style="font-size:12px;color:#888;margin-top:2px;">Not recommended for internal links — keep off for best SEO.</div>
+          </div>
+          <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0;">
+            <input type="checkbox" id="setting-noreferrer" onchange="saveSetting('addNoreferrer',this.checked)" style="opacity:0;width:0;height:0;">
+            <span onclick="toggleSettingSwitch('setting-noreferrer')" style="position:absolute;cursor:pointer;inset:0;background:#ccc;border-radius:24px;transition:0.3s;" id="sw-noreferrer"></span>
+          </label>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;">
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#333;">Make Suggestions Use Relative Links</div>
+            <div style="font-size:12px;color:#888;margin-top:2px;">Use /path instead of https://aboutwallart.com/path.</div>
+          </div>
+          <label style="position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0;">
+            <input type="checkbox" id="setting-relative" onchange="saveSetting('relativeLinks',this.checked)" style="opacity:0;width:0;height:0;">
+            <span onclick="toggleSettingSwitch('setting-relative')" style="position:absolute;cursor:pointer;inset:0;background:#ccc;border-radius:24px;transition:0.3s;" id="sw-relative"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- MAX ITEMS -->
+      <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:24px;margin-bottom:20px;">
+        <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#333;margin-bottom:20px;">Display</h3>
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#333;">Max Items Per Page</div>
+            <div style="font-size:12px;color:#888;margin-top:2px;">How many items to show per page in the Links Report.</div>
+          </div>
+          <input type="number" id="setting-max-items" min="10" max="500" style="width:80px;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;text-align:center;" onchange="saveSetting('maxItemsPerPage',parseInt(this.value)||100)" />
+        </div>
+      </div>
+
+      <!-- DATA TYPES -->
+      <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:24px;margin-bottom:20px;">
+        <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#333;margin-bottom:20px;">Data Types to Create Links For</h3>
+        <div style="display:flex;gap:24px;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="setting-type-product"    onchange="saveDataTypes()" /> Products</label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="setting-type-page"       onchange="saveDataTypes()" /> Pages</label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="setting-type-article"    onchange="saveDataTypes()" /> Blog Posts</label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="setting-type-collection" onchange="saveDataTypes()" /> Collections</label>
+        </div>
+      </div>
+
+      <!-- WORDS TO IGNORE -->
+      <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:24px;margin-bottom:20px;">
+        <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#333;margin-bottom:4px;">Words to be Ignored</h3>
+        <p style="font-size:12px;color:#888;margin-bottom:12px;">These words will never be used as anchor text. Add each word on a new line.</p>
+        <textarea id="setting-words-ignore" rows="10" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:4px;font-size:12px;font-family:monospace;resize:vertical;" onchange="saveSetting('wordsToIgnore',this.value)"></textarea>
+      </div>
+
+      <!-- URLS TO IGNORE -->
+      <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:24px;margin-bottom:20px;">
+        <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#333;margin-bottom:4px;">URLs to be Ignored</h3>
+        <p style="font-size:12px;color:#888;margin-bottom:12px;">These URLs will never be suggested as link targets. Add each URL on a new line.</p>
+        <textarea id="setting-urls-ignore" rows="6" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:4px;font-size:12px;font-family:monospace;resize:vertical;" onchange="saveSetting('urlsToIgnore',this.value)"></textarea>
+      </div>
+
+      <!-- CLEAR CACHE -->
+      <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:24px;margin-bottom:20px;">
+        <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#333;margin-bottom:4px;">Clear Stored Data</h3>
+        <p style="font-size:12px;color:#888;margin-bottom:16px;">Clears all cached Shopify data and forces a full fresh sync next time you load the tool. Use this if data looks out of date.</p>
+        <button class="btn-action" style="background:#c62828;" onclick="clearAllCache()">🗑 Clear Cache &amp; Re-sync</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- QUEUE RESULT MODAL -->
@@ -496,6 +604,373 @@ const CONFIG = {
   itemsPerPage: 100,
   cacheKey: 'link-whisperer-cache'
 };
+
+const DEFAULT_WORDS_TO_IGNORE = `a
+about
+above
+actually
+add
+after
+again
+against
+ago
+all
+am
+an
+and
+another
+answer
+any
+are
+aren't
+as
+at
+base
+be
+because
+been
+before
+being
+below
+best
+better
+between
+both
+but
+by
+can
+can't
+cannot
+cons
+could
+couldn't
+did
+didn't
+difference
+different
+do
+does
+doesn't
+doing
+don't
+done
+down
+during
+each
+easier
+easy
+eight
+even
+far
+few
+find
+first
+five
+for
+four
+free
+from
+further
+general
+get
+gett
+getting
+go
+good
+got
+great
+had
+hadn't
+has
+hasn't
+have
+haven't
+haver
+having
+he
+he'd
+he'll
+he's
+help
+her
+here
+here's
+hers
+herself
+high
+him
+himself
+his
+how
+how's
+i
+i'd
+i'll
+i'm
+i've
+if
+in
+into
+is
+isn't
+it
+it's
+its
+itself
+just
+less
+let's
+like
+long
+look
+love
+make
+many
+matt
+matter
+may
+me
+more
+most
+much
+mustn't
+my
+myself
+never
+new
+nine
+no
+nor
+not
+now
+of
+off
+on
+once
+one
+only
+or
+other
+ought
+our
+ours
+ourselves
+out
+over
+overall
+own
+per
+pros
+question
+review
+right
+same
+seven
+shan't
+she
+she'd
+she'll
+she's
+shock
+shocking
+should
+shouldn't
+show
+simple
+six
+so
+some
+start
+still
+such
+take
+ten
+than
+that
+that's
+the
+their
+theirs
+them
+themselves
+then
+there
+there's
+these
+they
+they'd
+they'll
+they're
+they've
+this
+those
+three
+through
+to
+too
+tool
+two
+under
+until
+up
+use
+using
+very
+want
+was
+wasn't
+we
+we'd
+we'll
+we're
+we've
+were
+weren't
+what
+what's
+when
+when's
+where
+where's
+which
+while
+who
+who's
+whom
+why
+why's
+will
+with
+within
+without
+won't
+would
+wouldn't
+you
+you'd
+you'll
+you're
+you've
+your
+yours
+yourself
+yourselves
+zero`;
+
+const DEFAULT_SETTINGS = {
+  ignoreNumbers: true,
+  suggestBetweenProducts: false,
+  openNewTab: false,
+  addNoreferrer: false,
+  relativeLinks: false,
+  maxItemsPerPage: 100,
+  wordsToIgnore: DEFAULT_WORDS_TO_IGNORE,
+  urlsToIgnore: '',
+  dataTypes: ['product','page','article','collection']
+};
+
+let AppSettings = {};
+
+function loadSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('lw-settings')||'{}');
+    AppSettings = Object.assign({}, DEFAULT_SETTINGS, saved);
+  } catch(e) {
+    AppSettings = Object.assign({}, DEFAULT_SETTINGS);
+  }
+  CONFIG.itemsPerPage = AppSettings.maxItemsPerPage || 100;
+}
+
+function saveSetting(key, value) {
+  AppSettings[key] = value;
+  if(key === 'maxItemsPerPage') CONFIG.itemsPerPage = value;
+  try { localStorage.setItem('lw-settings', JSON.stringify(AppSettings)); } catch(e) {}
+  showToast('Setting saved.', 'success');
+}
+
+function saveDataTypes() {
+  const types = [];
+  ['product','page','article','collection'].forEach(t => {
+    if(document.getElementById('setting-type-'+t) && document.getElementById('setting-type-'+t).checked) types.push(t);
+  });
+  saveSetting('dataTypes', types);
+}
+
+function toggleSettingSwitch(inputId) {
+  const input = document.getElementById(inputId);
+  if(!input) return;
+  input.checked = !input.checked;
+  input.dispatchEvent(new Event('change'));
+  updateSwitchVisual(inputId);
+}
+
+function updateSwitchVisual(inputId) {
+  const input = document.getElementById(inputId);
+  const swId = inputId.replace('setting-','sw-');
+  const sw = document.getElementById(swId);
+  if(!input || !sw) return;
+  sw.style.background = input.checked ? '#222' : '#ccc';
+  sw.style.setProperty('--x', input.checked ? '20px' : '0px');
+}
+
+function initSettingsTab() {
+  // Toggles
+  const toggleMap = {
+    'setting-ignore-numbers':   'ignoreNumbers',
+    'setting-suggest-products': 'suggestBetweenProducts',
+    'setting-new-tab':          'openNewTab',
+    'setting-noreferrer':       'addNoreferrer',
+    'setting-relative':         'relativeLinks'
+  };
+  Object.entries(toggleMap).forEach(([id, key]) => {
+    const el = document.getElementById(id);
+    if(el) { el.checked = !!AppSettings[key]; updateSwitchVisual(id); }
+  });
+  // Add knob style to all switches
+  document.querySelectorAll('#tab-settings span[id^="sw-"]').forEach(sw => {
+    sw.style.transition = 'background 0.3s';
+    // Add pseudo-knob via child div
+    if(!sw.querySelector('.sw-knob')) {
+      const knob = document.createElement('div');
+      knob.className = 'sw-knob';
+      knob.style.cssText = 'position:absolute;height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:transform 0.3s;pointer-events:none;';
+      sw.appendChild(knob);
+    }
+  });
+  // Update knob positions
+  Object.keys(toggleMap).forEach(id => {
+    const input = document.getElementById(id);
+    const swId = id.replace('setting-','sw-');
+    const sw = document.getElementById(swId);
+    if(input && sw) {
+      sw.style.background = input.checked ? '#222' : '#ccc';
+      const knob = sw.querySelector('.sw-knob');
+      if(knob) knob.style.transform = input.checked ? 'translateX(20px)' : 'translateX(0)';
+    }
+  });
+  // Max items
+  const maxEl = document.getElementById('setting-max-items');
+  if(maxEl) maxEl.value = AppSettings.maxItemsPerPage || 100;
+  // Data types
+  (AppSettings.dataTypes||[]).forEach(t => {
+    const el = document.getElementById('setting-type-'+t);
+    if(el) el.checked = true;
+  });
+  // Words & URLs
+  const wordsEl = document.getElementById('setting-words-ignore');
+  if(wordsEl) wordsEl.value = AppSettings.wordsToIgnore || DEFAULT_WORDS_TO_IGNORE;
+  const urlsEl = document.getElementById('setting-urls-ignore');
+  if(urlsEl) urlsEl.value = AppSettings.urlsToIgnore || '';
+}
+
+function clearAllCache() {
+  if(!confirm('This will clear all cached data and reload. Continue?')) return;
+  localStorage.removeItem('lw-cache');
+  localStorage.removeItem('lw-body-cache');
+  localStorage.removeItem('lw-cache-time');
+  showToast('Cache cleared — reloading...','info');
+  setTimeout(() => location.reload(), 800);
+}
 
 const ROOM_TYPES = ['bathroom','bedroom','living room','kitchen','hallway','office','nursery','staircase','dining','garden','study','playroom','conservatory'];
 const STYLES = ['japandi','minimalist','maximalist','botanical','abstract','vintage','modern','scandi','industrial','rustic','bohemian','monochrome','black and white','geometric','floral','tropical','coastal'];
@@ -648,6 +1123,7 @@ let inboundBulkSaved = new Set();
 let donutChart = null;
 
 document.addEventListener('DOMContentLoaded', () => {
+  loadSettings();
   switchTab(localStorage.getItem('lw-active-tab')||'dashboard', true);
 
   // Load from cache if under 24 hours old
@@ -700,6 +1176,7 @@ function switchTab(tabName, silent) {
   if (!silent) localStorage.setItem('lw-active-tab', tabName);
   if (tabName==='domains-report') renderDomainsReport();
   if (tabName==='broken-links') { renderBrokenLinksReport(); }
+  if (tabName==='settings') { initSettingsTab(); }
 }
 
 async function shopifyFetch(endpoint, method, body) {
