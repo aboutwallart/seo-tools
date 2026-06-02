@@ -166,7 +166,7 @@
     .suggest-search-input-wrap { position:relative; }
     .suggest-search-input { width:100%; padding:8px 12px; border:1px solid #ddd; border-radius:4px; font-size:13px; font-family:inherit; }
     .suggest-search-input:focus { outline:none; border-color:#1565c0; }
-    .suggest-search-dropdown { position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid #ddd; border-top:none; border-radius:0 0 4px 4px; max-height:220px; overflow-y:auto; z-index:100; box-shadow:0 4px 12px rgba(0,0,0,0.1); }
+    .suggest-search-dropdown { position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid #ddd; border-top:none; border-radius:0 0 4px 4px; max-height:400px; overflow-y:auto; z-index:100; box-shadow:0 4px 12px rgba(0,0,0,0.1); }
     .suggest-search-item { padding:8px 12px; cursor:pointer; font-size:13px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #f5f5f5; }
     .suggest-search-item:last-child { border-bottom:none; }
     .suggest-search-item:hover { background:#f0f7ff; }
@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.6</div>
+    <div class="version">v16.7</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -294,50 +294,35 @@
 
   <!-- LINKS REPORT -->
   <div id="tab-links-report" class="tab-content">
-    <div class="report-toolbar">
-      <input type="text" id="lr-search" placeholder="Filter by title..." oninput="renderLinksReport()" />
-      <select id="lr-type" onchange="renderLinksReport()">
-        <option value="">All Item Types</option>
-        <option value="product">Products</option>
-        <option value="page">Pages</option>
-        <option value="article">Blog Posts</option>
-        <option value="collection">Collections</option>
-      </select>
-      <select id="lr-filter" onchange="renderLinksReport()">
-        <option value="">All Items</option>
-        <option value="orphaned">Orphaned Only</option>
-        <option value="has-inbound">Has Inbound Links</option>
-      </select>
-      <select id="lr-vendor" onchange="renderLinksReport()">
-        <option value="">All Vendors</option>
-      </select>
-      <button class="btn-outline" onclick="exportLinksCSV()">EXPORT TO CSV</button>
-      <button class="btn-action" style="background:#6a1b9a;" onclick="openBulkMode()">🔍 KEYWORD BASED BULK MODE</button>
+
+    <!-- SUB-TAB NAV -->
+    <div style="display:flex;gap:0;margin-bottom:16px;border:1px solid #ddd;border-radius:6px;overflow:hidden;width:fit-content;">
+      <button id="subtab-btn-regular" onclick="switchLinksSubTab('regular')" style="padding:8px 20px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;border:none;cursor:pointer;background:#222;color:#fff;">📋 Regular Mode</button>
+      <button id="subtab-btn-bulk" onclick="switchLinksSubTab('bulk')" style="padding:8px 20px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;border:none;cursor:pointer;background:#fff;color:#6a1b9a;border-left:1px solid #ddd;">🔍 Keyword Bulk Mode</button>
     </div>
 
-    <!-- KEYWORD BASED BULK MODE PANEL -->
-    <div id="bulk-mode-panel" style="display:none;background:#f3e5f5;border:2px solid #6a1b9a;border-radius:8px;padding:20px;margin-bottom:16px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-        <h3 style="color:#6a1b9a;font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">🔍 Keyword Based Bulk Mode</h3>
-        <button onclick="closeBulkMode()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#6a1b9a;">✕</button>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
-        <input type="text" id="bulk-search" placeholder="Type a keyword..." style="flex:1;min-width:180px;padding:8px 12px;border:1px solid #ce93d8;border-radius:4px;font-size:13px;" onkeydown="if(event.key==='Enter')renderBulkResults()" />
-        <button onclick="renderBulkResults()" class="btn-action" style="background:#6a1b9a;">SEARCH</button>
-        <select id="bulk-type" style="padding:8px 10px;border:1px solid #ce93d8;border-radius:4px;font-size:13px;">
+    <!-- REGULAR MODE PANEL -->
+    <div id="subtab-regular">
+      <div class="report-toolbar">
+        <input type="text" id="lr-search" placeholder="Filter by title..." oninput="renderLinksReport()" />
+        <select id="lr-type" onchange="renderLinksReport()">
           <option value="">All Item Types</option>
           <option value="product">Products</option>
+          <option value="page">Pages</option>
           <option value="article">Blog Posts</option>
           <option value="collection">Collections</option>
-          <option value="page">Pages</option>
         </select>
-        <select id="bulk-vendor" style="padding:8px 10px;border:1px solid #ce93d8;border-radius:4px;font-size:13px;">
+        <select id="lr-filter" onchange="renderLinksReport()">
+          <option value="">All Items</option>
+          <option value="orphaned">Orphaned Only</option>
+          <option value="has-inbound">Has Inbound Links</option>
+        </select>
+        <select id="lr-vendor" onchange="renderLinksReport()">
           <option value="">All Vendors</option>
         </select>
+        <button class="btn-outline" onclick="exportLinksCSV()">EXPORT TO CSV</button>
       </div>
-      <div id="bulk-results"></div>
-    </div>
-    <div class="table-wrap">
+      <div class="table-wrap">
       <table>
         <thead>
           <tr>
@@ -356,8 +341,32 @@
           <button class="btn-page" id="lr-next" onclick="lrChangePage(1)">&#8594;</button>
         </div>
       </div>
-    </div>
-  </div>
+    </div><!-- end table-wrap -->
+    </div><!-- end subtab-regular -->
+
+    <!-- KEYWORD BULK MODE PANEL -->
+    <div id="subtab-bulk" style="display:none;">
+      <div style="background:#f3e5f5;border:2px solid #6a1b9a;border-radius:8px;padding:20px;">
+        <h3 style="color:#6a1b9a;font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:14px;">🔍 Keyword Based Bulk Mode — Outbound Links</h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+          <input type="text" id="bulk-search" placeholder="Type keywords, comma-separated for multiple..." style="flex:1;min-width:220px;padding:8px 12px;border:1px solid #ce93d8;border-radius:4px;font-size:13px;" onkeydown="if(event.key==='Enter')renderBulkResults()" />
+          <button onclick="renderBulkResults()" class="btn-action" style="background:#6a1b9a;">SEARCH</button>
+          <select id="bulk-type" style="padding:8px 10px;border:1px solid #ce93d8;border-radius:4px;font-size:13px;">
+            <option value="">All Item Types</option>
+            <option value="product">Products</option>
+            <option value="article">Blog Posts</option>
+            <option value="collection">Collections</option>
+            <option value="page">Pages</option>
+          </select>
+          <select id="bulk-vendor" style="padding:8px 10px;border:1px solid #ce93d8;border-radius:4px;font-size:13px;">
+            <option value="">All Vendors</option>
+          </select>
+        </div>
+        <div id="bulk-results"><p style="color:#888;font-size:13px;">Type a keyword to find items to process.</p></div>
+      </div>
+    </div><!-- end subtab-bulk -->
+
+  </div><!-- end tab-links-report -->
 
   <div id="tab-domains-report" class="tab-content">
     <div class="report-toolbar">
@@ -1186,6 +1195,9 @@ async function saveQueue() {
     updateQueueBar();
     renderLinksReport();
     renderDashboard();
+    // Re-render bulk results so completed items disappear
+    const bulkVisible = document.getElementById('subtab-bulk');
+    if(bulkVisible && bulkVisible.style.display !== 'none') renderBulkResults();
     btn.disabled = false;
     btn.textContent = '💾 Save Queue (0)';
     showQueueResultModal(saved, failedItems);
@@ -1250,7 +1262,7 @@ function searchSuggest(itemId, searchType, cbClass, inputId, dropId) {
       return false;
     })
     .filter(i => i.title.toLowerCase().includes(q))
-    .slice(0, 8);
+    .slice(0, 15);
 
   if(!results.length) { drop.style.display='none'; return; }
 
@@ -1786,7 +1798,13 @@ function renderLinksReport() {
         let va,vb;
         if(col==='title'){va=a.title.toLowerCase();vb=b.title.toLowerCase();}
         else if(col==='inbound'){va=(AppState.linkGraph.inbound[a.id]||[]).length;vb=(AppState.linkGraph.inbound[b.id]||[]).length;}
-        else if(col==='outbound'){va=(AppState.linkGraph.outbound[a.id]||[]).filter(l=>l.type==='internal').length;vb=(AppState.linkGraph.outbound[b.id]||[]).filter(l=>l.type==='internal').length;}
+        else if(col==='outbound'){
+          const reqA = checkItemRequirements(a);
+          const reqB = checkItemRequirements(b);
+          // Group: needs work (0) before done (1)
+          va = reqA.fullyDone ? 1 : 0;
+          vb = reqB.fullyDone ? 1 : 0;
+        }
         if(va<vb) return dir==='asc'?-1:1;
         if(va>vb) return dir==='asc'?1:-1;
       }
@@ -1895,70 +1913,90 @@ function lrChangePage(dir){ AppState.lrPage+=dir; renderLinksReport(); }
 
 // ─── KEYWORD BASED BULK MODE ──────────────────────────────────────────────────
 
-function openBulkMode() {
-  const panel = document.getElementById('bulk-mode-panel');
-  if(panel) {
-    panel.style.display = 'block';
-    // Populate vendor dropdown
+function switchLinksSubTab(name) {
+  // Toggle panels
+  document.getElementById('subtab-regular').style.display = name === 'regular' ? '' : 'none';
+  document.getElementById('subtab-bulk').style.display    = name === 'bulk'    ? '' : 'none';
+  // Style buttons
+  const btnR = document.getElementById('subtab-btn-regular');
+  const btnB = document.getElementById('subtab-btn-bulk');
+  if(name === 'regular') {
+    btnR.style.background='#222'; btnR.style.color='#fff';
+    btnB.style.background='#fff'; btnB.style.color='#6a1b9a';
+  } else {
+    btnB.style.background='#6a1b9a'; btnB.style.color='#fff';
+    btnR.style.background='#fff'; btnR.style.color='#222';
+    // Populate bulk vendor dropdown if needed
     const vendorSel = document.getElementById('bulk-vendor');
     if(vendorSel && vendorSel.options.length <= 1) {
       const vendors = [...new Set(AppState.items.filter(i=>i.vendor).map(i=>i.vendor))].sort();
       vendors.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; vendorSel.appendChild(o); });
     }
-    renderBulkResults();
-    panel.scrollIntoView({ behavior:'smooth', block:'start' });
   }
 }
 
-function closeBulkMode() {
-  const panel = document.getElementById('bulk-mode-panel');
-  if(panel) panel.style.display = 'none';
-}
+// Keep these as no-ops for any residual references
+function openBulkMode() { switchLinksSubTab('bulk'); }
+function closeBulkMode() { switchLinksSubTab('regular'); }
 
 function renderBulkResults() {
-  const q = (document.getElementById('bulk-search')||{value:''}).value.toLowerCase().trim();
+  const rawQ = (document.getElementById('bulk-search')||{value:''}).value.trim();
   const type = (document.getElementById('bulk-type')||{value:''}).value;
   const vendor = (document.getElementById('bulk-vendor')||{value:''}).value.toLowerCase();
   const container = document.getElementById('bulk-results');
   if(!container) return;
 
-  if(!q) { container.innerHTML = '<p style="color:#888;font-size:13px;">Type a keyword to find items to process.</p>'; return; }
+  if(!rawQ) { container.innerHTML = '<p style="color:#888;font-size:13px;">Type a keyword to find items to process.</p>'; return; }
 
-  // Filter items — must have keyword in title, not fully done, have + Add button
-  const results = AppState.items.filter(item => {
-    if(!shouldShowAddButton(item)) return false;
-    const req = checkItemRequirements(item);
-    if(req.fullyDone) return false;
-    if(!item.title.toLowerCase().includes(q)) return false;
-    if(type && item.type !== type) return false;
-    if(vendor && (item.vendor||'').toLowerCase() !== vendor) return false;
-    return true;
-  });
+  // Show spinner immediately
+  container.innerHTML = '<div style="display:flex;align-items:center;gap:10px;padding:16px 0;color:#6a1b9a;font-size:13px;font-weight:600;"><div class="spinner" style="width:24px;height:24px;border-width:3px;border-top-color:#6a1b9a;"></div> Searching...</div>';
 
-  if(!results.length) { container.innerHTML = '<p style="color:#888;font-size:13px;">No items found needing links for that keyword.</p>'; return; }
+  // Defer actual work so spinner renders first
+  setTimeout(() => {
+    // Split by comma — support up to 5 keywords
+    const keywords = rawQ.split(',').map(k=>k.trim().toLowerCase()).filter(Boolean).slice(0,5);
 
-  // Select all checkbox + add all to queue button
-  container.innerHTML = `
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #ce93d8;">
-      <label style="font-size:13px;font-weight:600;color:#6a1b9a;display:flex;align-items:center;gap:6px;">
-        <input type="checkbox" id="bulk-select-all" onchange="bulkToggleAll(this.checked)" /> Select all (${results.length} items)
-      </label>
-      <button onclick="bulkAddAllToQueue('${q}')" class="btn-action" style="background:#6a1b9a;font-size:12px;">+ Add All Selected to Queue</button>
-    </div>
-    <div id="bulk-items-list">
-      ${results.map((item,i) => buildBulkItemRow(item, i, q)).join('')}
-    </div>`;
+    // Filter items — must match ANY keyword, not fully done, have + Add button
+    const results = AppState.items.filter(item => {
+      if(!shouldShowAddButton(item)) return false;
+      const req = checkItemRequirements(item);
+      if(req.fullyDone) return false;
+      if(!keywords.some(kw => item.title.toLowerCase().includes(kw))) return false;
+      if(type && item.type !== type) return false;
+      if(vendor && (item.vendor||'').toLowerCase() !== vendor) return false;
+      return true;
+    });
+
+    if(!results.length) { container.innerHTML = '<p style="color:#888;font-size:13px;">No items found needing links for those keywords.</p>'; return; }
+
+    const keywordDisplay = keywords.join(', ');
+
+    container.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #ce93d8;">
+        <label style="font-size:13px;font-weight:600;color:#6a1b9a;display:flex;align-items:center;gap:6px;">
+          <input type="checkbox" id="bulk-select-all" onchange="bulkToggleAll(this.checked)" /> Select all (${results.length} items)
+        </label>
+        <button onclick="bulkAddAllToQueue('${escHtml(rawQ)}')" class="btn-action" style="background:#6a1b9a;font-size:12px;">+ Add All Selected to Queue</button>
+      </div>
+      <div id="bulk-items-list">
+        ${results.map((item,i) => buildBulkItemRow(item, i, rawQ)).join('')}
+      </div>`;
+  }, 0);
 }
 
-function buildBulkItemRow(item, idx, keyword) {
+function buildBulkItemRow(item, idx, rawQ) {
   const req = checkItemRequirements(item);
-  const linkType = getPageLinkType(item);
   const rowId = 'bulk-row-'+item.id;
   const panelId = 'bulk-panel-'+item.id;
+  // Use first keyword for blog filtering in panel
+  const keywords = rawQ.split(',').map(k=>k.trim()).filter(Boolean);
+  const firstKeyword = keywords[0] || rawQ;
 
   return `<div id="${rowId}" style="background:#fff;border:1px solid #ce93d8;border-radius:6px;margin-bottom:8px;overflow:hidden;">
-    <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;" onclick="toggleBulkItemPanel('${item.id}','${keyword}')">
-      <input type="checkbox" class="bulk-item-cb" data-item-id="${item.id}" onclick="event.stopPropagation()" />
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;" onclick="toggleBulkItemPanel('${item.id}','${escHtml(firstKeyword)}')">
+      <input type="checkbox" class="bulk-item-cb" data-item-id="${item.id}"
+        onclick="event.stopPropagation()"
+        onchange="onBulkItemCheck(this,'${item.id}','${escHtml(firstKeyword)}')" />
       <div style="flex:1;">
         <div style="font-weight:600;font-size:13px;color:#222;">${escHtml(item.title)}</div>
         <div style="font-size:11px;color:#888;margin-top:2px;">
@@ -1970,9 +2008,19 @@ function buildBulkItemRow(item, idx, keyword) {
       <span style="font-size:11px;color:#6a1b9a;">▼ expand</span>
     </div>
     <div id="${panelId}" style="display:none;border-top:1px solid #f3e5f5;padding:12px 14px;background:#faf5ff;">
-      ${buildBulkSuggestPanel(item, keyword)}
+      <p style="color:#aaa;font-size:12px;font-style:italic;">Click to expand or tick the checkbox to load options.</p>
     </div>
   </div>`;
+}
+
+function onBulkItemCheck(checkbox, itemId, keyword) {
+  // Auto-expand when ticked so user can verify/change selections
+  if(checkbox.checked) {
+    const panel = document.getElementById('bulk-panel-'+itemId);
+    if(panel && panel.style.display === 'none') {
+      toggleBulkItemPanel(itemId, keyword);
+    }
+  }
 }
 
 function toggleBulkItemPanel(itemId, keyword) {
