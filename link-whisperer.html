@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.12</div>
+    <div class="version">v16.15</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -329,21 +329,44 @@
       <div style="margin-bottom:14px;">
         <h3 style="color:#6a1b9a;font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">🔍 Keyword Based Bulk Mode</h3>
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
-        <input type="text" id="bulk-search" placeholder="Type a keyword..." style="flex:1;min-width:180px;padding:8px 12px;border:1px solid #ce93d8;border-radius:4px;font-size:13px;" onkeydown="if(event.key==='Enter')renderBulkResults()" />
-        <button onclick="renderBulkResults()" class="btn-action" style="background:#6a1b9a;">SEARCH</button>
-        <select id="bulk-type" style="padding:8px 10px;border:1px solid #ce93d8;border-radius:4px;font-size:13px;">
-          <option value="">All Item Types</option>
-          <option value="product">Products</option>
-          <option value="article">Blog Posts</option>
-          <option value="collection">Collections</option>
-          <option value="page">Pages</option>
-        </select>
-        <select id="bulk-vendor" style="padding:8px 10px;border:1px solid #ce93d8;border-radius:4px;font-size:13px;">
-          <option value="">All Vendors</option>
-        </select>
+      <!-- Sub-tabs -->
+      <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid #ce93d8;">
+        <button id="bulk-sub-outbound" onclick="switchBulkSubTab('outbound')" style="background:none;border:none;border-bottom:3px solid #6a1b9a;margin-bottom:-2px;padding:8px 18px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#6a1b9a;cursor:pointer;">📤 Outbound Bulk</button>
+        <button id="bulk-sub-inbound"  onclick="switchBulkSubTab('inbound')"  style="background:none;border:none;border-bottom:3px solid transparent;margin-bottom:-2px;padding:8px 18px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;cursor:pointer;">📥 Inbound Bulk</button>
       </div>
-      <div id="bulk-results"></div>
+      <!-- OUTBOUND section (unchanged) -->
+      <div id="bulk-outbound-section">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+          <input type="text" id="bulk-search" placeholder="Type a keyword..." style="flex:1;min-width:180px;padding:8px 12px;border:1px solid #ce93d8;border-radius:4px;font-size:13px;" onkeydown="if(event.key==='Enter')renderBulkResults()" />
+          <button onclick="renderBulkResults()" class="btn-action" style="background:#6a1b9a;">SEARCH</button>
+          <select id="bulk-type" style="padding:8px 10px;border:1px solid #ce93d8;border-radius:4px;font-size:13px;">
+            <option value="">All Item Types</option>
+            <option value="product">Products</option>
+            <option value="article">Blog Posts</option>
+            <option value="collection">Collections</option>
+            <option value="page">Pages</option>
+          </select>
+          <select id="bulk-vendor" style="padding:8px 10px;border:1px solid #ce93d8;border-radius:4px;font-size:13px;">
+            <option value="">All Vendors</option>
+          </select>
+        </div>
+        <div id="bulk-results"></div>
+      </div>
+      <!-- INBOUND section (new) -->
+      <div id="bulk-inbound-section" style="display:none;">
+        <p style="font-size:12px;color:#1565c0;margin-bottom:12px;">Find items with no pages linking to them. Pick a blog post to add each item to its "Complete the Look" product list.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+          <input type="text" id="inbound-bulk-search" placeholder="Type a keyword..." style="flex:1;min-width:180px;padding:8px 12px;border:1px solid #bbdefb;border-radius:4px;font-size:13px;" onkeydown="if(event.key==='Enter')renderInboundBulkResults()" />
+          <button onclick="renderInboundBulkResults()" class="btn-action" style="background:#1565c0;">SEARCH</button>
+          <select id="inbound-bulk-type" style="padding:8px 10px;border:1px solid #bbdefb;border-radius:4px;font-size:13px;">
+            <option value="">All Types</option>
+            <option value="product">Products</option>
+            <option value="article">Blog Posts</option>
+            <option value="collection">Collections</option>
+          </select>
+        </div>
+        <div id="inbound-bulk-results"></div>
+      </div>
     </div>
     <div class="table-wrap" id="lr-table-wrap">
       <table>
@@ -1143,7 +1166,7 @@ function updateQueueBar() {
 function clearQueue() {
   // Remove queued badges
   AppState.linkQueue.forEach(q => {
-    const id = q.isInbound ? q.targetItem.id : q.item.id;
+    const id = q.isMetafield ? q.targetItemId : q.isInbound ? q.targetItem.id : q.item.id;
     delete AppState.saveStatuses[id];
   });
   AppState.linkQueue = [];
@@ -1166,7 +1189,10 @@ async function saveQueue() {
   try {
     for(const q of queue) {
       try {
-        if(q.isInbound) {
+        if(q.isMetafield) {
+          await saveProductToMetafield(q.articleItem, q.productItem);
+          delete AppState.saveStatuses[q.targetItemId];
+        } else if(q.isInbound) {
           for(const sel of q.selections) {
             const updatedHtml = (sel.sourceItem.bodyHtml||'') + '\n<p>' + sel.phraseHtml + '</p>';
             await saveItemToShopify(sel.sourceItem, updatedHtml);
@@ -1193,7 +1219,7 @@ async function saveQueue() {
         saved++;
         btn.textContent = 'Saving ' + saved + ' of ' + total + '...';
       } catch(err) {
-        const name = q.isInbound ? (q.targetItem.title||'Unknown') : (q.item.title||'Unknown');
+        const name = q.isMetafield ? (q.productItem.title||'Unknown') : q.isInbound ? (q.targetItem.title||'Unknown') : (q.item.title||'Unknown');
         failedItems.push(name.substring(0,60) + ' — ' + err.message);
       }
     }
@@ -1973,6 +1999,225 @@ function switchLrTab(tab) {
 
 function openBulkMode()  { switchLrTab('bulk'); }
 function closeBulkMode() { switchLrTab('regular'); }
+
+// ─── BULK SUB-TABS ────────────────────────────────────────────────────────────
+
+function switchBulkSubTab(tab) {
+  const outSection = document.getElementById('bulk-outbound-section');
+  const inSection  = document.getElementById('bulk-inbound-section');
+  const btnOut     = document.getElementById('bulk-sub-outbound');
+  const btnIn      = document.getElementById('bulk-sub-inbound');
+  if(tab === 'inbound') {
+    if(outSection) outSection.style.display = 'none';
+    if(inSection)  inSection.style.display  = 'block';
+    if(btnOut) { btnOut.style.color = '#888'; btnOut.style.borderBottomColor = 'transparent'; }
+    if(btnIn)  { btnIn.style.color  = '#1565c0'; btnIn.style.borderBottomColor = '#1565c0'; }
+  } else {
+    if(outSection) outSection.style.display = 'block';
+    if(inSection)  inSection.style.display  = 'none';
+    if(btnOut) { btnOut.style.color = '#6a1b9a'; btnOut.style.borderBottomColor = '#6a1b9a'; }
+    if(btnIn)  { btnIn.style.color  = '#888'; btnIn.style.borderBottomColor = 'transparent'; }
+  }
+}
+
+// ─── INBOUND BULK MODE ────────────────────────────────────────────────────────
+
+function renderInboundBulkResults() {
+  const rawQ = (document.getElementById('inbound-bulk-search')||{value:''}).value.trim();
+  const type = (document.getElementById('inbound-bulk-type')||{value:''}).value;
+  const container = document.getElementById('inbound-bulk-results');
+  if(!container) return;
+  if(!rawQ) { container.innerHTML = '<p style="color:#888;font-size:13px;">Type one or more keywords separated by commas.</p>'; return; }
+
+  const keywords = rawQ.split(',').map(k=>k.trim().toLowerCase()).filter(Boolean);
+  container.innerHTML = '<div style="text-align:center;padding:24px;"><div class="spinner" style="margin:0 auto 12px;"></div><p style="color:#888;font-size:13px;">Searching...</p></div>';
+
+  setTimeout(() => {
+    const results = AppState.items.filter(item => {
+      if(!keywords.some(kw => item.title.toLowerCase().includes(kw))) return false;
+      if(type && item.type !== type) return false;
+      // Only show items with 0 inbound links
+      if((AppState.linkGraph.inbound[item.id]||[]).length > 0) return false;
+      return true;
+    });
+
+    if(!results.length) { container.innerHTML = '<p style="color:#888;font-size:13px;">No orphaned items found for those keywords.</p>'; return; }
+
+    const safeRawQ = escHtml(rawQ);
+    container.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #bbdefb;">
+        <label style="font-size:13px;font-weight:600;color:#1565c0;display:flex;align-items:center;gap:6px;">
+          <input type="checkbox" id="inbound-bulk-select-all" onchange="inboundBulkToggleAll(this.checked,'${safeRawQ}')" /> Select all (${results.length} items)
+        </label>
+        <button onclick="inboundBulkAddAllToQueue()" class="btn-action" style="background:#1565c0;font-size:12px;">+ Add All Selected to Queue</button>
+      </div>
+      <div id="inbound-bulk-items-list">
+        ${results.map(item => buildInboundBulkItemRow(item, rawQ)).join('')}
+      </div>`;
+  }, 50);
+}
+
+function buildInboundBulkItemRow(item, keyword) {
+  const safeKeyword = escHtml(keyword);
+  return `<div id="inbound-bulk-row-${item.id}" style="background:#fff;border:1px solid #bbdefb;border-radius:6px;margin-bottom:8px;">
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;" onclick="toggleInboundBulkItemPanel('${item.id}','${safeKeyword}')">
+      <input type="checkbox" class="inbound-bulk-cb" data-item-id="${item.id}"
+        onclick="event.stopPropagation()"
+        onchange="inboundBulkCbChange(this,'${item.id}','${safeKeyword}')" />
+      <div style="flex:1;">
+        <div style="font-weight:600;font-size:13px;color:#222;">${escHtml(item.title)}</div>
+        <div style="font-size:11px;color:#888;margin-top:2px;">
+          <span class="item-type item-type-${item.type}">${item.type}</span>
+          <span style="color:#c62828;margin-left:6px;">0 inbound links</span>
+        </div>
+      </div>
+      <span style="font-size:11px;color:#1565c0;">▼ expand</span>
+    </div>
+    <div id="inbound-bulk-panel-${item.id}" style="display:none;border-top:1px solid #e3f2fd;padding:12px 14px;background:#f5f9ff;"></div>
+  </div>`;
+}
+
+function toggleInboundBulkItemPanel(itemId, keyword) {
+  const panel = document.getElementById('inbound-bulk-panel-'+itemId);
+  if(!panel) return;
+  if(panel.style.display === 'none') {
+    panel.style.display = 'block';
+    if(!panel.dataset.loaded) {
+      const item = AppState.items.find(i=>i.id===itemId);
+      if(!item) return;
+      panel.innerHTML = buildInboundBulkPanel(item, keyword);
+      panel.dataset.loaded = '1';
+    }
+  } else {
+    panel.style.display = 'none';
+  }
+}
+
+function inboundBulkCbChange(cb, itemId, keyword) {
+  if(cb.checked) {
+    const panel = document.getElementById('inbound-bulk-panel-'+itemId);
+    if(panel && panel.style.display === 'none') toggleInboundBulkItemPanel(itemId, keyword);
+  }
+}
+
+function inboundBulkToggleAll(checked, rawQ) {
+  document.querySelectorAll('.inbound-bulk-cb').forEach(cb => cb.checked = checked);
+  if(checked) {
+    const keyword = rawQ || (document.getElementById('inbound-bulk-search')||{value:''}).value.trim();
+    const itemIds = [...document.querySelectorAll('.inbound-bulk-cb:checked')].map(cb=>cb.dataset.itemId);
+    itemIds.forEach((itemId, i) => {
+      setTimeout(() => {
+        const panel = document.getElementById('inbound-bulk-panel-'+itemId);
+        if(panel && panel.style.display === 'none') toggleInboundBulkItemPanel(itemId, keyword);
+      }, i * 30);
+    });
+  }
+}
+
+function buildInboundBulkPanel(item, keyword) {
+  const keywords = (keyword||'').split(',').map(k=>k.trim().toLowerCase()).filter(Boolean);
+  // Find blog posts containing the keyword
+  let blogs = AppState.items.filter(i => i.type === 'article' && keywords.some(kw => i.title.toLowerCase().includes(kw)));
+  // Fall back to all blogs sorted by relevance if no keyword matches
+  if(!blogs.length) blogs = AppState.items.filter(i=>i.type==='article').map(b=>({item:b,score:scoreRelevance(item,b).score})).sort((a,b)=>b.score-a.score).slice(0,6).map(s=>s.item);
+
+  if(!blogs.length) return '<p style="color:#888;font-size:13px;padding:8px 0;">No blog posts found for this keyword.</p>';
+
+  const rows = blogs.map((b,i) => `
+    <div class="suggest-item">
+      <input type="checkbox" class="inbound-blog-cb" ${i===0?'checked':''}
+        data-item-id="${item.id}"
+        data-article-id="${escHtml(b.shopifyId)}"
+        data-article-blog-id="${escHtml(b.blogId||'')}"
+        data-article-title="${escHtml(b.title)}"
+        onchange="enforceInboundBlogSingle(this,'${item.id}')" />
+      <div class="suggest-item-info">
+        <div class="suggest-item-title">${escHtml(b.title)}</div>
+        <div class="suggest-item-url">${escHtml(b.url)}</div>
+        <div class="suggest-item-badges">
+          <span class="badge" style="background:#f3e5f5;color:#6a1b9a;">BLOG</span>
+          <span class="badge badge-inbound">${(AppState.linkGraph.inbound[b.id]||[]).length} inbound</span>
+        </div>
+      </div>
+    </div>`).join('');
+
+  return `<div style="margin-bottom:6px;font-size:11px;font-weight:700;color:#1565c0;text-transform:uppercase;letter-spacing:0.4px;">Pick one blog to feature "${escHtml(item.title)}"</div>
+    <div>${rows}</div>
+    <div style="margin-top:8px;">
+      <button class="btn-action" style="background:#1565c0;font-size:12px;" onclick="inboundBulkQueueOne('${item.id}')">+ Add to Queue</button>
+    </div>`;
+}
+
+function enforceInboundBlogSingle(checkbox, itemId) {
+  if(!checkbox.checked) return;
+  document.querySelectorAll('.inbound-blog-cb[data-item-id="'+itemId+'"]').forEach(cb => {
+    if(cb !== checkbox) cb.checked = false;
+  });
+}
+
+function inboundBulkQueueOne(itemId) {
+  const item = AppState.items.find(i=>i.id===itemId);
+  if(!item) return;
+  const cb = document.querySelector('.inbound-blog-cb[data-item-id="'+itemId+'"]:checked');
+  if(!cb) { showToast('Please select a blog post.','error'); return; }
+  const articleItem = { shopifyId: cb.dataset.articleId, blogId: cb.dataset.articleBlogId, title: cb.dataset.articleTitle };
+  const label = '"'+item.title.substring(0,40)+'" → '+articleItem.title.substring(0,40);
+  AppState.linkQueue.push({ isMetafield:true, articleItem, productItem:item, targetItemId:item.id, label });
+  AppState.saveStatuses[item.id] = { status:'queued', count:1 };
+  updateQueueBar();
+  showToast('Added to queue.','info');
+}
+
+function inboundBulkAddAllToQueue() {
+  const checked = document.querySelectorAll('.inbound-bulk-cb:checked');
+  if(!checked.length) { showToast('Please select at least one item.','error'); return; }
+  let queued = 0;
+  checked.forEach(cb => {
+    const itemId = cb.dataset.itemId;
+    const item = AppState.items.find(i=>i.id===itemId);
+    if(!item) return;
+    const blogCb = document.querySelector('.inbound-blog-cb[data-item-id="'+itemId+'"]:checked');
+    if(!blogCb) return;
+    const articleItem = { shopifyId: blogCb.dataset.articleId, blogId: blogCb.dataset.articleBlogId, title: blogCb.dataset.articleTitle };
+    const label = '"'+item.title.substring(0,40)+'" → '+articleItem.title.substring(0,40);
+    AppState.linkQueue.push({ isMetafield:true, articleItem, productItem:item, targetItemId:item.id, label });
+    AppState.saveStatuses[item.id] = { status:'queued', count:1 };
+    queued++;
+  });
+  updateQueueBar();
+  if(queued) showToast(queued+' item(s) added to queue.','success');
+  else showToast('Expand items and select a blog post first.','error');
+}
+
+async function saveProductToMetafield(articleItem, productItem) {
+  const endpoint = 'blogs/'+articleItem.blogId+'/articles/'+articleItem.shopifyId+'/metafields.json';
+  const data = await shopifyFetch(endpoint);
+  const metafields = data.metafields || [];
+  const mf = metafields.find(m => m.namespace === 'custom' && m.key === 'blog_products_list');
+
+  const productGid = 'gid://shopify/Product/'+productItem.shopifyId;
+  let currentList = [];
+  if(mf) {
+    try { currentList = JSON.parse(mf.value); } catch(e) { currentList = []; }
+  }
+
+  // Don't add duplicates
+  if(currentList.includes(productGid)) return;
+
+  // Rotate: remove oldest if at 4, add new at end
+  if(currentList.length >= 4) currentList.shift();
+  currentList.push(productGid);
+
+  if(mf) {
+    await shopifyFetch('blogs/'+articleItem.blogId+'/articles/'+articleItem.shopifyId+'/metafields/'+mf.id+'.json', 'PUT', {
+      metafield: { id: mf.id, value: JSON.stringify(currentList), type: 'list.product_reference' }
+    });
+  } else {
+    await shopifyFetch('blogs/'+articleItem.blogId+'/articles/'+articleItem.shopifyId+'/metafields.json', 'POST', {
+      metafield: { namespace:'custom', key:'blog_products_list', value: JSON.stringify(currentList), type:'list.product_reference' }
+    });
+  }
+}
 
 function renderBulkResults() {
   const rawQ = (document.getElementById('bulk-search')||{value:''}).value.trim();
