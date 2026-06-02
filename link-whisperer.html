@@ -616,6 +616,7 @@ const AppState = {
 
 const BlState = { page:1, selected: new Set(), sort:{ col:'', dir:'' } };
 let blSuggestionsComputed = false;
+let bulkBlogAssignedCounts = {};
 
 let donutChart = null;
 
@@ -1983,6 +1984,9 @@ function renderBulkResults() {
 
   if(!rawQ) { container.innerHTML = '<p style="color:#888;font-size:13px;">Type one or more keywords separated by commas.</p>'; return; }
 
+  // Reset blog assignment counter for this search session
+  bulkBlogAssignedCounts = {};
+
   // Split by comma — match items containing ANY keyword
   const keywords = rawQ.split(',').map(k=>k.trim().toLowerCase()).filter(Boolean);
 
@@ -2131,8 +2135,14 @@ function buildBulkSuggestPanel(item, keyword) {
     let blogs = AppState.items.filter(i => i.type==='article' && kws.some(kw=>i.title.toLowerCase().includes(kw)));
     // Fall back to relevance scoring if no keyword matches
     if(!blogs.length) blogs = AppState.items.filter(i=>i.type==='article').map(b=>({item:b,score:scoreRelevance(item,b).score})).sort((a,b)=>b.score-a.score).slice(0,6).map(s=>s.item);
-    // Sort by inbound count ascending (fewest first), pre-select the first
-    blogs = blogs.slice(0,6).sort((a,b)=>(AppState.linkGraph.inbound[a.id]||[]).length-(AppState.linkGraph.inbound[b.id]||[]).length);
+    // Sort by total inbound (actual + already assigned this session) ascending — equalises distribution
+    blogs = blogs.slice(0,6).sort((a,b)=>{
+      const ca = (AppState.linkGraph.inbound[a.id]||[]).length + (bulkBlogAssignedCounts[a.id]||0);
+      const cb = (AppState.linkGraph.inbound[b.id]||[]).length + (bulkBlogAssignedCounts[b.id]||0);
+      return ca - cb;
+    });
+    // Track the pre-selected blog so subsequent panels account for this assignment
+    if(blogs.length) bulkBlogAssignedCounts[blogs[0].id] = (bulkBlogAssignedCounts[blogs[0].id]||0) + 1;
     if(blogs.length) {
       const rows = blogs.map((b,i)=>`
         <div class="suggest-item">
