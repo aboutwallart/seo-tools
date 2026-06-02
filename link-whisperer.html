@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.15</div>
+    <div class="version">v16.17</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -316,6 +316,7 @@
         <option value="orphaned">Orphaned Only</option>
         <option value="has-inbound">Has Inbound Links</option>
         <option value="needs-outbound">Needs Outbound Links</option>
+        <option value="needs-inbound">Needs Inbound Links</option>
       </select>
       <select id="lr-vendor" onchange="renderLinksReport()">
         <option value="">All Vendors</option>
@@ -363,6 +364,9 @@
             <option value="product">Products</option>
             <option value="article">Blog Posts</option>
             <option value="collection">Collections</option>
+          </select>
+          <select id="inbound-bulk-vendor" style="padding:8px 10px;border:1px solid #bbdefb;border-radius:4px;font-size:13px;">
+            <option value="">All Vendors</option>
           </select>
         </div>
         <div id="inbound-bulk-results"></div>
@@ -639,6 +643,7 @@ const AppState = {
 
 const BlState = { page:1, selected: new Set(), sort:{ col:'', dir:'' } };
 let blSuggestionsComputed = false;
+let inboundBulkSaved = new Set();
 
 let donutChart = null;
 
@@ -1191,6 +1196,7 @@ async function saveQueue() {
       try {
         if(q.isMetafield) {
           await saveProductToMetafield(q.articleItem, q.productItem);
+          inboundBulkSaved.add(q.targetItemId);
           delete AppState.saveStatuses[q.targetItemId];
         } else if(q.isInbound) {
           for(const sel of q.selections) {
@@ -1237,6 +1243,8 @@ async function saveQueue() {
     // Re-render bulk results so saved items show as Done
     const bulkPanel = document.getElementById('bulk-mode-panel');
     if(bulkPanel && bulkPanel.style.display !== 'none') renderBulkResults();
+    const inboundSection = document.getElementById('bulk-inbound-section');
+    if(inboundSection && inboundSection.style.display !== 'none') renderInboundBulkResults();
     btn.disabled = false;
     btn.textContent = '💾 Save Queue (0)';
     showQueueResultModal(saved, failedItems);
@@ -1800,6 +1808,15 @@ function updateNeedsOutboundCount() {
     return shouldShowAddButton(item) && !checkItemRequirements(item).fullyDone;
   }).length;
   opt.textContent = 'Needs Outbound Links (' + count + ')';
+  const optIn = document.querySelector('#lr-filter option[value="needs-inbound"]');
+  if(!optIn) return;
+  const countIn = AppState.items.filter(item => {
+    if(type && item.type !== type) return false;
+    if(vendor && (item.vendor||'').toLowerCase() !== vendor) return false;
+    const req = checkInboundRequirements(item);
+    return !req.noRules && !req.fullyDone;
+  }).length;
+  optIn.textContent = 'Needs Inbound Links (' + countIn + ')';
 }
 
 function getFilteredItems() {
@@ -1815,6 +1832,10 @@ function getFilteredItems() {
     if(filter==='needs-outbound'){
       if(!shouldShowAddButton(item)) return false;
       if(checkItemRequirements(item).fullyDone) return false;
+    }
+    if(filter==='needs-inbound'){
+      const req = checkInboundRequirements(item);
+      if(req.noRules || req.fullyDone) return false;
     }
     if(vendor&&(item.vendor||'').toLowerCase()!==vendor) return false;
     return true;
@@ -2012,6 +2033,12 @@ function switchBulkSubTab(tab) {
     if(inSection)  inSection.style.display  = 'block';
     if(btnOut) { btnOut.style.color = '#888'; btnOut.style.borderBottomColor = 'transparent'; }
     if(btnIn)  { btnIn.style.color  = '#1565c0'; btnIn.style.borderBottomColor = '#1565c0'; }
+    // Populate inbound vendor dropdown
+    const vendorSel = document.getElementById('inbound-bulk-vendor');
+    if(vendorSel && vendorSel.options.length <= 1) {
+      const vendors = [...new Set(AppState.items.filter(i=>i.vendor).map(i=>i.vendor))].sort();
+      vendors.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; vendorSel.appendChild(o); });
+    }
   } else {
     if(outSection) outSection.style.display = 'block';
     if(inSection)  inSection.style.display  = 'none';
@@ -2023,8 +2050,9 @@ function switchBulkSubTab(tab) {
 // ─── INBOUND BULK MODE ────────────────────────────────────────────────────────
 
 function renderInboundBulkResults() {
-  const rawQ = (document.getElementById('inbound-bulk-search')||{value:''}).value.trim();
-  const type = (document.getElementById('inbound-bulk-type')||{value:''}).value;
+  const rawQ   = (document.getElementById('inbound-bulk-search')||{value:''}).value.trim();
+  const type   = (document.getElementById('inbound-bulk-type')||{value:''}).value;
+  const vendor = (document.getElementById('inbound-bulk-vendor')||{value:''}).value.toLowerCase();
   const container = document.getElementById('inbound-bulk-results');
   if(!container) return;
   if(!rawQ) { container.innerHTML = '<p style="color:#888;font-size:13px;">Type one or more keywords separated by commas.</p>'; return; }
@@ -2034,9 +2062,10 @@ function renderInboundBulkResults() {
 
   setTimeout(() => {
     const results = AppState.items.filter(item => {
+      if(inboundBulkSaved.has(item.id)) return false;
       if(!keywords.some(kw => item.title.toLowerCase().includes(kw))) return false;
       if(type && item.type !== type) return false;
-      // Only show items with 0 inbound links
+      if(vendor && (item.vendor||'').toLowerCase() !== vendor) return false;
       if((AppState.linkGraph.inbound[item.id]||[]).length > 0) return false;
       return true;
     });
@@ -2142,7 +2171,14 @@ function buildInboundBulkPanel(item, keyword) {
     </div>`).join('');
 
   return `<div style="margin-bottom:6px;font-size:11px;font-weight:700;color:#1565c0;text-transform:uppercase;letter-spacing:0.4px;">Pick one blog to feature "${escHtml(item.title)}"</div>
-    <div>${rows}</div>
+    <div id="inbound-blog-list-${item.id}">${rows}</div>
+    <div class="suggest-search-wrap" style="margin-top:10px;padding-top:10px;border-top:1px solid #e3f2fd;">
+      <div class="suggest-search-label">Search for a different blog post:</div>
+      <div class="suggest-search-input-wrap">
+        <input class="suggest-search-input" placeholder="Type to search..." oninput="inboundBlogSearch(this,'${item.id}')" />
+        <div class="suggest-search-dropdown" id="inbound-blog-dropdown-${item.id}" style="display:none;"></div>
+      </div>
+    </div>
     <div style="margin-top:8px;">
       <button class="btn-action" style="background:#1565c0;font-size:12px;" onclick="inboundBulkQueueOne('${item.id}')">+ Add to Queue</button>
     </div>`;
@@ -2153,6 +2189,52 @@ function enforceInboundBlogSingle(checkbox, itemId) {
   document.querySelectorAll('.inbound-blog-cb[data-item-id="'+itemId+'"]').forEach(cb => {
     if(cb !== checkbox) cb.checked = false;
   });
+}
+
+function inboundBlogSearch(input, itemId) {
+  const q = input.value.trim().toLowerCase();
+  const dropdown = document.getElementById('inbound-blog-dropdown-'+itemId);
+  if(!dropdown) return;
+  if(!q) { dropdown.style.display = 'none'; return; }
+  const matches = AppState.items.filter(i => i.type === 'article' && i.title.toLowerCase().includes(q)).slice(0, 10);
+  if(!matches.length) { dropdown.style.display = 'none'; return; }
+  dropdown.style.display = 'block';
+  dropdown.innerHTML = matches.map(b => `
+    <div class="suggest-search-item" onclick="inboundBlogSelect('${itemId}','${escHtml(b.shopifyId)}','${escHtml(b.blogId||'')}','${escHtml(b.title).replace(/'/g,'&#39;')}','${escHtml(b.url)}',this)">
+      <span class="suggest-search-item-title">${escHtml(b.title)}</span>
+      <span class="suggest-search-item-inbound">${(AppState.linkGraph.inbound[b.id]||[]).length} inbound</span>
+    </div>`).join('');
+}
+
+function inboundBlogSelect(itemId, shopifyId, blogId, title, url, el) {
+  // Uncheck all existing blog checkboxes for this item
+  document.querySelectorAll('.inbound-blog-cb[data-item-id="'+itemId+'"]').forEach(cb => cb.checked = false);
+  // Add new row if not already in list
+  const list = document.getElementById('inbound-blog-list-'+itemId);
+  if(list) {
+    const existing = list.querySelector('.inbound-blog-cb[data-article-id="'+shopifyId+'"]');
+    if(existing) {
+      existing.checked = true;
+    } else {
+      const div = document.createElement('div');
+      div.className = 'suggest-item';
+      div.innerHTML = `<input type="checkbox" class="inbound-blog-cb" checked
+        data-item-id="${itemId}" data-article-id="${escHtml(shopifyId)}"
+        data-article-blog-id="${escHtml(blogId)}" data-article-title="${escHtml(title)}"
+        onchange="enforceInboundBlogSingle(this,'${itemId}')" />
+        <div class="suggest-item-info">
+          <div class="suggest-item-title">${escHtml(title)}</div>
+          <div class="suggest-item-url">${escHtml(url)}</div>
+          <div class="suggest-item-badges"><span class="badge" style="background:#f3e5f5;color:#6a1b9a;">BLOG</span></div>
+        </div>`;
+      list.appendChild(div);
+    }
+  }
+  // Hide dropdown and clear input
+  const dropdown = document.getElementById('inbound-blog-dropdown-'+itemId);
+  if(dropdown) dropdown.style.display = 'none';
+  const wrap = dropdown ? dropdown.closest('.suggest-search-input-wrap') : null;
+  if(wrap) { const inp = wrap.querySelector('input'); if(inp) inp.value = ''; }
 }
 
 function inboundBulkQueueOne(itemId) {
