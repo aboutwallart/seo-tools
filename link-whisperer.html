@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.7</div>
+    <div class="version">v16.8</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -338,7 +338,7 @@
       </div>
       <div id="bulk-results"></div>
     </div>
-    <div class="table-wrap">
+    <div class="table-wrap" id="lr-table-wrap">
       <table>
         <thead>
           <tr>
@@ -631,6 +631,7 @@ document.addEventListener('DOMContentLoaded', () => {
           renderLinksReport();
           renderDomainsReport();
           renderBrokenLinksReport();
+          updateNeedsOutboundCount();
           showToast('Loaded from cache — '+AppState.items.length+' items','info');
           return;
         }
@@ -1187,6 +1188,7 @@ async function saveQueue() {
     updateQueueBar();
     renderLinksReport();
     renderDashboard();
+    updateNeedsOutboundCount();
     btn.disabled = false;
     btn.textContent = '💾 Save Queue (0)';
     showQueueResultModal(saved, failedItems);
@@ -1499,6 +1501,7 @@ function confirmSelectedLinks(itemId, queueMode) {
   const item = AppState.items.find(i=>i.id===itemId);
   if (!item) return;
   const linkType = getPageLinkType(item);
+  const req = checkItemRequirements(item);
   const colCb = document.querySelector('.sug-collection[data-item-id="'+itemId+'"]:checked');
   const blogCbs = document.querySelectorAll('.sug-blog[data-item-id="'+itemId+'"]:checked');
   const needsBlog = ['trend','collection','product'].includes(linkType) && !req.hasBlog;
@@ -1738,6 +1741,13 @@ function renderDonutChart(internal, external) {
   donutChart=new Chart(ctx,{type:'doughnut',data:{labels:['Internal','External'],datasets:[{data:[internal,external],backgroundColor:['#222','#bbb'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:true,cutout:'65%',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>c.label+': '+c.parsed.toLocaleString()}}}}});
 }
 
+function updateNeedsOutboundCount() {
+  const opt = document.querySelector('#lr-filter option[value="needs-outbound"]');
+  if(!opt) return;
+  const count = AppState.items.filter(item => shouldShowAddButton(item) && !checkItemRequirements(item).fullyDone).length;
+  opt.textContent = 'Needs Outbound Links (' + count + ')';
+}
+
 function getFilteredItems() {
   const q=(document.getElementById('lr-search')||{value:''}).value.toLowerCase();
   const type=(document.getElementById('lr-type')||{value:''}).value;
@@ -1909,22 +1919,25 @@ function lrChangePage(dir){ AppState.lrPage+=dir; renderLinksReport(); }
 
 function openBulkMode() {
   const panel = document.getElementById('bulk-mode-panel');
+  const table = document.getElementById('lr-table-wrap');
   if(panel) {
     panel.style.display = 'block';
+    if(table) table.style.display = 'none';
     // Populate vendor dropdown
     const vendorSel = document.getElementById('bulk-vendor');
     if(vendorSel && vendorSel.options.length <= 1) {
       const vendors = [...new Set(AppState.items.filter(i=>i.vendor).map(i=>i.vendor))].sort();
       vendors.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; vendorSel.appendChild(o); });
     }
-    renderBulkResults();
     panel.scrollIntoView({ behavior:'smooth', block:'start' });
   }
 }
 
 function closeBulkMode() {
   const panel = document.getElementById('bulk-mode-panel');
+  const table = document.getElementById('lr-table-wrap');
   if(panel) panel.style.display = 'none';
+  if(table) table.style.display = '';
 }
 
 function renderBulkResults() {
@@ -1936,30 +1949,34 @@ function renderBulkResults() {
 
   if(!q) { container.innerHTML = '<p style="color:#888;font-size:13px;">Type a keyword to find items to process.</p>'; return; }
 
-  // Filter items — must have keyword in title, not fully done, have + Add button
-  const results = AppState.items.filter(item => {
-    if(!shouldShowAddButton(item)) return false;
-    const req = checkItemRequirements(item);
-    if(req.fullyDone) return false;
-    if(!item.title.toLowerCase().includes(q)) return false;
-    if(type && item.type !== type) return false;
-    if(vendor && (item.vendor||'').toLowerCase() !== vendor) return false;
-    return true;
-  });
+  // Show spinner immediately so user knows it's working
+  container.innerHTML = '<div style="text-align:center;padding:24px;"><div class="spinner" style="margin:0 auto 12px;"></div><p style="color:#888;font-size:13px;">Searching...</p></div>';
 
-  if(!results.length) { container.innerHTML = '<p style="color:#888;font-size:13px;">No items found needing links for that keyword.</p>'; return; }
+  // Defer computation so spinner renders first
+  setTimeout(() => {
+    const results = AppState.items.filter(item => {
+      if(!shouldShowAddButton(item)) return false;
+      const req = checkItemRequirements(item);
+      if(req.fullyDone) return false;
+      if(!item.title.toLowerCase().includes(q)) return false;
+      if(type && item.type !== type) return false;
+      if(vendor && (item.vendor||'').toLowerCase() !== vendor) return false;
+      return true;
+    });
 
-  // Select all checkbox + add all to queue button
-  container.innerHTML = `
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #ce93d8;">
-      <label style="font-size:13px;font-weight:600;color:#6a1b9a;display:flex;align-items:center;gap:6px;">
-        <input type="checkbox" id="bulk-select-all" onchange="bulkToggleAll(this.checked)" /> Select all (${results.length} items)
-      </label>
-      <button onclick="bulkAddAllToQueue('${q}')" class="btn-action" style="background:#6a1b9a;font-size:12px;">+ Add All Selected to Queue</button>
-    </div>
-    <div id="bulk-items-list">
-      ${results.map((item,i) => buildBulkItemRow(item, i, q)).join('')}
-    </div>`;
+    if(!results.length) { container.innerHTML = '<p style="color:#888;font-size:13px;">No items found needing links for that keyword.</p>'; return; }
+
+    container.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #ce93d8;">
+        <label style="font-size:13px;font-weight:600;color:#6a1b9a;display:flex;align-items:center;gap:6px;">
+          <input type="checkbox" id="bulk-select-all" onchange="bulkToggleAll(this.checked)" /> Select all (${results.length} items)
+        </label>
+        <button onclick="bulkAddAllToQueue('${q}')" class="btn-action" style="background:#6a1b9a;font-size:12px;">+ Add All Selected to Queue</button>
+      </div>
+      <div id="bulk-items-list">
+        ${results.map((item,i) => buildBulkItemRow(item, i, q)).join('')}
+      </div>`;
+  }, 50);
 }
 
 function buildBulkItemRow(item, idx, keyword) {
@@ -2666,7 +2683,7 @@ async function syncFromShopify(){
     setLoadingStep('Done!',100);
     await new Promise(r=>setTimeout(r,400));
 
-    hideLoading(); showApp(); updateLastSynced(); renderDashboard(); renderLinksReport(); renderDomainsReport(); renderBrokenLinksReport();
+    hideLoading(); showApp(); updateLastSynced(); renderDashboard(); renderLinksReport(); renderDomainsReport(); renderBrokenLinksReport(); updateNeedsOutboundCount();
     showToast('Sync complete — '+allItems.length+' items loaded','success');
   }catch(err){
     hideLoading(); showApp();
