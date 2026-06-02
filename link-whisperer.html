@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.8</div>
+    <div class="version">v16.9</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -294,6 +294,14 @@
 
   <!-- LINKS REPORT -->
   <div id="tab-links-report" class="tab-content">
+
+    <!-- SUB-TABS -->
+    <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid #e0e0e0;">
+      <button id="lr-tab-regular" onclick="switchLrTab('regular')" style="background:none;border:none;border-bottom:3px solid #222;margin-bottom:-2px;padding:10px 20px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#222;cursor:pointer;">Regular Mode</button>
+      <button id="lr-tab-bulk" onclick="switchLrTab('bulk')" style="background:none;border:none;border-bottom:3px solid transparent;margin-bottom:-2px;padding:10px 20px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;cursor:pointer;">🔍 Bulk Mode</button>
+    </div>
+
+    <div id="lr-regular-mode">
     <div class="report-toolbar">
       <input type="text" id="lr-search" placeholder="Filter by title..." oninput="renderLinksReport()" />
       <select id="lr-type" onchange="renderLinksReport()">
@@ -313,14 +321,13 @@
         <option value="">All Vendors</option>
       </select>
       <button class="btn-outline" onclick="exportLinksCSV()">EXPORT TO CSV</button>
-      <button class="btn-action" style="background:#6a1b9a;" onclick="openBulkMode()">🔍 KEYWORD BASED BULK MODE</button>
+    </div>
     </div>
 
     <!-- KEYWORD BASED BULK MODE PANEL -->
     <div id="bulk-mode-panel" style="display:none;background:#f3e5f5;border:2px solid #6a1b9a;border-radius:8px;padding:20px;margin-bottom:16px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div style="margin-bottom:14px;">
         <h3 style="color:#6a1b9a;font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">🔍 Keyword Based Bulk Mode</h3>
-        <button onclick="closeBulkMode()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#6a1b9a;">✕</button>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
         <input type="text" id="bulk-search" placeholder="Type a keyword..." style="flex:1;min-width:180px;padding:8px 12px;border:1px solid #ce93d8;border-radius:4px;font-size:13px;" onkeydown="if(event.key==='Enter')renderBulkResults()" />
@@ -527,31 +534,33 @@ function shouldShowAddButton(item) {
 
 // Check which requirements are already met for an item
 // Returns { needsCollection, needsBlog, hasCollection, hasBlog, fullyDone }
+// Results are cached after first calculation — cache cleared when link graph rebuilds
 function checkItemRequirements(item) {
+  if(requirementsCache[item.id]) return requirementsCache[item.id];
+
   const linkType = getPageLinkType(item);
   const outbound = (AppState.linkGraph.outbound[item.id]||[]).filter(l=>l.type==='internal');
 
-  // Check if any outbound link points to a collection or blog
+  // Use URL index for O(1) target lookup instead of O(n) array scan
   const hasCollection = outbound.some(l => {
-    const target = AppState.items.find(i=>(i.url||'').replace(/\/$/,'').toLowerCase() === l.targetUrl.replace(/\/$/,'').toLowerCase());
+    const target = urlToItem[l.targetUrl.replace(/\/$/,'').toLowerCase()];
     return target && target.type === 'collection';
   });
   const hasBlog = outbound.some(l => {
-    const target = AppState.items.find(i=>(i.url||'').replace(/\/$/,'').toLowerCase() === l.targetUrl.replace(/\/$/,'').toLowerCase());
+    const target = urlToItem[l.targetUrl.replace(/\/$/,'').toLowerCase()];
     return target && target.type === 'article';
   });
 
   let needsCollection = false, needsBlog = false;
-  if(linkType === 'product' || linkType === 'trend') { needsCollection = true; needsBlog = true; }
-  else if(linkType === 'collection' || linkType === 'blog' || linkType === 'static') { needsCollection = (linkType !== 'collection'); needsBlog = (linkType === 'collection'); }
-
-  // For static pages needsCollection only
   if(linkType === 'static') { needsCollection = true; needsBlog = false; }
-  if(linkType === 'blog') { needsCollection = true; needsBlog = false; }
-  if(linkType === 'collection') { needsCollection = false; needsBlog = true; }
+  else if(linkType === 'blog') { needsCollection = true; needsBlog = false; }
+  else if(linkType === 'collection') { needsCollection = false; needsBlog = true; }
+  else if(linkType === 'product' || linkType === 'trend') { needsCollection = true; needsBlog = true; }
 
   const fullyDone = (!needsCollection || hasCollection) && (!needsBlog || hasBlog);
-  return { needsCollection, needsBlog, hasCollection, hasBlog, fullyDone, linkType };
+  const result = { needsCollection, needsBlog, hasCollection, hasBlog, fullyDone, linkType };
+  requirementsCache[item.id] = result;
+  return result;
 }
 
 // Check which inbound requirements are already met for an item
@@ -592,6 +601,10 @@ const INBOUND_PHRASES = {
   // Phrase added to a TREND PAGE linking to a BLOG
   trendToBlog:   (t,u) => `You may also want to read our article <a href="${u}">${escHtml(t)}</a> for more styling ideas.`,
 };
+// Performance caches — cleared every time the link graph is rebuilt
+let urlToItem = {};
+let requirementsCache = {};
+
 const AppState = {
   items:[], links:[], brokenLinks:[], lastSync:null,
   linkGraph:{ outbound:{}, inbound:{} },
@@ -699,6 +712,8 @@ function parseItemLinks(item) {
 
 function buildLinkGraph() {
   AppState.linkGraph={outbound:{},inbound:{}};
+  urlToItem = {};
+  requirementsCache = {};
   for (const link of AppState.links) {
     if (!AppState.linkGraph.outbound[link.sourceId]) AppState.linkGraph.outbound[link.sourceId]=[];
     AppState.linkGraph.outbound[link.sourceId].push({targetUrl:link.targetUrl,anchorText:link.anchorText,type:link.type});
@@ -714,6 +729,10 @@ function buildLinkGraph() {
       }
     }
   }
+  // Build URL lookup index for O(1) target resolution
+  AppState.items.forEach(item => {
+    if(item.url) urlToItem[item.url.replace(/\/$/,'').toLowerCase()] = item;
+  });
 }
 
 function detectBrokenLinks() {
@@ -1744,7 +1763,13 @@ function renderDonutChart(internal, external) {
 function updateNeedsOutboundCount() {
   const opt = document.querySelector('#lr-filter option[value="needs-outbound"]');
   if(!opt) return;
-  const count = AppState.items.filter(item => shouldShowAddButton(item) && !checkItemRequirements(item).fullyDone).length;
+  const type   = (document.getElementById('lr-type')||{value:''}).value;
+  const vendor = (document.getElementById('lr-vendor')||{value:''}).value.toLowerCase();
+  const count = AppState.items.filter(item => {
+    if(type && item.type !== type) return false;
+    if(vendor && (item.vendor||'').toLowerCase() !== vendor) return false;
+    return shouldShowAddButton(item) && !checkItemRequirements(item).fullyDone;
+  }).length;
   opt.textContent = 'Needs Outbound Links (' + count + ')';
 }
 
@@ -1793,6 +1818,7 @@ function renderLinksReport() {
   }
 
   let items=getFilteredItems();
+  updateNeedsOutboundCount();
 
   // Multi-column sort — pre-compute outbound done status once before sorting
   if(AppState.lrSort.length>0){
@@ -1917,28 +1943,33 @@ function lrChangePage(dir){ AppState.lrPage+=dir; renderLinksReport(); }
 
 // ─── KEYWORD BASED BULK MODE ──────────────────────────────────────────────────
 
-function openBulkMode() {
-  const panel = document.getElementById('bulk-mode-panel');
-  const table = document.getElementById('lr-table-wrap');
-  if(panel) {
-    panel.style.display = 'block';
-    if(table) table.style.display = 'none';
+function switchLrTab(tab) {
+  const bulkPanel   = document.getElementById('bulk-mode-panel');
+  const tableWrap   = document.getElementById('lr-table-wrap');
+  const regularMode = document.getElementById('lr-regular-mode');
+  const tabRegular  = document.getElementById('lr-tab-regular');
+  const tabBulk     = document.getElementById('lr-tab-bulk');
+  if(tab === 'bulk') {
+    if(bulkPanel)   bulkPanel.style.display   = 'block';
+    if(tableWrap)   tableWrap.style.display   = 'none';
+    if(tabRegular)  { tabRegular.style.color='#888'; tabRegular.style.borderBottomColor='transparent'; }
+    if(tabBulk)     { tabBulk.style.color='#6a1b9a'; tabBulk.style.borderBottomColor='#6a1b9a'; }
     // Populate vendor dropdown
     const vendorSel = document.getElementById('bulk-vendor');
     if(vendorSel && vendorSel.options.length <= 1) {
       const vendors = [...new Set(AppState.items.filter(i=>i.vendor).map(i=>i.vendor))].sort();
       vendors.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; vendorSel.appendChild(o); });
     }
-    panel.scrollIntoView({ behavior:'smooth', block:'start' });
+  } else {
+    if(bulkPanel)   bulkPanel.style.display   = 'none';
+    if(tableWrap)   tableWrap.style.display   = '';
+    if(tabRegular)  { tabRegular.style.color='#222'; tabRegular.style.borderBottomColor='#222'; }
+    if(tabBulk)     { tabBulk.style.color='#888'; tabBulk.style.borderBottomColor='transparent'; }
   }
 }
 
-function closeBulkMode() {
-  const panel = document.getElementById('bulk-mode-panel');
-  const table = document.getElementById('lr-table-wrap');
-  if(panel) panel.style.display = 'none';
-  if(table) table.style.display = '';
-}
+function openBulkMode()  { switchLrTab('bulk'); }
+function closeBulkMode() { switchLrTab('regular'); }
 
 function renderBulkResults() {
   const q = (document.getElementById('bulk-search')||{value:''}).value.toLowerCase().trim();
