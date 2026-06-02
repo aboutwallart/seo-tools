@@ -1510,6 +1510,7 @@ function confirmSelectedLinks(itemId, queueMode) {
   const item = AppState.items.find(i=>i.id===itemId);
   if (!item) return;
   const linkType = getPageLinkType(item);
+  const req = checkItemRequirements(item);
   const colCb = document.querySelector('.sug-collection[data-item-id="'+itemId+'"]:checked');
   const blogCbs = document.querySelectorAll('.sug-blog[data-item-id="'+itemId+'"]:checked');
   const needsBlog = ['trend','collection','product'].includes(linkType) && !req.hasBlog;
