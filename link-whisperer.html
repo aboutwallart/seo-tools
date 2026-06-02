@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.11</div>
+    <div class="version">v16.12</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -2022,7 +2022,7 @@ function buildBulkItemRow(item, idx, keyword) {
   const panelId = 'bulk-panel-'+item.id;
 
   const safeKeyword = escHtml(keyword);
-  return `<div id="${rowId}" style="background:#fff;border:1px solid #ce93d8;border-radius:6px;margin-bottom:8px;overflow:hidden;">
+  return `<div id="${rowId}" style="background:#fff;border:1px solid #ce93d8;border-radius:6px;margin-bottom:8px;">
     <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;" onclick="toggleBulkItemPanel('${item.id}','${safeKeyword}')">
       <input type="checkbox" class="bulk-item-cb" data-item-id="${item.id}"
         onclick="event.stopPropagation()"
