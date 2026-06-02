@@ -473,3 +473,244 @@ Update this document when:
 - Features added
 - Vercel function count changes
 - New data files added to /data/ folder
+
+---
+
+# LINK WHISPERER TOOL — COMPLETE DOCUMENTATION
+
+**File:** `link-whisperer.html`
+**Current Version:** v16.6 (June 1, 2026)
+**URL:** https://tools.aboutwallart.com/link-whisperer.html
+**Purpose:** Internal linking manager — replicates Link Whisper (WordPress plugin) for Shopify. Manages inbound and outbound internal links across all site content.
+
+---
+
+## API Backend
+
+All Shopify calls go through `api/shopify-files.js` using two new action branches added to the existing file. No new API files were created (Vercel function count remains 11/12).
+
+### New action branches in `api/shopify-files.js`:
+
+#### `action=link-whisperer` (REST proxy — GET and PUT)
+- Reads `endpoint` and `method` query params
+- Forwards to: `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2025-01/${endpoint}`
+- Header: `X-Shopify-Access-Token`
+- Passes through Shopify `Link` header for pagination
+- Used for: reading products, pages, articles, collections, writing body HTML changes
+
+#### `action=link-manager` (REST proxy — identical logic, separate action name)
+- Same as link-whisperer but triggered by `action=link-manager`
+- Originally planned as a separate tool — kept for backwards compatibility
+
+### Shopify API Endpoints Used:
+- `products.json?limit=250&fields=id,title,handle,published_at,body_html,product_type,tags,vendor`
+- `pages.json?limit=250&fields=id,title,handle,published_at,body_html`
+- `blogs.json?limit=250&fields=id,title,handle`
+- `blogs/{blog_id}/articles.json?limit=250&fields=id,title,handle,published_at,body_html,blog_id,tags`
+- `custom_collections.json?limit=250&fields=id,title,handle,published_at,body_html`
+- `smart_collections.json?limit=250&fields=id,title,handle,published_at,body_html`
+- `custom_collections.json?product_id={id}&fields=id,title,handle&limit=250` — gets collections a product belongs to
+- `smart_collections.json?product_id={id}&fields=id,title,handle&limit=250` — gets smart collections a product belongs to
+- `products/{id}.json` PUT — updates product body_html
+- `pages/{id}.json` PUT — updates page body_html
+- `blogs/{blog_id}/articles/{id}.json` PUT — updates article body_html
+- `custom_collections/{id}.json` PUT — updates collection body_html
+- `smart_collections/{id}.json` PUT — updates smart collection body_html
+
+### Required Shopify API Scopes:
+- `read_products` — read products, collections, collects
+- `write_products` — write product body_html
+- `read_content` — read pages and blog articles
+- `write_content` — write pages and blog articles body_html
+
+---
+
+## localStorage Cache System
+
+The tool caches all Shopify data in the browser to avoid re-syncing on every visit.
+
+| Key | Contents | Expiry |
+|-----|----------|--------|
+| `lw-cache` | Slim items array (no bodyHtml) + links array + lastSync timestamp | 24 hours |
+| `lw-body-cache` | Map of itemId → bodyHtml for all items | 24 hours |
+| `lw-cache-time` | Unix timestamp of last sync | Used to calculate age |
+
+Cache is invalidated when:
+- User clicks "Refresh Data" button
+- 24 hours have passed since last sync
+
+---
+
+## Tool Architecture
+
+### AppState (global state object):
+```javascript
+const AppState = {
+  items: [],          // all items: {id, shopifyId, title, handle, type, publishedAt, bodyHtml, tags, vendor, url, blogId?, blogHandle?, collectionIds?}
+  links: [],          // all parsed links: {sourceId, sourceUrl, targetUrl, anchorText, type}
+  brokenLinks: [],    // {sourceId, sourceUrl, brokenUrl, anchorText, type, status, discovered}
+  lastSync: null,
+  linkGraph: {
+    outbound: {},     // {itemId: [{targetUrl, anchorText, type}]}
+    inbound: {}       // {itemId: [{sourceId, sourceUrl, anchorText}]}
+  },
+  lrPage: 1,
+  lrSort: [],         // array of {col, dir} for multi-column sort
+  expandState: {},
+  suggestState: {},
+  inboundSuggestState: {},
+  saveStatuses: {},   // {itemId: {status: 'saving'|'saved'|'failed'|'queued', count: N}}
+  linkQueue: []       // [{isInbound, item/targetItem, phrases/selections, label}]
+};
+
+const BlState = { page:1, selected: new Set(), sort:{ col:'', dir:'' } };
+```
+
+### Item Types:
+- `product` — Shopify products
+- `page` — Shopify pages
+- `article` — Shopify blog articles
+- `collection` — Custom and smart collections (both stored as type `collection`)
+
+### Link Type Detection:
+- `internal` — href contains `aboutwallart.com` or starts with `/`
+- `external` — all other hrefs
+
+---
+
+## Page Type Rules (for link suggestions)
+
+### getPageLinkType(item) returns:
+- `product` — item.type === 'product'
+- `collection` — item.type === 'collection'
+- `blog` — item.type === 'article'
+- `trend` — item.type === 'page' AND title matches TREND_PAGES list
+- `static` — item.type === 'page' AND not a trend page
+
+### TREND_PAGES (full list):
+Biophilic Interior Design Trend, Zen Room Decorations Trend, Tropical Decor For Home Style Trend, Transitional Interior Design Trend, Preppy Style Interiors Decor Trend, Old Money Home Decor Trend, Coffee House Interior Design Trend, Masculine Living Room Ideas, Black & White Home Decor Trend, Wildlife Home Decor Trend, Scandi Home Decor Trend, Country Cottage Home Decor Trend, Morroccan Home Decor Trend, Cosy Minimalism Home Decor Trend, Mediterranean Home Decor Trend, Japandi Home Decor Trend, Industrial Home Decor Trend, French Country Home Decor Trends, Modern Farmhouse Home Decor Trend, Eclectic Maximalist Home Decor Trend, Modern Contemporary Home Decor Trend, Coastal Home Decor Trend, Boho Home Decor Trend, Modern Glam Luxe Interiors Decor Trend, Mid Century Home Decor Trend
+
+### PAGES_TO_NEVER_TOUCH (no + Add button shown):
+Free Interior Design Education & Guides, Free Home Decor & Interior Design Tools, Home Decor by Trend, Home Decor by Room, Home Decor by Product, all calculator tools, all guide pages, 404, Wishlist, Loyalty Page, Confirm Your Email, Keep in Touch, Spread the Love, Birthday page, Free Workbook, Product Bundles, Unsure About the Size, Write for Us, Homepage
+
+---
+
+## Outbound Link Rules (pre-written phrases)
+
+### Product pages — needs: 1 collection + 1 blog
+- Collection phrase: `"This product is part of our [Collection] collection — explore in full to discover more pieces that complement this style perfectly."`
+- Blog phrase: `"Looking for inspiration? Our article [Blog Title] is full of ideas to help you style this piece in your home."`
+- Added at: end of product description
+
+### Collection pages — needs: 1 blog
+- Blog phrase: `"Not sure where to start? Our guide [Blog Title] is packed with ideas to help you style these pieces in your home."`
+- Added at: end of collection description
+
+### Trend pages — needs: 1 collection + 1 blog
+- Collection phrase: `"Explore our [Collection] collection to shop this trend."`
+- Blog phrase: `"You may also want to read our article [Blog Title] for more styling ideas."`
+- Added at: end of trend page body
+
+### Blog posts — needs: 1 collection
+- Collection phrase: `"Browse our [Collection] collection to find pieces that bring this look to life in your home."`
+- Added at: end of blog post body
+
+### Static pages — needs: 1 collection + Content Hub link
+- Phrase: `"Browse our [Collection] collection or visit our Content Hub for styling inspiration and decorating guides."`
+- Content Hub URL: `https://aboutwallart.com/pages/free-interior-design-education-guides`
+- Added at: end of page body
+
+---
+
+## Inbound Link Rules (pre-written phrases)
+
+### Trend pages — needs: 2 blog inbound + 1 trend page inbound
+- Blog → Trend phrase: `"If you love this style, explore our full guide to [Trend Page Title] for more ideas and inspiration."`
+- Trend → Trend phrase: `"If you enjoy this style, you may also love our guide to [Trend Page Title]."`
+
+### Collection pages — needs: 1 trend inbound + 1 blog inbound
+- Trend → Collection phrase: `"Explore our [Collection Title] collection to find the perfect items for this trend."`
+- Blog → Collection phrase: `"Browse our [Collection Title] collection to find pieces that will bring this look to life in your home."`
+
+### Blog posts — needs: 1 blog inbound + 1 trend inbound
+- Blog → Blog phrase: `"You may also enjoy our article [Blog Post Title] for more styling ideas."`
+- Trend → Blog phrase: `"You may also want to read our article [Blog Post Title] for more styling ideas."`
+
+---
+
+## Collection Membership Detection
+
+For product pages, the tool fetches which collections the product actually belongs to on-demand when + Add is clicked:
+
+```javascript
+// Two calls run in parallel:
+GET custom_collections.json?product_id={shopifyId}&fields=id,title,handle&limit=250
+GET smart_collections.json?product_id={shopifyId}&fields=id,title,handle&limit=250
+// Results merged — all collection IDs stored on item.collectionIds
+```
+
+This is fetched once per product per session and cached on the item object.
+
+---
+
+## Queue System
+
+Items can be added to a queue instead of saving immediately:
+- "Add to Queue" button in the suggestion panel — no preview modal, instant queue
+- "Review & Save Now" — shows approval modal with phrase preview before saving
+- Queue bar appears at top of page showing count
+- "Save Queue (N)" button saves all queued items sequentially with progress counter
+- After save: dedicated result modal shows how many saved + any failures by item name
+- "Clear Queue" removes all items without saving
+
+---
+
+## Bulk Systems
+
+### Existing queue system: unchanged — individual + Add buttons per row
+
+### Keyword Based Bulk Mode (new — purple button in toolbar):
+- Search bar + item type + vendor filters
+- Type keyword, press Enter or click SEARCH
+- Shows all matching items that still need links added
+- Each item has a checkbox and expands to show the suggest panel
+- Blog options filtered to only show blogs containing the same keyword
+- Blog with fewest inbound links is pre-selected
+- "Add to Queue" per item, or "Add All Selected to Queue" for bulk queue
+
+---
+
+## Tabs Built and Working
+
+| Tab | Status |
+|-----|--------|
+| Dashboard | ✅ Working — stats cards, top domains, internal vs external donut chart |
+| Links Report | ✅ Working — full table, filters, multi-column sort, vendor filter, + Add, inbound/outbound, queue |
+| Domains Report | ✅ Working — table with expand rows, sort, filter, CSV export |
+| Broken Links Report | ✅ Working — search bar fix per row, Remove Link, column sorting |
+| Auto Linking | ⏳ Not yet built |
+| URL Changer | ⏳ Not yet built |
+| Target Keywords | ⏳ Not yet built |
+| Settings | ⏳ Not yet built |
+
+---
+
+## Known Issues / Still To Fix (as of v16.6, June 1, 2026)
+
+1. **Outbound column sort** — sorts by number of links, not by ✓ Done / + Add grouping
+2. **Keyword Bulk Mode — speed** — 48 articles takes too long to process
+3. **Keyword Bulk Mode — auto-expand** — selected items should auto-expand without clicking one by one
+4. **Keyword Bulk Mode — multiple keywords** — need to support up to 4-5 keywords separated by commas, show items matching ANY keyword
+5. **Keyword Bulk Mode — saved items** — after queue save, items should update to show ✓ Done status
+6. **Inbound Bulk Mode** — Keyword Based Bulk Mode not yet added to Inbound Internal Links section
+7. **Resolved tab** — not yet built — should show last 50 fixed broken links with undo option
+8. **Broken Links bulk save** — not yet built
+9. **Cache** — still syncing twice on some sessions instead of loading from cache
+
+---
+
+## Vercel Function Count (Updated June 1, 2026)
+- **Current count: 11/12** — no new files created for Link Whisperer
+- All new logic added as action branches inside existing `api/shopify-files.js`
+- 1 slot still available
+
