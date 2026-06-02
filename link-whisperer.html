@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.10</div>
+    <div class="version">v16.11</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -2172,7 +2172,7 @@ function bulkToggleAll(checked, rawQ) {
     itemIds.forEach((itemId, i) => {
       setTimeout(() => {
         const panel = document.getElementById('bulk-panel-'+itemId);
-        if(panel && panel.style.display === 'none') toggleBulkItemPanel(itemId, keyword, true);
+        if(panel && panel.style.display === 'none') toggleBulkItemPanel(itemId, keyword);
       }, i * 30);
     });
   }
