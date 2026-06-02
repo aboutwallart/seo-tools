@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.12</div>
+    <div class="version">v16.13</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -604,6 +604,29 @@ const INBOUND_PHRASES = {
 // Performance caches — cleared every time the link graph is rebuilt
 let urlToItem = {};
 let requirementsCache = {};
+
+// Blog assignments for bulk mode — computed once per search to equalise inbound counts
+let bulkBlogAssignments = {};
+
+function computeBulkBlogAssignments(items, keywords) {
+  bulkBlogAssignments = {};
+  const kws = keywords.map(k=>k.toLowerCase());
+  let blogs = AppState.items.filter(i => i.type==='article' && kws.some(kw=>i.title.toLowerCase().includes(kw)));
+  if(!blogs.length) return; // no matching blogs — buildBulkSuggestPanel will use fallback
+
+  // Start projected counts from actual inbound counts
+  const projected = {};
+  blogs.forEach(b => { projected[b.id] = (AppState.linkGraph.inbound[b.id]||[]).length; });
+
+  // Assign one blog per item — always pick the one with lowest projected count
+  items.forEach(item => {
+    const req = checkItemRequirements(item);
+    if(!req.needsBlog || req.hasBlog) return; // skip items that don't need a blog
+    const best = blogs.reduce((a,b) => projected[a.id] <= projected[b.id] ? a : b);
+    bulkBlogAssignments[item.id] = best;
+    projected[best.id]++; // increment so next item gets a different blog if possible
+  });
+}
 
 const AppState = {
   items:[], links:[], brokenLinks:[], lastSync:null,
@@ -2001,6 +2024,9 @@ function renderBulkResults() {
 
     if(!results.length) { container.innerHTML = '<p style="color:#888;font-size:13px;">No items found needing links for those keywords.</p>'; return; }
 
+    // Pre-compute equalised blog assignments for all results
+    computeBulkBlogAssignments(results, keywords);
+
     const safeRawQ = escHtml(rawQ);
     container.innerHTML = `
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #ce93d8;">
@@ -2125,14 +2151,21 @@ function buildBulkSuggestPanel(item, keyword) {
     }
   }
 
-  // BLOG — filtered by any of the keywords, pre-select fewest inbounds
+  // BLOG — filtered by any of the keywords, pre-select using equalised assignment
   if(req.needsBlog && !req.hasBlog) {
     const kws = keyword.split(',').map(k=>k.trim().toLowerCase()).filter(Boolean);
     let blogs = AppState.items.filter(i => i.type==='article' && kws.some(kw=>i.title.toLowerCase().includes(kw)));
     // Fall back to relevance scoring if no keyword matches
     if(!blogs.length) blogs = AppState.items.filter(i=>i.type==='article').map(b=>({item:b,score:scoreRelevance(item,b).score})).sort((a,b)=>b.score-a.score).slice(0,6).map(s=>s.item);
-    // Sort by inbound count ascending (fewest first), pre-select the first
-    blogs = blogs.slice(0,6).sort((a,b)=>(AppState.linkGraph.inbound[a.id]||[]).length-(AppState.linkGraph.inbound[b.id]||[]).length);
+
+    // Use pre-computed equalised assignment — put assigned blog first so it's pre-checked
+    const assignedBlog = bulkBlogAssignments[item.id];
+    if(assignedBlog) {
+      blogs = [assignedBlog, ...blogs.filter(b=>b.id!==assignedBlog.id)].slice(0,6);
+    } else {
+      // Fallback: sort by fewest inbound
+      blogs = blogs.slice(0,6).sort((a,b)=>(AppState.linkGraph.inbound[a.id]||[]).length-(AppState.linkGraph.inbound[b.id]||[]).length);
+    }
     if(blogs.length) {
       const rows = blogs.map((b,i)=>`
         <div class="suggest-item">
