@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.9</div>
+    <div class="version">v16.10</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -1208,6 +1208,9 @@ async function saveQueue() {
     renderLinksReport();
     renderDashboard();
     updateNeedsOutboundCount();
+    // Re-render bulk results so saved items show as Done
+    const bulkPanel = document.getElementById('bulk-mode-panel');
+    if(bulkPanel && bulkPanel.style.display !== 'none') renderBulkResults();
     btn.disabled = false;
     btn.textContent = '💾 Save Queue (0)';
     showQueueResultModal(saved, failedItems);
@@ -1972,40 +1975,42 @@ function openBulkMode()  { switchLrTab('bulk'); }
 function closeBulkMode() { switchLrTab('regular'); }
 
 function renderBulkResults() {
-  const q = (document.getElementById('bulk-search')||{value:''}).value.toLowerCase().trim();
+  const rawQ = (document.getElementById('bulk-search')||{value:''}).value.trim();
   const type = (document.getElementById('bulk-type')||{value:''}).value;
   const vendor = (document.getElementById('bulk-vendor')||{value:''}).value.toLowerCase();
   const container = document.getElementById('bulk-results');
   if(!container) return;
 
-  if(!q) { container.innerHTML = '<p style="color:#888;font-size:13px;">Type a keyword to find items to process.</p>'; return; }
+  if(!rawQ) { container.innerHTML = '<p style="color:#888;font-size:13px;">Type one or more keywords separated by commas.</p>'; return; }
 
-  // Show spinner immediately so user knows it's working
+  // Split by comma — match items containing ANY keyword
+  const keywords = rawQ.split(',').map(k=>k.trim().toLowerCase()).filter(Boolean);
+
   container.innerHTML = '<div style="text-align:center;padding:24px;"><div class="spinner" style="margin:0 auto 12px;"></div><p style="color:#888;font-size:13px;">Searching...</p></div>';
 
-  // Defer computation so spinner renders first
   setTimeout(() => {
     const results = AppState.items.filter(item => {
       if(!shouldShowAddButton(item)) return false;
       const req = checkItemRequirements(item);
       if(req.fullyDone) return false;
-      if(!item.title.toLowerCase().includes(q)) return false;
+      if(!keywords.some(kw => item.title.toLowerCase().includes(kw))) return false;
       if(type && item.type !== type) return false;
       if(vendor && (item.vendor||'').toLowerCase() !== vendor) return false;
       return true;
     });
 
-    if(!results.length) { container.innerHTML = '<p style="color:#888;font-size:13px;">No items found needing links for that keyword.</p>'; return; }
+    if(!results.length) { container.innerHTML = '<p style="color:#888;font-size:13px;">No items found needing links for those keywords.</p>'; return; }
 
+    const safeRawQ = escHtml(rawQ);
     container.innerHTML = `
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #ce93d8;">
         <label style="font-size:13px;font-weight:600;color:#6a1b9a;display:flex;align-items:center;gap:6px;">
-          <input type="checkbox" id="bulk-select-all" onchange="bulkToggleAll(this.checked)" /> Select all (${results.length} items)
+          <input type="checkbox" id="bulk-select-all" onchange="bulkToggleAll(this.checked,'${safeRawQ}')" /> Select all (${results.length} items)
         </label>
-        <button onclick="bulkAddAllToQueue('${q}')" class="btn-action" style="background:#6a1b9a;font-size:12px;">+ Add All Selected to Queue</button>
+        <button onclick="bulkAddAllToQueue('${safeRawQ}')" class="btn-action" style="background:#6a1b9a;font-size:12px;">+ Add All Selected to Queue</button>
       </div>
       <div id="bulk-items-list">
-        ${results.map((item,i) => buildBulkItemRow(item, i, q)).join('')}
+        ${results.map((item,i) => buildBulkItemRow(item, i, rawQ)).join('')}
       </div>`;
   }, 50);
 }
@@ -2016,9 +2021,12 @@ function buildBulkItemRow(item, idx, keyword) {
   const rowId = 'bulk-row-'+item.id;
   const panelId = 'bulk-panel-'+item.id;
 
+  const safeKeyword = escHtml(keyword);
   return `<div id="${rowId}" style="background:#fff;border:1px solid #ce93d8;border-radius:6px;margin-bottom:8px;overflow:hidden;">
-    <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;" onclick="toggleBulkItemPanel('${item.id}','${keyword}')">
-      <input type="checkbox" class="bulk-item-cb" data-item-id="${item.id}" onclick="event.stopPropagation()" />
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;" onclick="toggleBulkItemPanel('${item.id}','${safeKeyword}')">
+      <input type="checkbox" class="bulk-item-cb" data-item-id="${item.id}"
+        onclick="event.stopPropagation()"
+        onchange="bulkItemCbChange(this,'${item.id}','${safeKeyword}')" />
       <div style="flex:1;">
         <div style="font-weight:600;font-size:13px;color:#222;">${escHtml(item.title)}</div>
         <div style="font-size:11px;color:#888;margin-top:2px;">
@@ -2029,13 +2037,11 @@ function buildBulkItemRow(item, idx, keyword) {
       </div>
       <span style="font-size:11px;color:#6a1b9a;">▼ expand</span>
     </div>
-    <div id="${panelId}" style="display:none;border-top:1px solid #f3e5f5;padding:12px 14px;background:#faf5ff;">
-      ${buildBulkSuggestPanel(item, keyword)}
-    </div>
+    <div id="${panelId}" style="display:none;border-top:1px solid #f3e5f5;padding:12px 14px;background:#faf5ff;"></div>
   </div>`;
 }
 
-function toggleBulkItemPanel(itemId, keyword) {
+async function toggleBulkItemPanel(itemId, keyword, skipCollectionFetch) {
   const panelId = 'bulk-panel-'+itemId;
   const panel = document.getElementById(panelId);
   if(!panel) return;
@@ -2043,11 +2049,38 @@ function toggleBulkItemPanel(itemId, keyword) {
     panel.style.display = 'block';
     if(!panel.dataset.loaded) {
       const item = AppState.items.find(i=>i.id===itemId);
-      if(item) panel.innerHTML = buildBulkSuggestPanel(item, keyword);
+      if(!item) return;
+      // For products: fetch actual collection membership (unless bulk select-all)
+      if(!skipCollectionFetch && item.type === 'product' && !item.collectionIds) {
+        panel.innerHTML = '<div style="padding:12px;color:#888;font-size:13px;"><span class="spinner-sm"></span> Loading collections...</div>';
+        try {
+          const [ccData, scData] = await Promise.all([
+            shopifyFetch('custom_collections.json?product_id='+item.shopifyId+'&fields=id,title,handle&limit=250'),
+            shopifyFetch('smart_collections.json?product_id='+item.shopifyId+'&fields=id,title,handle&limit=250')
+          ]);
+          item.collectionIds = [
+            ...(ccData.custom_collections||[]).map(c=>String(c.id)),
+            ...(scData.smart_collections||[]).map(c=>String(c.id))
+          ];
+          delete requirementsCache[item.id];
+        } catch(e) {
+          console.warn('Could not fetch collection memberships:', e);
+          item.collectionIds = [];
+        }
+      }
+      panel.innerHTML = buildBulkSuggestPanel(item, keyword);
       panel.dataset.loaded = '1';
     }
   } else {
     panel.style.display = 'none';
+  }
+}
+
+// Auto-expand when individual checkbox is ticked — fetches real collections
+function bulkItemCbChange(cb, itemId, keyword) {
+  if(cb.checked) {
+    const panel = document.getElementById('bulk-panel-'+itemId);
+    if(panel && panel.style.display === 'none') toggleBulkItemPanel(itemId, keyword);
   }
 }
 
@@ -2092,10 +2125,10 @@ function buildBulkSuggestPanel(item, keyword) {
     }
   }
 
-  // BLOG — filtered by keyword, pre-select fewest inbounds
+  // BLOG — filtered by any of the keywords, pre-select fewest inbounds
   if(req.needsBlog && !req.hasBlog) {
-    const kw = keyword.toLowerCase();
-    let blogs = AppState.items.filter(i => i.type==='article' && i.title.toLowerCase().includes(kw));
+    const kws = keyword.split(',').map(k=>k.trim().toLowerCase()).filter(Boolean);
+    let blogs = AppState.items.filter(i => i.type==='article' && kws.some(kw=>i.title.toLowerCase().includes(kw)));
     // Fall back to relevance scoring if no keyword matches
     if(!blogs.length) blogs = AppState.items.filter(i=>i.type==='article').map(b=>({item:b,score:scoreRelevance(item,b).score})).sort((a,b)=>b.score-a.score).slice(0,6).map(s=>s.item);
     // Sort by inbound count ascending (fewest first), pre-select the first
@@ -2115,7 +2148,7 @@ function buildBulkSuggestPanel(item, keyword) {
           </div>
         </div>`).join('');
       sections += `<div class="suggest-section" style="margin-bottom:10px;">
-        <span class="suggest-section-title st-article">Blog Post Link (pick ONE — filtered by "${escHtml(keyword)}")</span>
+        <span class="suggest-section-title st-article">Blog Post Link (pick ONE — filtered by "${escHtml(kws.join(', '))}")</span>
         <div class="sug-article-section-${item.id}">${rows}</div>
         ${buildSearchBar(item,'article','sug-blog')}
       </div>`;
@@ -2130,8 +2163,19 @@ function buildBulkSuggestPanel(item, keyword) {
     </div>`;
 }
 
-function bulkToggleAll(checked) {
+function bulkToggleAll(checked, rawQ) {
   document.querySelectorAll('.bulk-item-cb').forEach(cb => cb.checked = checked);
+  if(checked) {
+    const keyword = rawQ || (document.getElementById('bulk-search')||{value:''}).value.trim();
+    const itemIds = [...document.querySelectorAll('.bulk-item-cb:checked')].map(cb=>cb.dataset.itemId);
+    // Expand one by one with small delay — skipCollectionFetch=true to keep it fast
+    itemIds.forEach((itemId, i) => {
+      setTimeout(() => {
+        const panel = document.getElementById('bulk-panel-'+itemId);
+        if(panel && panel.style.display === 'none') toggleBulkItemPanel(itemId, keyword, true);
+      }, i * 30);
+    });
+  }
 }
 
 function bulkAddAllToQueue(keyword) {
