@@ -142,6 +142,7 @@ export default async function handler(req, res) {
               locked: cols[2] === 'LOCKED',
               status: cols[3] || '',
               action: cols[4] || '',
+              source: cols[9] || '',
               intent: cols[10] || ''
             });
           }
