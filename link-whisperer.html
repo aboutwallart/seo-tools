@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.26</div>
+    <div class="version">v16.27</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -1177,6 +1177,13 @@ function verifyAutoLinkUrls(silent) {
   const btn = document.getElementById('al-verify-btn');
   const status = document.getElementById('al-verify-status');
   if(btn) btn.disabled = true;
+
+  if(!AppState.items.length) {
+    if(btn) btn.disabled = false;
+    if(status) { status.textContent = 'Load store data first before verifying.'; status.style.color = '#888'; }
+    renderAutoLinkTable();
+    return;
+  }
 
   let notFound = 0;
   AppAutoLinks.forEach(rule => {
