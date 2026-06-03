@@ -126,6 +126,200 @@ module.exports = async function handler(req, res) {
   }
 
   // -------------------------------------------------------
+  // AUTOLINK WEBHOOK — fires when Shopify creates a new item
+  // -------------------------------------------------------
+  if (req.query.action === 'autolink-webhook' && req.method === 'POST') {
+    const shopifyDomainHeader = req.headers['x-shopify-domain'];
+    if (shopifyDomainHeader && shopifyDomainHeader !== shopifyDomain) {
+      return res.status(200).json({ ok: false, reason: 'domain mismatch' });
+    }
+
+    const topic = req.headers['x-shopify-topic'] || '';
+    const payload = req.body;
+    if (!payload || !payload.id) {
+      return res.status(200).json({ ok: false, reason: 'no payload' });
+    }
+
+    let itemType = null;
+    if (topic === 'products/create') itemType = 'product';
+    else if (topic === 'articles/create') itemType = 'article';
+    else if (topic === 'collections/create') itemType = 'collection';
+    else return res.status(200).json({ ok: true, skipped: true, reason: 'unsupported topic' });
+
+    const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+    const REPO = 'aboutwallart/seo-tools';
+
+    async function ghGet(filePath) {
+      const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${filePath}`, {
+        headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
+      });
+      if (!r.ok) throw new Error('GitHub fetch failed: ' + r.status);
+      const d = await r.json();
+      return { content: Buffer.from(d.content, 'base64').toString('utf-8'), sha: d.sha };
+    }
+
+    async function ghPut(filePath, content, sha, message) {
+      const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${filePath}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, content: Buffer.from(content).toString('base64'), ...(sha ? { sha } : {}) })
+      });
+      if (!r.ok) throw new Error('GitHub put failed: ' + await r.text());
+    }
+
+    function escRegex(str) {
+      return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function applyKeywordLink(html, keyword, url) {
+      const escaped = escRegex(keyword);
+      const parts = html.split(/(<[^>]*>)/);
+      let insideAnchor = false;
+      let replaced = false;
+      const result = parts.map(part => {
+        if (part.startsWith('<')) {
+          if (/^<a[\s>]/i.test(part)) insideAnchor = true;
+          if (/^<\/a>/i.test(part)) insideAnchor = false;
+          return part;
+        }
+        if (insideAnchor || replaced) return part;
+        const regex = new RegExp('(?<![\\w-])(' + escaped + ')(?![\\w-])', 'i');
+        const newPart = part.replace(regex, '<a href="' + url + '">$1</a>');
+        if (newPart !== part) replaced = true;
+        return newPart;
+      });
+      return result.join('');
+    }
+
+    try {
+      const bodyHtml = payload.body_html || '';
+
+      const [rulesFile, settingsFile] = await Promise.all([
+        ghGet('data/autolink-rules.json').catch(() => null),
+        ghGet('data/lw-settings.json').catch(() => null)
+      ]);
+
+      const rules = rulesFile ? JSON.parse(rulesFile.content) : [];
+      const settings = settingsFile ? JSON.parse(settingsFile.content) : {
+        wordsToIgnore: [], dataTypes: ['product', 'page', 'article', 'collection'], ignoreNumbers: true
+      };
+
+      if (!(settings.dataTypes || []).includes(itemType)) {
+        return res.status(200).json({ ok: true, skipped: true, reason: 'type disabled in settings' });
+      }
+
+      const wordsToIgnoreSet = new Set((settings.wordsToIgnore || []).map(w => w.toLowerCase().trim()).filter(Boolean));
+      const ignoreNumbers = settings.ignoreNumbers !== false;
+
+      let updatedHtml = bodyHtml;
+      const appliedIds = [];
+
+      for (const rule of rules) {
+        const keyword = (rule.keyword || '').trim();
+        const url = (rule.url || '').trim();
+        if (!keyword || !url) continue;
+        if (wordsToIgnoreSet.has(keyword.toLowerCase())) continue;
+        if (ignoreNumbers && /^\d+(\.\d+)?$/.test(keyword)) continue;
+        if (updatedHtml.includes('href="' + url + '"') || updatedHtml.includes('href="https://aboutwallart.com' + url + '"')) continue;
+        const newHtml = applyKeywordLink(updatedHtml, keyword, url);
+        if (newHtml !== updatedHtml) {
+          updatedHtml = newHtml;
+          appliedIds.push(rule.id);
+        }
+      }
+
+      if (!appliedIds.length) {
+        return res.status(200).json({ ok: true, changed: false, rulesChecked: rules.length });
+      }
+
+      const shopifyBase = 'https://' + shopifyDomain + '/admin/api/2025-01/';
+      const shopifyHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
+      let saveOk = false;
+
+      if (itemType === 'product') {
+        const r = await fetch(shopifyBase + 'products/' + payload.id + '.json', {
+          method: 'PUT', headers: shopifyHeaders,
+          body: JSON.stringify({ product: { id: payload.id, body_html: updatedHtml } })
+        });
+        saveOk = r.ok;
+      } else if (itemType === 'article') {
+        const blogId = payload.blog_id;
+        if (blogId) {
+          const r = await fetch(shopifyBase + 'blogs/' + blogId + '/articles/' + payload.id + '.json', {
+            method: 'PUT', headers: shopifyHeaders,
+            body: JSON.stringify({ article: { id: payload.id, body_html: updatedHtml } })
+          });
+          saveOk = r.ok;
+        }
+      } else if (itemType === 'collection') {
+        const isSmartCollection = Array.isArray(payload.rules);
+        const collType = isSmartCollection ? 'smart_collections' : 'custom_collections';
+        const bodyKey  = isSmartCollection ? 'smart_collection' : 'custom_collection';
+        const r = await fetch(shopifyBase + collType + '/' + payload.id + '.json', {
+          method: 'PUT', headers: shopifyHeaders,
+          body: JSON.stringify({ [bodyKey]: { id: payload.id, body_html: updatedHtml } })
+        });
+        saveOk = r.ok;
+      }
+
+      if (!saveOk) {
+        return res.status(200).json({ ok: false, reason: 'shopify save failed', appliedIds });
+      }
+
+      if (rulesFile) {
+        const updatedRules = rules.map(r =>
+          appliedIds.includes(r.id) ? { ...r, linksAdded: (r.linksAdded || 0) + 1 } : r
+        );
+        await ghPut('data/autolink-rules.json', JSON.stringify(updatedRules, null, 2), rulesFile.sha, 'Auto-link applied: ' + appliedIds.length + ' rule(s)').catch(() => {});
+      }
+
+      return res.status(200).json({ ok: true, changed: true, rulesApplied: appliedIds.length, itemType });
+
+    } catch (err) {
+      console.error('Autolink webhook error:', err.message);
+      return res.status(200).json({ ok: false, error: err.message });
+    }
+  }
+
+  // -------------------------------------------------------
+  // REGISTER AUTOLINK WEBHOOKS — called from Settings tab
+  // -------------------------------------------------------
+  if (req.query.action === 'register-autolink-webhooks' && req.method === 'POST') {
+    const webhookAddress = 'https://tools.aboutwallart.com/api/shopify-files?action=autolink-webhook';
+    const topics = ['products/create', 'articles/create', 'collections/create'];
+    const shopifyHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
+
+    try {
+      const existingRes = await fetch('https://' + shopifyDomain + '/admin/api/2025-01/webhooks.json?limit=250', {
+        headers: { 'X-Shopify-Access-Token': accessToken }
+      });
+      const existingData = await existingRes.json();
+      const toDelete = (existingData.webhooks || []).filter(w => (w.address || '').includes('action=autolink-webhook'));
+
+      for (const w of toDelete) {
+        await fetch('https://' + shopifyDomain + '/admin/api/2025-01/webhooks/' + w.id + '.json', {
+          method: 'DELETE', headers: { 'X-Shopify-Access-Token': accessToken }
+        });
+      }
+
+      const created = [];
+      for (const topic of topics) {
+        const r = await fetch('https://' + shopifyDomain + '/admin/api/2025-01/webhooks.json', {
+          method: 'POST', headers: shopifyHeaders,
+          body: JSON.stringify({ webhook: { topic, address: webhookAddress, format: 'json' } })
+        });
+        const d = await r.json();
+        if (d.webhook) created.push({ topic, id: d.webhook.id });
+        else created.push({ topic, error: JSON.stringify(d.errors || d) });
+      }
+
+      return res.status(200).json({ success: true, deleted: toDelete.length, created });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // -------------------------------------------------------
   // EXISTING IMAGE OPTIMIZER ACTIONS — POST only
   // -------------------------------------------------------
   if (req.method !== 'POST') {
