@@ -67,7 +67,7 @@
 
 <header>
   <h1>Duplicated Metadata Cleaner</h1>
-  <div class="version">v1.2</div>
+  <div class="version">v1.3</div>
 </header>
 
 <div class="container">
@@ -277,7 +277,7 @@
         const res = await fetch(API, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'seo-metafield-delete', metafieldGid: record.metafieldGid })
+          body: JSON.stringify({ action: 'seo-metafield-delete', productGid: record.productGid })
         });
 
         const data = await res.json();
