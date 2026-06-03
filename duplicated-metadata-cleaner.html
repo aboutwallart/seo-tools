@@ -3,66 +3,69 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Yoast Metafield Cleaner v1.0</title>
+  <title>Duplicated Metadata Cleaner</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #222; }
-    header { background: #1a1a2e; color: #fff; padding: 20px 32px; display: flex; align-items: center; gap: 16px; }
+
+    header { background: #1a1a2e; color: #fff; padding: 20px 32px; }
     header h1 { font-size: 20px; font-weight: 600; }
-    header span { font-size: 12px; opacity: 0.5; margin-left: auto; }
+    header .version { font-size: 12px; color: rgba(255,255,255,0.45); margin-top: 4px; }
+
     .container { max-width: 1100px; margin: 32px auto; padding: 0 24px; }
+
     .card { background: #fff; border-radius: 10px; padding: 28px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); margin-bottom: 24px; }
-    h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; color: #1a1a2e; }
+    .card h2 { font-size: 15px; font-weight: 600; color: #1a1a2e; margin-bottom: 8px; }
+    .card p { font-size: 13px; color: #555; margin-bottom: 18px; line-height: 1.5; }
+
     .btn { display: inline-block; padding: 10px 22px; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: opacity 0.15s; }
     .btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .btn-primary { background: #1a1a2e; color: #fff; }
     .btn-primary:hover:not(:disabled) { opacity: 0.85; }
-    .btn-danger { background: #dc2626; color: #fff; }
-    .btn-danger:hover:not(:disabled) { opacity: 0.85; }
-    .btn-success { background: #16a34a; color: #fff; }
-    .btn-success:hover:not(:disabled) { opacity: 0.85; }
-    .btn-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .btn-green { background: #16a34a; color: #fff; }
+    .btn-green:hover:not(:disabled) { opacity: 0.85; }
+
     .progress-wrap { margin-top: 20px; display: none; }
-    .progress-bar-bg { background: #e5e7eb; border-radius: 99px; height: 8px; margin-top: 8px; overflow: hidden; }
+    .progress-bar-bg { background: #e5e7eb; border-radius: 99px; height: 8px; overflow: hidden; }
     .progress-bar { background: #1a1a2e; height: 100%; border-radius: 99px; transition: width 0.3s; width: 0%; }
     .status-text { font-size: 13px; color: #555; margin-top: 8px; }
-    .stat-row { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px; }
-    .stat { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px 20px; min-width: 140px; }
+
+    .stats { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+    .stat { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px 20px; min-width: 150px; }
     .stat-val { font-size: 28px; font-weight: 700; color: #1a1a2e; }
     .stat-label { font-size: 12px; color: #888; margin-top: 2px; }
+
+    .alert { padding: 12px 16px; border-radius: 6px; font-size: 13px; margin-bottom: 16px; }
+    .alert-blue { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+    .alert-green { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+
+    .tbl-wrap { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th { background: #f3f4f6; text-align: left; padding: 10px 12px; font-weight: 600; color: #555; border-bottom: 1px solid #e5e7eb; }
     td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; vertical-align: top; word-break: break-word; }
     tr:last-child td { border-bottom: none; }
     tr:hover td { background: #fafafa; }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; }
-    .badge-red { background: #fee2e2; color: #dc2626; }
-    .value-cell { max-width: 300px; color: #666; font-size: 12px; }
+    .val-cell { max-width: 320px; color: #666; font-size: 12px; }
+
     .hidden { display: none; }
-    .alert { padding: 12px 16px; border-radius: 6px; font-size: 13px; margin-bottom: 16px; }
-    .alert-info { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
-    .alert-success { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
-    .alert-danger { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+    .btn-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
   </style>
 </head>
 <body>
 
 <header>
-  <h1>Yoast Metafield Cleaner</h1>
-  <span>v1.0 — aboutwallart.myshopify.com</span>
+  <h1>Duplicated Metadata Cleaner</h1>
+  <div class="version">v1.0</div>
 </header>
 
 <div class="container">
 
-  <!-- STEP 1 -->
   <div class="card">
     <h2>Step 1 — Scan all products</h2>
-    <p style="font-size:13px;color:#555;margin-bottom:18px;">
-      Scans every product for orphaned metafields left by Yoast SEO (namespace: <strong>SEO</strong>, key: <strong>meta_description</strong>). Read-only — nothing is changed.
-    </p>
+    <p>Checks every product for orphaned SEO metafields left behind by an uninstalled app (namespace: <strong>SEO</strong>, key: <strong>meta_description</strong>). Read-only — nothing is changed or deleted.</p>
     <div class="btn-row">
       <button class="btn btn-primary" id="btnScan" onclick="startScan()">Start Scan</button>
-      <button class="btn btn-success hidden" id="btnCSV" onclick="downloadCSV()">Download CSV</button>
+      <button class="btn btn-green hidden" id="btnCSV" onclick="downloadCSV()">Download CSV</button>
     </div>
     <div class="progress-wrap" id="progressWrap">
       <div class="progress-bar-bg"><div class="progress-bar" id="progressBar"></div></div>
@@ -70,16 +73,15 @@
     </div>
   </div>
 
-  <!-- RESULTS -->
   <div class="card hidden" id="resultsCard">
     <h2>Scan Results</h2>
-    <div class="stat-row">
+    <div class="stats">
       <div class="stat"><div class="stat-val" id="statProducts">0</div><div class="stat-label">Products scanned</div></div>
       <div class="stat"><div class="stat-val" id="statFound">0</div><div class="stat-label">Orphaned metafields found</div></div>
     </div>
-    <div class="alert alert-info" id="alertInfo">Scan complete. Review the list below, then give permission to delete.</div>
-    <div style="overflow-x:auto;">
-      <table id="resultsTable">
+    <div class="alert alert-blue" id="alertMsg">Scan complete. Review below, then confirm before deleting anything.</div>
+    <div class="tbl-wrap">
+      <table>
         <thead>
           <tr>
             <th>#</th>
@@ -100,48 +102,46 @@
 <script>
   const API = '/api/blogs';
   let allFound = [];
-  let totalProductsScanned = 0;
+  let totalScanned = 0;
 
   async function startScan() {
     document.getElementById('btnScan').disabled = true;
     document.getElementById('btnCSV').classList.add('hidden');
-    document.getElementById('progressWrap').style.display = 'block';
     document.getElementById('resultsCard').classList.add('hidden');
+    const progressWrap = document.getElementById('progressWrap');
+    progressWrap.style.display = 'block';
+    document.getElementById('progressBar').style.width = '0%';
     allFound = [];
-    totalProductsScanned = 0;
+    totalScanned = 0;
 
     let cursor = null;
-    let pageNum = 0;
+    let page = 0;
 
     try {
       while (true) {
-        pageNum++;
-        setStatus(`Scanning page ${pageNum}… (${totalProductsScanned} products checked so far)`);
+        page++;
+        setStatus(`Scanning page ${page}… (${totalScanned} products checked so far)`);
 
         const url = cursor
-          ? `${API}?action=yoast-scan&cursor=${encodeURIComponent(cursor)}`
-          : `${API}?action=yoast-scan`;
+          ? `${API}?action=seo-metafield-scan&cursor=${encodeURIComponent(cursor)}`
+          : `${API}?action=seo-metafield-scan`;
 
         const res = await fetch(url);
-        if (!res.ok) throw new Error(`API error: ${res.status}`);
+        if (!res.ok) throw new Error(`Server error ${res.status}`);
         const data = await res.json();
-        if (!data.success) throw new Error(data.error || 'Unknown error');
+        if (!data.success) throw new Error(data.error || 'Unknown error from server');
 
-        totalProductsScanned += 50;
+        totalScanned += 50;
         allFound = allFound.concat(data.found);
-
-        document.getElementById('statProducts').textContent = totalProductsScanned;
-        document.getElementById('statFound').textContent = allFound.length;
 
         if (!data.hasNextPage) break;
         cursor = data.endCursor;
 
-        // Small delay to be kind to Shopify rate limits
-        await new Promise(r => setTimeout(r, 300));
+        await new Promise(r => setTimeout(r, 250));
       }
 
-      setStatus(`Done. ${totalProductsScanned} products scanned. ${allFound.length} orphaned metafields found.`);
       document.getElementById('progressBar').style.width = '100%';
+      setStatus(`Done. ${totalScanned} products scanned. ${allFound.length} orphaned metafields found.`);
       renderResults();
       if (allFound.length > 0) document.getElementById('btnCSV').classList.remove('hidden');
 
@@ -153,27 +153,31 @@
 
   function renderResults() {
     document.getElementById('resultsCard').classList.remove('hidden');
-    document.getElementById('statProducts').textContent = totalProductsScanned;
+    document.getElementById('statProducts').textContent = totalScanned;
     document.getElementById('statFound').textContent = allFound.length;
 
-    const tbody = document.getElementById('resultsBody');
-    tbody.innerHTML = '';
-
+    const alert = document.getElementById('alertMsg');
     if (allFound.length === 0) {
-      document.getElementById('alertInfo').className = 'alert alert-success';
-      document.getElementById('alertInfo').textContent = 'No orphaned Yoast metafields found. Your store is clean.';
+      alert.className = 'alert alert-green';
+      alert.textContent = 'No orphaned metafields found. Your store is clean.';
+      document.getElementById('resultsBody').innerHTML = '';
       return;
     }
 
+    alert.className = 'alert alert-blue';
+    alert.textContent = `Found ${allFound.length} orphaned metafields. Download the CSV to review, then confirm before any deletions.`;
+
+    const tbody = document.getElementById('resultsBody');
+    tbody.innerHTML = '';
     allFound.forEach((r, i) => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>${i + 1}</td>
-        <td>${r.productId}</td>
+        <td>${esc(r.productId)}</td>
         <td>${esc(r.title)}</td>
         <td>${esc(r.handle)}</td>
-        <td>${r.metafieldId}</td>
-        <td class="value-cell">${esc(r.value)}</td>
+        <td>${esc(r.metafieldId)}</td>
+        <td class="val-cell">${esc(r.value)}</td>
       `;
       tbody.appendChild(tr);
     });
@@ -182,19 +186,19 @@
   function downloadCSV() {
     const header = 'Product ID,Product Title,Handle,Metafield ID,Current Value';
     const rows = allFound.map(r =>
-      [r.productId, csvEsc(r.title), csvEsc(r.handle), r.metafieldId, csvEsc(r.value)].join(',')
+      [r.productId, csvQ(r.title), csvQ(r.handle), r.metafieldId, csvQ(r.value)].join(',')
     );
     const csv = [header, ...rows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'yoast-orphaned-metafields.csv';
+    a.download = 'orphaned-seo-metafields.csv';
     a.click();
   }
 
   function setStatus(msg) { document.getElementById('statusText').textContent = msg; }
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-  function csvEsc(s) { s = String(s); return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g,'""')}"` : s; }
+  function csvQ(s) { s = String(s); return (s.includes(',') || s.includes('"') || s.includes('\n')) ? `"${s.replace(/"/g,'""')}"` : s; }
 </script>
 
 </body>
