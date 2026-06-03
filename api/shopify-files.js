@@ -142,9 +142,8 @@ module.exports = async function handler(req, res) {
 
     let itemType = null;
     if (topic === 'products/create') itemType = 'product';
-    else if (topic === 'articles/create') itemType = 'article';
-    else if (topic === 'custom_collections/create') itemType = 'collection';
-    else if (topic === 'smart_collections/create') itemType = 'collection';
+    else if (topic === 'ARTICLE_CREATED') itemType = 'article';
+    else if (topic === 'collections/create') itemType = 'collection';
     else return res.status(200).json({ ok: true, skipped: true, reason: 'unsupported topic' });
 
     const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
@@ -287,28 +286,48 @@ module.exports = async function handler(req, res) {
   // -------------------------------------------------------
   if (req.query.action === 'register-autolink-webhooks' && req.method === 'POST') {
     const webhookAddress = 'https://tools.aboutwallart.com/api/shopify-files?action=autolink-webhook';
-    const topics = ['products/create', 'articles/create', 'custom_collections/create', 'smart_collections/create'];
+    const restTopics = ['products/create', 'collections/create'];
     const shopifyHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
+    const gqlUrl = 'https://' + shopifyDomain + '/admin/api/2025-01/graphql.json';
 
     try {
+      // ── 1. Delete existing REST webhooks with our address ──
       const existingRes = await fetch('https://' + shopifyDomain + '/admin/api/2025-01/webhooks.json?limit=250', {
         headers: { 'X-Shopify-Access-Token': accessToken }
       });
       const existingData = await existingRes.json();
       const toDelete = (existingData.webhooks || []).filter(w => (w.address || '').includes('action=autolink-webhook'));
-
       for (const w of toDelete) {
         await fetch('https://' + shopifyDomain + '/admin/api/2025-01/webhooks/' + w.id + '.json', {
           method: 'DELETE', headers: { 'X-Shopify-Access-Token': accessToken }
         });
         await new Promise(r => setTimeout(r, 300));
       }
-
-      // Brief pause after deletions before registering
       if (toDelete.length) await new Promise(r => setTimeout(r, 500));
 
+      // ── 2. Delete existing GraphQL ARTICLE_CREATED webhook with our address ──
+      const gqlListRes = await fetch(gqlUrl, {
+        method: 'POST', headers: shopifyHeaders,
+        body: JSON.stringify({ query: `{ webhookSubscriptions(first: 50) { edges { node { id topic endpoint { ... on WebhookHttpEndpoint { callbackUrl } } } } } }` })
+      });
+      const gqlListData = await gqlListRes.json();
+      const gqlEdges = ((gqlListData.data || {}).webhookSubscriptions || {}).edges || [];
+      for (const edge of gqlEdges) {
+        const node = edge.node;
+        const cbUrl = ((node.endpoint || {}).callbackUrl || '');
+        if (cbUrl.includes('action=autolink-webhook') && node.topic === 'ARTICLE_CREATED') {
+          await fetch(gqlUrl, {
+            method: 'POST', headers: shopifyHeaders,
+            body: JSON.stringify({ query: `mutation { webhookSubscriptionDelete(id: "${node.id}") { deletedWebhookSubscriptionId userErrors { field message } } }` })
+          });
+          await new Promise(r => setTimeout(r, 300));
+        }
+      }
+      await new Promise(r => setTimeout(r, 300));
+
+      // ── 3. Register REST webhooks (products + collections) ──
       const created = [];
-      for (const topic of topics) {
+      for (const topic of restTopics) {
         const r = await fetch('https://' + shopifyDomain + '/admin/api/2025-01/webhooks.json', {
           method: 'POST', headers: shopifyHeaders,
           body: JSON.stringify({ webhook: { topic, address: webhookAddress, format: 'json' } })
@@ -317,6 +336,23 @@ module.exports = async function handler(req, res) {
         if (d.webhook) created.push({ topic, id: d.webhook.id });
         else created.push({ topic, error: JSON.stringify(d.errors || d) });
         await new Promise(r => setTimeout(r, 300));
+      }
+
+      // ── 4. Register GraphQL webhook for articles (ARTICLE_CREATED) ──
+      await new Promise(r => setTimeout(r, 300));
+      const gqlCreateRes = await fetch(gqlUrl, {
+        method: 'POST', headers: shopifyHeaders,
+        body: JSON.stringify({
+          query: `mutation { webhookSubscriptionCreate(topic: ARTICLE_CREATED, webhookSubscription: { callbackUrl: "${webhookAddress}", format: JSON }) { webhookSubscription { id } userErrors { field message } } }`
+        })
+      });
+      const gqlCreateData = await gqlCreateRes.json();
+      const gqlResult = ((gqlCreateData.data || {}).webhookSubscriptionCreate || {});
+      if (gqlResult.webhookSubscription) {
+        created.push({ topic: 'articles (ARTICLE_CREATED)', id: gqlResult.webhookSubscription.id });
+      } else {
+        const errs = (gqlResult.userErrors || []).map(e => e.message).join(', ');
+        created.push({ topic: 'articles (ARTICLE_CREATED)', error: errs || JSON.stringify(gqlCreateData) });
       }
 
       return res.status(200).json({ success: true, deleted: toDelete.length, created });
