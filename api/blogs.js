@@ -352,13 +352,62 @@ export default async function handler(req, res) {
       // ── ACTION: lock-keyword ──
       if (req.body.action === 'lock-keyword') {
         if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
-        const { keyword, url } = req.body;
+        const { keyword, url, intent, losers } = req.body;
         if (!keyword || !url) return res.status(400).json({ error: 'keyword and url required' });
         const registry = await getGitHubFile('data/keyword-locker-registry.csv');
-        const newRow = `${keyword},${url},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,User Resolved`;
-        const updated = registry.content.trimEnd() + '\n' + newRow + '\n';
-        await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Lock keyword from rankings: ${keyword}`);
+        const resolvedIntent = intent || 'UNKNOWN';
+        let newRows = `${keyword},${url},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,User Resolved,${resolvedIntent}`;
+        // Add loser rows for internal linking
+        if (Array.isArray(losers)) {
+          losers.forEach(loser => {
+            newRows += `\n${keyword},${loser.url},LOCKED,DONE,INTERNAL_LINK,${url},${loser.clicks || 'N/A'},${loser.impressions || 'N/A'},${loser.position || 'N/A'},User Resolved,${resolvedIntent}`;
+          });
+        }
+        const updated = registry.content.trimEnd() + '\n' + newRows + '\n';
+        await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Lock keyword: ${keyword}`);
         return res.status(200).json({ success: true, keyword, url });
+      }
+
+      // ── ACTION: save-for-later ──
+      if (req.body.action === 'save-for-later') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { keyword, intent } = req.body;
+        if (!keyword) return res.status(400).json({ error: 'keyword required' });
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const newRow = `${keyword},N/A,LOCKED,DONE,SAVED_FOR_FUTURE,N/A,N/A,N/A,N/A,User Action,${intent || 'UNKNOWN'}`;
+        const updated = registry.content.trimEnd() + '\n' + newRow + '\n';
+        await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Save for later: ${keyword}`);
+        return res.status(200).json({ success: true, keyword });
+      }
+
+      // ── ACTION: delete-keyword ──
+      if (req.body.action === 'delete-keyword') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { keyword, intent } = req.body;
+        if (!keyword) return res.status(400).json({ error: 'keyword required' });
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const newRow = `${keyword},N/A,LOCKED,DONE,DELETED,N/A,N/A,N/A,N/A,User Action,${intent || 'UNKNOWN'}`;
+        const updated = registry.content.trimEnd() + '\n' + newRow + '\n';
+        await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Delete keyword: ${keyword}`);
+        return res.status(200).json({ success: true, keyword });
+      }
+
+      // ── ACTION: remove-from-registry ──
+      if (req.body.action === 'remove-from-registry') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { keyword } = req.body;
+        if (!keyword) return res.status(400).json({ error: 'keyword required' });
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const lines = registry.content.split('\n');
+        const filtered = lines.filter(line => {
+          const trimmed = line.trim();
+          if (!trimmed) return true;
+          const cols = parseCSVLine(trimmed);
+          return cols[0].toLowerCase() !== keyword.toLowerCase();
+        });
+        const updated = filtered.join('\n');
+        await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Remove from registry: ${keyword}`);
+        return res.status(200).json({ success: true, keyword });
       }
 
       // ── ACTION: save-susp-events ──
