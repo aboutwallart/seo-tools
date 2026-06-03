@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.23</div>
+    <div class="version">v16.24</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -2217,7 +2217,7 @@ function buildProductInboundPanel(item) {
         data-article-id="${escHtml(b.shopifyId)}"
         data-article-blog-id="${escHtml(b.blogId||'')}"
         data-article-title="${escHtml(b.title)}"
-        onchange="enforceInboundBlogSingle(this,'${item.id}')" ${slotsUsed>=4?'disabled':''} />
+        onchange="enforceInboundBlogSingle(this,'${item.id}')" />
       <div class="suggest-item-info">
         <div class="suggest-item-title">${escHtml(b.title)}</div>
         <div class="suggest-item-url">${escHtml(b.url)}</div>
@@ -3103,7 +3103,7 @@ function buildInboundBulkPanel(item, keyword) {
         data-article-id="${escHtml(b.shopifyId)}"
         data-article-blog-id="${escHtml(b.blogId||'')}"
         data-article-title="${escHtml(b.title)}"
-        onchange="enforceInboundBlogSingle(this,'${item.id}')" ${slotsUsed>=4?'disabled':''} />
+        onchange="enforceInboundBlogSingle(this,'${item.id}')" />
       <div class="suggest-item-info">
         <div class="suggest-item-title">${escHtml(b.title)}</div>
         <div class="suggest-item-url">${escHtml(b.url)}</div>
@@ -3145,12 +3145,21 @@ function inboundBlogSearch(input, itemId) {
   if(!q) { dropdown.style.display = 'none'; return; }
   const matches = AppState.items.filter(i => i.type === 'article' && i.title.toLowerCase().includes(q)).slice(0, 10);
   if(!matches.length) { dropdown.style.display = 'none'; return; }
+  const articleProductMap = {};
+  (AppState.metafieldLinks||[]).forEach(l => {
+    if(!articleProductMap[l.articleId]) articleProductMap[l.articleId] = [];
+    if(!articleProductMap[l.articleId].includes(l.productId)) articleProductMap[l.articleId].push(l.productId);
+  });
   dropdown.style.display = 'block';
-  dropdown.innerHTML = matches.map(b => `
-    <div class="suggest-search-item" onclick="inboundBlogSelect('${itemId}','${escHtml(b.shopifyId)}','${escHtml(b.blogId||'')}','${escHtml(b.title).replace(/'/g,'&#39;')}','${escHtml(b.url)}',this)">
+  dropdown.innerHTML = matches.map(b => {
+    const slotsUsed = (articleProductMap[b.id]||[]).length;
+    const slotText = slotsUsed >= 4 ? ' · ⚠️ Full (4/4)' : ' · ' + (4-slotsUsed) + ' slot' + ((4-slotsUsed)!==1?'s':'') + ' free';
+    const slotColor = slotsUsed >= 4 ? '#c62828' : slotsUsed >= 3 ? '#e65100' : '#888';
+    return `<div class="suggest-search-item" onclick="inboundBlogSelect('${itemId}','${escHtml(b.shopifyId)}','${escHtml(b.blogId||'')}','${escHtml(b.title).replace(/'/g,'&#39;')}','${escHtml(b.url)}',this)">
       <span class="suggest-search-item-title">${escHtml(b.title)}</span>
-      <span class="suggest-search-item-inbound">${(AppState.linkGraph.inbound[b.id]||[]).length} inbound</span>
-    </div>`).join('');
+      <span class="suggest-search-item-inbound" style="color:${slotColor};">${(AppState.linkGraph.inbound[b.id]||[]).length} inbound${slotText}</span>
+    </div>`;
+  }).join('');
 }
 
 function inboundBlogSelect(itemId, shopifyId, blogId, title, url, el) {
@@ -4035,51 +4044,19 @@ async function syncFromShopify(){
 
     AppState.items=allItems; AppState.links=allLinks; AppState.lastSync=new Date().toISOString();
 
-    // Load saved metafield links from GitHub (fast, reliable, persists across sessions)
+    // Load saved metafield links from GitHub — only tracks products added through this tool
     setLoadingStep('Loading saved product links...',91);
-    const metafieldLinks = [];
     try {
       const mlRes = await fetch(CONFIG.proxyUrl + '/api/blogs?action=get-metafield-links');
       const mlData = await mlRes.json();
-      (mlData.links||[]).forEach(l => {
-        // Verify both product and article still exist in current data
-        const productExists = allItems.some(i => i.id === l.productId && i.type === 'product');
-        const articleExists = allItems.some(i => i.id === l.articleId && i.type === 'article');
-        if(productExists && articleExists) metafieldLinks.push(l);
-      });
-    } catch(e) { console.warn('Could not load metafield links from GitHub:', e); }
-
-    // Also scan Shopify metafields to catch any products added outside our tool (e.g. manually in Shopify admin)
-    setLoadingStep('Scanning blog product links...',91);
-    const articles = allItems.filter(i=>i.type==='article');
-    const batchSize = 5;
-    for(let i=0; i<articles.length; i+=batchSize) {
-      const batch = articles.slice(i, i+batchSize);
-      const results = await Promise.all(batch.map(async art => {
-        try {
-          const ep = 'blogs/'+art.blogId+'/articles/'+art.shopifyId+'/metafields.json?namespace=custom&key=blog_products_list';
-          const data = await shopifyFetch(ep);
-          const mf = (data.metafields||[]).find(m=>m.namespace==='custom'&&m.key==='blog_products_list');
-          if(!mf) return [];
-          const gids = JSON.parse(mf.value||'[]');
-          return gids.map(gid => {
-            const shopifyProductId = String(gid).split('/').pop();
-            const productItem = allItems.find(p=>p.type==='product'&&String(p.shopifyId)===shopifyProductId);
-            return productItem ? { productId: productItem.id, articleId: art.id } : null;
-          }).filter(Boolean);
-        } catch(e) { return []; }
-      }));
-      results.forEach(r => metafieldLinks.push(...r));
+      AppState.metafieldLinks = (mlData.links||[]).filter(l =>
+        allItems.some(i => i.id === l.productId && i.type === 'product') &&
+        allItems.some(i => i.id === l.articleId && i.type === 'article')
+      );
+    } catch(e) {
+      console.warn('Could not load metafield links from GitHub:', e);
+      AppState.metafieldLinks = [];
     }
-
-    // Deduplicate merged results
-    const seen = new Set();
-    AppState.metafieldLinks = metafieldLinks.filter(l => {
-      const key = l.productId+'|'+l.articleId;
-      if(seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
 
     setLoadingStep('Building link graph...',92);
     buildLinkGraph();
