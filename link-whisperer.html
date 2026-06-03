@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.20</div>
+    <div class="version">v16.21</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -313,7 +313,6 @@
       </select>
       <select id="lr-filter" onchange="renderLinksReport()">
         <option value="">All Items</option>
-        <option value="orphaned">Orphaned Only</option>
         <option value="has-inbound">Has Inbound Links</option>
         <option value="needs-outbound">Needs Outbound Links</option>
         <option value="needs-inbound">Needs Inbound Links</option>
@@ -479,6 +478,15 @@
         </div>
         <button class="btn-action" style="background:#2e7d32;" onclick="addAutoLinkRule()">+ Add Rule</button>
       </div>
+      <!-- BULK ADD -->
+      <div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:8px;padding:16px;margin-bottom:16px;">
+        <div style="font-size:12px;font-weight:700;color:#2e7d32;text-transform:uppercase;margin-bottom:6px;">Bulk Add Rules</div>
+        <div style="font-size:12px;color:#555;margin-bottom:8px;">One rule per line, format: <code style="background:#fff;padding:1px 5px;border-radius:3px;border:1px solid #c8e6c9;">keyword, /collections/example</code></div>
+        <textarea id="al-bulk-input" rows="5" style="width:100%;padding:10px;border:1px solid #a5d6a7;border-radius:4px;font-size:12px;font-family:monospace;resize:vertical;" placeholder="coastal style, /collections/coastal-decor&#10;beach style, /collections/coastal-decor&#10;seaside decor, /collections/coastal-decor"></textarea>
+        <div style="margin-top:8px;">
+          <button class="btn-action" style="background:#2e7d32;" onclick="bulkAddAutoLinkRules()">+ Add All Rules</button>
+        </div>
+      </div>
       <!-- PAGINATION TOP -->
       <div id="al-pagination-top" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;font-size:13px;color:#666;">
         <span id="al-page-info-top"></span>
@@ -493,10 +501,10 @@
           <thead>
             <tr>
               <th style="width:36px;">#</th>
-              <th style="width:26%;">Keyword</th>
-              <th style="width:36%;">URL</th>
+              <th style="width:26%;cursor:pointer;user-select:none;" onclick="alSortBy('keyword')">Keyword <span id="al-sort-keyword"></span></th>
+              <th style="width:36%;cursor:pointer;user-select:none;" onclick="alSortBy('url')">URL <span id="al-sort-url"></span></th>
               <th style="width:12%;">Status</th>
-              <th style="width:10%;text-align:center;">Links Added</th>
+              <th style="width:10%;text-align:center;cursor:pointer;user-select:none;" onclick="alSortBy('linksAdded')">Links Added <span id="al-sort-linksAdded"></span></th>
               <th style="width:10%;text-align:center;">Actions</th>
             </tr>
           </thead>
@@ -1033,6 +1041,7 @@ let AppAutoLinks = [];
 let alPage = 1;
 const AL_PER_PAGE = 50;
 let alLoaded = false;
+let alSort = { col: null, dir: 'asc' };
 
 async function initAutoLinkTab() {
   if(alLoaded) { renderAutoLinkTable(); return; }
@@ -1094,9 +1103,26 @@ function checkAutoLinkUrl(url) {
 
 function renderAutoLinkTable() {
   const q = (document.getElementById('al-search')||{value:''}).value.toLowerCase();
-  const filtered = AppAutoLinks.filter(r =>
+  let filtered = AppAutoLinks.filter(r =>
     !q || r.keyword.toLowerCase().includes(q) || r.url.toLowerCase().includes(q)
   );
+
+  // Apply sorting
+  if(alSort.col) {
+    filtered = [...filtered].sort((a, b) => {
+      let va = a[alSort.col], vb = b[alSort.col];
+      if(alSort.col === 'linksAdded') { va = va||0; vb = vb||0; return alSort.dir==='asc' ? va-vb : vb-va; }
+      va = (va||'').toLowerCase(); vb = (vb||'').toLowerCase();
+      return alSort.dir==='asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+    });
+  }
+
+  // Update sort icons
+  ['keyword','url','linksAdded'].forEach(col => {
+    const el = document.getElementById('al-sort-'+col);
+    if(!el) return;
+    el.textContent = alSort.col===col ? (alSort.dir==='asc'?'↑':'↓') : '';
+  });
 
   const total = filtered.length;
   const totalPages = Math.ceil(total / AL_PER_PAGE) || 1;
@@ -1164,6 +1190,18 @@ function alChangePage(dir) {
   document.getElementById('tab-auto-linking').scrollTop = 0;
 }
 
+function alSortBy(col) {
+  if(alSort.col === col) {
+    if(alSort.dir === 'asc') alSort.dir = 'desc';
+    else { alSort.col = null; alSort.dir = 'asc'; }
+  } else {
+    alSort.col = col;
+    alSort.dir = 'asc';
+  }
+  alPage = 1;
+  renderAutoLinkTable();
+}
+
 let alEditingId = null;
 
 function editAutoLinkRule(id) {
@@ -1187,6 +1225,33 @@ function saveAutoLinkEdit(id) {
   rule.verified = checkAutoLinkUrl(url);
   alEditingId = null;
   saveAutoLinkRules();
+}
+
+function bulkAddAutoLinkRules() {
+  const raw = (document.getElementById('al-bulk-input')||{value:''}).value.trim();
+  if(!raw) { showToast('Please enter at least one rule.','error'); return; }
+  const lines = raw.split('\n').map(l=>l.trim()).filter(Boolean);
+  let added = 0, skipped = 0, warned = 0;
+  const maxId = AppAutoLinks.length ? Math.max(...AppAutoLinks.map(r=>r.id)) : 0;
+  let nextId = maxId + 1;
+  lines.forEach(line => {
+    const commaIdx = line.indexOf(',');
+    if(commaIdx === -1) { skipped++; return; }
+    const kw  = line.slice(0, commaIdx).trim();
+    const url = line.slice(commaIdx + 1).trim();
+    if(!kw || !url) { skipped++; return; }
+    const verified = checkAutoLinkUrl(url);
+    if(verified === 'not-found') warned++;
+    AppAutoLinks.push({ id: nextId++, keyword: kw, url, linksAdded: 0, verified });
+    added++;
+  });
+  const ta = document.getElementById('al-bulk-input');
+  if(ta) ta.value = '';
+  if(added) saveAutoLinkRules();
+  let msg = added + ' rule' + (added!==1?'s':'') + ' added.';
+  if(skipped) msg += ' ' + skipped + ' line(s) skipped (wrong format).';
+  if(warned) msg += ' ⚠️ ' + warned + ' URL(s) not found in store.';
+  showToast(msg, warned ? 'error' : 'success');
 }
 
 function addAutoLinkRule() {
@@ -1366,7 +1431,8 @@ const AppState = {
   lrPage:1, lrSort:[],
   expandState:{}, suggestState:{}, inboundSuggestState:{},
   saveStatuses:{},
-  linkQueue:[]
+  linkQueue:[],
+  metafieldLinks:[] // [{productId, articleId}] — from blog_products_list metafields
 };
 
 const BlState = { page:1, selected: new Set(), sort:{ col:'', dir:'' } };
@@ -1491,6 +1557,13 @@ function buildLinkGraph() {
   // Build URL lookup index for O(1) target resolution
   AppState.items.forEach(item => {
     if(item.url) urlToItem[item.url.replace(/\/$/,'').toLowerCase()] = item;
+  });
+  // Apply metafield links (from blog_products_list) as synthetic inbound entries
+  (AppState.metafieldLinks||[]).forEach(({productId, articleId}) => {
+    if(!AppState.linkGraph.inbound[productId]) AppState.linkGraph.inbound[productId] = [];
+    if(!AppState.linkGraph.inbound[productId].some(l => l.sourceId === articleId)) {
+      AppState.linkGraph.inbound[productId].push({ sourceId: articleId, sourceUrl: '', anchorText: 'metafield' });
+    }
   });
 }
 
@@ -2557,7 +2630,6 @@ function getFilteredItems() {
   return AppState.items.filter(item=>{
     if(q&&!item.title.toLowerCase().includes(q)) return false;
     if(type&&item.type!==type) return false;
-    if(filter==='orphaned'&&(AppState.linkGraph.inbound[item.id]||[]).length>0) return false;
     if(filter==='has-inbound'&&(AppState.linkGraph.inbound[item.id]||[]).length===0) return false;
     if(filter==='needs-outbound'){
       if(!shouldShowAddButton(item)) return false;
@@ -2677,10 +2749,16 @@ function buildItemRow(item) {
       <div class="link-cell">
         <span class="link-count ${inbound.length===0?'zero':''}">→${inbound.length}</span>
         <button class="btn-expand ${inOpen}" onclick="toggleExpand('${item.id}','inbound')">▼</button>
-        ${(!inboundReq.noRules && shouldShowAddButton(item)) ? (() => {
+        ${(() => {
+          if(!shouldShowAddButton(item)) return '';
+          if(inboundReq.noRules) {
+            // Products: show Done if has any inbound, else show + Add (opens inbound bulk panel)
+            if(inbound.length > 0) return `<button class="btn-add" disabled style="opacity:0.35;cursor:default;background:#aaa;">✓ Done</button>`;
+            return `<button class="btn-add" style="background:#1565c0;" onclick="openInboundSuggestPanel('${item.id}')">+ Add</button>`;
+          }
           if(inboundReq.fullyDone) return `<button class="btn-add" disabled style="opacity:0.35;cursor:default;background:#aaa;" title="All required inbound links already present">✓ Done</button>`;
           return `<button class="btn-add" style="background:#1565c0;" onclick="openInboundSuggestPanel('${item.id}')">+ Add</button>`;
-        })() : ''}
+        })()}
       </div>
     </td>
     <td class="td-links">
@@ -3027,6 +3105,20 @@ async function saveProductToMetafield(articleItem, productItem) {
     await shopifyFetch('blogs/'+articleItem.blogId+'/articles/'+articleItem.shopifyId+'/metafields.json', 'POST', {
       metafield: { namespace:'custom', key:'blog_products_list', value: JSON.stringify(currentList), type:'list.product_reference' }
     });
+  }
+
+  // Immediately update the in-memory link graph so the product shows as linked without waiting for a re-sync
+  const articleInternalId = AppState.items.find(i => i.type==='article' && String(i.shopifyId)===String(articleItem.shopifyId))?.id;
+  if(articleInternalId) {
+    if(!AppState.metafieldLinks) AppState.metafieldLinks = [];
+    if(!AppState.metafieldLinks.some(l => l.productId===productItem.id && l.articleId===articleInternalId)) {
+      AppState.metafieldLinks.push({ productId: productItem.id, articleId: articleInternalId });
+    }
+    if(!AppState.linkGraph.inbound[productItem.id]) AppState.linkGraph.inbound[productItem.id] = [];
+    if(!AppState.linkGraph.inbound[productItem.id].some(l => l.sourceId===articleInternalId)) {
+      AppState.linkGraph.inbound[productItem.id].push({ sourceId: articleInternalId, sourceUrl: '', anchorText: 'metafield' });
+    }
+    delete requirementsCache[productItem.id];
   }
 }
 
@@ -3775,6 +3867,32 @@ async function syncFromShopify(){
     setLoadingStep('Links parsed: '+allLinks.length+' found',90);
 
     AppState.items=allItems; AppState.links=allLinks; AppState.lastSync=new Date().toISOString();
+
+    // Scan blog article metafields for product references
+    setLoadingStep('Scanning blog product links...',91);
+    const articles = allItems.filter(i=>i.type==='article');
+    const metafieldLinks = [];
+    const batchSize = 5;
+    for(let i=0; i<articles.length; i+=batchSize) {
+      const batch = articles.slice(i, i+batchSize);
+      const results = await Promise.all(batch.map(async art => {
+        try {
+          const ep = 'blogs/'+art.blogId+'/articles/'+art.shopifyId+'/metafields.json?namespace=custom&key=blog_products_list';
+          const data = await shopifyFetch(ep);
+          const mf = (data.metafields||[]).find(m=>m.namespace==='custom'&&m.key==='blog_products_list');
+          if(!mf) return [];
+          const gids = JSON.parse(mf.value||'[]');
+          return gids.map(gid => {
+            const shopifyProductId = String(gid).split('/').pop();
+            const productItem = allItems.find(p=>p.type==='product'&&String(p.shopifyId)===shopifyProductId);
+            return productItem ? { productId: productItem.id, articleId: art.id } : null;
+          }).filter(Boolean);
+        } catch(e) { return []; }
+      }));
+      results.forEach(r => metafieldLinks.push(...r));
+    }
+    AppState.metafieldLinks = metafieldLinks;
+
     setLoadingStep('Building link graph...',92);
     buildLinkGraph();
     setLoadingStep('Detecting broken links...',95);
