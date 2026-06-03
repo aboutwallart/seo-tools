@@ -30,6 +30,7 @@
         .header .subtitle { color: #999; font-size: 14px; font-style: italic; }
         .version { color: #999; font-size: 13px; margin-top: 8px; }
 
+
         .load-section {
             background: white;
             padding: 30px;
@@ -165,7 +166,7 @@
             <h1>Keyword Locker</h1>
             <p>Lock each keyword to its best URL — resolve cannibalization by choosing winners</p>
             <p class="subtitle">One keyword = One winner URL. Intent-aware conflict detection.</p>
-            <div class="version">v3.0</div>
+            <div class="version">v3.1</div>
         </div>
 
         <div class="load-section" id="loadSection">
@@ -259,6 +260,7 @@
         function normalizeUrl(url) {
             return url
                 .split('?')[0]
+                .split('#')[0]
                 .replace(/\/$/, '')
                 .replace('https://www.aboutwallart.com', 'https://aboutwallart.com');
         }
@@ -290,13 +292,17 @@
                 const source = entry.source || '';
                 const action = entry.action || '';
                 const intent = entry.intent || '';
+                const locked = entry.locked;
+                const status = entry.status || '';
 
                 if (source === 'Published Blog') {
                     lookup[kw].handled.add('INFORMATIONAL');
                 } else if (source === 'Pre-Optimized Page') {
                     lookup[kw].handled.add('NAVIGATIONAL');
-                } else if (action === 'TO_OPTIMIZE' || action === 'INTERNAL_LINK') {
+                } else if (locked && status === 'DONE' && action === 'TO_OPTIMIZE') {
                     if (intent) lookup[kw].handled.add(intent);
+                } else if (action === 'INTERNAL_LINK') {
+                    // losers — don't block the keyword from showing
                 } else if (action === 'SAVED_FOR_FUTURE' || action === 'DELETED') {
                     lookup[kw].handled.add('ALL');
                 }
@@ -305,14 +311,30 @@
             return lookup;
         }
 
+        // ── Pre-locked URL set (URLs to exclude as conflict options) ──
+        function buildPrelockedUrls(registry) {
+            const prelockedUrls = new Set();
+            registry.forEach(entry => {
+                const source = entry.source || '';
+                if (source === 'Published Blog' || source === 'Pre-Optimized Page') {
+                    if (entry.url && entry.url !== 'N/A') {
+                        prelockedUrls.add(normalizeUrl(entry.url));
+                    }
+                }
+            });
+            return prelockedUrls;
+        }
+
         // ── Registry stats ──
         function buildRegistryStats(registry) {
             let resolved = 0, saved = 0, deleted = 0, prelocked = 0, internalLinks = 0;
             registry.forEach(entry => {
                 const source = entry.source || '';
                 const action = entry.action || '';
+                const locked = entry.locked;
+                const status = entry.status || '';
                 if (source === 'Published Blog' || source === 'Pre-Optimized Page') prelocked++;
-                else if (action === 'TO_OPTIMIZE') resolved++;
+                else if (locked && status === 'DONE' && action === 'TO_OPTIMIZE' && source === 'User Resolved') resolved++;
                 else if (action === 'SAVED_FOR_FUTURE') saved++;
                 else if (action === 'DELETED') deleted++;
                 else if (action === 'INTERNAL_LINK') internalLinks++;
@@ -323,6 +345,7 @@
         // ── Conflict detection ──
         function findConflicts(gscData, registry) {
             const registryLookup = buildRegistryLookup(registry);
+            const prelockedUrls = buildPrelockedUrls(registry);
 
             // Group GSC rows by keyword → url
             const byKeyword = {};
@@ -333,6 +356,9 @@
                 const url = normalizeUrl(rawUrl);
 
                 if (shouldExclude(url)) return;
+
+                // Skip pre-locked URLs entirely
+                if (prelockedUrls.has(url)) return;
 
                 const intent = detectIntent(url);
                 if (intent === 'UNKNOWN') return;
@@ -361,10 +387,9 @@
                     position: p.count > 0 ? p.posSum / p.count : 0
                 }));
 
-                // Group by intent
+                // Group by intent, skipping already-handled keyword+intent combos
                 const byIntent = {};
                 pageList.forEach(page => {
-                    // Skip if this keyword+intent already handled in registry
                     if (regEntry && regEntry.handled.has(page.intent)) return;
                     if (!byIntent[page.intent]) byIntent[page.intent] = [];
                     byIntent[page.intent].push(page);
