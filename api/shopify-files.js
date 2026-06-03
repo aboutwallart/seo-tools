@@ -301,7 +301,11 @@ module.exports = async function handler(req, res) {
         await fetch('https://' + shopifyDomain + '/admin/api/2025-01/webhooks/' + w.id + '.json', {
           method: 'DELETE', headers: { 'X-Shopify-Access-Token': accessToken }
         });
+        await new Promise(r => setTimeout(r, 300));
       }
+
+      // Brief pause after deletions before registering
+      if (toDelete.length) await new Promise(r => setTimeout(r, 500));
 
       const created = [];
       for (const topic of topics) {
@@ -312,6 +316,7 @@ module.exports = async function handler(req, res) {
         const d = await r.json();
         if (d.webhook) created.push({ topic, id: d.webhook.id });
         else created.push({ topic, error: JSON.stringify(d.errors || d) });
+        await new Promise(r => setTimeout(r, 300));
       }
 
       return res.status(200).json({ success: true, deleted: toDelete.length, created });
