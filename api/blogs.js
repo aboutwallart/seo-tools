@@ -141,7 +141,8 @@ export default async function handler(req, res) {
               url: cols[1],
               locked: cols[2] === 'LOCKED',
               status: cols[3] || '',
-              action: cols[4] || ''
+              action: cols[4] || '',
+              intent: cols[10] || ''
             });
           }
         }
