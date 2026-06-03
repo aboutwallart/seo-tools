@@ -240,6 +240,81 @@ export default async function handler(req, res) {
         }
       }
 
+      // ── ACTION: yoast-scan ──
+      if (req.query.action === 'yoast-scan') {
+        const shopifyDomain = process.env.SHOPIFY_STORE_DOMAIN;
+        const shopifyToken  = process.env.SHOPIFY_ACCESS_TOKEN;
+        if (!shopifyDomain || !shopifyToken) return res.status(500).json({ error: 'Shopify credentials not configured' });
+
+        const cursor = req.query.cursor || null;
+        const query = `
+          query($cursor: String) {
+            products(first: 50, after: $cursor) {
+              pageInfo { hasNextPage endCursor }
+              edges {
+                node {
+                  id
+                  title
+                  handle
+                  metafields(first: 20, namespace: "SEO") {
+                    edges {
+                      node {
+                        id
+                        namespace
+                        key
+                        value
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        `;
+
+        const shopifyRes = await fetch(`https://${shopifyDomain}/admin/api/2025-01/graphql.json`, {
+          method: 'POST',
+          headers: {
+            'X-Shopify-Access-Token': shopifyToken,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ query, variables: { cursor } })
+        });
+
+        if (!shopifyRes.ok) return res.status(500).json({ error: `Shopify GraphQL error: ${shopifyRes.status}` });
+
+        const data = await shopifyRes.json();
+        if (data.errors) return res.status(500).json({ error: JSON.stringify(data.errors) });
+
+        const products = data.data.products;
+        const found = [];
+
+        for (const edge of products.edges) {
+          const p = edge.node;
+          const numericProductId = p.id.replace('gid://shopify/Product/', '');
+          for (const mEdge of p.metafields.edges) {
+            const m = mEdge.node;
+            if (m.namespace === 'SEO' && m.key === 'meta_description') {
+              found.push({
+                productId: numericProductId,
+                title: p.title,
+                handle: p.handle,
+                metafieldId: m.id.replace('gid://shopify/Metafield/', ''),
+                metafieldGid: m.id,
+                value: m.value
+              });
+            }
+          }
+        }
+
+        return res.status(200).json({
+          success: true,
+          found,
+          hasNextPage: products.pageInfo.hasNextPage,
+          endCursor: products.pageInfo.endCursor
+        });
+      }
+
       // ── ACTION: get-metafield-links ──
       if (req.query.action === 'get-metafield-links') {
         try {
