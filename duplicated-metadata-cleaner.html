@@ -67,7 +67,7 @@
 
 <header>
   <h1>Duplicated Metadata Cleaner</h1>
-  <div class="version">v1.1</div>
+  <div class="version">v1.2</div>
 </header>
 
 <div class="container">
@@ -294,7 +294,7 @@
         document.getElementById('statDeleted').textContent = deletedCount;
 
       } catch (err) {
-        statusEl.innerHTML = `<span class="badge badge-failed" title="${esc(err.message)}">Failed</span>`;
+        statusEl.innerHTML = `<span class="badge badge-failed">Failed</span> <span style="font-size:11px;color:#dc2626;">${esc(err.message)}</span>`;
         failedCount++;
         document.getElementById('statFailed').textContent = failedCount;
       }
