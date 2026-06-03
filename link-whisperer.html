@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.25</div>
+    <div class="version">v16.26</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -624,6 +624,14 @@
         <textarea id="setting-urls-ignore" rows="6" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:4px;font-size:12px;font-family:monospace;resize:vertical;" onchange="saveSetting('urlsToIgnore',this.value)"></textarea>
       </div>
 
+      <!-- AUTO-LINK WEBHOOKS -->
+      <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:24px;margin-bottom:20px;">
+        <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#333;margin-bottom:4px;">Auto-Link Webhooks</h3>
+        <p style="font-size:12px;color:#888;margin-bottom:16px;">Register webhooks with Shopify so auto-link rules are applied automatically whenever a new product, blog post, or collection is created. Only needs to be done once. Your current words-to-ignore list and data type settings are saved to GitHub so the server can use them.</p>
+        <button class="btn-action" style="background:#1565c0;" onclick="registerAutoLinkWebhooks()" id="btn-register-webhooks">🔗 Register Webhooks</button>
+        <span id="register-webhooks-status" style="font-size:12px;color:#888;margin-left:12px;"></span>
+      </div>
+
       <!-- CLEAN METAFIELD RECORDS -->
       <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:24px;margin-bottom:20px;">
         <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#333;margin-bottom:4px;">Clean Product Link Records</h3>
@@ -956,7 +964,64 @@ function saveSetting(key, value) {
   AppSettings[key] = value;
   if(key === 'maxItemsPerPage') CONFIG.itemsPerPage = value;
   try { localStorage.setItem('lw-settings', JSON.stringify(AppSettings)); } catch(e) {}
+  if(['wordsToIgnore', 'ignoreNumbers', 'dataTypes'].includes(key)) saveLWSettingsToGitHub();
   showToast('Setting saved.', 'success');
+}
+
+let lwSettingsSaveTimer = null;
+function saveLWSettingsToGitHub() {
+  clearTimeout(lwSettingsSaveTimer);
+  lwSettingsSaveTimer = setTimeout(async () => {
+    try {
+      const wordsRaw = AppSettings.wordsToIgnore || '';
+      const wordsArray = wordsRaw.split('\n').map(w => w.trim()).filter(Boolean);
+      await fetch(CONFIG.proxyUrl + '/api/blogs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save-lw-settings',
+          wordsToIgnore: wordsArray,
+          dataTypes: AppSettings.dataTypes || [],
+          ignoreNumbers: AppSettings.ignoreNumbers !== false
+        })
+      });
+    } catch(e) {
+      console.warn('Could not save LW settings to GitHub:', e);
+    }
+  }, 2000);
+}
+
+async function registerAutoLinkWebhooks() {
+  const btn = document.getElementById('btn-register-webhooks');
+  const status = document.getElementById('register-webhooks-status');
+  if(btn) btn.disabled = true;
+  if(status) status.textContent = 'Registering...';
+  try {
+    const res = await fetch(CONFIG.proxyUrl + '/api/shopify-files?action=register-autolink-webhooks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await res.json();
+    if(data.success) {
+      const succeeded = (data.created || []).filter(c => !c.error).length;
+      const failed    = (data.created || []).filter(c =>  c.error).length;
+      if(failed) {
+        if(status) status.textContent = '⚠️ ' + succeeded + ' registered, ' + failed + ' failed. Check Shopify admin → Settings → Notifications → Webhooks.';
+        showToast('Some webhooks could not be registered.', 'error');
+      } else {
+        if(status) status.textContent = '✅ Done — ' + succeeded + ' webhook(s) registered. Auto-linking is now active.';
+        showToast('Webhooks registered — auto-linking is now active for new content.', 'success');
+        saveLWSettingsToGitHub();
+      }
+    } else {
+      if(status) status.textContent = '❌ Failed: ' + (data.error || 'Unknown error');
+      showToast('Webhook registration failed.', 'error');
+    }
+  } catch(e) {
+    if(status) status.textContent = '❌ Error: ' + e.message;
+    showToast('Could not register webhooks.', 'error');
+  }
+  if(btn) btn.disabled = false;
 }
 
 function saveDataTypes() {
