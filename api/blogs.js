@@ -433,6 +433,44 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true, count: rules.length });
       }
 
+      // ── ACTION: seo-metafield-delete ──
+      if (req.body.action === 'seo-metafield-delete') {
+        const shopifyDomain = process.env.SHOPIFY_STORE_DOMAIN;
+        const shopifyToken  = process.env.SHOPIFY_ACCESS_TOKEN;
+        if (!shopifyDomain || !shopifyToken) return res.status(500).json({ error: 'Shopify credentials not configured' });
+
+        const { metafieldGid } = req.body;
+        if (!metafieldGid) return res.status(400).json({ error: 'metafieldGid required' });
+
+        const mutation = `
+          mutation($id: ID!) {
+            metafieldDelete(input: { id: $id }) {
+              deletedId
+              userErrors { field message }
+            }
+          }
+        `;
+
+        const shopifyRes = await fetch(`https://${shopifyDomain}/admin/api/2025-01/graphql.json`, {
+          method: 'POST',
+          headers: {
+            'X-Shopify-Access-Token': shopifyToken,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ query: mutation, variables: { id: metafieldGid } })
+        });
+
+        if (!shopifyRes.ok) return res.status(500).json({ error: `Shopify error: ${shopifyRes.status}` });
+
+        const data = await shopifyRes.json();
+        if (data.errors) return res.status(500).json({ error: data.errors[0].message });
+
+        const result = data.data.metafieldDelete;
+        if (result.userErrors.length > 0) return res.status(500).json({ error: result.userErrors[0].message });
+
+        return res.status(200).json({ success: true, deletedId: result.deletedId });
+      }
+
       const { keyword, url, title, perspective } = req.body;
       if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
       if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured in environment variables' });
