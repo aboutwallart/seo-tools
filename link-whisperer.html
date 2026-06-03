@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.24</div>
+    <div class="version">v16.25</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -624,6 +624,14 @@
         <textarea id="setting-urls-ignore" rows="6" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:4px;font-size:12px;font-family:monospace;resize:vertical;" onchange="saveSetting('urlsToIgnore',this.value)"></textarea>
       </div>
 
+      <!-- CLEAN METAFIELD RECORDS -->
+      <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:24px;margin-bottom:20px;">
+        <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#333;margin-bottom:4px;">Clean Product Link Records</h3>
+        <p style="font-size:12px;color:#888;margin-bottom:16px;">Removes any products from the tracking file that are not from the <strong>About Wall Art</strong> vendor. Run this once to clean up records added before this tool existed. Make sure your Shopify data is synced before clicking.</p>
+        <button class="btn-action" style="background:#e65100;" onclick="cleanMetafieldRecords()" id="btn-clean-metafield">🧹 Clean Up Product Records</button>
+        <span id="clean-metafield-status" style="font-size:12px;color:#888;margin-left:12px;"></span>
+      </div>
+
       <!-- CLEAR CACHE -->
       <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:24px;margin-bottom:20px;">
         <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#333;margin-bottom:4px;">Clear Stored Data</h3>
@@ -1024,6 +1032,46 @@ function initSettingsTab() {
   if(wordsEl) wordsEl.value = AppSettings.wordsToIgnore || DEFAULT_WORDS_TO_IGNORE;
   const urlsEl = document.getElementById('setting-urls-ignore');
   if(urlsEl) urlsEl.value = AppSettings.urlsToIgnore || '';
+}
+
+async function cleanMetafieldRecords() {
+  if(!AppState.items.length) { showToast('Please sync Shopify data first before cleaning.','error'); return; }
+  if(!confirm('This will remove all product link records that are not from the About Wall Art vendor. Continue?')) return;
+
+  const btn = document.getElementById('btn-clean-metafield');
+  const status = document.getElementById('clean-metafield-status');
+  if(btn) btn.disabled = true;
+  if(status) status.textContent = 'Cleaning...';
+
+  const before = (AppState.metafieldLinks||[]).length;
+  const cleaned = (AppState.metafieldLinks||[]).filter(l => {
+    const product = AppState.items.find(i => i.id === l.productId && i.type === 'product');
+    if(!product) return false;
+    return (product.vendor||'').toLowerCase() === 'about wall art';
+  });
+
+  const removed = before - cleaned.length;
+  AppState.metafieldLinks = cleaned;
+
+  try {
+    const res = await fetch(CONFIG.proxyUrl + '/api/blogs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'save-metafield-links', links: cleaned })
+    });
+    if(!res.ok) throw new Error('Save failed');
+    buildLinkGraph();
+    detectBrokenLinks();
+    renderLinksReport();
+    renderDashboard();
+    if(status) status.textContent = '✅ Done — removed ' + removed + ' records, kept ' + cleaned.length + '.';
+    showToast('Cleaned — ' + removed + ' non-About Wall Art records removed.','success');
+  } catch(e) {
+    if(status) status.textContent = '❌ Save failed — try again.';
+    showToast('Could not save — please try again.','error');
+  }
+
+  if(btn) btn.disabled = false;
 }
 
 function clearAllCache() {
