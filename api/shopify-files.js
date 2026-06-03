@@ -143,7 +143,8 @@ module.exports = async function handler(req, res) {
     let itemType = null;
     if (topic === 'products/create') itemType = 'product';
     else if (topic === 'articles/create') itemType = 'article';
-    else if (topic === 'collections/create') itemType = 'collection';
+    else if (topic === 'custom_collections/create') itemType = 'collection';
+    else if (topic === 'smart_collections/create') itemType = 'collection';
     else return res.status(200).json({ ok: true, skipped: true, reason: 'unsupported topic' });
 
     const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
@@ -286,7 +287,7 @@ module.exports = async function handler(req, res) {
   // -------------------------------------------------------
   if (req.query.action === 'register-autolink-webhooks' && req.method === 'POST') {
     const webhookAddress = 'https://tools.aboutwallart.com/api/shopify-files?action=autolink-webhook';
-    const topics = ['products/create', 'articles/create', 'collections/create'];
+    const topics = ['products/create', 'articles/create', 'custom_collections/create', 'smart_collections/create'];
     const shopifyHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
 
     try {
