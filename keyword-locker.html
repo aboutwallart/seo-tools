@@ -16,7 +16,6 @@
 
         .container { max-width: 1400px; margin: 0 auto; }
 
-        /* Header */
         .header {
             background: white;
             padding: 30px;
@@ -31,7 +30,6 @@
         .header .subtitle { color: #999; font-size: 14px; font-style: italic; }
         .version { color: #999; font-size: 13px; margin-top: 8px; }
 
-        /* Load section */
         .load-section {
             background: white;
             padding: 30px;
@@ -51,23 +49,13 @@
             font-size: 16px;
             cursor: pointer;
             transition: all 0.3s;
+            margin-right: 10px;
         }
 
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-        }
-
-        .btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; box-shadow: none; }
         .btn-primary { background: #333; color: white; }
 
-        /* Loading */
         .loading-section {
             background: white;
             padding: 40px;
@@ -87,14 +75,10 @@
             margin: 0 auto 20px;
         }
 
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
         .progress-text { color: #666; font-size: 16px; }
 
-        /* Error */
         .error-section {
             background: #fee;
             border: 2px solid #fcc;
@@ -104,7 +88,6 @@
             margin-bottom: 20px;
         }
 
-        /* Stats */
         .stats-section {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -126,7 +109,6 @@
         .stat-card h3 { font-size: 48px; margin-bottom: 10px; }
         .stat-card p { color: #666; font-size: 14px; font-weight: 600; }
 
-        /* Data summary */
         .data-summary {
             background: #f8f9fa;
             border: 2px solid #e0e0e0;
@@ -143,6 +125,35 @@
         .summary-item strong { display: block; font-size: 28px; color: #333; }
         .summary-item span { font-size: 13px; color: #666; }
 
+        /* Debug panel */
+        .debug-panel {
+            background: white;
+            padding: 20px 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            font-size: 14px;
+            color: #333;
+        }
+
+        .debug-panel h3 { margin-bottom: 12px; color: #333; font-size: 16px; }
+        .debug-panel table { width: 100%; border-collapse: collapse; }
+        .debug-panel th { text-align: left; padding: 8px 12px; background: #f5f5f5; font-weight: 600; color: #666; font-size: 13px; }
+        .debug-panel td { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+
+        .intent-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .intent-INFORMATIONAL { background: #dbeafe; color: #1e40af; }
+        .intent-COMMERCIAL { background: #d1fae5; color: #065f46; }
+        .intent-NAVIGATIONAL { background: #fef3c7; color: #92400e; }
+        .intent-UNKNOWN { background: #f3f4f6; color: #6b7280; }
+
         .hidden { display: none; }
     </style>
 </head>
@@ -150,32 +161,27 @@
     <script src="/auth-check.js"></script>
     <div class="container">
 
-        <!-- Header -->
         <div class="header">
             <h1>Keyword Locker</h1>
             <p>Lock each keyword to its best URL — resolve cannibalization by choosing winners</p>
             <p class="subtitle">One keyword = One winner URL. Intent-aware conflict detection.</p>
-            <div class="version">v2.1</div>
+            <div class="version">v3.0</div>
         </div>
 
-        <!-- Load Data -->
         <div class="load-section" id="loadSection">
             <p>Pull live data from Google Search Console and your keyword registry to find conflicts.</p>
             <button class="btn btn-primary" id="loadBtn" onclick="loadData()">Load Data</button>
         </div>
 
-        <!-- Loading -->
         <div id="loadingSection" class="loading-section hidden">
             <div class="spinner"></div>
             <p class="progress-text" id="progressText">Loading...</p>
         </div>
 
-        <!-- Error -->
         <div id="errorSection" class="error-section hidden">
             <strong>Error:</strong> <span id="errorText"></span>
         </div>
 
-        <!-- Data Summary -->
         <div id="dataSummary" class="data-summary hidden">
             <div class="summary-item">
                 <strong id="summaryQueries">0</strong>
@@ -195,7 +201,6 @@
             </div>
         </div>
 
-        <!-- Stats Cards -->
         <div id="statsSection" class="stats-section hidden">
             <div class="stat-card">
                 <h3 id="conflictsCount" style="color:#f59e0b;">0</h3>
@@ -223,12 +228,173 @@
             </div>
         </div>
 
+        <!-- Debug: first 20 conflicts detected -->
+        <div id="debugPanel" class="debug-panel hidden">
+            <h3>Conflicts detected (first 20) — for review before building the UI</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Keyword</th>
+                        <th>Intent</th>
+                        <th>Impressions</th>
+                        <th>Clicks</th>
+                        <th>Competing Pages</th>
+                    </tr>
+                </thead>
+                <tbody id="debugBody"></tbody>
+            </table>
+        </div>
+
     </div>
 
     <script>
         let gscData = [];
         let registry = [];
+        let conflictsData = [];
 
+        // ── URL filtering ──
+        const FOREIGN_PATTERNS = ['/es/', '/fr/', '/de/', '/it/', '/pt/', '/nl/', '/ru/', '/ja/', '/zh/', '/ko/', '/ar/'];
+        const JUNK_SLUGS = ['write-for-us', 'contact', 'about-us', 'privacy', 'terms', 'wishlist', 'loyalty', 'confirm-your-email'];
+
+        function normalizeUrl(url) {
+            return url
+                .split('?')[0]
+                .replace(/\/$/, '')
+                .replace('https://www.aboutwallart.com', 'https://aboutwallart.com');
+        }
+
+        function shouldExclude(url) {
+            if (FOREIGN_PATTERNS.some(p => url.includes(p))) return true;
+            if (url.includes('/cdn/')) return true;
+            if (JUNK_SLUGS.some(j => url.includes(j))) return true;
+            return false;
+        }
+
+        function detectIntent(url) {
+            if (url.includes('/blogs/')) return 'INFORMATIONAL';
+            if (url.includes('/collections/')) return 'COMMERCIAL';
+            if (url.includes('/products/')) return 'COMMERCIAL';
+            if (url.includes('/pages/')) return 'NAVIGATIONAL';
+            if (url === 'https://aboutwallart.com') return 'NAVIGATIONAL';
+            return 'UNKNOWN';
+        }
+
+        // ── Registry lookup ──
+        function buildRegistryLookup(registry) {
+            const lookup = {};
+
+            registry.forEach(entry => {
+                const kw = entry.keyword.toLowerCase().trim();
+                if (!lookup[kw]) lookup[kw] = { handled: new Set() };
+
+                const source = entry.source || '';
+                const action = entry.action || '';
+                const intent = entry.intent || '';
+
+                if (source === 'Published Blog') {
+                    lookup[kw].handled.add('INFORMATIONAL');
+                } else if (source === 'Pre-Optimized Page') {
+                    lookup[kw].handled.add('NAVIGATIONAL');
+                } else if (action === 'TO_OPTIMIZE' || action === 'INTERNAL_LINK') {
+                    if (intent) lookup[kw].handled.add(intent);
+                } else if (action === 'SAVED_FOR_FUTURE' || action === 'DELETED') {
+                    lookup[kw].handled.add('ALL');
+                }
+            });
+
+            return lookup;
+        }
+
+        // ── Registry stats ──
+        function buildRegistryStats(registry) {
+            let resolved = 0, saved = 0, deleted = 0, prelocked = 0, internalLinks = 0;
+            registry.forEach(entry => {
+                const source = entry.source || '';
+                const action = entry.action || '';
+                if (source === 'Published Blog' || source === 'Pre-Optimized Page') prelocked++;
+                else if (action === 'TO_OPTIMIZE') resolved++;
+                else if (action === 'SAVED_FOR_FUTURE') saved++;
+                else if (action === 'DELETED') deleted++;
+                else if (action === 'INTERNAL_LINK') internalLinks++;
+            });
+            return { resolved, saved, deleted, prelocked, internalLinks };
+        }
+
+        // ── Conflict detection ──
+        function findConflicts(gscData, registry) {
+            const registryLookup = buildRegistryLookup(registry);
+
+            // Group GSC rows by keyword → url
+            const byKeyword = {};
+
+            gscData.forEach(row => {
+                const rawUrl = row.keys[0];
+                const keyword = row.keys[1].toLowerCase().trim();
+                const url = normalizeUrl(rawUrl);
+
+                if (shouldExclude(url)) return;
+
+                const intent = detectIntent(url);
+                if (intent === 'UNKNOWN') return;
+
+                if (!byKeyword[keyword]) byKeyword[keyword] = {};
+                if (!byKeyword[keyword][url]) {
+                    byKeyword[keyword][url] = { url, intent, clicks: 0, impressions: 0, posSum: 0, count: 0 };
+                }
+
+                byKeyword[keyword][url].clicks += row.clicks;
+                byKeyword[keyword][url].impressions += row.impressions;
+                byKeyword[keyword][url].posSum += row.position;
+                byKeyword[keyword][url].count++;
+            });
+
+            const conflicts = [];
+
+            Object.entries(byKeyword).forEach(([keyword, pages]) => {
+                const regEntry = registryLookup[keyword];
+
+                // Skip entirely if saved for later or deleted
+                if (regEntry && regEntry.handled.has('ALL')) return;
+
+                const pageList = Object.values(pages).map(p => ({
+                    ...p,
+                    position: p.count > 0 ? p.posSum / p.count : 0
+                }));
+
+                // Group by intent
+                const byIntent = {};
+                pageList.forEach(page => {
+                    // Skip if this keyword+intent already handled in registry
+                    if (regEntry && regEntry.handled.has(page.intent)) return;
+                    if (!byIntent[page.intent]) byIntent[page.intent] = [];
+                    byIntent[page.intent].push(page);
+                });
+
+                // Only flag intent groups with 2+ pages
+                Object.entries(byIntent).forEach(([intent, intentPages]) => {
+                    if (intentPages.length < 2) return;
+
+                    const totalImpressions = intentPages.reduce((s, p) => s + p.impressions, 0);
+                    const totalClicks = intentPages.reduce((s, p) => s + p.clicks, 0);
+
+                    intentPages.sort((a, b) => b.clicks - a.clicks || a.position - b.position);
+
+                    conflicts.push({
+                        keyword,
+                        intent,
+                        pages: intentPages,
+                        totalImpressions,
+                        totalClicks,
+                        priority: totalImpressions * totalClicks
+                    });
+                });
+            });
+
+            conflicts.sort((a, b) => b.priority - a.priority);
+            return conflicts;
+        }
+
+        // ── UI helpers ──
         function showLoading(show, text = 'Loading...') {
             document.getElementById('loadingSection').classList.toggle('hidden', !show);
             document.getElementById('progressText').textContent = text;
@@ -243,48 +409,86 @@
             document.getElementById('errorSection').classList.add('hidden');
         }
 
+        function updateStats(conflicts, registryStats) {
+            document.getElementById('conflictsCount').textContent = conflicts.length;
+            document.getElementById('resolvedCount').textContent = registryStats.resolved;
+            document.getElementById('savedCount').textContent = registryStats.saved;
+            document.getElementById('deletedCount').textContent = registryStats.deleted;
+            document.getElementById('prelockedCount').textContent = registryStats.prelocked;
+            document.getElementById('internalLinksCount').textContent = registryStats.internalLinks;
+        }
+
+        function renderDebug(conflicts) {
+            const tbody = document.getElementById('debugBody');
+            tbody.innerHTML = '';
+
+            conflicts.slice(0, 20).forEach(c => {
+                const pagesHtml = c.pages.map(p => {
+                    const short = p.url.replace('https://aboutwallart.com', '');
+                    return `<div style="margin-bottom:4px;">${short} <small style="color:#999;">(${p.clicks} clicks, pos ${p.position.toFixed(1)})</small></div>`;
+                }).join('');
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><strong>${c.keyword}</strong></td>
+                    <td><span class="intent-badge intent-${c.intent}">${c.intent}</span></td>
+                    <td>${c.totalImpressions.toLocaleString()}</td>
+                    <td>${c.totalClicks.toLocaleString()}</td>
+                    <td>${pagesHtml}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            document.getElementById('debugPanel').classList.remove('hidden');
+        }
+
+        // ── Load Data ──
         async function loadData() {
             hideError();
             document.getElementById('loadBtn').disabled = true;
             showLoading(true, 'Fetching GSC page-query data...');
 
             try {
-                // 1. Fetch GSC page-query data
                 const gscRes = await fetch('/api/gsc?action=page-query');
                 if (!gscRes.ok) throw new Error(`GSC API error: ${gscRes.status}`);
                 const gscJson = await gscRes.json();
-
                 if (!gscJson.success) throw new Error(gscJson.error || 'GSC API returned an error');
                 if (!gscJson.data || !gscJson.data.rows) throw new Error('No GSC data returned — check GSC connection');
                 gscData = gscJson.data.rows;
 
                 showLoading(true, 'Fetching keyword registry...');
 
-                // 2. Fetch registry
                 const regRes = await fetch('/api/blogs?action=get-registry');
                 if (!regRes.ok) throw new Error(`Registry API error: ${regRes.status}`);
                 const regJson = await regRes.json();
                 registry = regJson.registry || [];
 
+                showLoading(true, 'Detecting conflicts...');
+
+                conflictsData = findConflicts(gscData, registry);
+                const registryStats = buildRegistryStats(registry);
+
                 showLoading(false);
                 document.getElementById('loadBtn').disabled = false;
 
-                // Show summary
+                // Summary bar
                 const uniqueKeywords = new Set(gscData.map(r => r.keys[1])).size;
                 const uniquePages = new Set(gscData.map(r => r.keys[0])).size;
-
                 document.getElementById('summaryQueries').textContent = gscData.length.toLocaleString();
                 document.getElementById('summaryKeywords').textContent = uniqueKeywords.toLocaleString();
                 document.getElementById('summaryPages').textContent = uniquePages.toLocaleString();
                 document.getElementById('summaryRegistry').textContent = registry.length.toLocaleString();
-
                 document.getElementById('dataSummary').classList.remove('hidden');
+
+                // Stats cards
+                updateStats(conflictsData, registryStats);
                 document.getElementById('statsSection').classList.remove('hidden');
 
-                console.log('GSC rows loaded:', gscData.length);
-                console.log('Registry entries loaded:', registry.length);
-                console.log('Sample GSC row:', gscData[0]);
-                console.log('Sample registry entry:', registry[0]);
+                // Debug table
+                renderDebug(conflictsData);
+
+                console.log('Total conflicts found:', conflictsData.length);
+                console.log('Sample conflict:', conflictsData[0]);
 
             } catch (error) {
                 showLoading(false);
