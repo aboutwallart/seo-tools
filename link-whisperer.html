@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.19</div>
+    <div class="version">v16.20</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -457,7 +457,62 @@
       </div>
     </div>
   </div>
-  <div id="tab-auto-linking" class="tab-content"><p class="placeholder-msg">Auto Linking — coming soon.</p></div>
+  <div id="tab-auto-linking" class="tab-content">
+    <div id="al-loading" style="text-align:center;padding:48px;color:#888;font-size:14px;"><div class="spinner" style="margin:0 auto 12px;"></div>Loading rules...</div>
+    <div id="al-app" style="display:none;">
+      <!-- TOOLBAR -->
+      <div class="report-toolbar" style="margin-bottom:16px;">
+        <input type="text" id="al-search" placeholder="Filter by keyword or URL..." style="padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;width:260px;" oninput="renderAutoLinkTable()" />
+        <button class="btn-action" onclick="verifyAutoLinkUrls()" id="al-verify-btn">✅ Verify All URLs</button>
+        <span id="al-verify-status" style="font-size:12px;color:#888;"></span>
+        <span style="margin-left:auto;font-size:13px;color:#666;" id="al-total-count"></span>
+      </div>
+      <!-- ADD NEW RULE -->
+      <div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:8px;padding:16px;margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+        <div style="flex:1;min-width:160px;">
+          <div style="font-size:11px;font-weight:700;color:#2e7d32;text-transform:uppercase;margin-bottom:4px;">Keyword</div>
+          <input type="text" id="al-new-keyword" placeholder="e.g. coastal style" style="width:100%;padding:8px 10px;border:1px solid #a5d6a7;border-radius:4px;font-size:13px;" />
+        </div>
+        <div style="flex:2;min-width:220px;">
+          <div style="font-size:11px;font-weight:700;color:#2e7d32;text-transform:uppercase;margin-bottom:4px;">URL (relative, e.g. /collections/coastal-decor)</div>
+          <input type="text" id="al-new-url" placeholder="/collections/example" style="width:100%;padding:8px 10px;border:1px solid #a5d6a7;border-radius:4px;font-size:13px;" />
+        </div>
+        <button class="btn-action" style="background:#2e7d32;" onclick="addAutoLinkRule()">+ Add Rule</button>
+      </div>
+      <!-- PAGINATION TOP -->
+      <div id="al-pagination-top" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;font-size:13px;color:#666;">
+        <span id="al-page-info-top"></span>
+        <div style="display:flex;gap:6px;">
+          <button class="btn-page" id="al-prev-top" onclick="alChangePage(-1)">&#8592;</button>
+          <button class="btn-page" id="al-next-top" onclick="alChangePage(1)">&#8594;</button>
+        </div>
+      </div>
+      <!-- TABLE -->
+      <div class="table-wrap">
+        <table style="table-layout:fixed;">
+          <thead>
+            <tr>
+              <th style="width:36px;">#</th>
+              <th style="width:26%;">Keyword</th>
+              <th style="width:36%;">URL</th>
+              <th style="width:12%;">Status</th>
+              <th style="width:10%;text-align:center;">Links Added</th>
+              <th style="width:10%;text-align:center;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="al-tbody"></tbody>
+        </table>
+      </div>
+      <!-- PAGINATION BOTTOM -->
+      <div id="al-pagination-bottom" style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;font-size:13px;color:#666;">
+        <span id="al-page-info-bottom"></span>
+        <div style="display:flex;gap:6px;">
+          <button class="btn-page" id="al-prev-bottom" onclick="alChangePage(-1)">&#8592;</button>
+          <button class="btn-page" id="al-next-bottom" onclick="alChangePage(1)">&#8594;</button>
+        </div>
+      </div>
+    </div>
+  </div>
   <div id="tab-url-changer" class="tab-content"><p class="placeholder-msg">URL Changer — coming soon.</p></div>
   <div id="tab-target-keywords" class="tab-content"><p class="placeholder-msg">Target Keywords — coming soon.</p></div>
   <div id="tab-settings" class="tab-content">
@@ -972,6 +1027,204 @@ function clearAllCache() {
   setTimeout(() => location.reload(), 800);
 }
 
+// ─── AUTO LINKING ─────────────────────────────────────────────────────────────
+
+let AppAutoLinks = [];
+let alPage = 1;
+const AL_PER_PAGE = 50;
+let alLoaded = false;
+
+async function initAutoLinkTab() {
+  if(alLoaded) { renderAutoLinkTable(); return; }
+  try {
+    const res = await fetch(CONFIG.proxyUrl + '/api/blogs?action=get-autolink-rules');
+    const data = await res.json();
+    AppAutoLinks = data.rules || [];
+  } catch(e) {
+    AppAutoLinks = [];
+    showToast('Could not load auto-link rules.', 'error');
+  }
+  alLoaded = true;
+  document.getElementById('al-loading').style.display = 'none';
+  document.getElementById('al-app').style.display = 'block';
+  verifyAutoLinkUrls(true);
+  renderAutoLinkTable();
+}
+
+function verifyAutoLinkUrls(silent) {
+  const btn = document.getElementById('al-verify-btn');
+  const status = document.getElementById('al-verify-status');
+  if(btn) btn.disabled = true;
+
+  let notFound = 0;
+  AppAutoLinks.forEach(rule => {
+    rule.verified = checkAutoLinkUrl(rule.url);
+    if(rule.verified === 'not-found') notFound++;
+  });
+
+  if(btn) btn.disabled = false;
+  if(status) {
+    if(notFound > 0) {
+      status.textContent = '⚠️ ' + notFound + ' URL(s) not found in your store';
+      status.style.color = '#c62828';
+    } else {
+      status.textContent = '✅ All URLs verified';
+      status.style.color = '#2e7d32';
+    }
+  }
+  if(!silent) showToast('Verification complete.', 'info');
+  renderAutoLinkTable();
+}
+
+function checkAutoLinkUrl(url) {
+  if(!url) return 'invalid';
+  const clean = url.replace('https://aboutwallart.com','').replace(/^\//, '');
+  const parts = clean.split('/');
+  const section = parts[0]; // collections or pages
+  const handle  = parts[1];
+  if(!handle) return 'invalid';
+  if(section === 'collections') {
+    return AppState.items.some(i => i.type === 'collection' && i.handle === handle) ? 'ok' : 'not-found';
+  }
+  if(section === 'pages') {
+    return AppState.items.some(i => i.type === 'page' && i.handle === handle) ? 'ok' : 'not-found';
+  }
+  return 'not-found';
+}
+
+function renderAutoLinkTable() {
+  const q = (document.getElementById('al-search')||{value:''}).value.toLowerCase();
+  const filtered = AppAutoLinks.filter(r =>
+    !q || r.keyword.toLowerCase().includes(q) || r.url.toLowerCase().includes(q)
+  );
+
+  const total = filtered.length;
+  const totalPages = Math.ceil(total / AL_PER_PAGE) || 1;
+  if(alPage > totalPages) alPage = 1;
+  const start = (alPage - 1) * AL_PER_PAGE;
+  const pageData = filtered.slice(start, start + AL_PER_PAGE);
+
+  const countEl = document.getElementById('al-total-count');
+  if(countEl) countEl.textContent = total + ' rule' + (total !== 1 ? 's' : '');
+
+  const infoText = 'Showing ' + (start+1) + '–' + Math.min(start + AL_PER_PAGE, total) + ' of ' + total + ' rules';
+  ['al-page-info-top','al-page-info-bottom'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.textContent = infoText;
+  });
+
+  const atFirst = alPage === 1;
+  const atLast  = alPage === totalPages;
+  ['al-prev-top','al-prev-bottom'].forEach(id => { const el=document.getElementById(id); if(el) el.disabled=atFirst; });
+  ['al-next-top','al-next-bottom'].forEach(id => { const el=document.getElementById(id); if(el) el.disabled=atLast; });
+
+  const tbody = document.getElementById('al-tbody');
+  if(!tbody) return;
+
+  if(!pageData.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:32px;color:#aaa;">No rules found.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = pageData.map((rule, idx) => {
+    const rowNum = start + idx + 1;
+    const statusHtml = rule.verified === 'ok'
+      ? '<span style="color:#2e7d32;font-weight:600;">✅ OK</span>'
+      : rule.verified === 'not-found'
+      ? '<span style="color:#c62828;font-weight:600;">⚠️ Not found</span>'
+      : '<span style="color:#888;">—</span>';
+
+    const isEditing = alEditingId === rule.id;
+    const keywordCell = isEditing
+      ? `<input type="text" id="al-edit-kw" value="${escHtml(rule.keyword)}" style="width:100%;padding:4px 6px;border:1px solid #ddd;border-radius:3px;font-size:12px;" />`
+      : escHtml(rule.keyword);
+    const urlCell = isEditing
+      ? `<input type="text" id="al-edit-url" value="${escHtml(rule.url)}" style="width:100%;padding:4px 6px;border:1px solid #ddd;border-radius:3px;font-size:12px;" />`
+      : `<a href="https://aboutwallart.com${escHtml(rule.url)}" target="_blank" style="color:#1565c0;text-decoration:none;font-size:12px;word-break:break-all;">${escHtml(rule.url)}</a>`;
+    const actionsCell = isEditing
+      ? `<button class="btn-action" style="font-size:11px;padding:3px 8px;background:#2e7d32;" onclick="saveAutoLinkEdit(${rule.id})">✓ Save</button>
+         <button class="btn-outline" style="font-size:11px;padding:3px 8px;" onclick="cancelAutoLinkEdit()">✕</button>`
+      : `<button class="btn-outline" style="font-size:11px;padding:3px 8px;" onclick="editAutoLinkRule(${rule.id})">Edit</button>
+         <button class="btn-outline" style="font-size:11px;padding:3px 8px;color:#c62828;border-color:#c62828;" onclick="deleteAutoLinkRule(${rule.id})">Delete</button>`;
+
+    return `<tr style="font-size:13px;">
+      <td style="color:#aaa;font-size:12px;">${rowNum}</td>
+      <td>${keywordCell}</td>
+      <td>${urlCell}</td>
+      <td>${statusHtml}</td>
+      <td style="text-align:center;font-weight:600;">${rule.linksAdded || 0}</td>
+      <td style="text-align:center;">${actionsCell}</td>
+    </tr>`;
+  }).join('');
+}
+
+function alChangePage(dir) {
+  alPage += dir;
+  renderAutoLinkTable();
+  document.getElementById('tab-auto-linking').scrollTop = 0;
+}
+
+let alEditingId = null;
+
+function editAutoLinkRule(id) {
+  alEditingId = id;
+  renderAutoLinkTable();
+}
+
+function cancelAutoLinkEdit() {
+  alEditingId = null;
+  renderAutoLinkTable();
+}
+
+function saveAutoLinkEdit(id) {
+  const kw  = (document.getElementById('al-edit-kw')||{value:''}).value.trim();
+  const url = (document.getElementById('al-edit-url')||{value:''}).value.trim();
+  if(!kw || !url) { showToast('Keyword and URL are required.','error'); return; }
+  const rule = AppAutoLinks.find(r => r.id === id);
+  if(!rule) return;
+  rule.keyword = kw;
+  rule.url = url;
+  rule.verified = checkAutoLinkUrl(url);
+  alEditingId = null;
+  saveAutoLinkRules();
+}
+
+function addAutoLinkRule() {
+  const kw  = (document.getElementById('al-new-keyword')||{value:''}).value.trim();
+  const url = (document.getElementById('al-new-url')||{value:''}).value.trim();
+  if(!kw || !url) { showToast('Please enter both a keyword and a URL.','error'); return; }
+  const newId = AppAutoLinks.length ? Math.max(...AppAutoLinks.map(r=>r.id)) + 1 : 1;
+  const verified = checkAutoLinkUrl(url);
+  if(verified === 'not-found') {
+    showToast('⚠️ Warning: this URL was not found in your store. Rule saved but please check the URL.','error');
+  }
+  AppAutoLinks.push({ id: newId, keyword: kw, url, linksAdded: 0, verified });
+  document.getElementById('al-new-keyword').value = '';
+  document.getElementById('al-new-url').value = '';
+  saveAutoLinkRules();
+}
+
+function deleteAutoLinkRule(id) {
+  if(!confirm('Delete this rule?')) return;
+  AppAutoLinks = AppAutoLinks.filter(r => r.id !== id);
+  saveAutoLinkRules();
+}
+
+async function saveAutoLinkRules() {
+  try {
+    const res = await fetch(CONFIG.proxyUrl + '/api/blogs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'save-autolink-rules', rules: AppAutoLinks })
+    });
+    if(!res.ok) throw new Error('Save failed');
+    showToast('Rules saved.', 'success');
+  } catch(e) {
+    showToast('Could not save rules — please try again.', 'error');
+  }
+  renderAutoLinkTable();
+}
+
 const ROOM_TYPES = ['bathroom','bedroom','living room','kitchen','hallway','office','nursery','staircase','dining','garden','study','playroom','conservatory'];
 const STYLES = ['japandi','minimalist','maximalist','botanical','abstract','vintage','modern','scandi','industrial','rustic','bohemian','monochrome','black and white','geometric','floral','tropical','coastal'];
 
@@ -1177,6 +1430,7 @@ function switchTab(tabName, silent) {
   if (tabName==='domains-report') renderDomainsReport();
   if (tabName==='broken-links') { renderBrokenLinksReport(); }
   if (tabName==='settings') { initSettingsTab(); }
+  if (tabName==='auto-linking') { initAutoLinkTab(); }
 }
 
 async function shopifyFetch(endpoint, method, body) {
