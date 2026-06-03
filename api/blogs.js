@@ -288,10 +288,10 @@ export default async function handler(req, res) {
           if (p.metafield) {
             found.push({
               productId: p.id.replace('gid://shopify/Product/', ''),
+              productGid: p.id,
               title: p.title,
               handle: p.handle,
               metafieldId: p.metafield.id.replace('gid://shopify/Metafield/', ''),
-              metafieldGid: p.metafield.id,
               value: p.metafield.value
             });
           }
@@ -439,13 +439,13 @@ export default async function handler(req, res) {
         const shopifyToken  = process.env.SHOPIFY_ACCESS_TOKEN;
         if (!shopifyDomain || !shopifyToken) return res.status(500).json({ error: 'Shopify credentials not configured' });
 
-        const { metafieldGid } = req.body;
-        if (!metafieldGid) return res.status(400).json({ error: 'metafieldGid required' });
+        const { productGid } = req.body;
+        if (!productGid) return res.status(400).json({ error: 'productGid required' });
 
         const mutation = `
-          mutation($id: ID!) {
-            metafieldDelete(input: { id: $id }) {
-              deletedId
+          mutation {
+            metafieldsDelete(metafields: [{ ownerId: "${productGid}", namespace: "SEO", key: "meta_description" }]) {
+              deletedMetafields { key namespace ownerId }
               userErrors { field message }
             }
           }
@@ -457,7 +457,7 @@ export default async function handler(req, res) {
             'X-Shopify-Access-Token': shopifyToken,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ query: mutation, variables: { id: metafieldGid } })
+          body: JSON.stringify({ query: mutation })
         });
 
         if (!shopifyRes.ok) return res.status(500).json({ error: `Shopify error: ${shopifyRes.status}` });
@@ -465,10 +465,10 @@ export default async function handler(req, res) {
         const data = await shopifyRes.json();
         if (data.errors) return res.status(500).json({ error: data.errors[0].message });
 
-        const result = data.data.metafieldDelete;
+        const result = data.data.metafieldsDelete;
         if (result.userErrors.length > 0) return res.status(500).json({ error: result.userErrors[0].message });
 
-        return res.status(200).json({ success: true, deletedId: result.deletedId });
+        return res.status(200).json({ success: true });
       }
 
       const { keyword, url, title, perspective } = req.body;
