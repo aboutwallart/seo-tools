@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.21</div>
+    <div class="version">v16.22</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -1441,7 +1441,7 @@ let inboundBulkSaved = new Set();
 
 let donutChart = null;
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   loadSettings();
   switchTab(localStorage.getItem('lw-active-tab')||'dashboard', true);
 
@@ -1459,6 +1459,15 @@ document.addEventListener('DOMContentLoaded', () => {
           AppState.items = cached.items.map(item=>({ ...item, bodyHtml: bodyCache[item.id]||'' }));
           AppState.links = cached.links || [];
           AppState.lastSync = cached.lastSync;
+          // Load metafield links from GitHub before building link graph
+          try {
+            const mlRes = await fetch(CONFIG.proxyUrl + '/api/blogs?action=get-metafield-links');
+            const mlData = await mlRes.json();
+            AppState.metafieldLinks = (mlData.links||[]).filter(l =>
+              AppState.items.some(i => i.id === l.productId) &&
+              AppState.items.some(i => i.id === l.articleId)
+            );
+          } catch(e) { AppState.metafieldLinks = []; }
           buildLinkGraph();
           detectBrokenLinks();
           showApp();
@@ -2171,10 +2180,100 @@ function closeInboundSuggestPanel() {
   renderLinksReport();
 }
 
+function buildProductInboundPanel(item) {
+  // Show blogs related to this product's keywords — user picks one to add this product to its "Complete the Look" list
+  const kws = extractKeywords(item).titleWords.filter(w => w.length > 3).slice(0, 5);
+  let blogs = AppState.items.filter(i => i.type === 'article' && kws.some(kw => i.title.toLowerCase().includes(kw)));
+  if(!blogs.length) blogs = AppState.items.filter(i => i.type === 'article').map(b => ({ item:b, score:scoreRelevance(item,b).score })).sort((a,b)=>b.score-a.score).slice(0,6).map(s=>s.item);
+
+  const alreadyLinkedArticleIds = new Set((AppState.linkGraph.inbound[item.id]||[]).map(l => l.sourceId));
+  blogs = blogs.filter(b => !alreadyLinkedArticleIds.has(b.id)).slice(0, 6);
+
+  if(!blogs.length) return `<div class="suggest-panel" style="border-left-color:#1565c0;background:#e8f4f8;"><p class="empty-expand">✅ This product is already featured in all matching blogs.</p></div>`;
+
+  const rows = blogs.map((b, i) => `
+    <div class="suggest-item">
+      <input type="checkbox" class="inbound-blog-cb" ${i===0?'checked':''}
+        data-item-id="${item.id}"
+        data-product-id="${item.id}"
+        data-product-shopify-id="${escHtml(item.shopifyId)}"
+        data-article-id="${escHtml(b.shopifyId)}"
+        data-article-blog-id="${escHtml(b.blogId||'')}"
+        data-article-title="${escHtml(b.title)}"
+        onchange="enforceInboundBlogSingle(this,'${item.id}')" />
+      <div class="suggest-item-info">
+        <div class="suggest-item-title">${escHtml(b.title)}</div>
+        <div class="suggest-item-url">${escHtml(b.url)}</div>
+        <div class="suggest-item-badges"><span class="badge" style="background:#f3e5f5;color:#6a1b9a;">BLOG</span><span class="badge badge-inbound">${(AppState.linkGraph.inbound[b.id]||[]).length} inbound</span></div>
+      </div>
+    </div>`).join('');
+
+  return `<div class="suggest-panel" style="border-left-color:#1565c0;background:#e8f4f8;">
+    <div class="suggest-header">
+      <div class="suggest-header-left">
+        <h4>← Add "${escHtml(item.title)}" to a Blog's Complete the Look</h4>
+        <p>Pick one blog post. This product will be added to its "Complete the Look" product list.</p>
+      </div>
+      <div class="suggest-top-actions">
+        <button class="btn-action" style="background:#1565c0;" onclick="confirmProductInboundLink('${item.id}')">✓ Review &amp; Save Now</button>
+        <button class="btn-action" style="background:#0d47a1;" onclick="confirmProductInboundLink('${item.id}', true)">+ Add to Queue</button>
+        <button class="btn-outline" onclick="closeInboundSuggestPanel()">✕ Cancel</button>
+      </div>
+    </div>
+    <div id="prod-inbound-list-${item.id}">${rows}</div>
+    <div class="suggest-search-wrap" style="margin-top:10px;padding-top:10px;border-top:1px solid #bbdefb;">
+      <div class="suggest-search-label">Search for a different blog post:</div>
+      <div class="suggest-search-input-wrap">
+        <input class="suggest-search-input" placeholder="Type to search..." oninput="inboundBlogSearch(this,'${item.id}')" />
+        <div class="suggest-search-dropdown" id="inbound-blog-dropdown-${item.id}" style="display:none;"></div>
+      </div>
+    </div>
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid #bbdefb;display:flex;gap:8px;">
+      <button class="btn-action" style="background:#1565c0;" onclick="confirmProductInboundLink('${item.id}')">✓ Review &amp; Save Now</button>
+      <button class="btn-action" style="background:#0d47a1;" onclick="confirmProductInboundLink('${item.id}', true)">+ Add to Queue</button>
+      <button class="btn-outline" onclick="closeInboundSuggestPanel()">✕ Cancel</button>
+    </div>
+  </div>`;
+}
+
+function confirmProductInboundLink(itemId, queueMode) {
+  const item = AppState.items.find(i => i.id === itemId);
+  if(!item) return;
+  const cb = document.querySelector('.inbound-blog-cb[data-item-id="'+itemId+'"]:checked');
+  if(!cb) { showToast('Please select a blog post.', 'error'); return; }
+  const articleItem = { shopifyId: cb.dataset.articleId, blogId: cb.dataset.articleBlogId, title: cb.dataset.articleTitle };
+  AppState.inboundSuggestState = {};
+  renderLinksReport();
+  if(queueMode) {
+    const label = '"'+item.title.substring(0,40)+'" → '+articleItem.title.substring(0,40);
+    AppState.linkQueue.push({ isMetafield:true, articleItem, productItem:item, targetItemId:item.id, label });
+    AppState.saveStatuses[item.id] = { status:'queued', count:1 };
+    updateQueueBar();
+    renderLinksReport();
+    showToast('Added to queue.', 'info');
+  } else {
+    // Save immediately
+    showToast('Saving...', 'info');
+    saveProductToMetafield(articleItem, item).then(() => {
+      AppState.saveStatuses[item.id] = { status:'saved', count:1 };
+      buildLinkGraph();
+      detectBrokenLinks();
+      renderLinksReport();
+      renderDashboard();
+      showToast('Saved — product added to blog\'s Complete the Look.', 'success');
+    }).catch(err => {
+      showToast('Save failed: ' + err.message, 'error');
+    });
+  }
+}
+
 function buildInboundSuggestPanel(item) {
+  // Products use a separate metafield-based panel
+  if(item.type === 'product') return buildProductInboundPanel(item);
+
   const linkType = getPageLinkType(item);
   const req = checkInboundRequirements(item);
-  if(req.noRules || req.fullyDone) return `<div class="suggest-panel" style="border-left-color:#1565c0;background:#e8f4f8;"><p class="empty-expand">✅ All required inbound links already present.</p></div>`;
+  if(req.fullyDone) return `<div class="suggest-panel" style="border-left-color:#1565c0;background:#e8f4f8;"><p class="empty-expand">✅ All required inbound links already present.</p></div>`;
 
   // Already-linked source IDs (so we don't suggest pages already linking here)
   const alreadyLinkingIds = new Set((AppState.linkGraph.inbound[item.id]||[]).map(l=>l.sourceId));
@@ -3079,6 +3178,10 @@ function inboundBulkAddAllToQueue() {
 }
 
 async function saveProductToMetafield(articleItem, productItem) {
+  // Validate we have required fields before attempting save
+  if(!articleItem.blogId || !articleItem.shopifyId) throw new Error('Missing blog or article ID for "'+productItem.title+'"');
+
+  // Step 1: Read current metafield
   const endpoint = 'blogs/'+articleItem.blogId+'/articles/'+articleItem.shopifyId+'/metafields.json';
   const data = await shopifyFetch(endpoint);
   const metafields = data.metafields || [];
@@ -3091,12 +3194,17 @@ async function saveProductToMetafield(articleItem, productItem) {
   }
 
   // Don't add duplicates
-  if(currentList.includes(productGid)) return;
+  if(currentList.includes(productGid)) {
+    // Already there — still update our link graph so the UI is correct
+    updateMetafieldLinkGraph(articleItem, productItem);
+    return;
+  }
 
   // Rotate: remove oldest if at 4, add new at end
   if(currentList.length >= 4) currentList.shift();
   currentList.push(productGid);
 
+  // Step 2: Save to Shopify — only update link graph if this succeeds
   if(mf) {
     await shopifyFetch('blogs/'+articleItem.blogId+'/articles/'+articleItem.shopifyId+'/metafields/'+mf.id+'.json', 'PUT', {
       metafield: { id: mf.id, value: JSON.stringify(currentList), type: 'list.product_reference' }
@@ -3107,18 +3215,36 @@ async function saveProductToMetafield(articleItem, productItem) {
     });
   }
 
-  // Immediately update the in-memory link graph so the product shows as linked without waiting for a re-sync
+  // Step 3: Shopify save confirmed — now update link graph and persist to GitHub
+  updateMetafieldLinkGraph(articleItem, productItem);
+  await persistMetafieldLinks();
+}
+
+function updateMetafieldLinkGraph(articleItem, productItem) {
   const articleInternalId = AppState.items.find(i => i.type==='article' && String(i.shopifyId)===String(articleItem.shopifyId))?.id;
-  if(articleInternalId) {
-    if(!AppState.metafieldLinks) AppState.metafieldLinks = [];
-    if(!AppState.metafieldLinks.some(l => l.productId===productItem.id && l.articleId===articleInternalId)) {
-      AppState.metafieldLinks.push({ productId: productItem.id, articleId: articleInternalId });
-    }
-    if(!AppState.linkGraph.inbound[productItem.id]) AppState.linkGraph.inbound[productItem.id] = [];
-    if(!AppState.linkGraph.inbound[productItem.id].some(l => l.sourceId===articleInternalId)) {
-      AppState.linkGraph.inbound[productItem.id].push({ sourceId: articleInternalId, sourceUrl: '', anchorText: 'metafield' });
-    }
-    delete requirementsCache[productItem.id];
+  if(!articleInternalId) return;
+  if(!AppState.metafieldLinks) AppState.metafieldLinks = [];
+  if(!AppState.metafieldLinks.some(l => l.productId===productItem.id && l.articleId===articleInternalId)) {
+    AppState.metafieldLinks.push({ productId: productItem.id, articleId: articleInternalId });
+  }
+  if(!AppState.linkGraph.inbound[productItem.id]) AppState.linkGraph.inbound[productItem.id] = [];
+  if(!AppState.linkGraph.inbound[productItem.id].some(l => l.sourceId===articleInternalId)) {
+    AppState.linkGraph.inbound[productItem.id].push({ sourceId: articleInternalId, sourceUrl: '', anchorText: 'metafield' });
+  }
+  delete requirementsCache[productItem.id];
+}
+
+async function persistMetafieldLinks() {
+  // Save metafield links to GitHub so they survive cache clears and re-syncs
+  try {
+    await fetch(CONFIG.proxyUrl + '/api/blogs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'save-metafield-links', links: AppState.metafieldLinks || [] })
+    });
+  } catch(e) {
+    console.warn('Could not persist metafield links to GitHub:', e);
+    // Non-fatal — in-memory graph is still correct for this session
   }
 }
 
@@ -3868,10 +3994,23 @@ async function syncFromShopify(){
 
     AppState.items=allItems; AppState.links=allLinks; AppState.lastSync=new Date().toISOString();
 
-    // Scan blog article metafields for product references
+    // Load saved metafield links from GitHub (fast, reliable, persists across sessions)
+    setLoadingStep('Loading saved product links...',91);
+    const metafieldLinks = [];
+    try {
+      const mlRes = await fetch(CONFIG.proxyUrl + '/api/blogs?action=get-metafield-links');
+      const mlData = await mlRes.json();
+      (mlData.links||[]).forEach(l => {
+        // Verify both product and article still exist in current data
+        const productExists = allItems.some(i => i.id === l.productId && i.type === 'product');
+        const articleExists = allItems.some(i => i.id === l.articleId && i.type === 'article');
+        if(productExists && articleExists) metafieldLinks.push(l);
+      });
+    } catch(e) { console.warn('Could not load metafield links from GitHub:', e); }
+
+    // Also scan Shopify metafields to catch any products added outside our tool (e.g. manually in Shopify admin)
     setLoadingStep('Scanning blog product links...',91);
     const articles = allItems.filter(i=>i.type==='article');
-    const metafieldLinks = [];
     const batchSize = 5;
     for(let i=0; i<articles.length; i+=batchSize) {
       const batch = articles.slice(i, i+batchSize);
@@ -3891,7 +4030,15 @@ async function syncFromShopify(){
       }));
       results.forEach(r => metafieldLinks.push(...r));
     }
-    AppState.metafieldLinks = metafieldLinks;
+
+    // Deduplicate merged results
+    const seen = new Set();
+    AppState.metafieldLinks = metafieldLinks.filter(l => {
+      const key = l.productId+'|'+l.articleId;
+      if(seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 
     setLoadingStep('Building link graph...',92);
     buildLinkGraph();
