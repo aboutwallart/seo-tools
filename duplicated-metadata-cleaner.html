@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Duplicated Metadata Cleaner</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #222; }
+
+    header { background: #1a1a2e; color: #fff; padding: 20px 32px; }
+    header h1 { font-size: 20px; font-weight: 600; }
+    header .version { font-size: 12px; color: rgba(255,255,255,0.45); margin-top: 4px; }
+
+    .container { max-width: 1100px; margin: 32px auto; padding: 0 24px; }
+
+    .card { background: #fff; border-radius: 10px; padding: 28px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); margin-bottom: 24px; }
+    .card h2 { font-size: 15px; font-weight: 600; color: #1a1a2e; margin-bottom: 8px; }
+    .card p { font-size: 13px; color: #555; margin-bottom: 18px; line-height: 1.5; }
+
+    .btn { display: inline-block; padding: 10px 22px; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: opacity 0.15s; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-primary { background: #1a1a2e; color: #fff; }
+    .btn-primary:hover:not(:disabled) { opacity: 0.85; }
+    .btn-green { background: #16a34a; color: #fff; }
+    .btn-green:hover:not(:disabled) { opacity: 0.85; }
+    .btn-red { background: #dc2626; color: #fff; }
+    .btn-red:hover:not(:disabled) { opacity: 0.85; }
+    .btn-outline { background: #fff; color: #1a1a2e; border: 1px solid #d1d5db; }
+    .btn-outline:hover:not(:disabled) { background: #f9fafb; }
+
+    .progress-wrap { margin-top: 20px; display: none; }
+    .progress-bar-bg { background: #e5e7eb; border-radius: 99px; height: 8px; overflow: hidden; }
+    .progress-bar { background: #1a1a2e; height: 100%; border-radius: 99px; transition: width 0.3s; width: 0%; }
+    .status-text { font-size: 13px; color: #555; margin-top: 8px; }
+
+    .stats { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+    .stat { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px 20px; min-width: 150px; }
+    .stat-val { font-size: 28px; font-weight: 700; color: #1a1a2e; }
+    .stat-label { font-size: 12px; color: #888; margin-top: 2px; }
+
+    .alert { padding: 12px 16px; border-radius: 6px; font-size: 13px; margin-bottom: 16px; }
+    .alert-blue { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+    .alert-green { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+    .alert-red { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+
+    .tbl-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { background: #f3f4f6; text-align: left; padding: 10px 12px; font-weight: 600; color: #555; border-bottom: 1px solid #e5e7eb; }
+    td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; word-break: break-word; }
+    tr:last-child td { border-bottom: none; }
+    tr.deleted td { opacity: 0.45; }
+    .val-cell { max-width: 280px; color: #666; font-size: 12px; }
+
+    .badge { display: inline-block; padding: 2px 9px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+    .badge-pending { background: #f3f4f6; color: #888; }
+    .badge-deleted { background: #dcfce7; color: #16a34a; }
+    .badge-failed { background: #fee2e2; color: #dc2626; }
+
+    .hidden { display: none; }
+    .btn-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+
+    input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; accent-color: #1a1a2e; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Duplicated Metadata Cleaner</h1>
+  <div class="version">v1.2</div>
+</header>
+
+<div class="container">
+
+  <!-- STEP 1: SCAN -->
+  <div class="card">
+    <h2>Step 1 — Scan all products</h2>
+    <p>Checks every product for orphaned SEO metafields left behind by an uninstalled app (namespace: <strong>SEO</strong>, key: <strong>meta_description</strong>). Read-only — nothing is changed or deleted.</p>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="btnScan" onclick="startScan()">Start Scan</button>
+      <button class="btn btn-green hidden" id="btnCSV" onclick="downloadCSV()">Download CSV</button>
+    </div>
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-bar-bg"><div class="progress-bar" id="progressBar"></div></div>
+      <div class="status-text" id="statusText">Starting…</div>
+    </div>
+  </div>
+
+  <!-- RESULTS + STEP 2: DELETE -->
+  <div class="card hidden" id="resultsCard">
+    <h2>Step 2 — Review &amp; Delete</h2>
+    <div class="stats">
+      <div class="stat"><div class="stat-val" id="statProducts">0</div><div class="stat-label">Products scanned</div></div>
+      <div class="stat"><div class="stat-val" id="statFound">0</div><div class="stat-label">Metafields found</div></div>
+      <div class="stat"><div class="stat-val" id="statDeleted">0</div><div class="stat-label">Deleted</div></div>
+      <div class="stat"><div class="stat-val" id="statFailed">0</div><div class="stat-label">Failed</div></div>
+    </div>
+
+    <div class="alert alert-blue" id="alertMsg"></div>
+
+    <div class="btn-row" id="deleteControls" style="margin-bottom:16px;">
+      <button class="btn btn-outline" id="btnSelectAll" onclick="toggleSelectAll()">Select All</button>
+      <button class="btn btn-red" id="btnDelete" onclick="deleteSelected()" disabled>Delete Selected</button>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:36px;"><input type="checkbox" id="chkAll" onchange="toggleSelectAll()"></th>
+            <th>#</th>
+            <th>Product ID</th>
+            <th>Product Title</th>
+            <th>Handle</th>
+            <th>Metafield ID</th>
+            <th>Current Value</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const API = '/api/blogs';
+  let allFound = [];
+  let totalScanned = 0;
+  let deletedCount = 0;
+  let failedCount = 0;
+  let allSelected = false;
+
+  // ── SCAN ──────────────────────────────────────────
+  async function startScan() {
+    document.getElementById('btnScan').disabled = true;
+    document.getElementById('btnCSV').classList.add('hidden');
+    document.getElementById('resultsCard').classList.add('hidden');
+    const progressWrap = document.getElementById('progressWrap');
+    progressWrap.style.display = 'block';
+    document.getElementById('progressBar').style.width = '0%';
+    allFound = [];
+    totalScanned = 0;
+    deletedCount = 0;
+    failedCount = 0;
+
+    let cursor = null;
+    let page = 0;
+
+    try {
+      while (true) {
+        page++;
+        setStatus(`Scanning page ${page}… (${totalScanned} products checked so far)`);
+
+        const url = cursor
+          ? `${API}?action=seo-metafield-scan&cursor=${encodeURIComponent(cursor)}`
+          : `${API}?action=seo-metafield-scan`;
+
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Server error ${res.status}`);
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Unknown error from server');
+
+        totalScanned += 50;
+        allFound = allFound.concat(data.found);
+
+        if (!data.hasNextPage) break;
+        cursor = data.endCursor;
+
+        await new Promise(r => setTimeout(r, 250));
+      }
+
+      document.getElementById('progressBar').style.width = '100%';
+      setStatus(`Done. ${totalScanned} products scanned. ${allFound.length} orphaned metafields found.`);
+      renderResults();
+      if (allFound.length > 0) document.getElementById('btnCSV').classList.remove('hidden');
+
+    } catch (err) {
+      setStatus(`Error: ${err.message}`);
+      document.getElementById('btnScan').disabled = false;
+    }
+  }
+
+  function renderResults() {
+    document.getElementById('resultsCard').classList.remove('hidden');
+    document.getElementById('statProducts').textContent = totalScanned;
+    document.getElementById('statFound').textContent = allFound.length;
+
+    const alertMsg = document.getElementById('alertMsg');
+
+    if (allFound.length === 0) {
+      alertMsg.className = 'alert alert-green';
+      alertMsg.textContent = 'No orphaned metafields found. Your store is clean.';
+      document.getElementById('deleteControls').classList.add('hidden');
+      document.getElementById('resultsBody').innerHTML = '';
+      return;
+    }
+
+    alertMsg.className = 'alert alert-blue';
+    alertMsg.textContent = `Found ${allFound.length} orphaned metafields. Select the ones you want to delete, then click Delete Selected.`;
+
+    const tbody = document.getElementById('resultsBody');
+    tbody.innerHTML = '';
+
+    allFound.forEach((r, i) => {
+      const tr = document.createElement('tr');
+      tr.id = `row-${i}`;
+      tr.innerHTML = `
+        <td><input type="checkbox" class="row-chk" data-index="${i}" onchange="onCheckChange()"></td>
+        <td>${i + 1}</td>
+        <td>${esc(r.productId)}</td>
+        <td>${esc(r.title)}</td>
+        <td>${esc(r.handle)}</td>
+        <td>${esc(r.metafieldId)}</td>
+        <td class="val-cell">${esc(r.value)}</td>
+        <td id="status-${i}"><span class="badge badge-pending">Pending</span></td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // ── CHECKBOXES ────────────────────────────────────
+  function toggleSelectAll() {
+    allSelected = !allSelected;
+    document.querySelectorAll('.row-chk').forEach(chk => {
+      if (!chk.disabled) chk.checked = allSelected;
+    });
+    document.getElementById('chkAll').checked = allSelected;
+    document.getElementById('btnSelectAll').textContent = allSelected ? 'Deselect All' : 'Select All';
+    onCheckChange();
+  }
+
+  function onCheckChange() {
+    const checked = document.querySelectorAll('.row-chk:checked').length;
+    document.getElementById('btnDelete').disabled = checked === 0;
+    const all = document.querySelectorAll('.row-chk:not(:disabled)').length;
+    if (checked === all && all > 0) {
+      allSelected = true;
+      document.getElementById('btnSelectAll').textContent = 'Deselect All';
+      document.getElementById('chkAll').checked = true;
+    } else {
+      allSelected = false;
+      document.getElementById('btnSelectAll').textContent = 'Select All';
+      document.getElementById('chkAll').checked = false;
+    }
+  }
+
+  // ── DELETE ────────────────────────────────────────
+  async function deleteSelected() {
+    const checked = document.querySelectorAll('.row-chk:checked');
+    if (checked.length === 0) return;
+
+    const confirmed = window.confirm(
+      `You are about to delete ${checked.length} orphaned metafield(s).\n\nThis only removes the SEO / meta_description metafield. Products are NOT affected.\n\nContinue?`
+    );
+    if (!confirmed) return;
+
+    document.getElementById('btnDelete').disabled = true;
+    document.getElementById('btnSelectAll').disabled = true;
+    document.getElementById('btnScan').disabled = true;
+
+    const alertMsg = document.getElementById('alertMsg');
+    alertMsg.className = 'alert alert-blue';
+    alertMsg.textContent = `Deleting… 0 / ${checked.length} done.`;
+
+    let done = 0;
+
+    for (const chk of checked) {
+      const i = parseInt(chk.dataset.index);
+      const record = allFound[i];
+      const statusEl = document.getElementById(`status-${i}`);
+
+      statusEl.innerHTML = '<span class="badge badge-pending">Deleting…</span>';
+
+      try {
+        const res = await fetch(API, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'seo-metafield-delete', metafieldGid: record.metafieldGid })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || `Server error ${res.status}`);
+        }
+
+        statusEl.innerHTML = '<span class="badge badge-deleted">Deleted</span>';
+        chk.disabled = true;
+        chk.checked = false;
+        document.getElementById(`row-${i}`).classList.add('deleted');
+        deletedCount++;
+        document.getElementById('statDeleted').textContent = deletedCount;
+
+      } catch (err) {
+        statusEl.innerHTML = `<span class="badge badge-failed">Failed</span> <span style="font-size:11px;color:#dc2626;">${esc(err.message)}</span>`;
+        failedCount++;
+        document.getElementById('statFailed').textContent = failedCount;
+      }
+
+      done++;
+      alertMsg.textContent = `Deleting… ${done} / ${checked.length} done.`;
+
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    if (failedCount === 0) {
+      alertMsg.className = 'alert alert-green';
+      alertMsg.textContent = `All ${deletedCount} metafields deleted successfully.`;
+    } else {
+      alertMsg.className = 'alert alert-red';
+      alertMsg.textContent = `Done. ${deletedCount} deleted, ${failedCount} failed. Check red rows for details.`;
+    }
+
+    document.getElementById('btnSelectAll').disabled = false;
+    onCheckChange();
+  }
+
+  // ── CSV ───────────────────────────────────────────
+  function downloadCSV() {
+    const header = 'Product ID,Product Title,Handle,Metafield ID,Current Value';
+    const rows = allFound.map(r =>
+      [r.productId, csvQ(r.title), csvQ(r.handle), r.metafieldId, csvQ(r.value)].join(',')
+    );
+    const csv = [header, ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'orphaned-seo-metafields.csv';
+    a.click();
+  }
+
+  function setStatus(msg) { document.getElementById('statusText').textContent = msg; }
+  function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function csvQ(s) { s = String(s || ''); return (s.includes(',') || s.includes('"') || s.includes('\n')) ? `"${s.replace(/"/g,'""')}"` : s; }
+</script>
+
+</body>
+</html>
