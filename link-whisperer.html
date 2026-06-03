@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.22</div>
+    <div class="version">v16.23</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -2191,22 +2191,45 @@ function buildProductInboundPanel(item) {
 
   if(!blogs.length) return `<div class="suggest-panel" style="border-left-color:#1565c0;background:#e8f4f8;"><p class="empty-expand">✅ This product is already featured in all matching blogs.</p></div>`;
 
-  const rows = blogs.map((b, i) => `
-    <div class="suggest-item">
-      <input type="checkbox" class="inbound-blog-cb" ${i===0?'checked':''}
+  // Build a map of articleId → products already in its Complete the Look list (from our records)
+  const articleProductMap = {};
+  (AppState.metafieldLinks||[]).forEach(l => {
+    if(!articleProductMap[l.articleId]) articleProductMap[l.articleId] = [];
+    if(!articleProductMap[l.articleId].includes(l.productId)) articleProductMap[l.articleId].push(l.productId);
+  });
+
+  const rows = blogs.map((b, i) => {
+    const slotsUsed = (articleProductMap[b.id]||[]).length;
+    const slotsLeft = Math.max(0, 4 - slotsUsed);
+    const slotProducts = (articleProductMap[b.id]||[])
+      .map(pid => AppState.items.find(it => it.id === pid)?.title || pid)
+      .map(t => escHtml(t.substring(0, 40)));
+    const slotBadgeColor = slotsUsed >= 4 ? '#c62828' : slotsUsed >= 3 ? '#e65100' : '#2e7d32';
+    const slotBadgeText = slotsUsed >= 4 ? '⚠️ Full (4/4)' : slotsLeft + ' slot' + (slotsLeft!==1?'s':'') + ' free (' + slotsUsed + '/4 used)';
+    const slotTooltip = slotProducts.length ? 'Currently: ' + slotProducts.join(', ') : '';
+
+    return `
+    <div class="suggest-item" ${slotsUsed>=4?'style="opacity:0.6;"':''}>
+      <input type="checkbox" class="inbound-blog-cb" ${i===0&&slotsUsed<4?'checked':''}
         data-item-id="${item.id}"
         data-product-id="${item.id}"
         data-product-shopify-id="${escHtml(item.shopifyId)}"
         data-article-id="${escHtml(b.shopifyId)}"
         data-article-blog-id="${escHtml(b.blogId||'')}"
         data-article-title="${escHtml(b.title)}"
-        onchange="enforceInboundBlogSingle(this,'${item.id}')" />
+        onchange="enforceInboundBlogSingle(this,'${item.id}')" ${slotsUsed>=4?'disabled':''} />
       <div class="suggest-item-info">
         <div class="suggest-item-title">${escHtml(b.title)}</div>
         <div class="suggest-item-url">${escHtml(b.url)}</div>
-        <div class="suggest-item-badges"><span class="badge" style="background:#f3e5f5;color:#6a1b9a;">BLOG</span><span class="badge badge-inbound">${(AppState.linkGraph.inbound[b.id]||[]).length} inbound</span></div>
+        <div class="suggest-item-badges">
+          <span class="badge" style="background:#f3e5f5;color:#6a1b9a;">BLOG</span>
+          <span class="badge badge-inbound">${(AppState.linkGraph.inbound[b.id]||[]).length} inbound</span>
+          <span class="badge" style="background:${slotBadgeColor}20;color:${slotBadgeColor};" title="${slotTooltip}">${slotBadgeText}</span>
+        </div>
+        ${slotProducts.length ? `<div style="font-size:11px;color:#888;margin-top:3px;">Currently: ${slotProducts.join(', ')}</div>` : ''}
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   return `<div class="suggest-panel" style="border-left-color:#1565c0;background:#e8f4f8;">
     <div class="suggest-header">
@@ -2220,7 +2243,7 @@ function buildProductInboundPanel(item) {
         <button class="btn-outline" onclick="closeInboundSuggestPanel()">✕ Cancel</button>
       </div>
     </div>
-    <div id="prod-inbound-list-${item.id}">${rows}</div>
+    <div id="inbound-blog-list-${item.id}">${rows}</div>
     <div class="suggest-search-wrap" style="margin-top:10px;padding-top:10px;border-top:1px solid #bbdefb;">
       <div class="suggest-search-label">Search for a different blog post:</div>
       <div class="suggest-search-input-wrap">
@@ -3058,23 +3081,41 @@ function buildInboundBulkPanel(item, keyword) {
 
   if(!blogs.length) return '<p style="color:#888;font-size:13px;padding:8px 0;">No blog posts found for this keyword.</p>';
 
-  const rows = blogs.map((b,i) => `
-    <div class="suggest-item">
-      <input type="checkbox" class="inbound-blog-cb" ${i===0?'checked':''}
+  // Build slot usage map from our records
+  const articleProductMap = {};
+  (AppState.metafieldLinks||[]).forEach(l => {
+    if(!articleProductMap[l.articleId]) articleProductMap[l.articleId] = [];
+    if(!articleProductMap[l.articleId].includes(l.productId)) articleProductMap[l.articleId].push(l.productId);
+  });
+
+  const rows = blogs.map((b,i) => {
+    const slotsUsed = (articleProductMap[b.id]||[]).length;
+    const slotsLeft = Math.max(0, 4 - slotsUsed);
+    const slotProducts = (articleProductMap[b.id]||[])
+      .map(pid => AppState.items.find(it => it.id === pid)?.title || pid)
+      .map(t => escHtml(t.substring(0, 40)));
+    const slotBadgeColor = slotsUsed >= 4 ? '#c62828' : slotsUsed >= 3 ? '#e65100' : '#2e7d32';
+    const slotBadgeText = slotsUsed >= 4 ? '⚠️ Full (4/4)' : slotsLeft + ' slot' + (slotsLeft!==1?'s':'') + ' free (' + slotsUsed + '/4 used)';
+    return `
+    <div class="suggest-item" ${slotsUsed>=4?'style="opacity:0.6;"':''}>
+      <input type="checkbox" class="inbound-blog-cb" ${i===0&&slotsUsed<4?'checked':''}
         data-item-id="${item.id}"
         data-article-id="${escHtml(b.shopifyId)}"
         data-article-blog-id="${escHtml(b.blogId||'')}"
         data-article-title="${escHtml(b.title)}"
-        onchange="enforceInboundBlogSingle(this,'${item.id}')" />
+        onchange="enforceInboundBlogSingle(this,'${item.id}')" ${slotsUsed>=4?'disabled':''} />
       <div class="suggest-item-info">
         <div class="suggest-item-title">${escHtml(b.title)}</div>
         <div class="suggest-item-url">${escHtml(b.url)}</div>
         <div class="suggest-item-badges">
           <span class="badge" style="background:#f3e5f5;color:#6a1b9a;">BLOG</span>
           <span class="badge badge-inbound">${(AppState.linkGraph.inbound[b.id]||[]).length} inbound</span>
+          <span class="badge" style="background:${slotBadgeColor}20;color:${slotBadgeColor};">${slotBadgeText}</span>
         </div>
+        ${slotProducts.length ? `<div style="font-size:11px;color:#888;margin-top:3px;">Currently: ${slotProducts.join(', ')}</div>` : ''}
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   return `<div style="margin-bottom:6px;font-size:11px;font-weight:700;color:#1565c0;text-transform:uppercase;letter-spacing:0.4px;">Pick one blog to feature "${escHtml(item.title)}"</div>
     <div id="inbound-blog-list-${item.id}">${rows}</div>
