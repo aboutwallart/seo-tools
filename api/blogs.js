@@ -240,14 +240,14 @@ export default async function handler(req, res) {
         }
       }
 
-      // ── ACTION: yoast-scan ──
-      if (req.query.action === 'yoast-scan') {
+      // ── ACTION: seo-metafield-scan ──
+      if (req.query.action === 'seo-metafield-scan') {
         const shopifyDomain = process.env.SHOPIFY_STORE_DOMAIN;
         const shopifyToken  = process.env.SHOPIFY_ACCESS_TOKEN;
         if (!shopifyDomain || !shopifyToken) return res.status(500).json({ error: 'Shopify credentials not configured' });
 
         const cursor = req.query.cursor || null;
-        const query = `
+        const gqlQuery = `
           query($cursor: String) {
             products(first: 50, after: $cursor) {
               pageInfo { hasNextPage endCursor }
@@ -256,15 +256,9 @@ export default async function handler(req, res) {
                   id
                   title
                   handle
-                  metafields(first: 20, namespace: "SEO") {
-                    edges {
-                      node {
-                        id
-                        namespace
-                        key
-                        value
-                      }
-                    }
+                  metafield(namespace: "SEO", key: "meta_description") {
+                    id
+                    value
                   }
                 }
               }
@@ -278,32 +272,28 @@ export default async function handler(req, res) {
             'X-Shopify-Access-Token': shopifyToken,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ query, variables: { cursor } })
+          body: JSON.stringify({ query: gqlQuery, variables: { cursor } })
         });
 
-        if (!shopifyRes.ok) return res.status(500).json({ error: `Shopify GraphQL error: ${shopifyRes.status}` });
+        if (!shopifyRes.ok) return res.status(500).json({ error: `Shopify error: ${shopifyRes.status}` });
 
         const data = await shopifyRes.json();
-        if (data.errors) return res.status(500).json({ error: JSON.stringify(data.errors) });
+        if (data.errors) return res.status(500).json({ error: data.errors[0].message });
 
         const products = data.data.products;
         const found = [];
 
         for (const edge of products.edges) {
           const p = edge.node;
-          const numericProductId = p.id.replace('gid://shopify/Product/', '');
-          for (const mEdge of p.metafields.edges) {
-            const m = mEdge.node;
-            if (m.namespace === 'SEO' && m.key === 'meta_description') {
-              found.push({
-                productId: numericProductId,
-                title: p.title,
-                handle: p.handle,
-                metafieldId: m.id.replace('gid://shopify/Metafield/', ''),
-                metafieldGid: m.id,
-                value: m.value
-              });
-            }
+          if (p.metafield) {
+            found.push({
+              productId: p.id.replace('gid://shopify/Product/', ''),
+              title: p.title,
+              handle: p.handle,
+              metafieldId: p.metafield.id.replace('gid://shopify/Metafield/', ''),
+              metafieldGid: p.metafield.id,
+              value: p.metafield.value
+            });
           }
         }
 
@@ -313,16 +303,6 @@ export default async function handler(req, res) {
           hasNextPage: products.pageInfo.hasNextPage,
           endCursor: products.pageInfo.endCursor
         });
-      }
-
-      // ── ACTION: get-metafield-links ──
-      if (req.query.action === 'get-metafield-links') {
-        try {
-          const file = await getGitHubFile('data/metafield-product-links.json');
-          return res.status(200).json({ success: true, links: JSON.parse(file.content) });
-        } catch(e) {
-          return res.status(200).json({ success: true, links: [] });
-        }
       }
 
       // ── ORIGINAL GET: Read published blogs from registry ──
@@ -451,23 +431,6 @@ export default async function handler(req, res) {
         });
         if (!response.ok) { const err = await response.text(); return res.status(500).json({ error: `GitHub save failed: ${err}` }); }
         return res.status(200).json({ success: true, count: rules.length });
-      }
-
-      // ── ACTION: save-metafield-links ──
-      if (req.body.action === 'save-metafield-links') {
-        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
-        const { links } = req.body;
-        if (!Array.isArray(links)) return res.status(400).json({ error: 'links must be an array' });
-        const jsonContent = JSON.stringify(links, null, 2);
-        let sha = null;
-        try { const existing = await getGitHubFile('data/metafield-product-links.json'); sha = existing.sha; } catch(e) {}
-        const response = await fetch(`https://api.github.com/repos/${REPO}/contents/data/metafield-product-links.json`, {
-          method: 'PUT',
-          headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: 'Update metafield product links', content: Buffer.from(jsonContent).toString('base64'), ...(sha ? { sha } : {}) })
-        });
-        if (!response.ok) { const err = await response.text(); return res.status(500).json({ error: `GitHub save failed: ${err}` }); }
-        return res.status(200).json({ success: true, count: links.length });
       }
 
       const { keyword, url, title, perspective } = req.body;
