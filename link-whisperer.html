@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.28</div>
+    <div class="version">v16.29</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -242,8 +242,7 @@
     <button class="tab-btn" onclick="switchTab('domains-report')">Domains Report</button>
     <button class="tab-btn" onclick="switchTab('broken-links')">Broken Links Report</button>
     <button class="tab-btn" onclick="switchTab('auto-linking')">Auto Linking</button>
-    <button class="tab-btn" onclick="switchTab('url-changer')">URL Changer</button>
-    <button class="tab-btn" onclick="switchTab('target-keywords')">Target Keywords</button>
+    <button class="tab-btn" onclick="switchTab('cannibalization')">Cannibalization</button>
     <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
   </div>
 
@@ -526,8 +525,19 @@
       </div>
     </div>
   </div>
-  <div id="tab-url-changer" class="tab-content"><p class="placeholder-msg">URL Changer — coming soon.</p></div>
-  <div id="tab-target-keywords" class="tab-content"><p class="placeholder-msg">Target Keywords — coming soon.</p></div>
+  <div id="tab-cannibalization" class="tab-content">
+    <div id="can-loading" style="text-align:center;padding:48px;color:#888;font-size:14px;"><div class="spinner" style="margin:0 auto 12px;"></div>Loading registry data...</div>
+    <div id="can-app" style="display:none;">
+      <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid #e0e0e0;">
+        <button id="can-tab-conflicts" onclick="switchCanTab('conflicts')" style="background:none;border:none;border-bottom:3px solid #222;margin-bottom:-2px;padding:10px 20px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#222;cursor:pointer;">⚠️ Conflicts <span id="can-count-conflicts" style="font-size:11px;font-weight:400;color:#888;"></span></button>
+        <button id="can-tab-no-conflicts" onclick="switchCanTab('no-conflicts')" style="background:none;border:none;border-bottom:3px solid transparent;margin-bottom:-2px;padding:10px 20px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;cursor:pointer;">✅ No Conflicts <span id="can-count-no-conflicts" style="font-size:11px;font-weight:400;color:#888;"></span></button>
+      </div>
+      <div class="report-toolbar" style="margin-bottom:16px;">
+        <input type="text" id="can-search" placeholder="Filter by keyword..." style="padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;width:300px;" oninput="renderCannibalization()" />
+      </div>
+      <div id="can-results"></div>
+    </div>
+  </div>
   <div id="tab-settings" class="tab-content">
     <div style="max-width:800px;">
       <h2 style="font-size:18px;font-weight:700;margin-bottom:24px;">Settings</h2>
@@ -632,7 +642,7 @@
       <!-- AUTO-LINK WEBHOOKS -->
       <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:24px;margin-bottom:20px;">
         <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#333;margin-bottom:4px;">Auto-Link Webhooks</h3>
-        <p style="font-size:12px;color:#888;margin-bottom:16px;">Register webhooks with Shopify so auto-link rules are applied automatically whenever a new product, blog post, or collection is created. Only needs to be done once. Your current words-to-ignore list and data type settings are saved to GitHub so the server can use them.</p>
+        <p style="font-size:12px;color:#888;margin-bottom:16px;">Register webhooks with Shopify so auto-link rules are applied automatically whenever a new product or collection is created. Only needs to be done once. Your current words-to-ignore list and data type settings are saved to GitHub so the server can use them.</p>
         <button class="btn-action" style="background:#1565c0;" onclick="registerAutoLinkWebhooks()" id="btn-register-webhooks">🔗 Register Webhooks</button>
         <span id="register-webhooks-status" style="font-size:12px;color:#888;margin-left:12px;"></span>
       </div>
@@ -1635,6 +1645,7 @@ function switchTab(tabName, silent) {
   if (tabName==='broken-links') { renderBrokenLinksReport(); }
   if (tabName==='settings') { initSettingsTab(); }
   if (tabName==='auto-linking') { initAutoLinkTab(); }
+  if (tabName==='cannibalization') { initCannibalizationTab(); }
 }
 
 async function shopifyFetch(endpoint, method, body) {
@@ -4253,6 +4264,115 @@ function showToast(msg,type){
 
 function escHtml(str){
   return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─── CANNIBALIZATION TAB ──────────────────────────────────────────────────────
+
+let AppCannibalization = { loaded: false, conflicts: [], noConflicts: [] };
+let canActiveTab = 'conflicts';
+
+const INTENT_STYLES = {
+  COMMERCIAL:    { bg: '#e3f2fd', color: '#1565c0' },
+  INFORMATIONAL: { bg: '#f3e5f5', color: '#6a1b9a' },
+  TRANSACTIONAL: { bg: '#e8f5e9', color: '#2e7d32' },
+  NAVIGATIONAL:  { bg: '#fff3e0', color: '#e65100' }
+};
+
+async function initCannibalizationTab() {
+  if(AppCannibalization.loaded) { renderCannibalization(); return; }
+  document.getElementById('can-loading').style.display = 'block';
+  document.getElementById('can-app').style.display = 'none';
+  try {
+    const res = await fetch(CONFIG.proxyUrl + '/api/blogs?action=get-registry');
+    const data = await res.json();
+    const registry = data.registry || [];
+
+    // Filter to OPTIMIZED rows with a keyword and URL
+    const optimized = registry.filter(r => (r.action||'').toUpperCase() === 'OPTIMIZED' && r.keyword && r.url);
+
+    // Group by keyword (case-insensitive)
+    const keywordMap = {};
+    optimized.forEach(row => {
+      const kw = row.keyword.toLowerCase().trim();
+      if(!keywordMap[kw]) keywordMap[kw] = { keyword: row.keyword, pages: [] };
+      keywordMap[kw].pages.push({ url: row.url, intent: (row.intent || 'UNKNOWN').toUpperCase() });
+    });
+
+    const conflicts = [], noConflicts = [];
+    Object.values(keywordMap).forEach(({ keyword, pages }) => {
+      const intentGroups = {};
+      pages.forEach(p => {
+        if(!intentGroups[p.intent]) intentGroups[p.intent] = [];
+        intentGroups[p.intent].push(p);
+      });
+      const hasConflict = Object.values(intentGroups).some(g => g.length >= 2);
+      if(hasConflict) conflicts.push({ keyword, pages, intentGroups });
+      else noConflicts.push({ keyword, pages, intentGroups });
+    });
+
+    conflicts.sort((a,b) => a.keyword.localeCompare(b.keyword));
+    noConflicts.sort((a,b) => a.keyword.localeCompare(b.keyword));
+    AppCannibalization = { loaded: true, conflicts, noConflicts };
+
+    // Update counts on tabs
+    const cc = document.getElementById('can-count-conflicts');
+    const cn = document.getElementById('can-count-no-conflicts');
+    if(cc) cc.textContent = '(' + conflicts.length + ')';
+    if(cn) cn.textContent = '(' + noConflicts.length + ')';
+
+  } catch(e) {
+    showToast('Could not load registry data.', 'error');
+    AppCannibalization = { loaded: true, conflicts: [], noConflicts: [] };
+  }
+  document.getElementById('can-loading').style.display = 'none';
+  document.getElementById('can-app').style.display = 'block';
+  renderCannibalization();
+}
+
+function switchCanTab(tab) {
+  canActiveTab = tab;
+  ['conflicts','no-conflicts'].forEach(t => {
+    const btn = document.getElementById('can-tab-' + t);
+    if(!btn) return;
+    btn.style.borderBottomColor = t === tab ? '#222' : 'transparent';
+    btn.style.color = t === tab ? '#222' : '#888';
+  });
+  renderCannibalization();
+}
+
+function renderCannibalization() {
+  const q = ((document.getElementById('can-search')||{value:''}).value||'').toLowerCase();
+  const data = canActiveTab === 'conflicts' ? AppCannibalization.conflicts : AppCannibalization.noConflicts;
+  const filtered = q ? data.filter(d => d.keyword.toLowerCase().includes(q)) : data;
+  const container = document.getElementById('can-results');
+  if(!container) return;
+
+  if(!filtered.length) {
+    container.innerHTML = '<p class="placeholder-msg">' + (canActiveTab === 'conflicts' ? '✅ No cannibalization conflicts found.' : 'No optimized keywords without conflicts found.') + '</p>';
+    return;
+  }
+
+  container.innerHTML = filtered.map(item => {
+    const rows = item.pages.map(p => {
+      const ic = INTENT_STYLES[p.intent] || { bg: '#f5f5f5', color: '#888' };
+      const isConflicting = canActiveTab === 'conflicts' && (item.intentGroups[p.intent]||[]).length >= 2;
+      return `<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #f0f0f0;">
+        <span style="background:${ic.bg};color:${ic.color};font-size:10px;font-weight:700;padding:2px 8px;border-radius:3px;text-transform:uppercase;white-space:nowrap;">${escHtml(p.intent)}</span>
+        <a href="${escHtml(p.url)}" target="_blank" style="color:${isConflicting?'#c62828':'#1565c0'};font-size:13px;text-decoration:none;word-break:break-all;flex:1;">${escHtml(p.url)}</a>
+        ${isConflicting ? '<span style="color:#c62828;font-size:11px;font-weight:700;white-space:nowrap;">⚠️ CONFLICT</span>' : ''}
+      </div>`;
+    }).join('');
+
+    const icon = canActiveTab === 'conflicts' ? '⚠️' : '✅';
+    return `<div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.06);padding:16px;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <span style="font-size:15px;">${icon}</span>
+        <span style="font-size:14px;font-weight:700;color:#333;">${escHtml(item.keyword)}</span>
+        <span style="font-size:11px;color:#aaa;margin-left:auto;">${item.pages.length} page${item.pages.length!==1?'s':''}</span>
+      </div>
+      ${rows}
+    </div>`;
+  }).join('');
 }
 </script>
 </body>
