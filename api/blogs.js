@@ -99,7 +99,6 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
 
       // ── NEW ACTION: get-published-keywords ──
-      // Returns all published blog keywords for cross-referencing with GSC queries
       if (req.query.action === 'get-published-keywords') {
         const csvPath = path.resolve(process.cwd(), 'data', 'keyword-locker-registry.csv');
         if (!fs.existsSync(csvPath)) {
@@ -150,7 +149,6 @@ export default async function handler(req, res) {
       }
 
       // ── ACTION: get-revenue-by-month ──
-      // Fetches last 13 months of net sales via REST Orders API (works on all Shopify plans)
       if (req.query.action === 'get-revenue-by-month') {
         const shopifyDomain = process.env.SHOPIFY_STORE_DOMAIN;
         const shopifyToken  = process.env.SHOPIFY_ACCESS_TOKEN;
@@ -173,17 +171,15 @@ export default async function handler(req, res) {
 
           for (const order of (data.orders || [])) {
             if (['voided', 'refunded'].includes(order.financial_status)) continue;
-            const month = order.created_at.slice(0, 7); // YYYY-MM
+            const month = order.created_at.slice(0, 7);
             months[month] = (months[month] || 0) + parseFloat(order.total_price || 0);
           }
 
-          // Pagination via Link header
           const linkHeader = orderRes.headers.get('Link') || '';
           const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
           url = nextMatch ? nextMatch[1] : null;
         }
 
-        // Build YYYYMM -> revenue map (strip the dash)
         const revenue = {};
         Object.entries(months).forEach(([month, total]) => {
           revenue[month.replace('-', '')] = Math.round(total);
@@ -230,8 +226,17 @@ export default async function handler(req, res) {
           const tabs = JSON.parse(file.content);
           return res.status(200).json({ success: true, tabs });
         } catch(e) {
-          // File doesn't exist yet — return empty array
           return res.status(200).json({ success: true, tabs: [] });
+        }
+      }
+
+      // ── ACTION: get-autolink-rules ──
+      if (req.query.action === 'get-autolink-rules') {
+        try {
+          const file = await getGitHubFile('data/autolink-rules.json');
+          return res.status(200).json({ success: true, rules: JSON.parse(file.content) });
+        } catch(e) {
+          return res.status(200).json({ success: true, rules: [] });
         }
       }
 
@@ -264,8 +269,7 @@ export default async function handler(req, res) {
     }
 
     // ============================================
-    // POST - Save to registry + mark blog_ideas.csv as TO_WRITE
-    //        + append row to Google Sheet (non-blocking)
+    // POST
     // ============================================
     if (req.method === 'POST') {
 
@@ -320,27 +324,13 @@ export default async function handler(req, res) {
         if (!Array.isArray(keywords)) return res.status(400).json({ error: 'keywords must be an array' });
         const jsonContent = JSON.stringify(keywords, null, 2);
         let sha = null;
-        try {
-          const existing = await getGitHubFile('data/tracked-keywords.json');
-          sha = existing.sha;
-        } catch(e) {}
+        try { const existing = await getGitHubFile('data/tracked-keywords.json'); sha = existing.sha; } catch(e) {}
         const response = await fetch(`https://api.github.com/repos/${REPO}/contents/data/tracked-keywords.json`, {
           method: 'PUT',
-          headers: {
-            'Authorization': `token ${GITHUB_TOKEN}`,
-            'Accept': 'application/vnd.github.v3+json',
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            message: 'Update tracked keywords',
-            content: Buffer.from(jsonContent).toString('base64'),
-            ...(sha ? { sha } : {})
-          })
+          headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'Update tracked keywords', content: Buffer.from(jsonContent).toString('base64'), ...(sha ? { sha } : {}) })
         });
-        if (!response.ok) {
-          const err = await response.text();
-          return res.status(500).json({ error: `GitHub save failed: ${err}` });
-        }
+        if (!response.ok) { const err = await response.text(); return res.status(500).json({ error: `GitHub save failed: ${err}` }); }
         return res.status(200).json({ success: true, count: keywords.length });
       }
 
@@ -350,44 +340,43 @@ export default async function handler(req, res) {
         const { tabs } = req.body;
         if (!Array.isArray(tabs)) return res.status(400).json({ error: 'tabs must be an array' });
         const jsonContent = JSON.stringify(tabs, null, 2);
-        // Try to get existing file SHA (needed for update), or create new
         let sha = null;
-        try {
-          const existing = await getGitHubFile('data/keyword-tracker.json');
-          sha = existing.sha;
-        } catch(e) {
-          // File doesn't exist yet — will be created
-        }
+        try { const existing = await getGitHubFile('data/keyword-tracker.json'); sha = existing.sha; } catch(e) {}
         const response = await fetch(`https://api.github.com/repos/${REPO}/contents/data/keyword-tracker.json`, {
           method: 'PUT',
-          headers: {
-            'Authorization': `token ${GITHUB_TOKEN}`,
-            'Accept': 'application/vnd.github.v3+json',
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            message: 'Update keyword tracker tabs',
-            content: Buffer.from(jsonContent).toString('base64'),
-            ...(sha ? { sha } : {})
-          })
+          headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'Update keyword tracker tabs', content: Buffer.from(jsonContent).toString('base64'), ...(sha ? { sha } : {}) })
         });
-        if (!response.ok) {
-          const err = await response.text();
-          return res.status(500).json({ error: `GitHub save failed: ${err}` });
-        }
+        if (!response.ok) { const err = await response.text(); return res.status(500).json({ error: `GitHub save failed: ${err}` }); }
         return res.status(200).json({ success: true, count: tabs.length });
       }
+
+      // ── ACTION: save-autolink-rules ──
+      if (req.body.action === 'save-autolink-rules') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { rules } = req.body;
+        if (!Array.isArray(rules)) return res.status(400).json({ error: 'rules must be an array' });
+        const jsonContent = JSON.stringify(rules, null, 2);
+        let sha = null;
+        try { const existing = await getGitHubFile('data/autolink-rules.json'); sha = existing.sha; } catch(e) {}
+        const response = await fetch(`https://api.github.com/repos/${REPO}/contents/data/autolink-rules.json`, {
+          method: 'PUT',
+          headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'Update autolink rules', content: Buffer.from(jsonContent).toString('base64'), ...(sha ? { sha } : {}) })
+        });
+        if (!response.ok) { const err = await response.text(); return res.status(500).json({ error: `GitHub save failed: ${err}` }); }
+        return res.status(200).json({ success: true, count: rules.length });
+      }
+
       const { keyword, url, title, perspective } = req.body;
       if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
       if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured in environment variables' });
 
-      // 1. Append to registry
       const registry = await getGitHubFile('data/keyword-locker-registry.csv');
       const newRow = `${keyword},${url || ''},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,To_Write_Blog`;
       const updatedRegistry = registry.content.trimEnd() + '\n' + newRow + '\n';
       await updateGitHubFile('data/keyword-locker-registry.csv', updatedRegistry, registry.sha, `Add to write blog: ${keyword}`);
 
-      // 2. Mark blog_ideas.csv row as TO_WRITE
       const ideasFile = await getGitHubFile('data/blog_ideas.csv');
       const ideasLines = ideasFile.content.split('\n');
       const updatedIdeas = ideasLines.map(line => {
@@ -403,7 +392,6 @@ export default async function handler(req, res) {
       }).join('\n');
       await updateGitHubFile('data/blog_ideas.csv', updatedIdeas, ideasFile.sha, `Mark as TO_WRITE: ${keyword}`);
 
-      // 3. Append to Google Sheet (non-blocking)
       let sheetsResult = null;
       try {
         sheetsResult = await appendToGoogleSheet(keyword, perspective, title);
@@ -416,7 +404,7 @@ export default async function handler(req, res) {
     }
 
     // ============================================
-    // PATCH - Mark blog_ideas.csv row as KEYWORD_CHANGE
+    // PATCH
     // ============================================
     if (req.method === 'PATCH') {
       const { keyword } = req.body;
@@ -442,7 +430,7 @@ export default async function handler(req, res) {
     }
 
     // ============================================
-    // DELETE - Undo: remove from registry + clear status in blog_ideas.csv
+    // DELETE
     // ============================================
     if (req.method === 'DELETE') {
       const { keyword } = req.body;
