@@ -1,7 +1,7 @@
 # TECHNICAL REFERENCE DOCUMENT
 ## AboutWallArt SEO Tools Infrastructure
 
-**Last Updated:** May 30, 2026 (Easy SEO Report Tool v52 — full build complete)
+**Last Updated:** June 3, 2026 (Duplicated Metadata Cleaner v1.3 — full build complete)
 **Owner:** aboutwallart
 **Purpose:** Complete technical documentation for all SEO tools, infrastructure, API keys, and configurations
 
@@ -27,6 +27,7 @@
 - `rank-report-card.html` — Ranking report and tracking tool (password protected)
 - `image-optimizer.html` — Shopify image optimization tool (password protected)
 - `gsc-report.html` — Easy SEO Report Tool (LIVE - v52 as of May 30, 2026)
+- `duplicated-metadata-cleaner.html` — Orphaned SEO metafield scanner and bulk delete tool (v1.3 as of June 3, 2026)
 - `package.json` — Node.js dependencies
 - `vercel.json` — Vercel deployment configuration with domain redirects
 
@@ -165,6 +166,17 @@ https://accounts.google.com/o/oauth2/v2/auth?client_id=15466013888-deual871humre
 - Returns keyword tracker tabs from data/keyword-tracker.json
 - Returns: `{ success: true, tabs: [{id, label, keyword}] }`
 
+#### get-autolink-rules
+- Returns autolink rules from data/autolink-rules.json (used by Link Whisperer)
+- Returns: `{ success: true, rules: [] }`
+
+#### seo-metafield-scan
+- Paginates all Shopify products (50 per page) via GraphQL
+- Finds any product with a metafield where namespace = SEO and key = meta_description
+- Accepts: `?cursor=` for pagination
+- Returns: `{ success: true, found: [{productId, productGid, title, handle, metafieldId, value}], hasNextPage, endCursor }`
+- Used by: Duplicated Metadata Cleaner tool
+
 #### GET (no action) — Blog ideas pipeline (for Blog Manager tool)
 
 ### POST Actions (req.body.action):
@@ -189,6 +201,27 @@ https://accounts.google.com/o/oauth2/v2/auth?client_id=15466013888-deual871humre
 #### save-keyword-tabs
 - Saves keyword tracker tabs to data/keyword-tracker.json
 - Body: `{ action: 'save-keyword-tabs', tabs: [{id, label, keyword}] }`
+
+#### save-autolink-rules
+- Saves autolink rules to data/autolink-rules.json (used by Link Whisperer)
+- Body: `{ action: 'save-autolink-rules', rules: [...] }`
+
+#### seo-metafield-delete
+- Deletes a single orphaned SEO metafield from a product using Shopify Admin GraphQL
+- Uses `metafieldsDelete` mutation (plural — NOT the deprecated `metafieldDelete`)
+- Identifies metafield by owner product GID + namespace + key (NOT by metafield ID)
+- Body: `{ action: 'seo-metafield-delete', productGid: 'gid://shopify/Product/XXXXX' }`
+- Mutation used:
+  ```graphql
+  mutation {
+    metafieldsDelete(metafields: [{ ownerId: "gid://shopify/Product/XXXXX", namespace: "SEO", key: "meta_description" }]) {
+      deletedMetafields { key namespace ownerId }
+      userErrors { field message }
+    }
+  }
+  ```
+- Returns: `{ success: true }`
+- Used by: Duplicated Metadata Cleaner tool
 
 #### POST (no action) — Mark blog as To Write (Blog Manager)
 #### PATCH — Mark as Keyword Change (Blog Manager)
@@ -400,6 +433,7 @@ GA4_PROPERTY_ID           — 359661193
 4. Rank Report Card — /rank-report-card.html
 5. Image Optimizer — /image-optimizer.html
 6. Easy SEO Report — /gsc-report.html (LIVE v52)
+7. Duplicated Metadata Cleaner — /duplicated-metadata-cleaner.html (LIVE v1.3)
 
 ---
 
@@ -713,4 +747,114 @@ Items can be added to a queue instead of saving immediately:
 - **Current count: 11/12** — no new files created for Link Whisperer
 - All new logic added as action branches inside existing `api/shopify-files.js`
 - 1 slot still available
+
+---
+
+# DUPLICATED METADATA CLEANER — COMPLETE DOCUMENTATION
+
+**File:** `duplicated-metadata-cleaner.html`
+**Current Version:** v1.3 (June 3, 2026)
+**URL:** https://tools.aboutwallart.com/duplicated-metadata-cleaner.html
+**Purpose:** Scans all Shopify products for orphaned metafields left behind by the uninstalled Yoast SEO app (namespace: SEO, key: meta_description) and bulk deletes them. Products are never touched — only the orphaned metafield is deleted.
+
+---
+
+## Background
+
+The Yoast SEO app was previously installed and created a metafield on products with:
+- Namespace: `SEO` (all caps)
+- Key: `meta_description`
+
+After the app was uninstalled, these metafields remained as orphaned data on 278 out of 6,250 products. This tool was built to find and remove them all safely.
+
+---
+
+## How the Tool Works
+
+### Step 1 — Scan
+- Calls `GET /api/blogs?action=seo-metafield-scan` with cursor-based pagination
+- Fetches 50 products per page via Shopify Admin GraphQL
+- Checks each product for a metafield with namespace=SEO, key=meta_description
+- Loops until all products are checked (6,250 products = 125 pages)
+- Displays results in a table: Product ID, Title, Handle, Metafield ID, Current Value
+- Shows total products scanned and metafields found
+- "Download CSV" button appears after scan
+
+### Step 2 — Delete
+- Each result row has a checkbox
+- "Select All" / "Deselect All" toggle button
+- "Delete Selected" button triggers deletion one by one
+- Each deletion calls `POST /api/blogs` with `{ action: 'seo-metafield-delete', productGid }`
+- Per-row status updates in real time: Deleting… → Deleted (green) or Failed (red + error text)
+- Summary counts: Deleted and Failed stat cards
+- Confirmation popup before any deletions begin
+- 200ms delay between each delete to respect Shopify rate limits
+
+---
+
+## API Backend
+
+All API calls go through the existing `api/blogs.js` file. No new Vercel function was created.
+
+### GET action: `seo-metafield-scan`
+- **Endpoint:** `GET /api/blogs?action=seo-metafield-scan&cursor=OPTIONAL`
+- **GraphQL query used:**
+  ```graphql
+  query($cursor: String) {
+    products(first: 50, after: $cursor) {
+      pageInfo { hasNextPage endCursor }
+      edges {
+        node {
+          id
+          title
+          handle
+          metafield(namespace: "SEO", key: "meta_description") {
+            id
+            value
+          }
+        }
+      }
+    }
+  }
+  ```
+- **Returns:** `{ success, found: [{productId, productGid, title, handle, metafieldId, value}], hasNextPage, endCursor }`
+- `productGid` = full GID string e.g. `gid://shopify/Product/123456789`
+
+### POST action: `seo-metafield-delete`
+- **Endpoint:** `POST /api/blogs`
+- **Body:** `{ action: 'seo-metafield-delete', productGid: 'gid://shopify/Product/XXXXX' }`
+- **GraphQL mutation used:**
+  ```graphql
+  mutation {
+    metafieldsDelete(metafields: [{ ownerId: "gid://shopify/Product/XXXXX", namespace: "SEO", key: "meta_description" }]) {
+      deletedMetafields { key namespace ownerId }
+      userErrors { field message }
+    }
+  }
+  ```
+- **IMPORTANT:** Uses `metafieldsDelete` (plural). The singular `metafieldDelete` does not exist in the Shopify Admin API and will throw "Field 'metafieldDelete' doesn't exist on type 'Mutation'".
+- **Identifies metafield by:** ownerId (product GID) + namespace + key — NOT by metafield ID
+- **Returns:** `{ success: true }`
+
+---
+
+## Key Technical Notes
+
+- **Namespace is case-sensitive:** must be `SEO` (all caps) — not `seo`
+- **Shopify API version:** 2025-01
+- **Pagination:** cursor-based GraphQL pagination, 50 products per page
+- **Rate limiting:** 250ms delay between scan pages, 200ms between deletes
+- **No new Vercel function:** added as GET + POST action branches inside `api/blogs.js`
+- **Vercel function count:** remains 11/12
+
+---
+
+## Build History
+
+| Version | Date | Changes |
+|---------|------|---------|
+| v1.0 | June 3, 2026 | Initial build — scan only, results table, CSV export |
+| v1.1 | June 3, 2026 | Added Step 2 delete — checkboxes, Select All, Delete Selected, per-row status |
+| v1.2 | June 3, 2026 | Error text displayed inline next to Failed badges (debug) |
+| v1.3 | June 3, 2026 | Fixed delete mutation — switched from wrong `metafieldDelete` to correct `metafieldsDelete` with ownerId+namespace+key |
 
