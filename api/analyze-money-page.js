@@ -1,7 +1,7 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v44.0
+// analyze-money-page.js — v44.1
 const SERPAPI_KEY = process.env.SERPAPI_KEY;
 const PAGESPEED_KEY = process.env.GOOGLE_API_KEY;
 const SHOPIFY_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
@@ -699,8 +699,8 @@ CONTENT GAPS:
 Return this exact JSON structure with real content (no placeholders):
 
 {
-  "suggestedTitle": "Optimised SEO title 50-60 chars, keyword near start, UK spelling",
-  "suggestedMeta": "Compelling meta description 150-160 chars, keyword included, ends with CTA, UK spelling",
+  "suggestedTitle": "Optimised SEO title, max 60 chars, keyword near start, UK spelling",
+  "suggestedMeta": "Compelling meta description, max 155 chars, keyword included, ends with CTA, UK spelling",
   "suggestedDescription": "2-3 sentences for the Shopify description field. Keyword-rich. AboutWallArt brand voice. UK spelling. No HTML tags.",
   "pageSchema": {
     "@context": "https://schema.org",
@@ -750,8 +750,8 @@ Return this exact JSON structure with real content (no placeholders):
 }
 
 RULES:
-- suggestedTitle: 50-60 chars, keyword near start, include brand or USP
-- suggestedMeta: 150-160 chars, keyword, main benefit, CTA (e.g. "Shop now", "Free UK delivery")
+- suggestedTitle: max 60 chars (hard limit — audit flags above this), keyword near start, include brand or USP
+- suggestedMeta: max 155 chars (hard limit — also used as OG description, stricter threshold), keyword, main benefit, CTA
 - suggestedDescription: plain text only, no HTML, 2-3 sentences, keyword-rich, UK spelling
 - pageSchema: write complete valid schema — for products include offers/price range, for collections include numberOfItems, for articles include author/datePublished
 - faqSchema: write 6-8 real questions people search about "${keyword}" with full helpful answers

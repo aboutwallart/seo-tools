@@ -323,6 +323,81 @@ module.exports = async function handler(req, res) {
   }
 
   // -------------------------------------------------------
+  // SEO UPDATE — push title, meta, description to Shopify
+  // -------------------------------------------------------
+  if (req.query.action === 'seo-update' && req.method === 'POST') {
+    const { shopifyId, shopifyBlogId, shopifyType, seoTitle, seoMeta, description } = req.body;
+    if (!shopifyId || !shopifyType) return res.status(400).json({ error: 'Missing shopifyId or shopifyType' });
+
+    const shopifyHeaders = { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' };
+    const base = `https://${shopifyDomain}/admin/api/2025-01`;
+
+    // Determine resource path and body key
+    const typeMap = {
+      product:           { path: `products/${shopifyId}`,                          key: 'product' },
+      custom_collection: { path: `custom_collections/${shopifyId}`,                key: 'custom_collection' },
+      smart_collection:  { path: `smart_collections/${shopifyId}`,                 key: 'smart_collection' },
+      page:              { path: `pages/${shopifyId}`,                             key: 'page' },
+      article:           { path: `blogs/${shopifyBlogId}/articles/${shopifyId}`,   key: 'article' }
+    };
+    const resource = typeMap[shopifyType];
+    if (!resource) return res.status(400).json({ error: `Unknown shopifyType: ${shopifyType}` });
+
+    const errors = [];
+
+    // 1. Update body_html (description)
+    if (description) {
+      try {
+        const r = await fetch(`${base}/${resource.path}.json`, {
+          method: 'PUT', headers: shopifyHeaders,
+          body: JSON.stringify({ [resource.key]: { id: parseInt(shopifyId), body_html: description } })
+        });
+        if (!r.ok) { const d = await r.json(); errors.push(`Description: ${JSON.stringify(d.errors || r.statusText)}`); }
+      } catch (err) { errors.push(`Description: ${err.message}`); }
+    }
+
+    // 2. Get existing metafields to find IDs for upsert
+    let existingMeta = [];
+    try {
+      const r = await fetch(`${base}/${resource.path}/metafields.json?namespace=global`, { headers: shopifyHeaders });
+      const d = await r.json();
+      existingMeta = d.metafields || [];
+    } catch (err) { errors.push(`Metafields fetch: ${err.message}`); }
+
+    // Helper: create or update a metafield
+    async function upsertMeta(key, value) {
+      const existing = existingMeta.find(m => m.namespace === 'global' && m.key === key);
+      if (existing) {
+        const r = await fetch(`${base}/metafields/${existing.id}.json`, {
+          method: 'PUT', headers: shopifyHeaders,
+          body: JSON.stringify({ metafield: { id: existing.id, value } })
+        });
+        return r.ok;
+      } else {
+        const r = await fetch(`${base}/${resource.path}/metafields.json`, {
+          method: 'POST', headers: shopifyHeaders,
+          body: JSON.stringify({ metafield: { namespace: 'global', key, value, type: 'single_line_text_field' } })
+        });
+        return r.ok;
+      }
+    }
+
+    // 3. Update SEO title
+    if (seoTitle) {
+      try { if (!await upsertMeta('title_tag', seoTitle)) errors.push('Title update failed'); }
+      catch (err) { errors.push(`Title: ${err.message}`); }
+    }
+
+    // 4. Update SEO meta description
+    if (seoMeta) {
+      try { if (!await upsertMeta('description_tag', seoMeta)) errors.push('Meta update failed'); }
+      catch (err) { errors.push(`Meta: ${err.message}`); }
+    }
+
+    return res.status(errors.length ? 207 : 200).json({ success: errors.length === 0, errors });
+  }
+
+  // -------------------------------------------------------
   // EXISTING IMAGE OPTIMIZER ACTIONS — POST only
   // -------------------------------------------------------
   if (req.method !== 'POST') {
