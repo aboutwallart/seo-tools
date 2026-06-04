@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 44.2</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 44.3</p>
                 </div>
                 <button onclick="showHelp()" style="background: #0969da; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; white-space: nowrap;">
                     ❓ How to Clear Cache Safely
@@ -1162,7 +1162,7 @@
                     <div id="row_schema_page" style="display:flex;align-items:flex-start;gap:10px;margin-bottom:15px;opacity:${state['schema_page']?'0.45':'1'};">
                         ${cb(allItems.find(i=>i.key==='schema_page'))}
                         <div style="flex:1;">
-                            <p style="font-size:0.85rem;color:#666;font-weight:600;margin-bottom:6px;${state['schema_page']?'text-decoration:line-through;':''}">Page Schema (JSON-LD)</p>
+                            <p style="font-size:0.85rem;color:#666;font-weight:600;margin-bottom:6px;${state['schema_page']?'text-decoration:line-through;':''}"><span class="priority-tag priority-high">high</span> Page Schema (JSON-LD)</p>
                             <div class="copy-block">
                                 <pre id="schemaCode">&lt;script type="application/ld+json"&gt;\n${schemaStr}\n&lt;/script&gt;</pre>
                                 <button class="copy-btn" onclick="copyToClipboard(document.getElementById('schemaCode').textContent,this)">📋 Copy Schema</button>
@@ -1173,7 +1173,7 @@
                     <div id="row_schema_faq" style="display:flex;align-items:flex-start;gap:10px;margin-bottom:15px;opacity:${state['schema_faq']?'0.45':'1'};">
                         ${cb(allItems.find(i=>i.key==='schema_faq'))}
                         <div style="flex:1;">
-                            <p style="font-size:0.85rem;color:#666;font-weight:600;margin-bottom:6px;${state['schema_faq']?'text-decoration:line-through;':''}">FAQ Schema (JSON-LD)</p>
+                            <p style="font-size:0.85rem;color:#666;font-weight:600;margin-bottom:6px;${state['schema_faq']?'text-decoration:line-through;':''}"><span class="priority-tag priority-high">high</span> FAQ Schema (JSON-LD)</p>
                             <div class="copy-block">
                                 <pre id="faqCode">&lt;script type="application/ld+json"&gt;\n${faqStr}\n&lt;/script&gt;</pre>
                                 <button class="copy-btn" onclick="copyToClipboard(document.getElementById('faqCode').textContent,this)">📋 Copy FAQ Schema</button>
@@ -1184,7 +1184,7 @@
                     <div id="row_brand_block" style="display:flex;align-items:flex-start;gap:10px;margin-bottom:15px;opacity:${state['brand_block']?'0.45':'1'};">
                         ${cb(allItems.find(i=>i.key==='brand_block'))}
                         <div style="flex:1;">
-                            <p style="font-size:0.85rem;color:#666;font-weight:600;margin-bottom:6px;${state['brand_block']?'text-decoration:line-through;':''}">Brand Block (HTML)</p>
+                            <p style="font-size:0.85rem;color:#666;font-weight:600;margin-bottom:6px;${state['brand_block']?'text-decoration:line-through;':''}"><span class="priority-tag priority-high">high</span> Brand Block (HTML)</p>
                             <div class="copy-block">
                                 <pre id="brandCode">${brandStr.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
                                 <button class="copy-btn" onclick="copyToClipboard(document.getElementById('brandCode').textContent,this)">📋 Copy Brand Block</button>
@@ -1204,7 +1204,7 @@
                         <div id="row_${key}" style="display:flex;align-items:flex-start;gap:10px;margin-bottom:15px;opacity:${state[key]?'0.45':'1'};">
                             ${cb(allItems.find(it=>it.key===key))}
                             <div style="flex:1;">
-                                <p style="font-size:0.85rem;color:#666;font-weight:600;margin-bottom:6px;${state[key]?'text-decoration:line-through;':''}" id="lbl_${key}">${item.element}</p>
+                                <p style="font-size:0.85rem;color:#666;font-weight:600;margin-bottom:6px;${state[key]?'text-decoration:line-through;':''}" id="lbl_${key}">${item.priority ? `<span class="priority-tag priority-${item.priority}">${item.priority}</span> ` : ''}${item.element}</p>
                                 <div class="copy-block">
                                     ${isHTML
                                         ? `<div style="font-size:0.9rem;line-height:1.6;margin-bottom:8px;">${item.content}</div>
