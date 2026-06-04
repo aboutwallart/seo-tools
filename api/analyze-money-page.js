@@ -1,8 +1,11 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
+// analyze-money-page.js — v43.0
 const SERPAPI_KEY = process.env.SERPAPI_KEY;
 const PAGESPEED_KEY = process.env.GOOGLE_API_KEY;
+const SHOPIFY_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
+const SHOPIFY_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 
 module.exports = async function handler(req, res) {
   // CORS headers
@@ -44,7 +47,24 @@ module.exports = async function handler(req, res) {
 
     // Step 2: Analyze your page
     console.log('[Money Page] Step 2: Analyzing your page... (~15 sec)');
-    const yourPageData = await analyzePage(pageUrl, keyword, true); // true = get PageSpeed
+    const [yourPageData, shopifyContent] = await Promise.all([
+      analyzePage(pageUrl, keyword, true),
+      fetchShopifyContent(pageUrl)
+    ]);
+    if (shopifyContent) {
+      yourPageData.shopifyId       = shopifyContent.shopifyId;
+      yourPageData.shopifyBlogId   = shopifyContent.shopifyBlogId || null;
+      yourPageData.shopifyType     = shopifyContent.shopifyType;
+      yourPageData.shopifySeoTitle = shopifyContent.seoTitle;
+      yourPageData.shopifySeoDesc  = shopifyContent.seoDescription;
+      yourPageData.shopifyBodyHtml = shopifyContent.bodyHtml;
+      // Prefer Shopify SEO fields over scraped values when available
+      if (shopifyContent.seoTitle)       yourPageData.title           = shopifyContent.seoTitle;
+      if (shopifyContent.seoDescription) yourPageData.metaDescription = shopifyContent.seoDescription;
+      console.log(`[Money Page] ✓ Shopify: ${shopifyContent.shopifyType} ID ${shopifyContent.shopifyId}`);
+    } else {
+      console.warn('[Money Page] Shopify content unavailable — using scraped data');
+    }
     console.log(`[Money Page] ✓ Your page analyzed (${Math.round((Date.now() - startTime) / 1000)}s elapsed)`);
 
     // Step 3: Analyze competitors
@@ -79,7 +99,14 @@ module.exports = async function handler(req, res) {
       yourPage: yourPageData,
       competitors: competitorData,
       contentGaps: contentGaps,
-      analysis: analysis
+      analysis: analysis,
+      shopify: shopifyContent ? {
+        id:      shopifyContent.shopifyId,
+        blogId:  shopifyContent.shopifyBlogId || null,
+        type:    shopifyContent.shopifyType,
+        title:   shopifyContent.seoTitle,
+        meta:    shopifyContent.seoDescription
+      } : null
     });
 
   } catch (error) {
@@ -727,7 +754,7 @@ ${ubersuggestSection}
 ${contentGapsSection}
 
 YOUR PAGE:
-- Title: ${yourPage.title} (${yourPage.title.length} chars)
+- Title: ${yourPage.title || 'MISSING'} (${(yourPage.title || '').length} chars)
 - Meta: ${yourPage.metaDescription || 'MISSING'} (${yourPage.metaDescription?.length || 0} chars)
 - H1: ${yourPage.h1.join(', ') || 'MISSING'}
 - H2 headings: ${yourPage.h2.slice(0, 10).join(', ') || 'None'}
@@ -736,6 +763,8 @@ YOUR PAGE:
 - Keyword uses: ${yourPage.keywordOccurrences}
 - Keyword density: ${yourPage.keywordDensity}%
 - PageSpeed Mobile: ${yourPage.speedMobile}
+- Page type: ${yourPage.shopifyType || 'unknown'}${yourPage.shopifyBodyHtml ? `
+- Description content: ${yourPage.shopifyBodyHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 500)}${yourPage.shopifyBodyHtml.length > 500 ? '...' : ''}` : ''}
 
 COMPETITORS (avg):
 - Word count: ${avgCompWordCount}
@@ -805,7 +834,95 @@ RULES:
 - NEVER write placeholder text like "..." or "content here" - write the ACTUAL content with FULL paragraphs`;
 }
 
-// Helper: sleep function
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+// Fetch real content from Shopify API
+async function fetchShopifyContent(pageUrl) {
+  if (!SHOPIFY_DOMAIN || !SHOPIFY_TOKEN) {
+    console.warn('[Shopify] Missing credentials');
+    return null;
+  }
+
+  const headers = { 'X-Shopify-Access-Token': SHOPIFY_TOKEN };
+  const base = `https://${SHOPIFY_DOMAIN}/admin/api/2025-01`;
+  const path = pageUrl
+    .replace(/^https?:\/\/(www\.)?aboutwallart\.com/, '')
+    .replace(/\?.*$/, '')
+    .replace(/\/$/, '');
+
+  try {
+    // ── Product ──────────────────────────────────────────────────────────────
+    const productMatch = path.match(/^\/products\/([^/?]+)/);
+    if (productMatch) {
+      const handle = productMatch[1];
+      const r = await fetch(`${base}/products.json?handle=${handle}&fields=id,title,body_html`, { headers });
+      const d = await r.json();
+      const p = d.products?.[0];
+      if (!p) return null;
+      const meta = await fetchShopifyMetafields(base, `products/${p.id}`, headers);
+      return { shopifyId: p.id, shopifyType: 'product', shopifyTitle: p.title, seoTitle: meta.title || p.title, seoDescription: meta.desc || '', bodyHtml: p.body_html || '' };
+    }
+
+    // ── Collection ───────────────────────────────────────────────────────────
+    const collectionMatch = path.match(/^\/collections\/([^/?]+)/);
+    if (collectionMatch) {
+      const handle = collectionMatch[1];
+      for (const type of ['custom_collections', 'smart_collections']) {
+        const r = await fetch(`${base}/${type}.json?handle=${handle}&fields=id,title,body_html`, { headers });
+        const d = await r.json();
+        const col = d[type]?.[0];
+        if (col) {
+          const meta = await fetchShopifyMetafields(base, `${type}/${col.id}`, headers);
+          return { shopifyId: col.id, shopifyType: type === 'custom_collections' ? 'custom_collection' : 'smart_collection', shopifyTitle: col.title, seoTitle: meta.title || col.title, seoDescription: meta.desc || '', bodyHtml: col.body_html || '' };
+        }
+      }
+      return null;
+    }
+
+    // ── Page ─────────────────────────────────────────────────────────────────
+    const pageMatch = path.match(/^\/pages\/([^/?]+)/);
+    if (pageMatch) {
+      const handle = pageMatch[1];
+      const r = await fetch(`${base}/pages.json?handle=${handle}&fields=id,title,body_html`, { headers });
+      const d = await r.json();
+      const pg = d.pages?.[0];
+      if (!pg) return null;
+      const meta = await fetchShopifyMetafields(base, `pages/${pg.id}`, headers);
+      return { shopifyId: pg.id, shopifyType: 'page', shopifyTitle: pg.title, seoTitle: meta.title || pg.title, seoDescription: meta.desc || '', bodyHtml: pg.body_html || '' };
+    }
+
+    // ── Blog article ─────────────────────────────────────────────────────────
+    const blogMatch = path.match(/^\/blogs\/([^/?]+)\/([^/?]+)/);
+    if (blogMatch) {
+      const [, blogHandle, articleHandle] = blogMatch;
+      const br = await fetch(`${base}/blogs.json?fields=id,handle`, { headers });
+      const bd = await br.json();
+      const blog = bd.blogs?.find(b => b.handle === blogHandle);
+      if (!blog) return null;
+      const ar = await fetch(`${base}/blogs/${blog.id}/articles.json?handle=${articleHandle}&fields=id,title,body_html`, { headers });
+      const ad = await ar.json();
+      const article = ad.articles?.[0];
+      if (!article) return null;
+      const meta = await fetchShopifyMetafields(base, `blogs/${blog.id}/articles/${article.id}`, headers);
+      return { shopifyId: article.id, shopifyBlogId: blog.id, shopifyType: 'article', shopifyTitle: article.title, seoTitle: meta.title || article.title, seoDescription: meta.desc || '', bodyHtml: article.body_html || '' };
+    }
+
+    return null;
+  } catch (err) {
+    console.error('[Shopify] Error:', err.message);
+    return null;
+  }
+}
+
+// Fetch global SEO metafields (title_tag + description_tag) for a Shopify resource
+async function fetchShopifyMetafields(base, resourcePath, headers) {
+  try {
+    const r = await fetch(`${base}/${resourcePath}/metafields.json?namespace=global`, { headers });
+    const d = await r.json();
+    const fields = d.metafields || [];
+    return {
+      title: fields.find(m => m.key === 'title_tag')?.value || '',
+      desc:  fields.find(m => m.key === 'description_tag')?.value || ''
+    };
+  } catch {
+    return { title: '', desc: '' };
+  }
 }
