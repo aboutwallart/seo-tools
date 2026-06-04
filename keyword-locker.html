@@ -30,7 +30,6 @@
         .header .subtitle { color: #999; font-size: 14px; font-style: italic; }
         .version { color: #999; font-size: 13px; margin-top: 8px; }
 
-
         .load-section {
             background: white;
             padding: 30px;
@@ -77,7 +76,6 @@
         }
 
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
         .progress-text { color: #666; font-size: 16px; }
 
         .error-section {
@@ -134,13 +132,12 @@
             box-shadow: 0 4px 16px rgba(0,0,0,0.1);
             margin-bottom: 30px;
             font-size: 14px;
-            color: #333;
         }
 
         .debug-panel h3 { margin-bottom: 12px; color: #333; font-size: 16px; }
         .debug-panel table { width: 100%; border-collapse: collapse; }
         .debug-panel th { text-align: left; padding: 8px 12px; background: #f5f5f5; font-weight: 600; color: #666; font-size: 13px; }
-        .debug-panel td { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+        .debug-panel td { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; font-size: 13px; vertical-align: top; }
 
         .intent-badge {
             display: inline-block;
@@ -153,7 +150,17 @@
         .intent-INFORMATIONAL { background: #dbeafe; color: #1e40af; }
         .intent-COMMERCIAL { background: #d1fae5; color: #065f46; }
         .intent-NAVIGATIONAL { background: #fef3c7; color: #92400e; }
-        .intent-UNKNOWN { background: #f3f4f6; color: #6b7280; }
+
+        .winner-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            background: #fef3c7;
+            color: #92400e;
+            margin-left: 6px;
+        }
 
         .hidden { display: none; }
     </style>
@@ -166,10 +173,10 @@
             <h1>Keyword Locker</h1>
             <p>Lock each keyword to its best URL — resolve cannibalization by choosing winners</p>
             <p class="subtitle">One keyword = One winner URL. Intent-aware conflict detection.</p>
-            <div class="version">v3.1</div>
+            <div class="version">v3.2</div>
         </div>
 
-        <div class="load-section" id="loadSection">
+        <div class="load-section">
             <p>Pull live data from Google Search Console and your keyword registry to find conflicts.</p>
             <button class="btn btn-primary" id="loadBtn" onclick="loadData()">Load Data</button>
         </div>
@@ -229,9 +236,9 @@
             </div>
         </div>
 
-        <!-- Debug: first 20 conflicts detected -->
+        <!-- Debug: first 20 conflicts -->
         <div id="debugPanel" class="debug-panel hidden">
-            <h3>Conflicts detected (first 20) — for review before building the UI</h3>
+            <h3>Conflicts detected (first 20) — review before building UI</h3>
             <table>
                 <thead>
                     <tr>
@@ -239,7 +246,7 @@
                         <th>Intent</th>
                         <th>Impressions</th>
                         <th>Clicks</th>
-                        <th>Competing Pages</th>
+                        <th>Pages (pre-selected winner marked)</th>
                     </tr>
                 </thead>
                 <tbody id="debugBody"></tbody>
@@ -253,10 +260,19 @@
         let registry = [];
         let conflictsData = [];
 
-        // ── URL filtering ──
+        // ── Constants ──
         const FOREIGN_PATTERNS = ['/es/', '/fr/', '/de/', '/it/', '/pt/', '/nl/', '/ru/', '/ja/', '/zh/', '/ko/', '/ar/'];
         const JUNK_SLUGS = ['write-for-us', 'contact', 'about-us', 'privacy', 'terms', 'wishlist', 'loyalty', 'confirm-your-email'];
 
+        // Page type priority (higher = better winner)
+        const PAGE_TYPE_PRIORITY = {
+            'collection': 4,
+            'blog': 3,
+            'product': 2,
+            'page': 1
+        };
+
+        // ── URL helpers ──
         function normalizeUrl(url) {
             return url
                 .split('?')[0]
@@ -281,84 +297,106 @@
             return 'UNKNOWN';
         }
 
-        // ── Registry lookup ──
-        function buildRegistryLookup(registry) {
-            const lookup = {};
+        function getPageType(url) {
+            if (url.includes('/collections/')) return 'collection';
+            if (url.includes('/blogs/')) return 'blog';
+            if (url.includes('/products/')) return 'product';
+            if (url.includes('/pages/')) return 'page';
+            return 'other';
+        }
+
+        // ── Scoring ──
+        function scoreUrl(url, keyword, clicks, impressions, position) {
+            let score = 0;
+
+            // Page type priority
+            const pageType = getPageType(url);
+            score += (PAGE_TYPE_PRIORITY[pageType] || 0) * 100;
+
+            // URL slug keyword match
+            const kwWords = keyword.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+            const urlSlug = url.toLowerCase();
+            const matchCount = kwWords.filter(w => urlSlug.includes(w)).length;
+            if (kwWords.length > 0) score += (matchCount / kwWords.length) * 300;
+
+            // Position (lower is better)
+            if (position > 0) score += Math.max(0, (20 - position) * 5);
+
+            // Impressions
+            score += Math.min(impressions / 10, 50);
+
+            // Clicks
+            score += Math.min(clicks * 2, 50);
+
+            return Math.round(score);
+        }
+
+        // ── Registry helpers ──
+        function buildRegistryData(registry) {
+            const lockedUrls = new Set();       // URLs that cannot be winners
+            const handledKeywords = {};          // keyword → Set of handled intents
+
+            let resolved = 0, saved = 0, deleted = 0, prelocked = 0, internalLinks = 0;
 
             registry.forEach(entry => {
                 const kw = entry.keyword.toLowerCase().trim();
-                if (!lookup[kw]) lookup[kw] = { handled: new Set() };
-
                 const source = entry.source || '';
                 const action = entry.action || '';
                 const intent = entry.intent || '';
                 const locked = entry.locked;
                 const status = entry.status || '';
+                const url = entry.url && entry.url !== 'N/A' ? normalizeUrl(entry.url) : null;
 
-                if (source === 'Published Blog') {
-                    lookup[kw].handled.add('INFORMATIONAL');
-                } else if (source === 'Pre-Optimized Page') {
-                    lookup[kw].handled.add('NAVIGATIONAL');
-                } else if (locked && status === 'DONE' && action === 'TO_OPTIMIZE') {
-                    if (intent) lookup[kw].handled.add(intent);
-                } else if (action === 'INTERNAL_LINK') {
-                    // losers — don't block the keyword from showing
-                } else if (action === 'SAVED_FOR_FUTURE' || action === 'DELETED') {
-                    lookup[kw].handled.add('ALL');
+                // Pre-Optimized Pages — URL and keyword both locked
+                if (source === 'Pre-Optimized Page') {
+                    if (url) lockedUrls.add(url);
+                    if (!handledKeywords[kw]) handledKeywords[kw] = new Set();
+                    handledKeywords[kw].add('ALL');
+                    prelocked++;
+                }
+
+                // User resolved winners — URL locked, keyword+intent handled
+                else if (locked && status === 'DONE' && action === 'TO_OPTIMIZE' && source === 'User Resolved') {
+                    if (url) lockedUrls.add(url);
+                    if (!handledKeywords[kw]) handledKeywords[kw] = new Set();
+                    if (intent) handledKeywords[kw].add(intent);
+                    resolved++;
+                }
+
+                // Saved for later / deleted — keyword fully handled
+                else if (action === 'SAVED_FOR_FUTURE') {
+                    if (!handledKeywords[kw]) handledKeywords[kw] = new Set();
+                    handledKeywords[kw].add('ALL');
+                    saved++;
+                }
+
+                else if (action === 'DELETED') {
+                    if (!handledKeywords[kw]) handledKeywords[kw] = new Set();
+                    handledKeywords[kw].add('ALL');
+                    deleted++;
+                }
+
+                else if (action === 'INTERNAL_LINK') {
+                    internalLinks++;
                 }
             });
 
-            return lookup;
-        }
-
-        // ── Pre-locked URL set (URLs to exclude as conflict options) ──
-        function buildPrelockedUrls(registry) {
-            const prelockedUrls = new Set();
-            registry.forEach(entry => {
-                const source = entry.source || '';
-                if (source === 'Published Blog' || source === 'Pre-Optimized Page') {
-                    if (entry.url && entry.url !== 'N/A') {
-                        prelockedUrls.add(normalizeUrl(entry.url));
-                    }
-                }
-            });
-            return prelockedUrls;
-        }
-
-        // ── Registry stats ──
-        function buildRegistryStats(registry) {
-            let resolved = 0, saved = 0, deleted = 0, prelocked = 0, internalLinks = 0;
-            registry.forEach(entry => {
-                const source = entry.source || '';
-                const action = entry.action || '';
-                const locked = entry.locked;
-                const status = entry.status || '';
-                if (source === 'Published Blog' || source === 'Pre-Optimized Page') prelocked++;
-                else if (locked && status === 'DONE' && action === 'TO_OPTIMIZE' && source === 'User Resolved') resolved++;
-                else if (action === 'SAVED_FOR_FUTURE') saved++;
-                else if (action === 'DELETED') deleted++;
-                else if (action === 'INTERNAL_LINK') internalLinks++;
-            });
-            return { resolved, saved, deleted, prelocked, internalLinks };
+            return { lockedUrls, handledKeywords, stats: { resolved, saved, deleted, prelocked, internalLinks } };
         }
 
         // ── Conflict detection ──
         function findConflicts(gscData, registry) {
-            const registryLookup = buildRegistryLookup(registry);
-            const prelockedUrls = buildPrelockedUrls(registry);
+            const { lockedUrls, handledKeywords, stats } = buildRegistryData(registry);
 
-            // Group GSC rows by keyword → url
+            // Step 1 — Normalize and group GSC data by keyword → url
             const byKeyword = {};
 
             gscData.forEach(row => {
-                const rawUrl = row.keys[0];
+                const url = normalizeUrl(row.keys[0]);
                 const keyword = row.keys[1].toLowerCase().trim();
-                const url = normalizeUrl(rawUrl);
 
+                // Filter out excluded URLs
                 if (shouldExclude(url)) return;
-
-                // Skip pre-locked URLs entirely
-                if (prelockedUrls.has(url)) return;
 
                 const intent = detectIntent(url);
                 if (intent === 'UNKNOWN') return;
@@ -374,23 +412,26 @@
                 byKeyword[keyword][url].count++;
             });
 
+            // Step 2 — Find conflicts
             const conflicts = [];
 
             Object.entries(byKeyword).forEach(([keyword, pages]) => {
-                const regEntry = registryLookup[keyword];
+                const handled = handledKeywords[keyword];
 
-                // Skip entirely if saved for later or deleted
-                if (regEntry && regEntry.handled.has('ALL')) return;
+                // Skip if keyword fully handled (ALL intents)
+                if (handled && handled.has('ALL')) return;
 
+                // Average position per page
                 const pageList = Object.values(pages).map(p => ({
                     ...p,
                     position: p.count > 0 ? p.posSum / p.count : 0
                 }));
 
-                // Group by intent, skipping already-handled keyword+intent combos
+                // Group by intent
                 const byIntent = {};
                 pageList.forEach(page => {
-                    if (regEntry && regEntry.handled.has(page.intent)) return;
+                    // Skip if this keyword+intent already handled
+                    if (handled && handled.has(page.intent)) return;
                     if (!byIntent[page.intent]) byIntent[page.intent] = [];
                     byIntent[page.intent].push(page);
                 });
@@ -399,15 +440,27 @@
                 Object.entries(byIntent).forEach(([intent, intentPages]) => {
                     if (intentPages.length < 2) return;
 
+                    // Score each page
+                    const scored = intentPages.map(p => ({
+                        ...p,
+                        score: scoreUrl(p.url, keyword, p.clicks, p.impressions, p.position),
+                        isLocked: lockedUrls.has(p.url),
+                        pageType: getPageType(p.url)
+                    }));
+
+                    // Sort: unlocked first, then by score desc
+                    scored.sort((a, b) => {
+                        if (a.isLocked !== b.isLocked) return a.isLocked ? 1 : -1;
+                        return b.score - a.score;
+                    });
+
                     const totalImpressions = intentPages.reduce((s, p) => s + p.impressions, 0);
                     const totalClicks = intentPages.reduce((s, p) => s + p.clicks, 0);
-
-                    intentPages.sort((a, b) => b.clicks - a.clicks || a.position - b.position);
 
                     conflicts.push({
                         keyword,
                         intent,
-                        pages: intentPages,
+                        pages: scored,
                         totalImpressions,
                         totalClicks,
                         priority: totalImpressions * totalClicks
@@ -415,8 +468,10 @@
                 });
             });
 
+            // Sort by priority (biggest opportunity first)
             conflicts.sort((a, b) => b.priority - a.priority);
-            return conflicts;
+
+            return { conflicts, stats };
         }
 
         // ── UI helpers ──
@@ -434,13 +489,13 @@
             document.getElementById('errorSection').classList.add('hidden');
         }
 
-        function updateStats(conflicts, registryStats) {
-            document.getElementById('conflictsCount').textContent = conflicts.length;
-            document.getElementById('resolvedCount').textContent = registryStats.resolved;
-            document.getElementById('savedCount').textContent = registryStats.saved;
-            document.getElementById('deletedCount').textContent = registryStats.deleted;
-            document.getElementById('prelockedCount').textContent = registryStats.prelocked;
-            document.getElementById('internalLinksCount').textContent = registryStats.internalLinks;
+        function updateStats(stats, conflictCount) {
+            document.getElementById('conflictsCount').textContent = conflictCount;
+            document.getElementById('resolvedCount').textContent = stats.resolved;
+            document.getElementById('savedCount').textContent = stats.saved;
+            document.getElementById('deletedCount').textContent = stats.deleted;
+            document.getElementById('prelockedCount').textContent = stats.prelocked;
+            document.getElementById('internalLinksCount').textContent = stats.internalLinks;
         }
 
         function renderDebug(conflicts) {
@@ -448,9 +503,11 @@
             tbody.innerHTML = '';
 
             conflicts.slice(0, 20).forEach(c => {
-                const pagesHtml = c.pages.map(p => {
+                const pagesHtml = c.pages.map((p, i) => {
                     const short = p.url.replace('https://aboutwallart.com', '');
-                    return `<div style="margin-bottom:4px;">${short} <small style="color:#999;">(${p.clicks} clicks, pos ${p.position.toFixed(1)})</small></div>`;
+                    const winner = i === 0 && !p.isLocked ? '<span class="winner-badge">PRE-SELECTED</span>' : '';
+                    const locked = p.isLocked ? '<span class="winner-badge" style="background:#fee2e2;color:#991b1b;">LOCKED</span>' : '';
+                    return `<div style="margin-bottom:6px;">${short}${winner}${locked} <small style="color:#999;">(score:${p.score} | ${p.clicks} clicks | pos ${p.position.toFixed(1)})</small></div>`;
                 }).join('');
 
                 const tr = document.createElement('tr');
@@ -477,8 +534,8 @@
                 const gscRes = await fetch('/api/gsc?action=page-query');
                 if (!gscRes.ok) throw new Error(`GSC API error: ${gscRes.status}`);
                 const gscJson = await gscRes.json();
-                if (!gscJson.success) throw new Error(gscJson.error || 'GSC API returned an error');
-                if (!gscJson.data || !gscJson.data.rows) throw new Error('No GSC data returned — check GSC connection');
+                if (!gscJson.success) throw new Error(gscJson.error || 'GSC API error');
+                if (!gscJson.data || !gscJson.data.rows) throw new Error('No GSC data returned');
                 gscData = gscJson.data.rows;
 
                 showLoading(true, 'Fetching keyword registry...');
@@ -490,8 +547,8 @@
 
                 showLoading(true, 'Detecting conflicts...');
 
-                conflictsData = findConflicts(gscData, registry);
-                const registryStats = buildRegistryStats(registry);
+                const { conflicts, stats } = findConflicts(gscData, registry);
+                conflictsData = conflicts;
 
                 showLoading(false);
                 document.getElementById('loadBtn').disabled = false;
@@ -505,14 +562,12 @@
                 document.getElementById('summaryRegistry').textContent = registry.length.toLocaleString();
                 document.getElementById('dataSummary').classList.remove('hidden');
 
-                // Stats cards
-                updateStats(conflictsData, registryStats);
+                updateStats(stats, conflictsData.length);
                 document.getElementById('statsSection').classList.remove('hidden');
 
-                // Debug table
                 renderDebug(conflictsData);
 
-                console.log('Total conflicts found:', conflictsData.length);
+                console.log('Total conflicts:', conflictsData.length);
                 console.log('Sample conflict:', conflictsData[0]);
 
             } catch (error) {
