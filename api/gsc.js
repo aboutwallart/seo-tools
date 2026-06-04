@@ -63,7 +63,7 @@ module.exports = async (req, res) => {
         startDate: start,
         endDate: end,
         dimensions: ['page', 'query'],
-        rowLimit: 5000
+        rowLimit: 25000
       });
     } else if (action === 'device') {
       // Device breakdown
