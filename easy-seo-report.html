@@ -98,7 +98,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v53.0</div>
+      <div class="tool-version">v54.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -272,6 +272,10 @@
               <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.08em;">Platforms</div>
               <div style="font-size:22px;font-weight:700;color:#fff;" id="socialMetSources">—</div>
             </div>
+            <div style="text-align:right;">
+              <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.08em;">Revenue from Social</div>
+              <div style="font-size:22px;font-weight:700;color:#22c55e;" id="socialMetRevenue">—</div>
+            </div>
           </div>
         </div>
 
@@ -309,9 +313,10 @@
                 <th>Page</th>
                 <th class="num">Sessions</th>
                 <th class="num">Views</th>
+                <th class="num">Revenue</th>
                 <th>Top Platform</th>
               </tr></thead>
-              <tbody id="socialPagesBody"><tr class="loading-row"><td colspan="5">Loading...</td></tr></tbody>
+              <tbody id="socialPagesBody"><tr class="loading-row"><td colspan="6">Loading...</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -1986,12 +1991,15 @@
       socialChartInstances = [];
 
       try {
-        // Fetch platform+date data (always 365 days for the line chart) + pages data in parallel
-        const [trendRes, pagesRes] = await Promise.all([
+        // Fetch platform+date data, pages data, and Shopify revenue in parallel
+        const [trendRes, pagesRes, revenueRes] = await Promise.all([
           fetch(`${API}?action=ga4-social&days=365`),
-          fetch(`${API}?action=ga4-social-pages&days=${days}`)
+          fetch(`${API}?action=ga4-social-pages&days=${days}`),
+          fetch(`/api/blogs?action=get-social-revenue&days=${days}`)
         ]);
-        const [trendJson, pagesJson] = await Promise.all([trendRes.json(), pagesRes.json()]);
+        const [trendJson, pagesJson, revenueJson] = await Promise.all([trendRes.json(), pagesRes.json(), revenueRes.json()]);
+        const revenueByPlatform = revenueJson.success ? revenueJson.byPlatform || {} : {};
+        const revenueByPage     = revenueJson.success ? revenueJson.byPage     || {} : {};
 
         if (!trendJson.success) throw new Error(trendJson.error);
 
@@ -2030,9 +2038,11 @@
         const totalSessions = sorted.reduce((s,[,v]) => s + v.sessions, 0);
         const totalViews    = sorted.reduce((s,[,v]) => s + v.views, 0);
 
+        const totalRevenue = Object.values(revenueByPlatform).reduce((s,v) => s+v, 0);
         document.getElementById('socialMetSessions').textContent = fmt(totalSessions);
         document.getElementById('socialMetViews').textContent    = fmt(totalViews);
         document.getElementById('socialMetSources').textContent  = sorted.length;
+        document.getElementById('socialMetRevenue').textContent  = totalRevenue > 0 ? '£' + totalRevenue.toFixed(2) : '£0.00';
 
         if (!sorted.length) {
           document.getElementById('socialSourceCards').innerHTML = '';
@@ -2090,7 +2100,10 @@
         const months6    = getFixed6Months();
         const barLabels  = months6.map(m => m.label);
 
-        document.getElementById('socialSourceCards').innerHTML = sorted.map(([label, d], i) => `
+        document.getElementById('socialSourceCards').innerHTML = sorted.map(([label, d], i) => {
+          const rev = revenueByPlatform[label] || 0;
+          const revHtml = rev > 0 ? `<div style="margin-top:10px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:6px 14px;text-align:center;"><div style="font-size:10px;color:#16a34a;text-transform:uppercase;letter-spacing:0.06em;">Revenue</div><div style="font-size:16px;font-weight:700;color:#16a34a;">£${rev.toFixed(2)}</div></div>` : '';
+          return `
           <div class="hist-row" style="margin-bottom:24px;">
             <div class="hist-gauge-side" style="min-width:260px;width:260px;">
               <div class="hist-gauge-title">${label}</div>
@@ -2105,6 +2118,7 @@
                 </div>
               </div>
               <div class="hist-gauge-sub">Views (outer) · Sessions (inner)</div>
+              ${revHtml}
             </div>
             <div class="hist-chart-side" style="flex:1;">
               <h3>
@@ -2113,7 +2127,8 @@
               </h3>
               <canvas id="socialBarChart_${i}" height="120"></canvas>
             </div>
-          </div>`).join('');
+          </div>`;
+        }).join('');
 
         sorted.forEach(([label, d], i) => {
           const { mSessions, mViews } = aggregateByMonth(d.byDateSessions, d.byDateViews);
@@ -2166,7 +2181,14 @@
           });
 
           socialAllPages = Object.entries(pageMap)
-            .map(([path, d]) => ({ path, sessions: d.sessions, views: d.views, topPlatform: d.topPlatform, topColor: d.topColor || '#6b7280' }))
+            .map(([path, d]) => ({
+              path,
+              sessions: d.sessions,
+              views: d.views,
+              topPlatform: d.topPlatform,
+              topColor: d.topColor || '#6b7280',
+              revenue: revenueByPage[path] ? revenueByPage[path].total : 0
+            }))
             .sort((a,b) => b.sessions - a.sessions);
 
           document.getElementById('socialPagesSection').style.display = 'block';
@@ -2189,6 +2211,7 @@
           <td><a href="https://www.aboutwallart.com${r.path}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;word-break:break-all;">${r.path}</a></td>
           <td class="num">${fmt(r.sessions)}</td>
           <td class="num">${fmt(r.views)}</td>
+          <td class="num" style="color:${r.revenue > 0 ? '#16a34a' : '#aaa'};font-weight:${r.revenue > 0 ? '600' : '400'};">${r.revenue > 0 ? '£' + r.revenue.toFixed(2) : '—'}</td>
           <td><span style="background:${r.topColor}18;color:${r.topColor};padding:2px 10px;border-radius:8px;font-size:11px;font-weight:600;">${r.topPlatform}</span></td>
         </tr>`).join('');
     }
