@@ -124,26 +124,80 @@
         .summary-item strong { display: block; font-size: 28px; color: #333; }
         .summary-item span { font-size: 13px; color: #666; }
 
-        /* Debug panel */
-        .debug-panel {
+        /* Conflicts section */
+        .conflicts-section {
             background: white;
-            padding: 20px 30px;
-            border-radius: 12px;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.1);
-            margin-bottom: 30px;
-            font-size: 14px;
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            margin-top: 30px;
         }
 
-        .debug-panel h3 { margin-bottom: 12px; color: #333; font-size: 16px; }
-        .debug-panel table { width: 100%; border-collapse: collapse; }
-        .debug-panel th { text-align: left; padding: 8px 12px; background: #f5f5f5; font-weight: 600; color: #666; font-size: 13px; }
-        .debug-panel td { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; font-size: 13px; vertical-align: top; }
+        .conflicts-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .conflicts-header h2 { font-size: 28px; color: #333; }
+
+        /* Search bar */
+        .search-bar {
+            position: relative;
+            margin-bottom: 20px;
+        }
+
+        .search-bar input {
+            width: 100%;
+            padding: 12px 40px 12px 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 15px;
+        }
+
+        .search-bar input:focus { outline: none; border-color: #333; }
+
+        .search-clear {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: #999;
+            font-size: 20px;
+            cursor: pointer;
+            display: none;
+        }
+
+        /* Conflict card */
+        .conflict-item {
+            background: #f8f9fa;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .conflict-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .conflict-keyword { font-size: 20px; font-weight: 700; color: #333; }
+
+        .conflict-stats { display: flex; gap: 20px; font-size: 14px; color: #666; align-items: center; }
 
         .intent-badge {
             display: inline-block;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 11px;
+            padding: 3px 10px;
+            border-radius: 6px;
+            font-size: 12px;
             font-weight: 600;
         }
 
@@ -151,16 +205,164 @@
         .intent-COMMERCIAL { background: #d1fae5; color: #065f46; }
         .intent-NAVIGATIONAL { background: #fef3c7; color: #92400e; }
 
-        .winner-badge {
-            display: inline-block;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 10px;
-            font-weight: 600;
-            background: #fef3c7;
-            color: #92400e;
-            margin-left: 6px;
+        /* URL options */
+        .url-option {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            transition: all 0.2s;
+            cursor: pointer;
         }
+
+        .url-option:hover { border-color: #333; background: #f8f9fa; }
+
+        .url-option.selected { border-color: #333; background: #f0f0f0; border-width: 3px; }
+
+        .url-option.locked {
+            opacity: 0.5;
+            cursor: not-allowed;
+            background: #f9fafb;
+        }
+
+        .url-option.locked:hover { border-color: #e0e0e0; background: #f9fafb; }
+
+        .url-option input[type="radio"] { margin-top: 3px; width: 18px; height: 18px; cursor: pointer; }
+
+        .url-details { flex: 1; }
+
+        .url-text { font-size: 14px; color: #333; word-break: break-all; margin-bottom: 6px; }
+
+        .url-metrics { display: flex; gap: 15px; font-size: 13px; color: #666; flex-wrap: wrap; align-items: center; }
+
+        .score-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 12px;
+            background: #333;
+            color: white;
+        }
+
+        .locked-label {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .page-type-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        /* Actions */
+        .conflict-actions {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 2px solid #e0e0e0;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .btn-resolve {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-resolve:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(16,185,129,0.4); }
+        .btn-resolve:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+        .btn-save-later {
+            background: #3b82f6;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-save-later:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(59,130,246,0.4); }
+
+        .btn-delete-kw {
+            background: #ef4444;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-delete-kw:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(239,68,68,0.4); }
+
+        .conflict-resolved {
+            background: #d1fae5;
+            border-color: #10b981;
+            padding: 15px 20px;
+            border-radius: 8px;
+            color: #065f46;
+            font-weight: 600;
+            display: none;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.show { display: flex; }
+
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 16px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        .modal-header { font-size: 24px; font-weight: 700; margin-bottom: 15px; color: #333; }
+        .modal-body { font-size: 16px; color: #666; line-height: 1.6; margin-bottom: 20px; white-space: pre-wrap; }
+        .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+        .btn-modal { padding: 10px 20px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.3s; }
+        .btn-modal-primary { background: #333; color: white; }
+        .btn-modal-secondary { background: #e0e0e0; color: #333; }
 
         .hidden { display: none; }
     </style>
@@ -173,7 +375,7 @@
             <h1>Keyword Locker</h1>
             <p>Lock each keyword to its best URL — resolve cannibalization by choosing winners</p>
             <p class="subtitle">One keyword = One winner URL. Intent-aware conflict detection.</p>
-            <div class="version">v3.3</div>
+            <div class="version">v4.0</div>
         </div>
 
         <div class="load-section">
@@ -191,26 +393,14 @@
         </div>
 
         <div id="dataSummary" class="data-summary hidden">
-            <div class="summary-item">
-                <strong id="summaryQueries">0</strong>
-                <span>GSC page-query rows</span>
-            </div>
-            <div class="summary-item">
-                <strong id="summaryKeywords">0</strong>
-                <span>Unique keywords</span>
-            </div>
-            <div class="summary-item">
-                <strong id="summaryPages">0</strong>
-                <span>Unique pages</span>
-            </div>
-            <div class="summary-item">
-                <strong id="summaryRegistry">0</strong>
-                <span>Registry entries</span>
-            </div>
+            <div class="summary-item"><strong id="summaryQueries">0</strong><span>GSC rows</span></div>
+            <div class="summary-item"><strong id="summaryKeywords">0</strong><span>Unique keywords</span></div>
+            <div class="summary-item"><strong id="summaryPages">0</strong><span>Unique pages</span></div>
+            <div class="summary-item"><strong id="summaryRegistry">0</strong><span>Registry entries</span></div>
         </div>
 
         <div id="statsSection" class="stats-section hidden">
-            <div class="stat-card">
+            <div class="stat-card" onclick="scrollToConflicts()">
                 <h3 id="conflictsCount" style="color:#f59e0b;">0</h3>
                 <p>Active Conflicts</p>
             </div>
@@ -236,21 +426,29 @@
             </div>
         </div>
 
-        <!-- Debug: first 20 conflicts -->
-        <div id="debugPanel" class="debug-panel hidden">
-            <h3>Conflicts detected (first 20) — review before building UI</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Keyword</th>
-                        <th>Intent</th>
-                        <th>Impressions</th>
-                        <th>Clicks</th>
-                        <th>Pages (pre-selected winner marked)</th>
-                    </tr>
-                </thead>
-                <tbody id="debugBody"></tbody>
-            </table>
+        <!-- Conflicts -->
+        <div id="conflictsSection" class="conflicts-section hidden">
+            <div class="conflicts-header">
+                <h2>Active Conflicts (<span id="activeConflictCount">0</span>)</h2>
+            </div>
+
+            <div class="search-bar">
+                <input type="text" id="searchInput" placeholder="Search keywords or URLs..." oninput="filterConflicts()">
+                <button class="search-clear" id="searchClear" onclick="clearSearch()">✕</button>
+            </div>
+
+            <div id="conflictsList"></div>
+        </div>
+
+        <!-- Modal -->
+        <div id="modal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header" id="modalTitle"></div>
+                <div class="modal-body" id="modalMessage"></div>
+                <div class="modal-actions">
+                    <button class="btn-modal btn-modal-primary" onclick="closeModal()">OK</button>
+                </div>
+            </div>
         </div>
 
     </div>
@@ -259,26 +457,23 @@
         let gscData = [];
         let registry = [];
         let conflictsData = [];
+        let lockedUrlsRuntime = new Set(); // updated in real-time as conflicts are resolved
+
+        // Stats counters (updated in real-time)
+        let statsResolved = 0;
+        let statsSaved = 0;
+        let statsDeleted = 0;
+        let statsPrelocked = 0;
+        let statsInternalLinks = 0;
 
         // ── Constants ──
         const FOREIGN_PATTERNS = ['/es/', '/fr/', '/de/', '/it/', '/pt/', '/nl/', '/ru/', '/ja/', '/zh/', '/ko/', '/ar/'];
         const JUNK_SLUGS = ['write-for-us', 'contact', 'about-us', 'privacy', 'terms', 'wishlist', 'loyalty', 'confirm-your-email'];
-
-        // Page type priority (higher = better winner)
-        const PAGE_TYPE_PRIORITY = {
-            'collection': 4,
-            'blog': 3,
-            'product': 2,
-            'page': 1
-        };
+        const PAGE_TYPE_PRIORITY = { collection: 4, blog: 3, product: 2, page: 1 };
 
         // ── URL helpers ──
         function normalizeUrl(url) {
-            return url
-                .split('?')[0]
-                .split('#')[0]
-                .replace(/\/$/, '')
-                .replace('https://www.aboutwallart.com', 'https://aboutwallart.com');
+            return url.split('?')[0].split('#')[0].replace(/\/$/, '').replace('https://www.aboutwallart.com', 'https://aboutwallart.com');
         }
 
         function shouldExclude(url) {
@@ -305,37 +500,29 @@
             return 'other';
         }
 
+        function shortUrl(url) {
+            return url.replace('https://aboutwallart.com', '');
+        }
+
         // ── Scoring ──
         function scoreUrl(url, keyword, clicks, impressions, position) {
             let score = 0;
-
-            // Page type priority
             const pageType = getPageType(url);
             score += (PAGE_TYPE_PRIORITY[pageType] || 0) * 100;
-
-            // URL slug keyword match
             const kwWords = keyword.toLowerCase().split(/\s+/).filter(w => w.length > 2);
             const urlSlug = url.toLowerCase();
             const matchCount = kwWords.filter(w => urlSlug.includes(w)).length;
             if (kwWords.length > 0) score += (matchCount / kwWords.length) * 300;
-
-            // Position (lower is better)
             if (position > 0) score += Math.max(0, (20 - position) * 5);
-
-            // Impressions
             score += Math.min(impressions / 10, 50);
-
-            // Clicks
             score += Math.min(clicks * 2, 50);
-
             return Math.round(score);
         }
 
         // ── Registry helpers ──
         function buildRegistryData(registry) {
-            const lockedUrls = new Set();       // URLs that cannot be winners
-            const handledKeywords = {};          // keyword → Set of handled intents
-
+            const lockedUrls = new Set();
+            const handledKeywords = {};
             let resolved = 0, saved = 0, deleted = 0, prelocked = 0, internalLinks = 0;
 
             registry.forEach(entry => {
@@ -347,36 +534,25 @@
                 const status = entry.status || '';
                 const url = entry.url && entry.url !== 'N/A' ? normalizeUrl(entry.url) : null;
 
-                // Pre-Optimized Pages — URL and keyword both locked
                 if (source === 'Pre-Optimized Page') {
                     if (url) lockedUrls.add(url);
                     if (!handledKeywords[kw]) handledKeywords[kw] = new Set();
                     handledKeywords[kw].add('ALL');
                     prelocked++;
-                }
-
-                // User resolved winners — URL locked, keyword+intent handled
-                else if (locked && status === 'DONE' && action === 'TO_OPTIMIZE' && source === 'User Resolved') {
+                } else if (locked && status === 'DONE' && action === 'TO_OPTIMIZE' && source === 'User Resolved') {
                     if (url) lockedUrls.add(url);
                     if (!handledKeywords[kw]) handledKeywords[kw] = new Set();
                     if (intent) handledKeywords[kw].add(intent);
                     resolved++;
-                }
-
-                // Saved for later / deleted — keyword fully handled
-                else if (action === 'SAVED_FOR_FUTURE') {
+                } else if (action === 'SAVED_FOR_FUTURE') {
                     if (!handledKeywords[kw]) handledKeywords[kw] = new Set();
                     handledKeywords[kw].add('ALL');
                     saved++;
-                }
-
-                else if (action === 'DELETED') {
+                } else if (action === 'DELETED') {
                     if (!handledKeywords[kw]) handledKeywords[kw] = new Set();
                     handledKeywords[kw].add('ALL');
                     deleted++;
-                }
-
-                else if (action === 'INTERNAL_LINK') {
+                } else if (action === 'INTERNAL_LINK') {
                     internalLinks++;
                 }
             });
@@ -388,59 +564,54 @@
         function findConflicts(gscData, registry) {
             const { lockedUrls, handledKeywords, stats } = buildRegistryData(registry);
 
-            // Step 1 — Normalize and group GSC data by keyword → url
+            // Seed runtime locked URLs from registry
+            lockedUrlsRuntime = new Set(lockedUrls);
+
+            statsResolved = stats.resolved;
+            statsSaved = stats.saved;
+            statsDeleted = stats.deleted;
+            statsPrelocked = stats.prelocked;
+            statsInternalLinks = stats.internalLinks;
+
             const byKeyword = {};
 
             gscData.forEach(row => {
                 const url = normalizeUrl(row.keys[0]);
                 const keyword = row.keys[1].toLowerCase().trim();
-
-                // Filter out excluded URLs
                 if (shouldExclude(url)) return;
-
                 const intent = detectIntent(url);
                 if (intent === 'UNKNOWN') return;
-
                 if (!byKeyword[keyword]) byKeyword[keyword] = {};
                 if (!byKeyword[keyword][url]) {
                     byKeyword[keyword][url] = { url, intent, clicks: 0, impressions: 0, posSum: 0, count: 0 };
                 }
-
                 byKeyword[keyword][url].clicks += row.clicks;
                 byKeyword[keyword][url].impressions += row.impressions;
                 byKeyword[keyword][url].posSum += row.position;
                 byKeyword[keyword][url].count++;
             });
 
-            // Step 2 — Find conflicts
             const conflicts = [];
 
             Object.entries(byKeyword).forEach(([keyword, pages]) => {
                 const handled = handledKeywords[keyword];
-
-                // Skip if keyword fully handled (ALL intents)
                 if (handled && handled.has('ALL')) return;
 
-                // Average position per page
                 const pageList = Object.values(pages).map(p => ({
                     ...p,
                     position: p.count > 0 ? p.posSum / p.count : 0
                 }));
 
-                // Group by intent
                 const byIntent = {};
                 pageList.forEach(page => {
-                    // Skip if this keyword+intent already handled
                     if (handled && handled.has(page.intent)) return;
                     if (!byIntent[page.intent]) byIntent[page.intent] = [];
                     byIntent[page.intent].push(page);
                 });
 
-                // Only flag intent groups with 2+ pages
                 Object.entries(byIntent).forEach(([intent, intentPages]) => {
                     if (intentPages.length < 2) return;
 
-                    // Score each page
                     const scored = intentPages.map(p => ({
                         ...p,
                         score: scoreUrl(p.url, keyword, p.clicks, p.impressions, p.position),
@@ -456,6 +627,7 @@
 
                     const totalImpressions = intentPages.reduce((s, p) => s + p.impressions, 0);
                     const totalClicks = intentPages.reduce((s, p) => s + p.clicks, 0);
+                    const winnerScore = scored.find(p => !p.isLocked)?.score || 0;
 
                     conflicts.push({
                         keyword,
@@ -463,15 +635,267 @@
                         pages: scored,
                         totalImpressions,
                         totalClicks,
-                        priority: totalImpressions * totalClicks
+                        winnerScore
                     });
                 });
             });
 
-            // Sort by priority (biggest opportunity first)
-            conflicts.sort((a, b) => b.priority - a.priority);
+            // Sort by winner score descending (strongest winners first)
+            conflicts.sort((a, b) => b.winnerScore - a.winnerScore);
 
             return { conflicts, stats };
+        }
+
+        // ── Display conflicts ──
+        function displayConflicts(conflicts) {
+            const container = document.getElementById('conflictsList');
+            container.innerHTML = '';
+
+            if (conflicts.length === 0) {
+                container.innerHTML = '<p style="text-align:center;color:#999;padding:40px;">No conflicts found!</p>';
+                return;
+            }
+
+            conflicts.forEach((conflict, index) => {
+                const div = document.createElement('div');
+                div.className = 'conflict-item';
+                div.id = `conflict-${index}`;
+
+                // Re-evaluate locked status against runtime locked URLs
+                const pages = conflict.pages.map(p => ({
+                    ...p,
+                    isLocked: lockedUrlsRuntime.has(p.url)
+                })).sort((a, b) => {
+                    if (a.isLocked !== b.isLocked) return a.isLocked ? 1 : -1;
+                    return b.score - a.score;
+                });
+
+                const firstUnlocked = pages.findIndex(p => !p.isLocked);
+
+                let urlOptionsHtml = pages.map((p, i) => {
+                    const isLocked = p.isLocked;
+                    const isPreselected = i === firstUnlocked;
+                    const lockedLabel = isLocked ? '<span class="locked-label">LOCKED</span>' : '';
+                    const typeLabel = `<span class="page-type-badge">${p.pageType}</span>`;
+
+                    return `
+                        <div class="url-option ${isPreselected ? 'selected' : ''} ${isLocked ? 'locked' : ''}"
+                             onclick="${isLocked ? '' : `selectUrl(${index}, ${i})`}">
+                            <input type="radio"
+                                   name="url-${index}"
+                                   value="${i}"
+                                   ${isPreselected ? 'checked' : ''}
+                                   ${isLocked ? 'disabled' : ''}
+                                   onclick="event.stopPropagation()">
+                            <div class="url-details">
+                                <div class="url-text">${shortUrl(p.url)} ${lockedLabel}</div>
+                                <div class="url-metrics">
+                                    ${typeLabel}
+                                    <span class="score-badge">Score: ${p.score}</span>
+                                    <span>${p.clicks} clicks</span>
+                                    <span>Pos ${p.position.toFixed(1)}</span>
+                                    <span>${p.impressions} impressions</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                div.innerHTML = `
+                    <div class="conflict-header">
+                        <div style="display:flex;align-items:center;gap:12px;">
+                            <div class="conflict-keyword">${conflict.keyword}</div>
+                            <span class="intent-badge intent-${conflict.intent}">${conflict.intent}</span>
+                        </div>
+                        <div class="conflict-stats">
+                            <span>${conflict.totalImpressions.toLocaleString()} impressions</span>
+                            <span>${conflict.totalClicks} clicks</span>
+                        </div>
+                    </div>
+                    <div class="url-options">${urlOptionsHtml}</div>
+                    <div class="conflict-actions">
+                        <button class="btn-resolve" onclick="resolveConflict(${index})">Resolve — Lock Winner</button>
+                        <button class="btn-save-later" onclick="saveForLater(${index})">Save for Later</button>
+                        <button class="btn-delete-kw" onclick="deleteKeyword(${index})">Delete</button>
+                    </div>
+                    <div class="conflict-resolved" id="resolved-${index}"></div>
+                `;
+
+                container.appendChild(div);
+            });
+
+            document.getElementById('conflictsSection').classList.remove('hidden');
+            document.getElementById('activeConflictCount').textContent = conflicts.length;
+        }
+
+        // ── Select URL ──
+        function selectUrl(conflictIndex, urlIndex) {
+            const options = document.querySelectorAll(`#conflict-${conflictIndex} .url-option`);
+            options.forEach(opt => opt.classList.remove('selected'));
+            options[urlIndex].classList.add('selected');
+            const radio = document.querySelector(`#conflict-${conflictIndex} input[name="url-${conflictIndex}"][value="${urlIndex}"]`);
+            if (radio) radio.checked = true;
+        }
+
+        // ── Resolve conflict ──
+        async function resolveConflict(index) {
+            const conflict = conflictsData[index];
+            const radio = document.querySelector(`#conflict-${index} input[name="url-${index}"]:checked`);
+
+            if (!radio) { showModal('Error', 'Please select a URL first.'); return; }
+
+            const selectedIndex = parseInt(radio.value);
+            const pages = conflict.pages.map(p => ({ ...p, isLocked: lockedUrlsRuntime.has(p.url) }))
+                .sort((a, b) => a.isLocked !== b.isLocked ? (a.isLocked ? 1 : -1) : b.score - a.score);
+            const winner = pages[selectedIndex];
+
+            if (!winner || winner.isLocked) { showModal('Error', 'That URL is already locked. Please select a different URL.'); return; }
+
+            const losers = pages.filter((p, i) => i !== selectedIndex);
+
+            try {
+                const btn = document.querySelector(`#conflict-${index} .btn-resolve`);
+                btn.disabled = true;
+                btn.textContent = 'Saving...';
+
+                await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'lock-keyword',
+                        keyword: conflict.keyword,
+                        url: winner.url,
+                        intent: conflict.intent,
+                        losers: losers.map(l => ({ url: l.url, clicks: l.clicks, impressions: l.impressions, position: l.position }))
+                    })
+                });
+
+                // Update runtime state immediately
+                lockedUrlsRuntime.add(winner.url);
+                statsResolved++;
+                statsInternalLinks += losers.length;
+
+                // Update stats
+                document.getElementById('resolvedCount').textContent = statsResolved;
+                document.getElementById('internalLinksCount').textContent = statsInternalLinks;
+                document.getElementById('conflictsCount').textContent = parseInt(document.getElementById('conflictsCount').textContent) - 1;
+                document.getElementById('activeConflictCount').textContent = parseInt(document.getElementById('activeConflictCount').textContent) - 1;
+
+                // Mark card as resolved
+                const card = document.getElementById(`conflict-${index}`);
+                card.style.opacity = '0.5';
+                card.style.pointerEvents = 'none';
+                const resolvedEl = document.getElementById(`resolved-${index}`);
+                resolvedEl.style.display = 'block';
+                resolvedEl.textContent = `Locked: ${shortUrl(winner.url)}`;
+
+            } catch (error) {
+                showModal('Error', `Failed to save: ${error.message}`);
+                const btn = document.querySelector(`#conflict-${index} .btn-resolve`);
+                if (btn) { btn.disabled = false; btn.textContent = 'Resolve — Lock Winner'; }
+            }
+        }
+
+        // ── Save for Later ──
+        async function saveForLater(index) {
+            const conflict = conflictsData[index];
+            try {
+                const btn = document.querySelector(`#conflict-${index} .btn-save-later`);
+                btn.disabled = true;
+                btn.textContent = 'Saving...';
+
+                await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'save-for-later', keyword: conflict.keyword, intent: conflict.intent })
+                });
+
+                statsSaved++;
+                document.getElementById('savedCount').textContent = statsSaved;
+                document.getElementById('conflictsCount').textContent = parseInt(document.getElementById('conflictsCount').textContent) - 1;
+                document.getElementById('activeConflictCount').textContent = parseInt(document.getElementById('activeConflictCount').textContent) - 1;
+
+                const card = document.getElementById(`conflict-${index}`);
+                card.style.opacity = '0.5';
+                card.style.pointerEvents = 'none';
+                const resolvedEl = document.getElementById(`resolved-${index}`);
+                resolvedEl.style.display = 'block';
+                resolvedEl.textContent = 'Saved for Later';
+
+            } catch (error) {
+                showModal('Error', `Failed to save: ${error.message}`);
+            }
+        }
+
+        // ── Delete keyword ──
+        async function deleteKeyword(index) {
+            const conflict = conflictsData[index];
+            if (!confirm(`Delete keyword "${conflict.keyword}"? It will no longer appear as a conflict.`)) return;
+
+            try {
+                const btn = document.querySelector(`#conflict-${index} .btn-delete-kw`);
+                btn.disabled = true;
+                btn.textContent = 'Deleting...';
+
+                await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'delete-keyword', keyword: conflict.keyword, intent: conflict.intent })
+                });
+
+                statsDeleted++;
+                document.getElementById('deletedCount').textContent = statsDeleted;
+                document.getElementById('conflictsCount').textContent = parseInt(document.getElementById('conflictsCount').textContent) - 1;
+                document.getElementById('activeConflictCount').textContent = parseInt(document.getElementById('activeConflictCount').textContent) - 1;
+
+                const card = document.getElementById(`conflict-${index}`);
+                card.style.opacity = '0.5';
+                card.style.pointerEvents = 'none';
+                const resolvedEl = document.getElementById(`resolved-${index}`);
+                resolvedEl.style.display = 'block';
+                resolvedEl.textContent = 'Deleted';
+
+            } catch (error) {
+                showModal('Error', `Failed to delete: ${error.message}`);
+            }
+        }
+
+        // ── Search ──
+        function filterConflicts() {
+            const query = document.getElementById('searchInput').value.toLowerCase().trim();
+            document.getElementById('searchClear').style.display = query ? 'block' : 'none';
+
+            const items = document.querySelectorAll('.conflict-item');
+            let visible = 0;
+
+            items.forEach(item => {
+                const keyword = item.querySelector('.conflict-keyword')?.textContent.toLowerCase() || '';
+                const urls = Array.from(item.querySelectorAll('.url-text')).map(el => el.textContent.toLowerCase());
+                const matches = !query || keyword.includes(query) || urls.some(u => u.includes(query));
+                item.style.display = matches ? 'block' : 'none';
+                if (matches) visible++;
+            });
+        }
+
+        function clearSearch() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('searchClear').style.display = 'none';
+            document.querySelectorAll('.conflict-item').forEach(item => item.style.display = 'block');
+        }
+
+        function scrollToConflicts() {
+            document.getElementById('conflictsSection').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // ── Modal ──
+        function showModal(title, message) {
+            document.getElementById('modalTitle').textContent = title;
+            document.getElementById('modalMessage').textContent = message;
+            document.getElementById('modal').classList.add('show');
+        }
+
+        function closeModal() {
+            document.getElementById('modal').classList.remove('show');
         }
 
         // ── UI helpers ──
@@ -489,46 +913,19 @@
             document.getElementById('errorSection').classList.add('hidden');
         }
 
-        function updateStats(stats, conflictCount) {
-            document.getElementById('conflictsCount').textContent = conflictCount;
-            document.getElementById('resolvedCount').textContent = stats.resolved;
-            document.getElementById('savedCount').textContent = stats.saved;
-            document.getElementById('deletedCount').textContent = stats.deleted;
-            document.getElementById('prelockedCount').textContent = stats.prelocked;
-            document.getElementById('internalLinksCount').textContent = stats.internalLinks;
-        }
-
-        function renderDebug(conflicts) {
-            const tbody = document.getElementById('debugBody');
-            tbody.innerHTML = '';
-
-            conflicts.slice(0, 20).forEach(c => {
-                const pagesHtml = c.pages.map((p, i) => {
-                    const short = p.url.replace('https://aboutwallart.com', '');
-                    const winner = i === 0 && !p.isLocked ? '<span class="winner-badge">PRE-SELECTED</span>' : '';
-                    const locked = p.isLocked ? '<span class="winner-badge" style="background:#fee2e2;color:#991b1b;">LOCKED</span>' : '';
-                    return `<div style="margin-bottom:6px;">${short}${winner}${locked} <small style="color:#999;">(score:${p.score} | ${p.clicks} clicks | pos ${p.position.toFixed(1)})</small></div>`;
-                }).join('');
-
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td><strong>${c.keyword}</strong></td>
-                    <td><span class="intent-badge intent-${c.intent}">${c.intent}</span></td>
-                    <td>${c.totalImpressions.toLocaleString()}</td>
-                    <td>${c.totalClicks.toLocaleString()}</td>
-                    <td>${pagesHtml}</td>
-                `;
-                tbody.appendChild(tr);
-            });
-
-            document.getElementById('debugPanel').classList.remove('hidden');
+        function updateStats() {
+            document.getElementById('resolvedCount').textContent = statsResolved;
+            document.getElementById('savedCount').textContent = statsSaved;
+            document.getElementById('deletedCount').textContent = statsDeleted;
+            document.getElementById('prelockedCount').textContent = statsPrelocked;
+            document.getElementById('internalLinksCount').textContent = statsInternalLinks;
         }
 
         // ── Load Data ──
         async function loadData() {
             hideError();
             document.getElementById('loadBtn').disabled = true;
-            showLoading(true, 'Fetching GSC page-query data...');
+            showLoading(true, 'Fetching GSC page-query data (90 days)...');
 
             try {
                 const endDate = new Date().toISOString().split('T')[0];
@@ -541,21 +938,18 @@
                 gscData = gscJson.data.rows;
 
                 showLoading(true, 'Fetching keyword registry...');
-
                 const regRes = await fetch('/api/blogs?action=get-registry');
                 if (!regRes.ok) throw new Error(`Registry API error: ${regRes.status}`);
                 const regJson = await regRes.json();
                 registry = regJson.registry || [];
 
                 showLoading(true, 'Detecting conflicts...');
-
-                const { conflicts, stats } = findConflicts(gscData, registry);
+                const { conflicts } = findConflicts(gscData, registry);
                 conflictsData = conflicts;
 
                 showLoading(false);
                 document.getElementById('loadBtn').disabled = false;
 
-                // Summary bar
                 const uniqueKeywords = new Set(gscData.map(r => r.keys[1])).size;
                 const uniquePages = new Set(gscData.map(r => r.keys[0])).size;
                 document.getElementById('summaryQueries').textContent = gscData.length.toLocaleString();
@@ -564,13 +958,11 @@
                 document.getElementById('summaryRegistry').textContent = registry.length.toLocaleString();
                 document.getElementById('dataSummary').classList.remove('hidden');
 
-                updateStats(stats, conflictsData.length);
+                document.getElementById('conflictsCount').textContent = conflictsData.length;
+                updateStats();
                 document.getElementById('statsSection').classList.remove('hidden');
 
-                renderDebug(conflictsData);
-
-                console.log('Total conflicts:', conflictsData.length);
-                console.log('Sample conflict:', conflictsData[0]);
+                displayConflicts(conflictsData);
 
             } catch (error) {
                 showLoading(false);
