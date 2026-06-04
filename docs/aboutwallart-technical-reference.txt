@@ -1,7 +1,7 @@
 # TECHNICAL REFERENCE DOCUMENT
 ## AboutWallArt SEO Tools Infrastructure
 
-**Last Updated:** May 30, 2026 (Easy SEO Report Tool v52 — full build complete)
+**Last Updated:** June 4, 2026 (Keyword Locker full rebuild — v5.6)
 **Owner:** aboutwallart
 **Purpose:** Complete technical documentation for all SEO tools, infrastructure, API keys, and configurations
 
@@ -755,4 +755,177 @@ Free Interior Design Education & Guides, Free Home Decor & Interior Design Tools
 - All Shopify API + webhook logic in `api/shopify-files.js`
 - All GitHub data file logic in `api/blogs.js`
 - 1 slot still available
+
+---
+
+# KEYWORD LOCKER TOOL — COMPLETE DOCUMENTATION
+
+**File:** `keyword-locker.html`
+**Current Version:** v5.6 (June 4, 2026)
+**URL:** https://tools.aboutwallart.com/keyword-locker.html
+**Purpose:** Detects keyword cannibalization conflicts using live GSC data and allows locking each keyword to its best URL. Intent-aware — only flags pages competing for the same keyword with the same intent as conflicts.
+
+---
+
+## How It Works
+
+1. Loads live GSC page-query data (last 90 days, up to 25,000 rows) via `/api/gsc?action=page-query`
+2. Loads keyword registry from `/api/blogs?action=get-registry`
+3. Detects conflicts: same keyword appearing on 2+ pages with the same intent
+4. Scores each competing URL and pre-selects the best winner
+5. User resolves conflicts — winner locked, losers saved for internal linking
+
+---
+
+## Conflict Detection Logic
+
+### URL Normalisation (applied before any grouping):
+- Strip `?query_params`
+- Strip `#fragments`
+- Strip trailing slash
+- Replace `https://www.aboutwallart.com` with `https://aboutwallart.com`
+
+### URL Filters (excluded from conflicts):
+- Foreign language: `/es/`, `/fr/`, `/de/`, `/it/`, `/pt/`, `/nl/`, `/ru/`, `/ja/`, `/zh/`, `/ko/`, `/ar/`
+- CDN: `/cdn/`
+- Junk pages: `write-for-us`, `contact`, `about-us`, `privacy`, `terms`, `wishlist`, `loyalty`, `confirm-your-email`
+
+### Intent Detection (from URL pattern):
+- `/blogs/` → INFORMATIONAL
+- `/collections/` → COMMERCIAL
+- `/products/` → COMMERCIAL
+- `/pages/` → NAVIGATIONAL
+- Homepage → NAVIGATIONAL
+
+### Conflict Rules:
+- A conflict = same keyword on 2+ pages WITH THE SAME INTENT
+- Different intent (blog + collection for same keyword) = NOT a conflict
+- Same keyword can appear in multiple conflicts if different intents
+
+### Registry Filtering:
+- Pre-Optimized Page entries → keyword+intent fully handled, URL locked (cannot be winner)
+- User Resolved TO_OPTIMIZE entries → keyword+intent handled, URL locked
+- SAVED_FOR_FUTURE or DELETED entries → keyword fully skipped
+- Published Blog entries → NOT pre-filtered (appear freely in conflicts)
+
+### Winner Scoring:
+- Page type priority: Collection (400) > Blog (300) > Product (200) > Page (100)
+- URL slug keyword match: up to 300 points
+- Position bonus: (20 - position) × 5, max when position = 1
+- Impressions: min(impressions/10, 50)
+- Clicks: min(clicks×2, 50)
+
+### Conflict Sorting:
+- Sorted by winner score descending — strongest pre-selected winner shown first
+- Ensures best pages get locked before they're taken by other conflicts
+
+---
+
+## Special Cases
+
+### Only 1 unlocked URL remains in a conflict:
+- Green notice shown: "All other competing pages are already locked. Click Confirm to lock it."
+- Confirm & Lock button — saves as User Resolved (not automatic)
+
+### All URLs locked in a conflict:
+- Yellow notice shown: "All competing pages are already locked to other keywords."
+- Remove button — saves as DELETED, removes from active conflicts
+
+### Real-time locking:
+- When a URL is locked as winner, `lockedUrlsRuntime` Set is updated immediately
+- All other conflict cards refresh — newly locked URLs show LOCKED badge and become unselectable
+- No page reload needed
+
+---
+
+## Registry Format
+
+**File:** `data/keyword-locker-registry.csv`
+**Columns:** Keyword, Page URL, LOCKED, Status, Action, WinnerURL, Clicks, Impressions, Position, Source, INTENT
+
+| Row Type | LOCKED | Status | Action | Source | INTENT |
+|----------|--------|--------|--------|--------|--------|
+| Winner | LOCKED | DONE | TO_OPTIMIZE | User Resolved | COMMERCIAL/INFORMATIONAL/NAVIGATIONAL |
+| Loser | (blank) | DONE | INTERNAL_LINK | Auto Detected | same as winner |
+| Saved for Later | LOCKED | DONE | SAVED_FOR_FUTURE | User Action | intent |
+| Deleted | LOCKED | DONE | DELETED | User Action | intent |
+| Pre-Optimized Page | LOCKED | DONE | (blank) | Pre-Optimized Page | COMMERCIAL/NAVIGATIONAL |
+| Published Blog | (blank) | DONE | (blank) | Published Blog | INFORMATIONAL |
+
+**Important:** All CSV fields with commas are wrapped in double quotes when saved.
+
+---
+
+## API Calls Made by keyword-locker.html:
+- `GET /api/gsc?action=page-query&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD` — 90 days, 25,000 rows
+- `GET /api/blogs?action=get-registry` — full registry
+- `POST /api/blogs` action=`lock-keyword` — save winner + losers
+- `POST /api/blogs` action=`save-for-later` — save for later
+- `POST /api/blogs` action=`delete-keyword` — delete keyword
+- `POST /api/blogs` action=`remove-from-registry` — undo (removes all rows for keyword)
+
+---
+
+## blogs.js Actions Added for Keyword Locker (v1.3):
+
+### lock-keyword (POST)
+- Body: `{ action, keyword, url, intent, losers: [{url, clicks, impressions, position}] }`
+- Saves winner row: `keyword,url,LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,User Resolved,INTENT`
+- Saves loser rows: `keyword,url,,DONE,INTERNAL_LINK,winnerUrl,clicks,impressions,position,Auto Detected,INTENT`
+
+### save-for-later (POST)
+- Body: `{ action, keyword, intent }`
+- Saves: `keyword,N/A,LOCKED,DONE,SAVED_FOR_FUTURE,N/A,N/A,N/A,N/A,User Action,INTENT`
+
+### delete-keyword (POST)
+- Body: `{ action, keyword, intent }`
+- Saves: `keyword,N/A,LOCKED,DONE,DELETED,N/A,N/A,N/A,N/A,User Action,INTENT`
+
+### remove-from-registry (POST)
+- Body: `{ action, keyword }`
+- Removes ALL rows for that keyword from registry (winner + losers)
+
+### get-registry (GET) — updated to return:
+- keyword, url, locked, status, action, winnerUrl (col5), source (col9), intent (col10)
+
+---
+
+## Stat Cards (click to view):
+- **Active Conflicts** — number of conflict groups remaining
+- **Resolved** — User Resolved TO_OPTIMIZE entries only
+- **Saved for Later** — SAVED_FOR_FUTURE entries (content opportunities)
+- **Deleted** — DELETED entries (noise keywords)
+- **Pre-locked** — Pre-Optimized Page entries (6 pages, grows as pages optimised)
+- **Internal Links to Add** — INTERNAL_LINK entries (loser pages needing a link to winner)
+
+---
+
+## Still To Build:
+1. Loser blogs section — after all conflicts resolved, review loser blog posts: Repurpose / Delete / Keep as is
+2. Link Whisperer tab — auto-add internal links from loser pages to winner pages
+
+---
+
+## Build History:
+
+| Version | Date | Changes |
+|---------|------|---------|
+| v1.0 (blogs.js) | June 4, 2026 | Added save-for-later, delete-keyword, remove-from-registry, updated lock-keyword with intent+losers |
+| v1.1 (blogs.js) | June 4, 2026 | get-registry now returns source field |
+| v1.2 (blogs.js) | June 4, 2026 | Loser rows format: blank locked, Auto Detected source |
+| v1.3 (blogs.js) | June 4, 2026 | CSV quoting — all fields with commas wrapped in double quotes |
+| v2.0 (html) | June 4, 2026 | Skeleton — auth-check, Load Data button, GSC + registry loading |
+| v2.1 (html) | June 4, 2026 | Fixed GSC response format, removed emojis/blue styling |
+| v3.0 (html) | June 4, 2026 | Conflict detection — URL normalisation, intent detection, scoring |
+| v3.1 (html) | June 4, 2026 | Strip #fragments, fix resolved count, fix pre-locked URL exclusion |
+| v3.2 (html) | June 4, 2026 | Full conflict detection rewrite — correct URL/intent/registry logic |
+| v3.3 (html) | June 4, 2026 | GSC rowLimit 25,000, date range 90 days |
+| v4.0 (html) | June 4, 2026 | Full conflict UI — cards, radio buttons, resolve/save/delete actions |
+| v5.0 (html) | June 4, 2026 | Registry views — Resolved, Saved, Deleted, Internal Links, Pre-locked |
+| v5.1 (html) | June 4, 2026 | Undo removes all keyword rows (winner + losers) |
+| v5.2 (html) | June 4, 2026 | Resolved cards hide after 1.5s, real-time locked URL refresh |
+| v5.3 (html) | June 4, 2026 | Single-winner auto-confirm + all-locked auto-delete |
+| v5.4 (html) | June 4, 2026 | CSV quoting fix, resolved count fix, 80-char keyword filter |
+| v5.5 (html) | June 4, 2026 | Local registry updated in real-time, save-for-later/delete add to registry, green/yellow notices |
+| v5.6 (html) | June 4, 2026 | Fixed cards stuck after Confirm & Lock, refreshConflictCards loop fix |
 
