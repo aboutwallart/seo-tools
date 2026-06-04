@@ -177,6 +177,64 @@ module.exports = async (req, res) => {
 
       data = await ga4Query(accessToken, propertyId, ga4Body);
 
+    } else if (action === 'ga4-social') {
+      // GA4 Social Traffic — sessions by social platform + date
+      const propertyId = process.env.GA4_PROPERTY_ID;
+      if (!propertyId) throw new Error('GA4_PROPERTY_ID not configured');
+
+      const days = parseInt(req.query.days || '365');
+      const ga4End = getTodayDate();
+      const ga4Start = getDateDaysAgo(days);
+
+      const socialSources = ['facebook','instagram','pinterest','tiktok','youtube','twitter','t.co','x.com','linkedin'];
+
+      const ga4Body = {
+        dateRanges: [{ startDate: ga4Start, endDate: ga4End }],
+        dimensions: [{ name: 'sessionSource' }, { name: 'date' }],
+        metrics: [{ name: 'sessions' }, { name: 'screenPageViews' }],
+        dimensionFilter: {
+          orGroup: {
+            expressions: socialSources.map(source => ({
+              filter: {
+                fieldName: 'sessionSource',
+                stringFilter: { matchType: 'CONTAINS', value: source }
+              }
+            }))
+          }
+        },
+        limit: 5000
+      };
+      data = await ga4Query(accessToken, propertyId, ga4Body);
+
+    } else if (action === 'ga4-social-pages') {
+      // GA4 Social Traffic — sessions by social platform + landing page
+      const propertyId = process.env.GA4_PROPERTY_ID;
+      if (!propertyId) throw new Error('GA4_PROPERTY_ID not configured');
+
+      const days = parseInt(req.query.days || '90');
+      const ga4End = getTodayDate();
+      const ga4Start = getDateDaysAgo(days);
+
+      const socialSources = ['facebook','instagram','pinterest','tiktok','youtube','twitter','t.co','x.com','linkedin'];
+
+      const ga4Body = {
+        dateRanges: [{ startDate: ga4Start, endDate: ga4End }],
+        dimensions: [{ name: 'sessionSource' }, { name: 'pagePath' }],
+        metrics: [{ name: 'sessions' }, { name: 'screenPageViews' }],
+        dimensionFilter: {
+          orGroup: {
+            expressions: socialSources.map(source => ({
+              filter: {
+                fieldName: 'sessionSource',
+                stringFilter: { matchType: 'CONTAINS', value: source }
+              }
+            }))
+          }
+        },
+        limit: 5000
+      };
+      data = await ga4Query(accessToken, propertyId, ga4Body);
+
     } else {
       // Default: overview
       data = await gscQuery(accessToken, siteUrl, {
