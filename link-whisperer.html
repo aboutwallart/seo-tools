@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.29</div>
+    <div class="version">v16.30</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -2183,6 +2183,15 @@ async function saveQueue() {
       }
     }
   } finally {
+    // If any metafield items were saved, do ONE GitHub persist now (avoids SHA conflicts)
+    const hadMetafieldSaves = queue.some(q => q.isMetafield);
+    if(hadMetafieldSaves) {
+      try {
+        await persistMetafieldLinks();
+      } catch(e) {
+        failedItems.push('GitHub tracking file — ' + e.message + '. Your Shopify data was saved but the tool may not show it correctly next session. Please do a Refresh Data.');
+      }
+    }
     // Always runs — re-enable button and clean up regardless of errors
     AppState.links = [];
     for(const i of AppState.items) AppState.links.push(...parseItemLinks(i));
@@ -2417,7 +2426,8 @@ function confirmProductInboundLink(itemId, queueMode) {
   } else {
     // Save immediately
     showToast('Saving...', 'info');
-    saveProductToMetafield(articleItem, item).then(() => {
+    saveProductToMetafield(articleItem, item).then(async () => {
+      await persistMetafieldLinks();
       AppState.saveStatuses[item.id] = { status:'saved', count:1 };
       buildLinkGraph();
       detectBrokenLinks();
@@ -3407,7 +3417,9 @@ async function saveProductToMetafield(articleItem, productItem) {
 
   // Step 3: Shopify save confirmed — now update link graph and persist to GitHub
   updateMetafieldLinkGraph(articleItem, productItem);
-  await persistMetafieldLinks();
+  // Note: persistMetafieldLinks is NOT called here for queue saves —
+  // saveQueue calls it once at the end to avoid SHA conflicts on GitHub.
+  // For individual (non-queue) saves it is called by the caller.
 }
 
 function updateMetafieldLinkGraph(articleItem, productItem) {
@@ -3426,15 +3438,14 @@ function updateMetafieldLinkGraph(articleItem, productItem) {
 
 async function persistMetafieldLinks() {
   // Save metafield links to GitHub so they survive cache clears and re-syncs
-  try {
-    await fetch(CONFIG.proxyUrl + '/api/blogs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'save-metafield-links', links: AppState.metafieldLinks || [] })
-    });
-  } catch(e) {
-    console.warn('Could not persist metafield links to GitHub:', e);
-    // Non-fatal — in-memory graph is still correct for this session
+  const res = await fetch(CONFIG.proxyUrl + '/api/blogs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'save-metafield-links', links: AppState.metafieldLinks || [] })
+  });
+  if (!res.ok) {
+    const err = await res.text().catch(() => 'unknown error');
+    throw new Error('GitHub tracking file could not be saved: ' + err);
   }
 }
 
