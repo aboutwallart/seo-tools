@@ -98,7 +98,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v55.0</div>
+      <div class="tool-version">v56.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -312,9 +312,9 @@
               <thead><tr>
                 <th>#</th>
                 <th>Page</th>
-                <th class="num">Sessions</th>
-                <th class="num">Views</th>
-                <th class="num">Revenue</th>
+                <th class="num" onclick="sortSocialPages('sessions')" style="cursor:pointer;user-select:none;" id="socialSortSessions">Sessions ↕</th>
+                <th class="num" onclick="sortSocialPages('views')" style="cursor:pointer;user-select:none;" id="socialSortViews">Views ↕</th>
+                <th class="num" onclick="sortSocialPages('revenue')" style="cursor:pointer;user-select:none;" id="socialSortRevenue">Revenue ↕</th>
                 <th>Top Platform</th>
               </tr></thead>
               <tbody id="socialPagesBody"><tr class="loading-row"><td colspan="6">Loading...</td></tr></tbody>
@@ -2218,6 +2218,19 @@
     }
 
     function filterSocialPages() { renderSocialPages(); }
+
+    let socialSortCol = 'sessions';
+    let socialSortDir = -1; // -1 = desc, 1 = asc
+
+    function sortSocialPages(col) {
+      if (socialSortCol === col) { socialSortDir *= -1; } else { socialSortCol = col; socialSortDir = -1; }
+      ['sessions','views','revenue'].forEach(c => {
+        const el = document.getElementById('socialSort' + c.charAt(0).toUpperCase() + c.slice(1));
+        if (el) el.textContent = c.charAt(0).toUpperCase() + c.slice(1) + (c === col ? (socialSortDir === -1 ? ' ↓' : ' ↑') : ' ↕');
+      });
+      socialAllPages.sort((a, b) => socialSortDir * (b[socialSortCol] - a[socialSortCol]));
+      renderSocialPages();
+    }
 
     // ═══════════════════════════════════════════════════════
     // KEYWORD TRACKER
