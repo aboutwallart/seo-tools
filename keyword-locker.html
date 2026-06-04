@@ -410,7 +410,7 @@
             <h1>Keyword Locker</h1>
             <p>Lock each keyword to its best URL — resolve cannibalization by choosing winners</p>
             <p class="subtitle">One keyword = One winner URL. Intent-aware conflict detection.</p>
-            <div class="version">v5.5</div>
+            <div class="version">v5.6</div>
         </div>
 
         <div class="load-section">
@@ -855,16 +855,16 @@
                 document.getElementById('conflictsCount').textContent = parseInt(document.getElementById('conflictsCount').textContent) - 1;
                 document.getElementById('activeConflictCount').textContent = parseInt(document.getElementById('activeConflictCount').textContent) - 1;
 
-                // Hide card after short delay
+                // Hide card after short delay then refresh others
                 const card = document.getElementById(`conflict-${index}`);
                 const resolvedEl = document.getElementById(`resolved-${index}`);
                 resolvedEl.style.display = 'block';
                 resolvedEl.textContent = `Locked: ${shortUrl(winner.url)}`;
                 card.style.pointerEvents = 'none';
-                setTimeout(() => { card.style.display = 'none'; }, 1500);
-
-                // Update any other conflict cards that contain this now-locked URL
-                refreshConflictCards();
+                setTimeout(() => {
+                    card.style.display = 'none';
+                    setTimeout(() => refreshConflictCards(), 100);
+                }, 1500);
 
             } catch (error) {
                 showModal('Error', `Failed to save: ${error.message}`);
@@ -945,9 +945,7 @@
 
             cards.forEach(card => {
                 if (card.style.display === 'none') return;
-
-                // Skip cards that already have a notice
-                if (card.querySelector('.auto-notice')) return;
+                if (card.style.pointerEvents === 'none') return; // already being processed
 
                 const options = card.querySelectorAll('.url-option');
                 let unlockedOptions = [];
@@ -1043,10 +1041,16 @@
                 document.getElementById('activeConflictCount').textContent = parseInt(document.getElementById('activeConflictCount').textContent) - 1;
 
                 card.style.pointerEvents = 'none';
-                setTimeout(() => { card.style.display = 'none'; refreshConflictCards(); }, 1500);
+                setTimeout(() => {
+                    card.style.display = 'none';
+                    // Refresh other cards after this one is fully hidden
+                    setTimeout(() => refreshConflictCards(), 100);
+                }, 1500);
 
             } catch (error) {
                 showModal('Error', `Failed to save: ${error.message}`);
+                const btn = card.querySelector('.auto-notice button');
+                if (btn) { btn.textContent = 'Confirm & Lock'; btn.disabled = false; }
             }
         }
 
