@@ -410,7 +410,7 @@
             <h1>Keyword Locker</h1>
             <p>Lock each keyword to its best URL — resolve cannibalization by choosing winners</p>
             <p class="subtitle">One keyword = One winner URL. Intent-aware conflict detection.</p>
-            <div class="version">v5.1</div>
+            <div class="version">v5.3</div>
         </div>
 
         <div class="load-section">
@@ -843,13 +843,16 @@
                 document.getElementById('conflictsCount').textContent = parseInt(document.getElementById('conflictsCount').textContent) - 1;
                 document.getElementById('activeConflictCount').textContent = parseInt(document.getElementById('activeConflictCount').textContent) - 1;
 
-                // Mark card as resolved
+                // Hide card after short delay
                 const card = document.getElementById(`conflict-${index}`);
-                card.style.opacity = '0.5';
-                card.style.pointerEvents = 'none';
                 const resolvedEl = document.getElementById(`resolved-${index}`);
                 resolvedEl.style.display = 'block';
                 resolvedEl.textContent = `Locked: ${shortUrl(winner.url)}`;
+                card.style.pointerEvents = 'none';
+                setTimeout(() => { card.style.display = 'none'; }, 1500);
+
+                // Update any other conflict cards that contain this now-locked URL
+                refreshConflictCards();
 
             } catch (error) {
                 showModal('Error', `Failed to save: ${error.message}`);
@@ -878,11 +881,11 @@
                 document.getElementById('activeConflictCount').textContent = parseInt(document.getElementById('activeConflictCount').textContent) - 1;
 
                 const card = document.getElementById(`conflict-${index}`);
-                card.style.opacity = '0.5';
-                card.style.pointerEvents = 'none';
                 const resolvedEl = document.getElementById(`resolved-${index}`);
                 resolvedEl.style.display = 'block';
                 resolvedEl.textContent = 'Saved for Later';
+                card.style.pointerEvents = 'none';
+                setTimeout(() => { card.style.display = 'none'; }, 1500);
 
             } catch (error) {
                 showModal('Error', `Failed to save: ${error.message}`);
@@ -911,14 +914,102 @@
                 document.getElementById('activeConflictCount').textContent = parseInt(document.getElementById('activeConflictCount').textContent) - 1;
 
                 const card = document.getElementById(`conflict-${index}`);
-                card.style.opacity = '0.5';
-                card.style.pointerEvents = 'none';
                 const resolvedEl = document.getElementById(`resolved-${index}`);
                 resolvedEl.style.display = 'block';
                 resolvedEl.textContent = 'Deleted';
+                card.style.pointerEvents = 'none';
+                setTimeout(() => { card.style.display = 'none'; }, 1500);
 
             } catch (error) {
                 showModal('Error', `Failed to delete: ${error.message}`);
+            }
+        }
+
+        // ── Refresh conflict cards after a URL gets locked ──
+        function refreshConflictCards() {
+            const cards = document.querySelectorAll('.conflict-item');
+
+            cards.forEach(card => {
+                // Skip already hidden cards
+                if (card.style.display === 'none') return;
+
+                const options = card.querySelectorAll('.url-option');
+                let unlockedOptions = [];
+                let firstUnlockedFound = false;
+
+                options.forEach(option => {
+                    const urlTextEl = option.querySelector('.url-text');
+                    const urlText = urlTextEl.textContent.replace(/LOCKED.*/, '').trim();
+                    const fullUrl = 'https://aboutwallart.com' + urlText.split(' ')[0];
+                    const radio = option.querySelector('input[type="radio"]');
+                    const isNowLocked = lockedUrlsRuntime.has(fullUrl);
+
+                    if (isNowLocked) {
+                        option.classList.add('locked');
+                        option.classList.remove('selected');
+                        if (radio) { radio.disabled = true; radio.checked = false; }
+                        if (!urlTextEl.querySelector('.locked-label')) {
+                            urlTextEl.innerHTML += ' <span class="locked-label">LOCKED</span>';
+                        }
+                        option.onclick = null;
+                    } else {
+                        unlockedOptions.push({ option, fullUrl, radio });
+                        if (!firstUnlockedFound) {
+                            firstUnlockedFound = true;
+                            option.classList.add('selected');
+                            if (radio) { radio.disabled = false; radio.checked = true; }
+                        }
+                    }
+                });
+
+                // If only 1 unlocked option remains — auto-resolve as User Resolved
+                if (unlockedOptions.length === 1) {
+                    const winner = unlockedOptions[0];
+                    const conflictIndex = card.id.replace('conflict-', '');
+                    const conflict = conflictsData[parseInt(conflictIndex)];
+                    if (conflict) {
+                        autoResolveConflict(card, conflict, winner.fullUrl);
+                    }
+                }
+            });
+        }
+
+        // ── Auto-resolve a conflict with only 1 unlocked option ──
+        async function autoResolveConflict(card, conflict, winnerUrl) {
+            const losers = conflict.pages
+                .map(p => ({ ...p, isLocked: lockedUrlsRuntime.has(p.url) }))
+                .filter(p => p.url !== winnerUrl);
+
+            try {
+                await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'lock-keyword',
+                        keyword: conflict.keyword,
+                        url: winnerUrl,
+                        intent: conflict.intent,
+                        losers: losers.map(l => ({ url: l.url, clicks: l.clicks, impressions: l.impressions, position: l.position }))
+                    })
+                });
+
+                // Update runtime state
+                lockedUrlsRuntime.add(winnerUrl);
+                statsResolved++;
+                statsInternalLinks += losers.length;
+                document.getElementById('resolvedCount').textContent = statsResolved;
+                document.getElementById('internalLinksCount').textContent = statsInternalLinks;
+                document.getElementById('conflictsCount').textContent = parseInt(document.getElementById('conflictsCount').textContent) - 1;
+                document.getElementById('activeConflictCount').textContent = parseInt(document.getElementById('activeConflictCount').textContent) - 1;
+
+                // Hide card
+                const resolvedEl = document.getElementById(`resolved-${card.id.replace('conflict-', '')}`);
+                if (resolvedEl) { resolvedEl.style.display = 'block'; resolvedEl.textContent = `Locked: ${shortUrl(winnerUrl)}`; }
+                card.style.pointerEvents = 'none';
+                setTimeout(() => { card.style.display = 'none'; }, 1500);
+
+            } catch (error) {
+                console.error('Auto-resolve failed:', error);
             }
         }
 
