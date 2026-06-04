@@ -1,7 +1,7 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v43.0
+// analyze-money-page.js — v43.2
 const SERPAPI_KEY = process.env.SERPAPI_KEY;
 const PAGESPEED_KEY = process.env.GOOGLE_API_KEY;
 const SHOPIFY_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
@@ -260,13 +260,17 @@ function extractSEOData(html, url, keyword) {
   const h1Matches = html.match(/<h1[^>]*>([^<]+)<\/h1>/gi) || [];
   const h1 = h1Matches.map(m => m.replace(/<\/?h1[^>]*>/gi, '').trim());
 
-  // Extract H2
+  // Extract H2 — filter Liquid template variables from Shopify themes
   const h2Matches = html.match(/<h2[^>]*>([^<]+)<\/h2>/gi) || [];
-  const h2 = h2Matches.map(m => m.replace(/<\/?h2[^>]*>/gi, '').trim());
+  const h2 = h2Matches
+    .map(m => m.replace(/<\/?h2[^>]*>/gi, '').trim())
+    .filter(h => !h.includes('{{') && !h.includes('}}') && h.length > 2);
 
-  // Extract H3
+  // Extract H3 — same filter
   const h3Matches = html.match(/<h3[^>]*>([^<]+)<\/h3>/gi) || [];
-  const h3 = h3Matches.map(m => m.replace(/<\/?h3[^>]*>/gi, '').trim());
+  const h3 = h3Matches
+    .map(m => m.replace(/<\/?h3[^>]*>/gi, '').trim())
+    .filter(h => !h.includes('{{') && !h.includes('}}') && h.length > 2);
 
   // Remove scripts and styles
   let text = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
