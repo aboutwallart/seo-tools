@@ -258,7 +258,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 43.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 43.1</p>
                 </div>
                 <button onclick="showHelp()" style="background: #0969da; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; white-space: nowrap;">
                     ❓ How to Clear Cache Safely
@@ -413,15 +413,6 @@
             <div class="form-group">
                 <label for="mainKeyword">Main Keyword</label>
                 <input type="text" id="mainKeyword" placeholder="e.g., celebration gifts">
-            </div>
-            <div class="form-group">
-                <label for="ubersuggestImage">Ubersuggest Screenshot (Optional) 📸</label>
-                <input type="file" id="ubersuggestImage" accept="image/png,image/jpeg" onchange="previewImage(this)" style="padding: 8px;">
-                <div id="imagePreview" style="margin-top: 10px; display: none;">
-                    <img id="previewImg" style="max-width: 100%; max-height: 200px; border-radius: 6px; border: 2px solid #e0e0e0;">
-                    <button class="btn-secondary" onclick="removeImage()" style="margin-top: 5px; font-size: 0.85rem; padding: 6px 12px;">Remove</button>
-                </div>
-                <p style="font-size: 0.85rem; color: #666; margin-top: 5px;">Upload Ubersuggest keyword data for swap recommendations</p>
             </div>
             <div style="display: flex; gap: 10px;">
                 <button onclick="startAnalysis()">🚀 Analyze Now</button>
@@ -766,32 +757,12 @@
             }
         }
 
-        function previewImage(input) {
-            const preview = document.getElementById('imagePreview');
-            const previewImg = document.getElementById('previewImg');
-            
-            if (input.files && input.files[0]) {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    previewImg.src = e.target.result;
-                    preview.style.display = 'block';
-                };
-                reader.readAsDataURL(input.files[0]);
-            }
-        }
-
-        function removeImage() {
-            document.getElementById('ubersuggestImage').value = '';
-            document.getElementById('imagePreview').style.display = 'none';
-            document.getElementById('previewImg').src = '';
-        }
 
         function openAnalyzeModal(id) {
             currentUrl = urls.find(u => u.id === id);
             document.getElementById('modalUrl').textContent = currentUrl.url;
             const gscInfo = gscEnrichment[normalizeUrlPath(currentUrl.url)] || {};
             document.getElementById('mainKeyword').value = currentUrl.keyword || gscInfo.keyword || '';
-            removeImage();
             document.getElementById('analyzeModal').classList.add('active');
         }
 
@@ -806,56 +777,26 @@
                 return;
             }
 
-            // Get image if uploaded
-            const imageInput = document.getElementById('ubersuggestImage');
-            let imageBase64 = null;
-            
-            if (imageInput.files && imageInput.files[0]) {
-                imageBase64 = await new Promise((resolve) => {
-                    const reader = new FileReader();
-                    reader.onload = (e) => resolve(e.target.result.split(',')[1]);
-                    reader.readAsDataURL(imageInput.files[0]);
-                });
-            }
-
             closeModal();
             document.getElementById('loadingModal').classList.add('active');
 
-            const steps = imageBase64 
-                ? [
-                    { text: '[1/6] Finding competitors...', delay: 0 },
-                    { text: '[2/6] Analyzing YOUR page...', delay: 10000 },
-                    { text: '[3/6] Getting PageSpeed scores...', delay: 20000 },
-                    { text: '[4/6] Analyzing competitors...', delay: 40000 },
-                    { text: '[5/6] Analyzing Ubersuggest data...', delay: 55000 },
-                    { text: '[6/6] Getting AI recommendations...', delay: 65000 }
-                ]
-                : [
-                    { text: '[1/5] Finding competitors...', delay: 0 },
-                    { text: '[2/5] Analyzing YOUR page...', delay: 10000 },
-                    { text: '[3/5] Getting PageSpeed scores...', delay: 20000 },
-                    { text: '[4/5] Analyzing competitors...', delay: 40000 },
-                    { text: '[5/5] Getting AI recommendations...', delay: 55000 }
-                ];
+            const steps = [
+                { text: '[1/5] Finding competitors...', delay: 0 },
+                { text: '[2/5] Fetching Shopify content...', delay: 8000 },
+                { text: '[3/5] Getting PageSpeed scores...', delay: 18000 },
+                { text: '[4/5] Analyzing competitors...', delay: 35000 },
+                { text: '[5/5] Getting AI recommendations...', delay: 50000 }
+            ];
 
             steps.forEach(step => {
                 setTimeout(() => document.getElementById('loadingStep').textContent = step.text, step.delay);
             });
 
             try {
-                const requestBody = { 
-                    pageUrl: currentUrl.url, 
-                    keyword 
-                };
-                
-                if (imageBase64) {
-                    requestBody.ubersuggestImage = imageBase64;
-                }
-
                 const response = await fetch('/api/analyze-money-page', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(requestBody)
+                    body: JSON.stringify({ pageUrl: currentUrl.url, keyword })
                 });
 
                 if (!response.ok) {
