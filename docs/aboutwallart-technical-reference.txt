@@ -1,7 +1,7 @@
 # TECHNICAL REFERENCE DOCUMENT
 ## AboutWallArt SEO Tools Infrastructure
 
-**Last Updated:** June 4, 2026 (Keyword Locker full rebuild — v5.6)
+**Last Updated:** June 4, 2026 (Link Whisperer v16.31 — inbound tracking fix)
 **Owner:** aboutwallart
 **Purpose:** Complete technical documentation for all SEO tools, infrastructure, API keys, and configurations
 
@@ -500,7 +500,7 @@ Update this document when:
 # LINK WHISPERER TOOL — COMPLETE DOCUMENTATION
 
 **File:** `link-whisperer.html`
-**Current Version:** v16.29 (June 3, 2026)
+**Current Version:** v16.31 (June 4, 2026)
 **URL:** https://tools.aboutwallart.com/link-whisperer.html
 **Purpose:** Internal linking manager — replicates Link Whisper (WordPress plugin) for Shopify. Manages inbound and outbound internal links across all site content. Also detects keyword cannibalization and auto-applies link rules to new content via Shopify webhooks.
 
@@ -546,7 +546,10 @@ All Shopify calls go through `api/shopify-files.js`. No new API files were creat
 - Returns all rules from `data/autolink-rules.json`
 
 #### GET `get-metafield-links`
-- Returns product→article links from `data/metafield-product-links.json`
+- Returns product→article links from `data/metafield-product-links.json` on GitHub
+- Returns `{ success: true, links: [{productId, articleId}] }`
+- Returns empty array if file doesn't exist yet
+- **IMPORTANT:** This action was missing until v16.31 — before that, inbound tracking never persisted across sessions
 
 #### GET `get-lw-settings`
 - Returns server-side settings from `data/lw-settings.json`
@@ -555,7 +558,10 @@ All Shopify calls go through `api/shopify-files.js`. No new API files were creat
 - Saves full rules array to `data/autolink-rules.json`
 
 #### POST `save-metafield-links`
-- Saves full metafield links array to `data/metafield-product-links.json`
+- Saves full metafield links array to `data/metafield-product-links.json` on GitHub
+- Body: `{ action: 'save-metafield-links', links: [{productId, articleId}] }`
+- Called ONCE after a full queue save (not per item) to avoid GitHub SHA conflicts
+- **IMPORTANT:** This action was missing until v16.31 — before that, saves appeared to work within a session but were lost on reload
 
 #### POST `save-lw-settings`
 - Saves `{wordsToIgnore, dataTypes, ignoreNumbers}` to `data/lw-settings.json`
@@ -694,7 +700,7 @@ Free Interior Design Education & Guides, Free Home Decor & Interior Design Tools
 
 ---
 
-## Tabs Built and Working (v16.29, June 3, 2026)
+## Tabs Built and Working (v16.31, June 4, 2026)
 
 | Tab | Status |
 |-----|--------|
@@ -743,10 +749,21 @@ Free Interior Design Education & Guides, Free Home Decor & Interior Design Tools
 
 ---
 
-## Known Issues / Still To Build (June 3, 2026)
+## Known Issues / Still To Build (June 4, 2026)
 
 1. **Broken Links — Resolved tab** — not yet built
 2. **Broken Links — bulk save** — not yet built
+
+## Version History (this session — June 4, 2026)
+
+| Version | Key Changes |
+|---------|-------------|
+| v16.26 | Auto-Link Webhooks — Register button in Settings, lw-settings.json, webhook handler added to shopify-files.js |
+| v16.27 | Fixed verify URLs bug (checks if items loaded first), fixed collections webhook topic |
+| v16.28 | Errors-only filter in Auto Linking tab, detailed error display on webhook registration |
+| v16.29 | Webhook fixed to products/create + collections/create only. Cannibalization tab added (replaces URL Changer + Target Keywords). blogs.js returns intent column (col 10) |
+| v16.30 | Fixed persistMetafieldLinks to check response and call only once per queue save |
+| v16.31 | **Critical fix** — added missing `get-metafield-links` and `save-metafield-links` actions to blogs.js. These were never in the file, meaning inbound product tracking never persisted across sessions. Now fully working cross-device via GitHub |
 
 ---
 
