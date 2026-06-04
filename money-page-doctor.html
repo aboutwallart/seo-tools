@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 44.3</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 44.4</p>
                 </div>
                 <button onclick="showHelp()" style="background: #0969da; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; white-space: nowrap;">
                     ❓ How to Clear Cache Safely
@@ -613,6 +613,20 @@
                         <div style="font-weight: 500; margin-bottom: 5px; word-break: break-all;">${item.url}</div>
                         ${displayKeyword ? `<div style="font-size: 0.85rem; color: #1976d2; margin-bottom: 3px;">🎯 Keyword: "${displayKeyword}"</div>` : ''}
                         ${gscMetrics}
+                        ${(() => {
+                            const clTotal = parseInt(localStorage.getItem('mpd_total_' + item.url) || '0');
+                            if (!clTotal) return '';
+                            const clState = JSON.parse(localStorage.getItem('mpd_cl_' + item.url) || '{}');
+                            const clDone = Object.values(clState).filter(Boolean).length;
+                            const pct = Math.round(clDone / clTotal * 100);
+                            const col = clDone === clTotal ? '#4caf50' : '#1976d2';
+                            return `<div style="margin-top:6px;display:flex;align-items:center;gap:8px;">
+                                <div style="background:#e0e0e0;border-radius:4px;height:5px;width:80px;flex-shrink:0;">
+                                    <div style="background:${col};height:5px;border-radius:4px;width:${pct}%;transition:width 0.3s;"></div>
+                                </div>
+                                <span style="font-size:0.78rem;color:${col};font-weight:600;">${clDone}/${clTotal} done</span>
+                            </div>`;
+                        })()}
                     </div>
                     <div style="display: flex; gap: 10px;">
                         ${item.analyzed ? `<button class="btn-secondary" onclick="viewResults(${item.id})">📊 View</button>` : ''}
@@ -1090,6 +1104,7 @@
 
             const total = allItems.length;
             currentAnalysisTotal = total;
+            localStorage.setItem(`mpd_total_${pageUrl}`, total);
             const done = allItems.filter(it => state[it.key]).length;
             const donePct = total > 0 ? Math.round((done / total) * 100) : 0;
 
