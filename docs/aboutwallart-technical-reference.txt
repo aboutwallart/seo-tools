@@ -1,7 +1,7 @@
 # TECHNICAL REFERENCE DOCUMENT
 ## AboutWallArt SEO Tools Infrastructure
 
-**Last Updated:** June 4, 2026 (Link Whisperer v16.31 — inbound tracking fix)
+**Last Updated:** June 4, 2026 (Easy SEO Report v56 — Social Traffic tab complete)
 **Owner:** aboutwallart
 **Purpose:** Complete technical documentation for all SEO tools, infrastructure, API keys, and configurations
 
@@ -96,6 +96,8 @@
 - `ga4-traffic-breakdown` — GA4 sessions by page path and month (rowLimit: 5000) — used by Suspicious Traffic stacked chart
 - `ga4-suspicious` — GA4 sessions with bounce rate by month — used by Suspicious Traffic gauge
 - `ga4-llm` — GA4 LLM/AI referral traffic (?days=30/90/180)
+- `ga4-social` — GA4 social media traffic by platform + date (?days=365/730/1095/1460/1825)
+- `ga4-social-pages` — GA4 social media traffic by platform + landing page (?days=365 etc)
 
 ### CRITICAL: URL Format
 GSC returns URLs WITHOUT www: `https://aboutwallart.com/`
@@ -207,6 +209,14 @@ https://accounts.google.com/o/oauth2/v2/auth?client_id=15466013888-deual871humre
 - Saves full metafield links array to data/metafield-product-links.json
 - Body: `{ action: 'save-metafield-links', links: [{productId, articleId}] }`
 
+#### get-social-revenue (GET)
+- Fetches Shopify orders and groups revenue by social referring site
+- Query param: `?days=365` (default 90, supports up to 1825 for 5 years)
+- Filters orders where `referring_site` contains a known social domain (facebook, instagram, pinterest, tiktok, youtube, twitter, t.co, x.com, linkedin)
+- Returns: `{ success: true, byPlatform: { 'Facebook': 120.50, ... }, byPage: { '/blogs/...': { total, orders, topPlatform } } }`
+- Skips voided/refunded orders
+- Requires `read_orders` scope on SHOPIFY_ACCESS_TOKEN
+
 #### POST (no action) — Mark blog as To Write (Blog Manager)
 #### PATCH — Mark as Keyword Change (Blog Manager)
 #### DELETE — Undo (Blog Manager)
@@ -238,21 +248,22 @@ https://accounts.google.com/o/oauth2/v2/auth?client_id=15466013888-deual871humre
 
 # EASY SEO REPORT TOOL — COMPLETE DOCUMENTATION
 
-**File:** `gsc-report.html`
-**Current Version:** v52 (May 30, 2026)
-**URL:** https://tools.aboutwallart.com/gsc-report.html
+**File:** `easy-seo-report.html`
+**Current Version:** v56 (June 4, 2026)
+**URL:** https://tools.aboutwallart.com/easy-seo-report.html
 
 ## Sidebar Sections (in order):
 1. High Level SEO Metrics
 2. Historical View (1 Year)
 3. 🚨 Suspicious Traffic
 4. 🤖 AI Traffic
-5. 🔥 Quick Wins
-6. ⚠️ Danger Pages
-7. Keyword Tracker
-8. Keyword Rankings
-9. Blog Optimizations
-10. Content Optimizations
+5. 📱 Social Traffic
+6. 🔥 Quick Wins
+7. ⚠️ Danger Pages
+8. Keyword Tracker
+9. Keyword Rankings
+10. Blog Optimizations
+11. Content Optimizations
 
 ---
 
@@ -289,7 +300,18 @@ https://accounts.google.com/o/oauth2/v2/auth?client_id=15466013888-deual871humre
 - Date range: 30/90/180 days selector
 - Duplicate sources merged (chatgpt.com + chat.openai.com = one card)
 
-## 5. 🔥 Quick Wins
+## 5. 📱 Social Traffic
+- Date range selector: 1 / 2 / 3 / 4 / 5 Years
+- Header bar: Total Sessions, Total Views, Platforms count, Revenue from Social (green, from Shopify orders)
+- Overview: single donut chart (sessions by platform) + dynamic line chart (months match selected period)
+- Per-platform cards: gauge (views outer, sessions inner) + 6-month bar chart + green Revenue box if revenue > £0
+- Platforms tracked: Facebook, Instagram, Pinterest, TikTok, YouTube, Twitter/X, LinkedIn
+- Top Landing Pages table: sortable by Sessions ↕ / Views ↕ / Revenue ↕, searchable, shows top platform badge per page
+- Revenue data source: Shopify Orders REST API, filtered by `referring_site` containing social domains
+- GA4 data source: `ga4-social` (sessions by source+date) + `ga4-social-pages` (sessions by source+pagePath)
+- Revenue note: uses last-click attribution from Shopify; requires `read_orders` scope on SHOPIFY_ACCESS_TOKEN
+
+## 6. 🔥 Quick Wins
 - Pages ranking position 1–20 with 100+ impressions
 - Page type sub-tabs: Collections | Blogs | Products | Pages
 - All / Selected sub-tabs with + Select and ↩ Undo buttons
@@ -298,14 +320,14 @@ https://accounts.google.com/o/oauth2/v2/auth?client_id=15466013888-deual871humre
 - Save to Registry: locks keyword+URL with LOCKED/DONE/TO_OPTIMIZE/User Resolved
 - Search bar + data loads independently
 
-## 6. ⚠️ Danger Pages
+## 7. ⚠️ Danger Pages
 - Pages where clicks dropped 20%+ vs previous 90 days (min 10 clicks previous period)
 - Same structure as Quick Wins: page type sub-tabs, All/Selected, sort, registry
 - Keyword column showing top ranking keyword per URL
 - Save to Registry: same rules as Quick Wins
 - Loads independently (does not depend on Quick Wins loading first)
 
-## 7. Keyword Tracker
+## 8. Keyword Tracker
 - Named tabs saved to GitHub (keyword-tracker.json)
 - Each tab tracks a keyword and shows:
   - 5 metric cards (Queries Found, Clicks, Impressions, CTR, Avg Position)
@@ -316,7 +338,7 @@ https://accounts.google.com/o/oauth2/v2/auth?client_id=15466013888-deual871humre
 - Tabs are renameable and deletable
 - Optimisation dates saved to data/keyword-optimisations.json
 
-## 8. Keyword Rankings
+## 9. Keyword Rankings
 - All GSC queries with metrics for last 90 days
 - Filters: Search, Position range, Difficulty, Min Impressions, Row limit
 - Column sort: click any header, priority badge system (1↑, 2↓ etc), ✕ to remove
@@ -326,7 +348,7 @@ https://accounts.google.com/o/oauth2/v2/auth?client_id=15466013888-deual871humre
 - Trend column in Selected tab: ▲ green / ▼ red / ▶ amber vs previous 90 days
 - Saved selections in data/tracked-keywords.json
 
-## 9. Blog Optimizations
+## 10. Blog Optimizations
 - Blog posts only (/blogs/ URLs)
 - Excludes: CDN, /es/, /fr/, ?param URLs, Quick Wins URLs, Danger Pages URLs
 - 3 tabs: 🔴 Urgent (CTR <0.5%) | 🟡 Improve (0.5%-1%) | ⚪ Monitor (>1%)
@@ -334,7 +356,7 @@ https://accounts.google.com/o/oauth2/v2/auth?client_id=15466013888-deual871humre
 - Filters: 100+ impressions, published >90 days ago, English only
 - Download CSV per tab
 
-## 10. Content Optimizations
+## 11. Content Optimizations
 - Non-blog pages only
 - Excludes: CDN, /es/, /fr/, ?param URLs, Quick Wins URLs, Danger Pages URLs
 - Fix CTR: position 1-7, has clicks, CTR <2%, 100+ impressions
@@ -362,6 +384,9 @@ function shouldExcludeUrl(url) {
 - /api/gsc?action=ga4-llm
 - /api/gsc?action=ga4-suspicious
 - /api/gsc?action=ga4-traffic-breakdown
+- /api/gsc?action=ga4-social&days=X
+- /api/gsc?action=ga4-social-pages&days=X
+- /api/blogs?action=get-social-revenue&days=X
 - /api/gsc?action=keyword-monthly&keyword=X
 - /api/shopify-files?action=get-blogs-by-month&month=YYYY-MM
 - /api/blogs?action=get-published-keywords
