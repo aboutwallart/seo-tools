@@ -1,7 +1,7 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v44.1
+// analyze-money-page.js — v44.3
 const SERPAPI_KEY = process.env.SERPAPI_KEY;
 const PAGESPEED_KEY = process.env.GOOGLE_API_KEY;
 const SHOPIFY_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
@@ -738,13 +738,14 @@ Return this exact JSON structure with real content (no placeholders):
   "aiItems": [
     {
       "element": "Comparison Snippet",
+      "priority": "high",
       "content": "Full copy-paste ready paragraph starting with 'What is ${keyword}?'"
     }
   ],
   "otherActions": [
     {
       "priority": "high",
-      "action": "Specific actionable instruction"
+      "action": "Specific actionable instruction for a task NOT already covered above"
     }
   ]
 }
@@ -757,8 +758,8 @@ RULES:
 - faqSchema: write 6-8 real questions people search about "${keyword}" with full helpful answers
 - brandBlock: use EXACTLY the text shown — do not change it
 - h2Sections: include ALL missing H2s from content gaps with full paragraph content; mark theme H2s (Recently Viewed, Trending Now etc) as delete
-- aiItems: write complete copy-paste ready content for each missing AI element
-- otherActions: specific instructions only, UK spelling, no vague advice
+- aiItems: include a "priority" field (high/medium/low) for each item; write complete copy-paste ready HTML content
+- otherActions: ONLY include actions NOT already covered by pageSchema, faqSchema, brandBlock, or aiItems. Do NOT say "add schema", "add FAQ", "add brand block" or reference anything already in those sections. Only include genuinely new manual tasks such as: internal link building, image filename/alt text, canonical tag, URL slug, social sharing tags, page speed. Keep each action concise — one sentence max.
 - Return ONLY the JSON object — no other text`;
 }
 
