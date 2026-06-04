@@ -410,7 +410,7 @@
             <h1>Keyword Locker</h1>
             <p>Lock each keyword to its best URL — resolve cannibalization by choosing winners</p>
             <p class="subtitle">One keyword = One winner URL. Intent-aware conflict detection.</p>
-            <div class="version">v5.3</div>
+            <div class="version">v5.4</div>
         </div>
 
         <div class="load-section">
@@ -605,7 +605,12 @@
                     if (url) lockedUrls.add(url);
                     if (!handledKeywords[kw]) handledKeywords[kw] = new Set();
                     if (intent) handledKeywords[kw].add(intent);
-                    resolved++;
+                    resolved++; // only User Resolved counted
+                } else if (action === 'TO_OPTIMIZE' && source !== 'User Resolved') {
+                    // Published Blog or other pre-locked — lock URL and handle keyword but don't count as resolved
+                    if (url) lockedUrls.add(url);
+                    if (!handledKeywords[kw]) handledKeywords[kw] = new Set();
+                    if (intent) handledKeywords[kw].add(intent);
                 } else if (action === 'SAVED_FOR_FUTURE') {
                     if (!handledKeywords[kw]) handledKeywords[kw] = new Set();
                     handledKeywords[kw].add('ALL');
@@ -641,6 +646,7 @@
                 const url = normalizeUrl(row.keys[0]);
                 const keyword = row.keys[1].toLowerCase().trim();
                 if (shouldExclude(url)) return;
+                if (keyword.length > 80) return; // skip noise/junk keywords
                 const intent = detectIntent(url);
                 if (intent === 'UNKNOWN') return;
                 if (!byKeyword[keyword]) byKeyword[keyword] = {};
