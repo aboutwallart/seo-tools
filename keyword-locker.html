@@ -410,7 +410,7 @@
             <h1>Keyword Locker</h1>
             <p>Lock each keyword to its best URL — resolve cannibalization by choosing winners</p>
             <p class="subtitle">One keyword = One winner URL. Intent-aware conflict detection.</p>
-            <div class="version">v5.4</div>
+            <div class="version">v5.5</div>
         </div>
 
         <div class="load-section">
@@ -843,6 +843,12 @@
                 statsResolved++;
                 statsInternalLinks += losers.length;
 
+                // Add to local registry so views update without reload
+                registry.push({ keyword: conflict.keyword, url: winner.url, locked: true, status: 'DONE', action: 'TO_OPTIMIZE', winnerUrl: '', source: 'User Resolved', intent: conflict.intent });
+                losers.forEach(l => {
+                    registry.push({ keyword: conflict.keyword, url: l.url, locked: false, status: 'DONE', action: 'INTERNAL_LINK', winnerUrl: winner.url, source: 'Auto Detected', intent: conflict.intent });
+                });
+
                 // Update stats
                 document.getElementById('resolvedCount').textContent = statsResolved;
                 document.getElementById('internalLinksCount').textContent = statsInternalLinks;
@@ -882,6 +888,7 @@
                 });
 
                 statsSaved++;
+                registry.push({ keyword: conflict.keyword, url: 'N/A', locked: true, status: 'DONE', action: 'SAVED_FOR_FUTURE', winnerUrl: '', source: 'User Action', intent: conflict.intent });
                 document.getElementById('savedCount').textContent = statsSaved;
                 document.getElementById('conflictsCount').textContent = parseInt(document.getElementById('conflictsCount').textContent) - 1;
                 document.getElementById('activeConflictCount').textContent = parseInt(document.getElementById('activeConflictCount').textContent) - 1;
@@ -915,6 +922,7 @@
                 });
 
                 statsDeleted++;
+                registry.push({ keyword: conflict.keyword, url: 'N/A', locked: true, status: 'DONE', action: 'DELETED', winnerUrl: '', source: 'User Action', intent: conflict.intent });
                 document.getElementById('deletedCount').textContent = statsDeleted;
                 document.getElementById('conflictsCount').textContent = parseInt(document.getElementById('conflictsCount').textContent) - 1;
                 document.getElementById('activeConflictCount').textContent = parseInt(document.getElementById('activeConflictCount').textContent) - 1;
@@ -936,8 +944,10 @@
             const cards = document.querySelectorAll('.conflict-item');
 
             cards.forEach(card => {
-                // Skip already hidden cards
                 if (card.style.display === 'none') return;
+
+                // Skip cards that already have a notice
+                if (card.querySelector('.auto-notice')) return;
 
                 const options = card.querySelectorAll('.url-option');
                 let unlockedOptions = [];
@@ -968,25 +978,44 @@
                     }
                 });
 
-                // If only 1 unlocked option remains — auto-resolve as User Resolved
-                if (unlockedOptions.length === 1) {
-                    const winner = unlockedOptions[0];
-                    const conflictIndex = card.id.replace('conflict-', '');
-                    const conflict = conflictsData[parseInt(conflictIndex)];
-                    if (conflict) {
-                        autoResolveConflict(card, conflict, winner.fullUrl);
-                    }
+                const conflictIndex = parseInt(card.id.replace('conflict-', ''));
+                const conflict = conflictsData[conflictIndex];
+                if (!conflict) return;
+
+                const actionsEl = card.querySelector('.conflict-actions');
+
+                if (unlockedOptions.length === 0) {
+                    // All options locked — show remove notice
+                    actionsEl.innerHTML = `
+                        <div class="auto-notice" style="background:#fef3c7;border:2px solid #f59e0b;border-radius:8px;padding:12px 16px;width:100%;">
+                            <strong>All competing pages are already locked to other keywords.</strong> This conflict cannot be resolved.
+                            <button onclick="removeAllLockedConflict(${conflictIndex})" style="margin-left:16px;background:#ef4444;color:white;border:none;padding:8px 16px;border-radius:6px;font-weight:600;cursor:pointer;">Remove</button>
+                        </div>`;
+
+                } else if (unlockedOptions.length === 1) {
+                    // Only 1 unlocked — show confirm notice
+                    const winnerUrl = unlockedOptions[0].fullUrl;
+                    actionsEl.innerHTML = `
+                        <div class="auto-notice" style="background:#d1fae5;border:2px solid #10b981;border-radius:8px;padding:12px 16px;width:100%;">
+                            <strong>All other competing pages are already locked.</strong> This is the only available winner — click Confirm to lock it.
+                            <button onclick="confirmSingleWinner(${conflictIndex}, '${winnerUrl}')" style="margin-left:16px;background:#10b981;color:white;border:none;padding:8px 16px;border-radius:6px;font-weight:600;cursor:pointer;">Confirm & Lock</button>
+                        </div>`;
                 }
             });
         }
 
-        // ── Auto-resolve a conflict with only 1 unlocked option ──
-        async function autoResolveConflict(card, conflict, winnerUrl) {
+        // ── Confirm single winner ──
+        async function confirmSingleWinner(index, winnerUrl) {
+            const conflict = conflictsData[index];
             const losers = conflict.pages
                 .map(p => ({ ...p, isLocked: lockedUrlsRuntime.has(p.url) }))
-                .filter(p => p.url !== winnerUrl);
+                .filter(p => normalizeUrl(p.url) !== normalizeUrl(winnerUrl));
 
             try {
+                const card = document.getElementById(`conflict-${index}`);
+                card.querySelector('.auto-notice button').textContent = 'Saving...';
+                card.querySelector('.auto-notice button').disabled = true;
+
                 await fetch('/api/blogs', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -999,23 +1028,54 @@
                     })
                 });
 
-                // Update runtime state
                 lockedUrlsRuntime.add(winnerUrl);
                 statsResolved++;
                 statsInternalLinks += losers.length;
+
+                registry.push({ keyword: conflict.keyword, url: winnerUrl, locked: true, status: 'DONE', action: 'TO_OPTIMIZE', winnerUrl: '', source: 'User Resolved', intent: conflict.intent });
+                losers.forEach(l => {
+                    registry.push({ keyword: conflict.keyword, url: l.url, locked: false, status: 'DONE', action: 'INTERNAL_LINK', winnerUrl: winnerUrl, source: 'Auto Detected', intent: conflict.intent });
+                });
+
                 document.getElementById('resolvedCount').textContent = statsResolved;
                 document.getElementById('internalLinksCount').textContent = statsInternalLinks;
                 document.getElementById('conflictsCount').textContent = parseInt(document.getElementById('conflictsCount').textContent) - 1;
                 document.getElementById('activeConflictCount').textContent = parseInt(document.getElementById('activeConflictCount').textContent) - 1;
 
-                // Hide card
-                const resolvedEl = document.getElementById(`resolved-${card.id.replace('conflict-', '')}`);
-                if (resolvedEl) { resolvedEl.style.display = 'block'; resolvedEl.textContent = `Locked: ${shortUrl(winnerUrl)}`; }
+                card.style.pointerEvents = 'none';
+                setTimeout(() => { card.style.display = 'none'; refreshConflictCards(); }, 1500);
+
+            } catch (error) {
+                showModal('Error', `Failed to save: ${error.message}`);
+            }
+        }
+
+        // ── Remove all-locked conflict ──
+        async function removeAllLockedConflict(index) {
+            const conflict = conflictsData[index];
+            try {
+                const card = document.getElementById(`conflict-${index}`);
+                card.querySelector('.auto-notice button').textContent = 'Removing...';
+                card.querySelector('.auto-notice button').disabled = true;
+
+                await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'delete-keyword', keyword: conflict.keyword, intent: conflict.intent })
+                });
+
+                statsDeleted++;
+                document.getElementById('deletedCount').textContent = statsDeleted;
+                document.getElementById('conflictsCount').textContent = parseInt(document.getElementById('conflictsCount').textContent) - 1;
+                document.getElementById('activeConflictCount').textContent = parseInt(document.getElementById('activeConflictCount').textContent) - 1;
+
+                registry.push({ keyword: conflict.keyword, url: 'N/A', locked: true, status: 'DONE', action: 'DELETED', winnerUrl: '', source: 'User Action', intent: conflict.intent });
+
                 card.style.pointerEvents = 'none';
                 setTimeout(() => { card.style.display = 'none'; }, 1500);
 
             } catch (error) {
-                console.error('Auto-resolve failed:', error);
+                showModal('Error', `Failed to remove: ${error.message}`);
             }
         }
 
