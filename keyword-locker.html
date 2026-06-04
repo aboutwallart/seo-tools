@@ -410,7 +410,7 @@
             <h1>Keyword Locker</h1>
             <p>Lock each keyword to its best URL — resolve cannibalization by choosing winners</p>
             <p class="subtitle">One keyword = One winner URL. Intent-aware conflict detection.</p>
-            <div class="version">v5.0</div>
+            <div class="version">v5.1</div>
         </div>
 
         <div class="load-section">
@@ -1146,9 +1146,16 @@
                     if (entry.action === 'SAVED_FOR_FUTURE') { statsSaved = Math.max(0, statsSaved - 1); document.getElementById('savedCount').textContent = statsSaved; }
                     if (entry.action === 'DELETED') { statsDeleted = Math.max(0, statsDeleted - 1); document.getElementById('deletedCount').textContent = statsDeleted; }
 
-                    // Remove from registry array
-                    const idx = registry.indexOf(entry);
-                    if (idx > -1) registry.splice(idx, 1);
+                    // Remove ALL rows for this keyword (winner + losers)
+                    const loserCount = registry.filter(e => e.keyword.toLowerCase() === keyword.toLowerCase() && e.action === 'INTERNAL_LINK').length;
+                    statsInternalLinks = Math.max(0, statsInternalLinks - loserCount);
+                    document.getElementById('internalLinksCount').textContent = statsInternalLinks;
+
+                    const indices = registry.reduce((acc, e, i) => {
+                        if (e.keyword.toLowerCase() === keyword.toLowerCase()) acc.push(i);
+                        return acc;
+                    }, []);
+                    indices.reverse().forEach(i => registry.splice(i, 1));
                 }
 
                 // Update active conflicts count
