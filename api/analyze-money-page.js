@@ -1,7 +1,7 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v44.3
+// analyze-money-page.js — v44.4
 const SERPAPI_KEY = process.env.SERPAPI_KEY;
 const PAGESPEED_KEY = process.env.GOOGLE_API_KEY;
 const SHOPIFY_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
@@ -760,6 +760,7 @@ RULES:
 - h2Sections: include ALL missing H2s from content gaps with full paragraph content; mark theme H2s (Recently Viewed, Trending Now etc) as delete
 - aiItems: include a "priority" field (high/medium/low) for each item; write complete copy-paste ready HTML content
 - otherActions: ONLY include actions NOT already covered by pageSchema, faqSchema, brandBlock, or aiItems. Do NOT say "add schema", "add FAQ", "add brand block" or reference anything already in those sections. Only include genuinely new manual tasks such as: internal link building, image filename/alt text, canonical tag, URL slug, social sharing tags, page speed. Keep each action concise — one sentence max.
+- WORD COUNT: Never say "reduce word count to X words" as a generic instruction. If word count is too high AFTER accounting for all the content you are adding, name the EXACT sections or paragraphs to delete and why — e.g. "Delete the paragraph under [H2 name] — it repeats the intro". If you cannot identify specific content to cut, do not mention word count at all.
 - Return ONLY the JSON object — no other text`;
 }
 
