@@ -1,7 +1,7 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v43.2
+// analyze-money-page.js — v44.0
 const SERPAPI_KEY = process.env.SERPAPI_KEY;
 const PAGESPEED_KEY = process.env.GOOGLE_API_KEY;
 const SHOPIFY_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
@@ -24,7 +24,7 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const { pageUrl, keyword, ubersuggestImage } = req.body;
+    const { pageUrl, keyword } = req.body;
 
     if (!pageUrl || !keyword) {
       return res.status(400).json({ error: 'Missing pageUrl or keyword' });
@@ -32,10 +32,6 @@ module.exports = async function handler(req, res) {
 
     const startTime = Date.now();
     console.log(`[Money Page] Analyzing: ${pageUrl} for keyword: "${keyword}"`);
-    if (ubersuggestImage) {
-      console.log('[Money Page] Ubersuggest screenshot provided - will analyze keyword opportunities');
-    }
-
     // Step 1: Find competitors using SerpAPI and check user position
     console.log('[Money Page] Step 1: Finding competitors... (~10 sec)');
     const searchResults = await findCompetitors(keyword, pageUrl);
@@ -101,7 +97,7 @@ module.exports = async function handler(req, res) {
 
     // Step 5: Get Claude analysis
     console.log('[Money Page] Step 5: Getting AI recommendations... (~20 sec)');
-    const analysis = await getClaudeAnalysis(yourPageData, competitorData, keyword, searchResults.userPosition, ubersuggestImage, contentGaps);
+    const analysis = await getClaudeAnalysis(yourPageData, competitorData, keyword, searchResults.userPosition, contentGaps);
     console.log(`[Money Page] ✓ AI analysis complete! Total time: ${Math.round((Date.now() - startTime) / 1000)}s`);
 
     // Return results
@@ -601,35 +597,13 @@ async function getPageSpeedScore(url, strategy) {
 }
 
 // Get Claude analysis
-async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = null, ubersuggestImage = null, contentGaps = null) {
+async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = null, contentGaps = null) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not found');
 
-  if (!apiKey) {
-    throw new Error('ANTHROPIC_API_KEY not found');
-  }
-
-  const prompt = buildAnalysisPrompt(yourPage, competitors, keyword, userPosition, ubersuggestImage, contentGaps);
+  const prompt = buildAnalysisPrompt(yourPage, competitors, keyword, userPosition, contentGaps);
 
   try {
-    // Build content array - include image if provided
-    const contentArray = [];
-    
-    if (ubersuggestImage) {
-      contentArray.push({
-        type: 'image',
-        source: {
-          type: 'base64',
-          media_type: 'image/png',
-          data: ubersuggestImage
-        }
-      });
-    }
-    
-    contentArray.push({
-      type: 'text',
-      text: prompt
-    });
-
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -639,214 +613,153 @@ async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = 
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 4000,
-        messages: [{
-          role: 'user',
-          content: contentArray
-        }]
+        max_tokens: 7000,
+        messages: [{ role: 'user', content: prompt }]
       })
     });
 
     const data = await response.json();
-    
-    if (data.error) {
-      console.error('[Claude] API Error:', data.error);
-      throw new Error(data.error.message || 'Claude API error');
-    }
+    if (data.error) throw new Error(data.error.message || 'Claude API error');
+    if (!data.content?.[0]?.text) throw new Error('Invalid Claude API response structure');
 
-    if (!data.content || !data.content[0] || !data.content[0].text) {
-      console.error('[Claude] Invalid response structure:', JSON.stringify(data).substring(0, 500));
-      throw new Error('Invalid Claude API response structure');
-    }
+    const raw = data.content[0].text.trim();
+    console.log('[Claude] Response length:', raw.length, 'chars');
 
-    const analysisText = data.content[0].text.trim();
-    console.log('[Claude] Analysis length:', analysisText.length, 'chars');
-    console.log('[Claude] Analysis preview (first 500 chars):', analysisText.substring(0, 500));
-    console.log('[Claude] Analysis preview (last 500 chars):', analysisText.substring(analysisText.length - 500));
-    console.log('[Claude] Contains code fence?', analysisText.includes('```'));
-    console.log('[Claude] Contains script tag?', analysisText.includes('<script'));
-    
-    // Return as plain text markdown (no JSON parsing needed)
-    return {
-      markdown: analysisText
-    };
+    // Try to parse as structured JSON
+    try {
+      // Strip markdown code fences if present
+      const jsonStr = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+      const parsed = JSON.parse(jsonStr);
+      console.log('[Claude] ✓ Structured JSON parsed successfully');
+      return { structured: parsed };
+    } catch (parseErr) {
+      console.warn('[Claude] JSON parse failed, falling back to markdown:', parseErr.message);
+      return { markdown: raw };
+    }
 
   } catch (error) {
     console.error('[Claude] Error:', error.message);
-    console.error('[Claude] Stack:', error.stack);
     throw error;
   }
 }
 
-// Build the prompt for Claude with OpenAI-style actionable format
-function buildAnalysisPrompt(yourPage, competitors, keyword, userPosition = null, hasUbersuggestImage = false, contentGaps = null) {
-  const avgCompWordCount = competitors.length > 0 
-    ? Math.round(competitors.reduce((sum, c) => sum + c.wordCount, 0) / competitors.length)
-    : 0;
-
+// Build the structured JSON prompt for Claude
+function buildAnalysisPrompt(yourPage, competitors, keyword, userPosition = null, contentGaps = null) {
+  const avgCompWordCount = competitors.length > 0
+    ? Math.round(competitors.reduce((sum, c) => sum + c.wordCount, 0) / competitors.length) : 0;
   const avgCompKeywordDensity = competitors.length > 0
-    ? (competitors.reduce((sum, c) => sum + c.keywordDensity, 0) / competitors.length).toFixed(2)
-    : 0;
+    ? (competitors.reduce((sum, c) => sum + c.keywordDensity, 0) / competitors.length).toFixed(2) : 0;
 
-  // Position context
-  const positionContext = userPosition 
-    ? (userPosition === 1 
-        ? `User is #1 for "${keyword}". Give defensive recommendations.`
-        : `User is position ${userPosition} for "${keyword}".`)
-    : `User is not in top 10 for "${keyword}".`;
+  const positionContext = userPosition
+    ? (userPosition === 1 ? `Currently ranking #1 for "${keyword}" — give defensive optimisation advice.`
+      : `Currently ranking position ${userPosition} for "${keyword}".`)
+    : `Not in top 10 for "${keyword}" — focus on closing gaps vs top 3.`;
 
-  // Ubersuggest section
-  const ubersuggestSection = hasUbersuggestImage ? `
+  const pageTypeLabel = yourPage.shopifyType === 'product' ? 'product page'
+    : yourPage.shopifyType?.includes('collection') ? 'collection page'
+    : yourPage.shopifyType === 'article' ? 'blog article'
+    : yourPage.shopifyType === 'page' ? 'landing page' : 'page';
 
-UBERSUGGEST DATA PROVIDED:
-Analyze the screenshot above and extract:
-- Current keyword: "${keyword}"
-- All alternative keywords shown with their search volume and difficulty scores
-- Recommend if user should SWAP to a better keyword (higher volume + lower difficulty)
-- List 3-5 secondary keywords to naturally include in content
+  const schemaType = yourPage.shopifyType === 'product' ? 'Product'
+    : yourPage.shopifyType?.includes('collection') ? 'CollectionPage'
+    : yourPage.shopifyType === 'article' ? 'Article' : 'WebPage';
 
-Add this section BEFORE the main recommendations:
+  const currentDesc = yourPage.shopifyBodyHtml
+    ? yourPage.shopifyBodyHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 600)
+    : '';
 
-📊 KEYWORD OPPORTUNITY ANALYSIS
+  const missingH2s = contentGaps?.missingH2s?.length > 0
+    ? contentGaps.missingH2s.map(h => `"${h.text}"`).join(', ') : 'None';
+  const missingAI = contentGaps?.missingAIOptimization?.length > 0
+    ? contentGaps.missingAIOptimization.map(a => `${a.element} [${a.priority}]`).join(', ') : 'None';
 
-Current: "${keyword}" (Volume: [X] | Difficulty: [Y])
-${userPosition ? `Currently ranking: Position ${userPosition}` : 'Not ranking in top 10'}
+  return `You are an expert SEO specialist. Analyse this ${pageTypeLabel} and return ONLY a valid JSON object — no text before or after, no markdown code fences.
 
-[Either:]
-✅ KEEP CURRENT KEYWORD - Best opportunity
-[Or:]
-🔄 SWAP TO: "[better keyword]" (Volume: [X] | Difficulty: [Y])
-Reason: [One line why it's better]
-
-Secondary keywords to include:
-- [keyword] (Volume: [X])
-- [keyword] (Volume: [X])
-- [keyword] (Volume: [X])
-
----
-
-` : '';
-
-  // Content gaps section
-  const contentGapsSection = contentGaps ? `
-
-AI VISIBILITY SCORE: ${yourPage.aiScore}/10
-
-Missing H2 Sections:
-${contentGaps.missingH2s.length > 0 
-  ? contentGaps.missingH2s.map(h2 => `- "${h2.text}" (in ${h2.count}/${competitors.length} competitors)`).join('\n')
-  : '- None significant'}
-
-Missing AI Optimization Elements (ALWAYS ADD THESE):
-${contentGaps.missingAIOptimization && contentGaps.missingAIOptimization.length > 0
-  ? contentGaps.missingAIOptimization.map(ai => `- ${ai.element} [${ai.priority} priority] - ${ai.instruction}`).join('\n')
-  : '- None - Page is fully AI optimized!'}
-
-CRITICAL INSTRUCTIONS FOR AI OPTIMIZATION:
-- For EVERY missing H2: Write the EXACT H2 text + a full 2-3 sentence paragraph for that section
-- For FAQ Schema: Say "Use Kickstart to generate FAQ schema for '${keyword}' with 8-10 questions"
-- For Brand/Authority Block: Write ONE comprehensive block (4-5 sentences: UK-based, founded 2020, design and produce wall art in-house, 500+ reviews 4.8/5 stars, FREE fast UK delivery, international shipping, 14-day return policy)
-- For Comparison Snippet: Write full "What is ${keyword}" paragraph (3-4 sentences)
-- For Product Schema: Say "Add Product schema with name, image, price, availability"
-- For Review Schema: Say "Add AggregateRating schema with rating value and review count"
-- For Breadcrumb Schema: Say "Add BreadcrumbList schema for navigation"
-- For How-To Schema: Say "Add HowTo schema if content includes steps/instructions"
-- For Tables: Create comparison table with key features/specs
-- For Lists: Add bullet point or numbered list with 5+ items
-- For Related Questions: Add "People Also Ask" section with 3-5 questions
-${yourPage.isBlog ? `- For Author: Add "Written by [Name], [Credentials]" at top
-- For Dates: Add "Published: [Date] | Updated: [Date]" near title
-- For Summary: Add TL;DR box at top with 2-3 sentence summary` : ''}
-
-` : '';
-
-  return `You are an SEO expert. Give ACTIONABLE, COPY-PASTE READY instructions. NO explanations. NO options. ONE clear action per item.
-
-${positionContext}
-
-TARGET KEYWORD: "${keyword}"
-${ubersuggestSection}
-${contentGapsSection}
-
-YOUR PAGE:
-- Title: ${yourPage.title || 'MISSING'} (${(yourPage.title || '').length} chars)
-- Meta: ${yourPage.metaDescription || 'MISSING'} (${yourPage.metaDescription?.length || 0} chars)
+CONTEXT:
+- Keyword: "${keyword}"
+- ${positionContext}
+- Page type: ${pageTypeLabel}
+- Current title: ${yourPage.title || 'MISSING'} (${(yourPage.title || '').length} chars)
+- Current meta: ${yourPage.metaDescription || 'MISSING'} (${yourPage.metaDescription?.length || 0} chars)
 - H1: ${yourPage.h1.join(', ') || 'MISSING'}
-- H2 headings: ${yourPage.h2.slice(0, 10).join(', ') || 'None'}
-- H2 count: ${yourPage.h2.length}
-- Word count: ${yourPage.wordCount}
-- Keyword uses: ${yourPage.keywordOccurrences}
-- Keyword density: ${yourPage.keywordDensity}%
-- PageSpeed Mobile: ${yourPage.speedMobile}
-- Page type: ${yourPage.shopifyType || 'unknown'}${yourPage.shopifyBodyHtml ? `
-- Description content: ${yourPage.shopifyBodyHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 500)}${yourPage.shopifyBodyHtml.length > 500 ? '...' : ''}` : ''}
+- Current H2s: ${yourPage.h2.slice(0, 10).join(' | ') || 'None'}
+- Word count: ${yourPage.wordCount} (competitor avg: ${avgCompWordCount})
+- Keyword density: ${yourPage.keywordDensity}% (competitor avg: ${avgCompKeywordDensity}%)
+- Mobile speed: ${yourPage.speedMobile}
+${currentDesc ? `- Current description: ${currentDesc}` : ''}
 
-COMPETITORS (avg):
-- Word count: ${avgCompWordCount}
-- Keyword density: ${avgCompKeywordDensity}%
+COMPETITORS:
+${competitors.map(c => `Position ${c.position}: ${c.wordCount} words, ${c.keywordDensity}% density, H2s: ${c.h2.slice(0, 5).join(' | ') || 'none'}`).join('\n')}
 
-${competitors.map((comp) => `Position ${comp.position}: ${comp.wordCount} words, ${comp.keywordDensity}% density, ${comp.h2.length} H2s`).join('\n')}
+CONTENT GAPS:
+- Missing H2 sections: ${missingH2s}
+- Missing AI elements: ${missingAI}
+- AI Visibility Score: ${yourPage.aiScore}/10
 
-FORMAT EXACTLY LIKE THIS:
+Return this exact JSON structure with real content (no placeholders):
 
-🔴 DO THESE FIRST (in exact order)
-
-1. [Action Verb] [What]
-Use exactly this:
-[FULL REPLACEMENT TEXT]
-
-2. [Action] [What]
-Delete these H2s:
-- [heading]
-
-Add these H2s:
-- [heading]
-
-EXAMPLE FOR MISSING H2 SECTION:
-6. Add H2: "What Is Office Wall Artwork?"
-Add as the first H2 directly below the H1, before product grid:
-Use exactly this:
-
-## What Is Office Wall Artwork?
-
-Office wall artwork refers to decorative prints, canvases, and wall stickers specifically designed to enhance professional workspaces. From motivational quotes to abstract designs, office wall art creates an inspiring environment that boosts productivity and reflects company culture. Popular choices include minimalist prints, botanical themes, and bold typography that make a statement without overwhelming the space.
-
-EXAMPLE FOR BRAND BLOCK:
-10. Add Brand/Authority Block
-Add at the bottom of the page directly before the footer:
-Use exactly this:
-
-## About AboutWallArt
-
-Founded in 2020, we're the UK's leading specialist in wall art and home decor. As a trusted, UK-based company, we design and produce our own unique wall art items in-house. Rated 4.8/5 stars from over 500+ verified customer reviews, we offer free fast UK delivery, international shipping, secure checkout, and back every purchase with our hassle-free 14-day return policy.
-
-EXAMPLE FOR SCHEMA (do NOT write code, just this instruction):
-7. Add FAQ Schema
-Use Kickstart to generate FAQ schema for "${keyword}" with 8-10 questions
-
-🟡 DO NEXT (after core fixes)
-
-[Same format]
-
-✅ FINAL CHECK
-
-Make sure:
-• [Item] ✔
-• [Item] ✔
+{
+  "suggestedTitle": "Optimised SEO title 50-60 chars, keyword near start, UK spelling",
+  "suggestedMeta": "Compelling meta description 150-160 chars, keyword included, ends with CTA, UK spelling",
+  "suggestedDescription": "2-3 sentences for the Shopify description field. Keyword-rich. AboutWallArt brand voice. UK spelling. No HTML tags.",
+  "pageSchema": {
+    "@context": "https://schema.org",
+    "@type": "${schemaType}",
+    "name": "page name",
+    "description": "page description",
+    "url": "${yourPage.url}"
+  },
+  "faqSchema": {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Write a real question people search about ${keyword}",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Write a helpful complete answer"
+        }
+      }
+    ]
+  },
+  "brandBlock": "<h2>About AboutWallArt</h2><p>Founded in 2020, we're the UK's leading specialist in wall art and home decor. As a trusted, UK-based company, we design and produce our own unique wall art items in-house. Rated 4.8/5 stars from over 500+ verified customer reviews, we offer free fast UK delivery, international shipping, secure checkout, and back every purchase with our hassle-free 14-day return policy.</p>",
+  "h2Sections": [
+    {
+      "action": "delete",
+      "heading": "Exact H2 text to remove (theme/navigation H2s only)"
+    },
+    {
+      "action": "add",
+      "heading": "New H2 heading text",
+      "content": "Full 2-3 sentence paragraph for this section. Complete sentences. UK spelling."
+    }
+  ],
+  "aiItems": [
+    {
+      "element": "Comparison Snippet",
+      "content": "Full copy-paste ready paragraph starting with 'What is ${keyword}?'"
+    }
+  ],
+  "otherActions": [
+    {
+      "priority": "high",
+      "action": "Specific actionable instruction"
+    }
+  ]
+}
 
 RULES:
-- Use action verbs: Add, Replace, Remove, Delete
-- Write FULL text for titles/meta/H1/paragraphs/H2 sections
-- For EVERY missing H2 from content gap analysis: write FULL H2 heading + complete 2-3 sentence paragraph
-- For Brand Block: write the FULL block with exact business details (see example above)
-- For schema: Give instruction to use Kickstart (e.g., "Use Kickstart to generate FAQ schema for '[keyword]' with 8-10 questions")
-- If keyword density too high (above ${avgCompKeywordDensity}%), say "Reduce keyword uses from ${yourPage.keywordOccurrences} to [X]"
-- List specific H2s to add/remove
-- NO "you could" - direct commands only
-- NO explanations of why
-- Plain text output, NOT JSON
-- Be specific and copy-paste ready
-- NEVER write placeholder text like "..." or "content here" - write the ACTUAL content with FULL paragraphs`;
+- suggestedTitle: 50-60 chars, keyword near start, include brand or USP
+- suggestedMeta: 150-160 chars, keyword, main benefit, CTA (e.g. "Shop now", "Free UK delivery")
+- suggestedDescription: plain text only, no HTML, 2-3 sentences, keyword-rich, UK spelling
+- pageSchema: write complete valid schema — for products include offers/price range, for collections include numberOfItems, for articles include author/datePublished
+- faqSchema: write 6-8 real questions people search about "${keyword}" with full helpful answers
+- brandBlock: use EXACTLY the text shown — do not change it
+- h2Sections: include ALL missing H2s from content gaps with full paragraph content; mark theme H2s (Recently Viewed, Trending Now etc) as delete
+- aiItems: write complete copy-paste ready content for each missing AI element
+- otherActions: specific instructions only, UK spelling, no vague advice
+- Return ONLY the JSON object — no other text`;
 }
 
 // Fetch real content from Shopify API
