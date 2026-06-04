@@ -201,6 +201,73 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true, revenue });
       }
 
+      // ── ACTION: get-social-revenue ──
+      if (req.query.action === 'get-social-revenue') {
+        const shopifyDomain = process.env.SHOPIFY_STORE_DOMAIN;
+        const shopifyToken  = process.env.SHOPIFY_ACCESS_TOKEN;
+        if (!shopifyDomain || !shopifyToken) return res.status(500).json({ error: 'Shopify credentials not configured' });
+
+        const days = parseInt(req.query.days || '90');
+        const since = new Date();
+        since.setDate(since.getDate() - days);
+        since.setHours(0, 0, 0, 0);
+
+        const socialMap = {
+          'facebook': 'Facebook', 'instagram': 'Instagram', 'pinterest': 'Pinterest',
+          'tiktok': 'TikTok', 'youtube': 'YouTube', 'twitter': 'Twitter/X',
+          't.co': 'Twitter/X', 'x.com': 'Twitter/X', 'linkedin': 'LinkedIn'
+        };
+
+        function getPlatform(referringSite) {
+          if (!referringSite) return null;
+          const s = referringSite.toLowerCase();
+          const key = Object.keys(socialMap).find(k => s.includes(k));
+          return key ? socialMap[key] : null;
+        }
+
+        function getLandingPath(landingSite) {
+          if (!landingSite) return null;
+          try {
+            const url = new URL(landingSite.startsWith('http') ? landingSite : 'https://x.com' + landingSite);
+            return url.pathname || '/';
+          } catch(e) { return landingSite.split('?')[0] || '/'; }
+        }
+
+        const byPlatform = {};
+        const byPage = {};
+
+        let url = `https://${shopifyDomain}/admin/api/2025-01/orders.json?status=any&created_at_min=${since.toISOString()}&limit=250&fields=created_at,total_price,financial_status,referring_site,landing_site`;
+
+        while (url) {
+          const orderRes = await fetch(url, { headers: { 'X-Shopify-Access-Token': shopifyToken } });
+          if (!orderRes.ok) throw new Error('Shopify Orders API error: ' + orderRes.status);
+          const data = await orderRes.json();
+
+          for (const order of (data.orders || [])) {
+            if (['voided', 'refunded'].includes(order.financial_status)) continue;
+            const platform = getPlatform(order.referring_site);
+            if (!platform) continue;
+            const amount = parseFloat(order.total_price || 0);
+            byPlatform[platform] = (byPlatform[platform] || 0) + amount;
+            const path = getLandingPath(order.landing_site) || '/';
+            if (!byPage[path]) byPage[path] = { total: 0, orders: 0, topPlatform: platform, topAmount: 0 };
+            byPage[path].total  += amount;
+            byPage[path].orders += 1;
+            if (amount > byPage[path].topAmount) { byPage[path].topPlatform = platform; byPage[path].topAmount = amount; }
+          }
+
+          const linkHeader = orderRes.headers.get('Link') || '';
+          const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+          url = nextMatch ? nextMatch[1] : null;
+        }
+
+        // Round revenue values
+        Object.keys(byPlatform).forEach(k => { byPlatform[k] = Math.round(byPlatform[k] * 100) / 100; });
+        Object.keys(byPage).forEach(k => { byPage[k].total = Math.round(byPage[k].total * 100) / 100; });
+
+        return res.status(200).json({ success: true, byPlatform, byPage });
+      }
+
       // ── ACTION: get-susp-events ──
       if (req.query.action === 'get-susp-events') {
         try {
