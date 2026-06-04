@@ -361,7 +361,7 @@ export default async function handler(req, res) {
         // Add loser rows for internal linking
         if (Array.isArray(losers)) {
           losers.forEach(loser => {
-            newRows += `\n${keyword},${loser.url},LOCKED,DONE,INTERNAL_LINK,${url},${loser.clicks || 'N/A'},${loser.impressions || 'N/A'},${loser.position || 'N/A'},User Resolved,${resolvedIntent}`;
+            newRows += `\n${keyword},${loser.url},,DONE,INTERNAL_LINK,${url},${loser.clicks || 'N/A'},${loser.impressions || 'N/A'},${loser.position || 'N/A'},Auto Detected,${resolvedIntent}`;
           });
         }
         const updated = registry.content.trimEnd() + '\n' + newRows + '\n';
