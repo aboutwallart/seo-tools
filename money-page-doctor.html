@@ -287,19 +287,14 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 44.5</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 44.6</p>
                 </div>
-                <button onclick="showHelp()" style="background: #0969da; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; white-space: nowrap;">
-                    ❓ How to Clear Cache Safely
-                </button>
             </div>
         </header>
 
         <!-- Help Modal -->
-        <div id="helpModal" class="help-modal">
-            <div class="help-modal-content">
-                <span class="close" onclick="closeHelp()">&times;</span>
-                <h2 style="color: #0969da; margin-bottom: 20px;">🔒 How to Clear Cache Without Losing Your Token</h2>
+        <div id="helpModal" style="display:none;">
+            <div><!-- help modal removed v44.6 -->
                 
                 <div style="background: #fef3c7; padding: 15px; border-radius: 8px; border-left: 5px solid #f59e0b; margin-bottom: 20px;">
                     <strong>⚠️ IMPORTANT:</strong> Your GitHub token is stored in IndexedDB. Follow these steps to keep it safe when clearing cache!
@@ -347,7 +342,6 @@
         <div class="tabs">
             <button class="tab active" onclick="switchTab('pages')">📋 My Pages (<span id="pageCount">0</span>)</button>
             <button class="tab" onclick="switchTab('optimized')">✅ Optimized (<span id="optimizedCount">0</span>)</button>
-            <button class="tab" onclick="switchTab('settings')">⚙️ Settings</button>
         </div>
 
         <!-- MY PAGES TAB -->
@@ -394,44 +388,6 @@
             <div id="optimizedList"></div>
         </div>
 
-        <!-- SETTINGS TAB -->
-        <div class="tab-content" id="settingsTab">
-            <h3>⚙️ Settings</h3>
-            
-            <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                <h4 style="margin-bottom: 15px;">GitHub Integration</h4>
-                <p style="color: #666; margin-bottom: 15px;">
-                    Required to lock keywords in the master registry when marking pages as optimized.
-                </p>
-                
-                <div class="form-group">
-                    <label for="githubToken">GitHub Personal Access Token</label>
-                    <input type="password" id="githubToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" style="font-family: monospace;">
-                    <p style="font-size: 0.85rem; color: #666; margin-top: 5px;">
-                        <a href="https://github.com/settings/tokens" target="_blank">Generate token</a> with <code>repo</code> permissions
-                    </p>
-                </div>
-                
-                <div style="display: flex; gap: 10px; margin-top: 15px;">
-                    <button onclick="saveGitHubToken()">💾 Save Token</button>
-                    <button class="btn-secondary" onclick="testGitHubToken()">🧪 Test Connection</button>
-                    <button class="btn-secondary" onclick="clearGitHubToken()" style="background: #c62828;">🗑️ Clear Token</button>
-                </div>
-                
-                <div id="tokenStatus" style="margin-top: 15px;"></div>
-            </div>
-            
-            <div style="background: #fff3e0; padding: 15px; border-radius: 8px; border-left: 4px solid #ff9800;">
-                <h4 style="margin-bottom: 10px;">ℹ️ How It Works</h4>
-                <ol style="line-height: 1.8; padding-left: 20px; font-size: 0.9rem;">
-                    <li>Enter your GitHub token and save</li>
-                    <li>Analyse pages in "My Pages" tab</li>
-                    <li>Work through the checklist — tick each item as you complete it</li>
-                    <li>When all items are ticked, the page is automatically saved as Optimized</li>
-                    <li>Page moves to "Optimized" tab and keyword is locked in the registry</li>
-                </ol>
-            </div>
-        </div>
     </div>
 
     <!-- ANALYZE MODAL -->
@@ -474,51 +430,6 @@
 
     <script>
         // IndexedDB for persistent storage (survives cache clears better than localStorage)
-        const DB_NAME = 'MoneyPageOptimizer';
-        const DB_VERSION = 1;
-        let db;
-
-        async function initDB() {
-            return new Promise((resolve, reject) => {
-                const request = indexedDB.open(DB_NAME, DB_VERSION);
-                
-                request.onerror = () => reject(request.error);
-                request.onsuccess = () => {
-                    db = request.result;
-                    resolve(db);
-                };
-                
-                request.onupgradeneeded = (event) => {
-                    const db = event.target.result;
-                    if (!db.objectStoreNames.contains('settings')) {
-                        db.createObjectStore('settings');
-                    }
-                };
-            });
-        }
-
-        function saveTokenToDB(token) {
-            if (!db) return;
-            const transaction = db.transaction(['settings'], 'readwrite');
-            const store = transaction.objectStore('settings');
-            store.put(token, 'github_token');
-        }
-
-        async function getTokenFromDB() {
-            return new Promise((resolve, reject) => {
-                if (!db) {
-                    resolve(null);
-                    return;
-                }
-                const transaction = db.transaction(['settings'], 'readonly');
-                const store = transaction.objectStore('settings');
-                const request = store.get('github_token');
-                
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => resolve(null);
-            });
-        }
-
         let urls = []; // Loaded from GitHub registry on startup
         let optimizedPages = []; // Loaded from GitHub registry on startup
         let currentUrl = null;
@@ -673,62 +584,22 @@
         }
 
         async function downloadRegistry() {
-            const token = localStorage.getItem('githubToken');
-            
-            if (!token) {
-                alert('⚠️ GitHub token not configured!\n\nGo to Settings tab and add your GitHub Personal Access Token first.');
-                switchTab('settings');
-                return;
-            }
-            
             try {
-                // Show loading indicator
                 const btn = event.target;
-                const originalText = btn.textContent;
-                btn.textContent = '⏳ Downloading...';
-                btn.disabled = true;
-                
-                // Fetch registry from GitHub
-                const response = await fetch('https://api.github.com/repos/aboutwallart/seo-tools/contents/data/keyword-locker-registry.csv', {
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Accept': 'application/vnd.github.v3+json'
-                    }
-                });
-                
-                if (!response.ok) {
-                    throw new Error(`Failed to fetch registry: ${response.status} ${response.statusText}`);
-                }
-                
-                const data = await response.json();
-                const content = atob(data.content);
-                
-                // Create download
+                btn.textContent = '⏳ Downloading...'; btn.disabled = true;
+                const res = await fetch('https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keyword-locker-registry.csv');
+                if (!res.ok) throw new Error('Failed to fetch registry');
+                const content = await res.text();
                 const blob = new Blob([content], { type: 'text/csv' });
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
-                a.href = url;
-                a.download = `keyword-master-registry-${new Date().toISOString().split('T')[0]}.csv`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
+                a.href = url; a.download = `keyword-master-registry-${new Date().toISOString().split('T')[0]}.csv`;
+                document.body.appendChild(a); a.click(); document.body.removeChild(a);
                 window.URL.revokeObjectURL(url);
-                
-                // Reset button
-                btn.textContent = originalText;
-                btn.disabled = false;
-                
-                alert('✅ Registry downloaded successfully!');
-                
-            } catch (error) {
-                console.error('[Download Registry] Error:', error);
-                alert(`❌ Failed to download registry:\n\n${error.message}\n\nCheck your token in Settings.`);
-                
-                // Reset button on error
-                if (event.target) {
-                    event.target.textContent = '📥 Download Registry';
-                    event.target.disabled = false;
-                }
+                btn.textContent = '📥 Download Registry'; btn.disabled = false;
+            } catch (err) {
+                alert(`❌ Failed: ${err.message}`);
+                if (event.target) { event.target.textContent = '📥 Download Registry'; event.target.disabled = false; }
             }
         }
 
@@ -934,16 +805,17 @@
         async function autoMarkAsOptimized() {
             const item = urls.find(u => u.url === currentAnalysisUrl);
             if (!item || !item.keyword) {
-                showToast('All done! Add keyword and GitHub token in Settings to auto-save as Optimized.');
-                return;
-            }
-            const token = localStorage.getItem('githubToken');
-            if (!token) {
-                showToast('All tasks done! Add your GitHub token in Settings to auto-save as Optimized.');
+                showToast('All tasks done! No keyword found for this page — registry not updated.');
                 return;
             }
             try {
-                await updateGitHubRegistry(currentAnalysisUrl, item.keyword, token);
+                const res = await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'mark-optimized', keyword: item.keyword, url: item.url })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Failed');
                 await loadFromGitHub();
                 updatePageCount();
                 updateOptimizedCount();
@@ -952,7 +824,7 @@
                 showToast(`✅ "${item.keyword}" fully optimised and saved to registry!`);
             } catch (err) {
                 console.error('[Auto-Optimize]', err);
-                showToast('All tasks done! Could not save to registry — check your GitHub token in Settings.');
+                showToast('All tasks done! Could not save to registry — check Vercel logs.');
             }
         }
 
@@ -2472,122 +2344,34 @@
             }
         }
 
-        // Settings Tab Functions
-        function saveGitHubToken() {
-            const token = document.getElementById('githubToken').value.trim();
-            const statusDiv = document.getElementById('tokenStatus');
-            
-            if (!token) {
-                statusDiv.innerHTML = '<p style="color: #c62828;">Please enter a token</p>';
-                return;
-            }
-            
-            if (!token.startsWith('ghp_') && !token.startsWith('github_pat_')) {
-                statusDiv.innerHTML = '<p style="color: #c62828;">Invalid token format. Should start with ghp_ or github_pat_</p>';
-                return;
-            }
-            
-            // Save to both localStorage and IndexedDB for maximum persistence
-            localStorage.setItem('githubToken', token);
-            saveTokenToDB(token);
-            statusDiv.innerHTML = '<p style="color: #2e7d32;">✅ Token saved successfully!</p>';
-            document.getElementById('githubToken').value = '';
-        }
-
-        function testGitHubToken() {
-            const token = localStorage.getItem('githubToken');
-            const statusDiv = document.getElementById('tokenStatus');
-            
-            if (!token) {
-                statusDiv.innerHTML = '<p style="color: #c62828;">No token saved. Please save a token first.</p>';
-                return;
-            }
-            
-            statusDiv.innerHTML = '<p style="color: #666;">Testing connection...</p>';
-            
-            fetch('https://api.github.com/repos/aboutwallart/seo-tools/contents/data/keyword-locker-registry.csv', {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Accept': 'application/vnd.github.v3+json'
-                }
-            })
-            .then(response => {
-                if (response.ok) {
-                    statusDiv.innerHTML = '<p style="color: #2e7d32;">✅ Connection successful! Token is valid.</p>';
-                } else if (response.status === 401) {
-                    statusDiv.innerHTML = '<p style="color: #c62828;">❌ Invalid token or expired. Please generate a new one.</p>';
-                } else if (response.status === 404) {
-                    statusDiv.innerHTML = '<p style="color: #ff9800;">⚠️ Token works but file not found. Check repo/file path.</p>';
-                } else {
-                    statusDiv.innerHTML = `<p style="color: #c62828;">❌ Error ${response.status}: ${response.statusText}</p>`;
-                }
-            })
-            .catch(error => {
-                statusDiv.innerHTML = `<p style="color: #c62828;">❌ Network error: ${error.message}</p>`;
-            });
-        }
-
-        function clearGitHubToken() {
-            if (confirm('⚠️ Clear saved GitHub token?\n\nYou\'ll need to re-enter it to mark pages as optimized.')) {
-                localStorage.removeItem('githubToken');
-                document.getElementById('tokenStatus').innerHTML = '<p style="color: #666;">Token cleared.</p>';
-            }
-        }
-
-        // Mark as Optimized Function
+        // Mark as Optimized — routes through backend (no GitHub token needed in browser)
         async function markAsOptimized(id) {
             const item = urls.find(u => u.id === id);
-            if (!item || !item.analyzed) {
-                alert('This page must be analyzed first before marking as optimized.');
-                return;
-            }
-            
-            const token = localStorage.getItem('githubToken');
-            if (!token) {
-                alert('⚠️ GitHub token not configured!\n\nGo to Settings tab and add your GitHub Personal Access Token first.');
-                switchTab('settings');
-                return;
-            }
-            
-            // Show confirmation popup
-            if (!confirm(`Mark this page as optimized?\n\nURL: ${item.url}\nKeyword: "${item.keyword}"\n\nThis will update the GitHub registry and move the page to the Optimized tab.`)) {
-                return;
-            }
-            
-            // Show loading
-            const statusMsg = document.createElement('div');
-            statusMsg.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 10000; text-align: center;';
-            statusMsg.innerHTML = '<div class="spinner"></div><p style="margin-top: 15px;">Updating GitHub registry...</p>';
-            document.body.appendChild(statusMsg);
-            
+            if (!item) return;
+            if (!confirm(`Mark this page as optimized?\n\nURL: ${item.url}\nKeyword: "${item.keyword}"`)) return;
             try {
-                // Update GitHub registry
-                await updateGitHubRegistry(item.url, item.keyword, token);
-                
-                // Remove loading
-                document.body.removeChild(statusMsg);
-                
-                // Show success message
-                alert('✅ Successfully saved to GitHub!\n\nPage marked as optimized and registry updated.');
-                
-                // Reload from GitHub to get fresh data
+                const res = await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'mark-optimized', keyword: item.keyword, url: item.url })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Failed');
                 await loadFromGitHub();
-                
-                // Update UI
-                updatePageCount();
-                updateOptimizedCount();
-                renderUrls();
-                renderOptimized();
-                
-            } catch (error) {
-                document.body.removeChild(statusMsg);
-                console.error('[Mark Optimized] Error:', error);
-                alert(`❌ Failed to update GitHub:\n\n${error.message}\n\nPage NOT marked as optimized. Check your token in Settings.`);
+                updatePageCount(); updateOptimizedCount(); renderUrls(); renderOptimized();
+                showToast(`✅ "${item.keyword}" saved as Optimized!`);
+            } catch (err) {
+                alert(`❌ Failed: ${err.message}`);
             }
         }
 
-        async function updateGitHubRegistry(url, keyword, token) {
-            // 1. Get current file
+        async function updateGitHubRegistry(url, keyword) {
+            // Kept as stub — now routes through backend
+            return fetch('/api/blogs', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({action:'mark-optimized', keyword, url}) }).then(r => r.json());
+        }
+
+        async function _oldUpdateGitHubRegistryDEPRECATED(url, keyword, token) {
+            // 1. Get current file — DEPRECATED, kept only to avoid reference errors
             const getResponse = await fetch('https://api.github.com/repos/aboutwallart/seo-tools/contents/data/keyword-locker-registry.csv', {
                 headers: {
                     'Authorization': `Bearer ${token}`,
@@ -2670,52 +2454,28 @@
         async function unmarkAsOptimized(url) {
             const item = optimizedPages.find(p => p.url === url);
             if (!item) return;
-            
-            if (!confirm(`Unmark this page?\n\nURL: ${url}\nKeyword: "${item.keyword}"\n\nThis will update GitHub registry (change OPTIMIZED → TO_OPTIMIZE) and move the page back to My Pages.`)) {
-                return;
-            }
-            
-            const token = localStorage.getItem('githubToken');
-            if (!token) {
-                alert('⚠️ GitHub token not configured!\n\nGo to Settings tab and add your GitHub Personal Access Token first.');
-                switchTab('settings');
-                return;
-            }
-            
-            // Show loading
-            const statusMsg = document.createElement('div');
-            statusMsg.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 10000; text-align: center;';
-            statusMsg.innerHTML = '<div class="spinner"></div><p style="margin-top: 15px;">Updating GitHub registry...</p>';
-            document.body.appendChild(statusMsg);
-            
+            if (!confirm(`Unmark this page?\n\nURL: ${url}\nKeyword: "${item.keyword}"\n\nThis will move it back to My Pages.`)) return;
             try {
-                // Update GitHub registry (change OPTIMIZED → TO_OPTIMIZE)
-                await unmarkInGitHub(url, item.keyword, token);
-                
-                // Remove loading
-                document.body.removeChild(statusMsg);
-                
-                // Show success
-                alert('✅ Successfully updated GitHub!\n\nPage unmarked and moved back to My Pages.');
-                
-                // Reload from GitHub
+                const res = await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'unmark-optimized', keyword: item.keyword, url })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Failed');
                 await loadFromGitHub();
-                
-                // Update UI
-                updatePageCount();
-                updateOptimizedCount();
-                renderUrls();
-                renderOptimized();
-                
-            } catch (error) {
-                document.body.removeChild(statusMsg);
-                console.error('[Unmark] Error:', error);
-                alert(`❌ Failed to update GitHub:\n\n${error.message}\n\nCheck your token in Settings.`);
+                updatePageCount(); updateOptimizedCount(); renderUrls(); renderOptimized();
+                showToast('Page moved back to My Pages.');
+            } catch (err) {
+                alert(`❌ Failed: ${err.message}`);
             }
         }
         
         async function unmarkInGitHub(url, keyword, token) {
-            // Get current file
+            // Deprecated — now handled by backend unmark-optimized action
+            return fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action:'unmark-optimized', keyword, url}) });
+        }
+        async function _oldUnmarkInGitHub(url, keyword, token) {
             const getResponse = await fetch('https://api.github.com/repos/aboutwallart/seo-tools/contents/data/keyword-locker-registry.csv', {
                 headers: {
                     'Authorization': `Bearer ${token}`,
@@ -2793,32 +2553,13 @@
             document.getElementById('helpModal').style.display = 'none';
         }
 
-        // Close modal when clicking outside of it
-        window.onclick = function(event) {
-            const modal = document.getElementById('helpModal');
-            if (event.target == modal) {
-                modal.style.display = 'none';
-            }
-        }
-
         // Initialize on page load
         window.addEventListener('DOMContentLoaded', async () => {
-            await initDB();
-
-            let savedToken = await getTokenFromDB();
-            if (!savedToken) {
-                savedToken = localStorage.getItem('githubToken');
-                if (savedToken) saveTokenToDB(savedToken);
-            }
-
             await loadFromGitHub();
-
             updatePageCount();
             updateOptimizedCount();
             renderUrls();
             renderOptimized();
-
-            // Load live GSC data for urgency badges
             loadGSCEnrichment();
         });
     </script>
