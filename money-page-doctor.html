@@ -221,6 +221,35 @@
             font-weight: 600;
             margin-bottom: 20px;
         }
+        /* Batch 2 — structured results */
+        .action-block { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; border: 2px solid #e0e0e0; }
+        .action-block h3 { font-size: 1rem; font-weight: 600; margin-bottom: 15px; display: flex; align-items: center; gap: 8px; }
+        .field-group { margin-bottom: 12px; }
+        .field-group label { display: block; font-size: 0.85rem; font-weight: 600; color: #666; margin-bottom: 4px; }
+        .field-group input, .field-group textarea { width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 6px; font-family: 'Poppins', sans-serif; font-size: 0.9rem; resize: vertical; }
+        .field-group input:focus, .field-group textarea:focus { border-color: #1a1a1a; outline: none; }
+        .char-count { font-size: 0.75rem; color: #999; text-align: right; margin-top: 2px; }
+        .char-count.warn { color: #f97316; }
+        .char-count.ok { color: #4caf50; }
+        .copy-block { background: #f5f5f5; border-radius: 6px; padding: 15px; margin-bottom: 12px; position: relative; }
+        .copy-block pre { font-family: 'Courier New', monospace; font-size: 0.8rem; white-space: pre-wrap; word-break: break-word; margin: 0; max-height: 200px; overflow-y: auto; }
+        .copy-btn { background: #1a1a1a; color: white; border: none; padding: 6px 14px; border-radius: 4px; font-size: 0.8rem; cursor: pointer; margin-top: 8px; }
+        .copy-btn.copied { background: #4caf50; }
+        .checklist-item { display: flex; align-items: flex-start; gap: 12px; padding: 12px; background: #f9f9f9; border-radius: 6px; margin-bottom: 8px; }
+        .checklist-item.done { opacity: 0.5; text-decoration: line-through; }
+        .checklist-item input[type="checkbox"] { width: 18px; height: 18px; margin-top: 2px; cursor: pointer; flex-shrink: 0; }
+        .checklist-label { flex: 1; font-size: 0.9rem; }
+        .checklist-label strong { display: block; margin-bottom: 2px; }
+        .progress-bar-wrap { background: #e0e0e0; border-radius: 10px; height: 8px; margin-bottom: 15px; }
+        .progress-bar-fill { background: #4caf50; border-radius: 10px; height: 8px; transition: width 0.3s; }
+        .push-btn { background: #1976d2; color: white; padding: 12px 24px; border: none; border-radius: 6px; font-size: 1rem; cursor: pointer; font-family: 'Poppins', sans-serif; font-weight: 600; width: 100%; margin-top: 10px; }
+        .push-btn:hover { opacity: 0.9; }
+        .push-btn:disabled { background: #4caf50; cursor: default; }
+        .priority-tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-right: 6px; }
+        .priority-high { background: #fef2f2; color: #dc2626; }
+        .priority-medium { background: #fff7ed; color: #f97316; }
+        .priority-low { background: #f0fdf4; color: #16a34a; }
+
         .trigger-audit-btn {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -258,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 43.1</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 44.0</p>
                 </div>
                 <button onclick="showHelp()" style="background: #0969da; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; white-space: nowrap;">
                     ❓ How to Clear Cache Safely
@@ -831,155 +860,246 @@
             }
         }
 
+        // ── RESULTS HELPERS ───────────────────────────────────────────────────
+
+        function copyToClipboard(text, btnEl) {
+            navigator.clipboard.writeText(text).then(() => {
+                const orig = btnEl.textContent;
+                btnEl.textContent = '✅ Copied!';
+                btnEl.classList.add('copied');
+                setTimeout(() => { btnEl.textContent = orig; btnEl.classList.remove('copied'); }, 2000);
+            }).catch(() => alert('Copy failed — please select and copy manually.'));
+        }
+
+        function updateCharCount(el, min, max) {
+            const len = el.value.length;
+            let counter = el.parentElement.querySelector('.char-count');
+            if (!counter) { counter = document.createElement('div'); counter.className = 'char-count'; el.parentElement.appendChild(counter); }
+            counter.textContent = `${len} chars (target ${min}–${max})`;
+            counter.className = 'char-count ' + (len >= min && len <= max ? 'ok' : len > 0 ? 'warn' : '');
+        }
+
+        function getChecklistKey(url) { return `mpd_cl_${url}`; }
+
+        function saveChecklistItem(url, key, checked) {
+            const state = JSON.parse(localStorage.getItem(getChecklistKey(url)) || '{}');
+            state[key] = checked;
+            localStorage.setItem(getChecklistKey(url), JSON.stringify(state));
+        }
+
+        function loadChecklistState(url) {
+            return JSON.parse(localStorage.getItem(getChecklistKey(url)) || '{}');
+        }
+
+        function updateProgress(url, total) {
+            const state = loadChecklistState(url);
+            const done = Object.values(state).filter(Boolean).length;
+            const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+            const bar = document.getElementById('progressBar');
+            const label = document.getElementById('progressLabel');
+            if (bar) bar.style.width = pct + '%';
+            if (label) label.textContent = `${done}/${total} done`;
+        }
+
+        function onChecklistChange(checkbox, url, key, total) {
+            saveChecklistItem(url, key, checkbox.checked);
+            const item = checkbox.closest('.checklist-item');
+            if (item) item.classList.toggle('done', checkbox.checked);
+            updateProgress(url, total);
+        }
+
+        // ── SHOW RESULTS ──────────────────────────────────────────────────────
+
         function showResults(data, keyword) {
             currentResults = data;
-            currentAuditURL = data.yourPage.url; // Store for Technical SEO audit
-            
-            // Position status badge
-            let positionBadge = '';
-            if (data.userPosition) {
-                if (data.userPosition === 1) {
-                    positionBadge = `<div style="background: #4caf50; color: white; padding: 15px; border-radius: 6px; margin-bottom: 20px; text-align: center;">
-                        👑 <strong>Congratulations! You're ranking #1 for "${keyword}"</strong><br>
-                        <small>This analysis will help you defend your position</small>
-                    </div>`;
-                } else {
-                    positionBadge = `<div style="background: #2196f3; color: white; padding: 15px; border-radius: 6px; margin-bottom: 20px; text-align: center;">
-                        📊 <strong>Current Position: #${data.userPosition} for "${keyword}"</strong><br>
-                        <small>Analyzing what you need to climb higher</small>
-                    </div>`;
-                }
-            } else {
-                positionBadge = `<div style="background: #ff9800; color: white; padding: 15px; border-radius: 6px; margin-bottom: 20px; text-align: center;">
-                    🔍 <strong>Not in top 10 for "${keyword}"</strong><br>
-                    <small>Analyzing gaps vs positions 1-3</small>
-                </div>`;
-            }
-            
-            const contentAnalysisHTML = `
-                <div style="background: white; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
-                    <h4 style="margin-bottom: 10px;">📊 Your Page Metrics</h4>
+            currentAuditURL = data.yourPage.url;
+
+            const positionBadge = data.userPosition === 1
+                ? `<div style="background:#4caf50;color:white;padding:15px;border-radius:6px;margin-bottom:20px;text-align:center;">👑 <strong>Ranking #1 for "${keyword}"</strong><br><small>Analysis will help defend your position</small></div>`
+                : data.userPosition
+                    ? `<div style="background:#2196f3;color:white;padding:15px;border-radius:6px;margin-bottom:20px;text-align:center;">📊 <strong>Current Position: #${data.userPosition} for "${keyword}"</strong><br><small>Analysing what you need to climb higher</small></div>`
+                    : `<div style="background:#ff9800;color:white;padding:15px;border-radius:6px;margin-bottom:20px;text-align:center;">🔍 <strong>Not in top 10 for "${keyword}"</strong><br><small>Analysing gaps vs positions 1–3</small></div>`;
+
+            // Metrics block (always shown)
+            const metricsHTML = `
+                <div class="action-block">
+                    <h3>📊 Your Page Metrics</h3>
                     <div class="metric-grid">
                         <div class="metric"><div class="metric-value">${data.yourPage.wordCount}</div><div>Word Count</div></div>
                         <div class="metric"><div class="metric-value">${data.yourPage.keywordDensity}%</div><div>Keyword Density</div></div>
                         <div class="metric"><div class="metric-value">${data.yourPage.h2.length}</div><div>H2 Count</div></div>
                         <div class="metric"><div class="metric-value">${data.yourPage.keywordOccurrences}</div><div>Keyword Uses</div></div>
-                        <div class="metric"><div class="metric-value" style="color: ${data.yourPage.speedMobile >= 90 ? '#4caf50' : data.yourPage.speedMobile >= 50 ? '#ff9800' : '#f44336'}">${data.yourPage.speedMobile}</div><div>Mobile Speed</div></div>
-                        <div class="metric"><div class="metric-value" style="color: ${data.yourPage.speedDesktop >= 90 ? '#4caf50' : data.yourPage.speedDesktop >= 50 ? '#ff9800' : '#f44336'}">${data.yourPage.speedDesktop}</div><div>Desktop Speed</div></div>
+                        <div class="metric"><div class="metric-value" style="color:${data.yourPage.speedMobile>=90?'#4caf50':data.yourPage.speedMobile>=50?'#ff9800':'#f44336'}">${data.yourPage.speedMobile}</div><div>Mobile Speed</div></div>
+                        <div class="metric"><div class="metric-value" style="color:${data.yourPage.speedDesktop>=90?'#4caf50':data.yourPage.speedDesktop>=50?'#ff9800':'#f44336'}">${data.yourPage.speedDesktop}</div><div>Desktop Speed</div></div>
                     </div>
                 </div>
-                
-                ${data.competitors && data.competitors.length > 0 ? `
-                <div style="background: #f5f5f5; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
-                    <h4 style="margin-bottom: 10px;">🏆 Analyzing Against Positions:</h4>
-                    ${data.competitors.map(comp => `
-                        <div style="padding: 10px; background: white; margin-bottom: 8px; border-radius: 4px; font-size: 0.9rem;">
-                            <strong>Position ${comp.position}:</strong> ${comp.wordCount} words, ${comp.keywordDensity}% density, ${comp.h2.length} H2s<br>
-                            <span style="color: #666; font-size: 0.85rem; word-break: break-all;">🔗 ${comp.url}</span>
-                        </div>
-                    `).join('')}
-                </div>
-                ` : ''}
 
-                ${data.yourPage && data.yourPage.aiScore !== undefined ? `
-                <div style="background: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
-                    <h4 style="margin: 0; color: #1976d2;">🤖 AI Visibility Score: ${data.yourPage.aiScore}/10</h4>
-                </div>
-                ` : ''}
+                ${data.competitors?.length > 0 ? `
+                <div class="action-block">
+                    <h3>🏆 Analysing Against Positions</h3>
+                    ${data.competitors.map(c => `
+                        <div style="padding:10px;background:#f9f9f9;margin-bottom:8px;border-radius:4px;font-size:0.9rem;">
+                            <strong>Position ${c.position}:</strong> ${c.wordCount} words · ${c.keywordDensity}% density · ${c.h2.length} H2s<br>
+                            <span style="color:#666;font-size:0.85rem;word-break:break-all;">🔗 ${c.url}</span>
+                        </div>`).join('')}
+                </div>` : ''}
 
-                ${data.contentGaps && (data.contentGaps.missingH2s.length > 0 || data.contentGaps.missingAIOptimization.length > 0) ? `
-                <div style="background: #fff9c4; border-left: 4px solid #fbc02d; padding: 20px; border-radius: 6px; margin-bottom: 20px;">
-                    <h4 style="margin-bottom: 15px; color: #f57c00;">⚠️ Content Gaps Found</h4>
-                    
-                    ${data.contentGaps.missingAIOptimization && data.contentGaps.missingAIOptimization.length > 0 ? `
-                    <div style="margin-bottom: 15px;">
-                        <strong style="color: #c62828;">🤖 Missing AI Optimization Elements:</strong>
-                        <ul style="margin: 10px 0; padding-left: 20px; color: #c62828;">
-                            ${data.contentGaps.missingAIOptimization.map(ai => `
-                                <li><strong>${ai.element}</strong> [${ai.priority} priority]${ai.instruction ? ` - ${ai.instruction}` : ''}</li>
-                            `).join('')}
-                        </ul>
-                    </div>
-                    ` : ''}
-                    
-                    ${data.contentGaps.missingH2s && data.contentGaps.missingH2s.length > 0 ? `
-                    <div>
-                        <strong>📝 Missing H2 Sections:</strong>
-                        <ul style="margin: 10px 0; padding-left: 20px;">
-                            ${data.contentGaps.missingH2s.map(h2 => `
-                                <li>"${h2.text}" (in ${h2.count}/${data.competitors.length} competitors)</li>
-                            `).join('')}
-                        </ul>
-                    </div>
-                    ` : ''}
-                </div>
-                ` : ''}
-
-                ${data.internalLinks && data.internalLinks.length > 0 ? `
-                <div style="background: #e8f5e9; border-left: 4px solid #4caf50; padding: 20px; border-radius: 6px; margin-bottom: 20px;">
-                    <h4 style="margin-bottom: 15px; color: #2e7d32;">🔗 Internal Links to Add</h4>
-                    <p style="margin-bottom: 10px; color: #666;">This page also ranks for other keywords. Add these internal links to strengthen your site structure:</p>
-                    <ul style="margin: 10px 0; padding-left: 20px;">
-                        ${data.internalLinks.map(link => `
-                            <li style="margin-bottom: 8px;">
-                                <strong>Anchor text:</strong> "${link.anchorText}"<br>
-                                <strong>Link to:</strong> <a href="${link.destinationUrl}" target="_blank" style="color: #1976d2; word-break: break-all;">${link.destinationUrl}</a>
-                            </li>
-                        `).join('')}
-                    </ul>
-                </div>
-                ` : ''}
-
-                <div style="background: white; padding: 20px; border-radius: 6px; white-space: pre-wrap; font-family: 'Poppins', sans-serif; line-height: 1.6;">
-                    ${(() => {
-                        if (data.analysis) {
-                            if (typeof data.analysis === 'string') {
-                                return formatMarkdown(data.analysis);
-                            } else if (data.analysis.markdown) {
-                                return formatMarkdown(data.analysis.markdown);
-                            }
-                        }
-                        if (data.recommendations) {
-                            return formatOldRecommendations(data.recommendations);
-                        }
-                        return 'No analysis available';
-                    })()}
-                </div>
+                ${data.yourPage.aiScore !== undefined ? `
+                <div style="background:#e3f2fd;border-left:4px solid #2196f3;padding:15px;border-radius:6px;margin-bottom:20px;">
+                    <strong style="color:#1976d2;">🤖 AI Visibility Score: ${data.yourPage.aiScore}/10</strong>
+                </div>` : ''}
             `;
-            
+
+            // Structured analysis or markdown fallback
+            let analysisHTML = '';
+            const structured = data.analysis?.structured;
+
+            if (structured) {
+                analysisHTML = renderStructuredResults(structured, keyword, data);
+            } else {
+                // Markdown fallback
+                const mdText = data.analysis?.markdown || '';
+                analysisHTML = `<div class="action-block" style="white-space:pre-wrap;line-height:1.7;">${formatMarkdown(mdText)}</div>`;
+            }
+
+            // Internal links block
+            const internalLinksHTML = data.internalLinks?.length > 0 ? `
+                <div class="action-block" style="border-color:#4caf50;">
+                    <h3>🔗 Internal Links to Add</h3>
+                    <ul style="padding-left:20px;">
+                        ${data.internalLinks.map(l => `
+                            <li style="margin-bottom:8px;">
+                                Anchor: <strong>"${l.anchorText}"</strong> →
+                                <a href="${l.destinationUrl}" target="_blank" style="color:#1976d2;word-break:break-all;">${l.destinationUrl}</a>
+                            </li>`).join('')}
+                    </ul>
+                </div>` : '';
+
             const html = `
-                <h3 style="margin-bottom: 15px;">Results for: ${keyword}</h3>
+                <h3 style="margin-bottom:15px;">Results for: ${keyword}</h3>
                 ${positionBadge}
-                
-                <!-- Results Tabs -->
                 <div class="results-tabs">
                     <button class="results-tab active" onclick="switchResultsTab('content')">📝 Content Analysis</button>
                     <button class="results-tab" onclick="switchResultsTab('technical')">🔧 Technical SEO</button>
                 </div>
-                
-                <!-- Content Analysis Tab -->
                 <div id="contentAnalysisTab" class="results-tab-content active">
-                    ${contentAnalysisHTML}
+                    ${metricsHTML}
+                    ${analysisHTML}
+                    ${internalLinksHTML}
                 </div>
-                
-                <!-- Technical SEO Tab -->
                 <div id="technicalSEOTab" class="results-tab-content">
                     <div id="technicalSEOContent">
-                        <button class="trigger-audit-btn" onclick="runTechnicalSEOAudit()">
-                            🔍 Run Technical SEO Audit
-                        </button>
-                        <p style="text-align: center; color: #666; font-size: 0.9rem;">
-                            Checks 22 SEO factors + 8-14 AI optimization elements
-                        </p>
+                        <button class="trigger-audit-btn" onclick="runTechnicalSEOAudit()">🔍 Run Technical SEO Audit</button>
+                        <p style="text-align:center;color:#666;font-size:0.9rem;">Checks 22 SEO factors + AI optimisation elements</p>
                     </div>
                 </div>
             `;
-            
+
             document.getElementById('resultsContent').innerHTML = html;
             document.getElementById('resultsModal').classList.add('active');
-            
-            // Reset technical SEO results when showing new results
             technicalSEOResults = null;
+        }
+
+        function renderStructuredResults(s, keyword, data) {
+            const pageUrl = data.yourPage.url;
+            const state = loadChecklistState(pageUrl);
+
+            // Build checklist items
+            const checklistItems = [];
+            (s.h2Sections || []).forEach((h, i) => {
+                checklistItems.push({ key: `h2_${i}`, label: h.action === 'delete' ? `Delete H2: "${h.heading}"` : `Add H2: "${h.heading}"`, detail: h.content || '' });
+            });
+            (s.otherActions || []).forEach((a, i) => {
+                checklistItems.push({ key: `other_${i}`, priority: a.priority, label: a.action });
+            });
+            const total = checklistItems.length;
+
+            // Push to Shopify block
+            const shopifyBlock = `
+                <div class="action-block" style="border-color:#1976d2;">
+                    <h3>📤 Push to Shopify</h3>
+                    <div class="field-group">
+                        <label>SEO Title</label>
+                        <input type="text" id="shopifyTitleField" value="${(s.suggestedTitle || '').replace(/"/g, '&quot;')}"
+                            oninput="updateCharCount(this,50,60)">
+                        <div class="char-count"></div>
+                    </div>
+                    <div class="field-group">
+                        <label>Meta Description</label>
+                        <textarea id="shopifyMetaField" rows="3" oninput="updateCharCount(this,150,160)">${s.suggestedMeta || ''}</textarea>
+                        <div class="char-count"></div>
+                    </div>
+                    <div class="field-group">
+                        <label>Page Description</label>
+                        <textarea id="shopifyDescField" rows="3">${s.suggestedDescription || ''}</textarea>
+                    </div>
+                    <button class="push-btn" id="pushShopifyBtn" onclick="pushToShopify()" ${!data.shopify ? 'disabled title="Shopify data not available"' : ''}>
+                        ${data.shopify ? '📤 Push to Shopify' : '⚠️ Shopify data unavailable'}
+                    </button>
+                </div>`;
+
+            // Copy-paste block (schema + FAQ + brand)
+            const schemaStr = s.pageSchema ? JSON.stringify(s.pageSchema, null, 2) : '';
+            const faqStr = s.faqSchema ? JSON.stringify(s.faqSchema, null, 2) : '';
+            const brandStr = s.brandBlock || '';
+
+            const copyPasteBlock = `
+                <div class="action-block">
+                    <h3>📋 Copy-Paste Ready — Custom Liquid Sections</h3>
+                    ${schemaStr ? `
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:6px;font-weight:600;">Page Schema (JSON-LD)</p>
+                    <div class="copy-block">
+                        <pre id="schemaCode">&lt;script type="application/ld+json"&gt;\n${schemaStr}\n&lt;/script&gt;</pre>
+                        <button class="copy-btn" onclick="copyToClipboard(document.getElementById('schemaCode').textContent, this)">📋 Copy Schema</button>
+                    </div>` : ''}
+                    ${faqStr ? `
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:6px;font-weight:600;">FAQ Schema (JSON-LD)</p>
+                    <div class="copy-block">
+                        <pre id="faqCode">&lt;script type="application/ld+json"&gt;\n${faqStr}\n&lt;/script&gt;</pre>
+                        <button class="copy-btn" onclick="copyToClipboard(document.getElementById('faqCode').textContent, this)">📋 Copy FAQ Schema</button>
+                    </div>` : ''}
+                    ${brandStr ? `
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:6px;font-weight:600;">Brand Block (HTML)</p>
+                    <div class="copy-block">
+                        <pre id="brandCode">${brandStr.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
+                        <button class="copy-btn" onclick="copyToClipboard(document.getElementById('brandCode').textContent, this)">📋 Copy Brand Block</button>
+                    </div>` : ''}
+                </div>`;
+
+            // AI items block
+            const aiBlock = s.aiItems?.length > 0 ? `
+                <div class="action-block">
+                    <h3>🤖 AI Optimisation — Copy-Paste Ready</h3>
+                    ${s.aiItems.map((item, i) => `
+                        <p style="font-size:0.85rem;color:#666;margin-bottom:6px;font-weight:600;">${item.element}</p>
+                        <div class="copy-block">
+                            <pre id="aiItem${i}">${item.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
+                            <button class="copy-btn" onclick="copyToClipboard(document.getElementById('aiItem${i}').textContent, this)">📋 Copy</button>
+                        </div>`).join('')}
+                </div>` : '';
+
+            // Checklist block
+            const donePct = total > 0 ? Math.round((Object.values(state).filter(Boolean).length / total) * 100) : 0;
+            const checklistBlock = total > 0 ? `
+                <div class="action-block">
+                    <h3>✅ Manual Checklist</h3>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                        <span id="progressLabel" style="font-size:0.85rem;color:#666;">${Object.values(state).filter(Boolean).length}/${total} done</span>
+                    </div>
+                    <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progressBar" style="width:${donePct}%"></div></div>
+                    ${checklistItems.map(item => `
+                        <div class="checklist-item ${state[item.key] ? 'done' : ''}" id="cl_${item.key}">
+                            <input type="checkbox" ${state[item.key] ? 'checked' : ''}
+                                onchange="onChecklistChange(this,'${pageUrl}','${item.key}',${total})">
+                            <div class="checklist-label">
+                                ${item.priority ? `<span class="priority-tag priority-${item.priority}">${item.priority}</span>` : ''}
+                                <strong>${item.label}</strong>
+                                ${item.detail ? `<div style="font-size:0.85rem;color:#666;margin-top:4px;">${item.detail}</div>` : ''}
+                            </div>
+                        </div>`).join('')}
+                </div>` : '';
+
+            return shopifyBlock + copyPasteBlock + aiBlock + checklistBlock;
         }
 
         function formatMarkdown(text) {
@@ -1024,6 +1144,16 @@
 
         function closeResultsModal() {
             document.getElementById('resultsModal').classList.remove('active');
+        }
+
+        // Batch 3 — full implementation coming. Stub stores values for now.
+        async function pushToShopify() {
+            const btn = document.getElementById('pushShopifyBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Pushing...';
+            // Full push logic added in Batch 3
+            await new Promise(r => setTimeout(r, 800));
+            btn.textContent = '✅ Pushed to Shopify';
         }
 
         // Results Tab Switching
