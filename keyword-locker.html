@@ -365,6 +365,41 @@
         .btn-modal-secondary { background: #e0e0e0; color: #333; }
 
         .hidden { display: none; }
+
+        /* Registry view sections */
+        .view-section {
+            background: white;
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+
+        .view-section h2 { font-size: 24px; margin-bottom: 20px; color: #333; }
+
+        .view-table { width: 100%; border-collapse: collapse; }
+        .view-table th { text-align: left; padding: 12px; font-weight: 600; color: #666; border-bottom: 2px solid #e5e7eb; font-size: 14px; }
+        .view-table td { padding: 12px; border-bottom: 1px solid #f3f4f6; font-size: 14px; vertical-align: middle; }
+        .view-table tr:hover td { background: #f9fafb; }
+
+        .btn-undo {
+            background: #f59e0b;
+            color: white;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .btn-undo:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(245,158,11,0.4); }
+
+        .url-cell { font-size: 12px; color: #666; word-break: break-all; }
+        .winner-url-cell { font-size: 12px; color: #10b981; word-break: break-all; }
+
+        .empty-msg { text-align: center; color: #999; padding: 30px; font-size: 15px; }
     </style>
 </head>
 <body>
@@ -375,7 +410,7 @@
             <h1>Keyword Locker</h1>
             <p>Lock each keyword to its best URL — resolve cannibalization by choosing winners</p>
             <p class="subtitle">One keyword = One winner URL. Intent-aware conflict detection.</p>
-            <div class="version">v4.0</div>
+            <div class="version">v5.0</div>
         </div>
 
         <div class="load-section">
@@ -400,30 +435,57 @@
         </div>
 
         <div id="statsSection" class="stats-section hidden">
-            <div class="stat-card" onclick="scrollToConflicts()">
+            <div class="stat-card" onclick="toggleView('conflicts')">
                 <h3 id="conflictsCount" style="color:#f59e0b;">0</h3>
                 <p>Active Conflicts</p>
             </div>
-            <div class="stat-card">
+            <div class="stat-card" onclick="toggleView('resolved')">
                 <h3 id="resolvedCount" style="color:#10b981;">0</h3>
                 <p>Resolved</p>
             </div>
-            <div class="stat-card">
+            <div class="stat-card" onclick="toggleView('saved')">
                 <h3 id="savedCount" style="color:#3b82f6;">0</h3>
                 <p>Saved for Later</p>
             </div>
-            <div class="stat-card">
+            <div class="stat-card" onclick="toggleView('deleted')">
                 <h3 id="deletedCount" style="color:#ef4444;">0</h3>
                 <p>Deleted</p>
             </div>
-            <div class="stat-card">
+            <div class="stat-card" onclick="toggleView('prelocked')">
                 <h3 id="prelockedCount" style="color:#8b5cf6;">0</h3>
                 <p>Pre-locked</p>
             </div>
-            <div class="stat-card">
+            <div class="stat-card" onclick="toggleView('internallinks')">
                 <h3 id="internalLinksCount" style="color:#f97316;">0</h3>
                 <p>Internal Links to Add</p>
             </div>
+        </div>
+
+        <!-- Registry Views -->
+        <div id="viewResolvedSection" class="view-section hidden">
+            <h2 style="color:#10b981;">Resolved Keywords</h2>
+            <div id="resolvedList"></div>
+        </div>
+
+        <div id="viewSavedSection" class="view-section hidden">
+            <h2 style="color:#3b82f6;">Saved for Later</h2>
+            <div id="savedList"></div>
+        </div>
+
+        <div id="viewDeletedSection" class="view-section hidden">
+            <h2 style="color:#ef4444;">Deleted Keywords</h2>
+            <div id="deletedList"></div>
+        </div>
+
+        <div id="viewInternalLinksSection" class="view-section hidden">
+            <h2 style="color:#f97316;">Internal Links to Add</h2>
+            <p style="color:#666;font-size:14px;margin-bottom:20px;">These pages lost their conflict. Add an internal link from each page pointing to the winner URL.</p>
+            <div id="internalLinksList"></div>
+        </div>
+
+        <div id="viewPrelockedSection" class="view-section hidden">
+            <h2 style="color:#8b5cf6;">Pre-locked Keywords</h2>
+            <div id="prelockedList"></div>
         </div>
 
         <!-- Conflicts -->
@@ -919,6 +981,196 @@
             document.getElementById('deletedCount').textContent = statsDeleted;
             document.getElementById('prelockedCount').textContent = statsPrelocked;
             document.getElementById('internalLinksCount').textContent = statsInternalLinks;
+        }
+
+        // ── Toggle view sections ──
+        function toggleView(section) {
+            const allViews = ['viewResolvedSection', 'viewSavedSection', 'viewDeletedSection', 'viewInternalLinksSection', 'viewPrelockedSection', 'conflictsSection'];
+
+            if (section === 'conflicts') {
+                const el = document.getElementById('conflictsSection');
+                const isHidden = el.classList.contains('hidden');
+                allViews.forEach(id => document.getElementById(id).classList.add('hidden'));
+                if (isHidden) el.classList.remove('hidden');
+                return;
+            }
+
+            const sectionMap = {
+                resolved: 'viewResolvedSection',
+                saved: 'viewSavedSection',
+                deleted: 'viewDeletedSection',
+                internallinks: 'viewInternalLinksSection',
+                prelocked: 'viewPrelockedSection'
+            };
+
+            const targetId = sectionMap[section];
+            const el = document.getElementById(targetId);
+            const isHidden = el.classList.contains('hidden');
+
+            allViews.forEach(id => document.getElementById(id).classList.add('hidden'));
+
+            if (isHidden) {
+                el.classList.remove('hidden');
+                if (section === 'resolved') renderResolved();
+                if (section === 'saved') renderSaved();
+                if (section === 'deleted') renderDeleted();
+                if (section === 'internallinks') renderInternalLinks();
+                if (section === 'prelocked') renderPrelocked();
+                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+
+        // ── Render Resolved ──
+        function renderResolved() {
+            const container = document.getElementById('resolvedList');
+            const items = registry.filter(e => e.locked && e.status === 'DONE' && e.action === 'TO_OPTIMIZE' && e.source === 'User Resolved');
+
+            if (items.length === 0) { container.innerHTML = '<p class="empty-msg">No resolved keywords yet.</p>'; return; }
+
+            container.innerHTML = `
+                <table class="view-table">
+                    <thead><tr><th>Keyword</th><th>Winner URL</th><th>Intent</th><th>Action</th></tr></thead>
+                    <tbody>${items.map(e => `
+                        <tr>
+                            <td><strong>${e.keyword}</strong></td>
+                            <td class="url-cell">${e.url}</td>
+                            <td><span class="intent-badge intent-${e.intent}">${e.intent}</span></td>
+                            <td><button class="btn-undo" onclick="undoKeyword('${e.keyword.replace(/'/g,"\\'")}')">Undo</button></td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>`;
+        }
+
+        // ── Render Saved ──
+        function renderSaved() {
+            const container = document.getElementById('savedList');
+            const items = registry.filter(e => e.action === 'SAVED_FOR_FUTURE');
+
+            if (items.length === 0) { container.innerHTML = '<p class="empty-msg">No keywords saved for later.</p>'; return; }
+
+            container.innerHTML = `
+                <table class="view-table">
+                    <thead><tr><th>Keyword</th><th>Intent</th><th>Action</th></tr></thead>
+                    <tbody>${items.map(e => `
+                        <tr>
+                            <td><strong>${e.keyword}</strong></td>
+                            <td><span class="intent-badge intent-${e.intent}">${e.intent || '—'}</span></td>
+                            <td><button class="btn-undo" onclick="undoKeyword('${e.keyword.replace(/'/g,"\\'")}')">Undo</button></td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>`;
+        }
+
+        // ── Render Deleted ──
+        function renderDeleted() {
+            const container = document.getElementById('deletedList');
+            const items = registry.filter(e => e.action === 'DELETED');
+
+            if (items.length === 0) { container.innerHTML = '<p class="empty-msg">No deleted keywords.</p>'; return; }
+
+            container.innerHTML = `
+                <table class="view-table">
+                    <thead><tr><th>Keyword</th><th>Intent</th><th>Action</th></tr></thead>
+                    <tbody>${items.map(e => `
+                        <tr>
+                            <td><strong>${e.keyword}</strong></td>
+                            <td><span class="intent-badge intent-${e.intent}">${e.intent || '—'}</span></td>
+                            <td><button class="btn-undo" onclick="undoKeyword('${e.keyword.replace(/'/g,"\\'")}')">Undo</button></td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>`;
+        }
+
+        // ── Render Internal Links ──
+        function renderInternalLinks() {
+            const container = document.getElementById('internalLinksList');
+            const items = registry.filter(e => e.action === 'INTERNAL_LINK');
+
+            if (items.length === 0) { container.innerHTML = '<p class="empty-msg">No internal links to add yet.</p>'; return; }
+
+            container.innerHTML = `
+                <table class="view-table">
+                    <thead><tr><th>Keyword</th><th>Add Link FROM This Page</th><th>Point Link TO (Winner)</th><th>Intent</th></tr></thead>
+                    <tbody>${items.map(e => `
+                        <tr>
+                            <td><strong>${e.keyword}</strong></td>
+                            <td class="url-cell">${e.url}</td>
+                            <td class="winner-url-cell">${e.winnerUrl || '—'}</td>
+                            <td><span class="intent-badge intent-${e.intent}">${e.intent || '—'}</span></td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>`;
+        }
+
+        // ── Render Prelocked ──
+        function renderPrelocked() {
+            const container = document.getElementById('prelockedList');
+            const items = registry.filter(e => e.source === 'Pre-Optimized Page');
+
+            if (items.length === 0) { container.innerHTML = '<p class="empty-msg">No pre-locked keywords.</p>'; return; }
+
+            container.innerHTML = `
+                <table class="view-table">
+                    <thead><tr><th>Keyword</th><th>Locked URL</th><th>Intent</th></tr></thead>
+                    <tbody>${items.map(e => `
+                        <tr>
+                            <td><strong>${e.keyword}</strong></td>
+                            <td class="url-cell">${e.url}</td>
+                            <td><span class="intent-badge intent-${e.intent}">${e.intent || '—'}</span></td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>`;
+        }
+
+        // ── Undo ──
+        async function undoKeyword(keyword) {
+            if (!confirm(`Restore "${keyword}" back to active conflicts?`)) return;
+
+            try {
+                const res = await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'remove-from-registry', keyword })
+                });
+
+                if (!res.ok) throw new Error('Failed to remove from registry');
+
+                // Remove from local registry
+                const entry = registry.find(e => e.keyword.toLowerCase() === keyword.toLowerCase() && (e.action === 'TO_OPTIMIZE' || e.action === 'SAVED_FOR_FUTURE' || e.action === 'DELETED'));
+                if (entry) {
+                    // Remove locked URL from runtime set
+                    if (entry.url && entry.url !== 'N/A') lockedUrlsRuntime.delete(normalizeUrl(entry.url));
+
+                    // Update stats
+                    if (entry.action === 'TO_OPTIMIZE') { statsResolved = Math.max(0, statsResolved - 1); document.getElementById('resolvedCount').textContent = statsResolved; }
+                    if (entry.action === 'SAVED_FOR_FUTURE') { statsSaved = Math.max(0, statsSaved - 1); document.getElementById('savedCount').textContent = statsSaved; }
+                    if (entry.action === 'DELETED') { statsDeleted = Math.max(0, statsDeleted - 1); document.getElementById('deletedCount').textContent = statsDeleted; }
+
+                    // Remove from registry array
+                    const idx = registry.indexOf(entry);
+                    if (idx > -1) registry.splice(idx, 1);
+                }
+
+                // Update active conflicts count
+                document.getElementById('conflictsCount').textContent = parseInt(document.getElementById('conflictsCount').textContent) + 1;
+                document.getElementById('activeConflictCount').textContent = parseInt(document.getElementById('activeConflictCount').textContent) + 1;
+
+                showModal('Done', `"${keyword}" restored to active conflicts. Reload the page to see it in the conflict list.`);
+
+                // Re-render current view
+                const views = ['viewResolvedSection', 'viewSavedSection', 'viewDeletedSection'];
+                views.forEach(id => {
+                    if (!document.getElementById(id).classList.contains('hidden')) {
+                        const section = id.replace('view','').replace('Section','').toLowerCase();
+                        if (section === 'resolved') renderResolved();
+                        if (section === 'saved') renderSaved();
+                        if (section === 'deleted') renderDeleted();
+                    }
+                });
+
+            } catch (error) {
+                showModal('Error', `Failed to undo: ${error.message}`);
+            }
         }
 
         // ── Load Data ──
