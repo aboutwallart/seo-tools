@@ -40,9 +40,6 @@
         .recommendation-card.high { border-left-color: #c62828; }
         .recommendation-card.medium { border-left-color: #e65100; }
         .recommendation-card.low { border-left-color: #2e7d32; }
-        .gsc-checkbox { width: 20px; height: 20px; cursor: pointer; margin-right: 10px; }
-        .bulk-actions { position: sticky; top: 20px; background: #fff3e0; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #ff9800; z-index: 100; display: none; }
-        .bulk-actions.visible { display: flex; align-items: center; justify-content: space-between; }
         .page-type-filter { display: inline-block; padding: 10px 20px; margin-right: 10px; margin-bottom: 10px; border: 2px solid #e0e0e0; border-radius: 6px; background: white; color: #1a1a1a; cursor: pointer; font-size: 0.95rem; font-weight: 500; transition: all 0.2s; }
         .page-type-filter:hover { background: #f5f5f5; }
         .page-type-filter.active { border-color: #1a1a1a; background: #1a1a1a; color: white; }
@@ -261,7 +258,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 41.1</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 42.0</p>
                 </div>
                 <button onclick="showHelp()" style="background: #0969da; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; white-space: nowrap;">
                     ❓ How to Clear Cache Safely
@@ -319,52 +316,18 @@
         </div>
 
         <div class="tabs">
-            <button class="tab active" onclick="switchTab('gsc')">📊 GSC Import</button>
-            <button class="tab" onclick="switchTab('pages')">📋 My Pages (<span id="pageCount">0</span>)</button>
+            <button class="tab active" onclick="switchTab('pages')">📋 My Pages (<span id="pageCount">0</span>)</button>
             <button class="tab" onclick="switchTab('optimized')">✅ Optimized (<span id="optimizedCount">0</span>)</button>
-            <button class="tab" onclick="switchTab('deleted')">🗑️ Deleted (<span id="deletedCount">0</span>)</button>
             <button class="tab" onclick="switchTab('settings')">⚙️ Settings</button>
         </div>
 
-        <!-- GSC IMPORT TAB -->
-        <div class="tab-content active" id="gscTab">
-            <h3>Import Google Search Console Data</h3>
-            <p style="margin: 10px 0; color: #666;">Upload your GSC export (ZIP file with Queries.csv and Pages.csv)</p>
-            
-            <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                <h4 style="margin-bottom: 10px;">📝 How to get your GSC data:</h4>
-                <ol style="line-height: 1.8; padding-left: 20px;">
-                    <li>Go to <a href="https://search.google.com/search-console" target="_blank">Google Search Console</a></li>
-                    <li>Select your property → Performance → Full report</li>
-                    <li>Set date range to "Last 3 months"</li>
-                    <li>Click "EXPORT" (top right)</li>
-                    <li>Select "Download CSV"</li>
-                    <li>Upload the ZIP file below</li>
-                </ol>
-            </div>
-
-            <input type="file" id="gscFileInput" accept=".zip" style="margin: 20px 0;">
-            <button onclick="importGSCData()" style="margin-top: 15px;">📊 Import GSC Data</button>
-            
-            <!-- SEARCH FILTER (Hidden until data imported) -->
-            <div id="gscSearchContainer" style="margin-top: 30px; display: none; background: #f0f8ff; padding: 20px; border-radius: 8px; border: 2px solid #2196f3;">
-                <h4 style="margin-bottom: 15px; color: #1976d2;">🔍 Filter by Exact Keyword Match</h4>
-                <p style="color: #666; font-size: 0.9rem; margin-bottom: 10px;">
-                    Search for a specific keyword to see all pages competing for it
-                </p>
-                <div style="display: flex; gap: 10px; align-items: center;">
-                    <input type="text" id="gscKeywordSearch" placeholder="e.g., wall art ideas for bedroom" style="flex: 1;">
-                    <button onclick="filterGSCOpportunities()" style="white-space: nowrap;">🔍 Search</button>
-                    <button class="btn-secondary" onclick="clearGSCSearch()" style="white-space: nowrap;">✖ Clear</button>
-                </div>
-                <div id="searchResults" style="margin-top: 10px; color: #666; font-size: 0.9rem;"></div>
-            </div>
-            
-            <div id="gscImportStatus" style="margin-top: 20px;"></div>
-        </div>
-
         <!-- MY PAGES TAB -->
-        <div class="tab-content" id="pagesTab">
+        <div class="tab-content active" id="pagesTab">
+            <!-- GSC Loading Status -->
+            <div id="gscLoadingStatus" style="display:none; padding:10px 15px; background:#e3f2fd; border-radius:6px; margin-bottom:15px; color:#1976d2; font-size:0.9rem;">
+                📡 Loading live GSC data — urgency badges will appear shortly...
+            </div>
+
             <!-- Page Type Filters -->
             <div style="margin-bottom: 20px; padding-bottom: 15px; border-bottom: 2px solid #e0e0e0;">
                 <button class="page-type-filter active" onclick="filterMyPages('all')">All (<span id="filterCountAll">0</span>)</button>
@@ -389,14 +352,6 @@
                 <button class="btn-secondary" onclick="removeDuplicates()">🧹 Remove Duplicates</button>
             </div>
             <div id="urlList"></div>
-        </div>
-
-        <!-- DELETED TAB -->
-        <div class="tab-content" id="deletedTab">
-            <div style="margin-bottom: 15px; display: flex; justify-content: flex-end;">
-                <button class="btn-secondary" onclick="clearAllDeleted()">🗑️ Clear All Deleted</button>
-            </div>
-            <div id="deletedList"></div>
         </div>
 
         <!-- OPTIMIZED TAB -->
@@ -545,12 +500,11 @@
         }
 
         let urls = []; // Loaded from GitHub registry on startup
-        let deletedOpportunities = JSON.parse(localStorage.getItem('deletedOpportunities') || '[]');
         let optimizedPages = []; // Loaded from GitHub registry on startup
         let currentUrl = null;
         let currentResults = null;
-        let allGSCOpportunities = []; // Store full unfiltered list for search
         let currentPageTypeFilter = 'all'; // Current filter in My Pages tab
+        let gscEnrichment = {}; // normalizedPath → { position, impressions, clicks, urgency, clickDrop, keyword }
         
         // Technical SEO Audit State
         let technicalSEOResults = null;
@@ -566,87 +520,79 @@
         }
 
 
-        function renderUrls() {
+        function renderUrls(filteredList) {
             const list = document.getElementById('urlList');
             if (urls.length === 0) {
-                list.innerHTML = '<p style="text-align:center; color:#666; padding:40px;">No URLs yet. Add them in the "Add URLs" tab.</p>';
+                list.innerHTML = '<p style="text-align:center; color:#666; padding:40px;">No pages yet. Pages saved to the registry as TO_OPTIMIZE will appear here.</p>';
                 updatePageTypeFilterCounts();
                 return;
             }
 
-            // Load GSC data for sorting
-            const gscData = JSON.parse(localStorage.getItem('gscData') || '{}');
-            const gscOpportunities = gscData.opportunities || [];
-            
-            // Create a map for quick lookup
-            const gscMap = {};
-            gscOpportunities.forEach(opp => {
-                gscMap[opp.url.toLowerCase()] = {
-                    isQuickWin: opp.isQuickWin,
-                    score: opp.score,
-                    position: opp.position,
-                    keyword: opp.keyword
-                };
-            });
-            
-            // Sort URLs: Quick Wins first, then by ID (newest first)
+            const urgencyRank = (u) => {
+                const g = gscEnrichment[normalizeUrlPath(u.url)] || {};
+                if (g.urgency === 'danger') return 2;
+                if (g.urgency === 'quickwin') return 1;
+                return 0;
+            };
+
+            // Sort: Danger → Quick Win → normal, then by impressions desc
             const sortedUrls = [...urls].sort((a, b) => {
-                const aData = gscMap[a.url.toLowerCase()];
-                const bData = gscMap[b.url.toLowerCase()];
-                
-                // Quick Wins go first
-                if (aData?.isQuickWin && !bData?.isQuickWin) return -1;
-                if (!aData?.isQuickWin && bData?.isQuickWin) return 1;
-                
-                // Both quick wins - sort by score
-                if (aData?.isQuickWin && bData?.isQuickWin) {
-                    return bData.score - aData.score;
-                }
-                
-                // Both from GSC but not quick wins - sort by score
-                if (aData && bData) {
-                    return bData.score - aData.score;
-                }
-                
-                // Default: newest first
-                return b.id - a.id;
+                const diff = urgencyRank(b) - urgencyRank(a);
+                if (diff !== 0) return diff;
+                const aG = gscEnrichment[normalizeUrlPath(a.url)] || {};
+                const bG = gscEnrichment[normalizeUrlPath(b.url)] || {};
+                return (bG.impressions || 0) - (aG.impressions || 0);
             });
 
-            // Filter by page type
-            const filteredUrls = currentPageTypeFilter === 'all' 
-                ? sortedUrls 
-                : sortedUrls.filter(item => getPageType(item.url) === currentPageTypeFilter);
+            // Use passed filtered list OR apply page type filter
+            let toRender = filteredList || (
+                currentPageTypeFilter === 'all'
+                    ? sortedUrls
+                    : sortedUrls.filter(item => getPageType(item.url) === currentPageTypeFilter)
+            );
 
-            // Update filter counts
             updatePageTypeFilterCounts();
 
-            // Show empty state if filtered list is empty
-            if (filteredUrls.length === 0) {
+            if (toRender.length === 0) {
                 const filterName = currentPageTypeFilter === 'all' ? 'pages' : `${currentPageTypeFilter} pages`;
                 list.innerHTML = `<p style="text-align:center; color:#666; padding:40px;">No ${filterName} found.</p>`;
                 return;
             }
 
-            list.innerHTML = filteredUrls.map(item => {
-                const gscInfo = gscMap[item.url.toLowerCase()];
-                const isQuickWin = gscInfo?.isQuickWin;
-                const displayKeyword = item.keyword || gscInfo?.keyword;
+            list.innerHTML = toRender.map(item => {
+                const gscInfo = gscEnrichment[normalizeUrlPath(item.url)] || {};
+                const isDanger   = gscInfo.urgency === 'danger';
+                const isQuickWin = gscInfo.urgency === 'quickwin';
+                const displayKeyword = item.keyword || gscInfo.keyword;
                 const pageType = getPageType(item.url);
                 const borderColor = getPageTypeColor(pageType);
                 const pageTypeLabel = getPageTypeLabel(pageType);
-                
+                const bgColor = isDanger ? '#fff5f5' : isQuickWin ? '#fff9f0' : 'white';
+
+                const urgencyBadge = isDanger
+                    ? `<span style="background:#dc2626;color:white;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">🚨 Danger</span>`
+                    : isQuickWin
+                        ? `<span style="background:#f97316;color:white;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">🔥 Quick Win</span>`
+                        : '';
+
+                const gscMetrics = gscInfo.position ? `
+                    <div style="font-size:0.8rem;color:#666;margin-top:4px;display:flex;gap:14px;flex-wrap:wrap;">
+                        <span>📍 Position <strong>${gscInfo.position.toFixed(1)}</strong></span>
+                        <span>👁 ${(gscInfo.impressions||0).toLocaleString()} imp/mo</span>
+                        <span>🖱 ${(gscInfo.clicks||0).toLocaleString()} clicks/mo</span>
+                        ${isDanger ? `<span style="color:#dc2626;font-weight:600;">▼ ${Math.abs(gscInfo.clickDrop||0).toFixed(0)}% click drop</span>` : ''}
+                    </div>` : '';
+
                 return `
-                <div class="url-item ${item.analyzed ? 'analyzed' : ''}" style="border-left: 4px solid ${borderColor}; background: ${isQuickWin ? '#fff9f0' : 'white'};">
+                <div class="url-item ${item.analyzed ? 'analyzed' : ''}" style="border-left: 4px solid ${borderColor}; background: ${bgColor};">
                     <div style="flex: 1;">
-                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px; flex-wrap: wrap;">
                             <span style="background: ${borderColor}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${pageTypeLabel}</span>
-                            ${isQuickWin ? '<span style="font-size: 1.2rem;">🔥</span>' : ''}
+                            ${urgencyBadge}
                         </div>
-                        <div style="font-weight: 500; margin-bottom: 5px; word-break: break-all;">
-                            ${item.url}
-                        </div>
+                        <div style="font-weight: 500; margin-bottom: 5px; word-break: break-all;">${item.url}</div>
                         ${displayKeyword ? `<div style="font-size: 0.85rem; color: #1976d2; margin-bottom: 3px;">🎯 Keyword: "${displayKeyword}"</div>` : ''}
-                        ${gscInfo ? `<div style="font-size: 0.85rem; color: #ff9800;">Position: ${gscInfo.position.toFixed(1)} ${isQuickWin ? '• QUICK WIN' : ''}</div>` : ''}
+                        ${gscMetrics}
                         ${item.analyzed ? `
                             <div style="margin-top: 8px;">
                                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: #2e7d32; font-weight: 500;">
@@ -657,14 +603,12 @@
                         ` : ''}
                     </div>
                     <div style="display: flex; gap: 10px;">
-                        ${item.analyzed ? `
-                            <button class="btn-secondary" onclick="viewResults(${item.id})">📊 View</button>
-                        ` : ''}
+                        ${item.analyzed ? `<button class="btn-secondary" onclick="viewResults(${item.id})">📊 View</button>` : ''}
                         <button onclick="openAnalyzeModal(${item.id})">${item.analyzed ? '🔄 Re-analyze' : '🔍 Analyze'}</button>
                         <button class="btn-secondary" onclick="removeUrl(${item.id})">🗑️</button>
                     </div>
-                </div>
-            `}).join('');
+                </div>`;
+            }).join('');
         }
 
         function updatePageTypeFilterCounts() {
@@ -767,83 +711,8 @@
             document.getElementById('pageCount').textContent = urls.length;
         }
 
-        function updateDeletedCount() {
-            document.getElementById('deletedCount').textContent = deletedOpportunities.length;
-        }
-
         function updateOptimizedCount() {
             document.getElementById('optimizedCount').textContent = optimizedPages.length;
-        }
-
-        function renderDeleted() {
-            const list = document.getElementById('deletedList');
-            if (deletedOpportunities.length === 0) {
-                list.innerHTML = '<p style="text-align:center; color:#666; padding:40px;">No deleted opportunities.</p>';
-                return;
-            }
-
-            // Sort by most recent first
-            const sorted = [...deletedOpportunities].sort((a, b) => b.id - a.id);
-
-            list.innerHTML = sorted.map(item => `
-                <div class="url-item" style="background: #ffebee;">
-                    <div style="flex: 1;">
-                        <div style="font-weight: 500; margin-bottom: 5px; word-break: break-all;">
-                            ${item.url}
-                        </div>
-                        <div style="font-size: 0.85rem; color: #c62828; margin-bottom: 3px;">
-                            🎯 Keyword: "${item.keyword}"
-                        </div>
-                        <div style="font-size: 0.85rem; color: #999;">
-                            Deleted: ${new Date(item.deletedAt).toLocaleDateString()}
-                        </div>
-                    </div>
-                    <div style="display: flex; gap: 10px;">
-                        <button onclick="restoreDeleted(${item.id})">↩️ Restore</button>
-                        <button class="btn-secondary" onclick="permanentlyDelete(${item.id})">🗑️ Remove</button>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        async function restoreDeleted(id) {
-            const item = deletedOpportunities.find(d => d.id === id);
-            if (!item) return;
-
-            if (confirm(`Restore this opportunity?\n\nURL: ${item.url}\nKeyword: "${item.keyword}"`)) {
-                deletedOpportunities = deletedOpportunities.filter(d => d.id !== id);
-                localStorage.setItem('deletedOpportunities', JSON.stringify(deletedOpportunities));
-                updateDeletedCount();
-                renderDeleted();
-
-                // Refresh GSC opportunities if available
-                const gscData = JSON.parse(localStorage.getItem('gscData') || '{}');
-                if (gscData.opportunities) {
-                    await displayGSCOpportunities(gscData.opportunities);
-                }
-
-                alert('✅ Opportunity restored!');
-            }
-        }
-
-        function permanentlyDelete(id) {
-            if (confirm('⚠️ Permanently remove this from deleted list?\n\nThis cannot be undone!')) {
-                deletedOpportunities = deletedOpportunities.filter(d => d.id !== id);
-                localStorage.setItem('deletedOpportunities', JSON.stringify(deletedOpportunities));
-                updateDeletedCount();
-                renderDeleted();
-                alert('✅ Permanently removed!');
-            }
-        }
-
-        function clearAllDeleted() {
-            if (confirm('⚠️ Clear ALL deleted opportunities?\n\nThis cannot be undone!')) {
-                deletedOpportunities = [];
-                localStorage.setItem('deletedOpportunities', JSON.stringify(deletedOpportunities));
-                updateDeletedCount();
-                renderDeleted();
-                alert('✅ All deleted opportunities cleared!');
-            }
         }
 
         function renderOptimized() {
@@ -920,7 +789,8 @@
         function openAnalyzeModal(id) {
             currentUrl = urls.find(u => u.id === id);
             document.getElementById('modalUrl').textContent = currentUrl.url;
-            document.getElementById('mainKeyword').value = currentUrl.keyword || '';
+            const gscInfo = gscEnrichment[normalizeUrlPath(currentUrl.url)] || {};
+            document.getElementById('mainKeyword').value = currentUrl.keyword || gscInfo.keyword || '';
             removeImage();
             document.getElementById('analyzeModal').classList.add('active');
         }
@@ -1923,161 +1793,86 @@
         }
 
         function renderFilteredUrls(filteredUrls) {
-            const list = document.getElementById('urlList');
-            
-            if (filteredUrls.length === 0) {
-                list.innerHTML = '<p style="text-align:center; color:#666; padding:40px;">No matching pages found.</p>';
-                return;
-            }
-
-            // Load GSC data for display
-            const gscData = JSON.parse(localStorage.getItem('gscData') || '{}');
-            const gscOpportunities = gscData.opportunities || [];
-            
-            const gscMap = {};
-            gscOpportunities.forEach(opp => {
-                gscMap[opp.url.toLowerCase()] = {
-                    isQuickWin: opp.isQuickWin,
-                    score: opp.score,
-                    position: opp.position,
-                    keyword: opp.keyword
-                };
-            });
-
-            // Sort filtered results same as renderUrls
-            const sortedUrls = [...filteredUrls].sort((a, b) => {
-                const aData = gscMap[a.url.toLowerCase()];
-                const bData = gscMap[b.url.toLowerCase()];
-                
-                if (aData?.isQuickWin && !bData?.isQuickWin) return -1;
-                if (!aData?.isQuickWin && bData?.isQuickWin) return 1;
-                
-                if (aData?.isQuickWin && bData?.isQuickWin) {
-                    return bData.score - aData.score;
-                }
-                
-                if (aData && bData) {
-                    return bData.score - aData.score;
-                }
-                
-                return b.id - a.id;
-            });
-
-            // Render items (same as renderUrls)
-            list.innerHTML = sortedUrls.map(item => {
-                const gscInfo = gscMap[item.url.toLowerCase()];
-                const isQuickWin = gscInfo?.isQuickWin;
-                const displayKeyword = item.keyword || gscInfo?.keyword;
-                const pageType = getPageType(item.url);
-                const borderColor = getPageTypeColor(pageType);
-                const pageTypeLabel = getPageTypeLabel(pageType);
-                
-                return `
-                <div class="url-item ${item.analyzed ? 'analyzed' : ''}" style="border-left: 4px solid ${borderColor}; background: ${isQuickWin ? '#fff9f0' : 'white'};">
-                    <div style="flex: 1;">
-                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
-                            <span style="background: ${borderColor}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${pageTypeLabel}</span>
-                            ${isQuickWin ? '<span style="font-size: 1.2rem;">🔥</span>' : ''}
-                        </div>
-                        <div style="font-weight: 500; margin-bottom: 5px; word-break: break-all;">
-                            ${item.url}
-                        </div>
-                        ${displayKeyword ? `<div style="font-size: 0.85rem; color: #1976d2; margin-bottom: 3px;">🎯 Keyword: "${displayKeyword}"</div>` : ''}
-                        ${gscInfo ? `<div style="font-size: 0.85rem; color: #ff9800;">Position: ${gscInfo.position.toFixed(1)} ${isQuickWin ? '• QUICK WIN' : ''}</div>` : ''}
-                        ${item.analyzed ? `
-                            <div style="margin-top: 8px;">
-                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: #2e7d32; font-weight: 500;">
-                                    <input type="checkbox" onchange="markAsOptimized(${item.id})" style="width: 18px; height: 18px;">
-                                    ✅ Mark as Optimized (locks keyword in GitHub)
-                                </label>
-                            </div>
-                        ` : ''}
-                    </div>
-                    <div style="display: flex; gap: 10px;">
-                        ${item.analyzed ? `
-                            <button class="btn-secondary" onclick="viewResults(${item.id})">📊 View</button>
-                        ` : ''}
-                        <button onclick="openAnalyzeModal(${item.id})">${item.analyzed ? '🔄 Re-analyze' : '🔍 Analyze'}</button>
-                        <button class="btn-secondary" onclick="removeUrl(${item.id})">🗑️</button>
-                    </div>
-                </div>
-            `}).join('');
+            renderUrls(filteredUrls);
         }
 
-        // GSC Import functions
-        async function importGSCData() {
-            const fileInput = document.getElementById('gscFileInput');
-            const statusDiv = document.getElementById('gscImportStatus');
-            
-            if (!fileInput.files || !fileInput.files[0]) {
-                statusDiv.innerHTML = '<p style="color: #c62828;">Please select a ZIP file first</p>';
-                return;
-            }
+        // ── GSC LIVE ENRICHMENT ───────────────────────────────────────────────────
 
-            const file = fileInput.files[0];
-            statusDiv.innerHTML = '<p>📦 Extracting ZIP file...</p>';
+        function normalizeUrlPath(url) {
+            return url.toLowerCase()
+                .replace('https://www.aboutwallart.com', '')
+                .replace('https://aboutwallart.com', '')
+                .replace(/\/$/, '')
+                .replace(/\?.*$/, '') || '/';
+        }
 
+        function getDateStr(daysAgo) {
+            const d = new Date();
+            d.setDate(d.getDate() - daysAgo);
+            return d.toISOString().split('T')[0];
+        }
+
+        async function loadGSCEnrichment() {
+            if (urls.length === 0) return;
+            const loadingEl = document.getElementById('gscLoadingStatus');
+            if (loadingEl) loadingEl.style.display = 'block';
             try {
-                if (typeof JSZip === 'undefined') {
-                    const script = document.createElement('script');
-                    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
-                    document.head.appendChild(script);
-                    await new Promise(resolve => script.onload = resolve);
+                const end = getDateStr(0), start = getDateStr(90), startPrev = getDateStr(180);
+                const [rPages, rPrev, rPQ] = await Promise.all([
+                    fetch(`/api/gsc?action=pages&startDate=${start}&endDate=${end}`),
+                    fetch(`/api/gsc?action=pages&startDate=${startPrev}&endDate=${start}`),
+                    fetch(`/api/gsc?action=page-query&startDate=${start}&endDate=${end}`)
+                ]);
+                const [jPages, jPrev, jPQ] = await Promise.all([rPages.json(), rPrev.json(), rPQ.json()]);
+
+                // Top keyword per page from page-query
+                const topKw = {};
+                if (jPQ.success) {
+                    (jPQ.data.rows || []).forEach(r => {
+                        const page = normalizeUrlPath(r.keys?.[0] || '');
+                        const query = r.keys?.[1] || '';
+                        if (!topKw[page] || r.impressions > (topKw[page].imp || 0)) {
+                            topKw[page] = { query, imp: r.impressions };
+                        }
+                    });
                 }
 
-                const arrayBuffer = await file.arrayBuffer();
-                const zip = await JSZip.loadAsync(arrayBuffer);
-                
-                const queriesFile = zip.file('Queries.csv');
-                const pagesFile = zip.file('Pages.csv');
-                
-                if (!queriesFile || !pagesFile) {
-                    statusDiv.innerHTML = '<p style="color: #c62828;">❌ ZIP must contain Queries.csv and Pages.csv</p>';
-                    return;
+                // Previous period clicks for danger detection
+                const prevClicks = {};
+                if (jPrev.success) {
+                    (jPrev.data.rows || []).forEach(r => {
+                        const page = normalizeUrlPath(r.keys?.[0] || '');
+                        prevClicks[page] = Math.max(prevClicks[page] || 0, r.clicks || 0);
+                    });
                 }
 
-                statusDiv.innerHTML = '<p>📊 Parsing CSV data...</p>';
-
-                const queriesCSV = await queriesFile.async('string');
-                const pagesCSV = await pagesFile.async('string');
-
-                const queries = parseCSV(queriesCSV);
-                const pages = parseCSV(pagesCSV);
-
-                statusDiv.innerHTML = '<p>🔍 Analyzing opportunities...</p>';
-
-                const opportunities = processGSCData(queries, pages);
-                
-                // Load locked keywords from GitHub
-                statusDiv.innerHTML = '<p>🔒 Checking for locked keywords...</p>';
-                const lockData = await loadLockedKeywords();
-                
-                // Filter out opportunities for locked keywords
-                const filteredOpportunities = filterLockedOpportunities(opportunities, lockData);
-                
-                const removedCount = opportunities.length - filteredOpportunities.length;
-                
-                // Store in global variable for search functionality
-                allGSCOpportunities = filteredOpportunities;
-                
-                localStorage.setItem('gscData', JSON.stringify({
-                    imported: new Date().toISOString(),
-                    opportunities: filteredOpportunities.slice(0, 100)
-                }));
-
-                statusDiv.innerHTML = `<p style="color: #2e7d32;">✅ Successfully imported ${filteredOpportunities.length} opportunities!</p>`;
-                if (removedCount > 0) {
-                    statusDiv.innerHTML += `<p style="color: #ff9800;">⚠️ Removed ${removedCount} opportunities for locked keywords (conflicts already resolved)</p>`;
+                // Build enrichment map
+                gscEnrichment = {};
+                if (jPages.success) {
+                    (jPages.data.rows || []).forEach(r => {
+                        const page = normalizeUrlPath(r.keys?.[0] || '');
+                        const pos = r.position || 0, imp = r.impressions || 0, clk = r.clicks || 0;
+                        if (gscEnrichment[page] && imp <= gscEnrichment[page].impressions) return;
+                        const prev = prevClicks[page] || 0;
+                        let urgency = null, clickDrop = 0;
+                        if (prev >= 10) {
+                            const drop = (clk - prev) / prev * 100;
+                            if (drop <= -20) { urgency = 'danger'; clickDrop = drop; }
+                        }
+                        if (!urgency && pos >= 4 && pos <= 20 && imp >= 100) urgency = 'quickwin';
+                        gscEnrichment[page] = { position: pos, impressions: imp, clicks: clk, urgency, clickDrop, keyword: topKw[page]?.query || null };
+                    });
                 }
-                statusDiv.innerHTML += `<p style="color: #666; font-size: 0.9rem;">Top 100 stored for quick access</p>`;
-                
-                await displayGSCOpportunities(filteredOpportunities);
-
-            } catch (error) {
-                console.error('[GSC Import] Error:', error);
-                statusDiv.innerHTML = `<p style="color: #c62828;">❌ Error: ${error.message}</p>`;
+                if (loadingEl) loadingEl.style.display = 'none';
+                renderUrls();
+            } catch (err) {
+                console.error('[GSC Enrichment]', err);
+                if (loadingEl) loadingEl.style.display = 'none';
             }
         }
+
+
+        async function importGSCData() { } // removed v42.0
 
         async function loadLockedKeywords() {
             try {
@@ -2198,59 +1993,6 @@
             }
         }
 
-        function filterLockedOpportunities(opportunities, lockData) {
-            if (!lockData) {
-                return opportunities;
-            }
-
-            const { lockedKeywords, blockedUrlKeywordPairs } = lockData;
-
-            if ((!lockedKeywords || lockedKeywords.length === 0) && 
-                (!blockedUrlKeywordPairs || blockedUrlKeywordPairs.length === 0)) {
-                return opportunities;
-            }
-
-            return opportunities.filter(opp => {
-                const keywordLower = opp.keyword.toLowerCase();
-                const urlLower = opp.url.toLowerCase();
-                
-                // Check if keyword is globally locked
-                if (lockedKeywords.includes(keywordLower)) {
-                    console.log(`[Filter] Removing opportunity - keyword locked: "${opp.keyword}" (${opp.url})`);
-                    return false;
-                }
-                
-                // Check if this specific URL+keyword pair is blocked (unresolved conflict)
-                const isBlockedPair = blockedUrlKeywordPairs.some(pair => 
-                    pair.url === urlLower && pair.keyword === keywordLower
-                );
-                
-                if (isBlockedPair) {
-                    console.log(`[Filter] Removing opportunity - unresolved conflict: "${opp.keyword}" on ${opp.url}`);
-                    return false;
-                }
-                
-                return true;
-            });
-        }
-
-        function parseCSV(csv) {
-            const lines = csv.trim().split('\n');
-            const headers = lines[0].split(',');
-            const data = [];
-
-            for (let i = 1; i < lines.length; i++) {
-                const values = lines[i].split(',');
-                const row = {};
-                headers.forEach((header, index) => {
-                    row[header.trim()] = values[index] ? values[index].trim() : '';
-                });
-                data.push(row);
-            }
-
-            return data;
-        }
-
         function getPageType(url) {
             const urlLower = url.toLowerCase();
             if (urlLower.includes('/collections/')) return 'collection';
@@ -2281,341 +2023,6 @@
             };
             return labels[type] || labels.other;
         }
-
-        function processGSCData(queries, pages) {
-            const opportunities = [];
-
-            pages.forEach(page => {
-                const url = page['Top pages'];
-                const position = parseFloat(page['Position']);
-                const impressions = parseInt(page['Impressions']);
-                const clicks = parseInt(page['Clicks']);
-                const ctr = parseFloat(page['CTR'].replace('%', ''));
-
-                const matchingKeywords = queries.filter(q => {
-                    const qPos = parseFloat(q['Position']);
-                    const qImpressions = parseInt(q['Impressions']);
-                    return Math.abs(qPos - position) <= 3 && qImpressions >= 50;
-                });
-                
-                matchingKeywords.sort((a, b) => parseInt(b['Impressions']) - parseInt(a['Impressions']));
-                const bestKeyword = matchingKeywords[0] ? matchingKeywords[0]['Top queries'] : 'Unknown keyword';
-
-                if (position >= 4 && position <= 20 && impressions >= 100) {
-                    const potentialCTR = estimateCTR(3);
-                    const potentialClicks = Math.round(impressions * potentialCTR);
-                    const clickGain = potentialClicks - clicks;
-                    
-                    const positionGain = position - 3;
-                    const opportunityScore = (impressions / 100) * positionGain * (clickGain / 10);
-
-                    opportunities.push({
-                        url: url,
-                        keyword: bestKeyword,
-                        position: position,
-                        impressions: impressions,
-                        clicks: clicks,
-                        ctr: ctr,
-                        potentialClicks: potentialClicks,
-                        clickGain: clickGain,
-                        score: Math.round(opportunityScore),
-                        isQuickWin: position >= 4 && position <= 10 && impressions >= 100,
-                        pageType: getPageType(url)
-                    });
-                }
-            });
-
-            // Sort by score first (primary), then by page type (secondary)
-            opportunities.sort((a, b) => {
-                // Primary sort: highest score first
-                if (a.score !== b.score) return b.score - a.score;
-                
-                // Secondary sort: collection → product → blog → other
-                const typeOrder = { collection: 0, product: 1, blog: 2, other: 3 };
-                return typeOrder[a.pageType] - typeOrder[b.pageType];
-            });
-
-            return opportunities;
-        }
-
-        function estimateCTR(position) {
-            const ctrMap = {
-                1: 0.28,
-                2: 0.15,
-                3: 0.10,
-                4: 0.08,
-                5: 0.06,
-                6: 0.05,
-                7: 0.04,
-                8: 0.03,
-                9: 0.03,
-                10: 0.02
-            };
-            return ctrMap[position] || 0.01;
-        }
-
-        async function displayGSCOpportunities(opportunities) {
-            const statusDiv = document.getElementById('gscImportStatus');
-            
-            // Show search container
-            document.getElementById('gscSearchContainer').style.display = 'block';
-            
-            // Load locked keywords from GitHub registry
-            const lockData = await loadLockedKeywords();
-            
-            // Get deleted pairs from localStorage
-            const deletedPairs = deletedOpportunities.map(d => ({
-                url: d.url.toLowerCase(),
-                keyword: d.keyword.toLowerCase()
-            }));
-            
-            // Filter opportunities against registry
-            const availableOpportunities = opportunities.filter(opp => {
-                const urlLower = opp.url.toLowerCase();
-                const keywordLower = opp.keyword.toLowerCase();
-                
-                // Rule 1: Remove if keyword is globally locked in registry
-                if (lockData.lockedKeywords.includes(keywordLower)) {
-                    console.log(`[GSC Filter] Removing - keyword "${opp.keyword}" is locked in registry`);
-                    return false;
-                }
-                
-                // Rule 2: Remove if this specific URL+keyword pair is blocked (orphaned conflict)
-                const isBlockedPair = lockData.blockedUrlKeywordPairs.some(pair => 
-                    pair.url === urlLower && pair.keyword === keywordLower
-                );
-                if (isBlockedPair) {
-                    console.log(`[GSC Filter] Removing - orphaned conflict: "${opp.keyword}" on ${opp.url}`);
-                    return false;
-                }
-                
-                // Rule 3: Remove if deleted
-                const isDeleted = deletedPairs.some(d => 
-                    d.url === urlLower && d.keyword === keywordLower
-                );
-                if (isDeleted) {
-                    return false;
-                }
-                
-                return true;
-            });
-            
-            // Sort by score (highest first)
-            availableOpportunities.sort((a, b) => b.score - a.score);
-            
-            const quickWinsCount = availableOpportunities.filter(o => o.isQuickWin).length;
-
-            // CRITICAL: Use = to REPLACE content, not += to append
-            const html = `
-                <!-- Bulk Actions Bar (hidden until checkboxes selected) -->
-                <div id="bulkActionsBar" class="bulk-actions">
-                    <div>
-                        <strong><span id="selectedCount">0</span> selected</strong>
-                    </div>
-                    <div style="display: flex; gap: 10px;">
-                        <button onclick="bulkDeleteSelected()" style="background: #c62828;">🗑️ Delete Selected</button>
-                        <button class="btn-secondary" onclick="clearAllSelections()">✖ Clear Selection</button>
-                    </div>
-                </div>
-                
-                <div style="margin-top: 30px;">
-                    <h3>📊 Available Opportunities (${availableOpportunities.length})</h3>
-                    <p style="color: #666; margin-bottom: 10px;">
-                        Sorted by opportunity score (highest first) • ${quickWinsCount} Quick Wins 🔥
-                    </p>
-                    <p style="color: #999; font-size: 0.9rem; margin-bottom: 20px;">
-                        Pages in "My Pages" or "Deleted" are hidden from this list
-                    </p>
-                    ${availableOpportunities.map((opp, index) => {
-                        const isQuickWin = opp.isQuickWin;
-                        const oppId = `opp-${index}`;
-                        const pageType = opp.pageType || getPageType(opp.url);
-                        const borderColor = getPageTypeColor(pageType);
-                        const pageTypeLabel = getPageTypeLabel(pageType);
-                        
-                        return `
-                        <div style="background: ${isQuickWin ? '#fff9f0' : 'white'}; border-left: 4px solid ${borderColor}; padding: 15px; margin-bottom: 15px; border-radius: 6px;">
-                            <div style="display: flex; align-items: flex-start; gap: 10px;">
-                                <input type="checkbox" class="gsc-checkbox" id="${oppId}" 
-                                       data-url="${opp.url.replace(/"/g, '&quot;')}" 
-                                       data-keyword="${opp.keyword.replace(/"/g, '&quot;')}"
-                                       onchange="updateBulkActions()">
-                                <div style="flex: 1;">
-                                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
-                                        <span style="background: ${borderColor}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${pageTypeLabel}</span>
-                                        ${isQuickWin ? '<span style="font-size: 1.2rem;">🔥</span>' : ''}
-                                        <span style="background: #666; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem;">Score: ${opp.score.toLocaleString()}</span>
-                                    </div>
-                                    <label for="${oppId}" style="cursor: pointer; font-weight: 500; margin-bottom: 5px; word-break: break-all; display: block;">
-                                        ${opp.url}
-                                    </label>
-                                    <div style="color: #1976d2; font-size: 0.95rem; margin-bottom: 8px; font-weight: 500;">🎯 Keyword: "${opp.keyword}"</div>
-                                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; font-size: 0.9rem;">
-                                        <div><strong>Position:</strong> ${opp.position.toFixed(1)}</div>
-                                        <div><strong>Impressions:</strong> ${opp.impressions.toLocaleString()}/mo</div>
-                                        <div><strong>Clicks:</strong> ${opp.clicks}/mo</div>
-                                        <div style="color: #2e7d32;"><strong>Potential:</strong> +${opp.clickGain} clicks/mo</div>
-                                    </div>
-                                    <div style="display: flex; gap: 10px; margin-top: 10px;">
-                                        <button onclick="addGSCUrlToAnalyze('${opp.url.replace(/'/g, "\\'")}', '${opp.keyword.replace(/'/g, "\\'")}')" style="font-size: 0.9rem; padding: 8px 16px;">➕ Add to My Pages</button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    `}).join('')}
-                </div>
-            `;
-            
-            // Find where to insert (after existing status messages)
-            const existingContent = statusDiv.querySelector('p');
-            if (existingContent) {
-                // Keep status messages, replace opportunities list
-                const opportunitiesDiv = statusDiv.querySelector('div[style*="margin-top: 30px"]');
-                if (opportunitiesDiv) {
-                    opportunitiesDiv.outerHTML = html;
-                } else {
-                    statusDiv.innerHTML += html;
-                }
-            } else {
-                statusDiv.innerHTML = html;
-            }
-        }
-
-        async function filterGSCOpportunities() {
-            console.log('[Filter] Button clicked');
-            
-            const searchTerm = document.getElementById('gscKeywordSearch').value.toLowerCase().trim();
-            const searchResults = document.getElementById('searchResults');
-            
-            if (!searchTerm) {
-                searchResults.innerHTML = '⚠️ Please enter a keyword to search';
-                await displayGSCOpportunities(allGSCOpportunities);
-                return;
-            }
-            
-            console.log('[Filter] Searching for:', searchTerm);
-            console.log('[Filter] Total opportunities:', allGSCOpportunities.length);
-            
-            // EXACT match only
-            const filtered = allGSCOpportunities.filter(opp => 
-                opp.keyword.toLowerCase() === searchTerm
-            );
-            
-            console.log('[Filter] Filtered results:', filtered.length);
-            
-            if (filtered.length === 0) {
-                searchResults.innerHTML = `❌ No pages found with exact keyword: "${searchTerm}"`;
-                searchResults.style.color = '#c62828';
-            } else {
-                searchResults.innerHTML = `✅ Found ${filtered.length} page${filtered.length > 1 ? 's' : ''} with keyword: "${searchTerm}"`;
-                searchResults.style.color = '#2e7d32';
-            }
-            
-            await displayGSCOpportunities(filtered);
-        }
-
-        async function clearGSCSearch() {
-            console.log('[Filter] Clear button clicked');
-            document.getElementById('gscKeywordSearch').value = '';
-            document.getElementById('searchResults').innerHTML = '';
-            await displayGSCOpportunities(allGSCOpportunities);
-        }
-
-        function updateBulkActions() {
-            const checkboxes = document.querySelectorAll('.gsc-checkbox:checked');
-            const count = checkboxes.length;
-            const bulkBar = document.getElementById('bulkActionsBar');
-            const countSpan = document.getElementById('selectedCount');
-            
-            if (count > 0) {
-                bulkBar.classList.add('visible');
-                countSpan.textContent = count;
-            } else {
-                bulkBar.classList.remove('visible');
-            }
-        }
-
-        async function bulkDeleteSelected() {
-            const checkboxes = document.querySelectorAll('.gsc-checkbox:checked');
-            const count = checkboxes.length;
-            
-            if (count === 0) {
-                alert('No opportunities selected');
-                return;
-            }
-            
-            if (!confirm(`Delete ${count} selected opportunit${count > 1 ? 'ies' : 'y'}?\n\nYou can restore them from the Deleted tab.`)) {
-                return;
-            }
-            
-            // Collect all selected items
-            checkboxes.forEach(checkbox => {
-                const url = checkbox.getAttribute('data-url');
-                const keyword = checkbox.getAttribute('data-keyword');
-                
-                deletedOpportunities.push({
-                    id: Date.now() + Math.random(), // Ensure unique IDs
-                    url: url,
-                    keyword: keyword,
-                    deletedAt: new Date().toISOString()
-                });
-            });
-            
-            // Save to localStorage
-            localStorage.setItem('deletedOpportunities', JSON.stringify(deletedOpportunities));
-            updateDeletedCount();
-            renderDeleted();
-            
-            // Refresh display (will filter out deleted items)
-            const currentSearchTerm = document.getElementById('gscKeywordSearch').value.trim();
-            if (currentSearchTerm) {
-                await filterGSCOpportunities();
-            } else {
-                await displayGSCOpportunities(allGSCOpportunities);
-            }
-            
-            alert(`✅ ${count} opportunit${count > 1 ? 'ies' : 'y'} moved to Deleted tab!`);
-        }
-
-        function clearAllSelections() {
-            document.querySelectorAll('.gsc-checkbox:checked').forEach(cb => {
-                cb.checked = false;
-            });
-            updateBulkActions();
-        }
-
-        async function addGSCUrlToAnalyze(url, keyword) {
-            const existingUrls = urls.map(u => u.url.toLowerCase());
-            
-            if (existingUrls.includes(url.toLowerCase())) {
-                alert('⚠️ This URL is already in your list!');
-                return;
-            }
-
-            urls.push({ 
-                id: Date.now(), 
-                url: url, 
-                analyzed: false, 
-                keyword: keyword || null,
-                results: null,
-                fromGSC: true
-            });
-
-            updatePageCount();
-            renderUrls();
-            
-            // Refresh GSC opportunities list to remove the added page
-            const gscData = JSON.parse(localStorage.getItem('gscData') || '{}');
-            if (gscData.opportunities) {
-                // Clear the status div and redisplay with updated filter
-                const statusDiv = document.getElementById('gscImportStatus');
-                statusDiv.innerHTML = `<p style="color: #2e7d32;">✅ Successfully imported ${gscData.opportunities.length} opportunities! (Top 100 stored for quick access)</p>`;
-                await displayGSCOpportunities(gscData.opportunities);
-            }
-            
-            alert(`✅ URL added with keyword "${keyword}"! Switch to "My Pages" tab to analyze it.`);
-        }
-
 
         // Load pages from GitHub registry
         async function loadFromGitHub() {
@@ -3118,47 +2525,23 @@
 
         // Initialize on page load
         window.addEventListener('DOMContentLoaded', async () => {
-            // Initialize IndexedDB
             await initDB();
-            
-            // Try IndexedDB first (most persistent)
+
             let savedToken = await getTokenFromDB();
-            
-            // Fallback to localStorage if IndexedDB doesn't have it
             if (!savedToken) {
                 savedToken = localStorage.getItem('githubToken');
-                if (savedToken) {
-                    // Migrate to IndexedDB
-                    saveTokenToDB(savedToken);
-                }
+                if (savedToken) saveTokenToDB(savedToken);
             }
-            
-            // Load pages from GitHub registry
+
             await loadFromGitHub();
-            
-            // Initialize UI
+
             updatePageCount();
-            updateDeletedCount();
             updateOptimizedCount();
             renderUrls();
-            renderDeleted();
             renderOptimized();
-            
-            // Load and display GSC opportunities if they exist
-            const gscData = JSON.parse(localStorage.getItem('gscData') || '{}');
-            if (gscData.opportunities && gscData.opportunities.length > 0) {
-                // Store in global variable for search functionality
-                allGSCOpportunities = gscData.opportunities;
-                
-                const statusDiv = document.getElementById('gscImportStatus');
-                statusDiv.innerHTML = `<p style="color: #2e7d32;">✅ Loaded ${gscData.opportunities.length} opportunities from previous import</p>`;
-                statusDiv.innerHTML += `<p style="color: #666; font-size: 0.9rem;">Imported: ${new Date(gscData.imported).toLocaleString()}</p>`;
-                
-                // Show search container
-                document.getElementById('gscSearchContainer').style.display = 'block';
-                
-                await displayGSCOpportunities(gscData.opportunities);
-            }
+
+            // Load live GSC data for urgency badges
+            loadGSCEnrichment();
         });
     </script>
 </body>
