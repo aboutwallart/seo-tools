@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 44.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 44.1</p>
                 </div>
                 <button onclick="showHelp()" style="background: #0969da; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; white-space: nowrap;">
                     ❓ How to Clear Cache Safely
@@ -871,12 +871,12 @@
             }).catch(() => alert('Copy failed — please select and copy manually.'));
         }
 
-        function updateCharCount(el, min, max) {
+        function updateCharCount(el, max) {
             const len = el.value.length;
             let counter = el.parentElement.querySelector('.char-count');
             if (!counter) { counter = document.createElement('div'); counter.className = 'char-count'; el.parentElement.appendChild(counter); }
-            counter.textContent = `${len} chars (target ${min}–${max})`;
-            counter.className = 'char-count ' + (len >= min && len <= max ? 'ok' : len > 0 ? 'warn' : '');
+            counter.textContent = `${len}/${max} chars`;
+            counter.className = 'char-count ' + (len <= max ? 'ok' : 'warn');
         }
 
         function getChecklistKey(url) { return `mpd_cl_${url}`; }
@@ -1021,21 +1021,24 @@
                     <div class="field-group">
                         <label>SEO Title</label>
                         <input type="text" id="shopifyTitleField" value="${(s.suggestedTitle || '').replace(/"/g, '&quot;')}"
-                            oninput="updateCharCount(this,50,60)">
+                            oninput="updateCharCount(this,60)">
                         <div class="char-count"></div>
                     </div>
                     <div class="field-group">
                         <label>Meta Description</label>
-                        <textarea id="shopifyMetaField" rows="3" oninput="updateCharCount(this,150,160)">${s.suggestedMeta || ''}</textarea>
+                        <textarea id="shopifyMetaField" rows="3" oninput="updateCharCount(this,155)">${s.suggestedMeta || ''}</textarea>
                         <div class="char-count"></div>
                     </div>
                     <div class="field-group">
                         <label>Page Description</label>
                         <textarea id="shopifyDescField" rows="3">${s.suggestedDescription || ''}</textarea>
                     </div>
-                    <button class="push-btn" id="pushShopifyBtn" onclick="pushToShopify()" ${!data.shopify ? 'disabled title="Shopify data not available"' : ''}>
-                        ${data.shopify ? '📤 Push to Shopify' : '⚠️ Shopify data unavailable'}
-                    </button>
+                    ${(() => {
+                        const alreadyPushed = localStorage.getItem('mpd_pushed_' + data.yourPage.url) === 'true';
+                        if (alreadyPushed) return '<button class="push-btn" id="pushShopifyBtn" disabled style="background:#4caf50;">✅ Already Pushed to Shopify</button>';
+                        if (!data.shopify) return '<button class="push-btn" id="pushShopifyBtn" disabled>⚠️ Shopify data unavailable</button>';
+                        return '<button class="push-btn" id="pushShopifyBtn" onclick="pushToShopify()">📤 Push to Shopify</button>';
+                    })()}
                 </div>`;
 
             // Copy-paste block (schema + FAQ + brand)
@@ -1070,12 +1073,20 @@
             const aiBlock = s.aiItems?.length > 0 ? `
                 <div class="action-block">
                     <h3>🤖 AI Optimisation — Copy-Paste Ready</h3>
-                    ${s.aiItems.map((item, i) => `
+                    ${s.aiItems.map((item, i) => {
+                        const isHTML = item.content.includes('<');
+                        return `
                         <p style="font-size:0.85rem;color:#666;margin-bottom:6px;font-weight:600;">${item.element}</p>
                         <div class="copy-block">
-                            <pre id="aiItem${i}">${item.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
-                            <button class="copy-btn" onclick="copyToClipboard(document.getElementById('aiItem${i}').textContent, this)">📋 Copy</button>
-                        </div>`).join('')}
+                            ${isHTML
+                                ? `<div style="font-size:0.9rem;line-height:1.6;margin-bottom:8px;">${item.content}</div>
+                                   <pre id="aiItem${i}" style="display:none;">${item.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
+                                   <button class="copy-btn" onclick="copyToClipboard(document.getElementById('aiItem${i}').textContent, this)">📋 Copy HTML</button>`
+                                : `<pre id="aiItem${i}">${item.content}</pre>
+                                   <button class="copy-btn" onclick="copyToClipboard(document.getElementById('aiItem${i}').textContent, this)">📋 Copy</button>`
+                            }
+                        </div>`;
+                    }).join('')}
                 </div>` : '';
 
             // Checklist block
@@ -1087,14 +1098,21 @@
                         <span id="progressLabel" style="font-size:0.85rem;color:#666;">${Object.values(state).filter(Boolean).length}/${total} done</span>
                     </div>
                     <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progressBar" style="width:${donePct}%"></div></div>
-                    ${checklistItems.map(item => `
+                    ${checklistItems.map((item, i) => `
                         <div class="checklist-item ${state[item.key] ? 'done' : ''}" id="cl_${item.key}">
                             <input type="checkbox" ${state[item.key] ? 'checked' : ''}
                                 onchange="onChecklistChange(this,'${pageUrl}','${item.key}',${total})">
                             <div class="checklist-label">
                                 ${item.priority ? `<span class="priority-tag priority-${item.priority}">${item.priority}</span>` : ''}
                                 <strong>${item.label}</strong>
-                                ${item.detail ? `<div style="font-size:0.85rem;color:#666;margin-top:4px;">${item.detail}</div>` : ''}
+                                ${item.detail ? `
+                                    <div style="font-size:0.85rem;color:#555;margin-top:4px;">${item.detail}</div>
+                                    <div style="margin-top:6px;">
+                                        <button class="copy-btn" id="clCopy${i}"
+                                            onclick="copyToClipboard(${JSON.stringify(item.label + '\n\n' + item.detail)}, this)">
+                                            📋 Copy
+                                        </button>
+                                    </div>` : ''}
                             </div>
                         </div>`).join('')}
                 </div>` : '';
@@ -1146,14 +1164,57 @@
             document.getElementById('resultsModal').classList.remove('active');
         }
 
-        // Batch 3 — full implementation coming. Stub stores values for now.
         async function pushToShopify() {
             const btn = document.getElementById('pushShopifyBtn');
+            const shopifyData = currentResults?.shopify;
+
+            if (!shopifyData?.id) {
+                alert('Shopify data not available for this page.');
+                return;
+            }
+
+            const newTitle = document.getElementById('shopifyTitleField').value.trim();
+            const newMeta  = document.getElementById('shopifyMetaField').value.trim();
+            const newDesc  = document.getElementById('shopifyDescField').value.trim();
+
+            if (!newTitle) { alert('SEO Title is required.'); return; }
+            if (!newMeta)  { alert('Meta Description is required.'); return; }
+            if (newTitle.length > 60)  { alert(`Title is ${newTitle.length} chars — must be 60 or under.`); return; }
+            if (newMeta.length > 155)  { alert(`Meta is ${newMeta.length} chars — must be 155 or under.`); return; }
+
             btn.disabled = true;
-            btn.textContent = '⏳ Pushing...';
-            // Full push logic added in Batch 3
-            await new Promise(r => setTimeout(r, 800));
-            btn.textContent = '✅ Pushed to Shopify';
+            btn.textContent = '⏳ Pushing to Shopify...';
+
+            try {
+                const res = await fetch('/api/shopify-files?action=seo-update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        shopifyId:     shopifyData.id,
+                        shopifyBlogId: shopifyData.blogId,
+                        shopifyType:   shopifyData.type,
+                        seoTitle:      newTitle,
+                        seoMeta:       newMeta,
+                        description:   newDesc
+                    })
+                });
+
+                const data = await res.json();
+
+                if (!data.success) {
+                    throw new Error(data.errors?.join(', ') || 'Push failed');
+                }
+
+                btn.textContent = '✅ Pushed to Shopify';
+                btn.style.background = '#4caf50';
+                localStorage.setItem('mpd_pushed_' + currentResults.yourPage.url, 'true');
+
+            } catch (err) {
+                console.error('[Push to Shopify]', err);
+                btn.disabled = false;
+                btn.textContent = '📤 Push to Shopify';
+                alert(`Push failed: ${err.message}\n\nCheck Vercel logs for details.`);
+            }
         }
 
         // Results Tab Switching
