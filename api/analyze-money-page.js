@@ -1,7 +1,7 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v44.5
+// analyze-money-page.js — v44.6
 const SERPAPI_KEY = process.env.SERPAPI_KEY;
 const PAGESPEED_KEY = process.env.GOOGLE_API_KEY;
 const SHOPIFY_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
@@ -744,10 +744,22 @@ Return this exact JSON structure with real content (no placeholders):
       "content": "Full copy-paste ready paragraph starting with 'What is ${keyword}?'"
     }
   ],
+  "urlAnalysis": {
+    "currentSlug": "exact-current-url-slug",
+    "slugMatchesKeyword": "exact|similar|different",
+    "currentTitle": "Current page title",
+    "titleMatchesKeyword": "exact|similar|different",
+    "changeTitle": true,
+    "suggestedTitle": "New product/page title using exact keyword — leave blank if no change needed",
+    "changeSlug": false,
+    "suggestedSlug": "new-slug-if-change-safe — leave blank if no change needed",
+    "slugChangeWarning": "Only change slug if this page has 0 or near-0 clicks. If changed, set up a 301 redirect from the old URL to the new URL.",
+    "notes": "One sentence summary of what needs doing and why"
+  },
   "otherActions": [
     {
       "priority": "high",
-      "action": "Specific actionable instruction for a task NOT already covered above"
+      "action": "Specific actionable instruction — image filename/alt text only. One sentence max."
     }
   ]
 }
@@ -756,13 +768,16 @@ RULES:
 - suggestedTitle: max 60 chars (hard limit — audit flags above this), keyword near start, include brand or USP
 - suggestedMeta: max 155 chars (hard limit — also used as OG description, stricter threshold), keyword, main benefit, CTA
 - suggestedDescription: plain text only, no HTML, 2-3 sentences, keyword-rich, UK spelling
-- pageSchema: write complete valid schema — for products include offers/price range, for collections include numberOfItems, for articles include author/datePublished
+- pageSchema: write complete valid schema — for products include offers/price range, for collections include numberOfItems, for articles include author/datePublished. NEVER suggest adding product-level schema to individual items within a collection page.
 - faqSchema: write 6-8 real questions people search about "${keyword}" with full helpful answers
-- brandBlock: use EXACTLY the text shown — do not change it
-- h2Sections: for EVERY H2 that needs attention use action "change" with reason + exactAction; for new H2s use action "add" with content. Never use action "delete" — always specify rename, retag, or delete with exact instruction and reason.
+- brandBlock: use EXACTLY the text shown — do not change it. The brand block already includes star ratings and review count — never add a separate star rating suggestion anywhere else.
+- h2Sections: for EVERY H2 that needs attention use action "change" with reason + exactAction; for new H2s use action "add" with content. Never use action "delete" — always specify rename, retag, or delete with exact instruction and reason. NEVER flag these theme sections for removal or modification: "Trending Now", "Recently Viewed Products", "Recently Viewed", "New Arrivals", "Customers Are Saying", or any auto-generated review/browsing/merchandising widget.
+- h2Sections add content: for each "add" H2, write a full 2-3 sentence paragraph that naturally includes the target keyword and 1-2 variants. Include 1-2 internal links as actual HTML <a href="https://aboutwallart.com/collections/[relevant]">[anchor text]</a> tags within the paragraph text — do NOT add internal links as a separate otherAction.
+- If the page contains a marketing/lead capture/email subscription section: NEVER suggest deleting it. Instead write a keyword-optimised rewrite of that section's text as a separate "add" h2Section or aiItem — provide the full replacement text ready to copy-paste.
 - aiItems: include a "priority" field (high/medium/low) for each item; write complete copy-paste ready HTML content
-- otherActions: ONLY include genuinely new manual tasks: internal link building, image filename/alt text optimisation, page speed. NEVER mention Open Graph tags, Twitter Card tags, canonical tags, or meta robots — Shopify handles these automatically. Do NOT reference anything already covered by schema/AI sections. One sentence per action max.
-- WORD COUNT: Never say "reduce word count to X words" generically. If word count is too high AFTER accounting for content being added, name the EXACT section or paragraph to delete and why — e.g. "Delete the paragraph under [H2 name] — it repeats the intro and adds no value". If you cannot identify specific content to cut, do not mention word count at all.
+- urlAnalysis: compare the URL slug and page title to the target keyword. Only recommend slug change if the page has very few or zero clicks (check the click data provided). Title changes are always safe — no redirect needed. If recommending a slug change, always set slugChangeWarning with the redirect instruction.
+- otherActions: ONLY include image filename/alt text optimisation tasks. NEVER include: page speed, image compression, lazy loading, WebP conversion, Core Web Vitals, LCP, CLS, TBT, canonical tags, Open Graph tags, Twitter Card tags, meta robots, keyword density percentage targets, aggregate star ratings, review count displays, schema suggestions, or anything already covered by h2Sections or aiItems. One sentence per action max.
+- WORD COUNT: Never say "reduce word count to X words" or "increase keyword density to X%" generically. If specific bloated content must go, name the EXACT paragraph opening words and why. If you cannot identify specific content to cut, do not mention word count or keyword density at all.
 - Return ONLY the JSON object — no other text`;
 }
 

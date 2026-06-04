@@ -457,6 +457,60 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true, keyword, url });
       }
 
+      // ── ACTION: mark-optimized ──
+      if (req.body.action === 'mark-optimized') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { keyword, url } = req.body;
+        if (!keyword || !url) return res.status(400).json({ error: 'keyword and url required' });
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const lines = registry.content.split('\n');
+        const header = lines[0];
+        let found = false;
+        const updatedLines = [header];
+        for (let i = 1; i < lines.length; i++) {
+          if (!lines[i].trim()) continue;
+          const cols = lines[i].split(',');
+          const rowUrl = cols[1]?.trim().toLowerCase();
+          const rowKeyword = cols[0]?.trim().toLowerCase();
+          if (rowUrl === url.toLowerCase() && rowKeyword === keyword.toLowerCase()) {
+            cols[2] = 'LOCKED'; cols[3] = 'DONE'; cols[4] = 'OPTIMIZED';
+            updatedLines.push(cols.join(','));
+            found = true;
+          } else {
+            updatedLines.push(lines[i]);
+          }
+        }
+        if (!found) {
+          updatedLines.push(`${keyword},${url},LOCKED,DONE,OPTIMIZED,,,,,${new Date().toISOString().split('T')[0]}`);
+        }
+        const updated = updatedLines.join('\n') + '\n';
+        await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Mark optimized: ${keyword} on ${url}`);
+        return res.status(200).json({ success: true, keyword, url });
+      }
+
+      // ── ACTION: unmark-optimized ──
+      if (req.body.action === 'unmark-optimized') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { keyword, url } = req.body;
+        if (!keyword || !url) return res.status(400).json({ error: 'keyword and url required' });
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const lines = registry.content.split('\n');
+        let found = false;
+        const updatedLines = [lines[0]];
+        for (let i = 1; i < lines.length; i++) {
+          if (!lines[i].trim()) continue;
+          const cols = lines[i].split(',');
+          if (cols[1]?.trim().toLowerCase() === url.toLowerCase() && cols[0]?.trim().toLowerCase() === keyword.toLowerCase()) {
+            cols[4] = 'TO_OPTIMIZE';
+            updatedLines.push(cols.join(','));
+            found = true;
+          } else { updatedLines.push(lines[i]); }
+        }
+        if (!found) return res.status(404).json({ error: 'Page not found in registry' });
+        await updateGitHubFile('data/keyword-locker-registry.csv', updatedLines.join('\n') + '\n', registry.sha, `Unmark optimized: ${keyword}`);
+        return res.status(200).json({ success: true });
+      }
+
       // ── ACTION: save-for-later ──
       if (req.body.action === 'save-for-later') {
         if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
