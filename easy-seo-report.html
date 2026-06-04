@@ -98,7 +98,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v54.0</div>
+      <div class="tool-version">v55.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -254,9 +254,11 @@
           <div style="display:flex;align-items:center;gap:12px;">
             <span style="color:#fff;font-size:16px;font-weight:600;">📱 Social Traffic</span>
             <select id="socialDays" onchange="loadSocialTraffic()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">
-              <option value="30">Last 30 days</option>
-              <option value="90" selected>Last 90 days</option>
-              <option value="180">Last 180 days</option>
+              <option value="365" selected>1 Year</option>
+              <option value="730">2 Years</option>
+              <option value="1095">3 Years</option>
+              <option value="1460">4 Years</option>
+              <option value="1825">5 Years</option>
             </select>
           </div>
           <div style="display:flex;gap:32px;">
@@ -285,8 +287,7 @@
             <div style="width:40%;border-right:1px solid #e5e5e5;padding:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;">
               <div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:16px;text-align:center;">Sessions by Platform</div>
               <div style="position:relative;width:220px;height:220px;">
-                <canvas id="socialDonutSessions" style="position:absolute;top:0;left:0;width:220px!important;height:220px!important;"></canvas>
-                <canvas id="socialDonutViews" style="position:absolute;top:22px;left:22px;width:176px!important;height:176px!important;"></canvas>
+                <canvas id="socialDonutSessions" style="width:220px!important;height:220px!important;"></canvas>
               </div>
               <div id="socialDonutLegend" style="margin-top:16px;width:100%;"></div>
             </div>
@@ -1993,7 +1994,7 @@
       try {
         // Fetch platform+date data, pages data, and Shopify revenue in parallel
         const [trendRes, pagesRes, revenueRes] = await Promise.all([
-          fetch(`${API}?action=ga4-social&days=365`),
+          fetch(`${API}?action=ga4-social&days=${days}`),
           fetch(`${API}?action=ga4-social-pages&days=${days}`),
           fetch(`/api/blogs?action=get-social-revenue&days=${days}`)
         ]);
@@ -2057,21 +2058,13 @@
         const donutColorsLight = donutColors.map(c => lightenColor(c, 100));
 
         const existingDS = Chart.getChart('socialDonutSessions'); if (existingDS) existingDS.destroy();
-        const existingDV = Chart.getChart('socialDonutViews');    if (existingDV) existingDV.destroy();
 
         const dS = new Chart(document.getElementById('socialDonutSessions').getContext('2d'), {
           type: 'doughnut',
-          data: { labels: sorted.map(([l])=>l), datasets: [{ data: sorted.map(([,d])=>d.sessions), backgroundColor: donutColors, borderWidth: 2, borderColor: '#fff' }] },
-          options: { responsive: false, cutout: '55%', plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ' ' + ctx.label + ': ' + fmt(ctx.raw) + ' sessions' } } } }
+          data: { labels: sorted.map(([l])=>l), datasets: [{ data: sorted.map(([,d])=>d.sessions), backgroundColor: donutColors, borderWidth: 3, borderColor: '#fff' }] },
+          options: { responsive: false, cutout: '60%', plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ' ' + ctx.label + ': ' + fmt(ctx.raw) + ' sessions' } } } }
         });
         socialChartInstances.push(dS);
-
-        const dV = new Chart(document.getElementById('socialDonutViews').getContext('2d'), {
-          type: 'doughnut',
-          data: { labels: sorted.map(([l])=>l), datasets: [{ data: sorted.map(([,d])=>d.views), backgroundColor: donutColorsLight, borderWidth: 2, borderColor: '#fff' }] },
-          options: { responsive: false, cutout: '55%', plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ' ' + ctx.label + ': ' + fmt(ctx.raw) + ' views' } } } }
-        });
-        socialChartInstances.push(dV);
 
         document.getElementById('socialDonutLegend').innerHTML = sorted.map(([label, d]) => `
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;">
@@ -2080,12 +2073,20 @@
             <span style="font-weight:600;color:#1a1a1a;">${fmt(d.sessions)} <span style="font-weight:400;color:#aaa;">/ ${fmt(d.views)}</span></span>
           </div>`).join('');
 
-        // Line chart: 12 months
-        const months12  = getFixed12Months();
-        const lineLabels = months12.map(m => m.label);
+        // Line chart: dynamic months based on selected period
+        const totalMonths = Math.round(days / 30);
+        const dynamicMonths = [];
+        const nowD = new Date();
+        for (let i = totalMonths - 1; i >= 0; i--) {
+          const d2 = new Date(nowD.getFullYear(), nowD.getMonth() - i, 1);
+          const key = d2.getFullYear() + '-' + String(d2.getMonth()+1).padStart(2,'0');
+          const label = d2.toLocaleString('default', { month: 'short', year: '2-digit' });
+          dynamicMonths.push({ key, label });
+        }
+        const lineLabels = dynamicMonths.map(m => m.label);
         const lineDatasets = sorted.map(([label, d]) => {
           const { mSessions } = aggregateByMonth(d.byDateSessions, d.byDateViews);
-          return { label, data: months12.map(m => mSessions[m.key] || 0), borderColor: d.color, backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, tension: 0.3 };
+          return { label, data: dynamicMonths.map(m => mSessions[m.key] || 0), borderColor: d.color, backgroundColor: 'transparent', borderWidth: 2, pointRadius: totalMonths > 24 ? 0 : 3, tension: 0.3 };
         });
 
         const existingLine = Chart.getChart('socialLineChart'); if (existingLine) existingLine.destroy();
