@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 44.1</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 44.2</p>
                 </div>
                 <button onclick="showHelp()" style="background: #0969da; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; white-space: nowrap;">
                     ❓ How to Clear Cache Safely
@@ -613,14 +613,6 @@
                         <div style="font-weight: 500; margin-bottom: 5px; word-break: break-all;">${item.url}</div>
                         ${displayKeyword ? `<div style="font-size: 0.85rem; color: #1976d2; margin-bottom: 3px;">🎯 Keyword: "${displayKeyword}"</div>` : ''}
                         ${gscMetrics}
-                        ${item.analyzed ? `
-                            <div style="margin-top: 8px;">
-                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: #2e7d32; font-weight: 500;">
-                                    <input type="checkbox" onchange="markAsOptimized(${item.id})" style="width: 18px; height: 18px;">
-                                    ✅ Mark as Optimized (locks keyword in GitHub)
-                                </label>
-                            </div>
-                        ` : ''}
                     </div>
                     <div style="display: flex; gap: 10px;">
                         ${item.analyzed ? `<button class="btn-secondary" onclick="viewResults(${item.id})">📊 View</button>` : ''}
@@ -862,6 +854,9 @@
 
         // ── RESULTS HELPERS ───────────────────────────────────────────────────
 
+        let currentAnalysisUrl = '';
+        let currentAnalysisTotal = 0;
+
         function copyToClipboard(text, btnEl) {
             navigator.clipboard.writeText(text).then(() => {
                 const orig = btnEl.textContent;
@@ -891,21 +886,71 @@
             return JSON.parse(localStorage.getItem(getChecklistKey(url)) || '{}');
         }
 
-        function updateProgress(url, total) {
-            const state = loadChecklistState(url);
+        function onTaskChange(checkbox) {
+            const key = checkbox.dataset.key;
+            saveChecklistItem(currentAnalysisUrl, key, checkbox.checked);
+
+            // Strike through the label
+            const row = document.getElementById('row_' + key);
+            if (row) row.style.opacity = checkbox.checked ? '0.45' : '1';
+            const lbl = document.getElementById('lbl_' + key);
+            if (lbl) lbl.style.textDecoration = checkbox.checked ? 'line-through' : '';
+
+            // Update master counter
+            const state = loadChecklistState(currentAnalysisUrl);
             const done = Object.values(state).filter(Boolean).length;
+            const total = currentAnalysisTotal;
             const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-            const bar = document.getElementById('progressBar');
-            const label = document.getElementById('progressLabel');
+            const bar = document.getElementById('masterBar');
+            const lable = document.getElementById('masterLabel');
             if (bar) bar.style.width = pct + '%';
-            if (label) label.textContent = `${done}/${total} done`;
+            if (lable) { lable.textContent = `${done}/${total} done`; lable.style.color = done === total ? '#4caf50' : '#666'; }
+
+            // Auto-mark as optimized when all done
+            if (done === total && total > 0) autoMarkAsOptimized();
         }
 
-        function onChecklistChange(checkbox, url, key, total) {
-            saveChecklistItem(url, key, checkbox.checked);
-            const item = checkbox.closest('.checklist-item');
-            if (item) item.classList.toggle('done', checkbox.checked);
-            updateProgress(url, total);
+        function showToast(message) {
+            const t = document.createElement('div');
+            t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1a1a;color:white;padding:14px 24px;border-radius:8px;font-size:0.9rem;z-index:99999;box-shadow:0 4px 12px rgba(0,0,0,0.3);max-width:90%;text-align:center;';
+            t.textContent = message;
+            document.body.appendChild(t);
+            setTimeout(() => t.remove(), 4000);
+        }
+
+        async function autoMarkAsOptimized() {
+            const item = urls.find(u => u.url === currentAnalysisUrl);
+            if (!item || !item.keyword) {
+                showToast('All done! Add keyword and GitHub token in Settings to auto-save as Optimized.');
+                return;
+            }
+            const token = localStorage.getItem('githubToken');
+            if (!token) {
+                showToast('All tasks done! Add your GitHub token in Settings to auto-save as Optimized.');
+                return;
+            }
+            try {
+                await updateGitHubRegistry(currentAnalysisUrl, item.keyword, token);
+                await loadFromGitHub();
+                updatePageCount();
+                updateOptimizedCount();
+                renderUrls();
+                renderOptimized();
+                showToast(`✅ "${item.keyword}" fully optimised and saved to registry!`);
+            } catch (err) {
+                console.error('[Auto-Optimize]', err);
+                showToast('All tasks done! Could not save to registry — check your GitHub token in Settings.');
+            }
+        }
+
+        function getShopifyAdminUrl(shopify) {
+            if (!shopify?.id) return null;
+            const base = 'https://admin.shopify.com/store/aboutwallart';
+            if (shopify.type === 'product') return `${base}/products/${shopify.id}`;
+            if (shopify.type?.includes('collection')) return `${base}/collections/${shopify.id}`;
+            if (shopify.type === 'page') return `${base}/pages/${shopify.id}`;
+            if (shopify.type === 'article' && shopify.blogId) return `${base}/blogs/${shopify.blogId}/articles/${shopify.id}`;
+            return null;
         }
 
         // ── SHOW RESULTS ──────────────────────────────────────────────────────
@@ -954,6 +999,9 @@
             let analysisHTML = '';
             const structured = data.analysis?.structured;
 
+            // Set current analysis context
+            currentAnalysisUrl = data.yourPage.url;
+
             if (structured) {
                 analysisHTML = renderStructuredResults(structured, keyword, data);
             } else {
@@ -998,126 +1046,199 @@
             document.getElementById('resultsContent').innerHTML = html;
             document.getElementById('resultsModal').classList.add('active');
             technicalSEOResults = null;
+
+            // Initialize char counts after render
+            setTimeout(() => {
+                const t = document.getElementById('shopifyTitleField');
+                const m = document.getElementById('shopifyMetaField');
+                if (t) updateCharCount(t, 60);
+                if (m) updateCharCount(m, 155);
+            }, 50);
         }
 
         function renderStructuredResults(s, keyword, data) {
             const pageUrl = data.yourPage.url;
             const state = loadChecklistState(pageUrl);
 
-            // Build checklist items
-            const checklistItems = [];
-            (s.h2Sections || []).forEach((h, i) => {
-                checklistItems.push({ key: `h2_${i}`, label: h.action === 'delete' ? `Delete H2: "${h.heading}"` : `Add H2: "${h.heading}"`, detail: h.content || '' });
-            });
-            (s.otherActions || []).forEach((a, i) => {
-                checklistItems.push({ key: `other_${i}`, priority: a.priority, label: a.action });
-            });
-            const total = checklistItems.length;
+            // ── Build master item list ────────────────────────────────────────
+            const allItems = [];
+            const add = (key, label, group, extra) => allItems.push({ key, label, group, ...extra });
 
-            // Push to Shopify block
+            // Push to Shopify items
+            add('push_title', 'SEO Title pushed',        'push');
+            add('push_meta',  'Meta Description pushed', 'push');
+            add('push_desc',  'Page Description pushed', 'push');
+
+            // Copy-paste items
+            if (s.pageSchema) add('schema_page',  'Page Schema — pasted into Custom Liquid',  'copy');
+            if (s.faqSchema)  add('schema_faq',   'FAQ Schema — pasted into Custom Liquid',   'copy');
+            if (s.brandBlock) add('brand_block',  'Brand Block — pasted into Custom Liquid',  'copy');
+
+            // AI items
+            (s.aiItems || []).forEach((item, i) => add(`ai_${i}`, `${item.element} — pasted`, 'ai', { content: item.content }));
+
+            // Manual: H2 sections
+            (s.h2Sections || []).forEach((h, i) => add(
+                `h2_${i}`,
+                h.action === 'delete' ? `Delete H2: "${h.heading}"` : `Add H2: "${h.heading}"`,
+                'manual',
+                { detail: h.content || '', action: h.action }
+            ));
+
+            // Manual: other actions
+            (s.otherActions || []).forEach((a, i) => add(`other_${i}`, a.action, 'manual', { priority: a.priority }));
+
+            const total = allItems.length;
+            currentAnalysisTotal = total;
+            const done = allItems.filter(it => state[it.key]).length;
+            const donePct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+            // ── Checkbox renderer ─────────────────────────────────────────────
+            const cb = (item) => `
+                <input type="checkbox" data-key="${item.key}" ${state[item.key] ? 'checked' : ''}
+                    onchange="onTaskChange(this)"
+                    style="width:18px;height:18px;cursor:pointer;flex-shrink:0;margin-top:3px;">`;
+
+            // ── Master progress bar ───────────────────────────────────────────
+            const masterBar = `
+                <div style="background:#f0f0f0;padding:15px 20px;border-radius:8px;margin-bottom:20px;border:2px solid ${done===total&&total>0?'#4caf50':'#e0e0e0'};">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+                        <strong>Overall Progress</strong>
+                        <span id="masterLabel" style="font-weight:700;color:${done===total&&total>0?'#4caf50':'#666'}">${done}/${total} done</span>
+                    </div>
+                    <div class="progress-bar-wrap"><div class="progress-bar-fill" id="masterBar" style="width:${donePct}%"></div></div>
+                    ${done===total&&total>0 ? '<div style="color:#4caf50;font-size:0.85rem;margin-top:8px;font-weight:600;">✅ All done — page saved as Optimized!</div>' : ''}
+                </div>`;
+
+            // ── 1. Push to Shopify block ──────────────────────────────────────
+            const alreadyPushed = localStorage.getItem('mpd_pushed_' + pageUrl) === 'true';
+            const adminUrl = getShopifyAdminUrl(data.shopify);
+
             const shopifyBlock = `
                 <div class="action-block" style="border-color:#1976d2;">
                     <h3>📤 Push to Shopify</h3>
+                    <div style="margin-bottom:15px;">
+                        ${['push_title','push_meta','push_desc'].map(key => {
+                            const it = allItems.find(i => i.key === key);
+                            return `<div id="row_${key}" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f0f0f0;opacity:${state[key]?'0.45':'1'};">
+                                ${cb(it)}
+                                <span id="lbl_${key}" style="font-size:0.9rem;${state[key]?'text-decoration:line-through;':''}">${it.label}</span>
+                            </div>`;
+                        }).join('')}
+                    </div>
                     <div class="field-group">
                         <label>SEO Title</label>
-                        <input type="text" id="shopifyTitleField" value="${(s.suggestedTitle || '').replace(/"/g, '&quot;')}"
-                            oninput="updateCharCount(this,60)">
+                        <input type="text" id="shopifyTitleField" value="${(s.suggestedTitle||'').replace(/"/g,'&quot;')}" oninput="updateCharCount(this,60)">
                         <div class="char-count"></div>
                     </div>
                     <div class="field-group">
                         <label>Meta Description</label>
-                        <textarea id="shopifyMetaField" rows="3" oninput="updateCharCount(this,155)">${s.suggestedMeta || ''}</textarea>
+                        <textarea id="shopifyMetaField" rows="3" oninput="updateCharCount(this,155)">${s.suggestedMeta||''}</textarea>
                         <div class="char-count"></div>
                     </div>
                     <div class="field-group">
                         <label>Page Description</label>
-                        <textarea id="shopifyDescField" rows="3">${s.suggestedDescription || ''}</textarea>
+                        <textarea id="shopifyDescField" rows="3">${s.suggestedDescription||''}</textarea>
                     </div>
-                    ${(() => {
-                        const alreadyPushed = localStorage.getItem('mpd_pushed_' + data.yourPage.url) === 'true';
-                        if (alreadyPushed) return '<button class="push-btn" id="pushShopifyBtn" disabled style="background:#4caf50;">✅ Already Pushed to Shopify</button>';
-                        if (!data.shopify) return '<button class="push-btn" id="pushShopifyBtn" disabled>⚠️ Shopify data unavailable</button>';
-                        return '<button class="push-btn" id="pushShopifyBtn" onclick="pushToShopify()">📤 Push to Shopify</button>';
-                    })()}
+                    ${adminUrl ? `<div style="margin-bottom:10px;"><a href="${adminUrl}" target="_blank" style="color:#1976d2;font-size:0.85rem;">🔗 Open in Shopify Admin ↗</a></div>` : ''}
+                    <div style="font-size:0.8rem;color:#999;margin-bottom:8px;word-break:break-all;">📄 ${pageUrl}</div>
+                    ${alreadyPushed
+                        ? '<button class="push-btn" id="pushShopifyBtn" disabled style="background:#4caf50;">✅ Already Pushed to Shopify</button>'
+                        : data.shopify
+                            ? '<button class="push-btn" id="pushShopifyBtn" onclick="pushToShopify()">📤 Push to Shopify</button>'
+                            : '<button class="push-btn" id="pushShopifyBtn" disabled>⚠️ Shopify data unavailable</button>'
+                    }
                 </div>`;
 
-            // Copy-paste block (schema + FAQ + brand)
+            // ── 2. Copy-Paste block ───────────────────────────────────────────
             const schemaStr = s.pageSchema ? JSON.stringify(s.pageSchema, null, 2) : '';
-            const faqStr = s.faqSchema ? JSON.stringify(s.faqSchema, null, 2) : '';
-            const brandStr = s.brandBlock || '';
+            const faqStr    = s.faqSchema  ? JSON.stringify(s.faqSchema,  null, 2) : '';
+            const brandStr  = s.brandBlock || '';
 
-            const copyPasteBlock = `
+            const copyPasteBlock = (schemaStr || faqStr || brandStr) ? `
                 <div class="action-block">
                     <h3>📋 Copy-Paste Ready — Custom Liquid Sections</h3>
                     ${schemaStr ? `
-                    <p style="font-size:0.85rem;color:#666;margin-bottom:6px;font-weight:600;">Page Schema (JSON-LD)</p>
-                    <div class="copy-block">
-                        <pre id="schemaCode">&lt;script type="application/ld+json"&gt;\n${schemaStr}\n&lt;/script&gt;</pre>
-                        <button class="copy-btn" onclick="copyToClipboard(document.getElementById('schemaCode').textContent, this)">📋 Copy Schema</button>
+                    <div id="row_schema_page" style="display:flex;align-items:flex-start;gap:10px;margin-bottom:15px;opacity:${state['schema_page']?'0.45':'1'};">
+                        ${cb(allItems.find(i=>i.key==='schema_page'))}
+                        <div style="flex:1;">
+                            <p style="font-size:0.85rem;color:#666;font-weight:600;margin-bottom:6px;${state['schema_page']?'text-decoration:line-through;':''}">Page Schema (JSON-LD)</p>
+                            <div class="copy-block">
+                                <pre id="schemaCode">&lt;script type="application/ld+json"&gt;\n${schemaStr}\n&lt;/script&gt;</pre>
+                                <button class="copy-btn" onclick="copyToClipboard(document.getElementById('schemaCode').textContent,this)">📋 Copy Schema</button>
+                            </div>
+                        </div>
                     </div>` : ''}
                     ${faqStr ? `
-                    <p style="font-size:0.85rem;color:#666;margin-bottom:6px;font-weight:600;">FAQ Schema (JSON-LD)</p>
-                    <div class="copy-block">
-                        <pre id="faqCode">&lt;script type="application/ld+json"&gt;\n${faqStr}\n&lt;/script&gt;</pre>
-                        <button class="copy-btn" onclick="copyToClipboard(document.getElementById('faqCode').textContent, this)">📋 Copy FAQ Schema</button>
+                    <div id="row_schema_faq" style="display:flex;align-items:flex-start;gap:10px;margin-bottom:15px;opacity:${state['schema_faq']?'0.45':'1'};">
+                        ${cb(allItems.find(i=>i.key==='schema_faq'))}
+                        <div style="flex:1;">
+                            <p style="font-size:0.85rem;color:#666;font-weight:600;margin-bottom:6px;${state['schema_faq']?'text-decoration:line-through;':''}">FAQ Schema (JSON-LD)</p>
+                            <div class="copy-block">
+                                <pre id="faqCode">&lt;script type="application/ld+json"&gt;\n${faqStr}\n&lt;/script&gt;</pre>
+                                <button class="copy-btn" onclick="copyToClipboard(document.getElementById('faqCode').textContent,this)">📋 Copy FAQ Schema</button>
+                            </div>
+                        </div>
                     </div>` : ''}
                     ${brandStr ? `
-                    <p style="font-size:0.85rem;color:#666;margin-bottom:6px;font-weight:600;">Brand Block (HTML)</p>
-                    <div class="copy-block">
-                        <pre id="brandCode">${brandStr.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
-                        <button class="copy-btn" onclick="copyToClipboard(document.getElementById('brandCode').textContent, this)">📋 Copy Brand Block</button>
+                    <div id="row_brand_block" style="display:flex;align-items:flex-start;gap:10px;margin-bottom:15px;opacity:${state['brand_block']?'0.45':'1'};">
+                        ${cb(allItems.find(i=>i.key==='brand_block'))}
+                        <div style="flex:1;">
+                            <p style="font-size:0.85rem;color:#666;font-weight:600;margin-bottom:6px;${state['brand_block']?'text-decoration:line-through;':''}">Brand Block (HTML)</p>
+                            <div class="copy-block">
+                                <pre id="brandCode">${brandStr.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
+                                <button class="copy-btn" onclick="copyToClipboard(document.getElementById('brandCode').textContent,this)">📋 Copy Brand Block</button>
+                            </div>
+                        </div>
                     </div>` : ''}
-                </div>`;
+                </div>` : '';
 
-            // AI items block
+            // ── 3. AI Optimisation block ──────────────────────────────────────
             const aiBlock = s.aiItems?.length > 0 ? `
                 <div class="action-block">
                     <h3>🤖 AI Optimisation — Copy-Paste Ready</h3>
                     ${s.aiItems.map((item, i) => {
+                        const key = `ai_${i}`;
                         const isHTML = item.content.includes('<');
                         return `
-                        <p style="font-size:0.85rem;color:#666;margin-bottom:6px;font-weight:600;">${item.element}</p>
-                        <div class="copy-block">
-                            ${isHTML
-                                ? `<div style="font-size:0.9rem;line-height:1.6;margin-bottom:8px;">${item.content}</div>
-                                   <pre id="aiItem${i}" style="display:none;">${item.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
-                                   <button class="copy-btn" onclick="copyToClipboard(document.getElementById('aiItem${i}').textContent, this)">📋 Copy HTML</button>`
-                                : `<pre id="aiItem${i}">${item.content}</pre>
-                                   <button class="copy-btn" onclick="copyToClipboard(document.getElementById('aiItem${i}').textContent, this)">📋 Copy</button>`
-                            }
+                        <div id="row_${key}" style="display:flex;align-items:flex-start;gap:10px;margin-bottom:15px;opacity:${state[key]?'0.45':'1'};">
+                            ${cb(allItems.find(it=>it.key===key))}
+                            <div style="flex:1;">
+                                <p style="font-size:0.85rem;color:#666;font-weight:600;margin-bottom:6px;${state[key]?'text-decoration:line-through;':''}" id="lbl_${key}">${item.element}</p>
+                                <div class="copy-block">
+                                    ${isHTML
+                                        ? `<div style="font-size:0.9rem;line-height:1.6;margin-bottom:8px;">${item.content}</div>
+                                           <textarea id="aiItem${i}" style="display:none;">${item.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+                                           <button class="copy-btn" onclick="copyToClipboard(document.getElementById('aiItem${i}').value,this)">📋 Copy HTML</button>`
+                                        : `<pre id="aiItem${i}">${item.content}</pre>
+                                           <button class="copy-btn" onclick="copyToClipboard(document.getElementById('aiItem${i}').textContent,this)">📋 Copy</button>`
+                                    }
+                                </div>
+                            </div>
                         </div>`;
                     }).join('')}
                 </div>` : '';
 
-            // Checklist block
-            const donePct = total > 0 ? Math.round((Object.values(state).filter(Boolean).length / total) * 100) : 0;
-            const checklistBlock = total > 0 ? `
+            // ── 4. Manual actions block ───────────────────────────────────────
+            const manualItems = allItems.filter(it => it.group === 'manual');
+            const manualBlock = manualItems.length > 0 ? `
                 <div class="action-block">
-                    <h3>✅ Manual Checklist</h3>
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                        <span id="progressLabel" style="font-size:0.85rem;color:#666;">${Object.values(state).filter(Boolean).length}/${total} done</span>
-                    </div>
-                    <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progressBar" style="width:${donePct}%"></div></div>
-                    ${checklistItems.map((item, i) => `
-                        <div class="checklist-item ${state[item.key] ? 'done' : ''}" id="cl_${item.key}">
-                            <input type="checkbox" ${state[item.key] ? 'checked' : ''}
-                                onchange="onChecklistChange(this,'${pageUrl}','${item.key}',${total})">
-                            <div class="checklist-label">
+                    <h3>✅ Manual Actions</h3>
+                    ${manualItems.map(item => `
+                        <div id="row_${item.key}" style="display:flex;align-items:flex-start;gap:12px;padding:12px;background:#f9f9f9;border-radius:6px;margin-bottom:8px;opacity:${state[item.key]?'0.45':'1'};">
+                            ${cb(item)}
+                            <div style="flex:1;">
                                 ${item.priority ? `<span class="priority-tag priority-${item.priority}">${item.priority}</span>` : ''}
-                                <strong>${item.label}</strong>
+                                <strong id="lbl_${item.key}" style="${state[item.key]?'text-decoration:line-through;':''}">${item.label}</strong>
                                 ${item.detail ? `
-                                    <div style="font-size:0.85rem;color:#555;margin-top:4px;">${item.detail}</div>
-                                    <div style="margin-top:6px;">
-                                        <button class="copy-btn" id="clCopy${i}"
-                                            onclick="copyToClipboard(${JSON.stringify(item.label + '\n\n' + item.detail)}, this)">
-                                            📋 Copy
-                                        </button>
-                                    </div>` : ''}
+                                    <div style="font-size:0.85rem;color:#555;margin-top:4px;line-height:1.5;">${item.detail}</div>
+                                    <textarea id="ct_${item.key}" style="display:none;">${(item.label.replace(/Add H2: /,'').replace(/"/g,'') + '\n\n' + item.detail).replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+                                    <button class="copy-btn" style="margin-top:6px;" onclick="copyToClipboard(document.getElementById('ct_${item.key}').value,this)">📋 Copy</button>` : ''}
                             </div>
                         </div>`).join('')}
                 </div>` : '';
 
-            return shopifyBlock + copyPasteBlock + aiBlock + checklistBlock;
+            return masterBar + shopifyBlock + copyPasteBlock + aiBlock + manualBlock;
         }
 
         function formatMarkdown(text) {
@@ -1208,6 +1329,13 @@
                 btn.textContent = '✅ Pushed to Shopify';
                 btn.style.background = '#4caf50';
                 localStorage.setItem('mpd_pushed_' + currentResults.yourPage.url, 'true');
+
+                // Auto-tick the 3 push checkboxes
+                ['push_title','push_meta','push_desc'].forEach(key => {
+                    saveChecklistItem(currentAnalysisUrl, key, true);
+                    const cb = document.querySelector(`[data-key="${key}"]`);
+                    if (cb) { cb.checked = true; onTaskChange(cb); }
+                });
 
             } catch (err) {
                 console.error('[Push to Shopify]', err);
