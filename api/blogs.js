@@ -55,6 +55,16 @@ export default async function handler(req, res) {
     return true;
   }
 
+  // Helper: quote a CSV field if it contains commas, quotes or newlines
+  function csvField(value) {
+    if (value === null || value === undefined) return '';
+    const str = String(value);
+    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+      return '"' + str.replace(/"/g, '""') + '"';
+    }
+    return str;
+  }
+
   // Helper: parse CSV line handling quoted fields
   function parseCSVLine(line) {
     const result = [];
@@ -358,11 +368,11 @@ export default async function handler(req, res) {
         if (!keyword || !url) return res.status(400).json({ error: 'keyword and url required' });
         const registry = await getGitHubFile('data/keyword-locker-registry.csv');
         const resolvedIntent = intent || 'UNKNOWN';
-        let newRows = `${keyword},${url},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,User Resolved,${resolvedIntent}`;
+        let newRows = `${csvField(keyword)},${csvField(url)},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,User Resolved,${resolvedIntent}`;
         // Add loser rows for internal linking
         if (Array.isArray(losers)) {
           losers.forEach(loser => {
-            newRows += `\n${keyword},${loser.url},,DONE,INTERNAL_LINK,${url},${loser.clicks || 'N/A'},${loser.impressions || 'N/A'},${loser.position || 'N/A'},Auto Detected,${resolvedIntent}`;
+            newRows += `\n${csvField(keyword)},${csvField(loser.url)},,DONE,INTERNAL_LINK,${csvField(url)},${loser.clicks || 'N/A'},${loser.impressions || 'N/A'},${loser.position || 'N/A'},Auto Detected,${resolvedIntent}`;
           });
         }
         const updated = registry.content.trimEnd() + '\n' + newRows + '\n';
@@ -376,7 +386,7 @@ export default async function handler(req, res) {
         const { keyword, intent } = req.body;
         if (!keyword) return res.status(400).json({ error: 'keyword required' });
         const registry = await getGitHubFile('data/keyword-locker-registry.csv');
-        const newRow = `${keyword},N/A,LOCKED,DONE,SAVED_FOR_FUTURE,N/A,N/A,N/A,N/A,User Action,${intent || 'UNKNOWN'}`;
+        const newRow = `${csvField(keyword)},N/A,LOCKED,DONE,SAVED_FOR_FUTURE,N/A,N/A,N/A,N/A,User Action,${intent || 'UNKNOWN'}`;
         const updated = registry.content.trimEnd() + '\n' + newRow + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Save for later: ${keyword}`);
         return res.status(200).json({ success: true, keyword });
@@ -388,7 +398,7 @@ export default async function handler(req, res) {
         const { keyword, intent } = req.body;
         if (!keyword) return res.status(400).json({ error: 'keyword required' });
         const registry = await getGitHubFile('data/keyword-locker-registry.csv');
-        const newRow = `${keyword},N/A,LOCKED,DONE,DELETED,N/A,N/A,N/A,N/A,User Action,${intent || 'UNKNOWN'}`;
+        const newRow = `${csvField(keyword)},N/A,LOCKED,DONE,DELETED,N/A,N/A,N/A,N/A,User Action,${intent || 'UNKNOWN'}`;
         const updated = registry.content.trimEnd() + '\n' + newRow + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Delete keyword: ${keyword}`);
         return res.status(200).json({ success: true, keyword });
