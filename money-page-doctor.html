@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 44.4</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 44.5</p>
                 </div>
                 <button onclick="showHelp()" style="background: #0969da; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; white-space: nowrap;">
                     ❓ How to Clear Cache Safely
@@ -425,10 +425,10 @@
                 <h4 style="margin-bottom: 10px;">ℹ️ How It Works</h4>
                 <ol style="line-height: 1.8; padding-left: 20px; font-size: 0.9rem;">
                     <li>Enter your GitHub token and save</li>
-                    <li>Analyze pages in "My Pages" tab</li>
-                    <li>Check "Mark as Optimized" when done</li>
-                    <li>Page moves to "Optimized" tab</li>
-                    <li>Keyword is locked in GitHub registry (LOCKED, DONE, OPTIMIZED)</li>
+                    <li>Analyse pages in "My Pages" tab</li>
+                    <li>Work through the checklist — tick each item as you complete it</li>
+                    <li>When all items are ticked, the page is automatically saved as Optimized</li>
+                    <li>Page moves to "Optimized" tab and keyword is locked in the registry</li>
                 </ol>
             </div>
         </div>
@@ -618,13 +618,12 @@
                             if (!clTotal) return '';
                             const clState = JSON.parse(localStorage.getItem('mpd_cl_' + item.url) || '{}');
                             const clDone = Object.values(clState).filter(Boolean).length;
-                            const pct = Math.round(clDone / clTotal * 100);
-                            const col = clDone === clTotal ? '#4caf50' : '#1976d2';
-                            return `<div style="margin-top:6px;display:flex;align-items:center;gap:8px;">
-                                <div style="background:#e0e0e0;border-radius:4px;height:5px;width:80px;flex-shrink:0;">
-                                    <div style="background:${col};height:5px;border-radius:4px;width:${pct}%;transition:width 0.3s;"></div>
-                                </div>
-                                <span style="font-size:0.78rem;color:${col};font-weight:600;">${clDone}/${clTotal} done</span>
+                            const allDone = clDone === clTotal;
+                            const col = allDone ? '#4caf50' : '#1976d2';
+                            const bg = allDone ? '#f0fdf4' : '#eff6ff';
+                            return `<div style="margin-top:8px;display:inline-flex;align-items:center;gap:6px;background:${bg};border:1.5px solid ${col};border-radius:20px;padding:3px 10px;">
+                                <span style="font-size:0.85rem;font-weight:700;color:${col};">${clDone}/${clTotal}</span>
+                                <span style="font-size:0.78rem;color:${col};">${allDone ? '✅ done' : 'done'}</span>
                             </div>`;
                         })()}
                     </div>
@@ -1094,9 +1093,12 @@
             // Manual: H2 sections
             (s.h2Sections || []).forEach((h, i) => add(
                 `h2_${i}`,
-                h.action === 'delete' ? `Delete H2: "${h.heading}"` : `Add H2: "${h.heading}"`,
+                h.action === 'add' ? `Add H2: "${h.heading}"` : `H2: "${h.heading}"`,
                 'manual',
-                { detail: h.content || '', action: h.action }
+                {
+                    detail: h.action === 'add' ? (h.content || '') : [h.exactAction, h.reason ? `Why: ${h.reason}` : ''].filter(Boolean).join('\n'),
+                    action: h.action
+                }
             ));
 
             // Manual: other actions
@@ -1298,6 +1300,7 @@
 
         function closeResultsModal() {
             document.getElementById('resultsModal').classList.remove('active');
+            renderUrls();
         }
 
         async function pushToShopify() {
