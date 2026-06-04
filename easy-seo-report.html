@@ -98,12 +98,13 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v52.0</div>
+      <div class="tool-version">v53.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
     <div class="nav-item" onclick="showSection('suspicious', this)">🚨 Suspicious Traffic</div>
     <div class="nav-item" onclick="showSection('llm', this)">🤖 AI Traffic</div>
+    <div class="nav-item" onclick="showSection('social', this)">📱 Social Traffic</div>
     <div class="nav-item" onclick="showSection('quickwins', this)">🔥 Quick Wins</div>
     <div class="nav-item" onclick="showSection('dangerpages', this)">⚠️ Danger Pages</div>
     <div class="nav-item" onclick="showSection('kwtracker', this)">Keyword Tracker</div>
@@ -241,6 +242,83 @@
         <!-- No data state -->
         <div id="llmNoData" style="display:none;">
           <div class="coming-soon">No LLM traffic found in this period. AI tools may not be sending referral data yet.</div>
+        </div>
+
+      </div>
+
+      <!-- SECTION: Social Traffic -->
+      <div class="section" id="section-social">
+
+        <!-- Header bar -->
+        <div style="background:#1a1a1a;border-radius:8px;padding:20px 24px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span style="color:#fff;font-size:16px;font-weight:600;">📱 Social Traffic</span>
+            <select id="socialDays" onchange="loadSocialTraffic()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="30">Last 30 days</option>
+              <option value="90" selected>Last 90 days</option>
+              <option value="180">Last 180 days</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:32px;">
+            <div style="text-align:right;">
+              <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.08em;">Total Sessions</div>
+              <div style="font-size:22px;font-weight:700;color:#fff;" id="socialMetSessions">—</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.08em;">Total Views</div>
+              <div style="font-size:22px;font-weight:700;color:#fff;" id="socialMetViews">—</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.08em;">Platforms</div>
+              <div style="font-size:22px;font-weight:700;color:#fff;" id="socialMetSources">—</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Top overview: donut + line chart -->
+        <div id="socialOverview" style="display:none;background:#fff;border:1px solid #e5e5e5;border-radius:8px;overflow:hidden;margin-bottom:24px;">
+          <div style="display:flex;align-items:stretch;">
+            <div style="width:40%;border-right:1px solid #e5e5e5;padding:24px;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+              <div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:16px;text-align:center;">Sessions by Platform</div>
+              <div style="position:relative;width:220px;height:220px;">
+                <canvas id="socialDonutSessions" style="position:absolute;top:0;left:0;width:220px!important;height:220px!important;"></canvas>
+                <canvas id="socialDonutViews" style="position:absolute;top:22px;left:22px;width:176px!important;height:176px!important;"></canvas>
+              </div>
+              <div id="socialDonutLegend" style="margin-top:16px;width:100%;"></div>
+            </div>
+            <div style="flex:1;padding:24px;">
+              <div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:16px;">Sessions Growth Over Time (1 Year)</div>
+              <canvas id="socialLineChart" height="200"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Per-platform cards -->
+        <div id="socialSourceCards"></div>
+
+        <!-- Landing pages table -->
+        <div id="socialPagesSection" style="display:none;margin-top:24px;">
+          <div class="table-card">
+            <div class="table-card-header" style="display:flex;align-items:center;justify-content:space-between;">
+              <h2>Top Landing Pages from Social</h2>
+              <input type="text" id="socialPagesSearch" placeholder="Search pages..." oninput="filterSocialPages()" style="padding:6px 12px;border:1px solid #e5e5e5;border-radius:4px;font-size:12px;outline:none;width:220px;">
+            </div>
+            <table>
+              <thead><tr>
+                <th>#</th>
+                <th>Page</th>
+                <th class="num">Sessions</th>
+                <th class="num">Views</th>
+                <th>Top Platform</th>
+              </tr></thead>
+              <tbody id="socialPagesBody"><tr class="loading-row"><td colspan="5">Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- No data state -->
+        <div id="socialNoData" style="display:none;">
+          <div class="coming-soon">No social media traffic found in this period.</div>
         </div>
 
       </div>
@@ -942,6 +1020,7 @@
       if(id==='blog'){initBlogMonthSelector();}
       if(id==='blogopt'&&!blogOptLoaded){loadBlogOptimizations();blogOptLoaded=true;}
       if(id==='llm'&&!llmLoaded){loadLLMTraffic();llmLoaded=true;}
+      if(id==='social'&&!socialLoaded){loadSocialTraffic();socialLoaded=true;}
       if(id==='kwtracker'){kwInit();}
       if(id==='suspicious'&&!suspLoaded){loadSuspiciousTraffic();}
       if(id==='kwrankings'&&!kwrLoaded){kwrInit();}
@@ -1868,6 +1947,253 @@
       }
     }
 
+
+    // ═══════════════════════════════════════════════════════
+    // SOCIAL TRAFFIC
+    // ═══════════════════════════════════════════════════════
+
+    let socialLoaded = false;
+    let socialChartInstances = [];
+    let socialAllPages = []; // for search filtering
+
+    const socialSourceConfig = {
+      'facebook':  { label: 'Facebook',  color: '#1877f2' },
+      'instagram': { label: 'Instagram', color: '#e1306c' },
+      'pinterest': { label: 'Pinterest', color: '#e60023' },
+      'tiktok':    { label: 'TikTok',    color: '#010101' },
+      'youtube':   { label: 'YouTube',   color: '#ff0000' },
+      'twitter':   { label: 'Twitter/X', color: '#1da1f2' },
+      't.co':      { label: 'Twitter/X', color: '#1da1f2' },
+      'x.com':     { label: 'Twitter/X', color: '#1da1f2' },
+      'linkedin':  { label: 'LinkedIn',  color: '#0a66c2' }
+    };
+
+    function getSocialConfig(source) {
+      const s = source.toLowerCase();
+      const key = Object.keys(socialSourceConfig).find(k => s.includes(k));
+      return key ? socialSourceConfig[key] : { label: source, color: '#6b7280' };
+    }
+
+    async function loadSocialTraffic() {
+      const days = parseInt(document.getElementById('socialDays')?.value || 90);
+      ['socialMetSessions','socialMetViews','socialMetSources'].forEach(id => document.getElementById(id).textContent = '—');
+      document.getElementById('socialSourceCards').innerHTML = '<div style="text-align:center;padding:48px;color:#aaa;font-size:13px;">Loading GA4 data...</div>';
+      document.getElementById('socialNoData').style.display = 'none';
+      document.getElementById('socialOverview').style.display = 'none';
+      document.getElementById('socialPagesSection').style.display = 'none';
+
+      socialChartInstances.forEach(c => { try { c.destroy(); } catch(e){} });
+      socialChartInstances = [];
+
+      try {
+        // Fetch platform+date data (always 365 days for the line chart) + pages data in parallel
+        const [trendRes, pagesRes] = await Promise.all([
+          fetch(`${API}?action=ga4-social&days=365`),
+          fetch(`${API}?action=ga4-social-pages&days=${days}`)
+        ]);
+        const [trendJson, pagesJson] = await Promise.all([trendRes.json(), pagesRes.json()]);
+
+        if (!trendJson.success) throw new Error(trendJson.error);
+
+        const rows = trendJson.data.rows || [];
+
+        // Aggregate by platform label + date
+        const sourceMap = {};
+        rows.forEach(r => {
+          const source   = r.dimensionValues?.[0]?.value || 'unknown';
+          const date     = r.dimensionValues?.[1]?.value || '';
+          const sessions = parseInt(r.metricValues?.[0]?.value || 0);
+          const views    = parseInt(r.metricValues?.[1]?.value || 0);
+          const cfg = getSocialConfig(source);
+          const label = cfg.label;
+          if (!sourceMap[label]) sourceMap[label] = { sessions:0, views:0, byDateSessions:{}, byDateViews:{}, color: cfg.color };
+          sourceMap[label].sessions += sessions;
+          sourceMap[label].views    += views;
+          if (date) {
+            sourceMap[label].byDateSessions[date] = (sourceMap[label].byDateSessions[date] || 0) + sessions;
+            sourceMap[label].byDateViews[date]    = (sourceMap[label].byDateViews[date] || 0) + views;
+          }
+        });
+
+        // Filter to selected date range for totals
+        const cutoff = getDate(days).replace(/-/g,'');
+        const filteredTotals = {};
+        Object.entries(sourceMap).forEach(([label, d]) => {
+          let s = 0, v = 0;
+          Object.entries(d.byDateSessions).forEach(([dateStr, val]) => { if (dateStr >= cutoff) s += val; });
+          Object.entries(d.byDateViews).forEach(([dateStr, val]) => { if (dateStr >= cutoff) v += val; });
+          if (s > 0 || v > 0) filteredTotals[label] = { ...d, sessions: s, views: v };
+        });
+
+        const sorted = Object.entries(filteredTotals).sort((a,b) => b[1].sessions - a[1].sessions);
+
+        const totalSessions = sorted.reduce((s,[,v]) => s + v.sessions, 0);
+        const totalViews    = sorted.reduce((s,[,v]) => s + v.views, 0);
+
+        document.getElementById('socialMetSessions').textContent = fmt(totalSessions);
+        document.getElementById('socialMetViews').textContent    = fmt(totalViews);
+        document.getElementById('socialMetSources').textContent  = sorted.length;
+
+        if (!sorted.length) {
+          document.getElementById('socialSourceCards').innerHTML = '';
+          document.getElementById('socialNoData').style.display = 'block';
+          return;
+        }
+
+        // ── OVERVIEW: donut + line chart ──────────────────────────────────────
+        document.getElementById('socialOverview').style.display = 'block';
+
+        const donutColors      = sorted.map(([,d]) => d.color);
+        const donutColorsLight = donutColors.map(c => lightenColor(c, 100));
+
+        const existingDS = Chart.getChart('socialDonutSessions'); if (existingDS) existingDS.destroy();
+        const existingDV = Chart.getChart('socialDonutViews');    if (existingDV) existingDV.destroy();
+
+        const dS = new Chart(document.getElementById('socialDonutSessions').getContext('2d'), {
+          type: 'doughnut',
+          data: { labels: sorted.map(([l])=>l), datasets: [{ data: sorted.map(([,d])=>d.sessions), backgroundColor: donutColors, borderWidth: 2, borderColor: '#fff' }] },
+          options: { responsive: false, cutout: '55%', plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ' ' + ctx.label + ': ' + fmt(ctx.raw) + ' sessions' } } } }
+        });
+        socialChartInstances.push(dS);
+
+        const dV = new Chart(document.getElementById('socialDonutViews').getContext('2d'), {
+          type: 'doughnut',
+          data: { labels: sorted.map(([l])=>l), datasets: [{ data: sorted.map(([,d])=>d.views), backgroundColor: donutColorsLight, borderWidth: 2, borderColor: '#fff' }] },
+          options: { responsive: false, cutout: '55%', plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ' ' + ctx.label + ': ' + fmt(ctx.raw) + ' views' } } } }
+        });
+        socialChartInstances.push(dV);
+
+        document.getElementById('socialDonutLegend').innerHTML = sorted.map(([label, d]) => `
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;">
+            <div style="width:10px;height:10px;border-radius:50%;background:${d.color};flex-shrink:0;"></div>
+            <span style="color:#555;flex:1;">${label}</span>
+            <span style="font-weight:600;color:#1a1a1a;">${fmt(d.sessions)} <span style="font-weight:400;color:#aaa;">/ ${fmt(d.views)}</span></span>
+          </div>`).join('');
+
+        // Line chart: 12 months
+        const months12  = getFixed12Months();
+        const lineLabels = months12.map(m => m.label);
+        const lineDatasets = sorted.map(([label, d]) => {
+          const { mSessions } = aggregateByMonth(d.byDateSessions, d.byDateViews);
+          return { label, data: months12.map(m => mSessions[m.key] || 0), borderColor: d.color, backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, tension: 0.3 };
+        });
+
+        const existingLine = Chart.getChart('socialLineChart'); if (existingLine) existingLine.destroy();
+        const lineChart = new Chart(document.getElementById('socialLineChart').getContext('2d'), {
+          type: 'line',
+          data: { labels: lineLabels, datasets: lineDatasets },
+          options: { responsive: true, plugins: { legend: { display: true, position: 'top', labels: { font: { size: 11 }, boxWidth: 12 } } }, scales: { x: { grid: { display: false }, ticks: { font: { size: 10 } } }, y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 10 } } } } }
+        });
+        socialChartInstances.push(lineChart);
+
+        // ── PER-PLATFORM CARDS ────────────────────────────────────────────────
+        const months6    = getFixed6Months();
+        const barLabels  = months6.map(m => m.label);
+
+        document.getElementById('socialSourceCards').innerHTML = sorted.map(([label, d], i) => `
+          <div class="hist-row" style="margin-bottom:24px;">
+            <div class="hist-gauge-side" style="min-width:260px;width:260px;">
+              <div class="hist-gauge-title">${label}</div>
+              <div class="hist-gauge-wrap" style="position:relative;width:160px;height:160px;">
+                <canvas id="socialGaugeViews_${i}" style="position:absolute;top:0;left:0;width:160px!important;height:160px!important;"></canvas>
+                <canvas id="socialGaugeSessions_${i}" style="position:absolute;top:16px;left:16px;width:128px!important;height:128px!important;"></canvas>
+                <div class="hist-gauge-center">
+                  <div style="font-size:10px;color:#888;">Views</div>
+                  <div style="font-size:18px;font-weight:700;color:#1a1a1a;">${fmt(d.views)}</div>
+                  <div style="font-size:10px;color:#888;margin-top:2px;">Sessions</div>
+                  <div style="font-size:14px;font-weight:600;">${fmt(d.sessions)}</div>
+                </div>
+              </div>
+              <div class="hist-gauge-sub">Views (outer) · Sessions (inner)</div>
+            </div>
+            <div class="hist-chart-side" style="flex:1;">
+              <h3>
+                <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${d.color};margin-right:4px;"></span> Views &nbsp;
+                <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${lightenColor(d.color,100)};margin-right:4px;"></span> Sessions
+              </h3>
+              <canvas id="socialBarChart_${i}" height="120"></canvas>
+            </div>
+          </div>`).join('');
+
+        sorted.forEach(([label, d], i) => {
+          const { mSessions, mViews } = aggregateByMonth(d.byDateSessions, d.byDateViews);
+          const lightColor = lightenColor(d.color, 100);
+          const maxViews   = Math.max(d.views * 1.5, 1);
+
+          const gV = new Chart(document.getElementById('socialGaugeViews_' + i).getContext('2d'), {
+            type: 'doughnut',
+            data: { datasets: [{ data: [Math.min(d.views/maxViews,1)*0.75, 0.75-Math.min(d.views/maxViews,1)*0.75, 0.25], backgroundColor:[d.color,'#e5e5e5','transparent'], borderWidth:0, circumference:270, rotation:225 }] },
+            options: { responsive:false, cutout:'72%', plugins:{ legend:{display:false}, tooltip:{enabled:false} } }
+          });
+          socialChartInstances.push(gV);
+
+          const gS = new Chart(document.getElementById('socialGaugeSessions_' + i).getContext('2d'), {
+            type: 'doughnut',
+            data: { datasets: [{ data: [Math.min(d.sessions/maxViews,1)*0.75, 0.75-Math.min(d.sessions/maxViews,1)*0.75, 0.25], backgroundColor:[lightColor,'#efefef','transparent'], borderWidth:0, circumference:270, rotation:225 }] },
+            options: { responsive:false, cutout:'72%', plugins:{ legend:{display:false}, tooltip:{enabled:false} } }
+          });
+          socialChartInstances.push(gS);
+
+          const barChart = new Chart(document.getElementById('socialBarChart_' + i).getContext('2d'), {
+            type: 'bar',
+            data: { labels: barLabels, datasets: [
+              { label:'Views',    data: months6.map(m => mViews[m.key]||0),    backgroundColor: d.color,    borderRadius:3 },
+              { label:'Sessions', data: months6.map(m => mSessions[m.key]||0), backgroundColor: lightColor, borderRadius:3 }
+            ]},
+            options: { responsive:true, plugins:{ legend:{display:false} }, scales:{ x:{ grid:{display:false}, ticks:{font:{size:10}} }, y:{ grid:{color:'#f0f0f0'}, ticks:{font:{size:10}} } } }
+          });
+          socialChartInstances.push(barChart);
+        });
+
+        // ── LANDING PAGES TABLE ───────────────────────────────────────────────
+        if (pagesJson.success) {
+          const pageRows = pagesJson.data.rows || [];
+          const pageMap  = {};
+          pageRows.forEach(r => {
+            const source   = r.dimensionValues?.[0]?.value || 'unknown';
+            const pagePath = r.dimensionValues?.[1]?.value || '/';
+            const sessions = parseInt(r.metricValues?.[0]?.value || 0);
+            const views    = parseInt(r.metricValues?.[1]?.value || 0);
+            const cfg      = getSocialConfig(source);
+            if (!pageMap[pagePath]) pageMap[pagePath] = { sessions:0, views:0, topPlatform:'', topSessions:0 };
+            pageMap[pagePath].sessions += sessions;
+            pageMap[pagePath].views    += views;
+            if (sessions > pageMap[pagePath].topSessions) {
+              pageMap[pagePath].topSessions  = sessions;
+              pageMap[pagePath].topPlatform  = cfg.label;
+              pageMap[pagePath].topColor     = cfg.color;
+            }
+          });
+
+          socialAllPages = Object.entries(pageMap)
+            .map(([path, d]) => ({ path, sessions: d.sessions, views: d.views, topPlatform: d.topPlatform, topColor: d.topColor || '#6b7280' }))
+            .sort((a,b) => b.sessions - a.sessions);
+
+          document.getElementById('socialPagesSection').style.display = 'block';
+          renderSocialPages();
+        }
+
+      } catch(e) {
+        document.getElementById('socialSourceCards').innerHTML = `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:16px;color:#dc2626;font-size:13px;">Error loading social data: ${e.message}</div>`;
+      }
+    }
+
+    function renderSocialPages() {
+      const search = (document.getElementById('socialPagesSearch')?.value || '').toLowerCase();
+      const rows   = socialAllPages.filter(r => r.path.toLowerCase().includes(search));
+      const tbody  = document.getElementById('socialPagesBody');
+      if (!rows.length) { tbody.innerHTML = '<tr class="loading-row"><td colspan="5">No pages found</td></tr>'; return; }
+      tbody.innerHTML = rows.slice(0, 100).map((r, i) => `
+        <tr>
+          <td style="color:#aaa;font-size:12px;">${i+1}.</td>
+          <td><a href="https://www.aboutwallart.com${r.path}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;word-break:break-all;">${r.path}</a></td>
+          <td class="num">${fmt(r.sessions)}</td>
+          <td class="num">${fmt(r.views)}</td>
+          <td><span style="background:${r.topColor}18;color:${r.topColor};padding:2px 10px;border-radius:8px;font-size:11px;font-weight:600;">${r.topPlatform}</span></td>
+        </tr>`).join('');
+    }
+
+    function filterSocialPages() { renderSocialPages(); }
 
     // ═══════════════════════════════════════════════════════
     // KEYWORD TRACKER
