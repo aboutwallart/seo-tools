@@ -61,8 +61,19 @@ module.exports = async function handler(req, res) {
       // Prefer Shopify SEO fields over scraped values when available
       if (shopifyContent.seoTitle)       yourPageData.title           = shopifyContent.seoTitle;
       if (shopifyContent.seoDescription) yourPageData.metaDescription = shopifyContent.seoDescription;
+      // Re-extract H2s from clean Shopify body HTML — removes theme noise and Liquid variables
+      if (shopifyContent.bodyHtml) {
+        const cleanH2s = (shopifyContent.bodyHtml.match(/<h2[^>]*>([^<]+)<\/h2>/gi) || [])
+          .map(m => m.replace(/<\/?h2[^>]*>/gi, '').trim())
+          .filter(h => !h.includes('{{') && !h.includes('}}') && h.length > 2);
+        if (cleanH2s.length > 0) yourPageData.h2 = cleanH2s;
+      }
+      // Filter any remaining Liquid variables from scraped H2s
+      yourPageData.h2 = yourPageData.h2.filter(h => !h.includes('{{') && !h.includes('}}'));
       console.log(`[Money Page] ✓ Shopify: ${shopifyContent.shopifyType} ID ${shopifyContent.shopifyId}`);
     } else {
+      // Even without Shopify, filter Liquid variables from scraped H2s
+      yourPageData.h2 = yourPageData.h2.filter(h => !h.includes('{{') && !h.includes('}}'));
       console.warn('[Money Page] Shopify content unavailable — using scraped data');
     }
     console.log(`[Money Page] ✓ Your page analyzed (${Math.round((Date.now() - startTime) / 1000)}s elapsed)`);
