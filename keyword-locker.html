@@ -173,7 +173,7 @@
             <h1>Keyword Locker</h1>
             <p>Lock each keyword to its best URL — resolve cannibalization by choosing winners</p>
             <p class="subtitle">One keyword = One winner URL. Intent-aware conflict detection.</p>
-            <div class="version">v3.2</div>
+            <div class="version">v3.3</div>
         </div>
 
         <div class="load-section">
@@ -531,7 +531,9 @@
             showLoading(true, 'Fetching GSC page-query data...');
 
             try {
-                const gscRes = await fetch('/api/gsc?action=page-query');
+                const endDate = new Date().toISOString().split('T')[0];
+                const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                const gscRes = await fetch(`/api/gsc?action=page-query&startDate=${startDate}&endDate=${endDate}`);
                 if (!gscRes.ok) throw new Error(`GSC API error: ${gscRes.status}`);
                 const gscJson = await gscRes.json();
                 if (!gscJson.success) throw new Error(gscJson.error || 'GSC API error');
