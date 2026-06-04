@@ -1,8 +1,8 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-const SERPAPI_KEY = "68107cf15dd25fd2db81f5a708ac339958c1d555334338a971e8d501653711c4";
-const PAGESPEED_KEY = "AIzaSyDZBj1f-ZEcBys8T5ldt3quwCYCFjlyq5U";
+const SERPAPI_KEY = process.env.SERPAPI_KEY;
+const PAGESPEED_KEY = process.env.GOOGLE_API_KEY;
 
 module.exports = async function handler(req, res) {
   // CORS headers
