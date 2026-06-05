@@ -219,7 +219,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.42</div>
+    <div class="version">v16.43</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -2826,9 +2826,15 @@ async function saveInboundLinks() {
   renderDashboard();
 }
 
+function normaliseHref(href) {
+  const base = 'https://aboutwallart.com';
+  let full = href.startsWith('/') ? base+href : href;
+  return full.replace('https://www.aboutwallart.com','https://aboutwallart.com').replace(/\/$/,'').toLowerCase();
+}
+
 function replaceUrlInHtml(html, brokenUrl, newUrl) {
   const base = 'https://aboutwallart.com';
-  const brokenNorm = brokenUrl.replace(/\/$/,'').toLowerCase();
+  const brokenNorm = normaliseHref(brokenUrl);
   const relNew = newUrl.startsWith(base) ? newUrl.slice(base.length) : newUrl;
   try {
     const doc = new DOMParser().parseFromString('<div>'+html+'</div>','text/html');
@@ -2836,8 +2842,7 @@ function replaceUrlInHtml(html, brokenUrl, newUrl) {
     let changed = false;
     root.querySelectorAll('a[href]').forEach(a => {
       const href = a.getAttribute('href')||'';
-      const hrefFull = href.startsWith('/') ? base+href : href;
-      if(hrefFull.replace(/\/$/,'').toLowerCase() === brokenNorm) {
+      if(normaliseHref(href) === brokenNorm) {
         a.setAttribute('href', href.startsWith('/') ? relNew : newUrl);
         changed = true;
       }
@@ -4074,30 +4079,23 @@ async function saveAllPendingFixes() {
 }
 
 function removeLinkFromHtml(html, brokenUrl) {
-  const base = 'https://aboutwallart.com';
-  const relBroken = brokenUrl.startsWith(base) ? brokenUrl.slice(base.length) : null;
-  // Build all URL variants to search for
-  const urlVariants = new Set([brokenUrl, brokenUrl+'/']);
-  if(relBroken) { urlVariants.add(relBroken); urlVariants.add(relBroken+'/'); }
-  // Use DOMParser to reliably find and unwrap matching <a> tags
+  const brokenNorm = normaliseHref(brokenUrl);
   try {
     const doc = new DOMParser().parseFromString('<div>'+html+'</div>','text/html');
     const root = doc.body.firstChild;
+    let changed = false;
     root.querySelectorAll('a[href]').forEach(a => {
       const href = a.getAttribute('href')||'';
-      const hrefStripped = href.replace(/\/$/,'');
-      const hrefFull = href.startsWith('/') ? base+href : href;
-      const hrefFullStripped = hrefFull.replace(/\/$/,'');
-      if(urlVariants.has(href) || urlVariants.has(hrefStripped) || urlVariants.has(hrefFull) || urlVariants.has(hrefFullStripped)) {
-        // Replace <a> with its contents
+      if(normaliseHref(href) === brokenNorm) {
         const frag = doc.createDocumentFragment();
         while(a.firstChild) frag.appendChild(a.firstChild);
         a.parentNode.replaceChild(frag, a);
+        changed = true;
       }
     });
-    return root.innerHTML;
+    return changed ? root.innerHTML : html;
   } catch(e) {
-    return html; // fallback: unchanged
+    return html;
   }
 }
 
