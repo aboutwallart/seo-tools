@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 44.7</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 44.8</p>
                 </div>
             </div>
         </header>
@@ -1291,8 +1291,8 @@
                 const [mobileData, desktopData, sitemapOk, robotsData] = await Promise.all([
                     fetchPageSpeedData(currentAuditURL, 'mobile'),
                     fetchPageSpeedData(currentAuditURL, 'desktop'),
-                    fetch(origin + '/sitemap.xml').then(r => r.ok).catch(() => false),
-                    fetch(origin + '/robots.txt').then(r => r.ok ? r.text() : null).catch(() => null)
+                    fetch(`https://tools.aboutwallart.com/api/fetch-html?url=${encodeURIComponent(origin + '/sitemap.xml')}`).then(r => r.ok ? r.json().then(d => !!d.html) : false).catch(() => false),
+                    fetch(`https://tools.aboutwallart.com/api/fetch-html?url=${encodeURIComponent(origin + '/robots.txt')}`).then(r => r.ok ? r.json().then(d => d.html || null) : null).catch(() => null)
                 ]);
 
                 // Run all checks
