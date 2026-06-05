@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 45.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 45.1</p>
                 </div>
             </div>
         </header>
@@ -921,17 +921,16 @@
                 const key = 'mpd_before_' + page.url;
                 if (!localStorage.getItem(key)) {
                     const gscInfo = gscEnrichment[normalizeUrlPath(page.url)];
-                    if (gscInfo?.position) {
-                        localStorage.setItem(key, JSON.stringify({
-                            optimizedAt: Date.now(),
-                            position: gscInfo.position,
-                            impressions: gscInfo.impressions || 0,
-                            clicks: gscInfo.clicks || 0,
-                            keyword: page.keyword,
-                            seeded: true
-                        }));
-                        seeded++;
-                    }
+                    // Seed with GSC data if available, otherwise seed with nulls so countdown still shows
+                    localStorage.setItem(key, JSON.stringify({
+                        optimizedAt: page.optimizedAt || Date.now(),
+                        position: gscInfo?.position || null,
+                        impressions: gscInfo?.impressions || 0,
+                        clicks: gscInfo?.clicks || 0,
+                        keyword: page.keyword,
+                        seeded: true
+                    }));
+                    seeded++;
                 }
             });
             if (seeded > 0) { console.log(`[Seed] Stored baselines for ${seeded} optimised pages`); renderOptimized(); }
