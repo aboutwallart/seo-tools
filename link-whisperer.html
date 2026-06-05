@@ -77,6 +77,7 @@
     .btn-outline { background:#fff; color:#222; border:1px solid #222; border-radius:4px; padding:8px 16px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; cursor:pointer; }
     .btn-outline:hover { background:#f5f5f5; }
     .table-wrap { background:#fff; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.08); overflow:hidden; }
+    #tab-broken-links .table-wrap { overflow:visible; }
     table { width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed; }
     thead th { background:#f9f9f9; padding:12px 16px; text-align:left; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:#555; border-bottom:1px solid #e8e8e8; cursor:pointer; white-space:nowrap; user-select:none; overflow:hidden; }
     thead th:nth-child(1), tbody td:nth-child(1) { width:44%; }
@@ -218,7 +219,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.33</div>
+    <div class="version">v16.34</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -2825,6 +2826,21 @@ async function saveInboundLinks() {
   renderDashboard();
 }
 
+function replaceUrlInHtml(html, brokenUrl, newUrl) {
+  const base = 'https://aboutwallart.com';
+  // Replace full URL form
+  const esc1 = brokenUrl.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  html = html.replace(new RegExp(esc1,'g'), newUrl);
+  // Also replace relative form (e.g. /collections/x) since Shopify stores relative URLs
+  if(brokenUrl.startsWith(base+'/') || brokenUrl === base) {
+    const relBroken = brokenUrl.slice(base.length) || '/';
+    const esc2 = relBroken.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    const relNew = newUrl.startsWith(base) ? newUrl.slice(base.length) : newUrl;
+    html = html.replace(new RegExp('(href=["\'])'+esc2+'(["\'])','gi'), '$1'+relNew+'$2');
+  }
+  return html;
+}
+
 async function saveItemToShopify(item, updatedHtml) {
   let endpoint, bodyKey;
   if (item.type==='page') { endpoint='pages/'+item.shopifyId+'.json'; bodyKey='page'; }
@@ -3841,29 +3857,47 @@ function blSearch(inputId, dropId, searchType, brokenUrl, idx) {
   const input = document.getElementById(inputId);
   const drop  = document.getElementById(dropId);
   if(!input||!drop) return;
-  const q = input.value.toLowerCase().trim();
+  const q = input.value.trim();
   if(!q) { drop.style.display='none'; return; }
 
-  const results = AppState.items.filter(i => {
-    if(!i.publishedAt) return false;
-    if(searchType==='collection') return i.type==='collection';
-    if(searchType==='product')    return i.type==='product';
-    if(searchType==='article')    return i.type==='article';
-    if(searchType==='page')       return i.type==='page';
-    return true;
-  }).filter(i => i.title.toLowerCase().includes(q) || (i.handle||'').toLowerCase().includes(q))
-    .slice(0, 8);
+  // Full URL pasted — offer it directly
+  if(q.startsWith('http://') || q.startsWith('https://')) {
+    drop.style.display = 'block';
+    drop.innerHTML = `<div onclick="blSelectFix('${escHtml(brokenUrl)}','${escHtml(q)}','${escHtml(q)}',${idx},'${inputId}','${dropId}')"
+      style="padding:8px 10px;cursor:pointer;font-size:12px;display:flex;align-items:center;gap:8px;"
+      onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background='#fff'">
+      <span style="font-weight:700;color:#1565c0;">&#8594; Use this URL directly</span>
+      <span style="font-size:11px;color:#888;word-break:break-all;">${escHtml(q)}</span>
+    </div>`;
+    return;
+  }
 
-  if(!results.length) { drop.style.display='none'; return; }
+  const ql = q.toLowerCase();
+  const allowed = ['collection','article','page'];
+  const typeOrder = [searchType, 'collection', 'article', 'page'].filter((t,i,a) => allowed.includes(t) && a.indexOf(t)===i);
 
+  const grouped = [];
+  typeOrder.forEach(type => {
+    const matches = AppState.items.filter(i =>
+      i.publishedAt && i.type===type &&
+      (i.title.toLowerCase().includes(ql) || (i.handle||'').toLowerCase().includes(ql))
+    ).slice(0, 4);
+    if(matches.length) grouped.push({ type, matches });
+  });
+
+  if(!grouped.length) { drop.style.display='none'; return; }
+
+  const typeLabel = { collection:'Collections', article:'Blog Articles', page:'Pages' };
   drop.style.display = 'block';
-  drop.innerHTML = results.map(i => `
+  drop.innerHTML = grouped.map(g => `
+    <div style="padding:4px 10px 2px;font-size:10px;font-weight:700;text-transform:uppercase;color:#999;background:#fafafa;border-bottom:1px solid #f0f0f0;">${typeLabel[g.type]||g.type}</div>
+    ${g.matches.map(i => `
     <div onclick="blSelectFix('${escHtml(brokenUrl)}','${escHtml(i.url)}','${escHtml(i.title)}',${idx},'${inputId}','${dropId}')"
       style="padding:7px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid #f5f5f5;display:flex;justify-content:space-between;align-items:center;"
       onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background='#fff'">
       <span style="font-weight:600;color:#222;">${escHtml(i.title)}</span>
       <span style="font-size:11px;color:#888;margin-left:8px;white-space:nowrap;">${(AppState.linkGraph.inbound[i.id]||[]).length} inbound</span>
-    </div>`).join('');
+    </div>`).join('')}`).join('');
 }
 
 function blSelectFix(brokenUrl, newUrl, newTitle, idx, inputId, dropId) {
@@ -3940,8 +3974,7 @@ async function saveAllPendingFixes() {
       if(!item) return;
       let html = item.bodyHtml || '';
       replacements.forEach(({brokenUrl, newUrl}) => {
-        const escaped = brokenUrl.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-        html = html.replace(new RegExp(escaped,'g'), newUrl);
+        html = replaceUrlInHtml(html, brokenUrl, newUrl);
       });
       await saveItemToShopify(item, html);
       item.bodyHtml = html;
@@ -3975,8 +4008,13 @@ async function confirmRemoveLinkGroup(brokenUrl, idx) {
     await Promise.all(occurrences.map(async occ => {
       const item = AppState.items.find(i=>i.id===occ.sourceId);
       if(!item) return;
-      const escaped = brokenUrl.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-      const updatedHtml = (item.bodyHtml||'').replace(new RegExp('<a[^>]+href=["\']'+escaped+'["\'][^>]*>([^<]*)<\\/a>','gi'),'$1');
+      const base = 'https://aboutwallart.com';
+      const escaped1 = brokenUrl.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+      const relBroken = brokenUrl.startsWith(base) ? brokenUrl.slice(base.length) : null;
+      const esc2 = relBroken ? relBroken.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') : null;
+      let updatedHtml = (item.bodyHtml||'')
+        .replace(new RegExp('<a[^>]+href=["\']'+escaped1+'["\'][^>]*>([^<]*)<\\/a>','gi'),'$1');
+      if(esc2) updatedHtml = updatedHtml.replace(new RegExp('<a[^>]+href=["\']'+esc2+'["\'][^>]*>([^<]*)<\\/a>','gi'),'$1');
       await saveItemToShopify(item, updatedHtml);
       item.bodyHtml = updatedHtml;
       try { const bc=JSON.parse(localStorage.getItem('lw-body-cache')||'{}'); bc[item.id]=updatedHtml; localStorage.setItem('lw-body-cache',JSON.stringify(bc)); } catch(e){}
