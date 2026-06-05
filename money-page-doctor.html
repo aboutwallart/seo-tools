@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 44.8</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 44.9</p>
                 </div>
             </div>
         </header>
@@ -614,32 +614,72 @@
         function renderOptimized() {
             const list = document.getElementById('optimizedList');
             if (optimizedPages.length === 0) {
-                list.innerHTML = '<p style="text-align:center; color:#666; padding:40px;">No optimized pages yet. Analyze pages and mark them as optimized in "My Pages" tab.</p>';
+                list.innerHTML = '<p style="text-align:center; color:#666; padding:40px;">No optimized pages yet. Analyse pages and mark them as optimized in "My Pages" tab.</p>';
                 return;
             }
 
-            // Sort by most recent first
             const sorted = [...optimizedPages].sort((a, b) => b.optimizedAt - a.optimizedAt);
+            const now = Date.now();
+            const DAY = 86400000;
 
-            list.innerHTML = sorted.map(item => `
-                <div class="url-item" style="background: #e8f5e9; border-left: 4px solid #4caf50;">
-                    <div style="flex: 1;">
-                        <div style="font-weight: 500; margin-bottom: 5px; word-break: break-all;">
-                            ✅ ${item.url}
-                        </div>
-                        <div style="font-size: 0.85rem; color: #1976d2; margin-bottom: 3px;">
-                            🎯 Keyword: "${item.keyword}"
-                        </div>
-                        <div style="font-size: 0.85rem; color: #2e7d32;">
-                            Optimized: ${new Date(item.optimizedAt).toLocaleDateString()}
-                        </div>
+            list.innerHTML = sorted.map(item => {
+                const before = JSON.parse(localStorage.getItem('mpd_before_' + item.url) || 'null');
+                const optimizedAt = before?.optimizedAt || item.optimizedAt || 0;
+                const daysAgo = Math.floor((now - optimizedAt) / DAY);
+                const daysLeft = 90 - daysAgo;
+                const current = gscEnrichment[normalizeUrlPath(item.url)] || null;
+
+                let comparisonHTML = '';
+                if (before) {
+                    if (daysAgo >= 90 && current) {
+                        const posChange = (before.position - current.position).toFixed(1);
+                        const posUp = posChange > 0;
+                        const impChange = current.impressions - before.impressions;
+                        const clkChange = current.clicks - before.clicks;
+                        comparisonHTML = `
+                            <div style="margin-top:10px;background:white;border-radius:6px;padding:12px;border:1px solid #e0e0e0;">
+                                <div style="font-size:0.8rem;font-weight:600;color:#2e7d32;margin-bottom:8px;">📈 90-Day Results</div>
+                                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:0.82rem;">
+                                    <div style="text-align:center;">
+                                        <div style="color:#666;">Position</div>
+                                        <div style="font-weight:700;">${before.position.toFixed(1)} → ${current.position.toFixed(1)}</div>
+                                        <div style="color:${posUp?'#4caf50':'#f44336'};font-weight:600;">${posUp?'▲':'▼'} ${Math.abs(posChange)}</div>
+                                    </div>
+                                    <div style="text-align:center;">
+                                        <div style="color:#666;">Impressions</div>
+                                        <div style="font-weight:700;">${before.impressions.toLocaleString()} → ${current.impressions.toLocaleString()}</div>
+                                        <div style="color:${impChange>=0?'#4caf50':'#f44336'};font-weight:600;">${impChange>=0?'▲':'▼'} ${Math.abs(impChange).toLocaleString()}</div>
+                                    </div>
+                                    <div style="text-align:center;">
+                                        <div style="color:#666;">Clicks</div>
+                                        <div style="font-weight:700;">${before.clicks} → ${current.clicks}</div>
+                                        <div style="color:${clkChange>=0?'#4caf50':'#f44336'};font-weight:600;">${clkChange>=0?'▲':'▼'} ${Math.abs(clkChange)}</div>
+                                    </div>
+                                </div>
+                                <div style="font-size:0.75rem;color:#999;margin-top:6px;">Optimised ${daysAgo} days ago · GSC data updated daily</div>
+                            </div>`;
+                    } else if (daysAgo < 90) {
+                        comparisonHTML = `
+                            <div style="margin-top:8px;font-size:0.8rem;color:#666;">
+                                ⏳ Before/after results available in <strong>${daysLeft} day${daysLeft===1?'':'s'}</strong>
+                            </div>`;
+                    }
+                }
+
+                return `
+                <div class="url-item" style="background:#e8f5e9;border-left:4px solid #4caf50;">
+                    <div style="flex:1;">
+                        <div style="font-weight:500;margin-bottom:5px;word-break:break-all;">✅ ${item.url}</div>
+                        <div style="font-size:0.85rem;color:#1976d2;margin-bottom:3px;">🎯 Keyword: "${item.keyword}"</div>
+                        <div style="font-size:0.85rem;color:#2e7d32;">Optimised: ${new Date(optimizedAt||item.optimizedAt).toLocaleDateString()}</div>
+                        ${comparisonHTML}
                     </div>
-                    <div style="display: flex; gap: 10px;">
-                        ${item.results ? `<button class="btn-secondary" onclick="viewOptimizedResults('${item.url}')">📊 View Analysis</button>` : ''}
+                    <div style="display:flex;gap:10px;">
+                        ${item.results ? `<button class="btn-secondary" onclick="viewOptimizedResults('${item.url}')">📊 View</button>` : ''}
                         <button class="btn-secondary" onclick="unmarkAsOptimized('${item.url}')">↩️ Unmark</button>
                     </div>
-                </div>
-            `).join('');
+                </div>`;
+            }).join('');
         }
 
         function clearAllOptimized() {
@@ -816,6 +856,19 @@
                 });
                 const data = await res.json();
                 if (!data.success) throw new Error(data.error || 'Failed');
+
+                // Save GSC snapshot for 90-day before/after comparison
+                const gscInfo = gscEnrichment[normalizeUrlPath(item.url)] || {};
+                if (gscInfo.position) {
+                    localStorage.setItem('mpd_before_' + item.url, JSON.stringify({
+                        optimizedAt: Date.now(),
+                        position: gscInfo.position,
+                        impressions: gscInfo.impressions || 0,
+                        clicks: gscInfo.clicks || 0,
+                        keyword: item.keyword
+                    }));
+                }
+
                 await loadFromGitHub();
                 updatePageCount();
                 updateOptimizedCount();
@@ -896,17 +949,35 @@
             }
 
             // Internal links block
-            const internalLinksHTML = data.internalLinks?.length > 0 ? `
+            const internalLinksHTML = data.internalLinks?.length > 0 ? (() => {
+                const linksHtml = data.internalLinks.map(l =>
+                    `<a href="${l.destinationUrl}">${l.anchorText}</a>`
+                ).join(', ');
+                const paragraph = `<p>You may also like: ${linksHtml}.</p>`;
+                const alreadyPushed = localStorage.getItem('mpd_links_pushed_' + data.yourPage.url) === 'true';
+                return `
                 <div class="action-block" style="border-color:#4caf50;">
                     <h3>🔗 Internal Links to Add</h3>
-                    <ul style="padding-left:20px;">
-                        ${data.internalLinks.map(l => `
-                            <li style="margin-bottom:8px;">
-                                Anchor: <strong>"${l.anchorText}"</strong> →
-                                <a href="${l.destinationUrl}" target="_blank" style="color:#1976d2;word-break:break-all;">${l.destinationUrl}</a>
-                            </li>`).join('')}
-                    </ul>
-                </div>` : '';
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">These pages link to this one — add them to your description to strengthen internal linking.</p>
+                    ${data.internalLinks.map((l, i) => `
+                        <div style="display:flex;align-items:center;gap:10px;padding:8px;background:#f9f9f9;border-radius:6px;margin-bottom:6px;font-size:0.9rem;">
+                            <div style="flex:1;">
+                                Anchor: <strong>"${l.anchorText}"</strong> → <a href="${l.destinationUrl}" target="_blank" style="color:#1976d2;">${l.destinationUrl}</a>
+                            </div>
+                        </div>`).join('')}
+                    <div style="margin-top:12px;">
+                        <p style="font-size:0.8rem;color:#666;margin-bottom:6px;font-weight:600;">HTML to be appended to description:</p>
+                        <div class="copy-block">
+                            <pre id="internalLinksHtml">${paragraph.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
+                            <button class="copy-btn" onclick="copyToClipboard(document.getElementById('internalLinksHtml').textContent, this)">📋 Copy HTML</button>
+                        </div>
+                    </div>
+                    ${data.shopify ? `
+                    <button class="push-btn" id="pushLinksBtn" onclick="pushInternalLinks()" style="margin-top:10px;background:${alreadyPushed?'#4caf50':'#2e7d32'};" ${alreadyPushed?'disabled':''}>
+                        ${alreadyPushed ? '✅ Links Already Added' : '🔗 Push Links to Shopify'}
+                    </button>` : ''}
+                </div>`;
+            })() : '';
 
             const html = `
                 <h3 style="margin-bottom:15px;">Results for: ${keyword}</h3>
@@ -1173,6 +1244,40 @@
         function closeResultsModal() {
             document.getElementById('resultsModal').classList.remove('active');
             renderUrls();
+        }
+
+        async function pushInternalLinks() {
+            const btn = document.getElementById('pushLinksBtn');
+            const shopify = currentResults?.shopify;
+            const links = currentResults?.internalLinks;
+            if (!shopify?.id || !links?.length) return;
+
+            const linksHtml = links.map(l => `<a href="${l.destinationUrl}">${l.anchorText}</a>`).join(', ');
+            const paragraph = `<p>You may also like: ${linksHtml}.</p>`;
+
+            btn.disabled = true;
+            btn.textContent = '⏳ Pushing...';
+            try {
+                const res = await fetch('/api/shopify-files?action=seo-update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        shopifyId:   shopify.id,
+                        shopifyBlogId: shopify.blogId,
+                        shopifyType: shopify.type,
+                        appendHtml:  paragraph
+                    })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.errors?.join(', ') || 'Push failed');
+                btn.textContent = '✅ Links Added';
+                btn.style.background = '#4caf50';
+                localStorage.setItem('mpd_links_pushed_' + currentResults.yourPage.url, 'true');
+            } catch (err) {
+                btn.disabled = false;
+                btn.textContent = '🔗 Push Links to Shopify';
+                alert(`❌ Failed: ${err.message}`);
+            }
         }
 
         async function pushToShopify() {
