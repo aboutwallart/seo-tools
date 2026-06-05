@@ -219,7 +219,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.46</div>
+    <div class="version">v16.47</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -1722,6 +1722,7 @@ function detectBrokenLinks() {
   const knownUrls = new Set();
   const knownHandles = new Set();
   AppState.items.forEach(i => {
+    if(i.type==='product' && i.status==='archived') return; // keep archived products out of knownUrls so links to them show as broken
     if(i.url) knownUrls.add(i.url.replace(/\/$/,'').toLowerCase());
     if(i.handle) knownHandles.add(i.handle.toLowerCase());
   });
@@ -1749,7 +1750,7 @@ function detectBrokenLinks() {
       const suggested = null;
       let reason = null;
       if(cu.includes('/products/')) {
-        const archived = AppState.items.find(i => i.type==='product' && i.handle && cu.endsWith('/products/'+i.handle.toLowerCase()) && (i.publishedAt===null || i.publishedAt===undefined || i.publishedAt===''));
+        const archived = AppState.items.find(i => i.type==='product' && i.status==='archived' && i.handle && cu.endsWith('/products/'+i.handle.toLowerCase()));
         if(archived) reason = 'archived-product';
       }
       AppState.brokenLinks.push({
@@ -4439,8 +4440,8 @@ async function syncFromShopify(){
   try{
     const allItems=[],allLinks=[];
     setLoadingStep('Fetching products...',5);
-    const pd=await shopifyFetch('products.json?limit=250&fields=id,title,handle,published_at,body_html,product_type,tags,vendor');
-    const products=(pd.products||[]).map(p=>({id:'product-'+p.id,shopifyId:p.id,title:p.title,handle:p.handle,type:'product',publishedAt:p.published_at,bodyHtml:p.body_html||'',tags:(p.tags||'').split(',').map(t=>t.trim()).filter(Boolean),vendor:p.vendor||'',url:'https://aboutwallart.com/products/'+p.handle}));
+    const pd=await shopifyFetch('products.json?limit=250&published_status=any&fields=id,title,handle,published_at,status,body_html,product_type,tags,vendor');
+    const products=(pd.products||[]).map(p=>({id:'product-'+p.id,shopifyId:p.id,title:p.title,handle:p.handle,type:'product',publishedAt:p.published_at,status:p.status||'active',bodyHtml:p.body_html||'',tags:(p.tags||'').split(',').map(t=>t.trim()).filter(Boolean),vendor:p.vendor||'',url:'https://aboutwallart.com/products/'+p.handle}));
     allItems.push(...products);
     setLoadingStep('Products: '+products.length+' found',20);
 
