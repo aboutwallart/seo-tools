@@ -1,7 +1,7 @@
 # TECHNICAL REFERENCE DOCUMENT
 ## AboutWallArt SEO Tools Infrastructure
 
-**Last Updated:** June 4, 2026 (Easy SEO Report v56 — Social Traffic tab complete)
+**Last Updated:** June 5, 2026 (Money Page Doctor v45.1 — Internal Links block, FAQ fix, 90-day seeding)
 **Owner:** aboutwallart
 **Purpose:** Complete technical documentation for all SEO tools, infrastructure, API keys, and configurations
 
@@ -797,6 +797,171 @@ Free Interior Design Education & Guides, Free Home Decor & Interior Design Tools
 - All Shopify API + webhook logic in `api/shopify-files.js`
 - All GitHub data file logic in `api/blogs.js`
 - 1 slot still available
+
+---
+
+# MONEY PAGE DOCTOR TOOL — COMPLETE DOCUMENTATION
+
+**File:** `money-page-doctor.html`
+**Current Version:** v45.1 (June 5, 2026)
+**URL:** https://tools.aboutwallart.com/money-page-doctor.html
+**Purpose:** AI-powered SEO analysis tool for winner pages (TO_OPTIMIZE) from the Keyword Locker registry. Fetches competitor data, analyses page content vs competitors using Claude, and delivers actionable optimisation tasks across structured blocks.
+
+---
+
+## Pipeline Context
+
+Easy SEO Report → finds Quick Wins + Danger Pages → saves to registry → Keyword Locker resolves conflicts → saves winner pages as TO_OPTIMIZE → **Money Page Doctor** fetches those pages → analyses with Claude → marks as OPTIMIZED
+
+---
+
+## Two Tabs
+
+### My Pages Tab
+- Loads all `TO_OPTIMIZE` pages from the GitHub registry (`keyword-locker-registry.csv`)
+- Shows live GSC data per page: position, impressions, clicks
+- Sorts by urgency: 🚨 Danger (clicks dropped 20%+) → 🔥 Quick Win → normal
+- Shows progress badge: X/XX analysed
+- Analyse button triggers full analysis pipeline
+
+### Optimized Tab
+- Shows all pages with `OPTIMIZED` status in registry
+- Each page shows: keyword, optimised date, before/after comparison (after 90 days)
+- Before 90 days: shows countdown ⏳ "X days to go"
+- After 90 days: shows position/impressions/clicks before vs after
+- GSC baseline is stored in localStorage key: `mpd_before_[url]`
+- **90-day seeding:** on first load after a page is marked optimized, if no snapshot exists, `seedMissingSnapshots()` runs and stores today's GSC data (or null if no GSC data) as the baseline so the countdown always starts
+- Unmark button reverts page to TO_OPTIMIZE in registry
+
+---
+
+## Analysis Pipeline (per page)
+
+1. **SerpAPI** — fetches top 10 results for the page's keyword, identifies user's position
+2. **Shopify API** — fetches real title, meta description, body HTML for the page
+3. **Loser pages** — fetches INTERNAL_LINK rows from registry where winner URL = this page
+4. **PageSpeed** — mobile + desktop scores via Google PageSpeed Insights API
+5. **Sitemap + robots.txt** — checks indexability
+6. **Claude (Anthropic)** — full analysis with structured JSON response
+7. Results rendered in 5 blocks (see below)
+
+---
+
+## Results Blocks
+
+### 1. Push to Shopify
+- Editable fields: SEO Title, Meta Description, Page Description
+- One-click push to Shopify via `/api/shopify-files?action=seo-update`
+- Shows Already Pushed state with strikethrough
+- Open in Shopify Admin link (uses Shopify numeric ID)
+
+### 2. Copy-Paste Ready — Custom Liquid Sections
+- **Page Schema (JSON-LD)** — CollectionPage / Product / Article schema
+- **FAQ Schema (JSON-LD)** — only here, NOT duplicated in AI items
+- **Brand Block (HTML)** — pre-written brand paragraph
+
+### 3. AI Optimisation — Copy-Paste Ready
+- Comparison Snippet, Related Questions Section, Tables, other Claude-generated content
+- Each item has priority badge (high/medium/low), Copy HTML button, checkbox
+
+### 4. 🔗 Internal Links to Add
+- Only shown if INTERNAL_LINK rows exist in registry pointing to this winner page
+- Each loser page shows: page type badge, URL, placement hint (red), copyable Kickstart prompt
+- **Kickstart prompt format:** "In the product description, [placement], add the following sentence: '[sentence with link text (URL)]'. Keep all other content unchanged."
+- Copy button + Open in Shopify Admin button (resolves product handle → numeric ID via API)
+- Checkbox to mark as done
+
+### 5. Manual Actions Checklist
+- H2 renames, new sections to add, image alt text tasks
+- Each item has copy button and checkbox
+- Overall Progress bar at top tracks all checkboxes across all blocks
+- When 100%: auto-marks page as OPTIMIZED via `/api/blogs` action `mark-optimized`
+
+---
+
+## API Files Used
+
+### `api/analyze-money-page.js`
+**Current version:** v45.0 (June 5, 2026)
+**Purpose:** Full analysis backend
+
+Key functions:
+- `getLosersForPage(winnerUrl)` — fetches registry CSV from GitHub, finds INTERNAL_LINK rows where column 5 = winnerUrl. Uses `findIndex` to skip title row and find actual header row (the CSV has a title row before headers).
+- `getClaudeAnalysis()` → `buildAnalysisPrompt()` — builds plain text prompt with loser pages appended
+- Claude model: `claude-opus-4-5` (via ANTHROPIC_API_KEY env var)
+- SerpAPI: via SERPAPI_KEY env var
+- Shopify fetch: via SHOPIFY_STORE_DOMAIN + SHOPIFY_ACCESS_TOKEN
+
+**CRITICAL — CSV header detection:**
+The registry CSV has a title row ("keyword-locker-registry") before the actual column headers. Always use `findIndex` to locate the header row, never hardcode `lines[0]`.
+
+**CRITICAL — Claude prompt format:**
+Prompt is plain text, NOT JSON. Claude returns structured JSON. This was a deliberate decision — JSON prompts caused Claude to return malformed responses.
+
+**CRITICAL — loserPageLinks:**
+Only included in Claude's response if loser pages are provided. Claude generates one unique sentence per loser page with HTML anchor tag and a placement suggestion.
+
+### `api/shopify-files.js`
+New action added June 5, 2026:
+
+#### POST body `action=get-product-id`
+- Body: `{ action: 'get-product-id', handle: 'product-handle' }`
+- Fetches product by handle from Shopify REST API
+- Returns: `{ id: 12345678 }` (numeric Shopify product ID)
+- Used by frontend to build direct admin URL: `admin.shopify.com/store/aboutwallart/products/[id]`
+
+### `api/blogs.js`
+#### POST `mark-optimized`
+- Body: `{ action: 'mark-optimized', url, keyword }`
+- Updates registry CSV on GitHub: changes Action from TO_OPTIMIZE → OPTIMIZED for matching row
+- No GitHub token needed in browser — handled server-side via GITHUB_TOKEN env var
+
+#### POST `unmark-optimized`
+- Body: `{ action: 'unmark-optimized', url }`
+- Reverts OPTIMIZED → TO_OPTIMIZE in registry
+
+---
+
+## localStorage Keys
+
+| Key | Contents |
+|-----|----------|
+| `mpd_before_[url]` | JSON: `{ optimizedAt, position, impressions, clicks, keyword, seeded }` |
+| `mpd_results_[url]` | Cached Claude analysis result for that URL |
+| `mpd_state_[url]` | Checkbox states for all checklist items |
+| `mpd_links_pushed_[url]` | Whether Push to Shopify was completed |
+
+---
+
+## Registry Column Reference (for INTERNAL_LINK rows)
+
+`Keyword(0), Page URL(1), LOCKED(2), Status(3), Action(4), WinnerURL(5), Clicks(6), Position(7), MatchScore(8), Source(9), INTENT(10)`
+
+For INTERNAL_LINK rows:
+- Col 1 = loser page URL
+- Col 4 = INTERNAL_LINK
+- Col 5 = winner page URL (the page that should receive the link)
+
+---
+
+## Known Limitations
+
+- Analysis costs ~$0.08–0.15 per page in Claude API credits (Opus model)
+- SerpAPI credits consumed per analysis (~1 credit)
+- PageSpeed API is free but rate-limited
+- Internal Links block only appears if registry has INTERNAL_LINK rows for that page
+- 90-day comparison requires localStorage — clears if user clears browser data
+
+---
+
+## Version History
+
+| Version | Date | Changes |
+|---------|------|---------|
+| v42.0 | May 2026 | Initial build |
+| v44.9 | June 4, 2026 | Last stable before v45 session |
+| v45.0 | June 5, 2026 | Internal link pusher block, FAQ schema dedup fix, product schema on collection pages fix, 90-day snapshot seeding, CSV header row bug fix |
+| v45.1 | June 5, 2026 | Optimized tab seeding fix — seeds even when no GSC data so countdown always shows |
 
 ---
 
