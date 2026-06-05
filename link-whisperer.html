@@ -219,7 +219,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.37</div>
+    <div class="version">v16.38</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -4031,17 +4031,23 @@ async function saveAllPendingFixes() {
     if(i+BATCH < tasks.length) await new Promise(r => setTimeout(r, 300));
   }
 
-  // Clean up state
+  // Remove fixed groups directly from state — do NOT re-run detectBrokenLinks()
+  // because it re-scans in-memory bodyHtml which may lag behind Shopify
   fixes.forEach(fix => {
     AppState.brokenLinks = AppState.brokenLinks.filter(b=>b.brokenUrl!==fix.brokenUrl);
     BlState.pendingFixes.delete(fix.brokenUrl);
   });
-  AppState.links=[]; for(const i of AppState.items) AppState.links.push(...parseItemLinks(i));
-  buildLinkGraph(); detectBrokenLinks();
+  // Update badge manually
+  const badgeEl = document.getElementById('bl-tab-badge');
+  if(badgeEl) {
+    const n = new Set(AppState.brokenLinks.map(b=>b.brokenUrl)).size;
+    badgeEl.textContent = n;
+    badgeEl.style.display = n > 0 ? 'inline-block' : 'none';
+  }
   updateSaveFixesBtn();
   renderBrokenLinksReport(); renderDashboard();
   const groupCount = fixes.length;
-  if(failed===0) showToast('✅ '+groupCount+' group'+(groupCount===1?'':'s')+' fixed across '+done+' pages.','success');
+  if(failed===0) showToast('✅ '+groupCount+' group'+(groupCount===1?'':'s')+' fixed across '+done+' pages. Refresh data to re-scan.','success');
   else showToast('⚠️ '+done+' saved, '+failed+' failed — try saving again for the failed ones.','error');
 }
 
