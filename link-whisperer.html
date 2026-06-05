@@ -219,7 +219,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.47</div>
+    <div class="version">v16.48</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -1573,7 +1573,8 @@ const AppState = {
   expandState:{}, suggestState:{}, inboundSuggestState:{},
   saveStatuses:{},
   linkQueue:[],
-  metafieldLinks:[] // [{productId, articleId}] — from blog_products_list metafields
+  metafieldLinks:[], // [{productId, articleId}] — from blog_products_list metafields
+  variantFixQueue:[] // [{sourceId, brokenUrl, cleanUrl}] — variant URLs to auto-fix
 };
 
 const BlState = { page:1, selected: new Set(), sort:{ col:'', dir:'' }, pendingFixes: new Map(), groupRegistry: new Map() };
@@ -1722,19 +1723,20 @@ function detectBrokenLinks() {
   const knownUrls = new Set();
   const knownHandles = new Set();
   AppState.items.forEach(i => {
-    if(i.type==='product' && i.status==='archived') return; // keep archived products out of knownUrls so links to them show as broken
+    if(i.type==='product' && i.status==='archived') return;
     if(i.url) knownUrls.add(i.url.replace(/\/$/,'').toLowerCase());
     if(i.handle) knownHandles.add(i.handle.toLowerCase());
   });
   // Homepage is always valid
   knownUrls.add('https://aboutwallart.com');
   knownUrls.add('https://www.aboutwallart.com');
-  // Blog index pages are valid (e.g. /blogs/news-articles-home-decor-inspiration)
+  // Blog index pages are valid
   AppState.items.filter(i=>i.type==='article' && i.blogHandle).forEach(i => {
     knownUrls.add('https://aboutwallart.com/blogs/'+i.blogHandle);
   });
 
   AppState.brokenLinks = [];
+  AppState.variantFixQueue = [];
   AppState.links.forEach(link => {
     if(link.type !== 'internal') return;
     if(link.targetUrl && (link.targetUrl.toLowerCase().startsWith('mailto:') || (link.targetUrl.includes('@') && !link.targetUrl.includes('/')))) return;
@@ -1745,9 +1747,20 @@ function detectBrokenLinks() {
     if(sourceItem.publishedAt === null || sourceItem.publishedAt === undefined || sourceItem.publishedAt === '') return;
 
     const cu = link.targetUrl.replace(/\/$/,'').toLowerCase();
+
+    // Handle variant URLs — strip ?variant= and check if clean URL is valid
+    if(cu.includes('?variant=')) {
+      const cleanUrl = cu.split('?')[0];
+      if(knownUrls.has(cleanUrl)) {
+        AppState.variantFixQueue.push({ sourceId: link.sourceId, brokenUrl: link.targetUrl, cleanUrl: link.targetUrl.split('?')[0] });
+      } else {
+        AppState.brokenLinks.push({ sourceId: link.sourceId, sourceUrl: link.sourceUrl, brokenUrl: link.targetUrl, anchorText: link.anchorText, type: link.type, status: '404 Not Found', reason: null, discovered: new Date().toISOString(), suggested: null });
+      }
+      return;
+    }
+
     const handle = cu.split('/').pop();
     if(!knownUrls.has(cu) && !knownHandles.has(handle)) {
-      const suggested = null;
       let reason = null;
       if(cu.includes('/products/')) {
         const archived = AppState.items.find(i => i.type==='product' && i.status==='archived' && i.handle && cu.endsWith('/products/'+i.handle.toLowerCase()));
@@ -1762,16 +1775,26 @@ function detectBrokenLinks() {
         status: '404 Not Found',
         reason,
         discovered: new Date().toISOString(),
-        suggested
+        suggested: null
       });
     }
   });
-  // Update tab badge — count unique broken URLs (groups)
+
+  // Update tab badge
   const badge = document.getElementById('bl-tab-badge');
   if(badge) {
     const n = new Set(AppState.brokenLinks.map(b=>b.brokenUrl)).size;
     badge.textContent = n;
     badge.style.display = n > 0 ? 'inline-block' : 'none';
+  }
+
+  // Update archived counter in filter dropdown
+  const archivedCount = AppState.brokenLinks.filter(b=>b.reason==='archived-product').length;
+  const filterEl = document.getElementById('bl-status-filter');
+  if(filterEl) {
+    Array.from(filterEl.options).forEach(o => {
+      if(o.value==='archived-product') o.text = 'Archived Products'+(archivedCount>0?' ('+archivedCount+')':'');
+    });
   }
 }
 
@@ -4221,6 +4244,37 @@ async function deleteSelectedBrokenLinks() {
   else showToast('⚠️ '+done+' pages updated, '+failed+' failed — try again.','error');
 }
 
+async function processVariantAutoFixes() {
+  if(!AppState.variantFixQueue.length) return;
+  const queue = AppState.variantFixQueue;
+  // Group by sourceId so we only save each item once
+  const byItem = new Map();
+  queue.forEach(({sourceId, brokenUrl, cleanUrl}) => {
+    if(!byItem.has(sourceId)) byItem.set(sourceId, []);
+    byItem.get(sourceId).push({brokenUrl, cleanUrl});
+  });
+  const tasks = Array.from(byItem.entries());
+  const BATCH = 5;
+  let fixed = 0;
+  for(let i=0; i<tasks.length; i+=BATCH) {
+    await Promise.all(tasks.slice(i,i+BATCH).map(async ([sourceId, fixes]) => {
+      try {
+        const item = AppState.items.find(x=>x.id===sourceId);
+        if(!item) return;
+        let html = item.bodyHtml||'';
+        fixes.forEach(({brokenUrl, cleanUrl}) => { html = replaceUrlInHtml(html, brokenUrl, cleanUrl); });
+        await saveItemToShopify(item, html);
+        item.bodyHtml = html;
+        try { const bc=JSON.parse(localStorage.getItem('lw-body-cache')||'{}'); bc[item.id]=html; localStorage.setItem('lw-body-cache',JSON.stringify(bc)); } catch(e){}
+        fixed++;
+      } catch(e){}
+    }));
+    if(i+BATCH<tasks.length) await new Promise(r=>setTimeout(r,300));
+  }
+  AppState.variantFixQueue = [];
+  if(fixed>0) showToast('✅ Auto-fixed variant URLs on '+fixed+' page'+(fixed===1?'':'s')+'.','success');
+}
+
 function selectAllArchived() {
   const archivedUrls = new Set(AppState.brokenLinks.filter(b=>b.reason==='archived-product').map(b=>b.brokenUrl));
   BlState.groupRegistry.forEach((group, groupKey) => {
@@ -4537,6 +4591,7 @@ async function syncFromShopify(){
 
     hideLoading(); showApp(); updateLastSynced(); renderDashboard(); renderLinksReport(); renderDomainsReport(); renderBrokenLinksReport(); updateNeedsOutboundCount();
     showToast('Sync complete — '+allItems.length+' items loaded','success');
+    processVariantAutoFixes();
   }catch(err){
     hideLoading(); showApp();
     showToast('Sync failed: '+err.message,'error');
