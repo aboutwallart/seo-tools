@@ -219,7 +219,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.41</div>
+    <div class="version">v16.42</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -1575,7 +1575,7 @@ const AppState = {
   metafieldLinks:[] // [{productId, articleId}] — from blog_products_list metafields
 };
 
-const BlState = { page:1, selected: new Set(), sort:{ col:'', dir:'' }, pendingFixes: new Map() };
+const BlState = { page:1, selected: new Set(), sort:{ col:'', dir:'' }, pendingFixes: new Map(), groupRegistry: new Map() };
 let blSuggestionsComputed = false;
 let inboundBulkSaved = new Set();
 
@@ -3743,17 +3743,32 @@ function sortBrokenLinks(col) {
   renderBrokenLinksReport();
 }
 
-// Build grouped view — one row per unique broken URL
+const BL_CHUNK = 20;
+
+// Build grouped view — split any group > 20 into multiple rows
 function getBrokenLinkGroups(statusFilter) {
   const map = new Map();
   AppState.brokenLinks.forEach(b => {
     if(statusFilter && b.status !== statusFilter) return;
-    if(!map.has(b.brokenUrl)) {
-      map.set(b.brokenUrl, { brokenUrl: b.brokenUrl, occurrences: [], type: b.type, status: b.status, discovered: b.discovered });
-    }
+    if(!map.has(b.brokenUrl)) map.set(b.brokenUrl, { brokenUrl: b.brokenUrl, occurrences: [], type: b.type, status: b.status, discovered: b.discovered });
     map.get(b.brokenUrl).occurrences.push(b);
   });
-  return Array.from(map.values());
+  const groups = [];
+  map.forEach(g => {
+    const total = g.occurrences.length;
+    const parts = Math.ceil(total / BL_CHUNK);
+    for(let p = 0; p < parts; p++) {
+      const chunk = g.occurrences.slice(p * BL_CHUNK, (p+1) * BL_CHUNK);
+      groups.push({
+        groupKey: parts > 1 ? g.brokenUrl + '::' + p : g.brokenUrl,
+        brokenUrl: g.brokenUrl,
+        occurrences: chunk,
+        type: g.type, status: g.status, discovered: g.discovered,
+        part: p + 1, parts
+      });
+    }
+  });
+  return groups;
 }
 
 function renderBrokenLinksReport() {
@@ -3788,28 +3803,31 @@ function renderBrokenLinksReport() {
   const tbody = document.getElementById('bl-tbody');
   if(!tbody) return;
 
+  // Register all groups for lookup by key
+  BlState.groupRegistry.clear();
+  groups.forEach(g => BlState.groupRegistry.set(g.groupKey, g));
+
   if(!pageData.length) {
     tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">No broken links found. Great work! 🎉</div></td></tr>';
   } else {
     tbody.innerHTML = pageData.map((g,i) => buildBrokenLinkGroupRow(g, start+i)).join('');
   }
 
-  document.getElementById('bl-count').textContent = total===0 ? 'No broken urls' : 'Showing '+(start+1)+'–'+Math.min(start+perPage,total)+' of '+total+' unique broken URLs';
+  document.getElementById('bl-count').textContent = total===0 ? 'No broken urls' : 'Showing '+(start+1)+'–'+Math.min(start+perPage,total)+' of '+total+' rows';
   document.getElementById('bl-prev').disabled = BlState.page<=1;
   document.getElementById('bl-next').disabled = BlState.page>=totalPages;
   updateDeleteBtn();
 }
 
 function buildBrokenLinkGroupRow(group, idx) {
-  const { brokenUrl, occurrences, type, status, discovered } = group;
+  const { groupKey, brokenUrl, occurrences, type, status, discovered, part, parts } = group;
   const discoveredStr = discovered ? new Date(discovered).toLocaleDateString([],{day:'numeric',month:'short',year:'numeric'}) : '—';
-  const isSelected = BlState.selected.has(brokenUrl);
+  const isSelected = BlState.selected.has(groupKey);
   const count = occurrences.length;
 
   const bu = brokenUrl.toLowerCase();
   let searchType = 'all';
   if(bu.includes('/collections/')) searchType = 'collection';
-  else if(bu.includes('/products/')) searchType = 'product';
   else if(bu.includes('/blogs/')) searchType = 'article';
   else if(bu.includes('/pages/')) searchType = 'page';
   const typeLabel = searchType==='all'?'page':searchType;
@@ -3817,39 +3835,41 @@ function buildBrokenLinkGroupRow(group, idx) {
   const inputId = 'bl-search-'+idx;
   const dropId  = 'bl-drop-'+idx;
   const pagesId = 'bl-pages-'+idx;
+  const gkEsc   = escHtml(groupKey);
 
-  // Affected pages list
   const pageLinks = occurrences.map(o => {
     const item = AppState.items.find(i=>i.id===o.sourceId);
     return item ? `<a href="${escHtml(item.url)}" target="_blank" style="color:#1565c0;text-decoration:none;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(item.title)}</a>` : '';
   }).filter(Boolean).join('');
 
+  const batchLabel = parts > 1 ? ` <span style="font-size:10px;color:#aaa;">(${part}/${parts})</span>` : '';
+
   const affectsCell = `
     <div>
       <span style="font-weight:700;font-size:13px;">${count}</span>
-      <span style="font-size:11px;color:#888;"> page${count===1?'':'s'}</span><br>
+      <span style="font-size:11px;color:#888;"> page${count===1?'':'s'}</span>${batchLabel}<br>
       <button onclick="document.getElementById('${pagesId}').style.display=document.getElementById('${pagesId}').style.display==='none'?'block':'none'" style="font-size:10px;color:#1565c0;background:none;border:none;cursor:pointer;padding:0;margin-top:2px;">see pages</button>
       <div id="${pagesId}" style="display:none;margin-top:4px;font-size:11px;max-width:160px;">${pageLinks}</div>
     </div>`;
 
-  const pending = BlState.pendingFixes.get(brokenUrl);
+  const pending = BlState.pendingFixes.get(groupKey);
   const fixInner = pending
-    ? `<div style="font-size:12px;color:#2e7d32;font-weight:600;padding:4px 0;">&#10003; Will replace with:<br><span style="font-weight:400;word-break:break-all;">${escHtml(pending.newTitle)}</span><br><span style="font-size:10px;color:#555;">fixes all ${count} page${count===1?'':'s'}</span></div>
-       <button onclick="blClearPendingFix('${escHtml(brokenUrl)}',${idx})" style="margin-top:4px;background:#fff;color:#888;border:1px solid #ccc;border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;">Clear</button>`
-    : `<div style="font-size:11px;color:#888;margin-bottom:4px;">Replace with a ${typeLabel} — fixes all ${count} page${count===1?'':'s'}:</div>
+    ? `<div style="font-size:12px;color:#2e7d32;font-weight:600;padding:4px 0;">&#10003; Will replace with:<br><span style="font-weight:400;word-break:break-all;">${escHtml(pending.newTitle)}</span></div>
+       <button onclick="blClearPendingFix('${gkEsc}',${idx})" style="margin-top:4px;background:#fff;color:#888;border:1px solid #ccc;border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;">Clear</button>`
+    : `<div style="font-size:11px;color:#888;margin-bottom:4px;">Replace with a ${typeLabel} — fixes these ${count} page${count===1?'':'s'}:</div>
        <div style="position:relative;">
          <input type="text" id="${inputId}" placeholder="Type keyword..."
            style="width:100%;padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:12px;box-sizing:border-box;"
-           oninput="blSearch('${inputId}','${dropId}','${searchType}','${escHtml(brokenUrl)}',${idx})"
+           oninput="blSearch('${inputId}','${dropId}','${searchType}','${escHtml(brokenUrl)}',${idx},'${gkEsc}')"
            autocomplete="off" />
-         <div id="${dropId}" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ddd;border-top:none;border-radius:0 0 4px 4px;max-height:180px;overflow-y:auto;z-index:100;box-shadow:0 4px 8px rgba(0,0,0,0.1);"></div>
+         <div id="${dropId}" style="display:none;"></div>
        </div>
-       <button onclick="confirmRemoveLinkGroup('${escHtml(brokenUrl)}',${idx})" style="margin-top:4px;background:#fff;color:#c62828;border:1px solid #c62828;border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;">Remove from all pages</button>`;
+       <button onclick="confirmRemoveLinkGroup('${gkEsc}',${idx})" style="margin-top:4px;background:#fff;color:#c62828;border:1px solid #c62828;border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;">Remove these pages</button>`;
 
   const fixCell = `<div id="bl-fix-area-${idx}" style="font-size:12px;">${fixInner}</div>`;
 
   return `<tr id="bl-row-${idx}" style="${isSelected?'background:#fff8e1;':''}">
-    <td><input type="checkbox" class="bl-cb" ${isSelected?'checked':''} onchange="toggleBrokenLinkSelect(this,'${escHtml(brokenUrl)}')" /></td>
+    <td><input type="checkbox" class="bl-cb" ${isSelected?'checked':''} onchange="toggleBrokenLinkSelect(this,'${gkEsc}')" /></td>
     <td style="word-break:break-all;font-size:11px;"><a href="${escHtml(brokenUrl)}" target="_blank" style="color:#c62828;text-decoration:none;">${escHtml(brokenUrl)}</a></td>
     <td>${affectsCell}</td>
     <td>${fixCell}</td>
@@ -3882,7 +3902,7 @@ document.addEventListener('click', function(e) {
   }
 });
 
-function blSearch(inputId, dropId, searchType, brokenUrl, idx) {
+function blSearch(inputId, dropId, searchType, brokenUrl, idx, groupKey) {
   const input = document.getElementById(inputId);
   if(!input) return;
   const q = input.value.trim();
@@ -3899,7 +3919,7 @@ function blSearch(inputId, dropId, searchType, brokenUrl, idx) {
   // Full URL pasted — offer it directly
   if(q.startsWith('http://') || q.startsWith('https://')) {
     drop.style.display = 'block';
-    drop.innerHTML = `<div onclick="blSelectFix('${escHtml(brokenUrl)}','${escHtml(q)}','${escHtml(q)}',${idx},'${inputId}','${dropId}');blHideGlobalDrop();"
+    drop.innerHTML = `<div onclick="blSelectFix('${escHtml(groupKey||brokenUrl)}','${escHtml(brokenUrl)}','${escHtml(q)}','${escHtml(q)}',${idx},'${inputId}','${dropId}');blHideGlobalDrop();"
       style="padding:8px 10px;cursor:pointer;font-size:12px;display:flex;align-items:center;gap:8px;"
       onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background='#fff'">
       <span style="font-weight:700;color:#1565c0;">&#8594; Use this URL directly</span>
@@ -3928,7 +3948,7 @@ function blSearch(inputId, dropId, searchType, brokenUrl, idx) {
   drop.innerHTML = grouped.map(g => `
     <div style="padding:4px 10px 2px;font-size:10px;font-weight:700;text-transform:uppercase;color:#999;background:#fafafa;border-bottom:1px solid #f0f0f0;">${typeLabel[g.type]||g.type}</div>
     ${g.matches.map(i => `
-    <div onclick="blSelectFix('${escHtml(brokenUrl)}','${escHtml(i.url)}','${escHtml(i.title)}',${idx},'${inputId}','${dropId}');blHideGlobalDrop();"
+    <div onclick="blSelectFix('${escHtml(groupKey||brokenUrl)}','${escHtml(brokenUrl)}','${escHtml(i.url)}','${escHtml(i.title)}',${idx},'${inputId}','${dropId}');blHideGlobalDrop();"
       style="padding:7px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid #f5f5f5;display:flex;justify-content:space-between;align-items:center;"
       onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background='#fff'">
       <span style="font-weight:600;color:#222;">${escHtml(i.title)}</span>
@@ -3936,45 +3956,46 @@ function blSearch(inputId, dropId, searchType, brokenUrl, idx) {
     </div>`).join('')}`).join('');
 }
 
-function blSelectFix(brokenUrl, newUrl, newTitle, idx, inputId, dropId) {
-  const drop = document.getElementById(dropId);
+function blSelectFix(groupKey, brokenUrl, newUrl, newTitle, idx, inputId, dropId) {
+  blHideGlobalDrop();
   const input = document.getElementById(inputId);
-  if(drop) drop.style.display='none';
   if(input) input.value='';
-  const count = AppState.brokenLinks.filter(b=>b.brokenUrl===brokenUrl).length;
-  BlState.pendingFixes.set(brokenUrl, { brokenUrl, newUrl, newTitle, count, idx });
+  const group = BlState.groupRegistry.get(groupKey);
+  const sourceIds = group ? group.occurrences.map(o=>o.sourceId) : [];
+  BlState.pendingFixes.set(groupKey, { groupKey, brokenUrl, newUrl, newTitle, sourceIds, idx });
   const fixArea = document.getElementById('bl-fix-area-'+idx);
   if(fixArea) {
-    fixArea.innerHTML = `<div style="font-size:12px;color:#2e7d32;font-weight:600;padding:4px 0;">&#10003; Will replace with:<br><span style="font-weight:400;word-break:break-all;">${escHtml(newTitle)}</span><br><span style="font-size:10px;color:#555;">fixes all ${count} page${count===1?'':'s'}</span></div>
-    <button onclick="blClearPendingFix('${escHtml(brokenUrl)}',${idx})" style="margin-top:4px;background:#fff;color:#888;border:1px solid #ccc;border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;">Clear</button>`;
+    fixArea.innerHTML = `<div style="font-size:12px;color:#2e7d32;font-weight:600;padding:4px 0;">&#10003; Will replace with:<br><span style="font-weight:400;word-break:break-all;">${escHtml(newTitle)}</span></div>
+    <button onclick="blClearPendingFix('${escHtml(groupKey)}',${idx})" style="margin-top:4px;background:#fff;color:#888;border:1px solid #ccc;border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;">Clear</button>`;
   }
   updateSaveFixesBtn();
 }
 
-function blClearPendingFix(brokenUrl, idx) {
-  BlState.pendingFixes.delete(brokenUrl);
+function blClearPendingFix(groupKey, idx) {
+  BlState.pendingFixes.delete(groupKey);
   updateSaveFixesBtn();
-  const bu = brokenUrl.toLowerCase();
+  const group = BlState.groupRegistry.get(groupKey);
+  if(!group) return;
+  const bu = group.brokenUrl.toLowerCase();
   let searchType = 'all';
   if(bu.includes('/collections/')) searchType = 'collection';
-  else if(bu.includes('/products/')) searchType = 'product';
   else if(bu.includes('/blogs/')) searchType = 'article';
   else if(bu.includes('/pages/')) searchType = 'page';
-  const count = AppState.brokenLinks.filter(b=>b.brokenUrl===brokenUrl).length;
   const typeLabel = searchType==='all'?'page':searchType;
+  const count = group.occurrences.length;
   const inputId = 'bl-search-'+idx;
   const dropId = 'bl-drop-'+idx;
   const fixArea = document.getElementById('bl-fix-area-'+idx);
   if(fixArea) {
-    fixArea.innerHTML = `<div style="font-size:11px;color:#888;margin-bottom:4px;">Replace with a ${typeLabel} — fixes all ${count} page${count===1?'':'s'}:</div>
+    fixArea.innerHTML = `<div style="font-size:11px;color:#888;margin-bottom:4px;">Replace with a ${typeLabel} — fixes these ${count} page${count===1?'':'s'}:</div>
     <div style="position:relative;">
       <input type="text" id="${inputId}" placeholder="Type keyword..."
         style="width:100%;padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:12px;box-sizing:border-box;"
-        oninput="blSearch('${inputId}','${dropId}','${searchType}','${escHtml(brokenUrl)}',${idx})"
+        oninput="blSearch('${inputId}','${dropId}','${searchType}','${escHtml(group.brokenUrl)}',${idx},'${escHtml(groupKey)}')"
         autocomplete="off" />
-      <div id="${dropId}" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ddd;border-top:none;border-radius:0 0 4px 4px;max-height:180px;overflow-y:auto;z-index:100;box-shadow:0 4px 8px rgba(0,0,0,0.1);"></div>
+      <div id="${dropId}" style="display:none;"></div>
     </div>
-    <button onclick="confirmRemoveLinkGroup('${escHtml(brokenUrl)}',${idx})" style="margin-top:4px;background:#fff;color:#c62828;border:1px solid #c62828;border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;">Remove from all pages</button>`;
+    <button onclick="confirmRemoveLinkGroup('${escHtml(groupKey)}',${idx})" style="margin-top:4px;background:#fff;color:#c62828;border:1px solid #c62828;border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;">Remove these pages</button>`;
   }
 }
 
@@ -3982,8 +4003,8 @@ function updateSaveFixesBtn() {
   const btn = document.getElementById('bl-save-fixes-btn');
   if(!btn) return;
   const n = BlState.pendingFixes.size;
-  const total = Array.from(BlState.pendingFixes.values()).reduce((s,f)=>s+f.count,0);
-  btn.textContent = n===0 ? 'SAVE FIXES (0)' : 'SAVE '+n+' GROUP'+(n===1?'':'S')+' ('+total+' pages)';
+  const total = Array.from(BlState.pendingFixes.values()).reduce((s,f)=>s+(f.sourceIds||[]).length,0);
+  btn.textContent = n===0 ? 'SAVE FIXES (0)' : 'SAVE '+n+' ROW'+(n===1?'':'S')+' ('+total+' pages)';
   btn.disabled = n === 0;
 }
 
@@ -3992,15 +4013,12 @@ async function saveAllPendingFixes() {
   if(!fixes.length) return;
   const btn = document.getElementById('bl-save-fixes-btn');
 
-  // Collect pages to save — max 20 occurrences per group
-  const MAX_PER_GROUP = 20;
+  // Use the exact sourceIds stored per fix — no re-querying AppState.brokenLinks
   const byItem = new Map();
   fixes.forEach(fix => {
-    const occurrences = AppState.brokenLinks.filter(b=>b.brokenUrl===fix.brokenUrl).slice(0, MAX_PER_GROUP);
-    fix._savedSourceIds = new Set(occurrences.map(o=>o.sourceId));
-    occurrences.forEach(occ => {
-      if(!byItem.has(occ.sourceId)) byItem.set(occ.sourceId, []);
-      byItem.get(occ.sourceId).push({ brokenUrl: fix.brokenUrl, newUrl: fix.newUrl });
+    (fix.sourceIds||[]).forEach(sourceId => {
+      if(!byItem.has(sourceId)) byItem.set(sourceId, []);
+      byItem.get(sourceId).push({ brokenUrl: fix.brokenUrl, newUrl: fix.newUrl, groupKey: fix.groupKey });
     });
   });
 
@@ -4031,15 +4049,15 @@ async function saveAllPendingFixes() {
     if(i+BATCH < tasks.length) await new Promise(r => setTimeout(r, 300));
   }
 
-  // Remove only the saved pages from state (max 20 per group)
-  let totalRemaining = 0;
+  // Remove exactly the saved sourceIds from state
+  const savedSet = new Map(); // groupKey -> Set of sourceIds saved
+  fixes.forEach(fix => { savedSet.set(fix.groupKey, new Set(fix.sourceIds||[])); });
   fixes.forEach(fix => {
+    const saved = savedSet.get(fix.groupKey);
     AppState.brokenLinks = AppState.brokenLinks.filter(b =>
-      !(b.brokenUrl===fix.brokenUrl && fix._savedSourceIds && fix._savedSourceIds.has(b.sourceId))
+      !(b.brokenUrl===fix.brokenUrl && saved && saved.has(b.sourceId))
     );
-    const remaining = AppState.brokenLinks.filter(b=>b.brokenUrl===fix.brokenUrl).length;
-    totalRemaining += remaining;
-    BlState.pendingFixes.delete(fix.brokenUrl);
+    BlState.pendingFixes.delete(fix.groupKey);
   });
   // Update badge manually
   const badgeEl = document.getElementById('bl-tab-badge');
@@ -4050,15 +4068,9 @@ async function saveAllPendingFixes() {
   }
   updateSaveFixesBtn();
   renderBrokenLinksReport(); renderDashboard();
-  const groupCount = fixes.length;
-  if(failed===0) {
-    const msg = totalRemaining > 0
-      ? '✅ '+done+' pages saved. '+totalRemaining+' pages still to fix — stage and save again.'
-      : '✅ '+groupCount+' group'+(groupCount===1?'':'s')+' fully fixed across '+done+' pages.';
-    showToast(msg,'success');
-  } else {
-    showToast('⚠️ '+done+' saved, '+failed+' failed — try saving again.','error');
-  }
+  const rowCount = fixes.length;
+  if(failed===0) showToast('✅ '+rowCount+' row'+(rowCount===1?'':'s')+' saved ('+done+' pages).','success');
+  else showToast('⚠️ '+done+' pages saved, '+failed+' failed — try again.','error');
 }
 
 function removeLinkFromHtml(html, brokenUrl) {
@@ -4089,19 +4101,16 @@ function removeLinkFromHtml(html, brokenUrl) {
   }
 }
 
-async function confirmRemoveLinkGroup(brokenUrl, idx) {
-  const totalCount = AppState.brokenLinks.filter(b=>b.brokenUrl===brokenUrl).length;
-  if(!confirm('Remove this link from all '+totalCount+' page'+(totalCount===1?'':'s')+'? The anchor text will remain as plain text.')) return;
-
-  const MAX = 20;
-  const occurrences = AppState.brokenLinks.filter(b=>b.brokenUrl===brokenUrl).slice(0, MAX);
+async function confirmRemoveLinkGroup(groupKey, idx) {
+  const group = BlState.groupRegistry.get(groupKey);
+  if(!group) return;
+  const { brokenUrl, occurrences } = group;
+  const count = occurrences.length;
+  if(!confirm('Remove this link from these '+count+' page'+(count===1?'':'s')+'? The anchor text will remain as plain text.')) return;
   const row = document.getElementById('bl-row-'+idx);
   if(row) row.style.opacity='0.5';
-
-  const btn = document.querySelector(`button[onclick*="confirmRemoveLinkGroup"][onclick*="${CSS.escape(brokenUrl)}"]`);
-
   let done=0, failed=0;
-  const BATCH = 5;
+  const BATCH=5;
   for(let i=0; i<occurrences.length; i+=BATCH) {
     await Promise.all(occurrences.slice(i,i+BATCH).map(async occ => {
       try {
@@ -4116,57 +4125,50 @@ async function confirmRemoveLinkGroup(brokenUrl, idx) {
     }));
     if(i+BATCH < occurrences.length) await new Promise(r=>setTimeout(r,300));
   }
-
-  // Remove saved pages from state directly (no re-detection)
-  const savedSourceIds = new Set(occurrences.slice(0,done+failed).map(o=>o.sourceId));
-  AppState.brokenLinks = AppState.brokenLinks.filter(b=>!(b.brokenUrl===brokenUrl && savedSourceIds.has(b.sourceId)));
-  const remaining = AppState.brokenLinks.filter(b=>b.brokenUrl===brokenUrl).length;
+  const savedIds = new Set(occurrences.map(o=>o.sourceId));
+  AppState.brokenLinks = AppState.brokenLinks.filter(b=>!(b.brokenUrl===brokenUrl && savedIds.has(b.sourceId)));
   const badgeEl = document.getElementById('bl-tab-badge');
-  if(badgeEl) {
-    const n = new Set(AppState.brokenLinks.map(b=>b.brokenUrl)).size;
-    badgeEl.textContent = n; badgeEl.style.display = n>0?'inline-block':'none';
-  }
+  if(badgeEl) { const n=new Set(AppState.brokenLinks.map(b=>b.brokenUrl)).size; badgeEl.textContent=n; badgeEl.style.display=n>0?'inline-block':'none'; }
   renderBrokenLinksReport(); renderDashboard();
-  if(failed===0) {
-    const msg = remaining>0 ? '✅ '+done+' pages done. '+remaining+' still to remove — click again.' : '✅ Link removed from all '+done+' pages.';
-    showToast(msg,'success');
-  } else {
-    showToast('⚠️ '+done+' removed, '+failed+' failed.','error');
-  }
+  if(failed===0) showToast('✅ Link removed from '+done+' pages.','success');
+  else showToast('⚠️ '+done+' removed, '+failed+' failed.','error');
 }
 
-function toggleBrokenLinkSelect(cb, brokenUrl) {
-  if(cb.checked) BlState.selected.add(brokenUrl);
-  else BlState.selected.delete(brokenUrl);
+function toggleBrokenLinkSelect(cb, groupKey) {
+  if(cb.checked) BlState.selected.add(groupKey);
+  else BlState.selected.delete(groupKey);
   updateDeleteBtn();
 }
 
 function toggleAllBrokenLinks(checked) {
   const statusFilter = (document.getElementById('bl-status-filter')||{value:''}).value;
   const groups = getBrokenLinkGroups(statusFilter);
-  const perPage = 50;
-  const start = (BlState.page-1)*perPage;
-  groups.slice(start, start+perPage).forEach(g => {
-    if(checked) BlState.selected.add(g.brokenUrl);
-    else BlState.selected.delete(g.brokenUrl);
+  const perPage=50, start=(BlState.page-1)*perPage;
+  groups.slice(start,start+perPage).forEach(g => {
+    if(checked) BlState.selected.add(g.groupKey);
+    else BlState.selected.delete(g.groupKey);
   });
-  document.querySelectorAll('.bl-cb').forEach(cb => cb.checked = checked);
+  document.querySelectorAll('.bl-cb').forEach(cb=>cb.checked=checked);
   updateDeleteBtn();
+}
+
+function deleteSelectedBrokenLinks() {
+  BlState.selected.forEach(groupKey => {
+    const group = BlState.groupRegistry.get(groupKey);
+    if(!group) return;
+    const ids = new Set(group.occurrences.map(o=>o.sourceId));
+    AppState.brokenLinks = AppState.brokenLinks.filter(b=>!(b.brokenUrl===group.brokenUrl && ids.has(b.sourceId)));
+  });
+  BlState.selected.clear();
+  const badgeEl = document.getElementById('bl-tab-badge');
+  if(badgeEl) { const n=new Set(AppState.brokenLinks.map(b=>b.brokenUrl)).size; badgeEl.textContent=n; badgeEl.style.display=n>0?'inline-block':'none'; }
+  renderBrokenLinksReport(); renderDashboard();
+  showToast('Selected rows dismissed from list.','success');
 }
 
 function updateDeleteBtn() {
   const btn = document.getElementById('bl-delete-btn');
   if(btn) btn.disabled = BlState.selected.size === 0;
-}
-
-function deleteSelectedBrokenLinks() {
-  BlState.selected.forEach(brokenUrl => {
-    AppState.brokenLinks = AppState.brokenLinks.filter(b=>b.brokenUrl!==brokenUrl);
-  });
-  BlState.selected.clear();
-  renderBrokenLinksReport();
-  renderDashboard();
-  showToast('Selected broken links removed.','success');
 }
 
 function clearBrokenLinksData() {
