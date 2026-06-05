@@ -219,7 +219,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.48</div>
+    <div class="version">v16.49</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -1620,6 +1620,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           renderBrokenLinksReport();
           updateNeedsOutboundCount();
           showToast('Loaded from cache — '+AppState.items.length+' items','info');
+          processVariantAutoFixes();
           return;
         }
       }
@@ -1748,11 +1749,12 @@ function detectBrokenLinks() {
 
     const cu = link.targetUrl.replace(/\/$/,'').toLowerCase();
 
-    // Handle variant URLs — strip ?variant= and check if clean URL is valid
-    if(cu.includes('?variant=')) {
+    // Handle any URL with query params — strip and check if clean URL is valid
+    if(cu.includes('?')) {
       const cleanUrl = cu.split('?')[0];
+      const cleanUrlRaw = link.targetUrl.split('?')[0];
       if(knownUrls.has(cleanUrl)) {
-        AppState.variantFixQueue.push({ sourceId: link.sourceId, brokenUrl: link.targetUrl, cleanUrl: link.targetUrl.split('?')[0] });
+        AppState.variantFixQueue.push({ sourceId: link.sourceId, brokenUrl: link.targetUrl, cleanUrl: cleanUrlRaw });
       } else {
         AppState.brokenLinks.push({ sourceId: link.sourceId, sourceUrl: link.sourceUrl, brokenUrl: link.targetUrl, anchorText: link.anchorText, type: link.type, status: '404 Not Found', reason: null, discovered: new Date().toISOString(), suggested: null });
       }
