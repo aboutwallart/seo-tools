@@ -219,7 +219,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.43</div>
+    <div class="version">v16.44</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -1723,6 +1723,13 @@ function detectBrokenLinks() {
   AppState.items.forEach(i => {
     if(i.url) knownUrls.add(i.url.replace(/\/$/,'').toLowerCase());
     if(i.handle) knownHandles.add(i.handle.toLowerCase());
+  });
+  // Homepage is always valid
+  knownUrls.add('https://aboutwallart.com');
+  knownUrls.add('https://www.aboutwallart.com');
+  // Blog index pages are valid (e.g. /blogs/news-articles-home-decor-inspiration)
+  AppState.items.filter(i=>i.type==='article' && i.blogHandle).forEach(i => {
+    knownUrls.add('https://aboutwallart.com/blogs/'+i.blogHandle);
   });
 
   AppState.brokenLinks = [];
