@@ -219,7 +219,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.39</div>
+    <div class="version">v16.40</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -4064,36 +4064,77 @@ async function saveAllPendingFixes() {
   }
 }
 
-// Remove broken link from ALL pages in the group
+function removeLinkFromHtml(html, brokenUrl) {
+  const base = 'https://aboutwallart.com';
+  const relBroken = brokenUrl.startsWith(base) ? brokenUrl.slice(base.length) : null;
+  // Build all URL variants to search for
+  const urlVariants = new Set([brokenUrl, brokenUrl+'/']);
+  if(relBroken) { urlVariants.add(relBroken); urlVariants.add(relBroken+'/'); }
+  // Use DOMParser to reliably find and unwrap matching <a> tags
+  try {
+    const doc = new DOMParser().parseFromString('<div>'+html+'</div>','text/html');
+    const root = doc.body.firstChild;
+    root.querySelectorAll('a[href]').forEach(a => {
+      const href = a.getAttribute('href')||'';
+      const hrefStripped = href.replace(/\/$/,'');
+      const hrefFull = href.startsWith('/') ? base+href : href;
+      const hrefFullStripped = hrefFull.replace(/\/$/,'');
+      if(urlVariants.has(href) || urlVariants.has(hrefStripped) || urlVariants.has(hrefFull) || urlVariants.has(hrefFullStripped)) {
+        // Replace <a> with its contents
+        const frag = doc.createDocumentFragment();
+        while(a.firstChild) frag.appendChild(a.firstChild);
+        a.parentNode.replaceChild(frag, a);
+      }
+    });
+    return root.innerHTML;
+  } catch(e) {
+    return html; // fallback: unchanged
+  }
+}
+
 async function confirmRemoveLinkGroup(brokenUrl, idx) {
-  const count = AppState.brokenLinks.filter(b=>b.brokenUrl===brokenUrl).length;
-  if(!confirm('Remove this link from all '+count+' page'+(count===1?'':'s')+'? The anchor text will remain as plain text.')) return;
+  const totalCount = AppState.brokenLinks.filter(b=>b.brokenUrl===brokenUrl).length;
+  if(!confirm('Remove this link from all '+totalCount+' page'+(totalCount===1?'':'s')+'? The anchor text will remain as plain text.')) return;
+
+  const MAX = 20;
+  const occurrences = AppState.brokenLinks.filter(b=>b.brokenUrl===brokenUrl).slice(0, MAX);
   const row = document.getElementById('bl-row-'+idx);
   if(row) row.style.opacity='0.5';
-  const occurrences = AppState.brokenLinks.filter(b=>b.brokenUrl===brokenUrl);
-  try {
-    await Promise.all(occurrences.map(async occ => {
-      const item = AppState.items.find(i=>i.id===occ.sourceId);
-      if(!item) return;
-      const base = 'https://aboutwallart.com';
-      const escaped1 = brokenUrl.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-      const relBroken = brokenUrl.startsWith(base) ? brokenUrl.slice(base.length) : null;
-      const esc2 = relBroken ? relBroken.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') : null;
-      let updatedHtml = (item.bodyHtml||'')
-        .replace(new RegExp('<a[^>]+href=["\']'+escaped1+'["\'][^>]*>([^<]*)<\\/a>','gi'),'$1');
-      if(esc2) updatedHtml = updatedHtml.replace(new RegExp('<a[^>]+href=["\']'+esc2+'["\'][^>]*>([^<]*)<\\/a>','gi'),'$1');
-      await saveItemToShopify(item, updatedHtml);
-      item.bodyHtml = updatedHtml;
-      try { const bc=JSON.parse(localStorage.getItem('lw-body-cache')||'{}'); bc[item.id]=updatedHtml; localStorage.setItem('lw-body-cache',JSON.stringify(bc)); } catch(e){}
+
+  const btn = document.querySelector(`button[onclick*="confirmRemoveLinkGroup"][onclick*="${CSS.escape(brokenUrl)}"]`);
+
+  let done=0, failed=0;
+  const BATCH = 5;
+  for(let i=0; i<occurrences.length; i+=BATCH) {
+    await Promise.all(occurrences.slice(i,i+BATCH).map(async occ => {
+      try {
+        const item = AppState.items.find(x=>x.id===occ.sourceId);
+        if(!item) return;
+        const updatedHtml = removeLinkFromHtml(item.bodyHtml||'', brokenUrl);
+        await saveItemToShopify(item, updatedHtml);
+        item.bodyHtml = updatedHtml;
+        try { const bc=JSON.parse(localStorage.getItem('lw-body-cache')||'{}'); bc[item.id]=updatedHtml; localStorage.setItem('lw-body-cache',JSON.stringify(bc)); } catch(e){}
+        done++;
+      } catch(e) { failed++; }
     }));
-    AppState.brokenLinks = AppState.brokenLinks.filter(b=>b.brokenUrl!==brokenUrl);
-    AppState.links=[]; for(const i of AppState.items) AppState.links.push(...parseItemLinks(i));
-    buildLinkGraph(); detectBrokenLinks();
-    renderBrokenLinksReport(); renderDashboard();
-    showToast('✅ Link removed from all '+count+' pages.','success');
-  } catch(err) {
-    if(row) row.style.opacity='1';
-    showToast('❌ Remove failed: '+err.message,'error');
+    if(i+BATCH < occurrences.length) await new Promise(r=>setTimeout(r,300));
+  }
+
+  // Remove saved pages from state directly (no re-detection)
+  const savedSourceIds = new Set(occurrences.slice(0,done+failed).map(o=>o.sourceId));
+  AppState.brokenLinks = AppState.brokenLinks.filter(b=>!(b.brokenUrl===brokenUrl && savedSourceIds.has(b.sourceId)));
+  const remaining = AppState.brokenLinks.filter(b=>b.brokenUrl===brokenUrl).length;
+  const badgeEl = document.getElementById('bl-tab-badge');
+  if(badgeEl) {
+    const n = new Set(AppState.brokenLinks.map(b=>b.brokenUrl)).size;
+    badgeEl.textContent = n; badgeEl.style.display = n>0?'inline-block':'none';
+  }
+  renderBrokenLinksReport(); renderDashboard();
+  if(failed===0) {
+    const msg = remaining>0 ? '✅ '+done+' pages done. '+remaining+' still to remove — click again.' : '✅ Link removed from all '+done+' pages.';
+    showToast(msg,'success');
+  } else {
+    showToast('⚠️ '+done+' removed, '+failed+' failed.','error');
   }
 }
 
