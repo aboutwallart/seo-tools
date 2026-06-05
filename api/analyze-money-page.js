@@ -608,20 +608,22 @@ async function getLosersForPage(winnerUrl) {
     const csv = await res.text();
     const lines = csv.trim().split('\n');
     if (lines.length < 2) return [];
-    const headers = lines[0].split(',').map(h => h.trim());
+    let headerIdx = lines.findIndex(l => l.includes('Page URL') && l.includes('Keyword'));
+    if (headerIdx === -1) return [];
+    const headers = lines[headerIdx].split(',').map(h => h.trim());
     const urlIdx = headers.indexOf('Page URL');
     const kwIdx  = headers.indexOf('Keyword');
     const actIdx = headers.indexOf('Action');
-    const winIdx = 5; // WinnerURL column
-    const normalized = winnerUrl.toLowerCase().trim();
+    const winIdx = 5; // WinnerURL column (col 5 in INTERNAL_LINK rows)
+    const normalized = winnerUrl.toLowerCase().trim().replace(/\/$/, '');
     const losers = [];
-    for (let i = 1; i < lines.length; i++) {
+    for (let i = headerIdx + 1; i < lines.length; i++) {
       const cols = lines[i].split(',');
       if (cols.length <= winIdx) continue;
       const action     = cols[actIdx]?.trim().toUpperCase();
       const loserUrl   = cols[urlIdx]?.trim();
       const loserKw    = cols[kwIdx]?.trim();
-      const winnerCol  = cols[winIdx]?.trim().toLowerCase();
+      const winnerCol  = cols[winIdx]?.trim().toLowerCase().replace(/\/$/, '');
       if (action === 'INTERNAL_LINK' && winnerCol === normalized && loserUrl?.startsWith('http')) {
         const pt = loserUrl.includes('/products/') ? 'product'
           : loserUrl.includes('/collections/') ? 'collection'
