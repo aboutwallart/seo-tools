@@ -219,7 +219,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.40</div>
+    <div class="version">v16.41</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -2828,25 +2828,22 @@ async function saveInboundLinks() {
 
 function replaceUrlInHtml(html, brokenUrl, newUrl) {
   const base = 'https://aboutwallart.com';
-  const isInternal = brokenUrl.startsWith(base);
-  const relBroken = isInternal ? brokenUrl.slice(base.length) : null;
-  const relNew    = isInternal && newUrl.startsWith(base) ? newUrl.slice(base.length) : newUrl;
-
-  // All combinations of quote style, full/relative, with/without trailing slash
-  const pairs = [];
-  ['"',"'"].forEach(q => {
-    pairs.push([`href=${q}${brokenUrl}${q}`,      `href=${q}${newUrl}${q}`]);
-    pairs.push([`href=${q}${brokenUrl}/${q}`,     `href=${q}${newUrl}${q}`]);
-    if(relBroken) {
-      pairs.push([`href=${q}${relBroken}${q}`,    `href=${q}${relNew}${q}`]);
-      pairs.push([`href=${q}${relBroken}/${q}`,   `href=${q}${relNew}${q}`]);
-    }
-  });
-
-  pairs.forEach(([from, to]) => {
-    if(html.includes(from)) html = html.split(from).join(to);
-  });
-  return html;
+  const brokenNorm = brokenUrl.replace(/\/$/,'').toLowerCase();
+  const relNew = newUrl.startsWith(base) ? newUrl.slice(base.length) : newUrl;
+  try {
+    const doc = new DOMParser().parseFromString('<div>'+html+'</div>','text/html');
+    const root = doc.body.firstChild;
+    let changed = false;
+    root.querySelectorAll('a[href]').forEach(a => {
+      const href = a.getAttribute('href')||'';
+      const hrefFull = href.startsWith('/') ? base+href : href;
+      if(hrefFull.replace(/\/$/,'').toLowerCase() === brokenNorm) {
+        a.setAttribute('href', href.startsWith('/') ? relNew : newUrl);
+        changed = true;
+      }
+    });
+    return changed ? root.innerHTML : html;
+  } catch(e) { return html; }
 }
 
 async function saveItemToShopify(item, updatedHtml) {
