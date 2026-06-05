@@ -219,7 +219,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.53</div>
+    <div class="version">v16.54</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -3996,8 +3996,8 @@ function blSearch(inputId, dropId, searchType, brokenUrl, idx, groupKey) {
   }
 
   const ql = q.toLowerCase();
-  const allowed = ['collection','article','page'];
-  const typeOrder = [searchType, 'collection', 'article', 'page'].filter((t,i,a) => allowed.includes(t) && a.indexOf(t)===i);
+  const allowed = ['collection','article','page','product'];
+  const typeOrder = [searchType, 'collection', 'article', 'page', 'product'].filter((t,i,a) => allowed.includes(t) && a.indexOf(t)===i);
 
   const grouped = [];
   typeOrder.forEach(type => {
