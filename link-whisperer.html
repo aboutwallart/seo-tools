@@ -219,7 +219,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.45</div>
+    <div class="version">v16.46</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -422,12 +422,13 @@
   <div id="tab-broken-links" class="tab-content">
     <div class="report-toolbar" style="flex-wrap:wrap;gap:8px;">
       <button class="btn-outline" id="bl-delete-btn" onclick="deleteSelectedBrokenLinks()" disabled>DELETE SELECTED</button>
-      <select id="bl-status-filter" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+      <select id="bl-status-filter" onchange="renderBrokenLinksReport()" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
         <option value="">All Status Codes</option>
         <option value="404 Not Found">404 Not Found</option>
+        <option value="archived-product">Archived Products</option>
         <option value="Unknown">Unknown</option>
       </select>
-      <button class="btn-outline" onclick="renderBrokenLinksReport()">FILTER CODES</button>
+      <button class="btn-outline" onclick="selectAllArchived()" style="color:#e65100;border-color:#e65100;">SELECT ALL ARCHIVED</button>
       <button class="btn-outline" onclick="exportBrokenLinksCSV()">EXPORT TO CSV</button>
       <button class="btn-action" id="bl-save-fixes-btn" onclick="saveAllPendingFixes()" disabled style="background:#2e7d32;">SAVE FIXES (0)</button>
       <button class="btn-action" style="margin-left:auto;" onclick="clearBrokenLinksData()">CLEAR ERROR DATA</button>
@@ -1745,7 +1746,12 @@ function detectBrokenLinks() {
     const cu = link.targetUrl.replace(/\/$/,'').toLowerCase();
     const handle = cu.split('/').pop();
     if(!knownUrls.has(cu) && !knownHandles.has(handle)) {
-      const suggested = null; // computed lazily when tab opens
+      const suggested = null;
+      let reason = null;
+      if(cu.includes('/products/')) {
+        const archived = AppState.items.find(i => i.type==='product' && i.handle && cu.endsWith('/products/'+i.handle.toLowerCase()) && (i.publishedAt===null || i.publishedAt===undefined || i.publishedAt===''));
+        if(archived) reason = 'archived-product';
+      }
       AppState.brokenLinks.push({
         sourceId: link.sourceId,
         sourceUrl: link.sourceUrl,
@@ -1753,8 +1759,9 @@ function detectBrokenLinks() {
         anchorText: link.anchorText,
         type: link.type,
         status: '404 Not Found',
+        reason,
         discovered: new Date().toISOString(),
-        suggested // { item, confidence, label } or null
+        suggested
       });
     }
   });
@@ -3761,8 +3768,9 @@ const BL_CHUNK = 20;
 function getBrokenLinkGroups(statusFilter) {
   const map = new Map();
   AppState.brokenLinks.forEach(b => {
-    if(statusFilter && b.status !== statusFilter) return;
-    if(!map.has(b.brokenUrl)) map.set(b.brokenUrl, { brokenUrl: b.brokenUrl, occurrences: [], type: b.type, status: b.status, discovered: b.discovered });
+    if(statusFilter === 'archived-product' && b.reason !== 'archived-product') return;
+    else if(statusFilter && statusFilter !== 'archived-product' && b.status !== statusFilter) return;
+    if(!map.has(b.brokenUrl)) map.set(b.brokenUrl, { brokenUrl: b.brokenUrl, occurrences: [], type: b.type, status: b.status, reason: b.reason, discovered: b.discovered });
     map.get(b.brokenUrl).occurrences.push(b);
   });
   const groups = [];
@@ -3832,7 +3840,7 @@ function renderBrokenLinksReport() {
 }
 
 function buildBrokenLinkGroupRow(group, idx) {
-  const { groupKey, brokenUrl, occurrences, type, status, discovered, part, parts } = group;
+  const { groupKey, brokenUrl, occurrences, type, status, reason, discovered, part, parts } = group;
   const discoveredStr = discovered ? new Date(discovered).toLocaleDateString([],{day:'numeric',month:'short',year:'numeric'}) : '—';
   const isSelected = BlState.selected.has(groupKey);
   const count = occurrences.length;
@@ -3886,7 +3894,7 @@ function buildBrokenLinkGroupRow(group, idx) {
     <td>${affectsCell}</td>
     <td>${fixCell}</td>
     <td style="font-size:12px;">${escHtml(type||'internal')}</td>
-    <td><span style="background:#fce4ec;color:#c62828;font-size:11px;font-weight:700;padding:2px 7px;border-radius:3px;">${escHtml(status||'404 Not Found')}</span></td>
+    <td>${reason==='archived-product' ? '<span style="background:#fff3e0;color:#e65100;font-size:11px;font-weight:700;padding:2px 7px;border-radius:3px;">Archived product</span>' : '<span style="background:#fce4ec;color:#c62828;font-size:11px;font-weight:700;padding:2px 7px;border-radius:3px;">'+escHtml(status||'404 Not Found')+'</span>'}</td>
     <td style="font-size:11px;color:#888;">${discoveredStr}</td>
   </tr>`;
 }
@@ -4210,6 +4218,14 @@ async function deleteSelectedBrokenLinks() {
   renderBrokenLinksReport(); renderDashboard();
   if(failed===0) showToast('✅ Removed broken links from '+done+' pages.','success');
   else showToast('⚠️ '+done+' pages updated, '+failed+' failed — try again.','error');
+}
+
+function selectAllArchived() {
+  const archivedUrls = new Set(AppState.brokenLinks.filter(b=>b.reason==='archived-product').map(b=>b.brokenUrl));
+  BlState.groupRegistry.forEach((group, groupKey) => {
+    if(archivedUrls.has(group.brokenUrl)) BlState.selected.add(groupKey);
+  });
+  renderBrokenLinksReport();
 }
 
 function updateDeleteBtn() {
