@@ -218,7 +218,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.31</div>
+    <div class="version">v16.32</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -240,7 +240,7 @@
     <button class="tab-btn active" onclick="switchTab('dashboard')">Dashboard</button>
     <button class="tab-btn" onclick="switchTab('links-report')">Links Report</button>
     <button class="tab-btn" onclick="switchTab('domains-report')">Domains Report</button>
-    <button class="tab-btn" onclick="switchTab('broken-links')">Broken Links Report</button>
+    <button class="tab-btn" onclick="switchTab('broken-links')">Broken Links Report <span id="bl-tab-badge" style="display:none;background:#c62828;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;vertical-align:middle;"></span></button>
     <button class="tab-btn" onclick="switchTab('auto-linking')">Auto Linking</button>
     <button class="tab-btn" onclick="switchTab('cannibalization')">Cannibalization</button>
     <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
@@ -428,6 +428,7 @@
       </select>
       <button class="btn-outline" onclick="renderBrokenLinksReport()">FILTER CODES</button>
       <button class="btn-outline" onclick="exportBrokenLinksCSV()">EXPORT TO CSV</button>
+      <button class="btn-action" id="bl-save-fixes-btn" onclick="saveAllPendingFixes()" disabled style="background:#2e7d32;">SAVE FIXES (0)</button>
       <button class="btn-action" style="margin-left:auto;" onclick="clearBrokenLinksData()">CLEAR ERROR DATA</button>
     </div>
     <div class="table-wrap">
@@ -1574,7 +1575,7 @@ const AppState = {
   metafieldLinks:[] // [{productId, articleId}] — from blog_products_list metafields
 };
 
-const BlState = { page:1, selected: new Set(), sort:{ col:'', dir:'' } };
+const BlState = { page:1, selected: new Set(), sort:{ col:'', dir:'' }, pendingFixes: new Map() };
 let blSuggestionsComputed = false;
 let inboundBulkSaved = new Set();
 
@@ -1727,6 +1728,7 @@ function detectBrokenLinks() {
   AppState.brokenLinks = [];
   AppState.links.forEach(link => {
     if(link.type !== 'internal') return;
+    if(link.targetUrl && link.targetUrl.toLowerCase().startsWith('mailto:')) return;
 
     // Skip links FROM archived/unpublished pages
     const sourceItem = AppState.items.find(i => i.id === link.sourceId);
@@ -1749,6 +1751,13 @@ function detectBrokenLinks() {
       });
     }
   });
+  // Update tab badge
+  const badge = document.getElementById('bl-tab-badge');
+  if(badge) {
+    const n = AppState.brokenLinks.length;
+    badge.textContent = n;
+    badge.style.display = n > 0 ? 'inline-block' : 'none';
+  }
 }
 
 // Smart URL matching — find the best live page for a broken URL
@@ -3783,18 +3792,22 @@ function buildBrokenLinkRow(b, idx) {
   const inputId = 'bl-search-'+idx;
   const dropId  = 'bl-drop-'+idx;
 
-  const fixCell = `
-    <div style="font-size:12px;">
-      <div style="font-size:11px;color:#888;margin-bottom:4px;">Search for a replacement ${typeLabel}:</div>
-      <div style="position:relative;">
-        <input type="text" id="${inputId}" placeholder="Type keyword..."
-          style="width:100%;padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:12px;box-sizing:border-box;"
-          oninput="blSearch('${inputId}','${dropId}','${searchType}','${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}',${idx})"
-          autocomplete="off" />
-        <div id="${dropId}" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ddd;border-top:none;border-radius:0 0 4px 4px;max-height:180px;overflow-y:auto;z-index:100;box-shadow:0 4px 8px rgba(0,0,0,0.1);"></div>
-      </div>
-      <button onclick="confirmRemoveLink('${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}',${idx})" style="margin-top:4px;background:#fff;color:#c62828;border:1px solid #c62828;border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;">Remove Link</button>
-    </div>`;
+  const pendingKey = b.sourceId+'|'+b.brokenUrl;
+  const pending = BlState.pendingFixes.get(pendingKey);
+  const fixInner = pending
+    ? `<div style="font-size:12px;color:#2e7d32;font-weight:600;padding:4px 0;">&#10003; Will replace with:<br><span style="font-weight:400;word-break:break-all;">${escHtml(pending.newTitle)}</span></div>
+       <button onclick="blClearPendingFix('${escHtml(pendingKey)}',${idx})" style="margin-top:4px;background:#fff;color:#888;border:1px solid #ccc;border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;">Clear</button>`
+    : `<div style="font-size:11px;color:#888;margin-bottom:4px;">Search for a replacement ${typeLabel}:</div>
+       <div style="position:relative;">
+         <input type="text" id="${inputId}" placeholder="Type keyword..."
+           style="width:100%;padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:12px;box-sizing:border-box;"
+           oninput="blSearch('${inputId}','${dropId}','${searchType}','${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}',${idx})"
+           autocomplete="off" />
+         <div id="${dropId}" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ddd;border-top:none;border-radius:0 0 4px 4px;max-height:180px;overflow-y:auto;z-index:100;box-shadow:0 4px 8px rgba(0,0,0,0.1);"></div>
+       </div>
+       <button onclick="confirmRemoveLink('${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}',${idx})" style="margin-top:4px;background:#fff;color:#c62828;border:1px solid #c62828;border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;">Remove Link</button>`;
+
+  const fixCell = `<div id="bl-fix-area-${idx}" style="font-size:12px;">${fixInner}</div>`;
 
   return `<tr id="bl-row-${idx}">
     <td><input type="checkbox" class="bl-cb" ${isSelected?'checked':''} onchange="toggleBrokenLinkSelect(this,'${escHtml(b.sourceId)}','${escHtml(b.brokenUrl)}')" /></td>
@@ -3830,7 +3843,7 @@ function blSearch(inputId, dropId, searchType, sourceId, brokenUrl, idx) {
 
   drop.style.display = 'block';
   drop.innerHTML = results.map(i => `
-    <div onclick="blSelectFix('${escHtml(sourceId)}','${escHtml(brokenUrl)}','${escHtml(i.url)}',${idx},'${inputId}','${dropId}')"
+    <div onclick="blSelectFix('${escHtml(sourceId)}','${escHtml(brokenUrl)}','${escHtml(i.url)}','${escHtml(i.title)}',${idx},'${inputId}','${dropId}')"
       style="padding:7px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid #f5f5f5;display:flex;justify-content:space-between;align-items:center;"
       onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background='#fff'">
       <span style="font-weight:600;color:#222;">${escHtml(i.title)}</span>
@@ -3838,39 +3851,98 @@ function blSearch(inputId, dropId, searchType, sourceId, brokenUrl, idx) {
     </div>`).join('');
 }
 
-function blSelectFix(sourceId, brokenUrl, newUrl, idx, inputId, dropId) {
-  // Hide dropdown
+function blSelectFix(sourceId, brokenUrl, newUrl, newTitle, idx, inputId, dropId) {
   const drop = document.getElementById(dropId);
   const input = document.getElementById(inputId);
   if(drop) drop.style.display='none';
   if(input) input.value='';
-  // Apply the fix
-  applyBrokenLinkFix(sourceId, brokenUrl, newUrl, idx);
+  // Stage the fix
+  const key = sourceId+'|'+brokenUrl;
+  BlState.pendingFixes.set(key, { sourceId, brokenUrl, newUrl, newTitle, idx });
+  // Show staged state on row
+  const fixArea = document.getElementById('bl-fix-area-'+idx);
+  if(fixArea) {
+    fixArea.innerHTML = `<div style="font-size:12px;color:#2e7d32;font-weight:600;padding:4px 0;">&#10003; Will replace with:<br><span style="font-weight:400;word-break:break-all;">${escHtml(newTitle)}</span></div>
+    <button onclick="blClearPendingFix('${escHtml(key)}',${idx})" style="margin-top:4px;background:#fff;color:#888;border:1px solid #ccc;border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;">Clear</button>`;
+  }
+  updateSaveFixesBtn();
 }
 
-async function applyBrokenLinkFix(sourceId, brokenUrl, newUrl, idx) {
+function blClearPendingFix(key, idx) {
+  BlState.pendingFixes.delete(key);
+  updateSaveFixesBtn();
+  // Restore search input on the row
+  const parts = key.split('|');
+  const sourceId = parts[0];
+  const brokenUrl = parts.slice(1).join('|');
+  const b = AppState.brokenLinks.find(x => x.sourceId===sourceId && x.brokenUrl===brokenUrl);
+  if(b) {
+    const fixArea = document.getElementById('bl-fix-area-'+idx);
+    if(fixArea) {
+      const bu = brokenUrl.toLowerCase();
+      let searchType = 'all';
+      if(bu.includes('/collections/')) searchType = 'collection';
+      else if(bu.includes('/products/')) searchType = 'product';
+      else if(bu.includes('/blogs/')) searchType = 'article';
+      else if(bu.includes('/pages/')) searchType = 'page';
+      const typeLabel = searchType==='all'?'page':searchType;
+      const inputId = 'bl-search-'+idx;
+      const dropId = 'bl-drop-'+idx;
+      fixArea.innerHTML = `<div style="font-size:11px;color:#888;margin-bottom:4px;">Search for a replacement ${typeLabel}:</div>
+      <div style="position:relative;">
+        <input type="text" id="${inputId}" placeholder="Type keyword..."
+          style="width:100%;padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:12px;box-sizing:border-box;"
+          oninput="blSearch('${inputId}','${dropId}','${searchType}','${escHtml(sourceId)}','${escHtml(brokenUrl)}',${idx})"
+          autocomplete="off" />
+        <div id="${dropId}" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ddd;border-top:none;border-radius:0 0 4px 4px;max-height:180px;overflow-y:auto;z-index:100;box-shadow:0 4px 8px rgba(0,0,0,0.1);"></div>
+      </div>
+      <button onclick="confirmRemoveLink('${escHtml(sourceId)}','${escHtml(brokenUrl)}',${idx})" style="margin-top:4px;background:#fff;color:#c62828;border:1px solid #c62828;border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;">Remove Link</button>`;
+    }
+  }
+}
+
+function updateSaveFixesBtn() {
+  const btn = document.getElementById('bl-save-fixes-btn');
+  if(!btn) return;
+  const n = BlState.pendingFixes.size;
+  btn.textContent = 'SAVE FIXES ('+n+')';
+  btn.disabled = n === 0;
+}
+
+async function saveAllPendingFixes() {
+  const fixes = Array.from(BlState.pendingFixes.values());
+  if(!fixes.length) return;
+  const btn = document.getElementById('bl-save-fixes-btn');
+  if(btn) { btn.disabled=true; btn.textContent='SAVING...'; }
+  let done=0, failed=0;
+  for(const fix of fixes) {
+    try {
+      await applyBrokenLinkFix(fix.sourceId, fix.brokenUrl, fix.newUrl, fix.idx, true);
+      BlState.pendingFixes.delete(fix.sourceId+'|'+fix.brokenUrl);
+      done++;
+    } catch(e) { failed++; }
+  }
+  updateSaveFixesBtn();
+  renderBrokenLinksReport();
+  renderDashboard();
+  if(failed===0) showToast('✅ '+done+' link'+(done===1?'':'s')+' fixed successfully.','success');
+  else showToast('⚠️ '+done+' fixed, '+failed+' failed.','error');
+}
+
+async function applyBrokenLinkFix(sourceId, brokenUrl, newUrl, idx, silent=false) {
   const item = AppState.items.find(i=>i.id===sourceId);
   if(!item) return;
   const row = document.getElementById('bl-row-'+idx);
   if(row) row.style.opacity='0.5';
-  try {
-    // Replace the href in the body HTML
-    const escaped = brokenUrl.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-    const updatedHtml = (item.bodyHtml||'').replace(new RegExp(escaped,'g'), newUrl);
-    await saveItemToShopify(item, updatedHtml);
-    item.bodyHtml = updatedHtml;
-    // Update cache
-    try { const bc=JSON.parse(localStorage.getItem('lw-body-cache')||'{}'); bc[item.id]=updatedHtml; localStorage.setItem('lw-body-cache',JSON.stringify(bc)); } catch(e){}
-    // Remove from broken links list
-    AppState.brokenLinks = AppState.brokenLinks.filter(b=>!(b.sourceId===sourceId&&b.brokenUrl===brokenUrl));
-    AppState.links=[]; for(const i of AppState.items) AppState.links.push(...parseItemLinks(i));
-    buildLinkGraph(); detectBrokenLinks();
-    renderBrokenLinksReport(); renderDashboard();
-    showToast('✅ Link fixed — updated to '+newUrl,'success');
-  } catch(err) {
-    if(row) row.style.opacity='1';
-    showToast('❌ Fix failed: '+err.message,'error');
-  }
+  const escaped = brokenUrl.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  const updatedHtml = (item.bodyHtml||'').replace(new RegExp(escaped,'g'), newUrl);
+  await saveItemToShopify(item, updatedHtml);
+  item.bodyHtml = updatedHtml;
+  try { const bc=JSON.parse(localStorage.getItem('lw-body-cache')||'{}'); bc[item.id]=updatedHtml; localStorage.setItem('lw-body-cache',JSON.stringify(bc)); } catch(e){}
+  AppState.brokenLinks = AppState.brokenLinks.filter(b=>!(b.sourceId===sourceId&&b.brokenUrl===brokenUrl));
+  AppState.links=[]; for(const i of AppState.items) AppState.links.push(...parseItemLinks(i));
+  buildLinkGraph(); detectBrokenLinks();
+  if(!silent) { renderBrokenLinksReport(); renderDashboard(); showToast('✅ Link fixed — updated to '+newUrl,'success'); }
 }
 
 function showAltFix(select, sourceId, brokenUrl, idx) {
