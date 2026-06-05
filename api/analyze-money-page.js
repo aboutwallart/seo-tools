@@ -1,7 +1,7 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v44.6
+// analyze-money-page.js — v45.0
 const SERPAPI_KEY = process.env.SERPAPI_KEY;
 const PAGESPEED_KEY = process.env.GOOGLE_API_KEY;
 const SHOPIFY_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
@@ -95,9 +95,13 @@ module.exports = async function handler(req, res) {
     const contentGaps = analyzeContentGaps(yourPageData, competitorData);
     console.log(`[Money Page] ✓ Found ${contentGaps.missingH2s.length} missing H2s, ${contentGaps.missingAIOptimization.length} missing AI elements`);
 
+    // Step 4.5: Fetch loser pages that should link TO this winner page
+    const loserPages = await getLosersForPage(pageUrl);
+    console.log(`[Money Page] Found ${loserPages.length} loser pages for internal linking`);
+
     // Step 5: Get Claude analysis
     console.log('[Money Page] Step 5: Getting AI recommendations... (~20 sec)');
-    const analysis = await getClaudeAnalysis(yourPageData, competitorData, keyword, searchResults.userPosition, contentGaps);
+    const analysis = await getClaudeAnalysis(yourPageData, competitorData, keyword, searchResults.userPosition, contentGaps, loserPages);
     console.log(`[Money Page] ✓ AI analysis complete! Total time: ${Math.round((Date.now() - startTime) / 1000)}s`);
 
     // Return results
@@ -596,12 +600,48 @@ async function getPageSpeedScore(url, strategy) {
   }
 }
 
+// Fetch loser pages that should link TO the winner page
+async function getLosersForPage(winnerUrl) {
+  try {
+    const res = await fetch('https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keyword-locker-registry.csv');
+    if (!res.ok) return [];
+    const csv = await res.text();
+    const lines = csv.trim().split('\n');
+    if (lines.length < 2) return [];
+    const headers = lines[0].split(',').map(h => h.trim());
+    const urlIdx = headers.indexOf('Page URL');
+    const kwIdx  = headers.indexOf('Keyword');
+    const actIdx = headers.indexOf('Action');
+    const winIdx = 5; // WinnerURL column
+    const normalized = winnerUrl.toLowerCase().trim();
+    const losers = [];
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(',');
+      if (cols.length <= winIdx) continue;
+      const action     = cols[actIdx]?.trim().toUpperCase();
+      const loserUrl   = cols[urlIdx]?.trim();
+      const loserKw    = cols[kwIdx]?.trim();
+      const winnerCol  = cols[winIdx]?.trim().toLowerCase();
+      if (action === 'INTERNAL_LINK' && winnerCol === normalized && loserUrl?.startsWith('http')) {
+        const pt = loserUrl.includes('/products/') ? 'product'
+          : loserUrl.includes('/collections/') ? 'collection'
+          : loserUrl.includes('/blogs/') ? 'blog' : 'page';
+        losers.push({ loserUrl, loserKeyword: loserKw, pageType: pt });
+      }
+    }
+    return losers;
+  } catch (err) {
+    console.error('[Losers]', err.message);
+    return [];
+  }
+}
+
 // Get Claude analysis
-async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = null, contentGaps = null) {
+async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = null, contentGaps = null, loserPages = []) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not found');
 
-  const prompt = buildAnalysisPrompt(yourPage, competitors, keyword, userPosition, contentGaps);
+  const prompt = buildAnalysisPrompt(yourPage, competitors, keyword, userPosition, contentGaps, loserPages);
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -644,7 +684,7 @@ async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = 
 }
 
 // Build the structured JSON prompt for Claude
-function buildAnalysisPrompt(yourPage, competitors, keyword, userPosition = null, contentGaps = null) {
+function buildAnalysisPrompt(yourPage, competitors, keyword, userPosition = null, contentGaps = null, loserPages = []) {
   const avgCompWordCount = competitors.length > 0
     ? Math.round(competitors.reduce((sum, c) => sum + c.wordCount, 0) / competitors.length) : 0;
   const avgCompKeywordDensity = competitors.length > 0
@@ -761,23 +801,36 @@ Return this exact JSON structure with real content (no placeholders):
       "priority": "high",
       "action": "Specific actionable instruction — image filename/alt text only. One sentence max."
     }
+  ],
+  "loserPageLinks": [
+    {
+      "loserUrl": "exact URL of the loser page",
+      "loserPageType": "product|collection|blog|page",
+      "suggestedSentence": "One natural sentence with <a href='[winnerUrl]'>[relevant anchor text]</a> that sounds like editorial content — unique per loser page, never a template",
+      "placement": "Specific placement guidance e.g. 'After the main product description' or 'Within the styling advice section' — be specific, not 'at the end'"
+    }
   ]
 }
+${loserPages.length > 0 ? `
+LOSER PAGES THAT SHOULD LINK TO THIS PAGE:
+${loserPages.map(l => `- ${l.loserUrl} (${l.pageType}, keyword: "${l.loserKeyword}")`).join('\n')}
+` : ''}
 
 RULES:
 - suggestedTitle: max 60 chars (hard limit — audit flags above this), keyword near start, include brand or USP
 - suggestedMeta: max 155 chars (hard limit — also used as OG description, stricter threshold), keyword, main benefit, CTA
 - suggestedDescription: plain text only, no HTML, 2-3 sentences, keyword-rich, UK spelling
-- pageSchema: write complete valid schema — for products include offers/price range, for collections include numberOfItems, for articles include author/datePublished. NEVER suggest adding product-level schema to individual items within a collection page.
+- pageSchema: write complete valid schema appropriate for the page type — for products include offers/price range, for collections include numberOfItems, for articles include author/datePublished. NEVER suggest product-level schema for individual items within a collection page — that belongs on each product page separately and should NOT appear here.
 - faqSchema: write 6-8 real questions people search about "${keyword}" with full helpful answers
 - brandBlock: use EXACTLY the text shown — do not change it. The brand block already includes star ratings and review count — never add a separate star rating suggestion anywhere else.
 - h2Sections: for EVERY H2 that needs attention use action "change" with reason + exactAction; for new H2s use action "add" with content. Never use action "delete" — always specify rename, retag, or delete with exact instruction and reason. NEVER flag these theme sections for removal or modification: "Trending Now", "Recently Viewed Products", "Recently Viewed", "New Arrivals", "Customers Are Saying", or any auto-generated review/browsing/merchandising widget.
 - h2Sections add content: for each "add" H2, write a full 2-3 sentence paragraph that naturally includes the target keyword and 1-2 variants. Include 1-2 internal links as actual HTML <a href="https://aboutwallart.com/collections/[relevant]">[anchor text]</a> tags within the paragraph text — do NOT add internal links as a separate otherAction.
 - If the page contains a marketing/lead capture/email subscription section: NEVER suggest deleting it. Instead write a keyword-optimised rewrite of that section's text as a separate "add" h2Section or aiItem — provide the full replacement text ready to copy-paste.
-- aiItems: include a "priority" field (high/medium/low) for each item; write complete copy-paste ready HTML content
+- aiItems: include a "priority" field (high/medium/low) for each item; write complete copy-paste ready HTML content. Do NOT include FAQ Schema in aiItems — it is already fully provided in the faqSchema field. Do NOT include Product Schema suggestions for collection pages in aiItems.
 - urlAnalysis: compare the URL slug and page title to the target keyword. Only recommend slug change if the page has very few or zero clicks (check the click data provided). Title changes are always safe — no redirect needed. If recommending a slug change, always set slugChangeWarning with the redirect instruction.
 - otherActions: ONLY include image filename/alt text optimisation tasks. NEVER include: page speed, image compression, lazy loading, WebP conversion, Core Web Vitals, LCP, CLS, TBT, canonical tags, Open Graph tags, Twitter Card tags, meta robots, keyword density percentage targets, aggregate star ratings, review count displays, schema suggestions, or anything already covered by h2Sections or aiItems. One sentence per action max.
 - WORD COUNT: Never say "reduce word count to X words" or "increase keyword density to X%" generically. If specific bloated content must go, name the EXACT paragraph opening words and why. If you cannot identify specific content to cut, do not mention word count or keyword density at all.
+- loserPageLinks: ONLY include if loser pages are provided above. For each loser page write a unique natural sentence (never a template) that fits that specific page's topic and keyword. Include an actual HTML anchor tag linking to the winner page. Suggest a specific placement that makes sense for that page's content — not always "at the end". If no loser pages provided, omit this field entirely.
 - Return ONLY the JSON object — no other text`;
 }
 
