@@ -219,7 +219,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.52</div>
+    <div class="version">v16.53</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -1801,10 +1801,19 @@ function findBestUrlMatch(brokenUrl) {
   const slug = brokenUrl.replace(/\/$/,'').split('/').pop().toLowerCase();
   if(!slug) return null;
 
+  // Determine required item type from broken URL path
+  const bu = brokenUrl.toLowerCase();
+  let requiredType = null;
+  if(bu.includes('/blogs/')) requiredType = 'article';
+  else if(bu.includes('/collections/')) requiredType = 'collection';
+  else if(bu.includes('/products/')) requiredType = 'product';
+  else if(bu.includes('/pages/')) requiredType = 'page';
+
   const candidates = [];
 
   AppState.items.forEach(item => {
     if(!item.url || !item.publishedAt) return;
+    if(requiredType && item.type !== requiredType) return;
     const itemHandle = (item.handle||'').toLowerCase();
     const itemSlug = item.url.replace(/\/$/,'').split('/').pop().toLowerCase();
 
@@ -3916,9 +3925,8 @@ function buildBrokenLinkGroupRow(group, idx) {
     fixInner = `<div style="font-size:11px;color:#888;margin-bottom:4px;"><span style="color:${confColor};font-weight:700;">${confLabel}:</span></div>
        <div style="font-size:12px;font-weight:600;margin-bottom:4px;word-break:break-all;">${sugTitle}</div>
        <button onclick="blSelectFix('${gkEsc}','${escHtml(brokenUrl)}','${sugUrl}','${sugTitle}',${idx},'${inputId}','${dropId}')" style="background:#2e7d32;color:#fff;border:none;border-radius:3px;padding:3px 10px;font-size:11px;cursor:pointer;margin-right:4px;">Accept</button>
-       <button onclick="document.getElementById('bl-search-area-${idx}').style.display='block'" style="background:#fff;color:#555;border:1px solid #ccc;border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer;">Change</button>
-       <div id="bl-search-area-${idx}" style="display:none;margin-top:6px;">${searchBox}</div>
-       <button onclick="confirmRemoveLinkGroup('${gkEsc}',${idx})" style="margin-top:4px;display:block;background:#fff;color:#c62828;border:1px solid #c62828;border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;">Remove these pages</button>`;
+       <button onclick="confirmRemoveLinkGroup('${gkEsc}',${idx})" style="background:#fff;color:#c62828;border:1px solid #c62828;border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;">Remove these pages</button>
+       <div style="margin-top:6px;">${searchBox}</div>`;
   } else {
     fixInner = `<div style="font-size:11px;color:#888;margin-bottom:4px;">Replace with a ${typeLabel} — fixes these ${count} page${count===1?'':'s'}:</div>
        ${searchBox}
