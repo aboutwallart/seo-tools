@@ -219,7 +219,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.51</div>
+    <div class="version">v16.52</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -429,6 +429,7 @@
         <option value="Unknown">Unknown</option>
       </select>
       <button class="btn-outline" onclick="selectAllArchived()" style="color:#e65100;border-color:#e65100;">SELECT ALL ARCHIVED</button>
+      <button class="btn-outline" id="bl-accept-suggestions-btn" onclick="acceptSelectedSuggestions()" disabled>ACCEPT SELECTED SUGGESTIONS</button>
       <button class="btn-outline" onclick="exportBrokenLinksCSV()">EXPORT TO CSV</button>
       <button class="btn-action" id="bl-save-fixes-btn" onclick="saveAllPendingFixes()" disabled style="background:#2e7d32;">SAVE FIXES (0)</button>
       <button class="btn-action" style="margin-left:auto;" onclick="clearBrokenLinksData()">CLEAR ERROR DATA</button>
@@ -4289,6 +4290,22 @@ async function processVariantAutoFixes() {
   if(fixed>0) showToast('✅ Auto-fixed variant URLs on '+fixed+' page'+(fixed===1?'':'s')+'.','success');
 }
 
+function acceptSelectedSuggestions() {
+  let accepted = 0;
+  BlState.selected.forEach(groupKey => {
+    if(BlState.pendingFixes.has(groupKey)) return; // already staged
+    const group = BlState.groupRegistry.get(groupKey);
+    if(!group) return;
+    const suggested = group.occurrences[0] && group.occurrences[0].suggested;
+    if(!suggested) return;
+    const sourceIds = group.occurrences.map(o=>o.sourceId);
+    BlState.pendingFixes.set(groupKey, { groupKey, brokenUrl: group.brokenUrl, newUrl: suggested.item.url, newTitle: suggested.item.title, sourceIds, idx: null });
+    accepted++;
+  });
+  if(accepted > 0) { updateSaveFixesBtn(); renderBrokenLinksReport(); showToast(accepted+' suggestion'+(accepted===1?'':'s')+' staged — click Save Fixes to apply.','success'); }
+  else showToast('No suggestions to accept for selected rows.','info');
+}
+
 function selectAllArchived() {
   const archivedUrls = new Set(AppState.brokenLinks.filter(b=>b.reason==='archived-product').map(b=>b.brokenUrl));
   BlState.groupRegistry.forEach((group, groupKey) => {
@@ -4300,6 +4317,8 @@ function selectAllArchived() {
 function updateDeleteBtn() {
   const btn = document.getElementById('bl-delete-btn');
   if(btn) btn.disabled = BlState.selected.size === 0;
+  const acceptBtn = document.getElementById('bl-accept-suggestions-btn');
+  if(acceptBtn) acceptBtn.disabled = BlState.selected.size === 0;
 }
 
 function clearBrokenLinksData() {
