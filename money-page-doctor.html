@@ -885,6 +885,36 @@
             return `${base}/pages?query=${handle}`;
         }
 
+        async function resolveShopifyProductId(handle) {
+            try {
+                const res = await fetch('/api/shopify-files', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'get-product-id', handle })
+                });
+                const data = await res.json();
+                return data.id || null;
+            } catch { return null; }
+        }
+
+        async function upgradeAdminLinks(loserPageLinks) {
+            for (let i = 0; i < loserPageLinks.length; i++) {
+                const link = loserPageLinks[i];
+                if (link.loserPageType !== 'product') continue;
+                const handle = link.loserUrl.split('/').filter(Boolean).pop();
+                const id = await resolveShopifyProductId(handle);
+                if (!id) continue;
+                const btn = document.getElementById(`loserAdminBtn_${i}`);
+                if (btn) btn.href = `https://admin.shopify.com/store/aboutwallart/products/${id}`;
+            }
+        }
+
+        function htmlSentenceToKickstartPrompt(sentence, placement) {
+            // Convert <a href='URL'>anchor text</a> → "anchor text" (URL)
+            const plain = sentence.replace(/<a\s+href=['"]([^'"]+)['"]\s*>([^<]+)<\/a>/gi, '"$2" ($1)');
+            return `In the product description, ${placement ? placement.toLowerCase() : 'in a relevant place'}, add the following sentence: ${plain} Keep all other content unchanged.`;
+        }
+
         function seedMissingSnapshots() {
             let seeded = 0;
             optimizedPages.forEach(page => {
@@ -968,6 +998,9 @@
 
             if (structured) {
                 analysisHTML = renderStructuredResults(structured, keyword, data);
+                if (structured.loserPageLinks?.length > 0) {
+                    setTimeout(() => upgradeAdminLinks(structured.loserPageLinks), 100);
+                }
             } else {
                 // Markdown fallback
                 const mdText = data.analysis?.markdown || '';
@@ -1235,8 +1268,9 @@
                     ${s.loserPageLinks.map((link, i) => {
                         const key = `loser_${i}`;
                         const handle = link.loserUrl.split('/').filter(Boolean).pop();
-                        const adminUrl = buildShopifyAdminSearchUrl(link.loserPageType, handle);
+                        const fallbackAdminUrl = buildShopifyAdminSearchUrl(link.loserPageType, handle);
                         const pt = link.loserPageType?.includes('collection') ? 'collection' : link.loserPageType;
+                        const kickstartPrompt = htmlSentenceToKickstartPrompt(link.suggestedSentence, link.placement);
                         return `
                         <div id="row_${key}" style="padding:14px;background:#f9f9f9;border-radius:6px;margin-bottom:10px;opacity:${state[key]?'0.45':'1'};">
                             <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
@@ -1244,11 +1278,11 @@
                                 <span style="background:#9c27b0;color:white;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">${getPageTypeLabel(pt)}</span>
                                 <span style="font-size:0.82rem;word-break:break-all;color:#555;">${link.loserUrl}</span>
                             </div>
-                            <div style="font-size:0.8rem;color:#9c27b0;font-weight:600;margin-bottom:6px;">📍 ${link.placement}</div>
-                            <textarea id="loserSentence${i}" style="width:100%;padding:10px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.9rem;font-family:'Poppins',sans-serif;resize:vertical;" rows="2">${link.suggestedSentence}</textarea>
+                            <div style="font-size:0.8rem;color:#9c27b0;font-weight:600;margin-bottom:8px;">📍 ${link.placement}</div>
+                            <textarea id="loserSentence${i}" style="width:100%;padding:10px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.85rem;font-family:'Poppins',sans-serif;resize:vertical;line-height:1.5;" rows="3">${kickstartPrompt}</textarea>
                             <div style="display:flex;gap:8px;margin-top:8px;">
                                 <button class="copy-btn" onclick="copyToClipboard(document.getElementById('loserSentence${i}').value,this)">📋 Copy</button>
-                                <a href="${adminUrl}" target="_blank" style="display:inline-flex;align-items:center;background:#1a1a1a;color:white;padding:6px 14px;border-radius:4px;font-size:0.8rem;text-decoration:none;">🔗 Open in Shopify Admin</a>
+                                <a id="loserAdminBtn_${i}" href="${fallbackAdminUrl}" target="_blank" style="display:inline-flex;align-items:center;background:#1a1a1a;color:white;padding:6px 14px;border-radius:4px;font-size:0.8rem;text-decoration:none;">🔗 Open in Shopify Admin</a>
                             </div>
                         </div>`;
                     }).join('')}
