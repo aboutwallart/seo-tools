@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 44.6</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 44.7</p>
                 </div>
             </div>
         </header>
@@ -1286,14 +1286,17 @@
                 // Detect page type
                 currentPageType = detectPageType(currentAuditURL);
                 
-                // Fetch PageSpeed data
-                const [mobileData, desktopData] = await Promise.all([
+                // Fetch PageSpeed + sitemap + robots.txt in parallel
+                const origin = new URL(currentAuditURL).origin;
+                const [mobileData, desktopData, sitemapOk, robotsData] = await Promise.all([
                     fetchPageSpeedData(currentAuditURL, 'mobile'),
-                    fetchPageSpeedData(currentAuditURL, 'desktop')
+                    fetchPageSpeedData(currentAuditURL, 'desktop'),
+                    fetch(origin + '/sitemap.xml').then(r => r.ok).catch(() => false),
+                    fetch(origin + '/robots.txt').then(r => r.ok ? r.text() : null).catch(() => null)
                 ]);
-                
+
                 // Run all checks
-                const seoChecks = runAllSEOChecks(currentPageHTML, mobileData, desktopData);
+                const seoChecks = runAllSEOChecks(currentPageHTML, mobileData, desktopData, sitemapOk, robotsData);
                 const aiChecks = runAllAIChecks(currentPageHTML, currentPageType);
                 
                 // Calculate scores
@@ -1418,11 +1421,45 @@
             document.getElementById('technicalSEOContent').innerHTML = html;
         }
 
+        // Guide links per check name
+        const GUIDE_LINKS = {
+            'Title & Meta Description':   'https://developers.google.com/search/docs/appearance/title-link',
+            'H1 Heading':                 'https://developers.google.com/search/docs/appearance/title-link',
+            'Image Alt Tags':             'https://developers.google.com/search/docs/appearance/google-images',
+            'Mobile Viewport':            'https://web.dev/articles/viewport',
+            'Canonical Tag':              'https://developers.google.com/search/docs/crawling-indexing/canonicalization',
+            'Open Graph Tags':            'https://ogp.me',
+            'Schema Markup':              'https://developers.google.com/search/docs/appearance/structured-data/intro-structured-data',
+            'SSL Certificate':            'https://web.dev/articles/why-https-matters',
+            'Internal Links':             'https://developers.google.com/search/docs/crawling-indexing/links-crawlable',
+            'Favicon':                    'https://web.dev/articles/favicon',
+            'Performance Score':          'https://pagespeed.web.dev',
+            'Largest Contentful Paint':   'https://web.dev/articles/lcp',
+            'Cumulative Layout Shift':    'https://web.dev/articles/cls',
+            'Total Blocking Time':        'https://web.dev/articles/tbt',
+            'XML Sitemap':                'https://developers.google.com/search/docs/crawling-indexing/sitemaps/overview',
+            'Robots.txt':                 'https://developers.google.com/search/docs/crawling-indexing/robots/intro',
+            'Analytics Tracking':         'https://marketingplatform.google.com/about/analytics/',
+            'Brand/Authority Block':      'https://developers.google.com/search/docs/appearance/e-e-a-t',
+            'Structured Data':            'https://developers.google.com/search/docs/appearance/structured-data/intro-structured-data',
+            'Contact Information':        'https://developers.google.com/search/docs/appearance/e-e-a-t',
+            'Product Specifications':     'https://developers.google.com/search/docs/appearance/structured-data/product',
+            'Pricing Information':        'https://developers.google.com/search/docs/appearance/structured-data/product',
+            'Reviews/Ratings':            'https://developers.google.com/search/docs/appearance/structured-data/review-snippet',
+            'FAQ Section':                'https://developers.google.com/search/docs/appearance/structured-data/faqpage',
+            'Author Information':         'https://developers.google.com/search/docs/appearance/e-e-a-t',
+            'Publish/Update Date':        'https://developers.google.com/search/docs/appearance/publication-dates',
+            'Question Format':            'https://developers.google.com/search/docs/appearance/structured-data/faqpage',
+            'Value Proposition':          'https://developers.google.com/search/docs/appearance/e-e-a-t',
+            'About Page Link':            'https://developers.google.com/search/docs/appearance/e-e-a-t'
+        };
+
         // Render individual audit item
         function renderAuditItem(check) {
             const statusClass = check.status === 'pass' ? 'pass' : check.status === 'warning' ? 'warning' : 'fail';
             const statusIcon = check.status === 'pass' ? '✅' : check.status === 'warning' ? '⚠️' : '❌';
-            
+            const guideUrl = GUIDE_LINKS[check.name];
+
             return `
                 <div class="audit-item ${statusClass}">
                     <div style="flex: 1;">
@@ -1431,7 +1468,7 @@
                     </div>
                     <div class="audit-item-buttons">
                         ${check.videoId ? `<button class="btn-video" onclick="openVideo('${check.videoId}')">📹 Video</button>` : ''}
-                        ${check.status !== 'pass' ? `<button class="btn-guide" onclick="alert('Guide coming soon')">📖 Guide</button>` : ''}
+                        ${check.status !== 'pass' && guideUrl ? `<button class="btn-guide" onclick="window.open('${guideUrl}','_blank')">📖 Guide</button>` : ''}
                     </div>
                 </div>
             `;
@@ -1513,9 +1550,9 @@
         }
 
         // Run all SEO checks
-        function runAllSEOChecks(html, mobileData, desktopData) {
+        function runAllSEOChecks(html, mobileData, desktopData, sitemapOk, robotsData) {
             const checks = [];
-            
+
             // Basic SEO checks
             checks.push(checkMetaTags(html));
             checks.push(checkH1(html));
@@ -1527,7 +1564,7 @@
             checks.push(checkSSL(currentAuditURL));
             checks.push(checkInternalLinks(html));
             checks.push(checkFavicon(html));
-            
+
             // PageSpeed checks
             if (mobileData && mobileData.lighthouseResult) {
                 checks.push(checkPerformanceScore(mobileData));
@@ -1535,13 +1572,12 @@
                 checks.push(checkCLS(mobileData));
                 checks.push(checkTBT(mobileData));
             }
-            
-            // External checks (sitemap, robots)
-            checks.push(checkSitemap(currentAuditURL));
-            checks.push(checkRobotsTxt(currentAuditURL));
-            checks.push(checkHTTPSRedirect(currentAuditURL));
+
+            // Real sitemap + robots checks
+            checks.push(checkSitemap(sitemapOk));
+            checks.push(checkRobotsTxt(robotsData));
             checks.push(checkAnalytics(html));
-            
+
             return checks;
         }
 
@@ -1718,19 +1754,25 @@
             return { name: 'Total Blocking Time', status: 'fail', message: `Poor (${Math.round(tbt)}ms)`, videoId: null };
         }
 
-        function checkSitemap(url) {
-            // Placeholder - would need async fetch
-            return { name: 'XML Sitemap', status: 'pass', message: 'Sitemap check skipped', videoId: null };
+        function checkSitemap(sitemapOk) {
+            if (sitemapOk === null || sitemapOk === undefined) {
+                return { name: 'XML Sitemap', status: 'warning', message: 'Could not check sitemap', videoId: null };
+            }
+            if (sitemapOk) {
+                return { name: 'XML Sitemap', status: 'pass', message: 'sitemap.xml found and accessible', videoId: null };
+            }
+            return { name: 'XML Sitemap', status: 'fail', message: 'sitemap.xml not found or not accessible', videoId: null };
         }
 
-        function checkRobotsTxt(url) {
-            // Placeholder - would need async fetch
-            return { name: 'Robots.txt', status: 'pass', message: 'Robots.txt check skipped', videoId: null };
-        }
-
-        function checkHTTPSRedirect(url) {
-            // Placeholder - would need async fetch
-            return { name: 'HTTPS Redirect', status: 'pass', message: 'HTTPS redirect check skipped', videoId: null };
+        function checkRobotsTxt(robotsData) {
+            if (!robotsData) {
+                return { name: 'Robots.txt', status: 'fail', message: 'robots.txt not found or not accessible', videoId: null };
+            }
+            const blocksAll = /^Disallow:\s*\/\s*$/m.test(robotsData) && /^User-agent:\s*\*\s*$/m.test(robotsData);
+            if (blocksAll) {
+                return { name: 'Robots.txt', status: 'fail', message: 'robots.txt is blocking all crawlers — check immediately', videoId: null };
+            }
+            return { name: 'Robots.txt', status: 'pass', message: 'robots.txt found and not blocking crawlers', videoId: null };
         }
 
         function checkAnalytics(html) {
