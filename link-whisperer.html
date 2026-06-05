@@ -219,7 +219,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.36</div>
+    <div class="version">v16.37</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -2828,26 +2828,23 @@ async function saveInboundLinks() {
 
 function replaceUrlInHtml(html, brokenUrl, newUrl) {
   const base = 'https://aboutwallart.com';
-  const relNew = newUrl.startsWith(base) ? newUrl.slice(base.length) : newUrl;
-  // Build all variant forms of the broken URL to catch full, relative, with/without trailing slash
-  const variants = new Set();
-  const stripped = brokenUrl.replace(/\/$/,'');
-  variants.add(brokenUrl);
-  variants.add(stripped);
-  variants.add(stripped + '/');
-  if(brokenUrl.startsWith(base)) {
-    const rel = brokenUrl.slice(base.length) || '/';
-    const relStripped = rel.replace(/\/$/,'') || '/';
-    variants.add(rel);
-    variants.add(relStripped);
-    variants.add(relStripped + '/');
-  }
-  variants.forEach(v => {
-    if(!v) return;
-    const isRelative = v.startsWith('/') && !v.startsWith('//');
-    const replaceWith = isRelative ? (relNew || newUrl) : newUrl;
-    const esc = v.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-    html = html.replace(new RegExp('(href=["\'])'+esc+'(["\'])','gi'), '$1'+replaceWith+'$2');
+  const isInternal = brokenUrl.startsWith(base);
+  const relBroken = isInternal ? brokenUrl.slice(base.length) : null;
+  const relNew    = isInternal && newUrl.startsWith(base) ? newUrl.slice(base.length) : newUrl;
+
+  // All combinations of quote style, full/relative, with/without trailing slash
+  const pairs = [];
+  ['"',"'"].forEach(q => {
+    pairs.push([`href=${q}${brokenUrl}${q}`,      `href=${q}${newUrl}${q}`]);
+    pairs.push([`href=${q}${brokenUrl}/${q}`,     `href=${q}${newUrl}${q}`]);
+    if(relBroken) {
+      pairs.push([`href=${q}${relBroken}${q}`,    `href=${q}${relNew}${q}`]);
+      pairs.push([`href=${q}${relBroken}/${q}`,   `href=${q}${relNew}${q}`]);
+    }
+  });
+
+  pairs.forEach(([from, to]) => {
+    if(html.includes(from)) html = html.split(from).join(to);
   });
   return html;
 }
