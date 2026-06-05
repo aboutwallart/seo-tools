@@ -219,7 +219,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.44</div>
+    <div class="version">v16.45</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -4157,7 +4157,45 @@ function toggleAllBrokenLinks(checked) {
   updateDeleteBtn();
 }
 
-function deleteSelectedBrokenLinks() {
+async function deleteSelectedBrokenLinks() {
+  if(!BlState.selected.size) return;
+  const btn = document.getElementById('bl-delete-btn');
+
+  // Build a map of itemId -> Set of brokenUrls to remove from that item
+  const itemJobs = new Map(); // itemId -> { item, brokenUrls: Set }
+  BlState.selected.forEach(groupKey => {
+    const group = BlState.groupRegistry.get(groupKey);
+    if(!group) return;
+    group.occurrences.forEach(occ => {
+      const item = AppState.items.find(x=>x.id===occ.sourceId);
+      if(!item) return;
+      if(!itemJobs.has(item.id)) itemJobs.set(item.id, { item, brokenUrls: new Set() });
+      itemJobs.get(item.id).brokenUrls.add(group.brokenUrl);
+    });
+  });
+
+  const tasks = Array.from(itemJobs.values());
+  const total = tasks.length;
+  let done=0, failed=0;
+  if(btn) { btn.disabled=true; btn.textContent='Removing 0/'+total+'...'; }
+
+  const BATCH=5;
+  for(let i=0; i<tasks.length; i+=BATCH) {
+    await Promise.all(tasks.slice(i,i+BATCH).map(async ({item, brokenUrls}) => {
+      try {
+        let html = item.bodyHtml||'';
+        brokenUrls.forEach(brokenUrl => { html = removeLinkFromHtml(html, brokenUrl); });
+        await saveItemToShopify(item, html);
+        item.bodyHtml = html;
+        try { const bc=JSON.parse(localStorage.getItem('lw-body-cache')||'{}'); bc[item.id]=html; localStorage.setItem('lw-body-cache',JSON.stringify(bc)); } catch(e){}
+        done++;
+      } catch(e) { failed++; }
+    }));
+    if(btn) btn.textContent='Removing '+Math.min(done+failed,total)+'/'+total+'...';
+    if(i+BATCH<tasks.length) await new Promise(r=>setTimeout(r,300));
+  }
+
+  // Remove saved entries from AppState.brokenLinks
   BlState.selected.forEach(groupKey => {
     const group = BlState.groupRegistry.get(groupKey);
     if(!group) return;
@@ -4165,10 +4203,13 @@ function deleteSelectedBrokenLinks() {
     AppState.brokenLinks = AppState.brokenLinks.filter(b=>!(b.brokenUrl===group.brokenUrl && ids.has(b.sourceId)));
   });
   BlState.selected.clear();
+
   const badgeEl = document.getElementById('bl-tab-badge');
   if(badgeEl) { const n=new Set(AppState.brokenLinks.map(b=>b.brokenUrl)).size; badgeEl.textContent=n; badgeEl.style.display=n>0?'inline-block':'none'; }
+  if(btn) { btn.disabled=true; btn.textContent='DELETE SELECTED'; }
   renderBrokenLinksReport(); renderDashboard();
-  showToast('Selected rows dismissed from list.','success');
+  if(failed===0) showToast('✅ Removed broken links from '+done+' pages.','success');
+  else showToast('⚠️ '+done+' pages updated, '+failed+' failed — try again.','error');
 }
 
 function updateDeleteBtn() {
