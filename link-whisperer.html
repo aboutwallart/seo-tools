@@ -219,7 +219,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.38</div>
+    <div class="version">v16.39</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -3995,10 +3995,13 @@ async function saveAllPendingFixes() {
   if(!fixes.length) return;
   const btn = document.getElementById('bl-save-fixes-btn');
 
-  // Collect all pages that need saving, with all their replacements
+  // Collect pages to save — max 20 occurrences per group
+  const MAX_PER_GROUP = 20;
   const byItem = new Map();
   fixes.forEach(fix => {
-    AppState.brokenLinks.filter(b=>b.brokenUrl===fix.brokenUrl).forEach(occ => {
+    const occurrences = AppState.brokenLinks.filter(b=>b.brokenUrl===fix.brokenUrl).slice(0, MAX_PER_GROUP);
+    fix._savedSourceIds = new Set(occurrences.map(o=>o.sourceId));
+    occurrences.forEach(occ => {
       if(!byItem.has(occ.sourceId)) byItem.set(occ.sourceId, []);
       byItem.get(occ.sourceId).push({ brokenUrl: fix.brokenUrl, newUrl: fix.newUrl });
     });
@@ -4031,10 +4034,14 @@ async function saveAllPendingFixes() {
     if(i+BATCH < tasks.length) await new Promise(r => setTimeout(r, 300));
   }
 
-  // Remove fixed groups directly from state — do NOT re-run detectBrokenLinks()
-  // because it re-scans in-memory bodyHtml which may lag behind Shopify
+  // Remove only the saved pages from state (max 20 per group)
+  let totalRemaining = 0;
   fixes.forEach(fix => {
-    AppState.brokenLinks = AppState.brokenLinks.filter(b=>b.brokenUrl!==fix.brokenUrl);
+    AppState.brokenLinks = AppState.brokenLinks.filter(b =>
+      !(b.brokenUrl===fix.brokenUrl && fix._savedSourceIds && fix._savedSourceIds.has(b.sourceId))
+    );
+    const remaining = AppState.brokenLinks.filter(b=>b.brokenUrl===fix.brokenUrl).length;
+    totalRemaining += remaining;
     BlState.pendingFixes.delete(fix.brokenUrl);
   });
   // Update badge manually
@@ -4047,8 +4054,14 @@ async function saveAllPendingFixes() {
   updateSaveFixesBtn();
   renderBrokenLinksReport(); renderDashboard();
   const groupCount = fixes.length;
-  if(failed===0) showToast('✅ '+groupCount+' group'+(groupCount===1?'':'s')+' fixed across '+done+' pages. Refresh data to re-scan.','success');
-  else showToast('⚠️ '+done+' saved, '+failed+' failed — try saving again for the failed ones.','error');
+  if(failed===0) {
+    const msg = totalRemaining > 0
+      ? '✅ '+done+' pages saved. '+totalRemaining+' pages still to fix — stage and save again.'
+      : '✅ '+groupCount+' group'+(groupCount===1?'':'s')+' fully fixed across '+done+' pages.';
+    showToast(msg,'success');
+  } else {
+    showToast('⚠️ '+done+' saved, '+failed+' failed — try saving again.','error');
+  }
 }
 
 // Remove broken link from ALL pages in the group
