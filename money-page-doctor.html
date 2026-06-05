@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 44.9</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 45.0</p>
                 </div>
             </div>
         </header>
@@ -755,10 +755,6 @@
                 currentUrl.results = data;
                 renderUrls();
 
-                // Fetch internal link recommendations for this URL
-                const internalLinks = await getInternalLinksForUrl(currentUrl.url);
-                data.internalLinks = internalLinks;
-
                 document.getElementById('loadingModal').classList.remove('active');
                 showResults(data, keyword);
 
@@ -881,6 +877,36 @@
             }
         }
 
+        function buildShopifyAdminSearchUrl(pageType, handle) {
+            const base = 'https://aboutwallart.myshopify.com/admin';
+            if (pageType === 'product')    return `${base}/products?query=${handle}`;
+            if (pageType === 'collection') return `${base}/collections?query=${handle}`;
+            if (pageType === 'blog' || pageType === 'article') return `${base}/articles?query=${handle}`;
+            return `${base}/pages?query=${handle}`;
+        }
+
+        function seedMissingSnapshots() {
+            let seeded = 0;
+            optimizedPages.forEach(page => {
+                const key = 'mpd_before_' + page.url;
+                if (!localStorage.getItem(key)) {
+                    const gscInfo = gscEnrichment[normalizeUrlPath(page.url)];
+                    if (gscInfo?.position) {
+                        localStorage.setItem(key, JSON.stringify({
+                            optimizedAt: Date.now(),
+                            position: gscInfo.position,
+                            impressions: gscInfo.impressions || 0,
+                            clicks: gscInfo.clicks || 0,
+                            keyword: page.keyword,
+                            seeded: true
+                        }));
+                        seeded++;
+                    }
+                }
+            });
+            if (seeded > 0) { console.log(`[Seed] Stored baselines for ${seeded} optimised pages`); renderOptimized(); }
+        }
+
         function getShopifyAdminUrl(shopify) {
             if (!shopify?.id) return null;
             const base = 'https://admin.shopify.com/store/aboutwallart';
@@ -948,8 +974,8 @@
                 analysisHTML = `<div class="action-block" style="white-space:pre-wrap;line-height:1.7;">${formatMarkdown(mdText)}</div>`;
             }
 
-            // Internal links block
-            const internalLinksHTML = data.internalLinks?.length > 0 ? (() => {
+            // Internal links block — now handled inside renderStructuredResults via loserPageLinks
+            const internalLinksHTML = false ? (() => {
                 const linksHtml = data.internalLinks.map(l =>
                     `<a href="${l.destinationUrl}">${l.anchorText}</a>`
                 ).join(', ');
@@ -1046,6 +1072,9 @@
 
             // Manual: other actions
             (s.otherActions || []).forEach((a, i) => add(`other_${i}`, a.action, 'manual', { priority: a.priority }));
+
+            // Internal links to loser pages
+            (s.loserPageLinks || []).forEach((l, i) => add(`loser_${i}`, `Link added to: ${l.loserUrl}`, 'link'));
 
             const total = allItems.length;
             currentAnalysisTotal = total;
@@ -1198,7 +1227,34 @@
                         </div>`).join('')}
                 </div>` : '';
 
-            return masterBar + shopifyBlock + copyPasteBlock + aiBlock + manualBlock;
+            // ── 5. Internal Links block ───────────────────────────────────────
+            const loserLinksBlock = s.loserPageLinks?.length > 0 ? `
+                <div class="action-block" style="border-color:#9c27b0;">
+                    <h3>🔗 Internal Links to Add</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">These pages should link to this one. Copy each sentence, open the page in Shopify, and paste where it fits best.</p>
+                    ${s.loserPageLinks.map((link, i) => {
+                        const key = `loser_${i}`;
+                        const handle = link.loserUrl.split('/').filter(Boolean).pop();
+                        const adminUrl = buildShopifyAdminSearchUrl(link.loserPageType, handle);
+                        const pt = link.loserPageType?.includes('collection') ? 'collection' : link.loserPageType;
+                        return `
+                        <div id="row_${key}" style="padding:14px;background:#f9f9f9;border-radius:6px;margin-bottom:10px;opacity:${state[key]?'0.45':'1'};">
+                            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+                                ${cb(allItems.find(it=>it.key===key))}
+                                <span style="background:#9c27b0;color:white;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">${getPageTypeLabel(pt)}</span>
+                                <span style="font-size:0.82rem;word-break:break-all;color:#555;">${link.loserUrl}</span>
+                            </div>
+                            <div style="font-size:0.8rem;color:#9c27b0;font-weight:600;margin-bottom:6px;">📍 ${link.placement}</div>
+                            <textarea id="loserSentence${i}" style="width:100%;padding:10px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.9rem;font-family:'Poppins',sans-serif;resize:vertical;" rows="2">${link.suggestedSentence}</textarea>
+                            <div style="display:flex;gap:8px;margin-top:8px;">
+                                <button class="copy-btn" onclick="copyToClipboard(document.getElementById('loserSentence${i}').value,this)">📋 Copy</button>
+                                <a href="${adminUrl}" target="_blank" style="display:inline-flex;align-items:center;background:#1a1a1a;color:white;padding:6px 14px;border-radius:4px;font-size:0.8rem;text-decoration:none;">🔗 Open in Shopify Admin</a>
+                            </div>
+                        </div>`;
+                    }).join('')}
+                </div>` : '';
+
+            return masterBar + shopifyBlock + copyPasteBlock + aiBlock + loserLinksBlock + manualBlock;
         }
 
         function formatMarkdown(text) {
@@ -2162,6 +2218,7 @@
                 }
                 if (loadingEl) loadingEl.style.display = 'none';
                 renderUrls();
+                seedMissingSnapshots();
             } catch (err) {
                 console.error('[GSC Enrichment]', err);
                 if (loadingEl) loadingEl.style.display = 'none';
