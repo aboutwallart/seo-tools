@@ -323,6 +323,23 @@ module.exports = async function handler(req, res) {
   }
 
   // -------------------------------------------------------
+  // GET PRODUCT ID — resolve handle to numeric Shopify ID
+  // -------------------------------------------------------
+  if (req.method === 'POST') {
+    const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    if (body?.action === 'get-product-id') {
+      const { handle } = body;
+      if (!handle) return res.status(400).json({ error: 'Missing handle' });
+      const shopifyHeaders = { 'X-Shopify-Access-Token': accessToken };
+      const r = await fetch(`https://${shopifyDomain}/admin/api/2025-01/products.json?handle=${encodeURIComponent(handle)}&fields=id`, { headers: shopifyHeaders });
+      const data = await r.json();
+      const id = data.products?.[0]?.id;
+      if (!id) return res.status(404).json({ error: 'Product not found' });
+      return res.status(200).json({ id });
+    }
+  }
+
+  // -------------------------------------------------------
   // SEO UPDATE — push title, meta, description to Shopify
   // -------------------------------------------------------
   if (req.query.action === 'seo-update' && req.method === 'POST') {
@@ -344,6 +361,22 @@ module.exports = async function handler(req, res) {
     if (!resource) return res.status(400).json({ error: `Unknown shopifyType: ${shopifyType}` });
 
     const errors = [];
+
+    // 0. Append HTML to existing body_html (for internal links)
+    if (req.body.appendHtml) {
+      try {
+        const r = await fetch(`${base}/${resource.path}.json`, { headers: shopifyHeaders });
+        const d = await r.json();
+        const existing = d[resource.key]?.body_html || '';
+        const appended = existing + req.body.appendHtml;
+        const w = await fetch(`${base}/${resource.path}.json`, {
+          method: 'PUT', headers: shopifyHeaders,
+          body: JSON.stringify({ [resource.key]: { id: parseInt(shopifyId), body_html: appended } })
+        });
+        if (!w.ok) { const e = await w.json(); errors.push(`Append: ${JSON.stringify(e.errors || w.statusText)}`); }
+        else { return res.status(200).json({ success: true }); }
+      } catch (err) { errors.push(`Append: ${err.message}`); }
+    }
 
     // 1. Update body_html (description)
     if (description) {
