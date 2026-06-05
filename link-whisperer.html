@@ -219,7 +219,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.35</div>
+    <div class="version">v16.36</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -438,7 +438,7 @@
           <tr>
             <th style="width:36px;"><input type="checkbox" id="bl-master-cb" onchange="toggleAllBrokenLinks(this.checked)" /></th>
             <th style="width:25%;cursor:pointer;" onclick="sortBrokenLinks('url')">Broken URL <span id="bl-sort-url"></span></th>
-            <th style="width:10%;">Affects</th>
+            <th style="width:10%;cursor:pointer;" onclick="sortBrokenLinks('affects')">Affects <span id="bl-sort-affects"></span></th>
             <th style="width:27%;">Suggested Fix</th>
             <th style="width:7%;cursor:pointer;" onclick="sortBrokenLinks('type')">Type <span id="bl-sort-type"></span></th>
             <th style="width:9%;cursor:pointer;" onclick="sortBrokenLinks('status')">Status <span id="bl-sort-status"></span></th>
@@ -3768,8 +3768,9 @@ function renderBrokenLinksReport() {
 
   if(BlState.sort.col) {
     groups.sort((a,b) => {
-      let va='', vb='';
+      let va, vb;
       if(BlState.sort.col==='url')        { va=a.brokenUrl.toLowerCase(); vb=b.brokenUrl.toLowerCase(); }
+      else if(BlState.sort.col==='affects'){ va=a.occurrences.length; vb=b.occurrences.length; }
       else if(BlState.sort.col==='type')  { va=(a.type||'').toLowerCase(); vb=(b.type||'').toLowerCase(); }
       else if(BlState.sort.col==='status'){ va=(a.status||'').toLowerCase(); vb=(b.status||'').toLowerCase(); }
       else if(BlState.sort.col==='discovered'){ va=a.discovered||''; vb=b.discovered||''; }
@@ -3779,9 +3780,9 @@ function renderBrokenLinksReport() {
     });
   }
 
-  ['url','type','status','discovered'].forEach(c => {
+  ['url','affects','type','status','discovered'].forEach(c => {
     const el = document.getElementById('bl-sort-'+c);
-    if(el) el.textContent = BlState.sort.col===c ? (BlState.sort.dir==='asc'?'↑':'↓') : '';
+    if(el) el.textContent = BlState.sort.col===c ? (BlState.sort.dir==='asc'?'↑':'↓') : '↕';
   });
 
   const total = groups.length, perPage = 50;
@@ -3996,9 +3997,8 @@ async function saveAllPendingFixes() {
   const fixes = Array.from(BlState.pendingFixes.values());
   if(!fixes.length) return;
   const btn = document.getElementById('bl-save-fixes-btn');
-  if(btn) { btn.disabled=true; btn.textContent='SAVING...'; }
 
-  // Batch by source item — collect all replacements per page
+  // Collect all pages that need saving, with all their replacements
   const byItem = new Map();
   fixes.forEach(fix => {
     AppState.brokenLinks.filter(b=>b.brokenUrl===fix.brokenUrl).forEach(occ => {
@@ -4007,22 +4007,32 @@ async function saveAllPendingFixes() {
     });
   });
 
-  // Save each page once (all its replacements in one API call), run in parallel
+  const tasks = Array.from(byItem.entries());
+  const total = tasks.length;
   let done=0, failed=0;
-  await Promise.all(Array.from(byItem.entries()).map(async ([sourceId, replacements]) => {
-    try {
-      const item = AppState.items.find(i=>i.id===sourceId);
-      if(!item) return;
-      let html = item.bodyHtml || '';
-      replacements.forEach(({brokenUrl, newUrl}) => {
-        html = replaceUrlInHtml(html, brokenUrl, newUrl);
-      });
-      await saveItemToShopify(item, html);
-      item.bodyHtml = html;
-      try { const bc=JSON.parse(localStorage.getItem('lw-body-cache')||'{}'); bc[item.id]=html; localStorage.setItem('lw-body-cache',JSON.stringify(bc)); } catch(e){}
-      done++;
-    } catch(e) { failed++; }
-  }));
+
+  if(btn) { btn.disabled=true; btn.textContent='Saving 0/'+total+'...'; }
+
+  // Process in batches of 5 to respect Shopify rate limits
+  const BATCH = 5;
+  for(let i=0; i<tasks.length; i+=BATCH) {
+    const batch = tasks.slice(i, i+BATCH);
+    await Promise.all(batch.map(async ([sourceId, replacements]) => {
+      try {
+        const item = AppState.items.find(x=>x.id===sourceId);
+        if(!item) return;
+        let html = item.bodyHtml || '';
+        replacements.forEach(({brokenUrl, newUrl}) => { html = replaceUrlInHtml(html, brokenUrl, newUrl); });
+        await saveItemToShopify(item, html);
+        item.bodyHtml = html;
+        try { const bc=JSON.parse(localStorage.getItem('lw-body-cache')||'{}'); bc[item.id]=html; localStorage.setItem('lw-body-cache',JSON.stringify(bc)); } catch(e){}
+        done++;
+      } catch(e) { failed++; }
+    }));
+    if(btn) btn.textContent = 'Saving '+Math.min(done+failed, total)+'/'+total+'...';
+    // Small pause between batches to avoid rate limiting
+    if(i+BATCH < tasks.length) await new Promise(r => setTimeout(r, 300));
+  }
 
   // Clean up state
   fixes.forEach(fix => {
@@ -4035,7 +4045,7 @@ async function saveAllPendingFixes() {
   renderBrokenLinksReport(); renderDashboard();
   const groupCount = fixes.length;
   if(failed===0) showToast('✅ '+groupCount+' group'+(groupCount===1?'':'s')+' fixed across '+done+' pages.','success');
-  else showToast('⚠️ '+done+' pages saved, '+failed+' failed.','error');
+  else showToast('⚠️ '+done+' saved, '+failed+' failed — try saving again for the failed ones.','error');
 }
 
 // Remove broken link from ALL pages in the group
