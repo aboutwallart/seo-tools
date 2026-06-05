@@ -219,7 +219,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.50</div>
+    <div class="version">v16.51</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -3813,6 +3813,7 @@ function getBrokenLinkGroups(statusFilter) {
 }
 
 function renderBrokenLinksReport() {
+  computeBrokenLinkSuggestions();
   const statusFilter = (document.getElementById('bl-status-filter')||{value:''}).value;
   let groups = getBrokenLinkGroups(statusFilter);
 
@@ -3894,18 +3895,34 @@ function buildBrokenLinkGroupRow(group, idx) {
     </div>`;
 
   const pending = BlState.pendingFixes.get(groupKey);
-  const fixInner = pending
-    ? `<div style="font-size:12px;color:#2e7d32;font-weight:600;padding:4px 0;">&#10003; Will replace with:<br><span style="font-weight:400;word-break:break-all;">${escHtml(pending.newTitle)}</span></div>
-       <button onclick="blClearPendingFix('${gkEsc}',${idx})" style="margin-top:4px;background:#fff;color:#888;border:1px solid #ccc;border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;">Clear</button>`
-    : `<div style="font-size:11px;color:#888;margin-bottom:4px;">Replace with a ${typeLabel} — fixes these ${count} page${count===1?'':'s'}:</div>
-       <div style="position:relative;">
+  const suggested = occurrences[0] && occurrences[0].suggested;
+  const searchBox = `<div style="position:relative;">
          <input type="text" id="${inputId}" placeholder="Type keyword..."
            style="width:100%;padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:12px;box-sizing:border-box;"
            oninput="blSearch('${inputId}','${dropId}','${searchType}','${escHtml(brokenUrl)}',${idx},'${gkEsc}')"
            autocomplete="off" />
          <div id="${dropId}" style="display:none;"></div>
-       </div>
+       </div>`;
+  let fixInner;
+  if(pending) {
+    fixInner = `<div style="font-size:12px;color:#2e7d32;font-weight:600;padding:4px 0;">&#10003; Will replace with:<br><span style="font-weight:400;word-break:break-all;">${escHtml(pending.newTitle)}</span></div>
+       <button onclick="blClearPendingFix('${gkEsc}',${idx})" style="margin-top:4px;background:#fff;color:#888;border:1px solid #ccc;border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;">Clear</button>`;
+  } else if(suggested) {
+    const confColor = suggested.label==='high' ? '#2e7d32' : '#e65100';
+    const confLabel = suggested.label==='high' ? 'Best match' : 'Possible match';
+    const sugUrl = escHtml(suggested.item.url);
+    const sugTitle = escHtml(suggested.item.title);
+    fixInner = `<div style="font-size:11px;color:#888;margin-bottom:4px;"><span style="color:${confColor};font-weight:700;">${confLabel}:</span></div>
+       <div style="font-size:12px;font-weight:600;margin-bottom:4px;word-break:break-all;">${sugTitle}</div>
+       <button onclick="blSelectFix('${gkEsc}','${escHtml(brokenUrl)}','${sugUrl}','${sugTitle}',${idx},'${inputId}','${dropId}')" style="background:#2e7d32;color:#fff;border:none;border-radius:3px;padding:3px 10px;font-size:11px;cursor:pointer;margin-right:4px;">Accept</button>
+       <button onclick="document.getElementById('bl-search-area-${idx}').style.display='block'" style="background:#fff;color:#555;border:1px solid #ccc;border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer;">Change</button>
+       <div id="bl-search-area-${idx}" style="display:none;margin-top:6px;">${searchBox}</div>
+       <button onclick="confirmRemoveLinkGroup('${gkEsc}',${idx})" style="margin-top:4px;display:block;background:#fff;color:#c62828;border:1px solid #c62828;border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;">Remove these pages</button>`;
+  } else {
+    fixInner = `<div style="font-size:11px;color:#888;margin-bottom:4px;">Replace with a ${typeLabel} — fixes these ${count} page${count===1?'':'s'}:</div>
+       ${searchBox}
        <button onclick="confirmRemoveLinkGroup('${gkEsc}',${idx})" style="margin-top:4px;background:#fff;color:#c62828;border:1px solid #c62828;border-radius:3px;padding:2px 8px;font-size:11px;cursor:pointer;">Remove these pages</button>`;
+  }
 
   const fixCell = `<div id="bl-fix-area-${idx}" style="font-size:12px;">${fixInner}</div>`;
 
