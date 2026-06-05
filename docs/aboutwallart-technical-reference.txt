@@ -1,7 +1,7 @@
 # TECHNICAL REFERENCE DOCUMENT
 ## AboutWallArt SEO Tools Infrastructure
 
-**Last Updated:** June 5, 2026 (Money Page Doctor v45.1 — Internal Links block, FAQ fix, 90-day seeding)
+**Last Updated:** June 5, 2026 (Link Whisperer v16.42 — Broken Links grouped by URL, split into rows of 20, sorted, DOMParser-based save/remove)
 **Owner:** aboutwallart
 **Purpose:** Complete technical documentation for all SEO tools, infrastructure, API keys, and configurations
 
@@ -27,6 +27,7 @@
 - `rank-report-card.html` — Ranking report and tracking tool (password protected)
 - `image-optimizer.html` — Shopify image optimization tool (password protected)
 - `gsc-report.html` — Easy SEO Report Tool (LIVE - v52 as of May 30, 2026)
+- `link-whisperer.html` — Internal Link Manager Tool (LIVE - v16.42 as of June 5, 2026)
 - `package.json` — Node.js dependencies
 - `vercel.json` — Vercel deployment configuration with domain redirects
 
@@ -446,6 +447,7 @@ GA4_PROPERTY_ID           — 359661193
 4. Rank Report Card — /rank-report-card.html
 5. Image Optimizer — /image-optimizer.html
 6. Easy SEO Report — /gsc-report.html (LIVE v52)
+7. Link Whisperer — /link-whisperer.html (LIVE v16.42)
 
 ---
 
@@ -525,7 +527,7 @@ Update this document when:
 # LINK WHISPERER TOOL — COMPLETE DOCUMENTATION
 
 **File:** `link-whisperer.html`
-**Current Version:** v16.31 (June 4, 2026)
+**Current Version:** v16.42 (June 5, 2026)
 **URL:** https://tools.aboutwallart.com/link-whisperer.html
 **Purpose:** Internal linking manager — replicates Link Whisper (WordPress plugin) for Shopify. Manages inbound and outbound internal links across all site content. Also detects keyword cannibalization and auto-applies link rules to new content via Shopify webhooks.
 
@@ -725,17 +727,51 @@ Free Interior Design Education & Guides, Free Home Decor & Interior Design Tools
 
 ---
 
-## Tabs Built and Working (v16.31, June 4, 2026)
+## Tabs Built and Working (v16.42, June 5, 2026)
 
 | Tab | Status |
 |-----|--------|
 | Dashboard | ✅ Working — stats cards, top domains, internal vs external donut chart |
 | Links Report | ✅ Working — Regular Mode + Bulk Mode (Outbound Bulk + Inbound Bulk) |
 | Domains Report | ✅ Working — table with expand rows, sort, filter, CSV export |
-| Broken Links Report | ✅ Working — column sorting, Remove Link |
+| Broken Links Report | ⚠️ Partially working — see Broken Links section below |
 | Auto Linking | ✅ Working — 368 rules, auto-applied to new products/collections via webhook, errors-only filter |
 | Cannibalization | ✅ Working — detects keyword cannibalization using registry data, Conflicts + No Conflicts sub-tabs |
 | Settings | ✅ Working — all toggles, webhook registration, GitHub settings sync, clean metafield records, clear cache |
+
+---
+
+## Broken Links Report — Architecture (v16.42)
+
+### What works:
+- Groups broken URLs — one row per unique broken URL
+- Large groups (>20 pages) automatically split into rows of 20 with batch label "(1/13)"
+- Tab badge shows count of unique broken URLs
+- Search dropdown: results grouped by type (same type first → collections → blogs → pages), no products
+- Full URL paste supported (shows "Use this URL directly →" option)
+- Sort by any column including Affects (number of pages) ↕
+- Email addresses filtered out from broken links list
+- Variant URLs with `?variant=XXXXX` filtered out (not yet redirected — see To Build)
+- Save/Remove work correctly for groups ≤ 20 pages (confirmed working)
+
+### Key data structures:
+- `BlState.pendingFixes` — Map of `groupKey → {groupKey, brokenUrl, newUrl, newTitle, sourceIds[], idx}`
+- `BlState.selected` — Set of selected groupKeys
+- `BlState.groupRegistry` — Map of `groupKey → group object` (rebuilt on each render)
+- Group key = `brokenUrl` for groups ≤ 20, `brokenUrl + '::' + chunkIndex` for larger groups
+
+### URL replacement functions:
+- `replaceUrlInHtml(html, brokenUrl, newUrl)` — uses DOMParser, finds `<a>` tags by normalized href comparison, updates href
+- `removeLinkFromHtml(html, brokenUrl)` — uses DOMParser, finds matching `<a>` tags, unwraps them (keeps inner text)
+
+### Save flow:
+- `saveAllPendingFixes()` — uses stored `sourceIds` directly (no re-querying AppState.brokenLinks)
+- Processes in batches of 5 items per round, 300ms pause between rounds
+- After save: removes saved entries from AppState.brokenLinks WITHOUT calling detectBrokenLinks()
+- Badge updated manually after save
+
+### ❌ Critical bug — pages come back after refresh:
+After saving a fix or removing links, the UI correctly removes the group. But when the user clicks Refresh Data or reopens the tool, the group reappears. Root cause not yet confirmed. Most likely: `replaceUrlInHtml` / `removeLinkFromHtml` is not modifying the HTML (returns unchanged), so Shopify receives unchanged content, and on next scan the broken link is found again. The DOMParser href comparison may not be matching the actual href format stored in `item.bodyHtml`. **Next session must diagnose by console.log'ing `item.bodyHtml` for an affected page before attempting any more fixes.**
 
 ---
 
@@ -774,21 +810,38 @@ Free Interior Design Education & Guides, Free Home Decor & Interior Design Tools
 
 ---
 
-## Known Issues / Still To Build (June 4, 2026)
+## Known Issues / Still To Build (June 5, 2026)
 
-1. **Broken Links — Resolved tab** — not yet built
-2. **Broken Links — bulk save** — not yet built
+### ❌ Critical — Save/Remove not persisting after refresh
+See Broken Links architecture section above. Must diagnose before next fix attempt.
 
-## Version History (this session — June 4, 2026)
+### ❌ Still to build:
+1. **Broken Links — Bulk Remove Selected** — Delete Selected button should actually call Shopify API to strip `<a>` tags, not just dismiss from list
+2. **Broken Links — Detect archived products** — broken URLs matching `/products/` where the product exists but `publishedAt = null` (archived/discontinued) should be tagged with "Archived product" badge instead of just 404
+3. **Broken Links — Variant URL redirect** — URLs with `?variant=XXXXX` should be auto-detected: if clean URL exists in store, fix the href to use clean URL; if clean URL also doesn't exist, show as broken
+4. **Broken Links — Resolved tab** — show last N fixed broken links with undo option (was in original roadmap, still not built)
+
+## Version History
 
 | Version | Key Changes |
 |---------|-------------|
 | v16.26 | Auto-Link Webhooks — Register button in Settings, lw-settings.json, webhook handler added to shopify-files.js |
 | v16.27 | Fixed verify URLs bug (checks if items loaded first), fixed collections webhook topic |
 | v16.28 | Errors-only filter in Auto Linking tab, detailed error display on webhook registration |
-| v16.29 | Webhook fixed to products/create + collections/create only. Cannibalization tab added (replaces URL Changer + Target Keywords). blogs.js returns intent column (col 10) |
+| v16.29 | Webhook fixed to products/create + collections/create only. Cannibalization tab added. blogs.js returns intent column (col 10) |
 | v16.30 | Fixed persistMetafieldLinks to check response and call only once per queue save |
-| v16.31 | **Critical fix** — added missing `get-metafield-links` and `save-metafield-links` actions to blogs.js. These were never in the file, meaning inbound product tracking never persisted across sessions. Now fully working cross-device via GitHub |
+| v16.31 | Critical fix — added missing get-metafield-links + save-metafield-links to blogs.js |
+| v16.32 | Broken Links: tab badge, bulk stage + save, email filter |
+| v16.33 | Broken Links: grouped by URL, parallel saves, remove from all pages |
+| v16.34 | Broken Links: dropdown overflow fix, search by all types, full URL paste |
+| v16.35 | Broken Links: global fixed-position dropdown, email filter improved, URL normalization |
+| v16.36 | Broken Links: batched saves (5 at a time), sortable Affects column |
+| v16.37 | Broken Links: string-based URL replacement (split/join) |
+| v16.38 | Broken Links: skip detectBrokenLinks after save — remove from state directly |
+| v16.39 | Broken Links: max 20 pages per save group |
+| v16.40 | Broken Links: DOMParser-based removeLinkFromHtml |
+| v16.41 | Broken Links: DOMParser-based replaceUrlInHtml |
+| v16.42 | Broken Links: groups >20 split into rows of 20 in UI — **CURRENT VERSION** |
 
 ---
 
