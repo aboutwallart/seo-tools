@@ -219,7 +219,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.55</div>
+    <div class="version">v16.57</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -1698,9 +1698,9 @@ function buildLinkGraph() {
     AppState.linkGraph.outbound[link.sourceId].push({targetUrl:link.targetUrl,anchorText:link.anchorText,type:link.type});
     if (link.type==='internal') {
       const target=AppState.items.find(i=>{
-        const ct=link.targetUrl.replace(/\/$/,'').toLowerCase();
+        const ct=link.targetUrl.replace('https://www.aboutwallart.com','https://aboutwallart.com').replace(/\/$/,'').toLowerCase();
         const ci=(i.url||'').replace(/\/$/,'').toLowerCase();
-        return ct===ci||ct.endsWith('/'+i.handle);
+        return ct===ci;
       });
       if (target) {
         if (!AppState.linkGraph.inbound[target.id]) AppState.linkGraph.inbound[target.id]=[];
@@ -2207,7 +2207,8 @@ async function saveQueue() {
           delete AppState.saveStatuses[q.targetItemId];
         } else if(q.isInbound) {
           for(const sel of q.selections) {
-            const updatedHtml = (sel.sourceItem.bodyHtml||'') + '\n<p>' + sel.phraseHtml + '</p>';
+            const updatedHtml = prepareInboundHtml(sel.sourceItem.bodyHtml||'', sel.phraseHtml, q.targetItem.title, q.targetItem.url);
+            if(updatedHtml === null) continue; // already linked — skip
             await saveItemToShopify(sel.sourceItem, updatedHtml);
             sel.sourceItem.bodyHtml = updatedHtml;
             try {
@@ -2826,7 +2827,11 @@ async function saveInboundLinks() {
   for(const sel of selections) {
     try {
       const sourceItem = sel.sourceItem;
-      const updatedHtml = (sourceItem.bodyHtml||'') + '\n<p>' + sel.phraseHtml + '</p>';
+      const updatedHtml = prepareInboundHtml(sourceItem.bodyHtml||'', sel.phraseHtml, targetItem.title, targetItem.url);
+      if(updatedHtml === null) {
+        failed.push(sel.sourceItem.title+': already links to this page — skipped');
+        continue;
+      }
       await saveItemToShopify(sourceItem, updatedHtml);
       sourceItem.bodyHtml = updatedHtml;
       // Update body cache
@@ -2869,6 +2874,83 @@ async function saveInboundLinks() {
 
   renderLinksReport();
   renderDashboard();
+}
+
+// Normalise a URL for comparison — strips www, trailing slash, lowercases
+function normUrl(u) {
+  if(!u) return '';
+  const full = u.startsWith('/') ? 'https://aboutwallart.com'+u : u;
+  return full.replace('https://www.aboutwallart.com','https://aboutwallart.com').replace(/\/$/,'').toLowerCase();
+}
+
+// Returns true if HTML already contains a link pointing to targetUrl
+function htmlAlreadyLinksTo(html, targetUrl) {
+  if(!html || !targetUrl) return false;
+  try {
+    const nt = normUrl(targetUrl);
+    const doc = new DOMParser().parseFromString('<div>'+html+'</div>', 'text/html');
+    return Array.from(doc.querySelectorAll('a[href]')).some(a => normUrl(a.getAttribute('href')||'') === nt);
+  } catch(e) { return false; }
+}
+
+// Detect text-align of last styled <p> in HTML
+function detectAlign(html) {
+  try {
+    const doc = new DOMParser().parseFromString('<div>'+html+'</div>', 'text/html');
+    const paras = Array.from(doc.querySelectorAll('p'));
+    for(let i = paras.length - 1; i >= 0; i--) {
+      const style = paras[i].getAttribute('style') || '';
+      const cls   = paras[i].getAttribute('class') || '';
+      const m = style.match(/text-align\s*:\s*(center|right|left|justify)/i);
+      if(m) return m[1].toLowerCase();
+      if(/center/i.test(cls)) return 'center';
+    }
+  } catch(e) {}
+  return '';
+}
+
+// Master function: prepares updated HTML for an inbound link save.
+// - Merges into existing blogToCol / trendToCol phrase if present (multiple collections → one sentence)
+// - Returns null if target URL is already linked (skip / duplicate)
+// - Otherwise appends a new aligned paragraph with correct spacing
+function prepareInboundHtml(existingHtml, phraseHtml, targetTitle, targetUrl) {
+  const existing = (existingHtml || '').trimEnd();
+  const isBlogToCol  = phraseHtml.includes('Browse our') && phraseHtml.includes('collection to find pieces');
+  const isTrendToCol = phraseHtml.includes('Explore our') && phraseHtml.includes('collection to find the perfect');
+
+  if(isBlogToCol || isTrendToCol) {
+    try {
+      const doc = new DOMParser().parseFromString('<div>'+existing+'</div>', 'text/html');
+      const root = doc.body.firstChild;
+      let existingPara = null;
+      for(const p of root.querySelectorAll('p')) {
+        const t = p.textContent.toLowerCase();
+        if(isBlogToCol  && t.includes('browse our') && t.includes('collection to find pieces'))    { existingPara = p; break; }
+        if(isTrendToCol && t.includes('explore our') && t.includes('collection to find the perfect')) { existingPara = p; break; }
+      }
+      if(existingPara) {
+        // Check if new URL already in this paragraph
+        const nt = normUrl(targetUrl);
+        const already = Array.from(existingPara.querySelectorAll('a[href]')).some(a => normUrl(a.getAttribute('href')||'') === nt);
+        if(already) return null; // already linked — skip
+        // Merge: build joined links
+        const links = Array.from(existingPara.querySelectorAll('a')).map(a => a.outerHTML);
+        links.push(`<a href="${targetUrl}">${escHtml(targetTitle)}</a>`);
+        const joined = links.length === 2
+          ? links[0] + ' and ' + links[1]
+          : links.slice(0,-1).join(', ') + ' and ' + links[links.length-1];
+        if(isBlogToCol)  existingPara.innerHTML = `Browse our ${joined} collections to find pieces that bring this look to life in your home.`;
+        if(isTrendToCol) existingPara.innerHTML = `Explore our ${joined} collections to find the perfect items for this trend.`;
+        return root.innerHTML;
+      }
+    } catch(e) {}
+  }
+
+  // No existing phrase to merge — duplicate check then append
+  if(htmlAlreadyLinksTo(existing, targetUrl)) return null;
+  const align = detectAlign(existing);
+  const newPara = align ? `<p style="text-align:${align};">${phraseHtml}</p>` : `<p>${phraseHtml}</p>`;
+  return existing + '\n' + newPara;
 }
 
 function normaliseHref(href) {
