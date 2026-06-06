@@ -221,7 +221,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.60</div>
+    <div class="version">v16.61</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -375,6 +375,12 @@
     </div>
     <div class="table-wrap" id="lr-table-wrap">
       <table>
+        <colgroup>
+          <col style="width:36%;">
+          <col style="width:10%;">
+          <col style="width:27%;">
+          <col style="width:27%;">
+        </colgroup>
         <thead>
           <tr>
             <th onclick="sortLinksReport('title')">Title <span class="sort-icon" id="sort-title"></span></th>
@@ -3380,7 +3386,7 @@ function buildItemRow(item) {
         <span class="link-count ${inbound.length===0?'zero':''}">→${inbound.length}</span>
         <button class="btn-expand ${inOpen}" onclick="toggleExpand('${item.id}','inbound')">▼</button>
         ${(() => {
-          if(!shouldShowAddButton(item)) return '';
+          if(!shouldShowAddButton(item)) return `<span style="display:inline-block;min-width:54px;"></span>`;
           if(inboundReq.noRules) {
             // Products: show Done if has any inbound, else show + Add (opens inbound bulk panel)
             if(inbound.length > 0) return `<button class="btn-add" disabled style="opacity:0.35;cursor:default;background:#aaa;">✓ Done</button>`;
@@ -3399,7 +3405,7 @@ function buildItemRow(item) {
           const req = checkItemRequirements(item);
           if(req.fullyDone) return `<button class="btn-add" disabled style="opacity:0.35;cursor:default;background:#aaa;" title="All required links already present">✓ Done</button>`;
           return `<button class="btn-add" onclick="openSuggestPanel('${item.id}')">+ Add</button>`;
-        })() : ''}
+        })() : `<span style="display:inline-block;min-width:54px;"></span>`}
         ${saveBadge}
       </div>
     </td>
