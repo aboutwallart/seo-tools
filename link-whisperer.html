@@ -77,13 +77,15 @@
     .btn-outline { background:#fff; color:#222; border:1px solid #222; border-radius:4px; padding:8px 16px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; cursor:pointer; }
     .btn-outline:hover { background:#f5f5f5; }
     .table-wrap { background:#fff; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.08); overflow:hidden; }
+    #lr-table-wrap { overflow-x:auto; }
     #tab-broken-links .table-wrap { overflow:visible; }
     table { width:100%; border-collapse:collapse; font-size:13px; table-layout:fixed; }
+    #lr-table-wrap table { min-width:780px; }
     thead th { background:#f9f9f9; padding:12px 16px; text-align:left; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:#555; border-bottom:1px solid #e8e8e8; cursor:pointer; white-space:nowrap; user-select:none; overflow:hidden; }
-    thead th:nth-child(1), tbody td:nth-child(1) { width:44%; }
+    thead th:nth-child(1), tbody td:nth-child(1) { width:36%; }
     thead th:nth-child(2), tbody td:nth-child(2) { width:10%; }
-    thead th:nth-child(3), tbody td:nth-child(3) { width:23%; overflow:hidden; }
-    thead th:nth-child(4), tbody td:nth-child(4) { width:23%; overflow:hidden; }
+    thead th:nth-child(3), tbody td:nth-child(3) { width:27%; overflow:hidden; }
+    thead th:nth-child(4), tbody td:nth-child(4) { width:27%; overflow:hidden; }
     thead th:hover { background:#f0f0f0; }
     thead th .sort-icon { margin-left:4px; color:#bbb; }
     tbody tr { border-bottom:1px solid #f0f0f0; }
@@ -219,7 +221,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.58</div>
+    <div class="version">v16.60</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -2537,11 +2539,15 @@ function selectSearchResult(itemId, candidateId, candidateUrl, candidateTitle, s
   if(sectionEl) {
     const newItem = document.createElement('div');
     newItem.className = 'suggest-item pre-checked';
+    // Inbound cbClasses (inb-blog, inb-trend) use data-target-id / data-source-id
+    // Outbound cbClasses (sug-collection, sug-blog) use data-item-id / data-candidate-id
+    const isInbound = cbClass.startsWith('inb-');
+    const attrs = isInbound
+      ? `data-target-id="${itemId}" data-source-id="${escHtml(candidateId)}" data-source-url="${escHtml(candidateUrl)}" data-source-title="${escHtml(candidateTitle)}" data-source-type="${searchType}"`
+      : `data-item-id="${itemId}" data-candidate-id="${escHtml(candidateId)}" data-candidate-url="${escHtml(candidateUrl)}" data-candidate-title="${escHtml(candidateTitle)}" data-candidate-type="${searchType}"`;
     newItem.innerHTML = `
-      <input type="checkbox" checked class="inb-cb ${cbClass}"
-        data-target-id="${itemId}" data-source-id="${escHtml(candidateId)}"
-        data-source-url="${escHtml(candidateUrl)}" data-source-title="${escHtml(candidateTitle)}"
-        data-source-type="${searchType}"
+      <input type="checkbox" checked class="${isInbound ? 'inb-cb' : 'sug-cb'} ${cbClass}"
+        ${attrs}
         ${cbClass==='sug-blog'?'onchange="enforceSingleBlog(this,\''+itemId+'\')"':''}
         ${cbClass==='inb-trend'?'onchange="enforceInboundSingle(this,\''+itemId+'\',\'inb-trend\')"':''} />
       <div class="suggest-item-info">
@@ -2550,7 +2556,7 @@ function selectSearchResult(itemId, candidateId, candidateUrl, candidateTitle, s
         <div class="suggest-item-badges"><span class="badge" style="background:#e8f5e9;color:#1b5e20;">ADDED FROM SEARCH</span></div>
       </div>`;
     sectionEl.appendChild(newItem);
-    // If blog, enforce single select
+    // If outbound blog, enforce single select
     if(cbClass==='sug-blog') enforceSingleBlog(newItem.querySelector('input'), itemId);
   }
   // Clear search
