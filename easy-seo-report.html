@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v57.3</div>
+      <div class="tool-version">v57.4</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -510,6 +510,88 @@
             <!-- Progress grid: all days -->
             <div style="font-size:12px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px;">All batches</div>
             <div class="progress-grid" id="reindexDaysGrid"></div>
+
+          </div>
+        </div>
+
+        <!-- ── CARD 3: 404 Redirect Tool ── -->
+        <div class="tech-card">
+          <div class="tech-card-header">
+            <div>
+              <div class="tech-card-title">
+                🔴 Not Found (404 Errors)
+                <span class="severity-badge critical">Critical</span>
+              </div>
+              <div style="font-size:12px;color:#888;margin-top:4px;">65,702 pages Google tried to crawl that return 404</div>
+            </div>
+            <div id="techStatus404" onclick="cycleTechStatus('404')" class="status-badge-pill not-fixed" title="Click to update status">🔴 Not fixed</div>
+          </div>
+          <div class="tech-card-body">
+
+            <div class="tech-explanation">
+              A translation app was installed years ago and created French (/fr/) and Spanish (/es/) versions of every page. When the app was removed, those URLs were never redirected — so Google still tries to crawl them and gets a 404. This tool generates redirects for all affected URLs and pushes them directly to Shopify.
+            </div>
+
+            <div class="tech-impact">
+              💥 <strong>65,702 broken URLs</strong> wasting Google's crawl budget. Every crawl of a 404 is a missed opportunity to crawl a real page.
+            </div>
+
+            <!-- What will be generated -->
+            <div style="background:#f9f9f9;border:1px solid #e5e5e5;border-radius:8px;padding:16px 20px;margin-bottom:20px;font-size:13px;color:#555;line-height:1.7;">
+              <strong>What this tool does:</strong><br>
+              Fetches all your products (vendor = "About Wall Art"), collections, blog articles, and pages from Shopify.
+              For each one, generates two redirects: <code>/fr/[path] → /[path]</code> and <code>/es/[path] → /[path]</code>.
+              Pushes them directly to Shopify. Never pushes the same redirect twice.
+            </div>
+
+            <!-- Step 1: Generate preview -->
+            <div id="redirectStep1">
+              <button onclick="generateRedirectPreview()" id="generateRedirectBtn"
+                style="background:#1a1a1a;color:#fff;border:none;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:16px;">
+                🔍 Generate redirect list preview
+              </button>
+            </div>
+
+            <!-- Preview (hidden until generated) -->
+            <div id="redirectPreview" style="display:none;">
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;">
+                <div style="background:#f9f9f9;border:1px solid #e5e5e5;border-radius:8px;padding:16px;text-align:center;">
+                  <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Total to generate</div>
+                  <div id="redirectTotal" style="font-size:24px;font-weight:700;color:#1a1a1a;">—</div>
+                </div>
+                <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;text-align:center;">
+                  <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Already pushed</div>
+                  <div id="redirectDone" style="font-size:24px;font-weight:700;color:#16a34a;">—</div>
+                </div>
+                <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:16px;text-align:center;">
+                  <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">New to push</div>
+                  <div id="redirectNew" style="font-size:24px;font-weight:700;color:#2563eb;">—</div>
+                </div>
+              </div>
+
+              <!-- Progress bar -->
+              <div id="redirectProgressWrap" style="display:none;margin-bottom:16px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                  <span style="font-size:13px;color:#555;" id="redirectProgressLabel">Pushing redirects...</span>
+                  <span style="font-size:13px;font-weight:700;color:#1a1a1a;" id="redirectProgressPct">0%</span>
+                </div>
+                <div style="background:#f0f0f0;border-radius:99px;height:10px;overflow:hidden;">
+                  <div id="redirectProgressBar" style="height:10px;background:#2563eb;border-radius:99px;width:0%;transition:width 0.3s;"></div>
+                </div>
+              </div>
+
+              <button onclick="pushRedirects()" id="pushRedirectsBtn"
+                style="background:#2563eb;color:#fff;border:none;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;">
+                🚀 Push redirects to Shopify
+              </button>
+              <div id="redirectResult" style="margin-top:12px;font-size:13px;color:#16a34a;display:none;"></div>
+            </div>
+
+            <div class="tech-status-row">
+              <span style="font-size:13px;color:#555;flex:1;">Update status after pushing:</span>
+              <button onclick="setTechStatus('404','in-progress','⏳ In progress')" style="border:none;background:#fffbeb;color:#d97706;border:1px solid #fef08a;padding:6px 14px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:600;">⏳ In Progress</button>
+              <button onclick="setTechStatus('404','fixed','✅ Fixed')" style="border:none;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;padding:6px 14px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:600;">✅ Fixed</button>
+            </div>
 
           </div>
         </div>
@@ -3996,7 +4078,7 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
     }
 
     function restoreTechStatuses() {
-      ['crawled'].forEach(id => {
+      ['crawled', '404'].forEach(id => {
         const saved = localStorage.getItem('techStatus_' + id);
         if (saved) {
           try { const { cssClass, label } = JSON.parse(saved); setTechStatus(id, cssClass, label); } catch(e) {}
@@ -4126,6 +4208,78 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
         if (todayUrls) todayUrls.innerHTML = `<div style="font-size:13px;color:#dc2626;padding:12px 0;">${e.message}</div>`;
         renderReindexDaysGrid();
       }
+    }
+
+    // ── 404 Redirect Tool ────────────────────────────────────────────────────
+
+    let _redirectList = [];
+
+    async function generateRedirectPreview() {
+      const btn = document.getElementById('generateRedirectBtn');
+      btn.textContent = '⏳ Fetching from Shopify...';
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/shopify-files?action=generate-redirects');
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error || 'API error');
+
+        _redirectList = json.redirects;
+        document.getElementById('redirectTotal').textContent = json.total.toLocaleString();
+        document.getElementById('redirectDone').textContent = json.alreadyPushed.toLocaleString();
+        document.getElementById('redirectNew').textContent = json.newCount.toLocaleString();
+        document.getElementById('redirectPreview').style.display = 'block';
+
+        if (json.newCount === 0) {
+          document.getElementById('pushRedirectsBtn').textContent = '✅ All redirects already pushed';
+          document.getElementById('pushRedirectsBtn').disabled = true;
+          document.getElementById('pushRedirectsBtn').style.background = '#16a34a';
+        }
+
+        btn.textContent = '🔄 Refresh preview';
+        btn.disabled = false;
+
+      } catch(e) {
+        btn.textContent = '❌ Error — try again';
+        btn.disabled = false;
+        alert('Error: ' + e.message);
+      }
+    }
+
+    async function pushRedirects() {
+      if (!_redirectList.length) return;
+      const btn = document.getElementById('pushRedirectsBtn');
+      btn.disabled = true;
+      btn.textContent = '⏳ Pushing...';
+      document.getElementById('redirectProgressWrap').style.display = 'block';
+
+      const batchSize = 25;
+      let pushed = 0;
+      const total = _redirectList.length;
+
+      for (let i = 0; i < total; i += batchSize) {
+        const batch = _redirectList.slice(i, i + batchSize);
+        try {
+          await fetch('/api/shopify-files?action=create-redirects', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ redirects: batch })
+          });
+        } catch(e) {}
+
+        pushed = Math.min(i + batchSize, total);
+        const pct = Math.round((pushed / total) * 100);
+        document.getElementById('redirectProgressBar').style.width = pct + '%';
+        document.getElementById('redirectProgressPct').textContent = pct + '%';
+        document.getElementById('redirectProgressLabel').textContent = `Pushed ${pushed.toLocaleString()} of ${total.toLocaleString()}...`;
+      }
+
+      document.getElementById('redirectProgressLabel').textContent = '✅ All done!';
+      document.getElementById('redirectResult').style.display = 'block';
+      document.getElementById('redirectResult').textContent = `✅ ${total.toLocaleString()} redirects pushed to Shopify successfully.`;
+      btn.textContent = '✅ Complete';
+      btn.style.background = '#16a34a';
+      setTechStatus('404', 'fixed', '✅ Fixed');
     }
 
     // Hook into showSection to load tech health lazily
