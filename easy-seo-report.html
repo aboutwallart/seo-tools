@@ -4007,7 +4007,7 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
     // ── Re-indexing Tracker ───────────────────────────────────────────────────
 
     const REINDEX_CAMPAIGN_START = new Date('2026-06-07T00:00:00Z');
-    const GSC_BASE = 'https://search.google.com/search-console/inspect?resource_id=sc-domain%3Aaboutwallart.com&id=';
+    const GSC_BASE = 'https://search.google.com/search-console/inspect?resource_id=sc-domain:aboutwallart.com&id=';
 
     function reindexDaysSinceStart() {
       const now = new Date();
@@ -4083,13 +4083,14 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
         }
 
         if (todayUrls) {
-          todayUrls.innerHTML = batchUrls.map((url, i) => {
+          const gscInspectUrl = 'https://search.google.com/search-console/inspect?resource_id=sc-domain:aboutwallart.com';
+          todayUrls.innerHTML = `<div style="margin-bottom:14px;"><a href="${gscInspectUrl}" target="_blank" class="reindex-gsc-btn" style="display:inline-block;padding:8px 16px;font-size:13px;">Open GSC URL Inspection →</a><span style="font-size:12px;color:#888;margin-left:10px;">Then click Copy next to each URL below</span></div>` +
+          batchUrls.map((url, i) => {
             const shortPath = url.replace('https://aboutwallart.com', '') || '/';
-            const gscLink = GSC_BASE + encodeURIComponent(url);
             return `<div class="reindex-url-row">
               <span style="font-size:11px;font-weight:700;color:#aaa;min-width:20px;">${batchStart + i + 1}</span>
               <span class="reindex-url-path" title="${url}">${shortPath}</span>
-              <a href="${gscLink}" target="_blank" class="reindex-gsc-btn">Open in GSC →</a>
+              <button onclick="navigator.clipboard.writeText('${url}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy URL',1500);" class="reindex-gsc-btn" style="border:none;cursor:pointer;">Copy URL</button>
             </div>`;
           }).join('');
         }
