@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v57.4</div>
+      <div class="tool-version">v57.5</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -514,7 +514,118 @@
           </div>
         </div>
 
-        <!-- ── CARD 3: 404 Redirect Tool ── -->
+        <!-- ── CARD 3: Review Snippets ── -->
+        <div class="tech-card">
+          <div class="tech-card-header">
+            <div>
+              <div class="tech-card-title">
+                🔴 Review Snippets Invalid
+                <span class="severity-badge critical">Critical</span>
+              </div>
+              <div style="font-size:12px;color:#888;margin-top:4px;">194 product pages — no star ratings showing in Google search results</div>
+            </div>
+            <div id="techStatusReviews" onclick="cycleTechStatus('reviews')" class="status-badge-pill not-fixed" title="Click to update status">🔴 Not fixed</div>
+          </div>
+          <div class="tech-card-body">
+
+            <div class="tech-explanation">
+              Your product pages output <strong>two Product schemas</strong> — one from the Minimog theme, one from Judge.me. Google sees a conflict and rejects both, so no star ratings appear in search results. The fix is to remove the theme's schema and leave only Judge.me's (which has the real review data).
+            </div>
+
+            <div class="tech-impact">
+              ⭐ <strong>Star ratings in Google search results increase click-through rate by 15–30%.</strong> Every product page is missing this right now.
+            </div>
+
+            <!-- Step by step guide -->
+            <div style="background:#f9f9f9;border:1px solid #e5e5e5;border-radius:8px;overflow:hidden;margin-bottom:20px;">
+              <div style="padding:16px 20px;border-bottom:1px solid #e5e5e5;font-size:14px;font-weight:700;color:#1a1a1a;">📋 Step-by-step fix guide</div>
+
+              <div style="padding:16px 20px;border-bottom:1px solid #f0f0f0;">
+                <div style="display:flex;gap:12px;align-items:flex-start;">
+                  <span style="background:#1a1a1a;color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;">1</span>
+                  <div>
+                    <div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:4px;">Duplicate your live theme first</div>
+                    <div style="font-size:13px;color:#555;">Never edit the live theme directly. Go to Shopify Admin → Online Store → Themes → three dots next to your live theme → Duplicate.</div>
+                    <a href="https://aboutwallart.myshopify.com/admin/themes" target="_blank" style="display:inline-block;margin-top:8px;background:#1a1a1a;color:#fff;padding:6px 14px;border-radius:4px;text-decoration:none;font-size:12px;font-weight:600;">Open Shopify Themes →</a>
+                  </div>
+                </div>
+              </div>
+
+              <div style="padding:16px 20px;border-bottom:1px solid #f0f0f0;">
+                <div style="display:flex;gap:12px;align-items:flex-start;">
+                  <span style="background:#1a1a1a;color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;">2</span>
+                  <div>
+                    <div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:4px;">Open the theme code editor</div>
+                    <div style="font-size:13px;color:#555;">Three dots next to your live theme → Edit code.</div>
+                  </div>
+                </div>
+              </div>
+
+              <div style="padding:16px 20px;border-bottom:1px solid #f0f0f0;">
+                <div style="display:flex;gap:12px;align-items:flex-start;">
+                  <span style="background:#1a1a1a;color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;">3</span>
+                  <div>
+                    <div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:4px;">Open <code style="background:#f0f0f0;padding:2px 6px;border-radius:3px;">snippets/product-data.liquid</code></div>
+                    <div style="font-size:13px;color:#555;">In the left file tree, find the Snippets folder and click <strong>product-data.liquid</strong>.</div>
+                  </div>
+                </div>
+              </div>
+
+              <div style="padding:16px 20px;border-bottom:1px solid #f0f0f0;">
+                <div style="display:flex;gap:12px;align-items:flex-start;">
+                  <span style="background:#1a1a1a;color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;">4</span>
+                  <div>
+                    <div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:8px;">Find and delete this block</div>
+                    <div style="font-size:13px;color:#555;margin-bottom:8px;">Use Ctrl+F (or Cmd+F) to search for <code style="background:#f0f0f0;padding:2px 6px;border-radius:3px;">"@type": "Product"</code> — find the one inside a <code style="background:#f0f0f0;padding:2px 6px;border-radius:3px;">&lt;script type="application/ld+json"&gt;</code> tag and delete the entire block from the opening <code>&lt;script&gt;</code> to the closing <code>&lt;/script&gt;</code>.</div>
+                    <div style="background:#1a1a1a;border-radius:6px;padding:16px;font-family:monospace;font-size:11px;color:#a3e635;line-height:1.8;overflow-x:auto;">
+                      <span style="color:#f87171;">← DELETE THIS ENTIRE BLOCK:</span><br>
+                      &lt;script type="application/ld+json"&gt;<br>
+                      &nbsp;&nbsp;{<br>
+                      &nbsp;&nbsp;&nbsp;&nbsp;"@context": "http://schema.org/",<br>
+                      &nbsp;&nbsp;&nbsp;&nbsp;"@type": "Product",<br>
+                      &nbsp;&nbsp;&nbsp;&nbsp;"name": &#123;&#123; product.title | json &#125;&#125;,<br>
+                      &nbsp;&nbsp;&nbsp;&nbsp;"url": &#123;&#123; request.origin | append: product.url | json &#125;&#125;,<br>
+                      &nbsp;&nbsp;&nbsp;&nbsp;... (all the way to the closing brace)<br>
+                      &nbsp;&nbsp;}<br>
+                      &lt;/script&gt;
+                    </div>
+                    <div style="margin-top:8px;font-size:12px;color:#888;">⚠️ Only remove the Product schema script block. Leave everything else in the file — especially the JavaScript product data and any 3D model JSON.</div>
+                  </div>
+                </div>
+              </div>
+
+              <div style="padding:16px 20px;border-bottom:1px solid #f0f0f0;">
+                <div style="display:flex;gap:12px;align-items:flex-start;">
+                  <span style="background:#1a1a1a;color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;">5</span>
+                  <div>
+                    <div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:4px;">Save the file</div>
+                    <div style="font-size:13px;color:#555;">Click Save in the top right of the code editor.</div>
+                  </div>
+                </div>
+              </div>
+
+              <div style="padding:16px 20px;">
+                <div style="display:flex;gap:12px;align-items:flex-start;">
+                  <span style="background:#1a1a1a;color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;">6</span>
+                  <div>
+                    <div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:4px;">Test with Google's Rich Results Test</div>
+                    <div style="font-size:13px;color:#555;">Paste any product URL and confirm only one Product schema appears with aggregateRating from Judge.me.</div>
+                    <a href="https://search.google.com/test/rich-results" target="_blank" style="display:inline-block;margin-top:8px;background:#1a1a1a;color:#fff;padding:6px 14px;border-radius:4px;text-decoration:none;font-size:12px;font-weight:600;">Open Rich Results Test →</a>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="tech-status-row">
+              <span style="font-size:13px;color:#555;flex:1;">Mark when done:</span>
+              <button onclick="setTechStatus('reviews','in-progress','⏳ In progress')" style="border:none;background:#fffbeb;color:#d97706;border:1px solid #fef08a;padding:6px 14px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:600;">⏳ In Progress</button>
+              <button onclick="setTechStatus('reviews','fixed','✅ Fixed')" style="border:none;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;padding:6px 14px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:600;">✅ Fixed</button>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- ── CARD 4: 404 Redirect Tool ── -->
         <div class="tech-card">
           <div class="tech-card-header">
             <div>
@@ -4078,7 +4189,7 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
     }
 
     function restoreTechStatuses() {
-      ['crawled', '404'].forEach(id => {
+      ['crawled', '404', 'reviews'].forEach(id => {
         const saved = localStorage.getItem('techStatus_' + id);
         if (saved) {
           try { const { cssClass, label } = JSON.parse(saved); setTechStatus(id, cssClass, label); } catch(e) {}
