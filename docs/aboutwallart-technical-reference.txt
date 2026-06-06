@@ -1,7 +1,7 @@
 # TECHNICAL REFERENCE DOCUMENT
 ## AboutWallArt SEO Tools Infrastructure
 
-**Last Updated:** June 5, 2026 (Link Whisperer v16.54 — Broken Links fully working: www bug fixed, archived product detection, query param auto-fix, bulk delete, auto-suggestions by content type, product search)
+**Last Updated:** June 6, 2026 (Link Whisperer v16.61 — Inbound/outbound custom search fixed for all types, Clean Up Duplicate Phrases tool, column layout improvements)
 **Owner:** aboutwallart
 **Purpose:** Complete technical documentation for all SEO tools, infrastructure, API keys, and configurations
 
@@ -527,7 +527,7 @@ Update this document when:
 # LINK WHISPERER TOOL — COMPLETE DOCUMENTATION
 
 **File:** `link-whisperer.html`
-**Current Version:** v16.54 (June 5, 2026)
+**Current Version:** v16.61 (June 6, 2026)
 **URL:** https://tools.aboutwallart.com/link-whisperer.html
 **Purpose:** Internal linking manager — replicates Link Whisper (WordPress plugin) for Shopify. Manages inbound and outbound internal links across all site content. Also detects keyword cannibalization and auto-applies link rules to new content via Shopify webhooks.
 
@@ -732,7 +732,7 @@ Free Interior Design Education & Guides, Free Home Decor & Interior Design Tools
 | Tab | Status |
 |-----|--------|
 | Dashboard | ✅ Working — stats cards, top domains, internal vs external donut chart |
-| Links Report | ✅ Working — Regular Mode + Bulk Mode (Outbound Bulk + Inbound Bulk) — ⚠️ user reported issues, not yet investigated |
+| Links Report | ✅ Working — Regular Mode + Bulk Mode (Outbound Bulk + Inbound Bulk) — all known issues fixed in v16.55–v16.58 |
 | Domains Report | ✅ Working — table with expand rows, sort, filter, CSV export |
 | Broken Links Report | ✅ Working — see Broken Links section below |
 | Auto Linking | ✅ Working — 368 rules, auto-applied to new products/collections via webhook, errors-only filter |
@@ -792,7 +792,7 @@ Free Interior Design Education & Guides, Free Home Decor & Interior Design Tools
 - Shows toast: "Auto-fixed variant URLs on X pages"
 
 ### Known issue — suggestion quality:
-Auto-suggestions use `findBestUrlMatch()` which scores by handle similarity and keyword overlap. Common words like "interior", "design", "home" cause weak false matches. User works manually with the search box. Next session should raise the confidence threshold or only show near-exact matches.
+Auto-suggestions use `findBestUrlMatch()` which scores by handle similarity and keyword overlap. Common words like "interior", "design", "home" cause weak false matches. User works manually with the search box. Future session should raise the confidence threshold or only show near-exact matches.
 
 ---
 
@@ -870,7 +870,14 @@ Auto-suggestions use `findBestUrlMatch()` which scores by handle similarity and 
 | v16.51 | Auto-suggestions shown in each row with Accept button + search box always visible |
 | v16.52 | ACCEPT SELECTED SUGGESTIONS bulk button |
 | v16.53 | Suggestions filter by content type. Search box always visible (no Change button needed) |
-| v16.54 | Products added to broken links search results — **CURRENT VERSION** |
+| v16.54 | Products added to broken links search results |
+| v16.55 | Fixed inbound search checkboxes — wrong data attributes caused "Please select at least one source page" error on custom search results |
+| v16.56 | Fixed buildLinkGraph URL matching — removed dangerous endsWith handle fallback, added www normalisation. Duplicate prevention + alignment detection helpers added |
+| v16.57 | prepareInboundHtml() — phrase merging (multiple collections → one sentence), spacing fix, alignment inheritance from existing content |
+| v16.58 | Clean Up Duplicate Phrases button in Settings — scans all items, shows preview, removes duplicates, merges collection links |
+| v16.59 | Links Report table colgroup + overflow-x:auto + min-width:780px for column layout |
+| v16.60 | Fixed outbound custom search — selectSearchResult uses correct data attributes per cbClass |
+| v16.61 | Placeholder spans for missing buttons; colgroup in table HTML. ⚠️ Column alignment for pages/collections inbound not fully resolved — **CURRENT VERSION** |
 
 ---
 
