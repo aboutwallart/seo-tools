@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v57.5</div>
+      <div class="tool-version">v57.6</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -704,6 +704,199 @@
               <button onclick="setTechStatus('404','fixed','✅ Fixed')" style="border:none;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;padding:6px 14px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:600;">✅ Fixed</button>
             </div>
 
+          </div>
+        </div>
+
+        <!-- ── CARD 5: Duplicate Canonical ── -->
+        <div class="tech-card">
+          <div class="tech-card-header">
+            <div>
+              <div class="tech-card-title">
+                🟡 Duplicate Without User-Selected Canonical
+                <span class="severity-badge monitor">Monitor</span>
+              </div>
+              <div style="font-size:12px;color:#888;margin-top:4px;">26,959 pages — Google is guessing which URL is the "real" one</div>
+            </div>
+            <div id="techStatusCanonical" onclick="cycleTechStatus('canonical')" class="status-badge-pill not-fixed" title="Click to update status">🟡 Monitoring</div>
+          </div>
+          <div class="tech-card-body">
+            <div class="tech-explanation">
+              Google found pages it considers duplicates but with no canonical tag telling it which URL is the "real" one — so Google is making its own guess. This is very common on Shopify and is caused by collection filter URLs (<code style="background:#f0f0f0;padding:2px 5px;border-radius:3px;">/collections/wall-art?sort_by=price</code>), pagination (<code style="background:#f0f0f0;padding:2px 5px;border-radius:3px;">?page=2</code>), and products accessed from different collection contexts.
+            </div>
+            <div style="background:#fffbeb;border:1px solid #fef08a;border-radius:8px;padding:16px 20px;margin-bottom:20px;">
+              <div style="font-size:13px;font-weight:700;color:#92400e;margin-bottom:8px;">Good news — Shopify handles most of this automatically</div>
+              <div style="font-size:13px;color:#92400e;line-height:1.7;">Shopify outputs canonical tags on every page by default. The key is making sure no app or theme customisation has overridden them. The anti-fraud app that was removed is the most likely culprit — and since it's been removed, these should gradually resolve as Google re-crawls.</div>
+            </div>
+            <div style="background:#f9f9f9;border:1px solid #e5e5e5;border-radius:8px;padding:16px 20px;margin-bottom:20px;">
+              <div style="font-size:13px;font-weight:700;color:#1a1a1a;margin-bottom:10px;">✅ How to verify Shopify's canonical is working</div>
+              <ol style="margin:0;padding-left:20px;font-size:13px;color:#555;line-height:2;">
+                <li>Go to any product page on your store</li>
+                <li>Right-click → View Page Source</li>
+                <li>Press Ctrl+F and search for <code style="background:#f0f0f0;padding:2px 5px;border-radius:3px;">rel="canonical"</code></li>
+                <li>Confirm it shows the clean product URL (no parameters)</li>
+              </ol>
+            </div>
+            <div class="tech-status-row">
+              <span style="font-size:13px;color:#555;flex:1;">Update when resolved:</span>
+              <button onclick="setTechStatus('canonical','in-progress','⏳ Monitoring')" style="border:none;background:#fffbeb;color:#d97706;border:1px solid #fef08a;padding:6px 14px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:600;">⏳ Monitoring</button>
+              <button onclick="setTechStatus('canonical','fixed','✅ Resolved')" style="border:none;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;padding:6px 14px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:600;">✅ Resolved</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── CARD 6: Server Errors (5xx) ── -->
+        <div class="tech-card">
+          <div class="tech-card-header">
+            <div>
+              <div class="tech-card-title">
+                🟡 Server Errors (5xx)
+                <span class="severity-badge monitor">Monitor</span>
+              </div>
+              <div style="font-size:12px;color:#888;margin-top:4px;">66 pages returning server errors when Google tries to crawl them</div>
+            </div>
+            <div id="techStatus5xx" onclick="cycleTechStatus('5xx')" class="status-badge-pill not-fixed" title="Click to update status">🟡 Not fixed</div>
+          </div>
+          <div class="tech-card-body">
+            <div class="tech-explanation">
+              These pages exist but are breaking when Google crawls them. Usually caused by app-generated URLs, broken redirects, or specific pages with code errors. Upload your GSC export to see and diagnose the URLs.
+            </div>
+
+            <div style="border:2px dashed #e5e5e5;border-radius:8px;padding:24px;text-align:center;margin-bottom:20px;cursor:pointer;" onclick="document.getElementById('csv5xxInput').click()" id="csv5xxDrop">
+              <div style="font-size:24px;margin-bottom:8px;">📂</div>
+              <div style="font-size:14px;font-weight:600;color:#1a1a1a;margin-bottom:4px;">Upload GSC Server Errors export</div>
+              <div style="font-size:12px;color:#888;">Click to select your Table.csv file from GSC Coverage → Server error (5xx)</div>
+              <input type="file" id="csv5xxInput" accept=".csv" style="display:none;" onchange="parseCsvCard(this, 'csv5xxTable', 'csv5xxCount', 'csv5xxSection')">
+            </div>
+
+            <div id="csv5xxSection" style="display:none;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                <div style="font-size:13px;font-weight:600;color:#1a1a1a;" id="csv5xxCount"></div>
+                <input type="text" placeholder="Search URLs..." oninput="filterCsvTable('csv5xxTableBody', this.value)" style="padding:6px 12px;border:1px solid #e5e5e5;border-radius:4px;font-size:12px;outline:none;width:220px;">
+              </div>
+              <div style="overflow-x:auto;border:1px solid #e5e5e5;border-radius:8px;overflow:hidden;">
+                <table id="csv5xxTable" style="width:100%;border-collapse:collapse;">
+                  <thead style="background:#1a1a1a;">
+                    <tr>
+                      <th style="padding:10px 16px;font-size:11px;color:#fff;text-align:left;font-weight:600;text-transform:uppercase;">#</th>
+                      <th style="padding:10px 16px;font-size:11px;color:#fff;text-align:left;font-weight:600;text-transform:uppercase;">URL</th>
+                      <th style="padding:10px 16px;font-size:11px;color:#fff;text-align:left;font-weight:600;text-transform:uppercase;">Last Crawled</th>
+                      <th style="padding:10px 16px;font-size:11px;color:#fff;text-align:left;font-weight:600;text-transform:uppercase;">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="csv5xxTableBody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="tech-status-row">
+              <span style="font-size:13px;color:#555;flex:1;">Update when resolved:</span>
+              <button onclick="setTechStatus('5xx','in-progress','⏳ In progress')" style="border:none;background:#fffbeb;color:#d97706;border:1px solid #fef08a;padding:6px 14px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:600;">⏳ In Progress</button>
+              <button onclick="setTechStatus('5xx','fixed','✅ Fixed')" style="border:none;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;padding:6px 14px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:600;">✅ Fixed</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── CARD 7: Soft 404 ── -->
+        <div class="tech-card">
+          <div class="tech-card-header">
+            <div>
+              <div class="tech-card-title">
+                🟡 Soft 404
+                <span class="severity-badge monitor">Monitor</span>
+              </div>
+              <div style="font-size:12px;color:#888;margin-top:4px;">11 pages returning 200 OK but with "not found" content</div>
+            </div>
+            <div id="techStatusSoft404" onclick="cycleTechStatus('soft404')" class="status-badge-pill not-fixed" title="Click to update status">🟡 Not fixed</div>
+          </div>
+          <div class="tech-card-body">
+            <div class="tech-explanation">
+              These pages return a 200 (OK) status code but their content looks like a "not found" page to Google. Usually empty collection pages or search result pages with no results — they should return a real 404 instead.
+            </div>
+
+            <div style="border:2px dashed #e5e5e5;border-radius:8px;padding:24px;text-align:center;margin-bottom:20px;cursor:pointer;" onclick="document.getElementById('csvSoft404Input').click()">
+              <div style="font-size:24px;margin-bottom:8px;">📂</div>
+              <div style="font-size:14px;font-weight:600;color:#1a1a1a;margin-bottom:4px;">Upload GSC Soft 404 export</div>
+              <div style="font-size:12px;color:#888;">Click to select your Table.csv file from GSC Coverage → Soft 404</div>
+              <input type="file" id="csvSoft404Input" accept=".csv" style="display:none;" onchange="parseCsvCard(this, 'csvSoft404Table', 'csvSoft404Count', 'csvSoft404Section')">
+            </div>
+
+            <div id="csvSoft404Section" style="display:none;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                <div style="font-size:13px;font-weight:600;color:#1a1a1a;" id="csvSoft404Count"></div>
+                <input type="text" placeholder="Search URLs..." oninput="filterCsvTable('csvSoft404TableBody', this.value)" style="padding:6px 12px;border:1px solid #e5e5e5;border-radius:4px;font-size:12px;outline:none;width:220px;">
+              </div>
+              <div style="overflow-x:auto;border:1px solid #e5e5e5;border-radius:8px;overflow:hidden;">
+                <table id="csvSoft404Table" style="width:100%;border-collapse:collapse;">
+                  <thead style="background:#1a1a1a;">
+                    <tr>
+                      <th style="padding:10px 16px;font-size:11px;color:#fff;text-align:left;font-weight:600;text-transform:uppercase;">#</th>
+                      <th style="padding:10px 16px;font-size:11px;color:#fff;text-align:left;font-weight:600;text-transform:uppercase;">URL</th>
+                      <th style="padding:10px 16px;font-size:11px;color:#fff;text-align:left;font-weight:600;text-transform:uppercase;">Last Crawled</th>
+                      <th style="padding:10px 16px;font-size:11px;color:#fff;text-align:left;font-weight:600;text-transform:uppercase;">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="csvSoft404TableBody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="tech-status-row">
+              <span style="font-size:13px;color:#555;flex:1;">Update when resolved:</span>
+              <button onclick="setTechStatus('soft404','in-progress','⏳ In progress')" style="border:none;background:#fffbeb;color:#d97706;border:1px solid #fef08a;padding:6px 14px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:600;">⏳ In Progress</button>
+              <button onclick="setTechStatus('soft404','fixed','✅ Fixed')" style="border:none;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;padding:6px 14px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:600;">✅ Fixed</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── CARD 8: Google Chose Different Canonical ── -->
+        <div class="tech-card">
+          <div class="tech-card-header">
+            <div>
+              <div class="tech-card-title">
+                🟡 Google Chose Different Canonical
+                <span class="severity-badge monitor">Monitor</span>
+              </div>
+              <div style="font-size:12px;color:#888;margin-top:4px;">28 pages where Google ignored your canonical tag</div>
+            </div>
+            <div id="techStatusDiffCanonical" onclick="cycleTechStatus('diffcanonical')" class="status-badge-pill not-fixed" title="Click to update status">🟡 Monitor</div>
+          </div>
+          <div class="tech-card-body">
+            <div class="tech-explanation">
+              You set a canonical tag on these pages pointing to URL A, but Google decided URL B is actually the better canonical and ignored your instruction. This usually means the URL Google prefers has stronger signals (more links, more traffic). Very small number — low priority.
+            </div>
+
+            <div style="border:2px dashed #e5e5e5;border-radius:8px;padding:24px;text-align:center;margin-bottom:20px;cursor:pointer;" onclick="document.getElementById('csvDiffCanInput').click()">
+              <div style="font-size:24px;margin-bottom:8px;">📂</div>
+              <div style="font-size:14px;font-weight:600;color:#1a1a1a;margin-bottom:4px;">Upload GSC export</div>
+              <div style="font-size:12px;color:#888;">Click to select your Table.csv from GSC Coverage → Duplicate, Google chose different canonical</div>
+              <input type="file" id="csvDiffCanInput" accept=".csv" style="display:none;" onchange="parseCsvCard(this, 'csvDiffCanTable', 'csvDiffCanCount', 'csvDiffCanSection')">
+            </div>
+
+            <div id="csvDiffCanSection" style="display:none;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                <div style="font-size:13px;font-weight:600;color:#1a1a1a;" id="csvDiffCanCount"></div>
+                <input type="text" placeholder="Search URLs..." oninput="filterCsvTable('csvDiffCanTableBody', this.value)" style="padding:6px 12px;border:1px solid #e5e5e5;border-radius:4px;font-size:12px;outline:none;width:220px;">
+              </div>
+              <div style="overflow-x:auto;border:1px solid #e5e5e5;border-radius:8px;overflow:hidden;">
+                <table id="csvDiffCanTable" style="width:100%;border-collapse:collapse;">
+                  <thead style="background:#1a1a1a;">
+                    <tr>
+                      <th style="padding:10px 16px;font-size:11px;color:#fff;text-align:left;font-weight:600;text-transform:uppercase;">#</th>
+                      <th style="padding:10px 16px;font-size:11px;color:#fff;text-align:left;font-weight:600;text-transform:uppercase;">URL</th>
+                      <th style="padding:10px 16px;font-size:11px;color:#fff;text-align:left;font-weight:600;text-transform:uppercase;">Last Crawled</th>
+                      <th style="padding:10px 16px;font-size:11px;color:#fff;text-align:left;font-weight:600;text-transform:uppercase;">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="csvDiffCanTableBody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="tech-status-row">
+              <span style="font-size:13px;color:#555;flex:1;">Update when resolved:</span>
+              <button onclick="setTechStatus('diffcanonical','in-progress','⏳ Monitoring')" style="border:none;background:#fffbeb;color:#d97706;border:1px solid #fef08a;padding:6px 14px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:600;">⏳ Monitoring</button>
+              <button onclick="setTechStatus('diffcanonical','fixed','✅ Resolved')" style="border:none;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;padding:6px 14px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:600;">✅ Resolved</button>
+            </div>
           </div>
         </div>
 
@@ -4188,8 +4381,47 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
       else setTechStatus(cardId, 'not-fixed', '🔴 Not fixed');
     }
 
+    // ── CSV Upload Parser ─────────────────────────────────────────────────────
+    function parseCsvCard(input, tableId, countId, sectionId) {
+      const file = input.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const lines = e.target.result.trim().split('\n').filter(l => l.trim());
+        const rows = lines.slice(1); // skip header
+        const tbody = document.getElementById(tableId + 'Body');
+        const countEl = document.getElementById(countId);
+        const section = document.getElementById(sectionId);
+        if (!tbody) return;
+        tbody.innerHTML = rows.map((line, i) => {
+          const parts = line.split(',');
+          const url = parts[0] ? parts[0].trim().replace(/^"|"$/g,'') : '';
+          const crawled = parts[1] ? parts[1].trim().replace(/^"|"$/g,'') : '';
+          const shortUrl = url.replace('https://aboutwallart.com','');
+          return `<tr>
+            <td style="padding:10px 16px;font-size:12px;color:#888;border-bottom:1px solid #f0f0f0;">${i+1}</td>
+            <td style="padding:10px 16px;font-size:12px;color:#1a1a1a;border-bottom:1px solid #f0f0f0;max-width:500px;word-break:break-all;" title="${url}">${shortUrl}</td>
+            <td style="padding:10px 16px;font-size:12px;color:#888;border-bottom:1px solid #f0f0f0;white-space:nowrap;">${crawled}</td>
+            <td style="padding:10px 16px;border-bottom:1px solid #f0f0f0;"><button onclick="navigator.clipboard.writeText('${url}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy URL',1500);" style="background:#1a1a1a;color:#fff;border:none;padding:5px 10px;border-radius:4px;font-size:11px;cursor:pointer;">Copy URL</button></td>
+          </tr>`;
+        }).join('');
+        if (countEl) countEl.textContent = `${rows.length} URLs found`;
+        if (section) section.style.display = 'block';
+      };
+      reader.readAsText(file);
+    }
+
+    function filterCsvTable(tbodyId, query) {
+      const tbody = document.getElementById(tbodyId);
+      if (!tbody) return;
+      const q = query.toLowerCase();
+      Array.from(tbody.rows).forEach(row => {
+        row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+      });
+    }
+
     function restoreTechStatuses() {
-      ['crawled', '404', 'reviews'].forEach(id => {
+      ['crawled', '404', 'reviews', 'canonical', '5xx', 'soft404', 'diffcanonical'].forEach(id => {
         const saved = localStorage.getItem('techStatus_' + id);
         if (saved) {
           try { const { cssClass, label } = JSON.parse(saved); setTechStatus(id, cssClass, label); } catch(e) {}
