@@ -151,7 +151,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v57.9</div>
+      <div class="tool-version">v57.10</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)"><span>High Level SEO Metrics</span><span class="nav-badge" id="badge-overview"></span></div>
     <div class="nav-item" onclick="showSection('historical', this)"><span>Historical View (1 Year)</span><span class="nav-badge" id="badge-historical"></span></div>
@@ -4486,13 +4486,14 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
     };
 
     function setTechStatus(cardId, cssClass, label) {
-      const elId = TECH_STATUS_EL[cardId];
-      if (!elId) return;
-      const el = document.getElementById(elId);
-      if (!el) return;
-      el.className = 'status-badge-pill ' + cssClass;
-      el.textContent = label;
+      // Save FIRST — always, regardless of DOM state
       localStorage.setItem('techStatus_' + cardId, JSON.stringify({ cssClass, label }));
+      // Then update DOM if element exists
+      const elId = TECH_STATUS_EL[cardId];
+      if (elId) {
+        const el = document.getElementById(elId);
+        if (el) { el.className = 'status-badge-pill ' + cssClass; el.textContent = label; }
+      }
       updateTechHealthBadge();
     }
 
