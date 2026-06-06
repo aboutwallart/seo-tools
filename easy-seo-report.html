@@ -13,9 +13,12 @@
     .sidebar-header { background: #1a1a1a; color: #fff; padding: 20px 16px; }
     .sidebar-header .tool-name { font-size: 13px; font-weight: 700; }
     .sidebar-header .tool-version { font-size: 11px; color: #888; margin-top: 3px; }
-    .nav-item { padding: 11px 16px; font-size: 13px; color: #555; cursor: pointer; border-left: 3px solid transparent; transition: all 0.15s; }
+    .nav-item { padding: 11px 16px; font-size: 13px; color: #555; cursor: pointer; border-left: 3px solid transparent; transition: all 0.15s; display:flex; align-items:center; justify-content:space-between; gap:6px; }
     .nav-item:hover { background: #f9f9f9; color: #1a1a1a; }
     .nav-item.active { background: #f0f0f0; color: #1a1a1a; font-weight: 500; border-left-color: #1a1a1a; }
+    .nav-badge { display:none; align-items:center; justify-content:center; background:#dc2626; color:#fff; border-radius:99px; font-size:10px; font-weight:700; padding:2px 6px; min-width:18px; line-height:1.4; flex-shrink:0; }
+    .nav-badge.green { background:#16a34a; }
+    .nav-badge.yellow { background:#d97706; }
     .main { margin-left: 220px; flex: 1; display: flex; flex-direction: column; }
     .top-header { background: #1a1a1a; color: #fff; padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; }
     .top-header h1 { font-size: 16px; font-weight: 600; }
@@ -148,20 +151,20 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v57.6</div>
+      <div class="tool-version">v57.7</div>
     </div>
-    <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
-    <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
-    <div class="nav-item" onclick="showSection('suspicious', this)">🚨 Suspicious Traffic</div>
-    <div class="nav-item" onclick="showSection('llm', this)">🤖 AI Traffic</div>
-    <div class="nav-item" onclick="showSection('social', this)">📱 Social Traffic</div>
-    <div class="nav-item" onclick="showSection('techhealth', this)">🔧 Technical Health</div>
-    <div class="nav-item" onclick="showSection('quickwins', this)">🔥 Quick Wins</div>
-    <div class="nav-item" onclick="showSection('dangerpages', this)">⚠️ Danger Pages</div>
-    <div class="nav-item" onclick="showSection('kwtracker', this)">Keyword Tracker</div>
-    <div class="nav-item" onclick="showSection('kwrankings', this)">Keyword Rankings</div>
-    <div class="nav-item" onclick="showSection('blogopt', this)">Blog Optimizations</div>
-    <div class="nav-item" onclick="showSection('content', this)">Content Optimizations</div>
+    <div class="nav-item active" onclick="showSection('overview', this)"><span>High Level SEO Metrics</span><span class="nav-badge" id="badge-overview"></span></div>
+    <div class="nav-item" onclick="showSection('historical', this)"><span>Historical View (1 Year)</span><span class="nav-badge" id="badge-historical"></span></div>
+    <div class="nav-item" onclick="showSection('suspicious', this)"><span>🚨 Suspicious Traffic</span><span class="nav-badge" id="badge-suspicious"></span></div>
+    <div class="nav-item" onclick="showSection('llm', this)"><span>🤖 AI Traffic</span><span class="nav-badge" id="badge-llm"></span></div>
+    <div class="nav-item" onclick="showSection('social', this)"><span>📱 Social Traffic</span><span class="nav-badge" id="badge-social"></span></div>
+    <div class="nav-item" onclick="showSection('techhealth', this)"><span>🔧 Technical Health</span><span class="nav-badge" id="badge-techhealth"></span></div>
+    <div class="nav-item" onclick="showSection('quickwins', this)"><span>🔥 Quick Wins</span><span class="nav-badge" id="badge-quickwins"></span></div>
+    <div class="nav-item" onclick="showSection('dangerpages', this)"><span>⚠️ Danger Pages</span><span class="nav-badge" id="badge-dangerpages"></span></div>
+    <div class="nav-item" onclick="showSection('kwtracker', this)"><span>Keyword Tracker</span><span class="nav-badge" id="badge-kwtracker"></span></div>
+    <div class="nav-item" onclick="showSection('kwrankings', this)"><span>Keyword Rankings</span><span class="nav-badge" id="badge-kwrankings"></span></div>
+    <div class="nav-item" onclick="showSection('blogopt', this)"><span>Blog Optimizations</span><span class="nav-badge" id="badge-blogopt"></span></div>
+    <div class="nav-item" onclick="showSection('content', this)"><span>Content Optimizations</span><span class="nav-badge" id="badge-content"></span></div>
   </div>
 
   <div class="main">
@@ -1617,12 +1620,64 @@
       loadOverview(days);loadClicksChart(days);loadDeviceChart(days);loadPages(days);loadQueries(days);
     }
 
+    // ── Badge System ─────────────────────────────────────────────────────────
+    const BADGE_CACHE_KEY = 'seo_nav_badges';
+    const BADGE_TTL = 6 * 60 * 60 * 1000; // 6 hours
+
+    function setBadge(id, value, color) {
+      const el = document.getElementById('badge-' + id);
+      if (!el) return;
+      if (value === null || value === '' || value === 0) {
+        el.style.display = 'none';
+        el.className = 'nav-badge';
+        return;
+      }
+      el.textContent = value;
+      el.className = 'nav-badge' + (color === 'green' ? ' green' : color === 'yellow' ? ' yellow' : '');
+      el.style.display = 'inline-flex';
+      // Cache it
+      try {
+        const cache = JSON.parse(localStorage.getItem(BADGE_CACHE_KEY) || '{}');
+        cache[id] = { value, color, ts: Date.now() };
+        localStorage.setItem(BADGE_CACHE_KEY, JSON.stringify(cache));
+      } catch(e) {}
+    }
+
+    function restoreNavBadges() {
+      try {
+        const cache = JSON.parse(localStorage.getItem(BADGE_CACHE_KEY) || '{}');
+        const now = Date.now();
+        Object.entries(cache).forEach(([id, data]) => {
+          if (now - data.ts < BADGE_TTL) setBadge(id, data.value, data.color);
+        });
+      } catch(e) {}
+      updateTechHealthBadge();
+    }
+
+    function updateTechHealthBadge() {
+      const ids = ['crawled', '404', 'reviews', 'canonical', '5xx', 'soft404', 'diffcanonical'];
+      const notFixed = ids.filter(id => {
+        const saved = localStorage.getItem('techStatus_' + id);
+        if (!saved) return true;
+        try { return JSON.parse(saved).cssClass === 'not-fixed'; } catch(e) { return true; }
+      }).length;
+      setBadge('techhealth', notFixed > 0 ? notFixed : null, 'red');
+    }
+
+    // ── Overview Badge ────────────────────────────────────────────────────────
     async function loadOverview(days){
-      const start=getDate(days),end=getDate(0);hideError();
+      const start=getDate(days),end=getDate(0);
+      const prevEnd=getDate(days), prevStart=getDate(days*2);
+      hideError();
       try{
-        const res=await fetch(`${API}?action=overview&startDate=${start}&endDate=${end}`);
-        const json=await res.json();if(!json.success)throw new Error(json.error);
+        const [res, prevRes] = await Promise.all([
+          fetch(`${API}?action=overview&startDate=${start}&endDate=${end}`),
+          fetch(`${API}?action=overview&startDate=${prevStart}&endDate=${prevEnd}`)
+        ]);
+        const json=await res.json(); if(!json.success)throw new Error(json.error);
+        const prevJson=await prevRes.json();
         const row=json.data.rows&&json.data.rows[0];
+        const prevRow=prevJson.success&&prevJson.data.rows&&prevJson.data.rows[0];
         if(row){
           document.getElementById('metClicks').textContent=fmt(row.clicks);
           document.getElementById('metCTR').textContent=fmtCTR(row.ctr);
@@ -1630,6 +1685,18 @@
           document.getElementById('metPosition').textContent=fmtPos(row.position);
           const sub='last '+days+' days';
           ['metClicksSub','metCTRSub','metImpressionsSub','metPositionSub'].forEach(id=>document.getElementById(id).textContent=sub);
+          // Badge: check if down 20%+
+          if(prevRow && prevRow.clicks > 0) {
+            const clicksChg = (row.clicks - prevRow.clicks) / prevRow.clicks;
+            const impChg = (row.impressions - prevRow.impressions) / prevRow.impressions;
+            if(clicksChg <= -0.20 || impChg <= -0.20) {
+              setBadge('overview', '↓', 'red');
+              setBadge('historical', '↓', 'red');
+            } else {
+              setBadge('overview', null);
+              setBadge('historical', null);
+            }
+          }
         }
       }catch(e){showError(e.message);}
     }
@@ -2198,6 +2265,11 @@
         document.getElementById('blogOptCountImprove').textContent = blogOptAllData.improve.length;
         document.getElementById('blogOptCountMonitor').textContent = blogOptAllData.monitor.length;
 
+        // Badge: blogs in position 5-20 with >500 impressions
+        const blogBadgeCount = allBlogs.filter(r => r.position >= 5 && r.position <= 20 && r.impressions > 500).length;
+        if (blogBadgeCount > 0) setBadge('blogopt', blogBadgeCount, 'red');
+        else setBadge('blogopt', null);
+
         switchBlogOptTab('urgent');
       } catch(e) {
         document.getElementById('blogOptBody').innerHTML = `<tr class="loading-row"><td colspan="6" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
@@ -2383,6 +2455,14 @@
         document.getElementById('llmMetSessions').textContent = fmt(totalSessions);
         document.getElementById('llmMetViews').textContent    = fmt(totalViews);
         document.getElementById('llmMetSources').textContent  = sorted.length;
+
+        // Badge: flat or declining AI traffic vs previous load
+        try {
+          const prevLlm = parseFloat(localStorage.getItem('badge_prev_llm_sessions') || 0);
+          if (prevLlm > 0 && totalSessions <= prevLlm * 1.05) setBadge('llm', '↓', 'red'); // flat or down
+          else setBadge('llm', null);
+          if (totalSessions > 0) localStorage.setItem('badge_prev_llm_sessions', totalSessions);
+        } catch(e) {}
 
         if (!sorted.length) {
           document.getElementById('llmSourceCards').innerHTML = '';
@@ -2617,6 +2697,14 @@
         document.getElementById('socialMetViews').textContent    = fmt(totalViews);
         document.getElementById('socialMetSources').textContent  = sorted.length;
         document.getElementById('socialMetRevenue').textContent  = totalRevenue > 0 ? '£' + totalRevenue.toFixed(2) : '£0.00';
+
+        // Badge: compare vs stored previous load
+        try {
+          const prevSocial = parseFloat(localStorage.getItem('badge_prev_social_sessions') || 0);
+          if (prevSocial > 0 && totalSessions < prevSocial * 0.80) setBadge('social', '↓', 'red');
+          else setBadge('social', null);
+          if (totalSessions > 0) localStorage.setItem('badge_prev_social_sessions', totalSessions);
+        } catch(e) {}
 
         if (!sorted.length) {
           document.getElementById('socialSourceCards').innerHTML = '';
@@ -3383,6 +3471,11 @@
         kwrUpdateCounts();
         kwrFilterTable();
 
+        // Badge: count undefined (unlocked) keywords with good signals
+        const undefinedCount = kwrAllData.filter(r => r.regStatus === 'unlocked' && r.imp >= 100 && r.pos <= 20).length;
+        if (undefinedCount > 0) setBadge('kwrankings', undefinedCount, 'green');
+        else setBadge('kwrankings', null);
+
       } catch(e) {
         document.getElementById('kwrBody').innerHTML = `<tr class="loading-row"><td colspan="8" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
       }
@@ -3759,6 +3852,16 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
         ['collections','blogs','products','pages'].forEach(t=>{
           document.getElementById('dpCount'+t.charAt(0).toUpperCase()+t.slice(1)).textContent=dpData[t].length;
         });
+
+        // Badge: if total danger pages grew vs last stored count
+        try {
+          const total = Object.values(dpData).reduce((s,arr)=>s+arr.length,0);
+          const prev = parseInt(localStorage.getItem('badge_prev_danger_count')||0);
+          if (prev > 0 && total > prev) setBadge('dangerpages', '↑', 'red');
+          else setBadge('dangerpages', null);
+          localStorage.setItem('badge_prev_danger_count', total);
+        } catch(e) {}
+
         dpUpdateSubCounts();
         dpRenderHeader();
         dpRenderRows();
@@ -4120,6 +4223,10 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
         document.getElementById('suspLoading').style.display='none';
         document.getElementById('suspChartRow').style.display='block';
 
+        // Badge: suspicious > 20% of sessions
+        if (current.suspPct > 20) setBadge('suspicious', Math.round(current.suspPct) + '%', 'red');
+        else setBadge('suspicious', null);
+
         // Gauge
         const gaugeColor = current.suspPct>40?'#dc2626':current.suspPct>20?'#d97706':'#16a34a';
         const gpct = Math.min(current.suspPct/100,1)*0.75;
@@ -4370,6 +4477,7 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
       el.className = 'status-badge-pill ' + cssClass;
       el.textContent = label;
       localStorage.setItem('techStatus_' + cardId, JSON.stringify({ cssClass, label }));
+      updateTechHealthBadge(); // refresh badge whenever status changes
     }
 
     function cycleTechStatus(cardId) {
@@ -4632,6 +4740,7 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
       if (id === 'techhealth') loadTechHealth();
     };
 
+    restoreNavBadges();
     loadOverview(28);loadClicksChart(28);loadDeviceChart(28);loadPages(28);loadQueries(28);
   </script>
 </body>
