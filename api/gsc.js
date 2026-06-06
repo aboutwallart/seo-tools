@@ -360,6 +360,11 @@ module.exports = async (req, res) => {
       });
     }
 
+    // For reindex-batch, return flat response so Make.com can access fields directly
+    if (action === 'reindex-batch') {
+      res.status(200).json(data);
+      return;
+    }
     res.status(200).json({ success: true, data });
 
   } catch (error) {
