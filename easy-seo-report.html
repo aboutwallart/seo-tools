@@ -151,7 +151,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v57.7</div>
+      <div class="tool-version">v57.8</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)"><span>High Level SEO Metrics</span><span class="nav-badge" id="badge-overview"></span></div>
     <div class="nav-item" onclick="showSection('historical', this)"><span>Historical View (1 Year)</span><span class="nav-badge" id="badge-historical"></span></div>
@@ -1655,7 +1655,7 @@
     }
 
     function updateTechHealthBadge() {
-      const ids = ['crawled', '404', 'reviews', 'canonical', '5xx', 'soft404', 'diffcanonical'];
+      const ids = Object.keys(TECH_STATUS_EL);
       const notFixed = ids.filter(id => {
         const saved = localStorage.getItem('techStatus_' + id);
         if (!saved) return true;
@@ -4471,21 +4471,35 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
     }
 
     // Tech card status persistence
+    // Direct element ID map — avoids capitalisation bugs
+    const TECH_STATUS_EL = {
+      'crawled':      'techStatusCrawled',
+      '404':          'techStatus404',
+      'reviews':      'techStatusReviews',
+      'canonical':    'techStatusCanonical',
+      '5xx':          'techStatus5xx',
+      'soft404':      'techStatusSoft404',
+      'diffcanonical':'techStatusDiffCanonical'
+    };
+
     function setTechStatus(cardId, cssClass, label) {
-      const el = document.getElementById('techStatus' + cardId.charAt(0).toUpperCase() + cardId.slice(1));
+      const elId = TECH_STATUS_EL[cardId];
+      if (!elId) return;
+      const el = document.getElementById(elId);
       if (!el) return;
       el.className = 'status-badge-pill ' + cssClass;
       el.textContent = label;
       localStorage.setItem('techStatus_' + cardId, JSON.stringify({ cssClass, label }));
-      updateTechHealthBadge(); // refresh badge whenever status changes
+      updateTechHealthBadge();
     }
 
     function cycleTechStatus(cardId) {
-      const el = document.getElementById('techStatus' + cardId.charAt(0).toUpperCase() + cardId.slice(1));
+      const elId = TECH_STATUS_EL[cardId];
+      if (!elId) return;
+      const el = document.getElementById(elId);
       if (!el) return;
-      const current = el.className;
-      if (current.includes('not-fixed')) setTechStatus(cardId, 'in-progress', '⏳ Recovery in progress');
-      else if (current.includes('in-progress')) setTechStatus(cardId, 'fixed', '✅ Recovered');
+      if (el.className.includes('not-fixed')) setTechStatus(cardId, 'in-progress', '⏳ In progress');
+      else if (el.className.includes('in-progress')) setTechStatus(cardId, 'fixed', '✅ Fixed');
       else setTechStatus(cardId, 'not-fixed', '🔴 Not fixed');
     }
 
@@ -4529,7 +4543,7 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
     }
 
     function restoreTechStatuses() {
-      ['crawled', '404', 'reviews', 'canonical', '5xx', 'soft404', 'diffcanonical'].forEach(id => {
+      Object.keys(TECH_STATUS_EL).forEach(id => {
         const saved = localStorage.getItem('techStatus_' + id);
         if (saved) {
           try { const { cssClass, label } = JSON.parse(saved); setTechStatus(id, cssClass, label); } catch(e) {}
