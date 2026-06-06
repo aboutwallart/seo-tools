@@ -1,7 +1,7 @@
 # TECHNICAL REFERENCE DOCUMENT
 ## AboutWallArt SEO Tools Infrastructure
 
-**Last Updated:** June 6, 2026 (Keyword Locker v6.0 — bulk actions added; Easy SEO Report v56 — Social Traffic tab; Link Whisperer v16.61)
+**Last Updated:** June 6, 2026 (Easy SEO Report v57.12 — Technical Health tab; 3,766 redirects pushed to Shopify; Review Snippets fixed; Daily reindexing email via Make.com live)
 **Owner:** aboutwallart
 **Purpose:** Complete technical documentation for all SEO tools, infrastructure, API keys, and configurations
 
@@ -26,7 +26,7 @@
 - `money-page-doctor.html` — Money page optimization tool (password protected)
 - `rank-report-card.html` — Ranking report and tracking tool (password protected)
 - `image-optimizer.html` — Shopify image optimization tool (password protected)
-- `gsc-report.html` — Easy SEO Report Tool (LIVE - v52 as of May 30, 2026)
+- `easy-seo-report.html` — Easy SEO Report Tool (LIVE - v57.12 as of June 6, 2026)
 - `link-whisperer.html` — Internal Link Manager Tool (LIVE - v16.42 as of June 5, 2026)
 - `package.json` — Node.js dependencies
 - `vercel.json` — Vercel deployment configuration with domain redirects
@@ -57,8 +57,8 @@
 9. `pagespeed.js` — Google PageSpeed Insights API
 10. `reddit.js` — Reddit scraper (NO LONGER IN USE)
 11. `serpapi.js` — SERP API integration
-12. `shopify-files.js` — Shopify Admin GraphQL API + get-blogs-by-month action
-13. `gsc.js` — Google Search Console API + GA4 (see full details below)
+12. `shopify-files.js` — Shopify Admin API + get-blogs-by-month + generate-redirects + create-redirects actions
+13. `gsc.js` — Google Search Console API + GA4 + reindex-batch action (see full details below)
 
 ---
 
@@ -99,6 +99,7 @@
 - `ga4-llm` — GA4 LLM/AI referral traffic (?days=30/90/180)
 - `ga4-social` — GA4 social media traffic by platform + date (?days=365/730/1095/1460/1825)
 - `ga4-social-pages` — GA4 social media traffic by platform + landing page (?days=365 etc)
+- `reindex-batch` — Returns today's batch of 10 URLs for manual reindexing + formatted email HTML. Returns FLAT JSON (not nested under data). Fields: emailSubject, emailHtml, dayNumber, batchIndex, batchStart, totalBatches, batchUrls. Campaign start: 2026-06-07.
 
 ### CRITICAL: URL Format
 GSC returns URLs WITHOUT www: `https://aboutwallart.com/`
