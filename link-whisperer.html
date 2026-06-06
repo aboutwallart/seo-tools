@@ -221,7 +221,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.61</div>
+    <div class="version">v16.62</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -1656,6 +1656,10 @@ const PAGES_TO_NEVER_TOUCH = new Set([
 ]);
 
 // Trend pages — these are pages (not collections) describing design trends
+const HUB_PAGES = new Set([
+  'kids rooms','nursery decor','playrooms'
+]);
+
 const TREND_PAGES = new Set([
   'biophilic interior design trend','zen room decorations trend',
   'tropical decor for home style trend','transitional interior design trend',
@@ -1683,6 +1687,7 @@ function getPageLinkType(item) {
   if(item.type === 'article') return 'blog';
   if(item.type === 'page') {
     if(TREND_PAGES.has(titleLower)) return 'trend';
+    if(HUB_PAGES.has(titleLower)) return 'hub';
     return 'static';
   }
   return 'static';
@@ -1736,16 +1741,18 @@ function checkInboundRequirements(item) {
     AppState.items.find(i=>i.id===l.sourceId)
   ).filter(Boolean);
 
-  const hasBlogInbound  = sources.some(s=>s.type==='article');
-  const hasTrendInbound = sources.some(s=>getPageLinkType(s)==='trend');
+  const hasBlogInbound       = sources.some(s=>s.type==='article');
+  const hasTrendInbound      = sources.some(s=>getPageLinkType(s)==='trend');
+  const hasCollectionInbound = sources.some(s=>s.type==='collection');
 
-  let needsBlog=false, needsTrend=false;
+  let needsBlog=false, needsTrend=false, needsCollection=false;
   if(linkType==='trend')      { needsBlog=true;  needsTrend=true; }
   if(linkType==='collection') { needsBlog=true;  needsTrend=true; }
   if(linkType==='blog')       { needsBlog=true;  needsTrend=true; }
+  if(linkType==='hub')        { needsBlog=true;  needsCollection=true; }
 
-  const fullyDone = (!needsBlog||hasBlogInbound) && (!needsTrend||hasTrendInbound);
-  return { needsBlog, needsTrend, hasBlogInbound, hasTrendInbound, fullyDone, linkType, noRules:false };
+  const fullyDone = (!needsBlog||hasBlogInbound) && (!needsTrend||hasTrendInbound) && (!needsCollection||hasCollectionInbound);
+  return { needsBlog, needsTrend, needsCollection, hasBlogInbound, hasTrendInbound, hasCollectionInbound, fullyDone, linkType, noRules:false };
 }
 
 const INBOUND_PHRASES = {
@@ -1761,6 +1768,10 @@ const INBOUND_PHRASES = {
   blogToBlog:    (t,u) => `You may also enjoy our article <a href="${u}">${escHtml(t)}</a> for more styling ideas.`,
   // Phrase added to a TREND PAGE linking to a BLOG
   trendToBlog:   (t,u) => `You may also want to read our article <a href="${u}">${escHtml(t)}</a> for more styling ideas.`,
+  // Phrase added to a BLOG linking to a HUB PAGE
+  blogToHub:     (t,u) => `You may also enjoy our <a href="${u}">${escHtml(t)}</a> guide for more styling ideas.`,
+  // Phrase added to a COLLECTION linking to a HUB PAGE
+  colToHub:      (t,u) => `Explore our <a href="${u}">${escHtml(t)}</a> guide for curated room ideas and inspiration.`,
 };
 // Performance caches — cleared every time the link graph is rebuilt
 let urlToItem = {};
@@ -2715,8 +2726,9 @@ function buildInboundSuggestPanel(item) {
         if(i.id === item.id) return false;
         if(alreadyLinkingIds.has(i.id)) return false;
         if(PAGES_TO_NEVER_TOUCH.has((i.title||'').toLowerCase().trim())) return false;
-        if(type === 'trend') return getPageLinkType(i) === 'trend';
-        if(type === 'blog')  return i.type === 'article';
+        if(type === 'trend')      return getPageLinkType(i) === 'trend';
+        if(type === 'blog')       return i.type === 'article';
+        if(type === 'collection') return i.type === 'collection';
         return false;
       })
       .map(i => ({ item:i, score:scoreRelevance(item,i).score }))
@@ -2756,6 +2768,16 @@ function buildInboundSuggestPanel(item) {
     if(!req.hasTrendInbound) {
       const trends = getCandidates('trend', 6);
       if(trends.length) sections += buildInboundSection('TREND PAGES — Pick 1 to link here', 'st-page', 'inb-trend', item.id, trends);
+    }
+  } else if(linkType === 'hub') {
+    instructions = 'This is a <strong>Hub Page</strong>. It needs inbound links from 1 collection and 1 blog post.';
+    if(!req.hasCollectionInbound) {
+      const cols = getCandidates('collection', 6);
+      if(cols.length) sections += buildInboundSection('COLLECTIONS — Pick 1 to link here', 'st-collection', 'inb-col', item.id, cols);
+    }
+    if(!req.hasBlogInbound) {
+      const blogs = getCandidates('blog', 6);
+      if(blogs.length) sections += buildInboundSection('BLOG POSTS — Pick 1 to link here', 'st-article', 'inb-blog', item.id, blogs);
     }
   }
 
@@ -2802,7 +2824,7 @@ function buildInboundSection(label, styleClass, cbClass, itemId, candidates) {
         </div>
       </div>
     </div>`).join('');
-  const searchType = cbClass === 'inb-trend' ? 'trend' : 'article';
+  const searchType = cbClass === 'inb-trend' ? 'trend' : cbClass === 'inb-col' ? 'collection' : 'article';
   const fakeItem = { id: itemId };
   return `<div class="suggest-section">
     <span class="suggest-section-title ${styleClass}">${label}</span>
@@ -2827,7 +2849,8 @@ function confirmInboundLinks(itemId, queueMode) {
   const linkType = getPageLinkType(item);
   const blogCbs  = Array.from(document.querySelectorAll('.inb-blog[data-target-id="'+itemId+'"]:checked'));
   const trendCbs = Array.from(document.querySelectorAll('.inb-trend[data-target-id="'+itemId+'"]:checked'));
-  if(!blogCbs.length && !trendCbs.length) { showToast('Please select at least one source page.','error'); return; }
+  const colCbs   = Array.from(document.querySelectorAll('.inb-col[data-target-id="'+itemId+'"]:checked'));
+  if(!blogCbs.length && !trendCbs.length && !colCbs.length) { showToast('Please select at least one source page.','error'); return; }
   if(linkType==='trend' && blogCbs.length > 0 && blogCbs.length < 2) showToast('Tip: Trend pages ideally need 2 blog posts linking to them.','info');
   const selections = [];
   blogCbs.forEach(cb => {
@@ -2837,6 +2860,7 @@ function confirmInboundLinks(itemId, queueMode) {
     if(linkType==='trend')           phraseHtml = INBOUND_PHRASES.blogToTrend(item.title, item.url);
     else if(linkType==='collection') phraseHtml = INBOUND_PHRASES.blogToCol(item.title, item.url);
     else if(linkType==='blog')       phraseHtml = INBOUND_PHRASES.blogToBlog(item.title, item.url);
+    else if(linkType==='hub')        phraseHtml = INBOUND_PHRASES.blogToHub(item.title, item.url);
     selections.push({ sourceItem, phraseHtml });
   });
   trendCbs.forEach(cb => {
@@ -2846,6 +2870,12 @@ function confirmInboundLinks(itemId, queueMode) {
     if(linkType==='trend')           phraseHtml = INBOUND_PHRASES.trendToTrend(item.title, item.url);
     else if(linkType==='collection') phraseHtml = INBOUND_PHRASES.trendToCol(item.title, item.url);
     else if(linkType==='blog')       phraseHtml = INBOUND_PHRASES.trendToBlog(item.title, item.url);
+    selections.push({ sourceItem, phraseHtml });
+  });
+  colCbs.forEach(cb => {
+    const sourceItem = AppState.items.find(i=>i.id===cb.dataset.sourceId);
+    if(!sourceItem) return;
+    const phraseHtml = INBOUND_PHRASES.colToHub(item.title, item.url);
     selections.push({ sourceItem, phraseHtml });
   });
   AppState.inboundSuggestState = {};
@@ -3253,7 +3283,8 @@ function updateNeedsOutboundCount() {
   const countIn = AppState.items.filter(item => {
     if(type && item.type !== type) return false;
     if(vendor && (item.vendor||'').toLowerCase() !== vendor) return false;
-    return (AppState.linkGraph.inbound[item.id]||[]).length === 0;
+    const req = checkInboundRequirements(item);
+    return !req.fullyDone && !req.noRules;
   }).length;
   optIn.textContent = 'Needs Inbound Links (' + countIn + ')';
 }
@@ -3272,7 +3303,8 @@ function getFilteredItems() {
       if(checkItemRequirements(item).fullyDone) return false;
     }
     if(filter==='needs-inbound'){
-      if((AppState.linkGraph.inbound[item.id]||[]).length > 0) return false;
+      const req = checkInboundRequirements(item);
+      if(req.fullyDone || req.noRules) return false;
     }
     if(vendor&&(item.vendor||'').toLowerCase()!==vendor) return false;
     return true;
@@ -3389,6 +3421,8 @@ function buildItemRow(item) {
           if(!shouldShowAddButton(item)) return `<span style="display:inline-block;min-width:54px;"></span>`;
           if(inboundReq.noRules) {
             // Products: show Done if has any inbound, else show + Add (opens inbound bulk panel)
+            // Non-products with noRules (true static pages): always show Done
+            if(item.type !== 'product') return `<button class="btn-add" disabled style="opacity:0.35;cursor:default;background:#aaa;">✓ Done</button>`;
             if(inbound.length > 0) return `<button class="btn-add" disabled style="opacity:0.35;cursor:default;background:#aaa;">✓ Done</button>`;
             return `<button class="btn-add" style="background:#1565c0;" onclick="openInboundSuggestPanel('${item.id}')">+ Add</button>`;
           }
