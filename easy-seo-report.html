@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v57.2</div>
+      <div class="tool-version">v57.3</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -4022,6 +4022,19 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
       localStorage.setItem('reindexDone', JSON.stringify([...set]));
     }
 
+    function reindexCopyUrl(url, index) {
+      navigator.clipboard.writeText(url);
+      const btn = document.getElementById('reindex-copy-' + index);
+      const row = document.getElementById('reindex-row-' + index);
+      if (btn) { btn.textContent = '✅ Done'; btn.style.background = '#16a34a'; btn.disabled = true; }
+      if (row) row.style.opacity = '0.5';
+      window._reindexCopied = window._reindexCopied || new Set();
+      window._reindexCopied.add(index);
+      if (window._reindexCopied.size >= window._reindexTotal) {
+        setTimeout(() => reindexMarkTodayDone(), 500);
+      }
+    }
+
     function reindexMarkTodayDone() {
       const dayIndex = reindexDaysSinceStart();
       const done = reindexGetDoneSet();
@@ -4084,13 +4097,16 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
 
         if (todayUrls) {
           const gscInspectUrl = 'https://search.google.com/search-console/inspect?resource_id=sc-domain:aboutwallart.com';
+          window._reindexTotal = batchUrls.length;
+          window._reindexCopied = new Set();
           todayUrls.innerHTML = `<div style="margin-bottom:14px;"><a href="${gscInspectUrl}" target="_blank" class="reindex-gsc-btn" style="display:inline-block;padding:8px 16px;font-size:13px;">Open GSC URL Inspection →</a><span style="font-size:12px;color:#888;margin-left:10px;">Then click Copy next to each URL below</span></div>` +
           batchUrls.map((url, i) => {
             const shortPath = url.replace('https://aboutwallart.com', '') || '/';
-            return `<div class="reindex-url-row">
+            const safeUrl = url.replace(/'/g, "\\'");
+            return `<div class="reindex-url-row" id="reindex-row-${i}">
               <span style="font-size:11px;font-weight:700;color:#aaa;min-width:20px;">${batchStart + i + 1}</span>
               <span class="reindex-url-path" title="${url}">${shortPath}</span>
-              <button onclick="navigator.clipboard.writeText('${url}');this.textContent='Copied!';setTimeout(()=>this.textContent='Copy URL',1500);" class="reindex-gsc-btn" style="border:none;cursor:pointer;">Copy URL</button>
+              <button id="reindex-copy-${i}" onclick="reindexCopyUrl('${safeUrl}', ${i})" class="reindex-gsc-btn" style="border:none;cursor:pointer;">Copy URL</button>
             </div>`;
           }).join('');
         }
