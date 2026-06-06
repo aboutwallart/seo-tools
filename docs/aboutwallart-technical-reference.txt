@@ -1,7 +1,7 @@
 # TECHNICAL REFERENCE DOCUMENT
 ## AboutWallArt SEO Tools Infrastructure
 
-**Last Updated:** June 6, 2026 (Link Whisperer v16.61 — Inbound/outbound custom search fixed for all types, Clean Up Duplicate Phrases tool, column layout improvements)
+**Last Updated:** June 6, 2026 (Keyword Locker v6.0 — bulk actions added; Easy SEO Report v56 — Social Traffic tab; Link Whisperer v16.61)
 **Owner:** aboutwallart
 **Purpose:** Complete technical documentation for all SEO tools, infrastructure, API keys, and configurations
 
@@ -1057,7 +1057,7 @@ For INTERNAL_LINK rows:
 # KEYWORD LOCKER TOOL — COMPLETE DOCUMENTATION
 
 **File:** `keyword-locker.html`
-**Current Version:** v5.6 (June 4, 2026)
+**Current Version:** v6.0 (June 6, 2026)
 **URL:** https://tools.aboutwallart.com/keyword-locker.html
 **Purpose:** Detects keyword cannibalization conflicts using live GSC data and allows locking each keyword to its best URL. Intent-aware — only flags pages competing for the same keyword with the same intent as conflicts.
 
@@ -1196,6 +1196,15 @@ For INTERNAL_LINK rows:
 
 ---
 
+## Bulk Actions (v6.0)
+- Checkbox on every conflict card (top-right corner)
+- Sticky toolbar appears when 1+ cards selected: **Select All** | count | **Bulk Resolve** | **Save for Later** | **Delete All** | **Clear**
+- **Bulk Resolve** — auto-picks highest-scoring unlocked URL as winner per conflict, runs sequentially to avoid GitHub SHA conflicts
+- **Bulk Save for Later** — saves all selected as SAVED_FOR_FUTURE, sequential API calls
+- **Bulk Delete** — saves all selected as DELETED, sequential API calls
+- All actions show confirm() dialog before executing
+- No new API endpoints — reuses lock-keyword, save-for-later, delete-keyword
+
 ## Still To Build:
 1. Loser blogs section — after all conflicts resolved, review loser blog posts: Repurpose / Delete / Keep as is
 2. Link Whisperer tab — auto-add internal links from loser pages to winner pages
@@ -1224,4 +1233,5 @@ For INTERNAL_LINK rows:
 | v5.4 (html) | June 4, 2026 | CSV quoting fix, resolved count fix, 80-char keyword filter |
 | v5.5 (html) | June 4, 2026 | Local registry updated in real-time, save-for-later/delete add to registry, green/yellow notices |
 | v5.6 (html) | June 4, 2026 | Fixed cards stuck after Confirm & Lock, refreshConflictCards loop fix |
+| v6.0 (html) | June 6, 2026 | Bulk actions — checkbox per card, sticky toolbar, Bulk Resolve / Save for Later / Delete All. No backend changes — uses existing API endpoints sequentially |
 
