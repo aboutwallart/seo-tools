@@ -266,12 +266,10 @@ module.exports = async (req, res) => {
       // Build URL table rows
       const urlRowsHtml = batchUrls.map((url, i) => {
         const shortPath = url.replace('https://aboutwallart.com', '') || '/';
-        const gscLink = gscBase + encodeURIComponent(url);
         return `
           <tr>
             <td style="padding:10px 16px;font-size:14px;font-weight:700;color:#888;border-bottom:1px solid #f0f0f0;white-space:nowrap;">${batchStart + i + 1}</td>
-            <td style="padding:10px 16px;font-size:13px;color:#1a1a1a;border-bottom:1px solid #f0f0f0;word-break:break-all;">${shortPath}</td>
-            <td style="padding:10px 16px;border-bottom:1px solid #f0f0f0;white-space:nowrap;"><a href="${gscLink}" style="background:#1a1a1a;color:#fff;padding:7px 14px;border-radius:4px;text-decoration:none;font-size:12px;font-weight:600;">Open in GSC →</a></td>
+            <td style="padding:10px 16px;font-size:13px;color:#1a1a1a;border-bottom:1px solid #f0f0f0;word-break:break-all;font-family:monospace;">${url}</td>
           </tr>`;
       }).join('');
 
@@ -295,12 +293,15 @@ module.exports = async (req, res) => {
 
     <div style="padding:24px 32px;">
       <div style="font-size:16px;font-weight:700;color:#1a1a1a;margin-bottom:16px;">Today's ${batchUrls.length} URLs to submit</div>
+      <div style="margin-bottom:16px;">
+        <a href="https://search.google.com/search-console/inspect?resource_id=sc-domain:aboutwallart.com" style="background:#1a1a1a;color:#fff;padding:10px 20px;border-radius:5px;text-decoration:none;font-size:13px;font-weight:600;">Open GSC URL Inspection →</a>
+        <span style="font-size:12px;color:#888;margin-left:12px;">Then copy each URL below and paste into the inspection bar</span>
+      </div>
       <table style="width:100%;border-collapse:collapse;border:1px solid #e5e5e5;border-radius:8px;overflow:hidden;">
         <thead>
           <tr style="background:#f9f9f9;">
             <th style="padding:10px 16px;font-size:11px;font-weight:600;color:#888;text-align:left;text-transform:uppercase;border-bottom:1px solid #e5e5e5;">#</th>
-            <th style="padding:10px 16px;font-size:11px;font-weight:600;color:#888;text-align:left;text-transform:uppercase;border-bottom:1px solid #e5e5e5;">URL</th>
-            <th style="padding:10px 16px;font-size:11px;font-weight:600;color:#888;text-align:left;text-transform:uppercase;border-bottom:1px solid #e5e5e5;">Action</th>
+            <th style="padding:10px 16px;font-size:11px;font-weight:600;color:#888;text-align:left;text-transform:uppercase;border-bottom:1px solid #e5e5e5;">URL — copy and paste into GSC</th>
           </tr>
         </thead>
         <tbody>${urlRowsHtml}</tbody>
