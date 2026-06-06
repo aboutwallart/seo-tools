@@ -219,7 +219,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.54</div>
+    <div class="version">v16.55</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -2346,10 +2346,10 @@ function selectSearchResult(itemId, candidateId, candidateUrl, candidateTitle, s
     const newItem = document.createElement('div');
     newItem.className = 'suggest-item pre-checked';
     newItem.innerHTML = `
-      <input type="checkbox" checked class="sug-cb ${cbClass}"
-        data-item-id="${itemId}" data-candidate-id="${escHtml(candidateId)}"
-        data-candidate-url="${escHtml(candidateUrl)}" data-candidate-title="${escHtml(candidateTitle)}"
-        data-candidate-type="${searchType}"
+      <input type="checkbox" checked class="inb-cb ${cbClass}"
+        data-target-id="${itemId}" data-source-id="${escHtml(candidateId)}"
+        data-source-url="${escHtml(candidateUrl)}" data-source-title="${escHtml(candidateTitle)}"
+        data-source-type="${searchType}"
         ${cbClass==='sug-blog'?'onchange="enforceSingleBlog(this,\''+itemId+'\')"':''}
         ${cbClass==='inb-trend'?'onchange="enforceInboundSingle(this,\''+itemId+'\',\'inb-trend\')"':''} />
       <div class="suggest-item-info">
