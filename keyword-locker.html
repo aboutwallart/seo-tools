@@ -400,6 +400,80 @@
         .winner-url-cell { font-size: 12px; color: #10b981; word-break: break-all; }
 
         .empty-msg { text-align: center; color: #999; padding: 30px; font-size: 15px; }
+
+        /* Bulk selection */
+        .conflict-item.bulk-selected { border-color: #3b82f6; background: #eff6ff; }
+
+        .card-checkbox {
+            position: absolute;
+            top: 18px;
+            right: 20px;
+            width: 22px;
+            height: 22px;
+            cursor: pointer;
+            accent-color: #3b82f6;
+        }
+
+        .conflict-item { position: relative; }
+
+        /* Bulk toolbar */
+        .bulk-toolbar {
+            display: none;
+            position: sticky;
+            top: 12px;
+            z-index: 50;
+            background: #1a1a1a;
+            color: white;
+            border-radius: 12px;
+            padding: 14px 20px;
+            margin-bottom: 20px;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+
+        .bulk-toolbar.visible { display: flex; }
+
+        .bulk-count { font-size: 15px; font-weight: 600; color: #fff; flex: 1; }
+
+        .btn-bulk-resolve {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white; border: none; padding: 10px 20px;
+            border-radius: 8px; font-weight: 600; font-size: 14px;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .btn-bulk-resolve:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(16,185,129,0.4); }
+
+        .btn-bulk-save {
+            background: #3b82f6;
+            color: white; border: none; padding: 10px 20px;
+            border-radius: 8px; font-weight: 600; font-size: 14px;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .btn-bulk-save:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(59,130,246,0.4); }
+
+        .btn-bulk-delete {
+            background: #ef4444;
+            color: white; border: none; padding: 10px 20px;
+            border-radius: 8px; font-weight: 600; font-size: 14px;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .btn-bulk-delete:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(239,68,68,0.4); }
+
+        .btn-bulk-clear {
+            background: transparent; color: #aaa; border: 1px solid #444;
+            padding: 10px 16px; border-radius: 8px; font-size: 13px;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .btn-bulk-clear:hover { color: #fff; border-color: #888; }
+
+        .btn-select-all {
+            background: transparent; color: #aaa; border: 1px solid #444;
+            padding: 10px 16px; border-radius: 8px; font-size: 13px;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .btn-select-all:hover { color: #fff; border-color: #888; }
     </style>
 </head>
 <body>
@@ -410,7 +484,7 @@
             <h1>Keyword Locker</h1>
             <p>Lock each keyword to its best URL — resolve cannibalization by choosing winners</p>
             <p class="subtitle">One keyword = One winner URL. Intent-aware conflict detection.</p>
-            <div class="version">v5.6</div>
+            <div class="version">v6.0</div>
         </div>
 
         <div class="load-section">
@@ -492,6 +566,16 @@
         <div id="conflictsSection" class="conflicts-section hidden">
             <div class="conflicts-header">
                 <h2>Active Conflicts (<span id="activeConflictCount">0</span>)</h2>
+            </div>
+
+            <!-- Bulk toolbar -->
+            <div class="bulk-toolbar" id="bulkToolbar">
+                <button class="btn-select-all" onclick="selectAllConflicts()">Select All</button>
+                <span class="bulk-count" id="bulkCount">0 selected</span>
+                <button class="btn-bulk-resolve" onclick="bulkResolve()">✓ Bulk Resolve</button>
+                <button class="btn-bulk-save" onclick="bulkSaveForLater()">Save for Later</button>
+                <button class="btn-bulk-delete" onclick="bulkDelete()">Delete All</button>
+                <button class="btn-bulk-clear" onclick="clearSelection()">✕ Clear</button>
             </div>
 
             <div class="search-bar">
@@ -770,6 +854,7 @@
                 }).join('');
 
                 div.innerHTML = `
+                    <input type="checkbox" class="card-checkbox" id="chk-${index}" onchange="toggleCardSelection(${index})">
                     <div class="conflict-header">
                         <div style="display:flex;align-items:center;gap:12px;">
                             <div class="conflict-keyword">${conflict.keyword}</div>
@@ -937,6 +1022,141 @@
             } catch (error) {
                 showModal('Error', `Failed to delete: ${error.message}`);
             }
+        }
+
+        // ── Bulk selection ──
+        let selectedIndices = new Set();
+
+        function toggleCardSelection(index) {
+            const card = document.getElementById(`conflict-${index}`);
+            const chk = document.getElementById(`chk-${index}`);
+            if (!card || card.style.display === 'none') return;
+            if (chk.checked) { selectedIndices.add(index); card.classList.add('bulk-selected'); }
+            else { selectedIndices.delete(index); card.classList.remove('bulk-selected'); }
+            updateBulkToolbar();
+        }
+
+        function selectAllConflicts() {
+            document.querySelectorAll('.conflict-item').forEach(card => {
+                if (card.style.display === 'none' || card.style.pointerEvents === 'none') return;
+                const index = parseInt(card.id.replace('conflict-', ''));
+                const chk = document.getElementById(`chk-${index}`);
+                if (chk) { chk.checked = true; selectedIndices.add(index); card.classList.add('bulk-selected'); }
+            });
+            updateBulkToolbar();
+        }
+
+        function clearSelection() {
+            selectedIndices.forEach(index => {
+                const card = document.getElementById(`conflict-${index}`);
+                const chk = document.getElementById(`chk-${index}`);
+                if (card) card.classList.remove('bulk-selected');
+                if (chk) chk.checked = false;
+            });
+            selectedIndices.clear();
+            updateBulkToolbar();
+        }
+
+        function updateBulkToolbar() {
+            const toolbar = document.getElementById('bulkToolbar');
+            const countEl = document.getElementById('bulkCount');
+            const n = selectedIndices.size;
+            if (n > 0) { toolbar.classList.add('visible'); countEl.textContent = `${n} selected`; }
+            else { toolbar.classList.remove('visible'); }
+        }
+
+        async function bulkSaveForLater() {
+            const indices = Array.from(selectedIndices);
+            if (!indices.length) return;
+            if (!confirm(`Save ${indices.length} keyword(s) for later?`)) return;
+            document.getElementById('bulkToolbar').querySelector('.btn-bulk-save').textContent = 'Saving...';
+            for (const index of indices) {
+                const conflict = conflictsData[index];
+                if (!conflict) continue;
+                try {
+                    await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'save-for-later', keyword: conflict.keyword, intent: conflict.intent }) });
+                    statsSaved++;
+                    registry.push({ keyword: conflict.keyword, url: 'N/A', locked: true, status: 'DONE', action: 'SAVED_FOR_FUTURE', winnerUrl: '', source: 'User Action', intent: conflict.intent });
+                    const card = document.getElementById(`conflict-${index}`);
+                    const resolvedEl = document.getElementById(`resolved-${index}`);
+                    if (resolvedEl) { resolvedEl.style.display = 'block'; resolvedEl.textContent = 'Saved for Later'; }
+                    if (card) { card.style.pointerEvents = 'none'; setTimeout(() => { card.style.display = 'none'; }, 800); }
+                } catch(e) { console.error('Bulk save error:', e.message); }
+            }
+            document.getElementById('savedCount').textContent = statsSaved;
+            const remaining = parseInt(document.getElementById('conflictsCount').textContent) - indices.length;
+            document.getElementById('conflictsCount').textContent = Math.max(0, remaining);
+            document.getElementById('activeConflictCount').textContent = Math.max(0, remaining);
+            clearSelection();
+            document.getElementById('bulkToolbar').querySelector('.btn-bulk-save').textContent = 'Save for Later';
+        }
+
+        async function bulkDelete() {
+            const indices = Array.from(selectedIndices);
+            if (!indices.length) return;
+            if (!confirm(`Delete ${indices.length} keyword(s)? They will no longer appear as conflicts.`)) return;
+            document.getElementById('bulkToolbar').querySelector('.btn-bulk-delete').textContent = 'Deleting...';
+            for (const index of indices) {
+                const conflict = conflictsData[index];
+                if (!conflict) continue;
+                try {
+                    await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'delete-keyword', keyword: conflict.keyword, intent: conflict.intent }) });
+                    statsDeleted++;
+                    registry.push({ keyword: conflict.keyword, url: 'N/A', locked: true, status: 'DONE', action: 'DELETED', winnerUrl: '', source: 'User Action', intent: conflict.intent });
+                    const card = document.getElementById(`conflict-${index}`);
+                    const resolvedEl = document.getElementById(`resolved-${index}`);
+                    if (resolvedEl) { resolvedEl.style.display = 'block'; resolvedEl.textContent = 'Deleted'; }
+                    if (card) { card.style.pointerEvents = 'none'; setTimeout(() => { card.style.display = 'none'; }, 800); }
+                } catch(e) { console.error('Bulk delete error:', e.message); }
+            }
+            document.getElementById('deletedCount').textContent = statsDeleted;
+            const remaining = parseInt(document.getElementById('conflictsCount').textContent) - indices.length;
+            document.getElementById('conflictsCount').textContent = Math.max(0, remaining);
+            document.getElementById('activeConflictCount').textContent = Math.max(0, remaining);
+            clearSelection();
+            document.getElementById('bulkToolbar').querySelector('.btn-bulk-delete').textContent = 'Delete All';
+        }
+
+        async function bulkResolve() {
+            const indices = Array.from(selectedIndices);
+            if (!indices.length) return;
+            if (!confirm(`Auto-resolve ${indices.length} conflict(s)? The highest-scoring unlocked URL will be locked as winner for each.`)) return;
+            document.getElementById('bulkToolbar').querySelector('.btn-bulk-resolve').textContent = 'Resolving...';
+            let resolved = 0;
+            for (const index of indices) {
+                const conflict = conflictsData[index];
+                if (!conflict) continue;
+                const pages = conflict.pages.map(p => ({ ...p, isLocked: lockedUrlsRuntime.has(p.url) }))
+                    .sort((a, b) => a.isLocked !== b.isLocked ? (a.isLocked ? 1 : -1) : b.score - a.score);
+                const winner = pages.find(p => !p.isLocked);
+                if (!winner) continue;
+                const losers = pages.filter(p => p.url !== winner.url);
+                try {
+                    await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'lock-keyword', keyword: conflict.keyword, url: winner.url, intent: conflict.intent,
+                            losers: losers.map(l => ({ url: l.url, clicks: l.clicks, impressions: l.impressions, position: l.position })) }) });
+                    lockedUrlsRuntime.add(winner.url);
+                    statsResolved++;
+                    statsInternalLinks += losers.length;
+                    registry.push({ keyword: conflict.keyword, url: winner.url, locked: true, status: 'DONE', action: 'TO_OPTIMIZE', winnerUrl: '', source: 'User Resolved', intent: conflict.intent });
+                    losers.forEach(l => registry.push({ keyword: conflict.keyword, url: l.url, locked: false, status: 'DONE', action: 'INTERNAL_LINK', winnerUrl: winner.url, source: 'Auto Detected', intent: conflict.intent }));
+                    const card = document.getElementById(`conflict-${index}`);
+                    const resolvedEl = document.getElementById(`resolved-${index}`);
+                    if (resolvedEl) { resolvedEl.style.display = 'block'; resolvedEl.textContent = `Locked: ${shortUrl(winner.url)}`; }
+                    if (card) { card.style.pointerEvents = 'none'; setTimeout(() => { card.style.display = 'none'; }, 800); }
+                    resolved++;
+                } catch(e) { console.error('Bulk resolve error:', e.message); }
+            }
+            document.getElementById('resolvedCount').textContent = statsResolved;
+            document.getElementById('internalLinksCount').textContent = statsInternalLinks;
+            const remaining = parseInt(document.getElementById('conflictsCount').textContent) - resolved;
+            document.getElementById('conflictsCount').textContent = Math.max(0, remaining);
+            document.getElementById('activeConflictCount').textContent = Math.max(0, remaining);
+            clearSelection();
+            document.getElementById('bulkToolbar').querySelector('.btn-bulk-resolve').textContent = '✓ Bulk Resolve';
+            setTimeout(() => refreshConflictCards(), 1000);
         }
 
         // ── Refresh conflict cards after a URL gets locked ──
