@@ -431,6 +431,181 @@ module.exports = async function handler(req, res) {
   }
 
   // -------------------------------------------------------
+  // GENERATE REDIRECTS — build /fr/ + /es/ list from Shopify
+  // -------------------------------------------------------
+  if (req.query.action === 'generate-redirects') {
+    const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+    const REPO = 'aboutwallart/seo-tools';
+    const shopifyHeaders = { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' };
+    const base = `https://${shopifyDomain}/admin/api/2025-01`;
+
+    try {
+      const paths = [];
+
+      // 1. Products — vendor "About Wall Art" only, via GraphQL pagination
+      let cursor = null, hasMore = true;
+      while (hasMore) {
+        const cursorPart = cursor ? `, after: "${cursor}"` : '';
+        const query = `{ products(first:250${cursorPart}, query:"vendor:'About Wall Art'") { pageInfo { hasNextPage endCursor } edges { node { handle } } } }`;
+        const r = await fetch(`https://${shopifyDomain}/admin/api/2025-01/graphql.json`, {
+          method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query })
+        });
+        const d = await r.json();
+        (d.data.products.edges || []).forEach(e => paths.push(`/products/${e.node.handle}`));
+        hasMore = d.data.products.pageInfo.hasNextPage;
+        cursor = d.data.products.pageInfo.endCursor;
+      }
+
+      // 2. Collections — all, via REST pagination
+      let page = `${base}/custom_collections.json?limit=250&fields=handle`;
+      while (page) {
+        const r = await fetch(page, { headers: shopifyHeaders });
+        const d = await r.json();
+        (d.custom_collections || []).forEach(c => paths.push(`/collections/${c.handle}`));
+        const link = r.headers.get('Link') || '';
+        const next = link.match(/<([^>]+)>;\s*rel="next"/);
+        page = next ? next[1] : null;
+      }
+      page = `${base}/smart_collections.json?limit=250&fields=handle`;
+      while (page) {
+        const r = await fetch(page, { headers: shopifyHeaders });
+        const d = await r.json();
+        (d.smart_collections || []).forEach(c => paths.push(`/collections/${c.handle}`));
+        const link = r.headers.get('Link') || '';
+        const next = link.match(/<([^>]+)>;\s*rel="next"/);
+        page = next ? next[1] : null;
+      }
+
+      // 3. Blog articles — all, via REST pagination
+      const blogsR = await fetch(`${base}/blogs.json?limit=250&fields=id,handle`, { headers: shopifyHeaders });
+      const blogsD = await blogsR.json();
+      for (const blog of (blogsD.blogs || [])) {
+        page = `${base}/blogs/${blog.id}/articles.json?limit=250&fields=handle`;
+        while (page) {
+          const r = await fetch(page, { headers: shopifyHeaders });
+          const d = await r.json();
+          (d.articles || []).forEach(a => paths.push(`/blogs/${blog.handle}/${a.handle}`));
+          const link = r.headers.get('Link') || '';
+          const next = link.match(/<([^>]+)>;\s*rel="next"/);
+          page = next ? next[1] : null;
+        }
+      }
+
+      // 4. Pages — all, via REST pagination
+      page = `${base}/pages.json?limit=250&fields=handle`;
+      while (page) {
+        const r = await fetch(page, { headers: shopifyHeaders });
+        const d = await r.json();
+        (d.pages || []).forEach(p => paths.push(`/pages/${p.handle}`));
+        const link = r.headers.get('Link') || '';
+        const next = link.match(/<([^>]+)>;\s*rel="next"/);
+        page = next ? next[1] : null;
+      }
+
+      // Generate /fr/ and /es/ pairs
+      const redirects = [];
+      for (const path of paths) {
+        redirects.push({ from: `/fr${path}`, to: path });
+        redirects.push({ from: `/es${path}`, to: path });
+      }
+
+      // Read already-pushed list from GitHub
+      let pushedSet = new Set();
+      try {
+        const r = await fetch(`https://api.github.com/repos/${REPO}/contents/data/pushed-redirects.json`, {
+          headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
+        });
+        if (r.ok) {
+          const d = await r.json();
+          const content = Buffer.from(d.content, 'base64').toString('utf-8');
+          JSON.parse(content).forEach(u => pushedSet.add(u));
+        }
+      } catch(e) {}
+
+      const newRedirects = redirects.filter(r => !pushedSet.has(r.from));
+
+      return res.status(200).json({
+        success: true,
+        total: redirects.length,
+        alreadyPushed: redirects.length - newRedirects.length,
+        newCount: newRedirects.length,
+        redirects: newRedirects
+      });
+
+    } catch(err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // -------------------------------------------------------
+  // CREATE REDIRECTS — push a batch to Shopify
+  // -------------------------------------------------------
+  if (req.query.action === 'create-redirects' && req.method === 'POST') {
+    const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+    const REPO = 'aboutwallart/seo-tools';
+    const shopifyHeaders = { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' };
+    const { redirects } = req.body;
+
+    if (!redirects || !Array.isArray(redirects)) {
+      return res.status(400).json({ error: 'Missing redirects array' });
+    }
+
+    try {
+      // Read current pushed list from GitHub
+      let pushedList = [];
+      let fileSha = null;
+      try {
+        const r = await fetch(`https://api.github.com/repos/${REPO}/contents/data/pushed-redirects.json`, {
+          headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
+        });
+        if (r.ok) {
+          const d = await r.json();
+          fileSha = d.sha;
+          pushedList = JSON.parse(Buffer.from(d.content, 'base64').toString('utf-8'));
+        }
+      } catch(e) {}
+
+      const pushedSet = new Set(pushedList);
+      const toCreate = redirects.filter(r => !pushedSet.has(r.from));
+
+      // Create redirects in parallel (batches to respect rate limits)
+      const results = await Promise.all(toCreate.map(async ({ from, to }) => {
+        try {
+          const r = await fetch(`https://${shopifyDomain}/admin/api/2025-01/redirects.json`, {
+            method: 'POST', headers: shopifyHeaders,
+            body: JSON.stringify({ redirect: { path: from, target: to } })
+          });
+          const d = await r.json();
+          if (d.redirect) return { ok: true, from };
+          return { ok: false, from, error: JSON.stringify(d.errors || d) };
+        } catch(e) {
+          return { ok: false, from, error: e.message };
+        }
+      }));
+
+      const created = results.filter(r => r.ok).map(r => r.from);
+      const errors = results.filter(r => !r.ok);
+
+      // Update GitHub pushed list
+      const newPushedList = [...pushedList, ...created];
+      await fetch(`https://api.github.com/repos/${REPO}/contents/data/pushed-redirects.json`, {
+        method: 'PUT',
+        headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: `Add ${created.length} redirects`,
+          content: Buffer.from(JSON.stringify(newPushedList, null, 2)).toString('base64'),
+          ...(fileSha ? { sha: fileSha } : {})
+        })
+      });
+
+      return res.status(200).json({ success: true, created: created.length, skipped: redirects.length - toCreate.length, errors: errors.length });
+
+    } catch(err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // -------------------------------------------------------
   // EXISTING IMAGE OPTIMIZER ACTIONS — POST only
   // -------------------------------------------------------
   if (req.method !== 'POST') {
