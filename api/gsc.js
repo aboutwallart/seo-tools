@@ -261,7 +261,7 @@ module.exports = async (req, res) => {
       const dayNumber = dayIndex + 1;
 
       // GSC URL Inspection deep link base
-      const gscBase = 'https://search.google.com/search-console/inspect?resource_id=sc-domain%3Aaboutwallart.com&id=';
+      const gscBase = 'https://search.google.com/search-console/inspect?resource_id=sc-domain:aboutwallart.com&id=';
 
       // Build URL table rows
       const urlRowsHtml = batchUrls.map((url, i) => {
