@@ -245,6 +245,9 @@ https://accounts.google.com/o/oauth2/v2/auth?client_id=15466013888-deual871humre
 - `autolink-rules.json` — 368 auto-link keyword→URL rules `[{id, keyword, url, linksAdded}]`
 - `metafield-product-links.json` — Products added to blog Complete the Look metafields via this tool `[{productId, articleId}]`
 
+### New files to be added (Technical Health tab — v57):
+- `pushed-redirects.json` — Array of /fr/ and /es/ URLs already pushed as Shopify redirects `["https://aboutwallart.com/fr/products/xyz", ...]` — prevents duplicate redirects
+
 ---
 
 # EASY SEO REPORT TOOL — COMPLETE DOCUMENTATION
@@ -446,7 +449,7 @@ GA4_PROPERTY_ID           — 359661193
 3. Money Page Doctor — /money-page-doctor.html
 4. Rank Report Card — /rank-report-card.html
 5. Image Optimizer — /image-optimizer.html
-6. Easy SEO Report — /gsc-report.html (LIVE v52)
+6. Easy SEO Report — /easy-seo-report.html (LIVE v56)
 7. Link Whisperer — /link-whisperer.html (LIVE v16.42)
 
 ---
@@ -454,15 +457,19 @@ GA4_PROPERTY_ID           — 359661193
 # KNOWN ISSUES & TODO
 
 ## Revenue Chart (Historical View)
-- Net Sales bars showing £0 — Shopify Orders REST API returning empty
-- Tried ShopifyQL (requires read_analytics scope — Basic plan limitation)
-- Tried REST Orders API — returning empty
-- TODO: Debug with Shopify support or regenerate access token with read_orders scope confirmed
+- FIXED June 6, 2026 — Shopify token reinstalled with read_orders scope. Revenue bars now showing correctly.
 
 ## Shopify Access Token
-- read_analytics scope was added May 30, 2026 but token was NOT regenerated
-- ShopifyQL requires token reinstall to pick up new scopes
-- TODO: Reinstall app in Shopify admin to regenerate token, update SHOPIFY_ACCESS_TOKEN in Vercel
+- FIXED June 6, 2026 — Token reinstalled, read_orders scope now active. SHOPIFY_ACCESS_TOKEN updated in Vercel.
+
+## Technical SEO Issues (identified June 6, 2026)
+- 404 errors: 65,702 pages — mostly /fr/ and /es/ from old translation app. Fix: generate redirects from Shopify (About Wall Art vendor products only + all collections/blogs/pages). See handovers/technical-seo-tab-handover.md
+- Review snippets: 194 invalid — duplicate Product schema (theme product-data.liquid + Judge.me). Fix: remove schema from snippets/product-data.liquid. Keep Judge.me Rich Snippets ON.
+- Crawled not indexed: 173,314 pages — caused by anti-fraud app that overwrote metadata (app removed, metadata fixed). Recovery in progress, takes 2-3 months.
+- Duplicate canonical: 26,959 pages — Shopify filter/variant URLs, mostly normal behaviour
+- Server errors (5xx): 66 pages — need investigation
+- Soft 404: 11 pages — need investigation
+- TODO: Build 🔧 Technical Health tab in easy-seo-report.html (v57) — see handovers/technical-seo-tab-handover.md for full spec
 
 ---
 
@@ -566,6 +573,23 @@ All Shopify calls go through `api/shopify-files.js`. No new API files were creat
 - Registers `products/create` and `collections/create` webhooks (REST API)
 - Webhook address: `https://tools.aboutwallart.com/api/shopify-files?action=autolink-webhook`
 - 300ms delays between calls to avoid Shopify rate limiting
+
+#### `action=create-redirects` (POST — TO BE BUILT for Technical Health tab)
+- Body: `{ redirects: [{from, to}] }`
+- Checks each URL against `data/pushed-redirects.json` to skip duplicates
+- Creates redirects via Shopify REST API: `POST /admin/api/2025-01/redirects.json`
+- Returns: `{ success: true, created: N, skipped: N, errors: [] }`
+- Updates `data/pushed-redirects.json` on GitHub with newly pushed URLs
+- Used by the 🔧 Technical Health tab to fix 404 errors
+
+#### `action=fetch-shopify-urls` (GET — TO BE BUILT for Technical Health tab)
+- Fetches all URLs from Shopify for redirect generation:
+  - Products where vendor = "About Wall Art" (~1,200 products)
+  - All collections
+  - All blog articles
+  - All pages
+- Returns flat list of paths: `["/products/xyz", "/collections/abc", ...]`
+- Tool generates /fr/ and /es/ redirect pairs from these paths
 
 ### New action branches in `api/blogs.js` (added for Link Whisperer):
 
