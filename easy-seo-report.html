@@ -151,7 +151,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v57.8</div>
+      <div class="tool-version">v57.9</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)"><span>High Level SEO Metrics</span><span class="nav-badge" id="badge-overview"></span></div>
     <div class="nav-item" onclick="showSection('historical', this)"><span>Historical View (1 Year)</span><span class="nav-badge" id="badge-historical"></span></div>
@@ -4426,7 +4426,10 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
     // ── Technical Health Tab ─────────────────────────────────────────────────
 
     // Crawled Not Indexed trend chart (hardcoded GSC audit data)
+    let crawledChartInit = false;
     function initCrawledTrendChart() {
+      if (crawledChartInit) return;
+      crawledChartInit = true;
       const ctx = document.getElementById('crawledTrendChart');
       if (!ctx) return;
       new Chart(ctx, {
@@ -4755,6 +4758,7 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
     };
 
     restoreNavBadges();
+    restoreTechStatuses(); // apply saved statuses to DOM on page load (elements exist even in hidden sections)
     loadOverview(28);loadClicksChart(28);loadDeviceChart(28);loadPages(28);loadQueries(28);
   </script>
 </body>
