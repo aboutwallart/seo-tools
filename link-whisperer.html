@@ -219,7 +219,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.57</div>
+    <div class="version">v16.58</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -656,6 +656,15 @@
         <p style="font-size:12px;color:#888;margin-bottom:16px;">Removes any products from the tracking file that are not from the <strong>About Wall Art</strong> vendor. Run this once to clean up records added before this tool existed. Make sure your Shopify data is synced before clicking.</p>
         <button class="btn-action" style="background:#e65100;" onclick="cleanMetafieldRecords()" id="btn-clean-metafield">🧹 Clean Up Product Records</button>
         <span id="clean-metafield-status" style="font-size:12px;color:#888;margin-left:12px;"></span>
+      </div>
+
+      <!-- CLEAN DUPLICATE PHRASES -->
+      <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:24px;margin-bottom:20px;">
+        <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#333;margin-bottom:4px;">Clean Up Duplicate Phrases</h3>
+        <p style="font-size:12px;color:#888;margin-bottom:16px;">Scans all pages, blog posts, collections and trend pages for duplicate inbound link phrases saved before the deduplication fix. Removes extra copies and merges multiple collection links into one sentence. Make sure your Shopify data is synced before clicking.</p>
+        <button class="btn-action" style="background:#6a1b9a;" onclick="cleanDuplicatePhrases()" id="btn-clean-dupes">🧹 Clean Up Duplicate Phrases</button>
+        <span id="clean-dupes-status" style="font-size:12px;color:#888;margin-left:12px;"></span>
+        <div id="clean-dupes-preview" style="display:none;margin-top:16px;"></div>
       </div>
 
       <!-- CLEAR CACHE -->
@@ -1156,6 +1165,188 @@ async function cleanMetafieldRecords() {
   }
 
   if(btn) btn.disabled = false;
+}
+
+// ─── CLEAN DUPLICATE PHRASES ─────────────────────────────────────────────────
+
+// The inbound phrases we recognise and can deduplicate / merge
+const DUPE_PATTERNS = [
+  { key: 'trendToCol',  start: 'explore our',  end: 'collection to find the perfect' },
+  { key: 'blogToCol',   start: 'browse our',   end: 'collection to find pieces'       },
+  { key: 'blogToTrend', start: 'if you love this style', end: 'for more ideas'        },
+  { key: 'trendToTrend',start: 'if you enjoy this style', end: 'for more ideas'       },
+  { key: 'blogToBlog',  start: 'you may also enjoy our article', end: 'styling ideas' },
+  { key: 'trendToBlog', start: 'you may also want to read our article', end: 'styling ideas' },
+];
+
+function detectPhraseType(paraText) {
+  const t = paraText.toLowerCase();
+  for(const p of DUPE_PATTERNS) {
+    if(t.includes(p.start) && t.includes(p.end)) return p.key;
+  }
+  return null;
+}
+
+// Given an item's bodyHtml, returns cleaned HTML and a description of what changed.
+// Returns null if nothing needs changing.
+function buildCleanedHtml(html) {
+  if(!html) return null;
+  try {
+    const doc = new DOMParser().parseFromString('<div>' + html + '</div>', 'text/html');
+    const root = doc.body.firstChild;
+    const paras = Array.from(root.querySelectorAll('p'));
+
+    // Group paragraphs by phrase type
+    const groups = {}; // phraseType → [pElement, ...]
+    for(const p of paras) {
+      const type = detectPhraseType(p.textContent);
+      if(!type) continue;
+      if(!groups[type]) groups[type] = [];
+      groups[type].push(p);
+    }
+
+    let changed = false;
+    const changes = [];
+
+    for(const [type, pList] of Object.entries(groups)) {
+      if(pList.length < 2) continue; // nothing to deduplicate
+
+      // Collect all unique target URLs across all paragraphs of this type
+      const allLinks = new Map(); // normUrl → {href, title}
+      for(const p of pList) {
+        for(const a of p.querySelectorAll('a[href]')) {
+          const n = normUrl(a.getAttribute('href') || '');
+          if(n && !allLinks.has(n)) allLinks.set(n, { href: a.getAttribute('href'), title: a.textContent.trim() });
+        }
+      }
+
+      // Keep the first paragraph, remove the rest
+      const keeper = pList[0];
+      for(let i = 1; i < pList.length; i++) {
+        pList[i].remove();
+        changed = true;
+      }
+
+      // If multiple unique URLs, rebuild the keeper with merged links
+      if(allLinks.size > 1) {
+        const linksHtml = Array.from(allLinks.values()).map(l => `<a href="${l.href}">${escHtml(l.title)}</a>`);
+        const joined = linksHtml.length === 2
+          ? linksHtml[0] + ' and ' + linksHtml[1]
+          : linksHtml.slice(0,-1).join(', ') + ' and ' + linksHtml[linksHtml.length-1];
+        const styleAttr = keeper.getAttribute('style') ? ` style="${keeper.getAttribute('style')}"` : '';
+        if(type === 'trendToCol') keeper.innerHTML = `Explore our ${joined} collections to find the perfect items for this trend.`;
+        else if(type === 'blogToCol') keeper.innerHTML = `Browse our ${joined} collections to find pieces that bring this look to life in your home.`;
+        // For other types, just keep the first occurrence (they link to a single target anyway)
+        changes.push(`Merged ${pList.length} "${type}" phrases (${allLinks.size} unique links) into one`);
+      } else {
+        changes.push(`Removed ${pList.length - 1} duplicate "${type}" phrase(s)`);
+      }
+    }
+
+    if(!changed) return null;
+    return { html: root.innerHTML, changes };
+  } catch(e) { return null; }
+}
+
+let dupeCleanupPlan = []; // [{item, cleanedHtml, changes}]
+
+async function cleanDuplicatePhrases() {
+  if(!AppState.items.length) { showToast('Please sync Shopify data first.', 'error'); return; }
+
+  const btn = document.getElementById('btn-clean-dupes');
+  const status = document.getElementById('clean-dupes-status');
+  const preview = document.getElementById('clean-dupes-preview');
+
+  btn.disabled = true;
+  status.textContent = 'Scanning…';
+  preview.style.display = 'none';
+  preview.innerHTML = '';
+  dupeCleanupPlan = [];
+
+  // Scan all items
+  for(const item of AppState.items) {
+    const result = buildCleanedHtml(item.bodyHtml || '');
+    if(result) dupeCleanupPlan.push({ item, cleanedHtml: result.html, changes: result.changes });
+  }
+
+  if(!dupeCleanupPlan.length) {
+    status.textContent = '✅ No duplicate phrases found — everything is clean.';
+    btn.disabled = false;
+    return;
+  }
+
+  // Show preview
+  const rows = dupeCleanupPlan.map(p =>
+    `<div style="padding:8px 0;border-bottom:1px solid #f0f0f0;">
+      <div style="font-size:12px;font-weight:700;color:#333;">${escHtml(p.item.title)} <span style="color:#888;font-weight:400;">(${p.item.type})</span></div>
+      ${p.changes.map(c => `<div style="font-size:11px;color:#555;margin-top:2px;">→ ${escHtml(c)}</div>`).join('')}
+    </div>`
+  ).join('');
+
+  preview.innerHTML = `
+    <div style="background:#fff3e0;border:1px solid #ffe0b2;border-radius:6px;padding:16px;margin-bottom:12px;">
+      <div style="font-size:13px;font-weight:700;color:#e65100;margin-bottom:8px;">Found duplicates on ${dupeCleanupPlan.length} page(s) — review below then confirm</div>
+      <div style="max-height:260px;overflow-y:auto;">${rows}</div>
+    </div>
+    <button class="btn-action" style="background:#6a1b9a;" onclick="confirmDupeCleanup()" id="btn-confirm-dupes">✅ Fix All ${dupeCleanupPlan.length} Page(s)</button>
+    <button class="btn-outline" style="margin-left:8px;" onclick="cancelDupeCleanup()">✕ Cancel</button>`;
+  preview.style.display = 'block';
+  status.textContent = '';
+  btn.disabled = false;
+}
+
+function cancelDupeCleanup() {
+  dupeCleanupPlan = [];
+  document.getElementById('clean-dupes-preview').style.display = 'none';
+  document.getElementById('clean-dupes-status').textContent = '';
+}
+
+async function confirmDupeCleanup() {
+  const confirmBtn = document.getElementById('btn-confirm-dupes');
+  const status = document.getElementById('clean-dupes-status');
+  if(confirmBtn) confirmBtn.disabled = true;
+
+  const total = dupeCleanupPlan.length;
+  let saved = 0, failed = 0;
+  status.textContent = 'Fixing 0 of ' + total + '…';
+
+  for(const plan of dupeCleanupPlan) {
+    try {
+      await saveItemToShopify(plan.item, plan.cleanedHtml);
+      plan.item.bodyHtml = plan.cleanedHtml;
+      // Update body cache
+      try {
+        const bc = JSON.parse(localStorage.getItem('lw-body-cache') || '{}');
+        bc[plan.item.id] = plan.cleanedHtml;
+        localStorage.setItem('lw-body-cache', JSON.stringify(bc));
+      } catch(e) {}
+      saved++;
+      status.textContent = 'Fixing ' + saved + ' of ' + total + '…';
+    } catch(e) {
+      failed++;
+    }
+    // Small pause between saves to avoid Shopify rate limits
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  // Rebuild link graph with cleaned data
+  AppState.links = [];
+  for(const i of AppState.items) AppState.links.push(...parseItemLinks(i));
+  buildLinkGraph();
+  detectBrokenLinks();
+  renderLinksReport();
+  renderDashboard();
+
+  document.getElementById('clean-dupes-preview').style.display = 'none';
+  dupeCleanupPlan = [];
+
+  if(failed) {
+    status.textContent = `⚠️ ${saved} fixed, ${failed} failed — try again for the remaining ones.`;
+    showToast(`⚠️ ${saved} fixed, ${failed} failed`, 'error');
+  } else {
+    status.textContent = `✅ Done — cleaned up ${saved} page(s).`;
+    showToast(`✅ Cleaned up ${saved} page(s)`, 'success');
+  }
 }
 
 function clearAllCache() {
