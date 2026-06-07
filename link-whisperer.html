@@ -221,7 +221,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.63</div>
+    <div class="version">v17.0</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -241,11 +241,11 @@
 
   <div id="tab-bar">
     <button class="tab-btn active" onclick="switchTab('dashboard')">Dashboard</button>
-    <button class="tab-btn" onclick="switchTab('links-report')">Links Report</button>
+    <button class="tab-btn" onclick="switchTab('links-report')">Links Report <span id="lr-tab-badge" style="display:none;background:#c62828;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;vertical-align:middle;"></span></button>
     <button class="tab-btn" onclick="switchTab('domains-report')">Domains Report</button>
     <button class="tab-btn" onclick="switchTab('broken-links')">Broken Links Report <span id="bl-tab-badge" style="display:none;background:#c62828;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;vertical-align:middle;"></span></button>
     <button class="tab-btn" onclick="switchTab('auto-linking')">Auto Linking</button>
-    <button class="tab-btn" onclick="switchTab('cannibalization')">Cannibalization</button>
+    <button class="tab-btn" onclick="switchTab('cannibalization')">Cannibalization <span id="can-tab-badge" style="display:none;background:#c62828;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;vertical-align:middle;"></span></button>
     <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
   </div>
 
@@ -3266,6 +3266,22 @@ function updateNeedsOutboundCount() {
     return (AppState.linkGraph.inbound[item.id]||[]).length === 0;
   }).length;
   optIn.textContent = 'Needs Inbound Links (' + countIn + ')';
+  updateLrTabBadge();
+}
+
+function updateLrTabBadge() {
+  const badge = document.getElementById('lr-tab-badge');
+  if(!badge) return;
+  const count = AppState.items.filter(item => {
+    if(!['page','collection','article','product'].includes(item.type)) return false;
+    if(item.type === 'product' && (item.vendor||'').toLowerCase() !== 'about wall art') return false;
+    if(PAGES_TO_NEVER_TOUCH.has((item.title||'').toLowerCase().trim())) return false;
+    const inbound  = (AppState.linkGraph.inbound[item.id]||[]).length;
+    const outbound = (AppState.linkGraph.outbound[item.id]||[]).filter(l=>l.type==='internal').length;
+    return inbound === 0 && outbound === 0;
+  }).length;
+  if(count > 0) { badge.textContent = count; badge.style.display = 'inline-block'; }
+  else { badge.style.display = 'none'; }
 }
 
 function getFilteredItems() {
@@ -5010,6 +5026,11 @@ async function initCannibalizationTab() {
     const cn = document.getElementById('can-count-no-conflicts');
     if(cc) cc.textContent = '(' + conflicts.length + ')';
     if(cn) cn.textContent = '(' + noConflicts.length + ')';
+    const canBadge = document.getElementById('can-tab-badge');
+    if(canBadge) {
+      if(conflicts.length > 0) { canBadge.textContent = conflicts.length; canBadge.style.display = 'inline-block'; }
+      else { canBadge.style.display = 'none'; }
+    }
 
   } catch(e) {
     showToast('Could not load registry data.', 'error');
