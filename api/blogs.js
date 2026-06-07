@@ -1,5 +1,7 @@
-// blogs.js — v1.1
+// blogs.js — v1.3
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
+// v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
+// v1.3: Pad all written rows to 12 columns for consistent CSV structure
 import fs from 'fs';
 import path from 'path';
 
@@ -466,27 +468,27 @@ export default async function handler(req, res) {
         const { keyword, url } = req.body;
         if (!keyword || !url) return res.status(400).json({ error: 'keyword and url required' });
         const registry = await getGitHubFile('data/keyword-locker-registry.csv');
-        const lines = registry.content.split('\n');
+        const lines = registry.content.split('\n').map(l => l.replace(/\r/g, ''));
         const header = lines[0];
         let found = false;
         const updatedLines = [header];
+        const today = new Date().toISOString().split('T')[0];
         for (let i = 1; i < lines.length; i++) {
           if (!lines[i].trim()) continue;
           const cols = lines[i].split(',');
+          while (cols.length < 12) cols.push('');
           const rowUrl = cols[1]?.trim().toLowerCase();
           const rowKeyword = cols[0]?.trim().toLowerCase();
-          const today = new Date().toISOString().split('T')[0];
           if (rowUrl === url.toLowerCase() && rowKeyword === keyword.toLowerCase()) {
             cols[2] = 'LOCKED'; cols[3] = 'DONE'; cols[4] = 'OPTIMIZED';
             cols[11] = today;
             updatedLines.push(cols.join(','));
             found = true;
           } else {
-            updatedLines.push(lines[i]);
+            updatedLines.push(cols.join(','));
           }
         }
         if (!found) {
-          const today = new Date().toISOString().split('T')[0];
           updatedLines.push(`${keyword},${url},LOCKED,DONE,OPTIMIZED,,,,,,User Resolved,${today}`);
         }
         const updated = updatedLines.join('\n') + '\n';
@@ -500,21 +502,41 @@ export default async function handler(req, res) {
         const { keyword, url } = req.body;
         if (!keyword || !url) return res.status(400).json({ error: 'keyword and url required' });
         const registry = await getGitHubFile('data/keyword-locker-registry.csv');
-        const lines = registry.content.split('\n');
+        const lines = registry.content.split('\n').map(l => l.replace(/\r/g, ''));
         let found = false;
         const updatedLines = [lines[0]];
         for (let i = 1; i < lines.length; i++) {
           if (!lines[i].trim()) continue;
           const cols = lines[i].split(',');
+          while (cols.length < 12) cols.push('');
           if (cols[1]?.trim().toLowerCase() === url.toLowerCase() && cols[0]?.trim().toLowerCase() === keyword.toLowerCase()) {
             cols[4] = 'TO_OPTIMIZE';
             cols[11] = '';
             updatedLines.push(cols.join(','));
             found = true;
-          } else { updatedLines.push(lines[i]); }
+          } else { updatedLines.push(cols.join(',')); }
         }
         if (!found) return res.status(404).json({ error: 'Page not found in registry' });
         await updateGitHubFile('data/keyword-locker-registry.csv', updatedLines.join('\n') + '\n', registry.sha, `Unmark optimized: ${keyword}`);
+        return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: add-to-optimize ──
+      if (req.body.action === 'add-to-optimize') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { keyword, url } = req.body;
+        if (!keyword || !url) return res.status(400).json({ error: 'keyword and url required' });
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const lines = registry.content.split('\n').map(l => l.replace(/\r/g, ''));
+        // Check if already exists
+        const exists = lines.slice(1).some(l => {
+          const cols = l.split(',');
+          return cols[1]?.trim().toLowerCase() === url.toLowerCase() && cols[0]?.trim().toLowerCase() === keyword.toLowerCase();
+        });
+        if (exists) return res.status(200).json({ success: true, alreadyExists: true });
+        const newRow = `${keyword},${url},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,User Resolved,COMMERCIAL,`;
+        const updated = lines.filter(l => l.trim()).join('\n') + '\n' + newRow + '\n';
+        await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Add to optimize: ${keyword} on ${url}`);
         return res.status(200).json({ success: true });
       }
 
