@@ -221,7 +221,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v16.61</div>
+    <div class="version">v16.62</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -1652,7 +1652,15 @@ const PAGES_TO_NEVER_TOUCH = new Set([
   'keep in touch','spread the love and win money to spend on your orders',
   "let's celebrate your birthday!",'free workbook!','product bundles',
   'unsure about the size?','write for us – guest posts & contributor opportunities',
-  'homepage','home'
+  'homepage','home',
+  // Static pages — no content to link to/from
+  'about us','collabs','frames details','frequently asked questions',
+  'gift list','home decor wholesale','join us','size guide',
+  // Internal/system collections
+  'all you need for your pets at home','discountable products','door stops',
+  'fix images','jars','new! shopify performance sharing is now turned on',
+  'non discount products','orderlyemails - recommended products',
+  'sets of 1','sets of 2','sets of 3'
 ]);
 
 // Trend pages — these are pages (not collections) describing design trends
@@ -3253,6 +3261,7 @@ function updateNeedsOutboundCount() {
   const countIn = AppState.items.filter(item => {
     if(type && item.type !== type) return false;
     if(vendor && (item.vendor||'').toLowerCase() !== vendor) return false;
+    if(PAGES_TO_NEVER_TOUCH.has((item.title||'').toLowerCase().trim())) return false;
     return (AppState.linkGraph.inbound[item.id]||[]).length === 0;
   }).length;
   optIn.textContent = 'Needs Inbound Links (' + countIn + ')';
@@ -3272,6 +3281,7 @@ function getFilteredItems() {
       if(checkItemRequirements(item).fullyDone) return false;
     }
     if(filter==='needs-inbound'){
+      if(PAGES_TO_NEVER_TOUCH.has((item.title||'').toLowerCase().trim())) return false;
       if((AppState.linkGraph.inbound[item.id]||[]).length > 0) return false;
     }
     if(vendor&&(item.vendor||'').toLowerCase()!==vendor) return false;
@@ -3387,6 +3397,7 @@ function buildItemRow(item) {
         <button class="btn-expand ${inOpen}" onclick="toggleExpand('${item.id}','inbound')">▼</button>
         ${(() => {
           if(!shouldShowAddButton(item)) return `<span style="display:inline-block;min-width:54px;"></span>`;
+          if(PAGES_TO_NEVER_TOUCH.has((item.title||'').toLowerCase().trim())) return `<button class="btn-add" disabled style="opacity:0.35;cursor:default;background:#aaa;">✓ Done</button>`;
           if(inboundReq.noRules) {
             // Products: show Done if has any inbound, else show + Add (opens inbound bulk panel)
             if(inbound.length > 0) return `<button class="btn-add" disabled style="opacity:0.35;cursor:default;background:#aaa;">✓ Done</button>`;
