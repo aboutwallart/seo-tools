@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 46.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 46.1</p>
                 </div>
             </div>
         </header>
@@ -979,6 +979,12 @@
                 renderUrls();
                 renderOptimized();
                 showToast(`✅ "${item.keyword}" fully optimised and saved to registry!`);
+
+                // Close results modal and switch to Optimised tab
+                setTimeout(() => {
+                    document.getElementById('resultsModal').classList.remove('active');
+                    switchTab('optimized');
+                }, 1800);
             } catch (err) {
                 console.error('[Auto-Optimize]', err);
                 showToast('All tasks done! Could not save to registry — check Vercel logs.');
@@ -1146,7 +1152,10 @@
             })() : '';
 
             const html = `
-                <h3 style="margin-bottom:15px;">Results for: ${keyword}</h3>
+                <h3 style="margin-bottom:6px;">Results for: ${keyword}</h3>
+                <div style="margin-bottom:14px;">
+                    <a href="${data.yourPage.url}" target="_blank" style="font-size:0.82rem;color:#1976d2;word-break:break-all;text-decoration:underline;">${data.yourPage.url} ↗</a>
+                </div>
                 ${positionBadge}
                 <div class="results-tabs">
                     <button class="results-tab active" onclick="switchResultsTab('content')">📝 Content Analysis</button>
