@@ -1,7 +1,7 @@
 # TECHNICAL REFERENCE DOCUMENT
 ## AboutWallArt SEO Tools Infrastructure
 
-**Last Updated:** June 6, 2026 (Easy SEO Report v57.12 — Technical Health tab; 3,766 redirects pushed to Shopify; Review Snippets fixed; Daily reindexing email via Make.com live)
+**Last Updated:** June 7, 2026 (Money Page Doctor v46.0 — urgency tabs, deduplication, IndexedDB, GSC reindex block)
 **Owner:** aboutwallart
 **Purpose:** Complete technical documentation for all SEO tools, infrastructure, API keys, and configurations
 
@@ -917,7 +917,7 @@ Auto-suggestions use `findBestUrlMatch()` which scores by handle similarity and 
 # MONEY PAGE DOCTOR TOOL — COMPLETE DOCUMENTATION
 
 **File:** `money-page-doctor.html`
-**Current Version:** v45.1 (June 5, 2026)
+**Current Version:** v46.0 (June 7, 2026)
 **URL:** https://tools.aboutwallart.com/money-page-doctor.html
 **Purpose:** AI-powered SEO analysis tool for winner pages (TO_OPTIMIZE) from the Keyword Locker registry. Fetches competitor data, analyses page content vs competitors using Claude, and delivers actionable optimisation tasks across structured blocks.
 
@@ -931,12 +931,28 @@ Easy SEO Report → finds Quick Wins + Danger Pages → saves to registry → Ke
 
 ## Two Tabs
 
-### My Pages Tab
+### To Optimise Tab (formerly "My Pages")
 - Loads all `TO_OPTIMIZE` pages from the GitHub registry (`keyword-locker-registry.csv`)
+- **Only shows pages with LOCKED=LOCKED, Status=DONE, Action=TO_OPTIMIZE, Source=User Resolved** — pages not yet locked via Keyword Locker are excluded
+- Deduplicates by URL — each URL appears only once
 - Shows live GSC data per page: position, impressions, clicks
-- Sorts by urgency: 🚨 Danger (clicks dropped 20%+) → 🔥 Quick Win → normal
-- Shows progress badge: X/XX analysed
-- Analyse button triggers full analysis pipeline
+
+#### Three Urgency Sub-tabs (within To Optimise Tab):
+- 🚨 **Danger** (red counter) — pages where clicks dropped 20%+
+- 🔥 **Quick Wins** (red counter) — pages with GSC urgency = quickwin
+- 📋 **To Optimise** — all other TO_OPTIMIZE pages (neither danger nor quick win)
+- A URL appears in only one sub-tab — Danger takes priority
+- Page type filters (Collections, Products, Blogs etc.) work within whichever urgency sub-tab is active
+- Default sub-tab on load: To Optimise
+
+#### `currentUrgencyTab` variable:
+- Values: `'danger'` | `'quickwin'` | `'other'`
+- Controls which urgency group is shown
+- Resets page type filter when switched
+
+#### `deduplicateUrls(list)`:
+- Deduplicates by normalised URL (lowercase, trailing slash stripped)
+- Applied before rendering and before filter counts
 
 ### Optimized Tab
 - Shows all pages with `OPTIMIZED` status in registry
@@ -985,7 +1001,15 @@ Easy SEO Report → finds Quick Wins + Danger Pages → saves to registry → Ke
 - Copy button + Open in Shopify Admin button (resolves product handle → numeric ID via API)
 - Checkbox to mark as done
 
-### 5. Manual Actions Checklist
+### 5. 🔍 Request Reindex in GSC
+- Always the last block in results
+- Shows the page URL in a copyable field
+- **Copy URL** button — copies URL to clipboard AND auto-ticks the checkbox
+- **Open GSC ↗** button — opens `https://search.google.com/u/3/search-console?resource_id=sc-domain%3Aaboutwallart.com` in a new tab
+- User pastes the URL manually into GSC URL Inspection and requests reindexing
+- Checkbox counts toward overall progress
+
+### 6. Manual Actions Checklist
 - H2 renames, new sections to add, image alt text tasks
 - Each item has copy button and checkbox
 - Overall Progress bar at top tracks all checkboxes across all blocks
@@ -1036,14 +1060,33 @@ New action added June 5, 2026:
 
 ---
 
-## localStorage Keys
+## Analysis Result Storage — IndexedDB
+
+Analysis results are stored in **IndexedDB** (browser database on user's computer), NOT localStorage.
+
+- **Database name:** `mpd-analysis`
+- **Store name:** `results`
+- **Key:** page URL
+- **Value:** `{ url, data, savedAt }`
+- Results persist across browser sessions and page reloads
+- When a page is marked OPTIMIZED (100% done) → result is deleted from IndexedDB automatically
+- On load, IndexedDB keys are checked and `analyzed` flag is restored for pages with cached results → View button appears without re-analysing
+
+### localStorage Cleanup
+`cleanupLocalStorage()` runs on every page load. Removes all stale `mpd_` keys except:
+- `mpd_before_` — 90-day baseline snapshots
+- `mpd_cl_` — checkbox states
+- `mpd_pushed_` — Shopify push state
+- `mpd_links_pushed_` — internal links push state
+
+## localStorage Keys (still used)
 
 | Key | Contents |
 |-----|----------|
 | `mpd_before_[url]` | JSON: `{ optimizedAt, position, impressions, clicks, keyword, seeded }` |
-| `mpd_results_[url]` | Cached Claude analysis result for that URL |
-| `mpd_state_[url]` | Checkbox states for all checklist items |
-| `mpd_links_pushed_[url]` | Whether Push to Shopify was completed |
+| `mpd_cl_[url]` | Checkbox states for all checklist items |
+| `mpd_pushed_[url]` | Whether Push to Shopify was completed |
+| `mpd_links_pushed_[url]` | Whether internal links push was completed |
 
 ---
 
@@ -1076,6 +1119,10 @@ For INTERNAL_LINK rows:
 | v44.9 | June 4, 2026 | Last stable before v45 session |
 | v45.0 | June 5, 2026 | Internal link pusher block, FAQ schema dedup fix, product schema on collection pages fix, 90-day snapshot seeding, CSV header row bug fix |
 | v45.1 | June 5, 2026 | Optimized tab seeding fix — seeds even when no GSC data so countdown always shows |
+| v45.2 | June 5, 2026 | GSC reindex block added as last step — copyable URL, Copy auto-ticks checkbox, Open GSC button |
+| v45.3 | June 5, 2026 | IndexedDB for analysis result storage — results persist across sessions, deleted on OPTIMIZED |
+| v45.4 | June 5, 2026 | localStorage cleanup on startup — removes stale mpd_ keys to fix QuotaExceededError |
+| v46.0 | June 7, 2026 | Urgency sub-tabs (Danger/Quick Wins/To Optimise) with red counters, URL deduplication, GSC URL fixed, tab renamed to "To Optimise" |
 
 ---
 
