@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 46.2</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 46.3</p>
                 </div>
             </div>
         </header>
@@ -378,6 +378,7 @@
             </div>
             
             <div style="margin-bottom: 15px; display: flex; justify-content: flex-end; gap: 10px;">
+                <button onclick="openAddUrlModal()" style="background:#4caf50;">➕ Add URL</button>
                 <button class="btn-secondary" onclick="clearAllPages()">🗑️ Clear All Pages</button>
                 <button class="btn-secondary" onclick="removeDuplicates()">🧹 Remove Duplicates</button>
             </div>
@@ -395,6 +396,26 @@
             <div id="optimizedList"></div>
         </div>
 
+    </div>
+
+    <!-- ADD URL MODAL -->
+    <div class="modal" id="addUrlModal">
+        <div class="modal-content">
+            <h3 style="margin-bottom: 20px;">➕ Add URL to To Optimise</h3>
+            <div class="form-group">
+                <label>Page URL</label>
+                <input type="text" id="addUrlInput" placeholder="https://aboutwallart.com/collections/...">
+            </div>
+            <div class="form-group">
+                <label>Keyword</label>
+                <input type="text" id="addKeywordInput" placeholder="e.g. framed wall art">
+            </div>
+            <div id="addUrlError" style="color:#dc2626;font-size:0.85rem;margin-bottom:10px;display:none;"></div>
+            <div style="display: flex; gap: 10px;">
+                <button id="addUrlSubmitBtn" onclick="submitAddUrl()">➕ Add to Registry</button>
+                <button class="btn-secondary" onclick="document.getElementById('addUrlModal').classList.remove('active')">Cancel</button>
+            </div>
+        </div>
     </div>
 
     <!-- ANALYZE MODAL -->
@@ -973,7 +994,17 @@
                 // Delete cached analysis — page is done, no longer needed
                 await deleteAnalysisResult(item.url);
 
-                await loadFromGitHub();
+                // Move page in memory immediately — don't wait for CDN to refresh
+                urls = urls.filter(u => u.url !== item.url);
+                const today = new Date().toISOString().split('T')[0];
+                optimizedPages.unshift({
+                    id: Date.now(),
+                    url: item.url,
+                    keyword: item.keyword,
+                    optimizedAt: Date.now(),
+                    optimisedDate: today,
+                    fromRegistry: true
+                });
                 updatePageCount();
                 updateOptimizedCount();
                 renderUrls();
@@ -985,9 +1016,58 @@
                     document.getElementById('resultsModal').classList.remove('active');
                     switchTab('optimized');
                 }, 1800);
+
+                // Refresh from GitHub in background to sync any other changes
+                loadFromGitHub().then(() => { renderUrls(); renderOptimized(); });
             } catch (err) {
                 console.error('[Auto-Optimize]', err);
                 showToast('All tasks done! Could not save to registry — check Vercel logs.');
+            }
+        }
+
+        function openAddUrlModal() {
+            document.getElementById('addUrlInput').value = '';
+            document.getElementById('addKeywordInput').value = '';
+            document.getElementById('addUrlError').style.display = 'none';
+            document.getElementById('addUrlModal').classList.add('active');
+        }
+
+        async function submitAddUrl() {
+            const url = document.getElementById('addUrlInput').value.trim();
+            const keyword = document.getElementById('addKeywordInput').value.trim();
+            const errEl = document.getElementById('addUrlError');
+            const btn = document.getElementById('addUrlSubmitBtn');
+
+            if (!url || !keyword) { errEl.textContent = 'Both URL and keyword are required.'; errEl.style.display = 'block'; return; }
+            if (!url.startsWith('http')) { errEl.textContent = 'URL must start with http.'; errEl.style.display = 'block'; return; }
+
+            btn.textContent = '⏳ Saving...'; btn.disabled = true;
+            errEl.style.display = 'none';
+
+            try {
+                const res = await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'add-to-optimize', keyword, url })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Failed');
+
+                document.getElementById('addUrlModal').classList.remove('active');
+
+                // Add to memory immediately
+                if (!urls.find(u => u.url === url)) {
+                    urls.push({ id: Date.now(), url, keyword, analyzed: false });
+                }
+                updatePageCount(); renderUrls();
+                showToast(data.alreadyExists ? 'Page already in registry.' : `✅ "${keyword}" added to To Optimise!`);
+
+                // Refresh from GitHub in background
+                loadFromGitHub().then(() => { renderUrls(); });
+            } catch(err) {
+                errEl.textContent = `Error: ${err.message}`; errEl.style.display = 'block';
+            } finally {
+                btn.textContent = '➕ Add to Registry'; btn.disabled = false;
             }
         }
 
@@ -2855,9 +2935,15 @@
                 });
                 const data = await res.json();
                 if (!data.success) throw new Error(data.error || 'Failed');
-                await loadFromGitHub();
+
+                // Move page in memory immediately
+                optimizedPages = optimizedPages.filter(p => p.url !== url);
+                urls.push({ id: Date.now(), url: item.url, keyword: item.keyword, analyzed: false });
                 updatePageCount(); updateOptimizedCount(); renderUrls(); renderOptimized();
                 showToast('Page moved back to My Pages.');
+
+                // Refresh from GitHub in background
+                loadFromGitHub().then(() => { renderUrls(); renderOptimized(); });
             } catch (err) {
                 alert(`❌ Failed: ${err.message}`);
             }
