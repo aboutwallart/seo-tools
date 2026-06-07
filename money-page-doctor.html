@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 46.1</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 46.2</p>
                 </div>
             </div>
         </header>
@@ -682,7 +682,7 @@
             try {
                 const btn = event.target;
                 btn.textContent = '⏳ Downloading...'; btn.disabled = true;
-                const res = await fetch('https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keyword-locker-registry.csv');
+                const res = await fetch(`https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keyword-locker-registry.csv?t=${Date.now()}`);
                 if (!res.ok) throw new Error('Failed to fetch registry');
                 const content = await res.text();
                 const blob = new Blob([content], { type: 'text/csv' });
@@ -2403,7 +2403,7 @@
 
         async function loadLockedKeywords() {
             try {
-                const url = 'https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keyword-locker-registry.csv';
+                const url = `https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keyword-locker-registry.csv?t=${Date.now()}`;
                 const response = await fetch(url);
                 
                 if (!response.ok) {
@@ -2463,7 +2463,7 @@
 
         async function getInternalLinksForUrl(pageUrl) {
             try {
-                const url = 'https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keyword-locker-registry.csv';
+                const url = `https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keyword-locker-registry.csv?t=${Date.now()}`;
                 const response = await fetch(url);
                 
                 if (!response.ok) {
@@ -2554,7 +2554,7 @@
         // Load pages from GitHub registry
         async function loadFromGitHub() {
             try {
-                const url = 'https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keyword-locker-registry.csv';
+                const url = `https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keyword-locker-registry.csv?t=${Date.now()}`;
                 console.log('[Load Registry] Fetching from:', url);
                 const response = await fetch(url, {
                     method: 'GET',
