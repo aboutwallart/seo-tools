@@ -1,3 +1,5 @@
+// blogs.js — v1.1
+// v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 import fs from 'fs';
 import path from 'path';
 
@@ -154,7 +156,8 @@ export default async function handler(req, res) {
               action: cols[4] || '',
               winnerUrl: cols[5] || '',
               source: cols[9] || '',
-              intent: cols[10] || ''
+              intent: cols[10] || '',
+              optimisedDate: cols[11] || ''
             });
           }
         }
@@ -472,8 +475,10 @@ export default async function handler(req, res) {
           const cols = lines[i].split(',');
           const rowUrl = cols[1]?.trim().toLowerCase();
           const rowKeyword = cols[0]?.trim().toLowerCase();
+          const today = new Date().toISOString().split('T')[0];
           if (rowUrl === url.toLowerCase() && rowKeyword === keyword.toLowerCase()) {
             cols[2] = 'LOCKED'; cols[3] = 'DONE'; cols[4] = 'OPTIMIZED';
+            cols[11] = today;
             updatedLines.push(cols.join(','));
             found = true;
           } else {
@@ -481,7 +486,8 @@ export default async function handler(req, res) {
           }
         }
         if (!found) {
-          updatedLines.push(`${keyword},${url},LOCKED,DONE,OPTIMIZED,,,,,${new Date().toISOString().split('T')[0]}`);
+          const today = new Date().toISOString().split('T')[0];
+          updatedLines.push(`${keyword},${url},LOCKED,DONE,OPTIMIZED,,,,,,User Resolved,${today}`);
         }
         const updated = updatedLines.join('\n') + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Mark optimized: ${keyword} on ${url}`);
@@ -502,6 +508,7 @@ export default async function handler(req, res) {
           const cols = lines[i].split(',');
           if (cols[1]?.trim().toLowerCase() === url.toLowerCase() && cols[0]?.trim().toLowerCase() === keyword.toLowerCase()) {
             cols[4] = 'TO_OPTIMIZE';
+            cols[11] = '';
             updatedLines.push(cols.join(','));
             found = true;
           } else { updatedLines.push(lines[i]); }
