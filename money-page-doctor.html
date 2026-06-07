@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 46.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 45.4</p>
                 </div>
             </div>
         </header>
@@ -340,7 +340,7 @@
         </div>
 
         <div class="tabs">
-            <button class="tab active" onclick="switchTab('pages')">📋 To Optimise (<span id="pageCount">0</span>)</button>
+            <button class="tab active" onclick="switchTab('pages')">📋 My Pages (<span id="pageCount">0</span>)</button>
             <button class="tab" onclick="switchTab('optimized')">✅ Optimized (<span id="optimizedCount">0</span>)</button>
         </div>
 
@@ -349,13 +349,6 @@
             <!-- GSC Loading Status -->
             <div id="gscLoadingStatus" style="display:none; padding:10px 15px; background:#e3f2fd; border-radius:6px; margin-bottom:15px; color:#1976d2; font-size:0.9rem;">
                 📡 Loading live GSC data — urgency badges will appear shortly...
-            </div>
-
-            <!-- Urgency Sub-tabs -->
-            <div style="margin-bottom: 15px; display:flex; gap:8px; flex-wrap:wrap;">
-                <button class="page-type-filter" id="urgencyTabDanger" onclick="switchUrgencyTab('danger')" style="background:#dc2626;color:white;border-color:#dc2626;">🚨 Danger (<span id="urgencyCountDanger" style="color:white;">0</span>)</button>
-                <button class="page-type-filter" id="urgencyTabQuickwin" onclick="switchUrgencyTab('quickwin')" style="background:#f97316;color:white;border-color:#f97316;">🔥 Quick Wins (<span id="urgencyCountQuickwin" style="color:white;">0</span>)</button>
-                <button class="page-type-filter active" id="urgencyTabOther" onclick="switchUrgencyTab('other')">📋 To Optimise (<span id="urgencyCountOther">0</span>)</button>
             </div>
 
             <!-- Page Type Filters -->
@@ -491,7 +484,6 @@
         let currentUrl = null;
         let currentResults = null;
         let currentPageTypeFilter = 'all'; // Current filter in My Pages tab
-        let currentUrgencyTab = 'other'; // 'danger' | 'quickwin' | 'other'
         let gscEnrichment = {}; // normalizedPath → { position, impressions, clicks, urgency, clickDrop, keyword }
         
         // Technical SEO Audit State
@@ -508,23 +500,6 @@
         }
 
 
-        function getUrgency(url) {
-            const g = gscEnrichment[normalizeUrlPath(url)] || {};
-            if (g.urgency === 'danger') return 'danger';
-            if (g.urgency === 'quickwin') return 'quickwin';
-            return 'other';
-        }
-
-        function deduplicateUrls(list) {
-            const seen = new Set();
-            return list.filter(item => {
-                const key = item.url.toLowerCase().replace(/\/$/, '');
-                if (seen.has(key)) return false;
-                seen.add(key);
-                return true;
-            });
-        }
-
         function renderUrls(filteredList) {
             const list = document.getElementById('urlList');
             if (urls.length === 0) {
@@ -533,27 +508,30 @@
                 return;
             }
 
-            // Deduplicate first
-            const dedupedUrls = deduplicateUrls(urls);
+            const urgencyRank = (u) => {
+                const g = gscEnrichment[normalizeUrlPath(u.url)] || {};
+                if (g.urgency === 'danger') return 2;
+                if (g.urgency === 'quickwin') return 1;
+                return 0;
+            };
 
-            // Sort by impressions desc within each urgency group
-            const sortedUrls = [...dedupedUrls].sort((a, b) => {
+            // Sort: Danger → Quick Win → normal, then by impressions desc
+            const sortedUrls = [...urls].sort((a, b) => {
+                const diff = urgencyRank(b) - urgencyRank(a);
+                if (diff !== 0) return diff;
                 const aG = gscEnrichment[normalizeUrlPath(a.url)] || {};
                 const bG = gscEnrichment[normalizeUrlPath(b.url)] || {};
                 return (bG.impressions || 0) - (aG.impressions || 0);
             });
 
-            // Filter by urgency tab
-            const urgencyFiltered = sortedUrls.filter(item => getUrgency(item.url) === currentUrgencyTab);
-
-            // Apply page type filter on top
+            // Use passed filtered list OR apply page type filter
             let toRender = filteredList || (
                 currentPageTypeFilter === 'all'
-                    ? urgencyFiltered
-                    : urgencyFiltered.filter(item => getPageType(item.url) === currentPageTypeFilter)
+                    ? sortedUrls
+                    : sortedUrls.filter(item => getPageType(item.url) === currentPageTypeFilter)
             );
 
-            updatePageTypeFilterCounts(dedupedUrls);
+            updatePageTypeFilterCounts();
 
             if (toRender.length === 0) {
                 const filterName = currentPageTypeFilter === 'all' ? 'pages' : `${currentPageTypeFilter} pages`;
@@ -618,62 +596,38 @@
             }).join('');
         }
 
-        function updatePageTypeFilterCounts(dedupedList) {
-            const source = dedupedList || deduplicateUrls(urls);
-            // Only count items in the current urgency tab
-            const urgencyItems = source.filter(item => getUrgency(item.url) === currentUrgencyTab);
+        function updatePageTypeFilterCounts() {
+            const counts = {
+                all: urls.length,
+                collection: 0,
+                product: 0,
+                page: 0,
+                blog: 0,
+                other: 0
+            };
 
-            const counts = { all: urgencyItems.length, collection: 0, product: 0, page: 0, blog: 0, other: 0 };
-            urgencyItems.forEach(item => { const type = getPageType(item.url); counts[type] = (counts[type] || 0) + 1; });
-
-            document.getElementById('filterCountAll').textContent = counts.all;
-            document.getElementById('filterCountCollection').textContent = counts.collection || 0;
-            document.getElementById('filterCountProduct').textContent = counts.product || 0;
-            document.getElementById('filterCountPage').textContent = counts.page || 0;
-            document.getElementById('filterCountBlog').textContent = counts.blog || 0;
-            document.getElementById('filterCountOther').textContent = counts.other || 0;
-
-            // Urgency tab counters
-            const dangerCount   = source.filter(i => getUrgency(i.url) === 'danger').length;
-            const quickwinCount = source.filter(i => getUrgency(i.url) === 'quickwin').length;
-            const otherCount    = source.filter(i => getUrgency(i.url) === 'other').length;
-            document.getElementById('urgencyCountDanger').textContent   = dangerCount;
-            document.getElementById('urgencyCountQuickwin').textContent = quickwinCount;
-            document.getElementById('urgencyCountOther').textContent    = otherCount;
-
-            // Update main tab counter
-            document.getElementById('pageCount').textContent = source.length;
-        }
-
-        function switchUrgencyTab(tab) {
-            currentUrgencyTab = tab;
-            currentPageTypeFilter = 'all'; // reset page type filter on tab switch
-
-            // Update urgency tab button states
-            ['danger', 'quickwin', 'other'].forEach(t => {
-                const btn = document.getElementById('urgencyTab' + t.charAt(0).toUpperCase() + t.slice(1));
-                if (!btn) return;
-                if (t === tab) {
-                    btn.classList.add('active');
-                } else {
-                    btn.classList.remove('active');
-                }
+            urls.forEach(item => {
+                const type = getPageType(item.url);
+                counts[type]++;
             });
 
-            // Reset page type filter buttons
-            document.querySelectorAll('.page-type-filter:not([id^="urgencyTab"])').forEach(btn => btn.classList.remove('active'));
-            document.querySelector('.page-type-filter:not([id^="urgencyTab"])').classList.add('active');
-
-            renderUrls();
+            document.getElementById('filterCountAll').textContent = counts.all;
+            document.getElementById('filterCountCollection').textContent = counts.collection;
+            document.getElementById('filterCountProduct').textContent = counts.product;
+            document.getElementById('filterCountPage').textContent = counts.page;
+            document.getElementById('filterCountBlog').textContent = counts.blog;
+            document.getElementById('filterCountOther').textContent = counts.other;
         }
 
         function filterMyPages(type) {
             currentPageTypeFilter = type;
-
-            // Update page type button states (not urgency tab buttons)
-            document.querySelectorAll('.page-type-filter:not([id^="urgencyTab"])').forEach(btn => btn.classList.remove('active'));
+            
+            // Update button states
+            document.querySelectorAll('.page-type-filter').forEach(btn => {
+                btn.classList.remove('active');
+            });
             event.target.classList.add('active');
-
+            
             // Re-render with filter
             renderUrls();
         }
@@ -1412,7 +1366,7 @@
                             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                                 <input id="reindexUrl" type="text" value="${pageUrl}" readonly style="flex:1;min-width:200px;padding:8px 10px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.82rem;font-family:'Poppins',sans-serif;background:white;">
                                 <button class="copy-btn" onclick="copyToClipboard(document.getElementById('reindexUrl').value,this);toggleCheck('reindex');">📋 Copy URL</button>
-                                <a href="https://search.google.com/u/3/search-console?resource_id=sc-domain%3Aaboutwallart.com" target="_blank" style="display:inline-flex;align-items:center;background:#1a73e8;color:white;padding:8px 14px;border-radius:6px;font-size:0.82rem;text-decoration:none;font-weight:600;">🔍 Open GSC ↗</a>
+                                <a href="https://search.google.com/search-console/inspect" target="_blank" style="display:inline-flex;align-items:center;background:#1a73e8;color:white;padding:8px 14px;border-radius:6px;font-size:0.82rem;text-decoration:none;font-weight:600;">🔍 Open GSC ↗</a>
                             </div>
                         </div>
                     </div>
