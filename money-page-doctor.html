@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 45.1</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 45.2</p>
                 </div>
             </div>
         </header>
@@ -1108,6 +1108,9 @@
             // Internal links to loser pages
             (s.loserPageLinks || []).forEach((l, i) => add(`loser_${i}`, `Link added to: ${l.loserUrl}`, 'link'));
 
+            // Reindex step — always last
+            add('reindex', 'Page submitted for reindexing in GSC', 'reindex');
+
             const total = allItems.length;
             currentAnalysisTotal = total;
             localStorage.setItem(`mpd_total_${pageUrl}`, total);
@@ -1287,7 +1290,27 @@
                     }).join('')}
                 </div>` : '';
 
-            return masterBar + shopifyBlock + copyPasteBlock + aiBlock + loserLinksBlock + manualBlock;
+            // ── 6. Reindex block ─────────────────────────────────────────────
+            const reindexItem = allItems.find(it => it.key === 'reindex');
+            const reindexBlock = `
+                <div class="action-block" style="border-color:#1a73e8;">
+                    <h3>🔍 Request Reindex in GSC</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">Submit this page to Google Search Console to get the optimised version crawled and indexed quickly.</p>
+                    <div id="row_reindex" style="display:flex;align-items:flex-start;gap:12px;padding:12px;background:#f9f9f9;border-radius:6px;opacity:${state['reindex']?'0.45':'1'};">
+                        ${cb(reindexItem)}
+                        <div style="flex:1;">
+                            <strong id="lbl_reindex" style="${state['reindex']?'text-decoration:line-through;':''}">Page submitted for reindexing in GSC</strong>
+                            <div style="font-size:0.82rem;color:#555;margin-top:6px;margin-bottom:10px;">Copy the URL below, open GSC URL Inspection, paste it and click Request Indexing.</div>
+                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                                <input id="reindexUrl" type="text" value="${pageUrl}" readonly style="flex:1;min-width:200px;padding:8px 10px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.82rem;font-family:'Poppins',sans-serif;background:white;">
+                                <button class="copy-btn" onclick="copyToClipboard(document.getElementById('reindexUrl').value,this);toggleCheck('reindex');">📋 Copy URL</button>
+                                <a href="https://search.google.com/search-console/inspect" target="_blank" style="display:inline-flex;align-items:center;background:#1a73e8;color:white;padding:8px 14px;border-radius:6px;font-size:0.82rem;text-decoration:none;font-weight:600;">🔍 Open GSC ↗</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+
+            return masterBar + shopifyBlock + copyPasteBlock + aiBlock + loserLinksBlock + manualBlock + reindexBlock;
         }
 
         function formatMarkdown(text) {
