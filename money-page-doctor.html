@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 45.3</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 45.4</p>
                 </div>
             </div>
         </header>
@@ -1175,7 +1175,7 @@
 
             const total = allItems.length;
             currentAnalysisTotal = total;
-            localStorage.setItem(`mpd_total_${pageUrl}`, total);
+            try { localStorage.setItem(`mpd_total_${pageUrl}`, total); } catch(e) { console.warn('[Storage] Could not save total:', e.message); }
             const done = allItems.filter(it => state[it.key]).length;
             const donePct = total > 0 ? Math.round((done / total) * 100) : 0;
 
@@ -2890,8 +2890,23 @@
             document.getElementById('helpModal').style.display = 'none';
         }
 
+        // Clean up stale localStorage keys on startup
+        function cleanupLocalStorage() {
+            const keep = ['mpd_before_', 'mpd_cl_', 'mpd_pushed_', 'mpd_links_pushed_', 'hiddenOptimized'];
+            const toDelete = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (!key.startsWith('mpd_') && key !== 'hiddenOptimized') continue;
+                const shouldKeep = keep.some(prefix => key.startsWith(prefix) || key === prefix);
+                if (!shouldKeep) toDelete.push(key);
+            }
+            toDelete.forEach(k => localStorage.removeItem(k));
+            if (toDelete.length > 0) console.log(`[Cleanup] Removed ${toDelete.length} stale localStorage keys`);
+        }
+
         // Initialize on page load
         window.addEventListener('DOMContentLoaded', async () => {
+            cleanupLocalStorage();
             await loadFromGitHub();
             updatePageCount();
             updateOptimizedCount();
