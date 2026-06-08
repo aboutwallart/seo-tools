@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.2</div>
+      <div class="tool-version">v59.3</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1674,6 +1674,12 @@
       const url = decodeURIComponent(encodedUrl);
       const kw  = decodeURIComponent(encodedKw);
       const fullUrl = 'https://www.aboutwallart.com' + url;
+      const existing = kwrRegistry.byKw[kw.toLowerCase()];
+      if (existing) {
+        btn.closest('td').innerHTML = '<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🟡 Kw taken</span>';
+        alert(`⚠️ This keyword is already locked to:\n${existing.url}\n\nPlease refresh the page to reload the latest registry data before locking more keywords.`);
+        return;
+      }
       if (!confirm(`Lock to registry?\n\nKeyword: ${kw}\nURL: ${fullUrl}`)) return;
       btn.disabled = true; btn.textContent = '⏳';
       try {
@@ -1948,6 +1954,13 @@
       const kw  = decodeURIComponent(encodedQuery);
       const url = decodeURIComponent(encodedUrl);
       const fullUrl = 'https://www.aboutwallart.com' + url;
+      const existing = kwrRegistry.byKw[kw.toLowerCase()];
+      if (existing) {
+        btn.closest('td').previousElementSibling.innerHTML = '<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🟡 Kw taken</span>';
+        btn.closest('td').innerHTML = '<span style="color:#ccc;font-size:12px;">—</span>';
+        alert(`⚠️ This keyword is already locked to:\n${existing.url}\n\nPlease refresh the page to reload the latest registry data before locking more keywords.`);
+        return;
+      }
       if (!confirm(`Lock to registry?\n\nKeyword: ${kw}\nURL: ${fullUrl}`)) return;
       btn.disabled = true; btn.textContent = '⏳';
       try {
@@ -3767,6 +3780,12 @@
     }
 
     function kwrConfirmLock(kw, url) {
+      const existing = kwrRegistry.byKw[kw.toLowerCase()];
+      if (existing) {
+        alert(`⚠️ This keyword is already locked to:\n${existing.url}\n\nPlease refresh the page to reload the latest registry data before locking more keywords.`);
+        kwrFilterTable();
+        return;
+      }
       const fullUrl = url.startsWith('http') ? url : 'https://www.aboutwallart.com' + url;
       const msg = `Save to Registry?
 
@@ -4136,6 +4155,12 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
     function qwUndo(page){qwSelectedSet.delete(page);qwUpdateSubCounts();qwRenderRows();}
 
     function qwConfirmLock(page,keyword){
+      const existing = kwrRegistry.byKw[keyword.toLowerCase()];
+      if (existing) {
+        qwShowStatus('🟡 Already locked — please refresh','#fefce8','#fde68a','#92400e');
+        alert(`⚠️ This keyword is already locked to:\n${existing.url}\n\nPlease refresh the page to reload the latest registry data before locking more keywords.`);
+        return;
+      }
       const fullUrl='https://www.aboutwallart.com'+page;
       if(!confirm(`Save to Registry?
 
@@ -4253,6 +4278,12 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
     function dpUndo(page){dpSelectedSet.delete(page);dpUpdateSubCounts();dpRenderRows();}
 
     function dpConfirmLock(page,keyword){
+      const existing = kwrRegistry.byKw[keyword.toLowerCase()];
+      if (existing) {
+        dpShowStatus('🟡 Already locked — please refresh','#fefce8','#fde68a','#92400e');
+        alert(`⚠️ This keyword is already locked to:\n${existing.url}\n\nPlease refresh the page to reload the latest registry data before locking more keywords.`);
+        return;
+      }
       const fullUrl='https://www.aboutwallart.com'+page;
       if(!confirm(`Save to Registry?
 
