@@ -1,10 +1,11 @@
-// blogs.js — v1.6
+// blogs.js — v1.7
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
 // v1.4: sanitizeRow() ensures 12 cols on every write; detectIntent() auto-sets intent from URL; repair-registry action fixes existing rows
 // v1.5: delete-registry-row action — targeted single-row delete by keyword+url (used by Duplicate Finder)
 // v1.6: repair-registry now overwrites intent on ALL rows (not just blank) — corrects historically wrong intent values
+// v1.7: all write actions always use detectIntent(url) — frontend-passed intent is ignored, URL is ground truth
 import fs from 'fs';
 import path from 'path';
 
@@ -507,7 +508,7 @@ export default async function handler(req, res) {
             return res.status(409).json({ duplicate: true, error: `DUPLICATE_KEYWORD`, lockedTo: rowUrl });
           }
         }
-        const resolvedIntent = intent || detectIntent(url);
+        const resolvedIntent = detectIntent(url);
         // 12 columns — empty 12th col keeps registry consistent with mark-optimized rows
         let newRows = `${csvField(keyword)},${csvField(url)},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,User Resolved,${resolvedIntent},`;
         // Add loser rows for internal linking
@@ -605,7 +606,7 @@ export default async function handler(req, res) {
         const { keyword, intent } = req.body;
         if (!keyword) return res.status(400).json({ error: 'keyword required' });
         const registry = await getGitHubFile('data/keyword-locker-registry.csv');
-        const newRow = `${csvField(keyword)},N/A,LOCKED,DONE,SAVED_FOR_FUTURE,N/A,N/A,N/A,N/A,User Action,${intent || detectIntent('N/A')},`;
+        const newRow = `${csvField(keyword)},N/A,LOCKED,DONE,SAVED_FOR_FUTURE,N/A,N/A,N/A,N/A,User Action,UNKNOWN,`;
         const updated = registry.content.trimEnd() + '\n' + newRow + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Save for later: ${keyword}`);
         return res.status(200).json({ success: true, keyword });
@@ -617,7 +618,7 @@ export default async function handler(req, res) {
         const { keyword, intent } = req.body;
         if (!keyword) return res.status(400).json({ error: 'keyword required' });
         const registry = await getGitHubFile('data/keyword-locker-registry.csv');
-        const newRow = `${csvField(keyword)},N/A,LOCKED,DONE,DELETED,N/A,N/A,N/A,N/A,User Action,${intent || detectIntent('N/A')},`;
+        const newRow = `${csvField(keyword)},N/A,LOCKED,DONE,DELETED,N/A,N/A,N/A,N/A,User Action,UNKNOWN,`;
         const updated = registry.content.trimEnd() + '\n' + newRow + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Delete keyword: ${keyword}`);
         return res.status(200).json({ success: true, keyword });
