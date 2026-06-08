@@ -460,12 +460,40 @@ export default async function handler(req, res) {
         const { keyword, url, intent, losers } = req.body;
         if (!keyword || !url) return res.status(400).json({ error: 'keyword and url required' });
         const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        // ── DUPLICATE CHECK — reject if keyword already locked anywhere ──
+        // ── Proper CSV line parser (handles quoted fields) ──
+        function parseCSVLine(line) {
+          const cols = []; let cur = '', inQ = false;
+          for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (ch === '"') { inQ = !inQ; }
+            else if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
+            else { cur += ch; }
+          }
+          cols.push(cur.trim());
+          return cols;
+        }
+        const lines = registry.content.split('\n').map(l => l.replace(/\r/g, ''));
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const cols    = parseCSVLine(line);
+          const rowKw     = (cols[0]||'').toLowerCase();
+          const rowLocked = (cols[2]||'').toUpperCase();
+          const rowStatus = (cols[3]||'').toUpperCase();
+          const rowAction = (cols[4]||'').toUpperCase();
+          const rowUrl    = cols[1]||'';
+          const isRealLock = rowLocked === 'LOCKED' && rowStatus === 'DONE' && ['TO_OPTIMIZE','OPTIMIZED'].includes(rowAction);
+          if (isRealLock && rowKw === keyword.toLowerCase()) {
+            return res.status(409).json({ duplicate: true, error: `DUPLICATE_KEYWORD`, lockedTo: rowUrl });
+          }
+        }
         const resolvedIntent = intent || 'UNKNOWN';
-        let newRows = `${csvField(keyword)},${csvField(url)},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,User Resolved,${resolvedIntent}`;
+        // 12 columns — empty 12th col keeps registry consistent with mark-optimized rows
+        let newRows = `${csvField(keyword)},${csvField(url)},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,User Resolved,${resolvedIntent},`;
         // Add loser rows for internal linking
         if (Array.isArray(losers)) {
           losers.forEach(loser => {
-            newRows += `\n${csvField(keyword)},${csvField(loser.url)},,DONE,INTERNAL_LINK,${csvField(url)},${loser.clicks || 'N/A'},${loser.impressions || 'N/A'},${loser.position || 'N/A'},Auto Detected,${resolvedIntent}`;
+            newRows += `\n${csvField(keyword)},${csvField(loser.url)},,DONE,INTERNAL_LINK,${csvField(url)},${loser.clicks || 'N/A'},${loser.impressions || 'N/A'},${loser.position || 'N/A'},Auto Detected,${resolvedIntent},`;
           });
         }
         const updated = registry.content.trimEnd() + '\n' + newRows + '\n';
