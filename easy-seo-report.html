@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v58.2</div>
+      <div class="tool-version">v58.3</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -2947,7 +2947,7 @@
     let kwrPageQuery  = {};
     let kwrPage       = 1;
     let kwrTotalFiltered = 0;
-    let kwrDismissed  = new Set(JSON.parse(localStorage.getItem('kwr_dismissed')||'[]'));
+    let kwrDismissed; try { kwrDismissed = new Set(JSON.parse(localStorage.getItem('kwr_dismissed')||'[]')); } catch(e) { kwrDismissed = new Set(); }
     let kwrShowDismissed = false;
 
     // Sort state: { field, dir } per column
@@ -3123,7 +3123,7 @@
             regOtherKw = regByUrl.keyword;
           }
           return { kw, pos, imp, clk, ctr, diff, trend, rankingUrl, regStatus, regOtherUrl, regOtherKw };
-        }).sort((a,b) => a.pos - b.pos);
+        }).sort((a,b) => a.pos - b.pos).map((r, i) => ({ ...r, _idx: i }));
 
         kwrUpdateCounts();
         kwrFilterTable();
@@ -3230,14 +3230,14 @@
       kwrFilterTable();
     }
 
-    function kwrDismissEl(btn) { kwrDismiss(decodeURIComponent(btn.dataset.kw)); }
-    function kwrRestoreEl(btn) { kwrRestore(decodeURIComponent(btn.dataset.kw)); }
-    function kwrUndoEl(btn)    { kwrUndo(decodeURIComponent(btn.dataset.kw)); }
-    function kwrLockEl(btn)    { kwrConfirmLock(decodeURIComponent(btn.dataset.kw), decodeURIComponent(btn.dataset.url)); }
+    function kwrDismissEl(btn) { const r=kwrAllData[+btn.dataset.idx]; if(r) kwrDismiss(r.kw); }
+    function kwrRestoreEl(btn) { const r=kwrAllData[+btn.dataset.idx]; if(r) kwrRestore(r.kw); }
+    function kwrUndoEl(btn)    { const r=kwrAllData[+btn.dataset.idx]; if(r) kwrUndo(r.kw); }
+    function kwrLockEl(btn)    { const r=kwrAllData[+btn.dataset.idx]; if(r) kwrConfirmLock(r.kw, r.rankingUrl.startsWith('/')?'https://www.aboutwallart.com'+r.rankingUrl:r.rankingUrl); }
 
     function kwrDismiss(kw) {
       kwrDismissed.add(kw);
-      localStorage.setItem('kwr_dismissed', JSON.stringify([...kwrDismissed]));
+      try { localStorage.setItem('kwr_dismissed', JSON.stringify([...kwrDismissed])); } catch(e) { console.warn('Could not save dismissed:', e); }
       kwrUpdateCounts();
       kwrFilterTable();
     }
@@ -3248,7 +3248,7 @@
       const isSelected = kwrActiveTab === 'tracked';
 
       if (!rows.length) {
-        tbody.innerHTML = `<tr class="loading-row"><td colspan="9">No keywords found.</td></tr>`;
+        tbody.innerHTML = `<tr class="loading-row"><td colspan="9">No keywords found — check your filters or try a different tab.</td></tr>`;
         return;
       }
 
@@ -3272,7 +3272,7 @@
             <td style="width:55px;text-align:right;">${fmtCTR(r.ctr)}</td>
             <td style="width:80px;"><span style="${kwrDiffStyle(r.diff)}">${r.diff}</span></td>
             ${trendCell}
-            <td style="width:80px;"><button data-kw="${encodeURIComponent(r.kw)}" onclick="kwrUndoEl(this)" style="padding:4px 10px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↩ Undo</button></td>
+            <td style="width:80px;"><button data-idx="${r._idx}" onclick="kwrUndoEl(this)" style="padding:4px 10px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↩ Undo</button></td>
           </tr>`;
         } else if (kwrActiveTab === 'dismissed') {
           return `<tr style="opacity:0.6;">
@@ -3285,7 +3285,7 @@
             <td style="width:80px;"><span style="${kwrDiffStyle(r.diff)}">${r.diff}</span></td>
             <td style="width:120px;"><span style="color:#ccc;font-size:12px;">—</span></td>
             <td style="width:100px;">
-              <button data-kw="${encodeURIComponent(r.kw)}" onclick="kwrRestoreEl(this)" style="padding:4px 10px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↩ Restore</button>
+              <button data-idx="${r._idx}" onclick="kwrRestoreEl(this)" style="padding:4px 10px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↩ Restore</button>
             </td>
           </tr>`;
         } else {
@@ -3302,7 +3302,7 @@
           } else {
             regBadge = `<span style="color:#ccc;font-size:12px;">—</span>`;
             actionCell = r.rankingUrl!=='—'
-              ? `<button data-kw="${encodeURIComponent(r.kw)}" data-url="${encodeURIComponent(r.rankingUrl)}" onclick="kwrLockEl(this)" style="padding:4px 10px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button>`
+              ? `<button data-idx="${r._idx}" onclick="kwrLockEl(this)" style="padding:4px 10px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button>`
               : `<span style="font-size:11px;color:#aaa;">No URL</span>`;
           }
           return `<tr>
@@ -3316,7 +3316,7 @@
             <td style="width:120px;">${regBadge}</td>
             <td style="width:100px;white-space:nowrap;">
               ${actionCell}
-              <button data-kw="${encodeURIComponent(r.kw)}" onclick="kwrDismissEl(this)" style="margin-left:6px;padding:3px 8px;border:none;background:#dc2626;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;font-weight:600;">Delete</button>
+              <button data-idx="${r._idx}" onclick="kwrDismissEl(this)" style="margin-left:6px;padding:3px 8px;border:none;background:#dc2626;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;font-weight:600;">Delete</button>
             </td>
           </tr>`;
         }
@@ -3352,7 +3352,7 @@
 
     function kwrRestore(kw) {
       kwrDismissed.delete(kw);
-      localStorage.setItem('kwr_dismissed', JSON.stringify([...kwrDismissed]));
+      try { localStorage.setItem('kwr_dismissed', JSON.stringify([...kwrDismissed])); } catch(e) { console.warn('Could not save dismissed:', e); }
       kwrUpdateCounts();
       kwrFilterTable();
     }
