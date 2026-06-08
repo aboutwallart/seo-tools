@@ -65,6 +65,24 @@ module.exports = async (req, res) => {
         dimensions: ['page', 'query'],
         rowLimit: 25000
       });
+    } else if (action === 'page-keywords') {
+      // All queries for a specific page URL — bypasses 25k global limit
+      const pageUrl = req.query.pageUrl || '';
+      if (!pageUrl) throw new Error('pageUrl param required');
+      const fullUrl = pageUrl.startsWith('http') ? pageUrl : `https://aboutwallart.com${pageUrl}`;
+      data = await gscQuery(accessToken, siteUrl, {
+        startDate: start,
+        endDate: end,
+        dimensions: ['query'],
+        dimensionFilterGroups: [{
+          filters: [{
+            dimension: 'page',
+            operator: 'equals',
+            expression: fullUrl
+          }]
+        }],
+        rowLimit: 25000
+      });
     } else if (action === 'device') {
       // Device breakdown
       data = await gscQuery(accessToken, siteUrl, {
