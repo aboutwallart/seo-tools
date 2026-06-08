@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v58.8</div>
+      <div class="tool-version">v58.9</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -750,8 +750,8 @@
             <button class="download-btn" onclick="downloadCSV('ctr')">⬇ Download CSV</button>
           </div>
           <table>
-            <thead><tr><th>#</th><th>Priority</th><th>Page URL</th><th>Top Query</th><th class="num">Impressions</th><th class="num">Clicks</th><th class="num">CTR</th><th class="num">Position</th></tr></thead>
-            <tbody id="ctrBody"><tr class="loading-row"><td colspan="8">Loading...</td></tr></tbody>
+            <thead><tr><th>#</th><th>Priority</th><th>Page URL</th><th>Top Query</th><th class="num">Impressions</th><th class="num">Clicks</th><th class="num">CTR</th><th class="num">Position</th><th>Registry</th><th>Action</th></tr></thead>
+            <tbody id="ctrBody"><tr class="loading-row"><td colspan="10">Loading...</td></tr></tbody>
           </table>
         </div>
 
@@ -771,8 +771,8 @@
             <button class="download-btn" onclick="downloadCSV('optimise')">⬇ Download CSV</button>
           </div>
           <table>
-            <thead><tr><th>#</th><th>Priority</th><th>Page URL</th><th>Top Query</th><th class="num">Impressions</th><th class="num">Position</th></tr></thead>
-            <tbody id="optimiseBody"><tr class="loading-row"><td colspan="6">Loading...</td></tr></tbody>
+            <thead><tr><th>#</th><th>Priority</th><th>Page URL</th><th>Top Query</th><th class="num">Impressions</th><th class="num">Position</th><th>Registry</th><th>Action</th></tr></thead>
+            <tbody id="optimiseBody"><tr class="loading-row"><td colspan="8">Loading...</td></tr></tbody>
           </table>
         </div>
 
@@ -792,8 +792,8 @@
             <button class="download-btn" onclick="downloadCSV('create')">⬇ Download CSV</button>
           </div>
           <table>
-            <thead><tr><th>#</th><th>Priority</th><th>Query</th><th class="num">Impressions</th></tr></thead>
-            <tbody id="createBody"><tr class="loading-row"><td colspan="4">Loading...</td></tr></tbody>
+            <thead><tr><th>#</th><th>Priority</th><th>Query</th><th class="num">Impressions</th><th>Registry</th><th>Action</th></tr></thead>
+            <tbody id="createBody"><tr class="loading-row"><td colspan="6">Loading...</td></tr></tbody>
           </table>
         </div>
 
@@ -1533,6 +1533,26 @@
         const kwJson=await kwRes.json();
         const publishedKeywords=kwJson.success?kwJson.publishedBlogs:[];
 
+        // Fetch full registry if not already loaded by Keyword Rankings
+        if (Object.keys(kwrRegistry.byKw).length === 0) {
+          try {
+            const rRes = await fetch('/api/blogs?action=get-registry');
+            const rJson = await rRes.json();
+            if (rJson.success && rJson.registry) {
+              rJson.registry.forEach(row => {
+                const isRealLock = row.locked === true &&
+                  (row.status||'').toUpperCase() === 'DONE' &&
+                  ['TO_OPTIMIZE','OPTIMIZED'].includes((row.action||'').toUpperCase());
+                if (!isRealLock) return;
+                const kwKey  = (row.keyword||'').toLowerCase();
+                const urlKey = cleanUrl(row.url||'').toLowerCase();
+                kwrRegistry.byKw[kwKey]   = { url: row.url, keyword: row.keyword };
+                kwrRegistry.byUrl[urlKey] = { url: row.url, keyword: row.keyword };
+              });
+            }
+          } catch(e) { console.warn('Registry fetch failed:', e); }
+        }
+
         // Build page objects — clean URLs, exclude CDN/translations/variants
         const pages=allPages
           .filter(r => !shouldExcludeUrl(cleanUrl(r.keys?r.keys[0]:'')))
@@ -1629,35 +1649,107 @@
       }
     }
 
+    function contentRegBadge(query, pageUrl) {
+      if (!query) return { badge: '<span style="color:#ccc;font-size:12px;">—</span>', canLock: false };
+      const kwKey  = query.toLowerCase();
+      const urlKey = pageUrl ? pageUrl.toLowerCase() : '';
+      const regByKw  = kwrRegistry.byKw[kwKey];
+      const regByUrl = pageUrl ? kwrRegistry.byUrl[urlKey] : null;
+      if (regByKw) {
+        const lockedUrl = cleanUrl(regByKw.url||'');
+        if (lockedUrl === pageUrl) return { badge: '<span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🔒 Locked</span>', canLock: false };
+        return { badge: `<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Locked to: ${lockedUrl}">🟡 Kw taken</span>`, canLock: false };
+      }
+      if (regByUrl) return { badge: `<span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="URL locked to: ${regByUrl.keyword}">🔴 URL taken</span>`, canLock: false };
+      return { badge: '<span style="color:#ccc;font-size:12px;">—</span>', canLock: true };
+    }
+
     function renderCTR(limit){
       const tbody=document.getElementById('ctrBody'),rows=ctrData.slice(0,limit);
-      if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="8">No pages found</td></tr>';return;}
+      if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="10">No pages found</td></tr>';return;}
       tbody.innerHTML=rows.map((r,i)=>{
-        const short=r.page.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','')||'/';
-        return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:12px;">${priority(r.impressions)}</td><td><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;word-break:break-all;" title="${r.page}">${r.page}</a></td><td style="font-size:12px;color:#555;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.query}</td><td class="num">${fmt(r.impressions)}</td><td class="num">${fmt(r.clicks)}</td><td class="num">${fmtCTR(r.ctr)}</td><td class="num">${fmtPos(r.position)}</td></tr>`;
+        const {badge, canLock} = contentRegBadge(r.query, r.page);
+        const action = canLock ? `<button onclick="contentLock('${encodeURIComponent(r.query)}','${encodeURIComponent(r.page)}',this)" style="padding:4px 10px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button>` : '<span style="color:#ccc;font-size:12px;">—</span>';
+        return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:12px;">${priority(r.impressions)}</td><td><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;word-break:break-all;">${r.page}</a></td><td style="font-size:12px;color:#555;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.query}</td><td class="num">${fmt(r.impressions)}</td><td class="num">${fmt(r.clicks)}</td><td class="num">${fmtCTR(r.ctr)}</td><td class="num">${fmtPos(r.position)}</td><td>${badge}</td><td>${action}</td></tr>`;
       }).join('');
     }
 
     function renderOptimise(limit){
       const tbody=document.getElementById('optimiseBody'),rows=optimiseData.slice(0,limit);
-      if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="6">No pages found</td></tr>';return;}
+      if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="8">No pages found</td></tr>';return;}
       tbody.innerHTML=rows.map((r,i)=>{
-        const short=r.page.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','')||'/';
-        return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:12px;">${priority(r.impressions)}</td><td><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;word-break:break-all;" title="${r.page}">${r.page}</a></td><td style="font-size:12px;color:#555;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.query}</td><td class="num">${fmt(r.impressions)}</td><td class="num">${fmtPos(r.position)}</td></tr>`;
+        const {badge, canLock} = contentRegBadge(r.query, r.page);
+        const action = canLock ? `<button onclick="contentLock('${encodeURIComponent(r.query)}','${encodeURIComponent(r.page)}',this)" style="padding:4px 10px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button>` : '<span style="color:#ccc;font-size:12px;">—</span>';
+        return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:12px;">${priority(r.impressions)}</td><td><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;word-break:break-all;">${r.page}</a></td><td style="font-size:12px;color:#555;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.query}</td><td class="num">${fmt(r.impressions)}</td><td class="num">${fmtPos(r.position)}</td><td>${badge}</td><td>${action}</td></tr>`;
       }).join('');
     }
 
     function renderCreate(limit){
       const tbody=document.getElementById('createBody'),rows=createData.slice(0,limit);
-      if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="4">No content gaps found</td></tr>';return;}
+      if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="6">No content gaps found</td></tr>';return;}
       tbody.innerHTML=rows.map((r,i)=>{
+        const kwKey = r.query.toLowerCase();
+        const regByKw = kwrRegistry.byKw[kwKey];
+        let badge, canSave;
+        if (regByKw) {
+          badge = `<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🟡 Claimed</span>`;
+          canSave = false;
+        } else {
+          badge = '<span style="color:#ccc;font-size:12px;">—</span>';
+          canSave = true;
+        }
+        const action = canSave ? `<button onclick="contentSaveLater('${encodeURIComponent(r.query)}',this)" style="padding:4px 10px;border:none;background:#6366f1;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">📌 Save</button>` : '<span style="color:#ccc;font-size:12px;">—</span>';
         return `<tr>
           <td style="color:#aaa;font-size:12px;">${i+1}.</td>
           <td style="font-size:12px;">${priority(r.impressions)}</td>
           <td style="font-size:13px;color:#333;">${r.query}</td>
           <td class="num">${fmt(r.impressions)}</td>
+          <td>${badge}</td>
+          <td>${action}</td>
         </tr>`;
       }).join('');
+    }
+
+    async function contentLock(encodedQuery, encodedUrl, btn) {
+      const kw  = decodeURIComponent(encodedQuery);
+      const url = decodeURIComponent(encodedUrl);
+      const fullUrl = 'https://www.aboutwallart.com' + url;
+      if (!confirm(`Lock to registry?\n\nKeyword: ${kw}\nURL: ${fullUrl}`)) return;
+      btn.disabled = true; btn.textContent = '⏳';
+      try {
+        const intent = url.includes('/blogs/') ? 'INFORMATIONAL' : url.includes('/collections/') ? 'COMMERCIAL' : url.includes('/products/') ? 'COMMERCIAL' : 'NAVIGATIONAL';
+        const res = await fetch('/api/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'lock-keyword', keyword: kw, url: fullUrl, intent, losers: [] })
+        });
+        const j = await res.json();
+        if (j.success) {
+          kwrRegistry.byKw[kw.toLowerCase()] = { url: fullUrl, keyword: kw };
+          kwrRegistry.byUrl[url.toLowerCase()] = { url: fullUrl, keyword: kw };
+          btn.closest('td').previousElementSibling.innerHTML = '<span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🔒 Locked</span>';
+          btn.closest('td').innerHTML = '<span style="color:#ccc;font-size:12px;">—</span>';
+        } else { btn.disabled = false; btn.textContent = '🔒 Lock'; alert('Failed: ' + (j.error||'unknown')); }
+      } catch(e) { btn.disabled = false; btn.textContent = '🔒 Lock'; alert('Error: ' + e.message); }
+    }
+
+    async function contentSaveLater(encodedQuery, btn) {
+      const kw = decodeURIComponent(encodedQuery);
+      if (!confirm(`Save for later?\n\nKeyword: ${kw}\n\nThis marks it as claimed for future content.`)) return;
+      btn.disabled = true; btn.textContent = '⏳';
+      try {
+        const res = await fetch('/api/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'save-for-later', keyword: kw, intent: 'INFORMATIONAL' })
+        });
+        const j = await res.json();
+        if (j.success) {
+          kwrRegistry.byKw[kw.toLowerCase()] = { url: 'N/A', keyword: kw };
+          btn.closest('td').previousElementSibling.innerHTML = '<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🟡 Claimed</span>';
+          btn.closest('td').innerHTML = '<span style="color:#ccc;font-size:12px;">—</span>';
+        } else { btn.disabled = false; btn.textContent = '📌 Save'; alert('Failed: ' + (j.error||'unknown')); }
+      } catch(e) { btn.disabled = false; btn.textContent = '📌 Save'; alert('Error: ' + e.message); }
     }
 
     function filterTable(tbodyId,val){
