@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v58.0</div>
+      <div class="tool-version">v58.1</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -947,7 +947,6 @@
               <option value="locked">Already Locked</option>
               <option value="no-url">No URL</option>
             </select>
-            <button id="kwrShowDismissedBtn" onclick="kwrToggleDismissed()" style="background:#333;color:#aaa;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">👁 Show dismissed (0)</button>
             <button onclick="kwrResetFilters()" style="background:#333;color:#aaa;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">✕ Reset</button>
           </div>
         </div>
@@ -956,6 +955,7 @@
         <div style="display:flex;align-items:center;border-bottom:2px solid #e5e5e5;margin-bottom:24px;">
           <button id="kwrTabAll" onclick="kwrSwitchTab('all')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">All Keywords <span id="kwrCountAll" class="count-badge">—</span></button>
           <button id="kwrTabTracked" onclick="kwrSwitchTab('tracked')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Selected <span id="kwrCountTracked" class="count-badge">—</span></button>
+          <button id="kwrTabDismissed" onclick="kwrSwitchTab('dismissed')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Dismissed <span id="kwrCountDismissed" class="count-badge">0</span></button>
         </div>
 
         <!-- Save status -->
@@ -3126,8 +3126,6 @@
         }).sort((a,b) => a.pos - b.pos);
 
         kwrUpdateCounts();
-        const dsBtn = document.getElementById('kwrShowDismissedBtn');
-        if (dsBtn && kwrDismissed.size > 0) dsBtn.textContent = `👁 Show dismissed (${kwrDismissed.size})`;
         kwrFilterTable();
 
       } catch(e) {
@@ -3148,8 +3146,9 @@
 
     function kwrSwitchTab(tab) {
       kwrActiveTab = tab; kwrPage = 1;
-      ['all','tracked'].forEach(t => {
-        const btn = document.getElementById('kwrTab' + (t==='all'?'All':'Tracked'));
+      [['all','All'],['tracked','Tracked'],['dismissed','Dismissed']].forEach(([t,id]) => {
+        const btn = document.getElementById('kwrTab' + id);
+        if (!btn) return;
         const active = t===tab;
         btn.style.fontWeight = active?'600':'400';
         btn.style.color = active?'#1a1a1a':'#888';
@@ -3170,7 +3169,9 @@
 
       let data = kwrActiveTab==='tracked'
         ? kwrAllData.filter(r => kwrSelectedSet.has(r.kw))
-        : kwrAllData.filter(r => !kwrSelectedSet.has(r.kw) && (kwrShowDismissed || !kwrDismissed.has(r.kw)));
+        : kwrActiveTab==='dismissed'
+          ? kwrAllData.filter(r => kwrDismissed.has(r.kw))
+          : kwrAllData.filter(r => !kwrSelectedSet.has(r.kw) && !kwrDismissed.has(r.kw));
 
       if (search)   data = data.filter(r => r.kw.includes(search));
       if (diff)     data = data.filter(r => r.diff===diff);
@@ -3234,12 +3235,6 @@
       kwrFilterTable();
     }
 
-    function kwrToggleDismissed() {
-      kwrShowDismissed = !kwrShowDismissed;
-      const btn = document.getElementById('kwrShowDismissedBtn');
-      if (btn) btn.textContent = kwrShowDismissed ? '👁 Hide dismissed' : `👁 Show dismissed (${kwrDismissed.size})`;
-      kwrFilterTable(true);
-    }
 
     function kwrRenderRows(rows) {
       const tbody = document.getElementById('kwrBody');
@@ -3272,6 +3267,20 @@
             ${trendCell}
             <td style="width:80px;"><button onclick="kwrUndo('${r.kw.replace(/'/g,"\\'")}' )" style="padding:4px 10px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↩ Undo</button></td>
           </tr>`;
+        } else if (kwrActiveTab === 'dismissed') {
+          return `<tr style="opacity:0.6;">
+            <td style="width:170px;font-size:13px;word-break:break-word;color:#888;">${r.kw}</td>
+            <td style="width:150px;">${urlDisplay}</td>
+            <td style="width:70px;text-align:right;color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>
+            <td style="width:90px;text-align:right;">${fmt(r.imp)}</td>
+            <td style="width:60px;text-align:right;">${fmt(r.clk)}</td>
+            <td style="width:55px;text-align:right;">${fmtCTR(r.ctr)}</td>
+            <td style="width:80px;"><span style="${kwrDiffStyle(r.diff)}">${r.diff}</span></td>
+            <td style="width:120px;"><span style="color:#ccc;font-size:12px;">—</span></td>
+            <td style="width:100px;">
+              <button onclick="kwrRestore('${r.kw.replace(/'/g,"\\'")}' )" style="padding:4px 10px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↩ Restore</button>
+            </td>
+          </tr>`;
         } else {
           let regBadge, actionCell;
           if (r.regStatus==='locked-same') {
@@ -3289,8 +3298,7 @@
               ? `<button onclick="kwrConfirmLock('${r.kw.replace(/'/g,"\\'")}','${r.rankingUrl.replace(/'/g,"\\'")}' )" style="padding:4px 10px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button>`
               : `<span style="font-size:11px;color:#aaa;">No URL</span>`;
           }
-          const isDismissed = kwrDismissed.has(r.kw);
-          return `<tr style="${isDismissed?'opacity:0.4;':''}">
+          return `<tr>
             <td style="width:170px;font-size:13px;word-break:break-word;">${r.kw}</td>
             <td style="width:150px;">${urlDisplay}</td>
             <td style="width:70px;text-align:right;color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>
@@ -3301,7 +3309,7 @@
             <td style="width:120px;">${regBadge}</td>
             <td style="width:100px;white-space:nowrap;">
               ${actionCell}
-              ${!isDismissed ? `<button onclick="kwrDismiss('${r.kw.replace(/'/g,"\\'")}' )" title="Dismiss this keyword" style="margin-left:6px;padding:3px 7px;border:1px solid #e5e5e5;background:#fff;color:#aaa;border-radius:4px;font-size:11px;cursor:pointer;">✕</button>` : ''}
+              <button onclick="kwrDismiss('${r.kw.replace(/'/g,"\\'")}' )" title="Dismiss" style="margin-left:6px;padding:3px 7px;border:1px solid #e5e5e5;background:#fff;color:#aaa;border-radius:4px;font-size:11px;cursor:pointer;">✕</button>
             </td>
           </tr>`;
         }
@@ -3330,8 +3338,16 @@
     }
 
     function kwrUpdateCounts() {
-      document.getElementById('kwrCountAll').textContent     = kwrAllData.filter(r => !kwrSelectedSet.has(r.kw)).length;
-      document.getElementById('kwrCountTracked').textContent = kwrSelectedSet.size;
+      document.getElementById('kwrCountAll').textContent      = kwrAllData.filter(r => !kwrSelectedSet.has(r.kw) && !kwrDismissed.has(r.kw)).length;
+      document.getElementById('kwrCountTracked').textContent  = kwrSelectedSet.size;
+      document.getElementById('kwrCountDismissed').textContent = kwrDismissed.size;
+    }
+
+    function kwrRestore(kw) {
+      kwrDismissed.delete(kw);
+      localStorage.setItem('kwr_dismissed', JSON.stringify([...kwrDismissed]));
+      kwrUpdateCounts();
+      kwrFilterTable();
     }
 
     function kwrConfirmLock(kw, url) {
