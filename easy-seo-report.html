@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.1</div>
+      <div class="tool-version">v59.2</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1684,10 +1684,14 @@
           body: JSON.stringify({ action: 'lock-keyword', keyword: kw, url: fullUrl, intent, losers: [] })
         });
         const j = await res.json();
+        if (j.duplicate) {
+          btn.closest('td').innerHTML = '<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🟡 Kw taken</span>';
+          alert(`⚠️ This keyword is already locked to:\n${j.lockedTo}\n\nPlease refresh the page to reload the latest registry data before locking more keywords.`);
+          return;
+        }
         if (j.success) {
           kwrRegistry.byUrl[url.toLowerCase()] = { url: fullUrl, keyword: kw };
           kwrRegistry.byKw[kw.toLowerCase()]   = { url: fullUrl, keyword: kw };
-          // Remove from nokwData
           nokwData[nokwActiveTab] = nokwData[nokwActiveTab].filter(r => r.url !== url);
           document.getElementById('nokwCount-'+nokwActiveTab).textContent = `(${nokwData[nokwActiveTab].length})`;
           nokwRender();
@@ -1954,6 +1958,12 @@
           body: JSON.stringify({ action: 'lock-keyword', keyword: kw, url: fullUrl, intent, losers: [] })
         });
         const j = await res.json();
+        if (j.duplicate) {
+          btn.closest('td').previousElementSibling.innerHTML = '<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🟡 Kw taken</span>';
+          btn.closest('td').innerHTML = '<span style="color:#ccc;font-size:12px;">—</span>';
+          alert(`⚠️ This keyword is already locked to:\n${j.lockedTo}\n\nPlease refresh the page to reload the latest registry data before locking more keywords.`);
+          return;
+        }
         if (j.success) {
           kwrRegistry.byKw[kw.toLowerCase()] = { url: fullUrl, keyword: kw };
           kwrRegistry.byUrl[url.toLowerCase()] = { url: fullUrl, keyword: kw };
@@ -3781,7 +3791,12 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
         });
         clearInterval(interval);
         const json = await res.json();
-        if (json.success) {
+        if (json.duplicate) {
+          kwrAllData.forEach(r => { if (r.kw===kw) { r.regStatus='kw-taken'; r.regOtherUrl=json.lockedTo; } });
+          kwrFilterTable();
+          kwrShowStatus('🟡 Already locked — please refresh', '#fefce8', '#fde68a', '#92400e');
+          alert(`⚠️ This keyword is already locked to:\n${json.lockedTo}\n\nPlease refresh the page to reload the latest registry data before locking more keywords.`);
+        } else if (json.success) {
           kwrRegistry.byKw[kw.toLowerCase()] = { url, keyword: kw };
           kwrAllData.forEach(r => { if (r.kw===kw) { r.regStatus='locked-same'; r.regUrl=url; } });
           kwrSelectedSet.add(kw);
@@ -4137,7 +4152,12 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
       try{
         const res=await fetch('/api/blogs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'lock-keyword',keyword,url:fullUrl})});
         clearInterval(iv);const json=await res.json();
-        if(json.success){
+        if(json.duplicate){
+          qwData[qwPageType].forEach(r=>{if(r.page===page){r.regStatus='kw-taken';}});
+          qwRenderRows();
+          qwShowStatus('🟡 Already locked — please refresh','#fefce8','#fde68a','#92400e');
+          alert(`⚠️ This keyword is already locked to:\n${json.lockedTo}\n\nPlease refresh the page to reload the latest registry data before locking more keywords.`);
+        }else if(json.success){
           if(!kwrRegistry.byKw)kwrRegistry.byKw={};if(!kwrRegistry.byUrl)kwrRegistry.byUrl={};
           kwrRegistry.byKw[keyword.toLowerCase()]={url:fullUrl,keyword};
           kwrRegistry.byUrl[page.toLowerCase()]={url:fullUrl,keyword};
@@ -4249,7 +4269,12 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
       try{
         const res=await fetch('/api/blogs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'lock-keyword',keyword,url:fullUrl})});
         clearInterval(iv);const json=await res.json();
-        if(json.success){
+        if(json.duplicate){
+          dpData[dpPageType].forEach(r=>{if(r.page===page){r.regStatus='kw-taken';}});
+          dpRenderRows();
+          dpShowStatus('🟡 Already locked — please refresh','#fefce8','#fde68a','#92400e');
+          alert(`⚠️ This keyword is already locked to:\n${json.lockedTo}\n\nPlease refresh the page to reload the latest registry data before locking more keywords.`);
+        }else if(json.success){
           if(!kwrRegistry.byUrl)kwrRegistry.byUrl={};
           kwrRegistry.byUrl[page.toLowerCase()]={url:fullUrl,keyword};
           dpData[dpPageType].forEach(r=>{if(r.page===page){r.regStatus='url-taken';r.regOtherKw=keyword;}});
