@@ -1,8 +1,9 @@
-// blogs.js — v1.4
+// blogs.js — v1.5
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
 // v1.4: sanitizeRow() ensures 12 cols on every write; detectIntent() auto-sets intent from URL; repair-registry action fixes existing rows
+// v1.5: delete-registry-row action — targeted single-row delete by keyword+url (used by Duplicate Finder)
 import fs from 'fs';
 import path from 'path';
 
@@ -637,6 +638,25 @@ export default async function handler(req, res) {
         const updated = filtered.join('\n');
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Remove from registry: ${keyword}`);
         return res.status(200).json({ success: true, keyword });
+      }
+
+      // ── ACTION: delete-registry-row ── (targeted: removes one specific keyword+url row)
+      if (req.body.action === 'delete-registry-row') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { keyword, url } = req.body;
+        if (!keyword || !url) return res.status(400).json({ error: 'keyword and url required' });
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const lines = registry.content.split('\n');
+        const kwLower = keyword.toLowerCase();
+        const urlLower = url.toLowerCase();
+        const filtered = lines.filter(line => {
+          const trimmed = line.trim();
+          if (!trimmed) return true;
+          const cols = parseCSVLine(trimmed);
+          return !((cols[0]||'').toLowerCase() === kwLower && (cols[1]||'').toLowerCase() === urlLower);
+        });
+        await updateGitHubFile('data/keyword-locker-registry.csv', filtered.join('\n'), registry.sha, `Delete registry row: ${keyword} on ${url}`);
+        return res.status(200).json({ success: true });
       }
 
       // ── ACTION: repair-registry ── (one-time fix: pad all rows to 12 cols, fill blank intent)
