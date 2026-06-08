@@ -254,7 +254,7 @@ https://accounts.google.com/o/oauth2/v2/auth?client_id=15466013888-deual871humre
 # EASY SEO REPORT TOOL — COMPLETE DOCUMENTATION
 
 **File:** `easy-seo-report.html`
-**Current Version:** v56 (June 4, 2026)
+**Current Version:** v58.4 (June 8, 2026)
 **URL:** https://tools.aboutwallart.com/easy-seo-report.html
 
 ## Sidebar Sections (in order):
@@ -263,12 +263,13 @@ https://accounts.google.com/o/oauth2/v2/auth?client_id=15466013888-deual871humre
 3. 🚨 Suspicious Traffic
 4. 🤖 AI Traffic
 5. 📱 Social Traffic
-6. 🔥 Quick Wins
-7. ⚠️ Danger Pages
-8. Keyword Tracker
-9. Keyword Rankings
-10. Blog Optimizations
-11. Content Optimizations
+6. 🔧 Technical Health
+7. 🔥 Quick Wins
+8. ⚠️ Danger Pages
+9. Keyword Tracker
+10. Keyword Rankings
+11. Blog Optimizations
+12. Content Optimizations
 
 ---
 
@@ -343,15 +344,23 @@ https://accounts.google.com/o/oauth2/v2/auth?client_id=15466013888-deual871humre
 - Tabs are renameable and deletable
 - Optimisation dates saved to data/keyword-optimisations.json
 
-## 9. Keyword Rankings
+## 9. Keyword Rankings (rebuilt June 8, 2026 — v58.4)
 - All GSC queries with metrics for last 90 days
-- Filters: Search, Position range, Difficulty, Min Impressions, Row limit
-- Column sort: click any header, priority badge system (1↑, 2↓ etc), ✕ to remove
+- Filters: Search, Position range, Difficulty, Min Impressions, Row limit, Action (Can Lock / Already Locked / No URL) — apply to all tabs
+- Column headers sortable: click asc, again desc, again removes sort (priority badge system)
 - Difficulty: Easy/Medium/Hard calculated from position + impressions + CTR
-- All tab: + Select button moves keyword to Selected tab
-- Selected tab: Ranking URL, Registry (🔒/🟡/🔴), ↩ Undo, Save to Registry
-- Trend column in Selected tab: ▲ green / ▼ red / ▶ amber vs previous 90 days
-- Saved selections in data/tracked-keywords.json
+- Pagination: Prev/Next below table, resets on filter change
+- Three sub-tabs:
+  - **All Keywords** — all GSC keywords with Ranking URL, Registry status (🔒/🟡/🔴), 🔒 Lock button and red Delete button on every row
+  - **Selected** — keywords locked via this tool. Only action: ↩ Undo (calls remove-from-registry API, full delete from CSV). Trend column shown here
+  - **Dismissed** — keywords hidden via Delete button. ↩ Restore moves back to All Keywords
+- Locking: Lock button → confirm dialog → saves to registry CSV → row moves to Selected tab automatically
+- Undo: removes from registry CSV AND moves row back to All Keywords
+- Dismissed state: stored as `r.dismissed` flag on kwrAllData items. Also backed by localStorage (`kwr_dismissed`). **TODO: save to GitHub data/kwr-dismissed.json** (next session priority)
+- Homepage URL fix: `cleanUrl()` used on both sides of registry comparison so `/` matches correctly
+- Button safety: buttons use `data-idx` (numeric index) instead of encoded keyword strings — prevents URIError on unusual Unicode keywords from GSC
+- No URL keywords: keywords where page-query data is outside 5,000 row limit show `—` in Ranking URL. Cannot be locked
+- **TODO: URL Tracking tab** — second sub-tab, URL input → shows all keywords that URL ranks for, with registry status + lock/unlock
 
 ## 10. Blog Optimizations
 - Blog posts only (/blogs/ URLs)
@@ -401,6 +410,8 @@ function shouldExcludeUrl(url) {
 - /api/blogs?action=get-optimisations
 - /api/blogs?action=get-susp-events
 - /api/blogs?action=get-revenue-by-month
+- /api/blogs?action=get-dismissed-keywords (TODO — not yet built)
+- /api/blogs (POST action=save-dismissed-keywords) (TODO — not yet built)
 
 ---
 
