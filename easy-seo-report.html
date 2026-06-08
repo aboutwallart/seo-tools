@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.3</div>
+      <div class="tool-version">v59.4</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -163,6 +163,7 @@
     <div class="nav-item" onclick="showSection('blogopt', this)">Blog Optimizations</div>
     <div class="nav-item" onclick="showSection('content', this)">Content Optimizations</div>
     <div class="nav-item" onclick="showSection('nokw', this)">🗝️ Pages Without Locked Keywords</div>
+    <div class="nav-item" onclick="showSection('settings', this)">⚙️ Settings</div>
   </div>
 
   <div class="main">
@@ -836,6 +837,33 @@
             <thead><tr style="background:#f9f9f9;"><th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#888;">#</th><th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#888;">Page URL</th><th style="padding:10px 12px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#888;">Impressions</th><th style="padding:10px 12px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#888;">Clicks</th><th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#888;">Suggested Keyword</th><th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#888;">Action</th></tr></thead>
             <tbody id="nokwBody"><tr class="loading-row"><td colspan="6">Loading...</td></tr></tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- SECTION: Settings -->
+      <div class="section" id="section-settings">
+        <div class="content-section-card" style="margin-bottom:24px;">
+          <div class="content-section-header">
+            <h2>⚙️ Settings</h2>
+            <p>Registry maintenance tools. Run these when needed — they do not affect your daily SEO work.</p>
+          </div>
+
+          <!-- Repair Registry -->
+          <div style="padding:24px;border-bottom:1px solid #e5e5e5;">
+            <h3 style="font-size:14px;font-weight:700;margin-bottom:6px;">🔧 Repair Registry</h3>
+            <p style="font-size:13px;color:#666;margin-bottom:16px;">Fixes all existing rows in the registry CSV — pads any row with fewer than 12 columns, and fills in any blank intent based on the page URL. Run this once to clean up historical data. From now on all new rows are saved correctly automatically.</p>
+            <button onclick="runRepairRegistry()" id="repairBtn" style="padding:10px 20px;background:#1a1a1a;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Run Repair Registry</button>
+            <span id="repairStatus" style="margin-left:14px;font-size:13px;color:#666;"></span>
+          </div>
+
+          <!-- Duplicate Finder -->
+          <div style="padding:24px;">
+            <h3 style="font-size:14px;font-weight:700;margin-bottom:6px;">🔍 Duplicate Keyword Finder</h3>
+            <p style="font-size:13px;color:#666;margin-bottom:16px;">Finds keywords that are locked to more than one URL with the same intent — this confuses Google about which page to rank. Review each group and delete the duplicate row you don't want to keep.</p>
+            <button onclick="loadDuplicates()" id="dupLoadBtn" style="padding:10px 20px;background:#1a1a1a;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Find Duplicates</button>
+            <span id="dupStatus" style="margin-left:14px;font-size:13px;color:#666;"></span>
+            <div id="dupResults" style="margin-top:20px;"></div>
+          </div>
         </div>
       </div>
 
@@ -4911,6 +4939,142 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
     };
 
     loadOverview(28);loadClicksChart(28);loadDeviceChart(28);loadPages(28);loadQueries(28);
+
+    // ── SETTINGS: Repair Registry ──
+    async function runRepairRegistry() {
+      const btn = document.getElementById('repairBtn');
+      const status = document.getElementById('repairStatus');
+      btn.disabled = true;
+      btn.textContent = 'Running...';
+      status.textContent = '';
+      try {
+        const res = await fetch('/api/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'repair-registry' })
+        });
+        const data = await res.json();
+        if (data.success) {
+          status.style.color = '#16a34a';
+          status.textContent = `Done. Fixed ${data.fixedCount} rows out of ${data.totalRows} total.`;
+          btn.textContent = 'Run Again';
+        } else {
+          status.style.color = '#dc2626';
+          status.textContent = 'Error: ' + (data.error || 'Unknown error');
+          btn.textContent = 'Run Repair Registry';
+        }
+      } catch(e) {
+        status.style.color = '#dc2626';
+        status.textContent = 'Error: ' + e.message;
+        btn.textContent = 'Run Repair Registry';
+      }
+      btn.disabled = false;
+    }
+
+    // ── SETTINGS: Duplicate Finder ──
+    async function loadDuplicates() {
+      const btn = document.getElementById('dupLoadBtn');
+      const status = document.getElementById('dupStatus');
+      const results = document.getElementById('dupResults');
+      btn.disabled = true;
+      btn.textContent = 'Loading...';
+      status.textContent = '';
+      results.innerHTML = '';
+      try {
+        const res = await fetch('/api/blogs?action=get-registry');
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Failed to load registry');
+
+        // Find duplicates: same keyword + same intent, action is TO_OPTIMIZE or OPTIMIZED, locked=true
+        const groups = {};
+        for (const row of data.registry) {
+          if (!row.locked) continue;
+          if (!['TO_OPTIMIZE','OPTIMIZED'].includes((row.action||'').toUpperCase())) continue;
+          const key = (row.keyword||'').toLowerCase() + '|||' + (row.intent||'UNKNOWN').toUpperCase();
+          if (!groups[key]) groups[key] = { keyword: row.keyword, intent: row.intent||'UNKNOWN', rows: [] };
+          groups[key].rows.push(row);
+        }
+
+        const dupes = Object.values(groups).filter(g => g.rows.length > 1);
+
+        if (dupes.length === 0) {
+          status.style.color = '#16a34a';
+          status.textContent = 'No duplicates found. Registry is clean.';
+          btn.textContent = 'Find Duplicates';
+          btn.disabled = false;
+          return;
+        }
+
+        status.style.color = '#888';
+        status.textContent = `${dupes.length} duplicate group${dupes.length>1?'s':''} found.`;
+
+        results.innerHTML = dupes.map((g, gi) => `
+          <div id="dupGroup-${gi}" style="border:1px solid #e5e5e5;border-radius:8px;margin-bottom:16px;overflow:hidden;">
+            <div style="background:#f9f9f9;padding:12px 16px;border-bottom:1px solid #e5e5e5;display:flex;align-items:center;gap:12px;">
+              <span style="font-size:13px;font-weight:700;">${g.keyword}</span>
+              <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${g.intent==='COMMERCIAL'?'#dbeafe':g.intent==='INFORMATIONAL'?'#dcfce7':g.intent==='NAVIGATIONAL'?'#fef9c3':'#f3f4f6'};color:#333;">${g.intent}</span>
+              <span style="font-size:12px;color:#dc2626;font-weight:600;">${g.rows.length} rows — keep one, delete the rest</span>
+            </div>
+            <table style="width:100%;border-collapse:collapse;">
+              <thead><tr style="background:#fafafa;">
+                <th style="padding:8px 16px;text-align:left;font-size:11px;text-transform:uppercase;color:#888;">URL</th>
+                <th style="padding:8px 16px;text-align:left;font-size:11px;text-transform:uppercase;color:#888;">Status</th>
+                <th style="padding:8px 16px;text-align:left;font-size:11px;text-transform:uppercase;color:#888;">Action</th>
+              </tr></thead>
+              <tbody>
+                ${g.rows.map((row, ri) => `
+                  <tr id="dupRow-${gi}-${ri}" style="border-top:1px solid #f0f0f0;">
+                    <td style="padding:10px 16px;font-size:12px;color:#1a1a1a;">${row.url}</td>
+                    <td style="padding:10px 16px;font-size:12px;color:#666;">${row.action}</td>
+                    <td style="padding:10px 16px;">
+                      <button onclick="deleteDupRow(${gi},${ri},'${encodeURIComponent(row.keyword)}','${encodeURIComponent(row.url)}')"
+                        style="padding:5px 12px;background:#dc2626;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer;">
+                        Delete this row
+                      </button>
+                    </td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>`).join('');
+
+        btn.textContent = 'Refresh';
+        btn.disabled = false;
+      } catch(e) {
+        status.style.color = '#dc2626';
+        status.textContent = 'Error: ' + e.message;
+        btn.textContent = 'Find Duplicates';
+        btn.disabled = false;
+      }
+    }
+
+    async function deleteDupRow(gi, ri, kwEnc, urlEnc) {
+      const keyword = decodeURIComponent(kwEnc);
+      const url = decodeURIComponent(urlEnc);
+      const rowEl = document.getElementById(`dupRow-${gi}-${ri}`);
+      const btn = rowEl.querySelector('button');
+      btn.disabled = true;
+      btn.textContent = 'Deleting...';
+      try {
+        const res = await fetch('/api/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'delete-registry-row', keyword, url })
+        });
+        const data = await res.json();
+        if (data.success) {
+          rowEl.style.background = '#f0fdf4';
+          btn.textContent = 'Deleted';
+          btn.style.background = '#16a34a';
+          setTimeout(() => { rowEl.style.display = 'none'; }, 800);
+        } else {
+          btn.disabled = false;
+          btn.textContent = 'Error — retry';
+        }
+      } catch(e) {
+        btn.disabled = false;
+        btn.textContent = 'Error — retry';
+      }
+    }
   </script>
 </body>
 </html>  
