@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v57.13</div>
+      <div class="tool-version">v58.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -914,33 +914,40 @@
           </div>
           <div style="color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Filters</div>
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-            <input id="kwrSearch" type="text" placeholder="Search keywords..." oninput="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:240px;outline:none;">
-            <select id="kwrFilterPos" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+            <input id="kwrSearch" type="text" placeholder="Search keywords..." oninput="kwrFilterTable(true)" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:240px;outline:none;">
+            <select id="kwrFilterPos" onchange="kwrFilterTable(true)" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
               <option value="">All Positions</option>
               <option value="1-3">Pos 1–3</option>
               <option value="4-10">Pos 4–10</option>
               <option value="11-20">Pos 11–20</option>
               <option value="21+">Pos 21+</option>
             </select>
-            <select id="kwrFilterDiff" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+            <select id="kwrFilterDiff" onchange="kwrFilterTable(true)" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
               <option value="">All Difficulties</option>
               <option value="Easy">Easy</option>
               <option value="Medium">Medium</option>
               <option value="Hard">Hard</option>
             </select>
-            <select id="kwrFilterMinImp" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+            <select id="kwrFilterMinImp" onchange="kwrFilterTable(true)" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
               <option value="0">Any Impressions</option>
               <option value="100">100+</option>
               <option value="500">500+</option>
               <option value="1000">1K+</option>
               <option value="5000">5K+</option>
             </select>
-            <select id="kwrLimit" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+            <select id="kwrLimit" onchange="kwrFilterTable(true)" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
               <option value="50">50 rows</option>
               <option value="100">100 rows</option>
               <option value="250">250 rows</option>
               <option value="500">500 rows</option>
             </select>
+            <select id="kwrFilterAction" onchange="kwrFilterTable(true)" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
+              <option value="">All Actions</option>
+              <option value="lockable">Can Lock</option>
+              <option value="locked">Already Locked</option>
+              <option value="no-url">No URL</option>
+            </select>
+            <button id="kwrShowDismissedBtn" onclick="kwrToggleDismissed()" style="background:#333;color:#aaa;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">👁 Show dismissed (0)</button>
             <button onclick="kwrResetFilters()" style="background:#333;color:#aaa;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">✕ Reset</button>
           </div>
         </div>
@@ -960,9 +967,12 @@
         <div class="table-card">
           <table id="kwrTable" style="table-layout:fixed;width:100%;">
             <thead id="kwrTableHead"></thead>
-            <tbody id="kwrBody"><tr class="loading-row"><td colspan="8">Loading keyword rankings...</td></tr></tbody>
+            <tbody id="kwrBody"><tr class="loading-row"><td colspan="9">Loading keyword rankings...</td></tr></tbody>
           </table>
         </div>
+
+        <!-- Pagination -->
+        <div id="kwrPagination" style="padding:12px 16px;display:flex;align-items:center;gap:12px;"></div>
 
       </div>
 
@@ -2935,6 +2945,10 @@
     let kwrLoaded     = false;
     let kwrRegistry   = { byKw:{}, byUrl:{} };
     let kwrPageQuery  = {};
+    let kwrPage       = 1;
+    let kwrTotalFiltered = 0;
+    let kwrDismissed  = new Set(JSON.parse(localStorage.getItem('kwr_dismissed')||'[]'));
+    let kwrShowDismissed = false;
 
     // Sort state: { field, dir } per column
     // colSorts: { pos:{priority,dir}, imp:{priority,dir}, clk:{priority,dir}, ctr:{priority,dir}, diff:{priority,dir}, trend:{priority,dir} }
@@ -3052,7 +3066,7 @@
                 ['TO_OPTIMIZE','OPTIMIZED'].includes((row.action || '').toUpperCase());
               if (!isRealLock) return;
               const kwKey  = (row.keyword||'').toLowerCase();
-              const urlKey = (row.url||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','').toLowerCase();
+              const urlKey = cleanUrl(row.url || '').toLowerCase();
               kwrRegistry.byKw[kwKey]   = { url: row.url, keyword: row.keyword };
               kwrRegistry.byUrl[urlKey] = { url: row.url, keyword: row.keyword };
             });
@@ -3101,7 +3115,7 @@
           let regStatus = 'unlocked';
           let regOtherKw = '', regOtherUrl = '';
           if (regByKw) {
-            const lockedUrl = (regByKw.url||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
+            const lockedUrl = cleanUrl(regByKw.url || '');
             if (lockedUrl === rankingUrl) { regStatus = 'locked-same'; }
             else { regStatus = 'kw-taken'; regOtherUrl = lockedUrl; }
           } else if (regByUrl) {
@@ -3112,10 +3126,12 @@
         }).sort((a,b) => a.pos - b.pos);
 
         kwrUpdateCounts();
+        const dsBtn = document.getElementById('kwrShowDismissedBtn');
+        if (dsBtn && kwrDismissed.size > 0) dsBtn.textContent = `👁 Show dismissed (${kwrDismissed.size})`;
         kwrFilterTable();
 
       } catch(e) {
-        document.getElementById('kwrBody').innerHTML = `<tr class="loading-row"><td colspan="8" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
+        document.getElementById('kwrBody').innerHTML = `<tr class="loading-row"><td colspan="9" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
       }
     }
 
@@ -3124,13 +3140,14 @@
       document.getElementById('kwrFilterPos').value = '';
       document.getElementById('kwrFilterDiff').value = '';
       document.getElementById('kwrFilterMinImp').value = '0';
-      kwrColSorts = {}; kwrSortCounter = 0;
+      const af = document.getElementById('kwrFilterAction'); if (af) af.value = '';
+      kwrColSorts = {}; kwrSortCounter = 0; kwrPage = 1;
       kwrRenderHeader();
       kwrFilterTable();
     }
 
     function kwrSwitchTab(tab) {
-      kwrActiveTab = tab;
+      kwrActiveTab = tab; kwrPage = 1;
       ['all','tracked'].forEach(t => {
         const btn = document.getElementById('kwrTab' + (t==='all'?'All':'Tracked'));
         const active = t===tab;
@@ -3142,16 +3159,18 @@
       kwrFilterTable();
     }
 
-    function kwrFilterTable() {
-      const search   = (document.getElementById('kwrSearch')?.value||'').toLowerCase();
-      const posRange = document.getElementById('kwrFilterPos')?.value||'';
-      const diff     = document.getElementById('kwrFilterDiff')?.value||'';
-      const minImp   = parseInt(document.getElementById('kwrFilterMinImp')?.value||'0');
-      const limit    = parseInt(document.getElementById('kwrLimit')?.value||'50');
+    function kwrFilterTable(resetPage) {
+      if (resetPage) kwrPage = 1;
+      const search      = (document.getElementById('kwrSearch')?.value||'').toLowerCase();
+      const posRange    = document.getElementById('kwrFilterPos')?.value||'';
+      const diff        = document.getElementById('kwrFilterDiff')?.value||'';
+      const minImp      = parseInt(document.getElementById('kwrFilterMinImp')?.value||'0');
+      const limit       = parseInt(document.getElementById('kwrLimit')?.value||'50');
+      const actionF     = document.getElementById('kwrFilterAction')?.value||'';
 
       let data = kwrActiveTab==='tracked'
         ? kwrAllData.filter(r => kwrSelectedSet.has(r.kw))
-        : kwrAllData.filter(r => !kwrSelectedSet.has(r.kw));
+        : kwrAllData.filter(r => !kwrSelectedSet.has(r.kw) && (kwrShowDismissed || !kwrDismissed.has(r.kw)));
 
       if (search)   data = data.filter(r => r.kw.includes(search));
       if (diff)     data = data.filter(r => r.diff===diff);
@@ -3162,8 +3181,10 @@
         if (posRange==='11-20') data = data.filter(r => r.pos>=11 && r.pos<=20);
         if (posRange==='21+')   data = data.filter(r => r.pos>20);
       }
+      if (actionF==='lockable') data = data.filter(r => r.regStatus==='unlocked' && r.rankingUrl!=='—');
+      if (actionF==='no-url')   data = data.filter(r => r.rankingUrl==='—');
+      if (actionF==='locked')   data = data.filter(r => r.regStatus==='locked-same');
 
-      // Sort by column priority
       const sortEntries = Object.entries(kwrColSorts).sort((a,b) => a[1].priority - b[1].priority);
       if (sortEntries.length) {
         data.sort((a,b) => {
@@ -3183,7 +3204,41 @@
         });
       }
 
-      kwrRenderRows(data.slice(0, limit));
+      kwrTotalFiltered = data.length;
+      const start = (kwrPage-1)*limit;
+      kwrRenderRows(data.slice(start, start+limit));
+      kwrRenderPagination(kwrTotalFiltered, limit);
+    }
+
+    function kwrRenderPagination(total, limit) {
+      const el = document.getElementById('kwrPagination');
+      if (!el) return;
+      const totalPages = Math.ceil(total/limit);
+      if (totalPages<=1) { el.innerHTML=''; return; }
+      el.innerHTML = `
+        <span style="font-size:12px;color:#888;">Page ${kwrPage} of ${totalPages} &nbsp;(${total} keywords)</span>
+        <button onclick="kwrGoPage(${kwrPage-1})" ${kwrPage<=1?'disabled':''} style="padding:4px 10px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:12px;cursor:pointer;${kwrPage<=1?'opacity:0.4;':''}">&larr; Prev</button>
+        <button onclick="kwrGoPage(${kwrPage+1})" ${kwrPage>=totalPages?'disabled':''} style="padding:4px 10px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:12px;cursor:pointer;${kwrPage>=totalPages?'opacity:0.4;':''}">Next &rarr;</button>
+      `;
+    }
+
+    function kwrGoPage(p) {
+      kwrPage = p;
+      kwrFilterTable();
+    }
+
+    function kwrDismiss(kw) {
+      kwrDismissed.add(kw);
+      localStorage.setItem('kwr_dismissed', JSON.stringify([...kwrDismissed]));
+      kwrUpdateCounts();
+      kwrFilterTable();
+    }
+
+    function kwrToggleDismissed() {
+      kwrShowDismissed = !kwrShowDismissed;
+      const btn = document.getElementById('kwrShowDismissedBtn');
+      if (btn) btn.textContent = kwrShowDismissed ? '👁 Hide dismissed' : `👁 Show dismissed (${kwrDismissed.size})`;
+      kwrFilterTable(true);
     }
 
     function kwrRenderRows(rows) {
@@ -3234,7 +3289,8 @@
               ? `<button onclick="kwrConfirmLock('${r.kw.replace(/'/g,"\\'")}','${r.rankingUrl.replace(/'/g,"\\'")}' )" style="padding:4px 10px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button>`
               : `<span style="font-size:11px;color:#aaa;">No URL</span>`;
           }
-          return `<tr>
+          const isDismissed = kwrDismissed.has(r.kw);
+          return `<tr style="${isDismissed?'opacity:0.4;':''}">
             <td style="width:170px;font-size:13px;word-break:break-word;">${r.kw}</td>
             <td style="width:150px;">${urlDisplay}</td>
             <td style="width:70px;text-align:right;color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>
@@ -3243,7 +3299,10 @@
             <td style="width:55px;text-align:right;">${fmtCTR(r.ctr)}</td>
             <td style="width:80px;"><span style="${kwrDiffStyle(r.diff)}">${r.diff}</span></td>
             <td style="width:120px;">${regBadge}</td>
-            <td style="width:100px;">${actionCell}</td>
+            <td style="width:100px;white-space:nowrap;">
+              ${actionCell}
+              ${!isDismissed ? `<button onclick="kwrDismiss('${r.kw.replace(/'/g,"\\'")}' )" title="Dismiss this keyword" style="margin-left:6px;padding:3px 7px;border:1px solid #e5e5e5;background:#fff;color:#aaa;border-radius:4px;font-size:11px;cursor:pointer;">✕</button>` : ''}
+            </td>
           </tr>`;
         }
       }).join('');
@@ -3255,8 +3314,17 @@
       kwrFilterTable();
     }
 
-    function kwrUndo(kw) {
+    async function kwrUndo(kw) {
+      try {
+        await fetch('/api/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'remove-from-registry', keyword: kw })
+        });
+      } catch(e) { console.error('Undo failed:', e); }
       kwrSelectedSet.delete(kw);
+      delete kwrRegistry.byKw[kw.toLowerCase()];
+      kwrAllData.forEach(r => { if (r.kw===kw) { r.regStatus='unlocked'; r.regOtherUrl=''; r.regOtherKw=''; } });
       kwrUpdateCounts();
       kwrFilterTable();
     }
