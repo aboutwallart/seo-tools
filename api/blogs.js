@@ -1,9 +1,10 @@
-// blogs.js — v1.5
+// blogs.js — v1.6
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
 // v1.4: sanitizeRow() ensures 12 cols on every write; detectIntent() auto-sets intent from URL; repair-registry action fixes existing rows
 // v1.5: delete-registry-row action — targeted single-row delete by keyword+url (used by Duplicate Finder)
+// v1.6: repair-registry now overwrites intent on ALL rows (not just blank) — corrects historically wrong intent values
 import fs from 'fs';
 import path from 'path';
 
@@ -673,8 +674,9 @@ export default async function handler(req, res) {
           const cols = parseCSVLine(line);
           while (cols.length < 12) cols.push('');
           cols.length = 12;
-          if (!cols[10]) {
-            cols[10] = detectIntent(cols[1] || 'N/A');
+          const correctIntent = detectIntent(cols[1] || 'N/A');
+          if (cols[10] !== correctIntent) {
+            cols[10] = correctIntent;
             fixedCount++;
           }
           repairedLines.push(sanitizeRow(cols));
