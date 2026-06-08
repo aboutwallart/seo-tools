@@ -585,7 +585,7 @@ export default async function handler(req, res) {
         const { keyword, intent } = req.body;
         if (!keyword) return res.status(400).json({ error: 'keyword required' });
         const registry = await getGitHubFile('data/keyword-locker-registry.csv');
-        const newRow = `${csvField(keyword)},N/A,LOCKED,DONE,SAVED_FOR_FUTURE,N/A,N/A,N/A,N/A,User Action,${intent || 'UNKNOWN'}`;
+        const newRow = `${csvField(keyword)},N/A,LOCKED,DONE,SAVED_FOR_FUTURE,N/A,N/A,N/A,N/A,User Action,${intent || 'UNKNOWN'},`;
         const updated = registry.content.trimEnd() + '\n' + newRow + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Save for later: ${keyword}`);
         return res.status(200).json({ success: true, keyword });
@@ -597,7 +597,7 @@ export default async function handler(req, res) {
         const { keyword, intent } = req.body;
         if (!keyword) return res.status(400).json({ error: 'keyword required' });
         const registry = await getGitHubFile('data/keyword-locker-registry.csv');
-        const newRow = `${csvField(keyword)},N/A,LOCKED,DONE,DELETED,N/A,N/A,N/A,N/A,User Action,${intent || 'UNKNOWN'}`;
+        const newRow = `${csvField(keyword)},N/A,LOCKED,DONE,DELETED,N/A,N/A,N/A,N/A,User Action,${intent || 'UNKNOWN'},`;
         const updated = registry.content.trimEnd() + '\n' + newRow + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Delete keyword: ${keyword}`);
         return res.status(200).json({ success: true, keyword });
@@ -802,7 +802,7 @@ export default async function handler(req, res) {
       if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured in environment variables' });
 
       const registry = await getGitHubFile('data/keyword-locker-registry.csv');
-      const newRow = `${keyword},${url || ''},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,To_Write_Blog`;
+      const newRow = `${keyword},${url || ''},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,To_Write_Blog,,`;
       const updatedRegistry = registry.content.trimEnd() + '\n' + newRow + '\n';
       await updateGitHubFile('data/keyword-locker-registry.csv', updatedRegistry, registry.sha, `Add to write blog: ${keyword}`);
 
