@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v58.9</div>
+      <div class="tool-version">v59.0</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -742,15 +742,18 @@
           <div class="data-note">Data: last 180 days · Position 1–7 · Has clicks · CTR under 2% · At least 100 impressions · Sorted by impressions</div>
           <div class="content-controls">
             <label>Search:</label>
-            <input type="text" placeholder="Filter by URL or query..." oninput="filterTable('ctrBody', this.value)">
+            <input type="text" id="ctrSearch" placeholder="Filter by URL or query..." oninput="renderCTR()">
             <label>Show:</label>
-            <select onchange="renderCTR(parseInt(this.value))">
+            <select onchange="ctrLimit=parseInt(this.value);renderCTR()">
               <option value="50">50 rows</option><option value="100">100 rows</option><option value="150">150 rows</option>
+            </select>
+            <select onchange="ctrRegFilter=this.value;renderCTR()">
+              <option value="">All</option><option value="lockable">Can Lock</option><option value="locked">Already Locked</option>
             </select>
             <button class="download-btn" onclick="downloadCSV('ctr')">⬇ Download CSV</button>
           </div>
           <table>
-            <thead><tr><th>#</th><th>Priority</th><th>Page URL</th><th>Top Query</th><th class="num">Impressions</th><th class="num">Clicks</th><th class="num">CTR</th><th class="num">Position</th><th>Registry</th><th>Action</th></tr></thead>
+            <thead id="ctrHead"><tr></tr></thead>
             <tbody id="ctrBody"><tr class="loading-row"><td colspan="10">Loading...</td></tr></tbody>
           </table>
         </div>
@@ -763,15 +766,18 @@
           <div class="data-note">Data: last 180 days · Position 8–15 · CTR under 2% · At least 100 impressions · Sorted by impressions</div>
           <div class="content-controls">
             <label>Search:</label>
-            <input type="text" placeholder="Filter by URL or query..." oninput="filterTable('optimiseBody', this.value)">
+            <input type="text" id="optSearch" placeholder="Filter by URL or query..." oninput="renderOptimise()">
             <label>Show:</label>
-            <select onchange="renderOptimise(parseInt(this.value))">
+            <select onchange="optLimit=parseInt(this.value);renderOptimise()">
               <option value="50">50 rows</option><option value="100">100 rows</option><option value="150">150 rows</option>
+            </select>
+            <select onchange="optRegFilter=this.value;renderOptimise()">
+              <option value="">All</option><option value="lockable">Can Lock</option><option value="locked">Already Locked</option>
             </select>
             <button class="download-btn" onclick="downloadCSV('optimise')">⬇ Download CSV</button>
           </div>
           <table>
-            <thead><tr><th>#</th><th>Priority</th><th>Page URL</th><th>Top Query</th><th class="num">Impressions</th><th class="num">Position</th><th>Registry</th><th>Action</th></tr></thead>
+            <thead id="optHead"><tr></tr></thead>
             <tbody id="optimiseBody"><tr class="loading-row"><td colspan="8">Loading...</td></tr></tbody>
           </table>
         </div>
@@ -784,15 +790,18 @@
           <div class="data-note">Data: last 180 days · Real search queries only · No matching content in your registry · At least 10 impressions · English queries only · Sorted by impressions</div>
           <div class="content-controls">
             <label>Search:</label>
-            <input type="text" placeholder="Filter by query..." oninput="filterTable('createBody', this.value)">
+            <input type="text" id="crtSearch" placeholder="Filter by query..." oninput="renderCreate()">
             <label>Show:</label>
-            <select onchange="renderCreate(parseInt(this.value))">
+            <select onchange="crtLimit=parseInt(this.value);renderCreate()">
               <option value="50">50 rows</option><option value="100">100 rows</option><option value="150">150 rows</option>
+            </select>
+            <select onchange="crtRegFilter=this.value;renderCreate()">
+              <option value="">All</option><option value="lockable">Can Save</option><option value="locked">Already Claimed</option>
             </select>
             <button class="download-btn" onclick="downloadCSV('create')">⬇ Download CSV</button>
           </div>
           <table>
-            <thead><tr><th>#</th><th>Priority</th><th>Query</th><th class="num">Impressions</th><th>Registry</th><th>Action</th></tr></thead>
+            <thead id="crtHead"><tr></tr></thead>
             <tbody id="createBody"><tr class="loading-row"><td colspan="6">Loading...</td></tr></tbody>
           </table>
         </div>
@@ -1301,6 +1310,9 @@
     let clicksChartInstance=null, deviceChartInstance=null, histClicksChart=null, histImpressionsChart=null;
     let histLoaded=false, contentLoaded=false;
     let ctrData=[], optimiseData=[], createData=[];
+    let ctrSort={key:'imp',dir:'desc'}, ctrLimit=50, ctrRegFilter='';
+    let optSort={key:'pos',dir:'asc'},  optLimit=50, optRegFilter='';
+    let crtSort={key:'imp',dir:'desc'}, crtLimit=50, crtRegFilter='';
 
     function getDate(daysAgo){const d=new Date();d.setDate(d.getDate()-daysAgo);return d.toISOString().split('T')[0];}
     function fmt(n){return n!=null?n.toLocaleString():'—';}
@@ -1649,6 +1661,24 @@
       }
     }
 
+    function cthSort(headId, cols, sortObj, renderFn) {
+      const s = `cursor:pointer;user-select:none;white-space:nowrap;`;
+      document.getElementById(headId).innerHTML = '<tr>' + cols.map(c => {
+        if (!c.key) return `<th>${c.label}</th>`;
+        const arrow = sortObj.key===c.key ? (sortObj.dir==='asc'?' ↑':' ↓') : '';
+        return `<th style="${s}" onclick="${renderFn}('${c.key}')">${c.label}${arrow}</th>`;
+      }).join('') + '</tr>';
+    }
+
+    function applySort(data, sortObj, keyMap) {
+      if (!sortObj.key) return data;
+      return [...data].sort((a,b) => {
+        const av = keyMap(a, sortObj.key), bv = keyMap(b, sortObj.key);
+        if (typeof av === 'string') return sortObj.dir==='asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+        return sortObj.dir==='asc' ? av-bv : bv-av;
+      });
+    }
+
     function contentRegBadge(query, pageUrl) {
       if (!query) return { badge: '<span style="color:#ccc;font-size:12px;">—</span>', canLock: false };
       const kwKey  = query.toLowerCase();
@@ -1664,49 +1694,68 @@
       return { badge: '<span style="color:#ccc;font-size:12px;">—</span>', canLock: true };
     }
 
-    function renderCTR(limit){
-      const tbody=document.getElementById('ctrBody'),rows=ctrData.slice(0,limit);
-      if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="10">No pages found</td></tr>';return;}
-      tbody.innerHTML=rows.map((r,i)=>{
+    function renderCTR(sortKey) {
+      const cols = [
+        {label:'#'}, {label:'Priority'}, {label:'Page URL', key:'page'}, {label:'Top Query', key:'query'},
+        {label:'Impressions', key:'imp'}, {label:'Clicks', key:'clk'}, {label:'CTR', key:'ctr'},
+        {label:'Position', key:'pos'}, {label:'Registry'}, {label:'Action'}
+      ];
+      if (sortKey) { ctrSort.dir = ctrSort.key===sortKey && ctrSort.dir==='desc' ? 'asc' : 'desc'; ctrSort.key = sortKey; }
+      cthSort('ctrHead', cols, ctrSort, 'renderCTR');
+      const search = (document.getElementById('ctrSearch')?.value||'').toLowerCase();
+      let data = applySort(ctrData, ctrSort, (r,k) => k==='imp'?r.impressions:k==='clk'?r.clicks:k==='ctr'?r.ctr:k==='pos'?r.position:k==='page'?r.page:r.query);
+      if (search) data = data.filter(r => r.page.toLowerCase().includes(search) || r.query.toLowerCase().includes(search));
+      if (ctrRegFilter==='lockable') data = data.filter(r => contentRegBadge(r.query,r.page).canLock);
+      if (ctrRegFilter==='locked')   data = data.filter(r => !contentRegBadge(r.query,r.page).canLock);
+      const tbody = document.getElementById('ctrBody');
+      if (!data.length) { tbody.innerHTML='<tr class="loading-row"><td colspan="10">No pages found</td></tr>'; return; }
+      tbody.innerHTML = data.slice(0,ctrLimit).map((r,i) => {
         const {badge, canLock} = contentRegBadge(r.query, r.page);
         const action = canLock ? `<button onclick="contentLock('${encodeURIComponent(r.query)}','${encodeURIComponent(r.page)}',this)" style="padding:4px 10px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button>` : '<span style="color:#ccc;font-size:12px;">—</span>';
         return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:12px;">${priority(r.impressions)}</td><td><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;word-break:break-all;">${r.page}</a></td><td style="font-size:12px;color:#555;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.query}</td><td class="num">${fmt(r.impressions)}</td><td class="num">${fmt(r.clicks)}</td><td class="num">${fmtCTR(r.ctr)}</td><td class="num">${fmtPos(r.position)}</td><td>${badge}</td><td>${action}</td></tr>`;
       }).join('');
     }
 
-    function renderOptimise(limit){
-      const tbody=document.getElementById('optimiseBody'),rows=optimiseData.slice(0,limit);
-      if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="8">No pages found</td></tr>';return;}
-      tbody.innerHTML=rows.map((r,i)=>{
+    function renderOptimise(sortKey) {
+      const cols = [
+        {label:'#'}, {label:'Priority'}, {label:'Page URL', key:'page'}, {label:'Top Query', key:'query'},
+        {label:'Impressions', key:'imp'}, {label:'Position', key:'pos'}, {label:'Registry'}, {label:'Action'}
+      ];
+      if (sortKey) { optSort.dir = optSort.key===sortKey && optSort.dir==='asc' ? 'desc' : 'asc'; optSort.key = sortKey; }
+      cthSort('optHead', cols, optSort, 'renderOptimise');
+      const search = (document.getElementById('optSearch')?.value||'').toLowerCase();
+      let data = applySort(optimiseData, optSort, (r,k) => k==='imp'?r.impressions:k==='pos'?r.position:k==='page'?r.page:r.query);
+      if (search) data = data.filter(r => r.page.toLowerCase().includes(search) || r.query.toLowerCase().includes(search));
+      if (optRegFilter==='lockable') data = data.filter(r => contentRegBadge(r.query,r.page).canLock);
+      if (optRegFilter==='locked')   data = data.filter(r => !contentRegBadge(r.query,r.page).canLock);
+      const tbody = document.getElementById('optimiseBody');
+      if (!data.length) { tbody.innerHTML='<tr class="loading-row"><td colspan="8">No pages found</td></tr>'; return; }
+      tbody.innerHTML = data.slice(0,optLimit).map((r,i) => {
         const {badge, canLock} = contentRegBadge(r.query, r.page);
         const action = canLock ? `<button onclick="contentLock('${encodeURIComponent(r.query)}','${encodeURIComponent(r.page)}',this)" style="padding:4px 10px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button>` : '<span style="color:#ccc;font-size:12px;">—</span>';
         return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:12px;">${priority(r.impressions)}</td><td><a href="https://www.aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;word-break:break-all;">${r.page}</a></td><td style="font-size:12px;color:#555;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.query}</td><td class="num">${fmt(r.impressions)}</td><td class="num">${fmtPos(r.position)}</td><td>${badge}</td><td>${action}</td></tr>`;
       }).join('');
     }
 
-    function renderCreate(limit){
-      const tbody=document.getElementById('createBody'),rows=createData.slice(0,limit);
-      if(!rows.length){tbody.innerHTML='<tr class="loading-row"><td colspan="6">No content gaps found</td></tr>';return;}
-      tbody.innerHTML=rows.map((r,i)=>{
-        const kwKey = r.query.toLowerCase();
-        const regByKw = kwrRegistry.byKw[kwKey];
-        let badge, canSave;
-        if (regByKw) {
-          badge = `<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🟡 Claimed</span>`;
-          canSave = false;
-        } else {
-          badge = '<span style="color:#ccc;font-size:12px;">—</span>';
-          canSave = true;
-        }
-        const action = canSave ? `<button onclick="contentSaveLater('${encodeURIComponent(r.query)}',this)" style="padding:4px 10px;border:none;background:#6366f1;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">📌 Save</button>` : '<span style="color:#ccc;font-size:12px;">—</span>';
-        return `<tr>
-          <td style="color:#aaa;font-size:12px;">${i+1}.</td>
-          <td style="font-size:12px;">${priority(r.impressions)}</td>
-          <td style="font-size:13px;color:#333;">${r.query}</td>
-          <td class="num">${fmt(r.impressions)}</td>
-          <td>${badge}</td>
-          <td>${action}</td>
-        </tr>`;
+    function renderCreate(sortKey) {
+      const cols = [
+        {label:'#'}, {label:'Priority'}, {label:'Query', key:'query'}, {label:'Impressions', key:'imp'},
+        {label:'Registry'}, {label:'Action'}
+      ];
+      if (sortKey) { crtSort.dir = crtSort.key===sortKey && crtSort.dir==='desc' ? 'asc' : 'desc'; crtSort.key = sortKey; }
+      cthSort('crtHead', cols, crtSort, 'renderCreate');
+      const search = (document.getElementById('crtSearch')?.value||'').toLowerCase();
+      let data = applySort(createData, crtSort, (r,k) => k==='imp'?r.impressions:r.query);
+      if (search) data = data.filter(r => r.query.toLowerCase().includes(search));
+      if (crtRegFilter==='lockable') data = data.filter(r => !kwrRegistry.byKw[r.query.toLowerCase()]);
+      if (crtRegFilter==='locked')   data = data.filter(r =>  kwrRegistry.byKw[r.query.toLowerCase()]);
+      const tbody = document.getElementById('createBody');
+      if (!data.length) { tbody.innerHTML='<tr class="loading-row"><td colspan="6">No content gaps found</td></tr>'; return; }
+      tbody.innerHTML = data.slice(0,crtLimit).map((r,i) => {
+        const regByKw = kwrRegistry.byKw[r.query.toLowerCase()];
+        const badge  = regByKw ? '<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🟡 Claimed</span>' : '<span style="color:#ccc;font-size:12px;">—</span>';
+        const action = regByKw ? '<span style="color:#ccc;font-size:12px;">—</span>' : `<button onclick="contentSaveLater('${encodeURIComponent(r.query)}',this)" style="padding:4px 10px;border:none;background:#6366f1;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">📌 Save</button>`;
+        return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:12px;">${priority(r.impressions)}</td><td style="font-size:13px;color:#333;">${r.query}</td><td class="num">${fmt(r.impressions)}</td><td>${badge}</td><td>${action}</td></tr>`;
       }).join('');
     }
 
