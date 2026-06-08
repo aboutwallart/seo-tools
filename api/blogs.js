@@ -304,6 +304,17 @@ export default async function handler(req, res) {
         }
       }
 
+      // ── ACTION: get-dismissed-keywords ──
+      if (req.query.action === 'get-dismissed-keywords') {
+        try {
+          const file = await getGitHubFile('data/kwr-dismissed.json');
+          const keywords = JSON.parse(file.content);
+          return res.status(200).json({ success: true, keywords });
+        } catch(e) {
+          return res.status(200).json({ success: true, keywords: [] });
+        }
+      }
+
       // ── ACTION: get-keyword-tabs ──
       if (req.query.action === 'get-keyword-tabs') {
         try {
@@ -626,6 +637,23 @@ export default async function handler(req, res) {
           method: 'PUT',
           headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: 'Update tracked keywords', content: Buffer.from(jsonContent).toString('base64'), ...(sha ? { sha } : {}) })
+        });
+        if (!response.ok) { const err = await response.text(); return res.status(500).json({ error: `GitHub save failed: ${err}` }); }
+        return res.status(200).json({ success: true, count: keywords.length });
+      }
+
+      // ── ACTION: save-dismissed-keywords ──
+      if (req.body.action === 'save-dismissed-keywords') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { keywords } = req.body;
+        if (!Array.isArray(keywords)) return res.status(400).json({ error: 'keywords must be an array' });
+        const jsonContent = JSON.stringify(keywords, null, 2);
+        let sha = null;
+        try { const existing = await getGitHubFile('data/kwr-dismissed.json'); sha = existing.sha; } catch(e) {}
+        const response = await fetch(`https://api.github.com/repos/${REPO}/contents/data/kwr-dismissed.json`, {
+          method: 'PUT',
+          headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'Update dismissed keywords', content: Buffer.from(jsonContent).toString('base64'), ...(sha ? { sha } : {}) })
         });
         if (!response.ok) { const err = await response.text(); return res.status(500).json({ error: `GitHub save failed: ${err}` }); }
         return res.status(200).json({ success: true, count: keywords.length });
