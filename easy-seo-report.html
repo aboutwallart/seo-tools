@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v58.5</div>
+      <div class="tool-version">v58.6</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1162,7 +1162,8 @@
           </div>
           <div style="color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Filters</div>
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-            <input id="kwrSearch" type="text" placeholder="Search keywords..." oninput="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:240px;outline:none;">
+            <input id="kwrSearch" type="text" placeholder="Search keywords..." oninput="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:200px;outline:none;">
+            <input id="kwrSearchUrl" type="text" placeholder="Filter by URL..." oninput="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:200px;outline:none;">
             <select id="kwrFilterPos" onchange="kwrFilterTable()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
               <option value="">All Positions</option>
               <option value="1-3">Pos 1–3</option>
@@ -3146,6 +3147,7 @@
 
     function kwrResetFilters() {
       document.getElementById('kwrSearch').value = '';
+      const kwrSU = document.getElementById('kwrSearchUrl'); if (kwrSU) kwrSU.value = '';
       document.getElementById('kwrFilterPos').value = '';
       document.getElementById('kwrFilterDiff').value = '';
       document.getElementById('kwrFilterMinImp').value = '0';
@@ -3172,6 +3174,7 @@
     function kwrFilterTable(resetPage) {
       if (resetPage) kwrPage = 1;
       const search      = (document.getElementById('kwrSearch')?.value||'').toLowerCase();
+      const searchUrl   = (document.getElementById('kwrSearchUrl')?.value||'').toLowerCase();
       const posRange    = document.getElementById('kwrFilterPos')?.value||'';
       const diff        = document.getElementById('kwrFilterDiff')?.value||'';
       const minImp      = parseInt(document.getElementById('kwrFilterMinImp')?.value||'0');
@@ -3184,7 +3187,8 @@
           ? kwrAllData.filter(r => r.dismissed)
           : kwrAllData.filter(r => !kwrSelectedSet.has(r.kw) && !r.dismissed);
 
-      if (search)   data = data.filter(r => r.kw.includes(search));
+      if (search)    data = data.filter(r => r.kw.includes(search));
+      if (searchUrl) data = data.filter(r => r.rankingUrl.toLowerCase().includes(searchUrl));
       if (diff)     data = data.filter(r => r.diff===diff);
       if (minImp)   data = data.filter(r => r.imp>=minImp);
       if (posRange) {
