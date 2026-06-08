@@ -1,7 +1,8 @@
-// blogs.js — v1.3
+// blogs.js — v1.4
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
+// v1.4: sanitizeRow() ensures 12 cols on every write; detectIntent() auto-sets intent from URL; repair-registry action fixes existing rows
 import fs from 'fs';
 import path from 'path';
 
@@ -67,6 +68,23 @@ export default async function handler(req, res) {
       return '"' + str.replace(/"/g, '""') + '"';
     }
     return str;
+  }
+
+  // Helper: detect intent from URL
+  function detectIntent(url) {
+    if (!url || url === 'N/A') return 'UNKNOWN';
+    if (url.includes('/collections/') || url.includes('/products/')) return 'COMMERCIAL';
+    if (url.includes('/blog')) return 'INFORMATIONAL';
+    if (url.includes('/pages/')) return 'NAVIGATIONAL';
+    return 'UNKNOWN';
+  }
+
+  // Helper: pad cols array to exactly 12 and return a properly quoted CSV row string
+  function sanitizeRow(cols) {
+    const padded = [...cols];
+    while (padded.length < 12) padded.push('');
+    padded.length = 12;
+    return padded.map(csvField).join(',');
   }
 
   // Helper: parse CSV line handling quoted fields
@@ -487,7 +505,7 @@ export default async function handler(req, res) {
             return res.status(409).json({ duplicate: true, error: `DUPLICATE_KEYWORD`, lockedTo: rowUrl });
           }
         }
-        const resolvedIntent = intent || 'UNKNOWN';
+        const resolvedIntent = intent || detectIntent(url);
         // 12 columns — empty 12th col keeps registry consistent with mark-optimized rows
         let newRows = `${csvField(keyword)},${csvField(url)},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,User Resolved,${resolvedIntent},`;
         // Add loser rows for internal linking
@@ -514,17 +532,17 @@ export default async function handler(req, res) {
         const today = new Date().toISOString().split('T')[0];
         for (let i = 1; i < lines.length; i++) {
           if (!lines[i].trim()) continue;
-          const cols = lines[i].split(',');
+          const cols = parseCSVLine(lines[i]);
           while (cols.length < 12) cols.push('');
           const rowUrl = cols[1]?.trim().toLowerCase();
           const rowKeyword = cols[0]?.trim().toLowerCase();
           if (rowUrl === url.toLowerCase() && rowKeyword === keyword.toLowerCase()) {
             cols[2] = 'LOCKED'; cols[3] = 'DONE'; cols[4] = 'OPTIMIZED';
             cols[11] = today;
-            updatedLines.push(cols.join(','));
+            updatedLines.push(sanitizeRow(cols));
             found = true;
           } else {
-            updatedLines.push(cols.join(','));
+            updatedLines.push(sanitizeRow(cols));
           }
         }
         if (!found) {
@@ -546,14 +564,14 @@ export default async function handler(req, res) {
         const updatedLines = [lines[0]];
         for (let i = 1; i < lines.length; i++) {
           if (!lines[i].trim()) continue;
-          const cols = lines[i].split(',');
+          const cols = parseCSVLine(lines[i]);
           while (cols.length < 12) cols.push('');
           if (cols[1]?.trim().toLowerCase() === url.toLowerCase() && cols[0]?.trim().toLowerCase() === keyword.toLowerCase()) {
             cols[4] = 'TO_OPTIMIZE';
             cols[11] = '';
-            updatedLines.push(cols.join(','));
+            updatedLines.push(sanitizeRow(cols));
             found = true;
-          } else { updatedLines.push(cols.join(',')); }
+          } else { updatedLines.push(sanitizeRow(cols)); }
         }
         if (!found) return res.status(404).json({ error: 'Page not found in registry' });
         await updateGitHubFile('data/keyword-locker-registry.csv', updatedLines.join('\n') + '\n', registry.sha, `Unmark optimized: ${keyword}`);
@@ -573,7 +591,7 @@ export default async function handler(req, res) {
           return cols[1]?.trim().toLowerCase() === url.toLowerCase() && cols[0]?.trim().toLowerCase() === keyword.toLowerCase();
         });
         if (exists) return res.status(200).json({ success: true, alreadyExists: true });
-        const newRow = `${keyword},${url},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,User Resolved,COMMERCIAL,`;
+        const newRow = `${csvField(keyword)},${csvField(url)},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,User Resolved,${detectIntent(url)},`;
         const updated = lines.filter(l => l.trim()).join('\n') + '\n' + newRow + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Add to optimize: ${keyword} on ${url}`);
         return res.status(200).json({ success: true });
@@ -585,7 +603,7 @@ export default async function handler(req, res) {
         const { keyword, intent } = req.body;
         if (!keyword) return res.status(400).json({ error: 'keyword required' });
         const registry = await getGitHubFile('data/keyword-locker-registry.csv');
-        const newRow = `${csvField(keyword)},N/A,LOCKED,DONE,SAVED_FOR_FUTURE,N/A,N/A,N/A,N/A,User Action,${intent || 'UNKNOWN'},`;
+        const newRow = `${csvField(keyword)},N/A,LOCKED,DONE,SAVED_FOR_FUTURE,N/A,N/A,N/A,N/A,User Action,${intent || detectIntent('N/A')},`;
         const updated = registry.content.trimEnd() + '\n' + newRow + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Save for later: ${keyword}`);
         return res.status(200).json({ success: true, keyword });
@@ -597,7 +615,7 @@ export default async function handler(req, res) {
         const { keyword, intent } = req.body;
         if (!keyword) return res.status(400).json({ error: 'keyword required' });
         const registry = await getGitHubFile('data/keyword-locker-registry.csv');
-        const newRow = `${csvField(keyword)},N/A,LOCKED,DONE,DELETED,N/A,N/A,N/A,N/A,User Action,${intent || 'UNKNOWN'},`;
+        const newRow = `${csvField(keyword)},N/A,LOCKED,DONE,DELETED,N/A,N/A,N/A,N/A,User Action,${intent || detectIntent('N/A')},`;
         const updated = registry.content.trimEnd() + '\n' + newRow + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Delete keyword: ${keyword}`);
         return res.status(200).json({ success: true, keyword });
@@ -619,6 +637,31 @@ export default async function handler(req, res) {
         const updated = filtered.join('\n');
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Remove from registry: ${keyword}`);
         return res.status(200).json({ success: true, keyword });
+      }
+
+      // ── ACTION: repair-registry ── (one-time fix: pad all rows to 12 cols, fill blank intent)
+      if (req.body.action === 'repair-registry') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const lines = registry.content.split('\n').map(l => l.replace(/\r/g, ''));
+        const header = lines[0];
+        const repairedLines = [header];
+        let fixedCount = 0;
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+          const cols = parseCSVLine(line);
+          while (cols.length < 12) cols.push('');
+          cols.length = 12;
+          if (!cols[10]) {
+            cols[10] = detectIntent(cols[1] || 'N/A');
+            fixedCount++;
+          }
+          repairedLines.push(sanitizeRow(cols));
+        }
+        const updated = repairedLines.join('\n') + '\n';
+        await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Repair registry: pad to 12 columns, fill blank intent`);
+        return res.status(200).json({ success: true, fixedCount, totalRows: repairedLines.length - 1 });
       }
 
       // ── ACTION: save-susp-events ──
@@ -802,7 +845,7 @@ export default async function handler(req, res) {
       if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured in environment variables' });
 
       const registry = await getGitHubFile('data/keyword-locker-registry.csv');
-      const newRow = `${keyword},${url || ''},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,To_Write_Blog,,`;
+      const newRow = `${csvField(keyword)},${csvField(url || 'N/A')},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,To_Write_Blog,${detectIntent(url || 'N/A')},`;
       const updatedRegistry = registry.content.trimEnd() + '\n' + newRow + '\n';
       await updateGitHubFile('data/keyword-locker-registry.csv', updatedRegistry, registry.sha, `Add to write blog: ${keyword}`);
 
