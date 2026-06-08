@@ -851,7 +851,7 @@
           <!-- Repair Registry -->
           <div style="padding:24px;border-bottom:1px solid #e5e5e5;">
             <h3 style="font-size:14px;font-weight:700;margin-bottom:6px;">🔧 Repair Registry</h3>
-            <p style="font-size:13px;color:#666;margin-bottom:16px;">Fixes all existing rows in the registry CSV — pads any row with fewer than 12 columns, and fills in any blank intent based on the page URL. Run this once to clean up historical data. From now on all new rows are saved correctly automatically.</p>
+            <p style="font-size:13px;color:#666;margin-bottom:16px;">Fixes all existing rows in the registry CSV — pads any row with fewer than 12 columns, and <strong>overwrites the intent on every row</strong> based on the page URL (N/A = UNKNOWN, /collections/ or /products/ = COMMERCIAL, /blogs/ = INFORMATIONAL, /pages/ = NAVIGATIONAL). This corrects all historically wrong intents. Run once after deploying v1.6.</p>
             <button onclick="runRepairRegistry()" id="repairBtn" style="padding:10px 20px;background:#1a1a1a;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Run Repair Registry</button>
             <span id="repairStatus" style="margin-left:14px;font-size:13px;color:#666;"></span>
           </div>
