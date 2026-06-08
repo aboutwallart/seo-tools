@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v58.6</div>
+      <div class="tool-version">v58.7</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -915,7 +915,7 @@
           <div style="color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Filters</div>
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <input id="kwrSearch" type="text" placeholder="Search keywords..." oninput="kwrFilterTable(true)" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:200px;outline:none;">
-            <input id="kwrSearchUrl" type="text" placeholder="Filter by URL..." oninput="kwrFilterTable(true)" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:200px;outline:none;">
+            <input id="kwrSearchUrl" type="text" placeholder="Filter by URL... (press Enter)" onkeydown="if(event.key==='Enter')kwrUrlSearch()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:230px;outline:none;"><button onclick="kwrUrlSearch()" style="padding:6px 12px;background:#2563eb;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer;">Search</button><button onclick="kwrUrlClear()" style="padding:6px 10px;background:#444;color:#fff;border:none;border-radius:4px;font-size:12px;cursor:pointer;">✕</button>
             <select id="kwrFilterPos" onchange="kwrFilterTable(true)" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 10px;border-radius:4px;font-size:12px;cursor:pointer;">
               <option value="">All Positions</option>
               <option value="1-3">Pos 1–3</option>
@@ -3175,7 +3175,7 @@
     function kwrFilterTable(resetPage) {
       if (resetPage) kwrPage = 1;
       const search      = (document.getElementById('kwrSearch')?.value||'').toLowerCase();
-      const searchUrl   = (document.getElementById('kwrSearchUrl')?.value||'').toLowerCase();
+      const searchUrl   = (document.getElementById('kwrSearchUrl')?.value||'').toLowerCase().replace(/https?:\/\/(www\.)?aboutwallart\.com/,'');
       const posRange    = document.getElementById('kwrFilterPos')?.value||'';
       const diff        = document.getElementById('kwrFilterDiff')?.value||'';
       const minImp      = parseInt(document.getElementById('kwrFilterMinImp')?.value||'0');
@@ -3373,6 +3373,47 @@
       kwrUpdateCounts();
       kwrFilterTable();
       kwrSaveDismissed();
+    }
+
+    let kwrUrlData = null; // holds targeted page results when URL search is active
+
+    async function kwrUrlSearch() {
+      const raw = (document.getElementById('kwrSearchUrl')?.value||'').trim();
+      if (!raw) { kwrUrlClear(); return; }
+      kwrShowStatus('⏳ Fetching keywords for this URL...', '#f0f9ff', '#7dd3fc', '#0369a1');
+      try {
+        const res = await fetch(`${API}?action=page-keywords&pageUrl=${encodeURIComponent(raw)}&startDate=${getDate(90)}&endDate=${getDate(0)}`);
+        const j = await res.json();
+        if (!j.success) throw new Error(j.error||'GSC error');
+        const rows = j.data?.rows || [];
+        kwrUrlData = rows.map((r, i) => {
+          const kw  = r.keys?.[0]||'';
+          const pos = r.position||0, imp = r.impressions||0, clk = r.clicks||0, ctr = r.ctr||0;
+          const diff = kwrDifficulty(pos, imp, ctr);
+          const rankingUrl = raw.startsWith('http') ? raw.replace(/https?:\/\/(www\.)?aboutwallart\.com/,'') : raw;
+          const regByKw  = kwrRegistry.byKw[kw.toLowerCase()];
+          const regByUrl = kwrRegistry.byUrl[rankingUrl.toLowerCase()];
+          let regStatus = 'unlocked', regOtherKw = '', regOtherUrl = '';
+          if (regByKw) {
+            const lockedUrl = cleanUrl(regByKw.url||'');
+            if (lockedUrl === rankingUrl) { regStatus = 'locked-same'; }
+            else { regStatus = 'kw-taken'; regOtherUrl = lockedUrl; }
+          } else if (regByUrl) { regStatus = 'url-taken'; regOtherKw = regByUrl.keyword; }
+          return { kw, pos, imp, clk, ctr, diff, trend: null, rankingUrl, regStatus, regOtherUrl, regOtherKw, _idx: i, dismissed: false };
+        }).sort((a,b) => a.pos - b.pos);
+        kwrShowStatus(`✅ ${kwrUrlData.length} keywords found for this URL`, '#f0fdf4', '#86efac', '#16a34a');
+        kwrPage = 1;
+        kwrRenderRows(kwrUrlData.slice(0, parseInt(document.getElementById('kwrLimit')?.value||'50')));
+      } catch(e) {
+        kwrShowStatus('❌ ' + e.message, '#fef2f2', '#fecaca', '#dc2626');
+      }
+    }
+
+    function kwrUrlClear() {
+      kwrUrlData = null;
+      const el = document.getElementById('kwrSearchUrl'); if (el) el.value = '';
+      kwrShowStatus('', '#fff', '#fff', '#fff');
+      kwrFilterTable(true);
     }
 
     async function kwrSaveDismissed() {
