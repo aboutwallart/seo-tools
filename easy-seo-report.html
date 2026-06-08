@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v58.4</div>
+      <div class="tool-version">v58.5</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -3048,11 +3048,22 @@
       document.getElementById('kwrBody').innerHTML = '<tr class="loading-row"><td colspan="8">Loading keyword data...</td></tr>';
 
       try {
-        const [tRes, rRes, pqRes] = await Promise.all([
+        const [tRes, rRes, pqRes, dRes] = await Promise.all([
           fetch('/api/blogs?action=get-tracked-keywords').catch(()=>null),
           fetch('/api/blogs?action=get-registry').catch(()=>null),
-          fetch(`${API}?action=page-query&startDate=${getDate(90)}&endDate=${getDate(0)}`).catch(()=>null)
+          fetch(`${API}?action=page-query&startDate=${getDate(90)}&endDate=${getDate(0)}`).catch(()=>null),
+          fetch('/api/blogs?action=get-dismissed-keywords').catch(()=>null)
         ]);
+
+        if (dRes) {
+          try {
+            const j = await dRes.json();
+            if (j.success && Array.isArray(j.keywords)) {
+              j.keywords.forEach(kw => kwrDismissed.add(kw));
+              try { localStorage.setItem('kwr_dismissed', JSON.stringify([...kwrDismissed])); } catch(e) {}
+            }
+          } catch(e) {}
+        }
 
         if (tRes) { const j = await tRes.json(); if (j.success && j.keywords) kwrSelectedSet = new Set(j.keywords); }
 
@@ -3239,6 +3250,7 @@
       try { localStorage.setItem('kwr_dismissed', JSON.stringify([...kwrDismissed])); } catch(e) { console.warn('Could not save dismissed:', e); }
       kwrUpdateCounts();
       kwrFilterTable();
+      kwrSaveDismissed();
     }
 
 
@@ -3355,6 +3367,23 @@
       try { localStorage.setItem('kwr_dismissed', JSON.stringify([...kwrDismissed])); } catch(e) { console.warn('Could not save dismissed:', e); }
       kwrUpdateCounts();
       kwrFilterTable();
+      kwrSaveDismissed();
+    }
+
+    async function kwrSaveDismissed() {
+      kwrShowStatus('⏳ Saving dismissed...', '#f0f9ff', '#7dd3fc', '#0369a1');
+      try {
+        const res = await fetch('/api/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'save-dismissed-keywords', keywords: [...kwrDismissed] })
+        });
+        const j = await res.json();
+        if (j.success) { kwrShowStatus('✅ Dismissed saved', '#f0fdf4', '#86efac', '#16a34a'); }
+        else { kwrShowStatus('❌ Save failed: ' + (j.error||'unknown'), '#fef2f2', '#fecaca', '#dc2626'); }
+      } catch(e) {
+        kwrShowStatus('❌ ' + e.message, '#fef2f2', '#fecaca', '#dc2626');
+      }
     }
 
     function kwrConfirmLock(kw, url) {
