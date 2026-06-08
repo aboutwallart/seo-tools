@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.0</div>
+      <div class="tool-version">v59.1</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -162,6 +162,7 @@
     <div class="nav-item" onclick="showSection('kwrankings', this)">Keyword Rankings</div>
     <div class="nav-item" onclick="showSection('blogopt', this)">Blog Optimizations</div>
     <div class="nav-item" onclick="showSection('content', this)">Content Optimizations</div>
+    <div class="nav-item" onclick="showSection('nokw', this)">🗝️ Pages Without Locked Keywords</div>
   </div>
 
   <div class="main">
@@ -808,6 +809,35 @@
 
       </div>
 
+      <!-- SECTION: Pages Without Locked Keywords -->
+      <div class="section" id="section-nokw">
+        <div class="content-section-card">
+          <div class="content-section-header">
+            <h2>🗝️ Pages Without Locked Keywords</h2>
+            <p>All pages that have appeared in Google Search but have no keyword locked in the registry yet. Suggestions are drawn from your Saved for Later keywords, matched by topic.</p>
+          </div>
+          <div class="data-note">Data: GSC last 90 days · Excludes /es/, /fr/, CDN · Sorted by impressions descending</div>
+          <div style="padding:16px 24px;border-bottom:1px solid #e5e5e5;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <input type="text" id="nokwSearch" placeholder="Search URL..." oninput="nokwRender()" style="padding:6px 12px;border:1px solid #ddd;border-radius:4px;font-size:12px;width:220px;">
+            <select id="nokwFilterSel" onchange="nokwRegFilter=this.value;nokwRender()" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:12px;">
+              <option value="">All</option>
+              <option value="has-suggestion">Has Suggestion</option>
+              <option value="no-suggestion">No Suggestion</option>
+            </select>
+            <span id="nokwStatus" style="font-size:12px;color:#888;"></span>
+          </div>
+          <div style="display:flex;border-bottom:1px solid #e5e5e5;padding:0 24px;background:#fafafa;">
+            <button id="nokwTab-collections" onclick="nokwSetTab('collections')" style="padding:10px 16px;border:none;background:none;font-size:13px;font-weight:600;cursor:pointer;border-bottom:2px solid #1a1a1a;color:#1a1a1a;">Collections <span id="nokwCount-collections"></span></button>
+            <button id="nokwTab-blogs" onclick="nokwSetTab('blogs')" style="padding:10px 16px;border:none;background:none;font-size:13px;color:#888;cursor:pointer;border-bottom:2px solid transparent;">Blogs <span id="nokwCount-blogs"></span></button>
+            <button id="nokwTab-pages" onclick="nokwSetTab('pages')" style="padding:10px 16px;border:none;background:none;font-size:13px;color:#888;cursor:pointer;border-bottom:2px solid transparent;">Pages <span id="nokwCount-pages"></span></button>
+            <button id="nokwTab-products" onclick="nokwSetTab('products')" style="padding:10px 16px;border:none;background:none;font-size:13px;color:#888;cursor:pointer;border-bottom:2px solid transparent;">Products <span id="nokwCount-products"></span></button>
+          </div>
+          <table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="background:#f9f9f9;"><th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#888;">#</th><th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#888;">Page URL</th><th style="padding:10px 12px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#888;">Impressions</th><th style="padding:10px 12px;text-align:right;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#888;">Clicks</th><th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#888;">Suggested Keyword</th><th style="padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#888;">Action</th></tr></thead>
+            <tbody id="nokwBody"><tr class="loading-row"><td colspan="6">Loading...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
 
       <!-- SECTION: Suspicious Traffic -->
       <div class="section" id="section-suspicious">
@@ -1313,6 +1343,7 @@
     let ctrSort={key:'imp',dir:'desc'}, ctrLimit=50, ctrRegFilter='';
     let optSort={key:'pos',dir:'asc'},  optLimit=50, optRegFilter='';
     let crtSort={key:'imp',dir:'desc'}, crtLimit=50, crtRegFilter='';
+    let nokwLoaded=false, nokwData={collections:[],blogs:[],pages:[],products:[]}, nokwActiveTab='collections', nokwRegFilter='';
 
     function getDate(daysAgo){const d=new Date();d.setDate(d.getDate()-daysAgo);return d.toISOString().split('T')[0];}
     function fmt(n){return n!=null?n.toLocaleString():'—';}
@@ -1337,6 +1368,7 @@
       document.getElementById('pageTitle').textContent=titles[id]||'';
       if(id==='historical'&&!histLoaded){loadHistorical();histLoaded=true;}
       if(id==='content'&&!contentLoaded){loadContentOptimizations();contentLoaded=true;}
+      if(id==='nokw'&&!nokwLoaded){loadNoKw();nokwLoaded=true;}
       if(id==='blog'){initBlogMonthSelector();}
       if(id==='blogopt'&&!blogOptLoaded){loadBlogOptimizations();blogOptLoaded=true;}
       if(id==='llm'&&!llmLoaded){loadLLMTraffic();llmLoaded=true;}
@@ -1512,6 +1544,155 @@
         if(histImpressionsChart)histImpressionsChart.destroy();
         histImpressionsChart=new Chart(document.getElementById('histImpressionsChart').getContext('2d'),{type:'bar',data:{labels,datasets:[{label:'Clicks',data:clicks,backgroundColor:'#8b5cf6',borderRadius:3}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{font:{size:11}}},y:{grid:{color:'#f0f0f0'},ticks:{font:{size:11}}}}}});
       }catch(e){console.error('Historical error:',e.message);}
+    }
+
+    async function loadNoKw() {
+      document.getElementById('nokwBody').innerHTML = '<tr class="loading-row"><td colspan="6">Loading...</td></tr>';
+      document.getElementById('nokwStatus').textContent = 'Loading...';
+      try {
+        // Fetch registry if not loaded
+        if (Object.keys(kwrRegistry.byKw).length === 0) {
+          const rRes = await fetch('/api/blogs?action=get-registry');
+          const rJson = await rRes.json();
+          if (rJson.success && rJson.registry) {
+            rJson.registry.forEach(row => {
+              const isRealLock = row.locked === true &&
+                (row.status||'').toUpperCase() === 'DONE' &&
+                ['TO_OPTIMIZE','OPTIMIZED'].includes((row.action||'').toUpperCase());
+              if (!isRealLock) return;
+              kwrRegistry.byKw[( row.keyword||'').toLowerCase()] = { url: row.url, keyword: row.keyword };
+              kwrRegistry.byUrl[cleanUrl(row.url||'').toLowerCase()] = { url: row.url, keyword: row.keyword };
+            });
+          }
+        }
+
+        // Fetch SAVED_FOR_FUTURE keywords
+        const rRes2 = await fetch('/api/blogs?action=get-registry');
+        const rJson2 = await rRes2.json();
+        const savedForLater = (rJson2.success && rJson2.registry)
+          ? rJson2.registry.filter(r => (r.action||'').toUpperCase() === 'SAVED_FOR_FUTURE').map(r => r.keyword).filter(Boolean)
+          : [];
+
+        // Fetch GSC pages (last 90 days)
+        const pRes = await fetch(`${API}?action=pages&startDate=${getDate(90)}&endDate=${getDate(0)}`);
+        const pJson = await pRes.json();
+        const allPages = pJson.success ? (pJson.data.rows||[]) : [];
+
+        // Stop words for slug matching
+        const stopWords = new Set(['the','for','and','with','how','why','what','where','which','your','this','that','are','can','you','from','have','our','all','its','into','their','there','about','more','than','will','been','was','has','had','not','but','also','some','they','them','when','shop','buy','art','wall','home','decor','design','style','room','living','bedroom','print','prints','set','of','by','in','on','a','an','is','to','it','we','at','be']);
+
+        function slugWords(url) {
+          return url.replace(/^\/|\/$/g,'').split(/[\/-]/).map(w=>w.toLowerCase()).filter(w => w.length > 2 && !stopWords.has(w) && !/^\d+$/.test(w));
+        }
+
+        function bestSuggestion(url) {
+          const slug = slugWords(url);
+          if (!slug.length) return null;
+          let best = null, bestScore = 0;
+          for (const kw of savedForLater) {
+            const kwWords = kw.toLowerCase().split(' ').filter(w => w.length > 2 && !stopWords.has(w));
+            const matches = slug.filter(w => kwWords.some(k => k.includes(w) || w.includes(k)));
+            const score = matches.length / Math.max(slug.length, kwWords.length, 1);
+            if (score > bestScore && score >= 0.25) { bestScore = score; best = kw; }
+          }
+          return best;
+        }
+
+        function pageType(url) {
+          if (url.includes('/collections/')) return 'collections';
+          if (url.includes('/blogs/'))       return 'blogs';
+          if (url.includes('/products/'))    return 'products';
+          return 'pages';
+        }
+
+        nokwData = { collections:[], blogs:[], pages:[], products:[] };
+
+        allPages.forEach(r => {
+          const rawUrl = r.keys?.[0]||'';
+          const url = cleanUrl(rawUrl);
+          if (shouldExcludeUrl(url)) return;
+          if (kwrRegistry.byUrl[url.toLowerCase()]) return; // already locked
+          const type = pageType(url);
+          const suggestion = bestSuggestion(url);
+          nokwData[type].push({ url, imp: r.impressions||0, clk: r.clicks||0, suggestion });
+        });
+
+        // Sort each type by impressions desc
+        Object.keys(nokwData).forEach(t => nokwData[t].sort((a,b) => b.imp - a.imp));
+
+        // Update tab counts
+        ['collections','blogs','pages','products'].forEach(t => {
+          document.getElementById('nokwCount-'+t).textContent = `(${nokwData[t].length})`;
+        });
+
+        document.getElementById('nokwStatus').textContent = `${savedForLater.length} saved keywords available for suggestions`;
+        nokwRender();
+
+      } catch(e) {
+        document.getElementById('nokwBody').innerHTML = `<tr class="loading-row"><td colspan="6" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
+        document.getElementById('nokwStatus').textContent = '';
+      }
+    }
+
+    function nokwSetTab(tab) {
+      nokwActiveTab = tab;
+      ['collections','blogs','pages','products'].forEach(t => {
+        const btn = document.getElementById('nokwTab-'+t);
+        if (t === tab) { btn.style.borderBottom='2px solid #1a1a1a'; btn.style.color='#1a1a1a'; btn.style.fontWeight='600'; }
+        else           { btn.style.borderBottom='2px solid transparent'; btn.style.color='#888'; btn.style.fontWeight='400'; }
+      });
+      nokwRender();
+    }
+
+    function nokwRender() {
+      const search = (document.getElementById('nokwSearch')?.value||'').toLowerCase();
+      let rows = nokwData[nokwActiveTab] || [];
+      if (search)                        rows = rows.filter(r => r.url.toLowerCase().includes(search));
+      if (nokwRegFilter==='has-suggestion') rows = rows.filter(r => r.suggestion);
+      if (nokwRegFilter==='no-suggestion')  rows = rows.filter(r => !r.suggestion);
+      const tbody = document.getElementById('nokwBody');
+      if (!rows.length) { tbody.innerHTML='<tr class="loading-row"><td colspan="6">No pages found</td></tr>'; return; }
+      tbody.innerHTML = rows.map((r,i) => {
+        const suggCell = r.suggestion
+          ? `<span style="font-size:12px;color:#1a1a1a;font-weight:500;">${r.suggestion}</span>`
+          : `<span style="color:#ccc;font-size:12px;">— No suggestion</span>`;
+        const actionCell = r.suggestion
+          ? `<button onclick="nokwLock('${encodeURIComponent(r.url)}','${encodeURIComponent(r.suggestion)}',this)" style="padding:4px 10px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button>`
+          : `<span style="color:#ccc;font-size:12px;">—</span>`;
+        return `<tr style="border-bottom:1px solid #f0f0f0;">
+          <td style="padding:10px 12px;color:#aaa;font-size:12px;">${i+1}.</td>
+          <td style="padding:10px 12px;"><a href="https://www.aboutwallart.com${r.url}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;word-break:break-all;">${r.url}</a></td>
+          <td style="padding:10px 12px;text-align:right;font-size:13px;">${fmt(r.imp)}</td>
+          <td style="padding:10px 12px;text-align:right;font-size:13px;">${fmt(r.clk)}</td>
+          <td style="padding:10px 12px;">${suggCell}</td>
+          <td style="padding:10px 12px;">${actionCell}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    async function nokwLock(encodedUrl, encodedKw, btn) {
+      const url = decodeURIComponent(encodedUrl);
+      const kw  = decodeURIComponent(encodedKw);
+      const fullUrl = 'https://www.aboutwallart.com' + url;
+      if (!confirm(`Lock to registry?\n\nKeyword: ${kw}\nURL: ${fullUrl}`)) return;
+      btn.disabled = true; btn.textContent = '⏳';
+      try {
+        const intent = url.includes('/blogs/') ? 'INFORMATIONAL' : url.includes('/collections/') ? 'COMMERCIAL' : url.includes('/products/') ? 'COMMERCIAL' : 'NAVIGATIONAL';
+        const res = await fetch('/api/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'lock-keyword', keyword: kw, url: fullUrl, intent, losers: [] })
+        });
+        const j = await res.json();
+        if (j.success) {
+          kwrRegistry.byUrl[url.toLowerCase()] = { url: fullUrl, keyword: kw };
+          kwrRegistry.byKw[kw.toLowerCase()]   = { url: fullUrl, keyword: kw };
+          // Remove from nokwData
+          nokwData[nokwActiveTab] = nokwData[nokwActiveTab].filter(r => r.url !== url);
+          document.getElementById('nokwCount-'+nokwActiveTab).textContent = `(${nokwData[nokwActiveTab].length})`;
+          nokwRender();
+        } else { btn.disabled=false; btn.textContent='🔒 Lock'; alert('Failed: '+(j.error||'unknown')); }
+      } catch(e) { btn.disabled=false; btn.textContent='🔒 Lock'; alert('Error: '+e.message); }
     }
 
     async function loadContentOptimizations(){
