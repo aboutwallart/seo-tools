@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.21</div>
+      <div class="tool-version">v59.22</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1444,6 +1444,7 @@
     let repurposeUrls = new Set();
     let crtSort={key:'imp',dir:'desc'}, crtLimit=50, crtRegFilter='';
     let savedForLaterSet = new Set();
+    let savedForLaterList = [];
     let nokwLoaded=false, nokwData={collections:[],blogs:[],pages:[],products:[]}, nokwActiveTab='collections', nokwRegFilter='';
 
     function getDate(daysAgo){const d=new Date();d.setDate(d.getDate()-daysAgo);return d.toISOString().split('T')[0];}
@@ -1677,6 +1678,9 @@
           ? rJson2.registry.filter(r => (r.action||'').toUpperCase() === 'SAVED_FOR_FUTURE').map(r => r.keyword).filter(Boolean)
           : [];
         savedForLaterSet = new Set(savedForLater.map(k => k.toLowerCase()));
+        savedForLaterList = savedForLater;
+        const dl = document.getElementById('nokwKeywordList');
+        if (dl) dl.innerHTML = savedForLaterList.map(k => `<option value="${k.replace(/"/g,'&quot;')}">`).join('');
 
         // Fetch GSC pages (last 90 days)
         const pRes = await fetch(`${API}?action=pages&startDate=${getDate(90)}&endDate=${getDate(0)}`);
@@ -1782,9 +1786,13 @@
         const suggCell = r.suggestion
           ? `<span style="font-size:12px;color:#1a1a1a;font-weight:500;">${r.suggestion}</span>`
           : `<span style="color:#ccc;font-size:12px;">— No suggestion</span>`;
-        const actionCell = r.suggestion
-          ? `<button onclick="nokwLock('${encodeURIComponent(r.url)}','${encodeURIComponent(r.suggestion)}',this)" style="padding:4px 10px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button>`
-          : `<span style="color:#ccc;font-size:12px;">—</span>`;
+        const encUrl = encodeURIComponent(r.url);
+        const inputId = 'nokw-input-' + i;
+        const actionCell = `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          ${r.suggestion ? `<button onclick="nokwLock('${encUrl}','${encodeURIComponent(r.suggestion)}',this)" style="padding:4px 10px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock suggestion</button>` : ''}
+          <input id="${inputId}" list="nokwKeywordList" placeholder="Type or choose keyword..." style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:11px;width:200px;">
+          <button onclick="nokwLockCustom('${encUrl}','${inputId}',this)" style="padding:4px 10px;border:none;background:#6366f1;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button>
+        </div>`;
         return `<tr style="border-bottom:1px solid #f0f0f0;">
           <td style="padding:10px 12px;color:#aaa;font-size:12px;">${i+1}.</td>
           <td style="padding:10px 12px;"><a href="https://www.aboutwallart.com${r.url}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;word-break:break-all;">${r.url}</a></td>
@@ -1794,6 +1802,12 @@
           <td style="padding:10px 12px;">${actionCell}</td>
         </tr>`;
       }).join('');
+    }
+
+    async function nokwLockCustom(encodedUrl, inputId, btn) {
+      const kw = (document.getElementById(inputId)?.value||'').trim();
+      if (!kw) { alert('Please type or select a keyword first.'); return; }
+      await nokwLock(encodedUrl, encodeURIComponent(kw), btn);
     }
 
     async function nokwLock(encodedUrl, encodedKw, btn) {
@@ -5556,5 +5570,6 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
       }
     }
   </script>
+<datalist id="nokwKeywordList"></datalist>
 </body>
 </html>  
