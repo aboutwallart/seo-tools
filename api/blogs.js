@@ -1,4 +1,4 @@
-// blogs.js — v1.7
+// blogs.js — v1.8
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
@@ -685,6 +685,29 @@ export default async function handler(req, res) {
         const updated = repairedLines.join('\n') + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Repair registry: pad to 12 columns, fill blank intent`);
         return res.status(200).json({ success: true, fixedCount, totalRows: repairedLines.length - 1 });
+      }
+
+      // ── ACTION: fix-url-format ── (replaces https://www.aboutwallart.com with https://aboutwallart.com in all rows)
+      if (req.body.action === 'fix-url-format') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const lines = registry.content.split('\n').map(l => l.replace(/\r/g, ''));
+        const header = lines[0];
+        const fixedLines = [header];
+        let fixedCount = 0;
+        const totalRows = lines.length - 1;
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+          const cols = parseCSVLine(line);
+          const before = cols[1] || '';
+          cols[1] = before.replace('https://www.aboutwallart.com', 'https://aboutwallart.com');
+          if (cols[1] !== before) fixedCount++;
+          fixedLines.push(sanitizeRow(cols));
+        }
+        const updated = fixedLines.join('\n') + '\n';
+        await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Fix URL format: remove www from registry URLs`);
+        return res.status(200).json({ success: true, fixed: fixedCount, total: totalRows });
       }
 
       // ── ACTION: save-susp-events ──
