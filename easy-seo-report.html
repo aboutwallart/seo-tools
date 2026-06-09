@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.19</div>
+      <div class="tool-version">v59.20</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1651,11 +1651,12 @@
       document.getElementById('nokwBody').innerHTML = '<tr class="loading-row"><td colspan="6">Loading...</td></tr>';
       document.getElementById('nokwStatus').textContent = 'Loading...';
       try {
-        // Fetch registry if not loaded
-        if (Object.keys(kwrRegistry.byKw).length === 0) {
+        // Always fetch fresh registry — source of truth
+        {
           const rRes = await fetch('/api/blogs?action=get-registry');
           const rJson = await rRes.json();
           if (rJson.success && rJson.registry) {
+            kwrRegistry = { byKw: {}, byUrl: {}, byKwIntent: new Set() };
             rJson.registry.forEach(row => {
               const act = (row.action||'').toUpperCase();
               const src = (row.source||'');
@@ -3819,13 +3820,15 @@
           const j = await rRes.json();
           if (j.success && j.registry) {
             kwrRegistry = { byKw: {}, byUrl: {}, byKwIntent: new Set() };
+            repurposeUrls = new Set();
             j.registry.forEach(row => {
               const act = (row.action || '').toUpperCase();
               const src = (row.source || '');
+              const urlKey = cleanUrl(row.url || '').toLowerCase();
+              if (act === 'REPURPOSE') { repurposeUrls.add(urlKey); }
               const isRealLock = ['TO_OPTIMIZE','OPTIMIZED','TO_WRITE_BLOG','DELETED'].includes(act) || src === 'Published Blog';
               if (!isRealLock) return;
               const kwKey  = (row.keyword||'').toLowerCase();
-              const urlKey = cleanUrl(row.url || '').toLowerCase();
               kwrRegistry.byKw[kwKey]   = { url: row.url, keyword: row.keyword };
               kwrRegistry.byUrl[urlKey] = { url: row.url, keyword: row.keyword };
               kwrRegistry.byKwIntent.add(kwKey + '::' + (row.intent || '').toUpperCase());
@@ -4353,6 +4356,7 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
         (jPages.data.rows||[]).forEach(r => {
           const page = cleanUrl(r.keys?.[0]||'');
           if (shouldExcludeUrl(page)) return;
+          if (repurposeUrls.has(page.toLowerCase())) return;
           const pos=r.position||0, imp=r.impressions||0;
           if (pos<1||pos>20||imp<100) return;
           if (!qwMap[page]||imp>qwMap[page].imp) qwMap[page]={ page, pos, imp, clk:r.clicks||0, ctr:r.ctr||0, keyword:topQuery[page]?.query||'—' };
