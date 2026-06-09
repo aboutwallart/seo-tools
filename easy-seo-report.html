@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.10</div>
+      <div class="tool-version">v59.11</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1790,14 +1790,6 @@
     async function loadContentOptimizations(){
       const start=getDate(180),end=getDate(0);
       try{
-        // Fetch SAVED_FOR_FUTURE keywords first so createData filter works correctly
-        const sfRes = await fetch('/api/blogs?action=get-registry');
-        const sfJson = await sfRes.json();
-        const sfList = (sfJson.success && sfJson.registry)
-          ? sfJson.registry.filter(r => (r.action||'').toUpperCase() === 'SAVED_FOR_FUTURE').map(r => (r.keyword||'').toLowerCase()).filter(Boolean)
-          : [];
-        savedForLaterSet = new Set(sfList);
-
         // Fetch pages from GSC
         const pagesRes=await fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`);
         const pagesJson=await pagesRes.json();
@@ -1826,26 +1818,29 @@
         const kwJson=await kwRes.json();
         const publishedKeywords=kwJson.success?kwJson.publishedBlogs:[];
 
-        // Fetch full registry if not already loaded by Keyword Rankings
-        if (Object.keys(kwrRegistry.byKw).length === 0) {
-          try {
-            const rRes = await fetch('/api/blogs?action=get-registry');
-            const rJson = await rRes.json();
-            if (rJson.success && rJson.registry) {
-              rJson.registry.forEach(row => {
-                const act = (row.action||'').toUpperCase();
-                const src = (row.source||'');
-                const isRealLock = ['TO_OPTIMIZE','OPTIMIZED','TO_WRITE_BLOG','DELETED'].includes(act) || src === 'Published Blog';
-                if (!isRealLock) return;
-                const kwKey  = (row.keyword||'').toLowerCase();
-                const urlKey = cleanUrl(row.url||'').toLowerCase();
-                kwrRegistry.byKw[kwKey]   = { url: row.url, keyword: row.keyword };
-                kwrRegistry.byUrl[urlKey] = { url: row.url, keyword: row.keyword };
-                kwrRegistry.byKwIntent.add(kwKey + '::' + (row.intent||'').toUpperCase());
-              });
-            }
-          } catch(e) { console.warn('Registry fetch failed:', e); }
-        }
+        // Always reload registry fresh — GitHub is the source of truth
+        try {
+          const rRes = await fetch('/api/blogs?action=get-registry');
+          const rJson = await rRes.json();
+          if (rJson.success && rJson.registry) {
+            kwrRegistry = { byKw: {}, byUrl: {}, byKwIntent: new Set() };
+            savedForLaterSet = new Set();
+            rJson.registry.forEach(row => {
+              const act = (row.action||'').toUpperCase();
+              const src = (row.source||'');
+              const kwKey  = (row.keyword||'').toLowerCase();
+              const urlKey = cleanUrl(row.url||'').toLowerCase();
+              if (act === 'SAVED_FOR_FUTURE') {
+                savedForLaterSet.add(kwKey);
+              }
+              const isRealLock = ['TO_OPTIMIZE','OPTIMIZED','TO_WRITE_BLOG','DELETED'].includes(act) || src === 'Published Blog';
+              if (!isRealLock) return;
+              kwrRegistry.byKw[kwKey]   = { url: row.url, keyword: row.keyword };
+              kwrRegistry.byUrl[urlKey] = { url: row.url, keyword: row.keyword };
+              kwrRegistry.byKwIntent.add(kwKey + '::' + (row.intent||'').toUpperCase());
+            });
+          }
+        } catch(e) { console.warn('Registry fetch failed:', e); }
 
         // Build page objects — clean URLs, exclude CDN/translations/variants
         const pages=allPages
@@ -2172,7 +2167,7 @@
         const page = cb.dataset.page;
         const idx = parseInt(cb.dataset.idx);
         const statusEl = document.getElementById(statusPrefix + idx);
-        if (statusEl) statusEl.textContent = '⏳ Fetching...';
+        if (statusEl) statusEl.innerHTML = '⏳ Fetching...';
         try {
           const fullUrl = 'https://aboutwallart.com' + page;
           const res = await fetch(`${API}?action=page-keywords&pageUrl=${encodeURIComponent(fullUrl)}`);
@@ -2181,23 +2176,34 @@
             const topKw = json.data.rows.sort((a,b) => (b.impressions||0) - (a.impressions||0))[0];
             const query = topKw.keys?.[1] || topKw.keys?.[0] || '';
             if (query) {
-              const pageObj = noQueryArr.find(p => p.page === page);
-              if (pageObj) {
-                pageObj.query = query;
-                const arrIdx = noQueryArr.indexOf(pageObj);
-                noQueryArr.splice(arrIdx, 1);
-                withQueryArr.push(pageObj);
-                found++;
+              found++;
+              // Check registry status for this keyword + page
+              const kwKey = query.toLowerCase();
+              const urlKey = page.toLowerCase();
+              const regByKw  = kwrRegistry.byKw[kwKey];
+              const regByUrl = kwrRegistry.byUrl[urlKey];
+              const sameIntent = kwrRegistry.byKwIntent.has(kwKey + '::' + urlToIntent(page));
+              let badge = '', canLock = false;
+              if (sameIntent && regByKw) {
+                const lockedUrl = cleanUrl(regByKw.url||'');
+                if (lockedUrl === page) badge = '<span style="background:#f0fdf4;color:#16a34a;padding:2px 6px;border-radius:10px;font-size:11px;font-weight:600;">🔒 Locked</span>';
+                else badge = `<span style="background:#fefce8;color:#92400e;padding:2px 6px;border-radius:10px;font-size:11px;font-weight:600;">🟡 Kw taken</span>`;
+              } else if (regByUrl) {
+                badge = `<span style="background:#fef2f2;color:#dc2626;padding:2px 6px;border-radius:10px;font-size:11px;font-weight:600;">🔴 URL taken</span>`;
+              } else {
+                canLock = true;
+                badge = '<span style="color:#aaa;font-size:11px;">—</span>';
               }
-              if (statusEl) statusEl.textContent = '✅ ' + query;
+              const lockBtn = canLock ? `<button onclick="lockMissingKeyword('${encodeURIComponent(query)}','${encodeURIComponent(page)}','${type}',${idx},this)" style="margin-left:6px;padding:3px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button>` : '';
+              if (statusEl) statusEl.innerHTML = `<span style="font-size:12px;color:#333;">${query}</span> ${badge}${lockBtn}`;
             } else {
-              if (statusEl) statusEl.textContent = '— No keyword found';
+              if (statusEl) statusEl.innerHTML = '<span style="color:#aaa;font-size:11px;">— No keyword found</span>';
             }
           } else {
-            if (statusEl) statusEl.textContent = '— No data';
+            if (statusEl) statusEl.innerHTML = '<span style="color:#aaa;font-size:11px;">— No data</span>';
           }
         } catch(e) {
-          if (statusEl) statusEl.textContent = '❌ Error';
+          if (statusEl) statusEl.innerHTML = '❌ Error';
         }
         done++;
         fetchStatus.textContent = `${done}/${selected.length} fetched, ${found} keywords found`;
@@ -2205,7 +2211,45 @@
 
       fetchBtn.disabled = false;
       if (isCtr) { updateCtrCounts(); } else { updateOptCounts(); }
-      fetchStatus.textContent += ' — click "With Keyword" to see results';
+    }
+
+    async function lockMissingKeyword(encodedQuery, encodedPage, type, idx, btn) {
+      const kw = decodeURIComponent(encodedQuery);
+      const page = decodeURIComponent(encodedPage);
+      const fullUrl = 'https://aboutwallart.com' + page;
+      const intent = urlToIntent(page);
+      if (!confirm(`Lock to registry?\n\nKeyword: ${kw}\nURL: ${fullUrl}`)) return;
+      btn.disabled = true; btn.textContent = '⏳';
+      try {
+        const res = await fetch('/api/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'lock-keyword', keyword: kw, url: fullUrl, intent, losers: [] })
+        });
+        const j = await res.json();
+        if (j.success) {
+          // Update registry in memory
+          kwrRegistry.byKw[kw.toLowerCase()] = { url: fullUrl, keyword: kw };
+          kwrRegistry.byUrl[page.toLowerCase()] = { url: fullUrl, keyword: kw };
+          kwrRegistry.byKwIntent.add(kw.toLowerCase() + '::' + intent);
+          // Move page to With Keyword tab
+          const isCtr = type === 'ctr';
+          const noQueryArr = isCtr ? ctrDataNoQuery : optimiseDataNoQuery;
+          const withQueryArr = isCtr ? ctrDataWithQuery : optimiseDataWithQuery;
+          const pageObj = noQueryArr.find(p => p.page === page);
+          if (pageObj) {
+            pageObj.query = kw;
+            noQueryArr.splice(noQueryArr.indexOf(pageObj), 1);
+            withQueryArr.push(pageObj);
+          }
+          if (isCtr) { updateCtrCounts(); } else { updateOptCounts(); }
+          // Remove row from missing table
+          btn.closest('tr').remove();
+        } else {
+          btn.disabled = false; btn.textContent = '🔒 Lock';
+          alert('Failed: ' + (j.error||'unknown'));
+        }
+      } catch(e) { btn.disabled = false; btn.textContent = '🔒 Lock'; alert('Error: ' + e.message); }
     }
 
     async function contentDeleteKw(encodedQuery, btn) {
