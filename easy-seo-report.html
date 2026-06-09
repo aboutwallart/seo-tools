@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.5</div>
+      <div class="tool-version">v59.6</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -854,6 +854,14 @@
             <p style="font-size:13px;color:#666;margin-bottom:16px;">Fixes all existing rows in the registry CSV — pads any row with fewer than 12 columns, and <strong>overwrites the intent on every row</strong> based on the page URL (N/A = UNKNOWN, /collections/ or /products/ = COMMERCIAL, /blogs/ = INFORMATIONAL, /pages/ = NAVIGATIONAL). This corrects all historically wrong intents. Run once after deploying v1.6.</p>
             <button onclick="runRepairRegistry()" id="repairBtn" style="padding:10px 20px;background:#1a1a1a;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Run Repair Registry</button>
             <span id="repairStatus" style="margin-left:14px;font-size:13px;color:#666;"></span>
+          </div>
+
+          <!-- Fix URL Format -->
+          <div style="padding:24px;border-bottom:1px solid #e5e5e5;">
+            <h3 style="font-size:14px;font-weight:700;margin-bottom:6px;">🔗 Fix URL Format</h3>
+            <p style="font-size:13px;color:#666;margin-bottom:16px;">Some registry entries were saved with "www" in the URL. This button finds all of them and removes the "www" so every URL is in the same format.</p>
+            <button onclick="runFixUrlFormat()" id="fixUrlBtn" style="padding:10px 20px;background:#1a1a1a;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Fix URL Format</button>
+            <span id="fixUrlStatus" style="margin-left:14px;font-size:13px;color:#666;"></span>
           </div>
 
           <!-- Duplicate Finder -->
@@ -1703,7 +1711,7 @@
     async function nokwLock(encodedUrl, encodedKw, btn) {
       const url = decodeURIComponent(encodedUrl);
       const kw  = decodeURIComponent(encodedKw);
-      const fullUrl = 'https://www.aboutwallart.com' + url;
+      const fullUrl = 'https://aboutwallart.com' + url;
       const existing = kwrRegistry.byKw[kw.toLowerCase()];
       if (existing) {
         btn.closest('td').innerHTML = '<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🟡 Kw taken</span>';
@@ -1985,7 +1993,7 @@
     async function contentLock(encodedQuery, encodedUrl, btn) {
       const kw  = decodeURIComponent(encodedQuery);
       const url = decodeURIComponent(encodedUrl);
-      const fullUrl = 'https://www.aboutwallart.com' + url;
+      const fullUrl = 'https://aboutwallart.com' + url;
       const existing = kwrRegistry.byKw[kw.toLowerCase()];
       if (existing) {
         btn.closest('td').previousElementSibling.innerHTML = '<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🟡 Kw taken</span>';
@@ -3823,7 +3831,7 @@
         kwrFilterTable();
         return;
       }
-      const fullUrl = url.startsWith('http') ? url : 'https://www.aboutwallart.com' + url;
+      const fullUrl = url.startsWith('http') ? url.replace('https://www.aboutwallart.com', 'https://aboutwallart.com') : 'https://aboutwallart.com' + url;
       const msg = `Save to Registry?
 
 Keyword: ${kw}
@@ -4207,7 +4215,7 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
         alert(`⚠️ This keyword is already locked to:\n${existing.url}\n\nPlease refresh the page to reload the latest registry data before locking more keywords.`);
         return;
       }
-      const fullUrl='https://www.aboutwallart.com'+page;
+      const fullUrl='https://aboutwallart.com'+page;
       if(!confirm(`Save to Registry?
 
 URL: ${fullUrl}
@@ -4330,7 +4338,7 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
         alert(`⚠️ This keyword is already locked to:\n${existing.url}\n\nPlease refresh the page to reload the latest registry data before locking more keywords.`);
         return;
       }
-      const fullUrl='https://www.aboutwallart.com'+page;
+      const fullUrl='https://aboutwallart.com'+page;
       if(!confirm(`Save to Registry?
 
 URL: ${fullUrl}
@@ -4957,6 +4965,32 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
     };
 
     loadOverview(28);loadClicksChart(28);loadDeviceChart(28);loadPages(28);loadQueries(28);
+
+    // ── SETTINGS: Fix URL Format ──
+    async function runFixUrlFormat() {
+      const btn = document.getElementById('fixUrlBtn');
+      const status = document.getElementById('fixUrlStatus');
+      btn.disabled = true; btn.textContent = '⏳ Fixing...'; status.textContent = '';
+      try {
+        const res = await fetch('/api/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'fix-url-format' })
+        });
+        const json = await res.json();
+        if (json.success) {
+          status.textContent = `✅ Done. Fixed ${json.fixed} rows out of ${json.total} total.`;
+          status.style.color = '#16a34a';
+        } else {
+          status.textContent = '❌ Error: ' + (json.error || 'Unknown error');
+          status.style.color = '#dc2626';
+        }
+      } catch(e) {
+        status.textContent = '❌ Error: ' + e.message;
+        status.style.color = '#dc2626';
+      }
+      btn.disabled = false; btn.textContent = 'Fix URL Format';
+    }
 
     // ── SETTINGS: Repair Registry ──
     async function runRepairRegistry() {
