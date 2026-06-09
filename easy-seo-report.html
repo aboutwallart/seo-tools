@@ -1584,12 +1584,14 @@
           const rJson = await rRes.json();
           if (rJson.success && rJson.registry) {
             rJson.registry.forEach(row => {
-              const isRealLock = row.locked === true &&
-                (row.status||'').toUpperCase() === 'DONE' &&
-                ['TO_OPTIMIZE','OPTIMIZED'].includes((row.action||'').toUpperCase());
+              const act = (row.action||'').toUpperCase();
+              const src = (row.source||'');
+              const isRealLock = ['TO_OPTIMIZE','OPTIMIZED','TO_WRITE_BLOG','DELETED'].includes(act) || src === 'Published Blog';
               if (!isRealLock) return;
-              kwrRegistry.byKw[( row.keyword||'').toLowerCase()] = { url: row.url, keyword: row.keyword };
+              const kw = (row.keyword||'').toLowerCase();
+              kwrRegistry.byKw[kw] = { url: row.url, keyword: row.keyword };
               kwrRegistry.byUrl[cleanUrl(row.url||'').toLowerCase()] = { url: row.url, keyword: row.keyword };
+              kwrRegistry.byKwIntent.add(kw + '::' + (row.intent||'').toUpperCase());
             });
           }
         }
@@ -1771,14 +1773,15 @@
             const rJson = await rRes.json();
             if (rJson.success && rJson.registry) {
               rJson.registry.forEach(row => {
-                const isRealLock = row.locked === true &&
-                  (row.status||'').toUpperCase() === 'DONE' &&
-                  ['TO_OPTIMIZE','OPTIMIZED'].includes((row.action||'').toUpperCase());
+                const act = (row.action||'').toUpperCase();
+                const src = (row.source||'');
+                const isRealLock = ['TO_OPTIMIZE','OPTIMIZED','TO_WRITE_BLOG','DELETED'].includes(act) || src === 'Published Blog';
                 if (!isRealLock) return;
                 const kwKey  = (row.keyword||'').toLowerCase();
                 const urlKey = cleanUrl(row.url||'').toLowerCase();
                 kwrRegistry.byKw[kwKey]   = { url: row.url, keyword: row.keyword };
                 kwrRegistry.byUrl[urlKey] = { url: row.url, keyword: row.keyword };
+                kwrRegistry.byKwIntent.add(kwKey + '::' + (row.intent||'').toUpperCase());
               });
             }
           } catch(e) { console.warn('Registry fetch failed:', e); }
@@ -1904,7 +1907,8 @@
       const urlKey = pageUrl ? pageUrl.toLowerCase() : '';
       const regByKw  = kwrRegistry.byKw[kwKey];
       const regByUrl = pageUrl ? kwrRegistry.byUrl[urlKey] : null;
-      if (regByKw) {
+      const sameIntent = pageUrl ? kwrRegistry.byKwIntent.has(kwKey + '::' + urlToIntent(pageUrl)) : false;
+      if (sameIntent && regByKw) {
         const lockedUrl = cleanUrl(regByKw.url||'');
         if (lockedUrl === pageUrl) return { badge: '<span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🔒 Locked</span>', canLock: false };
         return { badge: `<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Locked to: ${lockedUrl}">🟡 Kw taken</span>`, canLock: false };
@@ -3318,7 +3322,7 @@
     let kwrSelectedSet = new Set();
     let kwrActiveTab  = 'all';
     let kwrLoaded     = false;
-    let kwrRegistry   = { byKw:{}, byUrl:{} };
+    let kwrRegistry   = { byKw:{}, byUrl:{}, byKwIntent:new Set() };
     let kwrPageQuery  = {};
     let kwrPage       = 1;
     let kwrTotalFiltered = 0;
@@ -3445,16 +3449,17 @@
         if (rRes) {
           const j = await rRes.json();
           if (j.success && j.registry) {
-            kwrRegistry = { byKw: {}, byUrl: {} };
+            kwrRegistry = { byKw: {}, byUrl: {}, byKwIntent: new Set() };
             j.registry.forEach(row => {
-              const isRealLock = row.locked === true &&
-                (row.status || '').toUpperCase() === 'DONE' &&
-                ['TO_OPTIMIZE','OPTIMIZED'].includes((row.action || '').toUpperCase());
+              const act = (row.action || '').toUpperCase();
+              const src = (row.source || '');
+              const isRealLock = ['TO_OPTIMIZE','OPTIMIZED','TO_WRITE_BLOG','DELETED'].includes(act) || src === 'Published Blog';
               if (!isRealLock) return;
               const kwKey  = (row.keyword||'').toLowerCase();
               const urlKey = cleanUrl(row.url || '').toLowerCase();
               kwrRegistry.byKw[kwKey]   = { url: row.url, keyword: row.keyword };
               kwrRegistry.byUrl[urlKey] = { url: row.url, keyword: row.keyword };
+              kwrRegistry.byKwIntent.add(kwKey + '::' + (row.intent || '').toUpperCase());
             });
           }
         }
@@ -3496,11 +3501,13 @@
           // kw-taken: this kw locked to a different url (yellow)
           // url-taken: this url locked to a different kw (red)
           // unlocked: neither kw nor url found in registry
-          const regByKw  = kwrRegistry.byKw[kw.toLowerCase()];
+          const kwKey2 = kw.toLowerCase();
+          const regByKw  = kwrRegistry.byKw[kwKey2];
           const regByUrl = kwrRegistry.byUrl[rankingUrl.toLowerCase()];
+          const sameIntent2 = kwrRegistry.byKwIntent.has(kwKey2 + '::' + urlToIntent(rankingUrl));
           let regStatus = 'unlocked';
           let regOtherKw = '', regOtherUrl = '';
-          if (regByKw) {
+          if (sameIntent2 && regByKw) {
             const lockedUrl = cleanUrl(regByKw.url || '');
             if (lockedUrl === rankingUrl) { regStatus = 'locked-same'; }
             else { regStatus = 'kw-taken'; regOtherUrl = lockedUrl; }
@@ -3766,10 +3773,12 @@
           const pos = r.position||0, imp = r.impressions||0, clk = r.clicks||0, ctr = r.ctr||0;
           const diff = kwrDifficulty(pos, imp, ctr);
           const rankingUrl = raw.startsWith('http') ? raw.replace(/https?:\/\/(www\.)?aboutwallart\.com/,'') : raw;
-          const regByKw  = kwrRegistry.byKw[kw.toLowerCase()];
+          const kwKey = kw.toLowerCase();
+          const regByKw  = kwrRegistry.byKw[kwKey];
           const regByUrl = kwrRegistry.byUrl[rankingUrl.toLowerCase()];
+          const sameIntent = kwrRegistry.byKwIntent.has(kwKey + '::' + urlToIntent(rankingUrl));
           let regStatus = 'unlocked', regOtherKw = '', regOtherUrl = '';
-          if (regByKw) {
+          if (sameIntent && regByKw) {
             const lockedUrl = cleanUrl(regByKw.url||'');
             if (lockedUrl === rankingUrl) { regStatus = 'locked-same'; }
             else { regStatus = 'kw-taken'; regOtherUrl = lockedUrl; }
@@ -3932,6 +3941,13 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
       if (url.includes('/products/'))    return 'products';
       return 'pages';
     }
+    function urlToIntent(url) {
+      if (!url || url === 'N/A' || url === '—') return 'UNKNOWN';
+      if (url.includes('/collections/') || url.includes('/products/')) return 'COMMERCIAL';
+      if (url.includes('/blog')) return 'INFORMATIONAL';
+      if (url.includes('/pages/')) return 'NAVIGATIONAL';
+      return 'UNKNOWN';
+    }
 
     // ── QUICK WINS LOAD ───────────────────────────────────────────────────────
     async function loadQuickWins() {
@@ -3969,9 +3985,11 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
           if (!qwMap[page]||imp>qwMap[page].imp) qwMap[page]={ page, pos, imp, clk:r.clicks||0, ctr:r.ctr||0, keyword:topQuery[page]?.query||'—' };
         });
         Object.values(qwMap).forEach(entry => {
-          const regByKw  = kwrRegistry?.byKw?.[entry.keyword?.toLowerCase()];
+          const qwKwKey = (entry.keyword||'').toLowerCase();
+          const regByKw  = kwrRegistry?.byKw?.[qwKwKey];
           const regByUrl = kwrRegistry?.byUrl?.[entry.page.toLowerCase()];
-          if (regByKw) {
+          const qwSameIntent = kwrRegistry?.byKwIntent?.has(qwKwKey + '::' + urlToIntent(entry.page));
+          if (qwSameIntent && regByKw) {
             const lockedUrl=(regByKw.url||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
             entry.regStatus = lockedUrl===entry.page?'locked-same':'kw-taken';
             entry.regOtherUrl=lockedUrl; entry.regOtherKw='';
