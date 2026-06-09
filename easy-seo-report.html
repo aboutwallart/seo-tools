@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.6</div>
+      <div class="tool-version">v59.7</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -796,9 +796,6 @@
             <label>Show:</label>
             <select onchange="crtLimit=parseInt(this.value);renderCreate()">
               <option value="50">50 rows</option><option value="100">100 rows</option><option value="150">150 rows</option>
-            </select>
-            <select onchange="crtRegFilter=this.value;renderCreate()">
-              <option value="">All</option><option value="lockable">Can Save</option><option value="locked">Already Claimed</option>
             </select>
             <button class="download-btn" onclick="downloadCSV('create')">⬇ Download CSV</button>
           </div>
@@ -1860,6 +1857,7 @@
           return !words.some(w=>nonEnglish.includes(w));
         }
 
+        const savedForLaterSet = new Set(savedForLater.map(k => k.toLowerCase()));
         createData=allQueries
           .filter(r=>{
             const q=r.keys?r.keys[0]:'';
@@ -1870,6 +1868,9 @@
             if(q.startsWith('http')) return false;
             // English only
             if(!isEnglish(q)) return false;
+            // Already in registry in any form — skip
+            if(kwrRegistry.byKw[q.toLowerCase()]) return false;
+            if(savedForLaterSet.has(q.toLowerCase())) return false;
             // No matching content in registry
             const matchUrl=findMatchingBlog(q);
             return !matchUrl;
@@ -1971,22 +1972,19 @@
     function renderCreate(sortKey) {
       const cols = [
         {label:'#'}, {label:'Priority'}, {label:'Query', key:'query'}, {label:'Impressions', key:'imp'},
-        {label:'Registry'}, {label:'Action'}
+        {label:'Action'}
       ];
       if (sortKey) { crtSort.dir = crtSort.key===sortKey && crtSort.dir==='desc' ? 'asc' : 'desc'; crtSort.key = sortKey; }
       cthSort('crtHead', cols, crtSort, 'renderCreate');
       const search = (document.getElementById('crtSearch')?.value||'').toLowerCase();
       let data = applySort(createData, crtSort, (r,k) => k==='imp'?r.impressions:r.query);
       if (search) data = data.filter(r => r.query.toLowerCase().includes(search));
-      if (crtRegFilter==='lockable') data = data.filter(r => !kwrRegistry.byKw[r.query.toLowerCase()]);
-      if (crtRegFilter==='locked')   data = data.filter(r =>  kwrRegistry.byKw[r.query.toLowerCase()]);
       const tbody = document.getElementById('createBody');
-      if (!data.length) { tbody.innerHTML='<tr class="loading-row"><td colspan="6">No content gaps found</td></tr>'; return; }
+      if (!data.length) { tbody.innerHTML='<tr class="loading-row"><td colspan="5">No content gaps found</td></tr>'; return; }
       tbody.innerHTML = data.slice(0,crtLimit).map((r,i) => {
-        const regByKw = kwrRegistry.byKw[r.query.toLowerCase()];
-        const badge  = regByKw ? '<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🟡 Claimed</span>' : '<span style="color:#ccc;font-size:12px;">—</span>';
-        const action = regByKw ? '<span style="color:#ccc;font-size:12px;">—</span>' : `<button onclick="contentSaveLater('${encodeURIComponent(r.query)}',this)" style="padding:4px 10px;border:none;background:#6366f1;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">📌 Save</button>`;
-        return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:12px;">${priority(r.impressions)}</td><td style="font-size:13px;color:#333;">${r.query}</td><td class="num">${fmt(r.impressions)}</td><td>${badge}</td><td>${action}</td></tr>`;
+        const enc = encodeURIComponent(r.query);
+        const actions = `<button onclick="contentSaveLater('${enc}',this)" style="padding:4px 10px;border:none;background:#6366f1;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;margin-right:4px;">📌 Save for Later</button><button onclick="contentDeleteKw('${enc}',this)" style="padding:4px 10px;border:none;background:#dc2626;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🗑 Delete</button>`;
+        return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:12px;">${priority(r.impressions)}</td><td style="font-size:13px;color:#333;">${r.query}</td><td class="num">${fmt(r.impressions)}</td><td>${actions}</td></tr>`;
       }).join('');
     }
 
@@ -2039,10 +2037,27 @@
         const j = await res.json();
         if (j.success) {
           kwrRegistry.byKw[kw.toLowerCase()] = { url: 'N/A', keyword: kw };
-          btn.closest('td').previousElementSibling.innerHTML = '<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🟡 Claimed</span>';
-          btn.closest('td').innerHTML = '<span style="color:#ccc;font-size:12px;">—</span>';
-        } else { btn.disabled = false; btn.textContent = '📌 Save'; alert('Failed: ' + (j.error||'unknown')); }
+          btn.closest('tr').remove();
+        } else { btn.disabled = false; btn.textContent = '📌 Save for Later'; alert('Failed: ' + (j.error||'unknown')); }
       } catch(e) { btn.disabled = false; btn.textContent = '📌 Save'; alert('Error: ' + e.message); }
+    }
+
+    async function contentDeleteKw(encodedQuery, btn) {
+      const kw = decodeURIComponent(encodedQuery);
+      if (!confirm(`Delete this keyword?\n\nKeyword: ${kw}\n\nIt will be marked as deleted and won't appear again.`)) return;
+      btn.disabled = true; btn.textContent = '⏳';
+      try {
+        const res = await fetch('/api/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'delete-keyword', keyword: kw, intent: 'UNKNOWN' })
+        });
+        const j = await res.json();
+        if (j.success) {
+          kwrRegistry.byKw[kw.toLowerCase()] = { url: 'N/A', keyword: kw };
+          btn.closest('tr').remove();
+        } else { btn.disabled = false; btn.textContent = '🗑 Delete'; alert('Failed: ' + (j.error||'unknown')); }
+      } catch(e) { btn.disabled = false; btn.textContent = '🗑 Delete'; alert('Error: ' + e.message); }
     }
 
     function filterTable(tbodyId,val){
