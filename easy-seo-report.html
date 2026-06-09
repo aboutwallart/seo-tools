@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.22</div>
+      <div class="tool-version">v59.23</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -726,8 +726,10 @@
               <th class="num">Clicks</th>
               <th class="num">CTR</th>
               <th class="num">Position</th>
+              <th>Keyword</th>
+              <th>Action</th>
             </tr></thead>
-            <tbody id="blogOptBody"><tr class="loading-row"><td colspan="6">Loading...</td></tr></tbody>
+            <tbody id="blogOptBody"><tr class="loading-row"><td colspan="8">Loading...</td></tr></tbody>
           </table>
         </div>
 
@@ -2637,6 +2639,29 @@
       const end = getDate(0);
       const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
       try {
+        // Always fetch fresh registry
+        const regRes = await fetch('/api/blogs?action=get-registry');
+        const regJson = await regRes.json();
+        if (regJson.success && regJson.registry) {
+          kwrRegistry = { byKw: {}, byUrl: {}, byKwIntent: new Set() };
+          savedForLaterList = [];
+          regJson.registry.forEach(row => {
+            const act = (row.action||'').toUpperCase();
+            const src = (row.source||'');
+            if (act === 'SAVED_FOR_FUTURE') { savedForLaterList.push(row.keyword); }
+            const isRealLock = ['TO_OPTIMIZE','OPTIMIZED','TO_WRITE_BLOG','DELETED'].includes(act) || src === 'Published Blog';
+            if (!isRealLock) return;
+            const kwKey  = (row.keyword||'').toLowerCase();
+            const urlKey = cleanUrl(row.url||'').toLowerCase();
+            kwrRegistry.byKw[kwKey]   = { url: row.url, keyword: row.keyword };
+            kwrRegistry.byUrl[urlKey] = { url: row.url, keyword: row.keyword };
+            kwrRegistry.byKwIntent.add(kwKey + '::' + (row.intent||'').toUpperCase());
+          });
+          savedForLaterSet = new Set(savedForLaterList.map(k => k.toLowerCase()));
+          const dl = document.getElementById('nokwKeywordList');
+          if (dl) dl.innerHTML = savedForLaterList.map(k => `<option value="${k.replace(/"/g,'&quot;')}">`).join('');
+        }
+
         // Fetch GSC pages + Shopify published dates in parallel
         const [gscRes, shopRes] = await Promise.all([
           fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`),
@@ -2678,13 +2703,19 @@
             if (pubDate && pubDate > cutoff) return false;
             return true;
           })
-          .map(r => ({
-            url: 'https://www.aboutwallart.com' + cleanUrl(r.keys[0]),
-            clicks: r.clicks,
-            impressions: r.impressions,
-            ctr: r.ctr,
-            position: r.position
-          }))
+          .map(r => {
+            const cleanedUrl = cleanUrl(r.keys[0]);
+            const regEntry = kwrRegistry.byUrl[cleanedUrl.toLowerCase()];
+            return {
+              url: 'https://www.aboutwallart.com' + cleanedUrl,
+              shortUrl: cleanedUrl,
+              clicks: r.clicks,
+              impressions: r.impressions,
+              ctr: r.ctr,
+              position: r.position,
+              lockedKeyword: regEntry ? regEntry.keyword : null
+            };
+          })
           .sort((a,b) => a.clicks - b.clicks); // lowest clicks first within groups
 
         // Split into 3 groups
@@ -2730,7 +2761,18 @@
       const colors = { urgent: { row:'background:#fef2f2;', ctr:'color:#dc2626;font-weight:600;' }, improve: { row:'background:#fefce8;', ctr:'color:#92400e;font-weight:600;' }, monitor: { row:'', ctr:'color:#16a34a;' } };
       const c = colors[blogOptActiveTab];
       tbody.innerHTML = rows.map((r,i) => {
-        const short = r.url.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
+        const short = r.shortUrl || r.url.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
+        const encUrl = encodeURIComponent(short);
+        const inputId = 'blogopt-input-' + i;
+        const kwCell = r.lockedKeyword
+          ? `<span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🔒 ${r.lockedKeyword}</span>`
+          : `<span style="color:#ccc;font-size:12px;">— No keyword</span>`;
+        const actionCell = r.lockedKeyword
+          ? `<span style="color:#ccc;font-size:12px;">—</span>`
+          : `<div style="display:flex;gap:4px;align-items:center;">
+              <input id="${inputId}" list="nokwKeywordList" placeholder="Type or choose..." style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:11px;width:180px;">
+              <button onclick="blogOptLock('${encUrl}','${inputId}',this)" style="padding:4px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button>
+            </div>`;
         return `<tr style="${c.row}">
           <td style="color:#aaa;font-size:12px;">${i+1}.</td>
           <td><a href="${r.url}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:13px;word-break:break-all;">${short}</a></td>
@@ -2738,8 +2780,40 @@
           <td class="num">${fmt(r.clicks)}</td>
           <td class="num" style="${c.ctr}">${fmtCTR(r.ctr)}</td>
           <td class="num">${fmtPos(r.position)}</td>
+          <td>${kwCell}</td>
+          <td>${actionCell}</td>
         </tr>`;
       }).join('');
+    }
+
+    async function blogOptLock(encodedUrl, inputId, btn) {
+      const kw = (document.getElementById(inputId)?.value||'').trim();
+      if (!kw) { alert('Please type or select a keyword first.'); return; }
+      const url = decodeURIComponent(encodedUrl);
+      const fullUrl = 'https://aboutwallart.com' + url;
+      const existing = kwrRegistry.byKw[kw.toLowerCase()];
+      if (existing) { alert(`⚠️ This keyword is already locked to:\n${existing.url}`); return; }
+      if (!confirm(`Lock to registry?\n\nKeyword: ${kw}\nURL: ${fullUrl}`)) return;
+      btn.disabled = true; btn.textContent = '⏳';
+      try {
+        const res = await fetch('/api/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'lock-keyword', keyword: kw, url: fullUrl, intent: 'INFORMATIONAL', losers: [] })
+        });
+        const j = await res.json();
+        if (j.success) {
+          kwrRegistry.byKw[kw.toLowerCase()] = { url: fullUrl, keyword: kw };
+          kwrRegistry.byUrl[url.toLowerCase()] = { url: fullUrl, keyword: kw };
+          // Update the row in data
+          const data = blogOptAllData[blogOptActiveTab];
+          const entry = data.find(r => r.shortUrl === url);
+          if (entry) entry.lockedKeyword = kw;
+          // Update the row in UI
+          btn.closest('td').previousElementSibling.innerHTML = `<span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🔒 ${kw}</span>`;
+          btn.closest('td').innerHTML = '<span style="color:#ccc;font-size:12px;">—</span>';
+        } else { btn.disabled = false; btn.textContent = '🔒 Lock'; alert('Failed: ' + (j.error||'unknown')); }
+      } catch(e) { btn.disabled = false; btn.textContent = '🔒 Lock'; alert('Error: ' + e.message); }
     }
 
     function downloadBlogOptCSV() {
