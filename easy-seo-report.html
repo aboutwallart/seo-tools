@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.14</div>
+      <div class="tool-version">v59.15</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -2225,34 +2225,12 @@
               const moveBtn = showMove ? `<button onclick="moveToNokw('${encodeURIComponent(page)}','${type}',this)" style="margin-left:4px;padding:3px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↗ Move</button>` : '';
               if (statusEl) statusEl.innerHTML = `<span style="font-size:12px;color:#333;">${query}</span> ${badge}${lockBtn}${moveBtn}`;
             } else {
-              // No keyword found — move to Pages Without Locked Keywords
-              const pageObj = noQueryArr.find(p => p.page === page);
-              if (pageObj) {
-                noQueryArr.splice(noQueryArr.indexOf(pageObj), 1);
-                if (nokwLoaded) {
-                  const pType = getPageType(page).replace('blogs','blogs');
-                  if (nokwData[pType]) {
-                    nokwData[pType].push({ url: page, imp: pageObj.impressions||0, clk: pageObj.clicks||0, suggestion: null });
-                    nokwRender();
-                  }
-                }
-              }
-              if (statusEl) statusEl.innerHTML = '<span style="color:#aaa;font-size:11px;">— No data · moved to Pages Without Locked Keywords</span>';
+              const moveBtn = `<button onclick="moveToNokw('${encodeURIComponent(page)}','${type}',this)" style="margin-left:4px;padding:3px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↗ Move</button>`;
+              if (statusEl) statusEl.innerHTML = `<span style="color:#aaa;font-size:11px;">— No keyword found</span>${moveBtn}`;
             }
           } else {
-            // No data from GSC — move to Pages Without Locked Keywords
-            const pageObj = noQueryArr.find(p => p.page === page);
-            if (pageObj) {
-              noQueryArr.splice(noQueryArr.indexOf(pageObj), 1);
-              if (nokwLoaded) {
-                const pType = getPageType(page);
-                if (nokwData[pType]) {
-                  nokwData[pType].push({ url: page, imp: pageObj.impressions||0, clk: pageObj.clicks||0, suggestion: null });
-                  nokwRender();
-                }
-              }
-            }
-            if (statusEl) statusEl.innerHTML = '<span style="color:#aaa;font-size:11px;">— No data · moved to Pages Without Locked Keywords</span>';
+            const moveBtn = `<button onclick="moveToNokw('${encodeURIComponent(page)}','${type}',this)" style="margin-left:4px;padding:3px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↗ Move</button>`;
+            if (statusEl) statusEl.innerHTML = `<span style="color:#aaa;font-size:11px;">— No data</span>${moveBtn}`;
           }
         } catch(e) {
           if (statusEl) statusEl.innerHTML = '❌ Error';
