@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.13</div>
+      <div class="tool-version">v59.14</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1420,6 +1420,7 @@
     let ctrDataWithQuery=[], ctrDataNoQuery=[];
     let optimiseDataWithQuery=[], optimiseDataNoQuery=[];
     let ctrSubTab='with', optSubTab='with';
+    let repurposeUrls = new Set();
     let crtSort={key:'imp',dir:'desc'}, crtLimit=50, crtRegFilter='';
     let savedForLaterSet = new Set();
     let nokwLoaded=false, nokwData={collections:[],blogs:[],pages:[],products:[]}, nokwActiveTab='collections', nokwRegFilter='';
@@ -1699,6 +1700,19 @@
           nokwData[type].push({ url, imp: r.impressions||0, clk: r.clicks||0, suggestion });
         });
 
+        // Add REPURPOSE pages from registry (not already in nokwData)
+        const repurposeRows = (rJson2.success && rJson2.registry)
+          ? rJson2.registry.filter(r => (r.action||'').toUpperCase() === 'REPURPOSE' && r.url && r.url !== 'N/A')
+          : [];
+        repurposeRows.forEach(r => {
+          const url = cleanUrl(r.url);
+          if (shouldExcludeUrl(url)) return;
+          const pType = pageType(url);
+          if (!nokwData[pType].find(p => p.url === url)) {
+            nokwData[pType].push({ url, imp: 0, clk: 0, suggestion: null });
+          }
+        });
+
         // Sort each type by impressions desc
         Object.keys(nokwData).forEach(t => nokwData[t].sort((a,b) => b.imp - a.imp));
 
@@ -1825,14 +1839,14 @@
           if (rJson.success && rJson.registry) {
             kwrRegistry = { byKw: {}, byUrl: {}, byKwIntent: new Set() };
             savedForLaterSet = new Set();
+            repurposeUrls = new Set();
             rJson.registry.forEach(row => {
               const act = (row.action||'').toUpperCase();
               const src = (row.source||'');
               const kwKey  = (row.keyword||'').toLowerCase();
               const urlKey = cleanUrl(row.url||'').toLowerCase();
-              if (act === 'SAVED_FOR_FUTURE') {
-                savedForLaterSet.add(kwKey);
-              }
+              if (act === 'SAVED_FOR_FUTURE') { savedForLaterSet.add(kwKey); }
+              if (act === 'REPURPOSE') { repurposeUrls.add(urlKey); }
               const isRealLock = ['TO_OPTIMIZE','OPTIMIZED','TO_WRITE_BLOG','DELETED'].includes(act) || src === 'Published Blog';
               if (!isRealLock) return;
               kwrRegistry.byKw[kwKey]   = { url: row.url, keyword: row.keyword };
@@ -1878,7 +1892,7 @@
         // Table 1: Fix CTR — position 1-7, has clicks, CTR under 2%, 100+ impressions
         // Sort: highest position first (most urgent — hardest to get clicks from)
         ctrData=pages
-          .filter(p=>p.clicks>0&&p.ctr<0.02&&p.impressions>=100&&p.position<=7&&!p.page.includes('/blogs/')&&!qwExcludeUrls.has(p.page)&&!dpExcludeUrls.has(p.page))
+          .filter(p=>p.clicks>0&&p.ctr<0.02&&p.impressions>=100&&p.position<=7&&!p.page.includes('/blogs/')&&!qwExcludeUrls.has(p.page)&&!dpExcludeUrls.has(p.page)&&!repurposeUrls.has(p.page.toLowerCase()))
           .sort((a,b)=>b.position-a.position);
         ctrData.forEach(p=>assigned.add(p.page));
         // Fill in registry keyword for pages missing GSC keyword
@@ -1891,7 +1905,7 @@
         // Table 2: Pages to Optimise — position 8-15, CTR under 2%, 100+ impressions
         // Sort: lowest position first (closest to page 1 — most likely to jump up)
         optimiseData=pages
-          .filter(p=>!assigned.has(p.page)&&p.impressions>=100&&p.position>7&&p.position<=15&&p.ctr<0.02&&!p.page.includes('/blogs/')&&!qwExcludeUrls.has(p.page)&&!dpExcludeUrls.has(p.page))
+          .filter(p=>!assigned.has(p.page)&&p.impressions>=100&&p.position>7&&p.position<=15&&p.ctr<0.02&&!p.page.includes('/blogs/')&&!qwExcludeUrls.has(p.page)&&!dpExcludeUrls.has(p.page)&&!repurposeUrls.has(p.page.toLowerCase()))
           .sort((a,b)=>a.position-b.position);
         optimiseData.forEach(p=>assigned.add(p.page));
         // Fill in registry keyword for pages missing GSC keyword
@@ -2251,8 +2265,20 @@
       if (isCtr) { updateCtrCounts(); } else { updateOptCounts(); }
     }
 
-    function moveToNokw(encodedPage, type, btn) {
+    async function moveToNokw(encodedPage, type, btn) {
       const page = decodeURIComponent(encodedPage);
+      const fullUrl = 'https://aboutwallart.com' + page;
+      btn.disabled = true; btn.textContent = '⏳';
+
+      // Save to registry as REPURPOSE
+      try {
+        await fetch('/api/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'repurpose-page', url: fullUrl })
+        });
+      } catch(e) { console.warn('Repurpose save failed:', e); }
+
       const isCtr = type === 'ctr';
       const noQueryArr = isCtr ? ctrDataNoQuery : type === 'opt' ? optimiseDataNoQuery : null;
       const withQueryArr = isCtr ? ctrDataWithQuery : type === 'opt' ? optimiseDataWithQuery : null;
@@ -2272,7 +2298,6 @@
       if (nokwLoaded && pageObj) {
         const pType = getPageType(page);
         if (nokwData[pType]) {
-          // Only add if not already there
           if (!nokwData[pType].find(p => p.url === page)) {
             nokwData[pType].push({ url: page, imp: pageObj.impressions||0, clk: pageObj.clicks||0, suggestion: null });
             nokwData[pType].sort((a,b) => b.imp - a.imp);
