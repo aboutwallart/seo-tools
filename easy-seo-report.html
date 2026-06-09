@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.15</div>
+      <div class="tool-version">v59.16</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1110,9 +1110,10 @@
           <button id="qwTabProducts" onclick="qwSwitchPageType('products')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Products <span id="qwCountProducts" class="count-badge">—</span></button>
           <button id="qwTabPages" onclick="qwSwitchPageType('pages')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Pages <span id="qwCountPages" class="count-badge">—</span></button>
           <div style="flex:1;"></div>
-          <!-- All / Selected sub-tabs -->
-          <button id="qwSubAll" onclick="qwSwitchSub('all')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">All <span id="qwSubCountAll" class="count-badge">—</span></button>
-          <button id="qwSubSelected" onclick="qwSwitchSub('selected')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Selected <span id="qwSubCountSelected" class="count-badge">0</span></button>
+          <select onchange="qwRegFilter=this.value;qwRenderRows()" style="padding:4px 8px;border:1px solid #e5e5e5;border-radius:4px;font-size:12px;color:#555;cursor:pointer;">
+            <option value="">All</option>
+            <option value="unlocked">No Registry</option>
+          </select>
         </div>
 
         <!-- Save status -->
@@ -1145,8 +1146,10 @@
           <button id="dpTabProducts" onclick="dpSwitchPageType('products')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Products <span id="dpCountProducts" class="count-badge">—</span></button>
           <button id="dpTabPages" onclick="dpSwitchPageType('pages')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Pages <span id="dpCountPages" class="count-badge">—</span></button>
           <div style="flex:1;"></div>
-          <button id="dpSubAll" onclick="dpSwitchSub('all')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">All <span id="dpSubCountAll" class="count-badge">—</span></button>
-          <button id="dpSubSelected" onclick="dpSwitchSub('selected')" style="padding:10px 16px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Selected <span id="dpSubCountSelected" class="count-badge">0</span></button>
+          <select onchange="dpRegFilter=this.value;dpRenderRows()" style="padding:4px 8px;border:1px solid #e5e5e5;border-radius:4px;font-size:12px;color:#555;cursor:pointer;">
+            <option value="">All</option>
+            <option value="unlocked">No Registry</option>
+          </select>
         </div>
 
         <!-- Save status -->
@@ -2271,13 +2274,28 @@
         const idx = withQueryArr.findIndex(p => p.page === page);
         if (idx > -1) { pageObj = withQueryArr.splice(idx, 1)[0]; }
       }
+      // For qw/dp, remove from their data arrays
+      if (type === 'qw') {
+        ['collections','blogs','products','pages'].forEach(t => {
+          const i = qwData[t].findIndex(r => r.page === page);
+          if (i > -1) { if(!pageObj) pageObj = qwData[t][i]; qwData[t].splice(i,1); }
+        });
+        qwRenderRows();
+      }
+      if (type === 'dp') {
+        ['collections','blogs','products','pages'].forEach(t => {
+          const i = dpData[t].findIndex(r => r.page === page);
+          if (i > -1) { if(!pageObj) pageObj = dpData[t][i]; dpData[t].splice(i,1); }
+        });
+        dpRenderRows();
+      }
 
       // Add to nokwData
       if (nokwLoaded && pageObj) {
         const pType = getPageType(page);
         if (nokwData[pType]) {
           if (!nokwData[pType].find(p => p.url === page)) {
-            nokwData[pType].push({ url: page, imp: pageObj.impressions||0, clk: pageObj.clicks||0, suggestion: null });
+            nokwData[pType].push({ url: page, imp: pageObj.impressions||pageObj.imp||0, clk: pageObj.clicks||pageObj.clk||0, suggestion: null });
             nokwData[pType].sort((a,b) => b.imp - a.imp);
           }
           nokwRender();
@@ -4232,8 +4250,10 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
     let dpData       = { collections:[], blogs:[], products:[], pages:[] };
     let qwPageType   = 'collections';
     let dpPageType   = 'collections';
-    let qwSub        = 'all';   // 'all' | 'selected'
+    let qwSub        = 'all';
     let dpSub        = 'all';
+    let qwRegFilter  = '';
+    let dpRegFilter  = '';
     let qwSelectedSet = new Set();
     let dpSelectedSet = new Set();
     let qwColSorts   = {};
@@ -4384,17 +4404,12 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
     function qwRenderHeader() {
       const head = document.getElementById('qwTableHead');
       if (!head) return;
-      const isSelected = qwSub === 'selected';
-      const cols = isSelected
-        ? [{k:'pos',l:'Position',n:true},{k:'imp',l:'Impressions',n:true},{k:'clk',l:'Clicks',n:true},{k:'ctr',l:'CTR',n:true},{k:'keyword',l:'Keyword',n:false}]
-        : [{k:'pos',l:'Position',n:true},{k:'imp',l:'Impressions',n:true},{k:'clk',l:'Clicks',n:true},{k:'ctr',l:'CTR',n:true},{k:'keyword',l:'Keyword',n:false}];
+      const cols = [{k:'pos',l:'Position',n:true},{k:'imp',l:'Impressions',n:true},{k:'clk',l:'Clicks',n:true},{k:'ctr',l:'CTR',n:true},{k:'keyword',l:'Keyword',n:false}];
       const urlBadge = qwColSorts['url'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;">${qwColSorts['url'].priority}${qwColSorts['url'].dir==='asc'?'↑':'↓'}</span>` : '';
       head.innerHTML = '<tr>' +
-        `<th style="width:60px;">${isSelected?'':'Select'}</th>` +
         `<th style="cursor:pointer;" onclick="qwCycleSort('url')">Page URL${urlBadge}</th>` +
         cols.map(c=>{const s=qwColSorts[c.k];const b=s?`<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;">${s.priority}${s.dir==='asc'?'↑':'↓'}</span>`:'';return`<th class="${c.n?'num':''}" style="cursor:pointer;white-space:nowrap;" onclick="qwCycleSort('${c.k}')">${c.l}${b}</th>`;}).join('') +
-        `<th>Registry</th>` +
-        (isSelected?`<th>Action</th>`:'') +
+        `<th>Registry</th><th>Action</th>` +
       '</tr>';
     }
 
@@ -4410,11 +4425,9 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
     function dpRenderHeader() {
       const head = document.getElementById('dpTableHead');
       if (!head) return;
-      const isSelected = dpSub === 'selected';
       const urlBadge = dpColSorts['url'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;">${dpColSorts['url'].priority}${dpColSorts['url'].dir==='asc'?'↑':'↓'}</span>` : '';
       const kwBadgeDP = dpColSorts['keyword'] ? `<span style="background:#2563eb;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;">${dpColSorts['keyword'].priority}${dpColSorts['keyword'].dir==='asc'?'↑':'↓'}</span>` : '';
       head.innerHTML = '<tr>' +
-        `<th style="width:60px;">${isSelected?'':'Select'}</th>` +
         `<th style="cursor:pointer;" onclick="dpCycleSort('url')">Page URL${urlBadge}</th>` +
         ['pos','currClk','prevClk','drop','imp'].map(k=>{
           const labels={pos:'Position',currClk:'Clicks (now)',prevClk:'Clicks (prev)',drop:'Change',imp:'Impressions'};
@@ -4422,8 +4435,7 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
           return`<th class="num" style="cursor:pointer;white-space:nowrap;" onclick="dpCycleSort('${k}')">${labels[k]}${b}</th>`;
         }).join('') +
         `<th style="cursor:pointer;" onclick="dpCycleSort('keyword')">Keyword${kwBadgeDP}</th>` +
-        `<th>Registry</th>` +
-        (isSelected?`<th>Action</th>`:'') +
+        `<th>Registry</th><th>Action</th>` +
       '</tr>';
     }
 
@@ -4468,9 +4480,8 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
     function qwRenderRows() {
       const search=(document.getElementById('qwSearch')?.value||'').toLowerCase();
       let rows=qwData[qwPageType]||[];
-      rows = qwSub==='selected' ? rows.filter(r=>qwSelectedSet.has(r.page)) : rows.filter(r=>!qwSelectedSet.has(r.page));
       if (search) rows=rows.filter(r=>r.page.includes(search)||r.keyword.includes(search));
-      // Sort
+      if (qwRegFilter==='unlocked') rows=rows.filter(r=>r.regStatus==='unlocked');
       const sortEntries=Object.entries(qwColSorts).sort((a,b)=>a[1].priority-b[1].priority);
       if (sortEntries.length) rows=[...rows].sort((a,b)=>{
         for (const [k,s] of sortEntries){
@@ -4481,7 +4492,6 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
           if(av!==bv)return s.dir==='asc'?av-bv:bv-av;
         }return 0;
       });
-      const isSelected=qwSub==='selected';
       const tbody=document.getElementById('qwBody');
       if (!rows.length){tbody.innerHTML=`<tr class="loading-row"><td colspan="7">No pages found.</td></tr>`;return;}
       const posColor=pos=>pos<=3?'#16a34a':pos<=10?'#d97706':'#dc2626';
@@ -4491,19 +4501,20 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
         if(r.regStatus==='url-taken')   return`<td><span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="URL locked to: ${r.regOtherKw}">🔴 URL taken</span></td>`;
         return`<td><span style="color:#ccc;font-size:12px;">—</span></td>`;
       };
+      const actionCell=r=>{
+        if(r.regStatus==='locked-same'||r.regStatus==='url-taken') return`<td></td>`;
+        if(r.regStatus==='kw-taken') return`<td><button onclick="moveToNokw('${encodeURIComponent(r.page)}','qw',this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↗ Move</button></td>`;
+        return`<td><button onclick="qwConfirmLock('${r.page.replace(/'/g,"\\'")}','${r.keyword.replace(/'/g,"\\'")}' )" style="padding:4px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button></td>`;
+      };
       tbody.innerHTML=rows.map(r=>`<tr>
-        <td style="vertical-align:middle;">${isSelected
-          ?`<button onclick="qwUndo('${r.page.replace(/'/g,"\'")}' )" style="padding:4px 8px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↩ Undo</button>`
-          :`<button onclick="qwSelect('${r.page.replace(/'/g,"\'")}' )" style="padding:4px 8px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;">+ Select</button>`
-        }</td>
-        <td><a href="https://www.aboutwallart.com${r.page === '/' ? '' : r.page}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:12px;word-break:break-all;">${r.page === '/' ? 'Home Page' : r.page}</a></td>
+        <td><a href="https://aboutwallart.com${r.page === '/' ? '' : r.page}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:12px;word-break:break-all;">${r.page === '/' ? 'Home Page' : r.page}</a></td>
         <td class="num" style="color:${posColor(r.pos)};font-weight:600;">${fmtPos(r.pos)}</td>
         <td class="num">${fmt(r.imp)}</td>
         <td class="num">${fmt(r.clk)}</td>
         <td class="num">${fmtCTR(r.ctr)}</td>
         <td style="font-size:12px;color:#555;">${r.keyword}</td>
         ${regCell(r)}
-        ${isSelected?`<td style="white-space:nowrap;">${r.regStatus==='unlocked'?`<button onclick="qwConfirmLock('${r.page.replace(/'/g,"\'")}','${r.keyword.replace(/'/g,"\'")}' )" style="padding:4px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Save to Registry</button>`:`<span style="font-size:11px;color:#aaa;">Cannot save</span>`}</td>`:''}
+        ${actionCell(r)}
       </tr>`).join('');
     }
 
@@ -4589,8 +4600,8 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
     function dpRenderRows(){
       const search=(document.getElementById('dpSearch')?.value||'').toLowerCase();
       let rows=dpData[dpPageType]||[];
-      rows=dpSub==='selected'?rows.filter(r=>dpSelectedSet.has(r.page)):rows.filter(r=>!dpSelectedSet.has(r.page));
       if(search)rows=rows.filter(r=>r.page.includes(search));
+      if(dpRegFilter==='unlocked')rows=rows.filter(r=>r.regStatus==='unlocked');
       const sortEntries=Object.entries(dpColSorts).sort((a,b)=>a[1].priority-b[1].priority);
       if(sortEntries.length)rows=[...rows].sort((a,b)=>{
         for(const [k,s] of sortEntries){
@@ -4602,22 +4613,24 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
           if(av!==bv)return s.dir==='asc'?av-bv:bv-av;
         }return 0;
       });
-      const isSelected=dpSub==='selected';
       const tbody=document.getElementById('dpBody');
-      if(!rows.length){tbody.innerHTML=`<tr class="loading-row"><td colspan="7">No Danger pages found.</td></tr>`;return;}
+      if(!rows.length){tbody.innerHTML=`<tr class="loading-row"><td colspan="9">No Danger pages found.</td></tr>`;return;}
       const posColor=pos=>pos<=3?'#16a34a':pos<=10?'#d97706':'#dc2626';
       const regCell=r=>{
-        if(r.regStatus==='url-taken') return`<td><span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="URL locked to: ${r.regOtherKw}">🔴 URL taken</span></td>`;
+        if(r.regStatus==='locked-same') return`<td><span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🔒 Locked</span></td>`;
+        if(r.regStatus==='kw-taken')    return`<td><span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Keyword locked to: ${r.regOtherUrl}">🟡 Keyword taken</span></td>`;
+        if(r.regStatus==='url-taken')   return`<td><span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="URL locked to: ${r.regOtherKw}">🔴 URL taken</span></td>`;
         return`<td><span style="color:#ccc;font-size:12px;">—</span></td>`;
+      };
+      const actionCell=r=>{
+        if(r.regStatus==='locked-same'||r.regStatus==='url-taken') return`<td></td>`;
+        if(r.regStatus==='kw-taken') return`<td><button onclick="moveToNokw('${encodeURIComponent(r.page)}','dp',this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↗ Move</button></td>`;
+        return`<td><button onclick="dpConfirmLock('${r.page.replace(/'/g,"\\'")}','${r.keyword.replace(/'/g,"\\'")}' )" style="padding:4px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button></td>`;
       };
       tbody.innerHTML=rows.map(r=>{
         const dropColor=r.drop<-50?'#dc2626':'#ef4444';
         return`<tr>
-          <td style="vertical-align:middle;">${isSelected
-            ?`<button onclick="dpUndo('${r.page.replace(/'/g,"\'")}' )" style="padding:4px 8px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↩ Undo</button>`
-            :`<button onclick="dpSelect('${r.page.replace(/'/g,"\'")}' )" style="padding:4px 8px;background:#1a1a1a;color:#fff;border:none;border-radius:4px;font-size:11px;cursor:pointer;">+ Select</button>`
-          }</td>
-          <td><a href="https://www.aboutwallart.com${r.page === '/' ? '' : r.page}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:12px;word-break:break-all;">${r.page === '/' ? 'Home Page' : r.page}</a></td>
+          <td><a href="https://aboutwallart.com${r.page === '/' ? '' : r.page}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:12px;word-break:break-all;">${r.page === '/' ? 'Home Page' : r.page}</a></td>
           <td class="num" style="color:${posColor(r.pos)};font-weight:600;">${fmtPos(r.pos)}</td>
           <td class="num">${fmt(r.currClk)}</td>
           <td class="num">${fmt(r.prevClk)}</td>
@@ -4625,7 +4638,7 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
           <td class="num">${fmt(r.imp)}</td>
           <td style="font-size:12px;color:#555;">${r.keyword}</td>
           ${regCell(r)}
-          ${isSelected?`<td style="white-space:nowrap;">${r.regStatus==='unlocked'?`<button onclick="dpConfirmLock('${r.page.replace(/'/g,"\'")}','${r.keyword.replace(/'/g,"\'")}' )" style="padding:4px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Save to Registry</button>`:`<span style="font-size:11px;color:#aaa;">Cannot save</span>`}</td>`:''}
+          ${actionCell(r)}
         </tr>`;
       }).join('');
     }
