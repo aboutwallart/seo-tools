@@ -1,4 +1,4 @@
-// blogs.js — v2.0
+// blogs.js — v2.1
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
@@ -597,6 +597,26 @@ export default async function handler(req, res) {
         const newRow = `${csvField(keyword)},${csvField(url)},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,User Resolved,${detectIntent(url)},`;
         const updated = lines.filter(l => l.trim()).join('\n') + '\n' + newRow + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Add to optimize: ${keyword} on ${url}`);
+        return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: repurpose-page ── (saves a URL as REPURPOSE — no keyword assigned yet)
+      if (req.body.action === 'repurpose-page') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { url } = req.body;
+        if (!url) return res.status(400).json({ error: 'url required' });
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const lines = registry.content.split('\n');
+        const urlLower = url.toLowerCase();
+        const alreadyExists = lines.some(line => {
+          const cols = parseCSVLine(line.trim());
+          return (cols[1]||'').toLowerCase() === urlLower && (cols[4]||'').toUpperCase() === 'REPURPOSE';
+        });
+        if (alreadyExists) return res.status(200).json({ success: true, skipped: true });
+        const intent = detectIntent(url);
+        const newRow = sanitizeRow(['',url,'','DONE','REPURPOSE','','','','','System',intent,'']);
+        const updated = registry.content.trimEnd() + '\n' + newRow + '\n';
+        await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Repurpose page: ${url}`);
         return res.status(200).json({ success: true });
       }
 
