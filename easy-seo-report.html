@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.17</div>
+      <div class="tool-version">v59.18</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1119,12 +1119,30 @@
         <!-- Save status -->
         <div id="qwSaveStatus" style="display:none;border-radius:6px;padding:10px 16px;margin-bottom:12px;font-size:13px;align-items:center;gap:8px;"><span id="qwSaveStatusText"></span></div>
 
-        
+        <!-- With Keyword / Missing Keyword subtabs -->
+        <div style="display:flex;gap:8px;margin-bottom:12px;">
+          <button id="qwTabWith" onclick="qwSubTab='with';qwRenderHeader();qwRenderRows()" style="padding:6px 14px;border:none;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;background:#1a1a1a;color:#fff;">With Keyword <span id="qwWithCount"></span></button>
+          <button id="qwTabNo" onclick="qwSubTab='no';renderQWMissing()" style="padding:6px 14px;border:none;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;background:#e5e5e5;color:#555;">Missing Keyword <span id="qwNoCount"></span></button>
+        </div>
 
-        <div class="table-card">
-          <table style="width:100%;" id="qwTable">
-            <thead id="qwTableHead"></thead>
-            <tbody id="qwBody"><tr class="loading-row"><td colspan="7">Loading...</td></tr></tbody>
+        <div id="qwWithPanel">
+          <div class="table-card">
+            <table style="width:100%;" id="qwTable">
+              <thead id="qwTableHead"></thead>
+              <tbody id="qwBody"><tr class="loading-row"><td colspan="7">Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="qwNoPanel" style="display:none;">
+          <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;">
+            <button onclick="qwMissingSelectAll()" style="padding:6px 12px;border:1px solid #ccc;border-radius:4px;font-size:12px;cursor:pointer;background:#fff;">Select All</button>
+            <button onclick="fetchMissingKeywords('qw')" id="qwFetchBtn" style="padding:6px 14px;border:none;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;background:#6366f1;color:#fff;">🔍 Fetch Keywords</button>
+            <span id="qwFetchStatus" style="font-size:12px;color:#666;"></span>
+          </div>
+          <table>
+            <thead><tr style="background:#1a1a1a;color:#fff;"><th style="padding:8px 12px;text-align:left;font-size:12px;width:30px;"></th><th style="padding:8px 12px;text-align:left;font-size:12px;">Page URL</th><th style="padding:8px 12px;text-align:right;font-size:12px;">Impressions</th><th style="padding:8px 12px;text-align:right;font-size:12px;">Position</th><th style="padding:8px 12px;text-align:left;font-size:12px;">Status</th></tr></thead>
+            <tbody id="qwMissingBody"></tbody>
           </table>
         </div>
       </div>
@@ -2179,12 +2197,13 @@
 
     async function fetchMissingKeywords(type) {
       const isCtr = type === 'ctr';
-      const cbClass = isCtr ? '.ctr-missing-cb' : '.opt-missing-cb';
-      const statusPrefix = isCtr ? 'ctr-status-' : 'opt-status-';
-      const noQueryArr = isCtr ? ctrDataNoQuery : optimiseDataNoQuery;
-      const withQueryArr = isCtr ? ctrDataWithQuery : optimiseDataWithQuery;
-      const fetchBtn = document.getElementById(isCtr ? 'ctrFetchBtn' : 'optFetchBtn');
-      const fetchStatus = document.getElementById(isCtr ? 'ctrFetchStatus' : 'optFetchStatus');
+      const isQw  = type === 'qw';
+      const cbClass = isCtr ? '.ctr-missing-cb' : isQw ? '.qw-missing-cb' : '.opt-missing-cb';
+      const statusPrefix = isCtr ? 'ctr-status-' : isQw ? 'qw-status-' : 'opt-status-';
+      const noQueryArr = isCtr ? ctrDataNoQuery : isQw ? qwDataNoKeyword : optimiseDataNoQuery;
+      const withQueryArr = isCtr ? ctrDataWithQuery : isQw ? null : optimiseDataWithQuery;
+      const fetchBtn = document.getElementById(isCtr ? 'ctrFetchBtn' : isQw ? 'qwFetchBtn' : 'optFetchBtn');
+      const fetchStatus = document.getElementById(isCtr ? 'ctrFetchStatus' : isQw ? 'qwFetchStatus' : 'optFetchStatus');
 
       const selected = [...document.querySelectorAll(cbClass + ':checked')];
       if (!selected.length) { alert('Please select at least one page.'); return; }
@@ -2243,7 +2262,7 @@
       }
 
       fetchBtn.disabled = false;
-      if (isCtr) { updateCtrCounts(); } else { updateOptCounts(); }
+      if (isCtr) { updateCtrCounts(); } else if (isQw) { updateQwMissingCounts(); } else { updateOptCounts(); }
     }
 
     async function moveToNokw(encodedPage, type, btn) {
@@ -2328,15 +2347,24 @@
           kwrRegistry.byKwIntent.add(kw.toLowerCase() + '::' + intent);
           // Move page to With Keyword tab
           const isCtr = type === 'ctr';
-          const noQueryArr = isCtr ? ctrDataNoQuery : optimiseDataNoQuery;
-          const withQueryArr = isCtr ? ctrDataWithQuery : optimiseDataWithQuery;
+          const isQw  = type === 'qw';
+          const noQueryArr = isCtr ? ctrDataNoQuery : isQw ? qwDataNoKeyword : optimiseDataNoQuery;
           const pageObj = noQueryArr.find(p => p.page === page);
           if (pageObj) {
-            pageObj.query = kw;
-            noQueryArr.splice(noQueryArr.indexOf(pageObj), 1);
-            withQueryArr.push(pageObj);
+            if (isQw) {
+              pageObj.keyword = kw;
+              noQueryArr.splice(noQueryArr.indexOf(pageObj), 1);
+              qwData[getPageType(page)].push(pageObj);
+              qwData[getPageType(page)].sort((a,b) => b.imp - a.imp);
+              updateQwMissingCounts();
+            } else {
+              pageObj.query = kw;
+              noQueryArr.splice(noQueryArr.indexOf(pageObj), 1);
+              const withQueryArr = isCtr ? ctrDataWithQuery : optimiseDataWithQuery;
+              withQueryArr.push(pageObj);
+              if (isCtr) { updateCtrCounts(); } else { updateOptCounts(); }
+            }
           }
-          if (isCtr) { updateCtrCounts(); } else { updateOptCounts(); }
           // Remove row from missing table
           btn.closest('tr').remove();
         } else {
@@ -4254,6 +4282,8 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
     let dpSub        = 'all';
     let qwRegFilter  = '';
     let dpRegFilter  = '';
+    let qwDataNoKeyword = [];
+    let qwSubTab = 'with';
     let qwSelectedSet = new Set();
     let dpSelectedSet = new Set();
     let qwColSorts   = {};
@@ -4329,10 +4359,23 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
           qwData[getPageType(entry.page)].push(entry);
           qwExcludeUrls.add(entry.page);
         });
+        // Fill registry keyword for pages missing GSC keyword
+        Object.keys(qwData).forEach(t => {
+          qwData[t].forEach(p => { if (p.keyword === '—') { const r=kwrRegistry.byUrl[p.page.toLowerCase()]; if(r) p.keyword=r.keyword; } });
+        });
         Object.keys(qwData).forEach(t => qwData[t].sort((a,b)=>b.imp-a.imp));
+        // Split into with/no keyword
+        qwDataNoKeyword = [];
+        Object.keys(qwData).forEach(t => {
+          const noKw = qwData[t].filter(p => p.keyword === '—');
+          qwData[t] = qwData[t].filter(p => p.keyword !== '—');
+          qwDataNoKeyword.push(...noKw);
+        });
+        qwDataNoKeyword.sort((a,b) => b.imp - a.imp);
         ['collections','blogs','products','pages'].forEach(t => {
           document.getElementById('qwCount'+t.charAt(0).toUpperCase()+t.slice(1)).textContent = qwData[t].length;
         });
+        updateQwMissingCounts();
         qwUpdateSubCounts();
         qwRenderHeader();
         qwRenderRows();
@@ -4473,7 +4516,33 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
 
     function qwUpdateSubCounts() { }
 
+    function updateQwMissingCounts() {
+      const total = Object.values(qwData).reduce((s,a) => s + a.length, 0);
+      document.getElementById('qwWithCount').textContent = '(' + total + ')';
+      document.getElementById('qwNoCount').textContent = '(' + qwDataNoKeyword.length + ')';
+    }
+
+    function renderQWMissing() {
+      qwSubTab = 'no';
+      document.getElementById('qwWithPanel').style.display = 'none';
+      document.getElementById('qwNoPanel').style.display = '';
+      document.getElementById('qwTabNo').style.background = '#1a1a1a'; document.getElementById('qwTabNo').style.color = '#fff';
+      document.getElementById('qwTabWith').style.background = '#e5e5e5'; document.getElementById('qwTabWith').style.color = '#555';
+      const tbody = document.getElementById('qwMissingBody');
+      if (!qwDataNoKeyword.length) { tbody.innerHTML='<tr class="loading-row"><td colspan="5">No pages missing keyword</td></tr>'; return; }
+      tbody.innerHTML = qwDataNoKeyword.map((r,i) => {
+        return `<tr><td style="padding:8px 12px;"><input type="checkbox" class="qw-missing-cb" data-page="${r.page}" data-idx="${i}"></td><td style="padding:8px 12px;"><a href="https://aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;word-break:break-all;">${r.page}</a></td><td style="padding:8px 12px;text-align:right;font-size:12px;">${fmt(r.imp)}</td><td style="padding:8px 12px;text-align:right;font-size:12px;">${fmtPos(r.pos)}</td><td style="padding:8px 12px;font-size:12px;color:#666;" id="qw-status-${i}">—</td></tr>`;
+      }).join('');
+    }
+
+    function qwMissingSelectAll() { document.querySelectorAll('.qw-missing-cb').forEach(cb => cb.checked = true); }
+
     function qwRenderRows() {
+      qwSubTab = 'with';
+      document.getElementById('qwWithPanel').style.display = '';
+      document.getElementById('qwNoPanel').style.display = 'none';
+      document.getElementById('qwTabWith').style.background = '#1a1a1a'; document.getElementById('qwTabWith').style.color = '#fff';
+      document.getElementById('qwTabNo').style.background = '#e5e5e5'; document.getElementById('qwTabNo').style.color = '#555';
       const search=(document.getElementById('qwSearch')?.value||'').toLowerCase();
       let rows=qwData[qwPageType]||[];
       if (search) rows=rows.filter(r=>r.page.includes(search)||r.keyword.includes(search));
