@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.12</div>
+      <div class="tool-version">v59.13</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -2016,7 +2016,11 @@
       if (!data.length) { tbody.innerHTML='<tr class="loading-row"><td colspan="10">No pages found</td></tr>'; return; }
       tbody.innerHTML = data.slice(0,ctrLimit).map((r,i) => {
         const {badge, canLock} = contentRegBadge(r.query, r.page);
-        const action = canLock ? `<button onclick="contentLock('${encodeURIComponent(r.query)}','${encodeURIComponent(r.page)}',this)" style="padding:4px 10px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button>` : '<span style="color:#ccc;font-size:12px;">—</span>';
+        const kwTaken = badge.includes('Kw taken');
+        const showMove = canLock || kwTaken;
+        const moveBtn = showMove ? `<button onclick="moveToNokw('${encodeURIComponent(r.page)}','ctr',this)" style="margin-left:4px;padding:3px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↗ Move</button>` : '';
+        const lockBtn = canLock ? `<button onclick="contentLock('${encodeURIComponent(r.query)}','${encodeURIComponent(r.page)}',this)" style="padding:4px 10px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button>` : '';
+        const action = lockBtn || moveBtn ? `${lockBtn}${moveBtn}` : '<span style="color:#ccc;font-size:12px;">—</span>';
         return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:12px;">${priority(r.impressions)}</td><td><a href="https://aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;word-break:break-all;">${r.page}</a></td><td style="font-size:12px;color:#555;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.query}</td><td class="num">${fmt(r.impressions)}</td><td class="num">${fmt(r.clicks)}</td><td class="num">${fmtCTR(r.ctr)}</td><td class="num">${fmtPos(r.position)}</td><td>${badge}</td><td>${action}</td></tr>`;
       }).join('');
     }
@@ -2056,7 +2060,11 @@
       if (!data.length) { tbody.innerHTML='<tr class="loading-row"><td colspan="8">No pages found</td></tr>'; return; }
       tbody.innerHTML = data.slice(0,optLimit).map((r,i) => {
         const {badge, canLock} = contentRegBadge(r.query, r.page);
-        const action = canLock ? `<button onclick="contentLock('${encodeURIComponent(r.query)}','${encodeURIComponent(r.page)}',this)" style="padding:4px 10px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button>` : '<span style="color:#ccc;font-size:12px;">—</span>';
+        const kwTaken = badge.includes('Kw taken');
+        const showMove = canLock || kwTaken;
+        const moveBtn = showMove ? `<button onclick="moveToNokw('${encodeURIComponent(r.page)}','opt',this)" style="margin-left:4px;padding:3px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↗ Move</button>` : '';
+        const lockBtn = canLock ? `<button onclick="contentLock('${encodeURIComponent(r.query)}','${encodeURIComponent(r.page)}',this)" style="padding:4px 10px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button>` : '';
+        const action = lockBtn || moveBtn ? `${lockBtn}${moveBtn}` : '<span style="color:#ccc;font-size:12px;">—</span>';
         return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:12px;">${priority(r.impressions)}</td><td><a href="https://aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;word-break:break-all;">${r.page}</a></td><td style="font-size:12px;color:#555;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.query}</td><td class="num">${fmt(r.impressions)}</td><td class="num">${fmtPos(r.position)}</td><td>${badge}</td><td>${action}</td></tr>`;
       }).join('');
     }
@@ -2199,7 +2207,9 @@
                 badge = '<span style="color:#aaa;font-size:11px;">—</span>';
               }
               const lockBtn = canLock ? `<button onclick="lockMissingKeyword('${encodeURIComponent(query)}','${encodeURIComponent(page)}','${type}',${idx},this)" style="margin-left:6px;padding:3px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button>` : '';
-              if (statusEl) statusEl.innerHTML = `<span style="font-size:12px;color:#333;">${query}</span> ${badge}${lockBtn}`;
+              const showMove = canLock || (!regByUrl && badge.includes('Kw taken'));
+              const moveBtn = showMove ? `<button onclick="moveToNokw('${encodeURIComponent(page)}','${type}',this)" style="margin-left:4px;padding:3px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↗ Move</button>` : '';
+              if (statusEl) statusEl.innerHTML = `<span style="font-size:12px;color:#333;">${query}</span> ${badge}${lockBtn}${moveBtn}`;
             } else {
               // No keyword found — move to Pages Without Locked Keywords
               const pageObj = noQueryArr.find(p => p.page === page);
@@ -2239,6 +2249,41 @@
 
       fetchBtn.disabled = false;
       if (isCtr) { updateCtrCounts(); } else { updateOptCounts(); }
+    }
+
+    function moveToNokw(encodedPage, type, btn) {
+      const page = decodeURIComponent(encodedPage);
+      const isCtr = type === 'ctr';
+      const noQueryArr = isCtr ? ctrDataNoQuery : type === 'opt' ? optimiseDataNoQuery : null;
+      const withQueryArr = isCtr ? ctrDataWithQuery : type === 'opt' ? optimiseDataWithQuery : null;
+
+      // Remove from whichever array it's in
+      let pageObj = null;
+      if (noQueryArr) {
+        const idx = noQueryArr.findIndex(p => p.page === page);
+        if (idx > -1) { pageObj = noQueryArr.splice(idx, 1)[0]; }
+      }
+      if (!pageObj && withQueryArr) {
+        const idx = withQueryArr.findIndex(p => p.page === page);
+        if (idx > -1) { pageObj = withQueryArr.splice(idx, 1)[0]; }
+      }
+
+      // Add to nokwData
+      if (nokwLoaded && pageObj) {
+        const pType = getPageType(page);
+        if (nokwData[pType]) {
+          // Only add if not already there
+          if (!nokwData[pType].find(p => p.url === page)) {
+            nokwData[pType].push({ url: page, imp: pageObj.impressions||0, clk: pageObj.clicks||0, suggestion: null });
+            nokwData[pType].sort((a,b) => b.imp - a.imp);
+          }
+          nokwRender();
+        }
+      }
+
+      // Remove row from current table
+      btn.closest('tr').remove();
+      if (isCtr) updateCtrCounts(); else updateOptCounts();
     }
 
     async function lockMissingKeyword(encodedQuery, encodedPage, type, idx, btn) {
