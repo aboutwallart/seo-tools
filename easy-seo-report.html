@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.18</div>
+      <div class="tool-version">v59.19</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -2245,14 +2245,20 @@
               const lockBtn = canLock ? `<button onclick="lockMissingKeyword('${encodeURIComponent(query)}','${encodeURIComponent(page)}','${type}',${idx},this)" style="margin-left:6px;padding:3px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button>` : '';
               const showMove = canLock || (!regByUrl && badge.includes('Kw taken'));
               const moveBtn = showMove ? `<button onclick="moveToNokw('${encodeURIComponent(page)}','${type}',this)" style="margin-left:4px;padding:3px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↗ Move</button>` : '';
-              if (statusEl) statusEl.innerHTML = `<span style="font-size:12px;color:#333;">${query}</span> ${badge}${lockBtn}${moveBtn}`;
+              const html = `<span style="font-size:12px;color:#333;">${query}</span> ${badge}${lockBtn}${moveBtn}`;
+              if (isQw) { const e = qwDataNoKeyword.find(r=>r.page===page); if(e) e.fetchedHtml = html; }
+              if (statusEl) statusEl.innerHTML = html;
             } else {
               const moveBtn = `<button onclick="moveToNokw('${encodeURIComponent(page)}','${type}',this)" style="margin-left:4px;padding:3px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↗ Move</button>`;
-              if (statusEl) statusEl.innerHTML = `<span style="color:#aaa;font-size:11px;">— No keyword found</span>${moveBtn}`;
+              const html = `<span style="color:#aaa;font-size:11px;">— No keyword found</span>${moveBtn}`;
+              if (isQw) { const e = qwDataNoKeyword.find(r=>r.page===page); if(e) e.fetchedHtml = html; }
+              if (statusEl) statusEl.innerHTML = html;
             }
           } else {
             const moveBtn = `<button onclick="moveToNokw('${encodeURIComponent(page)}','${type}',this)" style="margin-left:4px;padding:3px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↗ Move</button>`;
-            if (statusEl) statusEl.innerHTML = `<span style="color:#aaa;font-size:11px;">— No data</span>${moveBtn}`;
+            const html = `<span style="color:#aaa;font-size:11px;">— No data</span>${moveBtn}`;
+            if (isQw) { const e = qwDataNoKeyword.find(r=>r.page===page); if(e) e.fetchedHtml = html; }
+            if (statusEl) statusEl.innerHTML = html;
           }
         } catch(e) {
           if (statusEl) statusEl.innerHTML = '❌ Error';
@@ -2272,12 +2278,14 @@
 
       // Save to registry as REPURPOSE
       try {
-        await fetch('/api/blogs', {
+        const saveRes = await fetch('/api/blogs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'repurpose-page', url: fullUrl })
         });
-      } catch(e) { console.warn('Repurpose save failed:', e); }
+        const saveJson = await saveRes.json();
+        if (!saveJson.success) { btn.disabled = false; btn.textContent = '↗ Move'; alert('Failed to save: ' + (saveJson.error||'unknown')); return; }
+      } catch(e) { btn.disabled = false; btn.textContent = '↗ Move'; alert('Error saving: ' + e.message); return; }
 
       const isCtr = type === 'ctr';
       const noQueryArr = isCtr ? ctrDataNoQuery : type === 'opt' ? optimiseDataNoQuery : null;
@@ -2295,11 +2303,16 @@
       }
       // For qw/dp, remove from their data arrays
       if (type === 'qw') {
+        // Also check qwDataNoKeyword (page may be there if moved from missing tab)
+        const qwNoIdx = qwDataNoKeyword.findIndex(r => r.page === page);
+        if (qwNoIdx > -1) { if(!pageObj) pageObj = qwDataNoKeyword[qwNoIdx]; qwDataNoKeyword.splice(qwNoIdx, 1); }
+        // Also check qwData arrays
         ['collections','blogs','products','pages'].forEach(t => {
           const i = qwData[t].findIndex(r => r.page === page);
           if (i > -1) { if(!pageObj) pageObj = qwData[t][i]; qwData[t].splice(i,1); }
         });
-        qwRenderRows();
+        updateQwMissingCounts();
+        // Do NOT switch tab — just remove the row from current view
       }
       if (type === 'dp') {
         ['collections','blogs','products','pages'].forEach(t => {
@@ -4531,7 +4544,8 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
       const tbody = document.getElementById('qwMissingBody');
       if (!qwDataNoKeyword.length) { tbody.innerHTML='<tr class="loading-row"><td colspan="5">No pages missing keyword</td></tr>'; return; }
       tbody.innerHTML = qwDataNoKeyword.map((r,i) => {
-        return `<tr><td style="padding:8px 12px;"><input type="checkbox" class="qw-missing-cb" data-page="${r.page}" data-idx="${i}"></td><td style="padding:8px 12px;"><a href="https://aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;word-break:break-all;">${r.page}</a></td><td style="padding:8px 12px;text-align:right;font-size:12px;">${fmt(r.imp)}</td><td style="padding:8px 12px;text-align:right;font-size:12px;">${fmtPos(r.pos)}</td><td style="padding:8px 12px;font-size:12px;color:#666;" id="qw-status-${i}">—</td></tr>`;
+        const statusHtml = r.fetchedHtml || '—';
+        return `<tr><td style="padding:8px 12px;"><input type="checkbox" class="qw-missing-cb" data-page="${r.page}" data-idx="${i}"></td><td style="padding:8px 12px;"><a href="https://aboutwallart.com${r.page}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;word-break:break-all;">${r.page}</a></td><td style="padding:8px 12px;text-align:right;font-size:12px;">${fmt(r.imp)}</td><td style="padding:8px 12px;text-align:right;font-size:12px;">${fmtPos(r.pos)}</td><td style="padding:8px 12px;font-size:12px;color:#666;" id="qw-status-${i}">${statusHtml}</td></tr>`;
       }).join('');
     }
 
