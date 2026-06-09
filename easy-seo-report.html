@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.23</div>
+      <div class="tool-version">v59.24</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -709,15 +709,21 @@
 
           <div class="content-controls" style="border-top:none;">
             <label>Search:</label>
-            <input type="text" id="blogOptSearch" placeholder="Filter by URL..." oninput="renderBlogOptActive()">
+            <input type="text" id="blogOptSearch" placeholder="Filter by URL..." oninput="blogOptPage=1;renderBlogOptActive()">
+            <select id="blogOptKwFilter" onchange="blogOptPage=1;renderBlogOptActive()" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:12px;">
+              <option value="">All</option>
+              <option value="no-keyword">No Keyword</option>
+            </select>
             <label>Show:</label>
-            <select id="blogOptLimit" onchange="renderBlogOptActive()">
+            <select id="blogOptLimit" onchange="blogOptPage=1;renderBlogOptActive()">
               <option value="50">50 rows</option>
               <option value="100">100 rows</option>
               <option value="150">150 rows</option>
+              <option value="9999">All</option>
             </select>
             <button class="download-btn" onclick="downloadBlogOptCSV()">⬇ Download CSV</button>
           </div>
+          <div id="blogOptPagination" style="display:flex;gap:8px;align-items:center;padding:8px 0;font-size:12px;color:#666;"></div>
           <table>
             <thead><tr>
               <th>#</th>
@@ -2633,6 +2639,7 @@
     let blogOptLoaded = false;
     let blogOptAllData = { urgent: [], improve: [], monitor: [] };
     let blogOptActiveTab = 'urgent';
+    let blogOptPage = 1;
 
     async function loadBlogOptimizations() {
       const start = getDate(180);
@@ -2735,6 +2742,7 @@
 
     function switchBlogOptTab(tab) {
       blogOptActiveTab = tab;
+      blogOptPage = 1;
       // Update tab styles
       ['urgent','improve','monitor'].forEach(t => {
         const btn = document.getElementById('blogOptTab-' + t);
@@ -2750,20 +2758,37 @@
     function renderBlogOptActive() {
       const search = (document.getElementById('blogOptSearch')?.value || '').toLowerCase();
       const limit = parseInt(document.getElementById('blogOptLimit')?.value || '50');
-      const data = blogOptAllData[blogOptActiveTab];
-      const filtered = search ? data.filter(r => r.url.toLowerCase().includes(search)) : data;
-      renderBlogOptRows(filtered.slice(0, limit));
+      const kwFilter = document.getElementById('blogOptKwFilter')?.value || '';
+      let data = blogOptAllData[blogOptActiveTab];
+      if (search) data = data.filter(r => r.url.toLowerCase().includes(search));
+      if (kwFilter === 'no-keyword') data = data.filter(r => !r.lockedKeyword);
+      const total = data.length;
+      const totalPages = Math.ceil(total / limit);
+      if (blogOptPage > totalPages) blogOptPage = 1;
+      const start = (blogOptPage - 1) * limit;
+      const pageData = data.slice(start, start + limit);
+      renderBlogOptRows(pageData, start);
+      // Pagination controls
+      const pg = document.getElementById('blogOptPagination');
+      if (pg) {
+        if (totalPages <= 1) { pg.innerHTML = `<span>${total} rows</span>`; }
+        else {
+          pg.innerHTML = `<button onclick="blogOptPage--;renderBlogOptActive()" ${blogOptPage<=1?'disabled':''} style="padding:4px 10px;border:1px solid #ddd;border-radius:4px;font-size:12px;cursor:pointer;background:#fff;">← Prev</button>
+          <span>Page ${blogOptPage} of ${totalPages} · ${total} rows</span>
+          <button onclick="blogOptPage++;renderBlogOptActive()" ${blogOptPage>=totalPages?'disabled':''} style="padding:4px 10px;border:1px solid #ddd;border-radius:4px;font-size:12px;cursor:pointer;background:#fff;">Next →</button>`;
+        }
+      }
     }
 
-    function renderBlogOptRows(rows) {
+    function renderBlogOptRows(rows, offset=0) {
       const tbody = document.getElementById('blogOptBody');
-      if (!rows.length) { tbody.innerHTML = '<tr class="loading-row"><td colspan="6">No blogs found</td></tr>'; return; }
+      if (!rows.length) { tbody.innerHTML = '<tr class="loading-row"><td colspan="8">No blogs found</td></tr>'; return; }
       const colors = { urgent: { row:'background:#fef2f2;', ctr:'color:#dc2626;font-weight:600;' }, improve: { row:'background:#fefce8;', ctr:'color:#92400e;font-weight:600;' }, monitor: { row:'', ctr:'color:#16a34a;' } };
       const c = colors[blogOptActiveTab];
       tbody.innerHTML = rows.map((r,i) => {
         const short = r.shortUrl || r.url.replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
         const encUrl = encodeURIComponent(short);
-        const inputId = 'blogopt-input-' + i;
+        const inputId = 'blogopt-input-' + (offset + i);
         const kwCell = r.lockedKeyword
           ? `<span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🔒 ${r.lockedKeyword}</span>`
           : `<span style="color:#ccc;font-size:12px;">— No keyword</span>`;
@@ -2774,7 +2799,7 @@
               <button onclick="blogOptLock('${encUrl}','${inputId}',this)" style="padding:4px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button>
             </div>`;
         return `<tr style="${c.row}">
-          <td style="color:#aaa;font-size:12px;">${i+1}.</td>
+          <td style="color:#aaa;font-size:12px;">${offset+i+1}.</td>
           <td><a href="${r.url}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:13px;word-break:break-all;">${short}</a></td>
           <td class="num">${fmt(r.impressions)}</td>
           <td class="num">${fmt(r.clicks)}</td>
