@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.7</div>
+      <div class="tool-version">v59.8</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1376,6 +1376,7 @@
     let ctrSort={key:'imp',dir:'desc'}, ctrLimit=50, ctrRegFilter='';
     let optSort={key:'pos',dir:'asc'},  optLimit=50, optRegFilter='';
     let crtSort={key:'imp',dir:'desc'}, crtLimit=50, crtRegFilter='';
+    let savedForLaterSet = new Set();
     let nokwLoaded=false, nokwData={collections:[],blogs:[],pages:[],products:[]}, nokwActiveTab='collections', nokwRegFilter='';
 
     function getDate(daysAgo){const d=new Date();d.setDate(d.getDate()-daysAgo);return d.toISOString().split('T')[0];}
@@ -1607,6 +1608,7 @@
         const savedForLater = (rJson2.success && rJson2.registry)
           ? rJson2.registry.filter(r => (r.action||'').toUpperCase() === 'SAVED_FOR_FUTURE').map(r => r.keyword).filter(Boolean)
           : [];
+        savedForLaterSet = new Set(savedForLater.map(k => k.toLowerCase()));
 
         // Fetch GSC pages (last 90 days)
         const pRes = await fetch(`${API}?action=pages&startDate=${getDate(90)}&endDate=${getDate(0)}`);
@@ -1857,7 +1859,6 @@
           return !words.some(w=>nonEnglish.includes(w));
         }
 
-        const savedForLaterSet = new Set(savedForLater.map(k => k.toLowerCase()));
         createData=allQueries
           .filter(r=>{
             const q=r.keys?r.keys[0]:'';
