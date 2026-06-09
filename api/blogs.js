@@ -1,4 +1,4 @@
-// blogs.js — v1.8
+// blogs.js — v2.0
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
@@ -606,6 +606,14 @@ export default async function handler(req, res) {
         const { keyword, intent } = req.body;
         if (!keyword) return res.status(400).json({ error: 'keyword required' });
         const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        // Duplicate check — skip if already exists with any action
+        const lines = registry.content.split('\n');
+        const kwLower = keyword.toLowerCase();
+        const alreadyExists = lines.some(line => {
+          const cols = parseCSVLine(line.trim());
+          return (cols[0]||'').toLowerCase() === kwLower;
+        });
+        if (alreadyExists) return res.status(200).json({ success: true, keyword, skipped: true });
         const newRow = `${csvField(keyword)},N/A,LOCKED,DONE,SAVED_FOR_FUTURE,N/A,N/A,N/A,N/A,User Action,UNKNOWN,`;
         const updated = registry.content.trimEnd() + '\n' + newRow + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Save for later: ${keyword}`);
@@ -618,6 +626,14 @@ export default async function handler(req, res) {
         const { keyword, intent } = req.body;
         if (!keyword) return res.status(400).json({ error: 'keyword required' });
         const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        // Duplicate check — skip if already exists with any action
+        const lines = registry.content.split('\n');
+        const kwLower = keyword.toLowerCase();
+        const alreadyExists = lines.some(line => {
+          const cols = parseCSVLine(line.trim());
+          return (cols[0]||'').toLowerCase() === kwLower;
+        });
+        if (alreadyExists) return res.status(200).json({ success: true, keyword, skipped: true });
         const newRow = `${csvField(keyword)},N/A,LOCKED,DONE,DELETED,N/A,N/A,N/A,N/A,User Action,UNKNOWN,`;
         const updated = registry.content.trimEnd() + '\n' + newRow + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Delete keyword: ${keyword}`);
@@ -685,6 +701,33 @@ export default async function handler(req, res) {
         const updated = repairedLines.join('\n') + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Repair registry: pad to 12 columns, fill blank intent`);
         return res.status(200).json({ success: true, fixedCount, totalRows: repairedLines.length - 1 });
+      }
+
+      // ── ACTION: deduplicate-registry ── (removes duplicate SAVED_FOR_FUTURE and DELETED rows, keeps one per keyword)
+      if (req.body.action === 'deduplicate-registry') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const lines = registry.content.split('\n').map(l => l.replace(/\r/g, ''));
+        const header = lines[0];
+        const seen = new Set();
+        const cleaned = [header];
+        let removed = 0;
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+          const cols = parseCSVLine(line);
+          const action = (cols[4]||'').toUpperCase();
+          const kw = (cols[0]||'').toLowerCase();
+          if (action === 'SAVED_FOR_FUTURE' || action === 'DELETED') {
+            const key = kw + '::' + action;
+            if (seen.has(key)) { removed++; continue; }
+            seen.add(key);
+          }
+          cleaned.push(sanitizeRow(cols));
+        }
+        const updated = cleaned.join('\n') + '\n';
+        await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Deduplicate registry: removed ${removed} duplicate rows`);
+        return res.status(200).json({ success: true, removed, total: cleaned.length - 1 });
       }
 
       // ── ACTION: fix-url-format ── (replaces https://www.aboutwallart.com with https://aboutwallart.com in all rows)
