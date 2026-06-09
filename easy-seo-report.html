@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.11</div>
+      <div class="tool-version">v59.12</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1881,6 +1881,8 @@
           .filter(p=>p.clicks>0&&p.ctr<0.02&&p.impressions>=100&&p.position<=7&&!p.page.includes('/blogs/')&&!qwExcludeUrls.has(p.page)&&!dpExcludeUrls.has(p.page))
           .sort((a,b)=>b.position-a.position);
         ctrData.forEach(p=>assigned.add(p.page));
+        // Fill in registry keyword for pages missing GSC keyword
+        ctrData.forEach(p => { if (!p.query) { const r=kwrRegistry.byUrl[p.page.toLowerCase()]; if(r) p.query=r.keyword; } });
         ctrDataWithQuery = ctrData.filter(p=>p.query);
         ctrDataNoQuery   = ctrData.filter(p=>!p.query);
         updateCtrCounts();
@@ -1892,6 +1894,8 @@
           .filter(p=>!assigned.has(p.page)&&p.impressions>=100&&p.position>7&&p.position<=15&&p.ctr<0.02&&!p.page.includes('/blogs/')&&!qwExcludeUrls.has(p.page)&&!dpExcludeUrls.has(p.page))
           .sort((a,b)=>a.position-b.position);
         optimiseData.forEach(p=>assigned.add(p.page));
+        // Fill in registry keyword for pages missing GSC keyword
+        optimiseData.forEach(p => { if (!p.query) { const r=kwrRegistry.byUrl[p.page.toLowerCase()]; if(r) p.query=r.keyword; } });
         optimiseDataWithQuery = optimiseData.filter(p=>p.query);
         optimiseDataNoQuery   = optimiseData.filter(p=>!p.query);
         updateOptCounts();
@@ -2197,10 +2201,34 @@
               const lockBtn = canLock ? `<button onclick="lockMissingKeyword('${encodeURIComponent(query)}','${encodeURIComponent(page)}','${type}',${idx},this)" style="margin-left:6px;padding:3px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button>` : '';
               if (statusEl) statusEl.innerHTML = `<span style="font-size:12px;color:#333;">${query}</span> ${badge}${lockBtn}`;
             } else {
-              if (statusEl) statusEl.innerHTML = '<span style="color:#aaa;font-size:11px;">— No keyword found</span>';
+              // No keyword found — move to Pages Without Locked Keywords
+              const pageObj = noQueryArr.find(p => p.page === page);
+              if (pageObj) {
+                noQueryArr.splice(noQueryArr.indexOf(pageObj), 1);
+                if (nokwLoaded) {
+                  const pType = getPageType(page).replace('blogs','blogs');
+                  if (nokwData[pType]) {
+                    nokwData[pType].push({ url: page, imp: pageObj.impressions||0, clk: pageObj.clicks||0, suggestion: null });
+                    nokwRender();
+                  }
+                }
+              }
+              if (statusEl) statusEl.innerHTML = '<span style="color:#aaa;font-size:11px;">— No data · moved to Pages Without Locked Keywords</span>';
             }
           } else {
-            if (statusEl) statusEl.innerHTML = '<span style="color:#aaa;font-size:11px;">— No data</span>';
+            // No data from GSC — move to Pages Without Locked Keywords
+            const pageObj = noQueryArr.find(p => p.page === page);
+            if (pageObj) {
+              noQueryArr.splice(noQueryArr.indexOf(pageObj), 1);
+              if (nokwLoaded) {
+                const pType = getPageType(page);
+                if (nokwData[pType]) {
+                  nokwData[pType].push({ url: page, imp: pageObj.impressions||0, clk: pageObj.clicks||0, suggestion: null });
+                  nokwRender();
+                }
+              }
+            }
+            if (statusEl) statusEl.innerHTML = '<span style="color:#aaa;font-size:11px;">— No data · moved to Pages Without Locked Keywords</span>';
           }
         } catch(e) {
           if (statusEl) statusEl.innerHTML = '❌ Error';
