@@ -1,4 +1,4 @@
-// blogs.js — v2.1
+// blogs.js — v2.2
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
@@ -614,7 +614,8 @@ export default async function handler(req, res) {
         });
         if (alreadyExists) return res.status(200).json({ success: true, skipped: true });
         const intent = detectIntent(url);
-        const newRow = sanitizeRow(['',url,'','DONE','REPURPOSE','','','','','System',intent,'']);
+        const urlPath = url.replace('https://aboutwallart.com','').replace('https://www.aboutwallart.com','');
+        const newRow = sanitizeRow([urlPath,url,'','DONE','REPURPOSE','','','','','System',intent,'']);
         const updated = registry.content.trimEnd() + '\n' + newRow + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Repurpose page: ${url}`);
         return res.status(200).json({ success: true });
