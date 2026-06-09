@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.9</div>
+      <div class="tool-version">v59.10</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -885,6 +885,14 @@
             <p style="font-size:13px;color:#666;margin-bottom:16px;">Fixes all existing rows in the registry CSV — pads any row with fewer than 12 columns, and <strong>overwrites the intent on every row</strong> based on the page URL (N/A = UNKNOWN, /collections/ or /products/ = COMMERCIAL, /blogs/ = INFORMATIONAL, /pages/ = NAVIGATIONAL). This corrects all historically wrong intents. Run once after deploying v1.6.</p>
             <button onclick="runRepairRegistry()" id="repairBtn" style="padding:10px 20px;background:#1a1a1a;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Run Repair Registry</button>
             <span id="repairStatus" style="margin-left:14px;font-size:13px;color:#666;"></span>
+          </div>
+
+          <!-- Deduplicate Registry -->
+          <div style="padding:24px;border-bottom:1px solid #e5e5e5;">
+            <h3 style="font-size:14px;font-weight:700;margin-bottom:6px;">🧹 Clean Up Duplicate Keywords</h3>
+            <p style="font-size:13px;color:#666;margin-bottom:16px;">Removes duplicate Save for Later and Deleted entries from the registry — keeps only one row per keyword. Run this once to fix historical duplicates.</p>
+            <button onclick="runDeduplicateRegistry()" id="dedupBtn" style="padding:10px 20px;background:#1a1a1a;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Clean Up Duplicates</button>
+            <span id="dedupStatus" style="margin-left:14px;font-size:13px;color:#666;"></span>
           </div>
 
           <!-- Fix URL Format -->
@@ -1782,6 +1790,14 @@
     async function loadContentOptimizations(){
       const start=getDate(180),end=getDate(0);
       try{
+        // Fetch SAVED_FOR_FUTURE keywords first so createData filter works correctly
+        const sfRes = await fetch('/api/blogs?action=get-registry');
+        const sfJson = await sfRes.json();
+        const sfList = (sfJson.success && sfJson.registry)
+          ? sfJson.registry.filter(r => (r.action||'').toUpperCase() === 'SAVED_FOR_FUTURE').map(r => (r.keyword||'').toLowerCase()).filter(Boolean)
+          : [];
+        savedForLaterSet = new Set(sfList);
+
         // Fetch pages from GSC
         const pagesRes=await fetch(`${API}?action=pages&startDate=${start}&endDate=${end}`);
         const pagesJson=await pagesRes.json();
@@ -2127,6 +2143,8 @@
         const j = await res.json();
         if (j.success) {
           kwrRegistry.byKw[kw.toLowerCase()] = { url: 'N/A', keyword: kw };
+          savedForLaterSet.add(kw.toLowerCase());
+          createData = createData.filter(r => r.query.toLowerCase() !== kw.toLowerCase());
           btn.closest('tr').remove();
         } else { btn.disabled = false; btn.textContent = '📌 Save for Later'; alert('Failed: ' + (j.error||'unknown')); }
       } catch(e) { btn.disabled = false; btn.textContent = '📌 Save'; alert('Error: ' + e.message); }
@@ -2203,6 +2221,7 @@
         const j = await res.json();
         if (j.success) {
           kwrRegistry.byKw[kw.toLowerCase()] = { url: 'N/A', keyword: kw };
+          createData = createData.filter(r => r.query.toLowerCase() !== kw.toLowerCase());
           btn.closest('tr').remove();
         } else { btn.disabled = false; btn.textContent = '🗑 Delete'; alert('Failed: ' + (j.error||'unknown')); }
       } catch(e) { btn.disabled = false; btn.textContent = '🗑 Delete'; alert('Error: ' + e.message); }
@@ -5128,6 +5147,32 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
     };
 
     loadOverview(28);loadClicksChart(28);loadDeviceChart(28);loadPages(28);loadQueries(28);
+
+    // ── SETTINGS: Deduplicate Registry ──
+    async function runDeduplicateRegistry() {
+      const btn = document.getElementById('dedupBtn');
+      const status = document.getElementById('dedupStatus');
+      btn.disabled = true; btn.textContent = '⏳ Cleaning...'; status.textContent = '';
+      try {
+        const res = await fetch('/api/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'deduplicate-registry' })
+        });
+        const json = await res.json();
+        if (json.success) {
+          status.textContent = `✅ Done. Removed ${json.removed} duplicate rows. Registry now has ${json.total} rows.`;
+          status.style.color = '#16a34a';
+        } else {
+          status.textContent = '❌ Error: ' + (json.error || 'Unknown error');
+          status.style.color = '#dc2626';
+        }
+      } catch(e) {
+        status.textContent = '❌ Error: ' + e.message;
+        status.style.color = '#dc2626';
+      }
+      btn.disabled = false; btn.textContent = 'Clean Up Duplicates';
+    }
 
     // ── SETTINGS: Fix URL Format ──
     async function runFixUrlFormat() {
