@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.20</div>
+      <div class="tool-version">v59.21</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1722,6 +1722,13 @@
           nokwData[type].push({ url, imp: r.impressions||0, clk: r.clicks||0, suggestion });
         });
 
+        // Build GSC lookup map for impressions/clicks
+        const gscPageMap = {};
+        allPages.forEach(r => {
+          const url = cleanUrl(r.keys?.[0]||'');
+          if (url) gscPageMap[url.toLowerCase()] = { imp: r.impressions||0, clk: r.clicks||0 };
+        });
+
         // Add REPURPOSE pages from registry (not already in nokwData)
         const repurposeRows = (rJson2.success && rJson2.registry)
           ? rJson2.registry.filter(r => (r.action||'').toUpperCase() === 'REPURPOSE' && r.url && r.url !== 'N/A')
@@ -1731,7 +1738,8 @@
           if (shouldExcludeUrl(url)) return;
           const pType = pageType(url);
           if (!nokwData[pType].find(p => p.url === url)) {
-            nokwData[pType].push({ url, imp: 0, clk: 0, suggestion: null });
+            const gsc = gscPageMap[url.toLowerCase()] || { imp: 0, clk: 0 };
+            nokwData[pType].push({ url, imp: gsc.imp, clk: gsc.clk, suggestion: null });
           }
         });
 
