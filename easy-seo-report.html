@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.31</div>
+      <div class="tool-version">v59.32</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -3856,7 +3856,7 @@
     let kwrPageQuery  = {};
     let kwrPage       = 1;
     let kwrTotalFiltered = 0;
-    let kwrDismissed; try { kwrDismissed = new Set(JSON.parse(localStorage.getItem('kwr_dismissed')||'[]')); } catch(e) { kwrDismissed = new Set(); }
+    let kwrDismissed = new Set();
     let kwrShowDismissed = false;
 
     // Sort state: { field, dir } per column
@@ -3983,12 +3983,25 @@
             const j = await dRes.json();
             if (j.success && Array.isArray(j.keywords)) {
               j.keywords.forEach(kw => kwrDismissed.add(kw));
-              try { localStorage.setItem('kwr_dismissed', JSON.stringify([...kwrDismissed])); } catch(e) {}
+
             }
           } catch(e) {}
         }
 
-        if (tRes) { const j = await tRes.json(); if (j.success && j.keywords) kwrSelectedSet = new Set(j.keywords); }
+        if (tRes) {
+          const j = await tRes.json();
+          if (j.success && j.keywords) {
+            if (j.keywords && j.keywords.version === 2) {
+              // New format - load normally
+              kwrSelectedSet = new Set(j.keywords.keywords || []);
+            } else {
+              // Old format (plain array from old system) - clear it, save new format
+              kwrSelectedSet = new Set();
+              fetch('/api/blogs',{method:'POST',headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({action:'save-tracked-keywords',keywords:{version:2,keywords:[]}})}).catch(()=>{});
+            }
+          }
+        }
 
         if (rRes) {
           const j = await rRes.json();
@@ -4014,12 +4027,7 @@
             savedForLaterSet = new Set(savedForLaterList.map(k => k.toLowerCase()));
             const dl = document.getElementById('nokwKeywordList');
             if (dl) dl.innerHTML = savedForLaterList.map(k => `<option value="${k.replace(/"/g,'&quot;')}">`).join('');
-            // One-time clear of old watch list
-            if (!localStorage.getItem('kwr_watchlist_reset_v5930')) {
-              kwrSelectedSet = new Set();
-              localStorage.setItem('kwr_watchlist_reset_v5930','1');
-              fetch('/api/blogs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'save-tracked-keywords',keywords:[]})}).catch(()=>{});
-            }
+
           }
         }
 
@@ -4325,7 +4333,7 @@
       kwrNoUrlSelected.delete(kw);
       kwrDismissed.add(kw);
       kwrAllData.forEach(r => { if (r.kw === kw) r.dismissed = true; });
-      try { localStorage.setItem('kwr_dismissed', JSON.stringify([...kwrDismissed])); } catch(e) {}
+
       kwrSaveDismissed();
       document.getElementById('kwrCountNourls').textContent = kwrNoUrlData.length;
       kwrUpdateCounts();
@@ -4448,7 +4456,7 @@
     function kwrDismiss(kw) {
       kwrDismissed.add(kw);
       kwrAllData.forEach(r => { if (r.kw === kw) r.dismissed = true; });
-      try { localStorage.setItem('kwr_dismissed', JSON.stringify([...kwrDismissed])); } catch(e) { console.warn('Could not save dismissed:', e); }
+
       kwrUpdateCounts();
       kwrFilterTable();
       kwrSaveDismissed();
@@ -4557,7 +4565,7 @@
       kwrFilterTable();
       try {
         await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ action:'save-tracked-keywords', keywords: [...kwrSelectedSet] }) });
+          body: JSON.stringify({ action:'save-tracked-keywords', keywords: {version:2, keywords:[...kwrSelectedSet]} }) });
       } catch(e) {}
     }
 
@@ -4568,7 +4576,7 @@
       kwrFilterTable();
       try {
         await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ action:'save-tracked-keywords', keywords: [...kwrSelectedSet] }) });
+          body: JSON.stringify({ action:'save-tracked-keywords', keywords: {version:2, keywords:[...kwrSelectedSet]} }) });
       } catch(e) {}
     }
 
@@ -4598,7 +4606,7 @@
     function kwrRestore(kw) {
       kwrDismissed.delete(kw);
       kwrAllData.forEach(r => { if (r.kw === kw) r.dismissed = false; });
-      try { localStorage.setItem('kwr_dismissed', JSON.stringify([...kwrDismissed])); } catch(e) { console.warn('Could not save dismissed:', e); }
+
       kwrUpdateCounts();
       kwrFilterTable();
       kwrSaveDismissed();
