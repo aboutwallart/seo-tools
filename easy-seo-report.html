@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.35</div>
+      <div class="tool-version">v59.36</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -4867,6 +4867,8 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
             const lockedUrl=(regByKw.url||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
             entry.regStatus = lockedUrl===entry.page?'locked-same':'kw-taken';
             entry.regOtherUrl=lockedUrl; entry.regOtherKw='';
+          } else if (regByUrl && (regByUrl.keyword||'').toLowerCase()===qwKwKey) {
+            entry.regStatus='locked-same'; entry.regOtherKw=''; entry.regOtherUrl='';
           } else if (regByUrl) {
             entry.regStatus='url-taken'; entry.regOtherKw=regByUrl.keyword; entry.regOtherUrl='';
           } else { entry.regStatus='unlocked'; entry.regOtherKw=''; entry.regOtherUrl=''; }
@@ -4938,10 +4940,20 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
           if (prevClk<10) return;
           const drop=(entry.currClk-prevClk)/prevClk*100;
           if (drop>-20) return;
+          const dpKwKey=(entry.keyword||'').toLowerCase();
+          const regByKwDp=kwrRegistry?.byKw?.[dpKwKey];
           const regByUrl=kwrRegistry?.byUrl?.[entry.page.toLowerCase()];
+          const dpSameIntent=kwrRegistry?.byKwIntent?.has(dpKwKey+'::'+urlToIntent(entry.page));
           entry.prevClk=prevClk; entry.drop=drop;
-          if (regByUrl){entry.regStatus='url-taken';entry.regOtherKw=regByUrl.keyword;}
-          else {entry.regStatus='unlocked';entry.regOtherKw='';}
+          if (dpSameIntent && regByKwDp) {
+            const lockedUrl=(regByKwDp.url||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
+            entry.regStatus=lockedUrl===entry.page?'locked-same':'kw-taken';
+            entry.regOtherUrl=lockedUrl; entry.regOtherKw='';
+          } else if (regByUrl && (regByUrl.keyword||'').toLowerCase()===dpKwKey) {
+            entry.regStatus='locked-same'; entry.regOtherKw=''; entry.regOtherUrl='';
+          } else if (regByUrl) {
+            entry.regStatus='url-taken'; entry.regOtherKw=regByUrl.keyword; entry.regOtherUrl='';
+          } else { entry.regStatus='unlocked'; entry.regOtherKw=''; entry.regOtherUrl=''; }
           dpData[getPageType(entry.page)].push(entry);
           dpExcludeUrls.add(entry.page);
         });
