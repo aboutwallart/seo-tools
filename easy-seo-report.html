@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.27</div>
+      <div class="tool-version">v59.28</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1082,6 +1082,7 @@
           <button id="kwrTabAll" onclick="kwrSwitchTab('all')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">All Keywords <span id="kwrCountAll" class="count-badge">—</span></button>
           <button id="kwrTabTracked" onclick="kwrSwitchTab('tracked')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Selected <span id="kwrCountTracked" class="count-badge">—</span></button>
           <button id="kwrTabDismissed" onclick="kwrSwitchTab('dismissed')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Dismissed <span id="kwrCountDismissed" class="count-badge">0</span></button>
+          <button id="kwrTabNourls" onclick="kwrSwitchTab('nourls')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Without URL <span id="kwrCountNourls" class="count-badge">—</span></button>
         </div>
 
         <!-- Save status -->
@@ -1090,7 +1091,7 @@
         </div>
 
         <!-- Table -->
-        <div class="table-card">
+        <div id="kwrTableWrap" class="table-card">
           <table id="kwrTable" style="table-layout:fixed;width:100%;">
             <thead id="kwrTableHead"></thead>
             <tbody id="kwrBody"><tr class="loading-row"><td colspan="9">Loading keyword rankings...</td></tr></tbody>
@@ -1099,6 +1100,30 @@
 
         <!-- Pagination -->
         <div id="kwrPagination" style="padding:12px 16px;display:flex;align-items:center;gap:12px;"></div>
+
+        <!-- Without URL panel -->
+        <div id="kwrNoUrlPanel" style="display:none;">
+          <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <button onclick="kwrNoUrlSelectAll()" style="padding:6px 12px;border:1px solid #ccc;border-radius:4px;font-size:12px;cursor:pointer;background:#fff;">Select All</button>
+            <button onclick="kwrFetchUrls()" id="kwrFetchUrlsBtn" style="padding:6px 14px;border:none;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;background:#6366f1;color:#fff;">🔍 Fetch URLs</button>
+            <span id="kwrFetchUrlsStatus" style="font-size:12px;color:#666;"></span>
+          </div>
+          <div class="table-card">
+            <table style="width:100%;">
+              <thead><tr style="background:#1a1a1a;color:#fff;">
+                <th style="padding:8px 12px;width:30px;"></th>
+                <th style="padding:8px 12px;text-align:left;font-size:12px;">Keyword</th>
+                <th style="padding:8px 12px;text-align:right;font-size:12px;">Pos</th>
+                <th style="padding:8px 12px;text-align:right;font-size:12px;">Impressions</th>
+                <th style="padding:8px 12px;text-align:right;font-size:12px;">Clicks</th>
+                <th style="padding:8px 12px;text-align:left;font-size:12px;">Found URL</th>
+                <th style="padding:8px 12px;text-align:left;font-size:12px;">Registry</th>
+                <th style="padding:8px 12px;text-align:left;font-size:12px;">Actions</th>
+              </tr></thead>
+              <tbody id="kwrNoUrlBody"><tr class="loading-row"><td colspan="8">Select keywords above and click Fetch URLs.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
 
       </div>
 
@@ -3818,6 +3843,8 @@
     // ═══════════════════════════════════════════════════════
 
     let kwrAllData    = [];
+    let kwrNoUrlData  = [];
+    let kwrNoUrlSelected = new Set();
     let kwrPrevData   = {};
     let kwrSelectedSet = new Set();
     let kwrActiveTab  = 'all';
@@ -3923,8 +3950,12 @@
     function kwrRefresh() {
       kwrLoaded = false;
       kwrAllData = [];
+      kwrNoUrlData = [];
+      kwrNoUrlSelected = new Set();
       kwrRegistry = { byKw:{}, byUrl:{} };
       kwrPage = 1;
+      kwrActiveTab = 'all';
+      kwrSwitchTab('all');
       document.getElementById('kwrBody').innerHTML = '<tr class="loading-row"><td colspan="9">Loading keyword rankings...</td></tr>';
       kwrInit();
     }
@@ -4034,12 +4065,189 @@
           return { kw, pos, imp, clk, ctr, diff, trend, rankingUrl, regStatus, regOtherUrl, regOtherKw };
         }).sort((a,b) => a.pos - b.pos).map((r, i) => ({ ...r, _idx: i, dismissed: kwrDismissed.has(r.kw) }));
 
+        // Build no-URL list from kwrAllData
+        kwrNoUrlData = kwrAllData
+          .filter(r => r.rankingUrl === '—' && !r.dismissed)
+          .map(r => ({ kw: r.kw, pos: r.pos, imp: r.imp, clk: r.clk, foundUrl: null, fetchStatus: null, regStatus: 'unlocked', regOtherUrl: '', regOtherKw: '' }));
+        kwrNoUrlSelected = new Set();
+
         kwrUpdateCounts();
         kwrFilterTable();
 
       } catch(e) {
         document.getElementById('kwrBody').innerHTML = `<tr class="loading-row"><td colspan="9" style="color:#dc2626;">Error: ${e.message}</td></tr>`;
       }
+    }
+
+    // ─── Without URL tab functions ───────────────────────────────────────────────
+
+    function kwrNoUrlSelectAll() {
+      if (kwrNoUrlSelected.size === kwrNoUrlData.length) {
+        kwrNoUrlSelected.clear();
+      } else {
+        kwrNoUrlData.forEach(r => kwrNoUrlSelected.add(r.kw));
+      }
+      kwrRenderNoUrl();
+    }
+
+    function kwrRenderNoUrl() {
+      const tbody = document.getElementById('kwrNoUrlBody');
+      if (!kwrNoUrlData.length) {
+        tbody.innerHTML = '<tr class="loading-row"><td colspan="8">No keywords without URL found.</td></tr>';
+        return;
+      }
+      const posColor = pos => pos<=3?'#16a34a':pos<=10?'#d97706':'#dc2626';
+      tbody.innerHTML = kwrNoUrlData.map((r, i) => {
+        const checked = kwrNoUrlSelected.has(r.kw) ? 'checked' : '';
+        const enc = encodeURIComponent(r.kw);
+
+        let urlCell = '<span style="color:#aaa;font-size:12px;">—</span>';
+        if (r.fetchStatus === 'fetching') {
+          urlCell = '<span style="color:#888;font-size:12px;">⏳ Fetching...</span>';
+        } else if (r.fetchStatus === 'done' && r.foundUrl) {
+          urlCell = `<a href="https://aboutwallart.com${r.foundUrl}" target="_blank" style="color:#2563eb;font-size:12px;text-decoration:none;word-break:break-all;">${r.foundUrl}</a>`;
+        } else if (r.fetchStatus === 'done' && !r.foundUrl) {
+          urlCell = '<span style="color:#dc2626;font-size:12px;">Not found</span>';
+        }
+
+        let regBadge = '<span style="color:#ccc;font-size:12px;">—</span>';
+        if (r.regStatus === 'locked-same') regBadge = '<span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🔒 Locked</span>';
+        else if (r.regStatus === 'kw-taken') regBadge = `<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Locked to: ${r.regOtherUrl}">🟡 Kw taken</span>`;
+        else if (r.regStatus === 'url-taken') regBadge = `<span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="URL locked to: ${r.regOtherKw}">🔴 URL taken</span>`;
+
+        let actionCell = '<span style="color:#ccc;font-size:12px;">—</span>';
+        if (r.fetchStatus === 'done') {
+          if (r.foundUrl && r.regStatus === 'unlocked') {
+            actionCell = `<button onclick="kwrNoUrlLock('${enc}',${i},this)" style="padding:4px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;margin-right:4px;">🔒 Lock</button>`;
+          }
+          if (r.regStatus === 'kw-taken' || r.regStatus === 'url-taken' || !r.foundUrl) {
+            actionCell = `<button onclick="kwrNoUrlSaveForFuture('${enc}',${i},this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;margin-right:4px;">💾 Save for Future</button>`;
+          }
+          actionCell += `<button onclick="kwrNoUrlDelete('${enc}',${i},this)" style="padding:4px 8px;border:none;background:#dc2626;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🗑 Delete</button>`;
+        }
+
+        return `<tr>
+          <td style="padding:8px 12px;width:30px;"><input type="checkbox" ${checked} onchange="kwrNoUrlToggle('${enc}')" style="cursor:pointer;"></td>
+          <td style="padding:8px 12px;font-size:13px;word-break:break-word;">${r.kw}</td>
+          <td style="padding:8px 12px;text-align:right;color:${posColor(r.pos)};font-weight:600;">${fmtPos(r.pos)}</td>
+          <td style="padding:8px 12px;text-align:right;">${fmt(r.imp)}</td>
+          <td style="padding:8px 12px;text-align:right;">${fmt(r.clk)}</td>
+          <td style="padding:8px 12px;">${urlCell}</td>
+          <td style="padding:8px 12px;">${regBadge}</td>
+          <td style="padding:8px 12px;white-space:nowrap;">${actionCell}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    function kwrNoUrlToggle(enc) {
+      const kw = decodeURIComponent(enc);
+      if (kwrNoUrlSelected.has(kw)) kwrNoUrlSelected.delete(kw);
+      else kwrNoUrlSelected.add(kw);
+    }
+
+    async function kwrFetchUrls() {
+      const toFetch = kwrNoUrlData.filter(r => kwrNoUrlSelected.has(r.kw));
+      if (!toFetch.length) { alert('Please select at least one keyword first.'); return; }
+      const btn = document.getElementById('kwrFetchUrlsBtn');
+      const status = document.getElementById('kwrFetchUrlsStatus');
+      btn.disabled = true;
+      const end = getDate(0), start = getDate(90);
+      for (let i = 0; i < toFetch.length; i++) {
+        const r = toFetch[i];
+        r.fetchStatus = 'fetching';
+        status.textContent = `Fetching ${i+1} of ${toFetch.length}...`;
+        kwrRenderNoUrl();
+        try {
+          const res = await fetch(`/api/gsc?action=keyword-page&keyword=${encodeURIComponent(r.kw)}&startDate=${start}&endDate=${end}`);
+          const json = await res.json();
+          const rows = json?.data?.rows || [];
+          r.foundUrl = rows.length ? rows[0].keys[0].replace('https://aboutwallart.com','').replace('https://www.aboutwallart.com','') || '/' : null;
+          // Registry check on found URL
+          if (r.foundUrl) {
+            const kwKey = r.kw.toLowerCase();
+            const urlKey = cleanUrl(r.foundUrl).toLowerCase();
+            const regByKw = kwrRegistry.byKw[kwKey];
+            const regByUrl = kwrRegistry.byUrl[urlKey];
+            if (regByKw) {
+              const lockedUrl = cleanUrl(regByKw.url || '');
+              r.regStatus = (lockedUrl === r.foundUrl) ? 'locked-same' : 'kw-taken';
+              r.regOtherUrl = lockedUrl;
+            } else if (regByUrl) {
+              r.regStatus = 'url-taken';
+              r.regOtherKw = regByUrl.keyword;
+            } else {
+              r.regStatus = 'unlocked';
+            }
+          }
+        } catch(e) {
+          r.foundUrl = null;
+        }
+        r.fetchStatus = 'done';
+        kwrRenderNoUrl();
+      }
+      status.textContent = `Done — ${toFetch.length} keyword${toFetch.length>1?'s':''} checked.`;
+      btn.disabled = false;
+    }
+
+    async function kwrNoUrlLock(enc, idx, btn) {
+      const kw = decodeURIComponent(enc);
+      const r = kwrNoUrlData[idx];
+      if (!r || !r.foundUrl) return;
+      const fullUrl = 'https://aboutwallart.com' + r.foundUrl;
+      if (!confirm(`Lock to this page?\n\nURL: ${fullUrl}\nKeyword: ${kw}`)) return;
+      btn.disabled = true; btn.textContent = '⏳';
+      try {
+        const res = await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'lock-keyword', keyword: kw, url: fullUrl }) });
+        const json = await res.json();
+        if (json.success) {
+          if (!kwrRegistry.byKw) kwrRegistry.byKw = {};
+          kwrRegistry.byKw[kw.toLowerCase()] = { url: fullUrl, keyword: kw };
+          r.regStatus = 'locked-same';
+          kwrNoUrlData.splice(idx, 1);
+          kwrNoUrlSelected.delete(kw);
+          document.getElementById('kwrCountNourls').textContent = kwrNoUrlData.length;
+          kwrRenderNoUrl();
+        } else if (json.duplicate) {
+          btn.disabled = false; btn.textContent = '🔒 Lock';
+          alert('⚠️ Already locked to:\n' + json.lockedTo);
+        } else {
+          btn.disabled = false; btn.textContent = '🔒 Lock';
+          alert('Failed: ' + (json.error || 'unknown'));
+        }
+      } catch(e) { btn.disabled = false; btn.textContent = '🔒 Lock'; alert('Error: ' + e.message); }
+    }
+
+    async function kwrNoUrlSaveForFuture(enc, idx, btn) {
+      const kw = decodeURIComponent(enc);
+      if (!confirm(`Save for future?\n\nKeyword: ${kw}`)) return;
+      btn.disabled = true; btn.textContent = '⏳';
+      try {
+        const res = await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'save-for-later', keyword: kw }) });
+        const json = await res.json();
+        if (json.success || json.duplicate) {
+          const r = kwrNoUrlData[idx];
+          kwrNoUrlData.splice(idx, 1);
+          kwrNoUrlSelected.delete(kw);
+          document.getElementById('kwrCountNourls').textContent = kwrNoUrlData.length;
+          kwrRenderNoUrl();
+        } else {
+          btn.disabled = false; btn.textContent = '💾 Save for Future';
+          alert('Failed: ' + (json.error || 'unknown'));
+        }
+      } catch(e) { btn.disabled = false; btn.textContent = '💾 Save for Future'; alert('Error: ' + e.message); }
+    }
+
+    function kwrNoUrlDelete(enc, idx, btn) {
+      const kw = decodeURIComponent(enc);
+      kwrNoUrlData.splice(idx, 1);
+      kwrNoUrlSelected.delete(kw);
+      kwrDismissed.add(kw);
+      kwrAllData.forEach(r => { if (r.kw === kw) r.dismissed = true; });
+      try { localStorage.setItem('kwr_dismissed', JSON.stringify([...kwrDismissed])); } catch(e) {}
+      kwrSaveDismissed();
+      document.getElementById('kwrCountNourls').textContent = kwrNoUrlData.length;
+      kwrUpdateCounts();
+      kwrRenderNoUrl();
     }
 
     function kwrResetFilters() {
@@ -4056,7 +4264,7 @@
 
     function kwrSwitchTab(tab) {
       kwrActiveTab = tab; kwrPage = 1;
-      [['all','All'],['tracked','Tracked'],['dismissed','Dismissed']].forEach(([t,id]) => {
+      [['all','All'],['tracked','Tracked'],['dismissed','Dismissed'],['nourls','Nourls']].forEach(([t,id]) => {
         const btn = document.getElementById('kwrTab' + id);
         if (!btn) return;
         const active = t===tab;
@@ -4064,6 +4272,14 @@
         btn.style.color = active?'#1a1a1a':'#888';
         btn.style.borderBottomColor = active?'#1a1a1a':'transparent';
       });
+      const isNoUrl = tab === 'nourls';
+      const wrap = document.getElementById('kwrTableWrap');
+      const pag  = document.getElementById('kwrPagination');
+      const panel = document.getElementById('kwrNoUrlPanel');
+      if (wrap)  wrap.style.display  = isNoUrl ? 'none' : '';
+      if (pag)   pag.style.display   = isNoUrl ? 'none' : '';
+      if (panel) panel.style.display = isNoUrl ? ''     : 'none';
+      if (isNoUrl) { kwrRenderNoUrl(); return; }
       kwrRenderHeader();
       kwrFilterTable();
     }
@@ -4262,6 +4478,8 @@
       document.getElementById('kwrCountAll').textContent       = kwrAllData.filter(r => !kwrSelectedSet.has(r.kw) && !r.dismissed).length;
       document.getElementById('kwrCountTracked').textContent   = kwrAllData.filter(r => kwrSelectedSet.has(r.kw) && !r.dismissed).length;
       document.getElementById('kwrCountDismissed').textContent = kwrAllData.filter(r => r.dismissed).length;
+      const nourlsEl = document.getElementById('kwrCountNourls');
+      if (nourlsEl) nourlsEl.textContent = kwrNoUrlData.length;
     }
 
     function kwrRestore(kw) {
