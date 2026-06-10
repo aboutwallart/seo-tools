@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.33</div>
+      <div class="tool-version">v59.34</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -4087,7 +4087,9 @@
 
         // Build no-URL list from kwrAllData
         kwrNoUrlData = kwrAllData
-          .filter(r => r.rankingUrl === '—' && !r.dismissed)
+          .filter(r => r.rankingUrl === '—' && !r.dismissed
+            && !kwrRegistry.byKw[r.kw.toLowerCase()]
+            && !savedForLaterSet.has(r.kw.toLowerCase()))
           .map(r => ({ kw: r.kw, pos: r.pos, imp: r.imp, clk: r.clk, foundUrl: null, fetchStatus: null, regStatus: 'unlocked', regOtherUrl: '', regOtherKw: '' }));
         kwrNoUrlSelected = new Set();
 
@@ -4292,9 +4294,9 @@
         const res = await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'save-for-later', keyword: kw }) });
         const json = await res.json();
         if (json.success || json.duplicate) {
-          const r = kwrNoUrlData[idx];
           kwrNoUrlData.splice(idx, 1);
           kwrNoUrlSelected.delete(kw);
+          savedForLaterSet.add(kw.toLowerCase());
           document.getElementById('kwrCountNourls').textContent = kwrNoUrlData.length;
           kwrRenderNoUrl();
         } else {
@@ -4318,6 +4320,12 @@
           kwrNoUrlData.splice(idx, 1);
           kwrNoUrlSelected.delete(kw);
           repurposeUrls.add(url.toLowerCase());
+          // Also dismiss the keyword so it never reappears
+          if (kw) {
+            kwrDismissed.add(kw);
+            kwrAllData.forEach(r => { if (r.kw === kw) r.dismissed = true; });
+            kwrSaveDismissed();
+          }
           document.getElementById('kwrCountNourls').textContent = kwrNoUrlData.length;
           kwrRenderNoUrl();
         } else {
