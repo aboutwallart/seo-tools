@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.41</div>
+      <div class="tool-version">v59.43</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1071,6 +1071,7 @@
               <option value="">All Actions</option>
               <option value="lockable">Can Lock</option>
               <option value="locked">Already Locked</option>
+              <option value="save-future">Can Save for Future</option>
               <option value="no-url">No URL</option>
             </select>
             <button onclick="kwrResetFilters()" style="background:#333;color:#aaa;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;">✕ Reset</button>
@@ -1735,7 +1736,7 @@
           const slug = slugWords(url);
           if (!slug.length) return null;
           let best = null, bestScore = 0;
-          for (const kw of savedForLater) {
+          for (const kw of savedForLaterList) {
             const kwWords = kw.toLowerCase().split(' ').filter(w => w.length > 2 && !stopWords.has(w));
             const matches = slug.filter(w => kwWords.some(k => k.includes(w) || w.includes(k)));
             const score = matches.length / Math.max(slug.length, kwWords.length, 1);
@@ -1792,7 +1793,7 @@
           document.getElementById('nokwCount-'+t).textContent = `(${nokwData[t].length})`;
         });
 
-        document.getElementById('nokwStatus').textContent = `${savedForLater.length} saved keywords available for suggestions`;
+        document.getElementById('nokwStatus').textContent = `${savedForLaterList.length} saved keywords available for suggestions`;
         nokwRender();
 
       } catch(e) {
@@ -4423,8 +4424,9 @@
         if (posRange==='11-20') data = data.filter(r => r.pos>=11 && r.pos<=20);
         if (posRange==='21+')   data = data.filter(r => r.pos>20);
       }
-      if (actionF==='lockable') data = data.filter(r => r.regStatus==='unlocked' && r.rankingUrl!=='—');
-      if (actionF==='no-url')   data = data.filter(r => r.rankingUrl==='—');
+      if (actionF==='lockable')     data = data.filter(r => r.regStatus==='unlocked' && r.rankingUrl!=='—');
+      if (actionF==='save-future')  data = data.filter(r => r.regStatus==='url-taken');
+      if (actionF==='no-url')       data = data.filter(r => r.rankingUrl==='—');
       if (actionF==='locked')   data = data.filter(r => r.regStatus==='locked-same');
 
       const sortEntries = Object.entries(kwrColSorts).sort((a,b) => a[1].priority - b[1].priority);
