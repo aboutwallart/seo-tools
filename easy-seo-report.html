@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.36</div>
+      <div class="tool-version">v59.37</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -2114,7 +2114,7 @@
       if (ctrRegFilter==='locked')   data = data.filter(r => !contentRegBadge(r.query,r.page).canLock);
       const tbody = document.getElementById('ctrBody');
       if (!data.length) { tbody.innerHTML='<tr class="loading-row"><td colspan="10">No pages found</td></tr>'; return; }
-      tbody.innerHTML = data.slice(0,ctrLimit).map((r,i) => {
+      tbody.innerHTML = data.slice(0,ctrLimit).filter(r => !(contentRegBadge(r.query,r.page).badge.includes('URL taken') && savedForLaterSet.has((r.query||'').toLowerCase()))).map((r,i) => {
         const {badge, canLock} = contentRegBadge(r.query, r.page);
         const kwTaken = badge.includes('Kw taken');
         const urlTaken = badge.includes('URL taken');
@@ -2159,7 +2159,7 @@
       if (optRegFilter==='locked')   data = data.filter(r => !contentRegBadge(r.query,r.page).canLock);
       const tbody = document.getElementById('optimiseBody');
       if (!data.length) { tbody.innerHTML='<tr class="loading-row"><td colspan="8">No pages found</td></tr>'; return; }
-      tbody.innerHTML = data.slice(0,optLimit).map((r,i) => {
+      tbody.innerHTML = data.slice(0,optLimit).filter(r => !(contentRegBadge(r.query,r.page).badge.includes('URL taken') && savedForLaterSet.has((r.query||'').toLowerCase()))).map((r,i) => {
         const {badge, canLock} = contentRegBadge(r.query, r.page);
         const kwTaken = badge.includes('Kw taken');
         const urlTaken = badge.includes('URL taken');
@@ -4870,6 +4870,7 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
           } else if (regByUrl && (regByUrl.keyword||'').toLowerCase()===qwKwKey) {
             entry.regStatus='locked-same'; entry.regOtherKw=''; entry.regOtherUrl='';
           } else if (regByUrl) {
+            if (savedForLaterSet.has(qwKwKey)) return;
             entry.regStatus='url-taken'; entry.regOtherKw=regByUrl.keyword; entry.regOtherUrl='';
           } else { entry.regStatus='unlocked'; entry.regOtherKw=''; entry.regOtherUrl=''; }
           qwData[getPageType(entry.page)].push(entry);
@@ -4952,6 +4953,7 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
           } else if (regByUrl && (regByUrl.keyword||'').toLowerCase()===dpKwKey) {
             entry.regStatus='locked-same'; entry.regOtherKw=''; entry.regOtherUrl='';
           } else if (regByUrl) {
+            if (savedForLaterSet.has(dpKwKey)) return;
             entry.regStatus='url-taken'; entry.regOtherKw=regByUrl.keyword; entry.regOtherUrl='';
           } else { entry.regStatus='unlocked'; entry.regOtherKw=''; entry.regOtherUrl=''; }
           dpData[getPageType(entry.page)].push(entry);
