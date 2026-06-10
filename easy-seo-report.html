@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.46</div>
+      <div class="tool-version">v59.47</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -4136,6 +4136,24 @@
       } catch(e) { btn.disabled = false; btn.textContent = '↗ Move to Pages'; alert('Error: ' + e.message); }
     }
 
+    async function kwrDeleteKeyword(encodedKw, btn) {
+      const kw = decodeURIComponent(encodedKw);
+      if (!confirm(`Delete keyword permanently?\n\nKeyword: ${kw}\n\nThis will add it to the registry as DELETED and remove it from all sections.`)) return;
+      btn.disabled = true; btn.textContent = '⏳';
+      try {
+        const res = await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'delete-keyword', keyword: kw }) });
+        const json = await res.json();
+        if (json.success || json.duplicate) {
+          btn.textContent = '✅ Deleted';
+          deletedKwSet.add(kw.toLowerCase());
+          kwrFilterTable(true);
+        } else {
+          btn.disabled = false; btn.textContent = 'Delete Keyword';
+          alert('Failed: ' + (json.error || 'unknown'));
+        }
+      } catch(e) { btn.disabled = false; btn.textContent = 'Delete Keyword'; alert('Error: ' + e.message); }
+    }
+
     async function kwrSaveKwForLater(encodedKw, btn) {
       const kw = decodeURIComponent(encodedKw);
       if (!confirm(`Save for future?\n\nKeyword: ${kw}`)) return;
@@ -4570,7 +4588,7 @@
             actionCell = r.rankingUrl!=='—' ? `<button data-idx="${r._idx}" onclick="kwrMoveUrlToPages('${encodeURIComponent(r.rankingUrl)}',this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↗ Move to Pages</button>` : `<span style="font-size:11px;color:#aaa;">—</span>`;
           } else if (r.regStatus==='url-taken') {
             regBadge = `<span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="URL locked to: ${r.regOtherKw}">🔴 URL taken</span>`;
-            actionCell = `<button data-idx="${r._idx}" onclick="kwrSaveKwForLater('${encodeURIComponent(r.kw)}',this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">💾 Save for Future</button>`;
+            actionCell = `<button data-idx="${r._idx}" onclick="kwrSaveKwForLater('${encodeURIComponent(r.kw)}',this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">💾 Save for Future</button> <button data-idx="${r._idx}" onclick="kwrDeleteKeyword('${encodeURIComponent(r.kw)}',this)" style="padding:4px 8px;border:none;background:#dc2626;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">Delete Keyword</button>`;
           } else {
             regBadge = `<span style="color:#ccc;font-size:12px;">—</span>`;
             actionCell = r.rankingUrl!=='—'
