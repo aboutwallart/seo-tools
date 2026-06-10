@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.40</div>
+      <div class="tool-version">v59.41</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -4876,15 +4876,14 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
         });
         Object.values(qwMap).forEach(entry => {
           const qwKwKey = (entry.keyword||'').toLowerCase();
-          const regByKw  = kwrRegistry?.byKw?.[qwKwKey];
           const regByUrl = kwrRegistry?.byUrl?.[entry.page.toLowerCase()];
+          // Registry is source of truth — if URL is in registry, use registry keyword for comparison
+          const effectiveQwKw = (qwKwKey === '—' && regByUrl) ? (regByUrl.keyword||'').toLowerCase() : qwKwKey;
+          const regByKw  = kwrRegistry?.byKw?.[effectiveQwKw];
           const kwLocked = !!regByKw;
           const kwLockedToThisPage = kwLocked && cleanUrl(regByKw.url||'') === entry.page;
           const urlLocked = !!regByUrl;
-          const urlLockedToThisKw = urlLocked && (regByUrl.keyword||'').toLowerCase() === qwKwKey;
-          if (entry.page.includes('sun-and-moon') || entry.page.includes('pastel-art') || entry.page.includes('eclectic-maximalist')) {
-            console.log('QW DEBUG', entry.page, '|kw:', qwKwKey, '|regByKw:', regByKw, '|regByUrl:', regByUrl, '|kwLockedToThisPage:', kwLockedToThisPage, '|urlLockedToThisKw:', urlLockedToThisKw, '|cleanUrlResult:', regByKw?cleanUrl(regByKw.url||''):'N/A');
-          }
+          const urlLockedToThisKw = urlLocked && (regByUrl.keyword||'').toLowerCase() === effectiveQwKw;
           if (kwLockedToThisPage || urlLockedToThisKw) {
             entry.regStatus='locked-same'; entry.regOtherKw=''; entry.regOtherUrl='';
           } else if (kwLocked && urlLocked) {
@@ -4964,13 +4963,15 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
           const drop=(entry.currClk-prevClk)/prevClk*100;
           if (drop>-20) return;
           const dpKwKey=(entry.keyword||'').toLowerCase();
-          const regByKwDp=kwrRegistry?.byKw?.[dpKwKey];
           const regByUrl=kwrRegistry?.byUrl?.[entry.page.toLowerCase()];
+          // Registry is source of truth — if URL is in registry, use registry keyword for comparison
+          const effectiveDpKw = (dpKwKey === '—' && regByUrl) ? (regByUrl.keyword||'').toLowerCase() : dpKwKey;
+          const regByKwDp=kwrRegistry?.byKw?.[effectiveDpKw];
           entry.prevClk=prevClk; entry.drop=drop;
           const dpKwLocked = !!regByKwDp;
           const dpKwLockedToThisPage = dpKwLocked && cleanUrl(regByKwDp.url||'') === entry.page;
           const dpUrlLocked = !!regByUrl;
-          const dpUrlLockedToThisKw = dpUrlLocked && (regByUrl.keyword||'').toLowerCase() === dpKwKey;
+          const dpUrlLockedToThisKw = dpUrlLocked && (regByUrl.keyword||'').toLowerCase() === effectiveDpKw;
           if (dpKwLockedToThisPage || dpUrlLockedToThisKw) {
             entry.regStatus='locked-same'; entry.regOtherKw=''; entry.regOtherUrl='';
           } else if (dpKwLocked && dpUrlLocked) {
