@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.37</div>
+      <div class="tool-version">v59.38</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1486,6 +1486,7 @@
     let repurposeUrls = new Set();
     let crtSort={key:'imp',dir:'desc'}, crtLimit=50, crtRegFilter='';
     let savedForLaterSet = new Set();
+    let deletedKwSet    = new Set();
     let savedForLaterList = [];
     let nokwLoaded=false, nokwData={collections:[],blogs:[],pages:[],products:[]}, nokwActiveTab='collections', nokwRegFilter='';
 
@@ -1700,29 +1701,23 @@
           const rJson = await rRes.json();
           if (rJson.success && rJson.registry) {
             kwrRegistry = { byKw: {}, byUrl: {}, byKwIntent: new Set() };
+            savedForLaterSet = new Set(); savedForLaterList = []; deletedKwSet = new Set();
             rJson.registry.forEach(row => {
               const act = (row.action||'').toUpperCase();
               const src = (row.source||'');
+              const kw = (row.keyword||'').toLowerCase();
+              if (act === 'SAVED_FOR_FUTURE') { savedForLaterSet.add(kw); savedForLaterList.push(row.keyword); }
+              if (act === 'DELETED') { deletedKwSet.add(kw); }
               const isRealLock = ['TO_OPTIMIZE','OPTIMIZED','TO_WRITE_BLOG','DELETED'].includes(act) || src === 'Published Blog';
               if (!isRealLock) return;
-              const kw = (row.keyword||'').toLowerCase();
               kwrRegistry.byKw[kw] = { url: row.url, keyword: row.keyword };
               kwrRegistry.byUrl[cleanUrl(row.url||'').toLowerCase()] = { url: row.url, keyword: row.keyword };
               kwrRegistry.byKwIntent.add(kw + '::' + (row.intent||'').toUpperCase());
             });
+            const dl = document.getElementById('nokwKeywordList');
+            if (dl) dl.innerHTML = savedForLaterList.map(k => `<option value="${k.replace(/"/g,'&quot;')}">`).join('');
           }
         }
-
-        // Fetch SAVED_FOR_FUTURE keywords
-        const rRes2 = await fetch('/api/blogs?action=get-registry');
-        const rJson2 = await rRes2.json();
-        const savedForLater = (rJson2.success && rJson2.registry)
-          ? rJson2.registry.filter(r => (r.action||'').toUpperCase() === 'SAVED_FOR_FUTURE').map(r => r.keyword).filter(Boolean)
-          : [];
-        savedForLaterSet = new Set(savedForLater.map(k => k.toLowerCase()));
-        savedForLaterList = savedForLater;
-        const dl = document.getElementById('nokwKeywordList');
-        if (dl) dl.innerHTML = savedForLaterList.map(k => `<option value="${k.replace(/"/g,'&quot;')}">`).join('');
 
         // Fetch GSC pages (last 90 days)
         const pRes = await fetch(`${API}?action=pages&startDate=${getDate(90)}&endDate=${getDate(0)}`);
@@ -1926,6 +1921,7 @@
             kwrRegistry = { byKw: {}, byUrl: {}, byKwIntent: new Set() };
             savedForLaterSet = new Set();
             repurposeUrls = new Set();
+            deletedKwSet = new Set();
             rJson.registry.forEach(row => {
               const act = (row.action||'').toUpperCase();
               const src = (row.source||'');
@@ -1933,6 +1929,7 @@
               const urlKey = cleanUrl(row.url||'').toLowerCase();
               if (act === 'SAVED_FOR_FUTURE') { savedForLaterSet.add(kwKey); }
               if (act === 'REPURPOSE') { repurposeUrls.add(urlKey); }
+              if (act === 'DELETED') { deletedKwSet.add(kwKey); }
               const isRealLock = ['TO_OPTIMIZE','OPTIMIZED','TO_WRITE_BLOG','DELETED'].includes(act) || src === 'Published Blog';
               if (!isRealLock) return;
               kwrRegistry.byKw[kwKey]   = { url: row.url, keyword: row.keyword };
@@ -2027,7 +2024,7 @@
             if(!isEnglish(q)) return false;
             // Already in registry in any form — skip
             if(kwrRegistry.byKw[q.toLowerCase()]) return false;
-            if(savedForLaterSet.has(q.toLowerCase())) return false;
+            if(savedForLaterSet.has(q.toLowerCase()) || deletedKwSet.has(q.toLowerCase())) return false;
             // No matching content in registry
             const matchUrl=findMatchingBlog(q);
             return !matchUrl;
@@ -2114,7 +2111,7 @@
       if (ctrRegFilter==='locked')   data = data.filter(r => !contentRegBadge(r.query,r.page).canLock);
       const tbody = document.getElementById('ctrBody');
       if (!data.length) { tbody.innerHTML='<tr class="loading-row"><td colspan="10">No pages found</td></tr>'; return; }
-      tbody.innerHTML = data.slice(0,ctrLimit).filter(r => !(contentRegBadge(r.query,r.page).badge.includes('URL taken') && savedForLaterSet.has((r.query||'').toLowerCase()))).map((r,i) => {
+      tbody.innerHTML = data.slice(0,ctrLimit).filter(r => !deletedKwSet.has((r.query||'').toLowerCase()) && !(contentRegBadge(r.query,r.page).badge.includes('URL taken') && savedForLaterSet.has((r.query||'').toLowerCase()))).map((r,i) => {
         const {badge, canLock} = contentRegBadge(r.query, r.page);
         const kwTaken = badge.includes('Kw taken');
         const urlTaken = badge.includes('URL taken');
@@ -2159,7 +2156,7 @@
       if (optRegFilter==='locked')   data = data.filter(r => !contentRegBadge(r.query,r.page).canLock);
       const tbody = document.getElementById('optimiseBody');
       if (!data.length) { tbody.innerHTML='<tr class="loading-row"><td colspan="8">No pages found</td></tr>'; return; }
-      tbody.innerHTML = data.slice(0,optLimit).filter(r => !(contentRegBadge(r.query,r.page).badge.includes('URL taken') && savedForLaterSet.has((r.query||'').toLowerCase()))).map((r,i) => {
+      tbody.innerHTML = data.slice(0,optLimit).filter(r => !deletedKwSet.has((r.query||'').toLowerCase()) && !(contentRegBadge(r.query,r.page).badge.includes('URL taken') && savedForLaterSet.has((r.query||'').toLowerCase()))).map((r,i) => {
         const {badge, canLock} = contentRegBadge(r.query, r.page);
         const kwTaken = badge.includes('Kw taken');
         const urlTaken = badge.includes('URL taken');
@@ -2688,13 +2685,15 @@
         if (regJson.success && regJson.registry) {
           kwrRegistry = { byKw: {}, byUrl: {}, byKwIntent: new Set() };
           savedForLaterList = [];
+          deletedKwSet = new Set();
           regJson.registry.forEach(row => {
             const act = (row.action||'').toUpperCase();
             const src = (row.source||'');
+            const kwKey = (row.keyword||'').toLowerCase();
             if (act === 'SAVED_FOR_FUTURE') { savedForLaterList.push(row.keyword); }
+            if (act === 'DELETED') { deletedKwSet.add(kwKey); }
             const isRealLock = ['TO_OPTIMIZE','OPTIMIZED','TO_WRITE_BLOG','DELETED'].includes(act) || src === 'Published Blog';
             if (!isRealLock) return;
-            const kwKey  = (row.keyword||'').toLowerCase();
             const urlKey = cleanUrl(row.url||'').toLowerCase();
             kwrRegistry.byKw[kwKey]   = { url: row.url, keyword: row.keyword };
             kwrRegistry.byUrl[urlKey] = { url: row.url, keyword: row.keyword };
@@ -3956,6 +3955,7 @@
       kwrNoUrlData = [];
       kwrNoUrlSelected = new Set();
       kwrWatchAutoKws = new Map();
+      deletedKwSet = new Set();
       kwrRegistry = { byKw:{}, byUrl:{} };
       kwrPage = 1;
       kwrActiveTab = 'all';
@@ -4010,6 +4010,7 @@
             repurposeUrls = new Set();
             savedForLaterList = [];
             kwrWatchAutoKws = new Map();
+            deletedKwSet = new Set();
             j.registry.forEach(row => {
               const act = (row.action || '').toUpperCase();
               const src = (row.source || '');
@@ -4017,6 +4018,7 @@
               if (act === 'REPURPOSE') { repurposeUrls.add(urlKey); }
               if (act === 'SAVED_FOR_FUTURE') { savedForLaterList.push(row.keyword); }
               if (act === 'OPTIMIZED') { kwrWatchAutoKws.set((row.keyword||'').toLowerCase(), row.url||''); }
+              if (act === 'DELETED') { deletedKwSet.add((row.keyword||'').toLowerCase()); }
               const isRealLock = ['TO_OPTIMIZE','OPTIMIZED','TO_WRITE_BLOG','DELETED'].includes(act) || src === 'Published Blog';
               if (!isRealLock) return;
               const kwKey  = (row.keyword||'').toLowerCase();
@@ -4089,7 +4091,8 @@
         kwrNoUrlData = kwrAllData
           .filter(r => r.rankingUrl === '—' && !r.dismissed
             && !kwrRegistry.byKw[r.kw.toLowerCase()]
-            && !savedForLaterSet.has(r.kw.toLowerCase()))
+            && !savedForLaterSet.has(r.kw.toLowerCase())
+            && !deletedKwSet.has(r.kw.toLowerCase()))
           .map(r => ({ kw: r.kw, pos: r.pos, imp: r.imp, clk: r.clk, foundUrl: null, fetchStatus: null, regStatus: 'unlocked', regOtherUrl: '', regOtherKw: '' }));
         kwrNoUrlSelected = new Set();
 
@@ -4873,6 +4876,7 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
             if (savedForLaterSet.has(qwKwKey)) return;
             entry.regStatus='url-taken'; entry.regOtherKw=regByUrl.keyword; entry.regOtherUrl='';
           } else { entry.regStatus='unlocked'; entry.regOtherKw=''; entry.regOtherUrl=''; }
+          if (deletedKwSet.has(qwKwKey) || savedForLaterSet.has(qwKwKey)) return;
           qwData[getPageType(entry.page)].push(entry);
           qwExcludeUrls.add(entry.page);
         });
@@ -4956,6 +4960,7 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
             if (savedForLaterSet.has(dpKwKey)) return;
             entry.regStatus='url-taken'; entry.regOtherKw=regByUrl.keyword; entry.regOtherUrl='';
           } else { entry.regStatus='unlocked'; entry.regOtherKw=''; entry.regOtherUrl=''; }
+          if (deletedKwSet.has(dpKwKey) || savedForLaterSet.has(dpKwKey)) return;
           dpData[getPageType(entry.page)].push(entry);
           dpExcludeUrls.add(entry.page);
         });
