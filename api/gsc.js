@@ -83,6 +83,24 @@ module.exports = async (req, res) => {
         }],
         rowLimit: 25000
       });
+    } else if (action === 'keyword-page') {
+      // Find ranking page(s) for a specific keyword — used by Keyword Rankings Without URL tab
+      const keyword = req.query.keyword || '';
+      if (!keyword) throw new Error('keyword param required');
+      data = await gscQuery(accessToken, siteUrl, {
+        startDate: start,
+        endDate: end,
+        dimensions: ['page', 'query'],
+        dimensionFilterGroups: [{
+          filters: [{
+            dimension: 'query',
+            operator: 'equals',
+            expression: keyword.toLowerCase()
+          }]
+        }],
+        rowLimit: 10
+      });
+
     } else if (action === 'device') {
       // Device breakdown
       data = await gscQuery(accessToken, siteUrl, {
