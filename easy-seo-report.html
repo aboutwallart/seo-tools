@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.43</div>
+      <div class="tool-version">v59.45</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1384,6 +1384,13 @@
           <span id="kwrSaveStatusText"></span>
         </div>
 
+        <!-- Bulk toolbar -->
+        <div id="kwrBulkToolbar" style="display:none;position:sticky;top:0;z-index:10;background:#1a1a1a;color:#fff;padding:10px 16px;border-radius:6px;margin-bottom:8px;display:none;align-items:center;gap:12px;flex-wrap:wrap;">
+          <span id="kwrBulkCount" style="font-size:13px;font-weight:600;">0 selected</span>
+          <button onclick="kwrBulkSaveFuture()" style="padding:6px 14px;border:none;background:#6366f1;color:#fff;border-radius:4px;font-size:12px;cursor:pointer;font-weight:600;">💾 Save for Future</button>
+          <button onclick="kwrBulkClear()" style="padding:6px 14px;border:1px solid #555;background:transparent;color:#ccc;border-radius:4px;font-size:12px;cursor:pointer;">✕ Clear</button>
+        </div>
+
         <!-- Table -->
         <div class="table-card">
           <table id="kwrTable" style="table-layout:fixed;width:100%;">
@@ -1697,10 +1704,12 @@
       document.getElementById('nokwStatus').textContent = 'Loading...';
       try {
         // Always fetch fresh registry — source of truth
+        let nokwRegistryRows = [];
         {
           const rRes = await fetch('/api/blogs?action=get-registry');
           const rJson = await rRes.json();
           if (rJson.success && rJson.registry) {
+            nokwRegistryRows = rJson.registry;
             kwrRegistry = { byKw: {}, byUrl: {}, byKwIntent: new Set() };
             savedForLaterSet = new Set(); savedForLaterList = []; deletedKwSet = new Set();
             rJson.registry.forEach(row => {
@@ -1772,9 +1781,7 @@
         });
 
         // Add REPURPOSE pages from registry (not already in nokwData)
-        const repurposeRows = (rJson2.success && rJson2.registry)
-          ? rJson2.registry.filter(r => (r.action||'').toUpperCase() === 'REPURPOSE' && r.url && r.url !== 'N/A')
-          : [];
+        const repurposeRows = nokwRegistryRows.filter(r => (r.action||'').toUpperCase() === 'REPURPOSE' && r.url && r.url !== 'N/A');
         repurposeRows.forEach(r => {
           const url = cleanUrl(r.url);
           if (shouldExcludeUrl(url)) return;
@@ -3855,6 +3862,7 @@
     let kwrActiveTab  = 'all';
     let kwrLoaded     = false;
     let kwrRegistry   = { byKw:{}, byUrl:{}, byKwIntent:new Set() };
+    let kwrBulkSelected = new Set();
     let kwrPageQuery  = {};
     let kwrPage       = 1;
     let kwrTotalFiltered = 0;
@@ -3919,8 +3927,10 @@
           '<th style="width:80px;">Action</th>' +
         '</tr>';
       } else {
+        const allChecked = kwrBulkSelected.size > 0;
         head.innerHTML = '<tr>' +
-          th('Keyword','kw','170px') +
+          `<th style="width:30px;"><input type="checkbox" id="kwrBulkSelectAll" onchange="kwrBulkSelectAllFn(this.checked)" ${allChecked?'checked':''} style="cursor:pointer;"></th>` +
+          th('Keyword','kw','150px') +
           th('Ranking URL','url','150px') +
           th('Position','pos','70px',true) +
           th('Impressions','imp','90px',true) +
@@ -4375,6 +4385,7 @@
     }
 
     function kwrSwitchTab(tab) {
+      kwrBulkSelected.clear(); kwrBulkUpdateToolbar();
       kwrActiveTab = tab; kwrPage = 1;
       [['all','All'],['tracked','Tracked'],['dismissed','Dismissed'],['nourls','Nourls']].forEach(([t,id]) => {
         const btn = document.getElementById('kwrTab' + id);
@@ -4533,6 +4544,7 @@
           </tr>`;
         } else if (kwrActiveTab === 'dismissed') {
           return `<tr style="opacity:0.6;">
+            <td style="width:30px;"></td>
             <td style="width:170px;font-size:13px;word-break:break-word;color:#888;">${r.kw}</td>
             <td style="width:150px;">${urlDisplay}</td>
             <td style="width:70px;text-align:right;color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>
@@ -4565,8 +4577,14 @@
               ? `<button data-idx="${r._idx}" onclick="kwrLockEl(this)" style="padding:4px 10px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button>`
               : `<span style="font-size:11px;color:#aaa;">No URL</span>`;
           }
+          const encKw = encodeURIComponent(r.kw);
+          const isBulkChecked = kwrBulkSelected.has(r.kw);
+          const cbCell = r.regStatus==='url-taken'
+            ? `<td style="width:30px;"><input type="checkbox" ${isBulkChecked?'checked':''} onchange="kwrBulkToggle('${encKw}',this.checked)" style="cursor:pointer;"></td>`
+            : `<td style="width:30px;"></td>`;
           return `<tr>
-            <td style="width:170px;font-size:13px;word-break:break-word;">${r.kw}</td>
+            ${cbCell}
+            <td style="width:150px;font-size:13px;word-break:break-word;">${r.kw}</td>
             <td style="width:150px;">${urlDisplay}</td>
             <td style="width:70px;text-align:right;color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>
             <td style="width:90px;text-align:right;">${fmt(r.imp)}</td>
@@ -4582,6 +4600,65 @@
           </tr>`;
         }
       }).join('');
+    }
+
+    function kwrBulkToggle(encodedKw, checked) {
+      const kw = decodeURIComponent(encodedKw);
+      if (checked) kwrBulkSelected.add(kw); else kwrBulkSelected.delete(kw);
+      kwrBulkUpdateToolbar();
+    }
+
+    function kwrBulkSelectAllFn(checked) {
+      // Select/deselect all visible url-taken rows
+      document.querySelectorAll('#kwrBody input[type=checkbox]').forEach(cb => {
+        cb.checked = checked;
+        const kw = decodeURIComponent(cb.getAttribute('onchange').match(/'([^']+)'/)[1]);
+        if (checked) kwrBulkSelected.add(kw); else kwrBulkSelected.delete(kw);
+      });
+      kwrBulkUpdateToolbar();
+    }
+
+    function kwrBulkUpdateToolbar() {
+      const toolbar = document.getElementById('kwrBulkToolbar');
+      const count = document.getElementById('kwrBulkCount');
+      if (!toolbar || !count) return;
+      if (kwrBulkSelected.size > 0) {
+        toolbar.style.display = 'flex';
+        count.textContent = `${kwrBulkSelected.size} selected`;
+      } else {
+        toolbar.style.display = 'none';
+      }
+    }
+
+    function kwrBulkClear() {
+      kwrBulkSelected.clear();
+      kwrBulkUpdateToolbar();
+      kwrRenderHeader();
+      kwrFilterTable();
+    }
+
+    async function kwrBulkSaveFuture() {
+      if (!kwrBulkSelected.size) return;
+      if (!confirm(`Save ${kwrBulkSelected.size} keyword(s) for future?\n\nThis will mark them as Saved for Future in the registry.`)) return;
+      const toolbar = document.getElementById('kwrBulkToolbar');
+      const btn = toolbar.querySelector('button');
+      btn.disabled = true; btn.textContent = '⏳ Saving...';
+      let saved = 0, failed = 0;
+      for (const kw of kwrBulkSelected) {
+        try {
+          const res = await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'save-for-later', keyword: kw }) });
+          const j = await res.json();
+          if (j.success || j.duplicate) {
+            savedForLaterSet.add(kw.toLowerCase());
+            saved++;
+          } else { failed++; }
+        } catch(e) { failed++; }
+      }
+      kwrBulkSelected.clear();
+      btn.disabled = false; btn.textContent = '💾 Save for Future';
+      kwrBulkUpdateToolbar();
+      alert(`Done — ${saved} saved${failed?`, ${failed} failed`:''}.`);
+      kwrFilterTable(true);
     }
 
     function kwrSelect(kw) {
