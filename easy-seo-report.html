@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.32</div>
+      <div class="tool-version">v59.33</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -3847,7 +3847,7 @@
     let kwrAllData    = [];
     let kwrNoUrlData  = [];
     let kwrNoUrlSelected = new Set();
-    let kwrWatchAutoKws = new Set();
+    let kwrWatchAutoKws = new Map();
     let kwrPrevData   = {};
     let kwrSelectedSet = new Set();
     let kwrActiveTab  = 'all';
@@ -3955,7 +3955,7 @@
       kwrAllData = [];
       kwrNoUrlData = [];
       kwrNoUrlSelected = new Set();
-      kwrWatchAutoKws = new Set();
+      kwrWatchAutoKws = new Map();
       kwrRegistry = { byKw:{}, byUrl:{} };
       kwrPage = 1;
       kwrActiveTab = 'all';
@@ -4009,14 +4009,14 @@
             kwrRegistry = { byKw: {}, byUrl: {}, byKwIntent: new Set() };
             repurposeUrls = new Set();
             savedForLaterList = [];
-            kwrWatchAutoKws = new Set();
+            kwrWatchAutoKws = new Map();
             j.registry.forEach(row => {
               const act = (row.action || '').toUpperCase();
               const src = (row.source || '');
               const urlKey = cleanUrl(row.url || '').toLowerCase();
               if (act === 'REPURPOSE') { repurposeUrls.add(urlKey); }
               if (act === 'SAVED_FOR_FUTURE') { savedForLaterList.push(row.keyword); }
-              if (act === 'OPTIMIZED') { kwrWatchAutoKws.add((row.keyword||'').toLowerCase()); }
+              if (act === 'OPTIMIZED') { kwrWatchAutoKws.set((row.keyword||'').toLowerCase(), row.url||''); }
               const isRealLock = ['TO_OPTIMIZE','OPTIMIZED','TO_WRITE_BLOG','DELETED'].includes(act) || src === 'Published Blog';
               if (!isRealLock) return;
               const kwKey  = (row.keyword||'').toLowerCase();
@@ -4487,12 +4487,18 @@
           const actionBtn = isManual
             ? `<button onclick="kwrRemoveFromWatch('${encodeURIComponent(r.kw)}')" style="padding:4px 10px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">✕ Remove</button>`
             : `<span style="font-size:11px;color:#aaa;">—</span>`;
+          // For auto rows use registry URL, for manual rows use GSC ranking URL
+          const registryUrl = isAuto && !isManual ? (kwrWatchAutoKws.get(r.kw.toLowerCase())||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','') : null;
+          const displayUrl = registryUrl || r.rankingUrl;
+          const urlCell = displayUrl === '—' || !displayUrl
+            ? '<span style="color:#aaa;font-size:11px;">—</span>'
+            : `<a href="https://aboutwallart.com${displayUrl.startsWith('/')?displayUrl:'/'+displayUrl}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px;word-break:break-all;">${displayUrl}</a>`;
           const trendCell = r.trend===null
             ? `<td style="width:90px;text-align:right;color:#aaa;">—</td>`
             : `<td style="width:90px;text-align:right;color:${r.trend>5?'#16a34a':r.trend<-5?'#dc2626':'#d97706'};font-weight:600;">${r.trend>5?'▲':r.trend<-5?'▼':'▶'} ${r.trend>0?'+':''}${r.trend.toFixed(1)}%</td>`;
           return `<tr>
             <td style="width:150px;font-size:13px;word-break:break-word;">${r.kw}</td>
-            <td style="width:150px;">${urlDisplay}</td>
+            <td style="width:150px;">${urlCell}</td>
             <td style="width:70px;text-align:right;color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>
             <td style="width:90px;text-align:right;">${fmt(r.imp)}</td>
             <td style="width:60px;text-align:right;">${fmt(r.clk)}</td>
