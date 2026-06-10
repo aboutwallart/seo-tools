@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.39</div>
+      <div class="tool-version">v59.40</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -2070,13 +2070,14 @@
       const urlKey = pageUrl ? pageUrl.toLowerCase() : '';
       const regByKw  = kwrRegistry.byKw[kwKey];
       const regByUrl = pageUrl ? kwrRegistry.byUrl[urlKey] : null;
-      const sameIntent = pageUrl ? kwrRegistry.byKwIntent.has(kwKey + '::' + urlToIntent(pageUrl)) : false;
-      if (sameIntent && regByKw) {
-        const lockedUrl = cleanUrl(regByKw.url||'');
-        if (lockedUrl === pageUrl) return { badge: '<span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🔒 Locked</span>', canLock: false };
-        return { badge: `<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Locked to: ${lockedUrl}">🟡 Kw taken</span>`, canLock: false };
-      }
-      if (regByUrl) return { badge: `<span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="URL locked to: ${regByUrl.keyword}">🔴 URL taken</span>`, canLock: false };
+      const kwLocked = !!regByKw;
+      const kwLockedToThisPage = kwLocked && cleanUrl(regByKw.url||'') === pageUrl;
+      const urlLocked = !!regByUrl;
+      const urlLockedToThisKw = urlLocked && (regByUrl.keyword||'').toLowerCase() === kwKey;
+      if (kwLockedToThisPage || urlLockedToThisKw) return { badge: '<span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🔒 Locked</span>', canLock: false };
+      if (kwLocked && urlLocked) return { badge: `<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Keyword locked to: ${cleanUrl(regByKw.url||'')}">🟡 Kw taken</span> <span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="URL locked to: ${regByUrl.keyword}">🔴 URL taken</span>`, canLock: false };
+      if (kwLocked) return { badge: `<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Locked to: ${cleanUrl(regByKw.url||'')}">🟡 Kw taken</span>`, canLock: false };
+      if (urlLocked) return { badge: `<span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="URL locked to: ${regByUrl.keyword}">🔴 URL taken</span>`, canLock: false };
       return { badge: '<span style="color:#ccc;font-size:12px;">—</span>', canLock: true };
     }
 
@@ -4074,17 +4075,16 @@
           const kwKey2 = kw.toLowerCase();
           const regByKw  = kwrRegistry.byKw[kwKey2];
           const regByUrl = kwrRegistry.byUrl[rankingUrl.toLowerCase()];
-          const sameIntent2 = kwrRegistry.byKwIntent.has(kwKey2 + '::' + urlToIntent(rankingUrl));
           let regStatus = 'unlocked';
           let regOtherKw = '', regOtherUrl = '';
-          if (sameIntent2 && regByKw) {
-            const lockedUrl = cleanUrl(regByKw.url || '');
-            if (lockedUrl === rankingUrl) { regStatus = 'locked-same'; }
-            else { regStatus = 'kw-taken'; regOtherUrl = lockedUrl; }
-          } else if (regByUrl) {
-            regStatus = 'url-taken';
-            regOtherKw = regByUrl.keyword;
-          }
+          const kwLocked2 = !!regByKw;
+          const kwLockedToThisPage2 = kwLocked2 && cleanUrl(regByKw.url||'') === rankingUrl;
+          const urlLocked2 = !!regByUrl;
+          const urlLockedToThisKw2 = urlLocked2 && (regByUrl.keyword||'').toLowerCase() === kwKey2;
+          if (kwLockedToThisPage2 || urlLockedToThisKw2) { regStatus = 'locked-same'; }
+          else if (kwLocked2 && urlLocked2) { regStatus = 'both-taken'; regOtherUrl = cleanUrl(regByKw.url||''); regOtherKw = regByUrl.keyword; }
+          else if (kwLocked2) { regStatus = 'kw-taken'; regOtherUrl = cleanUrl(regByKw.url||''); }
+          else if (urlLocked2) { regStatus = 'url-taken'; regOtherKw = regByUrl.keyword; }
           return { kw, pos, imp, clk, ctr, diff, trend, rankingUrl, regStatus, regOtherUrl, regOtherKw };
         }).sort((a,b) => a.pos - b.pos).map((r, i) => ({ ...r, _idx: i, dismissed: kwrDismissed.has(r.kw) }));
 
@@ -4175,6 +4175,7 @@
 
         let regBadge = '<span style="color:#ccc;font-size:12px;">—</span>';
         if (r.regStatus === 'locked-same') regBadge = '<span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🔒 Locked</span>';
+        else if (r.regStatus === 'both-taken') regBadge = `<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Keyword locked to: ${r.regOtherUrl}">🟡 Kw taken</span> <span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="URL locked to: ${r.regOtherKw}">🔴 URL taken</span>`;
         else if (r.regStatus === 'kw-taken') regBadge = `<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Locked to: ${r.regOtherUrl}">🟡 Kw taken</span>`;
         else if (r.regStatus === 'url-taken') regBadge = `<span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="URL locked to: ${r.regOtherKw}">🔴 URL taken</span>`;
 
@@ -4184,10 +4185,12 @@
             actionCell = `<button onclick="kwrNoUrlLock('${enc}',${i},this)" style="padding:4px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;margin-right:4px;">🔒 Lock</button>`;
           } else if (r.regStatus === 'kw-taken') {
             actionCell = `<button onclick="kwrNoUrlMoveToPages('${encodeURIComponent(r.foundUrl||'')}',${i},this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;margin-right:4px;">↗ Move to Pages</button>`;
+          } else if (r.regStatus === 'both-taken' || r.regStatus === 'locked-same') {
+            actionCell = `<span style="font-size:11px;color:#aaa;">—</span>`;
           } else {
             actionCell = `<button onclick="kwrNoUrlSaveForFuture('${enc}',${i},this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;margin-right:4px;">💾 Save for Future</button>`;
           }
-          actionCell += `<button onclick="kwrNoUrlDelete('${enc}',${i},this)" style="padding:4px 8px;border:none;background:#dc2626;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🗑 Delete</button>`;
+          if (r.regStatus !== 'locked-same' && r.regStatus !== 'both-taken') actionCell += `<button onclick="kwrNoUrlDelete('${enc}',${i},this)" style="padding:4px 8px;border:none;background:#dc2626;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🗑 Delete</button>`;
         }
 
         return `<tr>
@@ -4242,13 +4245,18 @@
             const urlKey = cleanUrl(r.foundUrl).toLowerCase();
             const regByKw = kwrRegistry.byKw[kwKey];
             const regByUrl = kwrRegistry.byUrl[urlKey];
-            if (regByKw) {
-              const lockedUrl = cleanUrl(regByKw.url || '');
-              r.regStatus = (lockedUrl === r.foundUrl) ? 'locked-same' : 'kw-taken';
-              r.regOtherUrl = lockedUrl;
-            } else if (regByUrl) {
-              r.regStatus = 'url-taken';
-              r.regOtherKw = regByUrl.keyword;
+            const nuKwLocked = !!regByKw;
+            const nuKwLockedToThisPage = nuKwLocked && cleanUrl(regByKw.url||'') === cleanUrl(r.foundUrl);
+            const nuUrlLocked = !!regByUrl;
+            const nuUrlLockedToThisKw = nuUrlLocked && (regByUrl.keyword||'').toLowerCase() === kwKey;
+            if (nuKwLockedToThisPage || nuUrlLockedToThisKw) {
+              r.regStatus = 'locked-same'; r.regOtherUrl = ''; r.regOtherKw = '';
+            } else if (nuKwLocked && nuUrlLocked) {
+              r.regStatus = 'both-taken'; r.regOtherUrl = cleanUrl(regByKw.url||''); r.regOtherKw = regByUrl.keyword;
+            } else if (nuKwLocked) {
+              r.regStatus = 'kw-taken'; r.regOtherUrl = cleanUrl(regByKw.url||''); r.regOtherKw = '';
+            } else if (nuUrlLocked) {
+              r.regStatus = 'url-taken'; r.regOtherKw = regByUrl.keyword; r.regOtherUrl = '';
             } else {
               r.regStatus = 'unlocked';
             }
@@ -4539,6 +4547,9 @@
           let regBadge, actionCell;
           if (r.regStatus==='locked-same') {
             regBadge = `<span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🔒 Locked</span>`;
+            actionCell = `<span style="font-size:11px;color:#aaa;">—</span>`;
+          } else if (r.regStatus==='both-taken') {
+            regBadge = `<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Keyword locked to: ${r.regOtherUrl}">🟡 Kw taken</span> <span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="URL locked to: ${r.regOtherKw}">🔴 URL taken</span>`;
             actionCell = `<span style="font-size:11px;color:#aaa;">—</span>`;
           } else if (r.regStatus==='kw-taken') {
             regBadge = `<span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Locked to: ${r.regOtherUrl}">🟡 Kw taken</span>`;
@@ -4867,15 +4878,17 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
           const qwKwKey = (entry.keyword||'').toLowerCase();
           const regByKw  = kwrRegistry?.byKw?.[qwKwKey];
           const regByUrl = kwrRegistry?.byUrl?.[entry.page.toLowerCase()];
-          const qwSameIntent = kwrRegistry?.byKwIntent?.has(qwKwKey + '::' + urlToIntent(entry.page));
-          if (qwSameIntent && regByKw) {
-            const lockedUrl=(regByKw.url||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
-            entry.regStatus = lockedUrl===entry.page?'locked-same':'kw-taken';
-            entry.regOtherUrl=lockedUrl; entry.regOtherKw='';
-          } else if (regByUrl && (regByUrl.keyword||'').toLowerCase()===qwKwKey) {
+          const kwLocked = !!regByKw;
+          const kwLockedToThisPage = kwLocked && cleanUrl(regByKw.url||'') === entry.page;
+          const urlLocked = !!regByUrl;
+          const urlLockedToThisKw = urlLocked && (regByUrl.keyword||'').toLowerCase() === qwKwKey;
+          if (kwLockedToThisPage || urlLockedToThisKw) {
             entry.regStatus='locked-same'; entry.regOtherKw=''; entry.regOtherUrl='';
-          } else if (regByUrl) {
-            if (savedForLaterSet.has(qwKwKey)) return;
+          } else if (kwLocked && urlLocked) {
+            entry.regStatus='both-taken'; entry.regOtherUrl=cleanUrl(regByKw.url||''); entry.regOtherKw=regByUrl.keyword;
+          } else if (kwLocked) {
+            entry.regStatus='kw-taken'; entry.regOtherUrl=cleanUrl(regByKw.url||''); entry.regOtherKw='';
+          } else if (urlLocked) {
             entry.regStatus='url-taken'; entry.regOtherKw=regByUrl.keyword; entry.regOtherUrl='';
           } else { entry.regStatus='unlocked'; entry.regOtherKw=''; entry.regOtherUrl=''; }
           if (deletedKwSet.has(qwKwKey) || savedForLaterSet.has(qwKwKey)) return;
@@ -4950,16 +4963,18 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
           const dpKwKey=(entry.keyword||'').toLowerCase();
           const regByKwDp=kwrRegistry?.byKw?.[dpKwKey];
           const regByUrl=kwrRegistry?.byUrl?.[entry.page.toLowerCase()];
-          const dpSameIntent=kwrRegistry?.byKwIntent?.has(dpKwKey+'::'+urlToIntent(entry.page));
           entry.prevClk=prevClk; entry.drop=drop;
-          if (dpSameIntent && regByKwDp) {
-            const lockedUrl=(regByKwDp.url||'').replace('https://www.aboutwallart.com','').replace('https://aboutwallart.com','');
-            entry.regStatus=lockedUrl===entry.page?'locked-same':'kw-taken';
-            entry.regOtherUrl=lockedUrl; entry.regOtherKw='';
-          } else if (regByUrl && (regByUrl.keyword||'').toLowerCase()===dpKwKey) {
+          const dpKwLocked = !!regByKwDp;
+          const dpKwLockedToThisPage = dpKwLocked && cleanUrl(regByKwDp.url||'') === entry.page;
+          const dpUrlLocked = !!regByUrl;
+          const dpUrlLockedToThisKw = dpUrlLocked && (regByUrl.keyword||'').toLowerCase() === dpKwKey;
+          if (dpKwLockedToThisPage || dpUrlLockedToThisKw) {
             entry.regStatus='locked-same'; entry.regOtherKw=''; entry.regOtherUrl='';
-          } else if (regByUrl) {
-            if (savedForLaterSet.has(dpKwKey)) return;
+          } else if (dpKwLocked && dpUrlLocked) {
+            entry.regStatus='both-taken'; entry.regOtherUrl=cleanUrl(regByKwDp.url||''); entry.regOtherKw=regByUrl.keyword;
+          } else if (dpKwLocked) {
+            entry.regStatus='kw-taken'; entry.regOtherUrl=cleanUrl(regByKwDp.url||''); entry.regOtherKw='';
+          } else if (dpUrlLocked) {
             entry.regStatus='url-taken'; entry.regOtherKw=regByUrl.keyword; entry.regOtherUrl='';
           } else { entry.regStatus='unlocked'; entry.regOtherKw=''; entry.regOtherUrl=''; }
           if (deletedKwSet.has(dpKwKey) || savedForLaterSet.has(dpKwKey)) return;
@@ -5180,12 +5195,14 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
       const posColor=pos=>pos<=3?'#16a34a':pos<=10?'#d97706':'#dc2626';
       const regCell=r=>{
         if(r.regStatus==='locked-same') return`<td><span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🔒 Locked</span></td>`;
+        if(r.regStatus==='both-taken')  return`<td><span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Keyword locked to: ${r.regOtherUrl}">🟡 Kw taken</span> <span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="URL locked to: ${r.regOtherKw}">🔴 URL taken</span></td>`;
         if(r.regStatus==='kw-taken')    return`<td><span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Keyword locked to: ${r.regOtherUrl}">🟡 Keyword taken</span></td>`;
         if(r.regStatus==='url-taken')   return`<td><span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="URL locked to: ${r.regOtherKw}">🔴 URL taken</span></td>`;
         return`<td><span style="color:#ccc;font-size:12px;">—</span></td>`;
       };
       const actionCell=r=>{
         if(r.regStatus==='locked-same') return`<td></td>`;
+        if(r.regStatus==='both-taken')  return`<td></td>`;
         if(r.regStatus==='url-taken') return`<td><button onclick="qwSaveKwForLater('${encodeURIComponent(r.keyword)}',this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">💾 Save for Future</button></td>`;
         if(r.regStatus==='kw-taken') return`<td><button onclick="moveToNokw('${encodeURIComponent(r.page)}','qw',this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↗ Move to Pages</button></td>`;
         return`<td style="white-space:nowrap;"><button onclick="qwConfirmLock('${r.page.replace(/'/g,"\\'")}','${r.keyword.replace(/'/g,"\\'")}' )" style="padding:4px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;margin-right:4px;">🔒 Lock</button><button onclick="qwShowCustomInput('${encodeURIComponent(r.page)}',this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">✏️ Custom</button></td>`;
@@ -5318,12 +5335,14 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
       const posColor=pos=>pos<=3?'#16a34a':pos<=10?'#d97706':'#dc2626';
       const regCell=r=>{
         if(r.regStatus==='locked-same') return`<td><span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">🔒 Locked</span></td>`;
+        if(r.regStatus==='both-taken')  return`<td><span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Keyword locked to: ${r.regOtherUrl}">🟡 Kw taken</span> <span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="URL locked to: ${r.regOtherKw}">🔴 URL taken</span></td>`;
         if(r.regStatus==='kw-taken')    return`<td><span style="background:#fefce8;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="Keyword locked to: ${r.regOtherUrl}">🟡 Keyword taken</span></td>`;
         if(r.regStatus==='url-taken')   return`<td><span style="background:#fef2f2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;" title="URL locked to: ${r.regOtherKw}">🔴 URL taken</span></td>`;
         return`<td><span style="color:#ccc;font-size:12px;">—</span></td>`;
       };
       const actionCell=r=>{
         if(r.regStatus==='locked-same') return`<td></td>`;
+        if(r.regStatus==='both-taken')  return`<td></td>`;
         if(r.regStatus==='url-taken') return`<td><button onclick="dpSaveKwForLater('${encodeURIComponent(r.keyword)}',this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">💾 Save for Future</button></td>`;
         if(r.regStatus==='kw-taken') return`<td><button onclick="moveToNokw('${encodeURIComponent(r.page)}','dp',this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↗ Move to Pages</button></td>`;
         return`<td><button onclick="dpConfirmLock('${r.page.replace(/'/g,"\\'")}','${r.keyword.replace(/'/g,"\\'")}' )" style="padding:4px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button></td>`;
