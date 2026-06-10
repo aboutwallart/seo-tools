@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.45</div>
+      <div class="tool-version">v59.46</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -4423,7 +4423,7 @@
           ? kwrAllData.filter(r => (kwrSelectedSet.has(r.kw) || kwrWatchAutoKws.has(r.kw.toLowerCase())) && !r.dismissed)
           : kwrActiveTab==='dismissed'
             ? kwrAllData.filter(r => r.dismissed)
-            : kwrAllData.filter(r => !r.dismissed && r.rankingUrl !== '—');
+            : kwrAllData.filter(r => !r.dismissed && r.rankingUrl !== '—' && !savedForLaterSet.has(r.kw.toLowerCase()) && !deletedKwSet.has(r.kw.toLowerCase()));
 
       if (!kwrUrlData && search)    data = data.filter(r => r.kw.includes(search));
       if (!kwrUrlData && searchUrl) data = data.filter(r => r.rankingUrl.toLowerCase().includes(searchUrl));
