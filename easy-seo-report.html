@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.30</div>
+      <div class="tool-version">v59.31</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1079,8 +1079,8 @@
 
         <!-- Sub tabs -->
         <div style="display:flex;align-items:center;border-bottom:2px solid #e5e5e5;margin-bottom:24px;">
-          <button id="kwrTabAll" onclick="kwrSwitchTab('all')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">All Keywords <span id="kwrCountAll" class="count-badge">—</span></button>
-          <button id="kwrTabTracked" onclick="kwrSwitchTab('tracked')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Selected <span id="kwrCountTracked" class="count-badge">—</span></button>
+          <button id="kwrTabAll" onclick="kwrSwitchTab('all')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:600;color:#1a1a1a;cursor:pointer;border-bottom:2px solid #1a1a1a;margin-bottom:-2px;">To Review <span id="kwrCountAll" class="count-badge">—</span></button>
+          <button id="kwrTabTracked" onclick="kwrSwitchTab('tracked')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Watch List <span id="kwrCountTracked" class="count-badge">—</span></button>
           <button id="kwrTabDismissed" onclick="kwrSwitchTab('dismissed')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Dismissed <span id="kwrCountDismissed" class="count-badge">0</span></button>
           <button id="kwrTabNourls" onclick="kwrSwitchTab('nourls')" style="padding:10px 20px;border:none;background:transparent;font-size:13px;font-weight:400;color:#888;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;">Without URL <span id="kwrCountNourls" class="count-badge">—</span></button>
         </div>
@@ -3847,6 +3847,7 @@
     let kwrAllData    = [];
     let kwrNoUrlData  = [];
     let kwrNoUrlSelected = new Set();
+    let kwrWatchAutoKws = new Set();
     let kwrPrevData   = {};
     let kwrSelectedSet = new Set();
     let kwrActiveTab  = 'all';
@@ -3904,7 +3905,6 @@
 
       if (isSelected) {
         head.innerHTML = '<tr>' +
-          '<th style="width:40px;"></th>' +
           th('Keyword','kw','150px') +
           th('Ranking URL','url','150px') +
           th('Position','pos','70px',true) +
@@ -3913,6 +3913,7 @@
           th('CTR','ctr','55px',true) +
           th('Difficulty','diff','80px') +
           th('Trend (90d)','trend','90px',true) +
+          '<th style="width:110px;">Source</th>' +
           '<th style="width:80px;">Action</th>' +
         '</tr>';
       } else {
@@ -3954,6 +3955,7 @@
       kwrAllData = [];
       kwrNoUrlData = [];
       kwrNoUrlSelected = new Set();
+      kwrWatchAutoKws = new Set();
       kwrRegistry = { byKw:{}, byUrl:{} };
       kwrPage = 1;
       kwrActiveTab = 'all';
@@ -3994,12 +3996,14 @@
             kwrRegistry = { byKw: {}, byUrl: {}, byKwIntent: new Set() };
             repurposeUrls = new Set();
             savedForLaterList = [];
+            kwrWatchAutoKws = new Set();
             j.registry.forEach(row => {
               const act = (row.action || '').toUpperCase();
               const src = (row.source || '');
               const urlKey = cleanUrl(row.url || '').toLowerCase();
               if (act === 'REPURPOSE') { repurposeUrls.add(urlKey); }
               if (act === 'SAVED_FOR_FUTURE') { savedForLaterList.push(row.keyword); }
+              if (act === 'OPTIMIZED') { kwrWatchAutoKws.add((row.keyword||'').toLowerCase()); }
               const isRealLock = ['TO_OPTIMIZE','OPTIMIZED','TO_WRITE_BLOG','DELETED'].includes(act) || src === 'Published Blog';
               if (!isRealLock) return;
               const kwKey  = (row.keyword||'').toLowerCase();
@@ -4010,6 +4014,12 @@
             savedForLaterSet = new Set(savedForLaterList.map(k => k.toLowerCase()));
             const dl = document.getElementById('nokwKeywordList');
             if (dl) dl.innerHTML = savedForLaterList.map(k => `<option value="${k.replace(/"/g,'&quot;')}">`).join('');
+            // One-time clear of old watch list
+            if (!localStorage.getItem('kwr_watchlist_reset_v5930')) {
+              kwrSelectedSet = new Set();
+              localStorage.setItem('kwr_watchlist_reset_v5930','1');
+              fetch('/api/blogs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'save-tracked-keywords',keywords:[]})}).catch(()=>{});
+            }
           }
         }
 
@@ -4369,10 +4379,10 @@
       let data = kwrUrlData
         ? [...kwrUrlData]
         : kwrActiveTab==='tracked'
-          ? kwrAllData.filter(r => kwrSelectedSet.has(r.kw) && !r.dismissed)
+          ? kwrAllData.filter(r => (kwrSelectedSet.has(r.kw) || kwrWatchAutoKws.has(r.kw.toLowerCase())) && !r.dismissed)
           : kwrActiveTab==='dismissed'
             ? kwrAllData.filter(r => r.dismissed)
-            : kwrAllData.filter(r => !kwrSelectedSet.has(r.kw) && !r.dismissed);
+            : kwrAllData.filter(r => !r.dismissed && r.rankingUrl !== '—');
 
       if (!kwrUrlData && search)    data = data.filter(r => r.kw.includes(search));
       if (!kwrUrlData && searchUrl) data = data.filter(r => r.rankingUrl.toLowerCase().includes(searchUrl));
@@ -4461,11 +4471,18 @@
           : `<a href="https://www.aboutwallart.com${r.rankingUrl}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px;word-break:break-all;">${r.rankingUrl}</a>`;
 
         if (isSelected) {
+          const isAuto = kwrWatchAutoKws.has(r.kw.toLowerCase());
+          const isManual = kwrSelectedSet.has(r.kw);
+          const sourceBadge = isAuto && !isManual
+            ? `<span style="background:#f0fdf4;color:#16a34a;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">⚙️ Auto - Optimised</span>`
+            : `<span style="background:#eff6ff;color:#1d4ed8;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">👤 Manual</span>`;
+          const actionBtn = isManual
+            ? `<button onclick="kwrRemoveFromWatch('${encodeURIComponent(r.kw)}')" style="padding:4px 10px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">✕ Remove</button>`
+            : `<span style="font-size:11px;color:#aaa;">—</span>`;
           const trendCell = r.trend===null
             ? `<td style="width:90px;text-align:right;color:#aaa;">—</td>`
             : `<td style="width:90px;text-align:right;color:${r.trend>5?'#16a34a':r.trend<-5?'#dc2626':'#d97706'};font-weight:600;">${r.trend>5?'▲':r.trend<-5?'▼':'▶'} ${r.trend>0?'+':''}${r.trend.toFixed(1)}%</td>`;
           return `<tr>
-            <td style="width:40px;"></td>
             <td style="width:150px;font-size:13px;word-break:break-word;">${r.kw}</td>
             <td style="width:150px;">${urlDisplay}</td>
             <td style="width:70px;text-align:right;color:${posColor};font-weight:600;">${fmtPos(r.pos)}</td>
@@ -4474,7 +4491,8 @@
             <td style="width:55px;text-align:right;">${fmtCTR(r.ctr)}</td>
             <td style="width:80px;"><span style="${kwrDiffStyle(r.diff)}">${r.diff}</span></td>
             ${trendCell}
-            <td style="width:80px;"><button data-idx="${r._idx}" onclick="kwrUndoEl(this)" style="padding:4px 10px;border:1px solid #e5e5e5;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↩ Undo</button></td>
+            <td style="width:110px;">${sourceBadge}</td>
+            <td style="width:80px;">${actionBtn}</td>
           </tr>`;
         } else if (kwrActiveTab === 'dismissed') {
           return `<tr style="opacity:0.6;">
@@ -4519,6 +4537,7 @@
             <td style="width:100px;white-space:nowrap;">
               ${actionCell}
               <button data-idx="${r._idx}" onclick="kwrDismissEl(this)" style="margin-left:6px;padding:3px 8px;border:none;background:#dc2626;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;font-weight:600;">Delete</button>
+              ${kwrSelectedSet.has(r.kw)||kwrWatchAutoKws.has(r.kw.toLowerCase()) ? '<span style="margin-left:6px;font-size:11px;color:#16a34a;">⭐</span>' : `<button onclick="kwrAddToWatch('${encodeURIComponent(r.kw)}')" style="margin-left:6px;padding:3px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">+ Watch</button>`}
             </td>
           </tr>`;
         }
@@ -4529,6 +4548,28 @@
       kwrSelectedSet.add(kw);
       kwrUpdateCounts();
       kwrFilterTable();
+    }
+
+    async function kwrAddToWatch(encodedKw) {
+      const kw = decodeURIComponent(encodedKw);
+      kwrSelectedSet.add(kw);
+      kwrUpdateCounts();
+      kwrFilterTable();
+      try {
+        await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ action:'save-tracked-keywords', keywords: [...kwrSelectedSet] }) });
+      } catch(e) {}
+    }
+
+    async function kwrRemoveFromWatch(encodedKw) {
+      const kw = decodeURIComponent(encodedKw);
+      kwrSelectedSet.delete(kw);
+      kwrUpdateCounts();
+      kwrFilterTable();
+      try {
+        await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ action:'save-tracked-keywords', keywords: [...kwrSelectedSet] }) });
+      } catch(e) {}
     }
 
     async function kwrUndo(kw) {
@@ -4547,8 +4588,8 @@
     }
 
     function kwrUpdateCounts() {
-      document.getElementById('kwrCountAll').textContent       = kwrAllData.filter(r => !kwrSelectedSet.has(r.kw) && !r.dismissed).length;
-      document.getElementById('kwrCountTracked').textContent   = kwrAllData.filter(r => kwrSelectedSet.has(r.kw) && !r.dismissed).length;
+      document.getElementById('kwrCountAll').textContent       = kwrAllData.filter(r => !r.dismissed && r.rankingUrl !== '—').length;
+      document.getElementById('kwrCountTracked').textContent   = kwrAllData.filter(r => (kwrSelectedSet.has(r.kw) || kwrWatchAutoKws.has(r.kw.toLowerCase())) && !r.dismissed).length;
       document.getElementById('kwrCountDismissed').textContent = kwrAllData.filter(r => r.dismissed).length;
       const nourlsEl = document.getElementById('kwrCountNourls');
       if (nourlsEl) nourlsEl.textContent = kwrNoUrlData.length;
