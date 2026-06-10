@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.34</div>
+      <div class="tool-version">v59.35</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -5028,6 +5028,18 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
 
     function qwFilter() { qwRenderRows(); }
 
+    async function qwSaveKwForLater(encodedKw, btn) {
+      const kw = decodeURIComponent(encodedKw);
+      if (!confirm(`Save for future?\n\nKeyword: ${kw}`)) return;
+      btn.disabled = true; btn.textContent = '⏳';
+      try {
+        const res = await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'save-for-later', keyword: kw }) });
+        const json = await res.json();
+        if (json.success || json.duplicate) { btn.textContent = '✅ Saved'; }
+        else { btn.disabled = false; btn.textContent = '💾 Save for Future'; alert('Failed: ' + (json.error||'unknown')); }
+      } catch(e) { btn.disabled = false; btn.textContent = '💾 Save for Future'; alert('Error: ' + e.message); }
+    }
+
     function qwRefresh() {
       qwLoaded = false;
       qwData = { collections:[], blogs:[], products:[], pages:[] };
@@ -5123,7 +5135,8 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
         return`<td><span style="color:#ccc;font-size:12px;">—</span></td>`;
       };
       const actionCell=r=>{
-        if(r.regStatus==='locked-same'||r.regStatus==='url-taken') return`<td></td>`;
+        if(r.regStatus==='locked-same') return`<td></td>`;
+        if(r.regStatus==='url-taken') return`<td><button onclick="qwSaveKwForLater('${encodeURIComponent(r.keyword)}',this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">💾 Save for Future</button></td>`;
         if(r.regStatus==='kw-taken') return`<td><button onclick="moveToNokw('${encodeURIComponent(r.page)}','qw',this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↗ Move to Pages</button></td>`;
         return`<td style="white-space:nowrap;"><button onclick="qwConfirmLock('${r.page.replace(/'/g,"\\'")}','${r.keyword.replace(/'/g,"\\'")}' )" style="padding:4px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;margin-right:4px;">🔒 Lock</button><button onclick="qwShowCustomInput('${encodeURIComponent(r.page)}',this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">✏️ Custom</button></td>`;
       };
@@ -5212,6 +5225,18 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
 
     function dpFilter(){dpRenderRows();}
 
+    async function dpSaveKwForLater(encodedKw, btn) {
+      const kw = decodeURIComponent(encodedKw);
+      if (!confirm(`Save for future?\n\nKeyword: ${kw}`)) return;
+      btn.disabled = true; btn.textContent = '⏳';
+      try {
+        const res = await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'save-for-later', keyword: kw }) });
+        const json = await res.json();
+        if (json.success || json.duplicate) { btn.textContent = '✅ Saved'; }
+        else { btn.disabled = false; btn.textContent = '💾 Save for Future'; alert('Failed: ' + (json.error||'unknown')); }
+      } catch(e) { btn.disabled = false; btn.textContent = '💾 Save for Future'; alert('Error: ' + e.message); }
+    }
+
     function dpRefresh() {
       dpLoaded = false;
       dpData = { collections:[], blogs:[], products:[], pages:[] };
@@ -5247,7 +5272,8 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
         return`<td><span style="color:#ccc;font-size:12px;">—</span></td>`;
       };
       const actionCell=r=>{
-        if(r.regStatus==='locked-same'||r.regStatus==='url-taken') return`<td></td>`;
+        if(r.regStatus==='locked-same') return`<td></td>`;
+        if(r.regStatus==='url-taken') return`<td><button onclick="dpSaveKwForLater('${encodeURIComponent(r.keyword)}',this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">💾 Save for Future</button></td>`;
         if(r.regStatus==='kw-taken') return`<td><button onclick="moveToNokw('${encodeURIComponent(r.page)}','dp',this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↗ Move to Pages</button></td>`;
         return`<td><button onclick="dpConfirmLock('${r.page.replace(/'/g,"\\'")}','${r.keyword.replace(/'/g,"\\'")}' )" style="padding:4px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button></td>`;
       };
