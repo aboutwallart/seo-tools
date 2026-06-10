@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.48</div>
+      <div class="tool-version">v59.49</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1385,12 +1385,6 @@
         </div>
 
         <!-- Bulk toolbar -->
-        <div id="kwrBulkToolbar" style="display:none;background:#1a1a1a;color:#fff;padding:10px 16px;border-radius:6px;margin-bottom:8px;align-items:center;gap:12px;flex-wrap:wrap;">
-          <span id="kwrBulkCount" style="font-size:13px;font-weight:600;">0 selected</span>
-          <button onclick="kwrBulkSaveFuture()" style="padding:6px 14px;border:none;background:#6366f1;color:#fff;border-radius:4px;font-size:12px;cursor:pointer;font-weight:600;">💾 Save for Future</button>
-          <button onclick="kwrBulkClear()" style="padding:6px 14px;border:1px solid #555;background:transparent;color:#ccc;border-radius:4px;font-size:12px;cursor:pointer;">✕ Clear</button>
-        </div>
-
         <!-- Table -->
         <div class="table-card">
           <table id="kwrTable" style="table-layout:fixed;width:100%;">
@@ -3929,7 +3923,7 @@
       } else {
         const allChecked = kwrBulkSelected.size > 0;
         head.innerHTML = '<tr>' +
-          `<th style="width:30px;"><input type="checkbox" id="kwrBulkSelectAll" onchange="kwrBulkSelectAllFn(this.checked)" ${allChecked?'checked':''} style="cursor:pointer;"></th>` +
+          `<th style="width:120px;white-space:nowrap;"><input type="checkbox" id="kwrBulkSelectAll" onchange="kwrBulkSelectAllFn(this.checked)" style="cursor:pointer;margin-right:6px;"><button onclick="kwrBulkSaveFuture()" style="padding:3px 8px;border:none;background:#6366f1;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">💾 Save (${kwrBulkSelected.size})</button></th>` +
           th('Keyword','kw','150px') +
           th('Ranking URL','url','150px') +
           th('Position','pos','70px',true) +
@@ -4637,15 +4631,7 @@
     }
 
     function kwrBulkUpdateToolbar() {
-      const toolbar = document.getElementById('kwrBulkToolbar');
-      const count = document.getElementById('kwrBulkCount');
-      if (!toolbar || !count) return;
-      if (kwrBulkSelected.size > 0) {
-        toolbar.style.display = 'flex';
-        count.textContent = `${kwrBulkSelected.size} selected`;
-      } else {
-        toolbar.style.display = 'none';
-      }
+      kwrRenderHeader();
     }
 
     function kwrBulkClear() {
