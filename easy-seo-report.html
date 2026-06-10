@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.49</div>
+      <div class="tool-version">v59.50</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -4643,26 +4643,27 @@
 
     async function kwrBulkSaveFuture() {
       if (!kwrBulkSelected.size) return;
-      if (!confirm(`Save ${kwrBulkSelected.size} keyword(s) for future?\n\nThis will mark them as Saved for Future in the registry.`)) return;
-      const toolbar = document.getElementById('kwrBulkToolbar');
-      const btn = toolbar.querySelector('button');
-      btn.disabled = true; btn.textContent = '⏳ Saving...';
+      if (!confirm(`Save ${kwrBulkSelected.size} keyword(s) for future?`)) return;
+      // Update button to show spinner
+      const btn = document.querySelector('#kwrTableHead button');
+      if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving...'; }
       let saved = 0, failed = 0;
+      const total = kwrBulkSelected.size;
       for (const kw of kwrBulkSelected) {
         try {
           const res = await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'save-for-later', keyword: kw }) });
           const j = await res.json();
-          if (j.success || j.duplicate) {
-            savedForLaterSet.add(kw.toLowerCase());
-            saved++;
-          } else { failed++; }
+          if (j.success || j.duplicate) { savedForLaterSet.add(kw.toLowerCase()); saved++; }
+          else { failed++; }
         } catch(e) { failed++; }
+        // Update button progress
+        const b = document.querySelector('#kwrTableHead button');
+        if (b) b.textContent = `⏳ ${saved+failed}/${total}`;
       }
       kwrBulkSelected.clear();
-      btn.disabled = false; btn.textContent = '💾 Save for Future';
-      kwrBulkUpdateToolbar();
-      alert(`Done — ${saved} saved${failed?`, ${failed} failed`:''}.`);
+      kwrRenderHeader();
       kwrFilterTable(true);
+      alert(`✅ Done — ${saved} saved${failed ? `, ${failed} failed` : ''}.`);
     }
 
     function kwrSelect(kw) {
