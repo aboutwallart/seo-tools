@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.26</div>
+      <div class="tool-version">v59.27</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -3960,11 +3960,13 @@
           if (j.success && j.registry) {
             kwrRegistry = { byKw: {}, byUrl: {}, byKwIntent: new Set() };
             repurposeUrls = new Set();
+            savedForLaterList = [];
             j.registry.forEach(row => {
               const act = (row.action || '').toUpperCase();
               const src = (row.source || '');
               const urlKey = cleanUrl(row.url || '').toLowerCase();
               if (act === 'REPURPOSE') { repurposeUrls.add(urlKey); }
+              if (act === 'SAVED_FOR_FUTURE') { savedForLaterList.push(row.keyword); }
               const isRealLock = ['TO_OPTIMIZE','OPTIMIZED','TO_WRITE_BLOG','DELETED'].includes(act) || src === 'Published Blog';
               if (!isRealLock) return;
               const kwKey  = (row.keyword||'').toLowerCase();
@@ -3972,6 +3974,9 @@
               kwrRegistry.byUrl[urlKey] = { url: row.url, keyword: row.keyword };
               kwrRegistry.byKwIntent.add(kwKey + '::' + (row.intent || '').toUpperCase());
             });
+            savedForLaterSet = new Set(savedForLaterList.map(k => k.toLowerCase()));
+            const dl = document.getElementById('nokwKeywordList');
+            if (dl) dl.innerHTML = savedForLaterList.map(k => `<option value="${k.replace(/"/g,'&quot;')}">`).join('');
           }
         }
 
