@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.28</div>
+      <div class="tool-version">v59.29</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -4161,7 +4161,17 @@
           const res = await fetch(`/api/gsc?action=keyword-page&keyword=${encodeURIComponent(r.kw)}&startDate=${start}&endDate=${end}`);
           const json = await res.json();
           const rows = json?.data?.rows || [];
-          r.foundUrl = rows.length ? rows[0].keys[0].replace('https://aboutwallart.com','').replace('https://www.aboutwallart.com','') || '/' : null;
+          if (rows.length) {
+            let rawUrl = rows[0].keys[0]
+              .replace('https://www.aboutwallart.com','')
+              .replace('https://aboutwallart.com','') || '/';
+            rawUrl = rawUrl.split('?')[0].split('#')[0];
+            rawUrl = rawUrl.replace(/^\/(es|fr|de|it|pt|nl|ru|ja|zh|ko|ar)\//, '/');
+            if (rawUrl !== '/' && rawUrl.endsWith('/')) rawUrl = rawUrl.slice(0,-1);
+            r.foundUrl = rawUrl;
+          } else {
+            r.foundUrl = null;
+          }
           // Registry check on found URL
           if (r.foundUrl) {
             const kwKey = r.kw.toLowerCase();
