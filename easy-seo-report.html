@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.38</div>
+      <div class="tool-version">v59.39</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -2464,6 +2464,7 @@
         const j = await res.json();
         if (j.success) {
           kwrRegistry.byKw[kw.toLowerCase()] = { url: 'N/A', keyword: kw };
+          deletedKwSet.add(kw.toLowerCase());
           createData = createData.filter(r => r.query.toLowerCase() !== kw.toLowerCase());
           btn.closest('tr').remove();
         } else { btn.disabled = false; btn.textContent = '🗑 Delete'; alert('Failed: ' + (j.error||'unknown')); }
@@ -4133,6 +4134,7 @@
         const json = await res.json();
         if (json.success || json.duplicate) {
           btn.textContent = '✅ Saved';
+          savedForLaterSet.add(kw.toLowerCase());
         } else {
           btn.disabled = false; btn.textContent = '💾 Save for Future';
           alert('Failed: ' + (json.error || 'unknown'));
@@ -5054,12 +5056,41 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
       try {
         const res = await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'save-for-later', keyword: kw }) });
         const json = await res.json();
-        if (json.success || json.duplicate) { btn.textContent = '✅ Saved'; }
+        if (json.success || json.duplicate) { btn.textContent = '✅ Saved'; savedForLaterSet.add(kw.toLowerCase()); }
         else { btn.disabled = false; btn.textContent = '💾 Save for Future'; alert('Failed: ' + (json.error||'unknown')); }
       } catch(e) { btn.disabled = false; btn.textContent = '💾 Save for Future'; alert('Error: ' + e.message); }
     }
 
-    function qwRefresh() {
+    async function reloadRegistrySets() {
+      try {
+        const res = await fetch('/api/blogs?action=get-registry');
+        const j = await res.json();
+        if (j.success && j.registry) {
+          kwrRegistry = { byKw:{}, byUrl:{}, byKwIntent: new Set() };
+          savedForLaterSet = new Set(); savedForLaterList = [];
+          deletedKwSet = new Set(); repurposeUrls = new Set();
+          j.registry.forEach(row => {
+            const act = (row.action||'').toUpperCase();
+            const src = (row.source||'');
+            const kw  = (row.keyword||'').toLowerCase();
+            const url = cleanUrl(row.url||'').toLowerCase();
+            if (act === 'SAVED_FOR_FUTURE') { savedForLaterSet.add(kw); savedForLaterList.push(row.keyword); }
+            if (act === 'DELETED') { deletedKwSet.add(kw); }
+            if (act === 'REPURPOSE') { repurposeUrls.add(url); }
+            const isRealLock = ['TO_OPTIMIZE','OPTIMIZED','TO_WRITE_BLOG','DELETED'].includes(act) || src === 'Published Blog';
+            if (!isRealLock) return;
+            kwrRegistry.byKw[kw]  = { url: row.url, keyword: row.keyword };
+            kwrRegistry.byUrl[url] = { url: row.url, keyword: row.keyword };
+            kwrRegistry.byKwIntent.add(kw + '::' + (row.intent||'').toUpperCase());
+          });
+          const dl = document.getElementById('nokwKeywordList');
+          if (dl) dl.innerHTML = savedForLaterList.map(k => `<option value="${k.replace(/"/g,'&quot;')}">`).join('');
+        }
+      } catch(e) { console.error('reloadRegistrySets failed:', e); }
+    }
+
+    async function qwRefresh() {
+      await reloadRegistrySets();
       qwLoaded = false;
       qwData = { collections:[], blogs:[], products:[], pages:[] };
       qwDataNoKeyword = [];
@@ -5251,12 +5282,13 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
       try {
         const res = await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'save-for-later', keyword: kw }) });
         const json = await res.json();
-        if (json.success || json.duplicate) { btn.textContent = '✅ Saved'; }
+        if (json.success || json.duplicate) { btn.textContent = '✅ Saved'; savedForLaterSet.add(kw.toLowerCase()); }
         else { btn.disabled = false; btn.textContent = '💾 Save for Future'; alert('Failed: ' + (json.error||'unknown')); }
       } catch(e) { btn.disabled = false; btn.textContent = '💾 Save for Future'; alert('Error: ' + e.message); }
     }
 
-    function dpRefresh() {
+    async function dpRefresh() {
+      await reloadRegistrySets();
       dpLoaded = false;
       dpData = { collections:[], blogs:[], products:[], pages:[] };
       document.getElementById('dpBody').innerHTML = '<tr class="loading-row"><td colspan="7">Loading...</td></tr>';
