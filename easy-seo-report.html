@@ -4882,6 +4882,9 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
           const kwLockedToThisPage = kwLocked && cleanUrl(regByKw.url||'') === entry.page;
           const urlLocked = !!regByUrl;
           const urlLockedToThisKw = urlLocked && (regByUrl.keyword||'').toLowerCase() === qwKwKey;
+          if (entry.page.includes('sun-and-moon') || entry.page.includes('pastel-art') || entry.page.includes('eclectic-maximalist')) {
+            console.log('QW DEBUG', entry.page, '|kw:', qwKwKey, '|regByKw:', regByKw, '|regByUrl:', regByUrl, '|kwLockedToThisPage:', kwLockedToThisPage, '|urlLockedToThisKw:', urlLockedToThisKw, '|cleanUrlResult:', regByKw?cleanUrl(regByKw.url||''):'N/A');
+          }
           if (kwLockedToThisPage || urlLockedToThisKw) {
             entry.regStatus='locked-same'; entry.regOtherKw=''; entry.regOtherUrl='';
           } else if (kwLocked && urlLocked) {
