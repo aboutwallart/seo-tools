@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.24</div>
+      <div class="tool-version">v59.25</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1032,7 +1032,10 @@
         <!-- Top bar -->
         <div style="background:#1a1a1a;border-radius:8px;padding:16px 24px;margin-bottom:16px;">
           <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
-            <span style="color:#fff;font-size:16px;font-weight:600;">Keyword Rankings</span>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <span style="color:#fff;font-size:16px;font-weight:600;">Keyword Rankings</span>
+              <button onclick="kwrRefresh()" style="padding:5px 12px;background:#2d2d2d;color:#aaa;border:1px solid #444;border-radius:4px;font-size:12px;cursor:pointer;">↺ Refresh</button>
+            </div>
           </div>
           <div style="color:#888;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;">Filters</div>
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
@@ -1108,7 +1111,10 @@
             <span style="color:#fff;font-size:16px;font-weight:600;">🔥 Quick Wins</span>
             <span style="color:#888;font-size:12px;margin-left:12px;">Position 1–20 · 100+ impressions</span>
           </div>
-          <input id="qwSearch" type="text" placeholder="Search..." oninput="qwFilter()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:200px;outline:none;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input id="qwSearch" type="text" placeholder="Search..." oninput="qwFilter()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:200px;outline:none;">
+            <button onclick="qwRefresh()" style="padding:6px 12px;background:#2d2d2d;color:#aaa;border:1px solid #444;border-radius:4px;font-size:12px;cursor:pointer;">↺ Refresh</button>
+          </div>
         </div>
 
         <!-- Page type tabs -->
@@ -1162,7 +1168,10 @@
             <span style="color:#fff;font-size:16px;font-weight:600;">⚠️ Danger Pages</span>
             <span style="color:#888;font-size:12px;margin-left:12px;">Clicks dropped 20%+ vs previous 90 days · min 10 clicks</span>
           </div>
-          <input id="dpSearch" type="text" placeholder="Search..." oninput="dpFilter()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:200px;outline:none;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input id="dpSearch" type="text" placeholder="Search..." oninput="dpFilter()" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:200px;outline:none;">
+            <button onclick="dpRefresh()" style="padding:6px 12px;background:#2d2d2d;color:#aaa;border:1px solid #444;border-radius:4px;font-size:12px;cursor:pointer;">↺ Refresh</button>
+          </div>
         </div>
 
         <!-- Page type tabs -->
@@ -3911,6 +3920,15 @@
       kwrFilterTable();
     }
 
+    function kwrRefresh() {
+      kwrLoaded = false;
+      kwrAllData = [];
+      kwrRegistry = { byKw:{}, byUrl:{} };
+      kwrPage = 1;
+      document.getElementById('kwrBody').innerHTML = '<tr class="loading-row"><td colspan="9">Loading keyword rankings...</td></tr>';
+      kwrInit();
+    }
+
     async function kwrInit() {
       if (kwrLoaded) return;
       kwrLoaded = true;
@@ -4652,6 +4670,14 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
 
     function qwFilter() { qwRenderRows(); }
 
+    function qwRefresh() {
+      qwLoaded = false;
+      qwData = { collections:[], blogs:[], products:[], pages:[] };
+      qwDataNoKeyword = [];
+      document.getElementById('qwBody').innerHTML = '<tr class="loading-row"><td colspan="7">Loading...</td></tr>';
+      loadQuickWins();
+    }
+
     function qwUpdateSubCounts() { }
 
     function updateQwMissingCounts() {
@@ -4708,7 +4734,7 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
       const actionCell=r=>{
         if(r.regStatus==='locked-same'||r.regStatus==='url-taken') return`<td></td>`;
         if(r.regStatus==='kw-taken') return`<td><button onclick="moveToNokw('${encodeURIComponent(r.page)}','qw',this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↗ Move</button></td>`;
-        return`<td><button onclick="qwConfirmLock('${r.page.replace(/'/g,"\\'")}','${r.keyword.replace(/'/g,"\\'")}' )" style="padding:4px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button></td>`;
+        return`<td style="white-space:nowrap;"><button onclick="qwConfirmLock('${r.page.replace(/'/g,"\\'")}','${r.keyword.replace(/'/g,"\\'")}' )" style="padding:4px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;margin-right:4px;">🔒 Lock</button><button onclick="moveToNokw('${encodeURIComponent(r.page)}','qw',this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">💾 Save for Future</button></td>`;
       };
       tbody.innerHTML=rows.map(r=>`<tr>
         <td><a href="https://aboutwallart.com${r.page === '/' ? '' : r.page}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:12px;word-break:break-all;">${r.page === '/' ? 'Home Page' : r.page}</a></td>
@@ -4794,6 +4820,13 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
     }
 
     function dpFilter(){dpRenderRows();}
+
+    function dpRefresh() {
+      dpLoaded = false;
+      dpData = { collections:[], blogs:[], products:[], pages:[] };
+      document.getElementById('dpBody').innerHTML = '<tr class="loading-row"><td colspan="7">Loading...</td></tr>';
+      loadDangerPages();
+    }
 
     function dpUpdateSubCounts(){ }
 
