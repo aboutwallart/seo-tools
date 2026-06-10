@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.25</div>
+      <div class="tool-version">v59.26</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -4680,6 +4680,39 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
 
     function qwUpdateSubCounts() { }
 
+    function qwShowCustomInput(encodedPage, btn) {
+      const cell = btn.closest('td');
+      const inputId = 'qwCI_' + encodedPage.replace(/[^a-z0-9]/gi,'_');
+      cell.innerHTML = `<div style="display:flex;align-items:center;gap:4px;"><input id="${inputId}" list="nokwKeywordList" placeholder="Type or pick keyword..." style="padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:11px;width:190px;"><button onclick="qwLockCustom('${encodedPage}','${inputId}',this)" style="padding:4px 10px;border:none;background:#6366f1;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;">🔒 Lock</button></div>`;
+      document.getElementById(inputId)?.focus();
+    }
+
+    async function qwLockCustom(encodedPage, inputId, btn) {
+      const page = decodeURIComponent(encodedPage);
+      const keyword = (document.getElementById(inputId)?.value || '').trim();
+      if (!keyword) { alert('Please enter or choose a keyword.'); return; }
+      const fullUrl = 'https://aboutwallart.com' + page;
+      if (!confirm(`Lock to this page?\n\nURL: ${fullUrl}\nKeyword: ${keyword}`)) return;
+      btn.disabled = true; btn.textContent = '⏳';
+      try {
+        const res = await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'lock-keyword', keyword, url: fullUrl }) });
+        const json = await res.json();
+        if (json.success) {
+          if (!kwrRegistry.byKw) kwrRegistry.byKw = {};
+          kwrRegistry.byKw[keyword.toLowerCase()] = { url: fullUrl, keyword };
+          qwData[qwPageType].forEach(r => { if (r.page === page) { r.regStatus = 'locked-same'; } });
+          qwRenderRows();
+          qwShowStatus('✅ Keyword locked!', '#f0fdf4', '#86efac', '#166534');
+        } else if (json.duplicate) {
+          btn.disabled = false; btn.textContent = '🔒 Lock';
+          alert('⚠️ This keyword is already locked to:\n' + json.lockedTo);
+        } else {
+          btn.disabled = false; btn.textContent = '🔒 Lock';
+          alert('Failed: ' + (json.error || 'unknown'));
+        }
+      } catch(e) { btn.disabled = false; btn.textContent = '🔒 Lock'; alert('Error: ' + e.message); }
+    }
+
     function updateQwMissingCounts() {
       const total = Object.values(qwData).reduce((s,a) => s + a.length, 0);
       document.getElementById('qwWithCount').textContent = '(' + total + ')';
@@ -4734,7 +4767,7 @@ LOCKED: LOCKED | STATUS: DONE | ACTION: TO_OPTIMIZE`;
       const actionCell=r=>{
         if(r.regStatus==='locked-same'||r.regStatus==='url-taken') return`<td></td>`;
         if(r.regStatus==='kw-taken') return`<td><button onclick="moveToNokw('${encodeURIComponent(r.page)}','qw',this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">↗ Move</button></td>`;
-        return`<td style="white-space:nowrap;"><button onclick="qwConfirmLock('${r.page.replace(/'/g,"\\'")}','${r.keyword.replace(/'/g,"\\'")}' )" style="padding:4px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;margin-right:4px;">🔒 Lock</button><button onclick="moveToNokw('${encodeURIComponent(r.page)}','qw',this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">💾 Save for Future</button></td>`;
+        return`<td style="white-space:nowrap;"><button onclick="qwConfirmLock('${r.page.replace(/'/g,"\\'")}','${r.keyword.replace(/'/g,"\\'")}' )" style="padding:4px 8px;border:none;background:#1a1a1a;color:#fff;border-radius:4px;font-size:11px;cursor:pointer;margin-right:4px;">🔒 Lock</button><button onclick="qwShowCustomInput('${encodeURIComponent(r.page)}',this)" style="padding:4px 8px;border:1px solid #ccc;background:#fff;color:#555;border-radius:4px;font-size:11px;cursor:pointer;">✏️ Custom</button></td>`;
       };
       tbody.innerHTML=rows.map(r=>`<tr>
         <td><a href="https://aboutwallart.com${r.page === '/' ? '' : r.page}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:12px;word-break:break-all;">${r.page === '/' ? 'Home Page' : r.page}</a></td>
