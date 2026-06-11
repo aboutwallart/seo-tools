@@ -1,4 +1,4 @@
-// blogs.js — v2.4
+// blogs.js — v2.5
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
@@ -341,6 +341,26 @@ export default async function handler(req, res) {
           return res.status(200).json({ success: true, keywords });
         } catch(e) {
           return res.status(200).json({ success: true, keywords: [] });
+        }
+      }
+
+      // ── ACTION: get-tech-status ──
+      if (req.query.action === 'get-tech-status') {
+        try {
+          const file = await getGitHubFile('data/tech-status.json');
+          return res.status(200).json({ success: true, statuses: JSON.parse(file.content) });
+        } catch(e) {
+          return res.status(200).json({ success: true, statuses: {} });
+        }
+      }
+
+      // ── ACTION: get-reindex-done ──
+      if (req.query.action === 'get-reindex-done') {
+        try {
+          const file = await getGitHubFile('data/reindex-done.json');
+          return res.status(200).json({ success: true, done: JSON.parse(file.content) });
+        } catch(e) {
+          return res.status(200).json({ success: true, done: [] });
         }
       }
 
@@ -854,6 +874,24 @@ export default async function handler(req, res) {
         });
         if (!response.ok) { const err = await response.text(); return res.status(500).json({ error: `GitHub save failed: ${err}` }); }
         return res.status(200).json({ success: true, count: keywords.length });
+      }
+
+      // ── ACTION: save-tech-status ──
+      if (req.body.action === 'save-tech-status') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { statuses } = req.body;
+        if (!statuses || typeof statuses !== 'object') return res.status(400).json({ error: 'statuses object required' });
+        await updateGitHubFile('data/tech-status.json', JSON.stringify(statuses, null, 2), null, 'Update tech health statuses');
+        return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: save-reindex-done ──
+      if (req.body.action === 'save-reindex-done') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { done } = req.body;
+        if (!Array.isArray(done)) return res.status(400).json({ error: 'done must be an array' });
+        await updateGitHubFile('data/reindex-done.json', JSON.stringify(done, null, 2), null, 'Update reindex done list');
+        return res.status(200).json({ success: true });
       }
 
       // ── ACTION: save-keyword-tabs ──
