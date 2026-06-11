@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 47.4</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 47.5</p>
                 </div>
             </div>
         </header>
@@ -514,6 +514,10 @@
         let currentPageTypeFilter = 'all'; // Current filter in My Pages tab
         let currentUrgencyTab = 'other'; // 'danger' | 'quickwin' | 'other'
         let gscEnrichment = {}; // normalizedPath → { position, impressions, clicks, urgency, clickDrop, keyword }
+
+        // Title conflict check state
+        let pageTitlesCache = null;
+        let titleCheckDebounce = null;
 
         // GitHub-backed data (replaces localStorage)
         let mpdChecklist = {};   // { url: { _total: N, key: true/false } }
@@ -1228,12 +1232,15 @@
             document.getElementById('resultsModal').classList.add('active');
             technicalSEOResults = null;
 
-            // Initialize char counts after render
+            // Initialize char counts and trigger title conflict check after render
             setTimeout(() => {
                 const t = document.getElementById('shopifyTitleField');
                 const m = document.getElementById('shopifyMetaField');
                 if (t) updateCharCount(t, 60);
                 if (m) updateCharCount(m, 155);
+                // Title conflict check
+                const pType = getPageTypeForTitleCheck(data.yourPage.url);
+                if (pType) checkTitleConflicts(data.yourPage.url, pType);
             }, 50);
         }
 
@@ -1321,8 +1328,9 @@
                     </div>
                     <div class="field-group">
                         <label>SEO Title</label>
-                        <input type="text" id="shopifyTitleField" value="${(s.suggestedTitle||'').replace(/"/g,'&quot;')}" oninput="updateCharCount(this,60)">
+                        <input type="text" id="shopifyTitleField" value="${(s.suggestedTitle||'').replace(/"/g,'&quot;')}" oninput="updateCharCount(this,60);scheduleTitleCheck()">
                         <div class="char-count"></div>
+                        <div id="titleConflictStatus" style="min-height:20px;"></div>
                     </div>
                     <div class="field-group">
                         <label>Meta Description</label>
@@ -3019,6 +3027,141 @@
 
         function closeHelp() {
             document.getElementById('helpModal').style.display = 'none';
+        }
+
+        // ── TITLE CONFLICT CHECK ──────────────────────────────────────────────
+
+        function getPageTypeForTitleCheck(url) {
+            if (url.includes('/collections/')) return 'collection';
+            if (url.includes('/products/')) return 'product';
+            if (url.includes('/pages/')) return 'page';
+            if (url.includes('/blogs/')) return 'article';
+            return null;
+        }
+
+        function titleSimilarity(title1, title2) {
+            const stop = new Set(['a','an','the','and','or','for','of','to','in','is','it','on','at','by','as','your','our','best','top','new','get','how','why','what','with','from','that','this','aboutwallart','ideas','tips','guide']);
+            function keywords(t) {
+                return new Set(t.toLowerCase().replace(/[|–—\-]/g,' ').split(/\s+/).filter(w => w.length > 2 && !stop.has(w)));
+            }
+            const k1 = keywords(title1), k2 = keywords(title2);
+            if (!k1.size || !k2.size) return 0;
+            const overlap = [...k1].filter(w => k2.has(w)).length;
+            return overlap / Math.min(k1.size, k2.size);
+        }
+
+        async function checkTitleConflicts(pageUrl, pageType) {
+            pageTitlesCache = null;
+            const statusEl = document.getElementById('titleConflictStatus');
+            if (statusEl) statusEl.innerHTML = '<span style="color:#999;font-size:0.8rem;">⏳ Checking for title conflicts...</span>';
+            try {
+                const res = await fetch(`/api/shopify-files?action=get-titles-by-type&type=${pageType}`);
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error);
+                pageTitlesCache = data.items;
+                runTitleCheck(pageUrl);
+            } catch(e) {
+                if (statusEl) statusEl.innerHTML = '';
+                console.warn('[Title Check] Failed:', e);
+            }
+        }
+
+        function runTitleCheck(currentPageUrl) {
+            const statusEl = document.getElementById('titleConflictStatus');
+            const titleField = document.getElementById('shopifyTitleField');
+            if (!statusEl || !titleField || !pageTitlesCache) return;
+
+            const currentTitle = titleField.value.trim();
+            if (!currentTitle) { statusEl.innerHTML = ''; return; }
+
+            const normUrl = (currentPageUrl || currentAuditURL || '').replace('https://www.','https://').replace(/\/$/,'').toLowerCase();
+            const titleLow = currentTitle.toLowerCase();
+            let conflict = null;
+
+            for (const item of pageTitlesCache) {
+                const itemUrl = (item.url || '').replace('https://www.','https://').replace(/\/$/,'').toLowerCase();
+                if (itemUrl === normUrl) continue;
+                if (item.title.toLowerCase() === titleLow) {
+                    conflict = { level: 'exact', title: item.title, url: item.url }; break;
+                }
+                const sim = titleSimilarity(currentTitle, item.title);
+                if (sim >= 0.6 && !conflict) conflict = { level: 'similar', title: item.title, url: item.url };
+            }
+
+            if (!conflict) {
+                statusEl.innerHTML = '<span style="color:#2e7d32;font-size:0.8rem;">✅ Title is unique</span>';
+            } else if (conflict.level === 'exact') {
+                statusEl.innerHTML = `<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:4px;padding:8px 10px;margin-top:4px;">
+                    <span style="color:#c62828;font-weight:600;font-size:0.82rem;">🔴 Exact duplicate:</span>
+                    <span style="color:#555;font-size:0.82rem;"> "${conflict.title}" already used on <a href="${conflict.url}" target="_blank" style="color:#1976d2;">${conflict.url}</a></span>
+                    <button onclick="askClaudeForTitle()" style="margin-left:8px;background:#1976d2;color:white;padding:3px 10px;border-radius:4px;font-size:0.78rem;border:none;cursor:pointer;">🤖 Ask Claude</button>
+                </div>`;
+            } else {
+                statusEl.innerHTML = `<div style="background:#fff7ed;border:1px solid #fdba74;border-radius:4px;padding:8px 10px;margin-top:4px;">
+                    <span style="color:#c2410c;font-weight:600;font-size:0.82rem;">🟠 Very similar:</span>
+                    <span style="color:#555;font-size:0.82rem;"> "${conflict.title}" on <a href="${conflict.url}" target="_blank" style="color:#1976d2;">${conflict.url}</a></span>
+                    <button onclick="askClaudeForTitle()" style="margin-left:8px;background:#c2410c;color:white;padding:3px 10px;border-radius:4px;font-size:0.78rem;border:none;cursor:pointer;">🤖 Ask Claude</button>
+                </div>`;
+            }
+        }
+
+        function scheduleTitleCheck() {
+            clearTimeout(titleCheckDebounce);
+            titleCheckDebounce = setTimeout(() => runTitleCheck(currentAuditURL), 600);
+        }
+
+        async function askClaudeForTitle() {
+            const statusEl = document.getElementById('titleConflictStatus');
+            const titleField = document.getElementById('shopifyTitleField');
+            if (!statusEl || !titleField) return;
+
+            const currentTitle = titleField.value.trim();
+            const item = urls.find(u => u.url === currentAnalysisUrl) || {};
+            const keyword = item.keyword || '';
+            const normUrl = currentAuditURL.replace('https://www.','https://').replace(/\/$/,'').toLowerCase();
+
+            let conflictTitle = '';
+            for (const t of (pageTitlesCache || [])) {
+                const tUrl = (t.url || '').replace('https://www.','https://').replace(/\/$/,'').toLowerCase();
+                if (tUrl === normUrl) continue;
+                if (t.title.toLowerCase() === currentTitle.toLowerCase() || titleSimilarity(currentTitle, t.title) >= 0.6) { conflictTitle = t.title; break; }
+            }
+
+            statusEl.innerHTML = '<span style="color:#666;font-size:0.82rem;">⏳ Claude is generating a new title...</span>';
+
+            try {
+                const prompt = `You are an SEO expert. Generate ONE new SEO title for a Shopify page.
+
+Page URL: ${currentAuditURL}
+Target keyword: ${keyword}
+Current title (conflicts): ${currentTitle}
+Conflicting page title: ${conflictTitle}
+
+Rules:
+- Must target the keyword naturally
+- Must be under 60 characters total
+- Must end with | AboutWallArt
+- Must be clearly different from the conflicting title
+- Reply with ONLY the title, no explanation`;
+
+                const res = await fetch('/api/claude', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }) });
+                const data = await res.json();
+
+                let newTitle = '';
+                if (data.content) {
+                    for (const block of data.content) { if (block.type === 'text') { newTitle = block.text.trim(); break; } }
+                }
+
+                if (newTitle) {
+                    titleField.value = newTitle;
+                    updateCharCount(titleField, 60);
+                    runTitleCheck(currentAuditURL);
+                } else {
+                    statusEl.innerHTML = '<span style="color:#c62828;font-size:0.82rem;">❌ Claude could not generate a title. Please edit manually.</span>';
+                }
+            } catch(e) {
+                statusEl.innerHTML = '<span style="color:#c62828;font-size:0.82rem;">❌ Request failed. Please edit the title manually.</span>';
+            }
         }
 
         // ── ADD URL MODAL ─────────────────────────────────────────────────────
