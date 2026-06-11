@@ -43,11 +43,12 @@ module.exports = async (req, res) => {
       });
     } else if (action === 'queries') {
       // All queries with impressions — for content optimization ideas
+      const qLimit = Math.min(parseInt(req.query.limit) || 1000, 25000);
       data = await gscQuery(accessToken, siteUrl, {
         startDate: start,
         endDate: end,
         dimensions: ['query'],
-        rowLimit: 1000
+        rowLimit: qLimit
       });
     } else if (action === 'pages') {
       // Top pages by clicks
