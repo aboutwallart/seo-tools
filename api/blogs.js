@@ -1,4 +1,4 @@
-// blogs.js — v2.3
+// blogs.js — v2.4
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
@@ -517,6 +517,14 @@ export default async function handler(req, res) {
           }
         }
         const resolvedIntent = detectIntent(url);
+        // Remove any existing SAVED_FOR_FUTURE row for this keyword before adding the locked row
+        const cleanedLines = lines.filter(line => {
+          if (!line.trim()) return true;
+          const cols = parseCSVLine(line);
+          const rowKw = (cols[0]||'').toLowerCase();
+          const rowAction = (cols[4]||'').toUpperCase();
+          return !(rowKw === keyword.toLowerCase() && rowAction === 'SAVED_FOR_FUTURE');
+        });
         // 12 columns — empty 12th col keeps registry consistent with mark-optimized rows
         let newRows = `${csvField(keyword)},${csvField(url)},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,User Resolved,${resolvedIntent},`;
         // Add loser rows for internal linking
@@ -525,7 +533,7 @@ export default async function handler(req, res) {
             newRows += `\n${csvField(keyword)},${csvField(loser.url)},,DONE,INTERNAL_LINK,${csvField(url)},${loser.clicks || 'N/A'},${loser.impressions || 'N/A'},${loser.position || 'N/A'},Auto Detected,${resolvedIntent},`;
           });
         }
-        const updated = registry.content.trimEnd() + '\n' + newRows + '\n';
+        const updated = cleanedLines.join('\n').trimEnd() + '\n' + newRows + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Lock keyword: ${keyword}`);
         return res.status(200).json({ success: true, keyword, url });
       }
