@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.54</div>
+      <div class="tool-version">v59.55</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1015,30 +1015,12 @@
 
       <!-- SECTION: Keyword Tracker -->
       <div class="section" id="section-kwtracker">
-
-        <!-- Top bar -->
         <div style="background:#1a1a1a;border-radius:8px;padding:20px 24px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
           <span style="color:#fff;font-size:16px;font-weight:600;">Keyword Tracker</span>
-          <div style="display:flex;align-items:center;gap:10px;">
-            <input id="kwNewLabel" type="text" placeholder="Tab label (e.g. Hamilton)" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:160px;outline:none;">
-            <input id="kwNewKeyword" type="text" placeholder="Keyword to track" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:200px;outline:none;">
-            <button onclick="kwAddTab()" style="background:#2563eb;color:#fff;border:none;padding:7px 16px;border-radius:4px;font-size:12px;cursor:pointer;font-weight:600;">+ Add Tab</button>
-          </div>
+          <span id="ktStatus" style="font-size:12px;color:#aaa;"></span>
         </div>
-
-        <!-- Save status -->
-        <div id="kwSaveStatus" style="display:none;border-radius:6px;padding:10px 16px;margin-bottom:16px;font-size:13px;align-items:center;gap:8px;">
-          <span id="kwSaveStatusText"></span>
-        </div>
-
-        <!-- Tabs row -->
-        <div id="kwTabsRow" style="margin-bottom:24px;"></div>
-
-        <!-- Active tab content -->
-        <div id="kwContent">
-          <div style="text-align:center;padding:48px;color:#aaa;font-size:13px;">Add a keyword tab above to get started.</div>
-        </div>
-
+        <div id="ktList"></div>
+        <div id="ktDetail" style="display:none;"></div>
       </div>
 
 
@@ -1320,30 +1302,12 @@
 
       <!-- SECTION: Keyword Tracker -->
       <div class="section" id="section-kwtracker">
-
-        <!-- Top bar -->
         <div style="background:#1a1a1a;border-radius:8px;padding:20px 24px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
           <span style="color:#fff;font-size:16px;font-weight:600;">Keyword Tracker</span>
-          <div style="display:flex;align-items:center;gap:10px;">
-            <input id="kwNewLabel" type="text" placeholder="Tab label (e.g. Hamilton)" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:160px;outline:none;">
-            <input id="kwNewKeyword" type="text" placeholder="Keyword to track" style="background:#2d2d2d;color:#fff;border:1px solid #444;padding:6px 12px;border-radius:4px;font-size:12px;width:200px;outline:none;">
-            <button onclick="kwAddTab()" style="background:#2563eb;color:#fff;border:none;padding:7px 16px;border-radius:4px;font-size:12px;cursor:pointer;font-weight:600;">+ Add Tab</button>
-          </div>
+          <span id="ktStatus" style="font-size:12px;color:#aaa;"></span>
         </div>
-
-        <!-- Save status -->
-        <div id="kwSaveStatus" style="display:none;border-radius:6px;padding:10px 16px;margin-bottom:16px;font-size:13px;align-items:center;gap:8px;">
-          <span id="kwSaveStatusText"></span>
-        </div>
-
-        <!-- Tabs row -->
-        <div id="kwTabsRow" style="margin-bottom:24px;"></div>
-
-        <!-- Active tab content -->
-        <div id="kwContent">
-          <div style="text-align:center;padding:48px;color:#aaa;font-size:13px;">Add a keyword tab above to get started.</div>
-        </div>
-
+        <div id="ktList"></div>
+        <div id="ktDetail" style="display:none;"></div>
       </div>
 
 
@@ -1539,7 +1503,7 @@
       if(id==='blogopt'&&!blogOptLoaded){loadBlogOptimizations();blogOptLoaded=true;}
       if(id==='llm'&&!llmLoaded){loadLLMTraffic();llmLoaded=true;}
       if(id==='social'&&!socialLoaded){loadSocialTraffic();socialLoaded=true;}
-      if(id==='kwtracker'){kwInit();}
+      if(id==='kwtracker'){kwInit();} // kwInit now calls loadKwTracker
       if(id==='suspicious'&&!suspLoaded){loadSuspiciousTraffic();}
       if(id==='kwrankings'&&!kwrLoaded){kwrInit();}
       if(id==='quickwins'&&!qwLoaded){
@@ -3735,134 +3699,258 @@
     // KEYWORD TRACKER
     // ═══════════════════════════════════════════════════════
 
-    let kwTabs = [];         // [{ id, label, keyword }]
-    let kwOptimisations = {};  // { tabId: 'YYYY-MM-DD' }
-    let kwActiveId = null;
-    let kwSaveTimer = null;
+    let ktRows = [];   // [{keyword, url, optimizedDate, daysAgo, metrics, comparison}]
 
-    // Load tabs from GitHub on init
-    async function kwInit() {
+    async function kwInit() { await loadKwTracker(); }
+
+    async function loadKwTracker() {
+      const statusEl = document.getElementById('ktStatus');
+      const listEl   = document.getElementById('ktList');
+      statusEl.textContent = 'Loading...';
+      listEl.innerHTML = '<p style="padding:24px;color:#888;font-size:13px;">Loading...</p>';
       try {
-        const [tabsRes, optRes] = await Promise.all([
-          fetch('/api/blogs?action=get-keyword-tabs'),
-          fetch('/api/blogs?action=get-optimisations')
-        ]);
-        const tabsJson = await tabsRes.json();
-        const optJson  = await optRes.json();
-        if (optJson.success) kwOptimisations = optJson.optimisations || {};
-        if (tabsJson.success && tabsJson.tabs.length) {
-          kwTabs = tabsJson.tabs;
-          kwRenderTabsRow();
-          kwActivate(kwTabs[0].id);
+        // 1. Fetch registry → OPTIMIZED rows with optimisedDate
+        const rRes  = await fetch('/api/blogs?action=get-registry');
+        const rJson = await rRes.json();
+        const optRows = (rJson.registry||[]).filter(r => (r.action||'').toUpperCase()==='OPTIMIZED' && r.keyword && r.url && r.url!=='N/A');
+        if (!optRows.length) {
+          statusEl.textContent = 'No optimized keywords yet.';
+          listEl.innerHTML = '<p style="padding:24px;color:#888;font-size:13px;">No pages marked as Optimized in the registry yet. Mark pages as done in Money Page Doctor.</p>';
+          return;
         }
-      } catch(e) {
-        console.error('kwInit error:', e.message);
-      }
-    }
-
-    // Save tabs to GitHub with status indicator
-    async function kwSave() {
-      kwShowStatus('⏳ Saving...', '#f0f9ff', '#7dd3fc', '#0369a1');
-      // Countdown
-      let secs = 3;
-      const interval = setInterval(() => {
-        secs--;
-        if (secs > 0) kwShowStatus(`⏳ Saving... ${secs}s`, '#f0f9ff', '#7dd3fc', '#0369a1');
-      }, 1000);
-      try {
-        const res = await fetch('/api/blogs', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'save-keyword-tabs', tabs: kwTabs })
+        const today = new Date();
+        ktRows = optRows.map(r => {
+          const optDate = r.optimisedDate ? new Date(r.optimisedDate) : null;
+          const daysAgo = optDate && !isNaN(optDate) ? Math.floor((today - optDate)/(1000*60*60*24)) : null;
+          return { keyword: r.keyword, url: r.url, optimizedDate: r.optimisedDate||null, daysAgo, metrics: null, comparison: null };
+        }).sort((a,b) => {
+          if (!a.optimizedDate && !b.optimizedDate) return 0;
+          if (!a.optimizedDate) return 1;
+          if (!b.optimizedDate) return -1;
+          return new Date(b.optimizedDate) - new Date(a.optimizedDate);
         });
-        clearInterval(interval);
-        const json = await res.json();
-        if (json.success) {
-          kwShowStatus('✅ Saved successfully', '#f0fdf4', '#86efac', '#16a34a');
-          setTimeout(() => { document.getElementById('kwSaveStatus').style.display = 'none'; }, 3000);
-        } else {
-          kwShowStatus('❌ Save failed: ' + (json.error || 'unknown error'), '#fef2f2', '#fecaca', '#dc2626');
-        }
+
+        // 2. Fetch GSC queries (5000 rows, last 180 days) for current metrics
+        statusEl.textContent = 'Fetching metrics...';
+        const qRes  = await fetch(`${API}?action=queries&limit=5000&startDate=${getDate(180)}&endDate=${getDate(0)}`);
+        const qJson = await qRes.json();
+        const allQRows = qJson.success ? (qJson.data?.rows||[]) : [];
+
+        // 3. Build per-keyword metrics from matching queries
+        ktRows.forEach(row => {
+          const kw = row.keyword.toLowerCase();
+          const matching = allQRows.filter(r => (r.keys?.[0]||'').toLowerCase().includes(kw));
+          const clicks = matching.reduce((s,r)=>s+(r.clicks||0),0);
+          const imp    = matching.reduce((s,r)=>s+(r.impressions||0),0);
+          const pos    = matching.length ? matching.reduce((s,r)=>s+(r.position||0),0)/matching.length : 0;
+          row.metrics  = { queries: matching.length, clicks, imp, ctr: imp ? clicks/imp : 0, pos };
+        });
+
+        // 4. Render list immediately
+        ktRenderList();
+        statusEl.textContent = `${ktRows.length} optimized keyword${ktRows.length!==1?'s':''} · last optimized first`;
+
+        // 5. Background: fetch comparison for keywords >= 90 days old
+        const needsComp = ktRows.filter(r => r.daysAgo !== null && r.daysAgo >= 90);
+        if (needsComp.length) ktFetchComparisons(needsComp);
+
       } catch(e) {
-        clearInterval(interval);
-        kwShowStatus('❌ Save failed: ' + e.message, '#fef2f2', '#fecaca', '#dc2626');
+        statusEl.textContent = 'Error: ' + e.message;
+        listEl.innerHTML = `<p style="padding:24px;color:#dc2626;font-size:13px;">Error: ${e.message}</p>`;
       }
     }
 
-    function kwShowStatus(text, bg, border, color) {
-      const el = document.getElementById('kwSaveStatus');
-      el.style.display = 'flex';
-      el.style.background = bg;
-      el.style.borderColor = border;
-      el.style.color = color;
-      document.getElementById('kwSaveStatusText').textContent = text;
-    }
-
-    function kwAddTab() {
-      const label   = document.getElementById('kwNewLabel').value.trim();
-      const keyword = document.getElementById('kwNewKeyword').value.trim();
-      if (!label || !keyword) { alert('Please enter both a tab label and a keyword.'); return; }
-      const id = 'kw_' + Date.now();
-      kwTabs.push({ id, label, keyword });
-      document.getElementById('kwNewLabel').value = '';
-      document.getElementById('kwNewKeyword').value = '';
-      kwRenderTabsRow();
-      kwActivate(id);
-      kwSave();
-    }
-
-    function kwDeleteTab(id) {
-      if (!confirm('Delete this keyword tab?')) return;
-      kwTabs = kwTabs.filter(t => t.id !== id);
-      kwRenderTabsRow();
-      if (kwTabs.length) kwActivate(kwTabs[0].id);
-      else {
-        kwActiveId = null;
-        document.getElementById('kwContent').innerHTML = '<div style="text-align:center;padding:48px;color:#aaa;font-size:13px;">Add a keyword tab above to get started.</div>';
+    async function ktFetchComparisons(rows) {
+      const batch = 3;
+      for (let i=0; i<rows.length; i+=batch) {
+        await Promise.all(rows.slice(i,i+batch).map(async row => {
+          try {
+            const res = await fetch(`${API}?action=keyword-monthly&keyword=${encodeURIComponent(row.keyword)}&startDate=${getDate(365)}&endDate=${getDate(0)}`);
+            const j   = await res.json();
+            if (!j.success) return;
+            const optDate = new Date(row.optimizedDate);
+            const cutoff  = new Date(optDate.getTime() + 90*24*60*60*1000);
+            const pre=[], post=[];
+            (j.data?.rows||[]).forEach(r => {
+              const ds = r.keys?.[0]||'';
+              const mk = ds.length===8 ? ds.slice(0,4)+'-'+ds.slice(4,6) : ds.slice(0,7);
+              const md = new Date(mk+'-01');
+              const me = new Date(md.getFullYear(), md.getMonth()+1, 0);
+              if (me < optDate) pre.push(r);
+              else if (md > cutoff) post.push(r);
+            });
+            if (!pre.length || !post.length) return;
+            const avg = (arr, field) => arr.reduce((s,r)=>s+(r[field]||0),0)/arr.length;
+            const preImp=avg(pre,'impressions'), postImp=avg(post,'impressions');
+            const preClk=avg(pre,'clicks'),      postClk=avg(post,'clicks');
+            const prePos=avg(pre,'position'),    postPos=avg(post,'position');
+            row.comparison = {
+              impUp: postImp>=preImp,    impPct: preImp  ? Math.round((postImp-preImp)/preImp*100)   : null,
+              clkUp: postClk>=preClk,    clkPct: preClk  ? Math.round((postClk-preClk)/preClk*100)   : null,
+              posUp: postPos<=prePos,    posPct: prePos  ? Math.round((postPos-prePos)/prePos*100)    : null,
+            };
+            const idx = ktRows.indexOf(row);
+            const el  = document.getElementById(`ktstat-${idx}`);
+            if (el) el.innerHTML = ktStatusCell(row);
+          } catch(e) {}
+        }));
       }
-      kwSave();
     }
 
-    function kwRenameTab(id) {
-      const tab = kwTabs.find(t => t.id === id);
-      if (!tab) return;
-      const newLabel   = prompt('New label:', tab.label);
-      if (!newLabel) return;
-      const newKeyword = prompt('New keyword:', tab.keyword);
-      if (!newKeyword) return;
-      tab.label   = newLabel.trim();
-      tab.keyword = newKeyword.trim();
-      kwRenderTabsRow();
-      if (kwActiveId === id) kwActivate(id);
-      kwSave();
+    function ktArrow(up, pct) {
+      if (pct === null) return '<span style="color:#aaa;">—</span>';
+      const color = up ? '#16a34a' : '#dc2626';
+      const dir   = up ? '↑' : '↓';
+      return `<span style="color:${color};font-weight:600;">${dir}${Math.abs(pct)}%</span>`;
     }
 
-    function kwRenderTabsRow() {
-      const row = document.getElementById('kwTabsRow');
-      if (!kwTabs.length) { row.innerHTML = ''; return; }
-      row.innerHTML = `<div style="display:flex;align-items:center;border-bottom:2px solid #e5e5e5;width:100%;gap:0;">` +
-        kwTabs.map(t => {
-          const isActive = t.id === kwActiveId;
-          return `<div style="display:flex;align-items:center;border-bottom:${isActive ? '2px solid #1a1a1a' : '2px solid transparent'};margin-bottom:-2px;">
-            <button onclick="kwActivate('${t.id}')" style="padding:10px 16px;border:none;background:transparent;color:${isActive ? '#1a1a1a' : '#888'};font-size:13px;font-weight:${isActive ? '600' : '400'};cursor:pointer;white-space:nowrap;">${t.label}</button>
-            <button onclick="kwRenameTab('${t.id}')" title="Rename" style="padding:4px 6px;border:none;background:transparent;color:#bbb;font-size:11px;cursor:pointer;">✏️</button>
-            <button onclick="kwDeleteTab('${t.id}')" title="Delete" style="padding:4px 6px;border:none;background:transparent;color:#ddd;font-size:11px;cursor:pointer;margin-right:4px;">✕</button>
+    function ktStatusCell(row) {
+      if (row.daysAgo === null) return `<span style="font-size:11px;color:#aaa;">No date</span>`;
+      if (row.daysAgo < 90) {
+        const left = 90 - row.daysAgo;
+        return `<span style="font-size:11px;color:#888;background:#f5f5f5;padding:3px 8px;border-radius:10px;">${left} day${left!==1?'s':''} to go</span>`;
+      }
+      if (!row.comparison) return `<span style="font-size:11px;color:#aaa;">⏳ Analysing...</span>`;
+      const c = row.comparison;
+      return `<div style="font-size:11px;line-height:1.8;">
+        Imp: ${ktArrow(c.impUp,c.impPct)} &nbsp; Clicks: ${ktArrow(c.clkUp,c.clkPct)} &nbsp; Pos: ${ktArrow(c.posUp,c.posPct)}
+      </div>`;
+    }
+
+    function ktRenderList() {
+      const listEl = document.getElementById('ktList');
+      if (!ktRows.length) { listEl.innerHTML=''; return; }
+      listEl.innerHTML = `<table style="width:100%;border-collapse:collapse;">
+        <thead><tr style="background:#f9f9f9;border-bottom:2px solid #e5e5e5;">
+          <th style="padding:10px 16px;text-align:left;font-size:11px;text-transform:uppercase;color:#888;">Keyword</th>
+          <th style="padding:10px 16px;text-align:left;font-size:11px;text-transform:uppercase;color:#888;">URL</th>
+          <th style="padding:10px 16px;text-align:right;font-size:11px;text-transform:uppercase;color:#888;">Queries</th>
+          <th style="padding:10px 16px;text-align:right;font-size:11px;text-transform:uppercase;color:#888;">Clicks</th>
+          <th style="padding:10px 16px;text-align:right;font-size:11px;text-transform:uppercase;color:#888;">Impressions</th>
+          <th style="padding:10px 16px;text-align:right;font-size:11px;text-transform:uppercase;color:#888;">CTR</th>
+          <th style="padding:10px 16px;text-align:right;font-size:11px;text-transform:uppercase;color:#888;">Position</th>
+          <th style="padding:10px 16px;text-align:center;font-size:11px;text-transform:uppercase;color:#888;">Results</th>
+        </tr></thead>
+        <tbody>${ktRows.map((row,i) => {
+          const m = row.metrics||{};
+          const shortUrl = (row.url||'').replace('https://aboutwallart.com','').replace('https://www.aboutwallart.com','');
+          const posColor = m.pos<=3?'#16a34a':m.pos<=10?'#d97706':'#dc2626';
+          return `<tr onclick="ktOpenDetail(${i})" style="border-bottom:1px solid #f0f0f0;cursor:pointer;" onmouseenter="this.style.background='#f9f9f9'" onmouseleave="this.style.background=''">
+            <td style="padding:12px 16px;">
+              <div style="font-size:13px;font-weight:600;color:#1a1a1a;">${row.keyword}</div>
+              ${row.optimizedDate?`<div style="font-size:10px;color:#aaa;margin-top:2px;">Optimised: ${row.optimizedDate}</div>`:''}
+            </td>
+            <td style="padding:12px 16px;font-size:11px;color:#2563eb;max-width:180px;word-break:break-all;">${shortUrl}</td>
+            <td style="padding:12px 16px;text-align:right;font-size:13px;">${m.queries??'—'}</td>
+            <td style="padding:12px 16px;text-align:right;font-size:13px;">${fmt(m.clicks)}</td>
+            <td style="padding:12px 16px;text-align:right;font-size:13px;">${fmt(m.imp)}</td>
+            <td style="padding:12px 16px;text-align:right;font-size:13px;">${m.ctr!==undefined?fmtCTR(m.ctr):'—'}</td>
+            <td style="padding:12px 16px;text-align:right;font-size:13px;${m.pos?`color:${posColor};font-weight:600;`:''}">${m.pos?fmtPos(m.pos):'—'}</td>
+            <td id="ktstat-${i}" style="padding:12px 16px;text-align:center;">${ktStatusCell(row)}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>`;
+    }
+
+    async function ktOpenDetail(idx) {
+      const row = ktRows[idx];
+      if (!row) return;
+      document.getElementById('ktList').style.display = 'none';
+      const detail = document.getElementById('ktDetail');
+      detail.style.display = 'block';
+      detail.innerHTML = `<div style="margin-bottom:20px;"><button onclick="ktBackToList()" style="padding:6px 14px;border:1px solid #e5e5e5;background:#fff;border-radius:4px;font-size:12px;cursor:pointer;">← Back to list</button></div>
+        <div style="text-align:center;padding:48px;color:#aaa;font-size:13px;">Loading data for "${row.keyword}"...</div>`;
+      await ktLoadDetail(row, detail);
+    }
+
+    function ktBackToList() {
+      document.getElementById('ktDetail').style.display = 'none';
+      document.getElementById('ktList').style.display = 'block';
+    }
+
+    async function ktLoadDetail(row, detail) {
+      try {
+        const kw = row.keyword.toLowerCase();
+        const start180=getDate(180), end=getDate(0);
+        const [resQ, resMon, resPQ] = await Promise.all([
+          fetch(`${API}?action=queries&startDate=${start180}&endDate=${end}`),
+          fetch(`${API}?action=keyword-monthly&keyword=${encodeURIComponent(kw)}&startDate=${getDate(365)}&endDate=${end}`),
+          fetch(`${API}?action=page-query&startDate=${start180}&endDate=${end}`)
+        ]);
+        const jQ=await resQ.json(), jMon=await resMon.json(), jPQ=await resPQ.json();
+        if (!jQ.success) throw new Error(jQ.error);
+        const allRows=jQ.data.rows||[];
+        const kwPqMap={};
+        if (jPQ.success)(jPQ.data.rows||[]).forEach(r=>{
+          const page=cleanUrl(r.keys?.[0]||''),query=(r.keys?.[1]||'').toLowerCase();
+          if (!kwPqMap[query]||r.clicks>(kwPqMap[query].clicks||0)) kwPqMap[query]={url:page,clicks:r.clicks};
+        });
+        const filtered=allRows.filter(r=>(r.keys?.[0]||'').toLowerCase().includes(kw)).sort((a,b)=>b.impressions-a.impressions);
+        const totalClicks=filtered.reduce((s,r)=>s+(r.clicks||0),0);
+        const totalImp=filtered.reduce((s,r)=>s+(r.impressions||0),0);
+        const avgCTR=totalImp?totalClicks/totalImp:0;
+        const avgPos=filtered.length?filtered.reduce((s,r)=>s+(r.position||0),0)/filtered.length:0;
+        const months12=[];
+        const now=new Date();
+        for(let i=11;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);const key=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');const label=d.toLocaleString('default',{month:'short',year:'2-digit'});months12.push({key,label});}
+        const mClicks={},mImp={};
+        if(jMon.success)(jMon.data.rows||[]).forEach(r=>{const ds=r.keys?.[0]||'';const mk=ds.length===8?ds.slice(0,4)+'-'+ds.slice(4,6):ds.slice(0,7);mImp[mk]=(mImp[mk]||0)+(r.impressions||0);mClicks[mk]=(mClicks[mk]||0)+(r.clicks||0);});
+        const chartLabels=months12.map(m=>m.label);
+        const chartClicks=months12.map(m=>mClicks[m.key]||0);
+        const chartImp=months12.map(m=>mImp[m.key]||0);
+        // Optimisation line
+        let optLineIndex=-1;
+        if(row.optimizedDate){const optD=new Date(row.optimizedDate);chartLabels.forEach((lbl,idx)=>{const parts=lbl.split(' ');const monthNames=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];const mIdx=monthNames.indexOf(parts[0]);const yr=2000+parseInt(parts[1]);if(mIdx!==-1&&optD.getFullYear()===yr&&optD.getMonth()===mIdx)optLineIndex=idx;});}
+
+        // Comparison block
+        let compHtml = '';
+        if (row.comparison) {
+          const c = row.comparison;
+          compHtml = `<div style="background:#f9f9f9;border:1px solid #e5e5e5;border-radius:8px;padding:14px 20px;margin-bottom:16px;display:flex;gap:24px;flex-wrap:wrap;align-items:center;">
+            <span style="font-size:13px;font-weight:600;color:#1a1a1a;">Results after 90 days:</span>
+            <span style="font-size:13px;">Impressions: ${ktArrow(c.impUp,c.impPct)}</span>
+            <span style="font-size:13px;">Clicks: ${ktArrow(c.clkUp,c.clkPct)}</span>
+            <span style="font-size:13px;">Position: ${ktArrow(c.posUp,c.posPct)}</span>
           </div>`;
-        }).join('') +
-      `</div>`;
+        } else if (row.daysAgo !== null && row.daysAgo < 90) {
+          compHtml = `<div style="background:#f9f9f9;border:1px solid #e5e5e5;border-radius:8px;padding:14px 20px;margin-bottom:16px;"><span style="font-size:13px;color:#888;">⏳ ${90-row.daysAgo} day${90-row.daysAgo!==1?'s':''} to go before results can be assessed.</span></div>`;
+        }
+
+        detail.innerHTML = `<div style="margin-bottom:20px;"><button onclick="ktBackToList()" style="padding:6px 14px;border:1px solid #e5e5e5;background:#fff;border-radius:4px;font-size:12px;cursor:pointer;">← Back to list</button></div>
+          <div style="margin-bottom:8px;"><span style="font-size:16px;font-weight:700;">${row.keyword}</span>${row.optimizedDate?`<span style="font-size:12px;color:#888;margin-left:10px;">Optimised: ${row.optimizedDate}</span>`:''}</div>
+          ${compHtml}
+          <div class="metrics-row" style="margin-bottom:24px;">
+            <div class="metric-card"><div class="metric-label">Queries Found</div><div class="metric-value">${filtered.length}</div><div class="metric-sub">containing "${row.keyword}"</div></div>
+            <div class="metric-card"><div class="metric-label">Total Clicks</div><div class="metric-value">${fmt(totalClicks)}</div><div class="metric-sub">last 180 days</div></div>
+            <div class="metric-card"><div class="metric-label">Total Impressions</div><div class="metric-value">${fmt(totalImp)}</div><div class="metric-sub">last 180 days</div></div>
+            <div class="metric-card"><div class="metric-label">Avg CTR</div><div class="metric-value">${fmtCTR(avgCTR)}</div><div class="metric-sub">across all queries</div></div>
+            <div class="metric-card"><div class="metric-label">Avg Position</div><div class="metric-value">${fmtPos(avgPos)}</div><div class="metric-sub">across all queries</div></div>
+          </div>
+          <div class="chart-card" style="margin-bottom:24px;"><div class="chart-card-header"><h2>Keyword Growth — exact: "${row.keyword}"</h2><span>last 12 months</span></div><div class="chart-body"><canvas id="ktGrowthChart" height="140"></canvas></div></div>
+          <div class="table-card"><div class="table-card-header"><h2>All queries containing "${row.keyword}" <span class="count-badge">${filtered.length}</span></h2><input type="text" placeholder="Search queries..." oninput="kwFilterTable(this.value)" style="padding:6px 12px;border:1px solid #e5e5e5;border-radius:4px;font-size:12px;outline:none;width:220px;"></div>
+          <table><thead><tr><th>#</th><th>Query</th><th>Ranking URL</th><th class="num">Impressions</th><th class="num">Clicks</th><th class="num">CTR</th><th class="num">Avg Position</th></tr></thead>
+          <tbody id="kwTableBody">${filtered.length?filtered.map((r,i)=>{const q=r.keys?.[0]||'';const pos=r.position||0;const posColor=pos<=3?'#16a34a':pos<=10?'#d97706':'#dc2626';const rankUrl=kwPqMap[q.toLowerCase()]?.url||'—';const urlLink=rankUrl==='—'?'—':rankUrl==='/'?`<a href="https://www.aboutwallart.com" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px;">Home Page</a>`:`<a href="https://www.aboutwallart.com${rankUrl}" target="_blank" style="color:#2563eb;text-decoration:none;font-size:11px;word-break:break-all;">${rankUrl}</a>`;return `<tr><td style="color:#aaa;font-size:12px;">${i+1}.</td><td style="font-size:13px;">${q}</td><td style="font-size:11px;">${urlLink}</td><td class="num">${fmt(r.impressions)}</td><td class="num">${fmt(r.clicks)}</td><td class="num">${fmtCTR(r.ctr)}</td><td class="num" style="color:${posColor};font-weight:600;">${fmtPos(pos)}</td></tr>`;}).join(''):'<tr class="loading-row"><td colspan="7">No queries found.</td></tr>'}</tbody></table></div>`;
+
+        const existingChart=Chart.getChart('ktGrowthChart');
+        if(existingChart)existingChart.destroy();
+        const annotations={};
+        if(optLineIndex>=0){annotations.optLine={type:'line',xMin:optLineIndex,xMax:optLineIndex,borderColor:'#16a34a',borderWidth:2,borderDash:[6,3],label:{content:'Optimised',enabled:true,position:'start',backgroundColor:'#16a34a',color:'#fff',font:{size:10}}};}
+        new Chart(document.getElementById('ktGrowthChart'),{type:'line',data:{labels:chartLabels,datasets:[{label:'Impressions',data:chartImp,borderColor:'#818cf8',backgroundColor:'rgba(129,140,248,0.1)',tension:0.4,fill:true,pointRadius:4,pointBackgroundColor:'#818cf8'},{label:'Clicks',data:chartClicks,borderColor:'#34d399',backgroundColor:'rgba(52,211,153,0.05)',tension:0.4,fill:false,pointRadius:4,pointBackgroundColor:'#34d399'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'top'},annotation:{annotations}},scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid:{color:'#f0f0f0'}}}}});
+      } catch(e) {
+        detail.innerHTML = `<div style="margin-bottom:20px;"><button onclick="ktBackToList()" style="padding:6px 14px;border:1px solid #e5e5e5;background:#fff;border-radius:4px;font-size:12px;cursor:pointer;">← Back to list</button></div><p style="color:#dc2626;padding:24px;">${e.message}</p>`;
+      }
     }
 
     async function kwActivate(id) {
-      kwActiveId = id;
-      kwRenderTabsRow();
-      const tab = kwTabs.find(t => t.id === id);
-      if (!tab) return;
+      // Legacy stub — no longer used but kept to avoid reference errors
+    }
 
-      const content = document.getElementById('kwContent');
-      content.innerHTML = `<div style="text-align:center;padding:48px;color:#aaa;font-size:13px;">Loading data for "${tab.keyword}"...</div>`;
-
+    async function _kwActivateLegacy(id) {
+      // Legacy — no longer used
+    }
+    async function _kwActivateLegacyOLD(id) {
       try {
-        const kw = tab.keyword.toLowerCase();
+        const kw = '';
 
         // Fetch 1: all queries (last 180 days) — for table + metrics
         const start180 = getDate(180), end = getDate(0);
@@ -4086,42 +4174,8 @@
       }
     }
 
-    async function kwSaveOptimisation(tabId) {
-      const dateEl = document.getElementById('kwOptDate_' + tabId);
-      const date = dateEl?.value;
-      if (!date) return;
-      kwOptimisations[tabId] = date;
-      const statusEl = document.getElementById('kwOptStatus_' + tabId);
-      if (statusEl) statusEl.textContent = '⏳ Saving...';
-      try {
-        const res = await fetch('/api/blogs', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'save-optimisations', optimisations: kwOptimisations })
-        });
-        const json = await res.json();
-        if (json.success) {
-          if (statusEl) { statusEl.textContent = '✅ Saved'; setTimeout(() => { statusEl.textContent = ''; }, 2000); }
-          // Re-render to show green badge and update chart
-          kwActivate(tabId);
-        }
-      } catch(e) {
-        if (statusEl) statusEl.textContent = '❌ ' + e.message;
-      }
-    }
-
-    async function kwClearOptimisation(tabId) {
-      if (!confirm('Clear optimisation date for this keyword?')) return;
-      delete kwOptimisations[tabId];
-      try {
-        await fetch('/api/blogs', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'save-optimisations', optimisations: kwOptimisations })
-        });
-      } catch(e) {}
-      kwActivate(tabId);
-    }
+    function kwSaveOptimisation() {} // legacy stub
+    function kwClearOptimisation() {} // legacy stub
 
     function kwFilterTable(search) {
       const rows = document.querySelectorAll('#kwTableBody tr');
