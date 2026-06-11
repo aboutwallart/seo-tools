@@ -1,4 +1,4 @@
-// blogs.js — v2.6
+// blogs.js — v2.7
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
@@ -414,6 +414,36 @@ export default async function handler(req, res) {
           return res.status(200).json({ success: true, settings: JSON.parse(file.content) });
         } catch(e) {
           return res.status(200).json({ success: true, settings: null });
+        }
+      }
+
+      // ── ACTION: get-mpd-checklist ── (Money Page Doctor — checkbox states)
+      if (req.query.action === 'get-mpd-checklist') {
+        try {
+          const file = await getGitHubFile('data/mpd-checklist.json');
+          return res.status(200).json({ success: true, checklist: JSON.parse(file.content) });
+        } catch(e) {
+          return res.status(200).json({ success: true, checklist: {} });
+        }
+      }
+
+      // ── ACTION: get-mpd-snapshots ── (Money Page Doctor — 90-day GSC baselines)
+      if (req.query.action === 'get-mpd-snapshots') {
+        try {
+          const file = await getGitHubFile('data/mpd-snapshots.json');
+          return res.status(200).json({ success: true, snapshots: JSON.parse(file.content) });
+        } catch(e) {
+          return res.status(200).json({ success: true, snapshots: {} });
+        }
+      }
+
+      // ── ACTION: get-mpd-push-state ── (Money Page Doctor — Push to Shopify state)
+      if (req.query.action === 'get-mpd-push-state') {
+        try {
+          const file = await getGitHubFile('data/mpd-push-state.json');
+          return res.status(200).json({ success: true, pushState: JSON.parse(file.content) });
+        } catch(e) {
+          return res.status(200).json({ success: true, pushState: {} });
         }
       }
 
@@ -904,6 +934,43 @@ export default async function handler(req, res) {
         const { done } = req.body;
         if (!Array.isArray(done)) return res.status(400).json({ error: 'done must be an array' });
         await updateGitHubFile('data/reindex-done.json', JSON.stringify(done, null, 2), null, 'Update reindex done list');
+        return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: save-mpd-checklist ── (Money Page Doctor — checkbox states)
+      if (req.body.action === 'save-mpd-checklist') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { checklist } = req.body;
+        if (!checklist || typeof checklist !== 'object') return res.status(400).json({ error: 'checklist object required' });
+        let sha = null;
+        try { const existing = await getGitHubFile('data/mpd-checklist.json'); sha = existing.sha; } catch(e) {}
+        await updateGitHubFile('data/mpd-checklist.json', JSON.stringify(checklist, null, 2), sha, 'Update MPD checklist state');
+        return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: save-mpd-snapshot ── (Money Page Doctor — save one GSC baseline)
+      if (req.body.action === 'save-mpd-snapshot') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { url, snapshot } = req.body;
+        if (!url || !snapshot) return res.status(400).json({ error: 'url and snapshot required' });
+        let existing = {};
+        let sha = null;
+        try { const file = await getGitHubFile('data/mpd-snapshots.json'); existing = JSON.parse(file.content); sha = file.sha; } catch(e) {}
+        existing[url] = snapshot;
+        await updateGitHubFile('data/mpd-snapshots.json', JSON.stringify(existing, null, 2), sha, `Save MPD snapshot: ${url}`);
+        return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: save-mpd-push-state ── (Money Page Doctor — Push to Shopify state)
+      if (req.body.action === 'save-mpd-push-state') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { url, pushed, linksPushed } = req.body;
+        if (!url) return res.status(400).json({ error: 'url required' });
+        let existing = {};
+        let sha = null;
+        try { const file = await getGitHubFile('data/mpd-push-state.json'); existing = JSON.parse(file.content); sha = file.sha; } catch(e) {}
+        existing[url] = { pushed: !!pushed, linksPushed: !!linksPushed };
+        await updateGitHubFile('data/mpd-push-state.json', JSON.stringify(existing, null, 2), sha, `Save MPD push state: ${url}`);
         return res.status(200).json({ success: true });
       }
 
