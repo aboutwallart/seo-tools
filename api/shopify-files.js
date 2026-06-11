@@ -126,6 +126,65 @@ module.exports = async function handler(req, res) {
   }
 
   // -------------------------------------------------------
+  // VERIFY URL — checks if a page URL exists in Shopify
+  // -------------------------------------------------------
+  if (req.query.action === 'verify-url' && req.method === 'GET') {
+    const pageUrl = req.query.pageUrl || '';
+    if (!pageUrl) return res.status(400).json({ error: 'pageUrl required' });
+
+    const base = `https://${shopifyDomain}/admin/api/2025-01`;
+    const headers = { 'X-Shopify-Access-Token': accessToken };
+
+    const path = pageUrl
+      .replace('https://www.aboutwallart.com', '')
+      .replace('https://aboutwallart.com', '')
+      .replace(/\?.*$/, '')
+      .replace(/\/$/, '');
+    const parts = path.split('/').filter(Boolean);
+
+    try {
+      if (parts[0] === 'products' && parts[1]) {
+        const r = await fetch(`${base}/products.json?handle=${encodeURIComponent(parts[1])}&fields=id,title,handle&limit=1`, { headers });
+        const d = await r.json();
+        const item = (d.products || [])[0];
+        return res.status(200).json({ exists: !!item, title: item?.title || null, type: 'product' });
+      }
+
+      if (parts[0] === 'collections' && parts[1]) {
+        const [cr, sr] = await Promise.all([
+          fetch(`${base}/custom_collections.json?handle=${encodeURIComponent(parts[1])}&fields=id,title,handle&limit=1`, { headers }).then(r => r.json()),
+          fetch(`${base}/smart_collections.json?handle=${encodeURIComponent(parts[1])}&fields=id,title,handle&limit=1`, { headers }).then(r => r.json())
+        ]);
+        const all = [...(cr.custom_collections || []), ...(sr.smart_collections || [])];
+        const item = all[0];
+        return res.status(200).json({ exists: !!item, title: item?.title || null, type: 'collection' });
+      }
+
+      if (parts[0] === 'pages' && parts[1]) {
+        const r = await fetch(`${base}/pages.json?handle=${encodeURIComponent(parts[1])}&fields=id,title,handle&limit=1`, { headers });
+        const d = await r.json();
+        const item = (d.pages || [])[0];
+        return res.status(200).json({ exists: !!item, title: item?.title || null, type: 'page' });
+      }
+
+      if (parts[0] === 'blogs' && parts[1] && parts[2]) {
+        const blogsRes = await fetch(`${base}/blogs.json?fields=id,handle&limit=250`, { headers });
+        const blogsData = await blogsRes.json();
+        const blog = (blogsData.blogs || []).find(b => b.handle === parts[1]);
+        if (!blog) return res.status(200).json({ exists: false });
+        const artRes = await fetch(`${base}/blogs/${blog.id}/articles.json?fields=id,title,handle&limit=250`, { headers });
+        const artData = await artRes.json();
+        const article = (artData.articles || []).find(a => a.handle === parts[2]);
+        return res.status(200).json({ exists: !!article, title: article?.title || null, type: 'article' });
+      }
+
+      return res.status(200).json({ exists: false, error: 'URL type not recognised — use /products/, /collections/, /pages/, or /blogs/' });
+    } catch(e) {
+      return res.status(500).json({ error: 'Verification failed: ' + e.message });
+    }
+  }
+
+  // -------------------------------------------------------
   // AUTOLINK WEBHOOK — fires when Shopify creates a new item
   // -------------------------------------------------------
   if (req.query.action === 'autolink-webhook' && req.method === 'POST') {
