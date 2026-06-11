@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 47.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 47.1</p>
                 </div>
             </div>
         </header>
@@ -993,6 +993,7 @@
                 updateOptimizedCount();
                 renderUrls();
                 renderOptimized();
+                switchTab('optimized');
                 showToast(`✅ "${item.keyword}" marked as Optimised!`);
             } catch (err) {
                 console.error('[Mark Optimized]', err);
@@ -1259,7 +1260,7 @@
 
             // ── Master progress bar ───────────────────────────────────────────
             const masterBar = `
-                <div style="background:#f0f0f0;padding:15px 20px;border-radius:8px;margin-bottom:20px;border:2px solid ${done===total&&total>0?'#4caf50':'#e0e0e0'};">
+                <div style="background:#f0f0f0;padding:15px 20px;border-radius:8px;margin-bottom:20px;border:2px solid ${done===total&&total>0?'#4caf50':'#e0e0e0'};position:sticky;top:0;z-index:10;">
                     <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
                         <strong>Overall Progress</strong>
                         <span id="masterLabel" style="font-weight:700;color:${done===total&&total>0?'#4caf50':'#666'}">${done}/${total} done</span>
@@ -2890,7 +2891,9 @@
                     fromRegistry: true
                 });
 
+                currentUrgencyTab = 'other';
                 updatePageCount(); updateOptimizedCount(); renderUrls(); renderOptimized();
+                switchTab('pages');
                 showToast('Page moved back to To Optimise.');
             } catch (err) {
                 if (btn) { btn.textContent = '↩️ Unmark'; btn.disabled = false; }
