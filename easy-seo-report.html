@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.57</div>
+      <div class="tool-version">v59.58</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -6281,13 +6281,27 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
       try {
         const res = await fetch('/api/blogs?action=get-tech-status');
         const j = await res.json();
-        if (j.success && j.statuses) {
+        if (j.success && j.statuses && Object.keys(j.statuses).length > 0) {
+          // GitHub has data — use it
           _techStatuses = j.statuses;
-          Object.entries(_techStatuses).forEach(([id, { cssClass, label }]) => {
-            const el = document.getElementById(_techElIds[id] || ('techStatus' + id.charAt(0).toUpperCase() + id.slice(1)));
-            if (el) { el.className = 'status-badge-pill ' + cssClass; el.textContent = label; }
+        } else {
+          // GitHub empty — migrate from localStorage if anything exists
+          const ids = ['crawled','404','reviews','canonical','5xx','soft404','diffcanonical'];
+          const migrated = {};
+          ids.forEach(id => {
+            const saved = localStorage.getItem('techStatus_' + id);
+            if (saved) { try { migrated[id] = JSON.parse(saved); } catch(e) {} }
           });
+          if (Object.keys(migrated).length > 0) {
+            _techStatuses = migrated;
+            // Save to GitHub so all computers get it
+            fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'save-tech-status', statuses: _techStatuses }) }).catch(()=>{});
+          }
         }
+        Object.entries(_techStatuses).forEach(([id, { cssClass, label }]) => {
+          const el = document.getElementById(_techElIds[id] || ('techStatus' + id.charAt(0).toUpperCase() + id.slice(1)));
+          if (el) { el.className = 'status-badge-pill ' + cssClass; el.textContent = label; }
+        });
       } catch(e) {}
     }
 
@@ -6316,7 +6330,23 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
       try {
         const res = await fetch('/api/blogs?action=get-reindex-done');
         const j = await res.json();
-        if (j.success && Array.isArray(j.done)) _reindexDoneSet = new Set(j.done);
+        if (j.success && Array.isArray(j.done) && j.done.length > 0) {
+          // GitHub has data — use it
+          _reindexDoneSet = new Set(j.done);
+        } else {
+          // GitHub empty — migrate from localStorage if anything exists
+          const lsVal = localStorage.getItem('reindexDone');
+          if (lsVal) {
+            try {
+              const parsed = JSON.parse(lsVal);
+              if (parsed.length > 0) {
+                _reindexDoneSet = new Set(parsed);
+                // Save to GitHub
+                fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'save-reindex-done', done: parsed }) }).catch(()=>{});
+              }
+            } catch(e) {}
+          }
+        }
       } catch(e) {}
     }
 
