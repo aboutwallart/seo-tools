@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.53</div>
+      <div class="tool-version">v59.54</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -2008,96 +2008,116 @@
           progressEl.style.display = 'none';
         }
 
-        // 6. Group keywords by true cannibalization potential
-        // Intent: informational vs commercial
+        // 6. Group keywords by cannibalization potential
+
+        // Intent detection
         const infoSignals = new Set(['how','why','what','where','which','ideas','idea','guide','tips','inspiration','tutorial','diy','decorating','decorate']);
         function avIntent(kw) {
-          const words = kw.toLowerCase().split(/\s+/);
-          return words.some(w => infoSignals.has(w)) ? 'INFO' : 'COMMERCIAL';
+          return kw.toLowerCase().split(/\s+/).some(w => infoSignals.has(w)) ? 'INFO' : 'COMMERCIAL';
         }
 
-        // Topic words: strip all generic art/decor/stop words — what remains is the specific topic
-        const avNoise = new Set(['art','wall','home','decor','decoration','decorative','print','prints','picture','pictures','painting','paintings','poster','posters','canvas','frame','frames','framed','interior','set','sets','colour','color','colours','colors','modern','contemporary','traditional','classic','vintage','rustic','minimalist','beautiful','unique','popular','best','small','large','big','tiny','cheap','affordable','luxury','premium','the','for','and','with','how','why','what','where','which','your','this','that','are','can','you','from','have','our','all','its','into','their','there','about','more','than','will','been','was','has','had','not','but','also','some','they','them','when','shop','buy','get','find','in','on','at','to','it','a','an','is','we','by','of','ideas','idea','tips','guide','inspiration','above','over','under','style','design','room','rooms','piece','pieces']);
-        function avTopic(kw) {
-          return kw.toLowerCase().split(/\s+/).filter(w => w.length > 2 && !avNoise.has(w));
+        // Category lists — longer phrases first so they match before substrings
+        const AV_ROOMS     = ['living room','dining room','guest room','bed room','bath room','bedroom','bathroom','kitchen','hallway','office','nursery','study','entryway','playroom','lounge'];
+        const AV_STYLES    = ['art deco','art nouveau','mid century','french country','old money','black and white','boho','bohemian','scandi','scandinavian','japandi','maximalist','minimalist','coastal','farmhouse','industrial','tropical','biophilic','preppy','masculine','eclectic','contemporary','abstract','geometric','floral','botanical','islamic','christian','vintage','retro','traditional','rustic','hamptons','zen'];
+        const AV_COLOURS   = ['black and white','terracotta','colourful','colorful','monochrome','charcoal','burgundy','mustard','lavender','neutral','pastel','silver','copper','purple','orange','yellow','cream','blush','navy','olive','lilac','brown','coral','beige','black','white','teal','sage','grey','gray','gold','blue','pink','mint','red','green'];
+        const AV_OCCASIONS = ["mother's day","fathers day","father's day","mothers day","valentine's day","valentines day","baby shower","new year","christmas","birthday","wedding","valentine","easter","halloween","anniversary","housewarming","graduation"];
+
+        function detectCategory(kw) {
+          const lw = kw.toLowerCase();
+          for (const r of AV_ROOMS)     { if (lw.includes(r)) return { type: 'room',     value: r }; }
+          for (const s of AV_STYLES)    { if (lw.includes(s)) return { type: 'style',    value: s }; }
+          for (const c of AV_COLOURS)   { if (lw.includes(c)) return { type: 'colour',   value: c }; }
+          for (const o of AV_OCCASIONS) { if (lw.includes(o)) return { type: 'occasion', value: o }; }
+          return null;
         }
 
-        // Jaccard similarity between two topic word arrays
+        // FIRST PASS — explicit grouping by category + intent
+        const fp = {};
+        const ungrouped = [];
+        sfList.forEach(kw => {
+          const cat = detectCategory(kw);
+          if (cat) {
+            const key = `${cat.type}::${cat.value}::${avIntent(kw)}`;
+            (fp[key] = fp[key]||{ cat, kws:[] }).kws.push(kw);
+          } else { ungrouped.push(kw); }
+        });
+        // Solo first-pass entries → send to second pass
+        const fp2 = {};
+        Object.entries(fp).forEach(([k, g]) => {
+          if (g.kws.length >= 2) fp2[k] = g;
+          else ungrouped.push(...g.kws);
+        });
+
+        // SECOND PASS — Jaccard similarity for ungrouped keywords
+        const avNoise = new Set(['art','wall','home','decor','decoration','decorative','print','prints','picture','pictures','painting','paintings','poster','canvas','frame','frames','framed','interior','set','sets','colour','color','modern','contemporary','traditional','classic','vintage','rustic','minimalist','beautiful','unique','popular','best','small','large','big','cheap','affordable','luxury','the','for','and','with','how','why','what','where','which','your','this','that','are','can','you','from','have','our','all','its','into','their','there','about','more','than','will','been','was','has','had','not','but','also','some','they','them','when','shop','buy','get','find','in','on','at','to','it','a','an','is','we','by','of','ideas','idea','tips','guide','inspiration','above','over','under','style','design','room','rooms','piece','pieces']);
+        function avTopic(kw) { return kw.toLowerCase().split(/\s+/).filter(w => w.length > 2 && !avNoise.has(w)); }
         function jaccard(a, b) {
           if (!a.length && !b.length) return 1;
           if (!a.length || !b.length) return 0;
           const sa = new Set(a), sb = new Set(b);
-          const intersection = [...sa].filter(x => sb.has(x)).length;
-          return intersection / (sa.size + sb.size - intersection);
+          const inter = [...sa].filter(x => sb.has(x)).length;
+          return inter / (sa.size + sb.size - inter);
         }
-
-        // Union-Find clustering: same intent + Jaccard >= 0.5 → same cannibalization group
-        const kwMeta = sfList.map(kw => ({ kw, intent: avIntent(kw), topic: avTopic(kw) }));
-        const parent = {};
-        sfList.forEach(kw => parent[kw] = kw);
-        function ufFind(x) { return parent[x] === x ? x : (parent[x] = ufFind(parent[x])); }
-        function ufUnion(x, y) { parent[ufFind(x)] = ufFind(y); }
-
-        for (let i = 0; i < kwMeta.length; i++) {
-          for (let j = i + 1; j < kwMeta.length; j++) {
-            const a = kwMeta[i], b = kwMeta[j];
-            if (a.intent !== b.intent) continue;
-            if (jaccard(a.topic, b.topic) >= 0.5) ufUnion(a.kw, b.kw);
-          }
+        const ug = ungrouped.map(kw => ({ kw, intent: avIntent(kw), topic: avTopic(kw) }));
+        const par = {}; ungrouped.forEach(kw => par[kw] = kw);
+        function ufF(x) { return par[x]===x ? x : (par[x]=ufF(par[x])); }
+        function ufU(x,y) { par[ufF(x)]=ufF(y); }
+        for (let i=0;i<ug.length;i++) for (let j=i+1;j<ug.length;j++) {
+          if (ug[i].intent!==ug[j].intent) continue;
+          if (jaccard(ug[i].topic,ug[j].topic)>=0.5) ufU(ug[i].kw,ug[j].kw);
         }
+        const sp = {};
+        ungrouped.forEach(kw => { const r=ufF(kw); (sp[r]=sp[r]||[]).push(kw); });
 
-        // Build groups from union-find result
-        const rawGroups = {};
-        sfList.forEach(kw => {
-          const root = ufFind(kw);
-          (rawGroups[root] = rawGroups[root]||[]).push(kw);
-        });
-
-        // 7. Score keywords within each group
+        // 7. Score
         function avScore(kw) {
           const m = metrics[kw.toLowerCase()] || {};
-          const vol  = m.volume ?? 0;
-          const diff = m.seo_difficulty ?? 50;
-          const imp  = impMap[kw.toLowerCase()] ?? 0;
-          return vol * (100 - diff) / 100 * Math.log(imp + 2);
+          const vol=m.volume??0, diff=m.seo_difficulty??50, imp=impMap[kw.toLowerCase()]??0;
+          return vol*(100-diff)/100*Math.log(imp+2);
         }
 
-        // Separate cannibalization groups (2+) from solo keywords (1)
+        // Build final group list
         const canniGroups = [], soloKws = [];
-        Object.values(rawGroups).forEach(kws => {
-          const scored = kws.map(kw => ({ kw, score: avScore(kw), m: metrics[kw.toLowerCase()]||{}, imp: impMap[kw.toLowerCase()]??0 }))
-            .sort((a,b) => b.score - a.score);
-          if (kws.length >= 2) canniGroups.push({ keywords: scored, groupScore: scored.reduce((s,k)=>s+k.score,0) });
+
+        // From first pass
+        Object.values(fp2).forEach(g => {
+          const label = g.cat.value.charAt(0).toUpperCase()+g.cat.value.slice(1);
+          const typeLabel = g.cat.type.charAt(0).toUpperCase()+g.cat.type.slice(1);
+          const intent = avIntent(g.kws[0]);
+          const scored = g.kws.map(kw=>({kw,score:avScore(kw),m:metrics[kw.toLowerCase()]||{},imp:impMap[kw.toLowerCase()]??0})).sort((a,b)=>b.score-a.score);
+          canniGroups.push({ label:`${typeLabel}: ${label}`, keywords:scored, groupScore:scored.reduce((s,k)=>s+k.score,0), source:'explicit', intent });
+        });
+
+        // From second pass
+        Object.values(sp).forEach(kws => {
+          const scored = kws.map(kw=>({kw,score:avScore(kw),m:metrics[kw.toLowerCase()]||{},imp:impMap[kw.toLowerCase()]??0})).sort((a,b)=>b.score-a.score);
+          if (kws.length>=2) canniGroups.push({ label:'Similar topic', keywords:scored, groupScore:scored.reduce((s,k)=>s+k.score,0), source:'semantic', intent:avIntent(kws[0]) });
           else soloKws.push(scored[0]);
         });
-        canniGroups.sort((a,b) => b.groupScore - a.groupScore);
-        soloKws.sort((a,b) => b.score - a.score);
+
+        canniGroups.sort((a,b)=>b.groupScore-a.groupScore);
+        soloKws.sort((a,b)=>b.score-a.score);
 
         // 8. Render
         const canniCount = canniGroups.reduce((s,g)=>s+g.keywords.length,0);
         statusEl.textContent = `${sfList.length} saved keywords · ${canniGroups.length} cannibalization group${canniGroups.length!==1?'s':''} (${canniCount} keywords) · ${soloKws.length} unique`;
 
         function avkwRow(item, idx, showBest) {
-          const isBest = showBest && idx === 0 && item.score > 0;
-          const vol  = item.m.volume ?? '—';
-          const diff = item.m.seo_difficulty ?? '—';
-          const imp  = item.imp > 0 ? item.imp.toLocaleString() : '—';
-          const encKw = encodeURIComponent(item.kw);
-          const intentLabel = avIntent(item.kw) === 'INFO'
+          const isBest = showBest && idx===0 && item.score>0;
+          const vol=item.m.volume??'—', diff=item.m.seo_difficulty??'—', imp=item.imp>0?item.imp.toLocaleString():'—';
+          const encKw=encodeURIComponent(item.kw);
+          const intentBadge = avIntent(item.kw)==='INFO'
             ? `<span style="font-size:9px;background:#eff6ff;color:#1d4ed8;padding:1px 5px;border-radius:8px;margin-left:4px;">Blog</span>`
             : `<span style="font-size:9px;background:#f0fdf4;color:#166534;padding:1px 5px;border-radius:8px;margin-left:4px;">Commercial</span>`;
-          const bestBadge = isBest ? `<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;margin-left:6px;">⭐ Keep</span>` : '';
+          const keepBadge = isBest ? `<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;margin-left:6px;">⭐ Keep</span>` : '';
           return `<tr style="border-bottom:1px solid #f5f5f5;${isBest?'background:#fafffe;':''}">
-            <td style="padding:8px 12px;font-size:12px;font-weight:${isBest?'600':'400'};color:#1a1a1a;">${item.kw}${intentLabel}${bestBadge}</td>
+            <td style="padding:8px 12px;font-size:12px;font-weight:${isBest?'600':'400'};color:#1a1a1a;">${item.kw}${intentBadge}${keepBadge}</td>
             <td style="padding:8px 12px;font-size:12px;color:#555;text-align:right;">${vol}</td>
             <td style="padding:8px 12px;font-size:12px;color:#555;text-align:right;">${diff}</td>
             <td style="padding:8px 12px;font-size:12px;color:#555;text-align:right;">${imp}</td>
-            <td style="padding:8px 12px;">
-              <button onclick="avkwDelete('${encKw}',this)" style="padding:3px 8px;border:none;background:#fee2e2;color:#dc2626;border-radius:4px;font-size:11px;cursor:pointer;">🗑 Delete</button>
-            </td>
+            <td style="padding:8px 12px;"><button onclick="avkwDelete('${encKw}',this)" style="padding:3px 8px;border:none;background:#fee2e2;color:#dc2626;border-radius:4px;font-size:11px;cursor:pointer;">🗑 Delete</button></td>
           </tr>`;
         }
-
         function avkwTable(keywords, showBest) {
           return `<table style="width:100%;border-collapse:collapse;border:1px solid #e5e5e5;">
             <thead><tr style="background:#f9f9f9;">
@@ -2107,32 +2127,24 @@
               <th style="padding:7px 12px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#aaa;">Impressions</th>
               <th style="padding:7px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#aaa;">Action</th>
             </tr></thead>
-            <tbody>${keywords.map((item,idx) => avkwRow(item, idx, showBest)).join('')}</tbody>
+            <tbody>${keywords.map((it,i)=>avkwRow(it,i,showBest)).join('')}</tbody>
           </table>`;
         }
 
         let html = '';
-
-        // Cannibalization risk groups
         if (canniGroups.length) {
-          html += `<div style="margin-top:24px;margin-bottom:8px;"><span style="font-size:14px;font-weight:700;color:#dc2626;">⚠️ Cannibalization Risk Groups</span><span style="font-size:12px;color:#888;margin-left:8px;">These keywords are so similar Google would treat them as competing. Keep only one per group — delete or lock the rest to different pages.</span></div>`;
-          html += canniGroups.map(g => `
-            <div style="margin-top:16px;border:1px solid #fecaca;border-radius:6px;overflow:hidden;">
-              <div style="padding:8px 12px;background:#fff5f5;display:flex;align-items:center;justify-content:space-between;">
-                <span style="font-size:12px;font-weight:700;color:#dc2626;">⚠️ ${g.keywords.length} competing keywords</span>
-                <span style="font-size:11px;color:#888;">Keep ⭐ — delete or lock the others to different pages</span>
-              </div>
-              ${avkwTable(g.keywords, true)}
-            </div>`).join('');
+          html += `<div style="margin-top:24px;margin-bottom:8px;"><span style="font-size:14px;font-weight:700;color:#dc2626;">⚠️ Cannibalization Risk Groups</span><span style="font-size:12px;color:#888;margin-left:8px;">Keep ⭐ one per group — delete or lock the others to different pages.</span></div>`;
+          html += canniGroups.map(g => `<div style="margin-top:16px;border:1px solid #fecaca;border-radius:6px;overflow:hidden;">
+            <div style="padding:8px 12px;background:#fff5f5;display:flex;align-items:center;justify-content:space-between;">
+              <span style="font-size:12px;font-weight:700;color:#dc2626;">⚠️ ${g.label} — ${g.keywords.length} keywords</span>
+              <span style="font-size:11px;color:#888;">${g.intent==='INFO'?'Blog':'Commercial'}</span>
+            </div>
+            ${avkwTable(g.keywords,true)}</div>`).join('');
         }
-
-        // Solo keywords (no cannibalization risk)
         if (soloKws.length) {
-          const soloRows = soloKws.map((item, idx) => avkwRow(item, idx, false)).join('');
-          html += `<div style="margin-top:32px;margin-bottom:8px;"><span style="font-size:14px;font-weight:700;color:#1a1a1a;">✅ No Cannibalization Risk</span><span style="font-size:12px;color:#888;margin-left:8px;">${soloKws.length} keywords — each targets a unique topic, safe to lock to its own page.</span></div>
-          <div style="border:1px solid #e5e5e5;border-radius:6px;overflow:hidden;">${avkwTable(soloKws, false)}</div>`;
+          html += `<div style="margin-top:32px;margin-bottom:8px;"><span style="font-size:14px;font-weight:700;color:#1a1a1a;">✅ No Cannibalization Risk</span><span style="font-size:12px;color:#888;margin-left:8px;">${soloKws.length} keywords — each targets a unique topic.</span></div>
+          <div style="border:1px solid #e5e5e5;border-radius:6px;overflow:hidden;">${avkwTable(soloKws,false)}</div>`;
         }
-
         bodyEl.innerHTML = html || '<p style="color:#888;font-size:13px;padding:24px 0;">No keywords found.</p>';
 
       } catch(e) {
