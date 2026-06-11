@@ -126,6 +126,53 @@ module.exports = async function handler(req, res) {
   }
 
   // -------------------------------------------------------
+  // GET TITLES BY TYPE — returns all page titles of a given type for duplicate/similarity check
+  // -------------------------------------------------------
+  if (req.query.action === 'get-titles-by-type' && req.method === 'GET') {
+    const type = req.query.type || '';
+    if (!['product', 'collection', 'page', 'article'].includes(type)) {
+      return res.status(400).json({ error: 'type must be product, collection, page, or article' });
+    }
+    const base = `https://${shopifyDomain}/admin/api/2025-01`;
+    const headers = { 'X-Shopify-Access-Token': accessToken };
+    const items = [];
+
+    async function fetchPaginated(startUrl, key, urlBuilder) {
+      let url = startUrl;
+      while (url) {
+        const r = await fetch(url, { headers });
+        const d = await r.json();
+        (d[key] || []).forEach(item => {
+          if (item.title) items.push({ title: item.title, url: urlBuilder(item) });
+        });
+        const link = r.headers.get('Link') || '';
+        const next = link.match(/<([^>]+)>;\s*rel="next"/);
+        url = next ? next[1] : null;
+      }
+    }
+
+    try {
+      if (type === 'product') {
+        await fetchPaginated(`${base}/products.json?limit=250&fields=id,title,handle&published_status=published`, 'products', i => `https://aboutwallart.com/products/${i.handle}`);
+      } else if (type === 'collection') {
+        await fetchPaginated(`${base}/custom_collections.json?limit=250&fields=id,title,handle`, 'custom_collections', i => `https://aboutwallart.com/collections/${i.handle}`);
+        await fetchPaginated(`${base}/smart_collections.json?limit=250&fields=id,title,handle`, 'smart_collections', i => `https://aboutwallart.com/collections/${i.handle}`);
+      } else if (type === 'page') {
+        await fetchPaginated(`${base}/pages.json?limit=250&fields=id,title,handle`, 'pages', i => `https://aboutwallart.com/pages/${i.handle}`);
+      } else if (type === 'article') {
+        const blogsRes = await fetch(`${base}/blogs.json?fields=id,handle&limit=250`, { headers });
+        const blogsData = await blogsRes.json();
+        for (const blog of (blogsData.blogs || [])) {
+          await fetchPaginated(`${base}/blogs/${blog.id}/articles.json?limit=250&fields=id,title,handle`, 'articles', i => `https://aboutwallart.com/blogs/${blog.handle}/${i.handle}`);
+        }
+      }
+      return res.status(200).json({ success: true, items, count: items.length });
+    } catch(e) {
+      return res.status(500).json({ error: 'Failed to fetch titles: ' + e.message });
+    }
+  }
+
+  // -------------------------------------------------------
   // VERIFY URL — checks if a page URL exists in Shopify
   // -------------------------------------------------------
   if (req.query.action === 'verify-url' && req.method === 'GET') {
