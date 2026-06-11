@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 47.1</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 47.3</p>
                 </div>
             </div>
         </header>
@@ -493,6 +493,33 @@
         let currentPageTypeFilter = 'all'; // Current filter in My Pages tab
         let currentUrgencyTab = 'other'; // 'danger' | 'quickwin' | 'other'
         let gscEnrichment = {}; // normalizedPath → { position, impressions, clicks, urgency, clickDrop, keyword }
+
+        // GitHub-backed data (replaces localStorage)
+        let mpdChecklist = {};   // { url: { _total: N, key: true/false } }
+        let mpdSnapshots = {};   // { url: { optimizedAt, position, impressions, clicks, keyword } }
+        let mpdPushState = {};   // { url: { pushed: bool, linksPushed: bool } }
+        let checklistSaveTimer = null;
+        let hiddenOptimizedSet = new Set(); // in-memory only — resets on page reload
+
+        async function loadMPDData() {
+            try {
+                const [clRes, snRes, psRes] = await Promise.all([
+                    fetch('/api/blogs?action=get-mpd-checklist').then(r => r.json()).catch(() => ({ checklist: {} })),
+                    fetch('/api/blogs?action=get-mpd-snapshots').then(r => r.json()).catch(() => ({ snapshots: {} })),
+                    fetch('/api/blogs?action=get-mpd-push-state').then(r => r.json()).catch(() => ({ pushState: {} }))
+                ]);
+                mpdChecklist = clRes.checklist || {};
+                mpdSnapshots = snRes.snapshots || {};
+                mpdPushState = psRes.pushState || {};
+                console.log('[MPD Data] Loaded from GitHub');
+            } catch(e) { console.warn('[MPD Data] Load failed:', e); }
+        }
+
+        async function saveChecklistToGitHub() {
+            try {
+                await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-mpd-checklist', checklist: mpdChecklist }) });
+            } catch(e) { console.warn('[Checklist] Save failed:', e); }
+        }
         
         // Technical SEO Audit State
         let technicalSEOResults = null;
@@ -596,10 +623,10 @@
                         ${displayKeyword ? `<div style="font-size: 0.85rem; color: #1976d2; margin-bottom: 3px;">🎯 Keyword: "${displayKeyword}"</div>` : ''}
                         ${gscMetrics}
                         ${(() => {
-                            const clTotal = parseInt(localStorage.getItem('mpd_total_' + item.url) || '0');
+                            const clState = mpdChecklist[item.url] || {};
+                            const clTotal = clState._total || 0;
                             if (!clTotal) return '';
-                            const clState = JSON.parse(localStorage.getItem('mpd_cl_' + item.url) || '{}');
-                            const clDone = Object.values(clState).filter(Boolean).length;
+                            const clDone = Object.entries(clState).filter(([k, v]) => k !== '_total' && v).length;
                             const allDone = clDone === clTotal;
                             const col = allDone ? '#4caf50' : '#1976d2';
                             const bg = allDone ? '#f0fdf4' : '#eff6ff';
@@ -718,7 +745,7 @@
             const DAY = 86400000;
 
             list.innerHTML = sorted.map(item => {
-                const before = JSON.parse(localStorage.getItem('mpd_before_' + item.url) || 'null');
+                const before = mpdSnapshots[item.url] || null;
                 const optimizedAt = before?.optimizedAt || item.optimizedAt || 0;
                 const daysAgo = Math.floor((now - optimizedAt) / DAY);
                 const daysLeft = 90 - daysAgo;
@@ -778,22 +805,11 @@
         }
 
         function clearAllOptimized() {
-            if (confirm('⚠️ Clear ALL optimized pages from view?\n\nThis will hide them from the Optimized tab but they will remain in the GitHub registry.\n\nTo permanently remove them, use the Unmark button on each page.\n\nContinue?')) {
-                // Add all optimized pages to a "hidden" list in localStorage
-                const hiddenOptimized = JSON.parse(localStorage.getItem('hiddenOptimized') || '[]');
-                optimizedPages.forEach(page => {
-                    if (!hiddenOptimized.includes(page.url.toLowerCase())) {
-                        hiddenOptimized.push(page.url.toLowerCase());
-                    }
-                });
-                localStorage.setItem('hiddenOptimized', JSON.stringify(hiddenOptimized));
-                
-                // Clear display
+            if (confirm('⚠️ Clear ALL optimized pages from view?\n\nThis will hide them from the Optimized tab until you reload the page.\n\nThey remain in the GitHub registry.\n\nTo permanently remove them, use the Unmark button on each page.\n\nContinue?')) {
+                optimizedPages.forEach(page => hiddenOptimizedSet.add(page.url.toLowerCase()));
                 optimizedPages = [];
                 updateOptimizedCount();
                 renderOptimized();
-                
-                alert('✅ All optimized pages hidden from view!\n\nThey remain in the GitHub registry.\n\nTo show them again, clear browser localStorage.');
             }
         }
 
@@ -899,16 +915,15 @@
             counter.className = 'char-count ' + (len <= max ? 'ok' : 'warn');
         }
 
-        function getChecklistKey(url) { return `mpd_cl_${url}`; }
-
         function saveChecklistItem(url, key, checked) {
-            const state = JSON.parse(localStorage.getItem(getChecklistKey(url)) || '{}');
-            state[key] = checked;
-            localStorage.setItem(getChecklistKey(url), JSON.stringify(state));
+            if (!mpdChecklist[url]) mpdChecklist[url] = {};
+            mpdChecklist[url][key] = checked;
+            clearTimeout(checklistSaveTimer);
+            checklistSaveTimer = setTimeout(() => saveChecklistToGitHub(), 2000);
         }
 
         function loadChecklistState(url) {
-            return JSON.parse(localStorage.getItem(getChecklistKey(url)) || '{}');
+            return mpdChecklist[url] || {};
         }
 
         function onTaskChange(checkbox) {
@@ -923,7 +938,7 @@
 
             // Update master counter
             const state = loadChecklistState(currentAnalysisUrl);
-            const done = Object.values(state).filter(Boolean).length;
+            const done = Object.entries(state).filter(([k, v]) => k !== '_total' && v).length;
             const total = currentAnalysisTotal;
             const pct = total > 0 ? Math.round((done / total) * 100) : 0;
             const bar = document.getElementById('masterBar');
@@ -952,6 +967,7 @@
             const btn = document.getElementById('manualMarkBtn');
             if (btn) { btn.textContent = '⏳ Saving...'; btn.disabled = true; }
 
+            // Step 1 — save to GitHub
             try {
                 const res = await fetch('/api/blogs', {
                     method: 'POST',
@@ -960,24 +976,21 @@
                 });
                 const data = await res.json();
                 if (!data.success) throw new Error(data.error || 'Failed');
+            } catch (err) {
+                console.error('[Mark Optimized] Save failed:', err);
+                if (btn) { btn.textContent = '✅ Mark as Optimised'; btn.disabled = false; }
+                showToast('❌ Could not save — check Vercel logs.');
+                return;
+            }
 
-                // Save GSC snapshot for 90-day before/after comparison
+            // Step 2 — update UI (save succeeded)
+            try {
                 const gscInfo = gscEnrichment[normalizeUrlPath(item.url)] || {};
                 const today = new Date().toISOString().split('T')[0];
-                if (gscInfo.position) {
-                    localStorage.setItem('mpd_before_' + item.url, JSON.stringify({
-                        optimizedAt: Date.now(),
-                        position: gscInfo.position,
-                        impressions: gscInfo.impressions || 0,
-                        clicks: gscInfo.clicks || 0,
-                        keyword: item.keyword
-                    }));
-                }
-
-                // Delete cached analysis — page is done
+                const snapshot = { optimizedAt: Date.now(), position: gscInfo.position || null, impressions: gscInfo.impressions || 0, clicks: gscInfo.clicks || 0, keyword: item.keyword };
+                mpdSnapshots[item.url] = snapshot;
+                fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-mpd-snapshot', url: item.url, snapshot }) }).catch(e => console.warn('[Snapshot] Save failed:', e));
                 await deleteAnalysisResult(item.url);
-
-                // Immediate memory update — don't wait for GitHub CDN
                 urls = urls.filter(u => u.url !== item.url);
                 optimizedPages.unshift({
                     id: Date.now(),
@@ -987,19 +1000,17 @@
                     optimisedDate: today,
                     fromRegistry: true
                 });
-
                 closeResultsModal();
                 updatePageCount();
                 updateOptimizedCount();
                 renderUrls();
                 renderOptimized();
                 switchTab('optimized');
-                showToast(`✅ "${item.keyword}" marked as Optimised!`);
             } catch (err) {
-                console.error('[Mark Optimized]', err);
-                if (btn) { btn.textContent = '✅ Mark as Optimised'; btn.disabled = false; }
-                showToast('❌ Could not save — check Vercel logs.');
+                console.error('[Mark Optimized] UI update error:', err);
+                closeResultsModal();
             }
+            showToast(`✅ "${item.keyword}" marked as Optimised!`);
         }
 
         function autoMarkAsOptimized() {
@@ -1052,18 +1063,18 @@
         function seedMissingSnapshots() {
             let seeded = 0;
             optimizedPages.forEach(page => {
-                const key = 'mpd_before_' + page.url;
-                if (!localStorage.getItem(key)) {
+                if (!mpdSnapshots[page.url]) {
                     const gscInfo = gscEnrichment[normalizeUrlPath(page.url)];
-                    // Seed with GSC data if available, otherwise seed with nulls so countdown still shows
-                    localStorage.setItem(key, JSON.stringify({
+                    const snapshot = {
                         optimizedAt: page.optimizedAt || Date.now(),
                         position: gscInfo?.position || null,
                         impressions: gscInfo?.impressions || 0,
                         clicks: gscInfo?.clicks || 0,
                         keyword: page.keyword,
                         seeded: true
-                    }));
+                    };
+                    mpdSnapshots[page.url] = snapshot;
+                    fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-mpd-snapshot', url: page.url, snapshot }) }).catch(e => console.warn('[Snapshot] Seed save failed:', e));
                     seeded++;
                 }
             });
@@ -1146,7 +1157,7 @@
                     `<a href="${l.destinationUrl}">${l.anchorText}</a>`
                 ).join(', ');
                 const paragraph = `<p>You may also like: ${linksHtml}.</p>`;
-                const alreadyPushed = localStorage.getItem('mpd_links_pushed_' + data.yourPage.url) === 'true';
+                const alreadyPushed = mpdPushState[data.yourPage.url]?.linksPushed === true;
                 return `
                 <div class="action-block" style="border-color:#4caf50;">
                     <h3>🔗 Internal Links to Add</h3>
@@ -1248,7 +1259,8 @@
 
             const total = allItems.length;
             currentAnalysisTotal = total;
-            try { localStorage.setItem(`mpd_total_${pageUrl}`, total); } catch(e) { console.warn('[Storage] Could not save total:', e.message); }
+            if (!mpdChecklist[pageUrl]) mpdChecklist[pageUrl] = {};
+            mpdChecklist[pageUrl]._total = total;
             const done = allItems.filter(it => state[it.key]).length;
             const donePct = total > 0 ? Math.round((done / total) * 100) : 0;
 
@@ -1271,7 +1283,7 @@
                 </div>`;
 
             // ── 1. Push to Shopify block ──────────────────────────────────────
-            const alreadyPushed = localStorage.getItem('mpd_pushed_' + pageUrl) === 'true';
+            const alreadyPushed = mpdPushState[pageUrl]?.pushed === true;
             const adminUrl = getShopifyAdminUrl(data.shopify);
 
             const shopifyBlock = `
@@ -1520,7 +1532,10 @@
                 if (!data.success) throw new Error(data.errors?.join(', ') || 'Push failed');
                 btn.textContent = '✅ Links Added';
                 btn.style.background = '#4caf50';
-                localStorage.setItem('mpd_links_pushed_' + currentResults.yourPage.url, 'true');
+                const _lpUrl = currentResults.yourPage.url;
+                if (!mpdPushState[_lpUrl]) mpdPushState[_lpUrl] = {};
+                mpdPushState[_lpUrl].linksPushed = true;
+                fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-mpd-push-state', url: _lpUrl, pushed: mpdPushState[_lpUrl].pushed || false, linksPushed: true }) }).catch(e => console.warn('[Push State] Save failed:', e));
             } catch (err) {
                 btn.disabled = false;
                 btn.textContent = '🔗 Push Links to Shopify';
@@ -1571,7 +1586,10 @@
 
                 btn.textContent = '✅ Pushed to Shopify';
                 btn.style.background = '#4caf50';
-                localStorage.setItem('mpd_pushed_' + currentResults.yourPage.url, 'true');
+                const _pUrl = currentResults.yourPage.url;
+                if (!mpdPushState[_pUrl]) mpdPushState[_pUrl] = {};
+                mpdPushState[_pUrl].pushed = true;
+                fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-mpd-push-state', url: _pUrl, pushed: true, linksPushed: mpdPushState[_pUrl].linksPushed || false }) }).catch(e => console.warn('[Push State] Save failed:', e));
 
                 // Auto-tick the 3 push checkboxes
                 ['push_title','push_meta','push_desc'].forEach(key => {
@@ -2716,10 +2734,9 @@
                     }
                 }
 
-                // Filter out hidden optimized pages
-                const hiddenOptimized = JSON.parse(localStorage.getItem('hiddenOptimized') || '[]');
-                const filteredOptimized = optimizedPagesList.filter(page => 
-                    !hiddenOptimized.includes(page.url.toLowerCase())
+                // Filter out hidden optimized pages (in-memory only)
+                const filteredOptimized = optimizedPagesList.filter(page =>
+                    !hiddenOptimizedSet.has(page.url.toLowerCase())
                 );
                 const hiddenCount = optimizedPagesList.length - filteredOptimized.length;
 
@@ -2983,24 +3000,9 @@
             document.getElementById('helpModal').style.display = 'none';
         }
 
-        // Clean up stale localStorage keys on startup
-        function cleanupLocalStorage() {
-            const keep = ['mpd_before_', 'mpd_cl_', 'mpd_pushed_', 'mpd_links_pushed_', 'hiddenOptimized'];
-            const toDelete = [];
-            for (let i = 0; i < localStorage.length; i++) {
-                const key = localStorage.key(i);
-                if (!key.startsWith('mpd_') && key !== 'hiddenOptimized') continue;
-                const shouldKeep = keep.some(prefix => key.startsWith(prefix) || key === prefix);
-                if (!shouldKeep) toDelete.push(key);
-            }
-            toDelete.forEach(k => localStorage.removeItem(k));
-            if (toDelete.length > 0) console.log(`[Cleanup] Removed ${toDelete.length} stale localStorage keys`);
-        }
-
         // Initialize on page load
         window.addEventListener('DOMContentLoaded', async () => {
-            cleanupLocalStorage();
-            await loadFromGitHub();
+            await Promise.all([loadFromGitHub(), loadMPDData()]);
             updatePageCount();
             updateOptimizedCount();
             renderUrls();
