@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.56</div>
+      <div class="tool-version">v59.57</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -1495,6 +1495,9 @@
       navEl.classList.add('active');
       const titles={overview:'High Level SEO Metrics',historical:'Historical View (1 Year)',llm:'LLM Traffic',blogopt:'Blog Optimizations',content:'Content Optimizations'};
       document.getElementById('pageTitle').textContent=titles[id]||'';
+      // Hide global date picker in sections that have their own date selector
+      const dpEl = document.querySelector('.date-picker');
+      if (dpEl) dpEl.style.display = (id==='kwtracker'||id==='avkw'||id==='nokw') ? 'none' : '';
       if(id==='historical'&&!histLoaded){loadHistorical();histLoaded=true;}
       if(id==='content'&&!contentLoaded){loadContentOptimizations();contentLoaded=true;}
       if(id==='nokw'&&!nokwLoaded){loadNoKw();nokwLoaded=true;}
@@ -6212,18 +6215,24 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
       });
     }
 
-    // Tech card status persistence
+    // Tech card status persistence — GitHub backed
     const _techElIds = {'crawled':'techStatusCrawled','404':'techStatus404','reviews':'techStatusReviews','canonical':'techStatusCanonical','5xx':'techStatus5xx','soft404':'techStatusSoft404','diffcanonical':'techStatusDiffCanonical'};
+    let _techStatuses = {}; // in-memory, loaded from GitHub on init
+    let _techSaveTimer = null;
 
     function setTechStatus(cardId, cssClass, label) {
-      localStorage.setItem('techStatus_' + cardId, JSON.stringify({ cssClass, label }));
+      _techStatuses[cardId] = { cssClass, label };
       const el = document.getElementById(_techElIds[cardId] || ('techStatus' + cardId.charAt(0).toUpperCase() + cardId.slice(1)));
       if (el) { el.className = 'status-badge-pill ' + cssClass; el.textContent = label; }
+      // Debounced save to GitHub
+      clearTimeout(_techSaveTimer);
+      _techSaveTimer = setTimeout(() => {
+        fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'save-tech-status', statuses: _techStatuses }) }).catch(()=>{});
+      }, 1000);
     }
 
     function cycleTechStatus(cardId) {
-      const saved = localStorage.getItem('techStatus_' + cardId);
-      const cur = saved ? (JSON.parse(saved).cssClass || 'not-fixed') : 'not-fixed';
+      const cur = (_techStatuses[cardId] || {}).cssClass || 'not-fixed';
       if (cur === 'not-fixed') setTechStatus(cardId, 'in-progress', '⏳ In progress');
       else if (cur === 'in-progress') setTechStatus(cardId, 'fixed', '✅ Fixed');
       else setTechStatus(cardId, 'not-fixed', '🔴 Not fixed');
@@ -6268,13 +6277,18 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
       });
     }
 
-    function restoreTechStatuses() {
-      ['crawled', '404', 'reviews', 'canonical', '5xx', 'soft404', 'diffcanonical'].forEach(id => {
-        const saved = localStorage.getItem('techStatus_' + id);
-        if (saved) {
-          try { const { cssClass, label } = JSON.parse(saved); setTechStatus(id, cssClass, label); } catch(e) {}
+    async function restoreTechStatuses() {
+      try {
+        const res = await fetch('/api/blogs?action=get-tech-status');
+        const j = await res.json();
+        if (j.success && j.statuses) {
+          _techStatuses = j.statuses;
+          Object.entries(_techStatuses).forEach(([id, { cssClass, label }]) => {
+            const el = document.getElementById(_techElIds[id] || ('techStatus' + id.charAt(0).toUpperCase() + id.slice(1)));
+            if (el) { el.className = 'status-badge-pill ' + cssClass; el.textContent = label; }
+          });
         }
-      });
+      } catch(e) {}
     }
 
     // ── Re-indexing Tracker ───────────────────────────────────────────────────
@@ -6287,12 +6301,23 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
       return Math.max(0, Math.floor((now - REINDEX_CAMPAIGN_START) / (1000 * 60 * 60 * 24)));
     }
 
+    let _reindexDoneSet = new Set(); // in-memory, loaded from GitHub on init
+
     function reindexGetDoneSet() {
-      try { return new Set(JSON.parse(localStorage.getItem('reindexDone') || '[]')); } catch(e) { return new Set(); }
+      return _reindexDoneSet;
     }
 
     function reindexSaveDoneSet(set) {
-      localStorage.setItem('reindexDone', JSON.stringify([...set]));
+      _reindexDoneSet = set;
+      fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'save-reindex-done', done: [...set] }) }).catch(()=>{});
+    }
+
+    async function reindexLoadDoneSet() {
+      try {
+        const res = await fetch('/api/blogs?action=get-reindex-done');
+        const j = await res.json();
+        if (j.success && Array.isArray(j.done)) _reindexDoneSet = new Set(j.done);
+      } catch(e) {}
     }
 
     function reindexCopyUrl(url, index) {
@@ -6343,7 +6368,7 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
 
     async function loadTechHealth() {
       if (document.getElementById('crawledTrendChart')) initCrawledTrendChart();
-      restoreTechStatuses();
+      await Promise.all([restoreTechStatuses(), reindexLoadDoneSet()]);
       await loadReindexBatch();
     }
 
