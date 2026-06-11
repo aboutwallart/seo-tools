@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.55</div>
+      <div class="tool-version">v59.56</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -3852,30 +3852,59 @@
       </table>`;
     }
 
+    let ktCurrentDetailIdx = null;
+
     async function ktOpenDetail(idx) {
       const row = ktRows[idx];
       if (!row) return;
+      ktCurrentDetailIdx = idx;
       document.getElementById('ktList').style.display = 'none';
       const detail = document.getElementById('ktDetail');
       detail.style.display = 'block';
-      detail.innerHTML = `<div style="margin-bottom:20px;"><button onclick="ktBackToList()" style="padding:6px 14px;border:1px solid #e5e5e5;background:#fff;border-radius:4px;font-size:12px;cursor:pointer;">← Back to list</button></div>
-        <div style="text-align:center;padding:48px;color:#aaa;font-size:13px;">Loading data for "${row.keyword}"...</div>`;
-      await ktLoadDetail(row, detail);
+      detail.innerHTML = `<div style="margin-bottom:20px;display:flex;align-items:center;gap:12px;">
+        <button onclick="ktBackToList()" style="padding:6px 14px;border:1px solid #e5e5e5;background:#fff;border-radius:4px;font-size:12px;cursor:pointer;">← Back to list</button>
+        <select id="ktDaysSel" onchange="ktReloadDetail()" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:12px;">
+          <option value="30">Last 30 days</option>
+          <option value="90" selected>Last 90 days</option>
+          <option value="180">Last 180 days</option>
+        </select>
+      </div>
+      <div style="text-align:center;padding:48px;color:#aaa;font-size:13px;">Loading data for "${row.keyword}"...</div>`;
+      await ktLoadDetail(row, detail, 90);
+    }
+
+    async function ktReloadDetail() {
+      if (ktCurrentDetailIdx === null) return;
+      const row = ktRows[ktCurrentDetailIdx];
+      const days = parseInt(document.getElementById('ktDaysSel')?.value || '90');
+      const detail = document.getElementById('ktDetail');
+      const selHtml = `<div style="margin-bottom:20px;display:flex;align-items:center;gap:12px;">
+        <button onclick="ktBackToList()" style="padding:6px 14px;border:1px solid #e5e5e5;background:#fff;border-radius:4px;font-size:12px;cursor:pointer;">← Back to list</button>
+        <select id="ktDaysSel" onchange="ktReloadDetail()" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:12px;">
+          <option value="30"${days===30?' selected':''}>Last 30 days</option>
+          <option value="90"${days===90?' selected':''}>Last 90 days</option>
+          <option value="180"${days===180?' selected':''}>Last 180 days</option>
+        </select>
+      </div>`;
+      detail.innerHTML = selHtml + `<div style="text-align:center;padding:48px;color:#aaa;font-size:13px;">Loading...</div>`;
+      await ktLoadDetail(row, detail, days);
     }
 
     function ktBackToList() {
+      ktCurrentDetailIdx = null;
       document.getElementById('ktDetail').style.display = 'none';
       document.getElementById('ktList').style.display = 'block';
     }
 
-    async function ktLoadDetail(row, detail) {
+    async function ktLoadDetail(row, detail, days) {
+      days = days || 90;
       try {
         const kw = row.keyword.toLowerCase();
-        const start180=getDate(180), end=getDate(0);
+        const startPeriod=getDate(days), end=getDate(0);
         const [resQ, resMon, resPQ] = await Promise.all([
-          fetch(`${API}?action=queries&startDate=${start180}&endDate=${end}`),
+          fetch(`${API}?action=queries&startDate=${startPeriod}&endDate=${end}`),
           fetch(`${API}?action=keyword-monthly&keyword=${encodeURIComponent(kw)}&startDate=${getDate(365)}&endDate=${end}`),
-          fetch(`${API}?action=page-query&startDate=${start180}&endDate=${end}`)
+          fetch(`${API}?action=page-query&startDate=${startPeriod}&endDate=${end}`)
         ]);
         const jQ=await resQ.json(), jMon=await resMon.json(), jPQ=await resPQ.json();
         if (!jQ.success) throw new Error(jQ.error);
@@ -3916,13 +3945,20 @@
           compHtml = `<div style="background:#f9f9f9;border:1px solid #e5e5e5;border-radius:8px;padding:14px 20px;margin-bottom:16px;"><span style="font-size:13px;color:#888;">⏳ ${90-row.daysAgo} day${90-row.daysAgo!==1?'s':''} to go before results can be assessed.</span></div>`;
         }
 
-        detail.innerHTML = `<div style="margin-bottom:20px;"><button onclick="ktBackToList()" style="padding:6px 14px;border:1px solid #e5e5e5;background:#fff;border-radius:4px;font-size:12px;cursor:pointer;">← Back to list</button></div>
+        detail.innerHTML = `<div style="margin-bottom:20px;display:flex;align-items:center;gap:12px;">
+          <button onclick="ktBackToList()" style="padding:6px 14px;border:1px solid #e5e5e5;background:#fff;border-radius:4px;font-size:12px;cursor:pointer;">← Back to list</button>
+          <select id="ktDaysSel" onchange="ktReloadDetail()" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:12px;">
+            <option value="30"${days===30?' selected':''}>Last 30 days</option>
+            <option value="90"${days===90?' selected':''}>Last 90 days</option>
+            <option value="180"${days===180?' selected':''}>Last 180 days</option>
+          </select>
+        </div>
           <div style="margin-bottom:8px;"><span style="font-size:16px;font-weight:700;">${row.keyword}</span>${row.optimizedDate?`<span style="font-size:12px;color:#888;margin-left:10px;">Optimised: ${row.optimizedDate}</span>`:''}</div>
           ${compHtml}
           <div class="metrics-row" style="margin-bottom:24px;">
             <div class="metric-card"><div class="metric-label">Queries Found</div><div class="metric-value">${filtered.length}</div><div class="metric-sub">containing "${row.keyword}"</div></div>
-            <div class="metric-card"><div class="metric-label">Total Clicks</div><div class="metric-value">${fmt(totalClicks)}</div><div class="metric-sub">last 180 days</div></div>
-            <div class="metric-card"><div class="metric-label">Total Impressions</div><div class="metric-value">${fmt(totalImp)}</div><div class="metric-sub">last 180 days</div></div>
+            <div class="metric-card"><div class="metric-label">Total Clicks</div><div class="metric-value">${fmt(totalClicks)}</div><div class="metric-sub">last ${days} days</div></div>
+            <div class="metric-card"><div class="metric-label">Total Impressions</div><div class="metric-value">${fmt(totalImp)}</div><div class="metric-sub">last ${days} days</div></div>
             <div class="metric-card"><div class="metric-label">Avg CTR</div><div class="metric-value">${fmtCTR(avgCTR)}</div><div class="metric-sub">across all queries</div></div>
             <div class="metric-card"><div class="metric-label">Avg Position</div><div class="metric-value">${fmtPos(avgPos)}</div><div class="metric-sub">across all queries</div></div>
           </div>
@@ -3933,11 +3969,24 @@
 
         const existingChart=Chart.getChart('ktGrowthChart');
         if(existingChart)existingChart.destroy();
-        const annotations={};
-        if(optLineIndex>=0){annotations.optLine={type:'line',xMin:optLineIndex,xMax:optLineIndex,borderColor:'#16a34a',borderWidth:2,borderDash:[6,3],label:{content:'Optimised',enabled:true,position:'start',backgroundColor:'#16a34a',color:'#fff',font:{size:10}}};}
-        new Chart(document.getElementById('ktGrowthChart'),{type:'line',data:{labels:chartLabels,datasets:[{label:'Impressions',data:chartImp,borderColor:'#818cf8',backgroundColor:'rgba(129,140,248,0.1)',tension:0.4,fill:true,pointRadius:4,pointBackgroundColor:'#818cf8'},{label:'Clicks',data:chartClicks,borderColor:'#34d399',backgroundColor:'rgba(52,211,153,0.05)',tension:0.4,fill:false,pointRadius:4,pointBackgroundColor:'#34d399'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'top'},annotation:{annotations}},scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid:{color:'#f0f0f0'}}}}});
+        const ktOptPlugin = {
+          id:'ktOptLine',
+          afterDraw(chart) {
+            if (optLineIndex < 0) return;
+            const ctx=chart.ctx, xs=chart.scales.x, ys=chart.scales.y;
+            const x=xs.getPixelForValue(optLineIndex);
+            ctx.save();
+            ctx.beginPath(); ctx.moveTo(x,ys.top); ctx.lineTo(x,ys.bottom);
+            ctx.strokeStyle='#dc2626'; ctx.lineWidth=2; ctx.setLineDash([6,4]); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle='#dc2626'; ctx.font='bold 10px sans-serif'; ctx.textAlign='left';
+            ctx.fillText('✓ Optimised '+row.optimizedDate, x+4, ys.top+14);
+            ctx.restore();
+          }
+        };
+        new Chart(document.getElementById('ktGrowthChart'),{type:'line',plugins:[ktOptPlugin],data:{labels:chartLabels,datasets:[{label:'Impressions',data:chartImp,borderColor:'#818cf8',backgroundColor:'rgba(129,140,248,0.1)',tension:0.4,fill:true,pointRadius:4,pointBackgroundColor:'#818cf8'},{label:'Clicks',data:chartClicks,borderColor:'#34d399',backgroundColor:'rgba(52,211,153,0.05)',tension:0.4,fill:false,pointRadius:4,pointBackgroundColor:'#34d399'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,position:'top'}},scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid:{color:'#f0f0f0'}}}}});
       } catch(e) {
-        detail.innerHTML = `<div style="margin-bottom:20px;"><button onclick="ktBackToList()" style="padding:6px 14px;border:1px solid #e5e5e5;background:#fff;border-radius:4px;font-size:12px;cursor:pointer;">← Back to list</button></div><p style="color:#dc2626;padding:24px;">${e.message}</p>`;
+        detail.innerHTML = `<div style="margin-bottom:20px;"><button onclick="ktBackToList()" style="padding:6px 14px;border:1px solid #e5e5e5;background:#fff;border-radius:4px;font-size:12px;cursor:pointer;">← Back to list</button></div><p style="color:#dc2626;padding:24px;">Error: ${e.message}</p>`;
       }
     }
 
