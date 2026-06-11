@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 47.3</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 47.4</p>
                 </div>
             </div>
         </header>
@@ -378,6 +378,7 @@
             </div>
             
             <div style="margin-bottom: 15px; display: flex; justify-content: flex-end; gap: 10px;">
+                <button onclick="openAddUrlModal()" style="background:#2e7d32;">➕ Add URL</button>
                 <button class="btn-secondary" onclick="clearAllPages()">🗑️ Clear All Pages</button>
                 <button class="btn-secondary" onclick="removeDuplicates()">🧹 Remove Duplicates</button>
             </div>
@@ -420,6 +421,26 @@
             <div style="display: flex; gap: 10px; margin-top: 20px;">
                 <button onclick="copyResults()">📋 Copy Results</button>
                 <button class="btn-secondary" onclick="closeResultsModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ADD URL MODAL -->
+    <div class="modal" id="addUrlModal">
+        <div class="modal-content" style="max-width:520px;">
+            <h3 style="margin-bottom:20px;">➕ Add Page to Optimise</h3>
+            <div class="form-group">
+                <label>Keyword</label>
+                <input type="text" id="addUrlKeyword" placeholder="e.g. wall art for bedroom">
+            </div>
+            <div class="form-group">
+                <label>Page URL</label>
+                <input type="text" id="addUrlInput" placeholder="https://aboutwallart.com/collections/...">
+            </div>
+            <div id="addUrlStatus" style="margin-bottom:15px;font-size:0.9rem;min-height:20px;"></div>
+            <div style="display:flex;gap:10px;">
+                <button id="addUrlSubmitBtn" onclick="submitAddUrl()" style="background:#2e7d32;">➕ Add</button>
+                <button class="btn-secondary" onclick="closeAddUrlModal()">Cancel</button>
             </div>
         </div>
     </div>
@@ -2998,6 +3019,76 @@
 
         function closeHelp() {
             document.getElementById('helpModal').style.display = 'none';
+        }
+
+        // ── ADD URL MODAL ─────────────────────────────────────────────────────
+
+        function openAddUrlModal() {
+            document.getElementById('addUrlKeyword').value = '';
+            document.getElementById('addUrlInput').value = '';
+            document.getElementById('addUrlStatus').textContent = '';
+            document.getElementById('addUrlSubmitBtn').textContent = '➕ Add';
+            document.getElementById('addUrlSubmitBtn').disabled = false;
+            document.getElementById('addUrlModal').classList.add('active');
+        }
+
+        function closeAddUrlModal() {
+            document.getElementById('addUrlModal').classList.remove('active');
+        }
+
+        async function submitAddUrl() {
+            const keyword = document.getElementById('addUrlKeyword').value.trim();
+            const url = document.getElementById('addUrlInput').value.trim();
+            const status = document.getElementById('addUrlStatus');
+            const btn = document.getElementById('addUrlSubmitBtn');
+
+            if (!keyword) { status.innerHTML = '<span style="color:#c62828;">Please enter a keyword.</span>'; return; }
+            if (!url || !url.startsWith('http')) { status.innerHTML = '<span style="color:#c62828;">Please enter a valid URL starting with https://</span>'; return; }
+
+            // Step 1 — verify URL exists in Shopify
+            btn.textContent = '🔍 Verifying...'; btn.disabled = true;
+            status.innerHTML = '<span style="color:#666;">Checking URL in Shopify...</span>';
+
+            let verifyResult;
+            try {
+                const vRes = await fetch(`/api/shopify-files?action=verify-url&pageUrl=${encodeURIComponent(url)}`);
+                verifyResult = await vRes.json();
+            } catch(e) {
+                status.innerHTML = '<span style="color:#c62828;">❌ Could not reach Shopify. Try again.</span>';
+                btn.textContent = '➕ Add'; btn.disabled = false;
+                return;
+            }
+
+            if (!verifyResult.exists) {
+                status.innerHTML = `<span style="color:#c62828;">❌ URL not found in Shopify. Check the URL and try again.</span>`;
+                btn.textContent = '➕ Add'; btn.disabled = false;
+                return;
+            }
+
+            // Step 2 — save to registry
+            btn.textContent = '💾 Saving...';
+            status.innerHTML = `<span style="color:#2e7d32;">✓ Found: "${verifyResult.title}" — saving...</span>`;
+
+            try {
+                const saveRes = await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'add-to-optimize', keyword, url })
+                });
+                const saveData = await saveRes.json();
+                if (!saveData.success) throw new Error(saveData.error || 'Save failed');
+            } catch(e) {
+                status.innerHTML = '<span style="color:#c62828;">❌ Could not save to registry. Check Vercel logs.</span>';
+                btn.textContent = '➕ Add'; btn.disabled = false;
+                return;
+            }
+
+            // Step 3 — add to memory and re-render
+            urls.unshift({ id: Date.now(), url, keyword, analyzed: false, results: null, fromRegistry: true });
+            closeAddUrlModal();
+            updatePageCount();
+            renderUrls();
+            showToast(`✅ "${keyword}" added to To Optimise.`);
         }
 
         // Initialize on page load
