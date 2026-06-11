@@ -1,4 +1,4 @@
-// blogs.js — v2.5
+// blogs.js — v2.6
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
@@ -6,6 +6,7 @@
 // v1.5: delete-registry-row action — targeted single-row delete by keyword+url (used by Duplicate Finder)
 // v1.6: repair-registry now overwrites intent on ALL rows (not just blank) — corrects historically wrong intent values
 // v1.7: all write actions always use detectIntent(url) — frontend-passed intent is ignored, URL is ground truth
+// v2.6: fix all write actions to use findIndex for header detection — prevents header row being wiped on CSV rewrite
 import fs from 'fs';
 import path from 'path';
 
@@ -80,6 +81,17 @@ export default async function handler(req, res) {
     if (url.includes('/blog')) return 'INFORMATIONAL';
     if (url.includes('/pages/')) return 'NAVIGATIONAL';
     return 'UNKNOWN';
+  }
+
+  // Helper: find title lines, header line, and data start index in registry CSV
+  // Returns { titleLines, header, startIdx } — works whether CSV has a title row or not
+  function findRegistryHeader(lines) {
+    const FALLBACK_HEADER = 'Keyword,Page URL,LOCKED,Status,Action,Clicks,Position,Match Score,AI Score,Source,INTENT,OPTIMIZED DATE';
+    const headerIdx = lines.findIndex(l => l.includes('Keyword') && l.includes('Page URL'));
+    const titleLines = headerIdx > 0 ? lines.slice(0, headerIdx) : [];
+    const header = headerIdx >= 0 ? lines[headerIdx] : FALLBACK_HEADER;
+    const startIdx = headerIdx >= 0 ? headerIdx + 1 : 1;
+    return { titleLines, header, startIdx };
   }
 
   // Helper: pad cols array to exactly 12 and return a properly quoted CSV row string
@@ -565,11 +577,11 @@ export default async function handler(req, res) {
         if (!keyword || !url) return res.status(400).json({ error: 'keyword and url required' });
         const registry = await getGitHubFile('data/keyword-locker-registry.csv');
         const lines = registry.content.split('\n').map(l => l.replace(/\r/g, ''));
-        const header = lines[0];
+        const { titleLines, header, startIdx } = findRegistryHeader(lines);
         let found = false;
-        const updatedLines = [header];
+        const updatedLines = [...titleLines, header];
         const today = new Date().toISOString().split('T')[0];
-        for (let i = 1; i < lines.length; i++) {
+        for (let i = startIdx; i < lines.length; i++) {
           if (!lines[i].trim()) continue;
           const cols = parseCSVLine(lines[i]);
           while (cols.length < 12) cols.push('');
@@ -599,9 +611,10 @@ export default async function handler(req, res) {
         if (!keyword || !url) return res.status(400).json({ error: 'keyword and url required' });
         const registry = await getGitHubFile('data/keyword-locker-registry.csv');
         const lines = registry.content.split('\n').map(l => l.replace(/\r/g, ''));
+        const { titleLines, header, startIdx } = findRegistryHeader(lines);
         let found = false;
-        const updatedLines = [lines[0]];
-        for (let i = 1; i < lines.length; i++) {
+        const updatedLines = [...titleLines, header];
+        for (let i = startIdx; i < lines.length; i++) {
           if (!lines[i].trim()) continue;
           const cols = parseCSVLine(lines[i]);
           while (cols.length < 12) cols.push('');
@@ -739,10 +752,10 @@ export default async function handler(req, res) {
         if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
         const registry = await getGitHubFile('data/keyword-locker-registry.csv');
         const lines = registry.content.split('\n').map(l => l.replace(/\r/g, ''));
-        const header = lines[0];
-        const repairedLines = [header];
+        const { titleLines, header, startIdx } = findRegistryHeader(lines);
+        const repairedLines = [...titleLines, header];
         let fixedCount = 0;
-        for (let i = 1; i < lines.length; i++) {
+        for (let i = startIdx; i < lines.length; i++) {
           const line = lines[i].trim();
           if (!line) continue;
           const cols = parseCSVLine(line);
@@ -765,11 +778,11 @@ export default async function handler(req, res) {
         if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
         const registry = await getGitHubFile('data/keyword-locker-registry.csv');
         const lines = registry.content.split('\n').map(l => l.replace(/\r/g, ''));
-        const header = lines[0];
+        const { titleLines, header, startIdx } = findRegistryHeader(lines);
         const seen = new Set();
-        const cleaned = [header];
+        const cleaned = [...titleLines, header];
         let removed = 0;
-        for (let i = 1; i < lines.length; i++) {
+        for (let i = startIdx; i < lines.length; i++) {
           const line = lines[i].trim();
           if (!line) continue;
           const cols = parseCSVLine(line);
@@ -792,11 +805,11 @@ export default async function handler(req, res) {
         if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
         const registry = await getGitHubFile('data/keyword-locker-registry.csv');
         const lines = registry.content.split('\n').map(l => l.replace(/\r/g, ''));
-        const header = lines[0];
-        const fixedLines = [header];
+        const { titleLines, header, startIdx } = findRegistryHeader(lines);
+        const fixedLines = [...titleLines, header];
         let fixedCount = 0;
-        const totalRows = lines.length - 1;
-        for (let i = 1; i < lines.length; i++) {
+        const totalRows = lines.length - startIdx;
+        for (let i = startIdx; i < lines.length; i++) {
           const line = lines[i].trim();
           if (!line) continue;
           const cols = parseCSVLine(line);
