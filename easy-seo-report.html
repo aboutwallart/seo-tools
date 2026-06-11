@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.51</div>
+      <div class="tool-version">v59.52</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -163,6 +163,7 @@
     <div class="nav-item" onclick="showSection('blogopt', this)">Blog Optimizations</div>
     <div class="nav-item" onclick="showSection('content', this)">Content Optimizations</div>
     <div class="nav-item" onclick="showSection('nokw', this)">🗝️ Pages Without Locked Keywords</div>
+    <div class="nav-item" onclick="showSection('avkw', this)">📦 Available Keywords</div>
     <div class="nav-item" onclick="showSection('settings', this)">⚙️ Settings</div>
   </div>
 
@@ -879,6 +880,21 @@
         </div>
       </div>
 
+      <!-- SECTION: Available Keywords -->
+      <div class="section" id="section-avkw">
+        <div class="content-section-card">
+          <div class="content-section-header">
+            <h2>📦 Available Keywords</h2>
+            <p>All your Saved for Later keywords grouped by topic. Within each group, the best keyword to lock is highlighted based on search volume, difficulty and existing impressions in your store.</p>
+          </div>
+          <div style="padding:16px 24px;border-bottom:1px solid #e5e5e5;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <span id="avkwStatus" style="font-size:12px;color:#888;"></span>
+            <span id="avkwProgress" style="display:none;font-size:12px;color:#6366f1;font-weight:600;"></span>
+          </div>
+          <div id="avkwBody" style="padding:0 24px 24px;"></div>
+        </div>
+      </div>
+
       <!-- SECTION: Settings -->
       <div class="section" id="section-settings">
         <div class="content-section-card" style="margin-bottom:24px;">
@@ -1492,6 +1508,7 @@
     let savedForLaterList = [];
     let nokwLoaded=false, nokwData={collections:[],blogs:[],pages:[],products:[]}, nokwActiveTab='collections', nokwRegFilter='';
     let nokwMetrics = {};
+    let avkwLoaded = false;
 
     function getDate(daysAgo){const d=new Date();d.setDate(d.getDate()-daysAgo);return d.toISOString().split('T')[0];}
     function fmt(n){return n!=null?n.toLocaleString():'—';}
@@ -1517,6 +1534,7 @@
       if(id==='historical'&&!histLoaded){loadHistorical();histLoaded=true;}
       if(id==='content'&&!contentLoaded){loadContentOptimizations();contentLoaded=true;}
       if(id==='nokw'&&!nokwLoaded){loadNoKw();nokwLoaded=true;}
+      if(id==='avkw'&&!avkwLoaded){loadAvKw();avkwLoaded=true;}
       if(id==='blog'){initBlogMonthSelector();}
       if(id==='blogopt'&&!blogOptLoaded){loadBlogOptimizations();blogOptLoaded=true;}
       if(id==='llm'&&!llmLoaded){loadLLMTraffic();llmLoaded=true;}
@@ -1921,6 +1939,184 @@
         } else { btn.disabled=false; btn.textContent='🔒 Lock'; alert('Failed: '+(j.error||'unknown')); }
       } catch(e) { btn.disabled=false; btn.textContent='🔒 Lock'; alert('Error: '+e.message); }
     }
+
+    // ── AVAILABLE KEYWORDS SECTION ──────────────────────────────────────────
+    async function loadAvKw() {
+      const statusEl  = document.getElementById('avkwStatus');
+      const progressEl = document.getElementById('avkwProgress');
+      const bodyEl    = document.getElementById('avkwBody');
+      bodyEl.innerHTML = '<p style="color:#888;font-size:13px;padding:24px 0;">Loading...</p>';
+      statusEl.textContent = 'Fetching registry...';
+
+      try {
+        // 1. Load registry → savedForLaterList
+        const rRes = await fetch('/api/blogs?action=get-registry');
+        const rJson = await rRes.json();
+        const sfList = [];
+        if (rJson.success && rJson.registry) {
+          rJson.registry.forEach(row => {
+            if ((row.action||'').toUpperCase() === 'SAVED_FOR_FUTURE') sfList.push(row.keyword);
+          });
+        }
+        if (!sfList.length) {
+          statusEl.textContent = 'No saved-for-later keywords found.';
+          bodyEl.innerHTML = '';
+          return;
+        }
+
+        // 2. Load keyword metrics
+        statusEl.textContent = 'Loading metrics...';
+        let metrics = {};
+        try {
+          const mRes = await fetch('https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keyword-metrics.json');
+          if (mRes.ok) metrics = await mRes.json();
+        } catch(e) {}
+
+        // 3. Fetch GSC queries (up to 5000) to get impressions in bulk
+        statusEl.textContent = 'Fetching GSC impressions...';
+        const impMap = {};
+        try {
+          const qRes = await fetch(`${API}?action=queries&limit=5000&startDate=${getDate(90)}&endDate=${getDate(0)}`);
+          const qJson = await qRes.json();
+          if (qJson.success && qJson.data?.rows) {
+            qJson.data.rows.forEach(r => {
+              const kw = (r.keys?.[0]||'').toLowerCase();
+              if (kw) impMap[kw] = r.impressions || 0;
+            });
+          }
+        } catch(e) {}
+
+        // 4. Find which keywords are missing impressions data
+        const missing = sfList.filter(kw => impMap[kw.toLowerCase()] === undefined);
+
+        // 5. Fetch missing keywords individually in batches of 3
+        if (missing.length) {
+          progressEl.style.display = 'inline';
+          const batchSize = 3;
+          for (let i = 0; i < missing.length; i += batchSize) {
+            progressEl.textContent = `⏳ Fetching missing data: ${Math.min(i+batchSize, missing.length)}/${missing.length}`;
+            const batch = missing.slice(i, i + batchSize);
+            await Promise.all(batch.map(async kw => {
+              try {
+                const r = await fetch(`${API}?action=keyword-page&keyword=${encodeURIComponent(kw)}&startDate=${getDate(90)}&endDate=${getDate(0)}`);
+                const j = await r.json();
+                const totalImp = (j.data?.rows||[]).reduce((s, row) => s + (row.impressions||0), 0);
+                impMap[kw.toLowerCase()] = totalImp;
+              } catch(e) { impMap[kw.toLowerCase()] = 0; }
+            }));
+          }
+          progressEl.style.display = 'none';
+        }
+
+        // 6. Group keywords by topic
+        const avkwStopWords = new Set(['the','for','and','with','how','why','what','where','which','your','this','that','are','can','you','from','have','our','all','its','into','their','there','about','more','than','will','been','was','has','had','not','but','also','some','they','them','when','shop','buy','art','wall','home','decor','design','style','room','print','prints','picture','pictures','painting','paintings','ideas','interior','set','by','in','on','a','an','is','to','it','we','at','be','small','large','big','modern','best','beautiful','unique','popular','cheap','affordable','luxury','living','bedroom','colour']);
+        function avSigWords(kw) {
+          return kw.toLowerCase().split(/\s+/).filter(w => w.length > 2 && !avkwStopWords.has(w));
+        }
+
+        // Build word → keywords frequency map
+        const wordFreq = {};
+        sfList.forEach(kw => {
+          avSigWords(kw).forEach(w => { wordFreq[w] = (wordFreq[w]||0) + 1; });
+        });
+
+        // Assign each keyword to its most specific word (lowest frequency)
+        const groups = {};
+        sfList.forEach(kw => {
+          const words = avSigWords(kw);
+          if (!words.length) { (groups['other'] = groups['other']||[]).push(kw); return; }
+          const bestWord = words.slice().sort((a,b) => (wordFreq[a]||0) - (wordFreq[b]||0))[0];
+          (groups[bestWord] = groups[bestWord]||[]).push(kw);
+        });
+
+        // 7. Score keywords within each group
+        function avScore(kw) {
+          const m = metrics[kw.toLowerCase()] || {};
+          const vol  = m.volume ?? 0;
+          const diff = m.seo_difficulty ?? 50;
+          const imp  = impMap[kw.toLowerCase()] ?? 0;
+          return vol * (100 - diff) / 100 * Math.log(imp + 2);
+        }
+
+        // Sort groups by total group score desc, sort keywords within group by score desc
+        const sortedGroups = Object.entries(groups)
+          .map(([word, kws]) => {
+            const scored = kws.map(kw => ({ kw, score: avScore(kw), m: metrics[kw.toLowerCase()]||{}, imp: impMap[kw.toLowerCase()]??0 }))
+              .sort((a,b) => b.score - a.score);
+            return { word, keywords: scored, groupScore: scored.reduce((s,k)=>s+k.score,0) };
+          })
+          .filter(g => g.keywords.length > 0)
+          .sort((a,b) => b.groupScore - a.groupScore);
+
+        // 8. Render
+        statusEl.textContent = `${sfList.length} saved keywords · ${sortedGroups.length} topic groups`;
+
+        bodyEl.innerHTML = sortedGroups.map(g => {
+          const rows = g.keywords.map((item, idx) => {
+            const isBest = idx === 0 && item.score > 0;
+            const vol  = item.m.volume ?? '—';
+            const diff = item.m.seo_difficulty ?? '—';
+            const imp  = item.imp > 0 ? item.imp.toLocaleString() : '—';
+            const encKw = encodeURIComponent(item.kw);
+            const badge = isBest ? `<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;margin-left:6px;">⭐ Best</span>` : '';
+            return `<tr style="border-bottom:1px solid #f5f5f5;${isBest?'background:#fafffe;':''}">
+              <td style="padding:8px 12px;font-size:12px;font-weight:${isBest?'600':'400'};color:#1a1a1a;">${item.kw}${badge}</td>
+              <td style="padding:8px 12px;font-size:12px;color:#555;text-align:right;">${vol}</td>
+              <td style="padding:8px 12px;font-size:12px;color:#555;text-align:right;">${diff}</td>
+              <td style="padding:8px 12px;font-size:12px;color:#555;text-align:right;">${imp}</td>
+              <td style="padding:8px 12px;">
+                <button onclick="avkwDelete('${encKw}',this)" style="padding:3px 8px;border:none;background:#fee2e2;color:#dc2626;border-radius:4px;font-size:11px;cursor:pointer;">🗑 Delete</button>
+              </td>
+            </tr>`;
+          }).join('');
+
+          const groupLabel = g.word === 'other' ? 'Other' : g.word.charAt(0).toUpperCase() + g.word.slice(1);
+          return `<div style="margin-top:24px;">
+            <div style="padding:8px 12px;background:#f9f9f9;border-radius:6px 6px 0 0;border:1px solid #e5e5e5;border-bottom:none;display:flex;align-items:center;justify-content:space-between;">
+              <span style="font-size:13px;font-weight:700;color:#1a1a1a;">${groupLabel}</span>
+              <span style="font-size:11px;color:#888;">${g.keywords.length} keyword${g.keywords.length>1?'s':''}</span>
+            </div>
+            <table style="width:100%;border-collapse:collapse;border:1px solid #e5e5e5;border-radius:0 0 6px 6px;overflow:hidden;">
+              <thead><tr style="background:#f9f9f9;">
+                <th style="padding:7px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#aaa;">Keyword</th>
+                <th style="padding:7px 12px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#aaa;">Volume</th>
+                <th style="padding:7px 12px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#aaa;">Difficulty</th>
+                <th style="padding:7px 12px;text-align:right;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#aaa;">Impressions</th>
+                <th style="padding:7px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#aaa;">Action</th>
+              </tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>`;
+        }).join('');
+
+        if (!sortedGroups.length) bodyEl.innerHTML = '<p style="color:#888;font-size:13px;padding:24px 0;">No groups found.</p>';
+
+      } catch(e) {
+        statusEl.textContent = 'Error loading: ' + e.message;
+        bodyEl.innerHTML = '';
+      }
+    }
+
+    async function avkwDelete(encodedKw, btn) {
+      const kw = decodeURIComponent(encodedKw);
+      if (!confirm(`Delete keyword from registry?\n\n"${kw}"\n\nThis is permanent.`)) return;
+      btn.disabled = true; btn.textContent = '⏳';
+      try {
+        const res = await fetch('/api/blogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'delete-keyword', keyword: kw, intent: 'UNKNOWN' })
+        });
+        const j = await res.json();
+        if (j.success || j.duplicate) {
+          deletedKwSet.add(kw.toLowerCase());
+          savedForLaterSet.delete(kw.toLowerCase());
+          btn.closest('tr').style.opacity = '0.4';
+          btn.textContent = '✓ Deleted';
+        } else { btn.disabled=false; btn.textContent='🗑 Delete'; alert('Failed: '+(j.error||'unknown')); }
+      } catch(e) { btn.disabled=false; btn.textContent='🗑 Delete'; alert('Error: '+e.message); }
+    }
+    // ── END AVAILABLE KEYWORDS ───────────────────────────────────────────────
 
     async function loadContentOptimizations(){
       const start=getDate(180),end=getDate(0);
