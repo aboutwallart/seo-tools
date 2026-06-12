@@ -207,6 +207,31 @@
     @keyframes slideIn { from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);} }
     .placeholder-msg { color:#aaa; font-size:13px; padding:40px 0; text-align:center; }
     .empty-state { text-align:center; padding:48px 24px; color:#aaa; font-size:14px; }
+
+    /* SLOT FILLER */
+    .sf-article-row { background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);margin-bottom:10px;overflow:hidden; }
+    .sf-article-header { display:flex;align-items:center;gap:12px;padding:14px 20px;cursor:pointer;transition:background 0.15s; }
+    .sf-article-header:hover { background:#f9f9f9; }
+    .sf-article-header.expanded { border-bottom:1px solid #e0e0e0; }
+    .sf-slot-badge { font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;white-space:nowrap; }
+    .sf-slot-free { background:#e8f5e9;color:#2e7d32; }
+    .sf-slot-full { background:#f5f5f5;color:#aaa; }
+    .sf-dup-badge { background:#fff3e0;color:#e65100;font-size:11px;font-weight:700;padding:3px 9px;border-radius:10px;white-space:nowrap; }
+    .sf-expand-panel { padding:20px; }
+    .sf-product-cards { display:flex;gap:10px;flex-wrap:wrap;margin-bottom:4px; }
+    .sf-product-card { width:110px;text-align:center;border-radius:6px;overflow:hidden;border:1px solid #e0e0e0;background:#fff;flex-shrink:0; }
+    .sf-product-card .sf-card-name { font-size:10px;padding:5px;color:#333;line-height:1.3;word-break:break-word; }
+    .sf-product-card.sf-card-empty { border:2px dashed #ddd;display:flex;align-items:center;justify-content:center;height:143px;cursor:default;background:#fafafa; }
+    .sf-card-empty .sf-plus { font-size:22px;color:#ccc; }
+    .sf-product-card.sf-card-dup { border-color:#ff9800 !important;background:#fff8e1; }
+    .sf-card-actions { padding:3px 5px;border-top:1px solid #f0f0f0;display:flex;gap:3px;justify-content:center; }
+    .sf-no-image { width:100%;height:95px;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:24px;color:#ccc; }
+    .sf-suggest-cards { display:flex;gap:10px;flex-wrap:wrap; }
+    .sf-suggest-card { width:110px;cursor:pointer;border-radius:6px;overflow:hidden;border:2px solid #e0e0e0;background:#fff;transition:border-color 0.15s,box-shadow 0.15s;flex-shrink:0; }
+    .sf-suggest-card:hover { border-color:#1565c0;box-shadow:0 2px 8px rgba(21,101,192,0.15); }
+    .sf-suggest-card.sf-card-selected { border-color:#1565c0;background:#e8f0fe; }
+    .sf-suggest-card .sf-card-name { font-size:10px;padding:5px;color:#333;line-height:1.3;word-break:break-word; }
+    .sf-match-tag { font-size:9px;padding:2px 5px;background:#e3f2fd;color:#1565c0;border-top:1px solid #dde8f5;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
   </style>
 </head>
 <body>
@@ -222,7 +247,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v17.1</div>
+    <div class="version">v17.2</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -633,6 +658,22 @@
             <p style="font-size:12px;color:#888;padding:12px 20px 0;">These products are already referenced in a published blog post. HeyTony will clear them on the next crawl. Nothing to do.</p>
             <div id="opd-table-linked" style="padding:16px 20px;"></div>
           </div>
+        </div>
+
+        <!-- SLOT FILLER -->
+        <div id="sf-section" style="display:none;margin-top:32px;">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+            <div style="flex:1;">
+              <h2 style="font-size:16px;font-weight:700;color:#1565c0;margin:0;">Complete the Look — Slot Filler</h2>
+              <p style="font-size:12px;color:#888;margin-top:3px;">Find blog posts with free slots and assign orphaned products based on topic match. Click "Load Blog Slots" to begin.</p>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;flex-wrap:wrap;">
+              <span id="sf-remaining-badge" style="font-size:12px;color:#1565c0;font-weight:600;background:#e3f2fd;padding:4px 10px;border-radius:10px;"></span>
+              <span id="sf-load-status" style="font-size:12px;color:#888;"></span>
+              <button id="sf-load-btn" onclick="sfLoad()" style="background:#1565c0;color:#fff;border:none;border-radius:4px;padding:9px 18px;font-size:12px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:0.4px;">Load Blog Slots</button>
+            </div>
+          </div>
+          <div id="sf-list"><p style="color:#888;font-size:13px;font-style:italic;">Load blog slots to see which posts have free space.</p></div>
         </div>
 
       </div>
@@ -5421,6 +5462,9 @@ function opdRenderResults(notLinked, scheduled, linked, notFound) {
   opdToggleSection('not-linked');
 
   results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  // Initialise slot filler with the not-linked list
+  sfInit(notLinked);
 }
 
 function opdBuildTable(rows, showArticles) {
@@ -5457,6 +5501,305 @@ function opdToggleSection(section) {
 }
 
 // ─── END ORPHANED PRODUCTS DETECTOR ──────────────────────────────────────────
+
+// ─── SLOT FILLER ──────────────────────────────────────────────────────────────
+
+let sfSlotMap      = [];  // [{gid, numericId, title, handle, blogHandle, publishedAt, productGids, freeSlots, duplicateGids}]
+let sfImageCache   = {};  // productGid -> {title, handle, image}
+let sfOrphanedRows = [];  // [{name, url, handle, gid}] — from last audit not-linked list
+let sfOpenGid      = null;
+let sfSelectedGid  = null;
+
+function sfInit(notLinked) {
+  sfOrphanedRows = [];
+  for (const p of (notLinked || [])) {
+    const product = (AppState.items || []).find(i => i.type === 'product' && i.handle === p.handle);
+    if (product) sfOrphanedRows.push({ ...p, gid: 'gid://shopify/Product/' + product.shopifyId });
+  }
+  sfSlotMap     = [];
+  sfOpenGid     = null;
+  sfSelectedGid = null;
+  const section = document.getElementById('sf-section');
+  if (section) section.style.display = 'block';
+  sfUpdateBadge();
+  document.getElementById('sf-list').innerHTML = '<p style="color:#888;font-size:13px;font-style:italic;">Click "Load Blog Slots" to see which posts have free space.</p>';
+  document.getElementById('sf-load-status').textContent = '';
+}
+
+function sfUpdateBadge() {
+  const badge = document.getElementById('sf-remaining-badge');
+  if (!badge) return;
+  badge.textContent = sfOrphanedRows.length + ' product' + (sfOrphanedRows.length !== 1 ? 's' : '') + ' still need placement';
+  badge.style.display = sfOrphanedRows.length ? 'inline-block' : 'none';
+}
+
+async function sfLoad() {
+  const btn    = document.getElementById('sf-load-btn');
+  const status = document.getElementById('sf-load-status');
+  btn.disabled = true;
+  status.textContent = 'Loading…';
+  try {
+    const res  = await fetch(CONFIG.proxyUrl + '/api/shopify-files?action=blog-slot-map');
+    if (!res.ok) throw new Error('API error ' + res.status);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Unknown error');
+    sfSlotMap = data.articles;
+    sfSlotMap.sort((a, b) => {
+      if (b.duplicateGids.length !== a.duplicateGids.length) return b.duplicateGids.length - a.duplicateGids.length;
+      if (b.freeSlots !== a.freeSlots) return b.freeSlots - a.freeSlots;
+      return a.title.localeCompare(b.title);
+    });
+    const actionable = sfSlotMap.filter(a => a.freeSlots > 0 || a.duplicateGids.length > 0);
+    status.textContent = actionable.length + ' posts have free or duplicate slots.';
+    sfRenderList();
+  } catch(err) {
+    status.textContent = '❌ ' + err.message;
+    showToast('Failed to load blog slots: ' + err.message, 'error');
+  }
+  btn.disabled = false;
+}
+
+function sfRenderList() {
+  const listEl   = document.getElementById('sf-list');
+  const actionable = sfSlotMap.filter(a => a.freeSlots > 0 || a.duplicateGids.length > 0);
+  if (!actionable.length) {
+    listEl.innerHTML = '<p style="color:#aaa;font-size:13px;">All blog posts are full (4/4). No free slots available.</p>';
+    return;
+  }
+  listEl.innerHTML = actionable.map(a => {
+    const dupBadge  = a.duplicateGids.length ? `<span class="sf-dup-badge">⚠ ${a.duplicateGids.length} dup</span>` : '';
+    const slotBadge = a.freeSlots > 0
+      ? `<span class="sf-slot-badge sf-slot-free">${a.freeSlots} free</span>`
+      : `<span class="sf-slot-badge sf-slot-full">Full</span>`;
+    const isOpen = sfOpenGid === a.gid;
+    return `<div class="sf-article-row" id="sf-row-${escHtml(a.numericId)}">
+      <div class="sf-article-header ${isOpen ? 'expanded' : ''}" onclick="sfExpand('${escHtml(a.gid)}')">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:600;color:#222;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(a.title)}</div>
+          <div style="font-size:11px;color:#888;margin-top:1px;">${a.productGids.length}/4 slots filled</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">${dupBadge}${slotBadge}<span style="color:#bbb;margin-left:4px;">${isOpen ? '▲' : '▼'}</span></div>
+      </div>
+      ${isOpen ? `<div class="sf-expand-panel">${sfPanelHtml(a)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function sfPanelHtml(article) {
+  // ── current slots ──
+  const slotCards = [];
+  for (let i = 0; i < 4; i++) {
+    const gid = article.productGids[i];
+    if (gid) {
+      const isDup    = article.duplicateGids.includes(gid);
+      const cached   = sfImageCache[gid];
+      const name     = cached ? cached.title : 'Product #' + gid.replace('gid://shopify/Product/', '');
+      const imgHtml  = (cached && cached.image)
+        ? `<img src="${escHtml(cached.image)}" alt="" style="width:100%;height:95px;object-fit:cover;display:block;">`
+        : `<div class="sf-no-image">🖼</div>`;
+      const dupBtn   = isDup
+        ? `<div class="sf-card-actions"><button onclick="sfRemoveDuplicate('${escHtml(article.gid)}','${escHtml(gid)}')" style="background:#ff9800;color:#fff;border:none;border-radius:3px;padding:2px 7px;font-size:10px;font-weight:700;cursor:pointer;">Remove dup</button></div>`
+        : '';
+      slotCards.push(`<div class="sf-product-card ${isDup ? 'sf-card-dup' : ''}" title="${escHtml(name)}">${imgHtml}<div class="sf-card-name">${escHtml(name.length > 32 ? name.slice(0,30) + '…' : name)}</div>${dupBtn}</div>`);
+    } else {
+      slotCards.push(`<div class="sf-product-card sf-card-empty"><div class="sf-plus">+</div></div>`);
+    }
+  }
+
+  // ── suggestions ──
+  const suggestions  = sfGetSuggestions(article).slice(0, 10);
+  const suggestHtml  = suggestions.length
+    ? suggestions.map(s => {
+        const cached  = sfImageCache[s.gid];
+        const name    = cached ? cached.title : (sfOrphanedRows.find(r => r.gid === s.gid) || {}).name || s.gid;
+        const imgHtml = (cached && cached.image)
+          ? `<img src="${escHtml(cached.image)}" alt="" style="width:100%;height:95px;object-fit:cover;display:block;">`
+          : `<div class="sf-no-image">🖼</div>`;
+        const matchTag = s.matches.length ? `<div class="sf-match-tag">${escHtml(s.matches.slice(0, 3).join(', '))}</div>` : '';
+        const isSel    = sfSelectedGid === s.gid;
+        return `<div class="sf-suggest-card ${isSel ? 'sf-card-selected' : ''}" onclick="sfSelectSuggestion('${escHtml(article.gid)}','${escHtml(s.gid)}')" title="${escHtml(name)}">${imgHtml}<div class="sf-card-name">${escHtml(name.length > 32 ? name.slice(0, 30) + '…' : name)}</div>${matchTag}</div>`;
+      }).join('')
+    : '<p style="font-size:12px;color:#aaa;font-style:italic;">No close matches found. Use search below.</p>';
+
+  // ── confirm bar ──
+  const confirmHtml = (sfSelectedGid && sfOpenGid === article.gid)
+    ? (() => {
+        const selRow  = sfOrphanedRows.find(r => r.gid === sfSelectedGid);
+        const selName = sfImageCache[sfSelectedGid] ? sfImageCache[sfSelectedGid].title : (selRow ? selRow.name : sfSelectedGid);
+        return `<div style="margin-top:14px;background:#e8f0fe;border-radius:6px;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <span style="font-size:13px;color:#1565c0;font-weight:600;flex:1;">Add "${escHtml(selName.length > 50 ? selName.slice(0,48)+'…' : selName)}" to this post?</span>
+          <button onclick="sfAddProduct('${escHtml(article.gid)}','${escHtml(sfSelectedGid)}')" style="background:#1565c0;color:#fff;border:none;border-radius:4px;padding:8px 18px;font-size:12px;font-weight:700;cursor:pointer;">✓ Confirm Add</button>
+          <button onclick="sfClearSelection()" style="background:#fff;color:#555;border:1px solid #ddd;border-radius:4px;padding:8px 12px;font-size:12px;cursor:pointer;">Cancel</button>
+        </div>`;
+      })()
+    : '';
+
+  // ── search box ──
+  const searchHtml = `<div style="margin-top:16px;padding-top:14px;border-top:1px solid #f0f0f0;">
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:6px;letter-spacing:0.4px;">Search all orphaned products</div>
+    <div style="position:relative;">
+      <input type="text" id="sf-search-${escHtml(article.numericId)}" placeholder="Type a product name…"
+        style="width:100%;max-width:360px;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;font-family:inherit;"
+        oninput="sfSearch('${escHtml(article.gid)}', this.value)" />
+      <div id="sf-dd-${escHtml(article.numericId)}" style="display:none;position:absolute;top:100%;left:0;width:360px;background:#fff;border:1px solid #ddd;border-top:none;border-radius:0 0 4px 4px;max-height:220px;overflow-y:auto;z-index:200;box-shadow:0 4px 12px rgba(0,0,0,0.1);"></div>
+    </div>
+  </div>`;
+
+  const noSlotMsg = `<p style="font-size:12px;color:#888;font-style:italic;margin-top:12px;">This post is full (4/4). Remove a duplicate above to free a slot.</p>`;
+
+  return `<div style="margin-bottom:12px;">
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#555;margin-bottom:10px;letter-spacing:0.4px;">Current Complete the Look (${article.productGids.length}/4)</div>
+    <div class="sf-product-cards">${slotCards.join('')}</div>
+  </div>
+  ${article.freeSlots > 0 ? `
+  <div>
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#555;margin-bottom:10px;letter-spacing:0.4px;">Suggested products — click to select</div>
+    <div class="sf-suggest-cards">${suggestHtml}</div>
+    ${confirmHtml}
+    ${searchHtml}
+  </div>` : noSlotMsg}`;
+}
+
+function sfGetSuggestions(article) {
+  const titleWords = sfExtractWords(article.title);
+  const existingSet = new Set(article.productGids);
+  return sfOrphanedRows
+    .filter(r => r.gid && !existingSet.has(r.gid))
+    .map(r => {
+      const { score, matches } = sfScore(r.name || '', titleWords);
+      return { gid: r.gid, name: r.name, score, matches };
+    })
+    .sort((a, b) => b.score - a.score);
+}
+
+function sfExtractWords(text) {
+  const stop = new Set(['the','a','an','and','or','for','in','on','at','to','of','with','how','why','your','our','get','make','best','top','ideas','guide','tips','into','from','about','using','create','great','beautiful','perfect','ultimate','complete','easy','simple','classic','room','home','wall','art','decor','decorating','living','bedroom','bathroom','kitchen','office','dining','nursery','style','stylish','modern']);
+  return text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 2 && !stop.has(w));
+}
+
+function sfScore(productName, titleWords) {
+  const pWords  = sfExtractWords(productName);
+  const matches = titleWords.filter(tw => pWords.some(pw => pw.includes(tw) || tw.includes(pw)));
+  return { score: matches.length, matches };
+}
+
+async function sfExpand(articleGid) {
+  if (sfOpenGid === articleGid) {
+    sfOpenGid = null; sfSelectedGid = null;
+    sfRenderList(); return;
+  }
+  sfOpenGid = articleGid; sfSelectedGid = null;
+  sfRenderList();
+
+  const article = sfSlotMap.find(a => a.gid === articleGid);
+  if (!article) return;
+  const sugGids   = sfGetSuggestions(article).slice(0, 10).map(s => s.gid);
+  const allGids   = [...new Set([...article.productGids, ...sugGids])].filter(g => !sfImageCache[g]);
+  if (!allGids.length) return;
+  try {
+    const res  = await fetch(CONFIG.proxyUrl + '/api/shopify-files?action=product-images&gids=' + allGids.map(encodeURIComponent).join(','));
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.success) { Object.assign(sfImageCache, data.products); sfRenderList(); }
+  } catch(e) {}
+}
+
+function sfSelectSuggestion(articleGid, productGid) {
+  sfOpenGid     = articleGid;
+  sfSelectedGid = (sfSelectedGid === productGid) ? null : productGid;
+  sfRenderList();
+}
+
+function sfClearSelection() {
+  sfSelectedGid = null; sfRenderList();
+}
+
+async function sfAddProduct(articleGid, productGid) {
+  const article = sfSlotMap.find(a => a.gid === articleGid);
+  if (!article) return;
+  if (article.freeSlots <= 0)                    { showToast('No free slots in this blog post.', 'error'); return; }
+  if (article.productGids.includes(productGid))  { showToast('Already in this post.', 'error'); return; }
+  const newGids = [...article.productGids, productGid];
+  try {
+    const res  = await fetch(CONFIG.proxyUrl + '/api/shopify-files?action=update-blog-products', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ articleGid, productGids: newGids })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Failed');
+    article.productGids = data.productGids;
+    article.freeSlots   = Math.max(0, 4 - article.productGids.length);
+    sfOrphanedRows      = sfOrphanedRows.filter(r => r.gid !== productGid);
+    sfSelectedGid       = null;
+    sfUpdateBadge();
+    sfRenderList();
+    showToast('Product added to blog post.', 'success');
+  } catch(err) {
+    showToast('Failed: ' + err.message, 'error');
+  }
+}
+
+async function sfRemoveDuplicate(articleGid, productGid) {
+  const article = sfSlotMap.find(a => a.gid === articleGid);
+  if (!article) return;
+  const newGids = [...article.productGids];
+  const idx     = newGids.lastIndexOf(productGid);
+  if (idx === -1) return;
+  newGids.splice(idx, 1);
+  try {
+    const res  = await fetch(CONFIG.proxyUrl + '/api/shopify-files?action=update-blog-products', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ articleGid, productGids: newGids })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Failed');
+    article.productGids = data.productGids;
+    article.freeSlots   = Math.max(0, 4 - article.productGids.length);
+    const seen = {}, dups = [];
+    for (const g of article.productGids) { if (seen[g]) { if (!dups.includes(g)) dups.push(g); } else seen[g] = true; }
+    article.duplicateGids = dups;
+    sfRenderList();
+    showToast('Duplicate removed — slot is now free.', 'success');
+  } catch(err) {
+    showToast('Failed: ' + err.message, 'error');
+  }
+}
+
+function sfSearch(articleGid, query) {
+  const article = sfSlotMap.find(a => a.gid === articleGid);
+  if (!article) return;
+  const dd = document.getElementById('sf-dd-' + article.numericId);
+  if (!dd) return;
+  const q = query.trim().toLowerCase();
+  if (!q) { dd.style.display = 'none'; return; }
+  const existingSet = new Set(article.productGids);
+  const matches     = sfOrphanedRows.filter(r => r.gid && !existingSet.has(r.gid) && (r.name || '').toLowerCase().includes(q)).slice(0, 12);
+  if (!matches.length) { dd.style.display = 'none'; return; }
+  dd.innerHTML = matches.map(r =>
+    `<div onclick="sfSelectFromSearch('${escHtml(articleGid)}','${escHtml(r.gid)}')"
+      style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f5f5f5;color:#222;"
+      onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background=''">${escHtml(r.name || r.handle)}</div>`
+  ).join('');
+  dd.style.display = 'block';
+}
+
+function sfSelectFromSearch(articleGid, productGid) {
+  const article = sfSlotMap.find(a => a.gid === articleGid);
+  if (!article) return;
+  const dd    = document.getElementById('sf-dd-' + article.numericId);
+  const input = document.getElementById('sf-search-' + article.numericId);
+  if (dd)    dd.style.display = 'none';
+  if (input) { const row = sfOrphanedRows.find(r => r.gid === productGid); input.value = row ? row.name : ''; }
+  sfOpenGid     = articleGid;
+  sfSelectedGid = productGid;
+  if (!sfImageCache[productGid]) {
+    fetch(CONFIG.proxyUrl + '/api/shopify-files?action=product-images&gids=' + encodeURIComponent(productGid))
+      .then(r => r.json()).then(d => { if (d.success) { Object.assign(sfImageCache, d.products); sfRenderList(); } }).catch(() => {});
+  }
+  sfRenderList();
+}
+
+// ─── END SLOT FILLER ──────────────────────────────────────────────────────────
 
 function renderCannibalization() {
   const q = ((document.getElementById('can-search')||{value:''}).value||'').toLowerCase();
