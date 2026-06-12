@@ -1,4 +1,4 @@
-// blogs.js — v2.7
+// blogs.js — v2.8
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
@@ -404,6 +404,27 @@ export default async function handler(req, res) {
           return res.status(200).json({ success: true, links: JSON.parse(file.content) });
         } catch(e) {
           return res.status(200).json({ success: true, links: [] });
+        }
+      }
+
+      // ── ACTION: get-lw-counters ──
+      if (req.query.action === 'get-lw-counters') {
+        try {
+          const file = await getGitHubFile('data/lw-counters.json');
+          const data = JSON.parse(file.content);
+          return res.status(200).json({ success: true, brokenLinks: data.brokenLinks ?? null, orphanedProducts: data.orphanedProducts ?? null });
+        } catch(e) {
+          return res.status(200).json({ success: true, brokenLinks: null, orphanedProducts: null });
+        }
+      }
+
+      // ── ACTION: get-rank-audits ──
+      if (req.query.action === 'get-rank-audits') {
+        try {
+          const file = await getGitHubFile('data/rank-recent-audits.json');
+          return res.status(200).json({ success: true, audits: JSON.parse(file.content) });
+        } catch(e) {
+          return res.status(200).json({ success: true, audits: [] });
         }
       }
 
@@ -1006,6 +1027,39 @@ export default async function handler(req, res) {
         });
         if (!response.ok) { const err = await response.text(); return res.status(500).json({ error: `GitHub save failed: ${err}` }); }
         return res.status(200).json({ success: true, count: links.length });
+      }
+
+      // ── ACTION: save-lw-counters ──
+      if (req.body.action === 'save-lw-counters') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        let existing = { brokenLinks: 0, orphanedProducts: 0 };
+        let sha = null;
+        try { const file = await getGitHubFile('data/lw-counters.json'); existing = JSON.parse(file.content); sha = file.sha; } catch(e) {}
+        if (req.body.brokenLinks !== undefined) existing.brokenLinks = req.body.brokenLinks;
+        if (req.body.orphanedProducts !== undefined) existing.orphanedProducts = req.body.orphanedProducts;
+        const response = await fetch(`https://api.github.com/repos/${REPO}/contents/data/lw-counters.json`, {
+          method: 'PUT',
+          headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'Update LW counters', content: Buffer.from(JSON.stringify(existing, null, 2)).toString('base64'), ...(sha ? { sha } : {}) })
+        });
+        if (!response.ok) { const err = await response.text(); return res.status(500).json({ error: `GitHub save failed: ${err}` }); }
+        return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: save-rank-audits ──
+      if (req.body.action === 'save-rank-audits') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { audits } = req.body;
+        if (!Array.isArray(audits)) return res.status(400).json({ error: 'audits must be an array' });
+        let sha = null;
+        try { const file = await getGitHubFile('data/rank-recent-audits.json'); sha = file.sha; } catch(e) {}
+        const response = await fetch(`https://api.github.com/repos/${REPO}/contents/data/rank-recent-audits.json`, {
+          method: 'PUT',
+          headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'Update rank recent audits', content: Buffer.from(JSON.stringify(audits, null, 2)).toString('base64'), ...(sha ? { sha } : {}) })
+        });
+        if (!response.ok) { const err = await response.text(); return res.status(500).json({ error: `GitHub save failed: ${err}` }); }
+        return res.status(200).json({ success: true });
       }
 
       // ── ACTION: save-lw-settings ──
