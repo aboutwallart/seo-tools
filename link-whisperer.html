@@ -5674,7 +5674,7 @@ function sfUpdateBadge() {
     tabBadge.style.display = 'inline-block';
     tabBadge.style.background = awaCount > 0 ? '#c62828' : '#2e7d32';
     try {
-      await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-lw-counters', orphanedProducts: awaCount }) });
+      fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-lw-counters', orphanedProducts: awaCount }) });
     } catch(e) {}
   }
 }
