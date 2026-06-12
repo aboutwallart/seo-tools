@@ -247,7 +247,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v17.18</div>
+    <div class="version">v17.19</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -1974,6 +1974,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           renderBrokenLinksReport();
           updateNeedsOutboundCount();
           opdRestoreBadge();
+          opdBackgroundCount();
           showToast('Loaded from cache — '+AppState.items.length+' items','info');
           processVariantAutoFixes();
           return;
@@ -5094,7 +5095,7 @@ async function syncFromShopify(){
     setLoadingStep('Done!',100);
     await new Promise(r=>setTimeout(r,400));
 
-    hideLoading(); showApp(); updateLastSynced(); renderDashboard(); renderLinksReport(); renderDomainsReport(); renderBrokenLinksReport(); updateNeedsOutboundCount(); opdRestoreBadge();
+    hideLoading(); showApp(); updateLastSynced(); renderDashboard(); renderLinksReport(); renderDomainsReport(); renderBrokenLinksReport(); updateNeedsOutboundCount(); opdRestoreBadge(); opdBackgroundCount();
     showToast('Sync complete — '+allItems.length+' items loaded','success');
     processVariantAutoFixes();
   }catch(err){
@@ -5113,6 +5114,23 @@ function opdRestoreBadge() {
     if (!tabBadge) return;
     if (n > 0) { tabBadge.textContent = n; tabBadge.style.display = 'inline-block'; }
     else { tabBadge.style.display = 'none'; }
+  } catch(e) {}
+}
+
+async function opdBackgroundCount() {
+  try {
+    await opdFetchProductMap();
+    const awaProducts = AppState.items.filter(i => i.type === 'product' && (i.vendor || '').toLowerCase() === 'about wall art');
+    const count = awaProducts.filter(p => {
+      const gid = 'gid://shopify/Product/' + p.shopifyId;
+      return opdGetStatus(opdProductMap[gid] || []) === 'not-linked';
+    }).length;
+    const tabBadge = document.getElementById('opd-tab-badge');
+    if (tabBadge) {
+      if (count > 0) { tabBadge.textContent = count; tabBadge.style.display = 'inline-block'; }
+      else { tabBadge.style.display = 'none'; }
+    }
+    try { localStorage.setItem('lw-opd-awa-count', String(count)); } catch(e) {}
   } catch(e) {}
 }
 
