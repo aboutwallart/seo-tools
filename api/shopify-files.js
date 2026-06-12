@@ -712,6 +712,78 @@ module.exports = async function handler(req, res) {
   }
 
   // -------------------------------------------------------
+  // BLOG AUDIT METAFIELDS — fetch all articles + blog_products_list metafield
+  // Used by Orphaned Products Detector tab in Link Whisperer
+  // -------------------------------------------------------
+  if (req.query.action === 'blog-audit-metafields' && req.method === 'GET') {
+    const shopifyHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
+
+    try {
+      // Map: productGid -> [ { articleTitle, articleHandle, blogHandle, publishedAt } ]
+      const productMap = {};
+      let cursor = null;
+      let hasMore = true;
+
+      while (hasMore) {
+        const cursorPart = cursor ? `, after: "${cursor}"` : '';
+        const query = `{
+          articles(first: 250${cursorPart}) {
+            pageInfo { hasNextPage endCursor }
+            edges {
+              node {
+                id
+                title
+                handle
+                publishedAt
+                blog { handle }
+                metafield(namespace: "custom", key: "blog_products_list") {
+                  value
+                }
+              }
+            }
+          }
+        }`;
+
+        const response = await fetch(`https://${shopifyDomain}/admin/api/2025-01/graphql.json`, {
+          method: 'POST',
+          headers: shopifyHeaders,
+          body: JSON.stringify({ query })
+        });
+
+        const data = await response.json();
+        if (data.errors) throw new Error(data.errors[0].message);
+
+        const edges = (data.data.articles.edges || []);
+        for (const edge of edges) {
+          const node = edge.node;
+          const mfValue = node.metafield ? node.metafield.value : null;
+          if (!mfValue) continue;
+          let gids = [];
+          try { gids = JSON.parse(mfValue); } catch(e) { continue; }
+          for (const gid of gids) {
+            if (!gid) continue;
+            if (!productMap[gid]) productMap[gid] = [];
+            productMap[gid].push({
+              articleTitle: node.title,
+              articleHandle: node.handle,
+              blogHandle: node.blog ? node.blog.handle : '',
+              publishedAt: node.publishedAt || null
+            });
+          }
+        }
+
+        hasMore = data.data.articles.pageInfo.hasNextPage;
+        cursor = data.data.articles.pageInfo.endCursor;
+      }
+
+      return res.status(200).json({ success: true, productMap });
+
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // -------------------------------------------------------
   // EXISTING IMAGE OPTIMIZER ACTIONS — POST only
   // -------------------------------------------------------
   if (req.method !== 'POST') {
