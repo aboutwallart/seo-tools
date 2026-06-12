@@ -247,7 +247,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v17.19</div>
+    <div class="version">v17.20</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -5112,8 +5112,9 @@ function opdRestoreBadge() {
     const n = parseInt(localStorage.getItem('lw-opd-awa-count') || '0', 10);
     const tabBadge = document.getElementById('opd-tab-badge');
     if (!tabBadge) return;
-    if (n > 0) { tabBadge.textContent = n; tabBadge.style.display = 'inline-block'; }
-    else { tabBadge.style.display = 'none'; }
+    tabBadge.textContent = n;
+    tabBadge.style.display = 'inline-block';
+    tabBadge.style.background = n > 0 ? '#c62828' : '#2e7d32';
   } catch(e) {}
 }
 
@@ -5127,8 +5128,9 @@ async function opdBackgroundCount() {
     }).length;
     const tabBadge = document.getElementById('opd-tab-badge');
     if (tabBadge) {
-      if (count > 0) { tabBadge.textContent = count; tabBadge.style.display = 'inline-block'; }
-      else { tabBadge.style.display = 'none'; }
+      tabBadge.textContent = count;
+      tabBadge.style.display = 'inline-block';
+      tabBadge.style.background = count > 0 ? '#c62828' : '#2e7d32';
     }
     try { localStorage.setItem('lw-opd-awa-count', String(count)); } catch(e) {}
   } catch(e) {}
@@ -5660,8 +5662,9 @@ function sfUpdateBadge() {
       const v = r.vendor || (AppState.items.find(i => i.type === 'product' && i.handle === r.handle) || {}).vendor || '';
       return v.toLowerCase() === 'about wall art';
     }).length;
-    if (awaCount > 0) { tabBadge.textContent = awaCount; tabBadge.style.display = 'inline-block'; }
-    else { tabBadge.style.display = 'none'; }
+    tabBadge.textContent = awaCount;
+    tabBadge.style.display = 'inline-block';
+    tabBadge.style.background = awaCount > 0 ? '#c62828' : '#2e7d32';
     try { localStorage.setItem('lw-opd-awa-count', String(awaCount)); } catch(e) {}
   }
 }
