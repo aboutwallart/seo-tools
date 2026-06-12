@@ -247,7 +247,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v17.20</div>
+    <div class="version">v17.21</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -2140,6 +2140,9 @@ function detectBrokenLinks() {
     const n = new Set(AppState.brokenLinks.map(b=>b.brokenUrl)).size;
     badge.textContent = n;
     badge.style.display = n > 0 ? 'inline-block' : 'none';
+    try {
+      fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-lw-counters', brokenLinks: n }) });
+    } catch(e) {}
   }
 
   // Update archived counter in filter dropdown
@@ -5107,9 +5110,12 @@ async function syncFromShopify(){
 
 function refreshData(){ syncFromShopify(); }
 
-function opdRestoreBadge() {
+async function opdRestoreBadge() {
   try {
-    const n = parseInt(localStorage.getItem('lw-opd-awa-count') || '0', 10);
+    const res = await fetch('/api/blogs?action=get-lw-counters');
+    const data = await res.json();
+    if (data.orphanedProducts === null) return; // tool never run on any computer yet
+    const n = data.orphanedProducts ?? 0;
     const tabBadge = document.getElementById('opd-tab-badge');
     if (!tabBadge) return;
     tabBadge.textContent = n;
@@ -5132,7 +5138,9 @@ async function opdBackgroundCount() {
       tabBadge.style.display = 'inline-block';
       tabBadge.style.background = count > 0 ? '#c62828' : '#2e7d32';
     }
-    try { localStorage.setItem('lw-opd-awa-count', String(count)); } catch(e) {}
+    try {
+      await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-lw-counters', orphanedProducts: count }) });
+    } catch(e) {}
   } catch(e) {}
 }
 
@@ -5665,7 +5673,9 @@ function sfUpdateBadge() {
     tabBadge.textContent = awaCount;
     tabBadge.style.display = 'inline-block';
     tabBadge.style.background = awaCount > 0 ? '#c62828' : '#2e7d32';
-    try { localStorage.setItem('lw-opd-awa-count', String(awaCount)); } catch(e) {}
+    try {
+      await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-lw-counters', orphanedProducts: awaCount }) });
+    } catch(e) {}
   }
 }
 

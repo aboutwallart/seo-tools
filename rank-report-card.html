@@ -672,7 +672,7 @@
         <!-- Header -->
         <div class="header">
             <h1>Rank Report Card</h1>
-            <div class="version">v6.6</div>
+            <div class="version">v6.7</div>
             <p>Get an SEO audit with scores for technical health, speed, on-page optimization, and AI readiness.</p>
         </div>
 
@@ -2326,30 +2326,42 @@
         }
 
         // Recent Audits Management
-        function saveRecentAudit(url, seoScore, aiScore) {
-            const audits = JSON.parse(localStorage.getItem('recentAudits') || '[]');
+        async function saveRecentAudit(url, seoScore, aiScore) {
+            let audits = [];
+            try {
+                const res = await fetch('/api/blogs?action=get-rank-audits');
+                const data = await res.json();
+                audits = data.audits || [];
+            } catch(e) {}
             const newAudit = {
                 url: url,
                 seoScore: seoScore,
                 aiScore: aiScore,
                 date: new Date().toISOString()
             };
-            
+
             // Remove duplicate URLs
             const filtered = audits.filter(a => a.url !== url);
-            
+
             // Add new audit at the beginning
             filtered.unshift(newAudit);
-            
+
             // Keep only last 3
             const recent = filtered.slice(0, 3);
-            
-            localStorage.setItem('recentAudits', JSON.stringify(recent));
+
+            try {
+                await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-rank-audits', audits: recent }) });
+            } catch(e) {}
             displayRecentAudits();
         }
 
-        function displayRecentAudits() {
-            const audits = JSON.parse(localStorage.getItem('recentAudits') || '[]');
+        async function displayRecentAudits() {
+            let audits = [];
+            try {
+                const res = await fetch('/api/blogs?action=get-rank-audits');
+                const data = await res.json();
+                audits = data.audits || [];
+            } catch(e) {}
             const recentAuditsCard = document.getElementById('recentAuditsCard');
             const recentAuditsList = document.getElementById('recentAuditsList');
             
