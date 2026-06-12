@@ -247,7 +247,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v17.9</div>
+    <div class="version">v17.10</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -5508,7 +5508,7 @@ let sfSlotMap      = [];  // [{gid, numericId, title, handle, blogHandle, publis
 let sfImageCache   = {};  // productGid -> {title, handle, image}
 let sfOrphanedRows = [];  // [{name, url, handle, gid}] — from last audit not-linked list
 let sfOpenGid      = null;
-let sfSelectedGid  = null;
+let sfSelectedGids = new Set();
 let sfKeywords     = [];   // active keyword filter for current open article
 
 function sfInit(notLinked) {
@@ -5519,7 +5519,7 @@ function sfInit(notLinked) {
   }
   sfSlotMap     = [];
   sfOpenGid     = null;
-  sfSelectedGid = null;
+  sfSelectedGids.clear();
   const section = document.getElementById('sf-section');
   if (section) section.style.display = 'block';
   sfUpdateBadge();
@@ -5645,24 +5645,17 @@ function sfPanelHtml(article) {
           ? `<img src="${escHtml(cached.image)}" alt="" style="width:100%;height:95px;object-fit:cover;display:block;">`
           : `<div class="sf-no-image">🖼</div>`;
         const matchTag = s.matches.length ? `<div class="sf-match-tag">${escHtml(s.matches.slice(0, 3).join(', '))}</div>` : '';
-        const isSel    = sfSelectedGid === s.gid;
-        const saveBtn = isSel ? `<div style="padding:4px 5px 5px;"><button onclick="event.stopPropagation();sfAddProduct('${escHtml(article.gid)}','${escHtml(s.gid)}')" style="width:100%;background:#1565c0;color:#fff;border:none;border-radius:3px;padding:4px 0;font-size:10px;font-weight:700;cursor:pointer;">✓ Save</button></div>` : '';
-        return `<div class="sf-suggest-card ${isSel ? 'sf-card-selected' : ''}" onclick="sfSelectSuggestion('${escHtml(article.gid)}','${escHtml(s.gid)}')" title="${escHtml(name)}">${imgHtml}<div class="sf-card-name">${escHtml(name.length > 32 ? name.slice(0, 30) + '…' : name)}</div>${matchTag}${saveBtn}</div>`;
+        const isSel    = sfSelectedGids.has(s.gid);
+        return `<div class="sf-suggest-card ${isSel ? 'sf-card-selected' : ''}" onclick="sfSelectSuggestion('${escHtml(article.gid)}','${escHtml(s.gid)}')" title="${escHtml(name)}">${imgHtml}<div class="sf-card-name">${escHtml(name.length > 32 ? name.slice(0, 30) + '…' : name)}</div>${matchTag}</div>`;
       }).join('')
     : '<p style="font-size:12px;color:#aaa;font-style:italic;">No close matches found. Use search below.</p>';
 
-  // ── confirm bar ──
-  const confirmHtml = (sfSelectedGid && sfOpenGid === article.gid)
-    ? (() => {
-        const selRow  = sfOrphanedRows.find(r => r.gid === sfSelectedGid);
-        const selName = sfImageCache[sfSelectedGid] ? sfImageCache[sfSelectedGid].title : (selRow ? selRow.name : sfSelectedGid);
-        return `<div style="margin-top:14px;background:#e8f0fe;border-radius:6px;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-          <span style="font-size:13px;color:#1565c0;font-weight:600;flex:1;">Add "${escHtml(selName.length > 50 ? selName.slice(0,48)+'…' : selName)}" to this post?</span>
-          <button onclick="sfAddProduct('${escHtml(article.gid)}','${escHtml(sfSelectedGid)}')" style="background:#1565c0;color:#fff;border:none;border-radius:4px;padding:8px 18px;font-size:12px;font-weight:700;cursor:pointer;">✓ Confirm Add</button>
-          <button onclick="sfClearSelection()" style="background:#fff;color:#555;border:1px solid #ddd;border-radius:4px;padding:8px 12px;font-size:12px;cursor:pointer;">Cancel</button>
-        </div>`;
-      })()
-    : '';
+  // ── save & next bar (always visible) ──
+  const selCount = sfSelectedGids.size;
+  const saveBar  = `<div style="margin-top:16px;padding-top:14px;border-top:1px solid #e0e0e0;display:flex;align-items:center;gap:12px;">
+    <span style="font-size:12px;color:#888;flex:1;">${selCount > 0 ? `${selCount} product${selCount>1?'s':''} selected` : 'No products selected — click suggestions above to select'}</span>
+    <button onclick="sfSaveAndNext('${escHtml(article.gid)}')" style="background:#1565c0;color:#fff;border:none;border-radius:4px;padding:10px 22px;font-size:13px;font-weight:700;cursor:pointer;">${selCount > 0 ? `✓ Save ${selCount} & Next` : '→ Skip & Next'}</button>
+  </div>`;
 
   // ── keyword filter ──
   const searchHtml = `<div style="margin-top:16px;padding-top:14px;border-top:1px solid #f0f0f0;">
@@ -5687,7 +5680,7 @@ function sfPanelHtml(article) {
   <div>
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#555;margin-bottom:10px;letter-spacing:0.4px;">Suggested products — click to select</div>
     <div class="sf-suggest-cards">${suggestHtml}</div>
-    ${confirmHtml}
+    ${saveBar}
     ${searchHtml}
   </div>`;
 }
@@ -5718,7 +5711,7 @@ function sfApplyKeywords(articleGid) {
   const input = document.getElementById('sf-kw-' + article.numericId);
   const raw   = input ? input.value : '';
   sfKeywords  = raw.split(',').map(k => k.trim().toLowerCase()).filter(Boolean);
-  sfSelectedGid = null;
+  sfSelectedGids.clear();
 
   // Fetch images for newly filtered suggestions
   const suggestions = sfGetSuggestions(article).slice(0, 20).map(s => s.gid);
@@ -5732,7 +5725,7 @@ function sfApplyKeywords(articleGid) {
 
 function sfClearKeywords(articleGid) {
   sfKeywords    = [];
-  sfSelectedGid = null;
+  sfSelectedGids.clear();
   const article = sfSlotMap.find(a => a.gid === articleGid);
   if (article) {
     const input = document.getElementById('sf-kw-' + article.numericId);
@@ -5754,10 +5747,10 @@ function sfScore(productName, titleWords) {
 
 async function sfExpand(articleGid) {
   if (sfOpenGid === articleGid) {
-    sfOpenGid = null; sfSelectedGid = null; sfKeywords = [];
+    sfOpenGid = null; sfSelectedGids.clear(); sfKeywords = [];
     sfRenderList(); return;
   }
-  sfOpenGid = articleGid; sfSelectedGid = null; sfKeywords = [];
+  sfOpenGid = articleGid; sfSelectedGids.clear(); sfKeywords = [];
   sfRenderList();
 
   const article = sfSlotMap.find(a => a.gid === articleGid);
@@ -5774,13 +5767,23 @@ async function sfExpand(articleGid) {
 }
 
 function sfSelectSuggestion(articleGid, productGid) {
-  sfOpenGid     = articleGid;
-  sfSelectedGid = (sfSelectedGid === productGid) ? null : productGid;
+  sfOpenGid = articleGid;
+  if (sfSelectedGids.has(productGid)) sfSelectedGids.delete(productGid);
+  else sfSelectedGids.add(productGid);
   sfRenderList();
 }
 
-function sfClearSelection() {
-  sfSelectedGid = null; sfRenderList();
+async function sfSaveAndNext(articleGid) {
+  const article = sfSlotMap.find(a => a.gid === articleGid);
+  if (!article) return;
+  const toAdd = [...sfSelectedGids].filter(g => !article.productGids.includes(g));
+  for (const gid of toAdd) {
+    if (article.freeSlots <= 0) { showToast('No more free slots.', 'error'); break; }
+    await sfAddProduct(articleGid, gid);
+  }
+  sfSelectedGids.clear();
+  sfOpenGid = null;
+  sfRenderList();
 }
 
 async function sfAddProduct(articleGid, productGid) {
@@ -5799,9 +5802,7 @@ async function sfAddProduct(articleGid, productGid) {
     article.productGids = data.productGids;
     article.freeSlots   = Math.max(0, 4 - article.productGids.length);
     sfOrphanedRows      = sfOrphanedRows.filter(r => r.gid !== productGid);
-    sfSelectedGid       = null;
     sfUpdateBadge();
-    sfRenderList();
     showToast('Product added to blog post.', 'success');
   } catch(err) {
     showToast('Failed: ' + err.message, 'error');
@@ -5827,7 +5828,7 @@ async function sfRemoveProduct(articleGid, productGid) {
       const cached = sfImageCache[productGid];
       if (cached) sfOrphanedRows.push({ name: cached.title, handle: cached.handle, url: 'https://aboutwallart.com/products/' + cached.handle, gid: productGid });
     }
-    sfSelectedGid = null;
+    sfSelectedGids.clear();
     sfUpdateBadge();
     sfRenderList();
     showToast('Product removed — slot is now free.', 'success');
