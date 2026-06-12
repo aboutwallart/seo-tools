@@ -247,7 +247,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v17.7</div>
+    <div class="version">v17.9</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -5646,7 +5646,8 @@ function sfPanelHtml(article) {
           : `<div class="sf-no-image">🖼</div>`;
         const matchTag = s.matches.length ? `<div class="sf-match-tag">${escHtml(s.matches.slice(0, 3).join(', '))}</div>` : '';
         const isSel    = sfSelectedGid === s.gid;
-        return `<div class="sf-suggest-card ${isSel ? 'sf-card-selected' : ''}" onclick="sfSelectSuggestion('${escHtml(article.gid)}','${escHtml(s.gid)}')" title="${escHtml(name)}">${imgHtml}<div class="sf-card-name">${escHtml(name.length > 32 ? name.slice(0, 30) + '…' : name)}</div>${matchTag}</div>`;
+        const saveBtn = isSel ? `<div style="padding:4px 5px 5px;"><button onclick="event.stopPropagation();sfAddProduct('${escHtml(article.gid)}','${escHtml(s.gid)}')" style="width:100%;background:#1565c0;color:#fff;border:none;border-radius:3px;padding:4px 0;font-size:10px;font-weight:700;cursor:pointer;">✓ Save</button></div>` : '';
+        return `<div class="sf-suggest-card ${isSel ? 'sf-card-selected' : ''}" onclick="sfSelectSuggestion('${escHtml(article.gid)}','${escHtml(s.gid)}')" title="${escHtml(name)}">${imgHtml}<div class="sf-card-name">${escHtml(name.length > 32 ? name.slice(0, 30) + '…' : name)}</div>${matchTag}${saveBtn}</div>`;
       }).join('')
     : '<p style="font-size:12px;color:#aaa;font-style:italic;">No close matches found. Use search below.</p>';
 
@@ -5682,13 +5683,13 @@ function sfPanelHtml(article) {
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#555;margin-bottom:10px;letter-spacing:0.4px;">Current Complete the Look (${article.productGids.length}/4)</div>
     <div class="sf-product-cards">${slotCards.join('')}</div>
   </div>
-  ${article.freeSlots > 0 ? `
+  ${article.freeSlots === 0 && article.duplicateGids.length > 0 ? noSlotMsg : ''}
   <div>
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#555;margin-bottom:10px;letter-spacing:0.4px;">Suggested products — click to select</div>
     <div class="sf-suggest-cards">${suggestHtml}</div>
     ${confirmHtml}
     ${searchHtml}
-  </div>` : noSlotMsg}`;
+  </div>`;
 }
 
 function sfGetSuggestions(article) {
