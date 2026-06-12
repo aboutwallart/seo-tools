@@ -484,7 +484,7 @@
             <h1>Keyword Locker</h1>
             <p>Lock each keyword to its best URL — resolve cannibalization by choosing winners</p>
             <p class="subtitle">One keyword = One winner URL. Intent-aware conflict detection.</p>
-            <div class="version">v6.0</div>
+            <div class="version">v7.0</div>
         </div>
 
         <div class="load-section">
@@ -780,6 +780,10 @@
                     const totalImpressions = intentPages.reduce((s, p) => s + p.impressions, 0);
                     const totalClicks = intentPages.reduce((s, p) => s + p.clicks, 0);
                     const winnerScore = scored.find(p => !p.isLocked)?.score || 0;
+
+                    // Skip if all pages are already locked — nothing to resolve
+                    const hasUnlocked = scored.some(p => !p.isLocked);
+                    if (!hasUnlocked) return;
 
                     conflicts.push({
                         keyword,
