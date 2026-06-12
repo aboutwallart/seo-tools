@@ -5594,20 +5594,23 @@ function sfPanelHtml(article) {
       const isDup    = article.duplicateGids.includes(gid);
       const cached   = sfImageCache[gid];
       const name     = cached ? cached.title : 'Product #' + gid.replace('gid://shopify/Product/', '');
+      const handle   = cached ? cached.handle : null;
       const imgHtml  = (cached && cached.image)
         ? `<img src="${escHtml(cached.image)}" alt="" style="width:100%;height:95px;object-fit:cover;display:block;">`
-        : `<div class="sf-no-image">🖼</div>`;
-      const dupBtn   = isDup
-        ? `<div class="sf-card-actions"><button onclick="sfRemoveDuplicate('${escHtml(article.gid)}','${escHtml(gid)}')" style="background:#ff9800;color:#fff;border:none;border-radius:3px;padding:2px 7px;font-size:10px;font-weight:700;cursor:pointer;">Remove dup</button></div>`
-        : '';
-      slotCards.push(`<div class="sf-product-card ${isDup ? 'sf-card-dup' : ''}" title="${escHtml(name)}">${imgHtml}<div class="sf-card-name">${escHtml(name.length > 32 ? name.slice(0,30) + '…' : name)}</div>${dupBtn}</div>`);
+        : `<div class="sf-no-image" style="flex-direction:column;gap:4px;padding:4px;">
+            <span style="font-size:18px;">🖼</span>
+            <span style="font-size:9px;color:#999;text-align:center;line-height:1.3;">No image in Shopify</span>
+            ${handle ? `<a href="https://aboutwallart.com/products/${escHtml(handle)}" target="_blank" style="font-size:9px;color:#1565c0;">View →</a>` : ''}
+          </div>`;
+      const removeBtn = `<div class="sf-card-actions"><button onclick="sfRemoveProduct('${escHtml(article.gid)}','${escHtml(gid)}')" style="background:${isDup?'#ff9800':'#e53935'};color:#fff;border:none;border-radius:3px;padding:2px 7px;font-size:10px;font-weight:700;cursor:pointer;">${isDup ? 'Remove dup' : '× Remove'}</button></div>`;
+      slotCards.push(`<div class="sf-product-card ${isDup ? 'sf-card-dup' : ''}" title="${escHtml(name)}">${imgHtml}<div class="sf-card-name">${escHtml(name.length > 32 ? name.slice(0,30) + '…' : name)}</div>${removeBtn}</div>`);
     } else {
       slotCards.push(`<div class="sf-product-card sf-card-empty"><div class="sf-plus">+</div></div>`);
     }
   }
 
   // ── suggestions ──
-  const suggestions  = sfGetSuggestions(article).slice(0, 10);
+  const suggestions  = sfGetSuggestions(article).slice(0, 20);
   const suggestHtml  = suggestions.length
     ? suggestions.map(s => {
         const cached  = sfImageCache[s.gid];
@@ -5693,7 +5696,7 @@ async function sfExpand(articleGid) {
 
   const article = sfSlotMap.find(a => a.gid === articleGid);
   if (!article) return;
-  const sugGids   = sfGetSuggestions(article).slice(0, 10).map(s => s.gid);
+  const sugGids   = sfGetSuggestions(article).slice(0, 20).map(s => s.gid);
   const allGids   = [...new Set([...article.productGids, ...sugGids])].filter(g => !sfImageCache[g]);
   if (!allGids.length) return;
   try {
@@ -5734,6 +5737,34 @@ async function sfAddProduct(articleGid, productGid) {
     sfUpdateBadge();
     sfRenderList();
     showToast('Product added to blog post.', 'success');
+  } catch(err) {
+    showToast('Failed: ' + err.message, 'error');
+  }
+}
+
+async function sfRemoveProduct(articleGid, productGid) {
+  const article = sfSlotMap.find(a => a.gid === articleGid);
+  if (!article) return;
+  const newGids = article.productGids.filter((g, i) => !(g === productGid && i === article.productGids.indexOf(productGid)));
+  try {
+    const res  = await fetch(CONFIG.proxyUrl + '/api/shopify-files?action=update-blog-products', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ articleGid, productGids: newGids })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Failed');
+    article.productGids = data.productGids;
+    article.freeSlots   = Math.max(0, 4 - article.productGids.length);
+    // If the removed product is not linked anywhere else, add it back to orphaned list
+    const stillLinked = sfSlotMap.some(a => a.gid !== articleGid && a.productGids.includes(productGid));
+    if (!stillLinked && !sfOrphanedRows.find(r => r.gid === productGid)) {
+      const cached = sfImageCache[productGid];
+      if (cached) sfOrphanedRows.push({ name: cached.title, handle: cached.handle, url: 'https://aboutwallart.com/products/' + cached.handle, gid: productGid });
+    }
+    sfSelectedGid = null;
+    sfUpdateBadge();
+    sfRenderList();
+    showToast('Product removed — slot is now free.', 'success');
   } catch(err) {
     showToast('Failed: ' + err.message, 'error');
   }
