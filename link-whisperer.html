@@ -247,7 +247,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v17.10</div>
+    <div class="version">v17.11</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -5645,16 +5645,14 @@ function sfPanelHtml(article) {
           ? `<img src="${escHtml(cached.image)}" alt="" style="width:100%;height:95px;object-fit:cover;display:block;">`
           : `<div class="sf-no-image">🖼</div>`;
         const matchTag = s.matches.length ? `<div class="sf-match-tag">${escHtml(s.matches.slice(0, 3).join(', '))}</div>` : '';
-        const isSel    = sfSelectedGids.has(s.gid);
-        return `<div class="sf-suggest-card ${isSel ? 'sf-card-selected' : ''}" onclick="sfSelectSuggestion('${escHtml(article.gid)}','${escHtml(s.gid)}')" title="${escHtml(name)}">${imgHtml}<div class="sf-card-name">${escHtml(name.length > 32 ? name.slice(0, 30) + '…' : name)}</div>${matchTag}</div>`;
+        const addBtn = `<div style="padding:4px 5px 5px;"><button onclick="event.stopPropagation();sfAddProduct('${escHtml(article.gid)}','${escHtml(s.gid)}')" style="width:100%;background:#1565c0;color:#fff;border:none;border-radius:3px;padding:5px 0;font-size:10px;font-weight:700;cursor:pointer;">+ Add</button></div>`;
+        return `<div class="sf-suggest-card" title="${escHtml(name)}">${imgHtml}<div class="sf-card-name">${escHtml(name.length > 32 ? name.slice(0, 30) + '…' : name)}</div>${matchTag}${addBtn}</div>`;
       }).join('')
     : '<p style="font-size:12px;color:#aaa;font-style:italic;">No close matches found. Use search below.</p>';
 
-  // ── save & next bar (always visible) ──
-  const selCount = sfSelectedGids.size;
-  const saveBar  = `<div style="margin-top:16px;padding-top:14px;border-top:1px solid #e0e0e0;display:flex;align-items:center;gap:12px;">
-    <span style="font-size:12px;color:#888;flex:1;">${selCount > 0 ? `${selCount} product${selCount>1?'s':''} selected` : 'No products selected — click suggestions above to select'}</span>
-    <button onclick="sfSaveAndNext('${escHtml(article.gid)}')" style="background:#1565c0;color:#fff;border:none;border-radius:4px;padding:10px 22px;font-size:13px;font-weight:700;cursor:pointer;">${selCount > 0 ? `✓ Save ${selCount} & Next` : '→ Skip & Next'}</button>
+  // ── done button (always visible) ──
+  const saveBar = `<div style="margin-top:16px;padding-top:14px;border-top:1px solid #e0e0e0;display:flex;justify-content:flex-end;">
+    <button onclick="sfDone('${escHtml(article.gid)}')" style="background:#2e7d32;color:#fff;border:none;border-radius:4px;padding:10px 24px;font-size:13px;font-weight:700;cursor:pointer;">✓ Done with this blog →</button>
   </div>`;
 
   // ── keyword filter ──
@@ -5766,23 +5764,9 @@ async function sfExpand(articleGid) {
   } catch(e) {}
 }
 
-function sfSelectSuggestion(articleGid, productGid) {
-  sfOpenGid = articleGid;
-  if (sfSelectedGids.has(productGid)) sfSelectedGids.delete(productGid);
-  else sfSelectedGids.add(productGid);
-  sfRenderList();
-}
-
-async function sfSaveAndNext(articleGid) {
-  const article = sfSlotMap.find(a => a.gid === articleGid);
-  if (!article) return;
-  const toAdd = [...sfSelectedGids].filter(g => !article.productGids.includes(g));
-  for (const gid of toAdd) {
-    if (article.freeSlots <= 0) { showToast('No more free slots.', 'error'); break; }
-    await sfAddProduct(articleGid, gid);
-  }
-  sfSelectedGids.clear();
+function sfDone(articleGid) {
   sfOpenGid = null;
+  sfSelectedGids.clear();
   sfRenderList();
 }
 
