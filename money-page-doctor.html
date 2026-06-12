@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 47.7</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 47.8</p>
                 </div>
             </div>
         </header>
@@ -588,15 +588,22 @@
             // Deduplicate first
             const dedupedUrls = deduplicateUrls(urls);
 
-            // Sort by type priority first, then by urgency metric within each type
+            // Sort: All subtab → pure metric only; specific type subtabs → type first then metric
             const typePriority = { collection: 1, product: 2, blog: 3, page: 4, other: 5 };
             const sortedUrls = [...dedupedUrls].sort((a, b) => {
                 const aG = gscEnrichment[normalizeUrlPath(a.url)] || {};
                 const bG = gscEnrichment[normalizeUrlPath(b.url)] || {};
+                // All subtab: ignore page type, sort purely by metric
+                if (currentPageTypeFilter === 'all') {
+                    if (currentUrgencyTab === 'danger') {
+                        return (aG.clickDrop || 0) - (bG.clickDrop || 0); // most negative = biggest drop first
+                    }
+                    return (bG.impressions || 0) - (aG.impressions || 0); // highest impressions first
+                }
+                // Specific type subtabs: type order first, then metric within type
                 const aType = typePriority[getPageType(a.url)] || 5;
                 const bType = typePriority[getPageType(b.url)] || 5;
                 if (aType !== bType) return aType - bType;
-                // Within same type: Danger → biggest click drop first; others → highest impressions first
                 if (currentUrgencyTab === 'danger') {
                     return (aG.clickDrop || 0) - (bG.clickDrop || 0);
                 }
