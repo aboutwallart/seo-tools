@@ -247,7 +247,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v17.14</div>
+    <div class="version">v17.15</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -618,6 +618,16 @@
         </div>
       </div>
 
+      <!-- CHECK ALL STORE PRODUCTS -->
+      <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:24px;margin-bottom:20px;">
+        <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#333;margin-bottom:6px;">Check All Store Products</h3>
+        <p style="font-size:12px;color:#888;margin-bottom:14px;">No file needed — checks every product in your store against all blog slots. Use this once you've finished placing products to confirm nothing is missed. Filter results by vendor to work on one group at a time.</p>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <button class="btn-action" id="opd-full-btn" onclick="opdRunFullAudit()" style="background:#2e7d32;">▶ Check All Store Products</button>
+          <span id="opd-full-status" style="font-size:12px;color:#888;"></span>
+        </div>
+      </div>
+
       <!-- RESULTS -->
       <div id="opd-results" style="display:none;">
 
@@ -632,6 +642,9 @@
           </div>
           <div id="opd-section-not-linked" style="display:none;">
             <p style="font-size:12px;color:#888;padding:12px 20px 0;">No blog post currently references these products in its Complete the Look list. These are your genuine orphans.</p>
+            <div id="opd-vendor-bar" style="display:none;padding:12px 20px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+              <span style="font-size:11px;font-weight:700;color:#888;text-transform:uppercase;">Filter by vendor:</span>
+            </div>
             <div id="opd-table-not-linked" style="padding:16px 20px;"></div>
           </div>
         </div>
@@ -4380,9 +4393,13 @@ function buildBrokenLinkGroupRow(group, idx) {
 
   const fixCell = `<div id="bl-fix-area-${idx}" style="font-size:12px;">${fixInner}</div>`;
 
+  const blProductHandle = bu.includes('/products/') ? bu.split('/products/')[1].split('/')[0].split('?')[0].replace(/\/$/,'') : null;
+  const blRemovedFromStore = blProductHandle && !AppState.items.some(i => i.type === 'product' && i.handle === blProductHandle);
+  const blRemovedBadge = blRemovedFromStore ? '<br><span style="background:#fce4ec;color:#c62828;font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;display:inline-block;margin-top:3px;">⛔ Removed from store — delete these links</span>' : '';
+
   return `<tr id="bl-row-${idx}" style="${isSelected?'background:#fff8e1;':''}">
     <td><input type="checkbox" class="bl-cb" ${isSelected?'checked':''} onchange="toggleBrokenLinkSelect(this,'${gkEsc}')" /></td>
-    <td style="word-break:break-all;font-size:11px;"><a href="${escHtml(brokenUrl)}" target="_blank" style="color:#c62828;text-decoration:none;">${escHtml(brokenUrl)}</a></td>
+    <td style="word-break:break-all;font-size:11px;"><a href="${escHtml(brokenUrl)}" target="_blank" style="color:#c62828;text-decoration:none;">${escHtml(brokenUrl)}</a>${blRemovedBadge}</td>
     <td>${affectsCell}</td>
     <td>${fixCell}</td>
     <td style="font-size:12px;">${escHtml(type||'internal')}</td>
@@ -5498,6 +5515,74 @@ function opdToggleSection(section) {
   const isOpen = el.style.display !== 'none';
   el.style.display = isOpen ? 'none' : 'block';
   if (toggle) toggle.textContent = isOpen ? '▼ show' : '▲ hide';
+}
+
+let opdFullNotLinked = [];
+let opdActiveVendor  = null;
+
+async function opdRunFullAudit() {
+  if (!AppState.items.length) {
+    showToast('Please sync Shopify data first (click Refresh Data at the top).', 'error');
+    return;
+  }
+  const btn    = document.getElementById('opd-full-btn');
+  const status = document.getElementById('opd-full-status');
+  btn.disabled = true;
+  document.getElementById('opd-results').style.display = 'none';
+  opdActiveVendor = null;
+
+  try {
+    status.textContent = 'Fetching blog data from Shopify…';
+    await opdFetchProductMap();
+
+    const allProducts = AppState.items.filter(i => i.type === 'product');
+    status.textContent = 'Checking ' + allProducts.length + ' products…';
+
+    const notLinked = [], scheduled = [], linked = [], notFound = [];
+    for (const p of allProducts) {
+      const gid      = 'gid://shopify/Product/' + p.shopifyId;
+      const articles = opdProductMap[gid] || [];
+      const s        = opdGetStatus(articles);
+      const row      = { name: p.title, url: p.url, handle: p.handle, vendor: p.vendor || '', articles };
+      if (s === 'linked')       linked.push(row);
+      else if (s === 'scheduled') scheduled.push(row);
+      else                      notLinked.push(row);
+    }
+
+    opdFullNotLinked = notLinked;
+    opdRenderVendorBar(notLinked);
+    opdRenderResults(notLinked, scheduled, linked, notFound);
+    status.textContent = '✅ Done — ' + allProducts.length + ' products checked.';
+
+  } catch(err) {
+    status.textContent = '❌ Error: ' + err.message;
+    showToast('Audit failed: ' + err.message, 'error');
+  }
+  btn.disabled = false;
+}
+
+function opdRenderVendorBar(notLinked) {
+  const bar = document.getElementById('opd-vendor-bar');
+  if (!bar) return;
+  const vendors = [...new Set(notLinked.map(r => r.vendor || 'Unknown').filter(Boolean))].sort();
+  if (!vendors.length) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  bar.innerHTML = '<span style="font-size:11px;font-weight:700;color:#888;text-transform:uppercase;white-space:nowrap;">Filter by vendor:</span>' +
+    '<button onclick="opdSetVendorFilter(null)" style="padding:4px 12px;border-radius:20px;border:1px solid #ddd;font-size:11px;cursor:pointer;font-weight:700;background:' + (!opdActiveVendor ? '#222' : '#fff') + ';color:' + (!opdActiveVendor ? '#fff' : '#555') + ';">All</button>' +
+    vendors.map(v =>
+      `<button onclick="opdSetVendorFilter('${escHtml(v)}')" style="padding:4px 12px;border-radius:20px;border:1px solid #ddd;font-size:11px;cursor:pointer;font-weight:700;background:${opdActiveVendor===v?'#222':'#fff'};color:${opdActiveVendor===v?'#fff':'#555'};">${escHtml(v)}</button>`
+    ).join('');
+}
+
+function opdSetVendorFilter(vendor) {
+  opdActiveVendor = vendor;
+  const filtered = vendor ? opdFullNotLinked.filter(r => (r.vendor || 'Unknown') === vendor) : opdFullNotLinked;
+  document.getElementById('opd-count-not-linked').textContent = '(' + filtered.length + ')';
+  document.getElementById('opd-table-not-linked').innerHTML   = opdBuildTable(filtered, false);
+  opdRenderVendorBar(opdFullNotLinked);
+  if (document.getElementById('opd-section-not-linked').style.display === 'none') {
+    opdToggleSection('not-linked');
+  }
 }
 
 // ─── END ORPHANED PRODUCTS DETECTOR ──────────────────────────────────────────
