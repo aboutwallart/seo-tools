@@ -816,11 +816,6 @@ module.exports = async function handler(req, res) {
           if (node.metafield && node.metafield.value) {
             try { productGids = JSON.parse(node.metafield.value).filter(Boolean); } catch(e) {}
           }
-          const seen = {}, duplicateGids = [];
-          for (const g of productGids) {
-            if (seen[g]) { if (!duplicateGids.includes(g)) duplicateGids.push(g); }
-            else seen[g] = true;
-          }
           const numericId = node.id.replace('gid://shopify/Article/', '');
           articles.push({
             gid: node.id, numericId,
@@ -828,11 +823,21 @@ module.exports = async function handler(req, res) {
             blogHandle: node.blog ? node.blog.handle : '',
             publishedAt: node.publishedAt || null,
             productGids, freeSlots: Math.max(0, 4 - productGids.length),
-            duplicateGids, metafieldId: node.metafield ? node.metafield.id : null
+            duplicateGids: [], metafieldId: node.metafield ? node.metafield.id : null
           });
         }
         hasMore = data.data.articles.pageInfo.hasNextPage;
         cursor = data.data.articles.pageInfo.endCursor;
+      }
+      // Build cross-post frequency map — flag products appearing in more than 1 post
+      const gidPostCount = {};
+      for (const a of articles) {
+        for (const g of a.productGids) {
+          gidPostCount[g] = (gidPostCount[g] || 0) + 1;
+        }
+      }
+      for (const a of articles) {
+        a.duplicateGids = [...new Set(a.productGids.filter(g => gidPostCount[g] > 1))];
       }
       return res.status(200).json({ success: true, articles });
     } catch (err) {
