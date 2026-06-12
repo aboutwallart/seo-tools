@@ -247,7 +247,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v17.12</div>
+    <div class="version">v17.13</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -5786,6 +5786,7 @@ async function sfAddProduct(articleGid, productGid) {
     article.productGids = data.productGids;
     article.freeSlots   = Math.max(0, 4 - article.productGids.length);
     sfOrphanedRows      = sfOrphanedRows.filter(r => r.gid !== productGid);
+    if (!sfIsActionable(article)) sfOpenGid = null;
     sfUpdateBadge();
     sfRenderList();
     showToast('Product added to blog post.', 'success');
