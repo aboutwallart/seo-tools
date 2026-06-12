@@ -247,7 +247,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v17.16</div>
+    <div class="version">v17.17</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -646,6 +646,23 @@
               <span style="font-size:11px;font-weight:700;color:#888;text-transform:uppercase;">Filter by vendor:</span>
             </div>
             <div id="opd-table-not-linked" style="padding:16px 20px;"></div>
+
+            <!-- SLOT FILLER -->
+            <div id="sf-section" style="display:none;margin:0 20px 24px;">
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-top:16px;border-top:2px solid #e3f2fd;">
+                <div style="flex:1;">
+                  <h2 style="font-size:16px;font-weight:700;color:#1565c0;margin:0;">Complete the Look — Slot Filler</h2>
+                  <p style="font-size:12px;color:#888;margin-top:3px;">Find blog posts with free slots and assign orphaned products based on topic match. Click "Load Blog Slots" to begin.</p>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;flex-wrap:wrap;">
+                  <span id="sf-remaining-badge" style="font-size:12px;color:#1565c0;font-weight:600;background:#e3f2fd;padding:4px 10px;border-radius:10px;"></span>
+                  <span id="sf-load-status" style="font-size:12px;color:#888;"></span>
+                  <button id="sf-load-btn" onclick="sfLoad()" style="background:#1565c0;color:#fff;border:none;border-radius:4px;padding:9px 18px;font-size:12px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:0.4px;">Load Blog Slots</button>
+                </div>
+              </div>
+              <div id="sf-list"><p style="color:#888;font-size:13px;font-style:italic;">Load blog slots to see which posts have free space.</p></div>
+            </div>
+
           </div>
         </div>
 
@@ -671,22 +688,6 @@
             <p style="font-size:12px;color:#888;padding:12px 20px 0;">These products are already referenced in a published blog post. HeyTony will clear them on the next crawl. Nothing to do.</p>
             <div id="opd-table-linked" style="padding:16px 20px;"></div>
           </div>
-        </div>
-
-        <!-- SLOT FILLER -->
-        <div id="sf-section" style="display:none;margin-top:32px;">
-          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
-            <div style="flex:1;">
-              <h2 style="font-size:16px;font-weight:700;color:#1565c0;margin:0;">Complete the Look — Slot Filler</h2>
-              <p style="font-size:12px;color:#888;margin-top:3px;">Find blog posts with free slots and assign orphaned products based on topic match. Click "Load Blog Slots" to begin.</p>
-            </div>
-            <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;flex-wrap:wrap;">
-              <span id="sf-remaining-badge" style="font-size:12px;color:#1565c0;font-weight:600;background:#e3f2fd;padding:4px 10px;border-radius:10px;"></span>
-              <span id="sf-load-status" style="font-size:12px;color:#888;"></span>
-              <button id="sf-load-btn" onclick="sfLoad()" style="background:#1565c0;color:#fff;border:none;border-radius:4px;padding:9px 18px;font-size:12px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:0.4px;">Load Blog Slots</button>
-            </div>
-          </div>
-          <div id="sf-list"><p style="color:#888;font-size:13px;font-style:italic;">Load blog slots to see which posts have free space.</p></div>
         </div>
 
       </div>
@@ -5583,6 +5584,7 @@ function opdSetVendorFilter(vendor) {
   if (document.getElementById('opd-section-not-linked').style.display === 'none') {
     opdToggleSection('not-linked');
   }
+  sfInit(filtered);
 }
 
 // ─── END ORPHANED PRODUCTS DETECTOR ──────────────────────────────────────────
@@ -5625,7 +5627,11 @@ function sfUpdateBadge() {
   }
   const tabBadge = document.getElementById('opd-tab-badge');
   if (tabBadge) {
-    if (sfOrphanedRows.length > 0) { tabBadge.textContent = sfOrphanedRows.length; tabBadge.style.display = 'inline-block'; }
+    const awaCount = sfOrphanedRows.filter(r => {
+      const v = r.vendor || (AppState.items.find(i => i.type === 'product' && i.handle === r.handle) || {}).vendor || '';
+      return v.toLowerCase() === 'about wall art';
+    }).length;
+    if (awaCount > 0) { tabBadge.textContent = awaCount; tabBadge.style.display = 'inline-block'; }
     else { tabBadge.style.display = 'none'; }
   }
 }
