@@ -784,6 +784,128 @@ module.exports = async function handler(req, res) {
   }
 
   // -------------------------------------------------------
+  // BLOG SLOT MAP — all articles with slot counts + duplicates
+  // -------------------------------------------------------
+  if (req.query.action === 'blog-slot-map' && req.method === 'GET') {
+    const shopifyHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
+    try {
+      const articles = [];
+      let cursor = null, hasMore = true;
+      while (hasMore) {
+        const cursorPart = cursor ? `, after: "${cursor}"` : '';
+        const query = `{
+          articles(first: 250${cursorPart}) {
+            pageInfo { hasNextPage endCursor }
+            edges {
+              node {
+                id title handle publishedAt
+                blog { handle }
+                metafield(namespace: "custom", key: "blog_products_list") { id value }
+              }
+            }
+          }
+        }`;
+        const response = await fetch(`https://${shopifyDomain}/admin/api/2025-01/graphql.json`, {
+          method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query })
+        });
+        const data = await response.json();
+        if (data.errors) throw new Error(data.errors[0].message);
+        for (const edge of data.data.articles.edges) {
+          const node = edge.node;
+          let productGids = [];
+          if (node.metafield && node.metafield.value) {
+            try { productGids = JSON.parse(node.metafield.value).filter(Boolean); } catch(e) {}
+          }
+          const seen = {}, duplicateGids = [];
+          for (const g of productGids) {
+            if (seen[g]) { if (!duplicateGids.includes(g)) duplicateGids.push(g); }
+            else seen[g] = true;
+          }
+          const numericId = node.id.replace('gid://shopify/Article/', '');
+          articles.push({
+            gid: node.id, numericId,
+            title: node.title, handle: node.handle,
+            blogHandle: node.blog ? node.blog.handle : '',
+            publishedAt: node.publishedAt || null,
+            productGids, freeSlots: Math.max(0, 4 - productGids.length),
+            duplicateGids, metafieldId: node.metafield ? node.metafield.id : null
+          });
+        }
+        hasMore = data.data.articles.pageInfo.hasNextPage;
+        cursor = data.data.articles.pageInfo.endCursor;
+      }
+      return res.status(200).json({ success: true, articles });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // -------------------------------------------------------
+  // PRODUCT IMAGES — fetch featured images for product GIDs
+  // -------------------------------------------------------
+  if (req.query.action === 'product-images' && req.method === 'GET') {
+    const gids = (req.query.gids || '').split(',').map(g => decodeURIComponent(g.trim())).filter(Boolean).slice(0, 50);
+    if (!gids.length) return res.status(200).json({ success: true, products: {} });
+    const shopifyHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
+    try {
+      const products = {};
+      for (let i = 0; i < gids.length; i += 10) {
+        const batch = gids.slice(i, i + 10);
+        const idsJson = JSON.stringify(batch);
+        const query = `{ nodes(ids: ${idsJson}) { ... on Product { id title handle featuredImage { url } } } }`;
+        const response = await fetch(`https://${shopifyDomain}/admin/api/2025-01/graphql.json`, {
+          method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query })
+        });
+        const data = await response.json();
+        if (data.errors) throw new Error(data.errors[0].message);
+        for (const node of (data.data.nodes || [])) {
+          if (!node || !node.id) continue;
+          products[node.id] = {
+            title: node.title, handle: node.handle,
+            image: node.featuredImage ? node.featuredImage.url + '&width=200' : null
+          };
+        }
+      }
+      return res.status(200).json({ success: true, products });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // -------------------------------------------------------
+  // UPDATE BLOG PRODUCTS — set blog_products_list metafield
+  // -------------------------------------------------------
+  if (req.query.action === 'update-blog-products' && req.method === 'POST') {
+    const { articleGid, productGids } = req.body;
+    if (!articleGid || !Array.isArray(productGids)) {
+      return res.status(400).json({ error: 'Missing articleGid or productGids' });
+    }
+    const uniqueGids = [...new Set(productGids.filter(Boolean))];
+    if (uniqueGids.length > 4) return res.status(400).json({ error: 'Cannot set more than 4 products' });
+    const shopifyHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
+    try {
+      const checkQuery = `{ node(id: "${articleGid}") { ... on Article { id metafield(namespace:"custom",key:"blog_products_list"){value} } } }`;
+      const checkRes = await fetch(`https://${shopifyDomain}/admin/api/2025-01/graphql.json`, {
+        method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query: checkQuery })
+      });
+      const checkData = await checkRes.json();
+      if (checkData.errors) throw new Error(checkData.errors[0].message);
+      const mutation = `mutation metafieldsSet($m: [MetafieldsSetInput!]!) { metafieldsSet(metafields: $m) { metafields { id value } userErrors { field message } } }`;
+      const variables = { m: [{ ownerId: articleGid, namespace: 'custom', key: 'blog_products_list', value: JSON.stringify(uniqueGids), type: 'list.product_reference' }] };
+      const mutRes = await fetch(`https://${shopifyDomain}/admin/api/2025-01/graphql.json`, {
+        method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query: mutation, variables })
+      });
+      const mutData = await mutRes.json();
+      if (mutData.errors) throw new Error(mutData.errors[0].message);
+      const userErrors = mutData.data?.metafieldsSet?.userErrors || [];
+      if (userErrors.length) throw new Error(userErrors[0].message);
+      return res.status(200).json({ success: true, productGids: uniqueGids });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // -------------------------------------------------------
   // EXISTING IMAGE OPTIMIZER ACTIONS — POST only
   // -------------------------------------------------------
   if (req.method !== 'POST') {
