@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>🔗 Link Whisperer</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; min-height: 100vh; }
@@ -221,7 +222,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v17.0</div>
+    <div class="version">v17.1</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -246,6 +247,7 @@
     <button class="tab-btn" onclick="switchTab('broken-links')">Broken Links Report <span id="bl-tab-badge" style="display:none;background:#c62828;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;vertical-align:middle;"></span></button>
     <button class="tab-btn" onclick="switchTab('auto-linking')">Auto Linking</button>
     <button class="tab-btn" onclick="switchTab('cannibalization')">Cannibalization <span id="can-tab-badge" style="display:none;background:#c62828;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;vertical-align:middle;"></span></button>
+    <button class="tab-btn" onclick="switchTab('orphaned-products')">Orphaned Products Detector</button>
     <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
   </div>
 
@@ -549,6 +551,94 @@
       <div id="can-results"></div>
     </div>
   </div>
+  <!-- ORPHANED PRODUCTS DETECTOR -->
+  <div id="tab-orphaned-products" class="tab-content">
+    <div style="max-width:900px;">
+      <h2 style="font-size:18px;font-weight:700;margin-bottom:6px;">Orphaned Products Detector</h2>
+      <p style="font-size:13px;color:#666;margin-bottom:24px;">Check which products have no blog post linking to them via the "Complete the Look" product list. Uses live Shopify data — make sure you have synced before running.</p>
+
+      <!-- UPLOAD DATA -->
+      <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:24px;margin-bottom:20px;">
+        <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#333;margin-bottom:6px;">Upload Data</h3>
+        <p style="font-size:12px;color:#888;margin-bottom:16px;">Upload a file containing your product list. Accepted formats: <strong>.csv, .xlsx, .xls</strong>. The file must have a <strong>Name</strong> column and a <strong>URL</strong> column. All other columns are ignored. You can also use the template below if you want to build a list manually.</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+          <label style="background:#222;color:#fff;border:none;border-radius:4px;padding:9px 18px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;cursor:pointer;">
+            📂 Choose File
+            <input type="file" id="opd-file-input" accept=".csv,.xlsx,.xls" style="display:none;" onchange="opdHandleFileUpload(this)" />
+          </label>
+          <span id="opd-file-name" style="font-size:13px;color:#888;">No file chosen</span>
+          <button class="btn-outline" onclick="opdDownloadTemplate()" style="margin-left:auto;">⬇ Download Template (.xlsx)</button>
+        </div>
+        <div id="opd-file-preview" style="display:none;margin-top:12px;padding:10px 14px;background:#f5f5f5;border-radius:6px;font-size:12px;color:#555;"></div>
+      </div>
+
+      <!-- SINGLE URL CHECK -->
+      <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:24px;margin-bottom:20px;">
+        <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#333;margin-bottom:6px;">Check a Single Product</h3>
+        <p style="font-size:12px;color:#888;margin-bottom:14px;">Paste one product URL to check if it has a blog link — no file needed.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <input type="text" id="opd-single-url" placeholder="https://aboutwallart.com/products/your-product-handle" style="flex:1;min-width:280px;padding:9px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;font-family:inherit;" onkeydown="if(event.key==='Enter')opdCheckSingle()" />
+          <button class="btn-action" onclick="opdCheckSingle()">CHECK</button>
+        </div>
+        <div id="opd-single-result" style="display:none;margin-top:12px;"></div>
+      </div>
+
+      <!-- RUN AUDIT -->
+      <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:24px;margin-bottom:20px;">
+        <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#333;margin-bottom:6px;">Run Audit</h3>
+        <p style="font-size:12px;color:#888;margin-bottom:14px;">Once you have uploaded a file, click Run Audit. The tool will check every product in the list against all published blog posts. This may take 20–30 seconds.</p>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <button class="btn-action" id="opd-run-btn" onclick="opdRunAudit()" style="background:#1565c0;">▶ Run Audit</button>
+          <span id="opd-run-status" style="font-size:12px;color:#888;"></span>
+        </div>
+      </div>
+
+      <!-- RESULTS -->
+      <div id="opd-results" style="display:none;">
+
+        <!-- SUMMARY BAR -->
+        <div id="opd-summary" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;"></div>
+
+        <!-- NOT LINKED -->
+        <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);margin-bottom:20px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #f0f0f0;cursor:pointer;" onclick="opdToggleSection('not-linked')">
+            <h3 style="font-size:14px;font-weight:700;color:#c62828;margin:0;">❌ Not Linked <span id="opd-count-not-linked" style="font-size:12px;font-weight:400;color:#888;margin-left:6px;"></span></h3>
+            <span id="opd-toggle-not-linked" style="font-size:12px;color:#888;">▼ show</span>
+          </div>
+          <div id="opd-section-not-linked" style="display:none;">
+            <p style="font-size:12px;color:#888;padding:12px 20px 0;">No blog post currently references these products in its Complete the Look list. These are your genuine orphans.</p>
+            <div id="opd-table-not-linked" style="padding:16px 20px;"></div>
+          </div>
+        </div>
+
+        <!-- SCHEDULED -->
+        <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);margin-bottom:20px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #f0f0f0;cursor:pointer;" onclick="opdToggleSection('scheduled')">
+            <h3 style="font-size:14px;font-weight:700;color:#e65100;margin:0;">⏳ Scheduled <span id="opd-count-scheduled" style="font-size:12px;font-weight:400;color:#888;margin-left:6px;"></span></h3>
+            <span id="opd-toggle-scheduled" style="font-size:12px;color:#888;">▼ show</span>
+          </div>
+          <div id="opd-section-scheduled" style="display:none;">
+            <p style="font-size:12px;color:#888;padding:12px 20px 0;">A blog post references these products but that blog post is not yet published. They will clear once the blog goes live.</p>
+            <div id="opd-table-scheduled" style="padding:16px 20px;"></div>
+          </div>
+        </div>
+
+        <!-- LINKED -->
+        <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);margin-bottom:20px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #f0f0f0;cursor:pointer;" onclick="opdToggleSection('linked')">
+            <h3 style="font-size:14px;font-weight:700;color:#2e7d32;margin:0;">✅ Linked <span id="opd-count-linked" style="font-size:12px;font-weight:400;color:#888;margin-left:6px;"></span></h3>
+            <span id="opd-toggle-linked" style="font-size:12px;color:#888;">▼ show</span>
+          </div>
+          <div id="opd-section-linked" style="display:none;">
+            <p style="font-size:12px;color:#888;padding:12px 20px 0;">These products are already referenced in a published blog post. HeyTony will clear them on the next crawl. Nothing to do.</p>
+            <div id="opd-table-linked" style="padding:16px 20px;"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
   <div id="tab-settings" class="tab-content">
     <div style="max-width:800px;">
       <h2 style="font-size:18px;font-weight:700;margin-bottom:24px;">Settings</h2>
@@ -1859,6 +1949,7 @@ function switchTab(tabName, silent) {
   if (tabName==='settings') { initSettingsTab(); }
   if (tabName==='auto-linking') { initAutoLinkTab(); }
   if (tabName==='cannibalization') { initCannibalizationTab(); }
+  if (tabName==='orphaned-products') { opdOnTabOpen(); }
 }
 
 async function shopifyFetch(endpoint, method, body) {
@@ -5051,6 +5142,321 @@ function switchCanTab(tab) {
   });
   renderCannibalization();
 }
+
+// ─── ORPHANED PRODUCTS DETECTOR ──────────────────────────────────────────────
+
+let opdProducts = []; // [{name, url, handle}] — loaded from uploaded file
+let opdProductMap = null; // productGid -> [{articleTitle, blogHandle, publishedAt}] — from API
+
+function opdOnTabOpen() {
+  // nothing to auto-load — user drives the workflow
+}
+
+// Called when user picks a file
+function opdHandleFileUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+  document.getElementById('opd-file-name').textContent = file.name;
+  document.getElementById('opd-file-preview').style.display = 'none';
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      let rows = [];
+      const name = file.name.toLowerCase();
+
+      if (name.endsWith('.csv')) {
+        // Parse CSV
+        const text = e.target.result;
+        const lines = text.split(/\r?\n/).filter(l => l.trim());
+        if (!lines.length) { showToast('File appears to be empty.', 'error'); return; }
+        const headers = opdParseCSVLine(lines[0]).map(h => h.trim().toLowerCase());
+        const nameIdx = headers.findIndex(h => h === 'name');
+        const urlIdx  = headers.findIndex(h => h === 'url');
+        if (nameIdx === -1 || urlIdx === -1) {
+          showToast('File must have a "Name" column and a "URL" column.', 'error');
+          document.getElementById('opd-file-name').textContent = 'No file chosen';
+          return;
+        }
+        for (let i = 1; i < lines.length; i++) {
+          const cols = opdParseCSVLine(lines[i]);
+          const url  = (cols[urlIdx]  || '').trim();
+          const pName = (cols[nameIdx] || '').trim();
+          if (!url.includes('/products/')) continue;
+          const handle = opdExtractHandle(url);
+          if (handle) rows.push({ name: pName, url, handle });
+        }
+      } else {
+        // Parse XLSX / XLS using SheetJS
+        const data = new Uint8Array(e.target.result);
+        const wb   = XLSX.read(data, { type: 'array' });
+        const ws   = wb.Sheets[wb.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        if (!json.length) { showToast('File appears to be empty.', 'error'); return; }
+        // Find Name and URL columns (case-insensitive)
+        const firstRow = json[0];
+        const keys = Object.keys(firstRow);
+        const nameKey = keys.find(k => k.trim().toLowerCase() === 'name');
+        const urlKey  = keys.find(k => k.trim().toLowerCase() === 'url');
+        if (!nameKey || !urlKey) {
+          showToast('File must have a "Name" column and a "URL" column.', 'error');
+          document.getElementById('opd-file-name').textContent = 'No file chosen';
+          return;
+        }
+        for (const row of json) {
+          const url   = String(row[urlKey]  || '').trim();
+          const pName = String(row[nameKey] || '').trim();
+          if (!url.includes('/products/')) continue;
+          const handle = opdExtractHandle(url);
+          if (handle) rows.push({ name: pName, url, handle });
+        }
+      }
+
+      if (!rows.length) {
+        showToast('No product URLs found in this file. Make sure the URL column contains /products/ links.', 'error');
+        return;
+      }
+
+      opdProducts = rows;
+      const preview = document.getElementById('opd-file-preview');
+      preview.textContent = '✅ ' + rows.length + ' product URL' + (rows.length !== 1 ? 's' : '') + ' loaded. Ready to run audit.';
+      preview.style.display = 'block';
+      showToast(rows.length + ' products loaded from file.', 'success');
+
+    } catch(err) {
+      showToast('Could not read file: ' + err.message, 'error');
+    }
+  };
+
+  // CSV reads as text, Excel reads as binary
+  if (file.name.toLowerCase().endsWith('.csv')) {
+    reader.readAsText(file);
+  } else {
+    reader.readAsArrayBuffer(file);
+  }
+}
+
+function opdParseCSVLine(line) {
+  const result = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQ && line[i+1] === '"') { cur += '"'; i++; }
+      else inQ = !inQ;
+    } else if (ch === ',' && !inQ) {
+      result.push(cur); cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  result.push(cur);
+  return result;
+}
+
+function opdExtractHandle(url) {
+  const match = url.match(/\/products\/([^/?#]+)/);
+  return match ? match[1] : null;
+}
+
+function opdDownloadTemplate() {
+  if (typeof XLSX === 'undefined') { showToast('Template library not loaded yet — try again in a moment.', 'error'); return; }
+  const ws = XLSX.utils.aoa_to_sheet([
+    ['Name', 'URL'],
+    ['Example Product Title', 'https://aboutwallart.com/products/example-handle']
+  ]);
+  ws['!cols'] = [{ wch: 50 }, { wch: 60 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Products');
+  XLSX.writeFile(wb, 'orphaned-products-template.xlsx');
+  showToast('Template downloaded.', 'success');
+}
+
+async function opdCheckSingle() {
+  const raw = (document.getElementById('opd-single-url').value || '').trim();
+  const resultEl = document.getElementById('opd-single-result');
+  if (!raw) { showToast('Please paste a product URL first.', 'error'); return; }
+  if (!raw.includes('/products/')) { showToast('URL must contain /products/. Example: https://aboutwallart.com/products/your-handle', 'error'); return; }
+  const handle = opdExtractHandle(raw);
+  if (!handle) { showToast('Could not read the product handle from that URL.', 'error'); return; }
+
+  resultEl.style.display = 'block';
+  resultEl.innerHTML = '<div style="padding:10px 0;font-size:13px;color:#888;"><span class="spinner-sm"></span> Checking...</div>';
+
+  try {
+    // Get product map if not already loaded
+    if (!opdProductMap) {
+      resultEl.innerHTML = '<div style="padding:10px 0;font-size:13px;color:#888;"><span class="spinner-sm"></span> Fetching blog data from Shopify — this takes about 20 seconds on first run...</div>';
+      await opdFetchProductMap();
+    }
+
+    // Look up product GID from AppState
+    const product = AppState.items.find(i => i.type === 'product' && i.handle === handle);
+    if (!product) {
+      resultEl.innerHTML = opdSingleResultHtml('unknown', handle, handle, null);
+      return;
+    }
+    const gid = 'gid://shopify/Product/' + product.shopifyId;
+    const articles = opdProductMap[gid] || [];
+    const status = opdGetStatus(articles);
+    resultEl.innerHTML = opdSingleResultHtml(status, product.title, handle, articles);
+
+  } catch(err) {
+    resultEl.innerHTML = '<div style="padding:10px;background:#fce4ec;border-radius:6px;font-size:13px;color:#c62828;">❌ Error: ' + escHtml(err.message) + '</div>';
+  }
+}
+
+function opdSingleResultHtml(status, title, handle, articles) {
+  const badges = {
+    linked:    { bg: '#e8f5e9', color: '#2e7d32', icon: '✅', label: 'Linked' },
+    scheduled: { bg: '#fff3e0', color: '#e65100', icon: '⏳', label: 'Scheduled' },
+    'not-linked': { bg: '#fce4ec', color: '#c62828', icon: '❌', label: 'Not Linked' },
+    unknown:   { bg: '#f5f5f5', color: '#888',    icon: '❓', label: 'Not found in store' }
+  };
+  const b = badges[status] || badges.unknown;
+  let articlesHtml = '';
+  if (articles && articles.length) {
+    articlesHtml = '<div style="margin-top:8px;font-size:12px;color:#555;">' +
+      articles.map(a => escHtml(a.articleTitle) + (a.publishedAt ? '' : ' <em>(unpublished)</em>')).join('<br>') +
+      '</div>';
+  }
+  return `<div style="padding:12px 16px;background:${b.bg};border-radius:6px;font-size:13px;">
+    <span style="font-weight:700;color:${b.color};">${b.icon} ${b.label}</span>
+    <span style="color:#555;margin-left:8px;">${escHtml(title)}</span>
+    ${articlesHtml}
+  </div>`;
+}
+
+async function opdRunAudit() {
+  if (!opdProducts.length) {
+    showToast('Please upload a file first.', 'error');
+    return;
+  }
+  if (!AppState.items.length) {
+    showToast('Please sync Shopify data first (click Refresh Data at the top).', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('opd-run-btn');
+  const status = document.getElementById('opd-run-status');
+  btn.disabled = true;
+  document.getElementById('opd-results').style.display = 'none';
+
+  try {
+    status.textContent = 'Fetching blog data from Shopify...';
+    await opdFetchProductMap();
+
+    status.textContent = 'Checking ' + opdProducts.length + ' products...';
+    const notLinked  = [];
+    const scheduled  = [];
+    const linked     = [];
+    const notFound   = [];
+
+    for (const p of opdProducts) {
+      const product = AppState.items.find(i => i.type === 'product' && i.handle === p.handle);
+      if (!product) { notFound.push(p); continue; }
+      const gid = 'gid://shopify/Product/' + product.shopifyId;
+      const articles = opdProductMap[gid] || [];
+      const s = opdGetStatus(articles);
+      const row = { name: p.name || product.title, url: p.url, handle: p.handle, articles };
+      if (s === 'linked')     linked.push(row);
+      else if (s === 'scheduled') scheduled.push(row);
+      else                    notLinked.push(row);
+    }
+
+    // Render results
+    opdRenderResults(notLinked, scheduled, linked, notFound);
+    status.textContent = '✅ Done — ' + opdProducts.length + ' products checked.';
+
+  } catch(err) {
+    status.textContent = '❌ Error: ' + err.message;
+    showToast('Audit failed: ' + err.message, 'error');
+  }
+
+  btn.disabled = false;
+}
+
+async function opdFetchProductMap() {
+  const res = await fetch(CONFIG.proxyUrl + '/api/shopify-files?action=blog-audit-metafields');
+  if (!res.ok) throw new Error('API call failed: ' + await res.text());
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error || 'Unknown error from API');
+  opdProductMap = data.productMap || {};
+}
+
+function opdGetStatus(articles) {
+  if (!articles || !articles.length) return 'not-linked';
+  const hasPublished = articles.some(a => a.publishedAt);
+  return hasPublished ? 'linked' : 'scheduled';
+}
+
+function opdRenderResults(notLinked, scheduled, linked, notFound) {
+  const results = document.getElementById('opd-results');
+  results.style.display = 'block';
+
+  // Summary bar
+  const summary = document.getElementById('opd-summary');
+  summary.innerHTML = [
+    { label: '❌ Not Linked', count: notLinked.length, color: '#c62828', bg: '#fce4ec' },
+    { label: '⏳ Scheduled', count: scheduled.length, color: '#e65100', bg: '#fff3e0' },
+    { label: '✅ Linked',    count: linked.length,    color: '#2e7d32', bg: '#e8f5e9' },
+    notFound.length ? { label: '❓ Not in Store', count: notFound.length, color: '#888', bg: '#f5f5f5' } : null
+  ].filter(Boolean).map(s =>
+    `<div style="padding:12px 20px;background:${s.bg};border-radius:8px;text-align:center;min-width:130px;">
+      <div style="font-size:22px;font-weight:700;color:${s.color};">${s.count}</div>
+      <div style="font-size:12px;color:${s.color};font-weight:600;">${s.label}</div>
+    </div>`
+  ).join('');
+
+  // Update counts and render tables
+  document.getElementById('opd-count-not-linked').textContent = '(' + notLinked.length + ')';
+  document.getElementById('opd-count-scheduled').textContent  = '(' + scheduled.length + ')';
+  document.getElementById('opd-count-linked').textContent     = '(' + linked.length + ')';
+
+  document.getElementById('opd-table-not-linked').innerHTML = opdBuildTable(notLinked, false);
+  document.getElementById('opd-table-scheduled').innerHTML  = opdBuildTable(scheduled, true);
+  document.getElementById('opd-table-linked').innerHTML     = opdBuildTable(linked, true);
+
+  // Auto-open the Not Linked section since that's the most important
+  opdToggleSection('not-linked');
+
+  results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function opdBuildTable(rows, showArticles) {
+  if (!rows.length) return '<p style="color:#aaa;font-size:13px;font-style:italic;">None.</p>';
+  const headerArticle = showArticles ? '<th style="width:35%;padding:10px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#555;background:#f9f9f9;border-bottom:1px solid #e8e8e8;">Blog Post(s)</th>' : '';
+  const bodyRows = rows.map(r => {
+    const articleCell = showArticles
+      ? `<td style="padding:10px 12px;font-size:12px;color:#555;vertical-align:top;">${(r.articles||[]).map(a => escHtml(a.articleTitle) + (a.publishedAt ? '' : ' <em style="color:#e65100;">(unpublished)</em>')).join('<br>') || '—'}</td>`
+      : '';
+    return `<tr style="border-bottom:1px solid #f0f0f0;">
+      <td style="padding:10px 12px;vertical-align:top;">
+        <div style="font-size:13px;font-weight:600;color:#222;">${escHtml(r.name)}</div>
+        <div style="font-size:11px;color:#888;margin-top:2px;word-break:break-all;">${escHtml(r.url)}</div>
+      </td>
+      ${articleCell}
+    </tr>`;
+  }).join('');
+  return `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <thead><tr>
+      <th style="width:${showArticles?'65%':'100%'};padding:10px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#555;background:#f9f9f9;border-bottom:1px solid #e8e8e8;">Product</th>
+      ${headerArticle}
+    </tr></thead>
+    <tbody>${bodyRows}</tbody>
+  </table></div>`;
+}
+
+function opdToggleSection(section) {
+  const el     = document.getElementById('opd-section-' + section);
+  const toggle = document.getElementById('opd-toggle-' + section);
+  if (!el) return;
+  const isOpen = el.style.display !== 'none';
+  el.style.display = isOpen ? 'none' : 'block';
+  if (toggle) toggle.textContent = isOpen ? '▼ show' : '▲ hide';
+}
+
+// ─── END ORPHANED PRODUCTS DETECTOR ──────────────────────────────────────────
 
 function renderCannibalization() {
   const q = ((document.getElementById('can-search')||{value:''}).value||'').toLowerCase();
