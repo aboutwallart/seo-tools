@@ -142,7 +142,30 @@
             transition: transform 0.2s, box-shadow 0.2s;
             cursor: pointer;
             border: 2px solid transparent;
+            position: relative;
         }
+
+        .card-badges {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 4px;
+        }
+
+        .card-badge {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 10px;
+            color: #fff;
+            white-space: nowrap;
+        }
+
+        .card-badge.red { background: #c62828; }
+        .card-badge.green { background: #2e7d32; }
 
         .tool-card:hover {
             transform: translateX(5px);
@@ -185,7 +208,7 @@
         <div id="loginForm" class="login-form">
             <h1>SEO Tools Dashboard</h1>
             <p class="subtitle">About Wall Art - Internal Tools</p>
-            <p class="subtitle" style="color: #999; font-size: 12px;">Version 7</p>
+            <p class="subtitle" style="color: #999; font-size: 12px;">Version 8</p>
 
             <div id="errorMessage" class="error" style="display: none;"></div>
 
@@ -230,7 +253,7 @@
         <div id="toolsList" class="tools-list">
             <div class="tools-header">
                 <div>
-                    <p style="color: #999; font-size: 12px; margin-bottom: 4px;">Version 7</p>
+                    <p style="color: #999; font-size: 12px; margin-bottom: 4px;">Version 8</p>
                     <h1>SEO Tools Dashboard</h1>
                     <p class="subtitle">About Wall Art - Internal Tools</p>
                 </div>
@@ -238,6 +261,7 @@
             </div>
 
             <div class="tool-card">
+                <div class="card-badges" id="badges-keyword-locker"></div>
                 <a href="/keyword-locker.html">
                     <h3>🔒 Keyword Locker</h3>
                     <p>Lock keywords to pages and detect conflicts across your site. Prevents keyword cannibalization.</p>
@@ -245,6 +269,7 @@
             </div>
 
             <div class="tool-card">
+                <div class="card-badges" id="badges-blog-manager"></div>
                 <a href="/blog-manager-tool.html">
                     <h3>📝 Blog Manager</h3>
                     <p>Generate blog content from Reddit questions. Find high-volume, low-competition topics.</p>
@@ -252,6 +277,7 @@
             </div>
 
             <div class="tool-card">
+                <div class="card-badges" id="badges-money-page"></div>
                 <a href="/money-page-doctor.html">
                     <h3>💰 Money Page Doctor</h3>
                     <p>Analyze and optimize collection pages against competitors. Improve your money pages.</p>
@@ -280,6 +306,7 @@
             </div>
 
             <div class="tool-card">
+                <div class="card-badges" id="badges-link-whisperer"></div>
                 <a href="/link-whisperer.html">
                     <h3>🔗 Link Whisperer</h3>
                     <p>Audit your internal links, find orphaned pages, broken links and link distribution across your site.</p>
@@ -405,6 +432,53 @@
         function showToolsList() {
             document.getElementById('loginForm').style.display = 'none';
             document.getElementById('toolsList').classList.add('active');
+            loadBadges();
+        }
+
+        function addBadge(containerId, text, isRed) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            const badge = document.createElement('span');
+            badge.className = 'card-badge ' + (isRed ? 'red' : 'green');
+            badge.textContent = text;
+            container.appendChild(badge);
+        }
+
+        async function loadBadges() {
+            try {
+                const [lwRes, regRes] = await Promise.all([
+                    fetch('/api/blogs?action=get-lw-counters'),
+                    fetch('/api/blogs?action=get-registry')
+                ]);
+                const lwData = await lwRes.json();
+                const regData = await regRes.json();
+
+                // Link Whisperer — broken links
+                if (lwData.brokenLinks !== null) {
+                    addBadge('badges-link-whisperer', lwData.brokenLinks + ' broken links', lwData.brokenLinks > 0);
+                }
+                // Link Whisperer — orphaned products
+                if (lwData.orphanedProducts !== null) {
+                    addBadge('badges-link-whisperer', lwData.orphanedProducts + ' orphaned products', lwData.orphanedProducts > 0);
+                }
+
+                const registry = regData.registry || [];
+
+                // Money Page Doctor — pages waiting to be optimised
+                const toOptimise = registry.filter(r => r.action === 'TO_OPTIMIZE').length;
+                addBadge('badges-money-page', toOptimise + ' to optimise', toOptimise > 0);
+
+                // Keyword Locker — internal links still to add
+                const internalLinks = registry.filter(r => r.action === 'INTERNAL_LINK').length;
+                addBadge('badges-keyword-locker', internalLinks + ' links to add', internalLinks > 0);
+
+                // Blog Manager — blogs marked to write
+                const toWrite = registry.filter(r => r.source === 'To_Write_Blog').length;
+                addBadge('badges-blog-manager', toWrite + ' to write', toWrite > 0);
+
+            } catch(e) {
+                console.error('Badge load failed:', e);
+            }
         }
 
         function showError(message) {
