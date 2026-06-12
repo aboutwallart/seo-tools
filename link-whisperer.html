@@ -247,7 +247,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v17.13</div>
+    <div class="version">v17.14</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -5765,7 +5765,8 @@ async function sfExpand(articleGid) {
 }
 
 function sfDone(articleGid) {
-  sfOpenGid = null;
+  sfSlotMap  = sfSlotMap.filter(a => a.gid !== articleGid);
+  sfOpenGid  = null;
   sfSelectedGids.clear();
   sfRenderList();
 }
