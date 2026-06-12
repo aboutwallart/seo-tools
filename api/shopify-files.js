@@ -844,15 +844,15 @@ module.exports = async function handler(req, res) {
   // PRODUCT IMAGES — fetch featured images for product GIDs
   // -------------------------------------------------------
   if (req.query.action === 'product-images' && req.method === 'GET') {
-    const gids = (req.query.gids || '').split(',').map(g => decodeURIComponent(g.trim())).filter(Boolean).slice(0, 50);
+    const gids = (req.query.gids || '').split(',').map(g => decodeURIComponent(g.trim())).filter(Boolean).slice(0, 500);
     if (!gids.length) return res.status(200).json({ success: true, products: {} });
     const shopifyHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
     try {
       const products = {};
-      for (let i = 0; i < gids.length; i += 10) {
-        const batch = gids.slice(i, i + 10);
+      for (let i = 0; i < gids.length; i += 50) {
+        const batch = gids.slice(i, i + 50);
         const idsJson = JSON.stringify(batch);
-        const query = `{ nodes(ids: ${idsJson}) { ... on Product { id title handle images(first:1) { edges { node { url } } } } } }`;
+        const query = `{ nodes(ids: ${idsJson}) { ... on Product { id title handle vendor images(first:1) { edges { node { url } } } } } }`;
         const response = await fetch(`https://${shopifyDomain}/admin/api/2025-01/graphql.json`, {
           method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query })
         });
@@ -862,7 +862,7 @@ module.exports = async function handler(req, res) {
           if (!node || !node.id) continue;
           const imgUrl = node.images && node.images.edges && node.images.edges[0]
             ? node.images.edges[0].node.url + '&width=200' : null;
-          products[node.id] = { title: node.title, handle: node.handle, image: imgUrl };
+          products[node.id] = { title: node.title, handle: node.handle, vendor: node.vendor || '', image: imgUrl };
         }
       }
       return res.status(200).json({ success: true, products });
