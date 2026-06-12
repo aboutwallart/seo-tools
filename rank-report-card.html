@@ -2350,8 +2350,14 @@
             const recent = filtered.slice(0, 3);
 
             try {
-                await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-rank-audits', audits: recent }) });
-            } catch(e) {}
+                const saveRes = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-rank-audits', audits: recent }) });
+                if (!saveRes.ok) {
+                    const errText = await saveRes.text();
+                    console.error('save-rank-audits failed:', saveRes.status, errText);
+                } else {
+                    console.log('save-rank-audits success');
+                }
+            } catch(e) { console.error('save-rank-audits error:', e); }
             displayRecentAudits();
         }
 
