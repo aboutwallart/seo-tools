@@ -852,7 +852,7 @@ module.exports = async function handler(req, res) {
       for (let i = 0; i < gids.length; i += 10) {
         const batch = gids.slice(i, i + 10);
         const idsJson = JSON.stringify(batch);
-        const query = `{ nodes(ids: ${idsJson}) { ... on Product { id title handle featuredImage { url } } } }`;
+        const query = `{ nodes(ids: ${idsJson}) { ... on Product { id title handle images(first:1) { edges { node { url } } } } } }`;
         const response = await fetch(`https://${shopifyDomain}/admin/api/2025-01/graphql.json`, {
           method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query })
         });
@@ -860,10 +860,9 @@ module.exports = async function handler(req, res) {
         if (data.errors) throw new Error(data.errors[0].message);
         for (const node of (data.data.nodes || [])) {
           if (!node || !node.id) continue;
-          products[node.id] = {
-            title: node.title, handle: node.handle,
-            image: node.featuredImage ? node.featuredImage.url + '&width=200' : null
-          };
+          const imgUrl = node.images && node.images.edges && node.images.edges[0]
+            ? node.images.edges[0].node.url + '&width=200' : null;
+          products[node.id] = { title: node.title, handle: node.handle, image: imgUrl };
         }
       }
       return res.status(200).json({ success: true, products });
