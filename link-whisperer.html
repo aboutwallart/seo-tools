@@ -247,7 +247,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v17.17</div>
+    <div class="version">v17.18</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -1973,6 +1973,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           renderDomainsReport();
           renderBrokenLinksReport();
           updateNeedsOutboundCount();
+          opdRestoreBadge();
           showToast('Loaded from cache — '+AppState.items.length+' items','info');
           processVariantAutoFixes();
           return;
@@ -5093,7 +5094,7 @@ async function syncFromShopify(){
     setLoadingStep('Done!',100);
     await new Promise(r=>setTimeout(r,400));
 
-    hideLoading(); showApp(); updateLastSynced(); renderDashboard(); renderLinksReport(); renderDomainsReport(); renderBrokenLinksReport(); updateNeedsOutboundCount();
+    hideLoading(); showApp(); updateLastSynced(); renderDashboard(); renderLinksReport(); renderDomainsReport(); renderBrokenLinksReport(); updateNeedsOutboundCount(); opdRestoreBadge();
     showToast('Sync complete — '+allItems.length+' items loaded','success');
     processVariantAutoFixes();
   }catch(err){
@@ -5104,6 +5105,16 @@ async function syncFromShopify(){
 }
 
 function refreshData(){ syncFromShopify(); }
+
+function opdRestoreBadge() {
+  try {
+    const n = parseInt(localStorage.getItem('lw-opd-awa-count') || '0', 10);
+    const tabBadge = document.getElementById('opd-tab-badge');
+    if (!tabBadge) return;
+    if (n > 0) { tabBadge.textContent = n; tabBadge.style.display = 'inline-block'; }
+    else { tabBadge.style.display = 'none'; }
+  } catch(e) {}
+}
 
 function updateLastSynced(){
   if(!AppState.lastSync) return;
@@ -5633,6 +5644,7 @@ function sfUpdateBadge() {
     }).length;
     if (awaCount > 0) { tabBadge.textContent = awaCount; tabBadge.style.display = 'inline-block'; }
     else { tabBadge.style.display = 'none'; }
+    try { localStorage.setItem('lw-opd-awa-count', String(awaCount)); } catch(e) {}
   }
 }
 
