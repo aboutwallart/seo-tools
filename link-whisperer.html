@@ -247,7 +247,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v17.5</div>
+    <div class="version">v17.6</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -5509,6 +5509,7 @@ let sfImageCache   = {};  // productGid -> {title, handle, image}
 let sfOrphanedRows = [];  // [{name, url, handle, gid}] — from last audit not-linked list
 let sfOpenGid      = null;
 let sfSelectedGid  = null;
+let sfKeywords     = [];   // active keyword filter for current open article
 
 function sfInit(notLinked) {
   sfOrphanedRows = [];
@@ -5524,6 +5525,11 @@ function sfInit(notLinked) {
   sfUpdateBadge();
   document.getElementById('sf-list').innerHTML = '<p style="color:#888;font-size:13px;font-style:italic;">Click "Load Blog Slots" to see which posts have free space.</p>';
   document.getElementById('sf-load-status').textContent = '';
+}
+
+function sfIsActionable(a) {
+  if (a.freeSlots > 0 || a.duplicateGids.length > 0) return true;
+  return a.productGids.some(g => sfImageCache[g] && sfImageCache[g].vendor && sfImageCache[g].vendor !== 'About Wall Art');
 }
 
 function sfUpdateBadge() {
@@ -5544,13 +5550,25 @@ async function sfLoad() {
     const data = await res.json();
     if (!data.success) throw new Error(data.error || 'Unknown error');
     sfSlotMap = data.articles;
+    // Fetch vendors for all current slot products so we can detect replaceable non-AWA items
+    const allSlotGids = [...new Set(sfSlotMap.flatMap(a => a.productGids))].filter(g => !sfImageCache[g]);
+    if (allSlotGids.length) {
+      status.textContent = 'Checking product vendors…';
+      try {
+        const vRes  = await fetch(CONFIG.proxyUrl + '/api/shopify-files?action=product-images&gids=' + allSlotGids.map(encodeURIComponent).join(','));
+        if (vRes.ok) { const vData = await vRes.json(); if (vData.success) Object.assign(sfImageCache, vData.products); }
+      } catch(e) {}
+    }
     sfSlotMap.sort((a, b) => {
+      const aRep = a.productGids.filter(g => sfImageCache[g] && sfImageCache[g].vendor !== 'About Wall Art').length;
+      const bRep = b.productGids.filter(g => sfImageCache[g] && sfImageCache[g].vendor !== 'About Wall Art').length;
       if (b.duplicateGids.length !== a.duplicateGids.length) return b.duplicateGids.length - a.duplicateGids.length;
+      if (bRep !== aRep) return bRep - aRep;
       if (b.freeSlots !== a.freeSlots) return b.freeSlots - a.freeSlots;
       return a.title.localeCompare(b.title);
     });
-    const actionable = sfSlotMap.filter(a => a.freeSlots > 0 || a.duplicateGids.length > 0);
-    status.textContent = actionable.length + ' posts have free or duplicate slots.';
+    const actionable = sfSlotMap.filter(a => sfIsActionable(a));
+    status.textContent = actionable.length + ' posts have free, replaceable, or duplicate slots.';
     sfRenderList();
   } catch(err) {
     status.textContent = '❌ ' + err.message;
@@ -5561,16 +5579,18 @@ async function sfLoad() {
 
 function sfRenderList() {
   const listEl   = document.getElementById('sf-list');
-  const actionable = sfSlotMap.filter(a => a.freeSlots > 0 || a.duplicateGids.length > 0);
+  const actionable = sfSlotMap.filter(a => sfIsActionable(a));
   if (!actionable.length) {
     listEl.innerHTML = '<p style="color:#aaa;font-size:13px;">All blog posts are full (4/4). No free slots available.</p>';
     return;
   }
   listEl.innerHTML = actionable.map(a => {
-    const dupBadge  = a.duplicateGids.length ? `<span class="sf-dup-badge">⚠ ${a.duplicateGids.length} dup</span>` : '';
-    const slotBadge = a.freeSlots > 0
+    const replaceableCount = a.productGids.filter(g => sfImageCache[g] && sfImageCache[g].vendor && sfImageCache[g].vendor !== 'About Wall Art').length;
+    const dupBadge      = a.duplicateGids.length ? `<span class="sf-dup-badge">⚠ ${a.duplicateGids.length} dup</span>` : '';
+    const repBadge      = replaceableCount ? `<span class="sf-dup-badge" style="background:#fff3e0;color:#e65100;">↺ ${replaceableCount} replaceable</span>` : '';
+    const slotBadge     = a.freeSlots > 0
       ? `<span class="sf-slot-badge sf-slot-free">${a.freeSlots} free</span>`
-      : `<span class="sf-slot-badge sf-slot-full">Full</span>`;
+      : (replaceableCount ? `<span class="sf-slot-badge" style="background:#fff3e0;color:#e65100;">4/4 — has replaceable</span>` : `<span class="sf-slot-badge sf-slot-full">Full</span>`);
     const isOpen = sfOpenGid === a.gid;
     return `<div class="sf-article-row" id="sf-row-${escHtml(a.numericId)}">
       <div class="sf-article-header ${isOpen ? 'expanded' : ''}" onclick="sfExpand('${escHtml(a.gid)}')">
@@ -5578,7 +5598,7 @@ function sfRenderList() {
           <div style="font-size:13px;font-weight:600;color:#222;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(a.title)}</div>
           <div style="font-size:11px;color:#888;margin-top:1px;">${a.productGids.length}/4 slots filled</div>
         </div>
-        <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">${dupBadge}${slotBadge}<span style="color:#bbb;margin-left:4px;">${isOpen ? '▲' : '▼'}</span></div>
+        <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">${dupBadge}${repBadge}${slotBadge}<span style="color:#bbb;margin-left:4px;">${isOpen ? '▲' : '▼'}</span></div>
       </div>
       ${isOpen ? `<div class="sf-expand-panel">${sfPanelHtml(a)}</div>` : ''}
     </div>`;
@@ -5605,7 +5625,10 @@ function sfPanelHtml(article) {
             <span style="font-size:9px;color:#999;text-align:center;line-height:1.3;">${cached ? 'No image set' : 'Not found in Shopify'}</span>
             <a href="${viewUrl}" target="_blank" style="font-size:9px;color:#1565c0;text-decoration:underline;">View in ${cached ? 'store' : 'admin'} →</a>
           </div>`;
-      const removeBtn = `<div class="sf-card-actions"><button onclick="sfRemoveProduct('${escHtml(article.gid)}','${escHtml(gid)}')" style="background:${isDup?'#ff9800':'#e53935'};color:#fff;border:none;border-radius:3px;padding:2px 7px;font-size:10px;font-weight:700;cursor:pointer;">${isDup ? 'Remove dup' : '× Remove'}</button></div>`;
+      const isNonAWA  = cached && cached.vendor && cached.vendor !== 'About Wall Art';
+      const btnColor  = isDup ? '#ff9800' : (isNonAWA ? '#7b1fa2' : '#e53935');
+      const btnLabel  = isDup ? 'Remove dup' : (isNonAWA ? '↺ Replace' : '× Remove');
+      const removeBtn = `<div class="sf-card-actions"><button onclick="sfRemoveProduct('${escHtml(article.gid)}','${escHtml(gid)}')" style="background:${btnColor};color:#fff;border:none;border-radius:3px;padding:2px 7px;font-size:10px;font-weight:700;cursor:pointer;">${btnLabel}</button></div>`;
       slotCards.push(`<div class="sf-product-card ${isDup ? 'sf-card-dup' : ''}" title="${escHtml(name)}">${imgHtml}<div class="sf-card-name">${escHtml(name.length > 32 ? name.slice(0,30) + '…' : name)}</div>${removeBtn}</div>`);
     } else {
       slotCards.push(`<div class="sf-product-card sf-card-empty"><div class="sf-plus">+</div></div>`);
@@ -5640,14 +5663,16 @@ function sfPanelHtml(article) {
       })()
     : '';
 
-  // ── search box ──
+  // ── keyword filter ──
   const searchHtml = `<div style="margin-top:16px;padding-top:14px;border-top:1px solid #f0f0f0;">
-    <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:6px;letter-spacing:0.4px;">Search all orphaned products</div>
-    <div style="position:relative;">
-      <input type="text" id="sf-search-${escHtml(article.numericId)}" placeholder="Type a product name…"
-        style="width:100%;max-width:360px;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;font-family:inherit;"
-        oninput="sfSearch('${escHtml(article.gid)}', this.value)" />
-      <div id="sf-dd-${escHtml(article.numericId)}" style="display:none;position:absolute;top:100%;left:0;width:360px;background:#fff;border:1px solid #ddd;border-top:none;border-radius:0 0 4px 4px;max-height:220px;overflow-y:auto;z-index:200;box-shadow:0 4px 12px rgba(0,0,0,0.1);"></div>
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:6px;letter-spacing:0.4px;">Filter suggestions by keyword</div>
+    <p style="font-size:11px;color:#aaa;margin-bottom:8px;">Type one or more keywords separated by commas (e.g. <em>bedroom, dark, floral</em>). Suggestions will reload.</p>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <input type="text" id="sf-kw-${escHtml(article.numericId)}" placeholder="bedroom, dark, floral…"
+        style="flex:1;max-width:360px;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;font-family:inherit;"
+        onkeydown="if(event.key==='Enter')sfApplyKeywords('${escHtml(article.gid)}')" />
+      <button onclick="sfApplyKeywords('${escHtml(article.gid)}')" style="background:#222;color:#fff;border:none;border-radius:4px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;">Filter</button>
+      <button onclick="sfClearKeywords('${escHtml(article.gid)}')" style="background:#f5f5f5;color:#555;border:1px solid #ddd;border-radius:4px;padding:8px 10px;font-size:12px;cursor:pointer;">Clear</button>
     </div>
   </div>`;
 
@@ -5667,15 +5692,52 @@ function sfPanelHtml(article) {
 }
 
 function sfGetSuggestions(article) {
-  const titleWords = sfExtractWords(article.title);
   const existingSet = new Set(article.productGids);
-  return sfOrphanedRows
-    .filter(r => r.gid && !existingSet.has(r.gid))
+  const available   = sfOrphanedRows.filter(r => r.gid && !existingSet.has(r.gid));
+
+  // If keyword filter is active, filter by keywords instead of title scoring
+  if (sfKeywords.length) {
+    return available
+      .filter(r => sfKeywords.some(kw => (r.name || '').toLowerCase().includes(kw)))
+      .map(r => ({ gid: r.gid, name: r.name, score: 1, matches: sfKeywords.filter(kw => (r.name||'').toLowerCase().includes(kw)) }));
+  }
+
+  const titleWords = sfExtractWords(article.title);
+  return available
     .map(r => {
       const { score, matches } = sfScore(r.name || '', titleWords);
       return { gid: r.gid, name: r.name, score, matches };
     })
     .sort((a, b) => b.score - a.score);
+}
+
+function sfApplyKeywords(articleGid) {
+  const article = sfSlotMap.find(a => a.gid === articleGid);
+  if (!article) return;
+  const input = document.getElementById('sf-kw-' + article.numericId);
+  const raw   = input ? input.value : '';
+  sfKeywords  = raw.split(',').map(k => k.trim().toLowerCase()).filter(Boolean);
+  sfSelectedGid = null;
+
+  // Fetch images for newly filtered suggestions
+  const suggestions = sfGetSuggestions(article).slice(0, 20).map(s => s.gid);
+  const toFetch     = suggestions.filter(g => !sfImageCache[g]);
+  if (toFetch.length) {
+    fetch(CONFIG.proxyUrl + '/api/shopify-files?action=product-images&gids=' + toFetch.map(encodeURIComponent).join(','))
+      .then(r => r.json()).then(d => { if (d.success) { Object.assign(sfImageCache, d.products); sfRenderList(); } }).catch(() => {});
+  }
+  sfRenderList();
+}
+
+function sfClearKeywords(articleGid) {
+  sfKeywords    = [];
+  sfSelectedGid = null;
+  const article = sfSlotMap.find(a => a.gid === articleGid);
+  if (article) {
+    const input = document.getElementById('sf-kw-' + article.numericId);
+    if (input) input.value = '';
+  }
+  sfRenderList();
 }
 
 function sfExtractWords(text) {
@@ -5691,10 +5753,10 @@ function sfScore(productName, titleWords) {
 
 async function sfExpand(articleGid) {
   if (sfOpenGid === articleGid) {
-    sfOpenGid = null; sfSelectedGid = null;
+    sfOpenGid = null; sfSelectedGid = null; sfKeywords = [];
     sfRenderList(); return;
   }
-  sfOpenGid = articleGid; sfSelectedGid = null;
+  sfOpenGid = articleGid; sfSelectedGid = null; sfKeywords = [];
   sfRenderList();
 
   const article = sfSlotMap.find(a => a.gid === articleGid);
@@ -5799,39 +5861,6 @@ async function sfRemoveDuplicate(articleGid, productGid) {
   }
 }
 
-function sfSearch(articleGid, query) {
-  const article = sfSlotMap.find(a => a.gid === articleGid);
-  if (!article) return;
-  const dd = document.getElementById('sf-dd-' + article.numericId);
-  if (!dd) return;
-  const q = query.trim().toLowerCase();
-  if (!q) { dd.style.display = 'none'; return; }
-  const existingSet = new Set(article.productGids);
-  const matches     = sfOrphanedRows.filter(r => r.gid && !existingSet.has(r.gid) && (r.name || '').toLowerCase().includes(q)).slice(0, 12);
-  if (!matches.length) { dd.style.display = 'none'; return; }
-  dd.innerHTML = matches.map(r =>
-    `<div onclick="sfSelectFromSearch('${escHtml(articleGid)}','${escHtml(r.gid)}')"
-      style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f5f5f5;color:#222;"
-      onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background=''">${escHtml(r.name || r.handle)}</div>`
-  ).join('');
-  dd.style.display = 'block';
-}
-
-function sfSelectFromSearch(articleGid, productGid) {
-  const article = sfSlotMap.find(a => a.gid === articleGid);
-  if (!article) return;
-  const dd    = document.getElementById('sf-dd-' + article.numericId);
-  const input = document.getElementById('sf-search-' + article.numericId);
-  if (dd)    dd.style.display = 'none';
-  if (input) { const row = sfOrphanedRows.find(r => r.gid === productGid); input.value = row ? row.name : ''; }
-  sfOpenGid     = articleGid;
-  sfSelectedGid = productGid;
-  if (!sfImageCache[productGid]) {
-    fetch(CONFIG.proxyUrl + '/api/shopify-files?action=product-images&gids=' + encodeURIComponent(productGid))
-      .then(r => r.json()).then(d => { if (d.success) { Object.assign(sfImageCache, d.products); sfRenderList(); } }).catch(() => {});
-  }
-  sfRenderList();
-}
 
 // ─── END SLOT FILLER ──────────────────────────────────────────────────────────
 
