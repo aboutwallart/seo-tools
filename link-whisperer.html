@@ -247,7 +247,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v17.15</div>
+    <div class="version">v17.16</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -272,7 +272,7 @@
     <button class="tab-btn" onclick="switchTab('broken-links')">Broken Links Report <span id="bl-tab-badge" style="display:none;background:#c62828;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;vertical-align:middle;"></span></button>
     <button class="tab-btn" onclick="switchTab('auto-linking')">Auto Linking</button>
     <button class="tab-btn" onclick="switchTab('cannibalization')">Cannibalization <span id="can-tab-badge" style="display:none;background:#c62828;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;vertical-align:middle;"></span></button>
-    <button class="tab-btn" onclick="switchTab('orphaned-products')">Orphaned Products Detector</button>
+    <button class="tab-btn" onclick="switchTab('orphaned-products')">Orphaned Products Detector <span id="opd-tab-badge" style="display:none;background:#c62828;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:4px;vertical-align:middle;"></span></button>
     <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
   </div>
 
@@ -5619,9 +5619,15 @@ function sfIsActionable(a) {
 
 function sfUpdateBadge() {
   const badge = document.getElementById('sf-remaining-badge');
-  if (!badge) return;
-  badge.textContent = sfOrphanedRows.length + ' product' + (sfOrphanedRows.length !== 1 ? 's' : '') + ' still need placement';
-  badge.style.display = sfOrphanedRows.length ? 'inline-block' : 'none';
+  if (badge) {
+    badge.textContent = sfOrphanedRows.length + ' product' + (sfOrphanedRows.length !== 1 ? 's' : '') + ' still need placement';
+    badge.style.display = sfOrphanedRows.length ? 'inline-block' : 'none';
+  }
+  const tabBadge = document.getElementById('opd-tab-badge');
+  if (tabBadge) {
+    if (sfOrphanedRows.length > 0) { tabBadge.textContent = sfOrphanedRows.length; tabBadge.style.display = 'inline-block'; }
+    else { tabBadge.style.display = 'none'; }
+  }
 }
 
 async function sfLoad() {
