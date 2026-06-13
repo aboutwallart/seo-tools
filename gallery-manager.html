@@ -329,7 +329,7 @@
   <div class="header-left">
     <div>
       <div class="header-title">Gallery Manager</div>
-      <div class="header-version">v2.00</div>
+      <div class="header-version">v2.01</div>
     </div>
   </div>
   <div class="store-badge" id="storeBadge">aboutwallart.com</div>
@@ -437,13 +437,14 @@
     try {
       const d = await api({ subAction: 'list-galleries' });
       AppState.galleries = d.galleries || [];
+      AppState.loading = false;
       applyFilter();
     } catch (e) {
+      AppState.loading = false;
       showToast('Failed to load galleries: ' + e.message, 'error');
       document.getElementById('tableContainer').innerHTML = `
         <div class="loading-state"><p style="color:#dc3545">${e.message}</p></div>`;
     }
-    AppState.loading = false;
   }
 
   // ---- FILTER ----
