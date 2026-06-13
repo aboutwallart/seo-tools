@@ -460,9 +460,17 @@
     .tray-slot.filled:hover .tray-slot-delete { opacity: 1; }
     .tray-slot.drag-over { outline: 3px solid #1a1a1a; outline-offset: -3px; opacity: 0.7; }
     .tray-slot.palette {
-      background: linear-gradient(135deg, #f5e6c8 0%, #d4b896 25%, #c4a882 50%, #b89070 75%, #a07858 100%);
+      background: #f0f0f0;
       display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
+      overflow: hidden;
+    }
+    .palette-stripe {
+      flex: 1; width: 100%;
+    }
+    .palette-loading {
+      width: 100%; height: 100%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; color: #aaa; text-align: center; padding: 4px;
     }
     .tray-slot.empty {
       background: #f0f0f0;
@@ -677,7 +685,7 @@
   <div class="header-left">
     <div>
       <div class="header-title">Gallery Manager</div>
-      <div class="header-version">v4.06</div>
+      <div class="header-version">v4.07</div>
     </div>
   </div>
   <div class="store-badge" id="storeBadge">aboutwallart.com</div>
@@ -1326,26 +1334,29 @@
   const EditorState = {
     gallery: null,
     unsaved: false,
-    allProducts: [],        // full product list cached
-    allCollections: [],     // full collections list cached
+    allProducts: [],
+    allCollections: [],
     searchTimeout: null,
     selectedCollectionId: null,
-    pendingPhotos: []       // photos ticked in the grid not yet confirmed
+    pendingPhotos: [],
+    extractedPalette: []
   };
 
   function openEditor(id) {
     const gallery = AppState.galleries.find(g => g.id === id);
     if (!gallery) return;
-    EditorState.gallery = JSON.parse(JSON.stringify(gallery)); // deep clone
+    EditorState.gallery = JSON.parse(JSON.stringify(gallery));
     EditorState.unsaved = false;
     EditorState.selectedCollectionId = null;
     EditorState.pendingPhotos = [];
+    EditorState.extractedPalette = [];
 
     document.getElementById('listView').classList.add('hidden');
     document.getElementById('editorView').classList.add('visible');
 
     populateEditorFields();
     renderImagesTray();
+    if ((gallery.images || []).length) extractColours();
     // Reset search UI
     document.getElementById('collectionsLoading').style.display = 'flex';
     document.getElementById('collectionSearchBar').style.display = 'none';
@@ -1563,6 +1574,7 @@
     });
     renderImagesTray();
     markUnsaved();
+    extractColours();
   }
 
   // ---- EXTERNAL IMAGE UPLOAD ----
@@ -1607,9 +1619,14 @@
     const slots = [];
     for (let slotIdx = 0; slotIdx < 16; slotIdx++) {
       if (slotIdx === 3) {
-        slots.push(`<div class="tray-slot palette">
-          <div style="font-size:10px;color:rgba(0,0,0,0.45);text-align:center;line-height:1.4">Colour<br>Palette</div>
-        </div>`);
+        const palette = EditorState.extractedPalette || [];
+        let paletteHtml;
+        if (palette.length === 4) {
+          paletteHtml = palette.map(c => `<div class="palette-stripe" style="background:${c}"></div>`).join('');
+        } else {
+          paletteHtml = `<div class="palette-loading">Colour<br>Palette<br><span style="font-size:9px;margin-top:4px;display:block">${images.length ? 'Extracting...' : 'Add images'}</span></div>`;
+        }
+        slots.push(`<div class="tray-slot palette">${paletteHtml}</div>`);
       } else {
         const imgIdx = slotIdx < 3 ? slotIdx : slotIdx - 1;
         const img = images[imgIdx];
@@ -1671,10 +1688,70 @@
 
   function removeImage(idx) {
     EditorState.gallery.images.splice(idx, 1);
-    // Also remove from pending if present
     EditorState.pendingPhotos = EditorState.pendingPhotos.filter((_, i) => i !== idx);
     renderImagesTray();
     markUnsaved();
+    extractColours();
+  }
+
+  // ---- COLOUR EXTRACTION ----
+  async function extractColours() {
+    const images = EditorState.gallery.images || [];
+    if (!images.length) { EditorState.extractedPalette = []; renderImagesTray(); return; }
+
+    // Sample up to 6 images for speed
+    const sample = images.slice(0, 6);
+    const buckets = {};
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 50; canvas.height = 50;
+    const ctx = canvas.getContext('2d');
+
+    for (const img of sample) {
+      try {
+        const proxied = `${CONFIG.proxyUrl}/api/shopify-files?action=gallery-manager&subAction=proxy-image&url=${encodeURIComponent(img.url.split('&')[0])}`;
+        await new Promise((resolve) => {
+          const el = new Image();
+          el.crossOrigin = 'anonymous';
+          el.onload = () => {
+            ctx.drawImage(el, 0, 0, 50, 50);
+            const data = ctx.getImageData(0, 0, 50, 50).data;
+            for (let i = 0; i < data.length; i += 16) {
+              const r = Math.round(data[i]   / 32) * 32;
+              const g = Math.round(data[i+1] / 32) * 32;
+              const b = Math.round(data[i+2] / 32) * 32;
+              if (data[i+3] < 128) continue; // skip transparent
+              // Skip near-white and near-black
+              if (r > 220 && g > 220 && b > 220) continue;
+              if (r < 30  && g < 30  && b < 30)  continue;
+              const key = `${r},${g},${b}`;
+              buckets[key] = (buckets[key] || 0) + 1;
+            }
+            resolve();
+          };
+          el.onerror = () => resolve();
+          el.src = proxied;
+        });
+      } catch(e) { /* skip */ }
+    }
+
+    // Sort by frequency, take top 4 that are visually distinct
+    const sorted = Object.entries(buckets).sort((a, b) => b[1] - a[1]);
+    const chosen = [];
+    for (const [key] of sorted) {
+      if (chosen.length >= 4) break;
+      const [r, g, b] = key.split(',').map(Number);
+      // Check it's distinct enough from already chosen colours
+      const distinct = chosen.every(([cr, cg, cb]) =>
+        Math.abs(r - cr) + Math.abs(g - cg) + Math.abs(b - cb) > 80
+      );
+      if (distinct) chosen.push([r, g, b]);
+    }
+
+    EditorState.extractedPalette = chosen.map(([r, g, b]) =>
+      '#' + [r, g, b].map(v => Math.min(255, v).toString(16).padStart(2, '0')).join('')
+    );
+    renderImagesTray();
   }
 
   // ---- SAVE EDITOR ----
