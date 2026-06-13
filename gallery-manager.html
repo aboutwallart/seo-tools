@@ -650,7 +650,7 @@
   <div class="header-left">
     <div>
       <div class="header-title">Gallery Manager</div>
-      <div class="header-version">v4.00</div>
+      <div class="header-version">v4.01</div>
     </div>
   </div>
   <div class="store-badge" id="storeBadge">aboutwallart.com</div>
@@ -805,28 +805,37 @@
 
         <!-- Search -->
         <div class="search-area">
-          <div class="search-row">
-            <input type="text" class="search-input" id="productSearchInput"
-              placeholder="Type a keyword to find collections or products..."
-              oninput="handleProductSearch(this.value)" />
-            <button class="btn btn-outline btn-sm" onclick="clearProductSearch()">Clear</button>
+
+          <!-- Collections loading state -->
+          <div id="collectionsLoading" style="font-size:12px;color:#888;margin-bottom:10px;display:flex;align-items:center;gap:8px">
+            <div class="spinner" style="width:14px;height:14px;border-width:2px"></div>
+            Loading collections...
           </div>
 
-          <!-- Collection chips -->
-          <div class="collection-list" id="collectionChips" style="display:none"></div>
-
-          <!-- Product photo grid -->
-          <div id="productPhotoGrid" style="display:none">
-            <div class="selected-count-bar">
-              <span id="gridResultLabel">Results</span>
-              <span id="gridSelectedCount" style="color:#1a1a1a;font-weight:600"></span>
+          <!-- Bar 1: Collection search -->
+          <div id="collectionSearchBar" style="display:none">
+            <div style="font-size:11px;font-weight:600;color:#888;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Step 1 — Find a collection</div>
+            <div class="search-row">
+              <input type="text" class="search-input" id="collectionSearchInput"
+                placeholder="Type a collection keyword..."
+                oninput="handleCollectionSearch(this.value)" />
             </div>
-            <div class="product-grid" id="productGridInner"></div>
+            <div class="collection-list" id="collectionChips"></div>
           </div>
 
-          <div id="searchPlaceholder" style="font-size:12px;color:#aaa;margin-top:8px">
-            Type a keyword above to search collections or products.
+          <!-- Bar 2: Products in selected collection -->
+          <div id="productSearchBar" style="display:none;margin-top:14px">
+            <div style="font-size:11px;font-weight:600;color:#888;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Step 2 — Pick photos</div>
+            <div id="selectedCollectionLabel" style="font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:8px"></div>
+            <div id="productPhotoGrid">
+              <div class="selected-count-bar">
+                <span id="gridResultLabel"></span>
+                <span id="gridSelectedCount" style="color:#1a1a1a;font-weight:600"></span>
+              </div>
+              <div class="product-grid" id="productGridInner"></div>
+            </div>
           </div>
+
         </div>
 
         <!-- External image upload -->
@@ -1376,7 +1385,14 @@
 
     populateEditorFields();
     renderImagesTray();
-    prefetchProductsAndCollections();
+    // Reset search UI
+    document.getElementById('collectionsLoading').style.display = 'flex';
+    document.getElementById('collectionSearchBar').style.display = 'none';
+    document.getElementById('productSearchBar').style.display = 'none';
+    if (document.getElementById('collectionSearchInput')) document.getElementById('collectionSearchInput').value = '';
+    EditorState.selectedCollectionId = null;
+    EditorState.pendingPhotos = [];
+    prefetchCollections();
   }
 
   function closeEditor() {
@@ -1435,97 +1451,75 @@
   }
 
   // ---- PRODUCT SEARCH ----
-  async function prefetchProductsAndCollections() {
-    if (EditorState.allProducts.length && EditorState.allCollections.length) return;
+  async function prefetchCollections() {
+    if (EditorState.allCollections.length) {
+      showCollectionSearchBar();
+      return;
+    }
     try {
-      const [pd, cd] = await Promise.all([
-        api({ subAction: 'list-products' }),
-        api({ subAction: 'list-collections' })
-      ]);
-      EditorState.allProducts = pd.products || [];
+      const cd = await api({ subAction: 'list-collections' });
       EditorState.allCollections = cd.collections || [];
-    } catch (e) { /* silent — search will show no results */ }
+      showCollectionSearchBar();
+    } catch (e) {
+      document.getElementById('collectionsLoading').innerHTML = '<span style="color:#dc3545">Failed to load collections. Reload the page.</span>';
+    }
   }
 
-  function handleProductSearch(value) {
-    clearTimeout(EditorState.searchTimeout);
-    EditorState.searchTimeout = setTimeout(() => runProductSearch(value.trim()), 300);
+  function showCollectionSearchBar() {
+    document.getElementById('collectionsLoading').style.display = 'none';
+    document.getElementById('collectionSearchBar').style.display = 'block';
+    // Show all collections by default
+    renderCollectionChips(EditorState.allCollections);
   }
 
-  function clearProductSearch() {
-    document.getElementById('productSearchInput').value = '';
-    document.getElementById('collectionChips').style.display = 'none';
-    document.getElementById('productPhotoGrid').style.display = 'none';
-    document.getElementById('searchPlaceholder').style.display = 'block';
+  function handleCollectionSearch(value) {
+    const q = value.trim().toLowerCase();
+    const matches = q
+      ? EditorState.allCollections.filter(c => c.title.toLowerCase().includes(q))
+      : EditorState.allCollections;
+    renderCollectionChips(matches);
+    // Reset product bar if user changes search
+    document.getElementById('productSearchBar').style.display = 'none';
     EditorState.selectedCollectionId = null;
   }
 
-  function runProductSearch(query) {
-    if (!query) { clearProductSearch(); return; }
-    document.getElementById('searchPlaceholder').style.display = 'none';
-
-    const q = query.toLowerCase();
-
-    // Find matching collections
-    const matchingCollections = EditorState.allCollections.filter(c =>
-      c.title.toLowerCase().includes(q)
-    );
-
-    // Find matching products by title or SKU
-    const matchingProducts = EditorState.allProducts.filter(p => {
-      if (p.title.toLowerCase().includes(q)) return true;
-      if ((p.variants || []).some(v => (v.sku || '').toLowerCase().includes(q))) return true;
-      return false;
-    });
-
-    // Show collection chips if any match
-    const chipsEl = document.getElementById('collectionChips');
-    if (matchingCollections.length) {
-      chipsEl.style.display = 'flex';
-      chipsEl.innerHTML = matchingCollections.map(c =>
-        `<span class="collection-chip ${EditorState.selectedCollectionId === c.id ? 'selected' : ''}"
-          onclick="selectCollection(${c.id})">${escHtml(c.title)}</span>`
-      ).join('');
-    } else {
-      chipsEl.style.display = 'none';
+  function renderCollectionChips(collections) {
+    const el = document.getElementById('collectionChips');
+    if (!collections.length) {
+      el.innerHTML = '<span style="font-size:12px;color:#aaa">No collections found</span>';
+      return;
     }
-
-    // If a collection is selected, show its products; otherwise show keyword-matched products
-    if (EditorState.selectedCollectionId) {
-      showProductsForCollection(EditorState.selectedCollectionId);
-    } else {
-      renderProductGrid(matchingProducts, `${matchingProducts.length} product${matchingProducts.length !== 1 ? 's' : ''} found`);
-    }
+    el.innerHTML = collections.map(c =>
+      `<span class="collection-chip ${EditorState.selectedCollectionId === c.id ? 'selected' : ''}"
+        onclick="selectCollection(${c.id}, '${escHtml(c.title)}')">${escHtml(c.title)}</span>`
+    ).join('');
   }
 
-  function selectCollection(collectionId) {
+  function selectCollection(collectionId, collectionTitle) {
     EditorState.selectedCollectionId = collectionId;
-    // Re-render chips to show selected state
+    // Update chip selected state
     document.querySelectorAll('.collection-chip').forEach(chip => {
-      chip.classList.toggle('selected', parseInt(chip.getAttribute('onclick').match(/\d+/)[0]) === collectionId);
+      chip.classList.toggle('selected', chip.textContent.trim() === collectionTitle);
     });
-    showProductsForCollection(collectionId);
-  }
-
-  function showProductsForCollection(collectionId) {
-    // Filter products that belong to this collection
-    // Since REST products.json doesn't include collection_id, we match by fetching collection products
-    // For now, filter allProducts using a separate fetch or show all with a note
-    // Best approach: fetch collection products on demand
+    // Show product bar and fetch
+    document.getElementById('selectedCollectionLabel').textContent = collectionTitle;
+    document.getElementById('productSearchBar').style.display = 'block';
     fetchCollectionProducts(collectionId);
   }
 
   async function fetchCollectionProducts(collectionId) {
-    document.getElementById('productGridInner').innerHTML = `<div class="no-results"><div class="spinner" style="width:16px;height:16px;margin:0 auto 6px"></div>Loading...</div>`;
-    document.getElementById('productPhotoGrid').style.display = 'block';
+    document.getElementById('productGridInner').innerHTML = `
+      <div class="no-results">
+        <div class="spinner" style="width:16px;height:16px;margin:0 auto 8px"></div>
+        Loading products...
+      </div>`;
+    document.getElementById('gridResultLabel').textContent = '';
     try {
-      const url = `${CONFIG.proxyUrl}/api/shopify-files?action=gallery-manager&subAction=list-products&collectionId=${collectionId}`;
-      const r = await fetch(url);
-      const d = await r.json();
+      const d = await api({ subAction: 'list-products', collectionId });
       const products = d.products || [];
       renderProductGrid(products, `${products.length} product${products.length !== 1 ? 's' : ''} in collection`);
     } catch(e) {
-      document.getElementById('productGridInner').innerHTML = `<div class="no-results">Failed to load collection products</div>`;
+      document.getElementById('productGridInner').innerHTML = `<div class="no-results">Failed to load products</div>`;
     }
   }
 
