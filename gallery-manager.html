@@ -437,40 +437,60 @@
     .images-tray-grid {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
-      gap: 8px;
+      gap: 0;
     }
     .tray-slot {
       aspect-ratio: 1;
-      border-radius: 6px;
       overflow: hidden;
       position: relative;
     }
-    .tray-slot.filled { border: 2px solid transparent; cursor: grab; }
+    .tray-slot.filled { cursor: grab; }
     .tray-slot.filled:active { cursor: grabbing; }
     .tray-slot.filled img {
       width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none;
     }
     .tray-slot-delete {
-      position: absolute; top: 4px; right: 4px;
+      position: absolute; top: 6px; left: 6px;
       width: 20px; height: 20px; border-radius: 50%;
       background: rgba(0,0,0,0.55); color: #fff; border: none;
       cursor: pointer; font-size: 11px; font-weight: 700;
       display: flex; align-items: center; justify-content: center;
-      opacity: 0; transition: opacity 0.15s;
+      opacity: 0; transition: opacity 0.15s; z-index: 5;
     }
     .tray-slot.filled:hover .tray-slot-delete { opacity: 1; }
-    .tray-slot.drag-over { border: 2px solid #1a1a1a !important; opacity: 0.7; }
+    .tray-slot.drag-over { outline: 3px solid #1a1a1a; outline-offset: -3px; opacity: 0.7; }
     .tray-slot.palette {
       background: linear-gradient(135deg, #f5e6c8 0%, #d4b896 25%, #c4a882 50%, #b89070 75%, #a07858 100%);
-      border: 2px dashed #ccc;
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
     }
     .tray-slot.empty {
-      background: #f5f5f5;
-      border: 2px dashed #e0e0e0;
+      background: #f0f0f0;
+      border: 1px solid #e0e0e0;
       display: flex; align-items: center; justify-content: center;
       color: #ccc; font-size: 11px;
+    }
+
+    /* Hotspot dot */
+    .hotspot-dot {
+      position: absolute; bottom: 8px; right: 8px;
+      width: 28px; height: 28px; z-index: 4;
+    }
+    .hotspot-dot-inner {
+      position: absolute; inset: 0; border-radius: 50%;
+      background: #1a1a1a; color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; z-index: 2;
+    }
+    .hotspot-dot-ripple {
+      position: absolute; inset: 0; border-radius: 50%;
+      background: rgba(26,26,26,0.45);
+      animation: hotspot-ripple 1.8s ease-out infinite;
+      z-index: 1;
+    }
+    @keyframes hotspot-ripple {
+      0%   { transform: scale(1);   opacity: 0.6; }
+      100% { transform: scale(2.4); opacity: 0; }
     }
 
     .external-upload-zone {
@@ -657,7 +677,7 @@
   <div class="header-left">
     <div>
       <div class="header-title">Gallery Manager</div>
-      <div class="header-version">v4.05</div>
+      <div class="header-version">v4.06</div>
     </div>
   </div>
   <div class="store-badge" id="storeBadge">aboutwallart.com</div>
@@ -1602,6 +1622,10 @@
             ondragleave="trayDragLeave(event)">
             <img src="${img.url}&width=300" onerror="this.src='${img.url}'" loading="lazy" />
             <button class="tray-slot-delete" onclick="removeImage(${imgIdx})" title="Remove">&#10005;</button>
+            <div class="hotspot-dot">
+              <div class="hotspot-dot-ripple"></div>
+              <div class="hotspot-dot-inner">${imgIdx + 1}</div>
+            </div>
           </div>`);
         } else {
           slots.push(`<div class="tray-slot empty"
