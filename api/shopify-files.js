@@ -991,19 +991,61 @@ module.exports = async function handler(req, res) {
         try {
           const products = [];
           const collectionId = req.query.collectionId;
-          // If collectionId provided, fetch only products in that collection
-          let startUrl = collectionId
-            ? `${restBase}/collections/${collectionId}/products.json?limit=250&fields=id,title,handle,images,variants`
-            : `${restBase}/products.json?limit=250&fields=id,title,handle,images,variants&status=active`;
-          let page = startUrl;
-          while (page) {
-            const r = await fetch(page, { headers: { 'X-Shopify-Access-Token': accessToken } });
-            const d = await r.json();
-            (d.products || []).forEach(p => products.push(p));
-            const link = r.headers.get('Link') || '';
-            const next = link.match(/<([^>]+)>;\s*rel="next"/);
-            page = next ? next[1] : null;
+
+          if (collectionId) {
+            // GraphQL — gets images + variant prices in one shot
+            const collectionGid = `gid://shopify/Collection/${collectionId}`;
+            let cursor = null;
+            let hasMore = true;
+            while (hasMore) {
+              const query = `query CollectionProducts($id: ID!, $cursor: String) {
+                collection(id: $id) {
+                  products(first: 50, after: $cursor) {
+                    pageInfo { hasNextPage endCursor }
+                    edges {
+                      node {
+                        id title handle
+                        images(first: 5) { edges { node { id url altText } } }
+                        variants(first: 20) { edges { node { price } } }
+                      }
+                    }
+                  }
+                }
+              }`;
+              const r = await fetch(gqlUrl, {
+                method: 'POST', headers: shopifyHeaders,
+                body: JSON.stringify({ query, variables: { id: collectionGid, cursor } })
+              });
+              const d = await r.json();
+              if (d.errors) throw new Error(d.errors[0].message);
+              const conn = d.data?.collection?.products;
+              if (!conn) break;
+              conn.edges.forEach(({ node }) => {
+                const numericId = node.id.replace('gid://shopify/Product/', '');
+                products.push({
+                  id: parseInt(numericId),
+                  title: node.title,
+                  handle: node.handle,
+                  images: node.images.edges.map(e => ({ id: e.node.id, src: e.node.url, url: e.node.url, alt: e.node.altText })),
+                  variants: node.variants.edges.map(e => ({ price: e.node.price }))
+                });
+              });
+              hasMore = conn.pageInfo.hasNextPage;
+              cursor = conn.pageInfo.endCursor;
+            }
+          } else {
+            // REST fallback for all products (no collection filter)
+            let page = `${restBase}/products.json?limit=250&fields=id,title,handle,images&status=active`;
+            while (page) {
+              const r = await fetch(page, { headers: { 'X-Shopify-Access-Token': accessToken } });
+              const d = await r.json();
+              (d.products || []).forEach(p => products.push(p));
+              const link = r.headers.get('Link') || '';
+              const next = link.match(/<([^>]+)>;\s*rel="next"/);
+              page = next ? next[1] : null;
+            }
           }
+
           return res.status(200).json({ success: true, products });
         } catch (e) { return res.status(500).json({ error: e.message }); }
       }
