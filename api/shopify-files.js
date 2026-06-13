@@ -973,7 +973,12 @@ module.exports = async function handler(req, res) {
       if (subAction === 'list-products') {
         try {
           const products = [];
-          let page = `${restBase}/products.json?limit=250&fields=id,title,handle,images,variants&status=active`;
+          const collectionId = req.query.collectionId;
+          // If collectionId provided, fetch only products in that collection
+          let startUrl = collectionId
+            ? `${restBase}/collections/${collectionId}/products.json?limit=250&fields=id,title,handle,images,variants`
+            : `${restBase}/products.json?limit=250&fields=id,title,handle,images,variants&status=active`;
+          let page = startUrl;
           while (page) {
             const r = await fetch(page, { headers: { 'X-Shopify-Access-Token': accessToken } });
             const d = await r.json();
