@@ -910,6 +910,339 @@ module.exports = async function handler(req, res) {
   }
 
   // -------------------------------------------------------
+  // GALLERY MANAGER — Lookfy-style shoppable gallery tool
+  // Galleries stored as JSON array in shop metafield namespace=lookfy key=galleries
+  // -------------------------------------------------------
+  if (req.query.action === 'gallery-manager') {
+    const shopifyHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
+    const gqlUrl = `https://${shopifyDomain}/admin/api/2025-01/graphql.json`;
+    const restBase = `https://${shopifyDomain}/admin/api/2025-01`;
+
+    async function getShopGid() {
+      const r = await fetch(gqlUrl, { method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query: '{ shop { id } }' }) });
+      const d = await r.json();
+      if (d.errors) throw new Error(d.errors[0].message);
+      return d.data.shop.id;
+    }
+
+    async function getGalleriesMetafield() {
+      const query = `{ shop { metafield(namespace:"lookfy", key:"galleries") { id value } } }`;
+      const r = await fetch(gqlUrl, { method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query }) });
+      const d = await r.json();
+      if (d.errors) throw new Error(d.errors[0].message);
+      return d.data.shop.metafield; // null if not set yet
+    }
+
+    async function saveGalleriesMetafield(galleriesArray) {
+      const shopGid = await getShopGid();
+      const mutation = `mutation metafieldsSet($m: [MetafieldsSetInput!]!) {
+        metafieldsSet(metafields: $m) { metafields { id } userErrors { field message } }
+      }`;
+      const variables = { m: [{ ownerId: shopGid, namespace: 'lookfy', key: 'galleries', value: JSON.stringify(galleriesArray), type: 'json' }] };
+      const r = await fetch(gqlUrl, { method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query: mutation, variables }) });
+      const d = await r.json();
+      if (d.errors) throw new Error(d.errors[0].message);
+      const ue = d.data?.metafieldsSet?.userErrors || [];
+      if (ue.length) throw new Error(ue[0].message);
+    }
+
+    // ---- GET handlers ----
+    if (req.method === 'GET') {
+      const subAction = req.query.subAction;
+
+      if (subAction === 'list-galleries') {
+        try {
+          const mf = await getGalleriesMetafield();
+          const galleries = mf ? JSON.parse(mf.value) : [];
+          return res.status(200).json({ success: true, galleries });
+        } catch (e) { return res.status(500).json({ error: e.message }); }
+      }
+
+      if (subAction === 'get-gallery') {
+        const id = parseInt(req.query.id);
+        if (!id) return res.status(400).json({ error: 'Missing id' });
+        try {
+          const mf = await getGalleriesMetafield();
+          const galleries = mf ? JSON.parse(mf.value) : [];
+          const gallery = galleries.find(g => g.id === id);
+          if (!gallery) return res.status(404).json({ error: 'Gallery not found' });
+          return res.status(200).json({ success: true, gallery });
+        } catch (e) { return res.status(500).json({ error: e.message }); }
+      }
+
+      if (subAction === 'list-products') {
+        try {
+          const products = [];
+          let page = `${restBase}/products.json?limit=250&fields=id,title,handle,images,variants&status=active`;
+          while (page) {
+            const r = await fetch(page, { headers: { 'X-Shopify-Access-Token': accessToken } });
+            const d = await r.json();
+            (d.products || []).forEach(p => products.push(p));
+            const link = r.headers.get('Link') || '';
+            const next = link.match(/<([^>]+)>;\s*rel="next"/);
+            page = next ? next[1] : null;
+          }
+          return res.status(200).json({ success: true, products });
+        } catch (e) { return res.status(500).json({ error: e.message }); }
+      }
+
+      if (subAction === 'list-collections') {
+        try {
+          const collections = [];
+          for (const type of ['custom_collections', 'smart_collections']) {
+            let page = `${restBase}/${type}.json?limit=250&fields=id,title,handle,image`;
+            while (page) {
+              const r = await fetch(page, { headers: { 'X-Shopify-Access-Token': accessToken } });
+              const d = await r.json();
+              const key = type === 'custom_collections' ? 'custom_collections' : 'smart_collections';
+              (d[key] || []).forEach(c => collections.push({ ...c, collectionType: type }));
+              const link = r.headers.get('Link') || '';
+              const next = link.match(/<([^>]+)>;\s*rel="next"/);
+              page = next ? next[1] : null;
+            }
+          }
+          return res.status(200).json({ success: true, collections });
+        } catch (e) { return res.status(500).json({ error: e.message }); }
+      }
+
+      if (subAction === 'list-pages') {
+        try {
+          const pages = [];
+          let page = `${restBase}/pages.json?limit=250&fields=id,title,handle`;
+          while (page) {
+            const r = await fetch(page, { headers: { 'X-Shopify-Access-Token': accessToken } });
+            const d = await r.json();
+            (d.pages || []).forEach(p => pages.push(p));
+            const link = r.headers.get('Link') || '';
+            const next = link.match(/<([^>]+)>;\s*rel="next"/);
+            page = next ? next[1] : null;
+          }
+          return res.status(200).json({ success: true, pages });
+        } catch (e) { return res.status(500).json({ error: e.message }); }
+      }
+
+      return res.status(400).json({ error: 'Unknown subAction' });
+    }
+
+    // ---- POST handlers ----
+    if (req.method === 'POST') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      const subAction = body.subAction || req.query.subAction;
+
+      if (subAction === 'save-gallery') {
+        const gallery = body.gallery;
+        if (!gallery || !gallery.title) return res.status(400).json({ error: 'Missing gallery data' });
+        try {
+          const mf = await getGalleriesMetafield();
+          const galleries = mf ? JSON.parse(mf.value) : [];
+          if (gallery.id) {
+            const idx = galleries.findIndex(g => g.id === gallery.id);
+            if (idx >= 0) galleries[idx] = gallery;
+            else galleries.push(gallery);
+          } else {
+            // Auto-generate ID only if none provided
+            const maxId = galleries.reduce((m, g) => Math.max(m, g.id || 0), 10000);
+            gallery.id = maxId + 1;
+            gallery.createdAt = new Date().toISOString().split('T')[0];
+            galleries.push(gallery);
+          }
+          await saveGalleriesMetafield(galleries);
+          return res.status(200).json({ success: true, gallery });
+        } catch (e) { return res.status(500).json({ error: e.message }); }
+      }
+
+      if (subAction === 'delete-gallery') {
+        const id = parseInt(body.id);
+        if (!id) return res.status(400).json({ error: 'Missing id' });
+        try {
+          const mf = await getGalleriesMetafield();
+          const galleries = mf ? JSON.parse(mf.value) : [];
+          await saveGalleriesMetafield(galleries.filter(g => g.id !== id));
+          return res.status(200).json({ success: true });
+        } catch (e) { return res.status(500).json({ error: e.message }); }
+      }
+
+      if (subAction === 'upload-image') {
+        const { base64, filename, mimeType } = body;
+        if (!base64 || !filename) return res.status(400).json({ error: 'Missing base64 or filename' });
+        const mime = mimeType || 'image/jpeg';
+        const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+        try {
+          // 1. Create staged upload target
+          const stagedMutation = `mutation {
+            stagedUploadsCreate(input: { resource: FILE, filename: "${safeFilename}", mimeType: "${mime}", httpMethod: POST }) {
+              stagedTargets { url resourceUrl parameters { name value } }
+              userErrors { field message }
+            }
+          }`;
+          const sr = await fetch(gqlUrl, { method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query: stagedMutation }) });
+          const sd = await sr.json();
+          if (sd.errors) throw new Error(sd.errors[0].message);
+          const ue1 = sd.data.stagedUploadsCreate.userErrors || [];
+          if (ue1.length) throw new Error(ue1[0].message);
+          const target = sd.data.stagedUploadsCreate.stagedTargets[0];
+
+          // 2. Upload binary to staged target
+          const imageBuffer = Buffer.from(base64, 'base64');
+          const boundary = '----FormBoundary' + Math.random().toString(36).slice(2);
+          let formParts = '';
+          for (const p of target.parameters) {
+            formParts += `--${boundary}\r\nContent-Disposition: form-data; name="${p.name}"\r\n\r\n${p.value}\r\n`;
+          }
+          formParts += `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${safeFilename}"\r\nContent-Type: ${mime}\r\n\r\n`;
+          const bodyBuf = Buffer.concat([Buffer.from(formParts, 'utf8'), imageBuffer, Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8')]);
+          const ur = await fetch(target.url, { method: 'POST', headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` }, body: bodyBuf });
+          if (!ur.ok) { const t = await ur.text(); throw new Error('Upload failed: ' + t.slice(0, 200)); }
+
+          // 3. Register in Shopify Files
+          const createMutation = `mutation {
+            fileCreate(files: [{ originalSource: "${target.resourceUrl}", contentType: IMAGE, alt: "${safeFilename}" }]) {
+              files { ... on MediaImage { id image { url } } }
+              userErrors { field message }
+            }
+          }`;
+          const cr = await fetch(gqlUrl, { method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query: createMutation }) });
+          const cd = await cr.json();
+          if (cd.errors) throw new Error(cd.errors[0].message);
+          const ue2 = cd.data.fileCreate.userErrors || [];
+          if (ue2.length) throw new Error(ue2[0].message);
+          const file = cd.data.fileCreate.files[0];
+
+          // 4. Poll for CDN URL (Shopify processes async)
+          let cdnUrl = file?.image?.url || null;
+          if (!cdnUrl) {
+            await new Promise(r => setTimeout(r, 3000));
+            const pollQuery = `{ files(first: 5, query: "filename:${safeFilename}") { edges { node { ... on MediaImage { id image { url } } } } } }`;
+            const pr = await fetch(gqlUrl, { method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query: pollQuery }) });
+            const pd = await pr.json();
+            cdnUrl = pd.data?.files?.edges?.[0]?.node?.image?.url || target.resourceUrl;
+          }
+
+          return res.status(200).json({ success: true, url: cdnUrl, fileId: file?.id || null });
+        } catch (e) { return res.status(500).json({ error: e.message }); }
+      }
+
+      // ---- Webhook: auto-replace archived product hotspots ----
+      if (subAction === 'product-archived-webhook') {
+        // Shopify products/update webhook fires here when a product is archived
+        const payload = body.payload || body;
+        if (!payload || !payload.id || payload.status !== 'archived') {
+          return res.status(200).json({ ok: true, skipped: true, reason: 'not archived or no payload' });
+        }
+
+        try {
+          const archivedProductId = String(payload.id);
+          const archivedGid = `gid://shopify/Product/${archivedProductId}`;
+          const archivedTags = (payload.tags || '').split(',').map(t => t.trim()).filter(Boolean);
+
+          const mf = await getGalleriesMetafield();
+          if (!mf) return res.status(200).json({ ok: true, skipped: true, reason: 'no galleries' });
+          const galleries = JSON.parse(mf.value);
+
+          // Find all galleries + images that have a hotspot linking to the archived product
+          let affectedCount = 0;
+          const updatedGalleries = galleries.map(gallery => {
+            if (!gallery.images) return gallery;
+            const updatedImages = gallery.images.map(img => {
+              if (!img.hotspots) return img;
+              const updatedHotspots = img.hotspots.map(hs => {
+                if (hs.productId !== archivedProductId && hs.productGid !== archivedGid) return hs;
+                // Mark for replacement — replacement happens below
+                affectedCount++;
+                return { ...hs, _needsReplacement: true, _archivedProductId: archivedProductId, _archivedTags: archivedTags };
+              });
+              return { ...img, hotspots: updatedHotspots };
+            });
+            return { ...gallery, images: updatedImages };
+          });
+
+          if (!affectedCount) return res.status(200).json({ ok: true, skipped: true, reason: 'product not in any gallery hotspot' });
+
+          // Find a replacement: active product sharing the most tags
+          let replacementProduct = null;
+          if (archivedTags.length > 0) {
+            const tagQuery = archivedTags.slice(0, 3).map(t => `tag:'${t}'`).join(' OR ');
+            const searchQuery = `{ products(first: 10, query: "status:active ${tagQuery}") { edges { node { id title handle tags images(first:1) { edges { node { url } } } } } } }`;
+            const sr = await fetch(gqlUrl, { method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query: searchQuery }) });
+            const sd = await sr.json();
+            const candidates = (sd.data?.products?.edges || [])
+              .map(e => e.node)
+              .filter(p => p.id !== archivedGid);
+            // Pick the one with the most matching tags
+            replacementProduct = candidates.sort((a, b) => {
+              const aMatches = (a.tags || []).filter(t => archivedTags.includes(t)).length;
+              const bMatches = (b.tags || []).filter(t => archivedTags.includes(t)).length;
+              return bMatches - aMatches;
+            })[0] || null;
+          }
+
+          // Apply replacement or remove hotspot if no match found
+          const finalGalleries = updatedGalleries.map(gallery => {
+            if (!gallery.images) return gallery;
+            let galleryNeedsReview = false;
+            const updatedImages = gallery.images.map(img => {
+              if (!img.hotspots) return img;
+              const updatedHotspots = img.hotspots.map(hs => {
+                if (!hs._needsReplacement) return hs;
+                if (replacementProduct) {
+                  const numericId = replacementProduct.id.replace('gid://shopify/Product/', '');
+                  return {
+                    id: hs.id, x: hs.x, y: hs.y,
+                    productId: numericId,
+                    productGid: replacementProduct.id,
+                    productTitle: replacementProduct.title,
+                    productHandle: replacementProduct.handle,
+                    productImage: replacementProduct.images?.edges?.[0]?.node?.url || ''
+                  };
+                }
+                // No replacement found — remove hotspot, flag gallery
+                galleryNeedsReview = true;
+                return null;
+              }).filter(Boolean);
+              return { ...img, hotspots: updatedHotspots };
+            });
+            return { ...gallery, images: updatedImages, ...(galleryNeedsReview ? { needsReview: true } : {}) };
+          });
+
+          await saveGalleriesMetafield(finalGalleries);
+          return res.status(200).json({
+            ok: true, affectedHotspots: affectedCount,
+            replacedWith: replacementProduct ? replacementProduct.title : null,
+            removedHotspots: replacementProduct ? 0 : affectedCount
+          });
+
+        } catch (e) { return res.status(500).json({ error: e.message }); }
+      }
+
+      if (subAction === 'register-gallery-webhook') {
+        // Register the products/update webhook pointing to the gallery manager handler
+        const webhookAddress = `https://tools.aboutwallart.com/api/shopify-files?action=gallery-manager&subAction=product-archived-webhook`;
+        try {
+          // Remove any existing gallery webhook
+          const existingRes = await fetch(`${restBase}/webhooks.json?limit=250`, { headers: { 'X-Shopify-Access-Token': accessToken } });
+          const existingData = await existingRes.json();
+          const toDelete = (existingData.webhooks || []).filter(w => (w.address || '').includes('subAction=product-archived-webhook'));
+          for (const w of toDelete) {
+            await fetch(`${restBase}/webhooks/${w.id}.json`, { method: 'DELETE', headers: { 'X-Shopify-Access-Token': accessToken } });
+          }
+          // Register fresh
+          const r = await fetch(`${restBase}/webhooks.json`, {
+            method: 'POST', headers: shopifyHeaders,
+            body: JSON.stringify({ webhook: { topic: 'products/update', address: webhookAddress, format: 'json' } })
+          });
+          const d = await r.json();
+          if (d.webhook) return res.status(200).json({ success: true, webhookId: d.webhook.id });
+          return res.status(500).json({ error: JSON.stringify(d.errors || d) });
+        } catch (e) { return res.status(500).json({ error: e.message }); }
+      }
+
+      return res.status(400).json({ error: 'Unknown subAction' });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // -------------------------------------------------------
   // EXISTING IMAGE OPTIMIZER ACTIONS — POST only
   // -------------------------------------------------------
   if (req.method !== 'POST') {
