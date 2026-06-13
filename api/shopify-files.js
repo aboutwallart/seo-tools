@@ -911,39 +911,43 @@ module.exports = async function handler(req, res) {
 
   // -------------------------------------------------------
   // GALLERY MANAGER — Lookfy-style shoppable gallery tool
-  // Galleries stored as JSON array in shop metafield namespace=lookfy key=galleries
+  // Galleries stored in GitHub: data/galleries.json
   // -------------------------------------------------------
   if (req.query.action === 'gallery-manager') {
     const shopifyHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
     const gqlUrl = `https://${shopifyDomain}/admin/api/2025-01/graphql.json`;
     const restBase = `https://${shopifyDomain}/admin/api/2025-01`;
+    const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+    const REPO = 'aboutwallart/seo-tools';
+    const GALLERIES_FILE = 'data/galleries.json';
 
-    async function getShopGid() {
-      const r = await fetch(gqlUrl, { method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query: '{ shop { id } }' }) });
+    async function ghGet(filePath) {
+      const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${filePath}`, {
+        headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
+      });
+      if (r.status === 404) return null; // file doesn't exist yet
+      if (!r.ok) throw new Error('GitHub fetch failed: ' + r.status);
       const d = await r.json();
-      if (d.errors) throw new Error(d.errors[0].message);
-      return d.data.shop.id;
+      return { content: Buffer.from(d.content, 'base64').toString('utf-8'), sha: d.sha };
     }
 
-    async function getGalleriesMetafield() {
-      const query = `{ shop { metafield(namespace:"lookfy", key:"galleries") { id value } } }`;
-      const r = await fetch(gqlUrl, { method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query }) });
-      const d = await r.json();
-      if (d.errors) throw new Error(d.errors[0].message);
-      return d.data.shop.metafield; // null if not set yet
+    async function ghPut(filePath, content, sha, message) {
+      const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${filePath}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, content: Buffer.from(content).toString('base64'), ...(sha ? { sha } : {}) })
+      });
+      if (!r.ok) throw new Error('GitHub put failed: ' + await r.text());
     }
 
-    async function saveGalleriesMetafield(galleriesArray) {
-      const shopGid = await getShopGid();
-      const mutation = `mutation metafieldsSet($m: [MetafieldsSetInput!]!) {
-        metafieldsSet(metafields: $m) { metafields { id } userErrors { field message } }
-      }`;
-      const variables = { m: [{ ownerId: shopGid, namespace: 'lookfy', key: 'galleries', value: JSON.stringify(galleriesArray), type: 'json' }] };
-      const r = await fetch(gqlUrl, { method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query: mutation, variables }) });
-      const d = await r.json();
-      if (d.errors) throw new Error(d.errors[0].message);
-      const ue = d.data?.metafieldsSet?.userErrors || [];
-      if (ue.length) throw new Error(ue[0].message);
+    async function readGalleries() {
+      const file = await ghGet(GALLERIES_FILE);
+      if (!file) return { galleries: [], sha: null };
+      return { galleries: JSON.parse(file.content), sha: file.sha };
+    }
+
+    async function writeGalleries(galleries, sha, message) {
+      await ghPut(GALLERIES_FILE, JSON.stringify(galleries, null, 2), sha, message);
     }
 
     // ---- GET handlers ----
@@ -952,8 +956,7 @@ module.exports = async function handler(req, res) {
 
       if (subAction === 'list-galleries') {
         try {
-          const mf = await getGalleriesMetafield();
-          const galleries = mf ? JSON.parse(mf.value) : [];
+          const { galleries } = await readGalleries();
           return res.status(200).json({ success: true, galleries });
         } catch (e) { return res.status(500).json({ error: e.message }); }
       }
@@ -962,8 +965,7 @@ module.exports = async function handler(req, res) {
         const id = parseInt(req.query.id);
         if (!id) return res.status(400).json({ error: 'Missing id' });
         try {
-          const mf = await getGalleriesMetafield();
-          const galleries = mf ? JSON.parse(mf.value) : [];
+          const { galleries } = await readGalleries();
           const gallery = galleries.find(g => g.id === id);
           if (!gallery) return res.status(404).json({ error: 'Gallery not found' });
           return res.status(200).json({ success: true, gallery });
@@ -1033,8 +1035,7 @@ module.exports = async function handler(req, res) {
         const gallery = body.gallery;
         if (!gallery || !gallery.title) return res.status(400).json({ error: 'Missing gallery data' });
         try {
-          const mf = await getGalleriesMetafield();
-          const galleries = mf ? JSON.parse(mf.value) : [];
+          const { galleries, sha } = await readGalleries();
           if (gallery.id) {
             const idx = galleries.findIndex(g => g.id === gallery.id);
             if (idx >= 0) galleries[idx] = gallery;
@@ -1046,7 +1047,7 @@ module.exports = async function handler(req, res) {
             gallery.createdAt = new Date().toISOString().split('T')[0];
             galleries.push(gallery);
           }
-          await saveGalleriesMetafield(galleries);
+          await writeGalleries(galleries, sha, `Gallery save: ${gallery.title} (${gallery.id})`);
           return res.status(200).json({ success: true, gallery });
         } catch (e) { return res.status(500).json({ error: e.message }); }
       }
@@ -1055,9 +1056,8 @@ module.exports = async function handler(req, res) {
         const id = parseInt(body.id);
         if (!id) return res.status(400).json({ error: 'Missing id' });
         try {
-          const mf = await getGalleriesMetafield();
-          const galleries = mf ? JSON.parse(mf.value) : [];
-          await saveGalleriesMetafield(galleries.filter(g => g.id !== id));
+          const { galleries, sha } = await readGalleries();
+          await writeGalleries(galleries.filter(g => g.id !== id), sha, `Gallery delete: ${id}`);
           return res.status(200).json({ success: true });
         } catch (e) { return res.status(500).json({ error: e.message }); }
       }
@@ -1135,9 +1135,8 @@ module.exports = async function handler(req, res) {
           const archivedGid = `gid://shopify/Product/${archivedProductId}`;
           const archivedTags = (payload.tags || '').split(',').map(t => t.trim()).filter(Boolean);
 
-          const mf = await getGalleriesMetafield();
-          if (!mf) return res.status(200).json({ ok: true, skipped: true, reason: 'no galleries' });
-          const galleries = JSON.parse(mf.value);
+          const { galleries, sha } = await readGalleries();
+          if (!galleries.length) return res.status(200).json({ ok: true, skipped: true, reason: 'no galleries' });
 
           // Find all galleries + images that have a hotspot linking to the archived product
           let affectedCount = 0;
@@ -1204,7 +1203,7 @@ module.exports = async function handler(req, res) {
             return { ...gallery, images: updatedImages, ...(galleryNeedsReview ? { needsReview: true } : {}) };
           });
 
-          await saveGalleriesMetafield(finalGalleries);
+          await writeGalleries(finalGalleries, sha, `Auto-replace archived product ${archivedProductId}`);
           return res.status(200).json({
             ok: true, affectedHotspots: affectedCount,
             replacedWith: replacementProduct ? replacementProduct.title : null,
