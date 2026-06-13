@@ -1000,11 +1000,11 @@ module.exports = async function handler(req, res) {
             while (hasMore) {
               const query = `query CollectionProducts($id: ID!, $cursor: String) {
                 collection(id: $id) {
-                  products(first: 50, after: $cursor, query: "status:active") {
+                  products(first: 50, after: $cursor) {
                     pageInfo { hasNextPage endCursor }
                     edges {
                       node {
-                        id title handle
+                        id title handle status
                         images(first: 5) { edges { node { id url altText } } }
                         variants(first: 20) { edges { node { price } } }
                       }
@@ -1021,6 +1021,7 @@ module.exports = async function handler(req, res) {
               const conn = d.data?.collection?.products;
               if (!conn) break;
               conn.edges.forEach(({ node }) => {
+                if (node.status !== 'ACTIVE') return;
                 const numericId = node.id.replace('gid://shopify/Product/', '');
                 products.push({
                   id: parseInt(numericId),
