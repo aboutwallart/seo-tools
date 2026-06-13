@@ -392,18 +392,21 @@
     .collection-chip.selected { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
 
     .product-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-      gap: 8px;
-      max-height: 380px;
+      max-height: 520px;
       overflow-y: auto;
       border: 1px solid #eee;
       border-radius: 6px;
       padding: 10px;
       background: #fafafa;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
     }
+    .product-row { display: flex; gap: 6px; }
     .product-photo-card {
       position: relative;
+      width: 80px;
+      flex-shrink: 0;
       border-radius: 6px;
       overflow: hidden;
       border: 2px solid transparent;
@@ -417,17 +420,13 @@
       width: 100%; aspect-ratio: 1; object-fit: cover; display: block;
     }
     .product-photo-card .photo-check {
-      position: absolute; top: 5px; right: 5px;
-      width: 20px; height: 20px; border-radius: 50%;
+      position: absolute; top: 4px; right: 4px;
+      width: 18px; height: 18px; border-radius: 50%;
       background: #1a1a1a; color: #fff;
       display: none; align-items: center; justify-content: center;
-      font-size: 11px; font-weight: 700;
+      font-size: 10px; font-weight: 700;
     }
     .product-photo-card.selected .photo-check { display: flex; }
-    .product-photo-card .photo-name {
-      font-size: 10px; color: #666; padding: 4px 5px;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
     .no-results { padding: 20px; text-align: center; color: #aaa; font-size: 13px; }
 
     .selected-count-bar {
@@ -435,35 +434,42 @@
       margin-bottom: 10px; font-size: 12px; color: #888;
     }
 
-    /* Selected images tray */
-    .images-tray {
+    /* Gallery grid tray — fixed 4×4 */
+    .images-tray-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-      gap: 10px;
-      margin-top: 16px;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
     }
-    .tray-item {
-      background: #fff; border: 1px solid #eee; border-radius: 6px;
-      overflow: hidden; position: relative;
+    .tray-slot {
+      aspect-ratio: 1;
+      border-radius: 6px;
+      overflow: hidden;
+      position: relative;
     }
-    .tray-item img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
-    .tray-item-info {
-      padding: 6px 8px; font-size: 11px; color: #555;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    .tray-slot.filled { border: 2px solid transparent; }
+    .tray-slot.filled img {
+      width: 100%; height: 100%; object-fit: cover; display: block;
     }
-    .tray-item-actions {
-      display: flex; gap: 2px; padding: 0 6px 6px; justify-content: space-between;
+    .tray-slot-delete {
+      position: absolute; top: 4px; right: 4px;
+      width: 20px; height: 20px; border-radius: 50%;
+      background: rgba(0,0,0,0.55); color: #fff; border: none;
+      cursor: pointer; font-size: 11px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; transition: opacity 0.15s;
     }
-    .tray-move-btn {
-      background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px;
-      cursor: pointer; font-size: 11px; padding: 2px 6px;
-      transition: background 0.1s;
+    .tray-slot.filled:hover .tray-slot-delete { opacity: 1; }
+    .tray-slot.palette {
+      background: linear-gradient(135deg, #f5e6c8 0%, #d4b896 25%, #c4a882 50%, #b89070 75%, #a07858 100%);
+      border: 2px dashed #ccc;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
     }
-    .tray-move-btn:hover { background: #e0e0e0; }
-    .tray-move-btn:disabled { opacity: 0.3; cursor: default; }
-    .tray-delete-btn {
-      background: none; border: none; cursor: pointer;
-      color: #dc3545; font-size: 13px; padding: 2px 4px;
+    .tray-slot.empty {
+      background: #f5f5f5;
+      border: 2px dashed #e0e0e0;
+      display: flex; align-items: center; justify-content: center;
+      color: #ccc; font-size: 11px;
     }
 
     .external-upload-zone {
@@ -650,7 +656,7 @@
   <div class="header-left">
     <div>
       <div class="header-title">Gallery Manager</div>
-      <div class="header-version">v4.02</div>
+      <div class="header-version">v4.03</div>
     </div>
   </div>
   <div class="store-badge" id="storeBadge">aboutwallart.com</div>
@@ -844,78 +850,12 @@
           <input type="file" id="externalFileInput" accept="image/*" multiple style="display:none" onchange="handleExternalUpload(this.files)" />
         </div>
 
-        <!-- Selected images tray -->
-        <div id="imagesTray" class="images-tray" style="margin-top:16px"></div>
-
-      </div>
-    </div>
-
-    <!-- Design -->
-    <div class="editor-section">
-      <div class="editor-section-header">Design</div>
-      <div class="editor-section-body">
-
-        <div class="design-grid">
-          <div class="form-field">
-            <label>Column Spacing</label>
-            <select id="eColumnSpacing" onchange="markUnsaved()">
-              <option value="none">None</option>
-              <option value="small">Small</option>
-              <option value="normal" selected>Normal</option>
-              <option value="large">Large</option>
-            </select>
-          </div>
-          <div class="form-field">
-            <label>Image Size</label>
-            <select id="eImageSize" onchange="markUnsaved()">
-              <option value="adapt">Adapt to image</option>
-              <option value="square">Square (1:1)</option>
-              <option value="portrait">Portrait (2:3)</option>
-              <option value="landscape">Landscape (3:2)</option>
-            </select>
-          </div>
+        <!-- Gallery grid tray — 4 columns, 16 slots, slot 4 = colour palette -->
+        <div style="margin-top:20px">
+          <div style="font-size:12px;font-weight:600;color:#888;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Gallery Preview (15 images + colour palette)</div>
+          <div id="imagesTray" class="images-tray-grid"></div>
         </div>
 
-        <div class="form-field">
-          <label>Columns per row</label>
-          <div class="cols-row">
-            <div class="form-field">
-              <label style="font-weight:400;color:#888">Desktop</label>
-              <input type="number" id="eColsDesktop" min="1" max="8" value="4" oninput="markUnsaved()" />
-            </div>
-            <div class="form-field">
-              <label style="font-weight:400;color:#888">Tablet</label>
-              <input type="number" id="eColsTablet" min="1" max="4" value="2" oninput="markUnsaved()" />
-            </div>
-            <div class="form-field">
-              <label style="font-weight:400;color:#888">Mobile</label>
-              <input type="number" id="eColsMobile" min="1" max="2" value="1" oninput="markUnsaved()" />
-            </div>
-          </div>
-        </div>
-
-        <div class="checkbox-field">
-          <input type="checkbox" id="eLightbox" onchange="markUnsaved()" checked />
-          <label for="eLightbox">Enable lightbox (click image to enlarge)</label>
-        </div>
-
-        <div class="form-field">
-          <label>Custom CSS</label>
-          <textarea id="eCustomCss" rows="4" style="font-family:monospace;font-size:12px" placeholder="/* Add custom CSS here */" oninput="markUnsaved()"></textarea>
-        </div>
-
-      </div>
-    </div>
-
-    <!-- Embed Code -->
-    <div class="editor-section">
-      <div class="editor-section-header">Embed Code</div>
-      <div class="editor-section-body">
-        <div class="embed-row">
-          <input type="text" class="embed-code-input" id="embedCodeInput" readonly />
-          <button class="btn btn-outline btn-sm" id="embedCopyBtn" onclick="copyEmbedCode()">Copy</button>
-        </div>
-        <div style="font-size:11px;color:#aaa;margin-top:8px">Paste this into any page, product description, or blog article.</div>
       </div>
     </div>
 
@@ -1411,11 +1351,10 @@
     document.getElementById('listView').classList.remove('hidden');
     EditorState.gallery = null;
     EditorState.unsaved = false;
-    // Clear search state
-    document.getElementById('productSearchInput').value = '';
-    document.getElementById('collectionChips').style.display = 'none';
-    document.getElementById('productPhotoGrid').style.display = 'none';
-    document.getElementById('searchPlaceholder').style.display = 'block';
+    const csi = document.getElementById('collectionSearchInput');
+    if (csi) csi.value = '';
+    document.getElementById('collectionChips').innerHTML = '';
+    document.getElementById('productSearchBar').style.display = 'none';
   }
 
   function populateEditorFields() {
@@ -1425,14 +1364,6 @@
     document.getElementById('eId').value = g.id || '';
     document.getElementById('eDescription').value = g.description || '';
     document.getElementById('eStatus').value = g.status || 'active';
-    document.getElementById('eColumnSpacing').value = g.columnSpacing || 'normal';
-    document.getElementById('eImageSize').value = g.galleryImageSize || 'adapt';
-    document.getElementById('eColsDesktop').value = g.columnsDesktop || 4;
-    document.getElementById('eColsTablet').value = g.columnsTablet || 2;
-    document.getElementById('eColsMobile').value = g.columnsMobile || 1;
-    document.getElementById('eLightbox').checked = g.lightboxEnabled !== false;
-    document.getElementById('eCustomCss').value = g.customCss || '';
-    document.getElementById('embedCodeInput').value = `<div data-gallery-id="${g.id}" class="awa-gallery"></div>`;
     document.getElementById('editorTitleDisplay').textContent = g.title;
     updateEditorStatusBadge();
     document.getElementById('unsavedBadge').classList.remove('visible');
@@ -1532,30 +1463,33 @@
       return;
     }
 
-    // Expand all photos for all products
-    const photos = [];
-    products.forEach(p => {
-      const imgs = p.images || [];
-      imgs.forEach(img => {
-        photos.push({ productId: String(p.id), productTitle: p.title, productHandle: p.handle, imageUrl: img.src || img.url, imageId: String(img.id) });
-      });
-    });
-
     const existingUrls = new Set((EditorState.gallery.images || []).map(i => i.url));
+    const allPhotos = [];
+    let globalIdx = 0;
 
-    document.getElementById('productGridInner').innerHTML = photos.map((ph, idx) => {
-      const alreadyAdded = existingUrls.has(ph.imageUrl);
-      const isSelected = EditorState.pendingPhotos.some(p => p.imageId === ph.imageId);
-      return `<div class="product-photo-card ${isSelected ? 'selected' : ''} ${alreadyAdded ? 'already-added' : ''}"
-        onclick="togglePhotoSelect(${idx})" data-idx="${idx}" title="${escHtml(ph.productTitle)}">
-        <img src="${ph.imageUrl}&width=200" loading="lazy" onerror="this.src='${ph.imageUrl}'" />
-        <div class="photo-check">&#10003;</div>
-        <div class="photo-name">${escHtml(ph.productTitle)}</div>
-      </div>`;
+    const rowsHtml = products.map(p => {
+      const imgs = (p.images || []).slice(0, 5);
+      if (!imgs.length) return '';
+      const cardsHtml = imgs.map(img => {
+        const ph = {
+          productId: String(p.id), productTitle: p.title,
+          productHandle: p.handle, imageUrl: img.src || img.url, imageId: String(img.id)
+        };
+        allPhotos.push(ph);
+        const idx = globalIdx++;
+        const isSelected = EditorState.pendingPhotos.some(x => x.imageId === ph.imageId);
+        const alreadyAdded = existingUrls.has(ph.imageUrl);
+        return `<div class="product-photo-card ${isSelected ? 'selected' : ''} ${alreadyAdded ? 'already-added' : ''}"
+          onclick="togglePhotoSelect(${idx})" data-idx="${idx}" title="${escHtml(ph.productTitle)}">
+          <img src="${ph.imageUrl}&width=200" loading="lazy" onerror="this.src='${ph.imageUrl}'" />
+          <div class="photo-check">&#10003;</div>
+        </div>`;
+      }).join('');
+      return `<div class="product-row">${cardsHtml}</div>`;
     }).join('');
 
-    // Store photos for toggling
-    EditorState._currentGridPhotos = photos;
+    document.getElementById('productGridInner').innerHTML = rowsHtml;
+    EditorState._currentGridPhotos = allPhotos;
     updateGridSelectedCount();
   }
 
@@ -1643,26 +1577,33 @@
     document.getElementById('externalFileInput').value = '';
   }
 
-  // ---- IMAGES TRAY ----
+  // ---- IMAGES TRAY — fixed 4×4 grid, 16 slots, slot 4 (index 3) = colour palette ----
   function renderImagesTray() {
     const images = EditorState.gallery.images || [];
     document.getElementById('imageCount').textContent = images.length;
     const tray = document.getElementById('imagesTray');
-    if (!images.length) { tray.innerHTML = ''; return; }
-    tray.innerHTML = images.map((img, idx) => `
-      <div class="tray-item">
-        <img src="${img.url}&width=300" onerror="this.src='${img.url}'" loading="lazy" />
-        <div class="tray-item-info" title="${escHtml(img.productTitle || img.title || '')}">
-          ${escHtml(img.productTitle || img.title || 'External image')}
-        </div>
-        <div class="tray-item-actions">
-          <div style="display:flex;gap:2px">
-            <button class="tray-move-btn" onclick="moveImage(${idx}, -1)" ${idx === 0 ? 'disabled' : ''}>&#8593;</button>
-            <button class="tray-move-btn" onclick="moveImage(${idx}, 1)" ${idx === images.length - 1 ? 'disabled' : ''}>&#8595;</button>
-          </div>
-          <button class="tray-delete-btn" onclick="removeImage(${idx})" title="Remove">&#128465;</button>
-        </div>
-      </div>`).join('');
+
+    const slots = [];
+    for (let slotIdx = 0; slotIdx < 16; slotIdx++) {
+      if (slotIdx === 3) {
+        slots.push(`<div class="tray-slot palette">
+          <div style="font-size:10px;color:rgba(0,0,0,0.45);text-align:center;line-height:1.4">Colour<br>Palette</div>
+        </div>`);
+      } else {
+        // Map slot to image: slots 0–2 → images 0–2, slots 4–15 → images 3–14
+        const imgIdx = slotIdx < 3 ? slotIdx : slotIdx - 1;
+        const img = images[imgIdx];
+        if (img) {
+          slots.push(`<div class="tray-slot filled">
+            <img src="${img.url}&width=300" onerror="this.src='${img.url}'" loading="lazy" />
+            <button class="tray-slot-delete" onclick="removeImage(${imgIdx})" title="Remove">&#10005;</button>
+          </div>`);
+        } else {
+          slots.push(`<div class="tray-slot empty">${imgIdx + 1}</div>`);
+        }
+      }
+    }
+    tray.innerHTML = slots.join('');
   }
 
   function moveImage(idx, direction) {
@@ -1696,13 +1637,6 @@
     g.displayTitle = document.getElementById('eDisplayTitle').value;
     g.description = document.getElementById('eDescription').value.trim();
     g.status = document.getElementById('eStatus').value;
-    g.columnSpacing = document.getElementById('eColumnSpacing').value;
-    g.galleryImageSize = document.getElementById('eImageSize').value;
-    g.columnsDesktop = parseInt(document.getElementById('eColsDesktop').value) || 4;
-    g.columnsTablet = parseInt(document.getElementById('eColsTablet').value) || 2;
-    g.columnsMobile = parseInt(document.getElementById('eColsMobile').value) || 1;
-    g.lightboxEnabled = document.getElementById('eLightbox').checked;
-    g.customCss = document.getElementById('eCustomCss').value;
 
     try {
       const d = await api({ subAction: 'save-gallery' }, 'POST', { subAction: 'save-gallery', gallery: g });
