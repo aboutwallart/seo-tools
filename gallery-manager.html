@@ -318,6 +318,141 @@
 
     /* ---- CHECKBOX ---- */
     input[type="checkbox"] { cursor: pointer; width: 15px; height: 15px; }
+
+    /* ---- WIZARD ---- */
+    #wizardView { display: none; }
+    #wizardView.visible { display: block; }
+    #listView { display: block; }
+    #listView.hidden { display: none; }
+
+    .wizard-back-bar {
+      margin-bottom: 20px;
+    }
+    .wizard-back-link {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      color: #0066cc;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .wizard-back-link:hover { text-decoration: underline; }
+
+    .wizard-steps {
+      display: flex;
+      align-items: center;
+      margin-bottom: 28px;
+    }
+    .wizard-step {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: #aaa;
+    }
+    .wizard-step.active { color: #1a1a1a; font-weight: 600; }
+    .wizard-step.done { color: #28a745; }
+    .wizard-step-num {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      border: 2px solid #ddd;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .wizard-step.active .wizard-step-num {
+      border-color: #1a1a1a;
+      background: #1a1a1a;
+      color: #fff;
+    }
+    .wizard-step.done .wizard-step-num {
+      border-color: #28a745;
+      background: #28a745;
+      color: #fff;
+    }
+    .wizard-step-line {
+      flex: 1;
+      height: 1px;
+      background: #ddd;
+      margin: 0 12px;
+      max-width: 60px;
+    }
+
+    .wizard-card {
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      padding: 28px;
+      max-width: 600px;
+    }
+    .wizard-card h2 {
+      font-size: 17px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .wizard-card .wizard-subtitle {
+      font-size: 13px;
+      color: #888;
+      margin-bottom: 24px;
+    }
+
+    .form-field { margin-bottom: 20px; }
+    .form-field label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: #1a1a1a;
+    }
+    .form-field label span { color: #aaa; font-weight: 400; font-size: 12px; margin-left: 4px; }
+    .form-field input[type="text"],
+    .form-field textarea,
+    .form-field select {
+      width: 100%;
+      padding: 9px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      color: #1a1a1a;
+      background: #fff;
+      transition: border-color 0.15s;
+    }
+    .form-field input[type="text"]:focus,
+    .form-field textarea:focus,
+    .form-field select:focus {
+      outline: none;
+      border-color: #1a1a1a;
+    }
+    .form-field textarea { resize: vertical; min-height: 80px; }
+    .form-field .field-hint { font-size: 11px; color: #aaa; margin-top: 4px; }
+
+    .wizard-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 28px;
+      padding-top: 20px;
+      border-top: 1px solid #f0f0f0;
+    }
+
+    .summary-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid #f5f5f5;
+      font-size: 13px;
+    }
+    .summary-row:last-child { border-bottom: none; }
+    .summary-label { color: #888; }
+    .summary-value { font-weight: 600; color: #1a1a1a; }
   </style>
 </head>
 <body>
@@ -329,7 +464,7 @@
   <div class="header-left">
     <div>
       <div class="header-title">Gallery Manager</div>
-      <div class="header-version">v2.01</div>
+      <div class="header-version">v3.00</div>
     </div>
   </div>
   <div class="store-badge" id="storeBadge">aboutwallart.com</div>
@@ -338,48 +473,84 @@
 <!-- MAIN -->
 <main class="main">
 
-  <!-- PAGE HEADER -->
-  <div class="page-header">
-    <div class="page-title">All Galleries</div>
-    <div class="page-actions">
-      <button class="btn btn-outline" onclick="exportAll()">Export</button>
-      <button class="btn btn-dark" onclick="openWizard()">New Gallery</button>
-    </div>
-  </div>
+  <!-- LIST VIEW -->
+  <div id="listView">
 
-  <!-- FILTER TABS -->
-  <div class="filter-tabs">
-    <button class="filter-tab active" data-filter="all" onclick="setFilter('all', this)">
-      All <span class="tab-count" id="countAll">0</span>
-    </button>
-    <button class="filter-tab" data-filter="active" onclick="setFilter('active', this)">
-      Active <span class="tab-count" id="countActive">0</span>
-    </button>
-    <button class="filter-tab" data-filter="draft" onclick="setFilter('draft', this)">
-      Draft <span class="tab-count" id="countDraft">0</span>
-    </button>
-    <button class="filter-tab" data-filter="review" onclick="setFilter('review', this)">
-      Needs Review <span class="tab-count" id="countReview">0</span>
-    </button>
-  </div>
-
-  <!-- BULK BAR -->
-  <div class="bulk-bar" id="bulkBar">
-    <div class="bulk-bar-left">
-      <span id="bulkCount">0 selected</span>
-    </div>
-    <button class="btn btn-danger btn-sm" onclick="bulkDelete()">Delete Selected</button>
-  </div>
-
-  <!-- TABLE CARD -->
-  <div class="card">
-    <div id="tableContainer">
-      <div class="loading-state">
-        <div class="spinner"></div>
-        <div>Loading galleries...</div>
+    <!-- PAGE HEADER -->
+    <div class="page-header">
+      <div class="page-title">All Galleries</div>
+      <div class="page-actions">
+        <button class="btn btn-outline" onclick="exportAll()">Export</button>
+        <button class="btn btn-dark" onclick="openWizard()">New Gallery</button>
       </div>
     </div>
-  </div>
+
+    <!-- FILTER TABS -->
+    <div class="filter-tabs">
+      <button class="filter-tab active" data-filter="all" onclick="setFilter('all', this)">
+        All <span class="tab-count" id="countAll">0</span>
+      </button>
+      <button class="filter-tab" data-filter="active" onclick="setFilter('active', this)">
+        Active <span class="tab-count" id="countActive">0</span>
+      </button>
+      <button class="filter-tab" data-filter="draft" onclick="setFilter('draft', this)">
+        Draft <span class="tab-count" id="countDraft">0</span>
+      </button>
+      <button class="filter-tab" data-filter="review" onclick="setFilter('review', this)">
+        Needs Review <span class="tab-count" id="countReview">0</span>
+      </button>
+    </div>
+
+    <!-- BULK BAR -->
+    <div class="bulk-bar" id="bulkBar">
+      <div class="bulk-bar-left">
+        <span id="bulkCount">0 selected</span>
+      </div>
+      <button class="btn btn-danger btn-sm" onclick="bulkDelete()">Delete Selected</button>
+    </div>
+
+    <!-- TABLE CARD -->
+    <div class="card">
+      <div id="tableContainer">
+        <div class="loading-state">
+          <div class="spinner"></div>
+          <div>Loading galleries...</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end #listView -->
+
+  <!-- WIZARD VIEW -->
+  <div id="wizardView">
+
+    <!-- Back link -->
+    <div class="wizard-back-bar">
+      <button class="wizard-back-link" onclick="closeWizard()">&#8592; All Galleries</button>
+    </div>
+
+    <!-- Step indicator -->
+    <div class="wizard-steps">
+      <div class="wizard-step" id="wstep1">
+        <div class="wizard-step-num">1</div>
+        <div>General Info</div>
+      </div>
+      <div class="wizard-step-line"></div>
+      <div class="wizard-step" id="wstep2">
+        <div class="wizard-step-num">2</div>
+        <div>Settings</div>
+      </div>
+      <div class="wizard-step-line"></div>
+      <div class="wizard-step" id="wstep3">
+        <div class="wizard-step-num">3</div>
+        <div>Confirm</div>
+      </div>
+    </div>
+
+    <!-- Step content -->
+    <div id="wizardStepContent"></div>
+
+  </div><!-- end #wizardView -->
 
 </main>
 
@@ -617,8 +788,202 @@
   }
 
   // ---- ACTIONS ----
+  // ---- WIZARD ----
+  const WizardState = {
+    step: 1,
+    title: '',
+    id: '',
+    displayTitle: 'disable',
+    description: '',
+    status: 'active'
+  };
+
   function openWizard() {
-    showToast('Gallery wizard coming in next batch', 'info');
+    WizardState.step = 1;
+    WizardState.title = '';
+    WizardState.id = '';
+    WizardState.displayTitle = 'disable';
+    WizardState.description = '';
+    WizardState.status = 'active';
+    document.getElementById('listView').classList.add('hidden');
+    document.getElementById('wizardView').classList.add('visible');
+    renderWizardStep();
+  }
+
+  function closeWizard() {
+    document.getElementById('wizardView').classList.remove('visible');
+    document.getElementById('listView').classList.remove('hidden');
+  }
+
+  function updateStepIndicator() {
+    for (let i = 1; i <= 3; i++) {
+      const el = document.getElementById('wstep' + i);
+      el.classList.remove('active', 'done');
+      if (i < WizardState.step) el.classList.add('done');
+      else if (i === WizardState.step) el.classList.add('active');
+    }
+    // Update done step numbers to checkmark
+    for (let i = 1; i <= 3; i++) {
+      const num = document.querySelector('#wstep' + i + ' .wizard-step-num');
+      if (i < WizardState.step) num.textContent = '✓';
+      else num.textContent = i;
+    }
+  }
+
+  function renderWizardStep() {
+    updateStepIndicator();
+    const container = document.getElementById('wizardStepContent');
+
+    if (WizardState.step === 1) {
+      container.innerHTML = `
+        <div class="wizard-card">
+          <h2>General Info</h2>
+          <p class="wizard-subtitle">Add the key details for your gallery.</p>
+
+          <div class="form-field">
+            <label>Gallery Title <span>*</span></label>
+            <input type="text" id="wTitle" value="${escHtml(WizardState.title)}" placeholder="e.g. Natural Living Room Look" />
+          </div>
+
+          <div class="form-field">
+            <label>Gallery ID <span>(optional)</span></label>
+            <input type="text" id="wId" value="${escHtml(WizardState.id)}" placeholder="e.g. 37204" maxlength="10" />
+            <div class="field-hint">Enter your 5-digit ID to match your blog/page metafield. Leave blank to auto-generate.</div>
+          </div>
+
+          <div class="form-field">
+            <label>Display Title</label>
+            <select id="wDisplayTitle">
+              <option value="disable" ${WizardState.displayTitle === 'disable' ? 'selected' : ''}>Disable</option>
+              <option value="title_only" ${WizardState.displayTitle === 'title_only' ? 'selected' : ''}>Title only</option>
+              <option value="title_and_description" ${WizardState.displayTitle === 'title_and_description' ? 'selected' : ''}>Title and description</option>
+            </select>
+          </div>
+
+          <div class="form-field">
+            <label>Description <span>(optional)</span></label>
+            <textarea id="wDescription" placeholder="Short description of this gallery...">${escHtml(WizardState.description)}</textarea>
+          </div>
+
+          <div class="wizard-actions">
+            <button class="btn btn-outline" onclick="closeWizard()">Cancel</button>
+            <button class="btn btn-dark" onclick="wizardNext1()">Next &rarr;</button>
+          </div>
+        </div>`;
+    }
+
+    if (WizardState.step === 2) {
+      container.innerHTML = `
+        <div class="wizard-card">
+          <h2>Settings</h2>
+          <p class="wizard-subtitle">Choose the initial status for your gallery.</p>
+
+          <div class="form-field">
+            <label>Gallery Status</label>
+            <select id="wStatus">
+              <option value="active" ${WizardState.status === 'active' ? 'selected' : ''}>Active</option>
+              <option value="draft" ${WizardState.status === 'draft' ? 'selected' : ''}>Draft</option>
+            </select>
+            <div class="field-hint">Draft galleries are saved but not visible on your store.</div>
+          </div>
+
+          <div class="wizard-actions">
+            <button class="btn btn-outline" onclick="wizardBack()">&#8592; Back</button>
+            <button class="btn btn-dark" onclick="wizardNext2()">Next &rarr;</button>
+          </div>
+        </div>`;
+    }
+
+    if (WizardState.step === 3) {
+      const displayLabels = { disable: 'Disabled', title_only: 'Title only', title_and_description: 'Title and description' };
+      container.innerHTML = `
+        <div class="wizard-card">
+          <h2>Confirm &amp; Save</h2>
+          <p class="wizard-subtitle">Review your gallery before saving.</p>
+
+          <div class="summary-row">
+            <span class="summary-label">Title</span>
+            <span class="summary-value">${escHtml(WizardState.title)}</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-label">Gallery ID</span>
+            <span class="summary-value">${WizardState.id || 'Auto-generate'}</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-label">Display Title</span>
+            <span class="summary-value">${displayLabels[WizardState.displayTitle] || WizardState.displayTitle}</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-label">Status</span>
+            <span class="summary-value">${WizardState.status === 'active' ? 'Active' : 'Draft'}</span>
+          </div>
+          ${WizardState.description ? `<div class="summary-row"><span class="summary-label">Description</span><span class="summary-value">${escHtml(WizardState.description)}</span></div>` : ''}
+
+          <div class="wizard-actions">
+            <button class="btn btn-outline" onclick="wizardBack()">&#8592; Back</button>
+            <button class="btn btn-dark" id="wizardSaveBtn" onclick="wizardSave()">Save Gallery</button>
+          </div>
+        </div>`;
+    }
+  }
+
+  function wizardNext1() {
+    const title = document.getElementById('wTitle').value.trim();
+    if (!title) { showToast('Please enter a gallery title', 'error'); return; }
+    const idVal = document.getElementById('wId').value.trim();
+    if (idVal && !/^\d+$/.test(idVal)) { showToast('Gallery ID must be a number', 'error'); return; }
+    // Check for duplicate ID
+    if (idVal && AppState.galleries.find(g => g.id === parseInt(idVal))) {
+      showToast('A gallery with this ID already exists', 'error'); return;
+    }
+    WizardState.title = title;
+    WizardState.id = idVal;
+    WizardState.displayTitle = document.getElementById('wDisplayTitle').value;
+    WizardState.description = document.getElementById('wDescription').value.trim();
+    WizardState.step = 2;
+    renderWizardStep();
+  }
+
+  function wizardNext2() {
+    WizardState.status = document.getElementById('wStatus').value;
+    WizardState.step = 3;
+    renderWizardStep();
+  }
+
+  function wizardBack() {
+    WizardState.step--;
+    renderWizardStep();
+  }
+
+  async function wizardSave() {
+    const btn = document.getElementById('wizardSaveBtn');
+    btn.textContent = 'Saving...';
+    btn.disabled = true;
+
+    const gallery = {
+      title: WizardState.title,
+      displayTitle: WizardState.displayTitle,
+      description: WizardState.description,
+      status: WizardState.status,
+      galleryType: 'grid',
+      images: [],
+      hotspots: [],
+      createdAt: new Date().toISOString().split('T')[0]
+    };
+
+    if (WizardState.id) gallery.id = parseInt(WizardState.id);
+
+    try {
+      const d = await api({ subAction: 'save-gallery' }, 'POST', { subAction: 'save-gallery', gallery });
+      AppState.galleries.push(d.gallery);
+      applyFilter();
+      closeWizard();
+      showToast('Gallery created successfully', 'success');
+    } catch (e) {
+      btn.textContent = 'Save Gallery';
+      btn.disabled = false;
+      showToast('Save failed: ' + e.message, 'error');
+    }
   }
 
   function openEditor(id) {
