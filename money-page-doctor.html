@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 47.8</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 47.9</p>
                 </div>
             </div>
         </header>
@@ -1297,6 +1297,9 @@
             // Internal links to loser pages
             (s.loserPageLinks || []).forEach((l, i) => add(`loser_${i}`, `Link added to: ${l.loserUrl}`, 'link'));
 
+            // Auto-link rule step
+            add('autolink', 'Auto-link rule added for main keyword', 'autolink');
+
             // Reindex step — always last
             add('reindex', 'Page submitted for reindexing in GSC', 'reindex');
 
@@ -1482,7 +1485,34 @@
                     }).join('')}
                 </div>` : '';
 
-            // ── 6. Reindex block ─────────────────────────────────────────────
+            // ── 6. Auto-link rule block ───────────────────────────────────────
+            const autolinkItem = allItems.find(it => it.key === 'autolink');
+            const urlPath = (() => { try { return new URL(pageUrl).pathname; } catch(e) { return pageUrl; } })();
+            const autolinkBlock = `
+                <div class="action-block" style="border-color:#2e7d32;">
+                    <h3>🔗 Auto-Link Rule</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">Add this keyword as an auto-link rule so Link Whisperer automatically inserts a link to this page whenever the keyword appears in new content.</p>
+                    <div id="row_autolink" style="display:flex;align-items:flex-start;gap:12px;padding:12px;background:#f9f9f9;border-radius:6px;opacity:${state['autolink']?'0.45':'1'};">
+                        ${cb(autolinkItem)}
+                        <div style="flex:1;">
+                            <strong id="lbl_autolink" style="${state['autolink']?'text-decoration:line-through;':''}">Auto-link rule added for main keyword</strong>
+                            <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px;">
+                                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                                    <span style="font-size:0.82rem;color:#555;font-weight:600;min-width:80px;">Anchor text:</span>
+                                    <input type="text" id="autolinkKeyword" value="${keyword.replace(/"/g,'&quot;')}" readonly style="flex:1;min-width:180px;padding:8px 10px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.82rem;font-family:'Poppins',sans-serif;background:#f0fdf4;">
+                                </div>
+                                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                                    <span style="font-size:0.82rem;color:#555;font-weight:600;min-width:80px;">Links to:</span>
+                                    <input type="text" id="autolinkUrl" value="${urlPath}" readonly style="flex:1;min-width:180px;padding:8px 10px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.82rem;font-family:'Poppins',sans-serif;background:#f0fdf4;">
+                                </div>
+                            </div>
+                            <button id="addAutolinkBtn" onclick="addAutoLinkRule(this)" style="margin-top:12px;background:#2e7d32;color:white;padding:10px 22px;border-radius:6px;font-size:0.88rem;border:none;cursor:pointer;font-weight:600;">🔗 Add Auto-Link Rule</button>
+                            <div id="autolinkStatus" style="margin-top:8px;font-size:0.82rem;min-height:18px;"></div>
+                        </div>
+                    </div>
+                </div>`;
+
+            // ── 7. Reindex block ─────────────────────────────────────────────
             const reindexItem = allItems.find(it => it.key === 'reindex');
             const reindexBlock = `
                 <div class="action-block" style="border-color:#1a73e8;">
@@ -1502,7 +1532,7 @@
                     </div>
                 </div>`;
 
-            return masterBar + shopifyBlock + copyPasteBlock + aiBlock + loserLinksBlock + manualBlock + reindexBlock;
+            return masterBar + shopifyBlock + copyPasteBlock + aiBlock + loserLinksBlock + manualBlock + autolinkBlock + reindexBlock;
         }
 
         function formatMarkdown(text) {
@@ -1584,6 +1614,61 @@
                 btn.disabled = false;
                 btn.textContent = '🔗 Push Links to Shopify';
                 alert(`❌ Failed: ${err.message}`);
+            }
+        }
+
+        async function addAutoLinkRule(btnEl) {
+            const keyword = document.getElementById('autolinkKeyword').value.trim();
+            const url = document.getElementById('autolinkUrl').value.trim();
+            const statusEl = document.getElementById('autolinkStatus');
+
+            btnEl.disabled = true;
+            btnEl.textContent = '⏳ Saving...';
+            statusEl.textContent = '';
+
+            try {
+                // Fetch current rules
+                const res = await fetch('/api/blogs?action=get-autolink-rules');
+                const data = await res.json();
+                if (!data.success) throw new Error('Could not load rules');
+                const rules = data.rules || [];
+
+                // Check for duplicate keyword
+                const exists = rules.some(r => r.keyword.toLowerCase() === keyword.toLowerCase());
+                if (exists) {
+                    btnEl.disabled = false;
+                    btnEl.textContent = '🔗 Add Auto-Link Rule';
+                    statusEl.style.color = '#f97316';
+                    statusEl.textContent = '⚠️ A rule for this keyword already exists in Link Whisperer.';
+                    return;
+                }
+
+                // Add new rule
+                const newId = rules.length > 0 ? Math.max(...rules.map(r => r.id)) + 1 : 1;
+                rules.push({ id: newId, keyword, url, linksAdded: 0 });
+
+                // Save
+                const saveRes = await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'save-autolink-rules', rules })
+                });
+                const saveData = await saveRes.json();
+                if (!saveData.success) throw new Error('Save failed');
+
+                // Success — tick checkbox
+                btnEl.textContent = '✅ Rule Added';
+                btnEl.style.background = '#4caf50';
+                statusEl.style.color = '#2e7d32';
+                statusEl.textContent = `✅ Rule saved: "${keyword}" → ${url}`;
+                const cb = document.querySelector('[data-key="autolink"]');
+                if (cb && !cb.checked) { cb.checked = true; onTaskChange(cb); }
+
+            } catch(err) {
+                btnEl.disabled = false;
+                btnEl.textContent = '🔗 Add Auto-Link Rule';
+                statusEl.style.color = '#dc2626';
+                statusEl.textContent = `❌ Failed: ${err.message}`;
             }
         }
 
