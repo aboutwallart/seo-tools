@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gallery Manager</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f5f5f5;
+      color: #1a1a1a;
+      font-size: 14px;
+    }
+
+    /* ---- HEADER ---- */
+    .header {
+      background: #fff;
+      border-bottom: 1px solid #e0e0e0;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    .header-title { font-size: 18px; font-weight: 700; color: #1a1a1a; }
+    .header-version { font-size: 11px; color: #999; margin-top: 2px; }
+    .store-badge {
+      background: #f0f0f0;
+      border: 1px solid #ddd;
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 12px;
+      color: #555;
+    }
+
+    /* ---- MAIN CONTENT ---- */
+    .main { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+    /* ---- PAGE HEADER ---- */
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+    .page-title { font-size: 20px; font-weight: 700; }
+    .page-actions { display: flex; gap: 8px; align-items: center; }
+
+    /* ---- BUTTONS ---- */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: opacity 0.15s, background 0.15s;
+      text-decoration: none;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-dark { background: #1a1a1a; color: #fff; }
+    .btn-outline { background: #fff; color: #1a1a1a; border-color: #ccc; }
+    .btn-danger { background: #dc3545; color: #fff; }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+    .btn-icon {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 4px 6px;
+      border-radius: 4px;
+      color: #666;
+      font-size: 14px;
+      transition: background 0.15s;
+    }
+    .btn-icon:hover { background: #f0f0f0; color: #1a1a1a; }
+
+    /* ---- FILTER TABS ---- */
+    .filter-tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 16px;
+      border-bottom: 1px solid #e0e0e0;
+      padding-bottom: 0;
+    }
+    .filter-tab {
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      background: none;
+      color: #666;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .filter-tab:hover { color: #1a1a1a; }
+    .filter-tab.active { color: #1a1a1a; border-bottom-color: #1a1a1a; }
+    .tab-count {
+      background: #eee;
+      border-radius: 10px;
+      padding: 1px 7px;
+      font-size: 11px;
+      margin-left: 4px;
+    }
+    .filter-tab.active .tab-count { background: #1a1a1a; color: #fff; }
+
+    /* ---- CARD ---- */
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+
+    /* ---- BULK BAR ---- */
+    .bulk-bar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      background: #1a1a1a;
+      color: #fff;
+      padding: 10px 16px;
+      font-size: 13px;
+    }
+    .bulk-bar.visible { display: flex; }
+    .bulk-bar-left { display: flex; align-items: center; gap: 12px; }
+
+    /* ---- TABLE ---- */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    thead tr { border-bottom: 1px solid #e8e8e8; }
+    thead th {
+      padding: 10px 16px;
+      text-align: left;
+      font-size: 12px;
+      font-weight: 600;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      white-space: nowrap;
+    }
+    tbody tr {
+      border-bottom: 1px solid #f0f0f0;
+      transition: background 0.1s;
+    }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: #fafafa; }
+    tbody td { padding: 12px 16px; font-size: 13px; vertical-align: middle; }
+
+    .col-check { width: 40px; }
+    .col-id { width: 80px; }
+    .col-title { min-width: 200px; }
+    .col-created { width: 120px; }
+    .col-type { width: 120px; }
+    .col-status { width: 100px; }
+    .col-actions { width: 120px; }
+
+    .gallery-id { color: #aaa; font-size: 12px; }
+    .gallery-title-link {
+      color: #1a1a1a;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .gallery-title-link:hover { color: #0066cc; text-decoration: underline; }
+
+    /* ---- STATUS BADGE ---- */
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .badge-active { background: #d4edda; color: #155724; }
+    .badge-draft { background: #fff3cd; color: #856404; }
+    .badge-review { background: #f8d7da; color: #721c24; }
+
+    /* ---- ACTION ICONS ROW ---- */
+    .actions-cell { display: flex; gap: 2px; }
+
+    /* ---- PAGINATION ---- */
+    .pagination-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-top: 1px solid #f0f0f0;
+      font-size: 12px;
+      color: #888;
+    }
+    .pagination-controls { display: flex; gap: 4px; align-items: center; }
+    .page-btn {
+      width: 28px;
+      height: 28px;
+      border: 1px solid #ddd;
+      background: #fff;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.1s;
+    }
+    .page-btn:hover:not(:disabled) { background: #f5f5f5; }
+    .page-btn:disabled { opacity: 0.4; cursor: default; }
+    .page-info { padding: 0 8px; font-size: 12px; color: #888; }
+
+    /* ---- EMPTY STATE ---- */
+    .empty-state {
+      text-align: center;
+      padding: 60px 24px;
+      color: #888;
+    }
+    .empty-state-icon {
+      width: 56px;
+      height: 56px;
+      background: #f0f0f0;
+      border-radius: 50%;
+      margin: 0 auto 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+    }
+    .empty-state h3 { font-size: 16px; font-weight: 600; color: #1a1a1a; margin-bottom: 8px; }
+    .empty-state p { font-size: 13px; margin-bottom: 20px; }
+
+    /* ---- LOADING ---- */
+    .loading-state {
+      text-align: center;
+      padding: 60px 24px;
+      color: #888;
+    }
+    .spinner {
+      display: inline-block;
+      width: 24px;
+      height: 24px;
+      border: 3px solid #eee;
+      border-top-color: #1a1a1a;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin-bottom: 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ---- TOAST ---- */
+    .toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .toast {
+      padding: 12px 18px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      animation: slideIn 0.2s ease;
+      max-width: 300px;
+    }
+    .toast-success { background: #28a745; }
+    .toast-error { background: #dc3545; }
+    .toast-info { background: #1a1a1a; }
+    @keyframes slideIn { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+    /* ---- MODAL ---- */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-overlay.visible { display: flex; }
+    .modal {
+      background: #fff;
+      border-radius: 8px;
+      padding: 28px;
+      width: 420px;
+      max-width: 90vw;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+    }
+    .modal h3 { font-size: 16px; font-weight: 700; margin-bottom: 10px; }
+    .modal p { font-size: 13px; color: #555; margin-bottom: 24px; line-height: 1.5; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+    /* ---- NEEDS REVIEW INDICATOR ---- */
+    .needs-review-dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #dc3545;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+
+    /* ---- CHECKBOX ---- */
+    input[type="checkbox"] { cursor: pointer; width: 15px; height: 15px; }
+  </style>
+</head>
+<body>
+
+<script src="/auth-check.js"></script>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="header-left">
+    <div>
+      <div class="header-title">Gallery Manager</div>
+      <div class="header-version">v2.00</div>
+    </div>
+  </div>
+  <div class="store-badge" id="storeBadge">aboutwallart.com</div>
+</header>
+
+<!-- MAIN -->
+<main class="main">
+
+  <!-- PAGE HEADER -->
+  <div class="page-header">
+    <div class="page-title">All Galleries</div>
+    <div class="page-actions">
+      <button class="btn btn-outline" onclick="exportAll()">Export</button>
+      <button class="btn btn-dark" onclick="openWizard()">New Gallery</button>
+    </div>
+  </div>
+
+  <!-- FILTER TABS -->
+  <div class="filter-tabs">
+    <button class="filter-tab active" data-filter="all" onclick="setFilter('all', this)">
+      All <span class="tab-count" id="countAll">0</span>
+    </button>
+    <button class="filter-tab" data-filter="active" onclick="setFilter('active', this)">
+      Active <span class="tab-count" id="countActive">0</span>
+    </button>
+    <button class="filter-tab" data-filter="draft" onclick="setFilter('draft', this)">
+      Draft <span class="tab-count" id="countDraft">0</span>
+    </button>
+    <button class="filter-tab" data-filter="review" onclick="setFilter('review', this)">
+      Needs Review <span class="tab-count" id="countReview">0</span>
+    </button>
+  </div>
+
+  <!-- BULK BAR -->
+  <div class="bulk-bar" id="bulkBar">
+    <div class="bulk-bar-left">
+      <span id="bulkCount">0 selected</span>
+    </div>
+    <button class="btn btn-danger btn-sm" onclick="bulkDelete()">Delete Selected</button>
+  </div>
+
+  <!-- TABLE CARD -->
+  <div class="card">
+    <div id="tableContainer">
+      <div class="loading-state">
+        <div class="spinner"></div>
+        <div>Loading galleries...</div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h3 id="modalTitle">Confirm</h3>
+    <p id="modalMessage"></p>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-danger" id="modalConfirmBtn">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST CONTAINER -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+  const CONFIG = {
+    proxyUrl: 'https://tools.aboutwallart.com',
+    storeDomain: 'aboutwallart.com'
+  };
+
+  const AppState = {
+    view: 'list',
+    galleries: [],
+    filteredGalleries: [],
+    selectedIds: new Set(),
+    filter: 'all',
+    page: 1,
+    perPage: 20,
+    loading: false
+  };
+
+  // ---- INIT ----
+  document.addEventListener('DOMContentLoaded', () => {
+    loadGalleries();
+  });
+
+  // ---- API ----
+  async function api(params, method = 'GET', body = null) {
+    const url = `${CONFIG.proxyUrl}/api/shopify-files?action=gallery-manager&${new URLSearchParams(params)}`;
+    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    if (body) opts.body = JSON.stringify(body);
+    const r = await fetch(url, opts);
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || 'API error');
+    return d;
+  }
+
+  async function loadGalleries() {
+    AppState.loading = true;
+    renderTable();
+    try {
+      const d = await api({ subAction: 'list-galleries' });
+      AppState.galleries = d.galleries || [];
+      applyFilter();
+    } catch (e) {
+      showToast('Failed to load galleries: ' + e.message, 'error');
+      document.getElementById('tableContainer').innerHTML = `
+        <div class="loading-state"><p style="color:#dc3545">${e.message}</p></div>`;
+    }
+    AppState.loading = false;
+  }
+
+  // ---- FILTER ----
+  function setFilter(filter, btn) {
+    AppState.filter = filter;
+    AppState.page = 1;
+    AppState.selectedIds.clear();
+    document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    applyFilter();
+  }
+
+  function applyFilter() {
+    const all = AppState.galleries;
+    if (AppState.filter === 'all') AppState.filteredGalleries = all;
+    else if (AppState.filter === 'review') AppState.filteredGalleries = all.filter(g => g.needsReview);
+    else AppState.filteredGalleries = all.filter(g => (g.status || 'active') === AppState.filter);
+
+    // Update counts
+    document.getElementById('countAll').textContent = all.length;
+    document.getElementById('countActive').textContent = all.filter(g => (g.status || 'active') === 'active').length;
+    document.getElementById('countDraft').textContent = all.filter(g => g.status === 'draft').length;
+    document.getElementById('countReview').textContent = all.filter(g => g.needsReview).length;
+
+    renderTable();
+  }
+
+  // ---- RENDER TABLE ----
+  function renderTable() {
+    const container = document.getElementById('tableContainer');
+
+    if (AppState.loading) {
+      container.innerHTML = `<div class="loading-state"><div class="spinner"></div><div>Loading galleries...</div></div>`;
+      return;
+    }
+
+    const galleries = AppState.filteredGalleries;
+
+    if (!galleries.length) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">&#9638;</div>
+          <h3>No galleries yet</h3>
+          <p>Create your first gallery to get started.</p>
+          <button class="btn btn-dark" onclick="openWizard()">New Gallery</button>
+        </div>`;
+      updateBulkBar();
+      return;
+    }
+
+    const start = (AppState.page - 1) * AppState.perPage;
+    const end = start + AppState.perPage;
+    const pageItems = galleries.slice(start, end);
+    const totalPages = Math.ceil(galleries.length / AppState.perPage);
+
+    const typeLabel = {
+      row: 'Row', masonry: 'Masonry', list: 'List', carousel: 'Carousel', grid: 'Grid'
+    };
+
+    const rows = pageItems.map(g => {
+      const checked = AppState.selectedIds.has(g.id) ? 'checked' : '';
+      const statusBadge = g.status === 'draft'
+        ? `<span class="badge badge-draft">Draft</span>`
+        : `<span class="badge badge-active">Active</span>`;
+      const reviewDot = g.needsReview ? `<span class="needs-review-dot" title="Needs review — hotspots were auto-replaced"></span>` : '';
+      const created = g.createdAt ? formatDate(g.createdAt) : '—';
+      const type = typeLabel[g.galleryType] || (g.galleryType || '—');
+
+      return `<tr>
+        <td class="col-check"><input type="checkbox" ${checked} onchange="toggleSelect(${g.id}, this.checked)" /></td>
+        <td class="col-id"><span class="gallery-id">${g.id}</span></td>
+        <td class="col-title">
+          <span class="gallery-title-link" onclick="openEditor(${g.id})">${escHtml(g.title)}</span>${reviewDot}
+        </td>
+        <td class="col-created">${created}</td>
+        <td class="col-type">${type}</td>
+        <td class="col-status">${statusBadge}</td>
+        <td class="col-actions">
+          <div class="actions-cell">
+            <button class="btn-icon" title="Duplicate" onclick="duplicateGallery(${g.id})">&#9107;</button>
+            <button class="btn-icon" title="Get Embed Code" onclick="showEmbedCode(${g.id}, '${escHtml(g.title)}')">&#60;/&#62;</button>
+            <button class="btn-icon" title="Delete" style="color:#dc3545" onclick="confirmDelete(${g.id}, '${escHtml(g.title)}')">&#128465;</button>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+
+    const showing = galleries.length
+      ? `Showing ${start + 1}–${Math.min(end, galleries.length)} of ${galleries.length} galleries`
+      : '';
+
+    container.innerHTML = `
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="col-check"><input type="checkbox" id="selectAll" onchange="toggleSelectAll(this.checked)" /></th>
+              <th class="col-id">ID</th>
+              <th class="col-title">Title</th>
+              <th class="col-created">Created</th>
+              <th class="col-type">Type</th>
+              <th class="col-status">Status</th>
+              <th class="col-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div class="pagination-bar">
+        <span>${showing}</span>
+        <div class="pagination-controls">
+          <button class="page-btn" onclick="goPage(${AppState.page - 1})" ${AppState.page <= 1 ? 'disabled' : ''}>&#8249;</button>
+          <span class="page-info">Page ${AppState.page} of ${totalPages}</span>
+          <button class="page-btn" onclick="goPage(${AppState.page + 1})" ${AppState.page >= totalPages ? 'disabled' : ''}>&#8250;</button>
+        </div>
+      </div>`;
+
+    updateBulkBar();
+    syncSelectAll();
+  }
+
+  // ---- SELECTION ----
+  function toggleSelect(id, checked) {
+    if (checked) AppState.selectedIds.add(id);
+    else AppState.selectedIds.delete(id);
+    updateBulkBar();
+    syncSelectAll();
+  }
+
+  function toggleSelectAll(checked) {
+    const pageItems = getCurrentPageItems();
+    pageItems.forEach(g => {
+      if (checked) AppState.selectedIds.add(g.id);
+      else AppState.selectedIds.delete(g.id);
+    });
+    renderTable();
+  }
+
+  function syncSelectAll() {
+    const cb = document.getElementById('selectAll');
+    if (!cb) return;
+    const pageItems = getCurrentPageItems();
+    cb.checked = pageItems.length > 0 && pageItems.every(g => AppState.selectedIds.has(g.id));
+    cb.indeterminate = pageItems.some(g => AppState.selectedIds.has(g.id)) && !cb.checked;
+  }
+
+  function getCurrentPageItems() {
+    const start = (AppState.page - 1) * AppState.perPage;
+    return AppState.filteredGalleries.slice(start, start + AppState.perPage);
+  }
+
+  function updateBulkBar() {
+    const bar = document.getElementById('bulkBar');
+    const count = AppState.selectedIds.size;
+    if (count > 0) {
+      bar.classList.add('visible');
+      document.getElementById('bulkCount').textContent = `${count} selected`;
+    } else {
+      bar.classList.remove('visible');
+    }
+  }
+
+  // ---- PAGINATION ----
+  function goPage(p) {
+    const total = Math.ceil(AppState.filteredGalleries.length / AppState.perPage);
+    if (p < 1 || p > total) return;
+    AppState.page = p;
+    AppState.selectedIds.clear();
+    renderTable();
+  }
+
+  // ---- ACTIONS ----
+  function openWizard() {
+    showToast('Gallery wizard coming in next batch', 'info');
+  }
+
+  function openEditor(id) {
+    showToast('Gallery editor coming in next batch', 'info');
+  }
+
+  async function duplicateGallery(id) {
+    const original = AppState.galleries.find(g => g.id === id);
+    if (!original) return;
+    const copy = JSON.parse(JSON.stringify(original));
+    delete copy.id;
+    copy.title = copy.title + ' - copy';
+    copy.status = 'draft';
+    copy.createdAt = new Date().toISOString().split('T')[0];
+    try {
+      const d = await api({ subAction: 'save-gallery' }, 'POST', { subAction: 'save-gallery', gallery: copy });
+      AppState.galleries.push(d.gallery);
+      applyFilter();
+      showToast('Gallery duplicated', 'success');
+    } catch (e) {
+      showToast('Duplicate failed: ' + e.message, 'error');
+    }
+  }
+
+  function showEmbedCode(id, title) {
+    const code = `<div data-gallery-id="${id}" class="awa-gallery"></div>`;
+    showModal(
+      'Embed Code — ' + title,
+      `<div style="margin-bottom:12px;font-size:12px;color:#555">Copy this code into any page, product description, or blog article.</div>
+       <div style="background:#f5f5f5;border:1px solid #ddd;border-radius:4px;padding:10px;font-family:monospace;font-size:12px;word-break:break-all">${escHtml(code)}</div>`,
+      () => { copyToClipboard(code); closeModal(); showToast('Embed code copied', 'success'); },
+      'Copy Code'
+    );
+  }
+
+  function confirmDelete(id, title) {
+    showModal(
+      'Delete Gallery',
+      `Are you sure you want to delete "<strong>${escHtml(title)}</strong>"? This cannot be undone.`,
+      async () => {
+        closeModal();
+        try {
+          await api({ subAction: 'delete-gallery' }, 'POST', { subAction: 'delete-gallery', id });
+          AppState.galleries = AppState.galleries.filter(g => g.id !== id);
+          AppState.selectedIds.delete(id);
+          applyFilter();
+          showToast('Gallery deleted', 'success');
+        } catch (e) {
+          showToast('Delete failed: ' + e.message, 'error');
+        }
+      },
+      'Delete'
+    );
+  }
+
+  async function bulkDelete() {
+    const ids = [...AppState.selectedIds];
+    if (!ids.length) return;
+    showModal(
+      'Delete Galleries',
+      `Are you sure you want to delete ${ids.length} gallery${ids.length > 1 ? 'ies' : ''}? This cannot be undone.`,
+      async () => {
+        closeModal();
+        let deleted = 0;
+        for (const id of ids) {
+          try {
+            await api({ subAction: 'delete-gallery' }, 'POST', { subAction: 'delete-gallery', id });
+            AppState.galleries = AppState.galleries.filter(g => g.id !== id);
+            deleted++;
+          } catch (e) { /* continue */ }
+        }
+        AppState.selectedIds.clear();
+        applyFilter();
+        showToast(`${deleted} gallery${deleted !== 1 ? 'ies' : ''} deleted`, 'success');
+      },
+      'Delete All'
+    );
+  }
+
+  function exportAll() {
+    const data = JSON.stringify(AppState.galleries, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'galleries-export.json';
+    a.click();
+  }
+
+  // ---- MODAL ----
+  let _modalConfirmFn = null;
+  function showModal(title, message, onConfirm, confirmLabel = 'Confirm') {
+    document.getElementById('modalTitle').textContent = title;
+    document.getElementById('modalMessage').innerHTML = message;
+    const btn = document.getElementById('modalConfirmBtn');
+    btn.textContent = confirmLabel;
+    btn.onclick = onConfirm;
+    _modalConfirmFn = onConfirm;
+    document.getElementById('modalOverlay').classList.add('visible');
+  }
+  function closeModal() {
+    document.getElementById('modalOverlay').classList.remove('visible');
+    _modalConfirmFn = null;
+  }
+
+  // ---- TOAST ----
+  function showToast(msg, type = 'info') {
+    const c = document.getElementById('toastContainer');
+    const t = document.createElement('div');
+    t.className = `toast toast-${type}`;
+    t.textContent = msg;
+    c.appendChild(t);
+    setTimeout(() => t.remove(), 3500);
+  }
+
+  // ---- UTILITIES ----
+  function escHtml(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function formatDate(str) {
+    if (!str) return '—';
+    const d = new Date(str);
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  }
+
+  function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).catch(() => {
+      const el = document.createElement('textarea');
+      el.value = text;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      el.remove();
+    });
+  }
+</script>
+
+</body>
+</html>
