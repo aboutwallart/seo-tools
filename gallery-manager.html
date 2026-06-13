@@ -1969,7 +1969,12 @@ const rowsHtml = products.map(p => {
     msg.textContent = 'Registering…';
     msg.style.color = '#888';
     try {
-      const d = await api({ subAction: 'register-gallery-webhook' });
+      const r = await fetch(`${CONFIG.proxyUrl}/api/shopify-files?action=gallery-manager`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subAction: 'register-gallery-webhook' })
+      });
+      const d = await r.json();
       if (d.success) {
         msg.textContent = '✓ Registered (ID ' + d.webhookId + ')';
         msg.style.color = '#2e7d32';
