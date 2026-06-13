@@ -952,6 +952,23 @@ module.exports = async function handler(req, res) {
     if (req.method === 'GET') {
       const subAction = req.query.subAction;
 
+      if (subAction === 'proxy-image') {
+        const imgUrl = req.query.url;
+        if (!imgUrl || !imgUrl.startsWith('https://cdn.shopify.com/')) {
+          return res.status(400).json({ error: 'Invalid URL — only cdn.shopify.com allowed' });
+        }
+        try {
+          const upstream = await fetch(imgUrl);
+          if (!upstream.ok) return res.status(upstream.status).end();
+          const contentType = upstream.headers.get('content-type') || 'image/jpeg';
+          const buffer = await upstream.arrayBuffer();
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Content-Type', contentType);
+          res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+          return res.status(200).send(Buffer.from(buffer));
+        } catch (e) { return res.status(500).json({ error: 'Proxy failed: ' + e.message }); }
+      }
+
       if (subAction === 'list-galleries') {
         try {
           const { galleries } = await readGalleries();
