@@ -1000,7 +1000,7 @@ module.exports = async function handler(req, res) {
             while (hasMore) {
               const query = `query CollectionProducts($id: ID!, $cursor: String) {
                 collection(id: $id) {
-                  products(first: 50, after: $cursor) {
+                  products(first: 50, after: $cursor, query: "status:active") {
                     pageInfo { hasNextPage endCursor }
                     edges {
                       node {
