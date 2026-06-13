@@ -405,8 +405,7 @@
     .product-row { display: flex; gap: 6px; }
     .product-photo-card {
       position: relative;
-      width: 80px;
-      flex-shrink: 0;
+      flex: 1;
       border-radius: 6px;
       overflow: hidden;
       border: 2px solid transparent;
@@ -446,9 +445,10 @@
       overflow: hidden;
       position: relative;
     }
-    .tray-slot.filled { border: 2px solid transparent; }
+    .tray-slot.filled { border: 2px solid transparent; cursor: grab; }
+    .tray-slot.filled:active { cursor: grabbing; }
     .tray-slot.filled img {
-      width: 100%; height: 100%; object-fit: cover; display: block;
+      width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none;
     }
     .tray-slot-delete {
       position: absolute; top: 4px; right: 4px;
@@ -459,6 +459,7 @@
       opacity: 0; transition: opacity 0.15s;
     }
     .tray-slot.filled:hover .tray-slot-delete { opacity: 1; }
+    .tray-slot.drag-over { border: 2px solid #1a1a1a !important; opacity: 0.7; }
     .tray-slot.palette {
       background: linear-gradient(135deg, #f5e6c8 0%, #d4b896 25%, #c4a882 50%, #b89070 75%, #a07858 100%);
       border: 2px dashed #ccc;
@@ -656,7 +657,7 @@
   <div class="header-left">
     <div>
       <div class="header-title">Gallery Manager</div>
-      <div class="header-version">v4.03</div>
+      <div class="header-version">v4.05</div>
     </div>
   </div>
   <div class="store-badge" id="storeBadge">aboutwallart.com</div>
@@ -1590,20 +1591,49 @@
           <div style="font-size:10px;color:rgba(0,0,0,0.45);text-align:center;line-height:1.4">Colour<br>Palette</div>
         </div>`);
       } else {
-        // Map slot to image: slots 0–2 → images 0–2, slots 4–15 → images 3–14
         const imgIdx = slotIdx < 3 ? slotIdx : slotIdx - 1;
         const img = images[imgIdx];
         if (img) {
-          slots.push(`<div class="tray-slot filled">
+          slots.push(`<div class="tray-slot filled"
+            draggable="true"
+            ondragstart="trayDragStart(${imgIdx})"
+            ondragover="trayDragOver(event, ${slotIdx})"
+            ondrop="trayDrop(event, ${slotIdx})"
+            ondragleave="trayDragLeave(event)">
             <img src="${img.url}&width=300" onerror="this.src='${img.url}'" loading="lazy" />
             <button class="tray-slot-delete" onclick="removeImage(${imgIdx})" title="Remove">&#10005;</button>
           </div>`);
         } else {
-          slots.push(`<div class="tray-slot empty">${imgIdx + 1}</div>`);
+          slots.push(`<div class="tray-slot empty"
+            ondragover="trayDragOver(event, ${slotIdx})"
+            ondrop="trayDrop(event, ${slotIdx})"
+            ondragleave="trayDragLeave(event)">${imgIdx + 1}</div>`);
         }
       }
     }
     tray.innerHTML = slots.join('');
+  }
+
+  let _dragSrcImgIdx = null;
+  function trayDragStart(imgIdx) { _dragSrcImgIdx = imgIdx; }
+  function trayDragOver(e, slotIdx) {
+    if (slotIdx === 3) return; // palette slot
+    e.preventDefault();
+    e.currentTarget.classList.add('drag-over');
+  }
+  function trayDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
+  function trayDrop(e, slotIdx) {
+    e.preventDefault();
+    e.currentTarget.classList.remove('drag-over');
+    if (slotIdx === 3 || _dragSrcImgIdx === null) return;
+    const targetImgIdx = slotIdx < 3 ? slotIdx : slotIdx - 1;
+    if (targetImgIdx === _dragSrcImgIdx) return;
+    const images = EditorState.gallery.images;
+    const moved = images.splice(_dragSrcImgIdx, 1)[0];
+    images.splice(targetImgIdx, 0, moved);
+    _dragSrcImgIdx = null;
+    renderImagesTray();
+    markUnsaved();
   }
 
   function moveImage(idx, direction) {
