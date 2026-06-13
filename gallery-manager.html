@@ -650,7 +650,7 @@
   <div class="header-left">
     <div>
       <div class="header-title">Gallery Manager</div>
-      <div class="header-version">v4.01</div>
+      <div class="header-version">v4.02</div>
     </div>
   </div>
   <div class="store-badge" id="storeBadge">aboutwallart.com</div>
@@ -1468,15 +1468,14 @@
   function showCollectionSearchBar() {
     document.getElementById('collectionsLoading').style.display = 'none';
     document.getElementById('collectionSearchBar').style.display = 'block';
-    // Show all collections by default
-    renderCollectionChips(EditorState.allCollections);
+    // Don't show chips until user types
   }
 
   function handleCollectionSearch(value) {
     const q = value.trim().toLowerCase();
-    const matches = q
-      ? EditorState.allCollections.filter(c => c.title.toLowerCase().includes(q))
-      : EditorState.allCollections;
+    const el = document.getElementById('collectionChips');
+    if (!q) { el.innerHTML = ''; return; }
+    const matches = EditorState.allCollections.filter(c => c.title.toLowerCase().includes(q));
     renderCollectionChips(matches);
     // Reset product bar if user changes search
     document.getElementById('productSearchBar').style.display = 'none';
