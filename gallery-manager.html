@@ -463,7 +463,7 @@
       background: #f0f0f0;
       display: flex; flex-direction: column;
       overflow: hidden;
-      box-shadow: inset 0 0 0 3px #fff;
+      box-shadow: inset 0 0 0 8px #fff;
     }
     .palette-stripe {
       flex: 1; width: 100%;
@@ -738,7 +738,7 @@
   <div class="header-left">
     <div>
       <div class="header-title">Gallery Manager</div>
-      <div class="header-version">v4.08</div>
+      <div class="header-version">v4.09</div>
     </div>
   </div>
   <div class="store-badge" id="storeBadge">aboutwallart.com</div>
@@ -938,6 +938,18 @@
           <div id="imagesTray" class="images-tray-grid"></div>
         </div>
 
+      </div>
+    </div>
+
+    <!-- Embed Code -->
+    <div class="editor-section">
+      <div class="editor-section-header">Embed Code</div>
+      <div class="editor-section-body">
+        <div class="embed-row">
+          <input type="text" class="embed-code-input" id="embedCodeInput" readonly />
+          <button class="btn btn-outline btn-sm" id="embedCopyBtn" onclick="copyEmbedCode()">Copy</button>
+        </div>
+        <div style="font-size:11px;color:#aaa;margin-top:8px">Paste this into any page, product description, or blog article.</div>
       </div>
     </div>
 
@@ -1473,6 +1485,7 @@
     document.getElementById('eId').value = g.id || '';
     document.getElementById('eDescription').value = g.description || '';
     document.getElementById('eStatus').value = g.status || 'active';
+    document.getElementById('embedCodeInput').value = `<div data-gallery-id="${g.id}" class="awa-gallery"></div>`;
     document.getElementById('editorTitleDisplay').textContent = g.title;
     updateEditorStatusBadge();
     document.getElementById('unsavedBadge').classList.remove('visible');
@@ -1579,10 +1592,15 @@
     const rowsHtml = products.map(p => {
       const imgs = (p.images || []).slice(0, 5);
       if (!imgs.length) return '';
+      const minPrice = (p.variants || []).reduce((min, v) => {
+        const price = parseFloat(v.price); return price < min ? price : min;
+      }, Infinity);
+      const productPrice = isFinite(minPrice) ? minPrice.toFixed(2) : null;
       const cardsHtml = imgs.map(img => {
         const ph = {
           productId: String(p.id), productTitle: p.title,
-          productHandle: p.handle, imageUrl: img.src || img.url, imageId: String(img.id)
+          productHandle: p.handle, imageUrl: img.src || img.url, imageId: String(img.id),
+          productPrice
         };
         allPhotos.push(ph);
         const idx = globalIdx++;
@@ -1635,6 +1653,7 @@
           productId: ph.productId,
           productTitle: ph.productTitle,
           productHandle: ph.productHandle,
+          productPrice: ph.productPrice || null,
           alt: ph.productTitle,
           title: ph.productTitle,
           hotspots: [{
@@ -1766,6 +1785,7 @@
                 <div class="product-popup">
                   <img class="product-popup-thumb" src="${img.url}&width=200" onerror="this.src='${img.url}'" loading="lazy" />
                   <div class="product-popup-name">${anchorText}</div>
+                  ${img.productPrice ? `<div style="font-size:12px;font-weight:700;color:#1a1a1a;margin-bottom:5px">£${img.productPrice}</div>` : ''}
                   <a class="product-popup-link" href="${productUrl}" target="_blank">View product &rarr;</a>
                 </div>
               </div>
