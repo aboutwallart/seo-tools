@@ -745,7 +745,7 @@
   <div class="header-left">
     <div>
       <div class="header-title">Gallery Manager</div>
-      <div class="header-version">v4.10</div>
+      <div class="header-version">v4.11</div>
     </div>
   </div>
   <div class="store-badge" id="storeBadge">aboutwallart.com</div>
@@ -1596,9 +1596,7 @@
     const allPhotos = [];
     let globalIdx = 0;
 
-    if (products[0]) console.log('[price debug] first product variants:', JSON.stringify(products[0].variants));
-
-    const rowsHtml = products.map(p => {
+const rowsHtml = products.map(p => {
       const imgs = (p.images || []).slice(0, 5);
       if (!imgs.length) return '';
       const minPrice = (p.variants || []).reduce((min, v) => {
