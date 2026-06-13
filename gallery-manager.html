@@ -463,7 +463,14 @@
       background: #f0f0f0;
       display: flex; flex-direction: column;
       overflow: hidden;
-      box-shadow: inset 0 0 0 8px #fff;
+    }
+    .tray-slot.palette::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border: 8px solid #fff;
+      pointer-events: none;
+      z-index: 5;
     }
     .palette-stripe {
       flex: 1; width: 100%;
@@ -738,7 +745,7 @@
   <div class="header-left">
     <div>
       <div class="header-title">Gallery Manager</div>
-      <div class="header-version">v4.09</div>
+      <div class="header-version">v4.10</div>
     </div>
   </div>
   <div class="store-badge" id="storeBadge">aboutwallart.com</div>
@@ -1589,6 +1596,8 @@
     const allPhotos = [];
     let globalIdx = 0;
 
+    if (products[0]) console.log('[price debug] first product variants:', JSON.stringify(products[0].variants));
+
     const rowsHtml = products.map(p => {
       const imgs = (p.images || []).slice(0, 5);
       if (!imgs.length) return '';
@@ -1764,12 +1773,13 @@
       if (slotIdx === 3) {
         let inner;
         if (palette.length === 4) {
-          inner = `<div style="display:flex;flex-direction:column;height:100%;box-shadow:inset 0 0 0 3px #fff">` +
+          inner = `<div style="display:flex;flex-direction:column;height:100%">` +
             palette.map(c => `<div style="flex:1;background:${c}"></div>`).join('') + `</div>`;
         } else {
-          inner = `<div style="height:100%;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:10px;color:#aaa;text-align:center;box-shadow:inset 0 0 0 3px #fff">Colour<br>Palette</div>`;
+          inner = `<div style="height:100%;background:#f0f0f0;display:flex;align-items:center;justify-content:center;font-size:10px;color:#aaa;text-align:center">Colour<br>Palette</div>`;
         }
-        slots.push(`<div class="preview-slot"><div class="preview-slot-inner">${inner}</div></div>`);
+        const border = `<div style="position:absolute;inset:0;border:8px solid #fff;pointer-events:none;z-index:5"></div>`;
+        slots.push(`<div class="preview-slot" style="position:relative"><div class="preview-slot-inner">${inner}</div>${border}</div>`);
       } else {
         const imgIdx = slotIdx < 3 ? slotIdx : slotIdx - 1;
         const img = images[imgIdx];
