@@ -745,7 +745,7 @@
   <div class="header-left">
     <div>
       <div class="header-title">Gallery Manager</div>
-      <div class="header-version">v4.11</div>
+      <div class="header-version">v5.00</div>
     </div>
   </div>
   <div class="store-badge" id="storeBadge">aboutwallart.com</div>
@@ -980,6 +980,12 @@
           <button class="btn btn-outline" onclick="copyEmbedId()">Copy ID</button>
         </div>
         <p style="font-size:12px;color:#888;line-height:1.6">Add this ID to the <strong style="color:#555">custom.gallery_id</strong> metafield on any blog post or page to display this gallery on your store. Make sure the gallery status is <strong style="color:#555">Active</strong> before publishing.</p>
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid #eee">
+          <div style="font-size:12px;font-weight:600;color:#555;margin-bottom:6px">Auto-replace archived products</div>
+          <p style="font-size:12px;color:#888;line-height:1.6;margin-bottom:10px">Register a Shopify webhook so gallery hotspots are automatically updated when a product is archived.</p>
+          <button class="btn btn-outline" id="registerWebhookBtn" onclick="registerWebhook()">Register Webhook</button>
+          <span id="webhookStatusMsg" style="font-size:12px;margin-left:10px;color:#888"></span>
+        </div>
       </div>
     </div>
 
@@ -1661,6 +1667,7 @@ const rowsHtml = products.map(p => {
           productTitle: ph.productTitle,
           productHandle: ph.productHandle,
           productPrice: ph.productPrice || null,
+          collectionId: EditorState.selectedCollectionId || null,
           alt: ph.productTitle,
           title: ph.productTitle,
           hotspots: [{
@@ -1953,6 +1960,29 @@ const rowsHtml = products.map(p => {
     const btn = document.getElementById('embedCopyBtn');
     btn.textContent = 'Copied!';
     setTimeout(() => btn.textContent = 'Copy', 2000);
+  }
+
+  async function registerWebhook() {
+    const btn = document.getElementById('registerWebhookBtn');
+    const msg = document.getElementById('webhookStatusMsg');
+    btn.disabled = true;
+    msg.textContent = 'Registering…';
+    msg.style.color = '#888';
+    try {
+      const d = await api({ subAction: 'register-gallery-webhook' });
+      if (d.success) {
+        msg.textContent = '✓ Registered (ID ' + d.webhookId + ')';
+        msg.style.color = '#2e7d32';
+      } else {
+        msg.textContent = 'Error: ' + (d.error || 'unknown');
+        msg.style.color = '#c62828';
+      }
+    } catch (e) {
+      msg.textContent = 'Error: ' + e.message;
+      msg.style.color = '#c62828';
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   function copyEmbedId() {
