@@ -319,6 +319,192 @@
     /* ---- CHECKBOX ---- */
     input[type="checkbox"] { cursor: pointer; width: 15px; height: 15px; }
 
+    /* ---- EDITOR ---- */
+    #editorView { display: none; }
+    #editorView.visible { display: block; }
+
+    .editor-back-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+    .editor-back-link {
+      background: none; border: none; cursor: pointer;
+      font-size: 13px; color: #0066cc; padding: 0;
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+    .editor-back-link:hover { text-decoration: underline; }
+    .editor-title-bar {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .editor-title-bar h2 { font-size: 18px; font-weight: 700; }
+    .unsaved-badge {
+      display: none;
+      background: #fff3cd; color: #856404;
+      font-size: 11px; font-weight: 600;
+      padding: 2px 8px; border-radius: 10px;
+    }
+    .unsaved-badge.visible { display: inline-block; }
+
+    .editor-section {
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+    .editor-section-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #f0f0f0;
+      font-size: 14px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .editor-section-body { padding: 20px; }
+
+    .form-row { display: flex; gap: 16px; }
+    .form-row .form-field { flex: 1; }
+
+    .id-copy-row { display: flex; gap: 8px; align-items: center; }
+    .id-copy-row input { flex: 1; background: #f5f5f5; }
+
+    /* Images section */
+    .search-area { margin-bottom: 16px; }
+    .search-row { display: flex; gap: 8px; margin-bottom: 10px; }
+    .search-input {
+      flex: 1; padding: 9px 12px; border: 1px solid #ddd;
+      border-radius: 6px; font-size: 13px; font-family: inherit;
+    }
+    .search-input:focus { outline: none; border-color: #1a1a1a; }
+
+    .collection-list {
+      display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;
+    }
+    .collection-chip {
+      padding: 4px 12px; border-radius: 20px; border: 1px solid #ddd;
+      background: #fff; font-size: 12px; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .collection-chip:hover { border-color: #1a1a1a; }
+    .collection-chip.selected { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+
+    .product-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 8px;
+      max-height: 380px;
+      overflow-y: auto;
+      border: 1px solid #eee;
+      border-radius: 6px;
+      padding: 10px;
+      background: #fafafa;
+    }
+    .product-photo-card {
+      position: relative;
+      border-radius: 6px;
+      overflow: hidden;
+      border: 2px solid transparent;
+      cursor: pointer;
+      transition: border-color 0.15s;
+      background: #fff;
+    }
+    .product-photo-card:hover { border-color: #aaa; }
+    .product-photo-card.selected { border-color: #1a1a1a; }
+    .product-photo-card img {
+      width: 100%; aspect-ratio: 1; object-fit: cover; display: block;
+    }
+    .product-photo-card .photo-check {
+      position: absolute; top: 5px; right: 5px;
+      width: 20px; height: 20px; border-radius: 50%;
+      background: #1a1a1a; color: #fff;
+      display: none; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700;
+    }
+    .product-photo-card.selected .photo-check { display: flex; }
+    .product-photo-card .photo-name {
+      font-size: 10px; color: #666; padding: 4px 5px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .no-results { padding: 20px; text-align: center; color: #aaa; font-size: 13px; }
+
+    .selected-count-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 10px; font-size: 12px; color: #888;
+    }
+
+    /* Selected images tray */
+    .images-tray {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .tray-item {
+      background: #fff; border: 1px solid #eee; border-radius: 6px;
+      overflow: hidden; position: relative;
+    }
+    .tray-item img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
+    .tray-item-info {
+      padding: 6px 8px; font-size: 11px; color: #555;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .tray-item-actions {
+      display: flex; gap: 2px; padding: 0 6px 6px; justify-content: space-between;
+    }
+    .tray-move-btn {
+      background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px;
+      cursor: pointer; font-size: 11px; padding: 2px 6px;
+      transition: background 0.1s;
+    }
+    .tray-move-btn:hover { background: #e0e0e0; }
+    .tray-move-btn:disabled { opacity: 0.3; cursor: default; }
+    .tray-delete-btn {
+      background: none; border: none; cursor: pointer;
+      color: #dc3545; font-size: 13px; padding: 2px 4px;
+    }
+
+    .external-upload-zone {
+      border: 2px dashed #ddd; border-radius: 6px;
+      padding: 16px; text-align: center; cursor: pointer;
+      font-size: 12px; color: #888; margin-top: 12px;
+      transition: border-color 0.15s;
+    }
+    .external-upload-zone:hover { border-color: #aaa; }
+
+    /* Design section */
+    .design-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .cols-row { display: flex; gap: 12px; }
+    .cols-row .form-field { flex: 1; }
+    .cols-row input[type="number"] {
+      width: 100%; padding: 9px 12px; border: 1px solid #ddd;
+      border-radius: 6px; font-size: 13px; font-family: inherit;
+    }
+    .cols-row input[type="number"]:focus { outline: none; border-color: #1a1a1a; }
+
+    .checkbox-field { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .checkbox-field input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; }
+    .checkbox-field label { font-size: 13px; cursor: pointer; }
+
+    /* Embed section */
+    .embed-row { display: flex; gap: 8px; align-items: center; }
+    .embed-code-input {
+      flex: 1; padding: 9px 12px; border: 1px solid #ddd; border-radius: 6px;
+      font-size: 12px; font-family: monospace; background: #f5f5f5; color: #555;
+    }
+
+    /* Sticky bottom bar */
+    .editor-bottom-bar {
+      position: sticky; bottom: 0;
+      background: #fff; border-top: 1px solid #e0e0e0;
+      padding: 12px 24px;
+      display: flex; justify-content: space-between; align-items: center;
+      box-shadow: 0 -2px 8px rgba(0,0,0,0.06);
+      margin: 0 -24px; z-index: 50;
+    }
+
     /* ---- WIZARD ---- */
     #wizardView { display: none; }
     #wizardView.visible { display: block; }
@@ -464,7 +650,7 @@
   <div class="header-left">
     <div>
       <div class="header-title">Gallery Manager</div>
-      <div class="header-version">v3.00</div>
+      <div class="header-version">v4.00</div>
     </div>
   </div>
   <div class="store-badge" id="storeBadge">aboutwallart.com</div>
@@ -551,6 +737,186 @@
     <div id="wizardStepContent"></div>
 
   </div><!-- end #wizardView -->
+
+  <!-- EDITOR VIEW -->
+  <div id="editorView">
+
+    <!-- Back bar -->
+    <div class="editor-back-bar">
+      <div class="editor-title-bar">
+        <button class="editor-back-link" onclick="closeEditor()">&#8592; All Galleries</button>
+        <h2 id="editorTitleDisplay"></h2>
+        <span id="editorStatusBadge" class="badge"></span>
+        <span class="unsaved-badge" id="unsavedBadge">Unsaved changes</span>
+      </div>
+    </div>
+
+    <!-- General Info -->
+    <div class="editor-section">
+      <div class="editor-section-header">General Info</div>
+      <div class="editor-section-body">
+        <div class="form-field">
+          <label>Gallery Title <span style="color:#dc3545">*</span></label>
+          <input type="text" id="eTitle" oninput="markUnsaved()" />
+        </div>
+        <div class="form-row">
+          <div class="form-field">
+            <label>Display Title</label>
+            <select id="eDisplayTitle" onchange="markUnsaved()">
+              <option value="disable">Disable</option>
+              <option value="title_only">Title only</option>
+              <option value="title_and_description">Title and description</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label>Gallery ID</label>
+            <div class="id-copy-row">
+              <input type="text" id="eId" readonly />
+              <button class="btn btn-outline btn-sm" onclick="copyEmbedId()">Copy</button>
+            </div>
+          </div>
+        </div>
+        <div class="form-field">
+          <label>Description</label>
+          <textarea id="eDescription" rows="3" oninput="markUnsaved()"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- Status -->
+    <div class="editor-section">
+      <div class="editor-section-header">Gallery Status</div>
+      <div class="editor-section-body">
+        <div class="form-field" style="max-width:200px">
+          <select id="eStatus" onchange="markUnsaved(); updateEditorStatusBadge()">
+            <option value="active">Active</option>
+            <option value="draft">Draft</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Images -->
+    <div class="editor-section">
+      <div class="editor-section-header">
+        <span>Images (<span id="imageCount">0</span>)</span>
+      </div>
+      <div class="editor-section-body">
+
+        <!-- Search -->
+        <div class="search-area">
+          <div class="search-row">
+            <input type="text" class="search-input" id="productSearchInput"
+              placeholder="Type a keyword to find collections or products..."
+              oninput="handleProductSearch(this.value)" />
+            <button class="btn btn-outline btn-sm" onclick="clearProductSearch()">Clear</button>
+          </div>
+
+          <!-- Collection chips -->
+          <div class="collection-list" id="collectionChips" style="display:none"></div>
+
+          <!-- Product photo grid -->
+          <div id="productPhotoGrid" style="display:none">
+            <div class="selected-count-bar">
+              <span id="gridResultLabel">Results</span>
+              <span id="gridSelectedCount" style="color:#1a1a1a;font-weight:600"></span>
+            </div>
+            <div class="product-grid" id="productGridInner"></div>
+          </div>
+
+          <div id="searchPlaceholder" style="font-size:12px;color:#aaa;margin-top:8px">
+            Type a keyword above to search collections or products.
+          </div>
+        </div>
+
+        <!-- External image upload -->
+        <div class="external-upload-zone" onclick="document.getElementById('externalFileInput').click()">
+          + Add external image (lifestyle / trend photo)
+          <input type="file" id="externalFileInput" accept="image/*" multiple style="display:none" onchange="handleExternalUpload(this.files)" />
+        </div>
+
+        <!-- Selected images tray -->
+        <div id="imagesTray" class="images-tray" style="margin-top:16px"></div>
+
+      </div>
+    </div>
+
+    <!-- Design -->
+    <div class="editor-section">
+      <div class="editor-section-header">Design</div>
+      <div class="editor-section-body">
+
+        <div class="design-grid">
+          <div class="form-field">
+            <label>Column Spacing</label>
+            <select id="eColumnSpacing" onchange="markUnsaved()">
+              <option value="none">None</option>
+              <option value="small">Small</option>
+              <option value="normal" selected>Normal</option>
+              <option value="large">Large</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label>Image Size</label>
+            <select id="eImageSize" onchange="markUnsaved()">
+              <option value="adapt">Adapt to image</option>
+              <option value="square">Square (1:1)</option>
+              <option value="portrait">Portrait (2:3)</option>
+              <option value="landscape">Landscape (3:2)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label>Columns per row</label>
+          <div class="cols-row">
+            <div class="form-field">
+              <label style="font-weight:400;color:#888">Desktop</label>
+              <input type="number" id="eColsDesktop" min="1" max="8" value="4" oninput="markUnsaved()" />
+            </div>
+            <div class="form-field">
+              <label style="font-weight:400;color:#888">Tablet</label>
+              <input type="number" id="eColsTablet" min="1" max="4" value="2" oninput="markUnsaved()" />
+            </div>
+            <div class="form-field">
+              <label style="font-weight:400;color:#888">Mobile</label>
+              <input type="number" id="eColsMobile" min="1" max="2" value="1" oninput="markUnsaved()" />
+            </div>
+          </div>
+        </div>
+
+        <div class="checkbox-field">
+          <input type="checkbox" id="eLightbox" onchange="markUnsaved()" checked />
+          <label for="eLightbox">Enable lightbox (click image to enlarge)</label>
+        </div>
+
+        <div class="form-field">
+          <label>Custom CSS</label>
+          <textarea id="eCustomCss" rows="4" style="font-family:monospace;font-size:12px" placeholder="/* Add custom CSS here */" oninput="markUnsaved()"></textarea>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Embed Code -->
+    <div class="editor-section">
+      <div class="editor-section-header">Embed Code</div>
+      <div class="editor-section-body">
+        <div class="embed-row">
+          <input type="text" class="embed-code-input" id="embedCodeInput" readonly />
+          <button class="btn btn-outline btn-sm" id="embedCopyBtn" onclick="copyEmbedCode()">Copy</button>
+        </div>
+        <div style="font-size:11px;color:#aaa;margin-top:8px">Paste this into any page, product description, or blog article.</div>
+      </div>
+    </div>
+
+    <!-- Bottom sticky bar -->
+    <div class="editor-bottom-bar">
+      <button class="btn btn-danger" onclick="confirmDeleteCurrentGallery()">Delete Gallery</button>
+      <button class="btn btn-dark" id="editorSaveBtn" onclick="saveEditor()">Save</button>
+    </div>
+
+  </div><!-- end #editorView -->
 
 </main>
 
@@ -986,8 +1352,415 @@
     }
   }
 
+  // ---- EDITOR ----
+  const EditorState = {
+    gallery: null,
+    unsaved: false,
+    allProducts: [],        // full product list cached
+    allCollections: [],     // full collections list cached
+    searchTimeout: null,
+    selectedCollectionId: null,
+    pendingPhotos: []       // photos ticked in the grid not yet confirmed
+  };
+
   function openEditor(id) {
-    showToast('Gallery editor coming in next batch', 'info');
+    const gallery = AppState.galleries.find(g => g.id === id);
+    if (!gallery) return;
+    EditorState.gallery = JSON.parse(JSON.stringify(gallery)); // deep clone
+    EditorState.unsaved = false;
+    EditorState.selectedCollectionId = null;
+    EditorState.pendingPhotos = [];
+
+    document.getElementById('listView').classList.add('hidden');
+    document.getElementById('editorView').classList.add('visible');
+
+    populateEditorFields();
+    renderImagesTray();
+    prefetchProductsAndCollections();
+  }
+
+  function closeEditor() {
+    if (EditorState.unsaved) {
+      showModal('Unsaved Changes', 'You have unsaved changes. Are you sure you want to leave?', () => {
+        closeModal();
+        doCloseEditor();
+      }, 'Leave without saving');
+    } else {
+      doCloseEditor();
+    }
+  }
+
+  function doCloseEditor() {
+    document.getElementById('editorView').classList.remove('visible');
+    document.getElementById('listView').classList.remove('hidden');
+    EditorState.gallery = null;
+    EditorState.unsaved = false;
+    // Clear search state
+    document.getElementById('productSearchInput').value = '';
+    document.getElementById('collectionChips').style.display = 'none';
+    document.getElementById('productPhotoGrid').style.display = 'none';
+    document.getElementById('searchPlaceholder').style.display = 'block';
+  }
+
+  function populateEditorFields() {
+    const g = EditorState.gallery;
+    document.getElementById('eTitle').value = g.title || '';
+    document.getElementById('eDisplayTitle').value = g.displayTitle || 'disable';
+    document.getElementById('eId').value = g.id || '';
+    document.getElementById('eDescription').value = g.description || '';
+    document.getElementById('eStatus').value = g.status || 'active';
+    document.getElementById('eColumnSpacing').value = g.columnSpacing || 'normal';
+    document.getElementById('eImageSize').value = g.galleryImageSize || 'adapt';
+    document.getElementById('eColsDesktop').value = g.columnsDesktop || 4;
+    document.getElementById('eColsTablet').value = g.columnsTablet || 2;
+    document.getElementById('eColsMobile').value = g.columnsMobile || 1;
+    document.getElementById('eLightbox').checked = g.lightboxEnabled !== false;
+    document.getElementById('eCustomCss').value = g.customCss || '';
+    document.getElementById('embedCodeInput').value = `<div data-gallery-id="${g.id}" class="awa-gallery"></div>`;
+    document.getElementById('editorTitleDisplay').textContent = g.title;
+    updateEditorStatusBadge();
+    document.getElementById('unsavedBadge').classList.remove('visible');
+  }
+
+  function updateEditorStatusBadge() {
+    const status = document.getElementById('eStatus')?.value || EditorState.gallery?.status || 'active';
+    const badge = document.getElementById('editorStatusBadge');
+    badge.textContent = status === 'active' ? 'Active' : 'Draft';
+    badge.className = 'badge ' + (status === 'active' ? 'badge-active' : 'badge-draft');
+  }
+
+  function markUnsaved() {
+    EditorState.unsaved = true;
+    document.getElementById('unsavedBadge').classList.add('visible');
+  }
+
+  // ---- PRODUCT SEARCH ----
+  async function prefetchProductsAndCollections() {
+    if (EditorState.allProducts.length && EditorState.allCollections.length) return;
+    try {
+      const [pd, cd] = await Promise.all([
+        api({ subAction: 'list-products' }),
+        api({ subAction: 'list-collections' })
+      ]);
+      EditorState.allProducts = pd.products || [];
+      EditorState.allCollections = cd.collections || [];
+    } catch (e) { /* silent — search will show no results */ }
+  }
+
+  function handleProductSearch(value) {
+    clearTimeout(EditorState.searchTimeout);
+    EditorState.searchTimeout = setTimeout(() => runProductSearch(value.trim()), 300);
+  }
+
+  function clearProductSearch() {
+    document.getElementById('productSearchInput').value = '';
+    document.getElementById('collectionChips').style.display = 'none';
+    document.getElementById('productPhotoGrid').style.display = 'none';
+    document.getElementById('searchPlaceholder').style.display = 'block';
+    EditorState.selectedCollectionId = null;
+  }
+
+  function runProductSearch(query) {
+    if (!query) { clearProductSearch(); return; }
+    document.getElementById('searchPlaceholder').style.display = 'none';
+
+    const q = query.toLowerCase();
+
+    // Find matching collections
+    const matchingCollections = EditorState.allCollections.filter(c =>
+      c.title.toLowerCase().includes(q)
+    );
+
+    // Find matching products by title or SKU
+    const matchingProducts = EditorState.allProducts.filter(p => {
+      if (p.title.toLowerCase().includes(q)) return true;
+      if ((p.variants || []).some(v => (v.sku || '').toLowerCase().includes(q))) return true;
+      return false;
+    });
+
+    // Show collection chips if any match
+    const chipsEl = document.getElementById('collectionChips');
+    if (matchingCollections.length) {
+      chipsEl.style.display = 'flex';
+      chipsEl.innerHTML = matchingCollections.map(c =>
+        `<span class="collection-chip ${EditorState.selectedCollectionId === c.id ? 'selected' : ''}"
+          onclick="selectCollection(${c.id})">${escHtml(c.title)}</span>`
+      ).join('');
+    } else {
+      chipsEl.style.display = 'none';
+    }
+
+    // If a collection is selected, show its products; otherwise show keyword-matched products
+    if (EditorState.selectedCollectionId) {
+      showProductsForCollection(EditorState.selectedCollectionId);
+    } else {
+      renderProductGrid(matchingProducts, `${matchingProducts.length} product${matchingProducts.length !== 1 ? 's' : ''} found`);
+    }
+  }
+
+  function selectCollection(collectionId) {
+    EditorState.selectedCollectionId = collectionId;
+    // Re-render chips to show selected state
+    document.querySelectorAll('.collection-chip').forEach(chip => {
+      chip.classList.toggle('selected', parseInt(chip.getAttribute('onclick').match(/\d+/)[0]) === collectionId);
+    });
+    showProductsForCollection(collectionId);
+  }
+
+  function showProductsForCollection(collectionId) {
+    // Filter products that belong to this collection
+    // Since REST products.json doesn't include collection_id, we match by fetching collection products
+    // For now, filter allProducts using a separate fetch or show all with a note
+    // Best approach: fetch collection products on demand
+    fetchCollectionProducts(collectionId);
+  }
+
+  async function fetchCollectionProducts(collectionId) {
+    document.getElementById('productGridInner').innerHTML = `<div class="no-results"><div class="spinner" style="width:16px;height:16px;margin:0 auto 6px"></div>Loading...</div>`;
+    document.getElementById('productPhotoGrid').style.display = 'block';
+    try {
+      const url = `${CONFIG.proxyUrl}/api/shopify-files?action=gallery-manager&subAction=list-products&collectionId=${collectionId}`;
+      const r = await fetch(url);
+      const d = await r.json();
+      const products = d.products || [];
+      renderProductGrid(products, `${products.length} product${products.length !== 1 ? 's' : ''} in collection`);
+    } catch(e) {
+      document.getElementById('productGridInner').innerHTML = `<div class="no-results">Failed to load collection products</div>`;
+    }
+  }
+
+  function renderProductGrid(products, label) {
+    document.getElementById('productPhotoGrid').style.display = 'block';
+    document.getElementById('gridResultLabel').textContent = label;
+
+    if (!products.length) {
+      document.getElementById('productGridInner').innerHTML = `<div class="no-results">No products found</div>`;
+      updateGridSelectedCount();
+      return;
+    }
+
+    // Expand all photos for all products
+    const photos = [];
+    products.forEach(p => {
+      const imgs = p.images || [];
+      imgs.forEach(img => {
+        photos.push({ productId: String(p.id), productTitle: p.title, productHandle: p.handle, imageUrl: img.src || img.url, imageId: String(img.id) });
+      });
+    });
+
+    const existingUrls = new Set((EditorState.gallery.images || []).map(i => i.url));
+
+    document.getElementById('productGridInner').innerHTML = photos.map((ph, idx) => {
+      const alreadyAdded = existingUrls.has(ph.imageUrl);
+      const isSelected = EditorState.pendingPhotos.some(p => p.imageId === ph.imageId);
+      return `<div class="product-photo-card ${isSelected ? 'selected' : ''} ${alreadyAdded ? 'already-added' : ''}"
+        onclick="togglePhotoSelect(${idx})" data-idx="${idx}" title="${escHtml(ph.productTitle)}">
+        <img src="${ph.imageUrl}&width=200" loading="lazy" onerror="this.src='${ph.imageUrl}'" />
+        <div class="photo-check">&#10003;</div>
+        <div class="photo-name">${escHtml(ph.productTitle)}</div>
+      </div>`;
+    }).join('');
+
+    // Store photos for toggling
+    EditorState._currentGridPhotos = photos;
+    updateGridSelectedCount();
+  }
+
+  function togglePhotoSelect(idx) {
+    const photo = EditorState._currentGridPhotos?.[idx];
+    if (!photo) return;
+    const existingIdx = EditorState.pendingPhotos.findIndex(p => p.imageId === photo.imageId);
+    if (existingIdx >= 0) {
+      EditorState.pendingPhotos.splice(existingIdx, 1);
+    } else {
+      EditorState.pendingPhotos.push(photo);
+    }
+    // Update card UI
+    const card = document.querySelector(`.product-photo-card[data-idx="${idx}"]`);
+    if (card) card.classList.toggle('selected', existingIdx < 0);
+    updateGridSelectedCount();
+    // Auto-add to gallery
+    addPendingPhotosToGallery();
+  }
+
+  function updateGridSelectedCount() {
+    const el = document.getElementById('gridSelectedCount');
+    if (el) el.textContent = EditorState.pendingPhotos.length ? `${EditorState.pendingPhotos.length} selected` : '';
+  }
+
+  function addPendingPhotosToGallery() {
+    if (!EditorState.gallery.images) EditorState.gallery.images = [];
+    const existingUrls = new Set(EditorState.gallery.images.map(i => i.url));
+    EditorState.pendingPhotos.forEach(ph => {
+      if (!existingUrls.has(ph.imageUrl)) {
+        EditorState.gallery.images.push({
+          id: 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2),
+          url: ph.imageUrl,
+          productId: ph.productId,
+          productTitle: ph.productTitle,
+          productHandle: ph.productHandle,
+          alt: ph.productTitle,
+          title: ph.productTitle,
+          hotspots: [{
+            id: 'hs_' + Date.now(),
+            x: 50, y: 50,
+            productId: ph.productId,
+            productTitle: ph.productTitle,
+            productHandle: ph.productHandle,
+            productImage: ph.imageUrl
+          }]
+        });
+        existingUrls.add(ph.imageUrl);
+      }
+    });
+    renderImagesTray();
+    markUnsaved();
+  }
+
+  // ---- EXTERNAL IMAGE UPLOAD ----
+  async function handleExternalUpload(files) {
+    if (!files.length) return;
+    for (const file of Array.from(files)) {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const base64 = e.target.result.split(',')[1];
+        try {
+          showToast('Uploading ' + file.name + '...', 'info');
+          const d = await api({ subAction: 'upload-image' }, 'POST', {
+            subAction: 'upload-image', base64, filename: file.name, mimeType: file.type
+          });
+          if (!EditorState.gallery.images) EditorState.gallery.images = [];
+          EditorState.gallery.images.push({
+            id: 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2),
+            url: d.url, fileId: d.fileId,
+            alt: file.name.replace(/\.[^.]+$/, ''),
+            title: file.name.replace(/\.[^.]+$/, ''),
+            hotspots: []
+          });
+          renderImagesTray();
+          markUnsaved();
+          showToast('Image uploaded', 'success');
+        } catch (err) {
+          showToast('Upload failed: ' + err.message, 'error');
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+    // Reset file input
+    document.getElementById('externalFileInput').value = '';
+  }
+
+  // ---- IMAGES TRAY ----
+  function renderImagesTray() {
+    const images = EditorState.gallery.images || [];
+    document.getElementById('imageCount').textContent = images.length;
+    const tray = document.getElementById('imagesTray');
+    if (!images.length) { tray.innerHTML = ''; return; }
+    tray.innerHTML = images.map((img, idx) => `
+      <div class="tray-item">
+        <img src="${img.url}&width=300" onerror="this.src='${img.url}'" loading="lazy" />
+        <div class="tray-item-info" title="${escHtml(img.productTitle || img.title || '')}">
+          ${escHtml(img.productTitle || img.title || 'External image')}
+        </div>
+        <div class="tray-item-actions">
+          <div style="display:flex;gap:2px">
+            <button class="tray-move-btn" onclick="moveImage(${idx}, -1)" ${idx === 0 ? 'disabled' : ''}>&#8593;</button>
+            <button class="tray-move-btn" onclick="moveImage(${idx}, 1)" ${idx === images.length - 1 ? 'disabled' : ''}>&#8595;</button>
+          </div>
+          <button class="tray-delete-btn" onclick="removeImage(${idx})" title="Remove">&#128465;</button>
+        </div>
+      </div>`).join('');
+  }
+
+  function moveImage(idx, direction) {
+    const images = EditorState.gallery.images;
+    const newIdx = idx + direction;
+    if (newIdx < 0 || newIdx >= images.length) return;
+    [images[idx], images[newIdx]] = [images[newIdx], images[idx]];
+    renderImagesTray();
+    markUnsaved();
+  }
+
+  function removeImage(idx) {
+    EditorState.gallery.images.splice(idx, 1);
+    // Also remove from pending if present
+    EditorState.pendingPhotos = EditorState.pendingPhotos.filter((_, i) => i !== idx);
+    renderImagesTray();
+    markUnsaved();
+  }
+
+  // ---- SAVE EDITOR ----
+  async function saveEditor() {
+    const title = document.getElementById('eTitle').value.trim();
+    if (!title) { showToast('Gallery title is required', 'error'); return; }
+
+    const btn = document.getElementById('editorSaveBtn');
+    btn.textContent = 'Saving...';
+    btn.disabled = true;
+
+    const g = EditorState.gallery;
+    g.title = title;
+    g.displayTitle = document.getElementById('eDisplayTitle').value;
+    g.description = document.getElementById('eDescription').value.trim();
+    g.status = document.getElementById('eStatus').value;
+    g.columnSpacing = document.getElementById('eColumnSpacing').value;
+    g.galleryImageSize = document.getElementById('eImageSize').value;
+    g.columnsDesktop = parseInt(document.getElementById('eColsDesktop').value) || 4;
+    g.columnsTablet = parseInt(document.getElementById('eColsTablet').value) || 2;
+    g.columnsMobile = parseInt(document.getElementById('eColsMobile').value) || 1;
+    g.lightboxEnabled = document.getElementById('eLightbox').checked;
+    g.customCss = document.getElementById('eCustomCss').value;
+
+    try {
+      const d = await api({ subAction: 'save-gallery' }, 'POST', { subAction: 'save-gallery', gallery: g });
+      // Update in AppState
+      const idx = AppState.galleries.findIndex(x => x.id === g.id);
+      if (idx >= 0) AppState.galleries[idx] = d.gallery;
+      EditorState.gallery = d.gallery;
+      EditorState.unsaved = false;
+      document.getElementById('unsavedBadge').classList.remove('visible');
+      document.getElementById('editorTitleDisplay').textContent = d.gallery.title;
+      updateEditorStatusBadge();
+      applyFilter();
+      showToast('Gallery saved', 'success');
+    } catch (e) {
+      showToast('Save failed: ' + e.message, 'error');
+    }
+
+    btn.textContent = 'Save';
+    btn.disabled = false;
+  }
+
+  function copyEmbedCode() {
+    const code = document.getElementById('embedCodeInput').value;
+    copyToClipboard(code);
+    const btn = document.getElementById('embedCopyBtn');
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 2000);
+  }
+
+  function copyEmbedId() {
+    copyToClipboard(String(EditorState.gallery?.id || ''));
+    showToast('ID copied', 'success');
+  }
+
+  function confirmDeleteCurrentGallery() {
+    const g = EditorState.gallery;
+    if (!g) return;
+    showModal('Delete Gallery',
+      `Are you sure you want to delete "<strong>${escHtml(g.title)}</strong>"? This cannot be undone.`,
+      async () => {
+        closeModal();
+        try {
+          await api({ subAction: 'delete-gallery' }, 'POST', { subAction: 'delete-gallery', id: g.id });
+          AppState.galleries = AppState.galleries.filter(x => x.id !== g.id);
+          applyFilter();
+          doCloseEditor();
+          showToast('Gallery deleted', 'success');
+        } catch (e) {
+          showToast('Delete failed: ' + e.message, 'error');
+        }
+      }, 'Delete');
   }
 
   async function duplicateGallery(id) {
