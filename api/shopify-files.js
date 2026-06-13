@@ -1186,10 +1186,15 @@ module.exports = async function handler(req, res) {
 
       // ---- Webhook: auto-replace archived product hotspots ----
       if (subAction === 'product-archived-webhook') {
-        // Shopify products/update webhook fires here when a product is archived
         const payload = body.payload || body;
         if (!payload || !payload.id || payload.status !== 'archived') {
           return res.status(200).json({ ok: true, skipped: true, reason: 'not archived or no payload' });
+        }
+
+        // Skip About Wall Art's own products — they never get archived
+        const vendor = (payload.vendor || '').trim().toLowerCase();
+        if (vendor === 'about wall art') {
+          return res.status(200).json({ ok: true, skipped: true, reason: 'about wall art product — skipped' });
         }
 
         try {
@@ -1200,17 +1205,20 @@ module.exports = async function handler(req, res) {
           const { galleries, sha } = await readGalleries();
           if (!galleries.length) return res.status(200).json({ ok: true, skipped: true, reason: 'no galleries' });
 
-          // Find all galleries + images that have a hotspot linking to the archived product
+          // Collect affected images with their collectionId
           let affectedCount = 0;
+          const collectionIds = new Set();
           const updatedGalleries = galleries.map(gallery => {
             if (!gallery.images) return gallery;
             const updatedImages = gallery.images.map(img => {
               if (!img.hotspots) return img;
+              const hasArchived = img.hotspots.some(hs => hs.productId === archivedProductId || hs.productGid === archivedGid);
+              if (!hasArchived) return img;
+              if (img.collectionId) collectionIds.add(img.collectionId);
               const updatedHotspots = img.hotspots.map(hs => {
                 if (hs.productId !== archivedProductId && hs.productGid !== archivedGid) return hs;
-                // Mark for replacement — replacement happens below
                 affectedCount++;
-                return { ...hs, _needsReplacement: true, _archivedProductId: archivedProductId, _archivedTags: archivedTags };
+                return { ...hs, _needsReplacement: true };
               });
               return { ...img, hotspots: updatedHotspots };
             });
@@ -1219,25 +1227,63 @@ module.exports = async function handler(req, res) {
 
           if (!affectedCount) return res.status(200).json({ ok: true, skipped: true, reason: 'product not in any gallery hotspot' });
 
-          // Find a replacement: active product sharing the most tags
+          // Helper: score a product by tag match count
+          const scoreByTags = (product) => {
+            const tags = Array.isArray(product.tags) ? product.tags : (product.tags || '').split(',').map(t => t.trim());
+            return tags.filter(t => archivedTags.includes(t)).length;
+          };
+
+          // Helper: map REST product to common shape
+          const mapRest = (p) => ({
+            id: `gid://shopify/Product/${p.id}`,
+            numericId: String(p.id),
+            title: p.title,
+            handle: p.handle,
+            tags: (p.tags || '').split(',').map(t => t.trim()),
+            imageUrl: p.images?.[0]?.src || ''
+          });
+
+          // Helper: map GraphQL product to common shape
+          const mapGql = (node) => ({
+            id: node.id,
+            numericId: node.id.replace('gid://shopify/Product/', ''),
+            title: node.title,
+            handle: node.handle,
+            tags: node.tags || [],
+            imageUrl: node.images?.edges?.[0]?.node?.url || ''
+          });
+
           let replacementProduct = null;
-          if (archivedTags.length > 0) {
+
+          // 1. Search in the same collection(s) first
+          for (const collId of collectionIds) {
+            if (replacementProduct) break;
+            const colRes = await fetch(
+              `${restBase}/products.json?collection_id=${collId}&status=active&limit=250`,
+              { headers: { 'X-Shopify-Access-Token': accessToken } }
+            );
+            const colData = await colRes.json();
+            const candidates = (colData.products || [])
+              .filter(p => String(p.id) !== archivedProductId)
+              .map(mapRest)
+              .sort((a, b) => scoreByTags(b) - scoreByTags(a));
+            if (candidates.length) replacementProduct = candidates[0];
+          }
+
+          // 2. Fallback: store-wide tag search if no collection match
+          if (!replacementProduct && archivedTags.length > 0) {
             const tagQuery = archivedTags.slice(0, 3).map(t => `tag:'${t}'`).join(' OR ');
-            const searchQuery = `{ products(first: 10, query: "status:active ${tagQuery}") { edges { node { id title handle tags images(first:1) { edges { node { url } } } } } } }`;
+            const searchQuery = `{ products(first: 20, query: "status:active ${tagQuery}") { edges { node { id title handle tags images(first:1) { edges { node { url } } } } } } }`;
             const sr = await fetch(gqlUrl, { method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query: searchQuery }) });
             const sd = await sr.json();
             const candidates = (sd.data?.products?.edges || [])
-              .map(e => e.node)
-              .filter(p => p.id !== archivedGid);
-            // Pick the one with the most matching tags
-            replacementProduct = candidates.sort((a, b) => {
-              const aMatches = (a.tags || []).filter(t => archivedTags.includes(t)).length;
-              const bMatches = (b.tags || []).filter(t => archivedTags.includes(t)).length;
-              return bMatches - aMatches;
-            })[0] || null;
+              .map(e => mapGql(e.node))
+              .filter(p => p.numericId !== archivedProductId)
+              .sort((a, b) => scoreByTags(b) - scoreByTags(a));
+            if (candidates.length) replacementProduct = candidates[0];
           }
 
-          // Apply replacement or remove hotspot if no match found
+          // Apply replacement or remove hotspot
           const finalGalleries = updatedGalleries.map(gallery => {
             if (!gallery.images) return gallery;
             let galleryNeedsReview = false;
@@ -1246,17 +1292,15 @@ module.exports = async function handler(req, res) {
               const updatedHotspots = img.hotspots.map(hs => {
                 if (!hs._needsReplacement) return hs;
                 if (replacementProduct) {
-                  const numericId = replacementProduct.id.replace('gid://shopify/Product/', '');
                   return {
                     id: hs.id, x: hs.x, y: hs.y,
-                    productId: numericId,
+                    productId: replacementProduct.numericId,
                     productGid: replacementProduct.id,
                     productTitle: replacementProduct.title,
                     productHandle: replacementProduct.handle,
-                    productImage: replacementProduct.images?.edges?.[0]?.node?.url || ''
+                    productImage: replacementProduct.imageUrl
                   };
                 }
-                // No replacement found — remove hotspot, flag gallery
                 galleryNeedsReview = true;
                 return null;
               }).filter(Boolean);
