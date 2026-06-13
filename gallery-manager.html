@@ -745,7 +745,7 @@
   <div class="header-left">
     <div>
       <div class="header-title">Gallery Manager</div>
-      <div class="header-version">v5.00</div>
+      <div class="header-version">v5.01</div>
     </div>
   </div>
   <div class="store-badge" id="storeBadge">aboutwallart.com</div>
@@ -1502,6 +1502,7 @@
     document.getElementById('editorTitleDisplay').textContent = g.title;
     updateEditorStatusBadge();
     document.getElementById('unsavedBadge').classList.remove('visible');
+    EditorState.extractedPalette = g.palette || [];
   }
 
   function updateEditorStatusBadge() {
@@ -1929,6 +1930,7 @@ const rowsHtml = products.map(p => {
     btn.disabled = true;
 
     const g = EditorState.gallery;
+    g.palette = EditorState.extractedPalette || [];
     g.title = title;
     g.displayTitle = document.getElementById('eDisplayTitle').value;
     g.description = document.getElementById('eDescription').value.trim();
