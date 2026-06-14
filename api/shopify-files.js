@@ -1349,6 +1349,45 @@ module.exports = async function handler(req, res) {
   }
 
   // -------------------------------------------------------
+  // SET PAGE METAFIELD LINKS — append a GID to a page's linked_* metafield
+  // Used by Link Whisperer inbound link push for trend pages (Phase 1)
+  // -------------------------------------------------------
+  if (req.query.action === 'set-page-metafield-links' && req.method === 'POST') {
+    const { ownerGid, metafieldKey, targetGid, metafieldType } = req.body;
+    if (!ownerGid || !metafieldKey || !targetGid || !metafieldType) {
+      return res.status(400).json({ error: 'Missing ownerGid, metafieldKey, targetGid, or metafieldType' });
+    }
+    const shopifyHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
+    const gqlUrl = `https://${shopifyDomain}/admin/api/2025-01/graphql.json`;
+    try {
+      // Read current metafield value
+      const readQuery = `{ node(id: "${ownerGid}") { ... on Page { metafield(namespace: "custom", key: "${metafieldKey}") { value } } } }`;
+      const readRes = await fetch(gqlUrl, { method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query: readQuery }) });
+      const readData = await readRes.json();
+      if (readData.errors) throw new Error(readData.errors[0].message);
+      const existing = readData.data?.node?.metafield?.value;
+      let gids = [];
+      if (existing) { try { gids = JSON.parse(existing); } catch(e) {} }
+      // Append only if not already present
+      if (gids.includes(targetGid)) {
+        return res.status(200).json({ success: true, skipped: true, message: 'Already linked' });
+      }
+      gids.push(targetGid);
+      // Write back
+      const mutation = `mutation metafieldsSet($m: [MetafieldsSetInput!]!) { metafieldsSet(metafields: $m) { metafields { id value } userErrors { field message } } }`;
+      const variables = { m: [{ ownerId: ownerGid, namespace: 'custom', key: metafieldKey, value: JSON.stringify(gids), type: metafieldType }] };
+      const mutRes = await fetch(gqlUrl, { method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query: mutation, variables }) });
+      const mutData = await mutRes.json();
+      if (mutData.errors) throw new Error(mutData.errors[0].message);
+      const userErrors = mutData.data?.metafieldsSet?.userErrors || [];
+      if (userErrors.length) throw new Error(userErrors[0].message);
+      return res.status(200).json({ success: true, gids });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // -------------------------------------------------------
   // EXISTING IMAGE OPTIMIZER ACTIONS — POST only
   // -------------------------------------------------------
   if (req.method !== 'POST') {
