@@ -247,7 +247,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v17.27</div>
+    <div class="version">v17.28</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -845,6 +845,15 @@
         <button class="btn-action" style="background:#1565c0;" onclick="migrateProductsToMetafields()" id="btn-migrate-products">Migrate Products</button>
         <span id="migrate-products-status" style="font-size:12px;color:#888;margin-left:12px;"></span>
         <div id="migrate-products-preview" style="display:none;margin-top:16px;"></div>
+      </div>
+
+      <!-- MIGRATE COLLECTIONS TO METAFIELDS -->
+      <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:24px;margin-bottom:20px;">
+        <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#333;margin-bottom:4px;">Migrate Collections to Metafields</h3>
+        <p style="font-size:12px;color:#888;margin-bottom:16px;">Scans all collections for the "Not sure where to start?" sentence written into the collection description. Moves the linked blog post into the collection's Shopify metafield, then removes the old sentence from the description. Shows a full preview before making any changes — nothing is saved until you confirm. Make sure your Shopify data is synced first.</p>
+        <button class="btn-action" style="background:#1565c0;" onclick="migrateCollectionsToMetafields()" id="btn-migrate-collections">Migrate Collections</button>
+        <span id="migrate-collections-status" style="font-size:12px;color:#888;margin-left:12px;"></span>
+        <div id="migrate-collections-preview" style="display:none;margin-top:16px;"></div>
       </div>
 
       <!-- CLEAR CACHE -->
@@ -2646,6 +2655,215 @@ async function confirmMigrateProducts() {
   });
   migrateProductPlan = migrateProductPlan.filter((_, i) => !checkedIdxs.has(i));
   updateProductMigrateConfirmBtn();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BATCH 4 — COLLECTIONS MIGRATION
+
+const COLLECTION_MIGRATE_PATTERNS = [
+  { key: 'colToBlog', starts: ['not sure where to start? our guide'], ends: ['is packed with ideas to help you style these pieces in your home'] },
+];
+
+let migrateCollectionPlan = [];
+
+function detectCollectionMigrateType(paraText) {
+  const t = paraText.toLowerCase();
+  for(const pat of COLLECTION_MIGRATE_PATTERNS) {
+    const matchStart = pat.starts.some(s => t.startsWith(s));
+    const matchEnd   = pat.ends.some(e => t.endsWith(e));
+    if(matchStart && matchEnd) return pat.key;
+  }
+  return null;
+}
+
+function metafieldKeyForCollectionTarget(pType) {
+  if(pType === 'colToBlog') return { key: 'linked_blogs', type: 'list.article_reference' };
+  return null;
+}
+
+async function migrateCollectionsToMetafields() {
+  const btn    = document.getElementById('btn-migrate-collections');
+  const status = document.getElementById('migrate-collections-status');
+  const preview = document.getElementById('migrate-collections-preview');
+  btn.disabled = true;
+  preview.style.display = 'none';
+  status.textContent = 'Scanning collections…';
+
+  const bodyCache = JSON.parse(localStorage.getItem('lw-body-cache') || '{}');
+  const collectionItems = AppState.items.filter(i => i.type === 'collection');
+
+  migrateCollectionPlan = [];
+
+  for(const item of collectionItems) {
+    const html = bodyCache[item.id] || item.bodyHtml || '';
+    if(!html) continue;
+
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const paras = Array.from(doc.querySelectorAll('p'));
+    const parasToRemove = [];
+    const linksToMigrate = [];
+
+    for(const p of paras) {
+      const pType = detectCollectionMigrateType(p.textContent.trim().toLowerCase());
+      if(!pType) continue;
+      const anchor = p.querySelector('a[href]');
+      if(!anchor) continue;
+      const href = anchor.getAttribute('href');
+      const targetItem = resolveHrefToItem(href);
+      if(!targetItem) continue;
+      const mf = metafieldKeyForCollectionTarget(pType);
+      if(!mf) continue;
+      const gid = itemToGid(targetItem);
+      if(!gid) continue;
+      parasToRemove.push(p);
+      linksToMigrate.push({ targetItem, metafieldKey: mf.key, metafieldType: mf.type, targetGid: gid, phraseType: pType });
+    }
+
+    if(!linksToMigrate.length) continue;
+
+    let cleanedHtml = html;
+    for(const p of parasToRemove) {
+      const pText = p.textContent.trim();
+      if(!pText) continue;
+      cleanedHtml = cleanedHtml.replace(/<p[^>]*>[\s\S]*?<\/p>/gi, match => {
+        const matchText = match.replace(/<[^>]+>/g, '').trim();
+        return matchText === pText ? '' : match;
+      });
+    }
+
+    migrateCollectionPlan.push({ sourceItem: item, linksToMigrate, cleanedHtml });
+  }
+
+  btn.disabled = false;
+  status.textContent = '';
+
+  if(!migrateCollectionPlan.length) {
+    preview.style.display = 'block';
+    preview.innerHTML = `<div style="background:#f5f5f5;border-radius:6px;padding:16px;font-size:13px;color:#555;">No Link Whisperer phrases found in collection descriptions — nothing to migrate.</div>`;
+    return;
+  }
+
+  const totalLinks = migrateCollectionPlan.reduce((n, p) => n + p.linksToMigrate.length, 0);
+  let html = `<div style="font-size:13px;font-weight:700;color:#333;margin-bottom:12px;">Found ${migrateCollectionPlan.length} collection(s) with ${totalLinks} phrase(s) to migrate. Review and confirm below.</div>`;
+
+  migrateCollectionPlan.forEach((p, idx) => {
+    const linkRows = p.linksToMigrate.map(l =>
+      `<div style="font-size:11px;color:#555;margin-top:4px;">→ Move link to <strong>${escHtml(l.targetItem.title)}</strong> into metafield <code>${l.metafieldKey}</code></div>`
+    ).join('');
+    html += `
+      <div style="background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;padding:12px;margin-bottom:10px;display:flex;gap:10px;align-items:flex-start;">
+        <input type="checkbox" data-col-migrate-idx="${idx}" checked onchange="updateCollectionMigrateConfirmBtn()" style="margin-top:2px;">
+        <div>
+          <div style="font-size:12px;font-weight:700;color:#333;">${escHtml(p.sourceItem.title)}</div>
+          ${linkRows}
+        </div>
+      </div>`;
+  });
+
+  html += `
+    <div style="margin-top:12px;">
+      <span style="margin-left:0;"><a href="#" onclick="setAllCollectionMigrateCbs(true);return false;">Select all</a> / <a href="#" onclick="setAllCollectionMigrateCbs(false);return false;">None</a></span>
+    </div>
+    <div style="margin-top:16px;">
+      <button class="btn-action" style="background:#1565c0;" onclick="confirmMigrateCollections()" id="btn-confirm-migrate-collections">Confirm — Migrate Selected</button>
+      <button class="btn-outline" style="margin-left:8px;" onclick="cancelMigrateCollections()">Cancel</button>
+    </div>`;
+
+  preview.style.display = 'block';
+  preview.innerHTML = html;
+  updateCollectionMigrateConfirmBtn();
+}
+
+function setAllCollectionMigrateCbs(checked) {
+  document.querySelectorAll('[data-col-migrate-idx]').forEach(cb => cb.checked = checked);
+  updateCollectionMigrateConfirmBtn();
+}
+
+function updateCollectionMigrateConfirmBtn() {
+  const btn = document.getElementById('btn-confirm-migrate-collections');
+  if(!btn) return;
+  const selected = document.querySelectorAll('[data-col-migrate-idx]:checked').length;
+  btn.disabled = selected === 0;
+  btn.textContent = selected === 0 ? 'Select at least one collection' : `Confirm — Migrate ${selected} Collection${selected > 1 ? 's' : ''}`;
+}
+
+function cancelMigrateCollections() {
+  migrateCollectionPlan = [];
+  const preview = document.getElementById('migrate-collections-preview');
+  preview.style.display = 'none';
+  preview.innerHTML = '';
+}
+
+async function confirmMigrateCollections() {
+  const confirmBtn = document.getElementById('btn-confirm-migrate-collections');
+  const status     = document.getElementById('migrate-collections-status');
+  const preview    = document.getElementById('migrate-collections-preview');
+  if(confirmBtn) confirmBtn.disabled = true;
+
+  const checkedIdxs = new Set(
+    Array.from(document.querySelectorAll('[data-col-migrate-idx]:checked'))
+      .map(cb => parseInt(cb.dataset.colMigrateIdx))
+  );
+  const selectedPlan = migrateCollectionPlan.filter((_, i) => checkedIdxs.has(i));
+
+  const total = selectedPlan.length;
+  let doneCols = 0, failedCols = 0;
+  const errors = [];
+
+  for(const plan of selectedPlan) {
+    status.textContent = `Working… ${doneCols} of ${total} collections done`;
+    try {
+      for(const link of plan.linksToMigrate) {
+        const ownerGid = `gid://shopify/Collection/${plan.sourceItem.shopifyId}`;
+        const res = await fetch(CONFIG.proxyUrl + '/api/shopify-files?action=set-page-metafield-links', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ownerGid, metafieldKey: link.metafieldKey, targetGid: link.targetGid, metafieldType: link.metafieldType })
+        });
+        if(!res.ok) {
+          const err = await res.json().catch(()=>({}));
+          throw new Error(err.error || 'Metafield write failed for ' + link.targetItem.title);
+        }
+      }
+
+      await saveItemToShopify(plan.sourceItem, plan.cleanedHtml);
+      plan.sourceItem.bodyHtml = plan.cleanedHtml;
+      try {
+        const bodyCache = JSON.parse(localStorage.getItem('lw-body-cache')||'{}');
+        bodyCache[plan.sourceItem.id] = plan.cleanedHtml;
+        localStorage.setItem('lw-body-cache', JSON.stringify(bodyCache));
+      } catch(e) {}
+
+      doneCols++;
+    } catch(e) {
+      errors.push(plan.sourceItem.title + ': ' + e.message);
+      failedCols++;
+    }
+  }
+
+  if(errors.length) {
+    preview.innerHTML = `
+      <div style="background:#fff3e0;border:1px solid #ffe0b2;border-radius:6px;padding:16px;">
+        <div style="font-size:13px;font-weight:700;color:#e65100;margin-bottom:8px;">⚠️ ${doneCols} collection(s) migrated, ${failedCols} failed</div>
+        <div style="font-size:11px;color:#555;">${errors.map(escHtml).join('<br>')}</div>
+      </div>`;
+    showToast('⚠️ ' + doneCols + ' migrated, ' + failedCols + ' failed', 'error');
+  } else {
+    preview.innerHTML = `
+      <div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:6px;padding:16px;">
+        <div style="font-size:13px;font-weight:700;color:#2e7d32;">✅ Done — ${doneCols} collection(s) migrated to metafields.</div>
+        <div style="font-size:11px;color:#555;margin-top:4px;">Old phrases removed from collection descriptions. Links now live in Shopify metafields.</div>
+      </div>`;
+    showToast('✅ Migration complete — ' + doneCols + ' collections updated', 'success');
+  }
+
+  status.textContent = '';
+  checkedIdxs.forEach(idx => {
+    const cb = document.querySelector(`[data-col-migrate-idx="${idx}"]`);
+    if(cb) cb.closest('div[style]').style.opacity = '0.4';
+  });
+  migrateCollectionPlan = migrateCollectionPlan.filter((_, i) => !checkedIdxs.has(i));
+  updateCollectionMigrateConfirmBtn();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
