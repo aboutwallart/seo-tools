@@ -247,7 +247,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v17.23</div>
+    <div class="version">v17.24</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -2026,9 +2026,18 @@ async function migrateTrendPagesToMetafields() {
 
       if(!linksToMigrate.length) continue;
 
-      // Remove matched paragraphs to get cleaned HTML
-      for(const p of parasToRemove) p.remove();
-      const cleanedHtml = root.innerHTML;
+      // Remove matched paragraphs using string replacement on the ORIGINAL html.
+      // (DOMParser.innerHTML serialisation can alter attribute quoting/whitespace,
+      //  which would cause Shopify to reject the save or leave the phrases in place.)
+      let cleanedHtml = html;
+      for(const p of parasToRemove) {
+        const pText = p.textContent.trim();
+        if(!pText) continue;
+        cleanedHtml = cleanedHtml.replace(/<p[^>]*>[\s\S]*?<\/p>/gi, match => {
+          const matchText = match.replace(/<[^>]+>/g, '').trim();
+          return matchText === pText ? '' : match;
+        });
+      }
 
       migrateTrendPlan.push({ sourceItem, linksToMigrate, cleanedHtml });
     } catch(e) { /* skip bad HTML */ }
