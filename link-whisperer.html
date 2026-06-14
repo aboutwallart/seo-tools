@@ -1332,6 +1332,15 @@ const DUPE_PATTERNS = [
   { key: 'trendToBlog', start: 'you may also want to read our article', end: 'styling ideas' },
 ];
 
+const MERGE_TEMPLATES = {
+  trendToCol:   (joined, n) => `Explore our ${joined} collections to find the perfect items for this trend.`,
+  blogToCol:    (joined, n) => `Browse our ${joined} collections to find pieces that bring this look to life in your home.`,
+  trendToTrend: (joined, n) => `If you enjoy this style, you may also love our ${n > 1 ? 'guides' : 'guide'} to ${joined}.`,
+  trendToBlog:  (joined, n) => `You may also want to read our ${n > 1 ? 'articles' : 'article'} ${joined} for more styling ideas.`,
+  blogToBlog:   (joined, n) => `You may also enjoy our ${n > 1 ? 'articles' : 'article'} ${joined} for more styling ideas.`,
+  blogToTrend:  (joined, n) => `If you love this style, explore our full ${n > 1 ? 'guides' : 'guide'} to ${joined} for more ideas and inspiration.`,
+};
+
 function detectPhraseType(paraText) {
   const t = paraText.toLowerCase();
   for(const p of DUPE_PATTERNS) {
@@ -1380,20 +1389,19 @@ function buildCleanedHtml(html) {
         changed = true;
       }
 
-      // If multiple unique URLs, rebuild the keeper with merged links
-      if(allLinks.size > 1) {
-        const linksHtml = Array.from(allLinks.values()).map(l => `<a href="${l.href}">${escHtml(l.title)}</a>`);
-        const joined = linksHtml.length === 2
+      // Rebuild the keeper with all unique links merged into one sentence
+      const linksHtml = Array.from(allLinks.values()).map(l => `<a href="${l.href}">${escHtml(l.title)}</a>`);
+      const count  = linksHtml.length;
+      const joined = count === 1
+        ? linksHtml[0]
+        : count === 2
           ? linksHtml[0] + ' and ' + linksHtml[1]
           : linksHtml.slice(0,-1).join(', ') + ' and ' + linksHtml[linksHtml.length-1];
-        const styleAttr = keeper.getAttribute('style') ? ` style="${keeper.getAttribute('style')}"` : '';
-        if(type === 'trendToCol') keeper.innerHTML = `Explore our ${joined} collections to find the perfect items for this trend.`;
-        else if(type === 'blogToCol') keeper.innerHTML = `Browse our ${joined} collections to find pieces that bring this look to life in your home.`;
-        // For other types, just keep the first occurrence (they link to a single target anyway)
-        changes.push(`Merged ${pList.length} "${type}" phrases (${allLinks.size} unique links) into one`);
-      } else {
-        changes.push(`Removed ${pList.length - 1} duplicate "${type}" phrase(s)`);
-      }
+      const template = MERGE_TEMPLATES[type];
+      if(template && allLinks.size > 0) keeper.innerHTML = template(joined, count);
+      changes.push(allLinks.size > 1
+        ? `Merged ${pList.length} "${type}" phrases (${allLinks.size} unique links) into one`
+        : `Removed ${pList.length - 1} duplicate "${type}" phrase(s)`);
     }
 
     if(!changed) return null;
@@ -3278,32 +3286,34 @@ function detectAlign(html) {
 // - Otherwise appends a new aligned paragraph with correct spacing
 function prepareInboundHtml(existingHtml, phraseHtml, targetTitle, targetUrl) {
   const existing = (existingHtml || '').trimEnd();
-  const isBlogToCol  = phraseHtml.includes('Browse our') && phraseHtml.includes('collection to find pieces');
-  const isTrendToCol = phraseHtml.includes('Explore our') && phraseHtml.includes('collection to find the perfect');
 
-  if(isBlogToCol || isTrendToCol) {
+  // Detect which phrase type we're adding
+  const phraseLower = phraseHtml.toLowerCase();
+  const matchedPattern = DUPE_PATTERNS.find(p => phraseLower.includes(p.start) && phraseLower.includes(p.end));
+
+  if(matchedPattern) {
     try {
       const doc = new DOMParser().parseFromString('<div>'+existing+'</div>', 'text/html');
       const root = doc.body.firstChild;
       let existingPara = null;
       for(const p of root.querySelectorAll('p')) {
         const t = p.textContent.toLowerCase();
-        if(isBlogToCol  && t.includes('browse our') && t.includes('collection to find pieces'))    { existingPara = p; break; }
-        if(isTrendToCol && t.includes('explore our') && t.includes('collection to find the perfect')) { existingPara = p; break; }
+        if(t.includes(matchedPattern.start) && t.includes(matchedPattern.end)) { existingPara = p; break; }
       }
       if(existingPara) {
         // Check if new URL already in this paragraph
         const nt = normUrl(targetUrl);
         const already = Array.from(existingPara.querySelectorAll('a[href]')).some(a => normUrl(a.getAttribute('href')||'') === nt);
-        if(already) return null; // already linked — skip
-        // Merge: build joined links
+        if(already) return null;
+        // Merge: add new link to existing links
         const links = Array.from(existingPara.querySelectorAll('a')).map(a => a.outerHTML);
         links.push(`<a href="${targetUrl}">${escHtml(targetTitle)}</a>`);
-        const joined = links.length === 2
+        const count  = links.length;
+        const joined = count === 2
           ? links[0] + ' and ' + links[1]
           : links.slice(0,-1).join(', ') + ' and ' + links[links.length-1];
-        if(isBlogToCol)  existingPara.innerHTML = `Browse our ${joined} collections to find pieces that bring this look to life in your home.`;
-        if(isTrendToCol) existingPara.innerHTML = `Explore our ${joined} collections to find the perfect items for this trend.`;
+        const template = MERGE_TEMPLATES[matchedPattern.key];
+        if(template) existingPara.innerHTML = template(joined, count);
         return root.innerHTML;
       }
     } catch(e) {}
