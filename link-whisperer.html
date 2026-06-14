@@ -247,7 +247,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v17.25</div>
+    <div class="version">v17.26</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -827,6 +827,15 @@
         <button class="btn-action" style="background:#1565c0;" onclick="migrateTrendPagesToMetafields()" id="btn-migrate-trends">Migrate Trend Pages</button>
         <span id="migrate-trends-status" style="font-size:12px;color:#888;margin-left:12px;"></span>
         <div id="migrate-trends-preview" style="display:none;margin-top:16px;"></div>
+      </div>
+
+      <!-- MIGRATE ARTICLES TO METAFIELDS -->
+      <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:24px;margin-bottom:20px;">
+        <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#333;margin-bottom:4px;">Migrate Articles to Metafields</h3>
+        <p style="font-size:12px;color:#888;margin-bottom:16px;">Scans all blog articles for existing inbound link sentences (collections, other articles, trend guides) written into the article body. Moves each link into the correct Shopify metafield, then removes the old sentence from the body. Shows a full preview before making any changes — nothing is saved until you confirm. Make sure your Shopify data is synced first.</p>
+        <button class="btn-action" style="background:#1565c0;" onclick="migrateArticlesToMetafields()" id="btn-migrate-articles">Migrate Articles</button>
+        <span id="migrate-articles-status" style="font-size:12px;color:#888;margin-left:12px;"></span>
+        <div id="migrate-articles-preview" style="display:none;margin-top:16px;"></div>
       </div>
 
       <!-- CLEAR CACHE -->
@@ -2178,6 +2187,220 @@ async function confirmMigrateTrends() {
         <div style="font-size:11px;color:#555;margin-top:4px;">Old phrases removed from body HTML. Links now live in Shopify metafields.</div>
       </div>`;
     showToast('✅ Migration complete — ' + donePages + ' trend pages updated', 'success');
+  }
+
+  status.textContent = '';
+  buildLinkGraph();
+  detectBrokenLinks();
+  renderLinksReport();
+  renderDashboard();
+}
+
+// ─── MIGRATE ARTICLES TO METAFIELDS ──────────────────────────────────────────
+
+const ARTICLE_MIGRATE_PATTERNS = [
+  { key: 'blogToCol',   starts: ['browse our'],                                      ends: ['collection to find pieces', 'collections to find pieces'] },
+  { key: 'blogToTrend', starts: ['if you love this style, explore our full guide to'], ends: ['for more ideas and inspiration'] },
+  { key: 'blogToBlog',  starts: ['you may also enjoy our article'],                  ends: ['for more styling ideas'] },
+];
+
+function detectArticleMigrateType(paraText) {
+  const t = paraText.toLowerCase();
+  for(const p of ARTICLE_MIGRATE_PATTERNS) {
+    const hasStart = p.starts.some(s => t.includes(s));
+    const hasEnd   = p.ends.some(e => t.includes(e));
+    if(hasStart && hasEnd) return p.key;
+  }
+  return null;
+}
+
+function metafieldKeyForArticleTarget(targetItem) {
+  const t = getPageLinkType(targetItem);
+  if(t === 'collection') return { key: 'linked_collections', type: 'list.collection_reference' };
+  if(t === 'trend')      return { key: 'linked_trends',      type: 'list.page_reference'       };
+  if(t === 'blog')       return { key: 'linked_blogs',       type: 'list.article_reference'    };
+  return null;
+}
+
+let migrateArticlePlan = [];
+
+async function migrateArticlesToMetafields() {
+  const btn    = document.getElementById('btn-migrate-articles');
+  const status = document.getElementById('migrate-articles-status');
+  const preview= document.getElementById('migrate-articles-preview');
+  btn.disabled = true;
+  preview.style.display = 'none';
+  status.textContent = 'Scanning articles…';
+
+  migrateArticlePlan = [];
+  const articles = AppState.items.filter(i => i.type === 'article');
+
+  for(const sourceItem of articles) {
+    const html = sourceItem.bodyHtml || '';
+    if(!html) continue;
+    try {
+      const doc  = new DOMParser().parseFromString('<div>' + html + '</div>', 'text/html');
+      const root = doc.body.firstChild;
+      const paras= Array.from(root.querySelectorAll('p'));
+
+      const linksToMigrate = [];
+      const parasToRemove  = [];
+
+      for(const p of paras) {
+        const pType = detectArticleMigrateType(p.textContent);
+        if(!pType) continue;
+        const anchors = Array.from(p.querySelectorAll('a[href]'));
+        let anyResolved = false;
+        for(const a of anchors) {
+          const targetItem = resolveHrefToItem(a.getAttribute('href'));
+          if(!targetItem) continue;
+          const mf = metafieldKeyForArticleTarget(targetItem);
+          if(!mf) continue;
+          const gid = itemToGid(targetItem);
+          if(!gid) continue;
+          linksToMigrate.push({ targetItem, metafieldKey: mf.key, metafieldType: mf.type, targetGid: gid, phraseType: pType });
+          anyResolved = true;
+        }
+        if(anyResolved) parasToRemove.push(p);
+      }
+
+      if(!linksToMigrate.length) continue;
+
+      let cleanedHtml = html;
+      for(const p of parasToRemove) {
+        const pText = p.textContent.trim();
+        if(!pText) continue;
+        cleanedHtml = cleanedHtml.replace(/<p[^>]*>[\s\S]*?<\/p>/gi, match => {
+          const matchText = match.replace(/<[^>]+>/g, '').trim();
+          return matchText === pText ? '' : match;
+        });
+      }
+
+      migrateArticlePlan.push({ sourceItem, linksToMigrate, cleanedHtml });
+    } catch(e) { /* skip bad HTML */ }
+  }
+
+  status.textContent = '';
+  btn.disabled = false;
+
+  if(!migrateArticlePlan.length) {
+    status.textContent = '✅ No Link Whisperer phrases found on articles — nothing to migrate.';
+    return;
+  }
+
+  const totalLinks = migrateArticlePlan.reduce((n, p) => n + p.linksToMigrate.length, 0);
+  const rows = migrateArticlePlan.map((p, idx) => {
+    const linkRows = p.linksToMigrate.map(l =>
+      `<div style="font-size:11px;color:#555;margin-top:2px;padding-left:24px;">
+        → Move "<strong>${escHtml(l.targetItem.title)}</strong>" to <em>${l.metafieldKey}</em>
+      </div>`
+    ).join('');
+    return `<div style="padding:8px 0;border-bottom:1px solid #eee;">
+      <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
+        <input type="checkbox" data-article-migrate-idx="${idx}" checked onchange="updateArticleMigrateConfirmBtn()" style="margin-top:2px;">
+        <div>
+          <div style="font-size:12px;font-weight:600;">${escHtml(p.sourceItem.title)}</div>
+          ${linkRows}
+        </div>
+      </label>
+    </div>`;
+  }).join('');
+
+  preview.innerHTML = `
+    <div style="font-size:12px;color:#555;margin-bottom:10px;">
+      Found <strong>${migrateArticlePlan.length}</strong> article(s) with <strong>${totalLinks}</strong> link(s) to migrate.
+      <span style="margin-left:8px;"><a href="#" onclick="setAllArticleMigrateCbs(true);return false;">Select all</a> / <a href="#" onclick="setAllArticleMigrateCbs(false);return false;">None</a></span>
+    </div>
+    <div style="max-height:320px;overflow-y:auto;border:1px solid #e0e0e0;border-radius:6px;padding:8px 12px;background:#fafafa;">${rows}</div>
+    <div style="margin-top:12px;">
+      <button class="btn-action" style="background:#1565c0;" onclick="confirmMigrateArticles()" id="btn-confirm-migrate-articles">Confirm — Migrate Selected</button>
+      <button class="btn-outline" style="margin-left:8px;" onclick="cancelMigrateArticles()">Cancel</button>
+    </div>`;
+  preview.style.display = 'block';
+}
+
+function setAllArticleMigrateCbs(checked) {
+  document.querySelectorAll('[data-article-migrate-idx]').forEach(cb => cb.checked = checked);
+  updateArticleMigrateConfirmBtn();
+}
+
+function updateArticleMigrateConfirmBtn() {
+  const btn = document.getElementById('btn-confirm-migrate-articles');
+  if(!btn) return;
+  const selected = document.querySelectorAll('[data-article-migrate-idx]:checked').length;
+  btn.disabled = selected === 0;
+  btn.textContent = selected === 0 ? 'Select at least one article' : `Confirm — Migrate ${selected} Article${selected > 1 ? 's' : ''}`;
+}
+
+function cancelMigrateArticles() {
+  migrateArticlePlan = [];
+  document.getElementById('migrate-articles-preview').style.display = 'none';
+  document.getElementById('migrate-articles-status').textContent = '';
+}
+
+async function confirmMigrateArticles() {
+  const confirmBtn = document.getElementById('btn-confirm-migrate-articles');
+  const status     = document.getElementById('migrate-articles-status');
+  const preview    = document.getElementById('migrate-articles-preview');
+  if(confirmBtn) confirmBtn.disabled = true;
+
+  const checkedIdxs = new Set(
+    Array.from(document.querySelectorAll('[data-article-migrate-idx]:checked'))
+      .map(cb => parseInt(cb.dataset.articleMigrateIdx))
+  );
+  const selectedPlan = migrateArticlePlan.filter((_, i) => checkedIdxs.has(i));
+
+  const total = selectedPlan.length;
+  let donePages = 0, failedPages = 0;
+  const errors = [];
+
+  for(const plan of selectedPlan) {
+    status.textContent = `Working… ${donePages} of ${total} articles done`;
+    try {
+      for(const link of plan.linksToMigrate) {
+        const ownerGid = `gid://shopify/Article/${plan.sourceItem.shopifyId}`;
+        const res = await fetch(CONFIG.proxyUrl + '/api/shopify-files?action=set-page-metafield-links', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ownerGid, metafieldKey: link.metafieldKey, targetGid: link.targetGid, metafieldType: link.metafieldType })
+        });
+        if(!res.ok) {
+          const err = await res.json().catch(()=>({}));
+          throw new Error(err.error || 'Metafield write failed for ' + link.targetItem.title);
+        }
+      }
+
+      await saveItemToShopify(plan.sourceItem, plan.cleanedHtml);
+      plan.sourceItem.bodyHtml = plan.cleanedHtml;
+      try {
+        const bodyCache = JSON.parse(localStorage.getItem('lw-body-cache')||'{}');
+        bodyCache[plan.sourceItem.id] = plan.cleanedHtml;
+        localStorage.setItem('lw-body-cache', JSON.stringify(bodyCache));
+      } catch(e) {}
+
+      donePages++;
+    } catch(e) {
+      errors.push(plan.sourceItem.title + ': ' + e.message);
+      failedPages++;
+    }
+  }
+
+  migrateArticlePlan = [];
+
+  if(errors.length) {
+    preview.innerHTML = `
+      <div style="background:#fff3e0;border:1px solid #ffe0b2;border-radius:6px;padding:16px;">
+        <div style="font-size:13px;font-weight:700;color:#e65100;margin-bottom:8px;">⚠️ ${donePages} article(s) migrated, ${failedPages} failed</div>
+        <div style="font-size:11px;color:#555;">${errors.map(escHtml).join('<br>')}</div>
+      </div>`;
+    showToast('⚠️ ' + donePages + ' migrated, ' + failedPages + ' failed', 'error');
+  } else {
+    preview.innerHTML = `
+      <div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:6px;padding:16px;">
+        <div style="font-size:13px;font-weight:700;color:#2e7d32;">✅ Done — ${donePages} article(s) migrated to metafields.</div>
+        <div style="font-size:11px;color:#555;margin-top:4px;">Old phrases removed from body HTML. Links now live in Shopify metafields.</div>
+      </div>`;
+    showToast('✅ Migration complete — ' + donePages + ' articles updated', 'success');
   }
 
   status.textContent = '';
