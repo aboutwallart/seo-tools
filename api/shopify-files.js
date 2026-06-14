@@ -1360,8 +1360,9 @@ module.exports = async function handler(req, res) {
     const shopifyHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
     const gqlUrl = `https://${shopifyDomain}/admin/api/2025-01/graphql.json`;
     try {
-      // Read current metafield value
-      const readQuery = `{ node(id: "${ownerGid}") { ... on Page { metafield(namespace: "custom", key: "${metafieldKey}") { value } } } }`;
+      // Read current metafield value — fragment depends on owner type
+      const ownerType = ownerGid.includes('/Article/') ? 'Article' : 'Page';
+      const readQuery = `{ node(id: "${ownerGid}") { ... on ${ownerType} { metafield(namespace: "custom", key: "${metafieldKey}") { value } } } }`;
       const readRes = await fetch(gqlUrl, { method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query: readQuery }) });
       const readData = await readRes.json();
       if (readData.errors) throw new Error(readData.errors[0].message);
