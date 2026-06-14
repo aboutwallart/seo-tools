@@ -247,7 +247,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v17.26</div>
+    <div class="version">v17.27</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -836,6 +836,15 @@
         <button class="btn-action" style="background:#1565c0;" onclick="migrateArticlesToMetafields()" id="btn-migrate-articles">Migrate Articles</button>
         <span id="migrate-articles-status" style="font-size:12px;color:#888;margin-left:12px;"></span>
         <div id="migrate-articles-preview" style="display:none;margin-top:16px;"></div>
+      </div>
+
+      <!-- MIGRATE PRODUCTS TO METAFIELDS -->
+      <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:24px;margin-bottom:20px;">
+        <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#333;margin-bottom:4px;">Migrate Products to Metafields</h3>
+        <p style="font-size:12px;color:#888;margin-bottom:16px;">Scans all products for existing collection and blog link sentences written into the product body. Moves each link into the correct Shopify metafield, then removes the old sentence from the body. Shows a full preview before making any changes — nothing is saved until you confirm. Run in batches of 50 to avoid timeouts. Make sure your Shopify data is synced first.</p>
+        <button class="btn-action" style="background:#1565c0;" onclick="migrateProductsToMetafields()" id="btn-migrate-products">Migrate Products</button>
+        <span id="migrate-products-status" style="font-size:12px;color:#888;margin-left:12px;"></span>
+        <div id="migrate-products-preview" style="display:none;margin-top:16px;"></div>
       </div>
 
       <!-- CLEAR CACHE -->
@@ -2408,6 +2417,235 @@ async function confirmMigrateArticles() {
   detectBrokenLinks();
   renderLinksReport();
   renderDashboard();
+}
+
+// ─── MIGRATE PRODUCTS TO METAFIELDS ──────────────────────────────────────────
+
+const PRODUCT_MIGRATE_PATTERNS = [
+  { key: 'productToCol',  starts: ['this product is part of our'], ends: ['collection — explore in full'] },
+  { key: 'productToBlog', starts: ['looking for inspiration? our article'], ends: ['to help you style this piece'] },
+];
+
+function detectProductMigrateType(paraText) {
+  const t = paraText.toLowerCase();
+  for(const p of PRODUCT_MIGRATE_PATTERNS) {
+    const hasStart = p.starts.some(s => t.includes(s));
+    const hasEnd   = p.ends.some(e => t.includes(e));
+    if(hasStart && hasEnd) return p.key;
+  }
+  return null;
+}
+
+function metafieldKeyForProductTarget(pType) {
+  if(pType === 'productToCol')  return { key: 'linked_collections', type: 'list.collection_reference' };
+  if(pType === 'productToBlog') return { key: 'linked_blogs',       type: 'list.article_reference'   };
+  return null;
+}
+
+function itemToGidProduct(item) {
+  if(!item || !item.shopifyId) return null;
+  if(item.type === 'collection') return `gid://shopify/Collection/${item.shopifyId}`;
+  if(item.type === 'article')   return `gid://shopify/Article/${item.shopifyId}`;
+  return null;
+}
+
+let migrateProductPlan = [];
+
+async function migrateProductsToMetafields() {
+  const btn    = document.getElementById('btn-migrate-products');
+  const status = document.getElementById('migrate-products-status');
+  const preview= document.getElementById('migrate-products-preview');
+  btn.disabled = true;
+  preview.style.display = 'none';
+  status.textContent = 'Scanning products…';
+
+  migrateProductPlan = [];
+  const products = AppState.items.filter(i => i.type === 'product');
+
+  for(const sourceItem of products) {
+    const html = sourceItem.bodyHtml || '';
+    if(!html) continue;
+    try {
+      const doc  = new DOMParser().parseFromString('<div>' + html + '</div>', 'text/html');
+      const root = doc.body.firstChild;
+      const paras= Array.from(root.querySelectorAll('p'));
+
+      const linksToMigrate = [];
+      const parasToRemove  = [];
+
+      for(const p of paras) {
+        const pType = detectProductMigrateType(p.textContent);
+        if(!pType) continue;
+        const mf = metafieldKeyForProductTarget(pType);
+        if(!mf) continue;
+        const anchors = Array.from(p.querySelectorAll('a[href]'));
+        let anyResolved = false;
+        for(const a of anchors) {
+          const targetItem = resolveHrefToItem(a.getAttribute('href'));
+          if(!targetItem) continue;
+          const gid = itemToGidProduct(targetItem);
+          if(!gid) continue;
+          linksToMigrate.push({ targetItem, metafieldKey: mf.key, metafieldType: mf.type, targetGid: gid, phraseType: pType });
+          anyResolved = true;
+        }
+        if(anyResolved) parasToRemove.push(p);
+      }
+
+      if(!linksToMigrate.length) continue;
+
+      let cleanedHtml = html;
+      for(const p of parasToRemove) {
+        const pText = p.textContent.trim();
+        if(!pText) continue;
+        cleanedHtml = cleanedHtml.replace(/<p[^>]*>[\s\S]*?<\/p>/gi, match => {
+          const matchText = match.replace(/<[^>]+>/g, '').trim();
+          return matchText === pText ? '' : match;
+        });
+      }
+
+      migrateProductPlan.push({ sourceItem, linksToMigrate, cleanedHtml });
+    } catch(e) { /* skip bad HTML */ }
+  }
+
+  status.textContent = '';
+  btn.disabled = false;
+
+  if(!migrateProductPlan.length) {
+    status.textContent = '✅ No Link Whisperer phrases found on products — nothing to migrate.';
+    return;
+  }
+
+  const totalLinks = migrateProductPlan.reduce((n, p) => n + p.linksToMigrate.length, 0);
+  const rows = migrateProductPlan.map((p, idx) => {
+    const linkRows = p.linksToMigrate.map(l =>
+      `<div style="font-size:11px;color:#555;margin-top:2px;padding-left:24px;">
+        → Move "<strong>${escHtml(l.targetItem.title)}</strong>" to <em>${l.metafieldKey}</em>
+      </div>`
+    ).join('');
+    return `<div style="padding:8px 0;border-bottom:1px solid #eee;">
+      <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;">
+        <input type="checkbox" data-product-migrate-idx="${idx}" checked onchange="updateProductMigrateConfirmBtn()" style="margin-top:2px;">
+        <div>
+          <div style="font-size:12px;font-weight:600;">${escHtml(p.sourceItem.title)}</div>
+          ${linkRows}
+        </div>
+      </label>
+    </div>`;
+  }).join('');
+
+  preview.innerHTML = `
+    <div style="font-size:12px;color:#555;margin-bottom:10px;">
+      Found <strong>${migrateProductPlan.length}</strong> product(s) with <strong>${totalLinks}</strong> link(s) to migrate.
+      <span style="margin-left:8px;">
+        <a href="#" onclick="setAllProductMigrateCbs(true);return false;">Select all</a> /
+        <a href="#" onclick="setAllProductMigrateCbs(false);return false;">None</a> /
+        <a href="#" onclick="selectFirstNProductCbs(50);return false;">First 50</a>
+      </span>
+    </div>
+    <div style="max-height:320px;overflow-y:auto;border:1px solid #e0e0e0;border-radius:6px;padding:8px 12px;background:#fafafa;">${rows}</div>
+    <div style="margin-top:12px;">
+      <button class="btn-action" style="background:#1565c0;" onclick="confirmMigrateProducts()" id="btn-confirm-migrate-products">Confirm — Migrate Selected</button>
+      <button class="btn-outline" style="margin-left:8px;" onclick="cancelMigrateProducts()">Cancel</button>
+    </div>`;
+  preview.style.display = 'block';
+}
+
+function setAllProductMigrateCbs(checked) {
+  document.querySelectorAll('[data-product-migrate-idx]').forEach(cb => cb.checked = checked);
+  updateProductMigrateConfirmBtn();
+}
+
+function selectFirstNProductCbs(n) {
+  const cbs = Array.from(document.querySelectorAll('[data-product-migrate-idx]'));
+  cbs.forEach((cb, i) => cb.checked = i < n);
+  updateProductMigrateConfirmBtn();
+}
+
+function updateProductMigrateConfirmBtn() {
+  const btn = document.getElementById('btn-confirm-migrate-products');
+  if(!btn) return;
+  const selected = document.querySelectorAll('[data-product-migrate-idx]:checked').length;
+  btn.disabled = selected === 0;
+  btn.textContent = selected === 0 ? 'Select at least one product' : `Confirm — Migrate ${selected} Product${selected > 1 ? 's' : ''}`;
+}
+
+function cancelMigrateProducts() {
+  migrateProductPlan = [];
+  document.getElementById('migrate-products-preview').style.display = 'none';
+  document.getElementById('migrate-products-status').textContent = '';
+}
+
+async function confirmMigrateProducts() {
+  const confirmBtn = document.getElementById('btn-confirm-migrate-products');
+  const status     = document.getElementById('migrate-products-status');
+  const preview    = document.getElementById('migrate-products-preview');
+  if(confirmBtn) confirmBtn.disabled = true;
+
+  const checkedIdxs = new Set(
+    Array.from(document.querySelectorAll('[data-product-migrate-idx]:checked'))
+      .map(cb => parseInt(cb.dataset.productMigrateIdx))
+  );
+  const selectedPlan = migrateProductPlan.filter((_, i) => checkedIdxs.has(i));
+
+  const total = selectedPlan.length;
+  let donePages = 0, failedPages = 0;
+  const errors = [];
+
+  for(const plan of selectedPlan) {
+    status.textContent = `Working… ${donePages} of ${total} products done`;
+    try {
+      for(const link of plan.linksToMigrate) {
+        const ownerGid = `gid://shopify/Product/${plan.sourceItem.shopifyId}`;
+        const res = await fetch(CONFIG.proxyUrl + '/api/shopify-files?action=set-page-metafield-links', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ownerGid, metafieldKey: link.metafieldKey, targetGid: link.targetGid, metafieldType: link.metafieldType })
+        });
+        if(!res.ok) {
+          const err = await res.json().catch(()=>({}));
+          throw new Error(err.error || 'Metafield write failed for ' + link.targetItem.title);
+        }
+      }
+
+      await saveItemToShopify(plan.sourceItem, plan.cleanedHtml);
+      plan.sourceItem.bodyHtml = plan.cleanedHtml;
+      try {
+        const bodyCache = JSON.parse(localStorage.getItem('lw-body-cache')||'{}');
+        bodyCache[plan.sourceItem.id] = plan.cleanedHtml;
+        localStorage.setItem('lw-body-cache', JSON.stringify(bodyCache));
+      } catch(e) {}
+
+      donePages++;
+    } catch(e) {
+      errors.push(plan.sourceItem.title + ': ' + e.message);
+      failedPages++;
+    }
+  }
+
+  if(errors.length) {
+    preview.innerHTML = `
+      <div style="background:#fff3e0;border:1px solid #ffe0b2;border-radius:6px;padding:16px;">
+        <div style="font-size:13px;font-weight:700;color:#e65100;margin-bottom:8px;">⚠️ ${donePages} product(s) migrated, ${failedPages} failed</div>
+        <div style="font-size:11px;color:#555;">${errors.map(escHtml).join('<br>')}</div>
+      </div>`;
+    showToast('⚠️ ' + donePages + ' migrated, ' + failedPages + ' failed', 'error');
+  } else {
+    preview.innerHTML = `
+      <div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:6px;padding:16px;">
+        <div style="font-size:13px;font-weight:700;color:#2e7d32;">✅ Done — ${donePages} product(s) migrated to metafields.</div>
+        <div style="font-size:11px;color:#555;margin-top:4px;">Old phrases removed from body HTML. Links now live in Shopify metafields.</div>
+      </div>`;
+    showToast('✅ Migration complete — ' + donePages + ' products updated', 'success');
+  }
+
+  status.textContent = '';
+  // Uncheck migrated items so "First 50" can be used again for the next batch
+  checkedIdxs.forEach(idx => {
+    const cb = document.querySelector(`[data-product-migrate-idx="${idx}"]`);
+    if(cb) cb.closest('div[style]').style.opacity = '0.4';
+  });
+  migrateProductPlan = migrateProductPlan.filter((_, i) => !checkedIdxs.has(i));
+  updateProductMigrateConfirmBtn();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
