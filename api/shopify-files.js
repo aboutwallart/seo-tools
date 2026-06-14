@@ -1361,7 +1361,7 @@ module.exports = async function handler(req, res) {
     const gqlUrl = `https://${shopifyDomain}/admin/api/2025-01/graphql.json`;
     try {
       // Read current metafield value — fragment depends on owner type
-      const ownerType = ownerGid.includes('/Article/') ? 'Article' : ownerGid.includes('/Product/') ? 'Product' : 'Page';
+      const ownerType = ownerGid.includes('/Article/') ? 'Article' : ownerGid.includes('/Product/') ? 'Product' : ownerGid.includes('/Collection/') ? 'Collection' : 'Page';
       const readQuery = `{ node(id: "${ownerGid}") { ... on ${ownerType} { metafield(namespace: "custom", key: "${metafieldKey}") { value } } } }`;
       const readRes = await fetch(gqlUrl, { method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query: readQuery }) });
       const readData = await readRes.json();
