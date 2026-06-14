@@ -247,7 +247,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v17.22</div>
+    <div class="version">v17.23</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -818,6 +818,15 @@
         <button class="btn-action" style="background:#6a1b9a;" onclick="cleanDuplicatePhrases()" id="btn-clean-dupes">🧹 Clean Up Duplicate Phrases</button>
         <span id="clean-dupes-status" style="font-size:12px;color:#888;margin-left:12px;"></span>
         <div id="clean-dupes-preview" style="display:none;margin-top:16px;"></div>
+      </div>
+
+      <!-- MIGRATE TREND PAGES TO METAFIELDS -->
+      <div style="background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:24px;margin-bottom:20px;">
+        <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#333;margin-bottom:4px;">Migrate Trend Pages to Metafields</h3>
+        <p style="font-size:12px;color:#888;margin-bottom:16px;">Scans all trend pages for existing inbound link sentences (collections, blog posts, other trend guides) written into the page body. Moves each link into the correct Shopify metafield, then removes the old sentence from the body. Shows a full preview before making any changes — nothing is saved until you confirm. Make sure your Shopify data is synced first.</p>
+        <button class="btn-action" style="background:#1565c0;" onclick="migrateTrendPagesToMetafields()" id="btn-migrate-trends">Migrate Trend Pages</button>
+        <span id="migrate-trends-status" style="font-size:12px;color:#888;margin-left:12px;"></span>
+        <div id="migrate-trends-preview" style="display:none;margin-top:16px;"></div>
       </div>
 
       <!-- CLEAR CACHE -->
@@ -1909,6 +1918,267 @@ function checkInboundRequirements(item) {
   const fullyDone = (!needsBlog||hasBlogInbound) && (!needsTrend||hasTrendInbound);
   return { needsBlog, needsTrend, hasBlogInbound, hasTrendInbound, fullyDone, linkType, noRules:false };
 }
+
+// ─── MIGRATE TREND PAGES TO METAFIELDS ───────────────────────────────────────
+
+// Phrase patterns written by Link Whisperer into trend page body HTML.
+// We detect these paragraphs, extract their links, move to metafields, then remove them.
+const TREND_MIGRATE_PATTERNS = [
+  { key: 'trendToCol',   starts: ['explore our'], ends: ['collection to find the perfect', 'collections to find the perfect'] },
+  { key: 'trendToBlog',  starts: ['you may also want to read our article', 'you may also want to read our articles'], ends: ['styling ideas'] },
+  { key: 'trendToTrend', starts: ['if you enjoy this style'], ends: ['love our guide', 'love our guides'] },
+];
+
+function detectTrendMigrateType(paraText) {
+  const t = paraText.toLowerCase();
+  for(const p of TREND_MIGRATE_PATTERNS) {
+    const hasStart = p.starts.some(s => t.includes(s));
+    const hasEnd   = p.ends.some(e => t.includes(e));
+    if(hasStart && hasEnd) return p.key;
+  }
+  return null;
+}
+
+// Resolve a link href to the matching AppState item (for GID lookup)
+function resolveHrefToItem(href) {
+  if(!href) return null;
+  const norm = normUrl(href);
+  // Try urlToItem map first (built during buildLinkGraph)
+  if(urlToItem[norm]) return urlToItem[norm];
+  // Fallback: match by handle from URL path
+  const slug = norm.split('/').pop();
+  if(!slug) return null;
+  return AppState.items.find(i => (i.handle||'').toLowerCase() === slug) || null;
+}
+
+// Build GID from item
+function itemToGid(item) {
+  if(!item || !item.shopifyId) return null;
+  if(item.type === 'collection') return `gid://shopify/Collection/${item.shopifyId}`;
+  if(item.type === 'article')   return `gid://shopify/Article/${item.shopifyId}`;
+  if(item.type === 'page')      return `gid://shopify/Page/${item.shopifyId}`;
+  return null;
+}
+
+// Determine metafield key+type from link target item
+function metafieldKeyForTarget(targetItem) {
+  const t = getPageLinkType(targetItem);
+  if(t === 'collection') return { key: 'linked_collections', type: 'list.collection_reference' };
+  if(t === 'blog')       return { key: 'linked_blogs',       type: 'list.article_reference'   };
+  if(t === 'trend')      return { key: 'linked_trends',      type: 'list.page_reference'      };
+  return null;
+}
+
+let migrateTrendPlan = []; // [{sourceItem, linksToMigrate:[{targetItem,metafieldKey,metafieldType,targetGid}], cleanedHtml}]
+
+async function migrateTrendPagesToMetafields() {
+  if(!AppState.items.length) { showToast('Please sync Shopify data first.', 'error'); return; }
+
+  const btn    = document.getElementById('btn-migrate-trends');
+  const status = document.getElementById('migrate-trends-status');
+  const preview= document.getElementById('migrate-trends-preview');
+
+  btn.disabled = true;
+  status.textContent = 'Scanning trend pages…';
+  preview.style.display = 'none';
+  preview.innerHTML = '';
+  migrateTrendPlan = [];
+
+  const trendItems = AppState.items.filter(i => getPageLinkType(i) === 'trend');
+
+  for(const sourceItem of trendItems) {
+    const html = sourceItem.bodyHtml || '';
+    if(!html) continue;
+
+    try {
+      const doc  = new DOMParser().parseFromString('<div>' + html + '</div>', 'text/html');
+      const root = doc.body.firstChild;
+      const paras= Array.from(root.querySelectorAll('p'));
+
+      const linksToMigrate = [];
+      const parasToRemove  = [];
+
+      for(const p of paras) {
+        const pType = detectTrendMigrateType(p.textContent);
+        if(!pType) continue;
+
+        // Extract all links from this paragraph
+        const anchors = Array.from(p.querySelectorAll('a[href]'));
+        let anyResolved = false;
+        for(const a of anchors) {
+          const targetItem = resolveHrefToItem(a.getAttribute('href'));
+          if(!targetItem) continue;
+          const mf = metafieldKeyForTarget(targetItem);
+          if(!mf) continue;
+          const gid = itemToGid(targetItem);
+          if(!gid) continue;
+          linksToMigrate.push({
+            targetItem,
+            metafieldKey:  mf.key,
+            metafieldType: mf.type,
+            targetGid:     gid,
+            phraseType:    pType
+          });
+          anyResolved = true;
+        }
+        if(anyResolved) parasToRemove.push(p);
+      }
+
+      if(!linksToMigrate.length) continue;
+
+      // Remove matched paragraphs to get cleaned HTML
+      for(const p of parasToRemove) p.remove();
+      const cleanedHtml = root.innerHTML;
+
+      migrateTrendPlan.push({ sourceItem, linksToMigrate, cleanedHtml });
+    } catch(e) { /* skip bad HTML */ }
+  }
+
+  if(!migrateTrendPlan.length) {
+    status.textContent = '✅ No Link Whisperer phrases found on trend pages — nothing to migrate.';
+    btn.disabled = false;
+    return;
+  }
+
+  // Build preview with checkboxes
+  const totalLinks = migrateTrendPlan.reduce((n, p) => n + p.linksToMigrate.length, 0);
+  const rows = migrateTrendPlan.map((p, idx) => {
+    const linkRows = p.linksToMigrate.map(l =>
+      `<div style="font-size:11px;color:#555;margin-top:2px;padding-left:24px;">
+        → Move "<strong>${escHtml(l.targetItem.title)}</strong>" to <em>${l.metafieldKey}</em>
+      </div>`
+    ).join('');
+    return `<div style="padding:10px 0;border-bottom:1px solid #f0f0f0;display:flex;align-items:flex-start;gap:10px;">
+      <input type="checkbox" id="migrate-cb-${idx}" data-migrate-idx="${idx}" checked
+        style="margin-top:2px;width:15px;height:15px;flex-shrink:0;cursor:pointer;"
+        onchange="updateMigrateConfirmBtn()">
+      <div>
+        <label for="migrate-cb-${idx}" style="font-size:12px;font-weight:700;color:#333;cursor:pointer;">${escHtml(p.sourceItem.title)}</label>
+        ${linkRows}
+      </div>
+    </div>`;
+  }).join('');
+
+  preview.innerHTML = `
+    <div style="background:#e3f2fd;border:1px solid #90caf9;border-radius:6px;padding:16px;margin-bottom:12px;">
+      <div style="font-size:13px;font-weight:700;color:#1565c0;margin-bottom:4px;">
+        Found ${totalLinks} link(s) across ${migrateTrendPlan.length} trend page(s)
+      </div>
+      <div style="font-size:11px;color:#555;margin-bottom:12px;">Tick the pages you want to migrate now. Untick any you want to skip.</div>
+      <div style="margin-bottom:8px;">
+        <a href="#" onclick="setAllMigrateCbs(true);return false;" style="font-size:11px;color:#1565c0;">Select all</a>
+        &nbsp;·&nbsp;
+        <a href="#" onclick="setAllMigrateCbs(false);return false;" style="font-size:11px;color:#1565c0;">Deselect all</a>
+      </div>
+      <div style="max-height:340px;overflow-y:auto;">${rows}</div>
+    </div>
+    <button class="btn-action" style="background:#1565c0;" onclick="confirmMigrateTrends()" id="btn-confirm-migrate">Confirm — Migrate Selected</button>
+    <button class="btn-outline" style="margin-left:8px;" onclick="cancelMigrateTrends()">Cancel</button>`;
+  preview.style.display = 'block';
+  status.textContent = '';
+  btn.disabled = false;
+}
+
+function setAllMigrateCbs(checked) {
+  document.querySelectorAll('[data-migrate-idx]').forEach(cb => cb.checked = checked);
+  updateMigrateConfirmBtn();
+}
+
+function updateMigrateConfirmBtn() {
+  const btn = document.getElementById('btn-confirm-migrate');
+  if(!btn) return;
+  const selected = document.querySelectorAll('[data-migrate-idx]:checked').length;
+  btn.disabled = selected === 0;
+  btn.textContent = selected === 0 ? 'Select at least one page' : `Confirm — Migrate ${selected} Page${selected > 1 ? 's' : ''}`;
+}
+
+function cancelMigrateTrends() {
+  migrateTrendPlan = [];
+  document.getElementById('migrate-trends-preview').style.display = 'none';
+  document.getElementById('migrate-trends-status').textContent = '';
+}
+
+async function confirmMigrateTrends() {
+  const confirmBtn = document.getElementById('btn-confirm-migrate');
+  const status     = document.getElementById('migrate-trends-status');
+  const preview    = document.getElementById('migrate-trends-preview');
+  if(confirmBtn) confirmBtn.disabled = true;
+
+  // Only process checked pages
+  const checkedIdxs = new Set(
+    Array.from(document.querySelectorAll('[data-migrate-idx]:checked'))
+      .map(cb => parseInt(cb.dataset.migrateIdx))
+  );
+  const selectedPlan = migrateTrendPlan.filter((_, i) => checkedIdxs.has(i));
+
+  const total = selectedPlan.length;
+  let donePages = 0, failedPages = 0;
+  const errors = [];
+
+  for(const plan of selectedPlan) {
+    status.textContent = `Working… ${donePages} of ${total} pages done`;
+    try {
+      // Step 1: write each link to the correct metafield
+      for(const link of plan.linksToMigrate) {
+        const ownerGid = `gid://shopify/Page/${plan.sourceItem.shopifyId}`;
+        const res = await fetch(CONFIG.proxyUrl + '/api/shopify-files?action=set-page-metafield-links', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ownerGid,
+            metafieldKey:  link.metafieldKey,
+            targetGid:     link.targetGid,
+            metafieldType: link.metafieldType
+          })
+        });
+        if(!res.ok) {
+          const err = await res.json().catch(()=>({}));
+          throw new Error(err.error || 'Metafield write failed for ' + link.targetItem.title);
+        }
+      }
+
+      // Step 2: save cleaned body HTML (phrases removed)
+      await saveItemToShopify(plan.sourceItem, plan.cleanedHtml);
+      plan.sourceItem.bodyHtml = plan.cleanedHtml;
+      try {
+        const bodyCache = JSON.parse(localStorage.getItem('lw-body-cache')||'{}');
+        bodyCache[plan.sourceItem.id] = plan.cleanedHtml;
+        localStorage.setItem('lw-body-cache', JSON.stringify(bodyCache));
+      } catch(e) {}
+
+      donePages++;
+    } catch(e) {
+      errors.push(plan.sourceItem.title + ': ' + e.message);
+      failedPages++;
+    }
+  }
+
+  migrateTrendPlan = [];
+
+  if(errors.length) {
+    preview.innerHTML = `
+      <div style="background:#fff3e0;border:1px solid #ffe0b2;border-radius:6px;padding:16px;">
+        <div style="font-size:13px;font-weight:700;color:#e65100;margin-bottom:8px;">⚠️ ${donePages} page(s) migrated, ${failedPages} failed</div>
+        <div style="font-size:11px;color:#555;">${errors.map(escHtml).join('<br>')}</div>
+      </div>`;
+    showToast('⚠️ ' + donePages + ' migrated, ' + failedPages + ' failed', 'error');
+  } else {
+    preview.innerHTML = `
+      <div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:6px;padding:16px;">
+        <div style="font-size:13px;font-weight:700;color:#2e7d32;">✅ Done — ${donePages} trend page(s) migrated to metafields.</div>
+        <div style="font-size:11px;color:#555;margin-top:4px;">Old phrases removed from body HTML. Links now live in Shopify metafields.</div>
+      </div>`;
+    showToast('✅ Migration complete — ' + donePages + ' trend pages updated', 'success');
+  }
+
+  status.textContent = '';
+  buildLinkGraph();
+  detectBrokenLinks();
+  renderLinksReport();
+  renderDashboard();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 const INBOUND_PHRASES = {
   // Phrase added to a BLOG linking to a TREND PAGE
