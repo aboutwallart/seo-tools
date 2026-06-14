@@ -247,7 +247,7 @@
 <div id="header">
   <div id="header-left">
     <h1>🔗 Link Whisperer</h1>
-    <div class="version">v17.21</div>
+    <div class="version">v17.22</div>
   </div>
   <div id="header-right">
     <span id="last-synced"></span>
@@ -3186,6 +3186,40 @@ async function savePreviewedLinks() {
   }
 }
 
+async function saveInboundLinkToTrendMetafield(sourceItem, targetItem) {
+  const targetType = getPageLinkType(targetItem);
+  let metafieldKey, metafieldType, targetGid;
+
+  if(targetType === 'collection') {
+    metafieldKey  = 'linked_collections';
+    metafieldType = 'list.collection_reference';
+    targetGid     = `gid://shopify/Collection/${targetItem.shopifyId}`;
+  } else if(targetItem.type === 'article') {
+    metafieldKey  = 'linked_blogs';
+    metafieldType = 'list.article_reference';
+    targetGid     = `gid://shopify/Article/${targetItem.shopifyId}`;
+  } else if(targetType === 'trend') {
+    metafieldKey  = 'linked_trends';
+    metafieldType = 'list.page_reference';
+    targetGid     = `gid://shopify/Page/${targetItem.shopifyId}`;
+  } else {
+    throw new Error('Unsupported target type for metafield link: ' + targetType);
+  }
+
+  const ownerGid = `gid://shopify/Page/${sourceItem.shopifyId}`;
+
+  const res = await fetch(CONFIG.proxyUrl + '/api/shopify-files?action=set-page-metafield-links', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ownerGid, metafieldKey, targetGid, metafieldType })
+  });
+  if(!res.ok) {
+    const err = await res.json().catch(()=>({}));
+    throw new Error(err.error || 'Metafield save failed');
+  }
+  return await res.json();
+}
+
 async function saveInboundLinks() {
   const { targetItem, selections } = pendingPreview;
   const saveBtn = document.getElementById('preview-save-btn');
@@ -3198,6 +3232,19 @@ async function saveInboundLinks() {
   for(const sel of selections) {
     try {
       const sourceItem = sel.sourceItem;
+
+      // Phase 1: trend pages write to metafields instead of body HTML
+      if(getPageLinkType(sourceItem) === 'trend') {
+        const result = await saveInboundLinkToTrendMetafield(sourceItem, targetItem);
+        if(result.skipped) {
+          failed.push(sourceItem.title+': already linked — skipped');
+        } else {
+          saved++;
+        }
+        continue;
+      }
+
+      // All other page types: existing body HTML path
       const updatedHtml = prepareInboundHtml(sourceItem.bodyHtml||'', sel.phraseHtml, targetItem.title, targetItem.url);
       if(updatedHtml === null) {
         failed.push(sel.sourceItem.title+': already links to this page — skipped');
