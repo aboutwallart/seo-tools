@@ -19,7 +19,6 @@
         .container { max-width: 1200px; margin: 0 auto; }
 
         h1 { font-size: 32px; font-weight: 600; margin-bottom: 4px; color: #1a1a1a; }
-
         .version { color: #999999; font-size: 13px; margin-bottom: 30px; }
 
         .stats {
@@ -31,7 +30,6 @@
             font-size: 14px;
             color: #666666;
         }
-
         .stats strong { color: #1a1a1a; }
 
         .loading { text-align: center; padding: 60px 20px; color: #666666; font-size: 14px; }
@@ -40,17 +38,11 @@
         .filter-bar {
             display: flex;
             gap: 8px;
-            margin-bottom: 20px;
+            margin-bottom: 14px;
             flex-wrap: wrap;
             align-items: center;
         }
-
-        .filter-label {
-            font-size: 13px;
-            color: #666666;
-            font-weight: 500;
-            margin-right: 4px;
-        }
+        .filter-label { font-size: 13px; color: #666666; font-weight: 500; margin-right: 4px; }
 
         .btn-filter {
             padding: 6px 16px;
@@ -64,419 +56,11 @@
             cursor: pointer;
             transition: all 0.2s ease;
         }
-
         .btn-filter:hover { border-color: #1a1a1a; color: #1a1a1a; }
-
-        .btn-filter.active-all {
-            background: #1a1a1a;
-            color: #ffffff;
-            border-color: #1a1a1a;
-        }
-
-        .btn-filter.active-green {
-            background: #66bb6a;
-            color: #ffffff;
-            border-color: #66bb6a;
-        }
-
-        .btn-filter.active-yellow {
-            background: #ffa726;
-            color: #ffffff;
-            border-color: #ffa726;
-        }
-
-        .btn-filter.active-red {
-            background: #ef5350;
-            color: #ffffff;
-            border-color: #ef5350;
-        }
-
-        /* IDEA CARD */
-        .idea-card {
-            background: #ffffff;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
-            position: relative;
-        }
-
-        .idea-card.green { border-color: #66bb6a; background: #f1f8f4; }
-        .idea-card.yellow { border-color: #ffa726; background: #fff8f1; }
-        .idea-card.red { border-color: #ef5350; background: #fff1f1; }
-
-        .idea-card.selected-card {
-            outline: 3px solid #2196F3;
-            outline-offset: 2px;
-        }
-
-        /* CHECKBOX */
-        .card-checkbox {
-            position: absolute;
-            top: 16px;
-            left: 16px;
-            width: 20px;
-            height: 20px;
-            cursor: pointer;
-            accent-color: #2196F3;
-        }
-
-        .idea-card .card-header {
-            padding-left: 32px;
-        }
-
-        .card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 16px;
-        }
-
-        .card-number { font-size: 12px; font-weight: 600; color: #999999; }
-
-        .status-badge {
-            padding: 4px 12px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 500;
-        }
-
-        .badge-green { background: #66bb6a; color: #ffffff; }
-        .badge-yellow { background: #ffa726; color: #ffffff; }
-        .badge-red { background: #ef5350; color: #ffffff; }
-
-        .keyword { font-size: 18px; font-weight: 600; color: #1a1a1a; margin-bottom: 8px; }
-        .title { font-size: 15px; color: #333333; margin-bottom: 8px; line-height: 1.5; }
-        .perspective { font-size: 13px; color: #666666; font-style: italic; margin-bottom: 16px; }
-
-        /* CONFLICT WARNING */
-        .conflict-warning {
-            border-radius: 6px;
-            padding: 12px;
-            margin-bottom: 16px;
-            font-size: 13px;
-        }
-
-        .conflict-warning.yellow {
-            background: #fff3e0;
-            border: 1px solid #ffa726;
-            color: #ef6c00;
-        }
-
-        .conflict-warning.red {
-            background: #ffebee;
-            border: 1px solid #ef5350;
-            color: #c62828;
-        }
-
-        .conflict-warning .conflict-label {
-            font-weight: 600;
-            margin-bottom: 4px;
-        }
-
-        .conflict-warning .conflict-keyword {
-            font-size: 13px;
-            margin-bottom: 4px;
-        }
-
-        .conflict-warning .conflict-url {
-            font-size: 12px;
-        }
-
-        .conflict-warning .conflict-url a {
-            color: inherit;
-            text-decoration: underline;
-        }
-
-        /* KEYWORD OVERRIDE */
-        .override-section {
-            background: #f5f5f5;
-            border-radius: 6px;
-            padding: 16px;
-            margin-bottom: 16px;
-        }
-
-        .override-section label {
-            display: block;
-            font-size: 13px;
-            font-weight: 500;
-            color: #1a1a1a;
-            margin-bottom: 6px;
-        }
-
-        .override-section input {
-            width: 100%;
-            padding: 10px 12px;
-            font-size: 14px;
-            font-family: 'Poppins', sans-serif;
-            background: #ffffff;
-            border: 1px solid #e0e0e0;
-            border-radius: 6px;
-            margin-bottom: 12px;
-        }
-
-        .override-section input:focus {
-            outline: none;
-            border-color: #1a1a1a;
-        }
-
-        .btn-regenerate {
-            background: #ffffff;
-            color: #1a1a1a;
-            border: 1px solid #1a1a1a;
-            padding: 8px 16px;
-            font-size: 13px;
-            font-weight: 500;
-            font-family: 'Poppins', sans-serif;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-
-        .btn-regenerate:hover { background: #1a1a1a; color: #ffffff; }
-
-        .btn-regenerate:disabled {
-            background: #f5f5f5;
-            color: #cccccc;
-            border-color: #e0e0e0;
-            cursor: not-allowed;
-        }
-
-        /* SUGGESTED TITLE */
-        .suggested-title {
-            background: #e3f2fd;
-            border: 1px solid #2196F3;
-            border-radius: 6px;
-            padding: 12px;
-            margin-top: 12px;
-            font-size: 13px;
-            color: #1565C0;
-        }
-
-        .suggested-title strong { display: block; margin-bottom: 4px; }
-
-        /* TABS */
-        .tabs {
-            display: flex;
-            gap: 0;
-            margin-bottom: 30px;
-            border-bottom: 2px solid #e0e0e0;
-        }
-
-        .tab-btn {
-            padding: 12px 28px;
-            font-size: 15px;
-            font-weight: 500;
-            font-family: 'Poppins', sans-serif;
-            background: none;
-            border: none;
-            border-bottom: 3px solid transparent;
-            margin-bottom: -2px;
-            cursor: pointer;
-            color: #666666;
-            transition: all 0.2s ease;
-        }
-
-        .tab-btn:hover { color: #1a1a1a; }
-
-        .tab-btn.active {
-            color: #1a1a1a;
-            border-bottom-color: #1a1a1a;
-            font-weight: 600;
-        }
-
-        .tab-count {
-            display: inline-block;
-            background: #e0e0e0;
-            color: #666666;
-            border-radius: 12px;
-            padding: 1px 8px;
-            font-size: 12px;
-            margin-left: 6px;
-        }
-
-        .tab-btn.active .tab-count {
-            background: #1a1a1a;
-            color: #ffffff;
-        }
-
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
-
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            color: #999999;
-            font-size: 14px;
-        }
-
-        /* UNDO BUTTON */
-        .btn-undo {
-            background: #ffffff;
-            color: #ef5350;
-            border: 1px solid #ef5350;
-            padding: 8px 16px;
-            font-size: 13px;
-            font-weight: 500;
-            font-family: 'Poppins', sans-serif;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            margin-left: 10px;
-        }
-
-        .btn-undo:hover {
-            background: #ef5350;
-            color: #ffffff;
-        }
-
-        .btn-send-sheet {
-            background: #ffffff;
-            color: #1976d2;
-            border: 1px solid #1976d2;
-            padding: 8px 16px;
-            font-size: 13px;
-            font-weight: 500;
-            font-family: 'Poppins', sans-serif;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-
-        .btn-send-sheet:hover { background: #1976d2; color: #ffffff; }
-        .btn-send-sheet:disabled { opacity: 0.5; cursor: not-allowed; }
-
-        .card-actions {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-
-        /* SAVING INDICATOR */
-        .saving-indicator {
-            font-size: 12px;
-            color: #66bb6a;
-            margin-left: 10px;
-        }
-
-        .saving-indicator.saving { color: #ffa726; }
-        .saving-indicator.error { color: #ef5350; }
-        .saving-indicator.pending { color: #999999; }
-
-        .btn-mark {
-            background: #2196F3;
-            color: #ffffff;
-            border: none;
-            padding: 12px 24px;
-            font-size: 14px;
-            font-weight: 500;
-            font-family: 'Poppins', sans-serif;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            min-width: 180px;
-        }
-
-        .btn-mark:hover { background: #1976D2; }
-        .btn-mark.marked { background: #66bb6a; }
-        .btn-mark.marked:hover { background: #4caf50; }
-
-        /* KEYWORD CHANGE BUTTON */
-        .btn-keyword-change {
-            background: #ffffff;
-            color: #ff9800;
-            border: 1px solid #ff9800;
-            padding: 12px 24px;
-            font-size: 14px;
-            font-weight: 500;
-            font-family: 'Poppins', sans-serif;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            min-width: 180px;
-        }
-
-        .btn-keyword-change:hover { background: #ff9800; color: #ffffff; }
-
-        /* INLINE TITLE EDIT */
-        .inline-edit-section {
-            background: #f5f5f5;
-            border-radius: 6px;
-            padding: 12px 14px;
-            margin-bottom: 16px;
-        }
-
-        .inline-edit-label {
-            font-size: 12px;
-            font-weight: 600;
-            color: #666666;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 8px;
-            display: block;
-        }
-
-        .inline-edit-row {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-        }
-
-        .inline-edit-input {
-            flex: 1;
-            padding: 9px 12px;
-            font-size: 14px;
-            font-family: 'Poppins', sans-serif;
-            background: #ffffff;
-            border: 1px solid #e0e0e0;
-            border-radius: 6px;
-            color: #1a1a1a;
-        }
-
-        .inline-edit-input:focus {
-            outline: none;
-            border-color: #1a1a1a;
-        }
-
-        .btn-save-title {
-            background: #1a1a1a;
-            color: #ffffff;
-            border: none;
-            padding: 9px 18px;
-            font-size: 13px;
-            font-weight: 500;
-            font-family: 'Poppins', sans-serif;
-            border-radius: 6px;
-            cursor: pointer;
-            white-space: nowrap;
-            transition: all 0.2s ease;
-        }
-
-        .btn-save-title:hover { background: #333333; }
-        .btn-save-title:disabled { background: #cccccc; cursor: not-allowed; }
-
-        .recheck-status {
-            font-size: 12px;
-            margin-top: 6px;
-            color: #999999;
-        }
-
-        /* DELETE BUTTON */
-        .btn-delete {
-            background: #ffffff;
-            color: #ef5350;
-            border: 1px solid #ef5350;
-            padding: 8px 16px;
-            font-size: 13px;
-            font-weight: 500;
-            font-family: 'Poppins', sans-serif;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-
-        .btn-delete:hover { background: #ef5350; color: #ffffff; }
+        .btn-filter.active-all  { background: #1a1a1a; color: #ffffff; border-color: #1a1a1a; }
+        .btn-filter.active-green  { background: #66bb6a; color: #ffffff; border-color: #66bb6a; }
+        .btn-filter.active-yellow { background: #ffa726; color: #ffffff; border-color: #ffa726; }
+        .btn-filter.active-red    { background: #ef5350; color: #ffffff; border-color: #ef5350; }
 
         /* BULK ACTION ROW */
         .bulk-action-row {
@@ -489,51 +73,185 @@
             padding: 12px 16px;
             margin-bottom: 16px;
         }
-
         .bulk-action-row.visible { display: flex; }
-
-        .bulk-action-info {
-            font-size: 14px;
-            font-weight: 600;
-            color: #1565C0;
-            flex: 1;
-        }
-
+        .bulk-action-info { font-size: 14px; font-weight: 600; color: #1565C0; flex: 1; }
         .btn-bulk-move {
-            background: #2196F3;
-            color: #ffffff;
-            border: none;
-            padding: 10px 22px;
-            font-size: 14px;
-            font-weight: 500;
-            font-family: 'Poppins', sans-serif;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.2s ease;
+            background: #2196F3; color: #ffffff; border: none;
+            padding: 10px 22px; font-size: 14px; font-weight: 500;
+            font-family: 'Poppins', sans-serif; border-radius: 6px;
+            cursor: pointer; transition: all 0.2s ease;
         }
-
         .btn-bulk-move:hover { background: #1976D2; }
-
         .btn-bulk-clear {
-            background: #ffffff;
-            color: #666666;
-            border: 1px solid #cccccc;
-            padding: 10px 18px;
-            font-size: 13px;
-            font-weight: 500;
-            font-family: 'Poppins', sans-serif;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.2s ease;
+            background: #ffffff; color: #666666; border: 1px solid #cccccc;
+            padding: 10px 18px; font-size: 13px; font-weight: 500;
+            font-family: 'Poppins', sans-serif; border-radius: 6px;
+            cursor: pointer; transition: all 0.2s ease;
         }
-
         .btn-bulk-clear:hover { border-color: #999999; color: #1a1a1a; }
+
+        /* IDEA CARD */
+        .idea-card {
+            background: #ffffff;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            position: relative;
+        }
+        .idea-card.green  { border-color: #66bb6a; background: #f1f8f4; }
+        .idea-card.yellow { border-color: #ffa726; background: #fff8f1; }
+        .idea-card.red    { border-color: #ef5350; background: #fff1f1; }
+        .idea-card.grey   { border-color: #cccccc; background: #f9f9f9; }
+        .idea-card.selected-card { outline: 3px solid #2196F3; outline-offset: 2px; }
+
+        /* CHECKBOX */
+        .card-checkbox {
+            position: absolute; top: 16px; left: 16px;
+            width: 20px; height: 20px; cursor: pointer; accent-color: #2196F3;
+        }
+        .idea-card .card-header { padding-left: 32px; }
+
+        .card-header {
+            display: flex; justify-content: space-between;
+            align-items: flex-start; margin-bottom: 16px;
+        }
+        .card-number { font-size: 12px; font-weight: 600; color: #999999; }
+
+        .status-badge { padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+        .badge-green  { background: #66bb6a; color: #ffffff; }
+        .badge-yellow { background: #ffa726; color: #ffffff; }
+        .badge-red    { background: #ef5350; color: #ffffff; }
+        .badge-grey   { background: #9e9e9e; color: #ffffff; }
+
+        .keyword     { font-size: 18px; font-weight: 600; color: #1a1a1a; margin-bottom: 8px; }
+        .title       { font-size: 15px; color: #333333; margin-bottom: 8px; line-height: 1.5; }
+        .perspective { font-size: 13px; color: #666666; font-style: italic; margin-bottom: 16px; }
+
+        /* CONFLICT WARNING */
+        .conflict-warning { border-radius: 6px; padding: 12px; margin-bottom: 16px; font-size: 13px; }
+        .conflict-warning.yellow { background: #fff3e0; border: 1px solid #ffa726; color: #ef6c00; }
+        .conflict-warning.red    { background: #ffebee; border: 1px solid #ef5350; color: #c62828; }
+        .conflict-warning .conflict-label   { font-weight: 600; margin-bottom: 4px; }
+        .conflict-warning .conflict-keyword { font-size: 13px; margin-bottom: 4px; }
+        .conflict-warning .conflict-url     { font-size: 12px; }
+        .conflict-warning .conflict-url a   { color: inherit; text-decoration: underline; }
+
+        /* INLINE TITLE EDIT */
+        .inline-edit-section {
+            background: #f5f5f5; border-radius: 6px;
+            padding: 12px 14px; margin-bottom: 16px;
+        }
+        .inline-edit-label {
+            font-size: 12px; font-weight: 600; color: #666666;
+            text-transform: uppercase; letter-spacing: 0.5px;
+            margin-bottom: 8px; display: block;
+        }
+        .inline-edit-row { display: flex; gap: 8px; align-items: center; }
+        .inline-edit-input {
+            flex: 1; padding: 9px 12px; font-size: 14px;
+            font-family: 'Poppins', sans-serif; background: #ffffff;
+            border: 1px solid #e0e0e0; border-radius: 6px; color: #1a1a1a;
+        }
+        .inline-edit-input:focus { outline: none; border-color: #1a1a1a; }
+        .btn-save-title {
+            background: #1a1a1a; color: #ffffff; border: none;
+            padding: 9px 18px; font-size: 13px; font-weight: 500;
+            font-family: 'Poppins', sans-serif; border-radius: 6px;
+            cursor: pointer; white-space: nowrap; transition: all 0.2s ease;
+        }
+        .btn-save-title:hover { background: #333333; }
+        .btn-save-title:disabled { background: #cccccc; cursor: not-allowed; }
+
+        /* TABS */
+        .tabs {
+            display: flex; gap: 0; margin-bottom: 30px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        .tab-btn {
+            padding: 12px 22px; font-size: 14px; font-weight: 500;
+            font-family: 'Poppins', sans-serif; background: none; border: none;
+            border-bottom: 3px solid transparent; margin-bottom: -2px;
+            cursor: pointer; color: #666666; transition: all 0.2s ease;
+        }
+        .tab-btn:hover { color: #1a1a1a; }
+        .tab-btn.active { color: #1a1a1a; border-bottom-color: #1a1a1a; font-weight: 600; }
+        .tab-count {
+            display: inline-block; background: #e0e0e0; color: #666666;
+            border-radius: 12px; padding: 1px 8px; font-size: 12px; margin-left: 6px;
+        }
+        .tab-btn.active .tab-count { background: #1a1a1a; color: #ffffff; }
+
+        .tab-content  { display: none; }
+        .tab-content.active { display: block; }
+
+        .empty-state { text-align: center; padding: 60px 20px; color: #999999; font-size: 14px; }
+
+        /* CARD ACTION BUTTONS */
+        .card-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+        .btn-mark {
+            background: #2196F3; color: #ffffff; border: none;
+            padding: 12px 24px; font-size: 14px; font-weight: 500;
+            font-family: 'Poppins', sans-serif; border-radius: 6px;
+            cursor: pointer; transition: all 0.2s ease; min-width: 160px;
+        }
+        .btn-mark:hover { background: #1976D2; }
+        .btn-mark.marked { background: #66bb6a; }
+        .btn-mark.marked:hover { background: #4caf50; }
+
+        .btn-keyword-change {
+            background: #ffffff; color: #ff9800; border: 1px solid #ff9800;
+            padding: 12px 24px; font-size: 14px; font-weight: 500;
+            font-family: 'Poppins', sans-serif; border-radius: 6px;
+            cursor: pointer; transition: all 0.2s ease; min-width: 160px;
+        }
+        .btn-keyword-change:hover { background: #ff9800; color: #ffffff; }
+
+        .btn-ignore {
+            background: #ffffff; color: #9e9e9e; border: 1px solid #9e9e9e;
+            padding: 12px 20px; font-size: 13px; font-weight: 500;
+            font-family: 'Poppins', sans-serif; border-radius: 6px;
+            cursor: pointer; transition: all 0.2s ease;
+        }
+        .btn-ignore:hover { background: #9e9e9e; color: #ffffff; }
+
+        .btn-undo {
+            background: #ffffff; color: #ef5350; border: 1px solid #ef5350;
+            padding: 8px 16px; font-size: 13px; font-weight: 500;
+            font-family: 'Poppins', sans-serif; border-radius: 6px;
+            cursor: pointer; transition: all 0.2s ease; margin-left: 10px;
+        }
+        .btn-undo:hover { background: #ef5350; color: #ffffff; }
+
+        .btn-send-sheet {
+            background: #ffffff; color: #1976d2; border: 1px solid #1976d2;
+            padding: 8px 16px; font-size: 13px; font-weight: 500;
+            font-family: 'Poppins', sans-serif; border-radius: 6px;
+            cursor: pointer; transition: all 0.2s ease;
+        }
+        .btn-send-sheet:hover { background: #1976d2; color: #ffffff; }
+        .btn-send-sheet:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-delete {
+            background: #ffffff; color: #ef5350; border: 1px solid #ef5350;
+            padding: 8px 16px; font-size: 13px; font-weight: 500;
+            font-family: 'Poppins', sans-serif; border-radius: 6px;
+            cursor: pointer; transition: all 0.2s ease;
+        }
+        .btn-delete:hover { background: #ef5350; color: #ffffff; }
+
+        /* STATUS INDICATORS */
+        .saving-indicator { font-size: 12px; color: #66bb6a; margin-left: 10px; }
+        .saving-indicator.saving  { color: #ffa726; }
+        .saving-indicator.error   { color: #ef5350; }
+        .saving-indicator.pending { color: #999999; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v2.2 - 2026-06-15</p>
+        <p class="version">v2.3 - 2026-06-15</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -546,6 +264,9 @@
             </button>
             <button class="tab-btn" onclick="switchTab('kwchange')" id="tab-kwchange">
                 Keyword Change <span class="tab-count" id="count-kwchange">0</span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('ignored')" id="tab-ignored">
+                Ignored <span class="tab-count" id="count-ignored">0</span>
             </button>
         </div>
 
@@ -578,21 +299,30 @@
                 <div class="empty-state">No keywords marked for change yet.</div>
             </div>
         </div>
-    </div>
 
+        <div class="tab-content" id="panel-ignored">
+            <div id="ignored-container">
+                <div class="empty-state">No ideas ignored yet.</div>
+            </div>
+        </div>
+    </div>
 
     <script>
         // ============================================
         // DATA
         // ============================================
-        let blogIdeas = [];
-        let allRows = [];   // full CSV — used for conflict re-check
-        let markedForWriting = new Set();
-        let markedForKwChange = new Set();
-        let sentToSheet = new Set();
-        let notYetSaved = new Set();    // moved via bulk — not saved to registry yet
-        let selectedIdeas = new Set();  // checkboxes
+        let allIdeas = [];      // all non-DELETED ideas with their current status
+        let allRows  = [];      // full CSV — for conflict re-check
+        let selectedIdeas = new Set();
         let activeFilter = 'all';
+
+        // STATUS values:
+        // ''                 → Blog Ideas
+        // 'TO_WRITE'         → To Write (saved to registry)
+        // 'TO_WRITE_PENDING' → To Write (not yet saved to registry)
+        // 'KEYWORD_CHANGE'   → Keyword Change
+        // 'IGNORED'          → Ignored
+        // 'DELETED'          → hidden everywhere
 
         // ============================================
         // TAB SWITCHING
@@ -606,12 +336,10 @@
         }
 
         function updateTabCounts() {
-            const total = blogIdeas.length;
-            const writing = markedForWriting.size;
-            const kwchange = markedForKwChange.size;
-            document.getElementById('count-ideas').textContent = total - writing - kwchange;
-            document.getElementById('count-towrite').textContent = writing;
-            document.getElementById('count-kwchange').textContent = kwchange;
+            document.getElementById('count-ideas').textContent   = allIdeas.filter(i => i.status === '').length;
+            document.getElementById('count-towrite').textContent = allIdeas.filter(i => i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING').length;
+            document.getElementById('count-kwchange').textContent = allIdeas.filter(i => i.status === 'KEYWORD_CHANGE').length;
+            document.getElementById('count-ignored').textContent  = allIdeas.filter(i => i.status === 'IGNORED').length;
         }
 
         // ============================================
@@ -619,11 +347,9 @@
         // ============================================
         function setFilter(filter) {
             activeFilter = filter;
-            document.querySelectorAll('.btn-filter').forEach(b => {
-                b.className = 'btn-filter';
-            });
-            const activeBtn = document.querySelector(`.btn-filter[onclick="setFilter('${filter}')"]`);
-            if (activeBtn) activeBtn.classList.add(`active-${filter}`);
+            document.querySelectorAll('.btn-filter').forEach(b => { b.className = 'btn-filter'; });
+            const btn = document.querySelector(`.btn-filter[onclick="setFilter('${filter}')"]`);
+            if (btn) btn.classList.add(`active-${filter}`);
             clearSelection();
             displayIdeas();
         }
@@ -632,15 +358,12 @@
         // SELECTION
         // ============================================
         function toggleSelect(index) {
-            if (selectedIdeas.has(index)) {
-                selectedIdeas.delete(index);
-            } else {
-                selectedIdeas.add(index);
-            }
+            if (selectedIdeas.has(index)) selectedIdeas.delete(index);
+            else selectedIdeas.add(index);
             const card = document.getElementById(`card-${index}`);
-            const cb = document.getElementById(`cb-${index}`);
+            const cb   = document.getElementById(`cb-${index}`);
             if (card) card.classList.toggle('selected-card', selectedIdeas.has(index));
-            if (cb) cb.checked = selectedIdeas.has(index);
+            if (cb)   cb.checked = selectedIdeas.has(index);
             updateBulkBar();
         }
 
@@ -652,7 +375,7 @@
         }
 
         function updateBulkBar() {
-            const row = document.getElementById('bulk-action-row');
+            const row  = document.getElementById('bulk-action-row');
             const info = document.getElementById('bulk-action-info');
             if (!row) return;
             const n = selectedIdeas.size;
@@ -665,17 +388,26 @@
         }
 
         // ============================================
-        // BULK MOVE TO TO WRITE (no API save)
+        // BULK MOVE TO TO WRITE
         // ============================================
-        function bulkMoveToWrite() {
+        async function bulkMoveToWrite() {
             if (selectedIdeas.size === 0) return;
-            selectedIdeas.forEach(index => {
-                markedForWriting.add(index);
-                notYetSaved.add(index);
+            const keywords = [];
+            selectedIdeas.forEach(idx => {
+                const idea = allIdeas.find(i => i.index === idx);
+                if (idea) { idea.status = 'TO_WRITE_PENDING'; keywords.push(idea.keyword); }
             });
             clearSelection();
             refreshAll();
             switchTab('towrite');
+
+            try {
+                await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'bulk-update-blog-status', keywords, status: 'TO_WRITE_PENDING' })
+                });
+            } catch(e) { console.error('Bulk save failed:', e); }
         }
 
         // ============================================
@@ -730,36 +462,38 @@
                 const csvUrl = 'https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/blog_ideas.csv';
                 const response = await fetch(csvUrl);
                 if (!response.ok) throw new Error(`Failed to fetch CSV: ${response.status}`);
-
                 const csvText = await response.text();
                 const rows = parseCSV(csvText);
-                allRows = rows; // store full CSV for conflict re-check
+                allRows = rows;
 
-                const unprocessed = rows.filter(row => {
+                let idxCounter = 0;
+                allIdeas = [];
+
+                for (const row of rows) {
                     const status = (row['STATUS'] || '').trim();
-                    return status !== 'TO_WRITE' && status !== 'KEYWORD_CHANGE';
-                });
+                    if (status === 'DELETED') continue;
+                    allIdeas.push({
+                        index: idxCounter++,
+                        keyword: row['Keyword'] || '',
+                        title: row['Blog Post Title'] || '',
+                        perspective: row['Perspective'] || '',
+                        cannibalization: row['CANNIBALIZATION'] || 'NO CONFLICT',
+                        conflictingKeyword: row['CONFLICTING KEYWORD'] || '',
+                        conflictingUrl: row['CONFLICTING BLOG URL'] || '',
+                        currentTitle: row['Blog Post Title'] || '',
+                        currentKeyword: row['Keyword'] || '',
+                        status: status
+                    });
+                }
 
-                const first40 = unprocessed.slice(0, 40);
-
-                blogIdeas = first40.map((row, index) => ({
-                    index: index,
-                    keyword: row['Keyword'] || '',
-                    title: row['Blog Post Title'] || '',
-                    perspective: row['Perspective'] || '',
-                    cannibalization: row['CANNIBALIZATION'] || 'NO CONFLICT',
-                    conflictingKeyword: row['CONFLICTING KEYWORD'] || '',
-                    conflictingUrl: row['CONFLICTING BLOG URL'] || '',
-                    currentTitle: row['Blog Post Title'] || '',
-                    currentKeyword: row['Keyword'] || ''
-                }));
-
-                const green = blogIdeas.filter(i => i.cannibalization === 'NO CONFLICT').length;
-                const yellow = blogIdeas.filter(i => i.cannibalization === 'CAUTION').length;
-                const red = blogIdeas.filter(i => i.cannibalization === 'DANGER').length;
+                // Stats based on Blog Ideas only
+                const ideasOnly = allIdeas.filter(i => i.status === '');
+                const green = ideasOnly.filter(i => i.cannibalization === 'NO CONFLICT').length;
+                const yellow = ideasOnly.filter(i => i.cannibalization === 'CAUTION').length;
+                const red    = ideasOnly.filter(i => i.cannibalization === 'DANGER').length;
 
                 document.getElementById('stats').innerHTML = `
-                    <strong>Loaded:</strong> ${blogIdeas.length} blog ideas &nbsp;|&nbsp;
+                    <strong>Loaded:</strong> ${allIdeas.length} blog ideas &nbsp;|&nbsp;
                     🟢 ${green} No Conflict &nbsp;|&nbsp;
                     🟡 ${yellow} Caution &nbsp;|&nbsp;
                     🔴 ${red} Danger
@@ -767,7 +501,7 @@
 
                 document.getElementById('filter-bar').style.display = 'flex';
                 updateTabCounts();
-                displayIdeas();
+                refreshAll();
 
             } catch (error) {
                 console.error('Error loading data:', error);
@@ -781,17 +515,14 @@
         // ============================================
         function displayIdeas() {
             const container = document.getElementById('ideas-container');
-            let visible = blogIdeas.filter(idea =>
-                !markedForWriting.has(idea.index) && !markedForKwChange.has(idea.index)
-            );
+            let visible = allIdeas.filter(i => i.status === '');
 
-            if (activeFilter === 'green') {
-                visible = visible.filter(i => i.cannibalization === 'NO CONFLICT');
-            } else if (activeFilter === 'yellow') {
-                visible = visible.filter(i => i.cannibalization === 'CAUTION');
-            } else if (activeFilter === 'red') {
-                visible = visible.filter(i => i.cannibalization === 'DANGER');
-            }
+            if (activeFilter === 'green')  visible = visible.filter(i => i.cannibalization === 'NO CONFLICT');
+            else if (activeFilter === 'yellow') visible = visible.filter(i => i.cannibalization === 'CAUTION');
+            else if (activeFilter === 'red')    visible = visible.filter(i => i.cannibalization === 'DANGER');
+
+            // Show first 40
+            visible = visible.slice(0, 40);
 
             if (visible.length === 0) {
                 container.innerHTML = `<div class="empty-state">No ideas match this filter.</div>`;
@@ -800,12 +531,11 @@
 
             container.innerHTML = visible.map(idea => buildIdeaCard(idea, 'ideas')).join('');
 
-            // Restore checked state
             selectedIdeas.forEach(idx => {
                 const card = document.getElementById(`card-${idx}`);
-                const cb = document.getElementById(`cb-${idx}`);
+                const cb   = document.getElementById(`cb-${idx}`);
                 if (card) card.classList.add('selected-card');
-                if (cb) cb.checked = true;
+                if (cb)   cb.checked = true;
             });
         }
 
@@ -814,14 +544,12 @@
         // ============================================
         function displayToWrite() {
             const container = document.getElementById('towrite-container');
-            const marked = blogIdeas.filter(idea => markedForWriting.has(idea.index) && !sentToSheet.has(idea.index));
-
-            if (marked.length === 0) {
+            const items = allIdeas.filter(i => i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING');
+            if (items.length === 0) {
                 container.innerHTML = `<div class="empty-state">No blogs marked for writing yet.</div>`;
                 return;
             }
-
-            container.innerHTML = marked.map(idea => buildIdeaCard(idea, 'towrite')).join('');
+            container.innerHTML = items.map(idea => buildIdeaCard(idea, 'towrite')).join('');
         }
 
         // ============================================
@@ -829,21 +557,29 @@
         // ============================================
         function displayKwChange() {
             const container = document.getElementById('kwchange-container');
-            const marked = blogIdeas.filter(idea => markedForKwChange.has(idea.index));
-
-            if (marked.length === 0) {
+            const items = allIdeas.filter(i => i.status === 'KEYWORD_CHANGE');
+            if (items.length === 0) {
                 container.innerHTML = `<div class="empty-state">No keywords marked for change yet.</div>`;
                 return;
             }
+            container.innerHTML = items.map(idea => buildIdeaCard(idea, 'kwchange')).join('');
+        }
 
-            container.innerHTML = marked.map(idea => buildIdeaCard(idea, 'kwchange')).join('');
+        // ============================================
+        // DISPLAY IGNORED (Tab 4)
+        // ============================================
+        function displayIgnored() {
+            const container = document.getElementById('ignored-container');
+            const items = allIdeas.filter(i => i.status === 'IGNORED');
+            if (items.length === 0) {
+                container.innerHTML = `<div class="empty-state">No ideas ignored yet.</div>`;
+                return;
+            }
+            container.innerHTML = items.map(idea => buildIdeaCard(idea, 'ignored')).join('');
         }
 
         function refreshAll() {
-            displayIdeas();
-            displayToWrite();
-            displayKwChange();
-            updateTabCounts();
+            displayIdeas(); displayToWrite(); displayKwChange(); displayIgnored(); updateTabCounts();
         }
 
         // ============================================
@@ -858,22 +594,24 @@
 
             let checkboxHTML = '';
             let actionsHTML = '';
+            let cardExtraClass = cardClass;
 
             if (tab === 'ideas') {
                 checkboxHTML = `<input type="checkbox" class="card-checkbox" id="cb-${index}" ${isSelected ? 'checked' : ''} onchange="toggleSelect(${index})">`;
                 actionsHTML = `
                     <button class="btn-mark" onclick="markForWriting(${index})">Mark for Writing</button>
                     <button class="btn-keyword-change" onclick="markForKwChange(${index})">Change Keyword</button>
+                    ${level !== 'NO CONFLICT' ? `<button class="btn-ignore" onclick="ignoreIdea(${index})">Ignore</button>` : ''}
                 `;
             } else if (tab === 'towrite') {
-                const isPending = notYetSaved.has(index);
-                const saveStatusText = isPending ? '⏳ Not saved yet' : '✅ Saved to registry';
-                const saveStatusClass = isPending ? 'saving-indicator pending' : 'saving-indicator';
+                const isPending = idea.status === 'TO_WRITE_PENDING';
+                const saveText = isPending ? '⏳ Not saved yet' : '✅ Saved to registry';
+                const saveClass = isPending ? 'saving-indicator pending' : 'saving-indicator';
                 actionsHTML = `
                     <button class="btn-mark marked" disabled>✓ To Write Blog</button>
                     <button class="btn-undo" onclick="undoWriting(${index})">↩ Undo</button>
                     <button class="btn-send-sheet" id="sheet-btn-${index}" onclick="sendToSheet(${index})">📤 Send to Google Sheet</button>
-                    <span class="${saveStatusClass}" id="save-status-${index}">${saveStatusText}</span>
+                    <span class="${saveClass}" id="save-status-${index}">${saveText}</span>
                 `;
             } else if (tab === 'kwchange') {
                 actionsHTML = `
@@ -882,59 +620,55 @@
                     <button class="btn-delete" onclick="confirmDelete(${index})">🗑 Delete</button>
                     <span class="saving-indicator" id="kw-status-${index}"></span>
                 `;
+            } else if (tab === 'ignored') {
+                cardExtraClass = 'grey';
+                actionsHTML = `
+                    <button class="btn-ignore" style="opacity:0.6;cursor:default" disabled>⚪ Ignored</button>
+                    <button class="btn-undo" onclick="undoIgnore(${index})">↩ Back to Ideas</button>
+                    <span class="saving-indicator" id="ig-status-${index}"></span>
+                `;
             }
 
+            const conflictHTML = level !== 'NO CONFLICT' && tab === 'ideas' ? `
+                <div class="conflict-warning ${cardClass}">
+                    <div class="conflict-label">
+                        ${level === 'DANGER' ? '🔴 Cannibalization Danger' : '🟡 Caution - Similar Intent'}
+                    </div>
+                    <div class="conflict-keyword"><strong>Conflicting Keyword:</strong> ${idea.conflictingKeyword}</div>
+                    ${idea.conflictingUrl ? `<div class="conflict-url"><strong>Conflicting Blog:</strong> <a href="${idea.conflictingUrl}" target="_blank">${idea.conflictingUrl}</a></div>` : ''}
+                </div>
+                <div class="inline-edit-section">
+                    <span class="inline-edit-label">Change title &amp; re-check</span>
+                    <div class="inline-edit-row">
+                        <input type="text" class="inline-edit-input" id="new-title-${index}" value="${idea.currentTitle.replace(/"/g, '&quot;')}" placeholder="Enter new blog title...">
+                        <button class="btn-save-title" id="save-btn-${index}" onclick="saveNewTitle(${index})">Save &amp; Re-check</button>
+                    </div>
+                </div>
+            ` : '';
+
             return `
-                <div class="idea-card ${cardClass}${isSelected ? ' selected-card' : ''}" id="card-${index}">
+                <div class="idea-card ${tab === 'ignored' ? 'grey' : cardClass}${isSelected ? ' selected-card' : ''}" id="card-${index}">
                     ${checkboxHTML}
                     <div class="card-header">
                         <span class="card-number">#${index + 1}</span>
-                        <span class="status-badge ${badgeClass}">${level}</span>
+                        <span class="status-badge ${tab === 'ignored' ? 'badge-grey' : badgeClass}">${tab === 'ignored' ? 'IGNORED' : level}</span>
                     </div>
-
                     <div class="keyword">${idea.currentKeyword}</div>
                     <div class="title">${idea.currentTitle}</div>
                     <div class="perspective">${idea.perspective}</div>
-
-                    ${level !== 'NO CONFLICT' && tab === 'ideas' ? `
-                        <div class="conflict-warning ${cardClass}">
-                            <div class="conflict-label">
-                                ${level === 'DANGER' ? '🔴 Cannibalization Danger' : '🟡 Caution - Similar Intent'}
-                            </div>
-                            <div class="conflict-keyword">
-                                <strong>Conflicting Keyword:</strong> ${idea.conflictingKeyword}
-                            </div>
-                            ${idea.conflictingUrl ? `
-                                <div class="conflict-url">
-                                    <strong>Conflicting Blog:</strong>
-                                    <a href="${idea.conflictingUrl}" target="_blank">${idea.conflictingUrl}</a>
-                                </div>
-                            ` : ''}
-                        </div>
-                        <div class="inline-edit-section">
-                            <span class="inline-edit-label">Change title &amp; re-check</span>
-                            <div class="inline-edit-row">
-                                <input type="text" class="inline-edit-input" id="new-title-${index}" value="${idea.currentTitle.replace(/"/g, '&quot;')}" placeholder="Enter new blog title...">
-                                <button class="btn-save-title" id="save-btn-${index}" onclick="saveNewTitle(${index})">Save &amp; Re-check</button>
-                            </div>
-                            <div class="recheck-status" id="recheck-status-${index}"></div>
-                        </div>
-                    ` : ''}
-
+                    ${conflictHTML}
                     <div class="card-actions">${actionsHTML}</div>
                 </div>
             `;
         }
 
         // ============================================
-        // MARK FOR WRITING (single — saves to registry)
+        // MARK FOR WRITING (single — saves to registry + sheets)
         // ============================================
         async function markForWriting(index) {
-            const idea = blogIdeas[index];
-            const keyword = idea.currentKeyword;
-            const url = generateUrl(idea.currentTitle);
-
-            markedForWriting.add(index);
+            const idea = allIdeas.find(i => i.index === index);
+            if (!idea) return;
+            idea.status = 'TO_WRITE';
             selectedIdeas.delete(index);
             refreshAll();
             switchTab('towrite');
@@ -946,16 +680,15 @@
                 const response = await fetch('/api/blogs', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ keyword, url, title: idea.currentTitle, perspective: idea.perspective })
+                    body: JSON.stringify({ keyword: idea.currentKeyword, url: generateUrl(idea.currentTitle), title: idea.currentTitle, perspective: idea.perspective })
                 });
                 const data = await response.json();
                 if (saveStatus) {
                     saveStatus.textContent = data.success ? '✅ Saved to registry' : '❌ ' + (data.error || 'Save failed');
                     saveStatus.className = data.success ? 'saving-indicator' : 'saving-indicator error';
                 }
-            } catch (error) {
-                console.error('Error saving:', error);
-                if (saveStatus) { saveStatus.textContent = '❌ ' + error.message; saveStatus.className = 'saving-indicator error'; }
+            } catch(e) {
+                if (saveStatus) { saveStatus.textContent = '❌ ' + e.message; saveStatus.className = 'saving-indicator error'; }
             }
         }
 
@@ -963,27 +696,35 @@
         // UNDO WRITING
         // ============================================
         async function undoWriting(index) {
-            const keyword = blogIdeas[index].currentKeyword;
-            const wasBulk = notYetSaved.has(index);
-            markedForWriting.delete(index);
-            notYetSaved.delete(index);
+            const idea = allIdeas.find(i => i.index === index);
+            if (!idea) return;
+            const wasPending = idea.status === 'TO_WRITE_PENDING';
+            idea.status = '';
             refreshAll();
 
-            if (!wasBulk) {
-                try {
+            try {
+                if (wasPending) {
+                    await fetch('/api/blogs', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'update-blog-status', keyword: idea.keyword, status: '' })
+                    });
+                } else {
                     await fetch('/api/blogs', {
                         method: 'DELETE',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ keyword })
+                        body: JSON.stringify({ keyword: idea.keyword })
                     });
-                } catch (error) {
-                    console.error('Error undoing:', error);
                 }
-            }
+            } catch(e) { console.error('Undo error:', e); }
         }
 
+        // ============================================
+        // SEND TO GOOGLE SHEET
+        // ============================================
         async function sendToSheet(index) {
-            const idea = blogIdeas[index];
+            const idea = allIdeas.find(i => i.index === index);
+            if (!idea) return;
             const btn = document.getElementById(`sheet-btn-${index}`);
             const saveStatus = document.getElementById(`save-status-${index}`);
 
@@ -998,134 +739,171 @@
                         keyword: idea.currentKeyword,
                         url: generateUrl(idea.currentTitle),
                         title: idea.currentTitle,
-                        perspective: idea.perspective,
-                        sheetsOnly: true
+                        perspective: idea.perspective
                     })
                 });
                 const data = await response.json();
-                if (data.success || data.sheetsResult) {
-                    notYetSaved.delete(index);
-                    sentToSheet.add(index);
+                if (data.success) {
+                    idea.status = 'TO_WRITE';
                     refreshAll();
                 } else {
                     btn.disabled = false;
                     btn.textContent = '📤 Send to Google Sheet';
-                    if (saveStatus) saveStatus.textContent = '❌ Sheet error: ' + (data.error || 'Unknown');
+                    if (saveStatus) saveStatus.textContent = '❌ ' + (data.error || 'Unknown error');
                 }
-            } catch (error) {
-                console.error('Error sending to sheet:', error);
+            } catch(e) {
                 btn.disabled = false;
                 btn.textContent = '📤 Send to Google Sheet';
-                if (saveStatus) saveStatus.textContent = '❌ ' + error.message;
+                if (saveStatus) saveStatus.textContent = '❌ ' + e.message;
             }
         }
 
         // ============================================
         // MARK FOR KEYWORD CHANGE
         // ============================================
-        function markForKwChange(index) {
-            markedForKwChange.add(index);
+        async function markForKwChange(index) {
+            const idea = allIdeas.find(i => i.index === index);
+            if (!idea) return;
+            idea.status = 'KEYWORD_CHANGE';
             selectedIdeas.delete(index);
             refreshAll();
             switchTab('kwchange');
+
+            try {
+                await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'update-blog-status', keyword: idea.keyword, status: 'KEYWORD_CHANGE' })
+                });
+            } catch(e) { console.error('KW change save error:', e); }
         }
 
         // ============================================
         // UNDO KEYWORD CHANGE
         // ============================================
-        function undoKwChange(index) {
-            markedForKwChange.delete(index);
+        async function undoKwChange(index) {
+            const idea = allIdeas.find(i => i.index === index);
+            if (!idea) return;
+            idea.status = '';
             refreshAll();
+
+            try {
+                await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'update-blog-status', keyword: idea.keyword, status: '' })
+                });
+            } catch(e) { console.error('Undo KW change error:', e); }
         }
 
         // ============================================
-        // CONFIRM DELETE
+        // DELETE (from Keyword Change tab — permanent)
         // ============================================
         async function confirmDelete(index) {
-            const idea = blogIdeas[index];
-            const keyword = idea.currentKeyword;
-
+            const idea = allIdeas.find(i => i.index === index);
+            if (!idea) return;
             const statusEl = document.getElementById(`kw-status-${index}`);
-            if (statusEl) { statusEl.textContent = '⏳ Saving...'; statusEl.className = 'saving-indicator saving'; }
+            if (statusEl) { statusEl.textContent = '⏳ Deleting...'; statusEl.className = 'saving-indicator saving'; }
 
             try {
                 const response = await fetch('/api/blogs', {
-                    method: 'PATCH',
+                    method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ keyword })
+                    body: JSON.stringify({ action: 'update-blog-status', keyword: idea.keyword, status: 'DELETED' })
                 });
                 const data = await response.json();
-
                 if (data.success) {
-                    markedForKwChange.delete(index);
-                    blogIdeas = blogIdeas.filter(i => i.index !== index);
+                    allIdeas = allIdeas.filter(i => i.index !== index);
                     refreshAll();
                 } else {
                     if (statusEl) { statusEl.textContent = '❌ ' + (data.error || 'Failed'); statusEl.className = 'saving-indicator error'; }
                 }
-            } catch (error) {
-                console.error('Error deleting:', error);
-                if (statusEl) { statusEl.textContent = '❌ ' + error.message; statusEl.className = 'saving-indicator error'; }
+            } catch(e) {
+                if (statusEl) { statusEl.textContent = '❌ ' + e.message; statusEl.className = 'saving-indicator error'; }
             }
+        }
+
+        // ============================================
+        // IGNORE IDEA
+        // ============================================
+        async function ignoreIdea(index) {
+            const idea = allIdeas.find(i => i.index === index);
+            if (!idea) return;
+            idea.status = 'IGNORED';
+            selectedIdeas.delete(index);
+            refreshAll();
+            switchTab('ignored');
+
+            try {
+                await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'update-blog-status', keyword: idea.keyword, status: 'IGNORED' })
+                });
+            } catch(e) { console.error('Ignore save error:', e); }
+        }
+
+        // ============================================
+        // UNDO IGNORE
+        // ============================================
+        async function undoIgnore(index) {
+            const idea = allIdeas.find(i => i.index === index);
+            if (!idea) return;
+            const statusEl = document.getElementById(`ig-status-${index}`);
+            if (statusEl) { statusEl.textContent = '⏳ Moving...'; statusEl.className = 'saving-indicator saving'; }
+            idea.status = '';
+            refreshAll();
+
+            try {
+                await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'update-blog-status', keyword: idea.keyword, status: '' })
+                });
+            } catch(e) { console.error('Undo ignore error:', e); }
         }
 
         // ============================================
         // SAVE NEW TITLE & RE-CHECK CANNIBALIZATION
         // ============================================
         function saveNewTitle(index) {
-            const idea = blogIdeas[index];
+            const idea = allIdeas.find(i => i.index === index);
+            if (!idea) return;
             const input = document.getElementById(`new-title-${index}`);
-            const btn = document.getElementById(`save-btn-${index}`);
-            const statusEl = document.getElementById(`recheck-status-${index}`);
+            const btn   = document.getElementById(`save-btn-${index}`);
             const newTitle = input.value.trim();
-
             if (!newTitle || newTitle === idea.currentTitle) return;
 
             btn.disabled = true;
             btn.textContent = 'Checking...';
-            if (statusEl) statusEl.textContent = '';
 
-            // Derive keyword from title: strip leading question words, strip trailing ?
             const cleaned = newTitle
                 .replace(/^(can i|how to|how do i|what is|what are|do i|does|is it|will|should i|why|when)\s+/i, '')
-                .replace(/\?$/, '')
-                .trim();
+                .replace(/\?$/, '').trim();
 
-            const stopWords = new Set(['can','i','how','to','what','is','are','a','the','in','for','of','do','does','my','your','be','will','would','should','could','at','on','with','and','or','but','not','it','its','this','that','did','an','as','if','so','up','do']);
+            const stopWords = new Set(['can','i','how','to','what','is','are','a','the','in','for','of','do','does','my','your','be','will','would','should','could','at','on','with','and','or','but','not','it','its','this','that','did','an','as','if','so','up']);
 
             const extractWords = (text) => text.toLowerCase()
-                .replace(/[^a-z0-9\s]/g, '')
-                .split(/\s+/)
+                .replace(/[^a-z0-9\s]/g, '').split(/\s+/)
                 .filter(w => w.length > 2 && !stopWords.has(w));
 
             const newWords = extractWords(cleaned);
-
-            let conflictLevel = 'NO CONFLICT';
-            let conflictingKeyword = '';
-            let conflictingUrl = '';
+            let conflictLevel = 'NO CONFLICT', conflictingKeyword = '', conflictingUrl = '';
 
             for (const row of allRows) {
                 const rowKeyword = (row['Keyword'] || '').trim();
-                if (!rowKeyword) continue;
-                // Skip the current idea's original keyword
-                if (rowKeyword.toLowerCase() === idea.keyword.toLowerCase()) continue;
-
+                if (!rowKeyword || rowKeyword.toLowerCase() === idea.keyword.toLowerCase()) continue;
                 const rowWords = extractWords(rowKeyword);
                 const overlap = newWords.filter(w => rowWords.includes(w)).length;
-
                 if (overlap >= 3) {
-                    conflictLevel = 'DANGER';
-                    conflictingKeyword = rowKeyword;
-                    conflictingUrl = row['CONFLICTING BLOG URL'] || '';
-                    break;
+                    conflictLevel = 'DANGER'; conflictingKeyword = rowKeyword;
+                    conflictingUrl = row['CONFLICTING BLOG URL'] || ''; break;
                 } else if (overlap >= 2 && conflictLevel !== 'DANGER') {
-                    conflictLevel = 'CAUTION';
-                    conflictingKeyword = rowKeyword;
+                    conflictLevel = 'CAUTION'; conflictingKeyword = rowKeyword;
                     conflictingUrl = row['CONFLICTING BLOG URL'] || '';
                 }
             }
 
-            // Update idea
             idea.currentTitle = newTitle;
             idea.currentKeyword = cleaned;
             idea.cannibalization = conflictLevel;
@@ -1139,7 +917,6 @@
         // INITIALIZE
         // ============================================
         loadData();
-
     </script>
 </body>
 </html>
