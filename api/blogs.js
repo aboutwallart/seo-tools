@@ -1389,15 +1389,7 @@ export default async function handler(req, res) {
       }).join('\n');
       await updateGitHubFile('data/blog_ideas.csv', updatedIdeas, ideasFile.sha, `Mark as TO_WRITE: ${keyword}`);
 
-      let sheetsResult = null;
-      try {
-        sheetsResult = await appendToGoogleSheet(keyword, perspective, title, galleryCode, collectionUrl);
-      } catch (sheetsError) {
-        console.error('Google Sheets append failed (non-fatal):', sheetsError.message);
-        sheetsResult = { error: sheetsError.message };
-      }
-
-      return res.status(200).json({ success: true, keyword, url, sheetsResult });
+      return res.status(200).json({ success: true, keyword, url });
     }
 
     // ============================================
