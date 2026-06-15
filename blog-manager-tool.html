@@ -241,6 +241,19 @@
         }
         .btn-delete:hover { background: #ef5350; color: #ffffff; }
 
+        /* MANUAL CONTENT SOURCES FORM (shown only when a send needs manual entry) */
+        .manual-sources {
+            display: none;
+            margin-top: 16px;
+            background: #fff8f1;
+            border: 1px solid #ffa726;
+            border-radius: 6px;
+            padding: 14px 16px;
+        }
+        .manual-sources.visible { display: block; }
+        .manual-msg { font-size: 13px; font-weight: 600; color: #ef6c00; margin-bottom: 12px; }
+        .manual-input { display: block; width: 100%; margin-bottom: 8px; }
+
         /* STATUS INDICATORS */
         .saving-indicator { font-size: 12px; color: #66bb6a; margin-left: 10px; }
         .saving-indicator.saving  { color: #ffa726; }
@@ -251,7 +264,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v2.8 - 2026-06-15</p>
+        <p class="version">v2.9 - 2026-06-15</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -771,6 +784,20 @@
                 </div>
             ` : '';
 
+            // Manual content-sources form — only on unsent To Write cards. Hidden until a send needs manual entry.
+            const manualFormHTML = (tab === 'towrite' && idea.status !== 'TO_WRITE_SENT') ? `
+                <div class="manual-sources" id="manual-${index}">
+                    <div class="manual-msg" id="manual-msg-${index}"></div>
+                    <span class="inline-edit-label">Authority article</span>
+                    <input type="text" class="inline-edit-input manual-input" id="ms-at-${index}" placeholder="Article title">
+                    <input type="text" class="inline-edit-input manual-input" id="ms-au-${index}" placeholder="Article link (https://...)">
+                    <span class="inline-edit-label" style="margin-top:10px;">YouTube video</span>
+                    <input type="text" class="inline-edit-input manual-input" id="ms-yt-${index}" placeholder="Video title">
+                    <input type="text" class="inline-edit-input manual-input" id="ms-yl-${index}" placeholder="Video link (https://www.youtube.com/watch?v=...)">
+                    <button class="btn-mark" style="margin-top:10px;" id="ms-send-${index}" onclick="sendToSheetManual(${index})">📤 Send with these details</button>
+                </div>
+            ` : '';
+
             return `
                 <div class="idea-card ${tab === 'ignored' ? 'grey' : cardClass}${isSelected ? ' selected-card' : ''}" id="card-${index}">
                     ${checkboxHTML}
@@ -783,6 +810,7 @@
                     <div class="perspective">${idea.perspective}</div>
                     ${conflictHTML}
                     <div class="card-actions">${actionsHTML}</div>
+                    ${manualFormHTML}
                 </div>
             `;
         }
@@ -882,6 +910,20 @@
                         body: JSON.stringify({ action: 'update-blog-status', keyword: idea.keyword, status: 'TO_WRITE_SENT' })
                     }).catch(() => {});
                     refreshAll();
+                } else if (data.needsManual) {
+                    // Search couldn't complete — open the manual boxes, prefilling whatever was found
+                    const found = data.found || {};
+                    const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+                    set(`ms-at-${index}`, found.authorityTitle);
+                    set(`ms-au-${index}`, found.authorityUrl);
+                    set(`ms-yt-${index}`, found.youtubeTitle);
+                    set(`ms-yl-${index}`, found.youtubeLink);
+                    const msg = document.getElementById(`manual-msg-${index}`);
+                    if (msg) msg.textContent = '⚠ ' + (data.error || 'Please complete the missing details below, then send.');
+                    const form = document.getElementById(`manual-${index}`);
+                    if (form) form.classList.add('visible');
+                    if (btn) { btn.disabled = false; btn.textContent = '📤 Send to Google Sheet'; }
+                    if (saveStatus) saveStatus.textContent = '';
                 } else {
                     if (btn) { btn.disabled = false; btn.textContent = '📤 Send to Google Sheet'; }
                     if (saveStatus) saveStatus.textContent = '❌ ' + (data.error || 'Unknown error');
@@ -889,6 +931,61 @@
             } catch(e) {
                 if (btn) { btn.disabled = false; btn.textContent = '📤 Send to Google Sheet'; }
                 if (saveStatus) saveStatus.textContent = '❌ ' + e.message;
+            }
+        }
+
+        // ============================================
+        // SEND TO GOOGLE SHEET — MANUAL (after auto-search left something blank)
+        // ============================================
+        async function sendToSheetManual(index) {
+            const idea = allIdeas.find(i => i.index === index);
+            if (!idea) return;
+            const at = (document.getElementById(`ms-at-${index}`).value || '').trim();
+            const au = (document.getElementById(`ms-au-${index}`).value || '').trim();
+            const yt = (document.getElementById(`ms-yt-${index}`).value || '').trim();
+            const yl = (document.getElementById(`ms-yl-${index}`).value || '').trim();
+            const msg = document.getElementById(`manual-msg-${index}`);
+            const btn = document.getElementById(`ms-send-${index}`);
+
+            if (!at || !au || !yt || !yl) {
+                if (msg) msg.textContent = '⚠ Please fill in all four boxes before sending.';
+                return;
+            }
+
+            if (btn) { btn.disabled = true; btn.textContent = '⏳ Sending...'; }
+
+            try {
+                const gallery = matchGallery(idea.currentKeyword, idea.currentTitle);
+                const response = await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'send-to-sheet', manual: true,
+                        keyword: idea.currentKeyword,
+                        title: idea.currentTitle,
+                        perspective: idea.perspective,
+                        galleryCode: gallery.code,
+                        collectionUrl: gallery.url,
+                        authorityTitle: at, authorityUrl: au, youtubeTitle: yt, youtubeLink: yl
+                    })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    idea.status = 'TO_WRITE_SENT';
+                    selectedToSend.delete(index);
+                    await fetch('/api/blogs', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'update-blog-status', keyword: idea.keyword, status: 'TO_WRITE_SENT' })
+                    }).catch(() => {});
+                    refreshAll();
+                } else {
+                    if (msg) msg.textContent = '❌ ' + (data.error || 'Could not send — please check the details.');
+                    if (btn) { btn.disabled = false; btn.textContent = '📤 Send with these details'; }
+                }
+            } catch(e) {
+                if (msg) msg.textContent = '❌ ' + e.message;
+                if (btn) { btn.disabled = false; btn.textContent = '📤 Send with these details'; }
             }
         }
 
