@@ -13,7 +13,7 @@
             background: #ffffff;
             color: #1a1a1a;
             line-height: 1.6;
-            padding: 40px 20px 120px 20px;
+            padding: 40px 20px;
         }
 
         .container { max-width: 1200px; margin: 0 auto; }
@@ -415,37 +415,25 @@
 
         .btn-delete:hover { background: #ef5350; color: #ffffff; }
 
-        /* STICKY BULK BAR */
-        .bulk-bar {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: #1a1a1a;
-            color: #ffffff;
-            padding: 16px 24px;
-            display: flex;
+        /* BULK ACTION ROW */
+        .bulk-action-row {
+            display: none;
             align-items: center;
-            justify-content: space-between;
-            gap: 16px;
-            z-index: 1000;
-            transform: translateY(100%);
-            transition: transform 0.25s ease;
+            gap: 12px;
+            background: #e3f2fd;
+            border: 1px solid #2196F3;
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 16px;
         }
 
-        .bulk-bar.visible {
-            transform: translateY(0);
-        }
+        .bulk-action-row.visible { display: flex; }
 
-        .bulk-bar-info {
+        .bulk-action-info {
             font-size: 14px;
-            font-weight: 500;
-        }
-
-        .bulk-bar-actions {
-            display: flex;
-            gap: 10px;
-            align-items: center;
+            font-weight: 600;
+            color: #1565C0;
+            flex: 1;
         }
 
         .btn-bulk-move {
@@ -464,9 +452,9 @@
         .btn-bulk-move:hover { background: #1976D2; }
 
         .btn-bulk-clear {
-            background: transparent;
-            color: #cccccc;
-            border: 1px solid #555555;
+            background: #ffffff;
+            color: #666666;
+            border: 1px solid #cccccc;
             padding: 10px 18px;
             font-size: 13px;
             font-weight: 500;
@@ -476,13 +464,13 @@
             transition: all 0.2s ease;
         }
 
-        .btn-bulk-clear:hover { color: #ffffff; border-color: #aaaaaa; }
+        .btn-bulk-clear:hover { border-color: #999999; color: #1a1a1a; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v2.0 - 2026-06-15</p>
+        <p class="version">v2.1 - 2026-06-15</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -506,6 +494,11 @@
                 <button class="btn-filter" onclick="setFilter('yellow')">🟡 Caution</button>
                 <button class="btn-filter" onclick="setFilter('red')">🔴 Danger</button>
             </div>
+            <div class="bulk-action-row" id="bulk-action-row">
+                <span class="bulk-action-info" id="bulk-action-info">0 selected</span>
+                <button class="btn-bulk-clear" onclick="clearSelection()">Clear</button>
+                <button class="btn-bulk-move" onclick="bulkMoveToWrite()">✓ Move selected to To Write</button>
+            </div>
             <div id="ideas-container">
                 <div class="loading">🔄 Loading blog ideas...</div>
             </div>
@@ -524,14 +517,6 @@
         </div>
     </div>
 
-    <!-- STICKY BULK BAR -->
-    <div class="bulk-bar" id="bulk-bar">
-        <div class="bulk-bar-info" id="bulk-bar-info">0 selected</div>
-        <div class="bulk-bar-actions">
-            <button class="btn-bulk-clear" onclick="clearSelection()">Clear selection</button>
-            <button class="btn-bulk-move" onclick="bulkMoveToWrite()">✓ Move to To Write</button>
-        </div>
-    </div>
 
     <script>
         // ============================================
@@ -603,14 +588,15 @@
         }
 
         function updateBulkBar() {
-            const bar = document.getElementById('bulk-bar');
-            const info = document.getElementById('bulk-bar-info');
+            const row = document.getElementById('bulk-action-row');
+            const info = document.getElementById('bulk-action-info');
+            if (!row) return;
             const n = selectedIdeas.size;
             if (n > 0) {
                 info.textContent = `${n} idea${n > 1 ? 's' : ''} selected`;
-                bar.classList.add('visible');
+                row.classList.add('visible');
             } else {
-                bar.classList.remove('visible');
+                row.classList.remove('visible');
             }
         }
 
