@@ -1342,6 +1342,19 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true, keyword, status });
       }
 
+      // ── ACTION: send-to-sheet ── (only calls Apps Script — no GitHub writes)
+      if (req.body.action === 'send-to-sheet') {
+        const { keyword, title, perspective, galleryCode, collectionUrl } = req.body;
+        if (!keyword) return res.status(400).json({ error: 'keyword required' });
+        try {
+          const sheetsResult = await appendToGoogleSheet(keyword, perspective, title, galleryCode, collectionUrl);
+          return res.status(200).json({ success: true, sheetsResult });
+        } catch (sheetsError) {
+          console.error('Google Sheets append failed:', sheetsError.message);
+          return res.status(200).json({ success: false, error: sheetsError.message });
+        }
+      }
+
       // ── ACTION: bulk-update-blog-status ── (multiple keywords — one GitHub write)
       if (req.body.action === 'bulk-update-blog-status') {
         const { keywords, status } = req.body;
