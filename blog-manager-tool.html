@@ -251,7 +251,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v2.5 - 2026-06-15</p>
+        <p class="version">v2.6 - 2026-06-15</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -717,26 +717,25 @@
                     ${level !== 'NO CONFLICT' ? `<button class="btn-ignore" onclick="ignoreIdea(${index})">Ignore</button>` : ''}
                 `;
             } else if (tab === 'towrite') {
-                const isSent    = idea.status === 'TO_WRITE_SENT';
-                const isSaved   = idea.status === 'TO_WRITE';       // via markForWriting — already sent
-                const isPending = idea.status === 'TO_WRITE_PENDING'; // bulk-moved — needs sending
+                const isSent = idea.status === 'TO_WRITE_SENT';
 
-                if (isSent || isSaved) {
+                if (isSent) {
                     cardExtraClass = 'grey';
-                    const sentLabel = isSaved ? '✅ Registered & sent' : '✅ Sent to Google Sheet';
                     actionsHTML = `
                         <button class="btn-mark marked" disabled style="opacity:0.5;">✓ To Write Blog</button>
-                        <span class="saving-indicator" style="color:#66bb6a;">${sentLabel}</span>
+                        <span class="saving-indicator" style="color:#66bb6a;">✅ Sent to Google Sheet</span>
                         <button class="btn-undo" onclick="undoWriting(${index})">↩ Undo</button>
                     `;
                 } else {
-                    // TO_WRITE_PENDING — bulk-moved, not yet sent
+                    // TO_WRITE or TO_WRITE_PENDING — not yet sent to Google Sheet
                     checkboxHTML = `<input type="checkbox" class="ts-checkbox card-checkbox" id="ts-cb-${index}" onchange="toggleToSend(${index})">`;
+                    const saveText  = idea.status === 'TO_WRITE' ? '✅ Saved to registry' : '⏳ Not saved yet';
+                    const saveClass = idea.status === 'TO_WRITE' ? 'saving-indicator' : 'saving-indicator pending';
                     actionsHTML = `
                         <button class="btn-mark marked" disabled>✓ To Write Blog</button>
                         <button class="btn-undo" onclick="undoWriting(${index})">↩ Undo</button>
                         <button class="btn-send-sheet" id="sheet-btn-${index}" onclick="sendToSheet(${index})">📤 Send to Google Sheet</button>
-                        <span class="saving-indicator pending" id="save-status-${index}">⏳ Not sent yet</span>
+                        <span class="${saveClass}" id="save-status-${index}">${saveText}</span>
                     `;
                 }
             } else if (tab === 'kwchange') {
