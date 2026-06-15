@@ -1365,7 +1365,7 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true, count: keywords.length, status });
       }
 
-      const { keyword, url, title, perspective, galleryCode, collectionUrl } = req.body;
+      const { keyword, url, title, perspective, galleryCode, collectionUrl, writeToSheet } = req.body;
       if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
       if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured in environment variables' });
 
@@ -1389,7 +1389,17 @@ export default async function handler(req, res) {
       }).join('\n');
       await updateGitHubFile('data/blog_ideas.csv', updatedIdeas, ideasFile.sha, `Mark as TO_WRITE: ${keyword}`);
 
-      return res.status(200).json({ success: true, keyword, url });
+      let sheetsResult = null;
+      if (writeToSheet) {
+        try {
+          sheetsResult = await appendToGoogleSheet(keyword, perspective, title, galleryCode, collectionUrl);
+        } catch (sheetsError) {
+          console.error('Google Sheets append failed (non-fatal):', sheetsError.message);
+          sheetsResult = { error: sheetsError.message };
+        }
+      }
+
+      return res.status(200).json({ success: true, keyword, url, sheetsResult });
     }
 
     // ============================================
