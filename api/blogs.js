@@ -1,4 +1,8 @@
-// blogs.js — v2.9
+// blogs.js — v3.0
+// v3.0: Blog Manager Batch 1 — send-to-sheet now auto-generates content sources (colG–colK):
+//        authority article (title+URL) + YouTube video (title+link+embed) via Claude web search.
+//        Fail-loud: if either is missing the row is NOT written; frontend collects missing parts manually.
+//        maxDuration raised to 60s so the web search has time to finish.
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
@@ -9,6 +13,9 @@
 // v2.6: fix all write actions to use findIndex for header detection — prevents header row being wiped on CSV rewrite
 import fs from 'fs';
 import path from 'path';
+
+// Raise serverless time limit — auto-generating content sources (web search) can take longer than the 10s default
+export const config = { maxDuration: 60 };
 
 export default async function handler(req, res) {
   // CORS headers
@@ -126,7 +133,8 @@ export default async function handler(req, res) {
   }
 
   // Helper: append row to Google Sheet via Apps Script webhook
-  async function appendToGoogleSheet(keyword, perspective, title, galleryCode, collectionUrl) {
+  // sources (optional) = { authorityTitle, authorityUrl, youtubeTitle, youtubeLink, youtubeEmbed } → columns G–K
+  async function appendToGoogleSheet(keyword, perspective, title, galleryCode, collectionUrl, sources = {}) {
     if (!SHEETS_WEBHOOK) {
       console.log('SHEETS_WEBHOOK_URL not configured - skipping Google Sheets append');
       return { skipped: true };
@@ -141,11 +149,93 @@ export default async function handler(req, res) {
         colD: galleryCode || '',
         colE: collectionUrl || '',
         colF: title || '',
+        colG: sources.authorityTitle || '',
+        colH: sources.authorityUrl || '',
+        colI: sources.youtubeTitle || '',
+        colJ: sources.youtubeLink || '',
+        colK: sources.youtubeEmbed || '',
         colAS: 'READY TO GENERATE BLOG'
       })
     });
     if (!response.ok) throw new Error(`Sheets webhook error: ${response.status}`);
     return await response.json();
+  }
+
+  // Helper: build a YouTube embed iframe from a watch/share link. Returns '' if no video id can be parsed.
+  function buildYouTubeEmbed(link) {
+    if (!link) return '';
+    let id = '';
+    const patterns = [
+      /[?&]v=([A-Za-z0-9_-]{11})/,        // watch?v=ID
+      /youtu\.be\/([A-Za-z0-9_-]{11})/,    // youtu.be/ID
+      /youtube\.com\/embed\/([A-Za-z0-9_-]{11})/, // /embed/ID
+      /youtube\.com\/shorts\/([A-Za-z0-9_-]{11})/ // /shorts/ID
+    ];
+    for (const p of patterns) {
+      const m = link.match(p);
+      if (m) { id = m[1]; break; }
+    }
+    if (!id) return '';
+    return `<iframe width="560" height="315" src="https://www.youtube.com/embed/${id}" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`;
+  }
+
+  // Helper: auto-generate Batch 1 content sources via Claude web search.
+  // Returns { authorityTitle, authorityUrl, youtubeTitle, youtubeLink } — any field may be '' if not found.
+  async function generateContentSources(keyword, title) {
+    const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+    if (!ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not configured');
+
+    const prompt = `You are preparing a blog post for aboutwallart.com, an interior design and wall art e-commerce site.
+Blog topic / main keyword: "${keyword}"
+Blog working title: "${title}"
+
+Use web search to find:
+1. ONE authoritative, trustworthy external article on this topic from a reputable source (a design magazine, established publication, museum, university, or recognised expert site). It MUST NOT be an online shop selling wall art, prints or home decor (no competitor stores). Give its exact published title and full URL.
+2. ONE relevant, good-quality YouTube video on this topic. Give its exact title and full watch URL in the form https://www.youtube.com/watch?v=VIDEOID
+
+Return ONLY a JSON object, with no commentary before or after, in exactly this shape:
+{"authorityTitle":"","authorityUrl":"","youtubeTitle":"","youtubeLink":""}
+If you genuinely cannot find one of the two, leave its two fields as empty strings.`;
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': ANTHROPIC_API_KEY,
+        'content-type': 'application/json',
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2000,
+        messages: [{ role: 'user', content: prompt }],
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }]
+      })
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Claude API error: ${response.status} ${errText.slice(0, 200)}`);
+    }
+
+    const data = await response.json();
+    let text = '';
+    if (data.content && Array.isArray(data.content)) {
+      text = data.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
+    }
+    text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('Could not read the search result (no data returned)');
+
+    let parsed;
+    try { parsed = JSON.parse(match[0]); }
+    catch (e) { throw new Error('Search result was not in a readable format'); }
+
+    return {
+      authorityTitle: (parsed.authorityTitle || '').trim(),
+      authorityUrl: (parsed.authorityUrl || '').trim(),
+      youtubeTitle: (parsed.youtubeTitle || '').trim(),
+      youtubeLink: (parsed.youtubeLink || '').trim()
+    };
   }
 
   try {
@@ -1343,11 +1433,62 @@ export default async function handler(req, res) {
       }
 
       // ── ACTION: send-to-sheet ── (only calls Apps Script — no GitHub writes)
+      // Batch 1: auto-generates content sources (colG–colK) via web search, or accepts manual values (manual:true).
+      // Fail-loud: the row is written ONLY when authority article + YouTube video are both complete.
       if (req.body.action === 'send-to-sheet') {
-        const { keyword, title, perspective, galleryCode, collectionUrl } = req.body;
+        const { keyword, title, perspective, galleryCode, collectionUrl, manual } = req.body;
         if (!keyword) return res.status(400).json({ error: 'keyword required' });
+
+        let authorityTitle = (req.body.authorityTitle || '').trim();
+        let authorityUrl   = (req.body.authorityUrl || '').trim();
+        let youtubeTitle   = (req.body.youtubeTitle || '').trim();
+        let youtubeLink    = (req.body.youtubeLink || '').trim();
+
+        // Auto mode (first send): search the web for both sources
+        if (!manual) {
+          try {
+            const gen = await generateContentSources(keyword, title);
+            authorityTitle = gen.authorityTitle;
+            authorityUrl   = gen.authorityUrl;
+            youtubeTitle   = gen.youtubeTitle;
+            youtubeLink    = gen.youtubeLink;
+          } catch (genError) {
+            console.error('Content source generation failed:', genError.message);
+            // Hand back to the user for manual entry — nothing written to the sheet
+            return res.status(200).json({
+              success: false,
+              needsManual: true,
+              error: genError.message,
+              found: { authorityTitle: '', authorityUrl: '', youtubeTitle: '', youtubeLink: '' }
+            });
+          }
+        }
+
+        // Build embed from whatever link we have
+        const youtubeEmbed = buildYouTubeEmbed(youtubeLink);
+
+        // Completeness check — both groups must be fully present, and the video link must be a valid YouTube link
+        const articleOk = !!(authorityTitle && authorityUrl);
+        const youtubeOk = !!(youtubeTitle && youtubeLink && youtubeEmbed);
+        if (!articleOk || !youtubeOk) {
+          let error;
+          if (!articleOk && !youtubeOk) error = 'Could not find a trustworthy article or a YouTube video — please add them manually.';
+          else if (!articleOk)         error = 'Could not find a trustworthy article — please add it manually.';
+          else if (youtubeTitle && youtubeLink && !youtubeEmbed) error = 'That YouTube link is not valid — please check it.';
+          else                         error = 'Could not find a YouTube video — please add it manually.';
+          return res.status(200).json({
+            success: false,
+            needsManual: true,
+            error,
+            found: { authorityTitle, authorityUrl, youtubeTitle, youtubeLink }
+          });
+        }
+
+        // Complete row — write to the sheet
         try {
-          const sheetsResult = await appendToGoogleSheet(keyword, perspective, title, galleryCode, collectionUrl);
+          const sheetsResult = await appendToGoogleSheet(keyword, perspective, title, galleryCode, collectionUrl, {
+            authorityTitle, authorityUrl, youtubeTitle, youtubeLink, youtubeEmbed
+          });
           return res.status(200).json({ success: true, sheetsResult });
         } catch (sheetsError) {
           console.error('Google Sheets append failed:', sheetsError.message);
