@@ -13,7 +13,7 @@
             background: #ffffff;
             color: #1a1a1a;
             line-height: 1.6;
-            padding: 40px 20px;
+            padding: 40px 20px 120px 20px;
         }
 
         .container { max-width: 1200px; margin: 0 auto; }
@@ -36,6 +36,61 @@
 
         .loading { text-align: center; padding: 60px 20px; color: #666666; font-size: 14px; }
 
+        /* FILTER BAR */
+        .filter-bar {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .filter-label {
+            font-size: 13px;
+            color: #666666;
+            font-weight: 500;
+            margin-right: 4px;
+        }
+
+        .btn-filter {
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+            font-family: 'Poppins', sans-serif;
+            border: 1px solid #e0e0e0;
+            background: #ffffff;
+            color: #666666;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-filter:hover { border-color: #1a1a1a; color: #1a1a1a; }
+
+        .btn-filter.active-all {
+            background: #1a1a1a;
+            color: #ffffff;
+            border-color: #1a1a1a;
+        }
+
+        .btn-filter.active-green {
+            background: #66bb6a;
+            color: #ffffff;
+            border-color: #66bb6a;
+        }
+
+        .btn-filter.active-yellow {
+            background: #ffa726;
+            color: #ffffff;
+            border-color: #ffa726;
+        }
+
+        .btn-filter.active-red {
+            background: #ef5350;
+            color: #ffffff;
+            border-color: #ef5350;
+        }
+
         /* IDEA CARD */
         .idea-card {
             background: #ffffff;
@@ -43,11 +98,32 @@
             border-radius: 8px;
             padding: 20px;
             margin-bottom: 20px;
+            position: relative;
         }
 
         .idea-card.green { border-color: #66bb6a; background: #f1f8f4; }
         .idea-card.yellow { border-color: #ffa726; background: #fff8f1; }
         .idea-card.red { border-color: #ef5350; background: #fff1f1; }
+
+        .idea-card.selected-card {
+            outline: 3px solid #2196F3;
+            outline-offset: 2px;
+        }
+
+        /* CHECKBOX */
+        .card-checkbox {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            accent-color: #2196F3;
+        }
+
+        .idea-card .card-header {
+            padding-left: 32px;
+        }
 
         .card-header {
             display: flex;
@@ -286,6 +362,8 @@
 
         .saving-indicator.saving { color: #ffa726; }
         .saving-indicator.error { color: #ef5350; }
+        .saving-indicator.pending { color: #999999; }
+
         .btn-mark {
             background: #2196F3;
             color: #ffffff;
@@ -336,12 +414,75 @@
         }
 
         .btn-delete:hover { background: #ef5350; color: #ffffff; }
+
+        /* STICKY BULK BAR */
+        .bulk-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: #1a1a1a;
+            color: #ffffff;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            z-index: 1000;
+            transform: translateY(100%);
+            transition: transform 0.25s ease;
+        }
+
+        .bulk-bar.visible {
+            transform: translateY(0);
+        }
+
+        .bulk-bar-info {
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .bulk-bar-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .btn-bulk-move {
+            background: #2196F3;
+            color: #ffffff;
+            border: none;
+            padding: 10px 22px;
+            font-size: 14px;
+            font-weight: 500;
+            font-family: 'Poppins', sans-serif;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-bulk-move:hover { background: #1976D2; }
+
+        .btn-bulk-clear {
+            background: transparent;
+            color: #cccccc;
+            border: 1px solid #555555;
+            padding: 10px 18px;
+            font-size: 13px;
+            font-weight: 500;
+            font-family: 'Poppins', sans-serif;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-bulk-clear:hover { color: #ffffff; border-color: #aaaaaa; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v1.9 - 2026-05-27</p>
+        <p class="version">v2.0 - 2026-06-15</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -358,6 +499,13 @@
         </div>
 
         <div class="tab-content active" id="panel-ideas">
+            <div id="filter-bar" class="filter-bar" style="display:none;">
+                <span class="filter-label">Filter:</span>
+                <button class="btn-filter active-all" onclick="setFilter('all')">All</button>
+                <button class="btn-filter" onclick="setFilter('green')">🟢 No Conflict</button>
+                <button class="btn-filter" onclick="setFilter('yellow')">🟡 Caution</button>
+                <button class="btn-filter" onclick="setFilter('red')">🔴 Danger</button>
+            </div>
             <div id="ideas-container">
                 <div class="loading">🔄 Loading blog ideas...</div>
             </div>
@@ -376,14 +524,26 @@
         </div>
     </div>
 
+    <!-- STICKY BULK BAR -->
+    <div class="bulk-bar" id="bulk-bar">
+        <div class="bulk-bar-info" id="bulk-bar-info">0 selected</div>
+        <div class="bulk-bar-actions">
+            <button class="btn-bulk-clear" onclick="clearSelection()">Clear selection</button>
+            <button class="btn-bulk-move" onclick="bulkMoveToWrite()">✓ Move to To Write</button>
+        </div>
+    </div>
+
     <script>
         // ============================================
         // DATA
         // ============================================
         let blogIdeas = [];
-        let markedForWriting = new Set();   // indexes marked for writing
-        let markedForKwChange = new Set();  // indexes marked for keyword change
-        let sentToSheet = new Set();        // indexes sent to Google Sheet (hidden from To Write)
+        let markedForWriting = new Set();
+        let markedForKwChange = new Set();
+        let sentToSheet = new Set();
+        let notYetSaved = new Set();    // moved via bulk — not saved to registry yet
+        let selectedIdeas = new Set();  // checkboxes
+        let activeFilter = 'all';
 
         // ============================================
         // TAB SWITCHING
@@ -393,6 +553,7 @@
             document.querySelectorAll('.tab-content').forEach(p => p.classList.remove('active'));
             document.getElementById(`tab-${tab}`).classList.add('active');
             document.getElementById(`panel-${tab}`).classList.add('active');
+            if (tab !== 'ideas') clearSelection();
         }
 
         function updateTabCounts() {
@@ -402,6 +563,69 @@
             document.getElementById('count-ideas').textContent = total - writing - kwchange;
             document.getElementById('count-towrite').textContent = writing;
             document.getElementById('count-kwchange').textContent = kwchange;
+        }
+
+        // ============================================
+        // FILTER
+        // ============================================
+        function setFilter(filter) {
+            activeFilter = filter;
+            document.querySelectorAll('.btn-filter').forEach(b => {
+                b.className = 'btn-filter';
+            });
+            const activeBtn = document.querySelector(`.btn-filter[onclick="setFilter('${filter}')"]`);
+            if (activeBtn) activeBtn.classList.add(`active-${filter}`);
+            clearSelection();
+            displayIdeas();
+        }
+
+        // ============================================
+        // SELECTION
+        // ============================================
+        function toggleSelect(index) {
+            if (selectedIdeas.has(index)) {
+                selectedIdeas.delete(index);
+            } else {
+                selectedIdeas.add(index);
+            }
+            const card = document.getElementById(`card-${index}`);
+            const cb = document.getElementById(`cb-${index}`);
+            if (card) card.classList.toggle('selected-card', selectedIdeas.has(index));
+            if (cb) cb.checked = selectedIdeas.has(index);
+            updateBulkBar();
+        }
+
+        function clearSelection() {
+            selectedIdeas.clear();
+            document.querySelectorAll('.card-checkbox').forEach(cb => { cb.checked = false; });
+            document.querySelectorAll('.idea-card').forEach(c => c.classList.remove('selected-card'));
+            updateBulkBar();
+        }
+
+        function updateBulkBar() {
+            const bar = document.getElementById('bulk-bar');
+            const info = document.getElementById('bulk-bar-info');
+            const n = selectedIdeas.size;
+            if (n > 0) {
+                info.textContent = `${n} idea${n > 1 ? 's' : ''} selected`;
+                bar.classList.add('visible');
+            } else {
+                bar.classList.remove('visible');
+            }
+        }
+
+        // ============================================
+        // BULK MOVE TO TO WRITE (no API save)
+        // ============================================
+        function bulkMoveToWrite() {
+            if (selectedIdeas.size === 0) return;
+            selectedIdeas.forEach(index => {
+                markedForWriting.add(index);
+                notYetSaved.add(index);
+            });
+            clearSelection();
+            refreshAll();
+            switchTab('towrite');
         }
 
         // ============================================
@@ -460,13 +684,11 @@
                 const csvText = await response.text();
                 const rows = parseCSV(csvText);
 
-                // Filter out already processed rows (TO_WRITE or KEYWORD_CHANGE)
                 const unprocessed = rows.filter(row => {
                     const status = (row['STATUS'] || '').trim();
                     return status !== 'TO_WRITE' && status !== 'KEYWORD_CHANGE';
                 });
 
-                // Take first 40 unprocessed
                 const first40 = unprocessed.slice(0, 40);
 
                 blogIdeas = first40.map((row, index) => ({
@@ -492,6 +714,7 @@
                     🔴 ${red} Danger
                 `;
 
+                document.getElementById('filter-bar').style.display = 'flex';
                 updateTabCounts();
                 displayIdeas();
 
@@ -507,16 +730,32 @@
         // ============================================
         function displayIdeas() {
             const container = document.getElementById('ideas-container');
-            const visible = blogIdeas.filter(idea => 
+            let visible = blogIdeas.filter(idea =>
                 !markedForWriting.has(idea.index) && !markedForKwChange.has(idea.index)
             );
 
+            if (activeFilter === 'green') {
+                visible = visible.filter(i => i.cannibalization === 'NO CONFLICT');
+            } else if (activeFilter === 'yellow') {
+                visible = visible.filter(i => i.cannibalization === 'CAUTION');
+            } else if (activeFilter === 'red') {
+                visible = visible.filter(i => i.cannibalization === 'DANGER');
+            }
+
             if (visible.length === 0) {
-                container.innerHTML = `<div class="empty-state">All ideas have been processed! 🎉</div>`;
+                container.innerHTML = `<div class="empty-state">No ideas match this filter.</div>`;
                 return;
             }
 
             container.innerHTML = visible.map(idea => buildIdeaCard(idea, 'ideas')).join('');
+
+            // Restore checked state
+            selectedIdeas.forEach(idx => {
+                const card = document.getElementById(`card-${idx}`);
+                const cb = document.getElementById(`cb-${idx}`);
+                if (card) card.classList.add('selected-card');
+                if (cb) cb.checked = true;
+            });
         }
 
         // ============================================
@@ -564,20 +803,26 @@
             const cardClass = level === 'NO CONFLICT' ? 'green' : level === 'CAUTION' ? 'yellow' : 'red';
             const badgeClass = level === 'NO CONFLICT' ? 'badge-green' : level === 'CAUTION' ? 'badge-yellow' : 'badge-red';
             const index = idea.index;
+            const isSelected = selectedIdeas.has(index);
 
+            let checkboxHTML = '';
             let actionsHTML = '';
 
             if (tab === 'ideas') {
+                checkboxHTML = `<input type="checkbox" class="card-checkbox" id="cb-${index}" ${isSelected ? 'checked' : ''} onchange="toggleSelect(${index})">`;
                 actionsHTML = `
                     <button class="btn-mark" onclick="markForWriting(${index})">Mark for Writing</button>
                     <button class="btn-keyword-change" onclick="markForKwChange(${index})">Change Keyword</button>
                 `;
             } else if (tab === 'towrite') {
+                const isPending = notYetSaved.has(index);
+                const saveStatusText = isPending ? '⏳ Not saved yet' : '✅ Saved to registry';
+                const saveStatusClass = isPending ? 'saving-indicator pending' : 'saving-indicator';
                 actionsHTML = `
                     <button class="btn-mark marked" disabled>✓ To Write Blog</button>
                     <button class="btn-undo" onclick="undoWriting(${index})">↩ Undo</button>
                     <button class="btn-send-sheet" id="sheet-btn-${index}" onclick="sendToSheet(${index})">📤 Send to Google Sheet</button>
-                    <span class="saving-indicator" id="save-status-${index}">✅ Saved to registry</span>
+                    <span class="${saveStatusClass}" id="save-status-${index}">${saveStatusText}</span>
                 `;
             } else if (tab === 'kwchange') {
                 actionsHTML = `
@@ -589,7 +834,8 @@
             }
 
             return `
-                <div class="idea-card ${cardClass}" id="card-${index}">
+                <div class="idea-card ${cardClass}${isSelected ? ' selected-card' : ''}" id="card-${index}">
+                    ${checkboxHTML}
                     <div class="card-header">
                         <span class="card-number">#${index + 1}</span>
                         <span class="status-badge ${badgeClass}">${level}</span>
@@ -622,7 +868,7 @@
         }
 
         // ============================================
-        // MARK FOR WRITING
+        // MARK FOR WRITING (single — saves to registry)
         // ============================================
         async function markForWriting(index) {
             const idea = blogIdeas[index];
@@ -630,6 +876,7 @@
             const url = generateUrl(idea.currentTitle);
 
             markedForWriting.add(index);
+            selectedIdeas.delete(index);
             refreshAll();
             switchTab('towrite');
 
@@ -658,17 +905,21 @@
         // ============================================
         async function undoWriting(index) {
             const keyword = blogIdeas[index].currentKeyword;
+            const wasBulk = notYetSaved.has(index);
             markedForWriting.delete(index);
+            notYetSaved.delete(index);
             refreshAll();
 
-            try {
-                await fetch('/api/blogs', {
-                    method: 'DELETE',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ keyword })
-                });
-            } catch (error) {
-                console.error('Error undoing:', error);
+            if (!wasBulk) {
+                try {
+                    await fetch('/api/blogs', {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ keyword })
+                    });
+                } catch (error) {
+                    console.error('Error undoing:', error);
+                }
             }
         }
 
@@ -694,7 +945,7 @@
                 });
                 const data = await response.json();
                 if (data.success || data.sheetsResult) {
-                    // Remove card from view
+                    notYetSaved.delete(index);
                     sentToSheet.add(index);
                     refreshAll();
                 } else {
@@ -715,6 +966,7 @@
         // ============================================
         function markForKwChange(index) {
             markedForKwChange.add(index);
+            selectedIdeas.delete(index);
             refreshAll();
             switchTab('kwchange');
         }
@@ -728,7 +980,7 @@
         }
 
         // ============================================
-        // CONFIRM DELETE (mark as KEYWORD_CHANGE in CSV)
+        // CONFIRM DELETE
         // ============================================
         async function confirmDelete(index) {
             const idea = blogIdeas[index];
@@ -746,7 +998,6 @@
                 const data = await response.json();
 
                 if (data.success) {
-                    // Remove from UI permanently
                     markedForKwChange.delete(index);
                     blogIdeas = blogIdeas.filter(i => i.index !== index);
                     refreshAll();
