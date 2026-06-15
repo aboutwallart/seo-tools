@@ -251,7 +251,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v2.4 - 2026-06-15</p>
+        <p class="version">v2.5 - 2026-06-15</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -289,9 +289,12 @@
         </div>
 
         <div class="tab-content" id="panel-towrite">
+            <div class="filter-bar" style="margin-bottom:14px;">
+                <button class="btn-filter" onclick="selectAllUnsent()" style="background:#43a047;color:#fff;border-color:#43a047;">☑ Select All</button>
+                <button class="btn-filter" onclick="clearToSendSelection()">Clear</button>
+            </div>
             <div class="bulk-action-row" id="bulk-send-row">
                 <span class="bulk-action-info" id="bulk-send-info">0 selected</span>
-                <button class="btn-bulk-clear" onclick="clearToSendSelection()">Clear</button>
                 <button class="btn-bulk-move" style="background:#43a047;" onclick="bulkSendToSheet()">📤 Send selected to Google Sheet</button>
             </div>
             <div id="towrite-container">
@@ -333,6 +336,51 @@
         let selectedToSend = new Set(); // selection in To Write tab for bulk sheet send
 
         // ============================================
+        // GALLERY DATA
+        // ============================================
+        const GALLERIES = [
+            { name: 'BLACK WHITE HOME DECOR',           code: 39719, url: 'https://aboutwallart.com/collections/black-white-home-decor', keywords: ['black','white','monochrome','monochromatic','b&w'] },
+            { name: 'BIOPHILIC INTERIOR DESIGN',        code: 39711, url: 'https://aboutwallart.com/collections/biophilic-interior-design', keywords: ['biophilic','botanical','nature','plant','green','organic','leaf','jungle'] },
+            { name: 'BOHO HOME DECOR',                  code: 37190, url: 'https://aboutwallart.com/collections/boho-home-decor-1', keywords: ['boho','bohemian','eclectic','free spirit','wanderlust'] },
+            { name: 'MID CENTURY HOME DECOR',           code: 37144, url: 'https://aboutwallart.com/collections/mid-century-decor', keywords: ['mid century','mid-century','midcentury','retro','vintage modern'] },
+            { name: 'COASTAL HOME DECOR',               code: 37192, url: 'https://aboutwallart.com/collections/coastal-home-decor', keywords: ['coastal','beach','ocean','sea','nautical','seaside','maritime','surf'] },
+            { name: 'COFFEE HOUSE INTERIOR DESIGN',     code: 39717, url: 'https://aboutwallart.com/collections/coffee-house-interior-design', keywords: ['coffee','cafe','bistro','coffee house','barista'] },
+            { name: 'MODERN CONTEMPORARY HOME DECOR',   code: 37194, url: 'https://aboutwallart.com/collections/contemporary-home-decor', keywords: ['modern','contemporary','sleek','clean lines','minimalist modern'] },
+            { name: 'ECLECTIC MAXIMALIST HOME DECOR',   code: 37195, url: 'https://aboutwallart.com/collections/eclectic-maximalist-home-decor', keywords: ['eclectic','maximalist','maximalism','bold','colourful','colorful','vibrant','mix'] },
+            { name: 'COUNTRY COTTAGE HOME DECOR',       code: 37204, url: 'https://aboutwallart.com/collections/country-cottage-home-decor', keywords: ['country','cottage','rustic','farmhouse cottage','cozy country'] },
+            { name: 'MODERN FARMHOUSE HOME DECOR',      code: 37197, url: 'https://aboutwallart.com/collections/modern-farmhouse-home-decor', keywords: ['farmhouse','modern farmhouse','shiplap','barn','rural'] },
+            { name: 'FRENCH COUNTRY HOME DECOR',        code: 37198, url: 'https://aboutwallart.com/collections/french-country-home-decor', keywords: ['french country','french','provence','parisian','paris'] },
+            { name: 'INDUSTRIAL HOME DECOR',            code: 37199, url: 'https://aboutwallart.com/collections/industrial-home-decor', keywords: ['industrial','loft','urban','exposed brick','concrete','metal'] },
+            { name: 'JAPANDI HOME DECOR',               code: 37200, url: 'https://aboutwallart.com/collections/japandi-home-decor', keywords: ['japandi','japanese','wabi sabi','zen japanese','nordic japanese'] },
+            { name: 'MEDITERRANEAN HOME DECOR',         code: 37201, url: 'https://aboutwallart.com/collections/mediterranean-home-decor', keywords: ['mediterranean','greek','italian','tuscan','terracotta','villa'] },
+            { name: 'COSY MINIMALISM HOME DECOR',       code: 37202, url: 'https://aboutwallart.com/collections/cosy-minimalism-home-decor', keywords: ['minimalist','minimalism','minimal','cosy minimalism','hygge','simple'] },
+            { name: 'MORROCCAN HOME DECOR',             code: 37203, url: 'https://aboutwallart.com/collections/moroccan-home-decor', keywords: ['moroccan','morocco','boho moroccan','exotic','arabesque','marrakech'] },
+            { name: 'SCANDI HOME DECOR',                code: 37205, url: 'https://aboutwallart.com/collections/scandi-home-decor-2', keywords: ['scandi','scandinavian','nordic','hygge','danish','swedish','norwegian'] },
+            { name: 'WILDLIFE HOME DECOR',              code: 37206, url: 'https://aboutwallart.com/collections/wildlife-home-decor', keywords: ['wildlife','animal','nature art','birds','forest','wild','safari'] },
+            { name: 'MASCULINE LIVING ROOM IDEAS',      code: 39718, url: 'https://aboutwallart.com/collections/masculine-living-room-ideas', keywords: ['masculine','men','gentleman','dark','moody','bold masculine'] },
+            { name: 'OLD MONEY HOME DECOR',             code: 39716, url: 'https://aboutwallart.com/collections/old-money-home-decor', keywords: ['old money','luxury','elegant','classic','opulent','grand','aristocratic'] },
+            { name: 'PREPPY STYLE INTERIORS',           code: 39715, url: 'https://aboutwallart.com/collections/preppy-style-interiors', keywords: ['preppy','collegiate','ivy league','classic preppy','nautical preppy'] },
+            { name: 'TRANSITIONAL INTERIOR DESIGN',     code: 39714, url: 'https://aboutwallart.com/collections/transitional-interior-design', keywords: ['transitional','classic modern','blend','timeless'] },
+            { name: 'TROPICAL DECOR FOR HOME',          code: 39713, url: 'https://aboutwallart.com/collections/tropical-decor-for-home', keywords: ['tropical','palm','jungle','exotic tropical','island','hawaii'] },
+            { name: 'ZEN ROOM DECORATIONS',             code: 39712, url: 'https://aboutwallart.com/collections/zen-room-decorations', keywords: ['zen','meditation','peaceful','calm','serene','spiritual','yoga'] },
+            { name: 'MODERN GLAM LUXE INTERIORS',       code: 37177, url: 'https://aboutwallart.com/collections/modern-glam-luxe-interiors', keywords: ['glam','glamorous','luxe','gold','velvet','hollywood','glitter'] }
+        ];
+
+        function matchGallery(keyword, title) {
+            const text = (keyword + ' ' + title).toLowerCase();
+            let bestMatch = null, bestScore = 0;
+            for (const g of GALLERIES) {
+                let score = 0;
+                for (const kw of g.keywords) {
+                    if (text.includes(kw.toLowerCase())) score++;
+                }
+                if (score > bestScore) { bestScore = score; bestMatch = g; }
+            }
+            // Default to TRANSITIONAL if no match
+            return bestMatch || GALLERIES.find(g => g.code === 39714);
+        }
+
+        // ============================================
         // TAB SWITCHING
         // ============================================
         function switchTab(tab) {
@@ -345,7 +393,7 @@
 
         function updateTabCounts() {
             document.getElementById('count-ideas').textContent    = allIdeas.filter(i => i.status === '').length;
-            document.getElementById('count-towrite').textContent  = allIdeas.filter(i => ['TO_WRITE','TO_WRITE_PENDING','TO_WRITE_SENT'].includes(i.status)).length;
+            document.getElementById('count-towrite').textContent  = allIdeas.filter(i => i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING').length;
             document.getElementById('count-kwchange').textContent = allIdeas.filter(i => i.status === 'KEYWORD_CHANGE').length;
             document.getElementById('count-ignored').textContent  = allIdeas.filter(i => i.status === 'IGNORED').length;
         }
@@ -605,6 +653,18 @@
             }
         }
 
+        function selectAllUnsent() {
+            const unsent = allIdeas.filter(i => i.status === 'TO_WRITE_PENDING');
+            unsent.forEach(idea => {
+                selectedToSend.add(idea.index);
+                const cb   = document.getElementById(`ts-cb-${idea.index}`);
+                const card = document.getElementById(`card-${idea.index}`);
+                if (cb)   cb.checked = true;
+                if (card) card.classList.add('selected-card');
+            });
+            updateBulkSendBar();
+        }
+
         // ============================================
         // DISPLAY KEYWORD CHANGE (Tab 3)
         // ============================================
@@ -658,23 +718,25 @@
                 `;
             } else if (tab === 'towrite') {
                 const isSent    = idea.status === 'TO_WRITE_SENT';
-                const isPending = idea.status === 'TO_WRITE_PENDING';
-                if (isSent) {
+                const isSaved   = idea.status === 'TO_WRITE';       // via markForWriting — already sent
+                const isPending = idea.status === 'TO_WRITE_PENDING'; // bulk-moved — needs sending
+
+                if (isSent || isSaved) {
                     cardExtraClass = 'grey';
+                    const sentLabel = isSaved ? '✅ Registered & sent' : '✅ Sent to Google Sheet';
                     actionsHTML = `
                         <button class="btn-mark marked" disabled style="opacity:0.5;">✓ To Write Blog</button>
-                        <span class="saving-indicator" style="color:#66bb6a;">✅ Sent to Google Sheet</span>
+                        <span class="saving-indicator" style="color:#66bb6a;">${sentLabel}</span>
                         <button class="btn-undo" onclick="undoWriting(${index})">↩ Undo</button>
                     `;
                 } else {
+                    // TO_WRITE_PENDING — bulk-moved, not yet sent
                     checkboxHTML = `<input type="checkbox" class="ts-checkbox card-checkbox" id="ts-cb-${index}" onchange="toggleToSend(${index})">`;
-                    const saveText  = isPending ? '⏳ Not saved yet' : '✅ Saved to registry';
-                    const saveClass = isPending ? 'saving-indicator pending' : 'saving-indicator';
                     actionsHTML = `
                         <button class="btn-mark marked" disabled>✓ To Write Blog</button>
                         <button class="btn-undo" onclick="undoWriting(${index})">↩ Undo</button>
                         <button class="btn-send-sheet" id="sheet-btn-${index}" onclick="sendToSheet(${index})">📤 Send to Google Sheet</button>
-                        <span class="${saveClass}" id="save-status-${index}">${saveText}</span>
+                        <span class="saving-indicator pending" id="save-status-${index}">⏳ Not sent yet</span>
                     `;
                 }
             } else if (tab === 'kwchange') {
@@ -798,6 +860,7 @@
             btn.textContent = '⏳ Sending...';
 
             try {
+                const gallery = matchGallery(idea.currentKeyword, idea.currentTitle);
                 const response = await fetch('/api/blogs', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -805,7 +868,9 @@
                         keyword: idea.currentKeyword,
                         url: generateUrl(idea.currentTitle),
                         title: idea.currentTitle,
-                        perspective: idea.perspective
+                        perspective: idea.perspective,
+                        galleryCode: gallery.code,
+                        collectionUrl: gallery.url
                     })
                 });
                 const data = await response.json();
