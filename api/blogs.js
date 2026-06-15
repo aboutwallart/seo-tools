@@ -1,4 +1,4 @@
-// blogs.js — v2.8
+// blogs.js — v2.9
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
@@ -126,7 +126,7 @@ export default async function handler(req, res) {
   }
 
   // Helper: append row to Google Sheet via Apps Script webhook
-  async function appendToGoogleSheet(keyword, perspective, title) {
+  async function appendToGoogleSheet(keyword, perspective, title, galleryCode, collectionUrl) {
     if (!SHEETS_WEBHOOK) {
       console.log('SHEETS_WEBHOOK_URL not configured - skipping Google Sheets append');
       return { skipped: true };
@@ -138,6 +138,8 @@ export default async function handler(req, res) {
         colA: 'BLOG MANAGER TOOL',
         colB: perspective || '',
         colC: keyword || '',
+        colD: galleryCode || '',
+        colE: collectionUrl || '',
         colF: title || '',
         colAS: 'READY TO GENERATE BLOG'
       })
@@ -530,6 +532,123 @@ export default async function handler(req, res) {
           found,
           hasNextPage: products.pageInfo.hasNextPage,
           endCursor: products.pageInfo.endCursor
+        });
+      }
+
+      // ── ACTION: bulk-get-options ── (Bulk Editor — collections list for filter dropdowns)
+      if (req.query.action === 'bulk-get-options') {
+        const shopifyDomain = process.env.SHOPIFY_STORE_DOMAIN;
+        const shopifyToken  = process.env.SHOPIFY_ACCESS_TOKEN;
+        if (!shopifyDomain || !shopifyToken) return res.status(500).json({ error: 'Shopify credentials not configured' });
+
+        const gqlQuery = `{
+          collections(first: 250, sortKey: TITLE) {
+            edges { node { id title } }
+          }
+        }`;
+
+        const shopifyRes = await fetch(`https://${shopifyDomain}/admin/api/2025-01/graphql.json`, {
+          method: 'POST',
+          headers: { 'X-Shopify-Access-Token': shopifyToken, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: gqlQuery })
+        });
+        if (!shopifyRes.ok) return res.status(500).json({ error: `Shopify error: ${shopifyRes.status}` });
+        const data = await shopifyRes.json();
+        if (data.errors) return res.status(500).json({ error: data.errors[0].message });
+
+        const collections = data.data.collections.edges.map(e => ({ id: e.node.id, title: e.node.title }));
+        return res.status(200).json({ success: true, collections });
+      }
+
+      // ── ACTION: bulk-product-scan ── (Bulk Editor — filtered product fetch)
+      if (req.query.action === 'bulk-product-scan') {
+        const shopifyDomain = process.env.SHOPIFY_STORE_DOMAIN;
+        const shopifyToken  = process.env.SHOPIFY_ACCESS_TOKEN;
+        if (!shopifyDomain || !shopifyToken) return res.status(500).json({ error: 'Shopify credentials not configured' });
+
+        const cursor = req.query.cursor || null;
+        const queryParts = [];
+
+        if (req.query.vendor) queryParts.push(`vendor:'${req.query.vendor.replace(/'/g, "\\'")}' `);
+        if (req.query.productType) queryParts.push(`product_type:'${req.query.productType.replace(/'/g, "\\'")}'`);
+        if (req.query.status) queryParts.push(`status:${req.query.status}`);
+        if (req.query.collection) queryParts.push(`collection_id:${req.query.collection.replace('gid://shopify/Collection/', '')}`);
+        if (req.query.keyword) queryParts.push(`title:*${req.query.keyword}*`);
+        if (req.query.tags) {
+          req.query.tags.split(',').forEach(t => { if (t.trim()) queryParts.push(`tag:'${t.trim()}'`); });
+        }
+
+        const queryStr = queryParts.join(' AND ');
+
+        const gqlQuery = `
+          query($cursor: String, $queryStr: String) {
+            products(first: 50, after: $cursor, query: $queryStr) {
+              pageInfo { hasNextPage endCursor }
+              edges {
+                node {
+                  id title handle vendor productType status tags
+                  descriptionHtml publishedAt
+                  seo { title description }
+                  featuredImage { url altText }
+                  metafields(first: 30) {
+                    edges { node { id namespace key value type } }
+                  }
+                  variants(first: 100) {
+                    edges {
+                      node {
+                        id sku barcode price compareAtPrice weight weightUnit inventoryQuantity
+                        inventoryItem { unitCost { amount currencyCode } }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        `;
+
+        const shopifyRes = await fetch(`https://${shopifyDomain}/admin/api/2025-01/graphql.json`, {
+          method: 'POST',
+          headers: { 'X-Shopify-Access-Token': shopifyToken, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: gqlQuery, variables: { cursor, queryStr } })
+        });
+        if (!shopifyRes.ok) return res.status(500).json({ error: `Shopify error: ${shopifyRes.status}` });
+        const data = await shopifyRes.json();
+        if (data.errors) return res.status(500).json({ error: data.errors[0].message });
+
+        let products = data.data.products.edges.map(edge => {
+          const p = edge.node;
+          return {
+            id: p.id,
+            title: p.title,
+            handle: p.handle,
+            vendor: p.vendor,
+            productType: p.productType,
+            status: p.status,
+            tags: p.tags,
+            descriptionHtml: p.descriptionHtml,
+            publishedAt: p.publishedAt,
+            seo: p.seo,
+            featuredImage: p.featuredImage,
+            metafields: p.metafields.edges.map(e => e.node),
+            variants: p.variants.edges.map(e => e.node)
+          };
+        });
+
+        if (req.query.excludeKeyword) {
+          const excl = req.query.excludeKeyword.toLowerCase();
+          products = products.filter(p => !p.title.toLowerCase().includes(excl));
+        }
+        if (req.query.excludeTags) {
+          const exclTags = req.query.excludeTags.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+          products = products.filter(p => !exclTags.some(et => p.tags.map(t => t.toLowerCase()).includes(et)));
+        }
+
+        return res.status(200).json({
+          success: true,
+          products,
+          hasNextPage: data.data.products.pageInfo.hasNextPage,
+          endCursor: data.data.products.pageInfo.endCursor
         });
       }
 
@@ -1138,7 +1257,115 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true });
       }
 
-      const { keyword, url, title, perspective } = req.body;
+      // ── ACTION: bulk-product-update ── (Bulk Editor — apply changes to one product)
+      if (req.body.action === 'bulk-product-update') {
+        const shopifyDomain = process.env.SHOPIFY_STORE_DOMAIN;
+        const shopifyToken  = process.env.SHOPIFY_ACCESS_TOKEN;
+        if (!shopifyDomain || !shopifyToken) return res.status(500).json({ error: 'Shopify credentials not configured' });
+
+        const { productId, productFields, variantUpdates, metafieldUpdates } = req.body;
+        if (!productId) return res.status(400).json({ error: 'productId required' });
+
+        const headers = { 'X-Shopify-Access-Token': shopifyToken, 'Content-Type': 'application/json' };
+        const endpoint = `https://${shopifyDomain}/admin/api/2025-01/graphql.json`;
+
+        if (productFields && Object.keys(productFields).length > 0) {
+          const mutation = `
+            mutation productUpdate($input: ProductInput!) {
+              productUpdate(input: $input) {
+                product { id }
+                userErrors { field message }
+              }
+            }
+          `;
+          const r = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify({ query: mutation, variables: { input: { id: productId, ...productFields } } }) });
+          const d = await r.json();
+          if (d.errors) return res.status(500).json({ error: d.errors[0].message });
+          if (d.data.productUpdate.userErrors.length > 0) return res.status(500).json({ error: d.data.productUpdate.userErrors[0].message });
+        }
+
+        if (variantUpdates && variantUpdates.length > 0) {
+          const mutation = `
+            mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+              productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+                productVariants { id }
+                userErrors { field message }
+              }
+            }
+          `;
+          const r = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify({ query: mutation, variables: { productId, variants: variantUpdates } }) });
+          const d = await r.json();
+          if (d.errors) return res.status(500).json({ error: d.errors[0].message });
+          if (d.data.productVariantsBulkUpdate.userErrors.length > 0) return res.status(500).json({ error: d.data.productVariantsBulkUpdate.userErrors[0].message });
+        }
+
+        if (metafieldUpdates && metafieldUpdates.length > 0) {
+          const mutation = `
+            mutation metafieldsSet($metafields: [MetafieldsSetInput!]!) {
+              metafieldsSet(metafields: $metafields) {
+                metafields { namespace key }
+                userErrors { field message }
+              }
+            }
+          `;
+          const r = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify({ query: mutation, variables: { metafields: metafieldUpdates } }) });
+          const d = await r.json();
+          if (d.errors) return res.status(500).json({ error: d.errors[0].message });
+          if (d.data.metafieldsSet.userErrors.length > 0) return res.status(500).json({ error: d.data.metafieldsSet.userErrors[0].message });
+        }
+
+        return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: update-blog-status ── (single keyword — updates STATUS column in blog_ideas.csv)
+      if (req.body.action === 'update-blog-status') {
+        const { keyword, status } = req.body;
+        if (!keyword) return res.status(400).json({ error: 'keyword required' });
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+        const ideasLines = ideasFile.content.split('\n');
+        let found = false;
+        const updatedIdeas = ideasLines.map(line => {
+          const trimmed = line.trim().replace(/\r/g, '');
+          if (!trimmed) return line;
+          const cols = parseCSVLine(trimmed);
+          if ((cols[0] || '').toLowerCase() === keyword.toLowerCase()) {
+            while (cols.length < 7) cols.push('');
+            cols[6] = status || '';
+            found = true;
+            return cols.map(c => (c.includes(',') || c.includes('"')) ? `"${c.replace(/"/g, '""')}"` : c).join(',');
+          }
+          return line;
+        }).join('\n');
+        if (!found) return res.status(404).json({ error: 'keyword not found in blog_ideas.csv' });
+        await updateGitHubFile('data/blog_ideas.csv', updatedIdeas, ideasFile.sha, `Update blog status: ${keyword} → ${status || 'blank'}`);
+        return res.status(200).json({ success: true, keyword, status });
+      }
+
+      // ── ACTION: bulk-update-blog-status ── (multiple keywords — one GitHub write)
+      if (req.body.action === 'bulk-update-blog-status') {
+        const { keywords, status } = req.body;
+        if (!Array.isArray(keywords) || keywords.length === 0) return res.status(400).json({ error: 'keywords array required' });
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const keywordSet = new Set(keywords.map(k => (k || '').toLowerCase()));
+        const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+        const ideasLines = ideasFile.content.split('\n');
+        const updatedIdeas = ideasLines.map(line => {
+          const trimmed = line.trim().replace(/\r/g, '');
+          if (!trimmed) return line;
+          const cols = parseCSVLine(trimmed);
+          if (keywordSet.has((cols[0] || '').toLowerCase())) {
+            while (cols.length < 7) cols.push('');
+            cols[6] = status || '';
+            return cols.map(c => (c.includes(',') || c.includes('"')) ? `"${c.replace(/"/g, '""')}"` : c).join(',');
+          }
+          return line;
+        }).join('\n');
+        await updateGitHubFile('data/blog_ideas.csv', updatedIdeas, ideasFile.sha, `Bulk update blog status: ${keywords.length} keywords → ${status || 'blank'}`);
+        return res.status(200).json({ success: true, count: keywords.length, status });
+      }
+
+      const { keyword, url, title, perspective, galleryCode, collectionUrl } = req.body;
       if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
       if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured in environment variables' });
 
@@ -1164,7 +1391,7 @@ export default async function handler(req, res) {
 
       let sheetsResult = null;
       try {
-        sheetsResult = await appendToGoogleSheet(keyword, perspective, title);
+        sheetsResult = await appendToGoogleSheet(keyword, perspective, title, galleryCode, collectionUrl);
       } catch (sheetsError) {
         console.error('Google Sheets append failed (non-fatal):', sheetsError.message);
         sheetsResult = { error: sheetsError.message };
