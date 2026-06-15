@@ -1,8 +1,9 @@
-// blogs.js — v3.0
+// blogs.js — v3.1
 // v3.0: Blog Manager Batch 1 — send-to-sheet now auto-generates content sources (colG–colK):
 //        authority article (title+URL) + YouTube video (title+link+embed) via Claude web search.
 //        Fail-loud: if either is missing the row is NOT written; frontend collects missing parts manually.
 //        maxDuration raised to 60s so the web search has time to finish.
+// v3.1: colK embed format changed to width=100%/height=400; added colL = responsive embed (same video).
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
@@ -154,6 +155,7 @@ export default async function handler(req, res) {
         colI: sources.youtubeTitle || '',
         colJ: sources.youtubeLink || '',
         colK: sources.youtubeEmbed || '',
+        colL: sources.youtubeEmbedResponsive || '',
         colAS: 'READY TO GENERATE BLOG'
       })
     });
@@ -161,10 +163,9 @@ export default async function handler(req, res) {
     return await response.json();
   }
 
-  // Helper: build a YouTube embed iframe from a watch/share link. Returns '' if no video id can be parsed.
-  function buildYouTubeEmbed(link) {
+  // Helper: extract the 11-char YouTube video id from a watch/share/embed/shorts link. Returns '' if none.
+  function extractYouTubeId(link) {
     if (!link) return '';
-    let id = '';
     const patterns = [
       /[?&]v=([A-Za-z0-9_-]{11})/,        // watch?v=ID
       /youtu\.be\/([A-Za-z0-9_-]{11})/,    // youtu.be/ID
@@ -173,10 +174,21 @@ export default async function handler(req, res) {
     ];
     for (const p of patterns) {
       const m = link.match(p);
-      if (m) { id = m[1]; break; }
+      if (m) return m[1];
     }
+    return '';
+  }
+
+  // Column K — simple fixed embed. Returns '' if no id.
+  function buildYouTubeEmbed(id) {
     if (!id) return '';
-    return `<iframe width="560" height="315" src="https://www.youtube.com/embed/${id}" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>`;
+    return `<iframe width="100%" height="400" src="https://www.youtube.com/embed/${id}" frameborder="0" allowfullscreen></iframe>`;
+  }
+
+  // Column L — responsive embed wrapped in a 16:9 sizing div. Returns '' if no id.
+  function buildYouTubeEmbedResponsive(id) {
+    if (!id) return '';
+    return `<div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;max-width:100%;"><iframe src="https://www.youtube.com/embed/${id}" style="position:absolute;top:0;left:0;width:100%;height:100%;" frameborder="0" allowfullscreen></iframe></div>`;
   }
 
   // Helper: auto-generate Batch 1 content sources via Claude web search.
@@ -1464,8 +1476,10 @@ If you genuinely cannot find one of the two, leave its two fields as empty strin
           }
         }
 
-        // Build embed from whatever link we have
-        const youtubeEmbed = buildYouTubeEmbed(youtubeLink);
+        // Build both embed formats from whatever link we have (same video id)
+        const youtubeId = extractYouTubeId(youtubeLink);
+        const youtubeEmbed = buildYouTubeEmbed(youtubeId);
+        const youtubeEmbedResponsive = buildYouTubeEmbedResponsive(youtubeId);
 
         // Completeness check — both groups must be fully present, and the video link must be a valid YouTube link
         const articleOk = !!(authorityTitle && authorityUrl);
@@ -1487,7 +1501,7 @@ If you genuinely cannot find one of the two, leave its two fields as empty strin
         // Complete row — write to the sheet
         try {
           const sheetsResult = await appendToGoogleSheet(keyword, perspective, title, galleryCode, collectionUrl, {
-            authorityTitle, authorityUrl, youtubeTitle, youtubeLink, youtubeEmbed
+            authorityTitle, authorityUrl, youtubeTitle, youtubeLink, youtubeEmbed, youtubeEmbedResponsive
           });
           return res.status(200).json({ success: true, sheetsResult });
         } catch (sheetsError) {
