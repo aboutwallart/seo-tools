@@ -251,7 +251,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v2.6 - 2026-06-15</p>
+        <p class="version">v2.7 - 2026-06-15</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -869,7 +869,8 @@
                         title: idea.currentTitle,
                         perspective: idea.perspective,
                         galleryCode: gallery.code,
-                        collectionUrl: gallery.url
+                        collectionUrl: gallery.url,
+                        writeToSheet: true
                     })
                 });
                 const data = await response.json();
