@@ -251,7 +251,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v2.3 - 2026-06-15</p>
+        <p class="version">v2.4 - 2026-06-15</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -289,6 +289,11 @@
         </div>
 
         <div class="tab-content" id="panel-towrite">
+            <div class="bulk-action-row" id="bulk-send-row">
+                <span class="bulk-action-info" id="bulk-send-info">0 selected</span>
+                <button class="btn-bulk-clear" onclick="clearToSendSelection()">Clear</button>
+                <button class="btn-bulk-move" style="background:#43a047;" onclick="bulkSendToSheet()">📤 Send selected to Google Sheet</button>
+            </div>
             <div id="towrite-container">
                 <div class="empty-state">No blogs marked for writing yet.</div>
             </div>
@@ -318,11 +323,14 @@
 
         // STATUS values:
         // ''                 → Blog Ideas
-        // 'TO_WRITE'         → To Write (saved to registry)
-        // 'TO_WRITE_PENDING' → To Write (not yet saved to registry)
+        // 'TO_WRITE'         → To Write (saved to registry, NOT yet sent to Google Sheet)
+        // 'TO_WRITE_PENDING' → To Write (bulk-moved, not yet saved to registry)
+        // 'TO_WRITE_SENT'    → To Write (sent to Google Sheet — grey, locked)
         // 'KEYWORD_CHANGE'   → Keyword Change
         // 'IGNORED'          → Ignored
         // 'DELETED'          → hidden everywhere
+
+        let selectedToSend = new Set(); // selection in To Write tab for bulk sheet send
 
         // ============================================
         // TAB SWITCHING
@@ -336,8 +344,8 @@
         }
 
         function updateTabCounts() {
-            document.getElementById('count-ideas').textContent   = allIdeas.filter(i => i.status === '').length;
-            document.getElementById('count-towrite').textContent = allIdeas.filter(i => i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING').length;
+            document.getElementById('count-ideas').textContent    = allIdeas.filter(i => i.status === '').length;
+            document.getElementById('count-towrite').textContent  = allIdeas.filter(i => ['TO_WRITE','TO_WRITE_PENDING','TO_WRITE_SENT'].includes(i.status)).length;
             document.getElementById('count-kwchange').textContent = allIdeas.filter(i => i.status === 'KEYWORD_CHANGE').length;
             document.getElementById('count-ignored').textContent  = allIdeas.filter(i => i.status === 'IGNORED').length;
         }
@@ -472,6 +480,7 @@
                 for (const row of rows) {
                     const status = (row['STATUS'] || '').trim();
                     if (status === 'DELETED') continue;
+                    // Accept TO_WRITE_SENT as valid persisted status
                     allIdeas.push({
                         index: idxCounter++,
                         keyword: row['Keyword'] || '',
@@ -544,12 +553,56 @@
         // ============================================
         function displayToWrite() {
             const container = document.getElementById('towrite-container');
-            const items = allIdeas.filter(i => i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING');
-            if (items.length === 0) {
+            const all = allIdeas.filter(i => ['TO_WRITE','TO_WRITE_PENDING','TO_WRITE_SENT'].includes(i.status));
+            if (all.length === 0) {
                 container.innerHTML = `<div class="empty-state">No blogs marked for writing yet.</div>`;
+                updateBulkSendBar();
                 return;
             }
-            container.innerHTML = items.map(idea => buildIdeaCard(idea, 'towrite')).join('');
+            // Unsent on top, sent (grey) at bottom
+            const unsent = all.filter(i => i.status !== 'TO_WRITE_SENT');
+            const sent   = all.filter(i => i.status === 'TO_WRITE_SENT');
+            container.innerHTML = [...unsent, ...sent].map(idea => buildIdeaCard(idea, 'towrite')).join('');
+            updateBulkSendBar();
+        }
+
+        function toggleToSend(index) {
+            if (selectedToSend.has(index)) selectedToSend.delete(index);
+            else selectedToSend.add(index);
+            const card = document.getElementById(`card-${index}`);
+            const cb   = document.getElementById(`ts-cb-${index}`);
+            if (card) card.classList.toggle('selected-card', selectedToSend.has(index));
+            if (cb)   cb.checked = selectedToSend.has(index);
+            updateBulkSendBar();
+        }
+
+        function clearToSendSelection() {
+            selectedToSend.clear();
+            document.querySelectorAll('.ts-checkbox').forEach(cb => { cb.checked = false; });
+            document.querySelectorAll('#panel-towrite .idea-card').forEach(c => c.classList.remove('selected-card'));
+            updateBulkSendBar();
+        }
+
+        function updateBulkSendBar() {
+            const row  = document.getElementById('bulk-send-row');
+            const info = document.getElementById('bulk-send-info');
+            if (!row) return;
+            const n = selectedToSend.size;
+            if (n > 0) {
+                info.textContent = `${n} blog${n > 1 ? 's' : ''} selected`;
+                row.classList.add('visible');
+            } else {
+                row.classList.remove('visible');
+            }
+        }
+
+        async function bulkSendToSheet() {
+            if (selectedToSend.size === 0) return;
+            const indices = [...selectedToSend];
+            clearToSendSelection();
+            for (const idx of indices) {
+                await sendToSheet(idx);
+            }
         }
 
         // ============================================
@@ -604,15 +657,26 @@
                     ${level !== 'NO CONFLICT' ? `<button class="btn-ignore" onclick="ignoreIdea(${index})">Ignore</button>` : ''}
                 `;
             } else if (tab === 'towrite') {
+                const isSent    = idea.status === 'TO_WRITE_SENT';
                 const isPending = idea.status === 'TO_WRITE_PENDING';
-                const saveText = isPending ? '⏳ Not saved yet' : '✅ Saved to registry';
-                const saveClass = isPending ? 'saving-indicator pending' : 'saving-indicator';
-                actionsHTML = `
-                    <button class="btn-mark marked" disabled>✓ To Write Blog</button>
-                    <button class="btn-undo" onclick="undoWriting(${index})">↩ Undo</button>
-                    <button class="btn-send-sheet" id="sheet-btn-${index}" onclick="sendToSheet(${index})">📤 Send to Google Sheet</button>
-                    <span class="${saveClass}" id="save-status-${index}">${saveText}</span>
-                `;
+                if (isSent) {
+                    cardExtraClass = 'grey';
+                    actionsHTML = `
+                        <button class="btn-mark marked" disabled style="opacity:0.5;">✓ To Write Blog</button>
+                        <span class="saving-indicator" style="color:#66bb6a;">✅ Sent to Google Sheet</span>
+                        <button class="btn-undo" onclick="undoWriting(${index})">↩ Undo</button>
+                    `;
+                } else {
+                    checkboxHTML = `<input type="checkbox" class="ts-checkbox card-checkbox" id="ts-cb-${index}" onchange="toggleToSend(${index})">`;
+                    const saveText  = isPending ? '⏳ Not saved yet' : '✅ Saved to registry';
+                    const saveClass = isPending ? 'saving-indicator pending' : 'saving-indicator';
+                    actionsHTML = `
+                        <button class="btn-mark marked" disabled>✓ To Write Blog</button>
+                        <button class="btn-undo" onclick="undoWriting(${index})">↩ Undo</button>
+                        <button class="btn-send-sheet" id="sheet-btn-${index}" onclick="sendToSheet(${index})">📤 Send to Google Sheet</button>
+                        <span class="${saveClass}" id="save-status-${index}">${saveText}</span>
+                    `;
+                }
             } else if (tab === 'kwchange') {
                 actionsHTML = `
                     <button class="btn-keyword-change" style="opacity:0.6;cursor:default" disabled>⚠ Keyword Change</button>
@@ -698,18 +762,20 @@
         async function undoWriting(index) {
             const idea = allIdeas.find(i => i.index === index);
             if (!idea) return;
-            const wasPending = idea.status === 'TO_WRITE_PENDING';
+            const prevStatus = idea.status;
             idea.status = '';
+            selectedToSend.delete(index);
             refreshAll();
 
             try {
-                if (wasPending) {
+                if (prevStatus === 'TO_WRITE_PENDING' || prevStatus === 'TO_WRITE_SENT') {
                     await fetch('/api/blogs', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ action: 'update-blog-status', keyword: idea.keyword, status: '' })
                     });
                 } else {
+                    // TO_WRITE = saved to registry, use DELETE to remove from registry
                     await fetch('/api/blogs', {
                         method: 'DELETE',
                         headers: { 'Content-Type': 'application/json' },
@@ -744,16 +810,20 @@
                 });
                 const data = await response.json();
                 if (data.success) {
-                    idea.status = 'TO_WRITE';
+                    idea.status = 'TO_WRITE_SENT';
+                    selectedToSend.delete(index);
+                    await fetch('/api/blogs', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'update-blog-status', keyword: idea.keyword, status: 'TO_WRITE_SENT' })
+                    }).catch(() => {});
                     refreshAll();
                 } else {
-                    btn.disabled = false;
-                    btn.textContent = '📤 Send to Google Sheet';
+                    if (btn) { btn.disabled = false; btn.textContent = '📤 Send to Google Sheet'; }
                     if (saveStatus) saveStatus.textContent = '❌ ' + (data.error || 'Unknown error');
                 }
             } catch(e) {
-                btn.disabled = false;
-                btn.textContent = '📤 Send to Google Sheet';
+                if (btn) { btn.disabled = false; btn.textContent = '📤 Send to Google Sheet'; }
                 if (saveStatus) saveStatus.textContent = '❌ ' + e.message;
             }
         }
