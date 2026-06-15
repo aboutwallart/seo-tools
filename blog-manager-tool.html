@@ -399,6 +399,69 @@
 
         .btn-keyword-change:hover { background: #ff9800; color: #ffffff; }
 
+        /* INLINE TITLE EDIT */
+        .inline-edit-section {
+            background: #f5f5f5;
+            border-radius: 6px;
+            padding: 12px 14px;
+            margin-bottom: 16px;
+        }
+
+        .inline-edit-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #666666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .inline-edit-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .inline-edit-input {
+            flex: 1;
+            padding: 9px 12px;
+            font-size: 14px;
+            font-family: 'Poppins', sans-serif;
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            color: #1a1a1a;
+        }
+
+        .inline-edit-input:focus {
+            outline: none;
+            border-color: #1a1a1a;
+        }
+
+        .btn-save-title {
+            background: #1a1a1a;
+            color: #ffffff;
+            border: none;
+            padding: 9px 18px;
+            font-size: 13px;
+            font-weight: 500;
+            font-family: 'Poppins', sans-serif;
+            border-radius: 6px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.2s ease;
+        }
+
+        .btn-save-title:hover { background: #333333; }
+        .btn-save-title:disabled { background: #cccccc; cursor: not-allowed; }
+
+        .recheck-status {
+            font-size: 12px;
+            margin-top: 6px;
+            color: #999999;
+        }
+
         /* DELETE BUTTON */
         .btn-delete {
             background: #ffffff;
@@ -470,7 +533,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v2.1 - 2026-06-15</p>
+        <p class="version">v2.2 - 2026-06-15</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -523,6 +586,7 @@
         // DATA
         // ============================================
         let blogIdeas = [];
+        let allRows = [];   // full CSV — used for conflict re-check
         let markedForWriting = new Set();
         let markedForKwChange = new Set();
         let sentToSheet = new Set();
@@ -669,6 +733,7 @@
 
                 const csvText = await response.text();
                 const rows = parseCSV(csvText);
+                allRows = rows; // store full CSV for conflict re-check
 
                 const unprocessed = rows.filter(row => {
                     const status = (row['STATUS'] || '').trim();
@@ -846,6 +911,14 @@
                                 </div>
                             ` : ''}
                         </div>
+                        <div class="inline-edit-section">
+                            <span class="inline-edit-label">Change title &amp; re-check</span>
+                            <div class="inline-edit-row">
+                                <input type="text" class="inline-edit-input" id="new-title-${index}" value="${idea.currentTitle.replace(/"/g, '&quot;')}" placeholder="Enter new blog title...">
+                                <button class="btn-save-title" id="save-btn-${index}" onclick="saveNewTitle(${index})">Save &amp; Re-check</button>
+                            </div>
+                            <div class="recheck-status" id="recheck-status-${index}"></div>
+                        </div>
                     ` : ''}
 
                     <div class="card-actions">${actionsHTML}</div>
@@ -994,6 +1067,72 @@
                 console.error('Error deleting:', error);
                 if (statusEl) { statusEl.textContent = '❌ ' + error.message; statusEl.className = 'saving-indicator error'; }
             }
+        }
+
+        // ============================================
+        // SAVE NEW TITLE & RE-CHECK CANNIBALIZATION
+        // ============================================
+        function saveNewTitle(index) {
+            const idea = blogIdeas[index];
+            const input = document.getElementById(`new-title-${index}`);
+            const btn = document.getElementById(`save-btn-${index}`);
+            const statusEl = document.getElementById(`recheck-status-${index}`);
+            const newTitle = input.value.trim();
+
+            if (!newTitle || newTitle === idea.currentTitle) return;
+
+            btn.disabled = true;
+            btn.textContent = 'Checking...';
+            if (statusEl) statusEl.textContent = '';
+
+            // Derive keyword from title: strip leading question words, strip trailing ?
+            const cleaned = newTitle
+                .replace(/^(can i|how to|how do i|what is|what are|do i|does|is it|will|should i|why|when)\s+/i, '')
+                .replace(/\?$/, '')
+                .trim();
+
+            const stopWords = new Set(['can','i','how','to','what','is','are','a','the','in','for','of','do','does','my','your','be','will','would','should','could','at','on','with','and','or','but','not','it','its','this','that','did','an','as','if','so','up','do']);
+
+            const extractWords = (text) => text.toLowerCase()
+                .replace(/[^a-z0-9\s]/g, '')
+                .split(/\s+/)
+                .filter(w => w.length > 2 && !stopWords.has(w));
+
+            const newWords = extractWords(cleaned);
+
+            let conflictLevel = 'NO CONFLICT';
+            let conflictingKeyword = '';
+            let conflictingUrl = '';
+
+            for (const row of allRows) {
+                const rowKeyword = (row['Keyword'] || '').trim();
+                if (!rowKeyword) continue;
+                // Skip the current idea's original keyword
+                if (rowKeyword.toLowerCase() === idea.keyword.toLowerCase()) continue;
+
+                const rowWords = extractWords(rowKeyword);
+                const overlap = newWords.filter(w => rowWords.includes(w)).length;
+
+                if (overlap >= 3) {
+                    conflictLevel = 'DANGER';
+                    conflictingKeyword = rowKeyword;
+                    conflictingUrl = row['CONFLICTING BLOG URL'] || '';
+                    break;
+                } else if (overlap >= 2 && conflictLevel !== 'DANGER') {
+                    conflictLevel = 'CAUTION';
+                    conflictingKeyword = rowKeyword;
+                    conflictingUrl = row['CONFLICTING BLOG URL'] || '';
+                }
+            }
+
+            // Update idea
+            idea.currentTitle = newTitle;
+            idea.currentKeyword = cleaned;
+            idea.cannibalization = conflictLevel;
+            idea.conflictingKeyword = conflictingKeyword;
+            idea.conflictingUrl = conflictingUrl;
+
+            refreshAll();
         }
 
         // ============================================
