@@ -4,6 +4,10 @@
 //        Fail-loud: if either is missing the row is NOT written; frontend collects missing parts manually.
 //        maxDuration raised to 60s so the web search has time to finish.
 // v3.1: colK embed format changed to width=100%/height=400; added colL = responsive embed (same video).
+// v3.2: Blog Manager Batch 2 — send-to-sheet also generates People Also Ask (colP), More About (colQ),
+//        More about URL (colR = colH), Meta Description (colT), Excerpt (colU), SEO Title (colV) via 3
+//        parallel Claude writes; Visibility (colW)='Hidden' and Author (colX)='Mae Osz' fixed.
+//        Fail-loud: if any write errors the row is NOT written; the user retries.
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
@@ -156,6 +160,14 @@ export default async function handler(req, res) {
         colJ: sources.youtubeLink || '',
         colK: sources.youtubeEmbed || '',
         colL: sources.youtubeEmbedResponsive || '',
+        colP: sources.peopleAlsoAsk || '',
+        colQ: sources.moreAbout || '',
+        colR: sources.moreAboutUrl || '',
+        colT: sources.metaDescription || '',
+        colU: sources.excerpt || '',
+        colV: sources.seoTitle || '',
+        colW: sources.visibility || '',
+        colX: sources.author || '',
         colAS: 'READY TO GENERATE BLOG'
       })
     });
@@ -248,6 +260,172 @@ If you genuinely cannot find one of the two, leave its two fields as empty strin
       youtubeTitle: (parsed.youtubeTitle || '').trim(),
       youtubeLink: (parsed.youtubeLink || '').trim()
     };
+  }
+
+  // Helper: plain Claude text call (no web search) — used by Batch 2 writers
+  async function callClaudeText(prompt, maxTokens) {
+    const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+    if (!ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not configured');
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': ANTHROPIC_API_KEY,
+        'content-type': 'application/json',
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: maxTokens || 2000,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Claude API error: ${response.status} ${errText.slice(0, 200)}`);
+    }
+    const data = await response.json();
+    let text = '';
+    if (data.content && Array.isArray(data.content)) {
+      text = data.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
+    }
+    return text.trim();
+  }
+
+  // Column P — 3 "People Also Ask" Q&A pairs, plain text
+  async function generatePeopleAlsoAsk(keyword, title) {
+    const prompt = `You are a professional home decor expert writing in a calm, authoritative, and helpful tone.
+
+Generate exactly 3 "People Also Ask" style questions based on the blog title provided.
+
+Blog title: "${title}"
+Main keyword: "${keyword}"
+
+SEO Requirements:
+- At least ONE question must include the main keyword phrase "${keyword}".
+- Questions must sound like real Google search queries.
+- Questions must be directly related to the blog topic.
+
+Answer Style Requirements:
+- Write in a professional, advisory tone.
+- Do NOT write in first person.
+- Do NOT sound overly casual.
+- Provide clear, practical guidance.
+- Each answer must be 4-6 sentences.
+- Maintain a structured, informative style similar to high-quality interior design blogs.
+- Avoid fluff and repetition.
+- Avoid overly sales-focused language.
+
+Formatting Rules:
+Return PLAIN TEXT ONLY. DO NOT use HTML tags.
+Format exactly like this:
+
+1. Question text here
+
+Answer paragraph...
+
+2. Question text here
+
+Answer paragraph...
+
+3. Question text here
+
+Answer paragraph...
+
+Rules:
+- Use plain text only - NO HTML tags
+- Include the number at the start of each question
+- Add a blank line between question and answer
+- Add a blank line between each Q&A pair
+- Do not add any HTML, markdown, or formatting
+- Return only plain text`;
+    const text = await callClaudeText(prompt, 2500);
+    if (!text) throw new Error('People Also Ask came back empty');
+    return text;
+  }
+
+  // Column Q — single <p> "More About" paragraph introducing the authority article
+  async function generateMoreAbout(keyword, title, articleTitle) {
+    const prompt = `You are a professional home decor writer.
+
+Write a short section that introduces an authoritative external article related to the blog topic.
+
+Blog title: "${title}"
+Blog topic / main keyword: "${keyword}"
+External article title: "${articleTitle}"
+
+Tone Requirements:
+- Professional and editorial.
+- Informative and supportive.
+- Not salesy. Not overly promotional.
+- Natural and contextual.
+
+Content Rules:
+- Mention the external article title "${articleTitle}" naturally.
+- Encourage readers to explore it for deeper insight.
+- Keep the paragraph 3-5 sentences.
+- Do not exaggerate authority.
+- Do not use first person.
+
+Formatting Rules:
+Return valid HTML only. Use a single <p> block.
+Rules:
+- Use only a single <p> block.
+- Do not add extra tags.
+- Do not add commentary.
+- Return only valid HTML.`;
+    let text = await callClaudeText(prompt, 1000);
+    text = text.replace(/```html\n?/g, '').replace(/```\n?/g, '').trim();
+    if (!text) throw new Error('More About paragraph came back empty');
+    return text;
+  }
+
+  // Columns V, T, U — SEO title + meta description + excerpt, returned as JSON
+  async function generateSeoMeta(keyword, title) {
+    const prompt = `You are an SEO optimization specialist for a home decor blog.
+
+Blog title: "${title}"
+Main keyword: "${keyword}"
+
+Generate:
+- SEO_Title
+- Meta_Description
+- Excerpt
+
+STRICT RULES:
+SEO_Title:
+- Maximum 59 characters.
+- Include the main keyword naturally.
+- No emojis. No clickbait. No quotation marks.
+Meta_Description:
+- Maximum 155 characters.
+- Include the main keyword once.
+- Clear, compelling, natural.
+- No emojis. No quotation marks.
+Excerpt:
+- 150-300 characters.
+- Engaging summary. Professional tone.
+- No emojis. No quotation marks. No HTML.
+
+Return valid JSON only using this exact structure:
+{
+"SEO_Title": "",
+"Meta_Description": "",
+"Excerpt": ""
+}
+Do not exceed character limits.
+Return only JSON.`;
+    let text = await callClaudeText(prompt, 1500);
+    text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+    const m = text.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error('SEO/meta result was not readable');
+    let parsed;
+    try { parsed = JSON.parse(m[0]); }
+    catch (e) { throw new Error('SEO/meta result was not valid JSON'); }
+    const seoTitle = (parsed.SEO_Title || '').trim();
+    const metaDescription = (parsed.Meta_Description || '').trim();
+    const excerpt = (parsed.Excerpt || '').trim();
+    if (!seoTitle || !metaDescription || !excerpt) throw new Error('SEO/meta result was incomplete');
+    return { seoTitle, metaDescription, excerpt };
   }
 
   try {
@@ -1498,10 +1676,35 @@ If you genuinely cannot find one of the two, leave its two fields as empty strin
           });
         }
 
+        // Batch 2 — generate People Also Ask (P), More About (Q), SEO title+meta+excerpt (V/T/U) in parallel.
+        // Fail-loud: if any write errors, nothing is written; the user simply sends again.
+        let peopleAlsoAsk, moreAbout, metaDescription, excerpt, seoTitle;
+        try {
+          const [paa, more, seo] = await Promise.all([
+            generatePeopleAlsoAsk(keyword, title),
+            generateMoreAbout(keyword, title, authorityTitle),
+            generateSeoMeta(keyword, title)
+          ]);
+          peopleAlsoAsk   = paa;
+          moreAbout       = more;
+          metaDescription = seo.metaDescription;
+          excerpt         = seo.excerpt;
+          seoTitle        = seo.seoTitle;
+        } catch (b2Error) {
+          console.error('Batch 2 generation failed:', b2Error.message);
+          return res.status(200).json({ success: false, error: 'Could not generate blog details — ' + b2Error.message });
+        }
+
         // Complete row — write to the sheet
         try {
           const sheetsResult = await appendToGoogleSheet(keyword, perspective, title, galleryCode, collectionUrl, {
-            authorityTitle, authorityUrl, youtubeTitle, youtubeLink, youtubeEmbed, youtubeEmbedResponsive
+            authorityTitle, authorityUrl, youtubeTitle, youtubeLink, youtubeEmbed, youtubeEmbedResponsive,
+            peopleAlsoAsk,
+            moreAbout,
+            moreAboutUrl: authorityUrl,   // column R = column H
+            metaDescription, excerpt, seoTitle,
+            visibility: 'Hidden',
+            author: 'Mae Osz'
           });
           return res.status(200).json({ success: true, sheetsResult });
         } catch (sheetsError) {
