@@ -1,4 +1,4 @@
-// blogs.js — v3.3
+// blogs.js — v3.4
 // v3.0: Blog Manager Batch 1 — send-to-sheet now auto-generates content sources (colG–colK):
 //        authority article (title+URL) + YouTube video (title+link+embed) via Claude web search.
 //        Fail-loud: if either is missing the row is NOT written; frontend collects missing parts manually.
@@ -11,6 +11,9 @@
 // v3.3: Blog Manager taxonomy — cluster classifier fills Primary (colY), Intent (colZ),
 //        Supporting 1/2/3 (colAA/AB/AC, 2–3 picked), then Blogs by Topic (colO, JSON) using those clusters.
 //        All values restricted to the CLUSTER SYSTEM MAP / allowed topic list. Fail-loud as above.
+// v3.4: cluster classifier loosened — Supporting Clusters may come from ANY group (no more false
+//        rejections like 'space-planning'); added fallbacks (living-room-decor for Primary, general
+//        decor concept tags for Supporting) so a sensible result is always returned.
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
@@ -460,9 +463,9 @@ Blog title: "${title}"
 Main keyword: "${keyword}"
 
 TAGGING RULES
-1. Select exactly ONE Primary_Cluster — from ROOM, STYLE, EDUCATIONAL/CONCEPT or DECOR ACCESSORY clusters.
+1. Select exactly ONE Primary_Cluster — the single most relevant ROOM, STYLE or COLOUR cluster for the blog. If none clearly applies, use living-room-decor.
 2. Select exactly ONE Intent_Tag — from INTENT clusters (mandatory).
-3. Select 2 or 3 Supporting_Clusters — from ROOM, STYLE, COLOUR, DECOR ACCESSORY or OCCASION clusters.
+3. Select 2 or 3 Supporting_Clusters related to the blog's topic — these may come from ANY group (Room, Style, Colour, Decor Accessory, Occasion or Educational/Concept). If fewer than 2 clearly apply, add general decor concept tags such as home-decor-theory, design-principles or interior-design-concepts.
 4. Minimum 4 tags total.
 5. Do NOT invent new tags. Do NOT modify spelling. Do NOT repeat tags.
 6. Every selected tag must appear EXACTLY in the lists below.
@@ -499,9 +502,11 @@ Return only JSON. No extra text.`;
     const supps   = [parsed.Supporting_Cluster_1, parsed.Supporting_Cluster_2, parsed.Supporting_Cluster_3]
       .map(s => (s || '').trim()).filter(Boolean);
 
-    const allowedPrimary    = new Set([...CLUSTER_TAXONOMY.room, ...CLUSTER_TAXONOMY.style, ...CLUSTER_TAXONOMY.educational, ...CLUSTER_TAXONOMY.accessory]);
+    // Any non-intent tag is valid for Primary and Supporting (no group restriction beyond "not an intent tag")
+    const nonIntent = new Set([...CLUSTER_TAXONOMY.room, ...CLUSTER_TAXONOMY.style, ...CLUSTER_TAXONOMY.colour, ...CLUSTER_TAXONOMY.accessory, ...CLUSTER_TAXONOMY.occasion, ...CLUSTER_TAXONOMY.educational]);
+    const allowedPrimary    = nonIntent;
     const allowedIntent     = new Set(CLUSTER_TAXONOMY.intent);
-    const allowedSupporting = new Set([...CLUSTER_TAXONOMY.room, ...CLUSTER_TAXONOMY.style, ...CLUSTER_TAXONOMY.colour, ...CLUSTER_TAXONOMY.accessory, ...CLUSTER_TAXONOMY.occasion]);
+    const allowedSupporting = nonIntent;
 
     if (!primary) throw new Error('No Primary Cluster returned');
     if (!intent)  throw new Error('No Intent Tag returned');
