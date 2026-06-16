@@ -1,4 +1,4 @@
-// blogs.js — v3.6
+// blogs.js — v3.7
 // v3.0: Blog Manager Batch 1 — send-to-sheet now auto-generates content sources (colG–colK):
 //        authority article (title+URL) + YouTube video (title+link+embed) via Claude web search.
 //        Fail-loud: if either is missing the row is NOT written; frontend collects missing parts manually.
@@ -18,6 +18,9 @@
 //        cluster tags (Primary + Supporting) as anchor text + their CLUSTER SYSTEM MAP URL. No new AI call.
 // v3.6: Visual Inspiration (colAP HTML) — AI picks 3–5 trend pages by style/topic, also fills BB–BI
 //        (first 4 as URL+anchor pairs). Video metafield (colAQ) = "WATCH:" + YouTube title linked to URL.
+// v3.7: Products — picks 4 topic-matched products (2 About Wall Art + 2 Collective by value) from the
+//        cluster collections → colAU–AX + colS (joined). Skips products used in the last ~30 blogs via
+//        data/recent-blog-products.json (written AFTER the sheet append, best-effort, never blocks send).
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
@@ -235,6 +238,7 @@ export default async function handler(req, res) {
         colP: sources.peopleAlsoAsk || '',
         colQ: sources.moreAbout || '',
         colR: sources.moreAboutUrl || '',
+        colS: sources.productList || '',
         colT: sources.metaDescription || '',
         colU: sources.excerpt || '',
         colV: sources.seoTitle || '',
@@ -258,6 +262,11 @@ export default async function handler(req, res) {
         colAP: sources.visualInspirationHtml || '',
         colAQ: sources.videoMetafield || '',
         colAS: 'READY TO GENERATE BLOG',
+        colAU: sources.product1 || '',
+        colAV: sources.product2 || '',
+        colAW: sources.product3 || '',
+        colAX: sources.product4 || '',
+        colAY: '',
         colBB: sources.viUrl1 || '',
         colBC: sources.viAnchor1 || '',
         colBD: sources.viUrl2 || '',
@@ -685,6 +694,77 @@ Include 3 to 5 items.`;
     const lis = trends.map(t => `<li><a href="${t.url}">${t.name}</a> - ${t.description}</li>`).join('');
     const html = `<h3>Visual Inspiration</h3><p>Explore complementary design ideas on our Home Decor by Trend page:</p><ul>${lis}</ul>`;
     return { html, trends };
+  }
+
+  // Helper: Shopify Admin GraphQL
+  async function shopifyGraphQL(query, variables) {
+    const domain = process.env.SHOPIFY_STORE_DOMAIN;
+    const token  = process.env.SHOPIFY_ACCESS_TOKEN;
+    if (!domain || !token) throw new Error('Shopify credentials not configured');
+    const r = await fetch(`https://${domain}/admin/api/2025-01/graphql.json`, {
+      method: 'POST',
+      headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, variables })
+    });
+    if (!r.ok) throw new Error('Shopify error: ' + r.status);
+    const d = await r.json();
+    if (d.errors) throw new Error('Shopify GraphQL error: ' + JSON.stringify(d.errors).slice(0, 200));
+    return d.data;
+  }
+
+  // Columns S + AU–AX — 4 topic-matched products: 2 About Wall Art + 2 Collective (higher value first),
+  // pulled from the collections behind the chosen cluster tags, skipping recently-used products when possible.
+  async function selectProducts(clusterTags, recentSet) {
+    const AWA_VENDOR = 'About Wall Art';
+    const handles = [];
+    for (const tag of clusterTags) {
+      const url = CLUSTER_URLS[tag];
+      if (url && url.includes('/collections/')) {
+        const h = url.split('/collections/')[1].split('/')[0].split('?')[0];
+        if (h && !handles.includes(h)) handles.push(h);
+      }
+    }
+    if (!handles.length) handles.push('best-sellers'); // fallback when clusters map to /pages/ only
+
+    const seen = new Set();
+    const candidates = [];
+    for (const handle of handles) {
+      const data = await shopifyGraphQL(
+        `query($handle:String!){ collectionByHandle(handle:$handle){ products(first:60){ edges{ node{ id vendor variants(first:1){ edges{ node{ price } } } } } } } }`,
+        { handle }
+      );
+      const coll = data.collectionByHandle;
+      if (!coll) continue;
+      for (const e of coll.products.edges) {
+        const n = e.node;
+        if (seen.has(n.id)) continue;
+        seen.add(n.id);
+        const price = parseFloat((n.variants.edges[0] && n.variants.edges[0].node.price) || '0');
+        candidates.push({ gid: n.id, vendor: n.vendor || '', price });
+      }
+    }
+    if (candidates.length < 4) throw new Error('Not enough products in the matching collections');
+
+    const awa  = candidates.filter(c => c.vendor === AWA_VENDOR);
+    const coll = candidates.filter(c => c.vendor !== AWA_VENDOR).sort((a, b) => b.price - a.price);
+
+    const pick = (arr, n) => {
+      const fresh = arr.filter(c => !recentSet.has(c.gid));
+      const used  = arr.filter(c => recentSet.has(c.gid));
+      return [...fresh, ...used].slice(0, n);
+    };
+    let chosen = [...pick(awa, 2), ...pick(coll, 2)];
+
+    // top up to 4 from whatever is left if one vendor type was short
+    if (chosen.length < 4) {
+      const have = new Set(chosen.map(c => c.gid));
+      const rest = candidates.filter(c => !have.has(c.gid));
+      const fresh = rest.filter(c => !recentSet.has(c.gid));
+      const used  = rest.filter(c => recentSet.has(c.gid));
+      for (const c of [...fresh, ...used]) { if (chosen.length >= 4) break; chosen.push(c); }
+    }
+    if (chosen.length < 4) throw new Error('Could not assemble 4 products');
+    return chosen.slice(0, 4).map(c => c.gid);
   }
 
   try {
@@ -1944,6 +2024,7 @@ Include 3 to 5 items.`;
         let linkAnchor1 = '', linkUrl1 = '', linkAnchor2 = '', linkUrl2 = '', linkAnchor3 = '', linkUrl3 = '', linkAnchor4 = '', linkUrl4 = '';
         let visualInspirationHtml = '', videoMetafield = '';
         let viUrl1 = '', viAnchor1 = '', viUrl2 = '', viAnchor2 = '', viUrl3 = '', viAnchor3 = '', viUrl4 = '', viAnchor4 = '';
+        let productList = '', product1 = '', product2 = '', product3 = '', product4 = '', chosenProductGids = [];
         try {
           const [paa, more, seo, clusters] = await Promise.all([
             generatePeopleAlsoAsk(keyword, title),
@@ -1962,13 +2043,20 @@ Include 3 to 5 items.`;
           supporting2     = clusters.supporting[1] || '';
           supporting3     = clusters.supporting[2] || '';
 
-          // Blogs by Topic (O) + Visual Inspiration (AP/BB–BI) both need the clusters — run together
+          // Blogs by Topic (O), Visual Inspiration (AP/BB–BI) and Products (S/AU–AX) all need the clusters — run together
           const styleTags = [primaryCluster, supporting1, supporting2, supporting3].filter(t => CLUSTER_TAXONOMY.style.includes(t));
-          const [bbt, vi] = await Promise.all([
+          const prodClusterTags = [primaryCluster, supporting1, supporting2, supporting3].filter(Boolean);
+          let recentProductSet = new Set();
+          try { const rf = await getGitHubFile('data/recent-blog-products.json'); recentProductSet = new Set(JSON.parse(rf.content)); } catch (e) {}
+          const [bbt, vi, prodGids] = await Promise.all([
             generateBlogsByTopic(keyword, title, clusters),
-            generateVisualInspiration(keyword, title, styleTags[0] || '')
+            generateVisualInspiration(keyword, title, styleTags[0] || ''),
+            selectProducts(prodClusterTags, recentProductSet)
           ]);
           blogsByTopic = bbt;
+          chosenProductGids = prodGids;
+          product1 = prodGids[0] || ''; product2 = prodGids[1] || ''; product3 = prodGids[2] || ''; product4 = prodGids[3] || '';
+          productList = prodGids.join(',');
           visualInspirationHtml = vi.html;
           if (vi.trends[0]) { viUrl1 = vi.trends[0].url; viAnchor1 = vi.trends[0].name; }
           if (vi.trends[1]) { viUrl2 = vi.trends[1].url; viAnchor2 = vi.trends[1].name; }
@@ -2011,8 +2099,22 @@ Include 3 to 5 items.`;
             anchor3: linkAnchor3, url3: linkUrl3,
             anchor4: linkAnchor4, url4: linkUrl4,
             visualInspirationHtml, videoMetafield,
-            viUrl1, viAnchor1, viUrl2, viAnchor2, viUrl3, viAnchor3, viUrl4, viAnchor4
+            viUrl1, viAnchor1, viUrl2, viAnchor2, viUrl3, viAnchor3, viUrl4, viAnchor4,
+            productList, product1, product2, product3, product4
           });
+
+          // Record the products just used (best-effort — runs AFTER the sheet append, never blocks the send)
+          try {
+            let rSha = null, rExisting = [];
+            try { const rf = await getGitHubFile('data/recent-blog-products.json'); rExisting = JSON.parse(rf.content); rSha = rf.sha; } catch (e) {}
+            const rUpdated = [...rExisting, ...chosenProductGids].slice(-120); // ~30 blogs × 4
+            await fetch(`https://api.github.com/repos/${REPO}/contents/data/recent-blog-products.json`, {
+              method: 'PUT',
+              headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+              body: JSON.stringify({ message: 'Update recent blog products', content: Buffer.from(JSON.stringify(rUpdated, null, 2)).toString('base64'), ...(rSha ? { sha: rSha } : {}) })
+            });
+          } catch (e) { console.error('Recent products save failed (non-fatal):', e.message); }
+
           return res.status(200).json({ success: true, sheetsResult });
         } catch (sheetsError) {
           console.error('Google Sheets append failed:', sheetsError.message);
