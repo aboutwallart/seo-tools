@@ -1,4 +1,4 @@
-// blogs.js — v3.8
+// blogs.js — v3.9
 // v3.0: Blog Manager Batch 1 — send-to-sheet now auto-generates content sources (colG–colK):
 //        authority article (title+URL) + YouTube video (title+link+embed) via Claude web search.
 //        Fail-loud: if either is missing the row is NOT written; frontend collects missing parts manually.
@@ -24,6 +24,8 @@
 // v3.8: Pro Tips / related blogs — 3 published blogs matched by Primary cluster concept in the TITLE
 //        (then supporting clusters, then general recent posts as fallback). Fills AR + BM–BR + BU–CF.
 //        Best-effort Shopify search; no new AI call (keyword used for the H2).
+// v3.9: FIX related-blogs query — Blog.articles rejects query/sortKey; switched to the top-level
+//        articles connection with query:"title:*term*" + sortKey PUBLISHED_AT (was silently failing → blank).
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
@@ -798,7 +800,7 @@ Include 3 to 5 items.`;
   // Columns AR + BM–BR + BU–CF — 3 related published blogs matched by cluster concept in the TITLE,
   // topping up via supporting clusters then general recent posts. Best-effort; never throws.
   async function getRelatedBlogs(orderedClusterTags) {
-    const BLOG_GID = 'gid://shopify/Blog/93572858142'; // About Wall Art blog (news-articles-home-decor-inspiration)
+    const FALLBACK_BLOG_GID = 'gid://shopify/Blog/93572858142'; // About Wall Art blog
     const found = [];
     const seen = new Set();
     const addArticle = (a) => {
@@ -806,7 +808,7 @@ Include 3 to 5 items.`;
       seen.add(a.id);
       found.push({
         articleGid: a.id,
-        blogGid: BLOG_GID,
+        blogGid: (a.blog && a.blog.id) || FALLBACK_BLOG_GID,
         title: a.title || '',
         handle: a.handle || '',
         url: `https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/${a.handle || ''}`,
@@ -814,7 +816,7 @@ Include 3 to 5 items.`;
       });
     };
 
-    // 1 + 2: cluster concepts (primary, then supporting) matched in the title
+    // 1 + 2: cluster concepts (primary, then supporting) matched in the title (top-level articles search)
     for (const tag of orderedClusterTags) {
       if (found.length >= 3) break;
       const term = deriveSearchTerm(tag);
@@ -822,15 +824,11 @@ Include 3 to 5 items.`;
       const firstWord = term.split(' ')[0];
       try {
         const data = await shopifyGraphQL(
-          `query($q:String!){ blog(id:"${BLOG_GID}"){ articles(first:25, query:$q, sortKey:PUBLISHED_AT, reverse:true){ edges{ node{ id title handle image{url} } } } } }`,
-          { q: term }
+          `query($q:String!){ articles(first:25, query:$q, sortKey:PUBLISHED_AT, reverse:true){ edges{ node{ id title handle image{url} blog{id} } } } }`,
+          { q: `title:*${firstWord}*` }
         );
-        const arts = data.blog ? data.blog.articles.edges.map(e => e.node) : [];
-        for (const a of arts) {
-          if (found.length >= 3) break;
-          const t = (a.title || '').toLowerCase();
-          if (t.includes(term) || t.includes(firstWord)) addArticle(a);
-        }
+        const arts = data.articles ? data.articles.edges.map(e => e.node) : [];
+        for (const a of arts) { if (found.length >= 3) break; addArticle(a); }
       } catch (e) { /* best-effort */ }
     }
 
@@ -838,10 +836,10 @@ Include 3 to 5 items.`;
     if (found.length < 3) {
       try {
         const data = await shopifyGraphQL(
-          `query{ blog(id:"${BLOG_GID}"){ articles(first:12, sortKey:PUBLISHED_AT, reverse:true){ edges{ node{ id title handle image{url} } } } } }`,
+          `query{ articles(first:12, sortKey:PUBLISHED_AT, reverse:true){ edges{ node{ id title handle image{url} blog{id} } } } }`,
           {}
         );
-        const arts = data.blog ? data.blog.articles.edges.map(e => e.node) : [];
+        const arts = data.articles ? data.articles.edges.map(e => e.node) : [];
         for (const a of arts) { if (found.length >= 3) break; addArticle(a); }
       } catch (e) { /* best-effort */ }
     }
