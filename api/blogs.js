@@ -1,4 +1,4 @@
-// blogs.js — v3.4
+// blogs.js — v3.5
 // v3.0: Blog Manager Batch 1 — send-to-sheet now auto-generates content sources (colG–colK):
 //        authority article (title+URL) + YouTube video (title+link+embed) via Claude web search.
 //        Fail-loud: if either is missing the row is NOT written; frontend collects missing parts manually.
@@ -14,6 +14,8 @@
 // v3.4: cluster classifier loosened — Supporting Clusters may come from ANY group (no more false
 //        rejections like 'space-planning'); added fallbacks (living-room-decor for Primary, general
 //        decor concept tags for Supporting) so a sensible result is always returned.
+// v3.5: Blog Manager internal links — AD='full-metafields-blog-post', AE blank, AF–AM = the chosen
+//        cluster tags (Primary + Supporting) as anchor text + their CLUSTER SYSTEM MAP URL. No new AI call.
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
@@ -41,6 +43,24 @@ const CLUSTER_TAXONOMY = {
 
 // ── Blogs by Topic — allowed friendly labels (separate vocabulary from cluster tags) ──
 const BLOGS_BY_TOPIC_OPTIONS = ['Kitchen','Bedroom','Bathroom','Living room','Office','Nursery','Hallways','Fireplaces','Laundry','Outdoor','Teens','Dressing Room','Breakfast Nook','Home Bar','Games Room','Pets','Above Fireplace','Minimalist','Scandinavian','Japandi','Bohemian','Farmhouse','Contemporary','Industrial','Mid-Century','Mediterranean','Moroccan','Coastal','Eclectic','Maximalist','Zen','Biophilic','Black & White','Christian','Islamic','Holidays','Gifts','Interior Design Concepts','Design Principles','Space Planning','Room Layout Ideas','Colour Theory','Colour Psychology','Colour Combinations','Accent Colour Ideas','Decor Mistakes','Colour Trends','Decor Trends','Buying Guides','How-To Guides','Styling Tips','Product Roundups','Trend Reports','Inspiration','Home Decor'];
+
+// ── Cluster tag → destination URL (from CLUSTER SYSTEM MAP) — used for internal links (AF–AM) ──
+const CLUSTER_URLS = {
+  // Room
+  'babies-kids-decor':'https://aboutwallart.com/collections/childrens-bedroom-decor-1','bathroom-decor':'https://aboutwallart.com/collections/bathroom-decor-for-walls','bedroom-decor':'https://aboutwallart.com/collections/wall-art-for-a-bedroom','breakfast-nook-decor':'https://aboutwallart.com/collections/breakfast-nook-decor','dressing-room-decor':'https://aboutwallart.com/collections/dressing-room-decor','dining-room-decor':'https://aboutwallart.com/collections/dining-room-decor','fireplace-decor':'https://aboutwallart.com/collections/above-fireplaces','games-room-decor':'https://aboutwallart.com/collections/games-room-decor-1','hallway-decor':'https://aboutwallart.com/collections/hallway-decor','home-bar-decor':'https://aboutwallart.com/collections/home-bar-decoration','kitchen-decor':'https://aboutwallart.com/collections/kitchen-wall-art-decor','laundry-room-decor':'https://aboutwallart.com/collections/laundry-room-decor','living-room-decor':'https://aboutwallart.com/collections/framed-wall-pictures-for-living-room','pets-decor':'https://aboutwallart.com/collections/all-you-need-for-your-pets-at-home','office-decor':'https://aboutwallart.com/collections/office-wall-artwork','outdoor-decor':'https://aboutwallart.com/collections/outdoors-home-decorations','teens-decor':'https://aboutwallart.com/collections/teens-bedroom-decor','above-fireplace-decor':'https://aboutwallart.com/collections/above-fireplaces',
+  // Style
+  'abstract-style':'https://aboutwallart.com/collections/abstract-art-prints','bohemian-style':'https://aboutwallart.com/collections/bohemian-wall-art','chinoiserie-style':'https://aboutwallart.com/collections/chinoiserie-wall-decor','christian-style':'https://aboutwallart.com/collections/christian-wall-art','coastal-style':'https://aboutwallart.com/collections/coastal-decor','coffee-style':'https://aboutwallart.com/collections/coffee-wall-art','contemporary-style':'https://aboutwallart.com/collections/contemporary-wall-art','eclectic-style':'https://aboutwallart.com/collections/eclectic-maximalist-decor','maximalist-style':'https://aboutwallart.com/collections/eclectic-maximalist-decor','farmhouse-style':'https://aboutwallart.com/collections/farmhouse-wall-art','french-country-style':'https://aboutwallart.com/collections/french-country-wall-art','islamic-style':'https://aboutwallart.com/collections/wall-islamic-art','japandi-style':'https://aboutwallart.com/pages/japandi-home-decor-trend','marble-style':'https://aboutwallart.com/collections/marble-wall-art','minimalist-style':'https://aboutwallart.com/collections/minimalist-art-prints','scandinavian-style':'https://aboutwallart.com/collections/scandinavian-wall-art','shabby-chic-style':'https://aboutwallart.com/collections/shabby-and-chic-home-decor','sun-moon-style':'https://aboutwallart.com/collections/sun-and-moon-art','travel-style':'https://aboutwallart.com/collections/travel-wall-art','tropical-style':'https://aboutwallart.com/collections/tropical-wall-art','wildlife-style':'https://aboutwallart.com/collections/wild-life-decor','zen-style':'https://aboutwallart.com/pages/zen-room-decorations','industrial-style':'https://aboutwallart.com/pages/industrial-home-decor-trend','masculine-style':'https://aboutwallart.com/pages/masculine-living-room-ideas','mediterranean-style':'https://aboutwallart.com/pages/mediterranean-home-decor-trend','mid-century-style':'https://aboutwallart.com/collections/mid-century-decor','moroccan-style':'https://aboutwallart.com/pages/moroccan-home-decor-trend','old-money-style':'https://aboutwallart.com/pages/old-money-home-decor','preppy-style':'https://aboutwallart.com/pages/preppy-style-interiors','transitional-style':'https://aboutwallart.com/pages/transitional-interior-design','biophilic-style':'https://aboutwallart.com/pages/biophilic-interior-design','black-white-style':'https://aboutwallart.com/pages/black-white-home-decor-trend',
+  // Colour
+  'black-white':'https://aboutwallart.com/collections/black-and-white-art-on-wall','earth-toned':'https://aboutwallart.com/collections/earth-tone-wall-decor','gold-accents':'https://aboutwallart.com/collections/gold-wall-art','pastel-tones':'https://aboutwallart.com/collections/pastel-art','pink-tones':'https://aboutwallart.com/collections/pink-wall-art','neutral-tones':'https://aboutwallart.com/collections/neutral-wall-art','teal-tones':'https://aboutwallart.com/collections/teal-colour-wall-art','blue-tones':'https://aboutwallart.com/pages/gallery-wall-art-shop-by-colour-scheme',
+  // Decor accessory
+  'appliances-decor':'https://aboutwallart.com/collections/modern-smart-home-appliances','bar-decor':'https://aboutwallart.com/collections/bar-accessories-for-home','candles':'https://aboutwallart.com/collections/candles','clocks':'https://aboutwallart.com/collections/wall-clocks','sculptures':'https://aboutwallart.com/collections/sculptures-ornaments','desk-decor':'https://aboutwallart.com/collections/desk-accessories','fireplace-accessories':'https://aboutwallart.com/collections/fireplace-accessories','shelves':'https://aboutwallart.com/collections/floating-shelves-for-home','foot-stools':'https://aboutwallart.com/collections/footstools','games-decor':'https://aboutwallart.com/collections/tabletop-games','garden-decor':'https://aboutwallart.com/collections/garden-decor-accessories','kitchen-accessories':'https://aboutwallart.com/collections/kitchen-items','lamps-lighting':'https://aboutwallart.com/collections/lightning-lamps','mirrors':'https://aboutwallart.com/collections/wall-mirrors','plants-pots':'https://aboutwallart.com/collections/plants-pots-planters','pet-accessories':'https://aboutwallart.com/collections/all-you-need-for-your-pets-at-home','rugs':'https://aboutwallart.com/collections/rugs','storage-solutions':'https://aboutwallart.com/collections/storage-items','tableware':'https://aboutwallart.com/collections/dining-tableware','textiles':'https://aboutwallart.com/collections/home-textiles','toilet-accessories':'https://aboutwallart.com/collections/bathroom-accessories','wall-panels':'https://aboutwallart.com/collections/wall-paneling','wallpaper':'https://aboutwallart.com/collections/wallpaper',
+  // Occasion
+  'birthday-decor':'https://aboutwallart.com/collections/unique-birthday-gifts','birthstone-decor':'https://aboutwallart.com/collections/birthstone-gifts-that-arent-jewelry','christmas-decor':'https://aboutwallart.com/collections/christmas-wall-decor','family-decor':'https://aboutwallart.com/collections/personalised-family-gifts','love-decor':'https://aboutwallart.com/collections/prints-of-love','zodiac-decor':'https://aboutwallart.com/collections/zodiac-in-art',
+  // Educational / concept
+  'interior-design-concepts':'https://aboutwallart.com/pages/home-decor-by-trend','home-decor-theory':'https://aboutwallart.com/pages/home-decor-by-trend','design-principles':'https://aboutwallart.com/pages/home-decor-by-trend','interior-styling-frameworks':'https://aboutwallart.com/pages/home-decor-by-trend','decor-mistakes':'https://aboutwallart.com/pages/home-decor-by-trend','space-planning':'https://aboutwallart.com/pages/home-decor-by-room','room-layout-ideas':'https://aboutwallart.com/pages/home-decor-by-room','interior-trends':'https://aboutwallart.com/pages/home-decor-by-trend','aesthetic-guides':'https://aboutwallart.com/pages/home-decor-by-trend','colour-psychology':'https://aboutwallart.com/pages/gallery-wall-art-shop-by-colour-scheme','colour-theory':'https://aboutwallart.com/pages/gallery-wall-art-shop-by-colour-scheme','colour-combinations':'https://aboutwallart.com/pages/gallery-wall-art-shop-by-colour-scheme','how-to-use-colour':'https://aboutwallart.com/pages/gallery-wall-art-shop-by-colour-scheme','monochrome-design':'https://aboutwallart.com/collections/black-and-white-art-on-wall','contrast-in-design':'https://aboutwallart.com/pages/home-decor-by-trend','warm-vs-cool-tones':'https://aboutwallart.com/pages/gallery-wall-art-shop-by-colour-scheme','accent-colour-ideas':'https://aboutwallart.com/pages/gallery-wall-art-shop-by-colour-scheme',
+  // Intent
+  'styling-tips':'https://aboutwallart.com/pages/home-decor-by-room','buying-guide':'https://aboutwallart.com/pages/home-decor-items','inspiration':'https://aboutwallart.com/pages/home-decor-by-trend','trend-report':'https://aboutwallart.com/pages/home-decor-by-trend','how-to':'https://aboutwallart.com/pages/home-decor-by-room','comparison':'https://aboutwallart.com/pages/home-decor-by-type','product-roundup':'https://aboutwallart.com/collections/best-sellers','gift-ideas':'https://aboutwallart.com/pages/celebration-gifts-shop-by-ocassion','seasonal-decor':'https://aboutwallart.com/collections/holiday-home-decor'
+};
 
 export default async function handler(req, res) {
   // CORS headers
@@ -194,6 +214,16 @@ export default async function handler(req, res) {
         colAA: sources.supporting1 || '',
         colAB: sources.supporting2 || '',
         colAC: sources.supporting3 || '',
+        colAD: 'full-metafields-blog-post',   // Theme template (fixed)
+        colAE: '',                            // Visibility date (always blank)
+        colAF: sources.anchor1 || '',
+        colAG: sources.url1 || '',
+        colAH: sources.anchor2 || '',
+        colAI: sources.url2 || '',
+        colAJ: sources.anchor3 || '',
+        colAK: sources.url3 || '',
+        colAL: sources.anchor4 || '',
+        colAM: sources.url4 || '',
         colAS: 'READY TO GENERATE BLOG'
       })
     });
@@ -1819,6 +1849,7 @@ Return only JSON.`;
         // Fail-loud: if any write errors, nothing is written; the user simply sends again.
         let peopleAlsoAsk, moreAbout, metaDescription, excerpt, seoTitle;
         let primaryCluster, intentTag, supporting1, supporting2, supporting3, blogsByTopic;
+        let linkAnchor1 = '', linkUrl1 = '', linkAnchor2 = '', linkUrl2 = '', linkAnchor3 = '', linkUrl3 = '', linkAnchor4 = '', linkUrl4 = '';
         try {
           const [paa, more, seo, clusters] = await Promise.all([
             generatePeopleAlsoAsk(keyword, title),
@@ -1837,6 +1868,18 @@ Return only JSON.`;
           supporting2     = clusters.supporting[1] || '';
           supporting3     = clusters.supporting[2] || '';
           blogsByTopic    = await generateBlogsByTopic(keyword, title, clusters);
+
+          // Internal links (AF–AM): the chosen cluster tags as anchor text + their CLUSTER SYSTEM MAP URL
+          const linkTags = [primaryCluster, supporting1, supporting2, supporting3].filter(Boolean);
+          const links = linkTags.map(tag => {
+            const url = CLUSTER_URLS[tag];
+            if (!url) throw new Error('No URL in cluster map for tag: ' + tag);
+            return { anchor: tag, url };
+          });
+          if (links[0]) { linkAnchor1 = links[0].anchor; linkUrl1 = links[0].url; }
+          if (links[1]) { linkAnchor2 = links[1].anchor; linkUrl2 = links[1].url; }
+          if (links[2]) { linkAnchor3 = links[2].anchor; linkUrl3 = links[2].url; }
+          if (links[3]) { linkAnchor4 = links[3].anchor; linkUrl4 = links[3].url; }
         } catch (b2Error) {
           console.error('Batch 2/taxonomy generation failed:', b2Error.message);
           return res.status(200).json({ success: false, error: 'Could not generate blog details — ' + b2Error.message });
@@ -1853,7 +1896,11 @@ Return only JSON.`;
             visibility: 'Hidden',
             author: 'Mae Osz',
             blogsByTopic,
-            primaryCluster, intentTag, supporting1, supporting2, supporting3
+            primaryCluster, intentTag, supporting1, supporting2, supporting3,
+            anchor1: linkAnchor1, url1: linkUrl1,
+            anchor2: linkAnchor2, url2: linkUrl2,
+            anchor3: linkAnchor3, url3: linkUrl3,
+            anchor4: linkAnchor4, url4: linkUrl4
           });
           return res.status(200).json({ success: true, sheetsResult });
         } catch (sheetsError) {
