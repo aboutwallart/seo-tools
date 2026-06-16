@@ -1,4 +1,4 @@
-// blogs.js — v3.1
+// blogs.js — v3.3
 // v3.0: Blog Manager Batch 1 — send-to-sheet now auto-generates content sources (colG–colK):
 //        authority article (title+URL) + YouTube video (title+link+embed) via Claude web search.
 //        Fail-loud: if either is missing the row is NOT written; frontend collects missing parts manually.
@@ -8,6 +8,9 @@
 //        More about URL (colR = colH), Meta Description (colT), Excerpt (colU), SEO Title (colV) via 3
 //        parallel Claude writes; Visibility (colW)='Hidden' and Author (colX)='Mae Osz' fixed.
 //        Fail-loud: if any write errors the row is NOT written; the user retries.
+// v3.3: Blog Manager taxonomy — cluster classifier fills Primary (colY), Intent (colZ),
+//        Supporting 1/2/3 (colAA/AB/AC, 2–3 picked), then Blogs by Topic (colO, JSON) using those clusters.
+//        All values restricted to the CLUSTER SYSTEM MAP / allowed topic list. Fail-loud as above.
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
@@ -21,6 +24,20 @@ import path from 'path';
 
 // Raise serverless time limit — auto-generating content sources (web search) can take longer than the 10s default
 export const config = { maxDuration: 60 };
+
+// ── Cluster taxonomy (from CLUSTER SYSTEM MAP) — allowed tag names by group ──
+const CLUSTER_TAXONOMY = {
+  room: ['babies-kids-decor','bathroom-decor','bedroom-decor','breakfast-nook-decor','dressing-room-decor','dining-room-decor','fireplace-decor','games-room-decor','hallway-decor','home-bar-decor','kitchen-decor','laundry-room-decor','living-room-decor','pets-decor','office-decor','outdoor-decor','teens-decor','above-fireplace-decor'],
+  style: ['abstract-style','bohemian-style','chinoiserie-style','christian-style','coastal-style','coffee-style','contemporary-style','eclectic-style','maximalist-style','farmhouse-style','french-country-style','islamic-style','japandi-style','marble-style','minimalist-style','scandinavian-style','shabby-chic-style','sun-moon-style','travel-style','tropical-style','wildlife-style','zen-style','industrial-style','masculine-style','mediterranean-style','mid-century-style','moroccan-style','old-money-style','preppy-style','transitional-style','biophilic-style','black-white-style'],
+  colour: ['black-white','earth-toned','gold-accents','pastel-tones','pink-tones','neutral-tones','teal-tones','blue-tones'],
+  accessory: ['appliances-decor','bar-decor','candles','clocks','sculptures','desk-decor','fireplace-accessories','shelves','foot-stools','games-decor','garden-decor','kitchen-accessories','lamps-lighting','mirrors','plants-pots','pet-accessories','rugs','storage-solutions','tableware','textiles','toilet-accessories','wall-panels','wallpaper'],
+  occasion: ['birthday-decor','birthstone-decor','christmas-decor','family-decor','love-decor','zodiac-decor'],
+  educational: ['interior-design-concepts','home-decor-theory','design-principles','interior-styling-frameworks','decor-mistakes','space-planning','room-layout-ideas','interior-trends','aesthetic-guides','colour-psychology','colour-theory','colour-combinations','how-to-use-colour','monochrome-design','contrast-in-design','warm-vs-cool-tones','accent-colour-ideas'],
+  intent: ['styling-tips','buying-guide','inspiration','trend-report','how-to','gift-ideas','seasonal-decor','comparison','product-roundup']
+};
+
+// ── Blogs by Topic — allowed friendly labels (separate vocabulary from cluster tags) ──
+const BLOGS_BY_TOPIC_OPTIONS = ['Kitchen','Bedroom','Bathroom','Living room','Office','Nursery','Hallways','Fireplaces','Laundry','Outdoor','Teens','Dressing Room','Breakfast Nook','Home Bar','Games Room','Pets','Above Fireplace','Minimalist','Scandinavian','Japandi','Bohemian','Farmhouse','Contemporary','Industrial','Mid-Century','Mediterranean','Moroccan','Coastal','Eclectic','Maximalist','Zen','Biophilic','Black & White','Christian','Islamic','Holidays','Gifts','Interior Design Concepts','Design Principles','Space Planning','Room Layout Ideas','Colour Theory','Colour Psychology','Colour Combinations','Accent Colour Ideas','Decor Mistakes','Colour Trends','Decor Trends','Buying Guides','How-To Guides','Styling Tips','Product Roundups','Trend Reports','Inspiration','Home Decor'];
 
 export default async function handler(req, res) {
   // CORS headers
@@ -160,6 +177,7 @@ export default async function handler(req, res) {
         colJ: sources.youtubeLink || '',
         colK: sources.youtubeEmbed || '',
         colL: sources.youtubeEmbedResponsive || '',
+        colO: sources.blogsByTopic || '',
         colP: sources.peopleAlsoAsk || '',
         colQ: sources.moreAbout || '',
         colR: sources.moreAboutUrl || '',
@@ -168,6 +186,11 @@ export default async function handler(req, res) {
         colV: sources.seoTitle || '',
         colW: sources.visibility || '',
         colX: sources.author || '',
+        colY: sources.primaryCluster || '',
+        colZ: sources.intentTag || '',
+        colAA: sources.supporting1 || '',
+        colAB: sources.supporting2 || '',
+        colAC: sources.supporting3 || '',
         colAS: 'READY TO GENERATE BLOG'
       })
     });
@@ -426,6 +449,115 @@ Return only JSON.`;
     const excerpt = (parsed.Excerpt || '').trim();
     if (!seoTitle || !metaDescription || !excerpt) throw new Error('SEO/meta result was incomplete');
     return { seoTitle, metaDescription, excerpt };
+  }
+
+  // Columns Y, Z, AA, AB, AC — cluster classifier. 1 Primary + 1 Intent + 2-3 Supporting, only from the taxonomy.
+  async function generateClusters(keyword, title) {
+    const prompt = `You are a strict blog tag classification engine.
+You must assign tags ONLY from the taxonomy lists below. You may not create, modify, guess, or rephrase tags.
+
+Blog title: "${title}"
+Main keyword: "${keyword}"
+
+TAGGING RULES
+1. Select exactly ONE Primary_Cluster — from ROOM, STYLE, EDUCATIONAL/CONCEPT or DECOR ACCESSORY clusters.
+2. Select exactly ONE Intent_Tag — from INTENT clusters (mandatory).
+3. Select 2 or 3 Supporting_Clusters — from ROOM, STYLE, COLOUR, DECOR ACCESSORY or OCCASION clusters.
+4. Minimum 4 tags total.
+5. Do NOT invent new tags. Do NOT modify spelling. Do NOT repeat tags.
+6. Every selected tag must appear EXACTLY in the lists below.
+
+ROOM CLUSTERS: ${CLUSTER_TAXONOMY.room.join(', ')}
+STYLE CLUSTERS: ${CLUSTER_TAXONOMY.style.join(', ')}
+COLOUR CLUSTERS: ${CLUSTER_TAXONOMY.colour.join(', ')}
+DECOR ACCESSORY CLUSTERS: ${CLUSTER_TAXONOMY.accessory.join(', ')}
+OCCASION CLUSTERS: ${CLUSTER_TAXONOMY.occasion.join(', ')}
+EDUCATIONAL / CONCEPT CLUSTERS: ${CLUSTER_TAXONOMY.educational.join(', ')}
+INTENT CLUSTERS: ${CLUSTER_TAXONOMY.intent.join(', ')}
+
+OUTPUT FORMAT (STRICT)
+Return valid JSON only:
+{
+"Primary_Cluster": "",
+"Intent_Tag": "",
+"Supporting_Cluster_1": "",
+"Supporting_Cluster_2": "",
+"Supporting_Cluster_3": ""
+}
+If only 2 supporting clusters apply, leave Supporting_Cluster_3 as an empty string.
+Return only JSON. No extra text.`;
+    let text = await callClaudeText(prompt, 800);
+    text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+    const m = text.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error('Cluster result was not readable');
+    let parsed;
+    try { parsed = JSON.parse(m[0]); }
+    catch (e) { throw new Error('Cluster result was not valid JSON'); }
+
+    const primary = (parsed.Primary_Cluster || '').trim();
+    const intent  = (parsed.Intent_Tag || '').trim();
+    const supps   = [parsed.Supporting_Cluster_1, parsed.Supporting_Cluster_2, parsed.Supporting_Cluster_3]
+      .map(s => (s || '').trim()).filter(Boolean);
+
+    const allowedPrimary    = new Set([...CLUSTER_TAXONOMY.room, ...CLUSTER_TAXONOMY.style, ...CLUSTER_TAXONOMY.educational, ...CLUSTER_TAXONOMY.accessory]);
+    const allowedIntent     = new Set(CLUSTER_TAXONOMY.intent);
+    const allowedSupporting = new Set([...CLUSTER_TAXONOMY.room, ...CLUSTER_TAXONOMY.style, ...CLUSTER_TAXONOMY.colour, ...CLUSTER_TAXONOMY.accessory, ...CLUSTER_TAXONOMY.occasion]);
+
+    if (!primary) throw new Error('No Primary Cluster returned');
+    if (!intent)  throw new Error('No Intent Tag returned');
+    if (supps.length < 2) throw new Error('Fewer than 2 Supporting Clusters returned');
+    if (!allowedPrimary.has(primary)) throw new Error('Invalid Primary Cluster: ' + primary);
+    if (!allowedIntent.has(intent))   throw new Error('Invalid Intent Tag: ' + intent);
+    for (const s of supps) if (!allowedSupporting.has(s)) throw new Error('Invalid Supporting Cluster: ' + s);
+    const all = [primary, ...supps];
+    if (new Set(all).size !== all.length) throw new Error('Duplicate cluster tags returned');
+
+    return { primaryCluster: primary, intentTag: intent, supporting: supps };
+  }
+
+  // Column O — Blogs by Topic. 2-4 friendly labels, only from the allowed list, using the clusters as input.
+  async function generateBlogsByTopic(keyword, title, clusters) {
+    const prompt = `You are a strict blog topic selector.
+Select relevant values ONLY from the predefined list below. Do not create new values, modify spelling, or return anything outside the list.
+
+Blog Title: "${title}"
+Main keyword: "${keyword}"
+Primary Cluster: ${clusters.primaryCluster}
+Intent Tag: ${clusters.intentTag}
+Supporting Clusters: ${clusters.supporting.join(', ')}
+
+Rules:
+- Select between 2 and 4 relevant topics.
+- Each value must EXACTLY match one of the allowed options below.
+- If fewer than 4 apply, return only the applicable ones.
+- Do not return empty strings.
+- Do not return text outside JSON.
+
+Allowed Options:
+${BLOGS_BY_TOPIC_OPTIONS.join('\n')}
+
+Return valid JSON only using this exact structure:
+{
+"Blogs_By_Topic": ["", "", ""]
+}
+Return only JSON.`;
+    let text = await callClaudeText(prompt, 600);
+    text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+    const m = text.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error('Blogs by Topic result was not readable');
+    let parsed;
+    try { parsed = JSON.parse(m[0]); }
+    catch (e) { throw new Error('Blogs by Topic result was not valid JSON'); }
+
+    const arr = Array.isArray(parsed.Blogs_By_Topic)
+      ? parsed.Blogs_By_Topic.map(s => (s || '').trim()).filter(Boolean)
+      : [];
+    if (arr.length < 2 || arr.length > 4) throw new Error('Blogs by Topic must have 2-4 values');
+    const allowed = new Set(BLOGS_BY_TOPIC_OPTIONS);
+    for (const t of arr) if (!allowed.has(t)) throw new Error('Invalid Blogs by Topic value: ' + t);
+    if (new Set(arr).size !== arr.length) throw new Error('Duplicate Blogs by Topic values');
+
+    return JSON.stringify({ Blogs_By_Topic: arr });
   }
 
   try {
@@ -1676,22 +1808,32 @@ Return only JSON.`;
           });
         }
 
-        // Batch 2 — generate People Also Ask (P), More About (Q), SEO title+meta+excerpt (V/T/U) in parallel.
+        // Batch 2 + taxonomy — generate in parallel: People Also Ask (P), More About (Q),
+        // SEO title+meta+excerpt (V/T/U), and the cluster classifier (Y/Z/AA/AB/AC).
+        // Blogs by Topic (O) runs after, because it needs the clusters.
         // Fail-loud: if any write errors, nothing is written; the user simply sends again.
         let peopleAlsoAsk, moreAbout, metaDescription, excerpt, seoTitle;
+        let primaryCluster, intentTag, supporting1, supporting2, supporting3, blogsByTopic;
         try {
-          const [paa, more, seo] = await Promise.all([
+          const [paa, more, seo, clusters] = await Promise.all([
             generatePeopleAlsoAsk(keyword, title),
             generateMoreAbout(keyword, title, authorityTitle),
-            generateSeoMeta(keyword, title)
+            generateSeoMeta(keyword, title),
+            generateClusters(keyword, title)
           ]);
           peopleAlsoAsk   = paa;
           moreAbout       = more;
           metaDescription = seo.metaDescription;
           excerpt         = seo.excerpt;
           seoTitle        = seo.seoTitle;
+          primaryCluster  = clusters.primaryCluster;
+          intentTag       = clusters.intentTag;
+          supporting1     = clusters.supporting[0] || '';
+          supporting2     = clusters.supporting[1] || '';
+          supporting3     = clusters.supporting[2] || '';
+          blogsByTopic    = await generateBlogsByTopic(keyword, title, clusters);
         } catch (b2Error) {
-          console.error('Batch 2 generation failed:', b2Error.message);
+          console.error('Batch 2/taxonomy generation failed:', b2Error.message);
           return res.status(200).json({ success: false, error: 'Could not generate blog details — ' + b2Error.message });
         }
 
@@ -1704,7 +1846,9 @@ Return only JSON.`;
             moreAboutUrl: authorityUrl,   // column R = column H
             metaDescription, excerpt, seoTitle,
             visibility: 'Hidden',
-            author: 'Mae Osz'
+            author: 'Mae Osz',
+            blogsByTopic,
+            primaryCluster, intentTag, supporting1, supporting2, supporting3
           });
           return res.status(200).json({ success: true, sheetsResult });
         } catch (sheetsError) {
