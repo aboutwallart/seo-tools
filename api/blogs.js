@@ -1,4 +1,4 @@
-// blogs.js — v3.7
+// blogs.js — v3.8
 // v3.0: Blog Manager Batch 1 — send-to-sheet now auto-generates content sources (colG–colK):
 //        authority article (title+URL) + YouTube video (title+link+embed) via Claude web search.
 //        Fail-loud: if either is missing the row is NOT written; frontend collects missing parts manually.
@@ -21,6 +21,9 @@
 // v3.7: Products — picks 4 topic-matched products (2 About Wall Art + 2 Collective by value) from the
 //        cluster collections → colAU–AX + colS (joined). Skips products used in the last ~30 blogs via
 //        data/recent-blog-products.json (written AFTER the sheet append, best-effort, never blocks send).
+// v3.8: Pro Tips / related blogs — 3 published blogs matched by Primary cluster concept in the TITLE
+//        (then supporting clusters, then general recent posts as fallback). Fills AR + BM–BR + BU–CF.
+//        Best-effort Shopify search; no new AI call (keyword used for the H2).
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
@@ -261,6 +264,7 @@ export default async function handler(req, res) {
         colAM: sources.url4 || '',
         colAP: sources.visualInspirationHtml || '',
         colAQ: sources.videoMetafield || '',
+        colAR: sources.proTipsMetafield || '',
         colAS: 'READY TO GENERATE BLOG',
         colAU: sources.product1 || '',
         colAV: sources.product2 || '',
@@ -274,7 +278,25 @@ export default async function handler(req, res) {
         colBF: sources.viUrl3 || '',
         colBG: sources.viAnchor3 || '',
         colBH: sources.viUrl4 || '',
-        colBI: sources.viAnchor4 || ''
+        colBI: sources.viAnchor4 || '',
+        colBM: sources.pt1Anchor || '',
+        colBN: sources.pt1Url || '',
+        colBO: sources.pt2Anchor || '',
+        colBP: sources.pt2Url || '',
+        colBQ: sources.pt3Anchor || '',
+        colBR: sources.pt3Url || '',
+        colBU: sources.pt1Handle || '',
+        colBV: sources.pt2Handle || '',
+        colBW: sources.pt3Handle || '',
+        colBX: sources.pt1Image || '',
+        colBY: sources.pt2Image || '',
+        colBZ: sources.pt3Image || '',
+        colCA: sources.blog1Gid || '',
+        colCB: sources.blog1Id || '',
+        colCC: sources.blog2Gid || '',
+        colCD: sources.blog2Id || '',
+        colCE: sources.blog3Gid || '',
+        colCF: sources.blog3Id || ''
       })
     });
     if (!response.ok) throw new Error(`Sheets webhook error: ${response.status}`);
@@ -765,6 +787,77 @@ Include 3 to 5 items.`;
     }
     if (chosen.length < 4) throw new Error('Could not assemble 4 products');
     return chosen.slice(0, 4).map(c => c.gid);
+  }
+
+  // Helper: derive the room/style/colour concept word(s) from a cluster tag (bedroom-decor → "bedroom")
+  function deriveSearchTerm(tag) {
+    if (!tag) return '';
+    return tag.replace(/-(decor|style|tones|toned|accents)$/, '').replace(/-/g, ' ').trim().toLowerCase();
+  }
+
+  // Columns AR + BM–BR + BU–CF — 3 related published blogs matched by cluster concept in the TITLE,
+  // topping up via supporting clusters then general recent posts. Best-effort; never throws.
+  async function getRelatedBlogs(orderedClusterTags) {
+    const BLOG_GID = 'gid://shopify/Blog/93572858142'; // About Wall Art blog (news-articles-home-decor-inspiration)
+    const found = [];
+    const seen = new Set();
+    const addArticle = (a) => {
+      if (found.length >= 3 || !a || seen.has(a.id)) return;
+      seen.add(a.id);
+      found.push({
+        articleGid: a.id,
+        blogGid: BLOG_GID,
+        title: a.title || '',
+        handle: a.handle || '',
+        url: `https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/${a.handle || ''}`,
+        image: (a.image && a.image.url) || ''
+      });
+    };
+
+    // 1 + 2: cluster concepts (primary, then supporting) matched in the title
+    for (const tag of orderedClusterTags) {
+      if (found.length >= 3) break;
+      const term = deriveSearchTerm(tag);
+      if (!term) continue;
+      const firstWord = term.split(' ')[0];
+      try {
+        const data = await shopifyGraphQL(
+          `query($q:String!){ blog(id:"${BLOG_GID}"){ articles(first:25, query:$q, sortKey:PUBLISHED_AT, reverse:true){ edges{ node{ id title handle image{url} } } } } }`,
+          { q: term }
+        );
+        const arts = data.blog ? data.blog.articles.edges.map(e => e.node) : [];
+        for (const a of arts) {
+          if (found.length >= 3) break;
+          const t = (a.title || '').toLowerCase();
+          if (t.includes(term) || t.includes(firstWord)) addArticle(a);
+        }
+      } catch (e) { /* best-effort */ }
+    }
+
+    // 3: general fallback — most recent published posts
+    if (found.length < 3) {
+      try {
+        const data = await shopifyGraphQL(
+          `query{ blog(id:"${BLOG_GID}"){ articles(first:12, sortKey:PUBLISHED_AT, reverse:true){ edges{ node{ id title handle image{url} } } } } }`,
+          {}
+        );
+        const arts = data.blog ? data.blog.articles.edges.map(e => e.node) : [];
+        for (const a of arts) { if (found.length >= 3) break; addArticle(a); }
+      } catch (e) { /* best-effort */ }
+    }
+
+    return found;
+  }
+
+  // Build the Pro Tips metafield (AR) plain-text block from the related blogs
+  function buildProTips(keyword, blogs) {
+    if (!blogs.length) return '';
+    let out = `H2: Pro Tips for ${keyword}`;
+    blogs.forEach((b, i) => {
+      const n = i + 1;
+      out += `\n\nBLOG${n}_TITLE: ${b.title}\nBLOG${n}_URL: ${b.url}\nBLOG${n}_HANDLE: ${b.handle}`;
+    });
+    return out;
   }
 
   try {
@@ -2025,6 +2118,10 @@ Include 3 to 5 items.`;
         let visualInspirationHtml = '', videoMetafield = '';
         let viUrl1 = '', viAnchor1 = '', viUrl2 = '', viAnchor2 = '', viUrl3 = '', viAnchor3 = '', viUrl4 = '', viAnchor4 = '';
         let productList = '', product1 = '', product2 = '', product3 = '', product4 = '', chosenProductGids = [];
+        let proTipsMetafield = '';
+        let pt1Anchor = '', pt1Url = '', pt2Anchor = '', pt2Url = '', pt3Anchor = '', pt3Url = '';
+        let pt1Handle = '', pt2Handle = '', pt3Handle = '', pt1Image = '', pt2Image = '', pt3Image = '';
+        let blog1Gid = '', blog1Id = '', blog2Gid = '', blog2Id = '', blog3Gid = '', blog3Id = '';
         try {
           const [paa, more, seo, clusters] = await Promise.all([
             generatePeopleAlsoAsk(keyword, title),
@@ -2048,15 +2145,23 @@ Include 3 to 5 items.`;
           const prodClusterTags = [primaryCluster, supporting1, supporting2, supporting3].filter(Boolean);
           let recentProductSet = new Set();
           try { const rf = await getGitHubFile('data/recent-blog-products.json'); recentProductSet = new Set(JSON.parse(rf.content)); } catch (e) {}
-          const [bbt, vi, prodGids] = await Promise.all([
+          const [bbt, vi, prodGids, relatedBlogs] = await Promise.all([
             generateBlogsByTopic(keyword, title, clusters),
             generateVisualInspiration(keyword, title, styleTags[0] || ''),
-            selectProducts(prodClusterTags, recentProductSet)
+            selectProducts(prodClusterTags, recentProductSet),
+            getRelatedBlogs(prodClusterTags)
           ]);
           blogsByTopic = bbt;
           chosenProductGids = prodGids;
           product1 = prodGids[0] || ''; product2 = prodGids[1] || ''; product3 = prodGids[2] || ''; product4 = prodGids[3] || '';
           productList = prodGids.join(',');
+
+          // Pro Tips / related blogs (AR + BM–BR + BU–CF)
+          proTipsMetafield = buildProTips(keyword, relatedBlogs);
+          if (relatedBlogs[0]) { pt1Anchor = relatedBlogs[0].title; pt1Url = relatedBlogs[0].url; pt1Handle = relatedBlogs[0].handle; pt1Image = relatedBlogs[0].image; blog1Gid = relatedBlogs[0].articleGid; blog1Id = relatedBlogs[0].blogGid; }
+          if (relatedBlogs[1]) { pt2Anchor = relatedBlogs[1].title; pt2Url = relatedBlogs[1].url; pt2Handle = relatedBlogs[1].handle; pt2Image = relatedBlogs[1].image; blog2Gid = relatedBlogs[1].articleGid; blog2Id = relatedBlogs[1].blogGid; }
+          if (relatedBlogs[2]) { pt3Anchor = relatedBlogs[2].title; pt3Url = relatedBlogs[2].url; pt3Handle = relatedBlogs[2].handle; pt3Image = relatedBlogs[2].image; blog3Gid = relatedBlogs[2].articleGid; blog3Id = relatedBlogs[2].blogGid; }
+
           visualInspirationHtml = vi.html;
           if (vi.trends[0]) { viUrl1 = vi.trends[0].url; viAnchor1 = vi.trends[0].name; }
           if (vi.trends[1]) { viUrl2 = vi.trends[1].url; viAnchor2 = vi.trends[1].name; }
@@ -2100,7 +2205,11 @@ Include 3 to 5 items.`;
             anchor4: linkAnchor4, url4: linkUrl4,
             visualInspirationHtml, videoMetafield,
             viUrl1, viAnchor1, viUrl2, viAnchor2, viUrl3, viAnchor3, viUrl4, viAnchor4,
-            productList, product1, product2, product3, product4
+            productList, product1, product2, product3, product4,
+            proTipsMetafield,
+            pt1Anchor, pt1Url, pt2Anchor, pt2Url, pt3Anchor, pt3Url,
+            pt1Handle, pt2Handle, pt3Handle, pt1Image, pt2Image, pt3Image,
+            blog1Gid, blog1Id, blog2Gid, blog2Id, blog3Gid, blog3Id
           });
 
           // Record the products just used (best-effort — runs AFTER the sheet append, never blocks the send)
