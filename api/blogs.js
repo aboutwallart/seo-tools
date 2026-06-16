@@ -1,4 +1,4 @@
-// blogs.js — v3.5
+// blogs.js — v3.6
 // v3.0: Blog Manager Batch 1 — send-to-sheet now auto-generates content sources (colG–colK):
 //        authority article (title+URL) + YouTube video (title+link+embed) via Claude web search.
 //        Fail-loud: if either is missing the row is NOT written; frontend collects missing parts manually.
@@ -16,6 +16,8 @@
 //        decor concept tags for Supporting) so a sensible result is always returned.
 // v3.5: Blog Manager internal links — AD='full-metafields-blog-post', AE blank, AF–AM = the chosen
 //        cluster tags (Primary + Supporting) as anchor text + their CLUSTER SYSTEM MAP URL. No new AI call.
+// v3.6: Visual Inspiration (colAP HTML) — AI picks 3–5 trend pages by style/topic, also fills BB–BI
+//        (first 4 as URL+anchor pairs). Video metafield (colAQ) = "WATCH:" + YouTube title linked to URL.
 // v1.1: Added OPTIMISED_DATE column (col 11) to mark-optimized, unmark-optimized, get-registry
 // v1.2: Strip \r from CSV lines to fix Windows line ending corruption; add-to-optimize action
 // v1.3: Pad all written rows to 12 columns for consistent CSV structure
@@ -60,6 +62,35 @@ const CLUSTER_URLS = {
   'interior-design-concepts':'https://aboutwallart.com/pages/home-decor-by-trend','home-decor-theory':'https://aboutwallart.com/pages/home-decor-by-trend','design-principles':'https://aboutwallart.com/pages/home-decor-by-trend','interior-styling-frameworks':'https://aboutwallart.com/pages/home-decor-by-trend','decor-mistakes':'https://aboutwallart.com/pages/home-decor-by-trend','space-planning':'https://aboutwallart.com/pages/home-decor-by-room','room-layout-ideas':'https://aboutwallart.com/pages/home-decor-by-room','interior-trends':'https://aboutwallart.com/pages/home-decor-by-trend','aesthetic-guides':'https://aboutwallart.com/pages/home-decor-by-trend','colour-psychology':'https://aboutwallart.com/pages/gallery-wall-art-shop-by-colour-scheme','colour-theory':'https://aboutwallart.com/pages/gallery-wall-art-shop-by-colour-scheme','colour-combinations':'https://aboutwallart.com/pages/gallery-wall-art-shop-by-colour-scheme','how-to-use-colour':'https://aboutwallart.com/pages/gallery-wall-art-shop-by-colour-scheme','monochrome-design':'https://aboutwallart.com/collections/black-and-white-art-on-wall','contrast-in-design':'https://aboutwallart.com/pages/home-decor-by-trend','warm-vs-cool-tones':'https://aboutwallart.com/pages/gallery-wall-art-shop-by-colour-scheme','accent-colour-ideas':'https://aboutwallart.com/pages/gallery-wall-art-shop-by-colour-scheme',
   // Intent
   'styling-tips':'https://aboutwallart.com/pages/home-decor-by-room','buying-guide':'https://aboutwallart.com/pages/home-decor-items','inspiration':'https://aboutwallart.com/pages/home-decor-by-trend','trend-report':'https://aboutwallart.com/pages/home-decor-by-trend','how-to':'https://aboutwallart.com/pages/home-decor-by-room','comparison':'https://aboutwallart.com/pages/home-decor-by-type','product-roundup':'https://aboutwallart.com/collections/best-sellers','gift-ideas':'https://aboutwallart.com/pages/celebration-gifts-shop-by-ocassion','seasonal-decor':'https://aboutwallart.com/collections/holiday-home-decor'
+};
+
+// ── Allowed Trend Pages (for Visual Inspiration AP + BB–BI) — name → URL ──
+const TREND_PAGES = {
+  'Mid Century Trend':'https://aboutwallart.com/pages/mid-century-trend',
+  'Modern Glam Luxe Interior Trend':'https://aboutwallart.com/pages/modern-glam-luxe-interiors',
+  'Boho Home Decor Trend':'https://aboutwallart.com/pages/boho-home-decor-trend',
+  'Coastal Home Decor Trend':'https://aboutwallart.com/pages/coastal-home-decor-trend',
+  'Modern Contemporary Home Decor Trend':'https://aboutwallart.com/pages/modern-contemporary-home-decor',
+  'Eclectic Maximalist Home Decor Trend':'https://aboutwallart.com/pages/eclectic-maximalist-home-decor-trend',
+  'Modern Farmhouse Home Decor Trend':'https://aboutwallart.com/pages/modern-farmhouse-home-decor',
+  'French Country Home Decor Trend':'https://aboutwallart.com/pages/french-country-home-decor',
+  'Industrial Home Decor Trend':'https://aboutwallart.com/pages/industrial-home-decor-trend',
+  'Japandi Home Decor Trend':'https://aboutwallart.com/pages/japandi-home-decor-trend',
+  'Mediterranean Home Decor Trend':'https://aboutwallart.com/pages/mediterranean-home-decor-trend',
+  'Cosy Minimalism Home Decor Trend':'https://aboutwallart.com/pages/cosy-minimalism-home-decor-trend',
+  'Moroccan Home Decor Trend':'https://aboutwallart.com/pages/moroccan-home-decor-trend',
+  'Country Cottage Home Decor Trend':'https://aboutwallart.com/pages/country-cottage-home-decor-trend',
+  'Scandi Home Decor Trend':'https://aboutwallart.com/pages/scandi-home-decor-trend',
+  'Wildlife Home Decor Trend':'https://aboutwallart.com/pages/wildlife-home-decor-trend',
+  'Biophilic Interior Design Trend':'https://aboutwallart.com/pages/biophilic-interior-design',
+  'Zen Room Decoration Trend':'https://aboutwallart.com/pages/zen-room-decorations',
+  'Tropical Decor for Home Trend':'https://aboutwallart.com/pages/tropical-decor-for-home',
+  'Transitional Interior Design Trend':'https://aboutwallart.com/pages/transitional-interior-design',
+  'Preppy Style Interiors Trend':'https://aboutwallart.com/pages/preppy-style-interiors',
+  'Old Money Home Decor Trend':'https://aboutwallart.com/pages/old-money-home-decor',
+  'Coffee House Interior Design Trend':'https://aboutwallart.com/pages/coffee-house-interior-design',
+  'Masculine Home Decor Trend':'https://aboutwallart.com/pages/masculine-living-room-ideas',
+  'Black & White Home Decor Trend':'https://aboutwallart.com/pages/black-white-home-decor-trend'
 };
 
 export default async function handler(req, res) {
@@ -224,7 +255,17 @@ export default async function handler(req, res) {
         colAK: sources.url3 || '',
         colAL: sources.anchor4 || '',
         colAM: sources.url4 || '',
-        colAS: 'READY TO GENERATE BLOG'
+        colAP: sources.visualInspirationHtml || '',
+        colAQ: sources.videoMetafield || '',
+        colAS: 'READY TO GENERATE BLOG',
+        colBB: sources.viUrl1 || '',
+        colBC: sources.viAnchor1 || '',
+        colBD: sources.viUrl2 || '',
+        colBE: sources.viAnchor2 || '',
+        colBF: sources.viUrl3 || '',
+        colBG: sources.viAnchor3 || '',
+        colBH: sources.viUrl4 || '',
+        colBI: sources.viAnchor4 || ''
       })
     });
     if (!response.ok) throw new Error(`Sheets webhook error: ${response.status}`);
@@ -593,6 +634,57 @@ Return only JSON.`;
     if (new Set(arr).size !== arr.length) throw new Error('Duplicate Blogs by Topic values');
 
     return JSON.stringify({ Blogs_By_Topic: arr });
+  }
+
+  // Column AP (HTML) + BB–BI — Visual Inspiration. Picks 3–5 trend pages by style/topic.
+  // Returns { html, trends: [{name, url, description}] }.
+  async function generateVisualInspiration(keyword, title, styleCluster) {
+    const allowedNames = Object.keys(TREND_PAGES);
+    const prompt = `You are a strict internal linking assistant generating a Visual Inspiration section for a blog post.
+
+Blog title: "${title}"
+Main keyword: "${keyword}"
+Style cluster: "${styleCluster || '(none provided)'}"
+
+SELECTION RULES:
+- Select 3 to 5 relevant Trend Pages from the ALLOWED list below.
+- If a Style cluster is provided, choose the trend(s) most related to that style first.
+- If the Style cluster is empty or too general, choose the trends closest to the blog topic.
+- If nothing clearly fits, default to "Cosy Minimalism Home Decor Trend".
+- Use ONLY names written EXACTLY as in the allowed list. Do NOT invent or modify names.
+- Each trend needs a short descriptive phrase of 4-6 words.
+
+ALLOWED TREND PAGES:
+${allowedNames.join('\n')}
+
+Return ONLY valid JSON in this exact shape, no other text:
+{"trends":[{"name":"","description":""}]}
+Include 3 to 5 items.`;
+    let text = await callClaudeText(prompt, 900);
+    text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+    const m = text.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error('Visual Inspiration result was not readable');
+    let parsed;
+    try { parsed = JSON.parse(m[0]); }
+    catch (e) { throw new Error('Visual Inspiration result was not valid JSON'); }
+
+    const items = Array.isArray(parsed.trends) ? parsed.trends : [];
+    const trends = [];
+    for (const it of items) {
+      const name = (it.name || '').trim();
+      const description = (it.description || '').trim();
+      if (!name) continue;
+      const url = TREND_PAGES[name];
+      if (!url) throw new Error('Invalid trend page: ' + name);
+      if (trends.some(t => t.name === name)) continue; // skip duplicates
+      trends.push({ name, url, description });
+    }
+    if (trends.length < 2) throw new Error('Visual Inspiration returned fewer than 2 trends');
+    if (trends.length > 5) trends.length = 5;
+
+    const lis = trends.map(t => `<li><a href="${t.url}">${t.name}</a> - ${t.description}</li>`).join('');
+    const html = `<h3>Visual Inspiration</h3><p>Explore complementary design ideas on our Home Decor by Trend page:</p><ul>${lis}</ul>`;
+    return { html, trends };
   }
 
   try {
@@ -1850,6 +1942,8 @@ Return only JSON.`;
         let peopleAlsoAsk, moreAbout, metaDescription, excerpt, seoTitle;
         let primaryCluster, intentTag, supporting1, supporting2, supporting3, blogsByTopic;
         let linkAnchor1 = '', linkUrl1 = '', linkAnchor2 = '', linkUrl2 = '', linkAnchor3 = '', linkUrl3 = '', linkAnchor4 = '', linkUrl4 = '';
+        let visualInspirationHtml = '', videoMetafield = '';
+        let viUrl1 = '', viAnchor1 = '', viUrl2 = '', viAnchor2 = '', viUrl3 = '', viAnchor3 = '', viUrl4 = '', viAnchor4 = '';
         try {
           const [paa, more, seo, clusters] = await Promise.all([
             generatePeopleAlsoAsk(keyword, title),
@@ -1867,7 +1961,22 @@ Return only JSON.`;
           supporting1     = clusters.supporting[0] || '';
           supporting2     = clusters.supporting[1] || '';
           supporting3     = clusters.supporting[2] || '';
-          blogsByTopic    = await generateBlogsByTopic(keyword, title, clusters);
+
+          // Blogs by Topic (O) + Visual Inspiration (AP/BB–BI) both need the clusters — run together
+          const styleTags = [primaryCluster, supporting1, supporting2, supporting3].filter(t => CLUSTER_TAXONOMY.style.includes(t));
+          const [bbt, vi] = await Promise.all([
+            generateBlogsByTopic(keyword, title, clusters),
+            generateVisualInspiration(keyword, title, styleTags[0] || '')
+          ]);
+          blogsByTopic = bbt;
+          visualInspirationHtml = vi.html;
+          if (vi.trends[0]) { viUrl1 = vi.trends[0].url; viAnchor1 = vi.trends[0].name; }
+          if (vi.trends[1]) { viUrl2 = vi.trends[1].url; viAnchor2 = vi.trends[1].name; }
+          if (vi.trends[2]) { viUrl3 = vi.trends[2].url; viAnchor3 = vi.trends[2].name; }
+          if (vi.trends[3]) { viUrl4 = vi.trends[3].url; viAnchor4 = vi.trends[3].name; }
+
+          // Video metafield (AQ) — built from the YouTube title + link we already have
+          videoMetafield = `WATCH: <a href="${youtubeLink}">${youtubeTitle}</a>`;
 
           // Internal links (AF–AM): the chosen cluster tags as anchor text + their CLUSTER SYSTEM MAP URL
           const linkTags = [primaryCluster, supporting1, supporting2, supporting3].filter(Boolean);
@@ -1900,7 +2009,9 @@ Return only JSON.`;
             anchor1: linkAnchor1, url1: linkUrl1,
             anchor2: linkAnchor2, url2: linkUrl2,
             anchor3: linkAnchor3, url3: linkUrl3,
-            anchor4: linkAnchor4, url4: linkUrl4
+            anchor4: linkAnchor4, url4: linkUrl4,
+            visualInspirationHtml, videoMetafield,
+            viUrl1, viAnchor1, viUrl2, viAnchor2, viUrl3, viAnchor3, viUrl4, viAnchor4
           });
           return res.status(200).json({ success: true, sheetsResult });
         } catch (sheetsError) {
