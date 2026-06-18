@@ -1,7 +1,11 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v45.6
+// analyze-money-page.js — v45.7
+// v45.7 (June 18, 2026): Batch 4 — blog prompt now returns (1) replacementText for each
+//                        "change" H2 (clean text to paste), (2) peopleAlsoAsk in two forms
+//                        (body HTML + plain-text metafield), and (3) aiItems in the exact
+//                        snippet-metafield HTML format.
 // v45.6 (June 18, 2026): Image list now also includes the blog's MAIN (featured) image,
 //                        flagged isMain, alongside the in-body images.
 // v45.5 (June 18, 2026): Blog body images — extracts the images used in the blog body
@@ -798,7 +802,8 @@ Return this exact JSON structure with real content (no placeholders):
       "action": "change",
       "heading": "Exact current H2 text as it appears on the page",
       "reason": "One sentence: why this H2 needs attention",
-      "exactAction": "Precise instruction — e.g. 'Rename to [new text] and keep as H2' / 'Remove the H2 tag but keep the text as a regular paragraph'"
+      "exactAction": "Precise instruction — e.g. 'Rename to [new text] and keep as H2' / 'Remove the H2 tag but keep the text as a regular paragraph'",
+      "replacementText": "ONLY the exact final text to paste — no quotes, no instructions. For a rename: the new heading text. For a 'More about' rewrite: the new intro sentence. Leave empty if the action has no text to paste (e.g. just removing a tag)."
     },
     {
       "action": "add",
@@ -810,9 +815,13 @@ Return this exact JSON structure with real content (no placeholders):
     {
       "element": "Comparison Snippet",
       "priority": "high",
-      "content": "Full copy-paste ready paragraph starting with 'What is ${keyword}?'"
+      "content": "Full copy-paste ready snippet-metafield HTML — see the SNIPPET METAFIELD HTML rule below."
     }
   ],
+  "peopleAlsoAsk": {
+    "html": "<h2>Frequently Asked Questions About ${keyword}</h2><p><strong>Question 1?</strong> Direct answer.</p><p><strong>Question 2?</strong> Direct answer.</p><p><strong>Question 3?</strong> Direct answer.</p>",
+    "metafield": "**Q: Question 1?**\\nA: Direct answer. 2-3 supporting sentences.\\n\\n**Q: Question 2?**\\nA: Direct answer. 2-3 supporting sentences.\\n\\n**Q: Question 3?**\\nA: Direct answer. 2-3 supporting sentences."
+  },
   "urlAnalysis": {
     "currentSlug": "exact-current-url-slug",
     "slugMatchesKeyword": "exact|similar|different",
@@ -853,8 +862,13 @@ RULES:
 - quickAnswer: return the EXACT HTML structure shown — do not change any tags or styles, and never add borders, colour lines, wrapper divs or extra tags. Replace ONLY the bracketed text with a direct, factual 2-3 sentence answer to the search intent of "${keyword}", written in British English. The whole value must be one single <div> exactly as shown. It is placed in the body after the second intro paragraph (before any List of Contents, Key Takeaways, or first H2).
 - "MORE ABOUT" H2 RULE: If any H2 is "More about ..." (or similar) and contains an external authority link, NEVER flag it for removal or deletion. Keep the H2 and the external link exactly as they are. Use action "change" with exactAction that says to keep the heading and link, and replace ONLY the intro sentence with a single clean sentence of MAXIMUM 30 words describing what the reader will find at the linked source. Put that exact rewritten sentence inside exactAction. Banned words you must NOT use anywhere in that sentence: delve, explore, comprehensive, wealth of, dive into, invaluable, a range of, further insight.
 - h2Sections: for EVERY H2 that needs attention use action "change" with reason + exactAction; for new H2s use action "add" with content. Never use action "delete".
+- replacementText (on "change" items): return ONLY the exact final text the merchant should paste — no surrounding quotes, no "Rename to", no "Why", no instructions. For a rename it is the new heading text; for the "More about" rewrite it is the new intro sentence. If there is genuinely nothing to paste (e.g. the action is only to remove a tag), return an empty string.
 - BLOG BODY HTML: the "content" of every "add" section is destined for the blog body and MUST be complete, paste-ready HTML for the Shopify HTML editor. Rules: use <h2> for the section heading only (NEVER <strong> or <h3> as the title); the content must START with that <h2>; every paragraph in its own <p> tag; all links as <a href="..." title="..." target="_blank" rel="noopener">anchor text</a> (always include title, target and rel); NO plain text outside HTML tags; do NOT use <ul>, <li>, <br> or <div> unless the section genuinely needs a list; NO blank lines between tags; NO inline styles or classes. Each "add" paragraph should naturally include the target keyword, and may include 1-2 internal links to relevant AboutWallArt collections using the full anchor format above.
-- aiItems: include a "priority" field (high/medium/low) for each; write complete copy-paste ready content.
+- peopleAlsoAsk: write 3-5 real questions people search about "${keyword}" with direct, helpful answers. Return BOTH forms:
+  - "html": clean HTML for the blog body — a single <h2>Frequently Asked Questions About [topic]</h2> followed by one <p> per question where the question is wrapped in <strong> and the answer follows in the same <p>. NEVER add schema markup (no itemscope, no itemtype). No <ul>/<li>/<br>/<div>, no blank lines, no inline styles.
+  - "metafield": plain text only (no HTML) for the people_also_ask_new metafield — each question as "**Q: ...?**" on its own line, the answer as "A: ..." on the next line (2-3 supporting sentences), with a blank line between pairs.
+  - The two forms must contain the same questions but NEVER be combined.
+- SNIPPET METAFIELD HTML (aiItems): each aiItem "content" is pasted directly into its Shopify snippet metafield (How To Schema, Related Questions, Summary Block, Comparison Snippet). Format: <h2> for the section title only (never <strong> or <h3> as the title); a <p> starts immediately after the <h2> with NO blank line; every item of content in its own <p>; <strong> only for bold labels INSIDE a <p>; NEVER use <ul>, <li>, <br>, <div> or wrapper tags; NO blank lines between tags; NO inline styles or classes.
 - urlAnalysis: title changes are always safe (no redirect). Only recommend a slug change if the page has very few or zero clicks; if so, set slugChangeWarning.
 - otherActions: ONLY image filename/alt text optimisation tasks. NEVER include page speed, image compression, Core Web Vitals, canonical/OG/Twitter tags, meta robots, keyword density targets, schema, or anything already covered by h2Sections or aiItems. One sentence per action max.
 - WORD COUNT: never say "reduce word count to X" or "increase keyword density to X%" generically. If specific bloated content must go, name the EXACT paragraph opening words and why; otherwise do not mention word count or density at all.
