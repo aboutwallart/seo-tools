@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 48.2</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 48.3</p>
                 </div>
             </div>
         </header>
@@ -947,6 +947,51 @@
             }).catch(() => alert('Copy failed — please select and copy manually.'));
         }
 
+        // Copy as FORMATTED text (rich text) so it pastes into the normal body editor
+        // with headings, paragraphs and links intact — no HTML code view needed.
+        // Reads the raw HTML from the hidden textarea identified by textareaId.
+        async function copyFormatted(textareaId, btnEl) {
+            const ta = document.getElementById(textareaId);
+            const html = ta ? ta.value : '';
+            const plain = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+            const done = () => {
+                const orig = btnEl.textContent;
+                btnEl.textContent = '✅ Copied!';
+                btnEl.classList.add('copied');
+                setTimeout(() => { btnEl.textContent = orig; btnEl.classList.remove('copied'); }, 2000);
+            };
+            try {
+                if (navigator.clipboard && window.ClipboardItem) {
+                    await navigator.clipboard.write([new ClipboardItem({
+                        'text/html':  new Blob([html],  { type: 'text/html' }),
+                        'text/plain': new Blob([plain], { type: 'text/plain' })
+                    })]);
+                    done();
+                    return;
+                }
+            } catch (e) { /* fall through to legacy method */ }
+            // Legacy fallback: render, select, execCommand copy (still rich text)
+            try {
+                const tmp = document.createElement('div');
+                tmp.style.position = 'fixed';
+                tmp.style.left = '-9999px';
+                tmp.contentEditable = 'true';
+                tmp.innerHTML = html;
+                document.body.appendChild(tmp);
+                const range = document.createRange();
+                range.selectNodeContents(tmp);
+                const sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(range);
+                document.execCommand('copy');
+                sel.removeAllRanges();
+                document.body.removeChild(tmp);
+                done();
+            } catch (e2) {
+                alert('Copy failed — please select and copy manually.');
+            }
+        }
+
         function updateCharCount(el, max) {
             const len = el.value.length;
             let counter = el.parentElement.querySelector('.char-count');
@@ -1483,7 +1528,7 @@
                                 ${item.detail ? `
                                     <div style="font-size:0.85rem;color:#555;margin-top:4px;line-height:1.5;">${item.detail}</div>
                                     <textarea id="ct_${item.key}" style="display:none;">${((data.yourPage.shopifyType === 'article' && item.action === 'add') ? item.detail : (item.label.replace(/Add H2: /,'').replace(/"/g,'') + '\n\n' + item.detail)).replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
-                                    <button class="copy-btn" style="margin-top:6px;" onclick="copyToClipboard(document.getElementById('ct_${item.key}').value,this)">📋 ${(data.yourPage.shopifyType === 'article' && item.action === 'add') ? 'Copy HTML' : 'Copy'}</button>` : ''}
+                                    <button class="copy-btn" style="margin-top:6px;" onclick="${(data.yourPage.shopifyType === 'article' && item.action === 'add') ? `copyFormatted('ct_${item.key}',this)` : `copyToClipboard(document.getElementById('ct_${item.key}').value,this)`}">📋 Copy</button>` : ''}
                             </div>
                         </div>`).join('')}
                 </div>` : '';
