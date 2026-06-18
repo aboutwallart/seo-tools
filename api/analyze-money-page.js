@@ -1,7 +1,10 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v45.4
+// analyze-money-page.js — v45.5
+// v45.5 (June 18, 2026): Blog body images — extracts the images used in the blog body
+//                        (src, current alt, filename) and returns them for the on-demand
+//                        image SEO feature. No extra Claude cost here.
 // v45.4 (June 18, 2026): Blog body HTML output — new ("add") blog sections are returned
 //                        as complete paste-ready HTML (h2 + p, full anchors, no stray text).
 // v45.3 (June 18, 2026): Blog Quick Answer — blog analysis returns a ready-to-paste
@@ -121,6 +124,7 @@ module.exports = async function handler(req, res) {
       competitors: competitorData,
       contentGaps: contentGaps,
       analysis: analysis,
+      bodyImages: shopifyContent?.bodyHtml ? extractBodyImages(shopifyContent.bodyHtml) : [],
       shopify: shopifyContent ? {
         id:      shopifyContent.shopifyId,
         blogId:  shopifyContent.shopifyBlogId || null,
@@ -422,6 +426,25 @@ function extractSEOData(html, url, keyword) {
     isBlog,
     aiScore
   };
+}
+
+// Extract the images used in a blog body: src, current alt text, and filename.
+// Deduplicated by src. No Claude cost — this just reads the HTML.
+function extractBodyImages(bodyHtml) {
+  const tags = bodyHtml.match(/<img[^>]+>/gi) || [];
+  const seen = new Set();
+  const images = [];
+  for (const tag of tags) {
+    const src = (tag.match(/src=["']([^"']+)["']/i) || [])[1] || '';
+    if (!src || seen.has(src)) continue;
+    // Only images we can actually fetch and look at (absolute http/https URLs)
+    if (!/^https?:\/\//i.test(src)) continue;
+    seen.add(src);
+    const alt = (tag.match(/alt=["']([^"']*)["']/i) || [])[1] || '';
+    const filename = src.split('/').pop().split('?')[0];
+    images.push({ src, alt, filename });
+  }
+  return images;
 }
 
 // Analyze content gaps between user's page and competitors
