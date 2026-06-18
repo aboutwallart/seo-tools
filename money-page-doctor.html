@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 48.5</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 48.6</p>
                 </div>
             </div>
         </header>
@@ -1031,7 +1031,10 @@
                         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
                             ${im.isMain ? '<span style="background:#00897b;color:white;padding:1px 7px;border-radius:4px;font-size:0.7rem;font-weight:600;flex-shrink:0;">MAIN IMAGE</span>' : ''}
                             <span style="font-size:0.78rem;color:#999;word-break:break-all;">Current: ${im.currentFilename || '(none)'}</span>
-                            ${im.currentFilename ? `<button class="copy-btn" style="padding:2px 8px;font-size:0.72rem;" onclick="copyToClipboard('${(im.currentFilename||'').replace(/'/g,"\\'")}',this)">📋</button>` : ''}
+                            ${im.adminFileUrl
+                                ? `<a href="${im.adminFileUrl}" target="_blank" style="display:inline-flex;align-items:center;background:#1a1a1a;color:white;padding:3px 10px;border-radius:4px;font-size:0.72rem;text-decoration:none;flex-shrink:0;">Open in Files ↗</a>`
+                                : (im.searchTerm ? `<button class="copy-btn" style="padding:2px 8px;font-size:0.72rem;" onclick="copyToClipboard('${(im.searchTerm||'').replace(/'/g,"\\'")}',this)" title="Copy this, then paste it into the Shopify Files search box">📋 Copy search term</button>` : '')
+                            }
                         </div>
                         ${im.error ? `<div style="color:#f44336;font-size:0.82rem;">Could not analyse this image: ${im.error}</div>` : `
                         <div style="margin-bottom:8px;">
