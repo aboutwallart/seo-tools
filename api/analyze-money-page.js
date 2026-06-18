@@ -1,7 +1,9 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v45.0
+// analyze-money-page.js — v45.1
+// v45.1 (June 18, 2026): Blog template detection — reads the article's theme template
+//                        suffix (e.g. ne-blog-posts) and passes it through for display.
 const SERPAPI_KEY = process.env.SERPAPI_KEY;
 const PAGESPEED_KEY = process.env.GOOGLE_API_KEY;
 const SHOPIFY_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
@@ -54,6 +56,7 @@ module.exports = async function handler(req, res) {
       yourPageData.shopifySeoTitle = shopifyContent.seoTitle;
       yourPageData.shopifySeoDesc  = shopifyContent.seoDescription;
       yourPageData.shopifyBodyHtml = shopifyContent.bodyHtml;
+      yourPageData.templateSuffix  = shopifyContent.templateSuffix || '';
       // Prefer Shopify SEO fields over scraped values when available
       if (shopifyContent.seoTitle)       yourPageData.title           = shopifyContent.seoTitle;
       if (shopifyContent.seoDescription) yourPageData.metaDescription = shopifyContent.seoDescription;
@@ -899,12 +902,12 @@ async function fetchShopifyContent(pageUrl) {
       const bd = await br.json();
       const blog = bd.blogs?.find(b => b.handle === blogHandle);
       if (!blog) return null;
-      const ar = await fetch(`${base}/blogs/${blog.id}/articles.json?handle=${articleHandle}&fields=id,title,body_html`, { headers });
+      const ar = await fetch(`${base}/blogs/${blog.id}/articles.json?handle=${articleHandle}&fields=id,title,body_html,template_suffix`, { headers });
       const ad = await ar.json();
       const article = ad.articles?.[0];
       if (!article) return null;
       const meta = await fetchShopifyMetafields(base, `blogs/${blog.id}/articles/${article.id}`, headers);
-      return { shopifyId: article.id, shopifyBlogId: blog.id, shopifyType: 'article', shopifyTitle: article.title, seoTitle: meta.title || article.title, seoDescription: meta.desc || '', bodyHtml: article.body_html || '' };
+      return { shopifyId: article.id, shopifyBlogId: blog.id, shopifyType: 'article', shopifyTitle: article.title, seoTitle: meta.title || article.title, seoDescription: meta.desc || '', bodyHtml: article.body_html || '', templateSuffix: article.template_suffix || '' };
     }
 
     return null;
