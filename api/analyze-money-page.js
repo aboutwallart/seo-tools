@@ -1,7 +1,10 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v45.1
+// analyze-money-page.js — v45.2
+// v45.2 (June 18, 2026): Blog-specific analysis — blogs use a dedicated prompt that
+//                        drops Page/FAQ/Brand schema (theme handles them) and never
+//                        flags the "More about" external authority link for removal.
 // v45.1 (June 18, 2026): Blog template detection — reads the article's theme template
 //                        suffix (e.g. ne-blog-posts) and passes it through for display.
 const SERPAPI_KEY = process.env.SERPAPI_KEY;
@@ -688,8 +691,135 @@ async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = 
   }
 }
 
+// Build the blog-specific structured JSON prompt for Claude
+// Blogs differ from products/collections: the theme already renders Page Schema,
+// FAQ Schema and the Brand Block, so this prompt NEVER returns those. It also
+// protects the "More about" external authority link from removal.
+function buildBlogAnalysisPrompt(yourPage, competitors, keyword, userPosition = null, contentGaps = null, loserPages = []) {
+  const avgCompWordCount = competitors.length > 0
+    ? Math.round(competitors.reduce((sum, c) => sum + c.wordCount, 0) / competitors.length) : 0;
+  const avgCompKeywordDensity = competitors.length > 0
+    ? (competitors.reduce((sum, c) => sum + c.keywordDensity, 0) / competitors.length).toFixed(2) : 0;
+
+  const positionContext = userPosition
+    ? (userPosition === 1 ? `Currently ranking #1 for "${keyword}" — give defensive optimisation advice.`
+      : `Currently ranking position ${userPosition} for "${keyword}".`)
+    : `Not in top 10 for "${keyword}" — focus on closing gaps vs top 3.`;
+
+  const currentDesc = yourPage.shopifyBodyHtml
+    ? yourPage.shopifyBodyHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 600)
+    : '';
+
+  const missingH2s = contentGaps?.missingH2s?.length > 0
+    ? contentGaps.missingH2s.map(h => `"${h.text}"`).join(', ') : 'None';
+  // Blogs: drop schema/brand gaps — the theme handles those
+  const blogMissingAI = (contentGaps?.missingAIOptimization || [])
+    .filter(a => !/schema|brand/i.test(a.element));
+  const missingAI = blogMissingAI.length > 0
+    ? blogMissingAI.map(a => `${a.element} [${a.priority}]`).join(', ') : 'None';
+
+  return `You are an expert SEO specialist optimising a BLOG ARTICLE for AboutWallArt (UK wall art and home decor store). Return ONLY a valid JSON object — no text before or after, no markdown code fences.
+
+CONTEXT:
+- Keyword: "${keyword}"
+- ${positionContext}
+- Page type: blog article
+- Current title: ${yourPage.title || 'MISSING'} (${(yourPage.title || '').length} chars)
+- Current meta: ${yourPage.metaDescription || 'MISSING'} (${yourPage.metaDescription?.length || 0} chars)
+- H1: ${yourPage.h1.join(', ') || 'MISSING'}
+- Current H2s: ${yourPage.h2.slice(0, 12).join(' | ') || 'None'}
+- Word count: ${yourPage.wordCount} (competitor avg: ${avgCompWordCount})
+- Keyword density: ${yourPage.keywordDensity}% (competitor avg: ${avgCompKeywordDensity}%)
+${currentDesc ? `- Current body opening: ${currentDesc}` : ''}
+
+COMPETITORS:
+${competitors.map(c => `Position ${c.position}: ${c.wordCount} words, ${c.keywordDensity}% density, H2s: ${c.h2.slice(0, 5).join(' | ') || 'none'}`).join('\n')}
+
+CONTENT GAPS:
+- Missing H2 sections: ${missingH2s}
+- Missing content elements: ${missingAI}
+
+Return this exact JSON structure with real content (no placeholders):
+
+{
+  "suggestedTitle": "Optimised SEO title, max 60 chars, keyword near start, UK spelling",
+  "suggestedMeta": "Compelling meta description, max 155 chars, keyword included, ends with CTA, UK spelling",
+  "suggestedDescription": "2-3 sentences for the blog EXCERPT field (the short summary, NOT the body). Keyword-rich. AboutWallArt brand voice. UK spelling. No HTML tags.",
+  "h2Sections": [
+    {
+      "action": "change",
+      "heading": "Exact current H2 text as it appears on the page",
+      "reason": "One sentence: why this H2 needs attention",
+      "exactAction": "Precise instruction — e.g. 'Rename to [new text] and keep as H2' / 'Remove the H2 tag but keep the text as a regular paragraph'"
+    },
+    {
+      "action": "add",
+      "heading": "New H2 heading text",
+      "content": "Full 2-3 sentence paragraph for this section. Complete sentences. UK spelling."
+    }
+  ],
+  "aiItems": [
+    {
+      "element": "Comparison Snippet",
+      "priority": "high",
+      "content": "Full copy-paste ready paragraph starting with 'What is ${keyword}?'"
+    }
+  ],
+  "urlAnalysis": {
+    "currentSlug": "exact-current-url-slug",
+    "slugMatchesKeyword": "exact|similar|different",
+    "currentTitle": "Current page title",
+    "titleMatchesKeyword": "exact|similar|different",
+    "changeTitle": true,
+    "suggestedTitle": "New title using exact keyword — leave blank if no change needed",
+    "changeSlug": false,
+    "suggestedSlug": "new-slug-if-change-safe — leave blank if no change needed",
+    "slugChangeWarning": "Only change slug if this page has 0 or near-0 clicks. If changed, set up a 301 redirect from the old URL to the new URL.",
+    "notes": "One sentence summary of what needs doing and why"
+  },
+  "otherActions": [
+    {
+      "priority": "high",
+      "action": "Specific actionable instruction — image filename/alt text only. One sentence max."
+    }
+  ],
+  "loserPageLinks": [
+    {
+      "loserUrl": "exact URL of the loser page",
+      "loserPageType": "product|collection|blog|page",
+      "suggestedSentence": "One natural sentence with <a href='[winnerUrl]'>[relevant anchor text]</a> that sounds like editorial content — unique per loser page, never a template",
+      "placement": "Specific placement guidance — be specific, not 'at the end'"
+    }
+  ]
+}
+${loserPages.length > 0 ? `
+LOSER PAGES THAT SHOULD LINK TO THIS PAGE:
+${loserPages.map(l => `- ${l.loserUrl} (${l.pageType}, keyword: "${l.loserKeyword}")`).join('\n')}
+` : ''}
+
+RULES:
+- This is a BLOG. The theme already renders Page Schema, FAQ Schema and the Brand Block. NEVER suggest, mention, or return any schema (FAQPage, Article, Product, Review, Breadcrumb, HowTo) or a brand/about block. Do not include pageSchema, faqSchema or brandBlock fields at all.
+- suggestedTitle: max 60 chars (hard limit), keyword near start.
+- suggestedMeta: max 155 chars (hard limit), keyword, main benefit, CTA.
+- suggestedDescription: this is the blog EXCERPT — plain text only, no HTML, 2-3 sentences, keyword-rich, UK spelling. It is NEVER added to the body.
+- "MORE ABOUT" H2 RULE: If any H2 is "More about ..." (or similar) and contains an external authority link, NEVER flag it for removal or deletion. Keep the H2 and the external link exactly as they are. Use action "change" with exactAction that says to keep the heading and link, and replace ONLY the intro sentence with a single clean sentence of MAXIMUM 30 words describing what the reader will find at the linked source. Put that exact rewritten sentence inside exactAction. Banned words you must NOT use anywhere in that sentence: delve, explore, comprehensive, wealth of, dive into, invaluable, a range of, further insight.
+- h2Sections: for EVERY H2 that needs attention use action "change" with reason + exactAction; for new H2s use action "add" with content. Never use action "delete".
+- h2Sections add content: for each "add" H2, write a full 2-3 sentence paragraph that naturally includes the target keyword. You may include 1-2 internal links as actual HTML <a href="https://aboutwallart.com/collections/[relevant]">[anchor text]</a> tags within the paragraph text.
+- aiItems: include a "priority" field (high/medium/low) for each; write complete copy-paste ready content.
+- urlAnalysis: title changes are always safe (no redirect). Only recommend a slug change if the page has very few or zero clicks; if so, set slugChangeWarning.
+- otherActions: ONLY image filename/alt text optimisation tasks. NEVER include page speed, image compression, Core Web Vitals, canonical/OG/Twitter tags, meta robots, keyword density targets, schema, or anything already covered by h2Sections or aiItems. One sentence per action max.
+- WORD COUNT: never say "reduce word count to X" or "increase keyword density to X%" generically. If specific bloated content must go, name the EXACT paragraph opening words and why; otherwise do not mention word count or density at all.
+- loserPageLinks: ONLY include if loser pages are provided above. Unique natural sentence per loser page with a real HTML anchor to this page, plus a specific placement. If none provided, omit this field entirely.
+- Return ONLY the JSON object — no other text`;
+}
+
 // Build the structured JSON prompt for Claude
 function buildAnalysisPrompt(yourPage, competitors, keyword, userPosition = null, contentGaps = null, loserPages = []) {
+  // Blogs get a dedicated, blog-specific prompt
+  if (yourPage.shopifyType === 'article') {
+    return buildBlogAnalysisPrompt(yourPage, competitors, keyword, userPosition, contentGaps, loserPages);
+  }
+
   const avgCompWordCount = competitors.length > 0
     ? Math.round(competitors.reduce((sum, c) => sum + c.wordCount, 0) / competitors.length) : 0;
   const avgCompKeywordDensity = competitors.length > 0
