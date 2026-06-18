@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 48.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 48.1</p>
                 </div>
             </div>
         </header>
@@ -1287,6 +1287,9 @@
             if (s.faqSchema)  add('schema_faq',   'FAQ Schema — pasted into Custom Liquid',   'copy');
             if (s.brandBlock) add('brand_block',  'Brand Block — pasted into Custom Liquid',  'copy');
 
+            // Quick Answer box (blogs)
+            if (s.quickAnswer) add('quickanswer', 'Quick Answer box added to blog body', 'quickanswer', { content: s.quickAnswer });
+
             // AI items
             (s.aiItems || []).forEach((item, i) => add(`ai_${i}`, `${item.element} — pasted`, 'ai', { content: item.content }));
 
@@ -1422,6 +1425,24 @@
                     </div>` : ''}
                 </div>` : '';
 
+            // ── Quick Answer block (blogs) ────────────────────────────────────
+            const quickAnswerBlock = s.quickAnswer ? `
+                <div class="action-block" style="border-color:#607d8b;">
+                    <h3>⚡ Quick Answer</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">Paste this into the blog body right after the <strong>second intro paragraph</strong> — before any List of Contents, Key Takeaways, or the first H2.</p>
+                    <div id="row_quickanswer" style="display:flex;align-items:flex-start;gap:10px;opacity:${state['quickanswer']?'0.45':'1'};">
+                        ${cb(allItems.find(it=>it.key==='quickanswer'))}
+                        <div style="flex:1;">
+                            <p style="font-size:0.85rem;color:#666;font-weight:600;margin-bottom:6px;${state['quickanswer']?'text-decoration:line-through;':''}" id="lbl_quickanswer">Quick Answer box</p>
+                            <div style="margin-bottom:8px;">${s.quickAnswer}</div>
+                            <div class="copy-block">
+                                <textarea id="quickAnswerCode" style="display:none;">${s.quickAnswer.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+                                <button class="copy-btn" onclick="copyToClipboard(document.getElementById('quickAnswerCode').value,this)">📋 Copy HTML</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>` : '';
+
             // ── 3. AI Optimisation block ──────────────────────────────────────
             const aiBlock = s.aiItems?.length > 0 ? `
                 <div class="action-block">
@@ -1542,7 +1563,7 @@
                     </div>
                 </div>`;
 
-            return masterBar + shopifyBlock + copyPasteBlock + aiBlock + loserLinksBlock + manualBlock + autolinkBlock + reindexBlock;
+            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + aiBlock + loserLinksBlock + manualBlock + autolinkBlock + reindexBlock;
         }
 
         function formatMarkdown(text) {
