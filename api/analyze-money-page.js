@@ -1,7 +1,9 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v45.5
+// analyze-money-page.js — v45.6
+// v45.6 (June 18, 2026): Image list now also includes the blog's MAIN (featured) image,
+//                        flagged isMain, alongside the in-body images.
 // v45.5 (June 18, 2026): Blog body images — extracts the images used in the blog body
 //                        (src, current alt, filename) and returns them for the on-demand
 //                        image SEO feature. No extra Claude cost here.
@@ -124,7 +126,7 @@ module.exports = async function handler(req, res) {
       competitors: competitorData,
       contentGaps: contentGaps,
       analysis: analysis,
-      bodyImages: shopifyContent?.bodyHtml ? extractBodyImages(shopifyContent.bodyHtml) : [],
+      bodyImages: buildImageList(shopifyContent),
       shopify: shopifyContent ? {
         id:      shopifyContent.shopifyId,
         blogId:  shopifyContent.shopifyBlogId || null,
@@ -426,6 +428,24 @@ function extractSEOData(html, url, keyword) {
     isBlog,
     aiScore
   };
+}
+
+// Build the full image list for a blog: the MAIN (featured) image first (flagged
+// isMain), then the in-body images, deduplicated by src. No Claude cost.
+function buildImageList(shopifyContent) {
+  if (!shopifyContent) return [];
+  let images = shopifyContent.bodyHtml ? extractBodyImages(shopifyContent.bodyHtml) : [];
+  const mainSrc = shopifyContent.mainImage;
+  if (mainSrc && /^https?:\/\//i.test(mainSrc)) {
+    images = images.filter(i => i.src !== mainSrc);
+    images.unshift({
+      src: mainSrc,
+      alt: shopifyContent.mainImageAlt || '',
+      filename: mainSrc.split('/').pop().split('?')[0],
+      isMain: true
+    });
+  }
+  return images;
 }
 
 // Extract the images used in a blog body: src, current alt text, and filename.
@@ -1061,12 +1081,12 @@ async function fetchShopifyContent(pageUrl) {
       const bd = await br.json();
       const blog = bd.blogs?.find(b => b.handle === blogHandle);
       if (!blog) return null;
-      const ar = await fetch(`${base}/blogs/${blog.id}/articles.json?handle=${articleHandle}&fields=id,title,body_html,template_suffix`, { headers });
+      const ar = await fetch(`${base}/blogs/${blog.id}/articles.json?handle=${articleHandle}&fields=id,title,body_html,template_suffix,image`, { headers });
       const ad = await ar.json();
       const article = ad.articles?.[0];
       if (!article) return null;
       const meta = await fetchShopifyMetafields(base, `blogs/${blog.id}/articles/${article.id}`, headers);
-      return { shopifyId: article.id, shopifyBlogId: blog.id, shopifyType: 'article', shopifyTitle: article.title, seoTitle: meta.title || article.title, seoDescription: meta.desc || '', bodyHtml: article.body_html || '', templateSuffix: article.template_suffix || '' };
+      return { shopifyId: article.id, shopifyBlogId: blog.id, shopifyType: 'article', shopifyTitle: article.title, seoTitle: meta.title || article.title, seoDescription: meta.desc || '', bodyHtml: article.body_html || '', templateSuffix: article.template_suffix || '', mainImage: article.image?.src || '', mainImageAlt: article.image?.alt || '' };
     }
 
     return null;

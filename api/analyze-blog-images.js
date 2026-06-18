@@ -1,4 +1,8 @@
-// analyze-blog-images.js — v1.0
+// analyze-blog-images.js — v1.1
+// v1.1 (June 18, 2026): Shopify-safe file names — suggested name has NO extension,
+//                       only lowercase letters/numbers/hyphens, kept short, and is
+//                       cleaned server-side so Shopify always accepts it. Carries the
+//                       main-image flag through.
 // v1.0 (June 18, 2026): On-demand blog image SEO. Looks at each blog body image with
 //                       Claude (vision) and returns a descriptive, keyword-aware alt text
 //                       and an SEO-friendly filename. Runs only when the user clicks the
@@ -34,13 +38,13 @@ module.exports = async function handler(req, res) {
 };
 
 async function describeImage(img, keyword, apiKey) {
-  const ext = (img.filename && img.filename.includes('.')) ? img.filename.split('.').pop().toLowerCase() : 'jpg';
   const base = {
     src:             img.src,
     currentFilename: img.filename || '',
     currentAlt:      img.alt || '',
     suggestedFilename: '',
     suggestedAlt:      '',
+    isMain: img.isMain || false,
     error: null
   };
 
@@ -51,7 +55,7 @@ Return ONLY a valid JSON object — no other text, no markdown fences:
 
 Rules:
 - suggestedAlt: describe what is ACTUALLY shown in the image, in British English, 8–16 words. Weave in the keyword "${keyword}" ONLY where it fits naturally — never force or stuff it. It must read like a true description, not a keyword list.
-- suggestedFilename: a lowercase, hyphen-separated, descriptive filename based on what the image shows. Include words from the keyword only where natural. Keep the original file extension ".${ext}". No spaces, no underscores.
+- suggestedFilename: a short, lowercase, hyphen-separated name based on what the image shows (aim for 3–6 words). Use ONLY lowercase letters, numbers and hyphens. NO file extension (no .jpg/.png/.webp), NO spaces, NO underscores, NO other punctuation. Include words from the keyword only where natural.
 - Return ONLY the JSON object.`;
 
   try {
@@ -80,11 +84,24 @@ Rules:
     const raw = (data.content?.[0]?.text || '').trim();
     const jsonStr = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
     const parsed = JSON.parse(jsonStr);
-    base.suggestedFilename = (parsed.suggestedFilename || '').trim();
+    base.suggestedFilename = sanitiseFilename(parsed.suggestedFilename || '');
     base.suggestedAlt      = (parsed.suggestedAlt || '').trim();
     return base;
   } catch (err) {
     base.error = err.message;
     return base;
   }
+}
+
+// Make a file name Shopify will accept: lowercase, letters/numbers/hyphens only,
+// no extension, no leading/trailing or doubled hyphens, capped length.
+function sanitiseFilename(name) {
+  return (name || '')
+    .toLowerCase()
+    .replace(/\.[a-z0-9]{2,5}$/, '')   // strip any trailing extension the model added
+    .replace(/[^a-z0-9]+/g, '-')        // anything not a-z/0-9 becomes a hyphen
+    .replace(/-{2,}/g, '-')             // collapse repeated hyphens
+    .replace(/^-+|-+$/g, '')            // trim hyphens
+    .slice(0, 70)
+    .replace(/-+$/, '');                // trim again after slice
 }
