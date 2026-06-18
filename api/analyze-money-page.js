@@ -1,7 +1,9 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v45.3
+// analyze-money-page.js — v45.4
+// v45.4 (June 18, 2026): Blog body HTML output — new ("add") blog sections are returned
+//                        as complete paste-ready HTML (h2 + p, full anchors, no stray text).
 // v45.3 (June 18, 2026): Blog Quick Answer — blog analysis returns a ready-to-paste
 //                        grey Quick Answer box (exact structure, British English).
 // v45.2 (June 18, 2026): Blog-specific analysis — blogs use a dedicated prompt that
@@ -757,8 +759,8 @@ Return this exact JSON structure with real content (no placeholders):
     },
     {
       "action": "add",
-      "heading": "New H2 heading text",
-      "content": "Full 2-3 sentence paragraph for this section. Complete sentences. UK spelling."
+      "heading": "New H2 heading text (plain text, no tags)",
+      "content": "Complete paste-ready HTML for this new body section: an <h2> with the heading followed by one or more <p> paragraphs (each its own <p>). UK spelling. See the BLOG BODY HTML rule below for the exact format."
     }
   ],
   "aiItems": [
@@ -808,7 +810,7 @@ RULES:
 - quickAnswer: return the EXACT HTML structure shown — do not change any tags or styles, and never add borders, colour lines, wrapper divs or extra tags. Replace ONLY the bracketed text with a direct, factual 2-3 sentence answer to the search intent of "${keyword}", written in British English. The whole value must be one single <div> exactly as shown. It is placed in the body after the second intro paragraph (before any List of Contents, Key Takeaways, or first H2).
 - "MORE ABOUT" H2 RULE: If any H2 is "More about ..." (or similar) and contains an external authority link, NEVER flag it for removal or deletion. Keep the H2 and the external link exactly as they are. Use action "change" with exactAction that says to keep the heading and link, and replace ONLY the intro sentence with a single clean sentence of MAXIMUM 30 words describing what the reader will find at the linked source. Put that exact rewritten sentence inside exactAction. Banned words you must NOT use anywhere in that sentence: delve, explore, comprehensive, wealth of, dive into, invaluable, a range of, further insight.
 - h2Sections: for EVERY H2 that needs attention use action "change" with reason + exactAction; for new H2s use action "add" with content. Never use action "delete".
-- h2Sections add content: for each "add" H2, write a full 2-3 sentence paragraph that naturally includes the target keyword. You may include 1-2 internal links as actual HTML <a href="https://aboutwallart.com/collections/[relevant]">[anchor text]</a> tags within the paragraph text.
+- BLOG BODY HTML: the "content" of every "add" section is destined for the blog body and MUST be complete, paste-ready HTML for the Shopify HTML editor. Rules: use <h2> for the section heading only (NEVER <strong> or <h3> as the title); the content must START with that <h2>; every paragraph in its own <p> tag; all links as <a href="..." title="..." target="_blank" rel="noopener">anchor text</a> (always include title, target and rel); NO plain text outside HTML tags; do NOT use <ul>, <li>, <br> or <div> unless the section genuinely needs a list; NO blank lines between tags; NO inline styles or classes. Each "add" paragraph should naturally include the target keyword, and may include 1-2 internal links to relevant AboutWallArt collections using the full anchor format above.
 - aiItems: include a "priority" field (high/medium/low) for each; write complete copy-paste ready content.
 - urlAnalysis: title changes are always safe (no redirect). Only recommend a slug change if the page has very few or zero clicks; if so, set slugChangeWarning.
 - otherActions: ONLY image filename/alt text optimisation tasks. NEVER include page speed, image compression, Core Web Vitals, canonical/OG/Twitter tags, meta robots, keyword density targets, schema, or anything already covered by h2Sections or aiItems. One sentence per action max.
