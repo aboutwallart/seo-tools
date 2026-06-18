@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 48.7</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 48.8</p>
                 </div>
             </div>
         </header>
@@ -1657,10 +1657,15 @@
                                 <span style="background:#9c27b0;color:white;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">${getPageTypeLabel(pt)}</span>
                                 <span style="font-size:0.82rem;word-break:break-all;color:#555;">${link.loserUrl}</span>
                             </div>
-                            <div style="font-size:0.8rem;color:#9c27b0;font-weight:600;margin-bottom:8px;">📍 ${link.placement}</div>
+                            <div style="font-size:0.8rem;color:#9c27b0;font-weight:600;margin-bottom:8px;">📍 Where to add it: ${link.placement}</div>
+                            ${(data.yourPage.shopifyType === 'article') ? `
+                            <div style="background:white;border:2px solid #e0e0e0;border-radius:6px;padding:10px;font-size:0.9rem;line-height:1.6;margin-bottom:8px;">${link.suggestedSentence}</div>
+                            <textarea id="loserSentence${i}" style="display:none;">${link.suggestedSentence.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+                            ` : `
                             <textarea id="loserSentence${i}" style="width:100%;padding:10px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.85rem;font-family:'Poppins',sans-serif;resize:vertical;line-height:1.5;" rows="3">${kickstartPrompt}</textarea>
+                            `}
                             <div style="display:flex;gap:8px;margin-top:8px;">
-                                <button class="copy-btn" onclick="copyToClipboard(document.getElementById('loserSentence${i}').value,this)">📋 Copy</button>
+                                <button class="copy-btn" onclick="${(data.yourPage.shopifyType === 'article') ? `copyFormatted('loserSentence${i}',this)` : `copyToClipboard(document.getElementById('loserSentence${i}').value,this)`}">📋 ${(data.yourPage.shopifyType === 'article') ? 'Copy for body' : 'Copy'}</button>
                                 <a id="loserAdminBtn_${i}" href="${fallbackAdminUrl}" target="_blank" style="display:inline-flex;align-items:center;background:#1a1a1a;color:white;padding:6px 14px;border-radius:4px;font-size:0.8rem;text-decoration:none;">🔗 Open in Shopify Admin</a>
                             </div>
                         </div>`;
