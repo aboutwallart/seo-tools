@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 48.1</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 48.2</p>
                 </div>
             </div>
         </header>
@@ -1482,8 +1482,8 @@
                                 <strong id="lbl_${item.key}" style="${state[item.key]?'text-decoration:line-through;':''}">${item.label}</strong>
                                 ${item.detail ? `
                                     <div style="font-size:0.85rem;color:#555;margin-top:4px;line-height:1.5;">${item.detail}</div>
-                                    <textarea id="ct_${item.key}" style="display:none;">${(item.label.replace(/Add H2: /,'').replace(/"/g,'') + '\n\n' + item.detail).replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
-                                    <button class="copy-btn" style="margin-top:6px;" onclick="copyToClipboard(document.getElementById('ct_${item.key}').value,this)">📋 Copy</button>` : ''}
+                                    <textarea id="ct_${item.key}" style="display:none;">${((data.yourPage.shopifyType === 'article' && item.action === 'add') ? item.detail : (item.label.replace(/Add H2: /,'').replace(/"/g,'') + '\n\n' + item.detail)).replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+                                    <button class="copy-btn" style="margin-top:6px;" onclick="copyToClipboard(document.getElementById('ct_${item.key}').value,this)">📋 ${(data.yourPage.shopifyType === 'article' && item.action === 'add') ? 'Copy HTML' : 'Copy'}</button>` : ''}
                             </div>
                         </div>`).join('')}
                 </div>` : '';
