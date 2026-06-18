@@ -1,4 +1,7 @@
-// analyze-blog-images.js — v1.1
+// analyze-blog-images.js — v1.2
+// v1.2 (June 18, 2026): Direct "Open in Files" link — for each image, looks up its
+//                       Shopify file ID via GraphQL (by filename) and returns a direct
+//                       admin file URL. Also returns a search-term slug as a fallback.
 // v1.1 (June 18, 2026): Shopify-safe file names — suggested name has NO extension,
 //                       only lowercase letters/numbers/hyphens, kept short, and is
 //                       cleaned server-side so Shopify always accepts it. Carries the
@@ -7,6 +10,10 @@
 //                       Claude (vision) and returns a descriptive, keyword-aware alt text
 //                       and an SEO-friendly filename. Runs only when the user clicks the
 //                       "Analyse Images" button — never during the normal analysis.
+
+const SHOPIFY_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
+const SHOPIFY_TOKEN  = process.env.SHOPIFY_ACCESS_TOKEN;
+const STORE_HANDLE   = (SHOPIFY_DOMAIN || '').replace(/\.myshopify\.com$/i, '') || 'aboutwallart';
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -38,6 +45,7 @@ module.exports = async function handler(req, res) {
 };
 
 async function describeImage(img, keyword, apiKey) {
+  const slug = fileSearchSlug(img.filename || '');
   const base = {
     src:             img.src,
     currentFilename: img.filename || '',
@@ -45,8 +53,27 @@ async function describeImage(img, keyword, apiKey) {
     suggestedFilename: '',
     suggestedAlt:      '',
     isMain: img.isMain || false,
+    searchTerm: slug,      // fallback term for the Files search box
+    adminFileUrl: null,    // direct link to the file's page (when the ID is found)
     error: null
   };
+
+  // Run the vision description and the Shopify file-ID lookup in parallel.
+  const [vision, adminFileUrl] = await Promise.all([
+    runVision(img, keyword, apiKey),
+    lookupFileAdminUrl(img.src, slug)
+  ]);
+
+  base.suggestedFilename = vision.suggestedFilename;
+  base.suggestedAlt      = vision.suggestedAlt;
+  base.error             = vision.error;
+  base.adminFileUrl      = adminFileUrl;
+  return base;
+}
+
+// Claude vision: describe the image + suggest a Shopify-safe file name.
+async function runVision(img, keyword, apiKey) {
+  const out = { suggestedFilename: '', suggestedAlt: '', error: null };
 
   const prompt = `You are an SEO expert for AboutWallArt (a UK wall art and home decor store). Look at this image, which appears in a blog article about "${keyword}".
 
@@ -80,16 +107,57 @@ Rules:
     });
 
     const data = await response.json();
-    if (data.error) { base.error = data.error.message || 'Claude error'; return base; }
+    if (data.error) { out.error = data.error.message || 'Claude error'; return out; }
     const raw = (data.content?.[0]?.text || '').trim();
     const jsonStr = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
     const parsed = JSON.parse(jsonStr);
-    base.suggestedFilename = sanitiseFilename(parsed.suggestedFilename || '');
-    base.suggestedAlt      = (parsed.suggestedAlt || '').trim();
-    return base;
+    out.suggestedFilename = sanitiseFilename(parsed.suggestedFilename || '');
+    out.suggestedAlt      = (parsed.suggestedAlt || '').trim();
+    return out;
   } catch (err) {
-    base.error = err.message;
-    return base;
+    out.error = err.message;
+    return out;
+  }
+}
+
+// The Files search matches the filename "stem": no extension, no trailing unique code.
+function fileSearchSlug(filename) {
+  return (filename || '')
+    .replace(/\.[a-z0-9]{2,5}$/i, '')
+    .replace(/_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, '');
+}
+
+// Ask Shopify for the file ID by filename and build a direct admin link to that file.
+// Returns null if creds are missing or no confident match is found.
+async function lookupFileAdminUrl(src, slug) {
+  if (!SHOPIFY_DOMAIN || !SHOPIFY_TOKEN || !slug) return null;
+  const srcBase = (src || '').split('?')[0];
+  const query = `query { files(first: 20, query: ${JSON.stringify(slug)}) { edges { node { id __typename ... on MediaImage { image { url } } ... on GenericFile { url } } } } }`;
+  try {
+    const r = await fetch(`https://${SHOPIFY_DOMAIN}/admin/api/2025-01/graphql.json`, {
+      method: 'POST',
+      headers: { 'X-Shopify-Access-Token': SHOPIFY_TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query })
+    });
+    const d = await r.json();
+    const edges = d?.data?.files?.edges || [];
+    if (edges.length === 0) return null;
+
+    const urlOf = n => (n?.image?.url || n?.url || '').split('?')[0];
+    // Prefer an exact URL match; otherwise match on the filename slug.
+    let node = edges.map(e => e.node).find(n => urlOf(n) === srcBase);
+    if (!node) {
+      node = edges.map(e => e.node).find(n => {
+        const fn = urlOf(n).split('/').pop();
+        return fn && fileSearchSlug(fn).toLowerCase() === slug.toLowerCase();
+      });
+    }
+    if (!node?.id) return null;
+    const numericId = String(node.id).split('/').pop();
+    if (!numericId) return null;
+    return `https://admin.shopify.com/store/${STORE_HANDLE}/content/files/${numericId}`;
+  } catch (err) {
+    return null;
   }
 }
 
