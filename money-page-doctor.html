@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 48.3</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 48.4</p>
                 </div>
             </div>
         </header>
@@ -937,6 +937,7 @@
 
         let currentAnalysisUrl = '';
         let currentAnalysisTotal = 0;
+        let currentKeyword = '';
 
         function copyToClipboard(text, btnEl) {
             navigator.clipboard.writeText(text).then(() => {
@@ -990,6 +991,61 @@
             } catch (e2) {
                 alert('Copy failed — please select and copy manually.');
             }
+        }
+
+        // On-demand: have Claude look at each blog image and suggest file name + alt text
+        async function analyzeBlogImages(btn) {
+            const images = currentResults?.bodyImages || [];
+            if (images.length === 0) return;
+            const container = document.getElementById('imageResults');
+            const orig = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = '⏳ Looking at images...';
+            if (container) container.innerHTML = '<p style="font-size:0.85rem;color:#666;">Analysing images, please wait…</p>';
+            try {
+                const res = await fetch('/api/analyze-blog-images', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ images, keyword: currentKeyword })
+                });
+                const data = await res.json();
+                if (!res.ok || data.error) throw new Error(data.error || 'Image analysis failed');
+                renderImageResults(data.images || []);
+                btn.textContent = '✅ Images Analysed';
+                btn.style.background = '#4caf50';
+            } catch (err) {
+                if (container) container.innerHTML = `<p style="color:#f44336;font-size:0.85rem;">Image analysis failed: ${err.message}</p>`;
+                btn.disabled = false;
+                btn.textContent = orig;
+            }
+        }
+
+        function renderImageResults(images) {
+            const container = document.getElementById('imageResults');
+            if (!container) return;
+            if (!images.length) { container.innerHTML = '<p style="font-size:0.85rem;color:#666;">No images to show.</p>'; return; }
+            container.innerHTML = images.map((im, i) => `
+                <div style="display:flex;gap:12px;padding:12px;background:#f9f9f9;border-radius:6px;margin-bottom:10px;align-items:flex-start;">
+                    <img src="${im.src}" alt="" style="width:90px;height:90px;object-fit:cover;border-radius:6px;flex-shrink:0;border:1px solid #e0e0e0;">
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-size:0.78rem;color:#999;margin-bottom:6px;word-break:break-all;">Current: ${im.currentFilename || '(none)'}</div>
+                        ${im.error ? `<div style="color:#f44336;font-size:0.82rem;">Could not analyse this image: ${im.error}</div>` : `
+                        <div style="margin-bottom:8px;">
+                            <div style="font-size:0.78rem;color:#555;font-weight:600;margin-bottom:3px;">Suggested file name</div>
+                            <div style="display:flex;gap:8px;align-items:center;">
+                                <input type="text" id="imgName${i}" value="${(im.suggestedFilename||'').replace(/"/g,'&quot;')}" readonly style="flex:1;min-width:0;padding:7px 9px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.8rem;font-family:'Poppins',sans-serif;background:white;">
+                                <button class="copy-btn" onclick="copyToClipboard(document.getElementById('imgName${i}').value,this)">📋</button>
+                            </div>
+                        </div>
+                        <div>
+                            <div style="font-size:0.78rem;color:#555;font-weight:600;margin-bottom:3px;">Suggested alt text</div>
+                            <div style="display:flex;gap:8px;align-items:flex-start;">
+                                <textarea id="imgAlt${i}" readonly rows="2" style="flex:1;min-width:0;padding:7px 9px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.8rem;font-family:'Poppins',sans-serif;background:white;resize:vertical;">${im.suggestedAlt||''}</textarea>
+                                <button class="copy-btn" onclick="copyToClipboard(document.getElementById('imgAlt${i}').value,this)">📋</button>
+                            </div>
+                        </div>`}
+                    </div>
+                </div>`).join('');
         }
 
         function updateCharCount(el, max) {
@@ -1181,6 +1237,7 @@
         function showResults(data, keyword) {
             currentResults = data;
             currentAuditURL = data.yourPage.url;
+            currentKeyword = keyword;
 
             const positionBadge = data.userPosition === 1
                 ? `<div style="background:#4caf50;color:white;padding:15px;border-radius:6px;margin-bottom:20px;text-align:center;">👑 <strong>Ranking #1 for "${keyword}"</strong><br><small>Analysis will help defend your position</small></div>`
@@ -1354,6 +1411,10 @@
 
             // Internal links to loser pages
             (s.loserPageLinks || []).forEach((l, i) => add(`loser_${i}`, `Link added to: ${l.loserUrl}`, 'link'));
+
+            // Image SEO step (blogs that have body images)
+            const hasBodyImages = data.yourPage.shopifyType === 'article' && (data.bodyImages || []).length > 0;
+            if (hasBodyImages) add('images', 'Image file names & alt text updated on Shopify', 'images');
 
             // Auto-link rule step
             add('autolink', 'Auto-link rule added for main keyword', 'autolink');
@@ -1588,6 +1649,19 @@
                     </div>
                 </div>`;
 
+            // ── Image SEO block (blogs with body images) ─────────────────────
+            const imageBlock = hasBodyImages ? `
+                <div class="action-block" style="border-color:#00897b;">
+                    <h3>🖼️ Image SEO</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">${data.bodyImages.length} image${data.bodyImages.length>1?'s':''} found in this blog. Click to have the tool look at each one and suggest a better file name and alt text — then update them on Shopify's Files tab. <span style="color:#999;">(Uses a small amount of credit.)</span></p>
+                    <div id="row_images" style="display:flex;align-items:flex-start;gap:12px;padding:12px;background:#f9f9f9;border-radius:6px;margin-bottom:12px;opacity:${state['images']?'0.45':'1'};">
+                        ${cb(allItems.find(it=>it.key==='images'))}
+                        <strong id="lbl_images" style="${state['images']?'text-decoration:line-through;':''}">Image file names &amp; alt text updated on Shopify</strong>
+                    </div>
+                    <button id="analyzeImagesBtn" onclick="analyzeBlogImages(this)" style="background:#00897b;color:white;padding:10px 22px;border-radius:6px;font-size:0.88rem;border:none;cursor:pointer;font-weight:600;">🖼️ Analyse Images (${data.bodyImages.length})</button>
+                    <div id="imageResults" style="margin-top:14px;"></div>
+                </div>` : '';
+
             // ── 7. Reindex block ─────────────────────────────────────────────
             const reindexItem = allItems.find(it => it.key === 'reindex');
             const reindexBlock = `
@@ -1608,7 +1682,7 @@
                     </div>
                 </div>`;
 
-            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + aiBlock + loserLinksBlock + manualBlock + autolinkBlock + reindexBlock;
+            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + aiBlock + loserLinksBlock + manualBlock + imageBlock + autolinkBlock + reindexBlock;
         }
 
         function formatMarkdown(text) {
