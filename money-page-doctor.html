@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 48.6</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 48.7</p>
                 </div>
             </div>
         </header>
@@ -1409,7 +1409,8 @@
                 'manual',
                 {
                     detail: h.action === 'add' ? (h.content || '') : [h.exactAction, h.reason ? `Why: ${h.reason}` : ''].filter(Boolean).join('\n'),
-                    action: h.action
+                    action: h.action,
+                    replacementText: h.replacementText || ''
                 }
             ));
 
@@ -1418,6 +1419,9 @@
 
             // Internal links to loser pages
             (s.loserPageLinks || []).forEach((l, i) => add(`loser_${i}`, `Link added to: ${l.loserUrl}`, 'link'));
+
+            // People Also Ask (blogs)
+            if (s.peopleAlsoAsk && (s.peopleAlsoAsk.html || s.peopleAlsoAsk.metafield)) add('paa', 'People Also Ask added (metafield + body if old theme)', 'paa');
 
             // Image SEO step (blogs that have body images)
             const hasBodyImages = data.yourPage.shopifyType === 'article' && (data.bodyImages || []).length > 0;
@@ -1597,8 +1601,42 @@
                                     <div style="font-size:0.85rem;color:#555;margin-top:4px;line-height:1.5;">${item.detail}</div>
                                     <textarea id="ct_${item.key}" style="display:none;">${((data.yourPage.shopifyType === 'article' && item.action === 'add') ? item.detail : (item.label.replace(/Add H2: /,'').replace(/"/g,'') + '\n\n' + item.detail)).replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
                                     <button class="copy-btn" style="margin-top:6px;" onclick="${(data.yourPage.shopifyType === 'article' && item.action === 'add') ? `copyFormatted('ct_${item.key}',this)` : `copyToClipboard(document.getElementById('ct_${item.key}').value,this)`}">📋 Copy</button>` : ''}
+                                ${(item.action && item.action !== 'add' && item.replacementText) ? `
+                                    <div style="margin-top:8px;">
+                                        <div style="font-size:0.78rem;color:#2e7d32;font-weight:600;margin-bottom:3px;">✏️ Text to use</div>
+                                        <div style="display:flex;gap:8px;align-items:flex-start;">
+                                            <input type="text" id="rt_${item.key}" value="${(item.replacementText||'').replace(/"/g,'&quot;')}" readonly style="flex:1;min-width:0;padding:7px 9px;border:2px solid #c8e6c9;border-radius:6px;font-size:0.82rem;font-family:'Poppins',sans-serif;background:#f1f8f4;">
+                                            <button class="copy-btn" onclick="copyToClipboard(document.getElementById('rt_${item.key}').value,this)">📋</button>
+                                        </div>
+                                    </div>` : ''}
                             </div>
                         </div>`).join('')}
+                </div>` : '';
+
+            // ── People Also Ask block (blogs) ────────────────────────────────
+            const paaBlock = (s.peopleAlsoAsk && (s.peopleAlsoAsk.html || s.peopleAlsoAsk.metafield)) ? `
+                <div class="action-block" style="border-color:#6a1b9a;">
+                    <h3>❓ People Also Ask</h3>
+                    <div id="row_paa" style="display:flex;align-items:flex-start;gap:12px;padding:12px;background:#f9f9f9;border-radius:6px;margin-bottom:12px;opacity:${state['paa']?'0.45':'1'};">
+                        ${cb(allItems.find(it=>it.key==='paa'))}
+                        <strong id="lbl_paa" style="${state['paa']?'text-decoration:line-through;':''}">People Also Ask added</strong>
+                    </div>
+                    <p style="font-size:0.82rem;color:#666;margin-bottom:12px;">Add the <strong>plain-text</strong> version to the <strong>people_also_ask_new</strong> metafield — the schema pulls it from there. Only add the <strong>HTML</strong> version to the blog body if this is an <strong>older theme</strong> with no People Also Ask section.</p>
+                    ${s.peopleAlsoAsk.metafield ? `
+                    <div style="margin-bottom:14px;">
+                        <div style="font-size:0.8rem;color:#555;font-weight:600;margin-bottom:4px;">For the metafield (plain text)</div>
+                        <div class="copy-block">
+                            <textarea id="paaMeta" style="width:100%;min-height:120px;padding:9px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.82rem;font-family:'Poppins',sans-serif;">${s.peopleAlsoAsk.metafield}</textarea>
+                            <button class="copy-btn" onclick="copyToClipboard(document.getElementById('paaMeta').value,this)">📋 Copy plain text</button>
+                        </div>
+                    </div>` : ''}
+                    ${s.peopleAlsoAsk.html ? `
+                    <div>
+                        <div style="font-size:0.8rem;color:#555;font-weight:600;margin-bottom:4px;">For the body — HTML (older themes only)</div>
+                        <div style="font-size:0.9rem;line-height:1.6;margin-bottom:8px;">${s.peopleAlsoAsk.html}</div>
+                        <textarea id="paaHtml" style="display:none;">${s.peopleAlsoAsk.html.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+                        <button class="copy-btn" onclick="copyFormatted('paaHtml',this)">📋 Copy for body</button>
+                    </div>` : ''}
                 </div>` : '';
 
             // ── 5. Internal Links block ───────────────────────────────────────
@@ -1689,7 +1727,7 @@
                     </div>
                 </div>`;
 
-            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + aiBlock + loserLinksBlock + manualBlock + imageBlock + autolinkBlock + reindexBlock;
+            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + aiBlock + paaBlock + loserLinksBlock + manualBlock + imageBlock + autolinkBlock + reindexBlock;
         }
 
         function formatMarkdown(text) {
