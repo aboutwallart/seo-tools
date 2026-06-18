@@ -1,3 +1,7 @@
+// shopify-files.js — v1.0
+// v1.0 (June 18, 2026): Blog excerpt fix — for blog articles the Page Description
+//                       now writes to the excerpt (summary_html) ONLY, never the body.
+
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -482,12 +486,15 @@ module.exports = async function handler(req, res) {
       } catch (err) { errors.push(`Append: ${err.message}`); }
     }
 
-    // 1. Update body_html (description)
+    // 1. Update the description field
+    //    Blog articles: write to the excerpt (summary_html) ONLY — never the body.
+    //    All other types: unchanged (body_html).
     if (description) {
       try {
+        const descField = shopifyType === 'article' ? 'summary_html' : 'body_html';
         const r = await fetch(`${base}/${resource.path}.json`, {
           method: 'PUT', headers: shopifyHeaders,
-          body: JSON.stringify({ [resource.key]: { id: parseInt(shopifyId), body_html: description } })
+          body: JSON.stringify({ [resource.key]: { id: parseInt(shopifyId), [descField]: description } })
         });
         if (!r.ok) { const d = await r.json(); errors.push(`Description: ${JSON.stringify(d.errors || r.statusText)}`); }
       } catch (err) { errors.push(`Description: ${err.message}`); }
