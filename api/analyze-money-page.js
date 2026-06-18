@@ -1,7 +1,9 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v45.2
+// analyze-money-page.js — v45.3
+// v45.3 (June 18, 2026): Blog Quick Answer — blog analysis returns a ready-to-paste
+//                        grey Quick Answer box (exact structure, British English).
 // v45.2 (June 18, 2026): Blog-specific analysis — blogs use a dedicated prompt that
 //                        drops Page/FAQ/Brand schema (theme handles them) and never
 //                        flags the "More about" external authority link for removal.
@@ -745,6 +747,7 @@ Return this exact JSON structure with real content (no placeholders):
   "suggestedTitle": "Optimised SEO title, max 60 chars, keyword near start, UK spelling",
   "suggestedMeta": "Compelling meta description, max 155 chars, keyword included, ends with CTA, UK spelling",
   "suggestedDescription": "2-3 sentences for the blog EXCERPT field (the short summary, NOT the body). Keyword-rich. AboutWallArt brand voice. UK spelling. No HTML tags.",
+  "quickAnswer": "<div style=\\"background:#f9f9f9;padding:16px 20px;margin-bottom:24px;\\"><strong>Quick Answer:</strong> [2-3 sentence direct factual answer in British English]</div>",
   "h2Sections": [
     {
       "action": "change",
@@ -802,6 +805,7 @@ RULES:
 - suggestedTitle: max 60 chars (hard limit), keyword near start.
 - suggestedMeta: max 155 chars (hard limit), keyword, main benefit, CTA.
 - suggestedDescription: this is the blog EXCERPT — plain text only, no HTML, 2-3 sentences, keyword-rich, UK spelling. It is NEVER added to the body.
+- quickAnswer: return the EXACT HTML structure shown — do not change any tags or styles, and never add borders, colour lines, wrapper divs or extra tags. Replace ONLY the bracketed text with a direct, factual 2-3 sentence answer to the search intent of "${keyword}", written in British English. The whole value must be one single <div> exactly as shown. It is placed in the body after the second intro paragraph (before any List of Contents, Key Takeaways, or first H2).
 - "MORE ABOUT" H2 RULE: If any H2 is "More about ..." (or similar) and contains an external authority link, NEVER flag it for removal or deletion. Keep the H2 and the external link exactly as they are. Use action "change" with exactAction that says to keep the heading and link, and replace ONLY the intro sentence with a single clean sentence of MAXIMUM 30 words describing what the reader will find at the linked source. Put that exact rewritten sentence inside exactAction. Banned words you must NOT use anywhere in that sentence: delve, explore, comprehensive, wealth of, dive into, invaluable, a range of, further insight.
 - h2Sections: for EVERY H2 that needs attention use action "change" with reason + exactAction; for new H2s use action "add" with content. Never use action "delete".
 - h2Sections add content: for each "add" H2, write a full 2-3 sentence paragraph that naturally includes the target keyword. You may include 1-2 internal links as actual HTML <a href="https://aboutwallart.com/collections/[relevant]">[anchor text]</a> tags within the paragraph text.
