@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 48.9</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 49.0</p>
                 </div>
             </div>
         </header>
@@ -1387,9 +1387,10 @@
             const add = (key, label, group, extra) => allItems.push({ key, label, group, ...extra });
 
             // Push to Shopify items
+            const _isBlog = data.yourPage.shopifyType === 'article';
             add('push_title', 'SEO Title pushed',        'push');
             add('push_meta',  'Meta Description pushed', 'push');
-            add('push_desc',  'Page Description pushed', 'push');
+            add('push_desc',  _isBlog ? 'Excerpt pushed' : 'Page Description pushed', 'push');
 
             // Copy-paste items
             if (s.pageSchema) add('schema_page',  'Page Schema — pasted into Custom Liquid',  'copy');
@@ -1479,16 +1480,26 @@
                         <input type="text" id="shopifyTitleField" value="${(s.suggestedTitle||'').replace(/"/g,'&quot;')}" oninput="updateCharCount(this,60);scheduleTitleCheck()">
                         <div class="char-count"></div>
                         <div id="titleConflictStatus" style="min-height:20px;"></div>
+                        <button class="copy-btn" type="button" style="margin-top:6px;" onclick="copyToClipboard(document.getElementById('shopifyTitleField').value,this)">📋 Copy</button>
                     </div>
                     <div class="field-group">
                         <label>Meta Description</label>
                         <textarea id="shopifyMetaField" rows="3" oninput="updateCharCount(this,155)">${s.suggestedMeta||''}</textarea>
                         <div class="char-count"></div>
+                        <button class="copy-btn" type="button" style="margin-top:6px;" onclick="copyToClipboard(document.getElementById('shopifyMetaField').value,this)">📋 Copy</button>
                     </div>
                     <div class="field-group">
-                        <label>Page Description</label>
+                        <label>${_isBlog ? 'Excerpt' : 'Page Description'}</label>
                         <textarea id="shopifyDescField" rows="3">${s.suggestedDescription||''}</textarea>
+                        <button class="copy-btn" type="button" style="margin-top:6px;" onclick="copyToClipboard(document.getElementById('shopifyDescField').value,this)">📋 Copy</button>
                     </div>
+                    ${_isBlog ? `
+                    <div class="field-group">
+                        <label>Page Description</label>
+                        <div style="font-size:0.8rem;color:#777;margin-bottom:6px;">First paragraph for the blog body — answers the main question. Copy and paste it manually; this box is not pushed.</div>
+                        <textarea id="shopifyPageDescField" rows="4">${s.firstParagraph||''}</textarea>
+                        <button class="copy-btn" type="button" style="margin-top:6px;" onclick="copyToClipboard(document.getElementById('shopifyPageDescField').value,this)">📋 Copy</button>
+                    </div>` : ''}
                     ${adminUrl ? `<div style="margin-bottom:10px;"><a href="${adminUrl}" target="_blank" style="color:#1976d2;font-size:0.85rem;">🔗 Open in Shopify Admin ↗</a></div>` : ''}
                     <div style="font-size:0.8rem;color:#999;margin-bottom:8px;word-break:break-all;">📄 ${pageUrl}</div>
                     ${alreadyPushed
