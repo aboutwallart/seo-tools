@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 49.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 49.1</p>
                 </div>
             </div>
         </header>
@@ -1571,6 +1571,37 @@
                     </div>
                 </div>` : '';
 
+            // ── Keyword Over-Use Check block (blogs) ──────────────────────────
+            const ko = s.keywordOveruse;
+            const overuseBlock = ko ? `
+                <div class="action-block" style="border-color:#e67e22;">
+                    <h3>🔁 Keyword Over-Use Check</h3>
+                    ${(ko.isOverstuffed && Array.isArray(ko.findings) && ko.findings.length > 0) ? `
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">${(ko.summary||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>
+                    ${ko.findings.map((f,i) => {
+                        const loc    = (f.location||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        const cur    = (f.currentText||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        const sug    = (f.suggestedText||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        const reason = (f.reason||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        const isRemove = (f.recommendation||'').toLowerCase().includes('remove');
+                        return `
+                        <div style="border:1px solid #f0e0d0;border-radius:6px;padding:12px;margin-bottom:12px;">
+                            <div style="font-size:0.78rem;color:#e67e22;font-weight:600;margin-bottom:6px;">📍 ${loc}</div>
+                            <div style="font-size:0.8rem;color:#999;margin-bottom:4px;">Current text:</div>
+                            <div style="background:#fafafa;border:1px solid #eee;border-radius:4px;padding:8px;font-size:0.88rem;margin-bottom:8px;">${cur}</div>
+                            ${reason ? `<div style="font-size:0.82rem;color:#555;margin-bottom:8px;">${reason}</div>` : ''}
+                            ${isRemove
+                                ? `<div style="display:inline-block;background:#fdecea;color:#c0392b;font-weight:600;font-size:0.82rem;padding:6px 12px;border-radius:4px;">🗑️ Better to remove this entirely</div>`
+                                : `<div style="font-size:0.8rem;color:#999;margin-bottom:4px;">Change it to:</div>
+                                   <div style="background:#eafaf1;border:1px solid #d4efdf;border-radius:4px;padding:8px;font-size:0.88rem;margin-bottom:8px;">${sug}</div>
+                                   <textarea id="overuseSuggest${i}" style="display:none;">${sug}</textarea>
+                                   <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('overuseSuggest${i}').value,this)">📋 Copy replacement</button>`
+                            }
+                        </div>`;
+                    }).join('')}
+                    ` : `<p style="font-size:0.9rem;color:#2e7d32;">✅ No keyword over-use found — your keyword is used naturally across the page.</p>`}
+                </div>` : '';
+
             // ── 3. AI Optimisation block ──────────────────────────────────────
             const aiBlock = s.aiItems?.length > 0 ? `
                 <div class="action-block">
@@ -1743,7 +1774,7 @@
                     </div>
                 </div>`;
 
-            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + aiBlock + paaBlock + loserLinksBlock + manualBlock + imageBlock + autolinkBlock + reindexBlock;
+            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + aiBlock + paaBlock + loserLinksBlock + manualBlock + imageBlock + autolinkBlock + reindexBlock;
         }
 
         function formatMarkdown(text) {
