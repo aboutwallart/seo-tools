@@ -1,7 +1,12 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v45.8
+// analyze-money-page.js — v45.9
+// v45.9 (June 20, 2026): Blog quick fixes — (1) new firstParagraph field: an optimised
+//                        opening body paragraph that directly addresses the keyword's
+//                        question (copy-only, pasted manually); (2) blogs no longer
+//                        generate image filename/alt otherActions (Image SEO handles them);
+//                        (5) KEYWORD USAGE rule added to stop exact-keyword over-optimisation.
 // v45.8 (June 18, 2026): Internal-link admin links — each loser page now resolves to a
 //                        DIRECT Shopify admin URL (opens the actual post/product, not a search).
 // v45.7 (June 18, 2026): Batch 4 — blog prompt now returns (1) replacementText for each
@@ -821,7 +826,8 @@ Return this exact JSON structure with real content (no placeholders):
 {
   "suggestedTitle": "Optimised SEO title, max 60 chars, keyword near start, UK spelling",
   "suggestedMeta": "Compelling meta description, max 155 chars, keyword included, ends with CTA, UK spelling",
-  "suggestedDescription": "2-3 sentences for the blog EXCERPT field (the short summary, NOT the body). Keyword-rich. AboutWallArt brand voice. UK spelling. No HTML tags.",
+  "suggestedDescription": "2-3 sentences for the blog EXCERPT field (the short summary, NOT the body). Uses the keyword or a close variation once, written naturally. AboutWallArt brand voice. UK spelling. No HTML tags.",
+  "firstParagraph": "The optimised opening paragraph for the blog BODY (plain text, no HTML). It directly addresses the question behind \\"${keyword}\\" — raise the question and begin answering it in a natural, engaging way. 2-4 sentences. Uses the main keyword once, naturally. British English. Must NOT duplicate the quickAnswer wording.",
   "quickAnswer": "<div style=\\"background:#f9f9f9;padding:16px 20px;margin-bottom:24px;\\"><strong>Quick Answer:</strong> [2-3 sentence direct factual answer in British English]</div>",
   "h2Sections": [
     {
@@ -863,7 +869,7 @@ Return this exact JSON structure with real content (no placeholders):
   "otherActions": [
     {
       "priority": "high",
-      "action": "Specific actionable instruction — image filename/alt text only. One sentence max."
+      "action": "A genuine NON-image task only (the Image SEO tool handles all images). Leave this array EMPTY if there is none. One sentence max."
     }
   ],
   "loserPageLinks": [
@@ -882,21 +888,23 @@ ${loserPages.map(l => `- ${l.loserUrl} (${l.pageType}, keyword: "${l.loserKeywor
 
 RULES:
 - This is a BLOG. The theme already renders Page Schema, FAQ Schema and the Brand Block. NEVER suggest, mention, or return any schema (FAQPage, Article, Product, Review, Breadcrumb, HowTo) or a brand/about block. Do not include pageSchema, faqSchema or brandBlock fields at all.
+- KEYWORD USAGE (no stuffing): use the EXACT main keyword "${keyword}" only where it matters most — the title, the first paragraph, and at most one or two headings. Everywhere else (meta, excerpt, body paragraphs, FAQ answers, snippets) write naturally for the reader using secondary keywords, natural variations and related terms. NEVER repeat the exact keyword over and over — Google does not reward exact-match repetition and treats stuffing as spam.
 - suggestedTitle: max 60 chars (hard limit), keyword near start.
-- suggestedMeta: max 155 chars (hard limit), keyword, main benefit, CTA.
-- suggestedDescription: this is the blog EXCERPT — plain text only, no HTML, 2-3 sentences, keyword-rich, UK spelling. It is NEVER added to the body.
+- suggestedMeta: max 155 chars (hard limit), include the keyword once, main benefit, CTA.
+- suggestedDescription: this is the blog EXCERPT — plain text only, no HTML, 2-3 sentences, UK spelling. Use the keyword or a close variation once, written naturally. It is NEVER added to the body.
+- firstParagraph: the blog's opening BODY paragraph (plain text, no HTML, 2-4 sentences, British English). It must directly address the question behind "${keyword}" — raise the question and start answering it in a natural, engaging way. Use the main keyword ONCE only, naturally. Do NOT duplicate the quickAnswer wording. The merchant copies this and pastes it manually as the first paragraph of the blog.
 - quickAnswer: return the EXACT HTML structure shown — do not change any tags or styles, and never add borders, colour lines, wrapper divs or extra tags. Replace ONLY the bracketed text with a direct, factual 2-3 sentence answer to the search intent of "${keyword}", written in British English. The whole value must be one single <div> exactly as shown. It is placed in the body after the second intro paragraph (before any List of Contents, Key Takeaways, or first H2).
 - "MORE ABOUT" H2 RULE: If any H2 is "More about ..." (or similar) and contains an external authority link, NEVER flag it for removal or deletion. Keep the H2 and the external link exactly as they are. Use action "change" with exactAction that says to keep the heading and link, and replace ONLY the intro sentence with a single clean sentence of MAXIMUM 30 words describing what the reader will find at the linked source. Put that exact rewritten sentence inside exactAction. Banned words you must NOT use anywhere in that sentence: delve, explore, comprehensive, wealth of, dive into, invaluable, a range of, further insight.
 - h2Sections: for EVERY H2 that needs attention use action "change" with reason + exactAction; for new H2s use action "add" with content. Never use action "delete".
 - replacementText (on "change" items): return ONLY the exact final text the merchant should paste — no surrounding quotes, no "Rename to", no "Why", no instructions. For a rename it is the new heading text; for the "More about" rewrite it is the new intro sentence. If there is genuinely nothing to paste (e.g. the action is only to remove a tag), return an empty string.
-- BLOG BODY HTML: the "content" of every "add" section is destined for the blog body and MUST be complete, paste-ready HTML for the Shopify HTML editor. Rules: use <h2> for the section heading only (NEVER <strong> or <h3> as the title); the content must START with that <h2>; every paragraph in its own <p> tag; all links as <a href="..." title="..." target="_blank" rel="noopener">anchor text</a> (always include title, target and rel); NO plain text outside HTML tags; do NOT use <ul>, <li>, <br> or <div> unless the section genuinely needs a list; NO blank lines between tags; NO inline styles or classes. Each "add" paragraph should naturally include the target keyword, and may include 1-2 internal links to relevant AboutWallArt collections using the full anchor format above.
+- BLOG BODY HTML: the "content" of every "add" section is destined for the blog body and MUST be complete, paste-ready HTML for the Shopify HTML editor. Rules: use <h2> for the section heading only (NEVER <strong> or <h3> as the title); the content must START with that <h2>; every paragraph in its own <p> tag; all links as <a href="..." title="..." target="_blank" rel="noopener">anchor text</a> (always include title, target and rel); NO plain text outside HTML tags; do NOT use <ul>, <li>, <br> or <div> unless the section genuinely needs a list; NO blank lines between tags; NO inline styles or classes. Each "add" paragraph should read naturally — use the keyword or a related/secondary term only where it genuinely fits, never forced or repeated — and may include 1-2 internal links to relevant AboutWallArt collections using the full anchor format above.
 - peopleAlsoAsk: write 3-5 real questions people search about "${keyword}" with direct, helpful answers. Return BOTH forms:
   - "html": clean HTML for the blog body — a single <h2>Frequently Asked Questions About [topic]</h2> followed by one <p> per question where the question is wrapped in <strong> and the answer follows in the same <p>. NEVER add schema markup (no itemscope, no itemtype). No <ul>/<li>/<br>/<div>, no blank lines, no inline styles.
   - "metafield": plain text only (no HTML) for the people_also_ask_new metafield — each question as "**Q: ...?**" on its own line, the answer as "A: ..." on the next line (2-3 supporting sentences), with a blank line between pairs.
   - The two forms must contain the same questions but NEVER be combined.
 - SNIPPET METAFIELD HTML (aiItems): each aiItem "content" is pasted directly into its Shopify snippet metafield (How To Schema, Related Questions, Summary Block, Comparison Snippet). Format: <h2> for the section title only (never <strong> or <h3> as the title); a <p> starts immediately after the <h2> with NO blank line; every item of content in its own <p>; <strong> only for bold labels INSIDE a <p>; NEVER use <ul>, <li>, <br>, <div> or wrapper tags; NO blank lines between tags; NO inline styles or classes.
 - urlAnalysis: title changes are always safe (no redirect). Only recommend a slug change if the page has very few or zero clicks; if so, set slugChangeWarning.
-- otherActions: ONLY image filename/alt text optimisation tasks. NEVER include page speed, image compression, Core Web Vitals, canonical/OG/Twitter tags, meta robots, keyword density targets, schema, or anything already covered by h2Sections or aiItems. One sentence per action max.
+- otherActions: NEVER include image filename or alt-text tasks — the Image SEO tool handles all blog images separately. Return an EMPTY array unless there is a genuine NON-image action. NEVER include page speed, image compression, Core Web Vitals, canonical/OG/Twitter tags, meta robots, keyword density targets, schema, or anything already covered by h2Sections or aiItems. One sentence per action max.
 - WORD COUNT: never say "reduce word count to X" or "increase keyword density to X%" generically. If specific bloated content must go, name the EXACT paragraph opening words and why; otherwise do not mention word count or density at all.
 - loserPageLinks: ONLY include if loser pages are provided above. Unique natural sentence per loser page with a real HTML anchor to this page, plus a specific placement. If none provided, omit this field entirely.
 - Return ONLY the JSON object — no other text`;
