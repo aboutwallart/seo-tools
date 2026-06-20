@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 49.3</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 49.4</p>
                 </div>
             </div>
         </header>
@@ -1388,9 +1388,9 @@
 
             // Push to Shopify items
             const _isBlog = data.yourPage.shopifyType === 'article';
-            add('push_title', 'SEO Title pushed',        'push');
-            add('push_meta',  'Meta Description pushed', 'push');
-            add('push_desc',  _isBlog ? 'Excerpt pushed' : 'Page Description pushed', 'push');
+            add('push_title', 'SEO Title updated',        'push');
+            add('push_meta',  'Meta Description updated', 'push');
+            add('push_desc',  _isBlog ? 'Excerpt updated' : 'Page Description updated', 'push');
             if (_isBlog && s.firstParagraph) add('add_firstpara', 'First paragraph added to blog body', 'push');
 
             // Keyword over-use fixes (blogs) — one tick per flagged item
@@ -1474,7 +1474,7 @@
 
             const shopifyBlock = `
                 <div class="action-block" style="border-color:#1976d2;">
-                    <h3>📤 Push to Shopify</h3>
+                    <h3>✏️ SEO Fields — Copy &amp; Paste</h3>
                     <div style="margin-bottom:15px;">
                         ${['push_title','push_meta','push_desc', ...((_isBlog && s.firstParagraph) ? ['add_firstpara'] : [])].map(key => {
                             const it = allItems.find(i => i.key === key);
@@ -1510,14 +1510,9 @@
                         <textarea id="shopifyPageDescField" rows="4">${s.firstParagraph||''}</textarea>
                         <button class="copy-btn" type="button" style="margin-top:6px;" onclick="copyToClipboard(document.getElementById('shopifyPageDescField').value,this)">📋 Copy</button>
                     </div>` : ''}
+                    <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:10px 12px;font-size:0.82rem;color:#8a6d00;margin-bottom:10px;">📋 Copy each field above and paste it into Shopify by hand. (Direct push was removed — it could overwrite live content.)</div>
                     ${adminUrl ? `<div style="margin-bottom:10px;"><a href="${adminUrl}" target="_blank" style="color:#1976d2;font-size:0.85rem;">🔗 Open in Shopify Admin ↗</a></div>` : ''}
                     <div style="font-size:0.8rem;color:#999;margin-bottom:8px;word-break:break-all;">📄 ${pageUrl}</div>
-                    ${alreadyPushed
-                        ? '<button class="push-btn" id="pushShopifyBtn" disabled style="background:#4caf50;">✅ Already Pushed to Shopify</button>'
-                        : data.shopify
-                            ? '<button class="push-btn" id="pushShopifyBtn" onclick="pushToShopify()">📤 Push to Shopify</button>'
-                            : '<button class="push-btn" id="pushShopifyBtn" disabled>⚠️ Shopify data unavailable</button>'
-                    }
                 </div>`;
 
             // ── 2. Copy-Paste block ───────────────────────────────────────────
@@ -1623,6 +1618,7 @@
                     <h3>🤖 AI Optimisation — Copy-Paste Ready</h3>
                     ${s.aiItems.map((item, i) => {
                         const key = `ai_${i}`;
+                        const isScript = /^\s*<script/i.test(item.content);
                         const isHTML = item.content.includes('<');
                         return `
                         <div id="row_${key}" style="display:flex;align-items:flex-start;gap:10px;margin-bottom:15px;opacity:${state[key]?'0.45':'1'};">
@@ -1630,7 +1626,10 @@
                             <div style="flex:1;">
                                 <p style="font-size:0.85rem;color:#666;font-weight:600;margin-bottom:6px;${state[key]?'text-decoration:line-through;':''}" id="lbl_${key}">${item.priority ? `<span class="priority-tag priority-${item.priority}">${item.priority}</span> ` : ''}${item.element}</p>
                                 <div class="copy-block">
-                                    ${isHTML
+                                    ${isScript
+                                        ? `<pre id="aiItem${i}" style="white-space:pre-wrap;word-break:break-all;background:#f5f5f5;padding:10px;border-radius:6px;font-size:0.76rem;max-height:220px;overflow:auto;margin-bottom:8px;">${item.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
+                                           <button class="copy-btn" onclick="copyToClipboard(document.getElementById('aiItem${i}').textContent,this)">📋 Copy code</button>`
+                                        : isHTML
                                         ? `<div style="font-size:0.9rem;line-height:1.6;margin-bottom:8px;">${item.content}</div>
                                            <textarea id="aiItem${i}" style="display:none;">${item.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
                                            <button class="copy-btn" onclick="copyToClipboard(document.getElementById('aiItem${i}').value,this)">📋 Copy HTML</button>`
