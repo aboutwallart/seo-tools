@@ -1,7 +1,14 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v46.3
+// analyze-money-page.js — v46.4
+// v46.4 (June 20, 2026): Competitor-driven analysis — feeds FULL competitor data (pos 1-3:
+//                        title/meta/H1/H2/H3) and drives every add/replace/REMOVE from the
+//                        comparison; each h2Section/aiItem/internalLink carries
+//                        competitorDriven flag; h2Sections gains a "remove" action (body
+//                        content hurting SEO). H2 CASE fix (content headings natural case,
+//                        never forced caps). Item 7 old-template checks (SHOP HERE button,
+//                        YouTube embed, authority source) via templateChecks.
 // v46.3 (June 20, 2026): AI snippets — generate ALL that genuinely fit, not just one:
 //                        Related Questions + Summary Block always; Comparison Snippet only
 //                        with a real comparison; How-To Schema only for true step-by-step
@@ -810,6 +817,7 @@ async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = 
 // FAQ Schema and the Brand Block, so this prompt NEVER returns those. It also
 // protects the "More about" external authority link from removal.
 function buildBlogAnalysisPrompt(yourPage, competitors, keyword, userPosition = null, contentGaps = null, loserPages = []) {
+  const isOldTemplate = /ne-blog-posts|guest-post-template/i.test(yourPage.templateSuffix || '');
   const avgCompWordCount = competitors.length > 0
     ? Math.round(competitors.reduce((sum, c) => sum + c.wordCount, 0) / competitors.length) : 0;
   const avgCompKeywordDensity = competitors.length > 0
@@ -872,10 +880,16 @@ ${existingBodyText || 'None'}
 METAFIELD CONTENT:
 ${existingMetafields}
 
-COMPETITORS:
-${competitors.map(c => `Position ${c.position}: ${c.wordCount} words, ${c.keywordDensity}% density, H2s: ${c.h2.slice(0, 5).join(' | ') || 'none'}`).join('\n')}
+COMPETITORS — the pages outranking you (positions 1-3). Your job is to make THIS page beat them. Compare your FULL page against each:
+${competitors.map(c => `--- Position ${c.position}: ${c.url}
+  Title: ${c.title || 'N/A'}
+  Meta: ${c.metaDescription || 'N/A'}
+  H1: ${(c.h1||[]).join(' | ') || 'N/A'}
+  H2s: ${(c.h2||[]).join(' | ') || 'N/A'}
+  H3s: ${(c.h3||[]).join(' | ') || 'N/A'}
+  Word count: ${c.wordCount} | Keyword density: ${c.keywordDensity}%`).join('\n')}
 
-CONTENT GAPS:
+CONTENT GAPS (mechanical hints only — do your own richer comparison from the competitor data above):
 - Missing H2 sections: ${missingH2s}
 - Missing content elements: ${missingAI}
 
@@ -906,19 +920,28 @@ Return this exact JSON structure with real content (no placeholders):
       "heading": "Exact current H2 text as it appears on the page",
       "reason": "One sentence: why this H2 needs attention",
       "exactAction": "Precise instruction — e.g. 'Rename to [new text] and keep as H2' / 'Remove the H2 tag but keep the text as a regular paragraph'",
-      "replacementText": "ONLY the exact final text to paste — no quotes, no instructions. For a rename: the new heading text. For a 'More about' rewrite: the new intro sentence. Leave empty if the action has no text to paste (e.g. just removing a tag)."
+      "replacementText": "ONLY the exact final text to paste — no quotes, no instructions. For a rename: the new heading text. For a 'More about' rewrite: the new intro sentence. Leave empty if the action has no text to paste (e.g. just removing a tag).",
+      "competitorDriven": false
     },
     {
       "action": "add",
       "heading": "New H2 heading text (plain text, no tags)",
-      "content": "Complete paste-ready HTML for this new body section: an <h2> with the heading followed by one or more <p> paragraphs (each its own <p>). UK spelling. See the BLOG BODY HTML rule below for the exact format."
+      "content": "Complete paste-ready HTML for this new body section: an <h2> with the heading followed by one or more <p> paragraphs (each its own <p>). UK spelling. See the BLOG BODY HTML rule below for the exact format.",
+      "competitorDriven": true
+    },
+    {
+      "action": "remove",
+      "heading": "Exact current H2 / section text to remove",
+      "reason": "Why this section HURTS SEO (thin, off-topic, duplicate, keyword-diluting, or proven unnecessary vs competitors). Body content only — NEVER a global theme section.",
+      "competitorDriven": false
     }
   ],
   "aiItems": [
     {
       "element": "Related Questions",
       "priority": "high",
-      "content": "<h2>Related Questions About [topic]</h2><p><strong>Question?</strong> — direct answer</p><p><strong>Question?</strong> — direct answer</p>"
+      "content": "<h2>Related Questions About [topic]</h2><p><strong>Question?</strong> — direct answer</p><p><strong>Question?</strong> — direct answer</p>",
+      "competitorDriven": false
     },
     {
       "element": "Summary Block",
@@ -965,7 +988,8 @@ Return this exact JSON structure with real content (no placeholders):
       "mode": "replace OR new",
       "existingText": "if mode=replace: the EXACT sentence/paragraph already in the body to swap out. If mode=new: empty string.",
       "newText": "the EXACT paste-ready paragraph WITH the link already embedded as <a href=\\"[url]\\" title=\\"[title]\\" target=\\"_blank\\" rel=\\"noopener\\">[anchorText]</a>. For mode=replace this is existingText rewritten with the link; for mode=new a short natural new sentence/paragraph containing the link.",
-      "placement": "exactly where it goes — name the paragraph or section (shown outside the copy box)"
+      "placement": "exactly where it goes — name the paragraph or section (shown outside the copy box)",
+      "competitorDriven": false
     }
   ],
   "loserPageLinks": [
@@ -975,7 +999,24 @@ Return this exact JSON structure with real content (no placeholders):
       "suggestedSentence": "One natural sentence with <a href='[winnerUrl]'>[relevant anchor text]</a> that sounds like editorial content — unique per loser page, never a template",
       "placement": "Specific placement guidance — be specific, not 'at the end'"
     }
-  ]
+  ]${isOldTemplate ? `,
+  "templateChecks": [
+    {
+      "type": "shop_here",
+      "instruction": "Where/why to use the SHOP HERE button (e.g. replace a plain 'Click here'/'Shop Now' link).",
+      "content": "the EXACT SHOP HERE button HTML — see the OLD-TEMPLATE CHECKS rule"
+    },
+    {
+      "type": "youtube",
+      "instruction": "Whether a relevant video exists / should be embedded and where.",
+      "content": "the EXACT full-width YouTube embed HTML — or empty string if no suitable video"
+    },
+    {
+      "type": "authority_source",
+      "instruction": "Whether a reputable non-Wikipedia authority source is cited; if not, add one.",
+      "content": "one natural inline external link <a href ... title target rel>anchor</a> to a reputable non-competing source — or empty string if already present"
+    }
+  ]` : ''}
 }
 ${loserPages.length > 0 ? `
 LOSER PAGES THAT SHOULD LINK TO THIS PAGE:
@@ -983,6 +1024,8 @@ ${loserPages.map(l => `- ${l.loserUrl} (${l.pageType}, keyword: "${l.loserKeywor
 ` : ''}
 
 RULES:
+- COMPETITOR-DRIVEN ANALYSIS (the backbone of this whole audit): your goal is to make THIS page OUTRANK positions 1-3. Compare the full page against the competitor data above and silently answer: (1) what topics/questions/sections do they cover that this page is missing? (2) what would a customer want answered BEFORE buying that this page doesn't answer? (3) what makes their pages feel more complete or trustworthy? Then let those answers DRIVE your recommendations — what to ADD, REPLACE and REMOVE. Do NOT add a separate "how to outrank" section; instead fold the competitive reasoning into the normal outputs (h2Sections, aiItems, internalLinksToAdd, keywordOveruse, etc.). Still cover ALL standard SEO so nothing needed to rank is missed. Work ONLY from the competitor data provided above — NEVER invent competitor content you cannot see.
+- competitorDriven flag: on EVERY h2Sections item, aiItem and internalLinksToAdd item, include a boolean "competitorDriven" — true if the recommendation comes from the competitor comparison (e.g. a gap they cover that you don't, or a move that beats them), false if it is general SEO best practice. When true, the "reason"/"exactAction" must name the competitive rationale (e.g. "all 3 competitors cover X; this page doesn't").
 - This is a BLOG. The theme already renders Page Schema, FAQ Schema and the Brand Block. NEVER suggest, mention, or return any schema (FAQPage, Article, Product, Review, Breadcrumb, HowTo) or a brand/about block. Do not include pageSchema, faqSchema or brandBlock fields at all.
 - KEYWORD USAGE (no stuffing): use the EXACT main keyword "${keyword}" only where it matters most — the title, the first paragraph, and at most one or two headings. Everywhere else (meta, excerpt, body paragraphs, FAQ answers, snippets) write naturally for the reader using secondary keywords, natural variations and related terms. NEVER repeat the exact keyword over and over — Google does not reward exact-match repetition and treats stuffing as spam.
 - keywordOveruse: examine ALL of "EXISTING PAGE CONTENT" above (every heading, the full body text, and every metafield) and decide whether "${keyword}" is over-used. Over-use = the EXACT keyword repeated where a related/secondary term would read better, near-duplicate keyword-stuffed headings, or sentences that add no value beyond repeating the keyword. For EACH over-used spot return: where it lives (so the merchant can find it), the EXACT current text, recommendation "reword" (with the rewritten suggestedText using a related/secondary term) OR "remove" (suggestedText empty) when deleting it is the better SEO move. Give the precise replacement words — never a vague instruction.
@@ -994,8 +1037,8 @@ RULES:
 - firstParagraph: the blog's opening BODY paragraph (plain text, no HTML, 2-4 sentences, British English). It must directly address the question behind "${keyword}" — raise the question and start answering it in a natural, engaging way. Use the main keyword ONCE only, naturally. Do NOT duplicate the quickAnswer wording. The merchant copies this and pastes it manually as the first paragraph of the blog.
 - quickAnswer: return the EXACT HTML structure shown — do not change any tags or styles, and never add borders, colour lines, wrapper divs or extra tags. Replace ONLY the bracketed text with a direct, factual 2-3 sentence answer to the search intent of "${keyword}", written in British English. The whole value must be one single <div> exactly as shown. It is placed in the body after the second intro paragraph (before any List of Contents, Key Takeaways, or first H2).
 - "MORE ABOUT" H2 RULE: If any H2 is "More about ..." (or similar) and contains an external authority link, NEVER flag it for removal or deletion. Keep the H2 and the external link exactly as they are. Use action "change" with exactAction that says to keep the heading and link, and replace ONLY the intro sentence with a single clean sentence of MAXIMUM 30 words describing what the reader will find at the linked source. Put that exact rewritten sentence inside exactAction. Banned words you must NOT use anywhere in that sentence: delve, explore, comprehensive, wealth of, dive into, invaluable, a range of, further insight.
-- h2Sections: for EVERY H2 that needs attention use action "change" with reason + exactAction; for new H2s use action "add" with content. Never use action "delete".
-- H2 CAPS: this theme always displays H2 headings in ALL CAPS — that is intentional and correct. NEVER recommend changing an all-caps H2 to sentence case or "Title Case" for readability, and never give that as a reason. Any H2 heading text you output (the replacementText for a "change" rename AND the heading inside any "add" section's content) MUST be written in UPPERCASE to match the theme.
+- h2Sections: use action "change" (rename/retag, with reason + exactAction + replacementText), action "add" (new section, with content), or action "remove" (a body section/heading that HURTS SEO — thin, off-topic, duplicate, keyword-diluting, or proven unnecessary vs competitors — with a reason; body content ONLY, never a global theme section). Include "competitorDriven" on every item.
+- H2 CASE: H2 headings inside the blog BODY are CONTENT headings. Write every rename and every new heading in natural, readable case (sentence case or title case) — exactly as it should read. NEVER force body headings to ALL-CAPS, and NEVER suggest a rename whose only change is letter-casing or give "make it all-caps / sentence case" as a reason. (The all-caps look is a theme CSS style applied to theme sections only — it must NOT be baked into content headings.)
 - BEFORE suggesting any "add" section: check the EXISTING PAGE CONTENT above. NEVER suggest adding a section, heading or topic the page already covers (even if a competitor has it) — only add content that fills a genuine gap. Never suggest an addition whose main purpose is to repeat "${keyword}". Fixing over-use (keywordOveruse) and removing redundancy come first; new content is only for real gaps.
 - replacementText (on "change" items): return ONLY the exact final text the merchant should paste — no surrounding quotes, no "Rename to", no "Why", no instructions. For a rename it is the new heading text; for the "More about" rewrite it is the new intro sentence. If there is genuinely nothing to paste (e.g. the action is only to remove a tag), return an empty string.
 - BLOG BODY HTML: the "content" of every "add" section is destined for the blog body and MUST be complete, paste-ready HTML for the Shopify HTML editor. Rules: use <h2> for the section heading only (NEVER <strong> or <h3> as the title); the content must START with that <h2>; every paragraph in its own <p> tag; all links as <a href="..." title="..." target="_blank" rel="noopener">anchor text</a> (always include title, target and rel); NO plain text outside HTML tags; do NOT use <ul>, <li>, <br> or <div> unless the section genuinely needs a list; NO blank lines between tags; NO inline styles or classes. Each "add" paragraph should read naturally — use the keyword or a related/secondary term only where it genuinely fits, never forced or repeated — and may include 1-2 internal links to relevant AboutWallArt collections using the full anchor format above.
@@ -1014,7 +1057,11 @@ RULES:
 - otherActions: NEVER include image filename or alt-text tasks — the Image SEO tool handles all blog images separately. NEVER include internal-link tasks — those go in internalLinksToAdd. Return an EMPTY array unless there is a genuine NON-image, NON-link action. NEVER include page speed, image compression, Core Web Vitals, canonical/OG/Twitter tags, meta robots, keyword density targets, schema, or anything already covered by h2Sections or aiItems. One sentence per action max.
 - internalLinksToAdd: when this article should link OUT to a relevant AboutWallArt collection or page, put it here (NOT in otherActions). Give 1-2 links max. For each, output paste-ready text with the link ALREADY embedded (full <a href title target rel> format). PREFER mode "replace" — find a natural existing sentence in the body and return it in existingText plus the rewritten version with the link in newText. Only use mode "new" when there is no natural existing spot; then newText is a short new sentence. The anchor text must describe the destination and must NOT be a keyword owned by another page (no cannibalisation) and must NOT be this article's own main keyword. If there is no good internal-link opportunity, return an empty array.
 - WORD COUNT: never say "reduce word count to X" or "increase keyword density to X%" generically. If specific bloated content must go, name the EXACT paragraph opening words and why; otherwise do not mention word count or density at all.
-- loserPageLinks: ONLY include if loser pages are provided above. Unique natural sentence per loser page with a real HTML anchor to this page, plus a specific placement. If none provided, omit this field entirely.
+- loserPageLinks: ONLY include if loser pages are provided above. Unique natural sentence per loser page with a real HTML anchor to this page, plus a specific placement. If none provided, omit this field entirely.${isOldTemplate ? `
+- OLD-TEMPLATE CHECKS (this blog uses an older template, so the templateChecks field IS required):
+  - shop_here: if the body has plain "Click here"/"Shop Now"/"Buy now" product links, replace them with this EXACT button (fill [PRODUCT URL] and [PRODUCT TITLE]); also wrap the product image in the product URL. content MUST be exactly: <p style="text-align: center;"><a href="[PRODUCT URL]" title="[PRODUCT TITLE]" rel="noopener" target="_blank" style="display: inline-block; background-color: #000000; color: #ffffff; padding: 12px 28px; text-decoration: none; font-weight: bold; letter-spacing: 1px;">SHOP HERE</a></p>
+  - youtube: if a relevant video should be embedded, content MUST be exactly (fill [YOUTUBE URL], [VIDEO TITLE], [EMBED URL]): <p>WATCH: <a href="[YOUTUBE URL]" title="[VIDEO TITLE]" rel="noopener" target="_blank">[VIDEO TITLE]</a></p><iframe width="100%" height="415" src="[EMBED URL]" title="[VIDEO TITLE]" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>. If no suitable video, content is "".
+  - authority_source: if there is no reputable NON-Wikipedia authority source, add ONE natural inline external link to a reputable, non-competing source (full <a href title target="_blank" rel="noopener"> format). If one already exists, content is "".` : ''}
 - Return ONLY the JSON object — no other text`;
 }
 
