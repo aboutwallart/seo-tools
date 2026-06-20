@@ -1,4 +1,8 @@
-// shopify-files.js — v1.0
+// shopify-files.js — v1.1
+// v1.1 (June 20, 2026): New push-metafields action — writes one or more metafields by
+//                       namespace/key (upsert). Plain string for text fields; builds
+//                       Shopify rich-text JSON (keeping embedded links) for
+//                       rich_text_field. Powers the AI snippet pushes + over-use fixes.
 // v1.0 (June 18, 2026): Blog excerpt fix — for blog articles the Page Description
 //                       now writes to the excerpt (summary_html) ONLY, never the body.
 
@@ -539,6 +543,110 @@ module.exports = async function handler(req, res) {
     }
 
     return res.status(errors.length ? 207 : 200).json({ success: errors.length === 0, errors });
+  }
+
+  // -------------------------------------------------------
+  // PUSH METAFIELDS — write one or more metafields by namespace/key.
+  // Used by the AI snippet pushes (multi_line_text_field, plain string) and the
+  // keyword over-use fixes (incl. rich_text_field, where we build the JSON and
+  // KEEP any embedded link).
+  // -------------------------------------------------------
+  if (req.query.action === 'push-metafields' && req.method === 'POST') {
+    const { shopifyId, shopifyBlogId, shopifyType, metafields } = req.body;
+    if (!shopifyId || !shopifyType || !Array.isArray(metafields) || metafields.length === 0) {
+      return res.status(400).json({ error: 'Missing shopifyId, shopifyType or metafields' });
+    }
+
+    const shopifyHeaders = { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' };
+    const base = `https://${shopifyDomain}/admin/api/2025-01`;
+    const typeMap = {
+      product:           { path: `products/${shopifyId}` },
+      custom_collection: { path: `custom_collections/${shopifyId}` },
+      smart_collection:  { path: `smart_collections/${shopifyId}` },
+      page:              { path: `pages/${shopifyId}` },
+      article:           { path: `blogs/${shopifyBlogId}/articles/${shopifyId}` }
+    };
+    const resource = typeMap[shopifyType];
+    if (!resource) return res.status(400).json({ error: `Unknown shopifyType: ${shopifyType}` });
+
+    // Build Shopify rich-text JSON from a small HTML subset (<p>, <strong>/<b>, <a>,
+    // plain text). Keeps links intact — used for rich_text_field metafields.
+    function htmlToRichText(html) {
+      const decode = s => s.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
+      const pMatches = html.match(/<p[^>]*>[\s\S]*?<\/p>/gi);
+      let blocks = (pMatches && pMatches.length)
+        ? pMatches.map(p => p.replace(/^<p[^>]*>/i,'').replace(/<\/p>$/i,''))
+        : [html];
+      function parseInline(str) {
+        const nodes = [];
+        const pushText = (chunk) => { const t = decode(chunk.replace(/<[^>]+>/g,'')); if (t) nodes.push({ type:'text', value:t }); };
+        const re = /(<a\b[^>]*>[\s\S]*?<\/a>)|(<(?:strong|b)\b[^>]*>[\s\S]*?<\/(?:strong|b)>)/gi;
+        let last = 0, m;
+        while ((m = re.exec(str)) !== null) {
+          if (m.index > last) pushText(str.slice(last, m.index));
+          if (m[1]) {
+            const tag = m[1];
+            const url    = (tag.match(/href=["']([^"']*)["']/i)||[])[1] || '';
+            const title  = (tag.match(/title=["']([^"']*)["']/i)||[])[1] || null;
+            const target = (tag.match(/target=["']([^"']*)["']/i)||[])[1] || '_blank';
+            const innerTxt = tag.replace(/^<a\b[^>]*>/i,'').replace(/<\/a>$/i,'');
+            const boldInner = /<(?:strong|b)\b/i.test(innerTxt);
+            const textVal = decode(innerTxt.replace(/<[^>]+>/g,'')).trim();
+            nodes.push({ type:'link', url, title, target, children:[ boldInner ? { type:'text', value:textVal, bold:true } : { type:'text', value:textVal } ] });
+          } else if (m[2]) {
+            const t = decode(m[2].replace(/<[^>]+>/g,''));
+            if (t) nodes.push({ type:'text', value:t, bold:true });
+          }
+          last = re.lastIndex;
+        }
+        if (last < str.length) pushText(str.slice(last));
+        return nodes;
+      }
+      const children = blocks.map(inner => ({ type:'paragraph', children: parseInline(inner) })).filter(b => b.children.length);
+      return JSON.stringify({ type:'root', children: children.length ? children : [{ type:'paragraph', children:[{ type:'text', value:'' }] }] });
+    }
+
+    // Fetch all existing metafields once to find IDs for upsert.
+    let existingMeta = [];
+    try {
+      const r = await fetch(`${base}/${resource.path}/metafields.json`, { headers: shopifyHeaders });
+      const d = await r.json();
+      existingMeta = d.metafields || [];
+    } catch (err) { /* fall through; will create */ }
+
+    const results = [];
+    for (const mf of metafields) {
+      const namespace = mf.namespace || 'custom';
+      const key  = mf.key;
+      const type = mf.type || 'multi_line_text_field';
+      let value  = (mf.value == null) ? '' : String(mf.value);
+      if (!key)         { results.push({ key, ok:false, error:'missing key' }); continue; }
+      if (!value.trim()){ results.push({ key, ok:false, error:'empty value' }); continue; }
+      if (type === 'rich_text_field') {
+        try { value = htmlToRichText(value); }
+        catch (e) { results.push({ key, ok:false, error:'rich-text convert failed' }); continue; }
+      }
+      try {
+        const existing = existingMeta.find(m => m.namespace === namespace && m.key === key);
+        let r;
+        if (existing) {
+          r = await fetch(`${base}/metafields/${existing.id}.json`, {
+            method:'PUT', headers: shopifyHeaders,
+            body: JSON.stringify({ metafield: { id: existing.id, value } })
+          });
+        } else {
+          r = await fetch(`${base}/${resource.path}/metafields.json`, {
+            method:'POST', headers: shopifyHeaders,
+            body: JSON.stringify({ metafield: { namespace, key, value, type } })
+          });
+        }
+        if (r.ok) results.push({ key, ok:true });
+        else { const e = await r.json().catch(()=>({})); results.push({ key, ok:false, error: JSON.stringify(e.errors || r.statusText) }); }
+      } catch (err) { results.push({ key, ok:false, error: err.message }); }
+    }
+
+    const allOk = results.every(r => r.ok);
+    return res.status(allOk ? 200 : 207).json({ success: allOk, results });
   }
 
   // -------------------------------------------------------
