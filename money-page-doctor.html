@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 48.8</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 48.9</p>
                 </div>
             </div>
         </header>
@@ -1666,7 +1666,7 @@
                             `}
                             <div style="display:flex;gap:8px;margin-top:8px;">
                                 <button class="copy-btn" onclick="${(data.yourPage.shopifyType === 'article') ? `copyFormatted('loserSentence${i}',this)` : `copyToClipboard(document.getElementById('loserSentence${i}').value,this)`}">📋 ${(data.yourPage.shopifyType === 'article') ? 'Copy for body' : 'Copy'}</button>
-                                <a id="loserAdminBtn_${i}" href="${fallbackAdminUrl}" target="_blank" style="display:inline-flex;align-items:center;background:#1a1a1a;color:white;padding:6px 14px;border-radius:4px;font-size:0.8rem;text-decoration:none;">🔗 Open in Shopify Admin</a>
+                                <a id="loserAdminBtn_${i}" href="${link.adminUrl || fallbackAdminUrl}" target="_blank" style="display:inline-flex;align-items:center;background:#1a1a1a;color:white;padding:6px 14px;border-radius:4px;font-size:0.8rem;text-decoration:none;">🔗 Open in Shopify Admin</a>
                             </div>
                         </div>`;
                     }).join('')}
