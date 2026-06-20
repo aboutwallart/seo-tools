@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 49.6</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 49.7</p>
                 </div>
             </div>
         </header>
@@ -1408,6 +1408,9 @@
             // Related-blog links (links INTO this page from related older blogs)
             (s.relatedBlogLinks || []).forEach((l, i) => add(`relblog_${i}`, `Link added from: ${l.sourceTitle || l.sourceUrl}`, 'relblog'));
 
+            // Inactive product links found in the body (data-level, not from the AI)
+            (data.inactiveProducts || []).forEach((p, i) => add(`inactiveprod_${i}`, `Inactive product link fixed: ${p.title}`, 'inactiveprod'));
+
             // Copy-paste items
             if (s.pageSchema) add('schema_page',  'Page Schema — pasted into Custom Liquid',  'copy');
             if (s.faqSchema)  add('schema_faq',   'FAQ Schema — pasted into Custom Liquid',   'copy');
@@ -1840,6 +1843,33 @@
                     }).join('')}
                 </div>` : '';
 
+            // ── Inactive product links block ──────────────────────────────────
+            const inactiveProductsBlock = (data.inactiveProducts && data.inactiveProducts.length > 0) ? `
+                <div class="action-block" style="border-color:#d32f2f;">
+                    <h3>⚠️ Inactive Product Links</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">These products are linked in the blog body but are no longer active — remove or replace each link so readers don't hit a dead/unavailable product.</p>
+                    ${data.inactiveProducts.map((p, i) => {
+                        const key = `inactiveprod_${i}`;
+                        const it  = allItems.find(x => x.key === key);
+                        const title = (p.title || p.handle || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        const url   = (p.url || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        const status = (p.status || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        return `
+                        <div id="row_${key}" style="padding:14px;background:#fff5f5;border:1px solid #f0c0c0;border-radius:6px;margin-bottom:10px;opacity:${state[key]?'0.45':'1'};">
+                            <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:6px;">
+                                ${it ? cb(it) : ''}
+                                <div>
+                                    <strong style="font-size:0.88rem;color:#c0392b;${state[key]?'text-decoration:line-through;':''}">${title}</strong>
+                                    <span style="display:inline-block;background:#fdecea;color:#c0392b;font-size:0.7rem;font-weight:600;padding:1px 6px;border-radius:4px;margin-left:6px;">${status}</span>
+                                </div>
+                            </div>
+                            <div style="font-size:0.8rem;color:#777;word-break:break-all;margin-bottom:8px;">🔗 ${url}</div>
+                            <div style="font-size:0.83rem;color:#555;margin-bottom:8px;">Remove or replace this link in the blog body.</div>
+                            ${p.adminUrl ? `<a href="${p.adminUrl}" target="_blank" style="display:inline-flex;align-items:center;background:#1a1a1a;color:white;padding:6px 14px;border-radius:4px;font-size:0.8rem;text-decoration:none;">🔗 Open product in Admin</a>` : ''}
+                        </div>`;
+                    }).join('')}
+                </div>` : '';
+
             // ── 6. Auto-link rule block ───────────────────────────────────────
             const autolinkItem = allItems.find(it => it.key === 'autolink');
             const urlPath = (() => { try { return new URL(pageUrl).pathname; } catch(e) { return pageUrl; } })();
@@ -1900,7 +1930,7 @@
                     </div>
                 </div>`;
 
-            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + aiBlock + paaBlock + loserLinksBlock + relatedBlogsBlock + internalAddBlock + manualBlock + internalAddBlockTmpl + imageBlock + autolinkBlock + reindexBlock;
+            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + aiBlock + paaBlock + loserLinksBlock + relatedBlogsBlock + internalAddBlock + manualBlock + inactiveProductsBlock + internalAddBlockTmpl + imageBlock + autolinkBlock + reindexBlock;
         }
 
         function formatMarkdown(text) {
