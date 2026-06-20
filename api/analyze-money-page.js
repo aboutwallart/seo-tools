@@ -1,7 +1,13 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v46.5
+// analyze-money-page.js — v46.6
+// v46.6 (June 20, 2026): (a) CONCRETE placement — related blogs now include a section
+//                        outline so the link placement names the exact section + paragraph
+//                        position (also applies to internalLinksToAdd). (b) Item 2 —
+//                        inactive-product-link check: scans the blog body for product links
+//                        and flags any that are draft/archived/removed (inactiveProducts).
+// v46.5 (June 20, 2026): Item 6 — related-blog internal links.
 // v46.5 (June 20, 2026): Item 6 — related-blog internal links. Picks 3 related OLDER blogs
 //                        by shared TAGS (rare/specific tags weighted via IDF, broad ones
 //                        down-weighted; older preferred = already crawled). Anchor MUST be
@@ -169,6 +175,12 @@ module.exports = async function handler(req, res) {
     const relatedBlogs = await getRelatedBlogLinks(yourPageData, keyword);
     console.log(`[Money Page] Found ${relatedBlogs.length} related older blogs for internal linking`);
 
+    // Step 4.7: scan blog body for inactive product links
+    let pageOrigin = ''; try { pageOrigin = new URL(pageUrl).origin; } catch { pageOrigin = ''; }
+    const inactiveProducts = (yourPageData.shopifyType === 'article')
+      ? await findInactiveProductLinks(yourPageData.shopifyBodyHtml, pageOrigin) : [];
+    console.log(`[Money Page] Found ${inactiveProducts.length} inactive product links`);
+
     // Step 5: Get Claude analysis
     console.log('[Money Page] Step 5: Getting AI recommendations... (~20 sec)');
     const analysis = await getClaudeAnalysis(yourPageData, competitorData, keyword, searchResults.userPosition, contentGaps, loserPages, relatedBlogs);
@@ -202,6 +214,7 @@ module.exports = async function handler(req, res) {
       competitors: competitorData,
       contentGaps: contentGaps,
       analysis: analysis,
+      inactiveProducts: inactiveProducts,
       bodyImages: buildImageList(shopifyContent),
       shopify: shopifyContent ? {
         id:      shopifyContent.shopifyId,
@@ -1055,8 +1068,10 @@ LOSER PAGES THAT SHOULD LINK TO THIS PAGE:
 ${loserPages.map(l => `- ${l.loserUrl} (${l.pageType}, keyword: "${l.loserKeyword}")`).join('\n')}
 ` : ''}
 ${relatedBlogs.length > 0 ? `
-RELATED OLDER BLOGS TO LINK FROM (add one link from EACH into this page; anchor MUST be the main keyword "${keyword}"):
-${relatedBlogs.map(b => `- ${b.url} | "${b.title}" | keyword present: ${b.keywordPresent ? 'YES' : 'no'}${b.keywordPresent && b.sentence ? ` | sentence: "${b.sentence}"` : ''}`).join('\n')}
+RELATED OLDER BLOGS TO LINK FROM (add one link from EACH into this page; anchor MUST be the main keyword "${keyword}"). Each blog's OUTLINE is given (## = H2 section, # = H3, ¶N = paragraph N within the current section) — use it to give a CONCRETE placement:
+${relatedBlogs.map(b => `--- ${b.url} | "${b.title}" | keyword present: ${b.keywordPresent ? 'YES' : 'no'}${b.keywordPresent && b.sentence ? ` | sentence: "${b.sentence}"` : ''}
+OUTLINE:
+${b.outline || '(no outline available)'}`).join('\n')}
 ` : ''}
 
 RULES:
@@ -1094,7 +1109,8 @@ RULES:
 - internalLinksToAdd: when this article should link OUT to a relevant AboutWallArt collection or page, put it here (NOT in otherActions). Give 1-2 links max. For each, output paste-ready text with the link ALREADY embedded (full <a href title target rel> format). PREFER mode "replace" — find a natural existing sentence in the body and return it in existingText plus the rewritten version with the link in newText. Only use mode "new" when there is no natural existing spot; then newText is a short new sentence. The anchor text must describe the destination and must NOT be a keyword owned by another page (no cannibalisation) and must NOT be this article's own main keyword. If there is no good internal-link opportunity, return an empty array.
 - WORD COUNT: never say "reduce word count to X" or "increase keyword density to X%" generically. If specific bloated content must go, name the EXACT paragraph opening words and why; otherwise do not mention word count or density at all.
 - loserPageLinks: ONLY include if loser pages are provided above. Unique natural sentence per loser page with a real HTML anchor to this page, plus a specific placement. If none provided, omit this field entirely.
-- relatedBlogLinks: for EACH blog in "RELATED OLDER BLOGS TO LINK FROM", produce one link FROM that blog INTO this page. The anchor text MUST be this page's exact main keyword "${keyword}" (NEVER a variation). If "keyword present: YES", use mode "replace" and wrap the keyword in that blog's given sentence as the link. If not present, use mode "new" with a short natural sentence/CTA that uses "${keyword}" as the anchor. The link URL is always ${yourPage.url}. One item per related blog. If no related blogs are listed above, omit this field entirely.${isOldTemplate ? `
+- relatedBlogLinks: for EACH blog in "RELATED OLDER BLOGS TO LINK FROM", produce one link FROM that blog INTO this page. The anchor text MUST be this page's exact main keyword "${keyword}" (NEVER a variation). If "keyword present: YES", use mode "replace" and wrap the keyword in that blog's given sentence as the link. If not present, use mode "new" with a short natural sentence/CTA that uses "${keyword}" as the anchor. The link URL is always ${yourPage.url}. One item per related blog. If no related blogs are listed above, omit this field entirely.
+- PLACEMENT MUST BE CONCRETE (relatedBlogLinks AND internalLinksToAdd): never say "after the first major section" or other vague guidance. Use the blog's OUTLINE to name the EXACT spot — the section heading plus the exact position, e.g. "In the section 'How To Find Your Perfect Home Decor Styles', between paragraph 1 and paragraph 2" or "Immediately after the paragraph that starts 'When choosing…'". The merchant must be able to find the spot without thinking.${isOldTemplate ? `
 - OLD-TEMPLATE CHECKS (this blog uses an older template, so the templateChecks field IS required):
   - shop_here: if the body has plain "Click here"/"Shop Now"/"Buy now" product links, replace them with this EXACT button (fill [PRODUCT URL] and [PRODUCT TITLE]); also wrap the product image in the product URL. content MUST be exactly: <p style="text-align: center;"><a href="[PRODUCT URL]" title="[PRODUCT TITLE]" rel="noopener" target="_blank" style="display: inline-block; background-color: #000000; color: #ffffff; padding: 12px 28px; text-decoration: none; font-weight: bold; letter-spacing: 1px;">SHOP HERE</a></p>
   - youtube: if a relevant video should be embedded, content MUST be exactly (fill [YOUTUBE URL], [VIDEO TITLE], [EMBED URL]): <p>WATCH: <a href="[YOUTUBE URL]" title="[VIDEO TITLE]" rel="noopener" target="_blank">[VIDEO TITLE]</a></p><iframe width="100%" height="415" src="[EMBED URL]" title="[VIDEO TITLE]" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>. If no suitable video, content is "".
@@ -1447,7 +1463,7 @@ function pickRelatedBlogs(currentUrl, currentTags, allArticles, n = 3) {
 async function enrichRelatedBlogs(related, keyword) {
   const kw = (keyword || '').toLowerCase();
   await Promise.all(related.map(async (b) => {
-    b.keywordPresent = false; b.sentence = '';
+    b.keywordPresent = false; b.sentence = ''; b.outline = '';
     try {
       const handle = b.url.split('/').filter(Boolean).pop();
       const data = await shopifyGraphQL(`{ articles(first:1, query:"handle:${handle}") { edges { node { body } } } }`);
@@ -1458,6 +1474,18 @@ async function enrichRelatedBlogs(related, keyword) {
         const sentences = text.split(/(?<=[.!?])\s+/);
         b.sentence = (sentences.find(s => s.toLowerCase().includes(kw)) || '').substring(0, 300);
       }
+      // Compact ordered outline so the AI can give a CONCRETE placement (which section /
+      // between which paragraphs). H2/H3 as headings, paragraphs as their opening words.
+      const parts = body.match(/<(h2|h3|p)[^>]*>[\s\S]*?<\/\1>/gi) || [];
+      let pIdx = 0;
+      b.outline = parts.map(tag => {
+        const t = tag.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        if (!t) return '';
+        if (/^<h2/i.test(tag)) { pIdx = 0; return `## ${t}`; }
+        if (/^<h3/i.test(tag)) { return `# ${t}`; }
+        pIdx++;
+        return `  ¶${pIdx}: ${t.split(' ').slice(0, 10).join(' ')}…`;
+      }).filter(Boolean).join('\n').substring(0, 1800);
     } catch { /* leave defaults */ }
   }));
   return related;
@@ -1473,6 +1501,36 @@ async function getRelatedBlogLinks(yourPage, keyword) {
     return await enrichRelatedBlogs(related, keyword);
   } catch (e) {
     console.warn('[Related Blogs] failed:', e.message);
+    return [];
+  }
+}
+
+// Scan the blog body for product links and flag any that are NOT active (draft, archived,
+// or removed) so the merchant can remove/replace a dead link.
+async function findInactiveProductLinks(bodyHtml, origin) {
+  try {
+    if (!bodyHtml) return [];
+    const hrefs = (bodyHtml.match(/href=["'][^"']*\/products\/[^"'?#]+/gi) || []);
+    const handles = [...new Set(hrefs.map(h => {
+      const m = h.match(/\/products\/([^/?#"']+)/i); return m ? m[1].toLowerCase() : null;
+    }).filter(Boolean))];
+    if (!handles.length) return [];
+    const results = await Promise.all(handles.map(async (handle) => {
+      try {
+        const data = await shopifyGraphQL(`{ products(first:1, query:"handle:${handle}") { edges { node { id title status } } } }`);
+        const node = data && data.products && data.products.edges[0] && data.products.edges[0].node;
+        const url = `${origin}/products/${handle}`;
+        if (!node) return { handle, url, title: handle, status: 'NOT FOUND', adminUrl: null };
+        if (node.status && node.status.toUpperCase() !== 'ACTIVE') {
+          const idNum = (node.id || '').split('/').pop();
+          return { handle, url, title: node.title, status: node.status, adminUrl: idNum ? `https://admin.shopify.com/store/${STORE_HANDLE}/products/${idNum}` : null };
+        }
+        return null;                                  // active → fine
+      } catch { return null; }
+    }));
+    return results.filter(Boolean);
+  } catch (e) {
+    console.warn('[Inactive Products] failed:', e.message);
     return [];
   }
 }
