@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 49.2</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 49.3</p>
                 </div>
             </div>
         </header>
@@ -1637,10 +1637,12 @@
                                         : `<pre id="aiItem${i}">${item.content}</pre>
                                            <button class="copy-btn" onclick="copyToClipboard(document.getElementById('aiItem${i}').textContent,this)">📋 Copy</button>`
                                     }
+                                    ${snippetKeyForElement(item.element) ? `<button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" data-snippet-key="${snippetKeyForElement(item.element)}" data-snippet-src="aiItem${i}" onclick="pushSnippet('${snippetKeyForElement(item.element)}','aiItem${i}',this)">📤 Push to Shopify</button>` : ''}
                                 </div>
                             </div>
                         </div>`;
                     }).join('')}
+                    ${s.aiItems.some(it => snippetKeyForElement(it.element)) || (s.peopleAlsoAsk && s.peopleAlsoAsk.metafield) ? `<button class="push-btn" type="button" style="margin-top:8px;" onclick="pushAllSnippets(this)">📤 Push all snippets to Shopify</button>` : ''}
                 </div>` : '';
 
             // ── 4. Manual actions block ───────────────────────────────────────
@@ -1685,6 +1687,7 @@
                         <div class="copy-block">
                             <textarea id="paaMeta" style="width:100%;min-height:120px;padding:9px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.82rem;font-family:'Poppins',sans-serif;">${s.peopleAlsoAsk.metafield}</textarea>
                             <button class="copy-btn" onclick="copyToClipboard(document.getElementById('paaMeta').value,this)">📋 Copy plain text</button>
+                            <button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" data-snippet-key="people_also_ask_new" data-snippet-src="paaMeta" onclick="pushSnippet('people_also_ask_new','paaMeta',this)">📤 Push to Shopify</button>
                         </div>
                     </div>` : ''}
                     ${s.peopleAlsoAsk.html ? `
@@ -1964,6 +1967,61 @@
                 statusEl.style.color = '#dc2626';
                 statusEl.textContent = `❌ Failed: ${err.message}`;
             }
+        }
+
+        // Map an AI snippet element name to its Shopify metafield key (all multi_line_text_field).
+        function snippetKeyForElement(el) {
+            const e = (el || '').toLowerCase();
+            if (/comparison/.test(e))        return 'ai_comparison_snippet';
+            if (/summary/.test(e))           return 'ai_summary_block';
+            if (/related\s*question/.test(e))return 'ai_related_questions';
+            if (/how.?to/.test(e))           return 'ai_how_to_schema_markup';
+            return null;
+        }
+
+        // Push one or more metafields to Shopify (write directly).
+        async function pushMetafields(items, btn) {
+            const sd = currentResults?.shopify;
+            if (!sd?.id) { alert('Shopify data not available for this page.'); return; }
+            if (!items.length) { alert('Nothing to push.'); return; }
+            const orig = btn.textContent;
+            btn.disabled = true; btn.textContent = '⏳ Pushing…';
+            try {
+                const res = await fetch('/api/shopify-files?action=push-metafields', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shopifyId: sd.id, shopifyBlogId: sd.blogId, shopifyType: sd.type, metafields: items })
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    const failed = (data.results || []).filter(r => !r.ok).map(r => `${r.key}: ${r.error}`).join('; ');
+                    throw new Error(failed || 'Push failed');
+                }
+                btn.textContent = '✅ Pushed'; btn.style.background = '#4caf50';
+            } catch (err) {
+                btn.disabled = false; btn.textContent = orig;
+                alert(`Push failed: ${err.message}`);
+            }
+        }
+
+        // Push a single snippet metafield (reads raw value from a textarea/pre by id).
+        function pushSnippet(key, elId, btn) {
+            const el = document.getElementById(elId);
+            const val = el ? (el.value !== undefined ? el.value : el.textContent) : '';
+            return pushMetafields([{ namespace: 'custom', key, type: 'multi_line_text_field', value: val }], btn);
+        }
+
+        // Push every snippet currently on the page in one go.
+        function pushAllSnippets(btn) {
+            const items = [];
+            document.querySelectorAll('button[data-snippet-key]').forEach(b => {
+                const key = b.getAttribute('data-snippet-key');
+                const src = document.getElementById(b.getAttribute('data-snippet-src'));
+                const val = src ? (src.value !== undefined ? src.value : src.textContent) : '';
+                if (val && val.trim() && !items.some(it => it.key === key)) {
+                    items.push({ namespace: 'custom', key, type: 'multi_line_text_field', value: val });
+                }
+            });
+            return pushMetafields(items, btn);
         }
 
         async function pushToShopify() {
