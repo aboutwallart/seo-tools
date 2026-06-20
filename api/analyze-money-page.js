@@ -1,7 +1,13 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v45.9
+// analyze-money-page.js — v46.0
+// v46.0 (June 20, 2026): Blog keyword over-use check — pulls ALL article metafields +
+//                        full body + every live-page heading (incl. theme/custom-Liquid
+//                        sections), then returns keywordOveruse findings (exact current
+//                        text + reword-to-X or remove, per spot). Excludes global/shared
+//                        theme chrome. "Add" sections now must respect existing content
+//                        (no duplicates, no keyword-padding) before suggesting more.
 // v45.9 (June 20, 2026): Blog quick fixes — (1) new firstParagraph field: an optimised
 //                        opening body paragraph that directly addresses the keyword's
 //                        question (copy-only, pasted manually); (2) blogs no longer
@@ -81,6 +87,10 @@ module.exports = async function handler(req, res) {
       yourPageData.shopifySeoDesc  = shopifyContent.seoDescription;
       yourPageData.shopifyBodyHtml = shopifyContent.bodyHtml;
       yourPageData.templateSuffix  = shopifyContent.templateSuffix || '';
+      yourPageData.metafields      = shopifyContent.metafields || [];
+      // Keep the FULL live-page headings (whole rendered page, incl. theme/custom-Liquid
+      // sections) for the keyword over-use check, BEFORE the body-only override below.
+      yourPageData.liveHeadings = { h1: [...yourPageData.h1], h2: [...yourPageData.h2], h3: [...yourPageData.h3] };
       // Prefer Shopify SEO fields over scraped values when available
       if (shopifyContent.seoTitle)       yourPageData.title           = shopifyContent.seoTitle;
       if (shopifyContent.seoDescription) yourPageData.metaDescription = shopifyContent.seoDescription;
@@ -792,6 +802,22 @@ function buildBlogAnalysisPrompt(yourPage, competitors, keyword, userPosition = 
     ? yourPage.shopifyBodyHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 600)
     : '';
 
+  // ── EXISTING PAGE CONTENT for the keyword over-use check ──────────────────
+  // Full body text (not just the opening), all headings from the live rendered
+  // page (incl. theme/custom-Liquid sections), and every text metafield.
+  const lh = yourPage.liveHeadings || { h1: yourPage.h1, h2: yourPage.h2, h3: yourPage.h3 };
+  const existingHeadings = [
+    ...(lh.h1 || []).map(h => `H1: ${h}`),
+    ...(lh.h2 || []).map(h => `H2: ${h}`),
+    ...(lh.h3 || []).map(h => `H3: ${h}`)
+  ].join('\n') || 'None found';
+  const existingBodyText = yourPage.shopifyBodyHtml
+    ? yourPage.shopifyBodyHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 5000)
+    : '';
+  const existingMetafields = (yourPage.metafields || []).length > 0
+    ? yourPage.metafields.map(m => `[${m.key}] ${m.text}`).join('\n')
+    : 'None';
+
   const missingH2s = contentGaps?.missingH2s?.length > 0
     ? contentGaps.missingH2s.map(h => `"${h.text}"`).join(', ') : 'None';
   // Blogs: drop schema/brand gaps — the theme handles those
@@ -814,6 +840,16 @@ CONTEXT:
 - Keyword density: ${yourPage.keywordDensity}% (competitor avg: ${avgCompKeywordDensity}%)
 ${currentDesc ? `- Current body opening: ${currentDesc}` : ''}
 
+EXISTING PAGE CONTENT (use this for the keywordOveruse check AND to avoid suggesting content that already exists):
+ALL HEADINGS ON THE PAGE (live, includes theme/custom-Liquid sections):
+${existingHeadings}
+
+FULL BODY TEXT:
+${existingBodyText || 'None'}
+
+METAFIELD CONTENT:
+${existingMetafields}
+
 COMPETITORS:
 ${competitors.map(c => `Position ${c.position}: ${c.wordCount} words, ${c.keywordDensity}% density, H2s: ${c.h2.slice(0, 5).join(' | ') || 'none'}`).join('\n')}
 
@@ -829,6 +865,19 @@ Return this exact JSON structure with real content (no placeholders):
   "suggestedDescription": "2-3 sentences for the blog EXCERPT field (the short summary, NOT the body). Uses the keyword or a close variation once, written naturally. AboutWallArt brand voice. UK spelling. No HTML tags.",
   "firstParagraph": "The optimised opening paragraph for the blog BODY (plain text, no HTML). It directly addresses the question behind \\"${keyword}\\" — raise the question and begin answering it in a natural, engaging way. 2-4 sentences. Uses the main keyword once, naturally. British English. Must NOT duplicate the quickAnswer wording.",
   "quickAnswer": "<div style=\\"background:#f9f9f9;padding:16px 20px;margin-bottom:24px;\\"><strong>Quick Answer:</strong> [2-3 sentence direct factual answer in British English]</div>",
+  "keywordOveruse": {
+    "isOverstuffed": true,
+    "summary": "One plain-English sentence — e.g. 'You use \\"${keyword}\\" 12 times; about 5 are unnatural repetition that should be reworded or removed.'",
+    "findings": [
+      {
+        "location": "H2 | H3 | paragraph | metafield: <key> — say where it lives so the merchant can find it",
+        "currentText": "the EXACT current heading or sentence as it appears on the page",
+        "recommendation": "reword OR remove",
+        "suggestedText": "if reword: the rewritten text using a related/secondary term instead of repeating \\"${keyword}\\". If remove: empty string.",
+        "reason": "one short sentence on why this is over-use"
+      }
+    ]
+  },
   "h2Sections": [
     {
       "action": "change",
@@ -889,6 +938,9 @@ ${loserPages.map(l => `- ${l.loserUrl} (${l.pageType}, keyword: "${l.loserKeywor
 RULES:
 - This is a BLOG. The theme already renders Page Schema, FAQ Schema and the Brand Block. NEVER suggest, mention, or return any schema (FAQPage, Article, Product, Review, Breadcrumb, HowTo) or a brand/about block. Do not include pageSchema, faqSchema or brandBlock fields at all.
 - KEYWORD USAGE (no stuffing): use the EXACT main keyword "${keyword}" only where it matters most — the title, the first paragraph, and at most one or two headings. Everywhere else (meta, excerpt, body paragraphs, FAQ answers, snippets) write naturally for the reader using secondary keywords, natural variations and related terms. NEVER repeat the exact keyword over and over — Google does not reward exact-match repetition and treats stuffing as spam.
+- keywordOveruse: examine ALL of "EXISTING PAGE CONTENT" above (every heading, the full body text, and every metafield) and decide whether "${keyword}" is over-used. Over-use = the EXACT keyword repeated where a related/secondary term would read better, near-duplicate keyword-stuffed headings, or sentences that add no value beyond repeating the keyword. For EACH over-used spot return: where it lives (so the merchant can find it), the EXACT current text, recommendation "reword" (with the rewritten suggestedText using a related/secondary term) OR "remove" (suggestedText empty) when deleting it is the better SEO move. Give the precise replacement words — never a vague instruction.
+  - EXCLUDE GLOBAL/SHARED SECTIONS: NEVER report anything from site-wide navigation, menus, breadcrumbs, footer, cookie/consent notices, search, account, newsletter sign-up, "related posts", "recently viewed", or any section that is identical across every page and cannot be edited on this single page. The merchant only wants spots they can actually change on THIS page (its body, its metafields, its own page-specific sections). If a heading looks like shared theme chrome, leave it out entirely.
+  - A single, natural use of the keyword is FINE — only flag genuine over-use, not every mention. If the page is not over-stuffed, return "isOverstuffed": false with an empty "findings" array.
 - suggestedTitle: max 60 chars (hard limit), keyword near start.
 - suggestedMeta: max 155 chars (hard limit), include the keyword once, main benefit, CTA.
 - suggestedDescription: this is the blog EXCERPT — plain text only, no HTML, 2-3 sentences, UK spelling. Use the keyword or a close variation once, written naturally. It is NEVER added to the body.
@@ -896,6 +948,7 @@ RULES:
 - quickAnswer: return the EXACT HTML structure shown — do not change any tags or styles, and never add borders, colour lines, wrapper divs or extra tags. Replace ONLY the bracketed text with a direct, factual 2-3 sentence answer to the search intent of "${keyword}", written in British English. The whole value must be one single <div> exactly as shown. It is placed in the body after the second intro paragraph (before any List of Contents, Key Takeaways, or first H2).
 - "MORE ABOUT" H2 RULE: If any H2 is "More about ..." (or similar) and contains an external authority link, NEVER flag it for removal or deletion. Keep the H2 and the external link exactly as they are. Use action "change" with exactAction that says to keep the heading and link, and replace ONLY the intro sentence with a single clean sentence of MAXIMUM 30 words describing what the reader will find at the linked source. Put that exact rewritten sentence inside exactAction. Banned words you must NOT use anywhere in that sentence: delve, explore, comprehensive, wealth of, dive into, invaluable, a range of, further insight.
 - h2Sections: for EVERY H2 that needs attention use action "change" with reason + exactAction; for new H2s use action "add" with content. Never use action "delete".
+- BEFORE suggesting any "add" section: check the EXISTING PAGE CONTENT above. NEVER suggest adding a section, heading or topic the page already covers (even if a competitor has it) — only add content that fills a genuine gap. Never suggest an addition whose main purpose is to repeat "${keyword}". Fixing over-use (keywordOveruse) and removing redundancy come first; new content is only for real gaps.
 - replacementText (on "change" items): return ONLY the exact final text the merchant should paste — no surrounding quotes, no "Rename to", no "Why", no instructions. For a rename it is the new heading text; for the "More about" rewrite it is the new intro sentence. If there is genuinely nothing to paste (e.g. the action is only to remove a tag), return an empty string.
 - BLOG BODY HTML: the "content" of every "add" section is destined for the blog body and MUST be complete, paste-ready HTML for the Shopify HTML editor. Rules: use <h2> for the section heading only (NEVER <strong> or <h3> as the title); the content must START with that <h2>; every paragraph in its own <p> tag; all links as <a href="..." title="..." target="_blank" rel="noopener">anchor text</a> (always include title, target and rel); NO plain text outside HTML tags; do NOT use <ul>, <li>, <br> or <div> unless the section genuinely needs a list; NO blank lines between tags; NO inline styles or classes. Each "add" paragraph should read naturally — use the keyword or a related/secondary term only where it genuinely fits, never forced or repeated — and may include 1-2 internal links to relevant AboutWallArt collections using the full anchor format above.
 - peopleAlsoAsk: write 3-5 real questions people search about "${keyword}" with direct, helpful answers. Return BOTH forms:
@@ -1133,8 +1186,12 @@ async function fetchShopifyContent(pageUrl) {
       const ad = await ar.json();
       const article = ad.articles?.[0];
       if (!article) return null;
-      const meta = await fetchShopifyMetafields(base, `blogs/${blog.id}/articles/${article.id}`, headers);
-      return { shopifyId: article.id, shopifyBlogId: blog.id, shopifyType: 'article', shopifyTitle: article.title, seoTitle: meta.title || article.title, seoDescription: meta.desc || '', bodyHtml: article.body_html || '', templateSuffix: article.template_suffix || '', mainImage: article.image?.src || '', mainImageAlt: article.image?.alt || '' };
+      const articleResourcePath = `blogs/${blog.id}/articles/${article.id}`;
+      const [meta, allMeta] = await Promise.all([
+        fetchShopifyMetafields(base, articleResourcePath, headers),
+        fetchAllMetafields(base, articleResourcePath, headers)
+      ]);
+      return { shopifyId: article.id, shopifyBlogId: blog.id, shopifyType: 'article', shopifyTitle: article.title, seoTitle: meta.title || article.title, seoDescription: meta.desc || '', bodyHtml: article.body_html || '', templateSuffix: article.template_suffix || '', mainImage: article.image?.src || '', mainImageAlt: article.image?.alt || '', metafields: allMeta };
     }
 
     return null;
@@ -1156,5 +1213,30 @@ async function fetchShopifyMetafields(base, resourcePath, headers) {
     };
   } catch {
     return { title: '', desc: '' };
+  }
+}
+
+// Fetch ALL metafields for a resource (every namespace), keeping only text-bearing
+// values. Used by the keyword over-use check so it can see content the merchant has
+// stored in metafields (snippets, custom sections), not just the body.
+async function fetchAllMetafields(base, resourcePath, headers) {
+  try {
+    const r = await fetch(`${base}/${resourcePath}/metafields.json`, { headers });
+    const d = await r.json();
+    const fields = d.metafields || [];
+    return fields
+      .filter(m => {
+        // Keep text-bearing types only; skip files, references, JSON blobs, numbers, dates.
+        const t = (m.type || '').toLowerCase();
+        const isText = t.includes('string') || t.includes('text') || t.includes('html') || t.includes('rich_text');
+        return isText && typeof m.value === 'string' && m.value.trim().length > 0;
+      })
+      .map(m => ({
+        key: `${m.namespace}.${m.key}`,
+        // Strip HTML/JSON noise to plain text, cap length to control tokens.
+        text: m.value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 600)
+      }));
+  } catch {
+    return [];
   }
 }
