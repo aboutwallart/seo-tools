@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 49.4</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 49.5</p>
                 </div>
             </div>
         </header>
@@ -1399,7 +1399,11 @@
             }
 
             // Internal links to add (outbound from this article)
-            (s.internalLinksToAdd || []).forEach((l, i) => add(`intlink_${i}`, `Internal link added: ${l.anchorText || l.url}`, 'intlink'));
+            (s.internalLinksToAdd || []).forEach((l, i) => add(`intlink_${i}`, `Internal link added: ${l.anchorText || l.url}`, 'intlink', { competitorDriven: l.competitorDriven }));
+
+            // Old-template checks (only present for older blog templates)
+            const _TMPL_LABELS = { shop_here: 'SHOP HERE button', youtube: 'YouTube embed', authority_source: 'Authority source' };
+            (s.templateChecks || []).forEach((t, i) => add(`tmpl_${i}`, `${_TMPL_LABELS[t.type] || t.type} sorted`, 'tmpl'));
 
             // Copy-paste items
             if (s.pageSchema) add('schema_page',  'Page Schema — pasted into Custom Liquid',  'copy');
@@ -1410,17 +1414,18 @@
             if (s.quickAnswer) add('quickanswer', 'Quick Answer box added to blog body', 'quickanswer', { content: s.quickAnswer });
 
             // AI items
-            (s.aiItems || []).forEach((item, i) => add(`ai_${i}`, `${item.element} — pasted`, 'ai', { content: item.content }));
+            (s.aiItems || []).forEach((item, i) => add(`ai_${i}`, `${item.element} — pasted`, 'ai', { content: item.content, competitorDriven: item.competitorDriven }));
 
             // Manual: H2 sections
             (s.h2Sections || []).forEach((h, i) => add(
                 `h2_${i}`,
-                h.action === 'add' ? `Add H2: "${h.heading}"` : `H2: "${h.heading}"`,
+                h.action === 'add' ? `Add H2: "${h.heading}"` : (h.action === 'remove' ? `Remove: "${h.heading}"` : `H2: "${h.heading}"`),
                 'manual',
                 {
                     detail: h.action === 'add' ? (h.content || '') : [h.exactAction, h.reason ? `Why: ${h.reason}` : ''].filter(Boolean).join('\n'),
                     action: h.action,
-                    replacementText: h.replacementText || ''
+                    replacementText: h.replacementText || '',
+                    competitorDriven: h.competitorDriven
                 }
             ));
 
@@ -1455,6 +1460,9 @@
                 <input type="checkbox" data-key="${item.key}" ${state[item.key] ? 'checked' : ''}
                     onchange="onTaskChange(this)"
                     style="width:18px;height:18px;cursor:pointer;flex-shrink:0;margin-top:3px;">`;
+
+            // Badge shown on any recommendation that comes from the competitor comparison.
+            const compBadge = (it) => (it && it.competitorDriven) ? `<span style="display:inline-block;background:#fff3e0;color:#e65100;border:1px solid #ffcc80;border-radius:4px;font-size:0.68rem;font-weight:600;padding:1px 6px;margin-left:6px;vertical-align:middle;">🎯 Based on competitor analysis</span>` : '';
 
             // ── Master progress bar ───────────────────────────────────────────
             const masterBar = `
@@ -1624,7 +1632,7 @@
                         <div id="row_${key}" style="display:flex;align-items:flex-start;gap:10px;margin-bottom:15px;opacity:${state[key]?'0.45':'1'};">
                             ${cb(allItems.find(it=>it.key===key))}
                             <div style="flex:1;">
-                                <p style="font-size:0.85rem;color:#666;font-weight:600;margin-bottom:6px;${state[key]?'text-decoration:line-through;':''}" id="lbl_${key}">${item.priority ? `<span class="priority-tag priority-${item.priority}">${item.priority}</span> ` : ''}${item.element}</p>
+                                <p style="font-size:0.85rem;color:#666;font-weight:600;margin-bottom:6px;${state[key]?'text-decoration:line-through;':''}" id="lbl_${key}">${item.priority ? `<span class="priority-tag priority-${item.priority}">${item.priority}</span> ` : ''}${item.element}${compBadge(item)}</p>
                                 <div class="copy-block">
                                     ${isScript
                                         ? `<pre id="aiItem${i}" style="white-space:pre-wrap;word-break:break-all;background:#f5f5f5;padding:10px;border-radius:6px;font-size:0.76rem;max-height:220px;overflow:auto;margin-bottom:8px;">${item.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
@@ -1650,15 +1658,16 @@
                 <div class="action-block">
                     <h3>✅ Manual Actions</h3>
                     ${manualItems.map(item => `
-                        <div id="row_${item.key}" style="display:flex;align-items:flex-start;gap:12px;padding:12px;background:#f9f9f9;border-radius:6px;margin-bottom:8px;opacity:${state[item.key]?'0.45':'1'};">
+                        <div id="row_${item.key}" style="display:flex;align-items:flex-start;gap:12px;padding:12px;background:${item.action==='remove'?'#fff5f5':'#f9f9f9'};border:${item.action==='remove'?'1px solid #f0c0c0':'none'};border-radius:6px;margin-bottom:8px;opacity:${state[item.key]?'0.45':'1'};">
                             ${cb(item)}
                             <div style="flex:1;">
                                 ${item.priority ? `<span class="priority-tag priority-${item.priority}">${item.priority}</span>` : ''}
-                                <strong id="lbl_${item.key}" style="${state[item.key]?'text-decoration:line-through;':''}">${item.label}</strong>
+                                <strong id="lbl_${item.key}" style="${state[item.key]?'text-decoration:line-through;':''}${item.action==='remove'?'color:#c0392b;':''}">${item.action==='remove'?'🗑️ ':''}${item.label}</strong>${compBadge(item)}
                                 ${item.detail ? `
                                     <div style="font-size:0.85rem;color:#555;margin-top:4px;line-height:1.5;">${item.detail}</div>
+                                    ${item.action === 'remove' ? '' : `
                                     <textarea id="ct_${item.key}" style="display:none;">${((data.yourPage.shopifyType === 'article' && item.action === 'add') ? item.detail : (item.label.replace(/Add H2: /,'').replace(/"/g,'') + '\n\n' + item.detail)).replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
-                                    <button class="copy-btn" style="margin-top:6px;" onclick="${(data.yourPage.shopifyType === 'article' && item.action === 'add') ? `copyFormatted('ct_${item.key}',this)` : `copyToClipboard(document.getElementById('ct_${item.key}').value,this)`}">📋 Copy</button>` : ''}
+                                    <button class="copy-btn" style="margin-top:6px;" onclick="${(data.yourPage.shopifyType === 'article' && item.action === 'add') ? `copyFormatted('ct_${item.key}',this)` : `copyToClipboard(document.getElementById('ct_${item.key}').value,this)`}">📋 Copy</button>`}` : ''}
                                 ${(item.action && item.action !== 'add' && item.replacementText) ? `
                                     <div style="margin-top:8px;">
                                         <div style="font-size:0.78rem;color:#2e7d32;font-weight:600;margin-bottom:3px;">✏️ Text to use</div>
@@ -1749,7 +1758,7 @@
                         <div id="row_${key}" style="padding:14px;background:#f9f9f9;border-radius:6px;margin-bottom:10px;opacity:${state[key]?'0.45':'1'};">
                             <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:8px;">
                                 ${it ? cb(it) : ''}
-                                <span style="font-size:0.8rem;color:#00897b;font-weight:600;${state[key]?'text-decoration:line-through;':''}">📍 Where to add it: ${place}</span>
+                                <span style="font-size:0.8rem;color:#00897b;font-weight:600;${state[key]?'text-decoration:line-through;':''}">📍 Where to add it: ${place}</span>${compBadge(l)}
                             </div>
                             ${isReplace ? `
                             <div style="font-size:0.8rem;color:#999;margin-bottom:4px;">Replace this existing text:</div>
@@ -1764,6 +1773,32 @@
                                 <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('intlinkAnchor${i}').value,this)">📋 Copy anchor text</button>
                                 <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('intlinkUrl${i}').value,this)">📋 Copy URL</button>
                             </div>
+                        </div>`;
+                    }).join('')}
+                </div>` : '';
+
+            // ── Old-template checks block (only for older blog templates) ──────
+            const tmplLabels = { shop_here: '🛒 SHOP HERE button', youtube: '▶️ YouTube embed', authority_source: '🔗 Authority source' };
+            const internalAddBlockTmpl = (s.templateChecks && s.templateChecks.length > 0) ? `
+                <div class="action-block" style="border-color:#f9a825;">
+                    <h3>🧩 Older-Template Checks</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">This blog uses an older template. Check these items and paste any provided HTML into the body where indicated.</p>
+                    ${s.templateChecks.map((t, i) => {
+                        const key = `tmpl_${i}`;
+                        const it  = allItems.find(x => x.key === key);
+                        const instruction = (t.instruction || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        const hasContent = t.content && t.content.trim().length > 0;
+                        return `
+                        <div id="row_${key}" style="padding:14px;background:#f9f9f9;border-radius:6px;margin-bottom:10px;opacity:${state[key]?'0.45':'1'};">
+                            <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:8px;">
+                                ${it ? cb(it) : ''}
+                                <strong style="font-size:0.88rem;${state[key]?'text-decoration:line-through;':''}">${tmplLabels[t.type] || t.type}</strong>
+                            </div>
+                            <div style="font-size:0.83rem;color:#555;margin-bottom:8px;">${instruction}</div>
+                            ${hasContent ? `
+                            <pre id="tmplCode${i}" style="white-space:pre-wrap;word-break:break-all;background:#f5f5f5;padding:10px;border-radius:6px;font-size:0.76rem;max-height:200px;overflow:auto;margin-bottom:8px;">${t.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
+                            <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('tmplCode${i}').textContent,this)">📋 Copy code</button>`
+                            : `<div style="font-size:0.85rem;color:#2e7d32;">✅ Already in place — nothing to add.</div>`}
                         </div>`;
                     }).join('')}
                 </div>` : '';
@@ -1828,7 +1863,7 @@
                     </div>
                 </div>`;
 
-            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + aiBlock + paaBlock + loserLinksBlock + internalAddBlock + manualBlock + imageBlock + autolinkBlock + reindexBlock;
+            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + aiBlock + paaBlock + loserLinksBlock + internalAddBlock + manualBlock + internalAddBlockTmpl + imageBlock + autolinkBlock + reindexBlock;
         }
 
         function formatMarkdown(text) {
