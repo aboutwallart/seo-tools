@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 49.5</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 49.6</p>
                 </div>
             </div>
         </header>
@@ -1405,6 +1405,9 @@
             const _TMPL_LABELS = { shop_here: 'SHOP HERE button', youtube: 'YouTube embed', authority_source: 'Authority source' };
             (s.templateChecks || []).forEach((t, i) => add(`tmpl_${i}`, `${_TMPL_LABELS[t.type] || t.type} sorted`, 'tmpl'));
 
+            // Related-blog links (links INTO this page from related older blogs)
+            (s.relatedBlogLinks || []).forEach((l, i) => add(`relblog_${i}`, `Link added from: ${l.sourceTitle || l.sourceUrl}`, 'relblog'));
+
             // Copy-paste items
             if (s.pageSchema) add('schema_page',  'Page Schema — pasted into Custom Liquid',  'copy');
             if (s.faqSchema)  add('schema_faq',   'FAQ Schema — pasted into Custom Liquid',   'copy');
@@ -1803,6 +1806,40 @@
                     }).join('')}
                 </div>` : '';
 
+            // ── Related-blog links block (links INTO this page from related older blogs) ──
+            const relatedBlogsBlock = (s.relatedBlogLinks && s.relatedBlogLinks.length > 0) ? `
+                <div class="action-block" style="border-color:#5e35b1;">
+                    <h3>🕸️ Links From Related Older Blogs</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">Add a link into this page from each related older blog (already crawled → faster indexing). Anchor text is this page's main keyword. Open each blog, paste where shown.</p>
+                    ${s.relatedBlogLinks.map((l, i) => {
+                        const key = `relblog_${i}`;
+                        const it  = allItems.find(x => x.key === key);
+                        const isReplace = (l.mode || '').toLowerCase() === 'replace';
+                        const newText  = l.newText || '';
+                        const existing = (l.existingText || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        const title    = (l.sourceTitle || l.sourceUrl || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        const place    = (l.placement || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        return `
+                        <div id="row_${key}" style="padding:14px;background:#f9f9f9;border-radius:6px;margin-bottom:10px;opacity:${state[key]?'0.45':'1'};">
+                            <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:8px;">
+                                ${it ? cb(it) : ''}
+                                <span style="font-size:0.85rem;font-weight:600;${state[key]?'text-decoration:line-through;':''}">📝 ${title}</span>
+                            </div>
+                            <div style="font-size:0.8rem;color:#5e35b1;font-weight:600;margin-bottom:8px;">📍 Where to add it: ${place}</div>
+                            ${isReplace ? `
+                            <div style="font-size:0.8rem;color:#999;margin-bottom:4px;">Replace this existing text:</div>
+                            <div style="background:#fff5f5;border:1px solid #f0d0d0;border-radius:4px;padding:8px;font-size:0.88rem;margin-bottom:8px;">${existing}</div>` : ''}
+                            <div style="font-size:0.8rem;color:#999;margin-bottom:4px;">${isReplace ? 'With this (link included):' : 'Add this (link included):'}</div>
+                            <div style="background:white;border:2px solid #e0e0e0;border-radius:6px;padding:10px;font-size:0.9rem;line-height:1.6;margin-bottom:8px;">${newText}</div>
+                            <textarea id="relblogHtml${i}" style="display:none;">${newText}</textarea>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                                <button class="copy-btn" type="button" onclick="copyFormatted('relblogHtml${i}',this)">📋 Copy for body</button>
+                                ${l.adminUrl ? `<a href="${l.adminUrl}" target="_blank" style="display:inline-flex;align-items:center;background:#1a1a1a;color:white;padding:6px 14px;border-radius:4px;font-size:0.8rem;text-decoration:none;">🔗 Open in Shopify Admin</a>` : ''}
+                            </div>
+                        </div>`;
+                    }).join('')}
+                </div>` : '';
+
             // ── 6. Auto-link rule block ───────────────────────────────────────
             const autolinkItem = allItems.find(it => it.key === 'autolink');
             const urlPath = (() => { try { return new URL(pageUrl).pathname; } catch(e) { return pageUrl; } })();
@@ -1863,7 +1900,7 @@
                     </div>
                 </div>`;
 
-            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + aiBlock + paaBlock + loserLinksBlock + internalAddBlock + manualBlock + internalAddBlockTmpl + imageBlock + autolinkBlock + reindexBlock;
+            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + aiBlock + paaBlock + loserLinksBlock + relatedBlogsBlock + internalAddBlock + manualBlock + internalAddBlockTmpl + imageBlock + autolinkBlock + reindexBlock;
         }
 
         function formatMarkdown(text) {
