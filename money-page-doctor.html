@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 49.1</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 49.2</p>
                 </div>
             </div>
         </header>
@@ -1391,6 +1391,15 @@
             add('push_title', 'SEO Title pushed',        'push');
             add('push_meta',  'Meta Description pushed', 'push');
             add('push_desc',  _isBlog ? 'Excerpt pushed' : 'Page Description pushed', 'push');
+            if (_isBlog && s.firstParagraph) add('add_firstpara', 'First paragraph added to blog body', 'push');
+
+            // Keyword over-use fixes (blogs) — one tick per flagged item
+            if (s.keywordOveruse && s.keywordOveruse.isOverstuffed) {
+                (s.keywordOveruse.findings || []).forEach((f, i) => add(`overuse_${i}`, `Keyword over-use fixed (${f.location || 'item ' + (i+1)})`, 'overuse'));
+            }
+
+            // Internal links to add (outbound from this article)
+            (s.internalLinksToAdd || []).forEach((l, i) => add(`intlink_${i}`, `Internal link added: ${l.anchorText || l.url}`, 'intlink'));
 
             // Copy-paste items
             if (s.pageSchema) add('schema_page',  'Page Schema — pasted into Custom Liquid',  'copy');
@@ -1467,8 +1476,9 @@
                 <div class="action-block" style="border-color:#1976d2;">
                     <h3>📤 Push to Shopify</h3>
                     <div style="margin-bottom:15px;">
-                        ${['push_title','push_meta','push_desc'].map(key => {
+                        ${['push_title','push_meta','push_desc', ...((_isBlog && s.firstParagraph) ? ['add_firstpara'] : [])].map(key => {
                             const it = allItems.find(i => i.key === key);
+                            if (!it) return '';
                             return `<div id="row_${key}" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f0f0f0;opacity:${state[key]?'0.45':'1'};">
                                 ${cb(it)}
                                 <span id="lbl_${key}" style="font-size:0.9rem;${state[key]?'text-decoration:line-through;':''}">${it.label}</span>
@@ -1584,9 +1594,14 @@
                         const sug    = (f.suggestedText||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                         const reason = (f.reason||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                         const isRemove = (f.recommendation||'').toLowerCase().includes('remove');
+                        const oKey = `overuse_${i}`;
+                        const oItem = allItems.find(it => it.key === oKey);
                         return `
-                        <div style="border:1px solid #f0e0d0;border-radius:6px;padding:12px;margin-bottom:12px;">
-                            <div style="font-size:0.78rem;color:#e67e22;font-weight:600;margin-bottom:6px;">📍 ${loc}</div>
+                        <div id="row_${oKey}" style="border:1px solid #f0e0d0;border-radius:6px;padding:12px;margin-bottom:12px;opacity:${state[oKey]?'0.45':'1'};">
+                            <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:6px;">
+                                ${oItem ? cb(oItem) : ''}
+                                <div style="font-size:0.78rem;color:#e67e22;font-weight:600;${state[oKey]?'text-decoration:line-through;':''}">📍 ${loc}</div>
+                            </div>
                             <div style="font-size:0.8rem;color:#999;margin-bottom:4px;">Current text:</div>
                             <div style="background:#fafafa;border:1px solid #eee;border-radius:4px;padding:8px;font-size:0.88rem;margin-bottom:8px;">${cur}</div>
                             ${reason ? `<div style="font-size:0.82rem;color:#555;margin-bottom:8px;">${reason}</div>` : ''}
@@ -1714,6 +1729,43 @@
                     }).join('')}
                 </div>` : '';
 
+            // ── Links to Add FROM this article (outbound) ─────────────────────
+            const internalAddBlock = (s.internalLinksToAdd && s.internalLinksToAdd.length > 0) ? `
+                <div class="action-block" style="border-color:#00897b;">
+                    <h3>🔗 Links to Add From This Article</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">Add these links from this article out to relevant pages. The link is already built into the paragraph — copy it and paste it straight into the blog body.</p>
+                    ${s.internalLinksToAdd.map((l, i) => {
+                        const key = `intlink_${i}`;
+                        const it  = allItems.find(x => x.key === key);
+                        const isReplace = (l.mode || '').toLowerCase() === 'replace';
+                        const newText  = l.newText || '';
+                        const existing = (l.existingText || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        const anchor   = (l.anchorText || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        const url      = (l.url || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        const place    = (l.placement || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        return `
+                        <div id="row_${key}" style="padding:14px;background:#f9f9f9;border-radius:6px;margin-bottom:10px;opacity:${state[key]?'0.45':'1'};">
+                            <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:8px;">
+                                ${it ? cb(it) : ''}
+                                <span style="font-size:0.8rem;color:#00897b;font-weight:600;${state[key]?'text-decoration:line-through;':''}">📍 Where to add it: ${place}</span>
+                            </div>
+                            ${isReplace ? `
+                            <div style="font-size:0.8rem;color:#999;margin-bottom:4px;">Replace this existing text:</div>
+                            <div style="background:#fff5f5;border:1px solid #f0d0d0;border-radius:4px;padding:8px;font-size:0.88rem;margin-bottom:8px;">${existing}</div>` : ''}
+                            <div style="font-size:0.8rem;color:#999;margin-bottom:4px;">${isReplace ? 'With this (link included):' : 'Paste this (link included):'}</div>
+                            <div style="background:white;border:2px solid #e0e0e0;border-radius:6px;padding:10px;font-size:0.9rem;line-height:1.6;margin-bottom:8px;">${newText}</div>
+                            <textarea id="intlinkHtml${i}" style="display:none;">${newText}</textarea>
+                            <textarea id="intlinkAnchor${i}" style="display:none;">${anchor}</textarea>
+                            <textarea id="intlinkUrl${i}" style="display:none;">${url}</textarea>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                                <button class="copy-btn" type="button" onclick="copyFormatted('intlinkHtml${i}',this)">📋 Copy for body</button>
+                                <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('intlinkAnchor${i}').value,this)">📋 Copy anchor text</button>
+                                <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('intlinkUrl${i}').value,this)">📋 Copy URL</button>
+                            </div>
+                        </div>`;
+                    }).join('')}
+                </div>` : '';
+
             // ── 6. Auto-link rule block ───────────────────────────────────────
             const autolinkItem = allItems.find(it => it.key === 'autolink');
             const urlPath = (() => { try { return new URL(pageUrl).pathname; } catch(e) { return pageUrl; } })();
@@ -1774,7 +1826,7 @@
                     </div>
                 </div>`;
 
-            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + aiBlock + paaBlock + loserLinksBlock + manualBlock + imageBlock + autolinkBlock + reindexBlock;
+            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + aiBlock + paaBlock + loserLinksBlock + internalAddBlock + manualBlock + imageBlock + autolinkBlock + reindexBlock;
         }
 
         function formatMarkdown(text) {
