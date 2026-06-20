@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 49.7</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 49.8</p>
                 </div>
             </div>
         </header>
@@ -1843,11 +1843,12 @@
                     }).join('')}
                 </div>` : '';
 
-            // ── Inactive product links block ──────────────────────────────────
-            const inactiveProductsBlock = (data.inactiveProducts && data.inactiveProducts.length > 0) ? `
+            // ── Inactive product links block (always shown for blogs) ─────────
+            const inactiveProductsBlock = _isBlog ? `
                 <div class="action-block" style="border-color:#d32f2f;">
                     <h3>⚠️ Inactive Product Links</h3>
-                    <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">These products are linked in the blog body but are no longer active — remove or replace each link so readers don't hit a dead/unavailable product.</p>
+                    ${(data.inactiveProducts && data.inactiveProducts.length > 0) ? `
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">These products are linked in the blog body but are no longer active — remove or replace each link so readers don't hit a dead/unavailable product. Suggested active replacements are below each one.</p>
                     ${data.inactiveProducts.map((p, i) => {
                         const key = `inactiveprod_${i}`;
                         const it  = allItems.find(x => x.key === key);
@@ -1865,9 +1866,26 @@
                             </div>
                             <div style="font-size:0.8rem;color:#777;word-break:break-all;margin-bottom:8px;">🔗 ${url}</div>
                             <div style="font-size:0.83rem;color:#555;margin-bottom:8px;">Remove or replace this link in the blog body.</div>
-                            ${p.adminUrl ? `<a href="${p.adminUrl}" target="_blank" style="display:inline-flex;align-items:center;background:#1a1a1a;color:white;padding:6px 14px;border-radius:4px;font-size:0.8rem;text-decoration:none;">🔗 Open product in Admin</a>` : ''}
+                            ${p.adminUrl ? `<a href="${p.adminUrl}" target="_blank" style="display:inline-flex;align-items:center;background:#1a1a1a;color:white;padding:6px 14px;border-radius:4px;font-size:0.8rem;text-decoration:none;margin-bottom:10px;">🔗 Open product in Admin</a>` : ''}
+                            ${(p.replacements && p.replacements.length > 0) ? `
+                            <div style="font-size:0.8rem;color:#333;font-weight:600;margin:10px 0 6px;">Suggested replacements:</div>
+                            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                                ${p.replacements.map(r => {
+                                    const rt = (r.title||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                                    const ru = (r.url||'');
+                                    const ri = (r.imageUrl||'');
+                                    return `
+                                    <div style="width:150px;border:1px solid #e0e0e0;border-radius:6px;padding:8px;background:#fff;">
+                                        ${ri ? `<img src="${ri}" alt="" style="width:100%;height:95px;object-fit:cover;border-radius:4px;margin-bottom:6px;">` : ''}
+                                        <div style="font-size:0.76rem;font-weight:600;line-height:1.3;margin-bottom:5px;">${rt}</div>
+                                        <a href="${ru}" target="_blank" style="font-size:0.72rem;color:#1976d2;display:block;margin-bottom:5px;">View product ↗</a>
+                                        ${ri ? `<button class="copy-btn" type="button" style="font-size:0.68rem;padding:3px 7px;" onclick="copyToClipboard('${ri.replace(/'/g,"\\'")}',this)">📋 Image URL</button>` : ''}
+                                    </div>`;
+                                }).join('')}
+                            </div>` : ''}
                         </div>`;
                     }).join('')}
+                    ` : `<p style="font-size:0.9rem;color:#2e7d32;">✅ No inactive product links — nothing to replace.</p>`}
                 </div>` : '';
 
             // ── 6. Auto-link rule block ───────────────────────────────────────
