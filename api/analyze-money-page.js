@@ -1,7 +1,12 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v46.0
+// analyze-money-page.js — v46.1
+// v46.1 (June 20, 2026): Step 1 fixes — (a) H2 CAPS rule: never suggest caps→sentence-case,
+//                        always output H2 text in UPPERCASE (theme uses all-caps H2s);
+//                        (b) new internalLinksToAdd field: concrete outbound internal links
+//                        (anchor + url + exact paragraph, replace-or-new) instead of vague
+//                        otherActions instructions.
 // v46.0 (June 20, 2026): Blog keyword over-use check — pulls ALL article metafields +
 //                        full body + every live-page heading (incl. theme/custom-Liquid
 //                        sections), then returns keywordOveruse findings (exact current
@@ -918,7 +923,17 @@ Return this exact JSON structure with real content (no placeholders):
   "otherActions": [
     {
       "priority": "high",
-      "action": "A genuine NON-image task only (the Image SEO tool handles all images). Leave this array EMPTY if there is none. One sentence max."
+      "action": "A genuine NON-image task only (the Image SEO tool handles all images; internal links go in internalLinksToAdd). Leave this array EMPTY if there is none. One sentence max."
+    }
+  ],
+  "internalLinksToAdd": [
+    {
+      "anchorText": "the exact anchor text to use (describes the destination; do NOT use this article's own main keyword as the anchor)",
+      "url": "full destination URL — a relevant AboutWallArt collection or page this article should link OUT to",
+      "mode": "replace OR new",
+      "existingText": "if mode=replace: the EXACT sentence/paragraph already in the body to swap out. If mode=new: empty string.",
+      "newText": "the EXACT paste-ready paragraph WITH the link already embedded as <a href=\\"[url]\\" title=\\"[title]\\" target=\\"_blank\\" rel=\\"noopener\\">[anchorText]</a>. For mode=replace this is existingText rewritten with the link; for mode=new a short natural new sentence/paragraph containing the link.",
+      "placement": "exactly where it goes — name the paragraph or section (shown outside the copy box)"
     }
   ],
   "loserPageLinks": [
@@ -948,6 +963,7 @@ RULES:
 - quickAnswer: return the EXACT HTML structure shown — do not change any tags or styles, and never add borders, colour lines, wrapper divs or extra tags. Replace ONLY the bracketed text with a direct, factual 2-3 sentence answer to the search intent of "${keyword}", written in British English. The whole value must be one single <div> exactly as shown. It is placed in the body after the second intro paragraph (before any List of Contents, Key Takeaways, or first H2).
 - "MORE ABOUT" H2 RULE: If any H2 is "More about ..." (or similar) and contains an external authority link, NEVER flag it for removal or deletion. Keep the H2 and the external link exactly as they are. Use action "change" with exactAction that says to keep the heading and link, and replace ONLY the intro sentence with a single clean sentence of MAXIMUM 30 words describing what the reader will find at the linked source. Put that exact rewritten sentence inside exactAction. Banned words you must NOT use anywhere in that sentence: delve, explore, comprehensive, wealth of, dive into, invaluable, a range of, further insight.
 - h2Sections: for EVERY H2 that needs attention use action "change" with reason + exactAction; for new H2s use action "add" with content. Never use action "delete".
+- H2 CAPS: this theme always displays H2 headings in ALL CAPS — that is intentional and correct. NEVER recommend changing an all-caps H2 to sentence case or "Title Case" for readability, and never give that as a reason. Any H2 heading text you output (the replacementText for a "change" rename AND the heading inside any "add" section's content) MUST be written in UPPERCASE to match the theme.
 - BEFORE suggesting any "add" section: check the EXISTING PAGE CONTENT above. NEVER suggest adding a section, heading or topic the page already covers (even if a competitor has it) — only add content that fills a genuine gap. Never suggest an addition whose main purpose is to repeat "${keyword}". Fixing over-use (keywordOveruse) and removing redundancy come first; new content is only for real gaps.
 - replacementText (on "change" items): return ONLY the exact final text the merchant should paste — no surrounding quotes, no "Rename to", no "Why", no instructions. For a rename it is the new heading text; for the "More about" rewrite it is the new intro sentence. If there is genuinely nothing to paste (e.g. the action is only to remove a tag), return an empty string.
 - BLOG BODY HTML: the "content" of every "add" section is destined for the blog body and MUST be complete, paste-ready HTML for the Shopify HTML editor. Rules: use <h2> for the section heading only (NEVER <strong> or <h3> as the title); the content must START with that <h2>; every paragraph in its own <p> tag; all links as <a href="..." title="..." target="_blank" rel="noopener">anchor text</a> (always include title, target and rel); NO plain text outside HTML tags; do NOT use <ul>, <li>, <br> or <div> unless the section genuinely needs a list; NO blank lines between tags; NO inline styles or classes. Each "add" paragraph should read naturally — use the keyword or a related/secondary term only where it genuinely fits, never forced or repeated — and may include 1-2 internal links to relevant AboutWallArt collections using the full anchor format above.
@@ -957,7 +973,8 @@ RULES:
   - The two forms must contain the same questions but NEVER be combined.
 - SNIPPET METAFIELD HTML (aiItems): each aiItem "content" is pasted directly into its Shopify snippet metafield (How To Schema, Related Questions, Summary Block, Comparison Snippet). Format: <h2> for the section title only (never <strong> or <h3> as the title); a <p> starts immediately after the <h2> with NO blank line; every item of content in its own <p>; <strong> only for bold labels INSIDE a <p>; NEVER use <ul>, <li>, <br>, <div> or wrapper tags; NO blank lines between tags; NO inline styles or classes.
 - urlAnalysis: title changes are always safe (no redirect). Only recommend a slug change if the page has very few or zero clicks; if so, set slugChangeWarning.
-- otherActions: NEVER include image filename or alt-text tasks — the Image SEO tool handles all blog images separately. Return an EMPTY array unless there is a genuine NON-image action. NEVER include page speed, image compression, Core Web Vitals, canonical/OG/Twitter tags, meta robots, keyword density targets, schema, or anything already covered by h2Sections or aiItems. One sentence per action max.
+- otherActions: NEVER include image filename or alt-text tasks — the Image SEO tool handles all blog images separately. NEVER include internal-link tasks — those go in internalLinksToAdd. Return an EMPTY array unless there is a genuine NON-image, NON-link action. NEVER include page speed, image compression, Core Web Vitals, canonical/OG/Twitter tags, meta robots, keyword density targets, schema, or anything already covered by h2Sections or aiItems. One sentence per action max.
+- internalLinksToAdd: when this article should link OUT to a relevant AboutWallArt collection or page, put it here (NOT in otherActions). Give 1-2 links max. For each, output paste-ready text with the link ALREADY embedded (full <a href title target rel> format). PREFER mode "replace" — find a natural existing sentence in the body and return it in existingText plus the rewritten version with the link in newText. Only use mode "new" when there is no natural existing spot; then newText is a short new sentence. The anchor text must describe the destination and must NOT be a keyword owned by another page (no cannibalisation) and must NOT be this article's own main keyword. If there is no good internal-link opportunity, return an empty array.
 - WORD COUNT: never say "reduce word count to X" or "increase keyword density to X%" generically. If specific bloated content must go, name the EXACT paragraph opening words and why; otherwise do not mention word count or density at all.
 - loserPageLinks: ONLY include if loser pages are provided above. Unique natural sentence per loser page with a real HTML anchor to this page, plus a specific placement. If none provided, omit this field entirely.
 - Return ONLY the JSON object — no other text`;
