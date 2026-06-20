@@ -1,7 +1,14 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v46.4
+// analyze-money-page.js — v46.5
+// v46.5 (June 20, 2026): Item 6 — related-blog internal links. Picks 3 related OLDER blogs
+//                        by shared TAGS (rare/specific tags weighted via IDF, broad ones
+//                        down-weighted; older preferred = already crawled). Anchor MUST be
+//                        this page's main keyword; replace if present in the source blog,
+//                        else a new CTA. Returns relatedBlogLinks (+ direct admin link to
+//                        each source blog). Registry loserPageLinks still shown alongside.
+// v46.4 (June 20, 2026): Competitor-driven analysis —
 // v46.4 (June 20, 2026): Competitor-driven analysis — feeds FULL competitor data (pos 1-3:
 //                        title/meta/H1/H2/H3) and drives every add/replace/REMOVE from the
 //                        comparison; each h2Section/aiItem/internalLink carries
@@ -109,6 +116,7 @@ module.exports = async function handler(req, res) {
       yourPageData.shopifyBodyHtml = shopifyContent.bodyHtml;
       yourPageData.templateSuffix  = shopifyContent.templateSuffix || '';
       yourPageData.metafields      = shopifyContent.metafields || [];
+      yourPageData.tags            = shopifyContent.tags || [];
       // Keep the FULL live-page headings (whole rendered page, incl. theme/custom-Liquid
       // sections) for the keyword over-use check, BEFORE the body-only override below.
       yourPageData.liveHeadings = { h1: [...yourPageData.h1], h2: [...yourPageData.h2], h3: [...yourPageData.h3] };
@@ -157,9 +165,13 @@ module.exports = async function handler(req, res) {
     const loserPages = await getLosersForPage(pageUrl);
     console.log(`[Money Page] Found ${loserPages.length} loser pages for internal linking`);
 
+    // Step 4.6: related OLDER blogs to link FROM into this page (baseline of 3, by tags)
+    const relatedBlogs = await getRelatedBlogLinks(yourPageData, keyword);
+    console.log(`[Money Page] Found ${relatedBlogs.length} related older blogs for internal linking`);
+
     // Step 5: Get Claude analysis
     console.log('[Money Page] Step 5: Getting AI recommendations... (~20 sec)');
-    const analysis = await getClaudeAnalysis(yourPageData, competitorData, keyword, searchResults.userPosition, contentGaps, loserPages);
+    const analysis = await getClaudeAnalysis(yourPageData, competitorData, keyword, searchResults.userPosition, contentGaps, loserPages, relatedBlogs);
     console.log(`[Money Page] ✓ AI analysis complete! Total time: ${Math.round((Date.now() - startTime) / 1000)}s`);
 
     // Resolve a DIRECT Shopify admin URL for each loser page so "Open in Shopify Admin"
@@ -168,6 +180,16 @@ module.exports = async function handler(req, res) {
       await Promise.all(analysis.structured.loserPageLinks.map(async (link) => {
         try {
           const c = await fetchShopifyContent(link.loserUrl);
+          link.adminUrl = buildLoserAdminUrl(c);
+        } catch { link.adminUrl = null; }
+      }));
+    }
+
+    // Direct admin link for each related-blog source page (to edit it and add the link).
+    if (analysis?.structured?.relatedBlogLinks?.length > 0) {
+      await Promise.all(analysis.structured.relatedBlogLinks.map(async (link) => {
+        try {
+          const c = await fetchShopifyContent(link.sourceUrl);
           link.adminUrl = buildLoserAdminUrl(c);
         } catch { link.adminUrl = null; }
       }));
@@ -758,11 +780,11 @@ async function getLosersForPage(winnerUrl) {
 }
 
 // Get Claude analysis
-async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = null, contentGaps = null, loserPages = []) {
+async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = null, contentGaps = null, loserPages = [], relatedBlogs = []) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not found');
 
-  const prompt = buildAnalysisPrompt(yourPage, competitors, keyword, userPosition, contentGaps, loserPages);
+  const prompt = buildAnalysisPrompt(yourPage, competitors, keyword, userPosition, contentGaps, loserPages, relatedBlogs);
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -816,7 +838,7 @@ async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = 
 // Blogs differ from products/collections: the theme already renders Page Schema,
 // FAQ Schema and the Brand Block, so this prompt NEVER returns those. It also
 // protects the "More about" external authority link from removal.
-function buildBlogAnalysisPrompt(yourPage, competitors, keyword, userPosition = null, contentGaps = null, loserPages = []) {
+function buildBlogAnalysisPrompt(yourPage, competitors, keyword, userPosition = null, contentGaps = null, loserPages = [], relatedBlogs = []) {
   const isOldTemplate = /ne-blog-posts|guest-post-template/i.test(yourPage.templateSuffix || '');
   const avgCompWordCount = competitors.length > 0
     ? Math.round(competitors.reduce((sum, c) => sum + c.wordCount, 0) / competitors.length) : 0;
@@ -999,7 +1021,17 @@ Return this exact JSON structure with real content (no placeholders):
       "suggestedSentence": "One natural sentence with <a href='[winnerUrl]'>[relevant anchor text]</a> that sounds like editorial content — unique per loser page, never a template",
       "placement": "Specific placement guidance — be specific, not 'at the end'"
     }
-  ]${isOldTemplate ? `,
+  ]${relatedBlogs.length > 0 ? `,
+  "relatedBlogLinks": [
+    {
+      "sourceUrl": "EXACT url of the related blog this link comes FROM (copy from the RELATED OLDER BLOGS list)",
+      "sourceTitle": "that blog's title",
+      "mode": "replace OR new",
+      "existingText": "if that blog already contains the keyword (present: YES): the exact sentence to swap out. Otherwise empty.",
+      "newText": "paste-ready text with THIS page's main keyword wrapped as the anchor: <a href=\\"${yourPage.url}\\" title=\\"...\\" target=\\"_blank\\" rel=\\"noopener\\">${keyword}</a>. For replace: the existing sentence rewritten with the link. For new: a short natural sentence/CTA using the keyword as the anchor.",
+      "placement": "where in that source blog to add it (shown outside the copy box)"
+    }
+  ]` : ''}${isOldTemplate ? `,
   "templateChecks": [
     {
       "type": "shop_here",
@@ -1021,6 +1053,10 @@ Return this exact JSON structure with real content (no placeholders):
 ${loserPages.length > 0 ? `
 LOSER PAGES THAT SHOULD LINK TO THIS PAGE:
 ${loserPages.map(l => `- ${l.loserUrl} (${l.pageType}, keyword: "${l.loserKeyword}")`).join('\n')}
+` : ''}
+${relatedBlogs.length > 0 ? `
+RELATED OLDER BLOGS TO LINK FROM (add one link from EACH into this page; anchor MUST be the main keyword "${keyword}"):
+${relatedBlogs.map(b => `- ${b.url} | "${b.title}" | keyword present: ${b.keywordPresent ? 'YES' : 'no'}${b.keywordPresent && b.sentence ? ` | sentence: "${b.sentence}"` : ''}`).join('\n')}
 ` : ''}
 
 RULES:
@@ -1057,7 +1093,8 @@ RULES:
 - otherActions: NEVER include image filename or alt-text tasks — the Image SEO tool handles all blog images separately. NEVER include internal-link tasks — those go in internalLinksToAdd. Return an EMPTY array unless there is a genuine NON-image, NON-link action. NEVER include page speed, image compression, Core Web Vitals, canonical/OG/Twitter tags, meta robots, keyword density targets, schema, or anything already covered by h2Sections or aiItems. One sentence per action max.
 - internalLinksToAdd: when this article should link OUT to a relevant AboutWallArt collection or page, put it here (NOT in otherActions). Give 1-2 links max. For each, output paste-ready text with the link ALREADY embedded (full <a href title target rel> format). PREFER mode "replace" — find a natural existing sentence in the body and return it in existingText plus the rewritten version with the link in newText. Only use mode "new" when there is no natural existing spot; then newText is a short new sentence. The anchor text must describe the destination and must NOT be a keyword owned by another page (no cannibalisation) and must NOT be this article's own main keyword. If there is no good internal-link opportunity, return an empty array.
 - WORD COUNT: never say "reduce word count to X" or "increase keyword density to X%" generically. If specific bloated content must go, name the EXACT paragraph opening words and why; otherwise do not mention word count or density at all.
-- loserPageLinks: ONLY include if loser pages are provided above. Unique natural sentence per loser page with a real HTML anchor to this page, plus a specific placement. If none provided, omit this field entirely.${isOldTemplate ? `
+- loserPageLinks: ONLY include if loser pages are provided above. Unique natural sentence per loser page with a real HTML anchor to this page, plus a specific placement. If none provided, omit this field entirely.
+- relatedBlogLinks: for EACH blog in "RELATED OLDER BLOGS TO LINK FROM", produce one link FROM that blog INTO this page. The anchor text MUST be this page's exact main keyword "${keyword}" (NEVER a variation). If "keyword present: YES", use mode "replace" and wrap the keyword in that blog's given sentence as the link. If not present, use mode "new" with a short natural sentence/CTA that uses "${keyword}" as the anchor. The link URL is always ${yourPage.url}. One item per related blog. If no related blogs are listed above, omit this field entirely.${isOldTemplate ? `
 - OLD-TEMPLATE CHECKS (this blog uses an older template, so the templateChecks field IS required):
   - shop_here: if the body has plain "Click here"/"Shop Now"/"Buy now" product links, replace them with this EXACT button (fill [PRODUCT URL] and [PRODUCT TITLE]); also wrap the product image in the product URL. content MUST be exactly: <p style="text-align: center;"><a href="[PRODUCT URL]" title="[PRODUCT TITLE]" rel="noopener" target="_blank" style="display: inline-block; background-color: #000000; color: #ffffff; padding: 12px 28px; text-decoration: none; font-weight: bold; letter-spacing: 1px;">SHOP HERE</a></p>
   - youtube: if a relevant video should be embedded, content MUST be exactly (fill [YOUTUBE URL], [VIDEO TITLE], [EMBED URL]): <p>WATCH: <a href="[YOUTUBE URL]" title="[VIDEO TITLE]" rel="noopener" target="_blank">[VIDEO TITLE]</a></p><iframe width="100%" height="415" src="[EMBED URL]" title="[VIDEO TITLE]" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>. If no suitable video, content is "".
@@ -1066,10 +1103,10 @@ RULES:
 }
 
 // Build the structured JSON prompt for Claude
-function buildAnalysisPrompt(yourPage, competitors, keyword, userPosition = null, contentGaps = null, loserPages = []) {
+function buildAnalysisPrompt(yourPage, competitors, keyword, userPosition = null, contentGaps = null, loserPages = [], relatedBlogs = []) {
   // Blogs get a dedicated, blog-specific prompt
   if (yourPage.shopifyType === 'article') {
-    return buildBlogAnalysisPrompt(yourPage, competitors, keyword, userPosition, contentGaps, loserPages);
+    return buildBlogAnalysisPrompt(yourPage, competitors, keyword, userPosition, contentGaps, loserPages, relatedBlogs);
   }
 
   const avgCompWordCount = competitors.length > 0
@@ -1284,7 +1321,7 @@ async function fetchShopifyContent(pageUrl) {
       const bd = await br.json();
       const blog = bd.blogs?.find(b => b.handle === blogHandle);
       if (!blog) return null;
-      const ar = await fetch(`${base}/blogs/${blog.id}/articles.json?handle=${articleHandle}&fields=id,title,body_html,template_suffix,image`, { headers });
+      const ar = await fetch(`${base}/blogs/${blog.id}/articles.json?handle=${articleHandle}&fields=id,title,body_html,template_suffix,image,tags`, { headers });
       const ad = await ar.json();
       const article = ad.articles?.[0];
       if (!article) return null;
@@ -1293,7 +1330,7 @@ async function fetchShopifyContent(pageUrl) {
         fetchShopifyMetafields(base, articleResourcePath, headers),
         fetchAllMetafields(base, articleResourcePath, headers)
       ]);
-      return { shopifyId: article.id, shopifyBlogId: blog.id, shopifyType: 'article', shopifyTitle: article.title, seoTitle: meta.title || article.title, seoDescription: meta.desc || '', bodyHtml: article.body_html || '', templateSuffix: article.template_suffix || '', mainImage: article.image?.src || '', mainImageAlt: article.image?.alt || '', metafields: allMeta };
+      return { shopifyId: article.id, shopifyBlogId: blog.id, shopifyType: 'article', shopifyTitle: article.title, seoTitle: meta.title || article.title, seoDescription: meta.desc || '', bodyHtml: article.body_html || '', templateSuffix: article.template_suffix || '', mainImage: article.image?.src || '', mainImageAlt: article.image?.alt || '', metafields: allMeta, tags: article.tags ? article.tags.split(',').map(t => t.trim()).filter(Boolean) : [] };
     }
 
     return null;
@@ -1339,6 +1376,103 @@ async function fetchAllMetafields(base, resourcePath, headers) {
         text: m.value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 600)
       }));
   } catch {
+    return [];
+  }
+}
+
+// Admin GraphQL helper (read).
+async function shopifyGraphQL(query, variables = {}) {
+  const r = await fetch(`https://${SHOPIFY_DOMAIN}/admin/api/2025-01/graphql.json`, {
+    method: 'POST',
+    headers: { 'X-Shopify-Access-Token': SHOPIFY_TOKEN, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, variables })
+  });
+  const d = await r.json();
+  return d.data;
+}
+
+// Fetch every blog article (lightweight: handle, title, tags, publish date, blog handle).
+async function fetchAllArticlesLite() {
+  const out = [];
+  let cursor = null;
+  for (let page = 0; page < 12; page++) {           // safety cap (12 * 250 = 3000)
+    const data = await shopifyGraphQL(`
+      query($after: String) {
+        articles(first: 250, after: $after) {
+          edges { node { handle title tags publishedAt blog { handle } } }
+          pageInfo { hasNextPage endCursor }
+        }
+      }`, { after: cursor });
+    const conn = data && data.articles;
+    if (!conn) break;
+    conn.edges.forEach(e => out.push(e.node));
+    if (!conn.pageInfo || !conn.pageInfo.hasNextPage) break;
+    cursor = conn.pageInfo.endCursor;
+  }
+  return out;
+}
+
+// Pick the top N related OLDER blogs by shared-tag score. Specific (rare) tags are
+// weighted higher via IDF; ubiquitous tags (Home-Decor, interior-design-concepts) barely
+// count. Ties break to the OLDER post (already crawled → faster indexing).
+function pickRelatedBlogs(currentUrl, currentTags, allArticles, n = 3) {
+  const curHandle = (currentUrl.split('/').filter(Boolean).pop() || '').toLowerCase();
+  const curTags = (currentTags || []).map(t => t.toLowerCase());
+  if (!curTags.length || !allArticles.length) return [];
+  let origin = ''; try { origin = new URL(currentUrl).origin; } catch { origin = ''; }
+  const df = {};
+  allArticles.forEach(a => (a.tags || []).forEach(t => { const k = t.toLowerCase(); df[k] = (df[k] || 0) + 1; }));
+  const total = allArticles.length;
+  return allArticles
+    .filter(a => (a.handle || '').toLowerCase() !== curHandle)
+    .map(a => {
+      const tags = (a.tags || []).map(t => t.toLowerCase());
+      let score = 0;
+      curTags.forEach(t => { if (tags.includes(t)) score += Math.log((total + 1) / ((df[t] || 0) + 1)); });
+      return { handle: a.handle, title: a.title, blogHandle: a.blog && a.blog.handle, publishedAt: a.publishedAt, score };
+    })
+    .filter(a => a.score > 0 && a.blogHandle)
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      const ta = a.publishedAt ? Date.parse(a.publishedAt) : Infinity;
+      const tb = b.publishedAt ? Date.parse(b.publishedAt) : Infinity;
+      return ta - tb;                                // older first
+    })
+    .slice(0, n)
+    .map(a => ({ url: `${origin}/blogs/${a.blogHandle}/${a.handle}`, title: a.title, publishedAt: a.publishedAt }));
+}
+
+// For each related blog, fetch its body and check whether THIS page's keyword already
+// appears; if so, pull the sentence containing it so the link can wrap it in place.
+async function enrichRelatedBlogs(related, keyword) {
+  const kw = (keyword || '').toLowerCase();
+  await Promise.all(related.map(async (b) => {
+    b.keywordPresent = false; b.sentence = '';
+    try {
+      const handle = b.url.split('/').filter(Boolean).pop();
+      const data = await shopifyGraphQL(`{ articles(first:1, query:"handle:${handle}") { edges { node { body } } } }`);
+      const body = data && data.articles && data.articles.edges[0] && data.articles.edges[0].node.body || '';
+      const text = body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      if (kw && text.toLowerCase().includes(kw)) {
+        b.keywordPresent = true;
+        const sentences = text.split(/(?<=[.!?])\s+/);
+        b.sentence = (sentences.find(s => s.toLowerCase().includes(kw)) || '').substring(0, 300);
+      }
+    } catch { /* leave defaults */ }
+  }));
+  return related;
+}
+
+// Top-level: get up to 3 related older blogs to link FROM into this page.
+async function getRelatedBlogLinks(yourPage, keyword) {
+  try {
+    if (yourPage.shopifyType !== 'article') return [];
+    const all = await fetchAllArticlesLite();
+    const related = pickRelatedBlogs(yourPage.url, yourPage.tags, all, 3);
+    if (!related.length) return [];
+    return await enrichRelatedBlogs(related, keyword);
+  } catch (e) {
+    console.warn('[Related Blogs] failed:', e.message);
     return [];
   }
 }
