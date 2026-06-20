@@ -1,7 +1,11 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v46.6
+// analyze-money-page.js — v46.7
+// v46.7 (June 20, 2026): Inactive-product replacements — for each inactive product link,
+//                        suggest up to 3 ACTIVE replacements (same product type, closest
+//                        style by tag overlap), each with title + product URL + first image
+//                        URL. (Block always shown on the frontend, even when clean.)
 // v46.6 (June 20, 2026): (a) CONCRETE placement — related blogs now include a section
 //                        outline so the link placement names the exact section + paragraph
 //                        position (also applies to internalLinksToAdd). (b) Item 2 —
@@ -1505,8 +1509,31 @@ async function getRelatedBlogLinks(yourPage, keyword) {
   }
 }
 
+// Find up to 3 ACTIVE replacement products — same type/category, closest style (tag overlap).
+// Each replacement returns title + product URL + first image URL (for a thumbnail).
+async function findReplacements({ productType, tags, handleWords, excludeHandle, origin }) {
+  try {
+    const q = productType
+      ? `status:active product_type:'${String(productType).replace(/['"\\]/g, '')}'`
+      : `status:active ${String(handleWords || '').replace(/['"\\]/g, '')}`.trim();
+    if (q === 'status:active') return [];
+    const data = await shopifyGraphQL(`{ products(first:15, query:${JSON.stringify(q)}) { edges { node { handle title tags featuredImage { url } } } } }`);
+    const tagset = (tags || []).map(t => t.toLowerCase());
+    return (data && data.products ? data.products.edges.map(e => e.node) : [])
+      .filter(n => (n.handle || '').toLowerCase() !== (excludeHandle || '').toLowerCase())
+      .map(n => {
+        const nt = (n.tags || []).map(t => t.toLowerCase());
+        let score = 0; tagset.forEach(t => { if (nt.includes(t)) score++; });
+        return { n, score };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3)
+      .map(x => ({ title: x.n.title, url: `${origin}/products/${x.n.handle}`, imageUrl: x.n.featuredImage ? x.n.featuredImage.url : '' }));
+  } catch { return []; }
+}
+
 // Scan the blog body for product links and flag any that are NOT active (draft, archived,
-// or removed) so the merchant can remove/replace a dead link.
+// or removed); for each, suggest active replacements by type + style.
 async function findInactiveProductLinks(bodyHtml, origin) {
   try {
     if (!bodyHtml) return [];
@@ -1517,13 +1544,17 @@ async function findInactiveProductLinks(bodyHtml, origin) {
     if (!handles.length) return [];
     const results = await Promise.all(handles.map(async (handle) => {
       try {
-        const data = await shopifyGraphQL(`{ products(first:1, query:"handle:${handle}") { edges { node { id title status } } } }`);
+        const data = await shopifyGraphQL(`{ products(first:1, query:"handle:${handle}") { edges { node { id title status productType tags } } } }`);
         const node = data && data.products && data.products.edges[0] && data.products.edges[0].node;
         const url = `${origin}/products/${handle}`;
-        if (!node) return { handle, url, title: handle, status: 'NOT FOUND', adminUrl: null };
+        if (!node) {
+          const replacements = await findReplacements({ handleWords: handle.replace(/-/g, ' '), excludeHandle: handle, origin });
+          return { handle, url, title: handle, status: 'NOT FOUND', adminUrl: null, replacements };
+        }
         if (node.status && node.status.toUpperCase() !== 'ACTIVE') {
           const idNum = (node.id || '').split('/').pop();
-          return { handle, url, title: node.title, status: node.status, adminUrl: idNum ? `https://admin.shopify.com/store/${STORE_HANDLE}/products/${idNum}` : null };
+          const replacements = await findReplacements({ productType: node.productType, tags: node.tags, handleWords: handle.replace(/-/g, ' '), excludeHandle: handle, origin });
+          return { handle, url, title: node.title, status: node.status, adminUrl: idNum ? `https://admin.shopify.com/store/${STORE_HANDLE}/products/${idNum}` : null, replacements };
         }
         return null;                                  // active → fine
       } catch { return null; }
