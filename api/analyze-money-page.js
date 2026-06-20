@@ -1,7 +1,9 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v45.7
+// analyze-money-page.js — v45.8
+// v45.8 (June 18, 2026): Internal-link admin links — each loser page now resolves to a
+//                        DIRECT Shopify admin URL (opens the actual post/product, not a search).
 // v45.7 (June 18, 2026): Batch 4 — blog prompt now returns (1) replacementText for each
 //                        "change" H2 (clean text to paste), (2) peopleAlsoAsk in two forms
 //                        (body HTML + plain-text metafield), and (3) aiItems in the exact
@@ -24,6 +26,7 @@ const SERPAPI_KEY = process.env.SERPAPI_KEY;
 const PAGESPEED_KEY = process.env.GOOGLE_API_KEY;
 const SHOPIFY_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
 const SHOPIFY_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
+const STORE_HANDLE = (SHOPIFY_DOMAIN || '').replace(/\.myshopify\.com$/i, '') || 'aboutwallart';
 
 module.exports = async function handler(req, res) {
   // CORS headers
@@ -122,6 +125,17 @@ module.exports = async function handler(req, res) {
     console.log('[Money Page] Step 5: Getting AI recommendations... (~20 sec)');
     const analysis = await getClaudeAnalysis(yourPageData, competitorData, keyword, searchResults.userPosition, contentGaps, loserPages);
     console.log(`[Money Page] ✓ AI analysis complete! Total time: ${Math.round((Date.now() - startTime) / 1000)}s`);
+
+    // Resolve a DIRECT Shopify admin URL for each loser page so "Open in Shopify Admin"
+    // opens the actual post/product instead of a search.
+    if (analysis?.structured?.loserPageLinks?.length > 0) {
+      await Promise.all(analysis.structured.loserPageLinks.map(async (link) => {
+        try {
+          const c = await fetchShopifyContent(link.loserUrl);
+          link.adminUrl = buildLoserAdminUrl(c);
+        } catch { link.adminUrl = null; }
+      }));
+    }
 
     // Return results
     return res.status(200).json({
@@ -432,6 +446,18 @@ function extractSEOData(html, url, keyword) {
     isBlog,
     aiScore
   };
+}
+
+// Build a DIRECT Shopify admin URL for a loser page from its resolved Shopify content.
+// Products/collections live at the top level; blog posts and pages live under /content.
+function buildLoserAdminUrl(c) {
+  if (!c || !c.shopifyId) return null;
+  const base = `https://admin.shopify.com/store/${STORE_HANDLE}`;
+  if (c.shopifyType === 'product') return `${base}/products/${c.shopifyId}`;
+  if (c.shopifyType && c.shopifyType.includes('collection')) return `${base}/collections/${c.shopifyId}`;
+  if (c.shopifyType === 'page') return `${base}/content/pages/${c.shopifyId}`;
+  if (c.shopifyType === 'article') return `${base}/content/articles/${c.shopifyId}`;
+  return null;
 }
 
 // Build the full image list for a blog: the MAIN (featured) image first (flagged
