@@ -1,7 +1,11 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v46.1
+// analyze-money-page.js — v46.2
+// v46.2 (June 20, 2026): Parsing fix — read the AI answer reliably by slicing from the
+//                        first "{" to the last "}" (handles ```json fences / stray text
+//                        that previously made the whole results page dump raw JSON with no
+//                        blocks/buttons). Raised max_tokens 7000→12000 as insurance.
 // v46.1 (June 20, 2026): Step 1 fixes — (a) H2 CAPS rule: never suggest caps→sentence-case,
 //                        always output H2 text in UPPERCASE (theme uses all-caps H2s);
 //                        (b) new internalLinksToAdd field: concrete outbound internal links
@@ -758,7 +762,7 @@ async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = 
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 7000,
+        max_tokens: 12000,
         messages: [{ role: 'user', content: prompt }]
       })
     });
@@ -770,10 +774,18 @@ async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = 
     const raw = data.content[0].text.trim();
     console.log('[Claude] Response length:', raw.length, 'chars');
 
-    // Try to parse as structured JSON
+    // Try to parse as structured JSON.
+    // The model sometimes wraps the JSON in ```json fences or adds a stray line of
+    // text before/after it. Rather than relying on fence-stripping alone, isolate the
+    // actual object by slicing from the FIRST "{" to the LAST "}" — this reads
+    // reliably no matter how the answer is wrapped.
     try {
-      // Strip markdown code fences if present
-      const jsonStr = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+      let jsonStr = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+      const firstBrace = jsonStr.indexOf('{');
+      const lastBrace  = jsonStr.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        jsonStr = jsonStr.slice(firstBrace, lastBrace + 1);
+      }
       const parsed = JSON.parse(jsonStr);
       console.log('[Claude] ✓ Structured JSON parsed successfully');
       return { structured: parsed };
