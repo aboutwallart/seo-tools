@@ -1,7 +1,12 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v46.2
+// analyze-money-page.js — v46.3
+// v46.3 (June 20, 2026): AI snippets — generate ALL that genuinely fit, not just one:
+//                        Related Questions + Summary Block always; Comparison Snippet only
+//                        with a real comparison; How-To Schema only for true step-by-step
+//                        posts (as JSON-LD, never on non-how-to content). Each in its exact
+//                        push-ready format.
 // v46.2 (June 20, 2026): Parsing fix — read the AI answer reliably by slicing from the
 //                        first "{" to the last "}" (handles ```json fences / stray text
 //                        that previously made the whole results page dump raw JSON with no
@@ -911,9 +916,24 @@ Return this exact JSON structure with real content (no placeholders):
   ],
   "aiItems": [
     {
-      "element": "Comparison Snippet",
+      "element": "Related Questions",
       "priority": "high",
-      "content": "Full copy-paste ready snippet-metafield HTML — see the SNIPPET METAFIELD HTML rule below."
+      "content": "<h2>Related Questions About [topic]</h2><p><strong>Question?</strong> — direct answer</p><p><strong>Question?</strong> — direct answer</p>"
+    },
+    {
+      "element": "Summary Block",
+      "priority": "high",
+      "content": "<h2>Summary: [topic]</h2><p><strong>Label:</strong> point</p><p><strong>Label:</strong> point</p>"
+    },
+    {
+      "element": "Comparison Snippet",
+      "priority": "medium",
+      "content": "<h2>[Comparison title]</h2><p>intro</p><p><strong>Option A:</strong> ...</p><p><strong>Option B:</strong> ...</p>"
+    },
+    {
+      "element": "How-To Schema",
+      "priority": "medium",
+      "content": "<script type=\\"application/ld+json\\">{\\"@context\\":\\"https://schema.org\\",\\"@type\\":\\"HowTo\\",\\"name\\":\\"...\\",\\"step\\":[{\\"@type\\":\\"HowToStep\\",\\"name\\":\\"...\\",\\"text\\":\\"...\\"}]}</script>"
     }
   ],
   "peopleAlsoAsk": {
@@ -983,7 +1003,13 @@ RULES:
   - "html": clean HTML for the blog body — a single <h2>Frequently Asked Questions About [topic]</h2> followed by one <p> per question where the question is wrapped in <strong> and the answer follows in the same <p>. NEVER add schema markup (no itemscope, no itemtype). No <ul>/<li>/<br>/<div>, no blank lines, no inline styles.
   - "metafield": plain text only (no HTML) for the people_also_ask_new metafield — each question as "**Q: ...?**" on its own line, the answer as "A: ..." on the next line (2-3 supporting sentences), with a blank line between pairs.
   - The two forms must contain the same questions but NEVER be combined.
-- SNIPPET METAFIELD HTML (aiItems): each aiItem "content" is pasted directly into its Shopify snippet metafield (How To Schema, Related Questions, Summary Block, Comparison Snippet). Format: <h2> for the section title only (never <strong> or <h3> as the title); a <p> starts immediately after the <h2> with NO blank line; every item of content in its own <p>; <strong> only for bold labels INSIDE a <p>; NEVER use <ul>, <li>, <br>, <div> or wrapper tags; NO blank lines between tags; NO inline styles or classes.
+- aiItems — WHICH to generate (only what genuinely fits this blog; do NOT force a poor fit):
+  - "Related Questions" — ALWAYS generate. 4-6 real questions.
+  - "Summary Block" — ALWAYS generate. The key takeaways.
+  - "Comparison Snippet" — ONLY if the topic has a genuine comparison (e.g. X vs Y, odd vs even). If there is nothing real to compare, OMIT it entirely.
+  - "How-To Schema" — ONLY if this blog is genuinely a step-by-step / procedural how-to. If the post is definitional, a listicle, or otherwise NOT procedural, OMIT it entirely (HowTo schema on non-how-to content breaks Google's structured-data rules). Use the EXACT element name "How-To Schema".
+- SNIPPET METAFIELD HTML (the HTML aiItems — Related Questions, Summary Block, Comparison Snippet): each "content" is pasted directly into its Shopify metafield. Format: <h2> for the section title only (never <strong> or <h3> as the title); a <p> starts immediately after the <h2> with NO blank line; every item of content in its own <p>; <strong> only for bold labels INSIDE a <p>; for Related Questions each <p> is <strong>Question?</strong> followed by " — " and the answer; for Summary Block each <p> starts with <strong>Label:</strong>; NEVER use <ul>, <li>, <br>, <div> or wrapper tags; NO blank lines between tags; NO inline styles or classes.
+- HOW-TO SCHEMA (the "How-To Schema" aiItem ONLY): its "content" is NOT HTML — it is a single line of valid JSON-LD wrapped in <script type="application/ld+json"> ... </script>, a schema.org HowTo object with "name", "description" and a "step" array of HowToStep objects ("name" + "text"). No markdown, no code fences, no extra text — just the <script> tag with the JSON inside.
 - urlAnalysis: title changes are always safe (no redirect). Only recommend a slug change if the page has very few or zero clicks; if so, set slugChangeWarning.
 - otherActions: NEVER include image filename or alt-text tasks — the Image SEO tool handles all blog images separately. NEVER include internal-link tasks — those go in internalLinksToAdd. Return an EMPTY array unless there is a genuine NON-image, NON-link action. NEVER include page speed, image compression, Core Web Vitals, canonical/OG/Twitter tags, meta robots, keyword density targets, schema, or anything already covered by h2Sections or aiItems. One sentence per action max.
 - internalLinksToAdd: when this article should link OUT to a relevant AboutWallArt collection or page, put it here (NOT in otherActions). Give 1-2 links max. For each, output paste-ready text with the link ALREADY embedded (full <a href title target rel> format). PREFER mode "replace" — find a natural existing sentence in the body and return it in existingText plus the rewritten version with the link in newText. Only use mode "new" when there is no natural existing spot; then newText is a short new sentence. The anchor text must describe the destination and must NOT be a keyword owned by another page (no cannibalisation) and must NOT be this article's own main keyword. If there is no good internal-link opportunity, return an empty array.
