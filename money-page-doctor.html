@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 49.8</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 50.0</p>
                 </div>
             </div>
         </header>
@@ -378,6 +378,7 @@
             </div>
             
             <div style="margin-bottom: 15px; display: flex; justify-content: flex-end; gap: 10px;">
+                <button class="btn-secondary" onclick="refreshBlogIndex(this)" title="Re-scan all blogs into the index. Run this whenever you add or retag blogs.">🔄 Refresh Blog Index</button>
                 <button onclick="openAddUrlModal()" style="background:#2e7d32;">➕ Add URL</button>
                 <button class="btn-secondary" onclick="clearAllPages()">🗑️ Clear All Pages</button>
                 <button class="btn-secondary" onclick="removeDuplicates()">🧹 Remove Duplicates</button>
@@ -1603,6 +1604,7 @@
                         const sug    = (f.suggestedText||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                         const reason = (f.reason||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                         const isRemove = (f.recommendation||'').toLowerCase().includes('remove');
+                        const mfKey = (f.metafieldKey||'').trim();
                         const oKey = `overuse_${i}`;
                         const oItem = allItems.find(it => it.key === oKey);
                         return `
@@ -1619,7 +1621,8 @@
                                 : `<div style="font-size:0.8rem;color:#999;margin-bottom:4px;">Change it to:</div>
                                    <div style="background:#eafaf1;border:1px solid #d4efdf;border-radius:4px;padding:8px;font-size:0.88rem;margin-bottom:8px;">${sug}</div>
                                    <textarea id="overuseSuggest${i}" style="display:none;">${sug}</textarea>
-                                   <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('overuseSuggest${i}').value,this)">📋 Copy replacement</button>`
+                                   <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('overuseSuggest${i}').value,this)">📋 Copy replacement</button>
+                                   ${mfKey ? `<button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushOveruse('${mfKey}','overuseSuggest${i}',this)">📤 Push to Shopify</button>` : ''}`
                             }
                         </div>`;
                     }).join('')}
@@ -2120,6 +2123,29 @@
                 btn.disabled = false; btn.textContent = orig;
                 alert(`Push failed: ${err.message}`);
             }
+        }
+
+        // Map a blog metafield key to its Shopify type (so over-use pushes write correctly).
+        function metafieldType(key) {
+            const k = (key || '').toLowerCase();
+            if (k === 'custom.more_about_' || k === 'custom.people_also_ask') return 'rich_text_field';
+            if (/^seo\.|^global\./.test(k)) return 'single_line_text_field';
+            return 'multi_line_text_field';
+        }
+
+        // Push an over-use fix straight to its metafield. Rich-text fields keep their links
+        // via patch-leading; text fields get the corrected text directly.
+        function pushOveruse(metafieldKey, elId, btn) {
+            const el = document.getElementById(elId);
+            const val = el ? (el.value !== undefined ? el.value : el.textContent) : '';
+            const dot = metafieldKey.indexOf('.');
+            if (dot === -1) { alert('Bad metafield key.'); return; }
+            const namespace = metafieldKey.slice(0, dot);
+            const key = metafieldKey.slice(dot + 1);
+            const type = metafieldType(metafieldKey);
+            const item = { namespace, key, type, value: val };
+            if (type === 'rich_text_field') item.richTextMode = 'patch-leading';
+            return pushMetafields([item], btn);
         }
 
         // Push a single snippet metafield (reads raw value from a textarea/pre by id).
@@ -2887,6 +2913,26 @@
                 updatePageCount();
                 renderUrls();
                 alert('✅ All pages cleared!');
+            }
+        }
+
+        async function refreshBlogIndex(btn) {
+            const original = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = '⏳ Indexing blogs…';
+            try {
+                const res = await fetch('/api/shopify-files?action=build-blog-index', { method: 'POST' });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    alert(`✅ Blog index refreshed — ${data.count} blogs saved.`);
+                } else {
+                    alert('❌ Could not refresh the blog index:\n' + (data.error || 'unknown error'));
+                }
+            } catch (e) {
+                alert('❌ Could not refresh the blog index:\n' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = original;
             }
         }
 
