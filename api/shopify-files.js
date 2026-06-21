@@ -1,4 +1,7 @@
-// shopify-files.js — v1.5
+// shopify-files.js — v1.6
+// v1.6 (June 21, 2026): New search-linkable action — searches collections / blog articles /
+//                       trend pages by keyword, returns {gid,title,url} for the Linked
+//                       References manual picker (used when a group has no auto-matches).
 // v1.5 (June 21, 2026): (a) push-metafields now writes REFERENCE-LIST metafields
 //                       (list.collection_reference / list.article_reference /
 //                       list.page_reference) via GraphQL metafieldsSet — value is a JSON
@@ -784,6 +787,47 @@ module.exports = async function handler(req, res) {
       if (!put.ok) throw new Error('GitHub write failed: ' + await put.text());
 
       return res.status(200).json({ success: true, count: articles.length, updatedAt: payload.updatedAt });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  // -------------------------------------------------------
+  // SEARCH LINKABLE — find collections / blog articles / trend pages by keyword,
+  // returning { gid, title, url } for the Linked References manual picker (item #5).
+  // -------------------------------------------------------
+  if (req.query.action === 'search-linkable' && req.method === 'GET') {
+    const type = (req.query.type || '').toLowerCase();
+    const q = (req.query.q || '').trim();
+    if (!q) return res.status(200).json({ success: true, items: [] });
+    const gql = `https://${shopifyDomain}/admin/api/2025-01/graphql.json`;
+    const shopifyHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
+    const SITE = 'https://aboutwallart.com';
+    async function run(query, variables) {
+      const r = await fetch(gql, { method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query, variables }) });
+      const d = await r.json();
+      if (d.errors) throw new Error(d.errors[0].message);
+      return d.data;
+    }
+    try {
+      let items = [];
+      if (type === 'collection') {
+        const d = await run(`query($q:String){ collections(first:15, query:$q){ edges{ node{ id title handle } } } }`, { q });
+        items = (d.collections?.edges || []).map(e => ({ gid: e.node.id, title: e.node.title, url: `${SITE}/collections/${e.node.handle}` }));
+      } else if (type === 'article') {
+        const d = await run(`query($q:String){ articles(first:15, query:$q){ edges{ node{ id title handle blog{ handle } } } } }`, { q });
+        items = (d.articles?.edges || []).map(e => ({ gid: e.node.id, title: e.node.title, url: `${SITE}/blogs/${e.node.blog ? e.node.blog.handle : 'news-articles-home-decor-inspiration'}/${e.node.handle}` }));
+      } else if (type === 'trend') {
+        const d = await run(`{ pages(first:100){ edges{ node{ id title handle } } } }`, {});
+        const all = (d.pages?.edges || []).map(e => e.node).filter(n => /trend/i.test(n.title || ''));
+        const ql = q.toLowerCase();
+        let matched = all.filter(n => (n.title || '').toLowerCase().includes(ql));
+        if (!matched.length) matched = all;       // no keyword hit → show all trend pages to pick from
+        items = matched.map(n => ({ gid: n.id, title: n.title, url: `${SITE}/pages/${n.handle}` }));
+      } else {
+        return res.status(400).json({ error: 'type must be collection, article, or trend' });
+      }
+      return res.status(200).json({ success: true, items: items.slice(0, 15) });
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }
