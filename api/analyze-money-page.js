@@ -1,7 +1,10 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v47.1
+// analyze-money-page.js — v47.2
+// v47.2 (June 21, 2026): COLLECTIONS C2 — collection prompt now also returns "add" H2
+//                        sections (destined for the seo_text_links_ rich-text field) and a
+//                        browseTheCollection SEO heading. FAQ schema pushed to faq_schema.
 // v47.1 (June 21, 2026): COLLECTIONS C1 — dedicated buildCollectionAnalysisPrompt
 //                        (competitor-driven + over-use + the 3 AI snippets in their exact
 //                        collection-metafield formats, each carrying its target metafieldKey).
@@ -1389,6 +1392,7 @@ Return this exact JSON structure with real content (no placeholders):
   "suggestedTitle": "Optimised SEO title, max 60 chars, keyword near start, UK spelling",
   "suggestedMeta": "Compelling meta description, max 155 chars, keyword included, ends with CTA, UK spelling",
   "suggestedDescription": "2-3 sentences for the collection description field. Keyword-rich, AboutWallArt brand voice, UK spelling, no HTML tags.",
+  "browseTheCollection": "An SEO-worthy on-page heading built around the main keyword (shown above the product grid). NOT generic, NEVER starts with 'Shop'. Max ~70 chars. e.g. for 'black and white wall art' → 'Black and White Wall Art for Modern Living Rooms'.",
   "pageSchema": {
     "@context": "https://schema.org",
     "@type": "CollectionPage",
@@ -1432,6 +1436,12 @@ Return this exact JSON structure with real content (no placeholders):
       "heading": "Exact current H2 / section text to remove",
       "reason": "Why this section HURTS SEO (thin, off-topic, duplicate, keyword-diluting, or proven unnecessary vs competitors). Body content only — NEVER a global theme section.",
       "competitorDriven": false
+    },
+    {
+      "action": "add",
+      "heading": "New H2 section heading (plain text, no tags)",
+      "content": "Complete paste-ready HTML for a NEW SEO content section destined for the collection's SEO Text (with links) field: an <h2> heading followed by one or more <p> paragraphs. Include 1-2 inline internal links to other relevant AboutWallArt collections or pages as <a href=\\"https://aboutwallart.com/collections/[handle]\\">anchor text</a>. UK spelling. No <br>, no inline styles, no wrapper divs.",
+      "competitorDriven": true
     }
   ],
   "aiItems": [
@@ -1490,7 +1500,8 @@ RULES:
 - keywordOveruse: examine ALL of "EXISTING PAGE CONTENT" (every heading, the full body, every metafield) and decide whether "${keyword}" is over-used. For each over-used spot return where it lives, the EXACT current text, recommendation "reword" (with suggestedText using a related/secondary term) or "remove" (suggestedText empty). Always set "metafieldKey" to an empty string here. EXCLUDE global/shared theme chrome (nav, menus, breadcrumbs, footer, cookie notices, search, account, newsletter, "related"/"recently viewed"). A single natural use is FINE — only flag genuine over-use. If not over-stuffed, return "isOverstuffed": false with an empty findings array.
 - suggestedTitle: max 60 chars (hard limit), keyword near start. suggestedMeta: max 155 chars (hard limit), keyword once, benefit, CTA. suggestedDescription: plain text, no HTML, 2-3 sentences, UK spelling.
 - pageSchema: a valid CollectionPage schema. faqSchema: 6-8 real questions about "${keyword}" with full helpful answers. brandBlock: use EXACTLY the text shown — do not change it.
-- h2Sections: use ONLY action "change" (rename/retag a current H2, with reason + exactAction + replacementText) or action "remove" (a body section that HURTS SEO — body content ONLY, never a global theme section). Do NOT use action "add" (new body sections are handled separately). NEVER flag these theme sections: "Trending Now", "Recently Viewed", "New Arrivals", "Customers Are Saying", or any auto-generated review/browsing/merchandising widget. Include competitorDriven on every item.
+- browseTheCollection: a single SEO-worthy heading built around "${keyword}", shown on the page above the products. It must read naturally as a heading, include the keyword (or a close variation) and a useful qualifier, be at most ~70 characters, NEVER be a generic phrase like "Browse the Collection", and NEVER start with the word "Shop".
+- h2Sections: use action "change" (rename/retag a current H2, with reason + exactAction + replacementText), action "remove" (a body section that HURTS SEO — body content ONLY, never a global theme section), or action "add" (a NEW SEO content section — its "content" is paste-ready HTML, an <h2> heading + <p> paragraphs with 1-2 inline internal links, destined for the collection's SEO Text (with links) field). Add a section ONLY for a genuine content gap (check EXISTING PAGE CONTENT first — never duplicate a topic already covered, never add just to repeat "${keyword}"). NEVER flag these theme sections: "Trending Now", "Recently Viewed", "New Arrivals", "Customers Are Saying", or any auto-generated review/browsing/merchandising widget. Include competitorDriven on every item.
 - KEYWORD USAGE (no stuffing): use the EXACT keyword "${keyword}" only where it matters most (title, first line, at most one or two headings). Everywhere else write naturally with secondary terms and variations. NEVER repeat the exact keyword over and over.
 - aiItems — generate the three collection snippets in their EXACT formats below. Generate "People Also Ask" ALWAYS (4-6 real questions). Generate "Comparison Snippet" ALWAYS (a "What is ${keyword}?" definition). Generate "Comparison Table" ONLY if there is a genuine comparison to make (styles, sizes, materials) — otherwise OMIT it.
   - Comparison Snippet ("comparison_snippet") EXACT format: <p><strong style="text-transform: uppercase; display: block; margin-bottom: 0.75rem;">[QUESTION]</strong></p><p>[answer paragraph]</p> — no other tags, no <h2>.
