@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 50.3</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 50.4</p>
                 </div>
             </div>
         </header>
@@ -1662,6 +1662,8 @@
                         const key = `ai_${i}`;
                         const isScript = /^\s*<script/i.test(item.content);
                         const isHTML = item.content.includes('<');
+                        // Push target: backend-supplied key (collections/products) else blog mapping.
+                        const pushKey = item.metafieldKey || snippetKeyForElement(item.element);
                         return `
                         <div id="row_${key}" style="display:flex;align-items:flex-start;gap:10px;margin-bottom:15px;opacity:${state[key]?'0.45':'1'};">
                             ${cb(allItems.find(it=>it.key===key))}
@@ -1678,12 +1680,12 @@
                                         : `<pre id="aiItem${i}">${item.content}</pre>
                                            <button class="copy-btn" onclick="copyToClipboard(document.getElementById('aiItem${i}').textContent,this)">📋 Copy</button>`
                                     }
-                                    ${snippetKeyForElement(item.element) ? `<button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" data-snippet-key="${snippetKeyForElement(item.element)}" data-snippet-src="aiItem${i}" onclick="pushSnippet('${snippetKeyForElement(item.element)}','aiItem${i}',this)">📤 Push to Shopify</button>` : ''}
+                                    ${pushKey ? `<button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" data-snippet-key="${pushKey}" data-snippet-src="aiItem${i}" onclick="pushSnippet('${pushKey}','aiItem${i}',this)">📤 Push to Shopify</button>` : ''}
                                 </div>
                             </div>
                         </div>`;
                     }).join('')}
-                    ${s.aiItems.some(it => snippetKeyForElement(it.element)) || (s.peopleAlsoAsk && s.peopleAlsoAsk.metafield) ? `<button class="push-btn" type="button" style="margin-top:8px;" onclick="pushAllSnippets(this)">📤 Push all snippets to Shopify</button>` : ''}
+                    ${s.aiItems.some(it => it.metafieldKey || snippetKeyForElement(it.element)) || (s.peopleAlsoAsk && s.peopleAlsoAsk.metafield) ? `<button class="push-btn" type="button" style="margin-top:8px;" onclick="pushAllSnippets(this)">📤 Push all snippets to Shopify</button>` : ''}
                 </div>` : '';
 
             // ── 4. Manual actions block ───────────────────────────────────────
