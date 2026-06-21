@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 50.1</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 50.2</p>
                 </div>
             </div>
         </header>
@@ -512,6 +512,9 @@
         let optimizedPages = []; // Loaded from GitHub registry on startup
         let currentUrl = null;
         let currentResults = null;
+        // Linked References — manual picks added via the search box (per-analysis, reset on render)
+        let manualLinkedRefs = { blogs: [], collections: [], trends: [] };
+        let lrLastResults    = { blogs: [], collections: [], trends: [] };
         let currentPageTypeFilter = 'all'; // Current filter in My Pages tab
         let currentUrgencyTab = 'other'; // 'danger' | 'quickwin' | 'other'
         let gscEnrichment = {}; // normalizedPath → { position, impressions, clicks, urgency, clickDrop, keyword }
@@ -1085,6 +1088,16 @@
             const lbl = document.getElementById('lbl_' + key);
             if (lbl) lbl.style.textDecoration = checkbox.checked ? 'line-through' : '';
 
+            // Linked References: the Push button blocks only while its box is ticked.
+            if (key.indexOf('linkedref_') === 0) {
+                const pb = document.getElementById('linkedrefPush_' + key.replace('linkedref_', ''));
+                if (pb) {
+                    pb.disabled = checkbox.checked;
+                    pb.style.opacity = checkbox.checked ? '0.5' : '1';
+                    pb.style.cursor = checkbox.checked ? 'not-allowed' : 'pointer';
+                }
+            }
+
             // Update master counter
             const state = loadChecklistState(currentAnalysisUrl);
             const done = Object.entries(state).filter(([k, v]) => k !== '_total' && v).length;
@@ -1411,6 +1424,13 @@
 
             // Inactive product links found in the body (data-level, not from the AI)
             (data.inactiveProducts || []).forEach((p, i) => add(`inactiveprod_${i}`, `Inactive product link fixed: ${p.title}`, 'inactiveprod'));
+
+            // Linked References — one "pushed" tick per group (blogs / collections / trends)
+            if (_isBlog) {
+                add('linkedref_blogs',       'Linked Blogs pushed',       'linkedref');
+                add('linkedref_collections', 'Linked Collections pushed', 'linkedref');
+                add('linkedref_trends',      'Linked Trends pushed',      'linkedref');
+            }
 
             // Copy-paste items
             if (s.pageSchema) add('schema_page',  'Page Schema — pasted into Custom Liquid',  'copy');
@@ -1892,31 +1912,48 @@
                 </div>` : '';
 
             // ── Linked References block (blogs) — Linked Blogs / Collections / Trends ──
+            // Each group: auto-picks (if any) OR a search box (when empty) to add up to 3.
+            // Per-group "pushed" checkbox; the Push button blocks ONLY when that box is ticked.
+            manualLinkedRefs = { blogs: [], collections: [], trends: [] };
+            lrLastResults    = { blogs: [], collections: [], trends: [] };
             const lr = data.linkedReferences || { linkedBlogs: [], linkedCollections: [], linkedTrends: [] };
             const renderRefGroup = (label, items, group, color) => {
+                const key = 'linkedref_' + group;
+                const it  = allItems.find(x => x.key === key);
+                const checked = !!state[key];
                 const has = items && items.length;
-                const rows = has ? items.map(it => {
-                    const t = (it.title || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-                    const u = (it.url || '');
+                const pushBtn = `<button type="button" id="linkedrefPush_${group}" onclick="pushLinkedRefs('${group}',this)" ${checked ? 'disabled' : ''} style="background:${color};color:#fff;border:none;border-radius:6px;padding:7px 16px;font-weight:600;font-size:0.82rem;cursor:${checked ? 'not-allowed' : 'pointer'};opacity:${checked ? '0.5' : '1'};">📤 Push</button>`;
+                const tickLabel = `<label style="display:flex;align-items:center;gap:6px;font-size:0.8rem;color:#555;cursor:pointer;">${it ? cb(it) : ''} pushed</label>`;
+                const rows = has ? items.map(item => {
+                    const t = (item.title || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                    const u = (item.url || '');
                     return `<div style="padding:8px 10px;background:#f9f9f9;border-radius:5px;margin-bottom:6px;font-size:0.85rem;">🔗 <a href="${u}" target="_blank" style="color:${color};text-decoration:none;font-weight:500;">${t}</a></div>`;
-                }).join('') : `<p style="font-size:0.83rem;color:#999;margin:0 0 6px;">No relevant matches found.</p>`;
-                return `<div style="margin-bottom:16px;">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                }).join('') : '';
+                // When a group has no auto-matches: a search box to add up to 3 manually.
+                const searchUi = !has ? `
+                    <div style="background:#f5f5f5;border-radius:6px;padding:10px;">
+                        <div style="font-size:0.82rem;color:#666;margin-bottom:6px;">No automatic matches — search and add up to 3:</div>
+                        <div style="display:flex;gap:6px;margin-bottom:8px;">
+                            <input type="text" id="lrSearch_${group}" placeholder="Type a keyword…" onkeydown="if(event.key==='Enter'){event.preventDefault();searchLinkable('${group}');}" style="flex:1;padding:7px 10px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.82rem;font-family:'Poppins',sans-serif;">
+                            <button type="button" class="copy-btn" style="background:${color};color:#fff;" onclick="searchLinkable('${group}')">🔎 Search</button>
+                        </div>
+                        <div id="lrResults_${group}"></div>
+                        <div id="lrSelected_${group}" style="margin-top:8px;"></div>
+                        <div id="lrPushWrap_${group}" style="display:none;align-items:center;gap:12px;margin-top:8px;">${pushBtn}${tickLabel}</div>
+                    </div>` : '';
+                const header = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
                         <strong style="font-size:0.9rem;color:${color};">${label} (${has ? items.length : 0})</strong>
-                        ${has ? `<button class="copy-btn" type="button" style="background:${color};color:#fff;" onclick="pushLinkedRefs('${group}',this)">📤 Push</button>` : ''}
-                    </div>
-                    ${rows}
-                </div>`;
+                        ${has ? `<div style="display:flex;align-items:center;gap:12px;">${pushBtn}${tickLabel}</div>` : ''}
+                    </div>`;
+                return `<div style="margin-bottom:18px;">${header}${rows}${searchUi}</div>`;
             };
-            const anyRefs = (lr.linkedBlogs.length + lr.linkedCollections.length + lr.linkedTrends.length) > 0;
             const linkedRefsBlock = _isBlog ? `
                 <div class="action-block" style="border-color:#3949ab;">
                     <h3>🔗 Linked References</h3>
-                    <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">Cross-link this blog by filling its Linked Blogs, Linked Collections and Linked Trends metafields. Review the picks, then push each group (or all at once). <span style="color:#999;">If Linked Blogs is empty, re-run Refresh Blog Index so blogs have their IDs, then re-analyse.</span></p>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">Cross-link this blog by filling its Linked Blogs, Linked Collections and Linked Trends metafields. Push a group, then tick its box once it's saved (ticking blocks the button so you don't push twice — untick to push again). <span style="color:#999;">If Linked Blogs is empty, re-run Refresh Blog Index so blogs have their IDs, then re-analyse.</span></p>
                     ${renderRefGroup('📝 Linked Blogs', lr.linkedBlogs, 'blogs', '#5e35b1')}
                     ${renderRefGroup('🛍️ Linked Collections', lr.linkedCollections, 'collections', '#00897b')}
                     ${renderRefGroup('🎨 Linked Trends', lr.linkedTrends, 'trends', '#d81b60')}
-                    ${anyRefs ? `<button class="push-btn" type="button" onclick="pushAllLinkedRefs(this)" style="margin-top:8px;background:#3949ab;color:#fff;padding:10px 22px;border:none;border-radius:6px;font-weight:600;cursor:pointer;">📤 Push All Linked References</button>` : ''}
                 </div>` : '';
 
             // ── 6. Auto-link rule block ───────────────────────────────────────
@@ -2197,30 +2234,103 @@
             return pushMetafields(items, btn);
         }
 
-        // Push one Linked-References group (blogs / collections / trends) as a reference list.
+        // ── Linked References push + manual search ───────────────────────────────
         const LINKED_REF_MAP = {
-            blogs:       { field: 'linkedBlogs',       key: 'linked_blogs',       type: 'list.article_reference' },
-            collections: { field: 'linkedCollections', key: 'linked_collections', type: 'list.collection_reference' },
-            trends:      { field: 'linkedTrends',      key: 'linked_trends',      type: 'list.page_reference' }
+            blogs:       { field: 'linkedBlogs',       key: 'linked_blogs',       type: 'list.article_reference',    searchType: 'article' },
+            collections: { field: 'linkedCollections', key: 'linked_collections', type: 'list.collection_reference', searchType: 'collection' },
+            trends:      { field: 'linkedTrends',      key: 'linked_trends',      type: 'list.page_reference',       searchType: 'trend' }
         };
-        function pushLinkedRefs(group, btn) {
-            const lr = currentResults?.linkedReferences || {};
-            const g = LINKED_REF_MAP[group];
-            const items = g ? (lr[g.field] || []) : [];
-            const gids = items.map(i => i.gid).filter(Boolean);
-            if (!gids.length) { alert('No IDs to push — re-run Refresh Blog Index, then re-analyse.'); return; }
-            return pushMetafields([{ namespace: 'custom', key: g.key, type: g.type, value: JSON.stringify(gids) }], btn);
+
+        // Core metafield write — returns { ok, msg } and never touches a button.
+        async function pushMetafieldsCore(items) {
+            const sd = currentResults?.shopify;
+            if (!sd?.id) return { ok: false, msg: 'Shopify data not available for this page.' };
+            if (!items.length) return { ok: false, msg: 'Nothing to push.' };
+            try {
+                const res = await fetch('/api/shopify-files?action=push-metafields', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shopifyId: sd.id, shopifyBlogId: sd.blogId, shopifyType: sd.type, metafields: items })
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    const failed = (data.results || []).filter(r => !r.ok).map(r => `${r.key}: ${r.error}`).join('; ');
+                    return { ok: false, msg: failed || 'Push failed' };
+                }
+                return { ok: true };
+            } catch (err) { return { ok: false, msg: err.message }; }
         }
-        // Push all three Linked-References groups at once.
-        function pushAllLinkedRefs(btn) {
+
+        // The items to push for a group: manual picks (if any) else the auto picks.
+        function getLinkedItems(group) {
+            const g = LINKED_REF_MAP[group];
+            const manual = manualLinkedRefs[group] || [];
+            if (manual.length) return manual;
             const lr = currentResults?.linkedReferences || {};
-            const items = [];
-            Object.values(LINKED_REF_MAP).forEach(g => {
-                const gids = (lr[g.field] || []).map(i => i.gid).filter(Boolean);
-                if (gids.length) items.push({ namespace: 'custom', key: g.key, type: g.type, value: JSON.stringify(gids) });
-            });
-            if (!items.length) { alert('Nothing to push.'); return; }
-            return pushMetafields(items, btn);
+            return (g && lr[g.field]) || [];
+        }
+
+        // Push one Linked-References group. Re-pushable: the button re-enables after,
+        // and is only blocked once you tick its "pushed" box.
+        async function pushLinkedRefs(group, btn) {
+            const g = LINKED_REF_MAP[group];
+            const gids = getLinkedItems(group).map(i => i.gid).filter(Boolean);
+            if (!gids.length) { alert('No items to push — use the search box to add some.'); return; }
+            const orig = btn.textContent;
+            btn.disabled = true; btn.textContent = '⏳ Pushing…';
+            const r = await pushMetafieldsCore([{ namespace: 'custom', key: g.key, type: g.type, value: JSON.stringify(gids) }]);
+            btn.disabled = false; btn.textContent = orig;          // re-pushable
+            if (r.ok) showToast('✅ Pushed. Tick the box to mark it done.');
+            else alert('Push failed: ' + r.msg);
+        }
+
+        // Search collections / blogs / trend pages by keyword (only shown when a group is empty).
+        async function searchLinkable(group) {
+            const input  = document.getElementById('lrSearch_' + group);
+            const resBox = document.getElementById('lrResults_' + group);
+            const q = (input?.value || '').trim();
+            if (!resBox) return;
+            if (!q) { resBox.innerHTML = '<div style="color:#999;font-size:0.8rem;">Type a keyword first.</div>'; return; }
+            resBox.innerHTML = '<div style="color:#999;font-size:0.8rem;">⏳ Searching…</div>';
+            try {
+                const g = LINKED_REF_MAP[group];
+                const res = await fetch(`/api/shopify-files?action=search-linkable&type=${g.searchType}&q=${encodeURIComponent(q)}`);
+                const data = await res.json();
+                const items = data.items || [];
+                lrLastResults[group] = items;
+                if (!items.length) { resBox.innerHTML = '<div style="color:#999;font-size:0.8rem;">No matches.</div>'; return; }
+                resBox.innerHTML = items.map((it, idx) => {
+                    const t = (it.title || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                    return `<button type="button" onclick="addLinkedItem('${group}',${idx})" style="display:block;width:100%;text-align:left;margin-bottom:4px;padding:7px 10px;background:#eef;border:1px solid #dde;border-radius:5px;cursor:pointer;font-size:0.82rem;">➕ ${t}</button>`;
+                }).join('');
+            } catch (e) {
+                resBox.innerHTML = '<div style="color:#c00;font-size:0.8rem;">Search failed: ' + e.message + '</div>';
+            }
+        }
+
+        function addLinkedItem(group, idx) {
+            const it = (lrLastResults[group] || [])[idx];
+            if (!it) return;
+            const list = manualLinkedRefs[group];
+            if (list.some(x => x.gid === it.gid)) return;            // no duplicates
+            if (list.length >= 3) { alert('Max 3 per group — remove one first.'); return; }
+            list.push({ gid: it.gid, title: it.title, url: it.url });
+            renderManualSelected(group);
+        }
+
+        function removeLinkedItem(group, gid) {
+            manualLinkedRefs[group] = (manualLinkedRefs[group] || []).filter(x => x.gid !== gid);
+            renderManualSelected(group);
+        }
+
+        function renderManualSelected(group) {
+            const box = document.getElementById('lrSelected_' + group);
+            const wrap = document.getElementById('lrPushWrap_' + group);
+            const list = manualLinkedRefs[group] || [];
+            if (box) box.innerHTML = list.map(it => {
+                const t = (it.title || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:#f0f4ff;border-radius:5px;margin-bottom:4px;font-size:0.83rem;"><span>🔗 ${t}</span><button type="button" onclick="removeLinkedItem('${group}','${it.gid}')" style="background:none;border:none;color:#c00;cursor:pointer;font-size:1rem;line-height:1;">✖</button></div>`;
+            }).join('');
+            if (wrap) wrap.style.display = list.length ? 'flex' : 'none';
         }
 
         async function pushToShopify() {
