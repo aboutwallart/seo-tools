@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 50.2</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 50.3</p>
                 </div>
             </div>
         </header>
@@ -1096,6 +1096,11 @@
                     pb.style.opacity = checkbox.checked ? '0.5' : '1';
                     pb.style.cursor = checkbox.checked ? 'not-allowed' : 'pointer';
                 }
+                // Grey the whole block once all 3 groups are ticked.
+                const st = loadChecklistState(currentAnalysisUrl);
+                const allDone = st['linkedref_blogs'] && st['linkedref_collections'] && st['linkedref_trends'];
+                const blockEl = document.getElementById('linkedRefsBlock');
+                if (blockEl) blockEl.style.opacity = allDone ? '0.5' : '1';
             }
 
             // Update master counter
@@ -1917,12 +1922,14 @@
             manualLinkedRefs = { blogs: [], collections: [], trends: [] };
             lrLastResults    = { blogs: [], collections: [], trends: [] };
             const lr = data.linkedReferences || { linkedBlogs: [], linkedCollections: [], linkedTrends: [] };
+            const allRefsTicked = !!(state['linkedref_blogs'] && state['linkedref_collections'] && state['linkedref_trends']);
             const renderRefGroup = (label, items, group, color) => {
                 const key = 'linkedref_' + group;
                 const it  = allItems.find(x => x.key === key);
                 const checked = !!state[key];
                 const has = items && items.length;
                 const pushBtn = `<button type="button" id="linkedrefPush_${group}" onclick="pushLinkedRefs('${group}',this)" ${checked ? 'disabled' : ''} style="background:${color};color:#fff;border:none;border-radius:6px;padding:7px 16px;font-weight:600;font-size:0.82rem;cursor:${checked ? 'not-allowed' : 'pointer'};opacity:${checked ? '0.5' : '1'};">📤 Push</button>`;
+                // Checkbox on the LEFT (matches every other block); "pushed" label beside it.
                 const tickLabel = `<label style="display:flex;align-items:center;gap:6px;font-size:0.8rem;color:#555;cursor:pointer;">${it ? cb(it) : ''} pushed</label>`;
                 const rows = has ? items.map(item => {
                     const t = (item.title || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -1939,16 +1946,17 @@
                         </div>
                         <div id="lrResults_${group}"></div>
                         <div id="lrSelected_${group}" style="margin-top:8px;"></div>
-                        <div id="lrPushWrap_${group}" style="display:none;align-items:center;gap:12px;margin-top:8px;">${pushBtn}${tickLabel}</div>
+                        <div id="lrPushWrap_${group}" style="display:none;align-items:center;gap:12px;margin-top:8px;">${tickLabel}${pushBtn}</div>
                     </div>` : '';
-                const header = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                        <strong style="font-size:0.9rem;color:${color};">${label} (${has ? items.length : 0})</strong>
-                        ${has ? `<div style="display:flex;align-items:center;gap:12px;">${pushBtn}${tickLabel}</div>` : ''}
+                const header = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+                        ${has ? tickLabel : ''}
+                        <strong style="flex:1;font-size:0.9rem;color:${color};">${label} (${has ? items.length : 0})</strong>
+                        ${has ? pushBtn : ''}
                     </div>`;
                 return `<div style="margin-bottom:18px;">${header}${rows}${searchUi}</div>`;
             };
             const linkedRefsBlock = _isBlog ? `
-                <div class="action-block" style="border-color:#3949ab;">
+                <div class="action-block" id="linkedRefsBlock" style="border-color:#3949ab;opacity:${allRefsTicked ? '0.5' : '1'};">
                     <h3>🔗 Linked References</h3>
                     <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">Cross-link this blog by filling its Linked Blogs, Linked Collections and Linked Trends metafields. Push a group, then tick its box once it's saved (ticking blocks the button so you don't push twice — untick to push again). <span style="color:#999;">If Linked Blogs is empty, re-run Refresh Blog Index so blogs have their IDs, then re-analyse.</span></p>
                     ${renderRefGroup('📝 Linked Blogs', lr.linkedBlogs, 'blogs', '#5e35b1')}
@@ -2300,7 +2308,7 @@
                 if (!items.length) { resBox.innerHTML = '<div style="color:#999;font-size:0.8rem;">No matches.</div>'; return; }
                 resBox.innerHTML = items.map((it, idx) => {
                     const t = (it.title || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-                    return `<button type="button" onclick="addLinkedItem('${group}',${idx})" style="display:block;width:100%;text-align:left;margin-bottom:4px;padding:7px 10px;background:#eef;border:1px solid #dde;border-radius:5px;cursor:pointer;font-size:0.82rem;">➕ ${t}</button>`;
+                    return `<button type="button" onclick="addLinkedItem('${group}',${idx})" style="display:block;width:100%;text-align:left;margin-bottom:4px;padding:7px 10px;background:#eef;border:1px solid #dde;border-radius:5px;cursor:pointer;font-size:0.82rem;color:#1a1a1a;font-weight:500;">➕ ${t}</button>`;
                 }).join('');
             } catch (e) {
                 resBox.innerHTML = '<div style="color:#c00;font-size:0.8rem;">Search failed: ' + e.message + '</div>';
