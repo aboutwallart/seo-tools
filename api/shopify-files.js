@@ -1,4 +1,11 @@
-// shopify-files.js — v1.1
+// shopify-files.js — v1.3
+// v1.3 (June 21, 2026): New build-blog-index action — caches every article
+//                       (handle, title, tags, blog handle, publish date) to
+//                       data/blog-index.json on GitHub. Powers Money Page Doctor's
+//                       related-blog matching without fetching all blogs live each run.
+// v1.2 (June 20, 2026): push-metafields gains richTextMode "patch-leading" — for over-use
+//                       fixes on rich_text fields, swaps only the leading text and KEEPS the
+//                       existing embedded links (no link loss). Powers blog item #4.
 // v1.1 (June 20, 2026): New push-metafields action — writes one or more metafields by
 //                       namespace/key (upsert). Plain string for text fields; builds
 //                       Shopify rich-text JSON (keeping embedded links) for
@@ -606,6 +613,21 @@ module.exports = async function handler(req, res) {
       return JSON.stringify({ type:'root', children: children.length ? children : [{ type:'paragraph', children:[{ type:'text', value:'' }] }] });
     }
 
+    // For an over-use fix on a rich_text field: replace only the leading text (before the
+    // first link) in the first paragraph with newText, KEEPING the link + everything after.
+    // This guarantees embedded links survive. Returns null if it can't safely patch.
+    function patchRichTextLeadingText(existingJsonStr, newText) {
+      let root;
+      try { root = JSON.parse(existingJsonStr); } catch { return null; }
+      if (!root || root.type !== 'root' || !Array.isArray(root.children)) return null;
+      const firstPara = root.children.find(c => c && c.type === 'paragraph' && Array.isArray(c.children));
+      if (!firstPara) return null;
+      const linkIdx = firstPara.children.findIndex(n => n && n.type === 'link');
+      if (linkIdx === -1) firstPara.children = [{ type:'text', value: newText }];
+      else firstPara.children = [{ type:'text', value: newText + ' ' }, ...firstPara.children.slice(linkIdx)];
+      return JSON.stringify(root);
+    }
+
     // Fetch all existing metafields once to find IDs for upsert.
     let existingMeta = [];
     try {
@@ -623,8 +645,16 @@ module.exports = async function handler(req, res) {
       if (!key)         { results.push({ key, ok:false, error:'missing key' }); continue; }
       if (!value.trim()){ results.push({ key, ok:false, error:'empty value' }); continue; }
       if (type === 'rich_text_field') {
-        try { value = htmlToRichText(value); }
-        catch (e) { results.push({ key, ok:false, error:'rich-text convert failed' }); continue; }
+        try {
+          if (mf.richTextMode === 'patch-leading') {
+            // Over-use fix: keep the existing links, swap only the leading text.
+            const ex = existingMeta.find(m => m.namespace === namespace && m.key === key);
+            const patched = ex ? patchRichTextLeadingText(ex.value, value) : null;
+            value = patched || htmlToRichText(value);
+          } else {
+            value = htmlToRichText(value);
+          }
+        } catch (e) { results.push({ key, ok:false, error:'rich-text convert failed' }); continue; }
       }
       try {
         const existing = existingMeta.find(m => m.namespace === namespace && m.key === key);
@@ -647,6 +677,76 @@ module.exports = async function handler(req, res) {
 
     const allOk = results.every(r => r.ok);
     return res.status(allOk ? 200 : 207).json({ success: allOk, results });
+  }
+
+  // -------------------------------------------------------
+  // BUILD BLOG INDEX — cache every article to data/blog-index.json on GitHub.
+  // Run manually (the "Refresh Blog Index" button) whenever blogs are added or
+  // retagged. Money Page Doctor's related-blog matching reads THIS file instead
+  // of fetching the whole blog list live on every analysis (big speed win).
+  // -------------------------------------------------------
+  if (req.query.action === 'build-blog-index' && (req.method === 'POST' || req.method === 'GET')) {
+    const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+    const REPO = 'aboutwallart/seo-tools';
+    const INDEX_FILE = 'data/blog-index.json';
+    const shopifyHeaders = { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken };
+
+    try {
+      const articles = [];
+      let cursor = null, hasMore = true, pages = 0;
+      while (hasMore && pages < 16) {            // safety cap (16 * 250 = 4000)
+        pages++;
+        const cursorPart = cursor ? `, after: "${cursor}"` : '';
+        const query = `{
+          articles(first: 250${cursorPart}) {
+            pageInfo { hasNextPage endCursor }
+            edges { node { handle title tags publishedAt blog { handle } } }
+          }
+        }`;
+        const response = await fetch(`https://${shopifyDomain}/admin/api/2025-01/graphql.json`, {
+          method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query })
+        });
+        const data = await response.json();
+        if (data.errors) throw new Error(data.errors[0].message);
+        for (const edge of data.data.articles.edges) {
+          const n = edge.node;
+          articles.push({
+            handle: n.handle,
+            title: n.title,
+            tags: n.tags || [],
+            blogHandle: n.blog ? n.blog.handle : '',
+            publishedAt: n.publishedAt || null
+          });
+        }
+        hasMore = data.data.articles.pageInfo.hasNextPage;
+        cursor = data.data.articles.pageInfo.endCursor;
+      }
+
+      // Find existing file's sha so we overwrite instead of erroring.
+      let sha = null;
+      try {
+        const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${INDEX_FILE}`, {
+          headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
+        });
+        if (r.ok) { const d = await r.json(); sha = d.sha; }
+      } catch (e) { /* file doesn't exist yet — create it */ }
+
+      const payload = { updatedAt: new Date().toISOString(), count: articles.length, articles };
+      const put = await fetch(`https://api.github.com/repos/${REPO}/contents/${INDEX_FILE}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: `Refresh blog index (${articles.length} articles)`,
+          content: Buffer.from(JSON.stringify(payload, null, 2)).toString('base64'),
+          ...(sha ? { sha } : {})
+        })
+      });
+      if (!put.ok) throw new Error('GitHub write failed: ' + await put.text());
+
+      return res.status(200).json({ success: true, count: articles.length, updatedAt: payload.updatedAt });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
   }
 
   // -------------------------------------------------------
