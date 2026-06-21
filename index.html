@@ -167,6 +167,36 @@
         .card-badge.red { background: #c62828; }
         .card-badge.green { background: #2e7d32; }
 
+        .tool-card-external {
+            background: #f0f4ff;
+            border-left: 4px solid #667eea;
+        }
+
+        .ext-badge {
+            font-size: 11px;
+            background: #667eea;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            vertical-align: middle;
+            font-weight: 500;
+        }
+
+        .section-label {
+            margin-top: 30px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .section-label p {
+            font-size: 12px;
+            font-weight: 600;
+            color: #999;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
         .tool-card:hover {
             transform: translateX(5px);
             box-shadow: 0 5px 15px rgba(0,0,0,0.1);
@@ -208,7 +238,7 @@
         <div id="loginForm" class="login-form">
             <h1>SEO Tools Dashboard</h1>
             <p class="subtitle">About Wall Art - Internal Tools</p>
-            <p class="subtitle" style="color: #999; font-size: 12px;">Version 11</p>
+            <p class="subtitle" style="color: #999; font-size: 12px;">Version 12</p>
 
             <div id="errorMessage" class="error" style="display: none;"></div>
 
@@ -253,7 +283,7 @@
         <div id="toolsList" class="tools-list">
             <div class="tools-header">
                 <div>
-                    <p style="color: #999; font-size: 12px; margin-bottom: 4px;">Version 11</p>
+                    <p style="color: #999; font-size: 12px; margin-bottom: 4px;">Version 12</p>
                     <h1>SEO Tools Dashboard</h1>
                     <p class="subtitle">About Wall Art - Internal Tools</p>
                 </div>
@@ -327,10 +357,35 @@
                 </a>
             </div>
 
-            <div class="tool-card" style="border-left: 4px solid #667eea;">
+            <div class="section-label">
+                <p>External Tools</p>
+            </div>
+
+            <div class="tool-card tool-card-external">
                 <a href="https://findquestions.com/" target="_blank" rel="noopener">
-                    <h3>❓ Find Questions <span style="font-size: 11px; background: #667eea; color: white; padding: 2px 8px; border-radius: 10px; vertical-align: middle; font-weight: 500;">External</span></h3>
+                    <h3>❓ Find Questions <span class="ext-badge">External</span></h3>
                     <p>Discover questions your customers are asking on Reddit. Find blog content ideas fast.</p>
+                </a>
+            </div>
+
+            <div class="tool-card tool-card-external">
+                <a href="https://rankweektraining.com/tool/site-audit" target="_blank" rel="noopener">
+                    <h3>🔍 Site Audit <span class="ext-badge">External</span></h3>
+                    <p>Full site audit — crawl issues, broken links, redirects, and technical SEO problems.</p>
+                </a>
+            </div>
+
+            <div class="tool-card tool-card-external">
+                <a href="https://rankweektraining.com/tool/reddit-questions" target="_blank" rel="noopener">
+                    <h3>💬 Reddit Questions <span class="ext-badge">External</span></h3>
+                    <p>Find real questions people are asking on Reddit to fuel blog and content ideas.</p>
+                </a>
+            </div>
+
+            <div class="tool-card tool-card-external">
+                <a href="https://pageaudit.com/" target="_blank" rel="noopener">
+                    <h3>📄 Page Audit <span class="ext-badge">External</span></h3>
+                    <p>Audit individual pages for on-page SEO — title, meta, headings, content, and more.</p>
                 </a>
             </div>
         </div>
