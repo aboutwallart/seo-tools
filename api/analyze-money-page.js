@@ -1,7 +1,11 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v47.0
+// analyze-money-page.js — v47.1
+// v47.1 (June 21, 2026): COLLECTIONS C1 — dedicated buildCollectionAnalysisPrompt
+//                        (competitor-driven + over-use + the 3 AI snippets in their exact
+//                        collection-metafield formats, each carrying its target metafieldKey).
+//                        Collection fetch now also pulls all metafields for the over-use check.
 // v47.0 (June 21, 2026): Blog item #5 — Linked reference metafields. New getLinkedReferences
 //                        returns linkedBlogs (reuse related-blog picks → Article GIDs),
 //                        linkedCollections (top 3 by keyword/tag/title overlap → Collection
@@ -1150,6 +1154,11 @@ function buildAnalysisPrompt(yourPage, competitors, keyword, userPosition = null
   if (yourPage.shopifyType === 'article') {
     return buildBlogAnalysisPrompt(yourPage, competitors, keyword, userPosition, contentGaps, loserPages, relatedBlogs);
   }
+  // Collections get a dedicated collection prompt (competitor-driven + over-use + the
+  // three AI snippets in their exact collection-metafield formats).
+  if (yourPage.shopifyType && yourPage.shopifyType.includes('collection')) {
+    return buildCollectionAnalysisPrompt(yourPage, competitors, keyword, userPosition, contentGaps, loserPages);
+  }
 
   const avgCompWordCount = competitors.length > 0
     ? Math.round(competitors.reduce((sum, c) => sum + c.wordCount, 0) / competitors.length) : 0;
@@ -1300,6 +1309,200 @@ RULES:
 - Return ONLY the JSON object — no other text`;
 }
 
+// Build the COLLECTION-specific structured JSON prompt. Mirrors the blog prompt's
+// competitor-driven analysis + keyword over-use check, but outputs the three AI snippets
+// in their EXACT collection-metafield formats (each carries its target metafieldKey) and
+// keeps Page/FAQ schema + brand block (collections need them, unlike blogs).
+function buildCollectionAnalysisPrompt(yourPage, competitors, keyword, userPosition = null, contentGaps = null, loserPages = []) {
+  const avgCompWordCount = competitors.length > 0
+    ? Math.round(competitors.reduce((sum, c) => sum + c.wordCount, 0) / competitors.length) : 0;
+  const avgCompKeywordDensity = competitors.length > 0
+    ? (competitors.reduce((sum, c) => sum + c.keywordDensity, 0) / competitors.length).toFixed(2) : 0;
+
+  const positionContext = userPosition
+    ? (userPosition === 1 ? `Currently ranking #1 for "${keyword}" — give defensive optimisation advice.`
+      : `Currently ranking position ${userPosition} for "${keyword}".`)
+    : `Not in top 10 for "${keyword}" — focus on closing gaps vs top 3.`;
+
+  const currentDesc = yourPage.shopifyBodyHtml
+    ? yourPage.shopifyBodyHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 600)
+    : '';
+
+  const lh = yourPage.liveHeadings || { h1: yourPage.h1, h2: yourPage.h2, h3: yourPage.h3 };
+  const existingHeadings = [
+    ...(lh.h1 || []).map(h => `H1: ${h}`),
+    ...(lh.h2 || []).map(h => `H2: ${h}`),
+    ...(lh.h3 || []).map(h => `H3: ${h}`)
+  ].join('\n') || 'None found';
+  const existingBodyText = yourPage.shopifyBodyHtml
+    ? yourPage.shopifyBodyHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 5000)
+    : '';
+  const existingMetafields = (yourPage.metafields || []).length > 0
+    ? yourPage.metafields.map(m => `[${m.key}] ${m.text}`).join('\n')
+    : 'None';
+
+  const missingH2s = contentGaps?.missingH2s?.length > 0
+    ? contentGaps.missingH2s.map(h => `"${h.text}"`).join(', ') : 'None';
+  const missingAI = (contentGaps?.missingAIOptimization || []).length > 0
+    ? contentGaps.missingAIOptimization.map(a => `${a.element} [${a.priority}]`).join(', ') : 'None';
+
+  return `You are an expert SEO specialist optimising a COLLECTION PAGE for AboutWallArt (UK wall art and home decor store). Return ONLY a valid JSON object — no text before or after, no markdown code fences.
+
+CONTEXT:
+- Keyword: "${keyword}"
+- ${positionContext}
+- Page type: collection page
+- Current title: ${yourPage.title || 'MISSING'} (${(yourPage.title || '').length} chars)
+- Current meta: ${yourPage.metaDescription || 'MISSING'} (${yourPage.metaDescription?.length || 0} chars)
+- H1: ${yourPage.h1.join(', ') || 'MISSING'}
+- Current H2s: ${yourPage.h2.slice(0, 12).join(' | ') || 'None'}
+- Word count: ${yourPage.wordCount} (competitor avg: ${avgCompWordCount})
+- Keyword density: ${yourPage.keywordDensity}% (competitor avg: ${avgCompKeywordDensity}%)
+${currentDesc ? `- Current description: ${currentDesc}` : ''}
+
+EXISTING PAGE CONTENT (use this for the keywordOveruse check AND to avoid suggesting content that already exists):
+ALL HEADINGS ON THE PAGE (live, includes theme/custom-Liquid sections):
+${existingHeadings}
+
+FULL BODY TEXT:
+${existingBodyText || 'None'}
+
+METAFIELD CONTENT:
+${existingMetafields}
+
+COMPETITORS — the pages outranking you (positions 1-3). Your job is to make THIS page beat them. Compare your FULL page against each:
+${competitors.map(c => `--- Position ${c.position}: ${c.url}
+  Title: ${c.title || 'N/A'}
+  Meta: ${c.metaDescription || 'N/A'}
+  H1: ${(c.h1||[]).join(' | ') || 'N/A'}
+  H2s: ${(c.h2||[]).join(' | ') || 'N/A'}
+  H3s: ${(c.h3||[]).join(' | ') || 'N/A'}
+  Word count: ${c.wordCount} | Keyword density: ${c.keywordDensity}%`).join('\n')}
+
+CONTENT GAPS (mechanical hints only — do your own richer comparison from the competitor data above):
+- Missing H2 sections: ${missingH2s}
+- Missing content elements: ${missingAI}
+
+Return this exact JSON structure with real content (no placeholders):
+
+{
+  "suggestedTitle": "Optimised SEO title, max 60 chars, keyword near start, UK spelling",
+  "suggestedMeta": "Compelling meta description, max 155 chars, keyword included, ends with CTA, UK spelling",
+  "suggestedDescription": "2-3 sentences for the collection description field. Keyword-rich, AboutWallArt brand voice, UK spelling, no HTML tags.",
+  "pageSchema": {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    "name": "collection name",
+    "description": "collection description",
+    "url": "${yourPage.url}"
+  },
+  "faqSchema": {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      { "@type": "Question", "name": "A real question people search about ${keyword}", "acceptedAnswer": { "@type": "Answer", "text": "A helpful complete answer" } }
+    ]
+  },
+  "brandBlock": "<h2>About AboutWallArt</h2><p>Founded in 2020, we're the UK's leading specialist in wall art and home decor. As a trusted, UK-based company, we design and produce our own unique wall art items in-house. Rated 4.8/5 stars from over 500+ verified customer reviews, we offer free fast UK delivery, international shipping, secure checkout, and back every purchase with our hassle-free 14-day return policy.</p>",
+  "keywordOveruse": {
+    "isOverstuffed": true,
+    "summary": "One plain-English sentence about over-use of \\"${keyword}\\".",
+    "findings": [
+      {
+        "location": "H2 | H3 | paragraph | metafield: <key> — where it lives",
+        "metafieldKey": "",
+        "currentText": "the EXACT current heading or sentence",
+        "recommendation": "reword OR remove",
+        "suggestedText": "if reword: the rewritten text using a related/secondary term. If remove: empty string.",
+        "reason": "one short sentence on why this is over-use"
+      }
+    ]
+  },
+  "h2Sections": [
+    {
+      "action": "change",
+      "heading": "Exact current H2 text as it appears on the page",
+      "reason": "One sentence: why this H2 needs attention",
+      "exactAction": "Precise instruction — e.g. 'Rename to [new text] and keep as H2' / 'Remove the H2 tag but keep the text as a regular paragraph'",
+      "replacementText": "ONLY the exact final text to paste — no quotes, no instructions. Empty if nothing to paste.",
+      "competitorDriven": false
+    },
+    {
+      "action": "remove",
+      "heading": "Exact current H2 / section text to remove",
+      "reason": "Why this section HURTS SEO (thin, off-topic, duplicate, keyword-diluting, or proven unnecessary vs competitors). Body content only — NEVER a global theme section.",
+      "competitorDriven": false
+    }
+  ],
+  "aiItems": [
+    {
+      "element": "Comparison Snippet",
+      "metafieldKey": "comparison_snippet",
+      "priority": "high",
+      "content": "<p><strong style=\\"text-transform: uppercase; display: block; margin-bottom: 0.75rem;\\">What is ${keyword}?</strong></p><p>[a complete, standalone 3-5 sentence answer; first sentence answers the question fully]</p>",
+      "competitorDriven": false
+    },
+    {
+      "element": "Comparison Table",
+      "metafieldKey": "comparison_table",
+      "priority": "medium",
+      "content": "<h2>[comparison heading]</h2><table><thead><tr><th>Col1</th><th>Col2</th><th>Col3</th><th>Col4</th></tr></thead><tbody><tr><td>…</td><td>…</td><td>…</td><td>…</td></tr></tbody></table>",
+      "competitorDriven": false
+    },
+    {
+      "element": "People Also Ask",
+      "metafieldKey": "people_also_ask",
+      "priority": "high",
+      "content": "<h2>People Also Ask About [Topic]</h2><ul><li><strong>Question?</strong> answer</li><li><strong>Question?</strong> answer</li></ul>",
+      "competitorDriven": false
+    }
+  ],
+  "urlAnalysis": {
+    "currentSlug": "exact-current-url-slug",
+    "slugMatchesKeyword": "exact|similar|different",
+    "currentTitle": "Current page title",
+    "titleMatchesKeyword": "exact|similar|different",
+    "changeTitle": true,
+    "suggestedTitle": "New title using exact keyword — leave blank if no change needed",
+    "changeSlug": false,
+    "suggestedSlug": "new-slug-if-change-safe — leave blank if no change needed",
+    "slugChangeWarning": "Only change slug if this page has 0 or near-0 clicks. If changed, set up a 301 redirect from the old URL to the new URL.",
+    "notes": "One sentence summary"
+  },
+  "otherActions": [],
+  "loserPageLinks": [
+    {
+      "loserUrl": "exact URL of the loser page",
+      "loserPageType": "product|collection|blog|page",
+      "suggestedSentence": "One natural sentence with <a href='[winnerUrl]'>[relevant anchor text]</a> — unique per loser page, never a template",
+      "placement": "Specific placement guidance — be specific, not 'at the end'"
+    }
+  ]
+}
+${loserPages.length > 0 ? `
+LOSER PAGES THAT SHOULD LINK TO THIS PAGE:
+${loserPages.map(l => `- ${l.loserUrl} (${l.pageType}, keyword: "${l.loserKeyword}")`).join('\n')}
+` : ''}
+
+RULES:
+- COMPETITOR-DRIVEN ANALYSIS (the backbone of this audit): your goal is to make THIS collection OUTRANK positions 1-3. Compare the full page against the competitor data above and silently answer: (1) what topics/buying questions do they cover that this page is missing? (2) what would a shopper want answered BEFORE buying that this page doesn't answer? (3) what makes their pages feel more complete or trustworthy? Let those answers DRIVE your recommendations (h2Sections, aiItems, keywordOveruse). Work ONLY from the competitor data provided — NEVER invent competitor content you cannot see.
+- competitorDriven flag: on EVERY h2Sections item and aiItem include a boolean "competitorDriven" — true if it comes from the competitor comparison, false if general SEO best practice. When true, the reason must name the competitive rationale.
+- keywordOveruse: examine ALL of "EXISTING PAGE CONTENT" (every heading, the full body, every metafield) and decide whether "${keyword}" is over-used. For each over-used spot return where it lives, the EXACT current text, recommendation "reword" (with suggestedText using a related/secondary term) or "remove" (suggestedText empty). Always set "metafieldKey" to an empty string here. EXCLUDE global/shared theme chrome (nav, menus, breadcrumbs, footer, cookie notices, search, account, newsletter, "related"/"recently viewed"). A single natural use is FINE — only flag genuine over-use. If not over-stuffed, return "isOverstuffed": false with an empty findings array.
+- suggestedTitle: max 60 chars (hard limit), keyword near start. suggestedMeta: max 155 chars (hard limit), keyword once, benefit, CTA. suggestedDescription: plain text, no HTML, 2-3 sentences, UK spelling.
+- pageSchema: a valid CollectionPage schema. faqSchema: 6-8 real questions about "${keyword}" with full helpful answers. brandBlock: use EXACTLY the text shown — do not change it.
+- h2Sections: use ONLY action "change" (rename/retag a current H2, with reason + exactAction + replacementText) or action "remove" (a body section that HURTS SEO — body content ONLY, never a global theme section). Do NOT use action "add" (new body sections are handled separately). NEVER flag these theme sections: "Trending Now", "Recently Viewed", "New Arrivals", "Customers Are Saying", or any auto-generated review/browsing/merchandising widget. Include competitorDriven on every item.
+- KEYWORD USAGE (no stuffing): use the EXACT keyword "${keyword}" only where it matters most (title, first line, at most one or two headings). Everywhere else write naturally with secondary terms and variations. NEVER repeat the exact keyword over and over.
+- aiItems — generate the three collection snippets in their EXACT formats below. Generate "People Also Ask" ALWAYS (4-6 real questions). Generate "Comparison Snippet" ALWAYS (a "What is ${keyword}?" definition). Generate "Comparison Table" ONLY if there is a genuine comparison to make (styles, sizes, materials) — otherwise OMIT it.
+  - Comparison Snippet ("comparison_snippet") EXACT format: <p><strong style="text-transform: uppercase; display: block; margin-bottom: 0.75rem;">[QUESTION]</strong></p><p>[answer paragraph]</p> — no other tags, no <h2>.
+  - Comparison Table ("comparison_table") EXACT format: a single <h2>heading</h2> then a <table> with <thead> and <tbody>, MAX 4 columns and 6 rows, NO inline styles.
+  - People Also Ask ("people_also_ask") EXACT format: <h2>People Also Ask About [Topic]</h2> then a single <ul> with 4-6 <li>, each <li> = <strong>Question?</strong> followed by a space and the answer. NO schema markup, no inline styles, no <br>.
+  - Keep each item's "metafieldKey" EXACTLY as shown (comparison_snippet / comparison_table / people_also_ask).
+- urlAnalysis: title changes are always safe (no redirect). Only recommend a slug change if the page has very few or zero clicks.
+- otherActions: return an EMPTY array (image and internal-link tasks are handled by other tools).
+- loserPageLinks: ONLY include if loser pages are provided above; unique natural sentence per loser page with a real HTML anchor to this page and a specific placement. If none provided, omit this field entirely.
+- Return ONLY the JSON object — no other text`;
+}
+
 // Fetch real content from Shopify API
 async function fetchShopifyContent(pageUrl) {
   if (!SHOPIFY_DOMAIN || !SHOPIFY_TOKEN) {
@@ -1336,8 +1539,12 @@ async function fetchShopifyContent(pageUrl) {
         const d = await r.json();
         const col = d[type]?.[0];
         if (col) {
-          const meta = await fetchShopifyMetafields(base, `${type}/${col.id}`, headers);
-          return { shopifyId: col.id, shopifyType: type === 'custom_collections' ? 'custom_collection' : 'smart_collection', shopifyTitle: col.title, seoTitle: meta.title || col.title, seoDescription: meta.desc || '', bodyHtml: col.body_html || '' };
+          const colResourcePath = `${type}/${col.id}`;
+          const [meta, allMeta] = await Promise.all([
+            fetchShopifyMetafields(base, colResourcePath, headers),
+            fetchAllMetafields(base, colResourcePath, headers)
+          ]);
+          return { shopifyId: col.id, shopifyType: type === 'custom_collections' ? 'custom_collection' : 'smart_collection', shopifyTitle: col.title, seoTitle: meta.title || col.title, seoDescription: meta.desc || '', bodyHtml: col.body_html || '', metafields: allMeta };
         }
       }
       return null;
