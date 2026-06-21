@@ -1,7 +1,13 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v46.9
+// analyze-money-page.js — v47.0
+// v47.0 (June 21, 2026): Blog item #5 — Linked reference metafields. New getLinkedReferences
+//                        returns linkedBlogs (reuse related-blog picks → Article GIDs),
+//                        linkedCollections (top 3 by keyword/tag/title overlap → Collection
+//                        GIDs) and linkedTrends (up to 2 matching "...TREND" pages → Page
+//                        GIDs). Added to the response as linkedReferences; pushed via
+//                        shopify-files push-metafields (reference-list support).
 // v46.9 (June 21, 2026): PERF — related-blog matching now reads the cached blog index
 //                        (data/blog-index.json, PUBLISHED blogs only) instead of fetching
 //                        the whole blog list live every run; falls back to the live fetch
@@ -195,6 +201,10 @@ module.exports = async function handler(req, res) {
       ? await findInactiveProductLinks(yourPageData.shopifyBodyHtml, pageOrigin) : [];
     console.log(`[Money Page] Found ${inactiveProducts.length} inactive product links`);
 
+    // Step 4.8: linked-reference metafields (blogs) — Linked Blogs / Collections / Trends
+    const linkedReferences = await getLinkedReferences(yourPageData, keyword);
+    console.log(`[Money Page] Linked refs — blogs:${linkedReferences.linkedBlogs.length} collections:${linkedReferences.linkedCollections.length} trends:${linkedReferences.linkedTrends.length}`);
+
     // Step 5: Get Claude analysis
     console.log('[Money Page] Step 5: Getting AI recommendations... (~20 sec)');
     const analysis = await getClaudeAnalysis(yourPageData, competitorData, keyword, searchResults.userPosition, contentGaps, loserPages, relatedBlogs);
@@ -229,6 +239,7 @@ module.exports = async function handler(req, res) {
       contentGaps: contentGaps,
       analysis: analysis,
       inactiveProducts: inactiveProducts,
+      linkedReferences: linkedReferences,
       bodyImages: buildImageList(shopifyContent),
       shopify: shopifyContent ? {
         id:      shopifyContent.shopifyId,
@@ -1430,7 +1441,7 @@ async function fetchAllArticlesLite() {
     const data = await shopifyGraphQL(`
       query($after: String) {
         articles(first: 250, after: $after) {
-          edges { node { handle title tags publishedAt blog { handle } } }
+          edges { node { id handle title tags publishedAt blog { handle } } }
           pageInfo { hasNextPage endCursor }
         }
       }`, { after: cursor });
@@ -1470,7 +1481,7 @@ function pickRelatedBlogs(currentUrl, currentTags, allArticles, n = 3, titleText
         let overlap = 0; candWords.forEach(w => { if (titleWords.has(w)) overlap++; });
         score += overlap * 0.5;                                // modest weight — tags lead
       }
-      return { handle: a.handle, title: a.title, blogHandle: bh, publishedAt: a.publishedAt, score };
+      return { handle: a.handle, title: a.title, blogHandle: bh, publishedAt: a.publishedAt, gid: a.gid || a.id || null, score };
     })
     .filter(a => a.score > 0 && a.blogHandle)
     .sort((a, b) => {
@@ -1480,7 +1491,7 @@ function pickRelatedBlogs(currentUrl, currentTags, allArticles, n = 3, titleText
       return ta - tb;                                // older first
     })
     .slice(0, n)
-    .map(a => ({ url: `${origin}/blogs/${a.blogHandle}/${a.handle}`, title: a.title, publishedAt: a.publishedAt }));
+    .map(a => ({ url: `${origin}/blogs/${a.blogHandle}/${a.handle}`, title: a.title, publishedAt: a.publishedAt, gid: a.gid }));
 }
 
 // For each related blog, fetch its body and check whether THIS page's keyword already
@@ -1543,6 +1554,73 @@ async function getRelatedBlogLinks(yourPage, keyword) {
     console.warn('[Related Blogs] failed:', e.message);
     return [];
   }
+}
+
+// ── LINKED REFERENCE METAFIELDS (blog item #5) ───────────────────────────────
+// Three reference-list metafields the theme reads to cross-link a blog:
+//   custom.linked_blogs       → list.article_reference     (related published blogs)
+//   custom.linked_collections → list.collection_reference  (relevant shop collections)
+//   custom.linked_trends      → list.page_reference        (matching style "...TREND" pages)
+// Each picker returns [{ gid, title, url }] so the frontend can show + push them.
+const LINKREF_STOP = new Set(['art','wall','decor','home','print','prints','canvas','ideas','idea','guide','best','with','from','your','this','that','have','into','about','and','the','for','are','you','trend','trends','interior','design','style','room','living']);
+
+// Linked Blogs — reuse the related-blog picks (on-topic, published), resolved to GIDs.
+async function getLinkedBlogs(yourPage, keyword) {
+  try {
+    let all = await fetchBlogIndex();
+    if (!all || !all.length) return [];
+    const related = pickRelatedBlogs(yourPage.url, yourPage.tags, all, 3, `${yourPage.title || ''} ${keyword || ''}`);
+    return related.filter(b => b.gid).map(b => ({ gid: b.gid, title: b.title, url: b.url }));
+  } catch (e) { console.warn('[Linked Blogs] failed:', e.message); return []; }
+}
+
+// Linked Collections — search collections by the keyword, score by word overlap with
+// keyword + tags + title, return the top 3 relevant ones.
+async function getLinkedCollections(yourPage, keyword) {
+  try {
+    const hayWords = new Set((`${keyword || ''} ${(yourPage.tags || []).slice(0, 6).join(' ')} ${yourPage.title || ''}`
+      .toLowerCase().match(/[a-z]+/g) || []).filter(w => w.length > 3 && !LINKREF_STOP.has(w)));
+    if (!hayWords.size) return [];
+    const q = (keyword || '').replace(/["\\]/g, ' ').trim();
+    if (!q) return [];
+    const data = await shopifyGraphQL(`{ collections(first: 30, query: ${JSON.stringify(q)}) { edges { node { id title handle } } } }`);
+    const nodes = (data && data.collections) ? data.collections.edges.map(e => e.node) : [];
+    let origin = ''; try { origin = new URL(yourPage.url).origin; } catch { origin = ''; }
+    return nodes.map(n => {
+      const cw = (n.title || '').toLowerCase().match(/[a-z]+/g) || [];
+      let score = 0; cw.forEach(w => { if (hayWords.has(w)) score++; });
+      return { gid: n.id, title: n.title, url: `${origin}/collections/${n.handle}`, score };
+    }).filter(c => c.score > 0).sort((a, b) => b.score - a.score).slice(0, 3)
+      .map(c => ({ gid: c.gid, title: c.title, url: c.url }));
+  } catch (e) { console.warn('[Linked Collections] failed:', e.message); return []; }
+}
+
+// Linked Trends — match the blog's style/topic to the store's "...TREND" pages
+// (BOHO, COASTAL, JAPANDI, etc.). Returns up to 2.
+async function getLinkedTrends(yourPage, keyword) {
+  try {
+    const hay = `${keyword || ''} ${yourPage.title || ''} ${(yourPage.tags || []).join(' ')}`.toLowerCase();
+    const data = await shopifyGraphQL(`{ pages(first: 100) { edges { node { id title handle } } } }`);
+    const pages = ((data && data.pages) ? data.pages.edges.map(e => e.node) : []).filter(p => /trend/i.test(p.title || ''));
+    let origin = ''; try { origin = new URL(yourPage.url).origin; } catch { origin = ''; }
+    return pages.map(p => {
+      const words = (p.title || '').toLowerCase().match(/[a-z]+/g) || [];
+      let score = 0; words.forEach(w => { if (w.length > 3 && !LINKREF_STOP.has(w) && hay.includes(w)) score++; });
+      return { gid: p.id, title: p.title, url: `${origin}/pages/${p.handle}`, score };
+    }).filter(t => t.score > 0).sort((a, b) => b.score - a.score).slice(0, 2)
+      .map(t => ({ gid: t.gid, title: t.title, url: t.url }));
+  } catch (e) { console.warn('[Linked Trends] failed:', e.message); return []; }
+}
+
+// Top-level: all three linked-reference sets for a blog (run in parallel).
+async function getLinkedReferences(yourPage, keyword) {
+  if (yourPage.shopifyType !== 'article') return { linkedBlogs: [], linkedCollections: [], linkedTrends: [] };
+  const [linkedBlogs, linkedCollections, linkedTrends] = await Promise.all([
+    getLinkedBlogs(yourPage, keyword),
+    getLinkedCollections(yourPage, keyword),
+    getLinkedTrends(yourPage, keyword)
+  ]);
+  return { linkedBlogs, linkedCollections, linkedTrends };
 }
 
 // Find up to 3 ACTIVE replacement products — same type/category, closest style (tag overlap).

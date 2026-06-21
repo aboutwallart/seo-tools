@@ -1,4 +1,9 @@
-// shopify-files.js — v1.4
+// shopify-files.js — v1.5
+// v1.5 (June 21, 2026): (a) push-metafields now writes REFERENCE-LIST metafields
+//                       (list.collection_reference / list.article_reference /
+//                       list.page_reference) via GraphQL metafieldsSet — value is a JSON
+//                       array of GIDs. Powers blog item #5 (Linked Collections/Blogs/Trends).
+//                       (b) build-blog-index now also stores each article's GID (for Linked Blogs).
 // v1.4 (June 21, 2026): build-blog-index now indexes PUBLISHED blogs only (reads each
 //                       article's isPublished flag and skips drafts — drafts can't host
 //                       crawlable internal links).
@@ -579,6 +584,16 @@ module.exports = async function handler(req, res) {
     const resource = typeMap[shopifyType];
     if (!resource) return res.status(400).json({ error: `Unknown shopifyType: ${shopifyType}` });
 
+    // Owner GID for GraphQL writes (reference-list metafields go through metafieldsSet).
+    const ownerGidMap = {
+      product:           `gid://shopify/Product/${shopifyId}`,
+      custom_collection: `gid://shopify/Collection/${shopifyId}`,
+      smart_collection:  `gid://shopify/Collection/${shopifyId}`,
+      page:              `gid://shopify/Page/${shopifyId}`,
+      article:           `gid://shopify/Article/${shopifyId}`
+    };
+    const ownerGid = ownerGidMap[shopifyType];
+
     // Build Shopify rich-text JSON from a small HTML subset (<p>, <strong>/<b>, <a>,
     // plain text). Keeps links intact — used for rich_text_field metafields.
     function htmlToRichText(html) {
@@ -647,6 +662,26 @@ module.exports = async function handler(req, res) {
       let value  = (mf.value == null) ? '' : String(mf.value);
       if (!key)         { results.push({ key, ok:false, error:'missing key' }); continue; }
       if (!value.trim()){ results.push({ key, ok:false, error:'empty value' }); continue; }
+      // Reference-list metafields (e.g. list.collection_reference / list.article_reference /
+      // list.page_reference). Value must be a JSON array of GIDs. Written via GraphQL
+      // metafieldsSet — the same proven path used by the blog-products feature.
+      if (/^list\./.test(type)) {
+        let gids;
+        try { gids = JSON.parse(value); } catch { results.push({ key, ok:false, error:'value is not a JSON array' }); continue; }
+        if (!Array.isArray(gids) || !gids.length) { results.push({ key, ok:false, error:'empty GID list' }); continue; }
+        if (!ownerGid) { results.push({ key, ok:false, error:'no owner GID for this type' }); continue; }
+        try {
+          const mutation = `mutation metafieldsSet($m: [MetafieldsSetInput!]!) { metafieldsSet(metafields: $m) { metafields { id } userErrors { field message } } }`;
+          const variables = { m: [{ ownerId: ownerGid, namespace, key, value: JSON.stringify(gids), type }] };
+          const mr = await fetch(`${base}/graphql.json`, { method:'POST', headers: shopifyHeaders, body: JSON.stringify({ query: mutation, variables }) });
+          const md = await mr.json();
+          const ue = (md.data && md.data.metafieldsSet && md.data.metafieldsSet.userErrors) || [];
+          if (md.errors) results.push({ key, ok:false, error: md.errors[0].message });
+          else if (ue.length) results.push({ key, ok:false, error: ue[0].message });
+          else results.push({ key, ok:true });
+        } catch (err) { results.push({ key, ok:false, error: err.message }); }
+        continue;
+      }
       if (type === 'rich_text_field') {
         try {
           if (mf.richTextMode === 'patch-leading') {
@@ -703,7 +738,7 @@ module.exports = async function handler(req, res) {
         const query = `{
           articles(first: 250${cursorPart}) {
             pageInfo { hasNextPage endCursor }
-            edges { node { handle title tags publishedAt isPublished blog { handle } } }
+            edges { node { id handle title tags publishedAt isPublished blog { handle } } }
           }
         }`;
         const response = await fetch(`https://${shopifyDomain}/admin/api/2025-01/graphql.json`, {
@@ -715,6 +750,7 @@ module.exports = async function handler(req, res) {
           const n = edge.node;
           if (!n.isPublished) continue;          // PUBLISHED blogs only — drafts can't host crawlable links
           articles.push({
+            gid: n.id,                            // gid://shopify/Article/… — used by Linked Blogs
             handle: n.handle,
             title: n.title,
             tags: n.tags || [],
