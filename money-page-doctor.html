@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 50.4</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 50.5</p>
                 </div>
             </div>
         </header>
@@ -1407,6 +1407,7 @@
 
             // Push to Shopify items
             const _isBlog = data.yourPage.shopifyType === 'article';
+            const _isCollection = (data.yourPage.shopifyType || '').includes('collection');
             add('push_title', 'SEO Title updated',        'push');
             add('push_meta',  'Meta Description updated', 'push');
             add('push_desc',  _isBlog ? 'Excerpt updated' : 'Page Description updated', 'push');
@@ -1436,6 +1437,9 @@
                 add('linkedref_collections', 'Linked Collections pushed', 'linkedref');
                 add('linkedref_trends',      'Linked Trends pushed',      'linkedref');
             }
+
+            // Collection-only: Browse the Collection SEO heading
+            if (_isCollection && s.browseTheCollection) add('browsecoll', 'Browse the Collection heading pushed', 'collection');
 
             // Copy-paste items
             if (s.pageSchema) add('schema_page',  'Page Schema — pasted into Custom Liquid',  'copy');
@@ -1582,6 +1586,7 @@
                             <div class="copy-block">
                                 <pre id="faqCode">&lt;script type="application/ld+json"&gt;\n${faqStr}\n&lt;/script&gt;</pre>
                                 <button class="copy-btn" onclick="copyToClipboard(document.getElementById('faqCode').textContent,this)">📋 Copy FAQ Schema</button>
+                                ${_isCollection ? `<button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushFaqSchema(this)">📤 Push to faq_schema</button>` : ''}
                             </div>
                         </div>
                     </div>` : ''}
@@ -1689,7 +1694,9 @@
                 </div>` : '';
 
             // ── 4. Manual actions block ───────────────────────────────────────
-            const manualItems = allItems.filter(it => it.group === 'manual');
+            // Collections route "add" sections to the SEO Text (with links) field, not the body —
+            // so keep them out of the body Manual Actions block.
+            const manualItems = allItems.filter(it => it.group === 'manual' && !(_isCollection && it.action === 'add'));
             const manualBlock = manualItems.length > 0 ? `
                 <div class="action-block">
                     <h3>✅ Manual Actions</h3>
@@ -1714,6 +1721,42 @@
                                     </div>` : ''}
                             </div>
                         </div>`).join('')}
+                </div>` : '';
+
+            // ── SEO Text (with links) block — collections only (→ seo_text_links_) ──
+            const collAddItems = _isCollection ? allItems.filter(it => it.group === 'manual' && it.action === 'add') : [];
+            const seoTextLinksBlock = collAddItems.length > 0 ? `
+                <div class="action-block" style="border-color:#0277bd;">
+                    <h3>📝 SEO Text (with links)</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">New SEO content sections for this collection's <strong>SEO Text (with links)</strong> field. Review each, then push them all into the metafield in one go (internal links are preserved).</p>
+                    ${collAddItems.map((item, i) => {
+                        const html = item.detail || '';
+                        return `<div id="row_${item.key}" style="padding:12px;background:#f9f9f9;border-radius:6px;margin-bottom:10px;opacity:${state[item.key]?'0.45':'1'};">
+                            <div style="display:flex;align-items:flex-start;gap:10px;">
+                                ${cb(item)}
+                                <div style="flex:1;">
+                                    <strong id="lbl_${item.key}" style="${state[item.key]?'text-decoration:line-through;':''}">${item.label}${compBadge(item)}</strong>
+                                    <div style="font-size:0.9rem;line-height:1.6;margin-top:8px;">${html}</div>
+                                    <textarea data-seotl="1" style="display:none;">${html.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+                                </div>
+                            </div>
+                        </div>`;
+                    }).join('')}
+                    <button class="push-btn" type="button" onclick="pushSeoTextLinks(this)" style="margin-top:8px;background:#0277bd;color:#fff;padding:10px 22px;border:none;border-radius:6px;font-weight:600;cursor:pointer;">📤 Push all to SEO Text (with links)</button>
+                </div>` : '';
+
+            // ── Browse the Collection — collection-only SEO heading (→ browse_the_collection) ──
+            const browseItem = allItems.find(it => it.key === 'browsecoll');
+            const browseBlock = (_isCollection && s.browseTheCollection) ? `
+                <div class="action-block" style="border-color:#00838f;">
+                    <h3>🏷️ Browse the Collection — SEO Heading</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:10px;">A keyword-based heading shown above the products. Edit if you like, then copy or push to the <strong>browse_the_collection</strong> field.</p>
+                    <div id="row_browsecoll" style="display:flex;align-items:center;gap:10px;opacity:${state['browsecoll']?'0.45':'1'};">
+                        ${browseItem ? cb(browseItem) : ''}
+                        <input type="text" id="browseCollField" value="${(s.browseTheCollection||'').replace(/"/g,'&quot;')}" style="flex:1;min-width:0;padding:8px 10px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.85rem;font-family:'Poppins',sans-serif;">
+                        <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('browseCollField').value,this)">📋 Copy</button>
+                        <button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushBrowseCollection(this)">📤 Push</button>
+                    </div>
                 </div>` : '';
 
             // ── People Also Ask block (blogs) ────────────────────────────────
@@ -2026,7 +2069,7 @@
                     </div>
                 </div>`;
 
-            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + aiBlock + paaBlock + loserLinksBlock + relatedBlogsBlock + internalAddBlock + manualBlock + inactiveProductsBlock + linkedRefsBlock + internalAddBlockTmpl + imageBlock + autolinkBlock + reindexBlock;
+            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + aiBlock + paaBlock + loserLinksBlock + relatedBlogsBlock + internalAddBlock + manualBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + linkedRefsBlock + internalAddBlockTmpl + imageBlock + autolinkBlock + reindexBlock;
         }
 
         function formatMarkdown(text) {
@@ -2221,6 +2264,28 @@
             const item = { namespace, key, type, value: val };
             if (type === 'rich_text_field') item.richTextMode = 'patch-leading';
             return pushMetafields([item], btn);
+        }
+
+        // Collections — push all "add" sections into the seo_text_links_ rich-text field (one write).
+        function pushSeoTextLinks(btn) {
+            const parts = [];
+            document.querySelectorAll('textarea[data-seotl]').forEach(t => { const v = (t.value || '').trim(); if (v) parts.push(v); });
+            if (!parts.length) { alert('No SEO Text sections to push.'); return; }
+            return pushMetafields([{ namespace: 'custom', key: 'seo_text_links_', type: 'rich_text_field', value: parts.join('') }], btn);
+        }
+
+        // Collections — push the FAQ schema (script-wrapped JSON-LD) to the faq_schema field.
+        function pushFaqSchema(btn) {
+            const v = (document.getElementById('faqCode')?.textContent || '').trim();
+            if (!v) { alert('No FAQ schema to push.'); return; }
+            return pushMetafields([{ namespace: 'custom', key: 'faq_schema', type: 'multi_line_text_field', value: v }], btn);
+        }
+
+        // Collections — push the Browse the Collection SEO heading.
+        function pushBrowseCollection(btn) {
+            const v = (document.getElementById('browseCollField')?.value || '').trim();
+            if (!v) { alert('Nothing to push.'); return; }
+            return pushMetafields([{ namespace: 'custom', key: 'browse_the_collection', type: 'single_line_text_field', value: v }], btn);
         }
 
         // Push a single snippet metafield (reads raw value from a textarea/pre by id).
