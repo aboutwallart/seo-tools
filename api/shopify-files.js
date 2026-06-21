@@ -1,4 +1,8 @@
-// shopify-files.js — v1.6
+// shopify-files.js — v1.7
+// v1.7 (June 21, 2026): htmlToRichText rewritten — now emits HEADINGS (h2/h3) and LISTS
+//                       (ul/ol) in document order, not just paragraphs. Powers collection
+//                       seo_text_links_ "add" sections (and future pages). Link target is
+//                       now null unless explicitly set (matches the live rich-text format).
 // v1.6 (June 21, 2026): New search-linkable action — searches collections / blog articles /
 //                       trend pages by keyword, returns {gid,title,url} for the Linked
 //                       References manual picker (used when a group has no auto-matches).
@@ -597,14 +601,12 @@ module.exports = async function handler(req, res) {
     };
     const ownerGid = ownerGidMap[shopifyType];
 
-    // Build Shopify rich-text JSON from a small HTML subset (<p>, <strong>/<b>, <a>,
-    // plain text). Keeps links intact — used for rich_text_field metafields.
+    // Build Shopify rich-text JSON from a small HTML subset. Handles block tags in
+    // document order — <h2>/<h3> → heading (level 2/3), <p> → paragraph, <ul>/<ol> →
+    // list/list-item — with inline <strong>/<b> and <a> (links kept). Used for
+    // rich_text_field metafields (blog more_about_, collection seo_text_links_, etc.).
     function htmlToRichText(html) {
       const decode = s => s.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
-      const pMatches = html.match(/<p[^>]*>[\s\S]*?<\/p>/gi);
-      let blocks = (pMatches && pMatches.length)
-        ? pMatches.map(p => p.replace(/^<p[^>]*>/i,'').replace(/<\/p>$/i,''))
-        : [html];
       function parseInline(str) {
         const nodes = [];
         const pushText = (chunk) => { const t = decode(chunk.replace(/<[^>]+>/g,'')); if (t) nodes.push({ type:'text', value:t }); };
@@ -616,7 +618,8 @@ module.exports = async function handler(req, res) {
             const tag = m[1];
             const url    = (tag.match(/href=["']([^"']*)["']/i)||[])[1] || '';
             const title  = (tag.match(/title=["']([^"']*)["']/i)||[])[1] || null;
-            const target = (tag.match(/target=["']([^"']*)["']/i)||[])[1] || '_blank';
+            // Match the live format: target is null unless the link explicitly sets one.
+            const target = (tag.match(/target=["']([^"']*)["']/i)||[])[1] || null;
             const innerTxt = tag.replace(/^<a\b[^>]*>/i,'').replace(/<\/a>$/i,'');
             const boldInner = /<(?:strong|b)\b/i.test(innerTxt);
             const textVal = decode(innerTxt.replace(/<[^>]+>/g,'')).trim();
@@ -630,7 +633,32 @@ module.exports = async function handler(req, res) {
         if (last < str.length) pushText(str.slice(last));
         return nodes;
       }
-      const children = blocks.map(inner => ({ type:'paragraph', children: parseInline(inner) })).filter(b => b.children.length);
+      const children = [];
+      const blockRe = /<(h2|h3|p|ul|ol)\b[^>]*>([\s\S]*?)<\/\1>/gi;
+      let m, matched = false;
+      while ((m = blockRe.exec(html)) !== null) {
+        matched = true;
+        const tag = m[1].toLowerCase();
+        const inner = m[2];
+        if (tag === 'h2' || tag === 'h3') {
+          const kids = parseInline(inner);
+          if (kids.length) children.push({ type:'heading', level: tag === 'h2' ? 2 : 3, children: kids });
+        } else if (tag === 'p') {
+          const kids = parseInline(inner);
+          if (kids.length) children.push({ type:'paragraph', children: kids });
+        } else {
+          const listType = tag === 'ol' ? 'ordered' : 'unordered';
+          const lis = inner.match(/<li\b[^>]*>[\s\S]*?<\/li>/gi) || [];
+          const liNodes = lis
+            .map(li => ({ type:'list-item', children: parseInline(li.replace(/^<li[^>]*>/i,'').replace(/<\/li>$/i,'')) }))
+            .filter(n => n.children.length);
+          if (liNodes.length) children.push({ type:'list', listType, children: liNodes });
+        }
+      }
+      if (!matched) {                      // no block tags — treat the whole input as one paragraph
+        const kids = parseInline(html);
+        if (kids.length) children.push({ type:'paragraph', children: kids });
+      }
       return JSON.stringify({ type:'root', children: children.length ? children : [{ type:'paragraph', children:[{ type:'text', value:'' }] }] });
     }
 
