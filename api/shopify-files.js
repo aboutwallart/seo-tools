@@ -1,4 +1,7 @@
-// shopify-files.js — v1.3
+// shopify-files.js — v1.4
+// v1.4 (June 21, 2026): build-blog-index now indexes PUBLISHED blogs only (reads each
+//                       article's isPublished flag and skips drafts — drafts can't host
+//                       crawlable internal links).
 // v1.3 (June 21, 2026): New build-blog-index action — caches every article
 //                       (handle, title, tags, blog handle, publish date) to
 //                       data/blog-index.json on GitHub. Powers Money Page Doctor's
@@ -700,7 +703,7 @@ module.exports = async function handler(req, res) {
         const query = `{
           articles(first: 250${cursorPart}) {
             pageInfo { hasNextPage endCursor }
-            edges { node { handle title tags publishedAt blog { handle } } }
+            edges { node { handle title tags publishedAt isPublished blog { handle } } }
           }
         }`;
         const response = await fetch(`https://${shopifyDomain}/admin/api/2025-01/graphql.json`, {
@@ -710,6 +713,7 @@ module.exports = async function handler(req, res) {
         if (data.errors) throw new Error(data.errors[0].message);
         for (const edge of data.data.articles.edges) {
           const n = edge.node;
+          if (!n.isPublished) continue;          // PUBLISHED blogs only — drafts can't host crawlable links
           articles.push({
             handle: n.handle,
             title: n.title,

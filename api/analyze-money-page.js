@@ -1,7 +1,17 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v46.7
+// analyze-money-page.js — v46.9
+// v46.9 (June 21, 2026): PERF — related-blog matching now reads the cached blog index
+//                        (data/blog-index.json, PUBLISHED blogs only) instead of fetching
+//                        the whole blog list live every run; falls back to the live fetch
+//                        if the index is missing. Matching now also weighs TITLE words
+//                        (secondary signal; tags still lead). Only the chosen 3 blog bodies
+//                        are still pulled live.
+// v46.8 (June 20, 2026): Item 4 — over-use fixes that live in a metafield now carry
+//                        metafieldKey so the frontend can push the corrected value
+//                        directly (rich-text fields keep their links via patch-leading).
+// v46.7 (June 20, 2026): Inactive-product replacements —
 // v46.7 (June 20, 2026): Inactive-product replacements — for each inactive product link,
 //                        suggest up to 3 ACTIVE replacements (same product type, closest
 //                        style by tag overlap), each with title + product URL + first image
@@ -946,6 +956,7 @@ Return this exact JSON structure with real content (no placeholders):
     "findings": [
       {
         "location": "H2 | H3 | paragraph | metafield: <key> — say where it lives so the merchant can find it",
+        "metafieldKey": "if this finding is IN a metafield, the exact key in namespace.key form (e.g. custom.more_about_) copied from the METAFIELD CONTENT list above; otherwise empty string",
         "currentText": "the EXACT current heading or sentence as it appears on the page",
         "recommendation": "reword OR remove",
         "suggestedText": "if reword: the rewritten text using a related/secondary term instead of repeating \\"${keyword}\\". If remove: empty string.",
@@ -1435,7 +1446,7 @@ async function fetchAllArticlesLite() {
 // Pick the top N related OLDER blogs by shared-tag score. Specific (rare) tags are
 // weighted higher via IDF; ubiquitous tags (Home-Decor, interior-design-concepts) barely
 // count. Ties break to the OLDER post (already crawled → faster indexing).
-function pickRelatedBlogs(currentUrl, currentTags, allArticles, n = 3) {
+function pickRelatedBlogs(currentUrl, currentTags, allArticles, n = 3, titleText = '') {
   const curHandle = (currentUrl.split('/').filter(Boolean).pop() || '').toLowerCase();
   const curTags = (currentTags || []).map(t => t.toLowerCase());
   if (!curTags.length || !allArticles.length) return [];
@@ -1443,13 +1454,23 @@ function pickRelatedBlogs(currentUrl, currentTags, allArticles, n = 3) {
   const df = {};
   allArticles.forEach(a => (a.tags || []).forEach(t => { const k = t.toLowerCase(); df[k] = (df[k] || 0) + 1; }));
   const total = allArticles.length;
+  // Title-word overlap = a SECONDARY signal (tags still dominate). Strip generic/store
+  // words so almost-every-blog matches ("wall art", "decor"…) don't pollute the score.
+  const TITLE_STOP = new Set(['art','wall','decor','home','print','prints','canvas','ideas','idea','guide','best','with','from','your','this','that','have','into','about','and','the','for','are','you']);
+  const titleWords = new Set((String(titleText).toLowerCase().match(/[a-z]+/g) || []).filter(w => w.length > 3 && !TITLE_STOP.has(w)));
   return allArticles
     .filter(a => (a.handle || '').toLowerCase() !== curHandle)
     .map(a => {
+      const bh = a.blogHandle || (a.blog && a.blog.handle);   // index rows are flat; live rows nest blog.handle
       const tags = (a.tags || []).map(t => t.toLowerCase());
       let score = 0;
       curTags.forEach(t => { if (tags.includes(t)) score += Math.log((total + 1) / ((df[t] || 0) + 1)); });
-      return { handle: a.handle, title: a.title, blogHandle: a.blog && a.blog.handle, publishedAt: a.publishedAt, score };
+      if (titleWords.size) {
+        const candWords = (a.title || '').toLowerCase().match(/[a-z]+/g) || [];
+        let overlap = 0; candWords.forEach(w => { if (titleWords.has(w)) overlap++; });
+        score += overlap * 0.5;                                // modest weight — tags lead
+      }
+      return { handle: a.handle, title: a.title, blogHandle: bh, publishedAt: a.publishedAt, score };
     })
     .filter(a => a.score > 0 && a.blogHandle)
     .sort((a, b) => {
@@ -1495,12 +1516,27 @@ async function enrichRelatedBlogs(related, keyword) {
   return related;
 }
 
+// Read the cached blog index (data/blog-index.json on GitHub). PUBLISHED blogs only.
+// Returns an array of { handle, title, tags, blogHandle, publishedAt } or null on failure.
+async function fetchBlogIndex() {
+  try {
+    const r = await fetch('https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/blog-index.json', { cache: 'no-store' });
+    if (!r.ok) return null;
+    const d = await r.json();
+    const arr = Array.isArray(d) ? d : (d && d.articles);
+    return Array.isArray(arr) && arr.length ? arr : null;
+  } catch { return null; }
+}
+
 // Top-level: get up to 3 related older blogs to link FROM into this page.
+// Reads the cached index first (fast); falls back to the live full fetch if the
+// index file isn't there yet, so analysis never breaks.
 async function getRelatedBlogLinks(yourPage, keyword) {
   try {
     if (yourPage.shopifyType !== 'article') return [];
-    const all = await fetchAllArticlesLite();
-    const related = pickRelatedBlogs(yourPage.url, yourPage.tags, all, 3);
+    let all = await fetchBlogIndex();
+    if (!all) { console.warn('[Related Blogs] index missing — falling back to live fetch'); all = await fetchAllArticlesLite(); }
+    const related = pickRelatedBlogs(yourPage.url, yourPage.tags, all, 3, `${yourPage.title || ''} ${keyword || ''}`);
     if (!related.length) return [];
     return await enrichRelatedBlogs(related, keyword);
   } catch (e) {
