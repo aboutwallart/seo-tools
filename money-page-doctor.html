@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 50.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 50.1</p>
                 </div>
             </div>
         </header>
@@ -1891,6 +1891,34 @@
                     ` : `<p style="font-size:0.9rem;color:#2e7d32;">✅ No inactive product links — nothing to replace.</p>`}
                 </div>` : '';
 
+            // ── Linked References block (blogs) — Linked Blogs / Collections / Trends ──
+            const lr = data.linkedReferences || { linkedBlogs: [], linkedCollections: [], linkedTrends: [] };
+            const renderRefGroup = (label, items, group, color) => {
+                const has = items && items.length;
+                const rows = has ? items.map(it => {
+                    const t = (it.title || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                    const u = (it.url || '');
+                    return `<div style="padding:8px 10px;background:#f9f9f9;border-radius:5px;margin-bottom:6px;font-size:0.85rem;">🔗 <a href="${u}" target="_blank" style="color:${color};text-decoration:none;font-weight:500;">${t}</a></div>`;
+                }).join('') : `<p style="font-size:0.83rem;color:#999;margin:0 0 6px;">No relevant matches found.</p>`;
+                return `<div style="margin-bottom:16px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                        <strong style="font-size:0.9rem;color:${color};">${label} (${has ? items.length : 0})</strong>
+                        ${has ? `<button class="copy-btn" type="button" style="background:${color};color:#fff;" onclick="pushLinkedRefs('${group}',this)">📤 Push</button>` : ''}
+                    </div>
+                    ${rows}
+                </div>`;
+            };
+            const anyRefs = (lr.linkedBlogs.length + lr.linkedCollections.length + lr.linkedTrends.length) > 0;
+            const linkedRefsBlock = _isBlog ? `
+                <div class="action-block" style="border-color:#3949ab;">
+                    <h3>🔗 Linked References</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">Cross-link this blog by filling its Linked Blogs, Linked Collections and Linked Trends metafields. Review the picks, then push each group (or all at once). <span style="color:#999;">If Linked Blogs is empty, re-run Refresh Blog Index so blogs have their IDs, then re-analyse.</span></p>
+                    ${renderRefGroup('📝 Linked Blogs', lr.linkedBlogs, 'blogs', '#5e35b1')}
+                    ${renderRefGroup('🛍️ Linked Collections', lr.linkedCollections, 'collections', '#00897b')}
+                    ${renderRefGroup('🎨 Linked Trends', lr.linkedTrends, 'trends', '#d81b60')}
+                    ${anyRefs ? `<button class="push-btn" type="button" onclick="pushAllLinkedRefs(this)" style="margin-top:8px;background:#3949ab;color:#fff;padding:10px 22px;border:none;border-radius:6px;font-weight:600;cursor:pointer;">📤 Push All Linked References</button>` : ''}
+                </div>` : '';
+
             // ── 6. Auto-link rule block ───────────────────────────────────────
             const autolinkItem = allItems.find(it => it.key === 'autolink');
             const urlPath = (() => { try { return new URL(pageUrl).pathname; } catch(e) { return pageUrl; } })();
@@ -1951,7 +1979,7 @@
                     </div>
                 </div>`;
 
-            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + aiBlock + paaBlock + loserLinksBlock + relatedBlogsBlock + internalAddBlock + manualBlock + inactiveProductsBlock + internalAddBlockTmpl + imageBlock + autolinkBlock + reindexBlock;
+            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + aiBlock + paaBlock + loserLinksBlock + relatedBlogsBlock + internalAddBlock + manualBlock + inactiveProductsBlock + linkedRefsBlock + internalAddBlockTmpl + imageBlock + autolinkBlock + reindexBlock;
         }
 
         function formatMarkdown(text) {
@@ -2166,6 +2194,32 @@
                     items.push({ namespace: 'custom', key, type: 'multi_line_text_field', value: val });
                 }
             });
+            return pushMetafields(items, btn);
+        }
+
+        // Push one Linked-References group (blogs / collections / trends) as a reference list.
+        const LINKED_REF_MAP = {
+            blogs:       { field: 'linkedBlogs',       key: 'linked_blogs',       type: 'list.article_reference' },
+            collections: { field: 'linkedCollections', key: 'linked_collections', type: 'list.collection_reference' },
+            trends:      { field: 'linkedTrends',      key: 'linked_trends',      type: 'list.page_reference' }
+        };
+        function pushLinkedRefs(group, btn) {
+            const lr = currentResults?.linkedReferences || {};
+            const g = LINKED_REF_MAP[group];
+            const items = g ? (lr[g.field] || []) : [];
+            const gids = items.map(i => i.gid).filter(Boolean);
+            if (!gids.length) { alert('No IDs to push — re-run Refresh Blog Index, then re-analyse.'); return; }
+            return pushMetafields([{ namespace: 'custom', key: g.key, type: g.type, value: JSON.stringify(gids) }], btn);
+        }
+        // Push all three Linked-References groups at once.
+        function pushAllLinkedRefs(btn) {
+            const lr = currentResults?.linkedReferences || {};
+            const items = [];
+            Object.values(LINKED_REF_MAP).forEach(g => {
+                const gids = (lr[g.field] || []).map(i => i.gid).filter(Boolean);
+                if (gids.length) items.push({ namespace: 'custom', key: g.key, type: g.type, value: JSON.stringify(gids) });
+            });
+            if (!items.length) { alert('Nothing to push.'); return; }
             return pushMetafields(items, btn);
         }
 
