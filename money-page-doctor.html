@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 50.8</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 50.9</p>
                 </div>
             </div>
         </header>
@@ -1670,9 +1670,12 @@
                         const key = `ai_${i}`;
                         const isScript = /^\s*<script/i.test(item.content);
                         const isHTML = item.content.includes('<');
-                        // Push target: backend-supplied key (collections/products) else blog mapping.
-                        // Pages are copy-only in P1 — their push (rich_text/json) lands in P2/P3.
-                        const pushKey = _isPage ? '' : (item.metafieldKey || snippetKeyForElement(item.element));
+                        // Push target + type. Pages push rich_text/single_line per the snippet's
+                        // format; blogs/collections push multi_line. (P2: pages now push.)
+                        const pushKey = item.metafieldKey || snippetKeyForElement(item.element);
+                        const pushType = _isPage
+                            ? (item.format === 'richtext_snippet' ? 'rich_text_field' : 'single_line_text_field')
+                            : 'multi_line_text_field';
                         return `
                         <div id="row_${key}" style="display:flex;align-items:flex-start;gap:10px;margin-bottom:15px;opacity:${state[key]?'0.45':'1'};">
                             ${cb(allItems.find(it=>it.key===key))}
@@ -1689,12 +1692,12 @@
                                         : `<pre id="aiItem${i}">${item.content}</pre>
                                            <button class="copy-btn" onclick="copyToClipboard(document.getElementById('aiItem${i}').textContent,this)">📋 Copy</button>`
                                     }
-                                    ${pushKey ? `<button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" data-snippet-key="${pushKey}" data-snippet-src="aiItem${i}" onclick="pushSnippet('${pushKey}','aiItem${i}',this)">📤 Push to Shopify</button>` : ''}
+                                    ${pushKey ? `<button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" data-snippet-key="${pushKey}" data-snippet-type="${pushType}" data-snippet-src="aiItem${i}" onclick="pushSnippet('${pushKey}','aiItem${i}',this,'${pushType}')">📤 Push to Shopify</button>` : ''}
                                 </div>
                             </div>
                         </div>`;
                     }).join('')}
-                    ${!_isPage && (s.aiItems.some(it => it.metafieldKey || snippetKeyForElement(it.element)) || (s.peopleAlsoAsk && s.peopleAlsoAsk.metafield)) ? `<button class="push-btn" type="button" style="margin-top:8px;" onclick="pushAllSnippets(this)">📤 Push all snippets to Shopify</button>` : ''}
+                    ${(s.aiItems.some(it => it.metafieldKey || snippetKeyForElement(it.element)) || (s.peopleAlsoAsk && s.peopleAlsoAsk.metafield)) ? `<button class="push-btn" type="button" style="margin-top:8px;" onclick="pushAllSnippets(this)">📤 Push all snippets to Shopify</button>` : ''}
                 </div>` : '';
 
             // ── Questions / FAQ set (pages) — one Q&A set, fills 3 page fields in P3 ──
@@ -1710,6 +1713,48 @@
                         </div>`).join('')}
                     <textarea id="pageQuestionsRaw" style="display:none;">${pageQuestions.map(q => `${q.question}\n${q.answer}`).join('\n\n').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
                     <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('pageQuestionsRaw').value,this)">📋 Copy all Q&amp;A</button>
+                </div>` : '';
+
+            // ── Page-only fields (P2): FAQ Intro, SEO Body Block, FAQ Schema, Page Schema,
+            //    Unsure Where To Start, Body addition. Each pushes to its own page metafield.
+            const esc = v => (v || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            const pageFieldRow = (title, desc, srcHtml, srcId, isPreviewHtml, pushKey, pushType) => `
+                <div style="padding:12px;background:#f9f9f9;border-radius:6px;margin-bottom:12px;">
+                    <strong style="font-size:0.9rem;">${title}</strong>
+                    ${desc ? `<p style="font-size:0.8rem;color:#777;margin:4px 0 8px;">${desc}</p>` : ''}
+                    ${isPreviewHtml
+                        ? `<div style="font-size:0.88rem;line-height:1.6;margin-bottom:8px;">${srcHtml}</div><textarea id="${srcId}" style="display:none;">${esc(srcHtml)}</textarea>`
+                        : `<pre id="${srcId}" style="white-space:pre-wrap;word-break:break-word;background:#fff;border:1px solid #eee;padding:8px;border-radius:4px;font-size:0.76rem;max-height:200px;overflow:auto;margin-bottom:8px;">${esc(srcHtml)}</pre>`}
+                    <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('${srcId}').${isPreviewHtml ? 'value' : 'textContent'},this)">📋 Copy</button>
+                    <button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushSnippet('${pushKey}','${srcId}',this,'${pushType}')">📤 Push to ${pushKey}</button>
+                </div>`;
+            const ba = s.bodyAddition;
+            const _hasPageFields = _isPage && (s.faqIntro || s.seoBodyBlock || s.faqSchemaJson || s.pageSchemaJson || s.unsureWhereToStart || (ba && ba.content));
+            const pageFieldsBlock = _hasPageFields ? `
+                <div class="action-block" style="border-color:#00695c;">
+                    <h3>📄 Page SEO Fields</h3>
+                    ${s.faqIntro ? pageFieldRow('FAQ Intro', 'Intro paragraph above the FAQ section.', s.faqIntro, 'pageFaqIntro', true, 'custom_seo_faq_intro', 'rich_text_field') : ''}
+                    ${s.seoBodyBlock ? pageFieldRow('SEO Body Block', 'A keyword-rich paragraph with internal links.', s.seoBodyBlock, 'pageSeoBodyBlock', true, 'custom_seo_body_block', 'single_line_text_field') : ''}
+                    ${s.faqSchemaJson ? pageFieldRow('FAQ Schema (JSON-LD)', 'Uses the SAME questions as the Q&amp;A set above.', s.faqSchemaJson, 'pageFaqSchema', false, 'faq_schema', 'json') : ''}
+                    ${s.pageSchemaJson ? pageFieldRow('Page Schema (JSON-LD)', 'CollectionPage schema for this page.', s.pageSchemaJson, 'pageSchemaJson', false, 'page_schema', 'json') : ''}
+                    ${s.unsureWhereToStart ? `
+                    <div style="padding:12px;background:#f9f9f9;border-radius:6px;margin-bottom:12px;">
+                        <strong style="font-size:0.9rem;">Unsure Where To Start — Helper Title</strong>
+                        <p style="font-size:0.8rem;color:#777;margin:4px 0 8px;">Edit if you like, then copy or push.</p>
+                        <div style="display:flex;gap:8px;align-items:center;">
+                            <input type="text" id="pageUnsure" value="${(s.unsureWhereToStart||'').replace(/"/g,'&quot;')}" style="flex:1;min-width:0;padding:8px 10px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.85rem;font-family:'Poppins',sans-serif;">
+                            <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('pageUnsure').value,this)">📋</button>
+                            <button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushSnippet('unsure_where_to_start','pageUnsure',this,'single_line_text_field')">📤 Push</button>
+                        </div>
+                    </div>` : ''}
+                    ${(ba && ba.content) ? `
+                    <div style="padding:12px;background:#f9f9f9;border-radius:6px;margin-bottom:4px;">
+                        <strong style="font-size:0.9rem;">Body Addition — paste into the page body</strong>
+                        <p style="font-size:0.8rem;color:#777;margin:4px 0 8px;">A new content section for the page's main body (not a metafield). Copy and paste it into the page body editor.</p>
+                        <div style="font-size:0.88rem;line-height:1.6;margin-bottom:8px;">${ba.content}</div>
+                        <textarea id="pageBodyAddition" style="display:none;">${esc(ba.content)}</textarea>
+                        <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('pageBodyAddition').value,this)">📋 Copy HTML</button>
+                    </div>` : ''}
                 </div>` : '';
 
             // ── 4. Manual actions block ───────────────────────────────────────
@@ -2088,7 +2133,7 @@
                     </div>
                 </div>`;
 
-            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + aiBlock + pageQuestionsBlock + paaBlock + loserLinksBlock + relatedBlogsBlock + internalAddBlock + manualBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + linkedRefsBlock + internalAddBlockTmpl + imageBlock + autolinkBlock + reindexBlock;
+            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + aiBlock + pageQuestionsBlock + pageFieldsBlock + paaBlock + loserLinksBlock + relatedBlogsBlock + internalAddBlock + manualBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + linkedRefsBlock + internalAddBlockTmpl + imageBlock + autolinkBlock + reindexBlock;
         }
 
         function formatMarkdown(text) {
@@ -2308,10 +2353,11 @@
         }
 
         // Push a single snippet metafield (reads raw value from a textarea/pre by id).
-        function pushSnippet(key, elId, btn) {
+        // type defaults to multi_line (blogs/collections); pages pass rich_text/single_line.
+        function pushSnippet(key, elId, btn, type) {
             const el = document.getElementById(elId);
             const val = el ? (el.value !== undefined ? el.value : el.textContent) : '';
-            return pushMetafields([{ namespace: 'custom', key, type: 'multi_line_text_field', value: val }], btn);
+            return pushMetafields([{ namespace: 'custom', key, type: type || 'multi_line_text_field', value: val }], btn);
         }
 
         // Push every snippet currently on the page in one go.
@@ -2322,7 +2368,7 @@
                 const src = document.getElementById(b.getAttribute('data-snippet-src'));
                 const val = src ? (src.value !== undefined ? src.value : src.textContent) : '';
                 if (val && val.trim() && !items.some(it => it.key === key)) {
-                    items.push({ namespace: 'custom', key, type: 'multi_line_text_field', value: val });
+                    items.push({ namespace: 'custom', key, type: b.getAttribute('data-snippet-type') || 'multi_line_text_field', value: val });
                 }
             });
             return pushMetafields(items, btn);
