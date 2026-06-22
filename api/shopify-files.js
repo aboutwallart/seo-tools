@@ -1,4 +1,7 @@
 // shopify-files.js — v1.7
+// v1.9 (June 22, 2026): new push-body action — overwrites body_html (description) of a
+//                       product/page/article/collection. Powers the product description rewrite
+//                       "Push to product body" button.
 // v1.8 (June 22, 2026): push-metafields gains an optional per-item "ownerGid" — when set, the
 //                       metafield is written via GraphQL metafieldsSet on THAT owner (any type),
 //                       enabling cross-owner pushes (a PAGE pushing browse_the_collection to its
@@ -770,6 +773,39 @@ module.exports = async function handler(req, res) {
 
     const allOk = results.every(r => r.ok);
     return res.status(allOk ? 200 : 207).json({ success: allOk, results });
+  }
+
+  // -------------------------------------------------------
+  // PUSH BODY — overwrite the body_html (description) of a product/page/article/collection.
+  // Used by the Money Page Doctor "Push to product body" button (product description rewrite).
+  // -------------------------------------------------------
+  if (req.query.action === 'push-body' && req.method === 'POST') {
+    const { shopifyId, shopifyType, shopifyBlogId, html } = req.body;
+    if (!shopifyId || !shopifyType || typeof html !== 'string' || !html.trim()) {
+      return res.status(400).json({ error: 'Missing shopifyId, shopifyType or html' });
+    }
+    const shopifyHeaders = { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' };
+    const base = `https://${shopifyDomain}/admin/api/2025-01`;
+    const bodyMap = {
+      product:           { path: `products/${shopifyId}`,                       wrap: 'product' },
+      page:              { path: `pages/${shopifyId}`,                          wrap: 'page' },
+      article:           { path: `blogs/${shopifyBlogId}/articles/${shopifyId}`, wrap: 'article' },
+      custom_collection: { path: `custom_collections/${shopifyId}`,             wrap: 'custom_collection' },
+      smart_collection:  { path: `smart_collections/${shopifyId}`,             wrap: 'smart_collection' }
+    };
+    const t = bodyMap[shopifyType];
+    if (!t) return res.status(400).json({ error: `Unknown shopifyType: ${shopifyType}` });
+    try {
+      const r = await fetch(`${base}/${t.path}.json`, {
+        method: 'PUT', headers: shopifyHeaders,
+        body: JSON.stringify({ [t.wrap]: { id: shopifyId, body_html: html } })
+      });
+      if (r.ok) return res.status(200).json({ success: true });
+      const e = await r.json().catch(() => ({}));
+      return res.status(502).json({ success: false, error: JSON.stringify(e.errors || r.statusText) });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
   }
 
   // -------------------------------------------------------

@@ -1,7 +1,12 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v48.0
+// analyze-money-page.js — v48.1
+// v48.1 (June 22, 2026): PRODUCTS PR1 — new buildProductAnalysisPrompt (shopifyType 'product'):
+//                        full description REWRITE in locked AboutWallArt voice/structure (variant-
+//                        aware, never invents facts) + 3 rich-text H2 snippets (comparison_snippet,
+//                        how_to_block, comparison_table) + over-use + competitor badges + no-stuffing/
+//                        cannibalisation. Product fetch now pulls options/type/tags/metafields/image.
 // v48.0 (June 22, 2026): FIX — getRelatedBlogLinks now also runs for pages (was returning []
 //                        for shopifyType 'page', so related-blog links never appeared on pages).
 // v47.9 (June 22, 2026): PAGES P3 (reuse blocks) — page prompt now also returns loserPageLinks
@@ -186,6 +191,8 @@ module.exports = async function handler(req, res) {
       yourPageData.templateSuffix  = shopifyContent.templateSuffix || '';
       yourPageData.metafields      = shopifyContent.metafields || [];
       yourPageData.tags            = shopifyContent.tags || [];
+      yourPageData.productOptions  = shopifyContent.productOptions || [];
+      yourPageData.productType     = shopifyContent.productType || '';
       // Keep the FULL live-page headings (whole rendered page, incl. theme/custom-Liquid
       // sections) for the keyword over-use check, BEFORE the body-only override below.
       yourPageData.liveHeadings = { h1: [...yourPageData.h1], h2: [...yourPageData.h2], h3: [...yourPageData.h3] };
@@ -1240,6 +1247,11 @@ function buildAnalysisPrompt(yourPage, competitors, keyword, userPosition = null
   if (yourPage.shopifyType === 'page') {
     return buildPageAnalysisPrompt(yourPage, competitors, keyword, userPosition, contentGaps, loserPages, relatedBlogs);
   }
+  // Products get a dedicated product prompt — full description rewrite (locked voice/structure)
+  // + 3 rich-text H2 snippets + over-use + competitor badges.
+  if (yourPage.shopifyType === 'product') {
+    return buildProductAnalysisPrompt(yourPage, competitors, keyword, userPosition, contentGaps, loserPages, relatedBlogs);
+  }
 
   const avgCompWordCount = competitors.length > 0
     ? Math.round(competitors.reduce((sum, c) => sum + c.wordCount, 0) / competitors.length) : 0;
@@ -1793,6 +1805,130 @@ RULES:
 - Return ONLY the JSON object — no other text`;
 }
 
+// ── PRODUCT analysis prompt (shopifyType === 'product') ────────────────────────
+// Products get a FULL description rewrite (locked AboutWallArt voice + structure) plus 3
+// rich-text H2 snippet metafields. FAQ/PAA/Page schema are NOT generated (theme handles them).
+function buildProductAnalysisPrompt(yourPage, competitors, keyword, userPosition = null, contentGaps = null, loserPages = [], relatedBlogs = []) {
+  const avgCompWordCount = competitors.length > 0
+    ? Math.round(competitors.reduce((sum, c) => sum + c.wordCount, 0) / competitors.length) : 0;
+
+  const positionContext = userPosition
+    ? (userPosition === 1 ? `Currently ranking #1 for "${keyword}" — give defensive optimisation advice.`
+      : `Currently ranking position ${userPosition} for "${keyword}".`)
+    : `Not in top 10 for "${keyword}" — focus on closing gaps vs top 3.`;
+
+  const existingBodyText = yourPage.shopifyBodyHtml
+    ? yourPage.shopifyBodyHtml.replace(/\s+/g, ' ').trim().substring(0, 4000)
+    : '';
+  const existingMetafields = (yourPage.metafields || []).length > 0
+    ? yourPage.metafields.map(m => `[${m.key}] ${m.text}`).join('\n')
+    : 'None';
+  const variantInfo = (yourPage.productOptions || []).length > 0
+    ? yourPage.productOptions.map(o => `${o.name}: ${(o.values || []).join(', ')}`).join('\n')
+    : 'None found';
+
+  return `You are an expert SEO copywriter optimising a PRODUCT PAGE for AboutWallArt (UK wall art and home decor store). Return ONLY a valid JSON object — no text before or after, no markdown code fences.
+
+CONTEXT:
+- Keyword: "${keyword}"
+- ${positionContext}
+- Product title: ${yourPage.shopifyTitle || yourPage.title || 'MISSING'}
+- Product type: ${yourPage.productType || 'wall art'}
+- Current title tag: ${yourPage.title || 'MISSING'} (${(yourPage.title || '').length} chars)
+- Current meta: ${yourPage.metaDescription || 'MISSING'} (${yourPage.metaDescription?.length || 0} chars)
+- Word count: ${yourPage.wordCount} (competitor avg: ${avgCompWordCount})
+
+THIS PRODUCT'S LIVE VARIANT OPTIONS (use the REAL sizes/frames/papers from here — NEVER invent options this product doesn't have):
+${variantInfo}
+
+THE PRODUCT'S CURRENT DESCRIPTION (your ONLY source for facts about the artwork — how many prints in the set, the style, the room, the colours, the subject. NEVER invent or change these):
+${existingBodyText || 'None'}
+
+METAFIELD CONTENT (for the over-use check):
+${existingMetafields}
+
+COMPETITORS — the pages outranking you (positions 1-3). Make THIS product beat them:
+${competitors.map(c => `--- Position ${c.position}: ${c.url}
+  Title: ${c.title || 'N/A'}
+  H2s: ${(c.h2||[]).join(' | ') || 'N/A'}
+  Word count: ${c.wordCount}`).join('\n')}
+
+Return this exact JSON structure with real content (no placeholders):
+
+{
+  "suggestedTitle": "Optimised SEO title tag, max 60 chars, keyword near start, UK spelling",
+  "suggestedMeta": "Compelling meta description, max 155 chars, keyword included, ends with CTA, UK spelling",
+  "productDescription": "The FULL rewritten product description as ONE HTML string (the body). Follow the EXACT structure + voice rules below.",
+  "keywordOveruse": {
+    "isOverstuffed": true,
+    "summary": "One plain-English sentence about over-use of \\"${keyword}\\".",
+    "findings": [
+      { "location": "where it lives", "metafieldKey": "", "currentText": "exact current text", "recommendation": "reword OR remove", "suggestedText": "rewrite or empty", "reason": "one short sentence" }
+    ]
+  },
+  "aiItems": [
+    {
+      "element": "Comparison Snippet",
+      "metafieldKey": "comparison_snippet",
+      "format": "richtext_snippet",
+      "priority": "high",
+      "content": "<h2>What is/are ${keyword}?</h2><p>[complete, standalone 3-5 sentence answer; first sentence answers fully]</p>",
+      "competitorDriven": false
+    },
+    {
+      "element": "How-To Block",
+      "metafieldKey": "how_to_block",
+      "format": "richtext_snippet",
+      "priority": "medium",
+      "content": "<h2>[how-to title about ${keyword}]</h2><p><strong>1. Step title:</strong> step description</p><p><strong>2. Step title:</strong> step description</p>",
+      "competitorDriven": false
+    },
+    {
+      "element": "Comparison Table",
+      "metafieldKey": "comparison_table",
+      "format": "richtext_snippet",
+      "priority": "medium",
+      "content": "<h2>[comparison title]</h2><p><strong>Feature —</strong> Option A. Option B.</p><p><strong>Feature —</strong> Option A. Option B.</p>",
+      "competitorDriven": false
+    }
+  ],
+  "urlAnalysis": {
+    "currentSlug": "exact-current-url-slug",
+    "slugMatchesKeyword": "exact|similar|different",
+    "changeSlug": false,
+    "suggestedSlug": "new-slug-if-change-safe — leave blank if no change needed",
+    "slugChangeWarning": "Only change slug if this product has 0 or near-0 clicks; if changed, add a 301 redirect.",
+    "notes": "One sentence summary"
+  },
+  "otherActions": []
+}
+
+═══ PRODUCT DESCRIPTION — STRUCTURE (build "productDescription" as ONE HTML string, in THIS order) ═══
+1. INTRO: 2 short paragraphs, NO heading (do NOT repeat the product title as a heading). The FIRST sentence MUST open with an inspiring verb (Imagine, Picture, Discover, Fall in love, Refresh, Bring — vary it) AND contain the exact keyword "${keyword}". Inspiring, benefit-led — how the art improves the room AND daily life; mention that choosing a framed option means it arrives ready to hang.
+2. <h3>[a heading containing the keyword, e.g. "Frame, Canvas & Paper Options for ${keyword}"]</h3> then paragraph(s) covering: frame colours (white, black, oak) — selecting a framed option frames ALL prints in the set, ready to hang; frames handmade in the UK with a PERSPEX front (describe perspex: all the clarity of glass but lightweight, won't strain walls or cause damage, virtually unbreakable, safer with children/pets) — DO NOT call it acrylic; wrapped canvas option (moisture-resistant → bathrooms, kitchens, covered outdoor spaces); the TWO papers and the REAL sizes from THIS product's variants above; mounts (white/black, £8 each) are an add-on the CUSTOMER SELECTS on the product page under "Add mounts to your new wall art" and ONLY on the A2 and 20 × 30 in framed sizes; personalisation is available on UNFRAMED prints only (any custom size + an optional quote) — never on framed sizes.
+3. <h3>What's Included</h3> then a short <ul> of what the customer receives (use ONLY real facts from the current description — e.g. how many prints), supplied unframed unless a framed option is selected above; made in the UK with fade-resistant pigment inks; paper is indoor-only (canvas for damp/sheltered spots).
+4. <h2>How to Style [keyword] ...</h2> then one short paragraph with ONE internal link to a relevant collection/page (full URL, target="_blank" rel="noopener").
+5. <h2>What to Consider When Choosing [keyword]</h2> then one short paragraph.
+
+═══ VOICE (mandatory) ═══
+- First person (I / we) — a friendly UK home-decor advisor. Active voice. Vary sentence length. Include a light question or two. UK spelling throughout.
+- NOT salesy. Keep it tight and skimmable (a real person should want to read it) — do not pad for length.
+- The customer SELECTS options to receive frames/canvas/mounts — never say "I add" frames/mounts.
+- Use ONLY facts present in the current description + the variant list. NEVER invent the set size, style, room, colours, or any option this product doesn't have.
+- BANNED WORDS (never use): Delve, Spearheading, Embarking, Compelling, Empowering, Encompassing, Comprehensively, Effectively, Beacon, Dive, Showcasing, Remarked, Aligns, Surpassing, Tragically, Impacting, Prioritize, Sparking, Standout, Hindering, Advancements, Aiding, Fostering, Multifaceted, Revolutionary, Testament, Elevate.
+- BANNED PHRASES: "in the ever-evolving world of", "at the forefront of", "in summary", "in conclusion", "in essence", "it's important to note", "emerges as a beacon", "dive into".
+
+═══ OTHER RULES ═══
+- suggestedTitle: max 60 chars, keyword near start. suggestedMeta: max 155 chars, keyword once, benefit, CTA. (Copy-only — not pushed.)
+- aiItems — generate all three rich-text snippets in the EXACT H2 formats shown (heading level 2). how_to_block and comparison_table use bold-labelled paragraphs (rich text cannot hold real tables). Keep "metafieldKey" and "format" EXACTLY as shown. competitorDriven: true when a snippet fills a competitor gap, else false.
+- keywordOveruse: examine the current description + metafields; flag genuine over-use of "${keyword}" only (exclude shared theme chrome). If clean, isOverstuffed:false with an empty findings array.
+- ⚠️ NO STUFFING: exact keyword only in the title, first line, and at most one or two headings; everywhere else use natural variations.
+- ⚠️ NO CANNIBALISATION: don't target a keyword owned by another AboutWallArt page; anchors describe the destination, never another page's keyword.
+- Do NOT generate FAQ Schema, People Also Ask, or Page Schema (the theme handles those). Do NOT flag shared global product theme sections ("OUR FRAMES", "Here's Why You'll Love It", "LIGHT UP YOUR ART!", reviews, lead-capture) for per-product rename.
+- otherActions: return an EMPTY array.
+- Return ONLY the JSON object — no other text`;
+}
+
 // Fetch real content from Shopify API
 async function fetchShopifyContent(pageUrl) {
   if (!SHOPIFY_DOMAIN || !SHOPIFY_TOKEN) {
@@ -1812,12 +1948,17 @@ async function fetchShopifyContent(pageUrl) {
     const productMatch = path.match(/^\/products\/([^/?]+)/);
     if (productMatch) {
       const handle = productMatch[1];
-      const r = await fetch(`${base}/products.json?handle=${handle}&fields=id,title,body_html`, { headers });
+      const r = await fetch(`${base}/products.json?handle=${handle}&fields=id,title,body_html,options,product_type,tags,image`, { headers });
       const d = await r.json();
       const p = d.products?.[0];
       if (!p) return null;
-      const meta = await fetchShopifyMetafields(base, `products/${p.id}`, headers);
-      return { shopifyId: p.id, shopifyType: 'product', shopifyTitle: p.title, seoTitle: meta.title || p.title, seoDescription: meta.desc || '', bodyHtml: p.body_html || '' };
+      const [meta, allMeta] = await Promise.all([
+        fetchShopifyMetafields(base, `products/${p.id}`, headers),
+        fetchAllMetafields(base, `products/${p.id}`, headers)
+      ]);
+      // Variant options (Frame / Size / Paper) feed the description rewrite — read live, never guess.
+      const productOptions = (p.options || []).map(o => ({ name: o.name, values: o.values || [] }));
+      return { shopifyId: p.id, shopifyType: 'product', shopifyTitle: p.title, seoTitle: meta.title || p.title, seoDescription: meta.desc || '', bodyHtml: p.body_html || '', metafields: allMeta, productOptions, productType: p.product_type || '', tags: p.tags ? p.tags.split(',').map(t => t.trim()).filter(Boolean) : [], mainImage: p.image?.src || '', mainImageAlt: p.image?.alt || '' };
     }
 
     // ── Collection ───────────────────────────────────────────────────────────
