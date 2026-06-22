@@ -1,7 +1,11 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v48.2
+// analyze-money-page.js — v48.3
+// v48.3 (June 22, 2026): PRODUCTS readability — product description restructured: skimmable short
+//                        paragraphs, sizes as a bullet list, "What's Included" heading now includes
+//                        the product title, dropped the "N prints" bullet, last bullet is "Choose
+//                        between framed and unframed options".
 // v48.2 (June 22, 2026): FIX — product analysis was failing JSON.parse (long description HTML had
 //                        raw line breaks / double-quoted attrs → fell back to raw text, no blocks).
 //                        Parser now repairs raw control chars before parse; product prompt forces
@@ -1923,9 +1927,15 @@ Return this exact JSON structure with real content (no placeholders):
 - Keep every string value on ONE line — do NOT put raw line breaks, tabs, or unescaped double-quote characters inside any string value.
 
 ═══ PRODUCT DESCRIPTION — STRUCTURE (build "productDescription" as ONE HTML string, in THIS order) ═══
-1. INTRO: 2 short paragraphs, NO heading (do NOT repeat the product title as a heading). The FIRST sentence MUST open with an inspiring verb (Imagine, Picture, Discover, Fall in love, Refresh, Bring — vary it) AND contain the exact keyword "${keyword}". Inspiring, benefit-led — how the art improves the room AND daily life; mention that choosing a framed option means it arrives ready to hang.
-2. <h3>[a heading containing the keyword, e.g. "Frame, Canvas & Paper Options for ${keyword}"]</h3> then paragraph(s) covering: frame colours (white, black, oak) — selecting a framed option frames ALL prints in the set, ready to hang; frames handmade in the UK with a PERSPEX front (describe perspex: all the clarity of glass but lightweight, won't strain walls or cause damage, virtually unbreakable, safer with children/pets) — DO NOT call it acrylic; wrapped canvas option (moisture-resistant → bathrooms, kitchens, covered outdoor spaces); the TWO papers and the REAL sizes from THIS product's variants above; mounts (white/black, £8 each) are an add-on the CUSTOMER SELECTS on the product page under "Add mounts to your new wall art" and ONLY on the A2 and 20 × 30 in framed sizes; personalisation is available on UNFRAMED prints only (any custom size + an optional quote) — never on framed sizes.
-3. <h3>What's Included</h3> then a short <ul> of what the customer receives (use ONLY real facts from the current description — e.g. how many prints), supplied unframed unless a framed option is selected above; made in the UK with fade-resistant pigment inks; paper is indoor-only (canvas for damp/sheltered spots).
+Keep it SKIMMABLE: short paragraphs (1-3 sentences each), use lists where it helps, never a wall of text.
+1. INTRO: 1-2 short paragraphs, NO heading (do NOT repeat the product title as a heading). The FIRST sentence MUST open with an inspiring verb (Imagine, Picture, Discover, Fall in love, Refresh, Bring — vary it) AND contain the exact keyword "${keyword}". Inspiring, benefit-led — how the art improves the room AND daily life; mention that choosing a framed option means it arrives ready to hang.
+2. <h3>[a heading containing the keyword, e.g. "Frame, Canvas & Paper Options for ${keyword}"]</h3> then BREAK the options into short, separate paragraphs — one topic each, easy to skim:
+   - <p> FRAMES: colours white, black, oak; selecting a framed option frames ALL prints in the set, ready to hang; handmade in the UK; PERSPEX front (describe perspex: all the clarity of glass but lightweight, won't strain walls or cause damage, virtually unbreakable, safer with children/pets) — NEVER call it acrylic.
+   - <p> CANVAS: wrapped canvas, moisture-resistant → bathrooms, kitchens, covered outdoor spaces.
+   - <p> PAPERS: the TWO papers (from variants above).
+   - Then the line "Available sizes:" immediately followed by a <ul> with ONE <li> per REAL size from THIS product's variants above (e.g. <li>A4 ...</li>) — sizes MUST be a bullet list, never crammed into a sentence.
+   - <p> MOUNTS & PERSONALISATION: mounts (white/black, £8 each) are an add-on the CUSTOMER SELECTS on the product page under "Add mounts to your new wall art", ONLY on the A2 and 20 × 30 in framed sizes; personalisation is available on UNFRAMED prints only (any custom size + an optional quote) — never on framed sizes.
+3. <h3>What's Included with ${yourPage.shopifyTitle || 'this set'}</h3> (the heading MUST include the product title) then a short <ul>. Do NOT make the first bullet a "N prints" line. Cover (real facts only): made in the UK with fade-resistant pigment inks; your choice of the two papers; paper is indoor-only (canvas for damp/sheltered spots). The LAST bullet MUST read exactly: <li>Choose between framed and unframed options</li>.
 4. <h2>How to Style [keyword] ...</h2> then one short paragraph with ONE internal link to a relevant collection/page (full URL, target='_blank' rel='noopener').
 5. <h2>What to Consider When Choosing [keyword]</h2> then one short paragraph.
 
