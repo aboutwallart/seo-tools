@@ -1,7 +1,12 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v48.7
+// analyze-money-page.js — v48.8
+// v48.8 (June 22, 2026): PRODUCTS voice — intro was too poetic/formal (user: "no friend talks like
+//                        this"); the styling sections were spot-on. Prompt now forces the INTRO into
+//                        the same grounded, practical, chatty voice as "How to Style", bans poetic/
+//                        abstract/brochure phrasing (with concrete anti-examples), and swaps the gold-
+//                        standard example to that plain-spoken styling voice.
 // v48.7 (June 22, 2026): PRODUCTS voice restore — the v48.6 trim made descriptions read flat/AI;
 //                        product prompt now leads with WARMTH (first-person advisor, personal
 //                        touches, a question), demotes the "tight/skimmable" pressure, and embeds
@@ -1991,7 +1996,8 @@ ${b.outline || '(no outline available)'}`).join('\n')}
 ═══ PRODUCT DESCRIPTION — STRUCTURE (build "productDescription" as ONE HTML string, in THIS order) ═══
 Write it WARM and HUMAN — like a friendly home-decor advisor talking to ONE person, never a spec sheet. Paragraphs stay readable (2-4 flowing sentences), but personality, warmth and flow matter MORE than brevity — do not make it clipped or robotic. It must feel hand-written.
 IMPORTANT: do NOT describe frames, perspex, canvas, paper types, sizes, mounts, or personalisation in the description — that information lives in a SHARED THEME SECTION on the page and must NOT be repeated here (repeating it across every product creates duplicate content). Write ONLY content unique to THIS artwork.
-1. INTRO: 2 short paragraphs, NO heading (do NOT repeat the product title as a heading). Open the FIRST sentence with an inspiring verb (Imagine, Picture, Discover, Fall in love, Refresh, Bring — vary it) AND include the exact keyword "${keyword}". This is where the personality lives: paint how THIS artwork makes the room FEEL and how it lifts everyday life, speak as 'I'/'we' directly to the reader, weave in a light question or a warm personal aside, and make her WANT to keep reading. Use ONLY facts from the current description (set size, style, room, colours) — never invent.
+1. INTRO: 2 short paragraphs, NO heading (do NOT repeat the product title as a heading). Open the FIRST sentence with an inspiring verb (Imagine, Picture, Discover, Fall in love, Refresh, Bring — vary it) AND include the exact keyword "${keyword}". CRITICAL: write the intro in the SAME down-to-earth, practical, chatty voice as the "How to Style" section below — like talking to a friend, plain and real. Describe the actual artwork and room in concrete, everyday words (colours, where it goes, how it looks on the wall). Speak as 'I'/'we' and you can add a light question, but keep it grounded. Use ONLY facts from the current description — never invent.
+   ❌ DO NOT write poetic, abstract or literary lines — they read formal and AI. BANNED intro style (never write anything like these): "a kind of stillness", "hard to put into words", "refined without being cold", "serene without being dull", "quietly [X] in spirit", "feel your shoulders drop". If a sentence sounds like a poem or a luxury brand brochure, rewrite it the way you'd actually say it to a friend.
 2. <h3>What's Included with ${yourPage.shopifyTitle || 'this set'}</h3> (the heading MUST include the product title) then a short <ul>. Do NOT make the first bullet a "N prints" line. Cover only product-specific receivables and quality (real facts only, e.g. made in the UK with fade-resistant pigment inks; indoor use). Do NOT list frames/papers/sizes/mounts here (they're in the theme section). The LAST bullet MUST read exactly: <li>Choose between framed and unframed options</li>.
 3. <h2>How to Style ${keyword} ...</h2> (this H2 MAY carry the exact keyword) then one WARM, first-person paragraph ("I'd hang…", a real styling tip, maybe a light question) with ONE internal link to a relevant collection/page (full URL, target='_blank' rel='noopener').
 4. <h2>[a "what to consider when choosing" heading — a NATURAL VARIATION, NOT the exact keyword]</h2> then one WARM, first-person paragraph advising on choosing for THIS artwork's style and colours.
@@ -1999,8 +2005,9 @@ IMPORTANT: do NOT describe frames, perspex, canvas, paper types, sizes, mounts, 
 
 ═══ VOICE (mandatory — this is the MOST important part; getting it flat = failure) ═══
 - First person (I / we) — a warm, friendly UK home-decor advisor talking to ONE person. Conversational, inspiring, genuinely human, with personal touches and a light question or two. Active voice. Vary sentence length. UK spelling throughout. If it reads like AI or a dry spec sheet, it has FAILED — rewrite it warmer.
-- TONE EXAMPLE — match this WARMTH and VOICE exactly (but NOT the content; your product differs): "Fall in love with your living room again with this set of three living room wall pictures, perfect to bring a large wall to life. The warm neutral tones and soft botanical details will bring calm to your space. This is the kind of wall art that doesn't just fill a gap but shapes how the whole room feels. Think about how you want the room to feel — calm and restful, or warm and welcoming? Hung together, these prints set the mood the moment you walk in."
-- NOT salesy and NOT robotic. Warm but not padded — but when in doubt, choose warmth and personality over terseness.
+- GOLD-STANDARD VOICE (match this grounded, friendly, practical tone for the WHOLE description, including the intro — copy the VOICE, not the content): "Picture this set of three prints above your sofa — soft greys with warm gold running through them, calm but never boring. I love how they pull a living room together without shouting for attention. I'd hang all three in a row at eye level with an even gap between each one; because the palette is neutral, they pair brilliantly with warm white or sage walls. If your sofa's in a light linen, they'll feel like they were made for the space."
+- That is the target: plain, warm, specific, like a friend who styles homes. AVOID anything that sounds poetic, abstract, literary, or like a luxury brochure — that is the #1 thing to get right.
+- NOT salesy and NOT robotic. Warm but not padded — when in doubt, choose plain-spoken warmth over fancy phrasing.
 - The customer SELECTS options to receive frames/canvas/mounts — never say "I add" frames/mounts.
 - Use ONLY facts present in the current description + the variant list. NEVER invent the set size, style, room, colours, or any option this product doesn't have.
 - BANNED WORDS (never use): Delve, Spearheading, Embarking, Compelling, Empowering, Encompassing, Comprehensively, Effectively, Beacon, Dive, Showcasing, Remarked, Aligns, Surpassing, Tragically, Impacting, Prioritize, Sparking, Standout, Hindering, Advancements, Aiding, Fostering, Multifaceted, Revolutionary, Testament, Elevate.
