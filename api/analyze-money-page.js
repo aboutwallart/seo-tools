@@ -1,7 +1,11 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v47.8
+// analyze-money-page.js — v47.9
+// v47.9 (June 22, 2026): PAGES P3 (reuse blocks) — page prompt now also returns loserPageLinks
+//                        (weaker pages linking INTO this page) and relatedBlogLinks (older blogs
+//                        linking INTO this page), with their data sections + rules. Linked
+//                        References + Image SEO enabled for pages on the frontend.
 // v47.8 (June 22, 2026): PAGES P3 (part) — server now builds the THREE question fields from the
 //                        Q&A set: related_questions (rich_text H3+list), people_also_ask_this
 //                        (rich_text bold-paragraph), people_also_ask (multi_line plain). Page
@@ -1732,8 +1736,36 @@ Return this exact JSON structure with real content (no placeholders):
     "slugChangeWarning": "Only change slug if this page has 0 or near-0 clicks. If changed, set up a 301 redirect from the old URL to the new URL.",
     "notes": "One sentence summary"
   },
-  "otherActions": []
+  "otherActions": [],
+  "loserPageLinks": [
+    {
+      "loserUrl": "exact URL of the loser page",
+      "loserPageType": "product|collection|blog|page",
+      "suggestedSentence": "One natural sentence with <a href='[thisPageUrl]'>[relevant anchor text]</a> — unique per loser page, never a template",
+      "placement": "Specific placement guidance — be specific, not 'at the end'"
+    }
+  ]${relatedBlogs.length > 0 ? `,
+  "relatedBlogLinks": [
+    {
+      "sourceUrl": "EXACT url of the related blog this link comes FROM (copy from the RELATED OLDER BLOGS list)",
+      "sourceTitle": "that blog's title",
+      "mode": "replace OR new",
+      "existingText": "if that blog already contains the keyword (present: YES): the exact sentence to swap out. Otherwise empty.",
+      "newText": "paste-ready text with THIS page's main keyword wrapped as the anchor: <a href=\\"${yourPage.url}\\" title=\\"...\\" target=\\"_blank\\" rel=\\"noopener\\">${keyword}</a>. For replace: the existing sentence rewritten with the link. For new: a short natural sentence/CTA using the keyword as the anchor.",
+      "placement": "where in that source blog to add it (shown outside the copy box)"
+    }
+  ]` : ''}
 }
+${loserPages.length > 0 ? `
+LOSER PAGES THAT SHOULD LINK TO THIS PAGE:
+${loserPages.map(l => `- ${l.loserUrl} (${l.pageType}, keyword: "${l.loserKeyword}")`).join('\n')}
+` : ''}
+${relatedBlogs.length > 0 ? `
+RELATED OLDER BLOGS TO LINK FROM (add one link from EACH into this page; anchor MUST be the main keyword "${keyword}"). Each blog's OUTLINE is given (## = H2 section, # = H3, ¶N = paragraph N within the current section) — use it to give a CONCRETE placement:
+${relatedBlogs.map(b => `--- ${b.url} | "${b.title}" | keyword present: ${b.keywordPresent ? 'YES' : 'no'}${b.keywordPresent && b.sentence ? ` | sentence: "${b.sentence}"` : ''}
+OUTLINE:
+${b.outline || '(no outline available)'}`).join('\n')}
+` : ''}
 
 RULES:
 - COMPETITOR-DRIVEN ANALYSIS (the backbone of this audit): your goal is to make THIS page OUTRANK positions 1-3. Compare the full page against the competitor data above and silently answer: (1) what topics/buying questions do they cover that this page is missing? (2) what would a visitor want answered that this page doesn't answer? (3) what makes their pages feel more complete or trustworthy? Let those answers DRIVE your recommendations (aiItems, questionSet, keywordOveruse). Work ONLY from the competitor data provided — NEVER invent competitor content you cannot see.
@@ -1753,7 +1785,9 @@ RULES:
 - ⚠️ KEYWORD USAGE — NO STUFFING (critical): use the EXACT keyword "${keyword}" only where it matters most — the title, the first line, and at most one or two headings. EVERYWHERE else write naturally for the reader using secondary terms, natural variations and related phrases. NEVER repeat the exact keyword over and over — Google treats stuffing as spam.
 - ⚠️ NO CANNIBALISATION (critical): this page must NOT compete with another AboutWallArt page for the same keyword. Do NOT target a keyword clearly owned by a different page, collection, product or blog; any anchor text must describe the destination, never duplicate a keyword another page already ranks for. When in doubt, use a more specific long-tail variation unique to THIS page.
 - urlAnalysis: title changes are always safe (no redirect). Only recommend a slug change if the page has very few or zero clicks.
-- otherActions: return an EMPTY array (image, schema, internal-link and FAQ tasks are handled by other tools/batches).
+- otherActions: return an EMPTY array (image and schema tasks are handled by other tools/batches).
+- loserPageLinks: ONLY include if loser pages are provided above; unique natural sentence per loser page with a real HTML anchor to this page and a specific placement. If none provided, omit this field entirely.
+- relatedBlogLinks: for EACH blog in "RELATED OLDER BLOGS TO LINK FROM", produce one link FROM that blog INTO this page. The anchor text MUST be this page's exact main keyword "${keyword}". If "keyword present: YES", use mode "replace" and wrap the keyword in that blog's given sentence as the link. If not present, use mode "new" with a short natural sentence/CTA using "${keyword}" as the anchor. The link URL is always ${yourPage.url}. One item per related blog. Use each blog's OUTLINE to give a CONCRETE placement (name the section + exact paragraph position, never vague). If no related blogs are listed above, omit this field entirely.
 - Return ONLY the JSON object — no other text`;
 }
 
