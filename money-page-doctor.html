@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 51.5</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 51.6</p>
                 </div>
             </div>
         </header>
@@ -1372,10 +1372,19 @@
                     📄 <strong>Blog template:</strong> ${tplSuffix ? tplSuffix : 'default (article)'}${isOldTemplate ? ' &nbsp;·&nbsp; <span style="color:#e65100;font-weight:600;">older template</span>' : ''}
                 </div>` : '';
 
+            // Indexability banner — green if Google can rank this page, red/amber if not.
+            const _idx = data.yourPage.indexability || { ok: true };
+            const indexabilityBanner = _idx.noindex
+                ? `<div style="background:#c62828;color:#fff;padding:14px 16px;border-radius:8px;margin-bottom:20px;"><strong>⛔ This page is set to NOINDEX</strong><br><span style="font-size:0.86rem;">Google will not list this page in search, so optimising it won't help until the noindex is removed. (Ask for help if you're not sure where it's set.)</span></div>`
+                : _idx.canonicalMismatch
+                    ? `<div style="background:#ef6c00;color:#fff;padding:14px 16px;border-radius:8px;margin-bottom:20px;"><strong>⚠️ Canonical points to another page</strong><br><span style="font-size:0.86rem;word-break:break-all;">Google is told to rank this instead: ${_idx.canonical}. This page may not rank on its own until that's corrected.</span></div>`
+                    : `<div style="background:#e8f5e9;color:#1b5e20;border:1px solid #a5d6a7;padding:12px 16px;border-radius:8px;margin-bottom:20px;"><strong>✅ Indexable</strong> — Google can list and rank this page.</div>`;
+
             const html = `
                 <h3 style="margin-bottom:6px;">Results for: ${keyword}</h3>
                 <div style="margin-bottom:15px;"><a href="${data.yourPage.url}" target="_blank" style="color:#1976d2;font-size:0.85rem;word-break:break-all;">${data.yourPage.url} ↗</a></div>
                 ${templateBadge}
+                ${indexabilityBanner}
                 ${positionBadge}
                 <div class="results-tabs">
                     <button class="results-tab active" onclick="switchResultsTab('content')">📝 Content Analysis</button>
