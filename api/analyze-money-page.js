@@ -1,7 +1,9 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v47.9
+// analyze-money-page.js — v48.0
+// v48.0 (June 22, 2026): FIX — getRelatedBlogLinks now also runs for pages (was returning []
+//                        for shopifyType 'page', so related-blog links never appeared on pages).
 // v47.9 (June 22, 2026): PAGES P3 (reuse blocks) — page prompt now also returns loserPageLinks
 //                        (weaker pages linking INTO this page) and relatedBlogLinks (older blogs
 //                        linking INTO this page), with their data sections + rules. Linked
@@ -2054,9 +2056,9 @@ async function fetchBlogIndex() {
 // index file isn't there yet, so analysis never breaks.
 async function getRelatedBlogLinks(yourPage, keyword) {
   try {
-    // Blogs and collections both link FROM older blogs INTO themselves.
+    // Blogs, collections AND pages all link FROM older blogs INTO themselves.
     const t = yourPage.shopifyType || '';
-    if (t !== 'article' && !t.includes('collection')) return [];
+    if (t !== 'article' && !t.includes('collection') && t !== 'page') return [];
     let all = await fetchBlogIndex();
     if (!all) { console.warn('[Related Blogs] index missing — falling back to live fetch'); all = await fetchAllArticlesLite(); }
     const related = pickRelatedBlogs(yourPage.url, yourPage.tags, all, 3, `${yourPage.title || ''} ${keyword || ''}`);
