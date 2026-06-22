@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 51.1</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 51.2</p>
                 </div>
             </div>
         </header>
@@ -1447,8 +1447,8 @@
             (data.inactiveProducts || []).forEach((p, i) => add(`inactiveprod_${i}`, `Inactive product link fixed: ${p.title}`, 'inactiveprod'));
 
             // Linked References — one "pushed" tick per group (blogs / collections / trends).
-            // Both blogs and collections fill these three reference metafields.
-            if (_isBlog || _isCollection) {
+            // Blogs, collections AND pages fill these three reference metafields.
+            if (_isBlog || _isCollection || _isPage) {
                 add('linkedref_blogs',       'Linked Blogs pushed',       'linkedref');
                 add('linkedref_collections', 'Linked Collections pushed', 'linkedref');
                 add('linkedref_trends',      'Linked Trends pushed',      'linkedref');
@@ -1503,7 +1503,7 @@
             if (s.peopleAlsoAsk && (s.peopleAlsoAsk.html || s.peopleAlsoAsk.metafield)) add('paa', 'People Also Ask added (metafield + body if old theme)', 'paa');
 
             // Image SEO step (blogs that have body images)
-            const hasBodyImages = (_isBlog || _isCollection) && (data.bodyImages || []).length > 0;
+            const hasBodyImages = (_isBlog || _isCollection || _isPage) && (data.bodyImages || []).length > 0;
             if (hasBodyImages) add('images', 'Image file names & alt text updated on Shopify', 'images');
 
             // Auto-link rule step
@@ -2123,7 +2123,7 @@
                     </div>`;
                 return `<div style="margin-bottom:18px;">${header}${rows}${searchUi}</div>`;
             };
-            const linkedRefsBlock = (_isBlog || _isCollection) ? `
+            const linkedRefsBlock = (_isBlog || _isCollection || _isPage) ? `
                 <div class="action-block" id="linkedRefsBlock" style="border-color:#3949ab;opacity:${allRefsTicked ? '0.5' : '1'};">
                     <h3>🔗 Linked References</h3>
                     <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">Cross-link this blog by filling its Linked Blogs, Linked Collections and Linked Trends metafields. Push a group, then tick its box once it's saved (ticking blocks the button so you don't push twice — untick to push again). <span style="color:#999;">If Linked Blogs is empty, re-run Refresh Blog Index so blogs have their IDs, then re-analyse.</span></p>
