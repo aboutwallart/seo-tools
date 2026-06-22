@@ -1,4 +1,8 @@
 // shopify-files.js — v1.7
+// v1.8 (June 22, 2026): push-metafields gains an optional per-item "ownerGid" — when set, the
+//                       metafield is written via GraphQL metafieldsSet on THAT owner (any type),
+//                       enabling cross-owner pushes (a PAGE pushing browse_the_collection to its
+//                       inner COLLECTION). rich_text values are still converted first.
 // v1.7 (June 21, 2026): htmlToRichText rewritten — now emits HEADINGS (h2/h3) and LISTS
 //                       (ul/ol) in document order, not just paragraphs. Powers collection
 //                       seo_text_links_ "add" sections (and future pages). Link target is
@@ -704,6 +708,26 @@ module.exports = async function handler(req, res) {
         try {
           const mutation = `mutation metafieldsSet($m: [MetafieldsSetInput!]!) { metafieldsSet(metafields: $m) { metafields { id } userErrors { field message } } }`;
           const variables = { m: [{ ownerId: ownerGid, namespace, key, value: JSON.stringify(gids), type }] };
+          const mr = await fetch(`${base}/graphql.json`, { method:'POST', headers: shopifyHeaders, body: JSON.stringify({ query: mutation, variables }) });
+          const md = await mr.json();
+          const ue = (md.data && md.data.metafieldsSet && md.data.metafieldsSet.userErrors) || [];
+          if (md.errors) results.push({ key, ok:false, error: md.errors[0].message });
+          else if (ue.length) results.push({ key, ok:false, error: ue[0].message });
+          else results.push({ key, ok:true });
+        } catch (err) { results.push({ key, ok:false, error: err.message }); }
+        continue;
+      }
+      // Cross-owner push (e.g. a PAGE pushing browse_the_collection to its INNER collection):
+      // when an explicit ownerGid is supplied, write via GraphQL metafieldsSet — it upserts on
+      // any owner + type without needing the REST resource path or custom/smart distinction.
+      if (mf.ownerGid) {
+        let outVal = value;
+        if (type === 'rich_text_field') {
+          try { outVal = htmlToRichText(value); } catch { results.push({ key, ok:false, error:'rich-text convert failed' }); continue; }
+        }
+        try {
+          const mutation = `mutation metafieldsSet($m: [MetafieldsSetInput!]!) { metafieldsSet(metafields: $m) { metafields { id } userErrors { field message } } }`;
+          const variables = { m: [{ ownerId: mf.ownerGid, namespace, key, value: outVal, type }] };
           const mr = await fetch(`${base}/graphql.json`, { method:'POST', headers: shopifyHeaders, body: JSON.stringify({ query: mutation, variables }) });
           const md = await mr.json();
           const ue = (md.data && md.data.metafieldsSet && md.data.metafieldsSet.userErrors) || [];

@@ -1,7 +1,13 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v47.7
+// analyze-money-page.js — v47.8
+// v47.8 (June 22, 2026): PAGES P3 (part) — server now builds the THREE question fields from the
+//                        Q&A set: related_questions (rich_text H3+list), people_also_ask_this
+//                        (rich_text bold-paragraph), people_also_ask (multi_line plain). Page
+//                        prompt returns browseTheCollection; page fetch resolves the inner
+//                        collection (custom.related_collection) → st.browseTargetGid so the
+//                        heading can be pushed to THAT collection's browse_the_collection.
 // v47.7 (June 22, 2026): PAGES P2 (page-only fields) — page prompt now also returns faqIntro
 //                        (rich_text), seoBodyBlock (single_line one-liner), unsureWhereToStart
 //                        (single_line) and bodyAddition (h2 body section). Server-side builds
@@ -263,6 +269,19 @@ module.exports = async function handler(req, res) {
         url: cleanUrl,
         provider: { '@type': 'Organization', name: 'AboutWallArt', url: 'https://aboutwallart.com' }
       });
+
+      // Build the THREE question/FAQ fields from the SAME Q&A set, each in its own format.
+      if (qs.length) {
+        const topic = (keyword || '').replace(/\b\w/g, c => c.toUpperCase());
+        st.relatedQuestionsHtml = `<h3>People Also Ask About ${topic}</h3><ul>${qs.map(q => `<li><strong>${q.question}</strong> — ${q.answer}</li>`).join('')}</ul>`;
+        st.peopleAlsoAskThisHtml = `<p><strong>Frequently Asked Questions About ${topic}</strong></p>${qs.map((q, i) => `<p><strong>${i + 1}. ${q.question}</strong></p><p>${q.answer}</p>`).join('')}`;
+        st.peopleAlsoAskText = qs.map(q => q.answer).join(' ');
+      }
+
+      // Browse the Collection push target — the collection living INSIDE this page.
+      if (shopifyContent && shopifyContent.relatedCollectionGid) {
+        st.browseTargetGid = shopifyContent.relatedCollectionGid;
+      }
     }
 
     // Resolve a DIRECT Shopify admin URL for each loser page so "Open in Shopify Admin"
@@ -1700,6 +1719,7 @@ Return this exact JSON structure with real content (no placeholders):
     "heading": "New H2 section heading for the page body (plain text, no tags)",
     "content": "<h2>[heading]</h2><p>[1-2 paragraphs of genuinely new on-page content; weave in 1-2 internal links as full-URL <a href=\\"https://aboutwallart.com/...\\" target=\\"_blank\\" rel=\\"noopener\\">anchor</a>]</p>"
   },
+  "browseTheCollection": "An SEO-worthy on-page heading built around the main keyword, shown above the product grid of the collection that lives INSIDE this page. NOT generic, NEVER starts with 'Shop'. Max ~70 chars. e.g. for 'transitional interior design' → 'Transitional Interior Design Ideas for Every Room'.",
   "urlAnalysis": {
     "currentSlug": "exact-current-url-slug",
     "slugMatchesKeyword": "exact|similar|different",
@@ -1728,6 +1748,7 @@ RULES:
 - faqIntro: a short FAQ section intro — an <h3> heading reading "Frequently Asked Questions About [Topic]" (replace [Topic] with the page's real topic, NOT the raw keyword if that reads awkwardly) followed by ONE <p> of 1-2 sentences. NO links, NO list, NO other tags. This is rich text.
 - seoBodyBlock: ONE <h3> heading then ONE <p> paragraph (3-5 sentences) that naturally includes 1-2 internal links as full-URL anchors with target="_blank" rel="noopener". This becomes a single-line HTML field, so output it as ONE unbroken line — no line breaks, no <br>, no inline styles, no wrapper divs.
 - unsureWhereToStart: a single plain-text helper title built around the main keyword (no HTML, max ~70 chars), e.g. "How to Start Decorating Your Home in Transitional Style".
+- browseTheCollection: a single SEO-worthy heading built around "${keyword}" for the collection that sits inside this page (above its product grid). It must read naturally as a heading, include the keyword (or a close variation) plus a useful qualifier, be at most ~70 characters, NEVER be a generic phrase like "Browse the Collection", and NEVER start with "Shop".
 - bodyAddition: ONE genuinely new content section for the PAGE BODY — an <h2> heading + 1-2 <p> paragraphs, weaving in 1-2 internal links as full-URL anchors with target="_blank" rel="noopener". Only add a section for a real content gap (check EXISTING PAGE CONTENT first — never duplicate a topic already covered). No inline styles, no wrapper divs. If the page is already complete and a new body section would be padding, return bodyAddition as null.
 - ⚠️ KEYWORD USAGE — NO STUFFING (critical): use the EXACT keyword "${keyword}" only where it matters most — the title, the first line, and at most one or two headings. EVERYWHERE else write naturally for the reader using secondary terms, natural variations and related phrases. NEVER repeat the exact keyword over and over — Google treats stuffing as spam.
 - ⚠️ NO CANNIBALISATION (critical): this page must NOT compete with another AboutWallArt page for the same keyword. Do NOT target a keyword clearly owned by a different page, collection, product or blog; any anchor text must describe the destination, never duplicate a keyword another page already ranks for. When in doubt, use a more specific long-tail variation unique to THIS page.
@@ -1796,7 +1817,17 @@ async function fetchShopifyContent(pageUrl) {
         fetchShopifyMetafields(base, pageResourcePath, headers),
         fetchAllMetafields(base, pageResourcePath, headers)
       ]);
-      return { shopifyId: pg.id, shopifyType: 'page', shopifyTitle: pg.title, seoTitle: meta.title || pg.title, seoDescription: meta.desc || '', bodyHtml: pg.body_html || '', metafields: allMeta, mainImage: pg.image?.src || '', mainImageAlt: pg.image?.alt || '' };
+      // Resolve the collection that lives INSIDE this page (custom.related_collection) — its
+      // GID is the push target for Browse the Collection. fetchAllMetafields drops references,
+      // so read the raw metafields here to find it.
+      let relatedCollectionGid = '';
+      try {
+        const rawR = await fetch(`${base}/${pageResourcePath}/metafields.json?namespace=custom`, { headers });
+        const rawD = await rawR.json();
+        const rc = (rawD.metafields || []).find(m => m.key === 'related_collection' && /Collection/.test(m.value || ''));
+        if (rc) relatedCollectionGid = rc.value;
+      } catch { /* leave empty */ }
+      return { shopifyId: pg.id, shopifyType: 'page', shopifyTitle: pg.title, seoTitle: meta.title || pg.title, seoDescription: meta.desc || '', bodyHtml: pg.body_html || '', metafields: allMeta, mainImage: pg.image?.src || '', mainImageAlt: pg.image?.alt || '', relatedCollectionGid };
     }
 
     // ── Blog article ─────────────────────────────────────────────────────────
