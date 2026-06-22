@@ -1,7 +1,16 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v48.4
+// analyze-money-page.js — v48.6
+// v48.6 (June 22, 2026): PRODUCTS duplicate-content fix — product description no longer repeats the
+//                        frames/perspex/canvas/papers/sizes/mounts/personalisation block (that now
+//                        lives in a shared THEME section). The tool writes ONLY unique-per-product
+//                        content (intro + What's Included + How to Style + What to Consider).
+//                        ⚠️ Requires the theme options section to be live first.
+// v48.5 (June 22, 2026): Indexability check — extractSEOData now reads the page's robots meta
+//                        (noindex) and canonical, returns yourPage.indexability {noindex,
+//                        canonical, canonicalMismatch, ok} so the frontend can show a green/red
+//                        banner (don't optimise a page Google is told to ignore).
 // v48.4 (June 22, 2026): PRODUCTS PR2 — product prompt now returns loserPageLinks + relatedBlogLinks
 //                        (data sections + rules); getRelatedBlogLinks runs for products; heading
 //                        keyword rule added (exact keyword in AT MOST 2 headings, variations elsewhere).
@@ -625,6 +634,20 @@ function extractSEOData(html, url, keyword) {
   // Calculate AI Visibility Score
   const aiScore = calculateAIScore(aiOptimization, isBlog);
 
+  // ── Indexability check ──────────────────────────────────────────────────────
+  // Read the page's own hidden instructions to Google: a robots "noindex" (Google
+  // won't list the page) and the canonical (if it points elsewhere, Google ranks
+  // that other URL instead). Optimising a page that fails either is wasted effort.
+  let noindex = false;
+  const robotsMetas = html.match(/<meta[^>]+name=["']robots["'][^>]*>/gi) || [];
+  for (const tag of robotsMetas) { if (/noindex/i.test(tag)) noindex = true; }
+  const canonMatch = html.match(/<link[^>]+rel=["']canonical["'][^>]*href=["']([^"']+)["']/i)
+    || html.match(/<link[^>]+href=["']([^"']+)["'][^>]*rel=["']canonical["']/i);
+  const canonical = canonMatch ? canonMatch[1].trim() : '';
+  const normalise = u => (u || '').split('#')[0].split('?')[0].replace(/\/$/, '').toLowerCase();
+  const canonicalMismatch = !!canonical && normalise(canonical) !== normalise(url);
+  const indexability = { noindex, canonical, canonicalMismatch, ok: !noindex && !canonicalMismatch };
+
   return {
     url,
     title,
@@ -640,7 +663,8 @@ function extractSEOData(html, url, keyword) {
     images,
     aiOptimization,
     isBlog,
-    aiScore
+    aiScore,
+    indexability
   };
 }
 
@@ -1961,17 +1985,12 @@ ${b.outline || '(no outline available)'}`).join('\n')}
 
 ═══ PRODUCT DESCRIPTION — STRUCTURE (build "productDescription" as ONE HTML string, in THIS order) ═══
 Keep it SKIMMABLE: short paragraphs (1-3 sentences each), use lists where it helps, never a wall of text.
-1. INTRO: 1-2 short paragraphs, NO heading (do NOT repeat the product title as a heading). The FIRST sentence MUST open with an inspiring verb (Imagine, Picture, Discover, Fall in love, Refresh, Bring — vary it) AND contain the exact keyword "${keyword}". Inspiring, benefit-led — how the art improves the room AND daily life; mention that choosing a framed option means it arrives ready to hang.
-2. <h3>[a heading containing the keyword, e.g. "Frame, Canvas & Paper Options for ${keyword}"]</h3> then BREAK the options into short, separate paragraphs — one topic each, easy to skim:
-   - <p> FRAMES: colours white, black, oak; selecting a framed option frames ALL prints in the set, ready to hang; handmade in the UK; PERSPEX front (describe perspex: all the clarity of glass but lightweight, won't strain walls or cause damage, virtually unbreakable, safer with children/pets) — NEVER call it acrylic.
-   - <p> CANVAS: wrapped canvas, moisture-resistant → bathrooms, kitchens, covered outdoor spaces.
-   - <p> PAPERS: the TWO papers (from variants above).
-   - Then the line "Available sizes:" immediately followed by a <ul> with ONE <li> per REAL size from THIS product's variants above (e.g. <li>A4 ...</li>) — sizes MUST be a bullet list, never crammed into a sentence.
-   - <p> MOUNTS & PERSONALISATION: mounts (white/black, £8 each) are an add-on the CUSTOMER SELECTS on the product page under "Add mounts to your new wall art", ONLY on the A2 and 20 × 30 in framed sizes; personalisation is available on UNFRAMED prints only (any custom size + an optional quote) — never on framed sizes.
-3. <h3>What's Included with ${yourPage.shopifyTitle || 'this set'}</h3> (the heading MUST include the product title) then a short <ul>. Do NOT make the first bullet a "N prints" line. Cover (real facts only): made in the UK with fade-resistant pigment inks; your choice of the two papers; paper is indoor-only (canvas for damp/sheltered spots). The LAST bullet MUST read exactly: <li>Choose between framed and unframed options</li>.
-4. <h2>[a "how to style" heading — use a NATURAL VARIATION of the topic, NOT the exact keyword]</h2> then one short paragraph with ONE internal link to a relevant collection/page (full URL, target='_blank' rel='noopener').
-5. <h2>[a "what to consider when choosing" heading — a NATURAL VARIATION, NOT the exact keyword]</h2> then one short paragraph.
-(Reminder: the EXACT keyword belongs in at most two headings total — keep it for the options H3 and the Comparison Snippet; vary the rest.)
+IMPORTANT: do NOT describe frames, perspex, canvas, paper types, sizes, mounts, or personalisation in the description — that information lives in a SHARED THEME SECTION on the page and must NOT be repeated here (repeating it across every product creates duplicate content). Write ONLY content unique to THIS artwork.
+1. INTRO: 1-2 short paragraphs, NO heading (do NOT repeat the product title as a heading). The FIRST sentence MUST open with an inspiring verb (Imagine, Picture, Discover, Fall in love, Refresh, Bring — vary it) AND contain the exact keyword "${keyword}". Inspiring, benefit-led — how THIS artwork improves the room AND daily life (its subject, colours, style, the room/feeling). Use ONLY facts from the current description (set size, style, room, colours) — never invent.
+2. <h3>What's Included with ${yourPage.shopifyTitle || 'this set'}</h3> (the heading MUST include the product title) then a short <ul>. Do NOT make the first bullet a "N prints" line. Cover only product-specific receivables and quality (real facts only, e.g. made in the UK with fade-resistant pigment inks; indoor use). Do NOT list frames/papers/sizes/mounts here (they're in the theme section). The LAST bullet MUST read exactly: <li>Choose between framed and unframed options</li>.
+3. <h2>How to Style ${keyword} ...</h2> (this H2 MAY carry the exact keyword) then one short paragraph with ONE internal link to a relevant collection/page (full URL, target='_blank' rel='noopener').
+4. <h2>[a "what to consider when choosing" heading — a NATURAL VARIATION, NOT the exact keyword]</h2> then one short paragraph about choosing for THIS artwork's style/colours.
+(Reminder: the EXACT keyword belongs in at most two headings total — keep it for the How-to-Style H2 and the Comparison Snippet; vary the rest.)
 
 ═══ VOICE (mandatory) ═══
 - First person (I / we) — a friendly UK home-decor advisor. Active voice. Vary sentence length. Include a light question or two. UK spelling throughout.
@@ -1985,7 +2004,7 @@ Keep it SKIMMABLE: short paragraphs (1-3 sentences each), use lists where it hel
 - suggestedTitle: max 60 chars, keyword near start. suggestedMeta: max 155 chars, keyword once, benefit, CTA. (Copy-only — not pushed.)
 - aiItems — generate all three rich-text snippets in the EXACT H2 formats shown (heading level 2). how_to_block and comparison_table use bold-labelled paragraphs (rich text cannot hold real tables). Keep "metafieldKey" and "format" EXACTLY as shown. competitorDriven: true when a snippet fills a competitor gap, else false.
 - keywordOveruse: examine the current description + metafields; flag genuine over-use of "${keyword}" only (exclude shared theme chrome). If clean, isOverstuffed:false with an empty findings array.
-- ⚠️ HEADINGS & KEYWORD (SEO balance): put the EXACT keyword "${keyword}" in AT MOST TWO headings across the WHOLE description + snippets (e.g. the options H3 and the Comparison Snippet H2). For ALL other H2/H3 headings, write a NATURAL VARIATION or related phrasing (still topical and useful) — do NOT repeat the exact keyword in every heading; that is stuffing and hurts ranking.
+- ⚠️ HEADINGS & KEYWORD (SEO balance): put the EXACT keyword "${keyword}" in AT MOST TWO headings across the WHOLE description + snippets (e.g. the "How to Style" H2 and the Comparison Snippet H2). For ALL other H2/H3 headings, write a NATURAL VARIATION or related phrasing (still topical and useful) — do NOT repeat the exact keyword in every heading; that is stuffing and hurts ranking.
 - ⚠️ NO STUFFING: exact keyword only in the title, first line, and at most one or two headings; everywhere else use natural variations.
 - ⚠️ NO CANNIBALISATION: don't target a keyword owned by another AboutWallArt page; anchors describe the destination, never another page's keyword.
 - Do NOT generate FAQ Schema, People Also Ask, or Page Schema (the theme handles those). Do NOT flag shared global product theme sections ("OUR FRAMES", "Here's Why You'll Love It", "LIGHT UP YOUR ART!", reviews, lead-capture) for per-product rename.

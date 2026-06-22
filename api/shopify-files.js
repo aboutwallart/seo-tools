@@ -1,4 +1,4 @@
-// shopify-files.js — v1.7
+// shopify-files.js — v1.9
 // v1.9 (June 22, 2026): new push-body action — overwrites body_html (description) of a
 //                       product/page/article/collection. Powers the product description rewrite
 //                       "Push to product body" button.
