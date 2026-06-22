@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 50.7</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 50.8</p>
                 </div>
             </div>
         </header>
@@ -1409,6 +1409,7 @@
             // Push to Shopify items
             const _isBlog = data.yourPage.shopifyType === 'article';
             const _isCollection = (data.yourPage.shopifyType || '').includes('collection');
+            const _isPage = data.yourPage.shopifyType === 'page';
             add('push_title', 'SEO Title updated',        'push');
             add('push_meta',  'Meta Description updated', 'push');
             add('push_desc',  _isBlog ? 'Excerpt updated' : 'Page Description updated', 'push');
@@ -1670,7 +1671,8 @@
                         const isScript = /^\s*<script/i.test(item.content);
                         const isHTML = item.content.includes('<');
                         // Push target: backend-supplied key (collections/products) else blog mapping.
-                        const pushKey = item.metafieldKey || snippetKeyForElement(item.element);
+                        // Pages are copy-only in P1 — their push (rich_text/json) lands in P2/P3.
+                        const pushKey = _isPage ? '' : (item.metafieldKey || snippetKeyForElement(item.element));
                         return `
                         <div id="row_${key}" style="display:flex;align-items:flex-start;gap:10px;margin-bottom:15px;opacity:${state[key]?'0.45':'1'};">
                             ${cb(allItems.find(it=>it.key===key))}
@@ -1692,7 +1694,22 @@
                             </div>
                         </div>`;
                     }).join('')}
-                    ${s.aiItems.some(it => it.metafieldKey || snippetKeyForElement(it.element)) || (s.peopleAlsoAsk && s.peopleAlsoAsk.metafield) ? `<button class="push-btn" type="button" style="margin-top:8px;" onclick="pushAllSnippets(this)">📤 Push all snippets to Shopify</button>` : ''}
+                    ${!_isPage && (s.aiItems.some(it => it.metafieldKey || snippetKeyForElement(it.element)) || (s.peopleAlsoAsk && s.peopleAlsoAsk.metafield)) ? `<button class="push-btn" type="button" style="margin-top:8px;" onclick="pushAllSnippets(this)">📤 Push all snippets to Shopify</button>` : ''}
+                </div>` : '';
+
+            // ── Questions / FAQ set (pages) — one Q&A set, fills 3 page fields in P3 ──
+            const pageQuestions = (_isPage && Array.isArray(s.questionSet)) ? s.questionSet.filter(q => q && q.question) : [];
+            const pageQuestionsBlock = pageQuestions.length > 0 ? `
+                <div class="action-block" style="border-color:#6a1b9a;">
+                    <h3>❓ Questions &amp; FAQ (People Also Ask)</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">One Q&amp;A set, generated from competitor gaps. In a later step this fills all three page fields (<strong>related_questions</strong>, <strong>people_also_ask_this</strong>, <strong>people_also_ask</strong>) — each in its own format. For now, review and copy.</p>
+                    ${pageQuestions.map(q => `
+                        <div style="padding:10px;background:#f9f9f9;border-radius:6px;margin-bottom:8px;">
+                            <strong style="font-size:0.9rem;">${(q.question||'').replace(/</g,'&lt;')}</strong>
+                            <div style="font-size:0.85rem;color:#555;margin-top:4px;line-height:1.5;">${(q.answer||'').replace(/</g,'&lt;')}</div>
+                        </div>`).join('')}
+                    <textarea id="pageQuestionsRaw" style="display:none;">${pageQuestions.map(q => `${q.question}\n${q.answer}`).join('\n\n').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+                    <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('pageQuestionsRaw').value,this)">📋 Copy all Q&amp;A</button>
                 </div>` : '';
 
             // ── 4. Manual actions block ───────────────────────────────────────
@@ -2071,7 +2088,7 @@
                     </div>
                 </div>`;
 
-            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + aiBlock + paaBlock + loserLinksBlock + relatedBlogsBlock + internalAddBlock + manualBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + linkedRefsBlock + internalAddBlockTmpl + imageBlock + autolinkBlock + reindexBlock;
+            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + aiBlock + pageQuestionsBlock + paaBlock + loserLinksBlock + relatedBlogsBlock + internalAddBlock + manualBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + linkedRefsBlock + internalAddBlockTmpl + imageBlock + autolinkBlock + reindexBlock;
         }
 
         function formatMarkdown(text) {
