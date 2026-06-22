@@ -1,7 +1,10 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v47.3
+// analyze-money-page.js — v47.4
+// v47.4 (June 21, 2026): COLLECTIONS cleanup — collection prompt no longer returns
+//                        pageSchema or brandBlock (theme renders both site-wide), and the
+//                        brand/About section is now in the never-flag list (no remove/rename).
 // v47.3 (June 21, 2026): COLLECTIONS C3 — reuse blocks enabled for collections:
 //                        Linked References (getLinkedReferences + self-exclude in collections),
 //                        related-blog links INTO the collection (relatedBlogs section added to
@@ -1399,13 +1402,6 @@ Return this exact JSON structure with real content (no placeholders):
   "suggestedMeta": "Compelling meta description, max 155 chars, keyword included, ends with CTA, UK spelling",
   "suggestedDescription": "2-3 sentences for the collection description field. Keyword-rich, AboutWallArt brand voice, UK spelling, no HTML tags.",
   "browseTheCollection": "An SEO-worthy on-page heading built around the main keyword (shown above the product grid). NOT generic, NEVER starts with 'Shop'. Max ~70 chars. e.g. for 'black and white wall art' → 'Black and White Wall Art for Modern Living Rooms'.",
-  "pageSchema": {
-    "@context": "https://schema.org",
-    "@type": "CollectionPage",
-    "name": "collection name",
-    "description": "collection description",
-    "url": "${yourPage.url}"
-  },
   "faqSchema": {
     "@context": "https://schema.org",
     "@type": "FAQPage",
@@ -1413,7 +1409,6 @@ Return this exact JSON structure with real content (no placeholders):
       { "@type": "Question", "name": "A real question people search about ${keyword}", "acceptedAnswer": { "@type": "Answer", "text": "A helpful complete answer" } }
     ]
   },
-  "brandBlock": "<h2>About AboutWallArt</h2><p>Founded in 2020, we're the UK's leading specialist in wall art and home decor. As a trusted, UK-based company, we design and produce our own unique wall art items in-house. Rated 4.8/5 stars from over 500+ verified customer reviews, we offer free fast UK delivery, international shipping, secure checkout, and back every purchase with our hassle-free 14-day return policy.</p>",
   "keywordOveruse": {
     "isOverstuffed": true,
     "summary": "One plain-English sentence about over-use of \\"${keyword}\\".",
@@ -1521,9 +1516,9 @@ RULES:
 - competitorDriven flag: on EVERY h2Sections item and aiItem include a boolean "competitorDriven" — true if it comes from the competitor comparison, false if general SEO best practice. When true, the reason must name the competitive rationale.
 - keywordOveruse: examine ALL of "EXISTING PAGE CONTENT" (every heading, the full body, every metafield) and decide whether "${keyword}" is over-used. For each over-used spot return where it lives, the EXACT current text, recommendation "reword" (with suggestedText using a related/secondary term) or "remove" (suggestedText empty). Always set "metafieldKey" to an empty string here. EXCLUDE global/shared theme chrome (nav, menus, breadcrumbs, footer, cookie notices, search, account, newsletter, "related"/"recently viewed"). A single natural use is FINE — only flag genuine over-use. If not over-stuffed, return "isOverstuffed": false with an empty findings array.
 - suggestedTitle: max 60 chars (hard limit), keyword near start. suggestedMeta: max 155 chars (hard limit), keyword once, benefit, CTA. suggestedDescription: plain text, no HTML, 2-3 sentences, UK spelling.
-- pageSchema: a valid CollectionPage schema. faqSchema: 6-8 real questions about "${keyword}" with full helpful answers. brandBlock: use EXACTLY the text shown — do not change it.
+- faqSchema: 6-8 real questions about "${keyword}" with full helpful answers. Do NOT return pageSchema or brandBlock — the theme already renders the collection page schema and the brand/About block site-wide.
 - browseTheCollection: a single SEO-worthy heading built around "${keyword}", shown on the page above the products. It must read naturally as a heading, include the keyword (or a close variation) and a useful qualifier, be at most ~70 characters, NEVER be a generic phrase like "Browse the Collection", and NEVER start with the word "Shop".
-- h2Sections: use action "change" (rename/retag a current H2, with reason + exactAction + replacementText), action "remove" (a body section that HURTS SEO — body content ONLY, never a global theme section), or action "add" (a NEW SEO content section — its "content" is paste-ready HTML, an <h2> heading + <p> paragraphs with 1-2 inline internal links, destined for the collection's SEO Text (with links) field). Add a section ONLY for a genuine content gap (check EXISTING PAGE CONTENT first — never duplicate a topic already covered, never add just to repeat "${keyword}"). NEVER flag these theme sections: "Trending Now", "Recently Viewed", "New Arrivals", "Customers Are Saying", or any auto-generated review/browsing/merchandising widget. Include competitorDriven on every item.
+- h2Sections: use action "change" (rename/retag a current H2, with reason + exactAction + replacementText), action "remove" (a body section that HURTS SEO — body content ONLY, never a global theme section), or action "add" (a NEW SEO content section — its "content" is paste-ready HTML, an <h2> heading + <p> paragraphs with 1-2 inline internal links, destined for the collection's SEO Text (with links) field). Add a section ONLY for a genuine content gap (check EXISTING PAGE CONTENT first — never duplicate a topic already covered, never add just to repeat "${keyword}"). NEVER flag these shared/theme sections for removal OR rename (they are site-wide, identical on every collection, and cannot be customised per collection): the brand/About section (e.g. "About Wall Art", "About AboutWallArt", "Why choose us"), "Trending Now", "Recently Viewed", "New Arrivals", "Customers Are Saying", or any auto-generated review/browsing/merchandising widget. Leave all of these out of h2Sections entirely. Include competitorDriven on every item.
 - KEYWORD USAGE (no stuffing): use the EXACT keyword "${keyword}" only where it matters most (title, first line, at most one or two headings). Everywhere else write naturally with secondary terms and variations. NEVER repeat the exact keyword over and over.
 - aiItems — generate the three collection snippets in their EXACT formats below. Generate "People Also Ask" ALWAYS (4-6 real questions). Generate "Comparison Snippet" ALWAYS (a "What is ${keyword}?" definition). Generate "Comparison Table" ONLY if there is a genuine comparison to make (styles, sizes, materials) — otherwise OMIT it.
   - Comparison Snippet ("comparison_snippet") EXACT format: <p><strong style="text-transform: uppercase; display: block; margin-bottom: 0.75rem;">[QUESTION]</strong></p><p>[answer paragraph]</p> — no other tags, no <h2>.
