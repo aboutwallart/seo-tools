@@ -1,7 +1,12 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v48.3
+// analyze-money-page.js — v48.4
+// v48.4 (June 22, 2026): PRODUCTS PR2 — product prompt now returns loserPageLinks + relatedBlogLinks
+//                        (data sections + rules); getRelatedBlogLinks runs for products; heading
+//                        keyword rule added (exact keyword in AT MOST 2 headings, variations elsewhere).
+//                        Frontend enables Linked References + Image SEO for products (no rename-image
+//                        field for products).
 // v48.3 (June 22, 2026): PRODUCTS readability — product description restructured: skimmable short
 //                        paragraphs, sizes as a bullet list, "What's Included" heading now includes
 //                        the product title, dropped the "N prints" bullet, last bullet is "Choose
@@ -1918,8 +1923,36 @@ Return this exact JSON structure with real content (no placeholders):
     "slugChangeWarning": "Only change slug if this product has 0 or near-0 clicks; if changed, add a 301 redirect.",
     "notes": "One sentence summary"
   },
-  "otherActions": []
+  "otherActions": [],
+  "loserPageLinks": [
+    {
+      "loserUrl": "exact URL of the loser page",
+      "loserPageType": "product|collection|blog|page",
+      "suggestedSentence": "One natural sentence with <a href='[thisProductUrl]'>[relevant anchor text]</a> — unique per loser page, never a template",
+      "placement": "Specific placement guidance"
+    }
+  ]${relatedBlogs.length > 0 ? `,
+  "relatedBlogLinks": [
+    {
+      "sourceUrl": "EXACT url of the related blog this link comes FROM (copy from the RELATED OLDER BLOGS list)",
+      "sourceTitle": "that blog's title",
+      "mode": "replace OR new",
+      "existingText": "if that blog already contains the keyword (present: YES): the exact sentence to swap out. Otherwise empty.",
+      "newText": "paste-ready text with THIS product's main keyword as the anchor: <a href='${yourPage.url}' title='...' target='_blank' rel='noopener'>${keyword}</a>. For replace: the existing sentence rewritten with the link. For new: a short natural sentence/CTA using the keyword as the anchor.",
+      "placement": "where in that source blog to add it"
+    }
+  ]` : ''}
 }
+${loserPages.length > 0 ? `
+LOSER PAGES THAT SHOULD LINK TO THIS PRODUCT:
+${loserPages.map(l => `- ${l.loserUrl} (${l.pageType}, keyword: "${l.loserKeyword}")`).join('\n')}
+` : ''}
+${relatedBlogs.length > 0 ? `
+RELATED OLDER BLOGS TO LINK FROM (add one link from EACH into this product; anchor MUST be the main keyword "${keyword}"). Each blog's OUTLINE is given (## = H2, # = H3, ¶N = paragraph N) — use it for a CONCRETE placement:
+${relatedBlogs.map(b => `--- ${b.url} | "${b.title}" | keyword present: ${b.keywordPresent ? 'YES' : 'no'}${b.keywordPresent && b.sentence ? ` | sentence: "${b.sentence}"` : ''}
+OUTLINE:
+${b.outline || '(no outline available)'}`).join('\n')}
+` : ''}
 
 ═══ ⚠️ JSON SAFETY (critical — the response MUST parse as JSON) ═══
 - Output RAW JSON only — NO markdown code fences (no \`\`\`json).
@@ -1936,8 +1969,9 @@ Keep it SKIMMABLE: short paragraphs (1-3 sentences each), use lists where it hel
    - Then the line "Available sizes:" immediately followed by a <ul> with ONE <li> per REAL size from THIS product's variants above (e.g. <li>A4 ...</li>) — sizes MUST be a bullet list, never crammed into a sentence.
    - <p> MOUNTS & PERSONALISATION: mounts (white/black, £8 each) are an add-on the CUSTOMER SELECTS on the product page under "Add mounts to your new wall art", ONLY on the A2 and 20 × 30 in framed sizes; personalisation is available on UNFRAMED prints only (any custom size + an optional quote) — never on framed sizes.
 3. <h3>What's Included with ${yourPage.shopifyTitle || 'this set'}</h3> (the heading MUST include the product title) then a short <ul>. Do NOT make the first bullet a "N prints" line. Cover (real facts only): made in the UK with fade-resistant pigment inks; your choice of the two papers; paper is indoor-only (canvas for damp/sheltered spots). The LAST bullet MUST read exactly: <li>Choose between framed and unframed options</li>.
-4. <h2>How to Style [keyword] ...</h2> then one short paragraph with ONE internal link to a relevant collection/page (full URL, target='_blank' rel='noopener').
-5. <h2>What to Consider When Choosing [keyword]</h2> then one short paragraph.
+4. <h2>[a "how to style" heading — use a NATURAL VARIATION of the topic, NOT the exact keyword]</h2> then one short paragraph with ONE internal link to a relevant collection/page (full URL, target='_blank' rel='noopener').
+5. <h2>[a "what to consider when choosing" heading — a NATURAL VARIATION, NOT the exact keyword]</h2> then one short paragraph.
+(Reminder: the EXACT keyword belongs in at most two headings total — keep it for the options H3 and the Comparison Snippet; vary the rest.)
 
 ═══ VOICE (mandatory) ═══
 - First person (I / we) — a friendly UK home-decor advisor. Active voice. Vary sentence length. Include a light question or two. UK spelling throughout.
@@ -1951,9 +1985,12 @@ Keep it SKIMMABLE: short paragraphs (1-3 sentences each), use lists where it hel
 - suggestedTitle: max 60 chars, keyword near start. suggestedMeta: max 155 chars, keyword once, benefit, CTA. (Copy-only — not pushed.)
 - aiItems — generate all three rich-text snippets in the EXACT H2 formats shown (heading level 2). how_to_block and comparison_table use bold-labelled paragraphs (rich text cannot hold real tables). Keep "metafieldKey" and "format" EXACTLY as shown. competitorDriven: true when a snippet fills a competitor gap, else false.
 - keywordOveruse: examine the current description + metafields; flag genuine over-use of "${keyword}" only (exclude shared theme chrome). If clean, isOverstuffed:false with an empty findings array.
+- ⚠️ HEADINGS & KEYWORD (SEO balance): put the EXACT keyword "${keyword}" in AT MOST TWO headings across the WHOLE description + snippets (e.g. the options H3 and the Comparison Snippet H2). For ALL other H2/H3 headings, write a NATURAL VARIATION or related phrasing (still topical and useful) — do NOT repeat the exact keyword in every heading; that is stuffing and hurts ranking.
 - ⚠️ NO STUFFING: exact keyword only in the title, first line, and at most one or two headings; everywhere else use natural variations.
 - ⚠️ NO CANNIBALISATION: don't target a keyword owned by another AboutWallArt page; anchors describe the destination, never another page's keyword.
 - Do NOT generate FAQ Schema, People Also Ask, or Page Schema (the theme handles those). Do NOT flag shared global product theme sections ("OUR FRAMES", "Here's Why You'll Love It", "LIGHT UP YOUR ART!", reviews, lead-capture) for per-product rename.
+- loserPageLinks: ONLY include if loser pages are provided above; unique natural sentence per loser page with a real HTML anchor to this product and a specific placement. If none provided, omit the field entirely.
+- relatedBlogLinks: for EACH blog in "RELATED OLDER BLOGS TO LINK FROM", produce one link FROM that blog INTO this product; anchor MUST be this product's exact keyword "${keyword}"; mode "replace" if keyword present (rewrite the given sentence with the link), else "new"; link URL is always ${yourPage.url}; concrete placement from the OUTLINE. If none listed, omit the field entirely.
 - otherActions: return an EMPTY array.
 - Return ONLY the JSON object — no other text`;
 }
@@ -2226,9 +2263,9 @@ async function fetchBlogIndex() {
 // index file isn't there yet, so analysis never breaks.
 async function getRelatedBlogLinks(yourPage, keyword) {
   try {
-    // Blogs, collections AND pages all link FROM older blogs INTO themselves.
+    // Blogs, collections, pages AND products all link FROM older blogs INTO themselves.
     const t = yourPage.shopifyType || '';
-    if (t !== 'article' && !t.includes('collection') && t !== 'page') return [];
+    if (t !== 'article' && !t.includes('collection') && t !== 'page' && t !== 'product') return [];
     let all = await fetchBlogIndex();
     if (!all) { console.warn('[Related Blogs] index missing — falling back to live fetch'); all = await fetchAllArticlesLite(); }
     const related = pickRelatedBlogs(yourPage.url, yourPage.tags, all, 3, `${yourPage.title || ''} ${keyword || ''}`);
