@@ -1,7 +1,12 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v47.2
+// analyze-money-page.js — v47.3
+// v47.3 (June 21, 2026): COLLECTIONS C3 — reuse blocks enabled for collections:
+//                        Linked References (getLinkedReferences + self-exclude in collections),
+//                        related-blog links INTO the collection (relatedBlogs section added to
+//                        the collection prompt; pickRelatedBlogs works without tags via title),
+//                        inactive-product links, and collection featured image for Image SEO.
 // v47.2 (June 21, 2026): COLLECTIONS C2 — collection prompt now also returns "add" H2
 //                        sections (destined for the seo_text_links_ rich-text field) and a
 //                        browseTheCollection SEO heading. FAQ schema pushed to faq_schema.
@@ -202,9 +207,10 @@ module.exports = async function handler(req, res) {
     const relatedBlogs = await getRelatedBlogLinks(yourPageData, keyword);
     console.log(`[Money Page] Found ${relatedBlogs.length} related older blogs for internal linking`);
 
-    // Step 4.7: scan blog body for inactive product links
+    // Step 4.7: scan blog/collection body for inactive product links
     let pageOrigin = ''; try { pageOrigin = new URL(pageUrl).origin; } catch { pageOrigin = ''; }
-    const inactiveProducts = (yourPageData.shopifyType === 'article')
+    const _scanInactive = yourPageData.shopifyType === 'article' || (yourPageData.shopifyType || '').includes('collection');
+    const inactiveProducts = _scanInactive
       ? await findInactiveProductLinks(yourPageData.shopifyBodyHtml, pageOrigin) : [];
     console.log(`[Money Page] Found ${inactiveProducts.length} inactive product links`);
 
@@ -1160,7 +1166,7 @@ function buildAnalysisPrompt(yourPage, competitors, keyword, userPosition = null
   // Collections get a dedicated collection prompt (competitor-driven + over-use + the
   // three AI snippets in their exact collection-metafield formats).
   if (yourPage.shopifyType && yourPage.shopifyType.includes('collection')) {
-    return buildCollectionAnalysisPrompt(yourPage, competitors, keyword, userPosition, contentGaps, loserPages);
+    return buildCollectionAnalysisPrompt(yourPage, competitors, keyword, userPosition, contentGaps, loserPages, relatedBlogs);
   }
 
   const avgCompWordCount = competitors.length > 0
@@ -1316,7 +1322,7 @@ RULES:
 // competitor-driven analysis + keyword over-use check, but outputs the three AI snippets
 // in their EXACT collection-metafield formats (each carries its target metafieldKey) and
 // keeps Page/FAQ schema + brand block (collections need them, unlike blogs).
-function buildCollectionAnalysisPrompt(yourPage, competitors, keyword, userPosition = null, contentGaps = null, loserPages = []) {
+function buildCollectionAnalysisPrompt(yourPage, competitors, keyword, userPosition = null, contentGaps = null, loserPages = [], relatedBlogs = []) {
   const avgCompWordCount = competitors.length > 0
     ? Math.round(competitors.reduce((sum, c) => sum + c.wordCount, 0) / competitors.length) : 0;
   const avgCompKeywordDensity = competitors.length > 0
@@ -1487,11 +1493,27 @@ Return this exact JSON structure with real content (no placeholders):
       "suggestedSentence": "One natural sentence with <a href='[winnerUrl]'>[relevant anchor text]</a> — unique per loser page, never a template",
       "placement": "Specific placement guidance — be specific, not 'at the end'"
     }
-  ]
+  ]${relatedBlogs.length > 0 ? `,
+  "relatedBlogLinks": [
+    {
+      "sourceUrl": "EXACT url of the related blog this link comes FROM (copy from the RELATED OLDER BLOGS list)",
+      "sourceTitle": "that blog's title",
+      "mode": "replace OR new",
+      "existingText": "if that blog already contains the keyword (present: YES): the exact sentence to swap out. Otherwise empty.",
+      "newText": "paste-ready text with THIS collection's main keyword wrapped as the anchor: <a href=\\"${yourPage.url}\\" title=\\"...\\" target=\\"_blank\\" rel=\\"noopener\\">${keyword}</a>. For replace: the existing sentence rewritten with the link. For new: a short natural sentence/CTA using the keyword as the anchor.",
+      "placement": "where in that source blog to add it (shown outside the copy box)"
+    }
+  ]` : ''}
 }
 ${loserPages.length > 0 ? `
 LOSER PAGES THAT SHOULD LINK TO THIS PAGE:
 ${loserPages.map(l => `- ${l.loserUrl} (${l.pageType}, keyword: "${l.loserKeyword}")`).join('\n')}
+` : ''}
+${relatedBlogs.length > 0 ? `
+RELATED OLDER BLOGS TO LINK FROM (add one link from EACH into this collection; anchor MUST be the main keyword "${keyword}"). Each blog's OUTLINE is given (## = H2 section, # = H3, ¶N = paragraph N within the current section) — use it to give a CONCRETE placement:
+${relatedBlogs.map(b => `--- ${b.url} | "${b.title}" | keyword present: ${b.keywordPresent ? 'YES' : 'no'}${b.keywordPresent && b.sentence ? ` | sentence: "${b.sentence}"` : ''}
+OUTLINE:
+${b.outline || '(no outline available)'}`).join('\n')}
 ` : ''}
 
 RULES:
@@ -1511,6 +1533,7 @@ RULES:
 - urlAnalysis: title changes are always safe (no redirect). Only recommend a slug change if the page has very few or zero clicks.
 - otherActions: return an EMPTY array (image and internal-link tasks are handled by other tools).
 - loserPageLinks: ONLY include if loser pages are provided above; unique natural sentence per loser page with a real HTML anchor to this page and a specific placement. If none provided, omit this field entirely.
+- relatedBlogLinks: for EACH blog in "RELATED OLDER BLOGS TO LINK FROM", produce one link FROM that blog INTO this collection. The anchor text MUST be this collection's exact main keyword "${keyword}". If "keyword present: YES", use mode "replace" and wrap the keyword in that blog's given sentence as the link. If not present, use mode "new" with a short natural sentence/CTA using "${keyword}" as the anchor. The link URL is always ${yourPage.url}. One item per related blog. Use each blog's OUTLINE to give a CONCRETE placement (name the section + exact paragraph position, never vague). If no related blogs are listed above, omit this field entirely.
 - Return ONLY the JSON object — no other text`;
 }
 
@@ -1546,7 +1569,7 @@ async function fetchShopifyContent(pageUrl) {
     if (collectionMatch) {
       const handle = collectionMatch[1];
       for (const type of ['custom_collections', 'smart_collections']) {
-        const r = await fetch(`${base}/${type}.json?handle=${handle}&fields=id,title,body_html`, { headers });
+        const r = await fetch(`${base}/${type}.json?handle=${handle}&fields=id,title,body_html,image`, { headers });
         const d = await r.json();
         const col = d[type]?.[0];
         if (col) {
@@ -1555,7 +1578,7 @@ async function fetchShopifyContent(pageUrl) {
             fetchShopifyMetafields(base, colResourcePath, headers),
             fetchAllMetafields(base, colResourcePath, headers)
           ]);
-          return { shopifyId: col.id, shopifyType: type === 'custom_collections' ? 'custom_collection' : 'smart_collection', shopifyTitle: col.title, seoTitle: meta.title || col.title, seoDescription: meta.desc || '', bodyHtml: col.body_html || '', metafields: allMeta };
+          return { shopifyId: col.id, shopifyType: type === 'custom_collections' ? 'custom_collection' : 'smart_collection', shopifyTitle: col.title, seoTitle: meta.title || col.title, seoDescription: meta.desc || '', bodyHtml: col.body_html || '', metafields: allMeta, mainImage: col.image?.src || '', mainImageAlt: col.image?.alt || '' };
         }
       }
       return null;
@@ -1678,7 +1701,8 @@ async function fetchAllArticlesLite() {
 function pickRelatedBlogs(currentUrl, currentTags, allArticles, n = 3, titleText = '') {
   const curHandle = (currentUrl.split('/').filter(Boolean).pop() || '').toLowerCase();
   const curTags = (currentTags || []).map(t => t.toLowerCase());
-  if (!curTags.length || !allArticles.length) return [];
+  // Need at least ONE signal: tags (blogs) OR title text (collections have no tags).
+  if ((!curTags.length && !String(titleText).trim()) || !allArticles.length) return [];
   let origin = ''; try { origin = new URL(currentUrl).origin; } catch { origin = ''; }
   const df = {};
   allArticles.forEach(a => (a.tags || []).forEach(t => { const k = t.toLowerCase(); df[k] = (df[k] || 0) + 1; }));
@@ -1762,7 +1786,9 @@ async function fetchBlogIndex() {
 // index file isn't there yet, so analysis never breaks.
 async function getRelatedBlogLinks(yourPage, keyword) {
   try {
-    if (yourPage.shopifyType !== 'article') return [];
+    // Blogs and collections both link FROM older blogs INTO themselves.
+    const t = yourPage.shopifyType || '';
+    if (t !== 'article' && !t.includes('collection')) return [];
     let all = await fetchBlogIndex();
     if (!all) { console.warn('[Related Blogs] index missing — falling back to live fetch'); all = await fetchAllArticlesLite(); }
     const related = pickRelatedBlogs(yourPage.url, yourPage.tags, all, 3, `${yourPage.title || ''} ${keyword || ''}`);
@@ -1802,7 +1828,9 @@ async function getLinkedCollections(yourPage, keyword) {
     const q = (keyword || '').replace(/["\\]/g, ' ').trim();
     if (!q) return [];
     const data = await shopifyGraphQL(`{ collections(first: 30, query: ${JSON.stringify(q)}) { edges { node { id title handle } } } }`);
-    const nodes = (data && data.collections) ? data.collections.edges.map(e => e.node) : [];
+    const selfHandle = (yourPage.url.split('/').filter(Boolean).pop() || '').toLowerCase();
+    const nodes = ((data && data.collections) ? data.collections.edges.map(e => e.node) : [])
+      .filter(n => (n.handle || '').toLowerCase() !== selfHandle);   // never link a collection to itself
     let origin = ''; try { origin = new URL(yourPage.url).origin; } catch { origin = ''; }
     return nodes.map(n => {
       const cw = (n.title || '').toLowerCase().match(/[a-z]+/g) || [];
@@ -1830,9 +1858,11 @@ async function getLinkedTrends(yourPage, keyword) {
   } catch (e) { console.warn('[Linked Trends] failed:', e.message); return []; }
 }
 
-// Top-level: all three linked-reference sets for a blog (run in parallel).
+// Top-level: all three linked-reference sets (run in parallel). Blogs and collections both
+// support Linked Blogs / Collections / Trends.
 async function getLinkedReferences(yourPage, keyword) {
-  if (yourPage.shopifyType !== 'article') return { linkedBlogs: [], linkedCollections: [], linkedTrends: [] };
+  const t = yourPage.shopifyType || '';
+  if (t !== 'article' && !t.includes('collection')) return { linkedBlogs: [], linkedCollections: [], linkedTrends: [] };
   const [linkedBlogs, linkedCollections, linkedTrends] = await Promise.all([
     getLinkedBlogs(yourPage, keyword),
     getLinkedCollections(yourPage, keyword),
