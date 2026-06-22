@@ -1,7 +1,12 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v48.6
+// analyze-money-page.js — v48.7
+// v48.7 (June 22, 2026): PRODUCTS voice restore — the v48.6 trim made descriptions read flat/AI;
+//                        product prompt now leads with WARMTH (first-person advisor, personal
+//                        touches, a question), demotes the "tight/skimmable" pressure, and embeds
+//                        the user-approved sample as a gold-standard TONE example. Duplicate-content
+//                        fix kept (options still excluded from the body).
 // v48.6 (June 22, 2026): PRODUCTS duplicate-content fix — product description no longer repeats the
 //                        frames/perspex/canvas/papers/sizes/mounts/personalisation block (that now
 //                        lives in a shared THEME section). The tool writes ONLY unique-per-product
@@ -1984,17 +1989,18 @@ ${b.outline || '(no outline available)'}`).join('\n')}
 - Keep every string value on ONE line — do NOT put raw line breaks, tabs, or unescaped double-quote characters inside any string value.
 
 ═══ PRODUCT DESCRIPTION — STRUCTURE (build "productDescription" as ONE HTML string, in THIS order) ═══
-Keep it SKIMMABLE: short paragraphs (1-3 sentences each), use lists where it helps, never a wall of text.
+Write it WARM and HUMAN — like a friendly home-decor advisor talking to ONE person, never a spec sheet. Paragraphs stay readable (2-4 flowing sentences), but personality, warmth and flow matter MORE than brevity — do not make it clipped or robotic. It must feel hand-written.
 IMPORTANT: do NOT describe frames, perspex, canvas, paper types, sizes, mounts, or personalisation in the description — that information lives in a SHARED THEME SECTION on the page and must NOT be repeated here (repeating it across every product creates duplicate content). Write ONLY content unique to THIS artwork.
-1. INTRO: 1-2 short paragraphs, NO heading (do NOT repeat the product title as a heading). The FIRST sentence MUST open with an inspiring verb (Imagine, Picture, Discover, Fall in love, Refresh, Bring — vary it) AND contain the exact keyword "${keyword}". Inspiring, benefit-led — how THIS artwork improves the room AND daily life (its subject, colours, style, the room/feeling). Use ONLY facts from the current description (set size, style, room, colours) — never invent.
+1. INTRO: 2 short paragraphs, NO heading (do NOT repeat the product title as a heading). Open the FIRST sentence with an inspiring verb (Imagine, Picture, Discover, Fall in love, Refresh, Bring — vary it) AND include the exact keyword "${keyword}". This is where the personality lives: paint how THIS artwork makes the room FEEL and how it lifts everyday life, speak as 'I'/'we' directly to the reader, weave in a light question or a warm personal aside, and make her WANT to keep reading. Use ONLY facts from the current description (set size, style, room, colours) — never invent.
 2. <h3>What's Included with ${yourPage.shopifyTitle || 'this set'}</h3> (the heading MUST include the product title) then a short <ul>. Do NOT make the first bullet a "N prints" line. Cover only product-specific receivables and quality (real facts only, e.g. made in the UK with fade-resistant pigment inks; indoor use). Do NOT list frames/papers/sizes/mounts here (they're in the theme section). The LAST bullet MUST read exactly: <li>Choose between framed and unframed options</li>.
-3. <h2>How to Style ${keyword} ...</h2> (this H2 MAY carry the exact keyword) then one short paragraph with ONE internal link to a relevant collection/page (full URL, target='_blank' rel='noopener').
-4. <h2>[a "what to consider when choosing" heading — a NATURAL VARIATION, NOT the exact keyword]</h2> then one short paragraph about choosing for THIS artwork's style/colours.
+3. <h2>How to Style ${keyword} ...</h2> (this H2 MAY carry the exact keyword) then one WARM, first-person paragraph ("I'd hang…", a real styling tip, maybe a light question) with ONE internal link to a relevant collection/page (full URL, target='_blank' rel='noopener').
+4. <h2>[a "what to consider when choosing" heading — a NATURAL VARIATION, NOT the exact keyword]</h2> then one WARM, first-person paragraph advising on choosing for THIS artwork's style and colours.
 (Reminder: the EXACT keyword belongs in at most two headings total — keep it for the How-to-Style H2 and the Comparison Snippet; vary the rest.)
 
-═══ VOICE (mandatory) ═══
-- First person (I / we) — a friendly UK home-decor advisor. Active voice. Vary sentence length. Include a light question or two. UK spelling throughout.
-- NOT salesy. Keep it tight and skimmable (a real person should want to read it) — do not pad for length.
+═══ VOICE (mandatory — this is the MOST important part; getting it flat = failure) ═══
+- First person (I / we) — a warm, friendly UK home-decor advisor talking to ONE person. Conversational, inspiring, genuinely human, with personal touches and a light question or two. Active voice. Vary sentence length. UK spelling throughout. If it reads like AI or a dry spec sheet, it has FAILED — rewrite it warmer.
+- TONE EXAMPLE — match this WARMTH and VOICE exactly (but NOT the content; your product differs): "Fall in love with your living room again with this set of three living room wall pictures, perfect to bring a large wall to life. The warm neutral tones and soft botanical details will bring calm to your space. This is the kind of wall art that doesn't just fill a gap but shapes how the whole room feels. Think about how you want the room to feel — calm and restful, or warm and welcoming? Hung together, these prints set the mood the moment you walk in."
+- NOT salesy and NOT robotic. Warm but not padded — but when in doubt, choose warmth and personality over terseness.
 - The customer SELECTS options to receive frames/canvas/mounts — never say "I add" frames/mounts.
 - Use ONLY facts present in the current description + the variant list. NEVER invent the set size, style, room, colours, or any option this product doesn't have.
 - BANNED WORDS (never use): Delve, Spearheading, Embarking, Compelling, Empowering, Encompassing, Comprehensively, Effectively, Beacon, Dive, Showcasing, Remarked, Aligns, Surpassing, Tragically, Impacting, Prioritize, Sparking, Standout, Hindering, Advancements, Aiding, Fostering, Multifaceted, Revolutionary, Testament, Elevate.
