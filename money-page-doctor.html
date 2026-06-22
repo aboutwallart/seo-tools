@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 51.3</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 51.4</p>
                 </div>
             </div>
         </header>
@@ -1426,7 +1426,8 @@
             const _isProduct = data.yourPage.shopifyType === 'product';
             add('push_title', 'SEO Title updated',        'push');
             add('push_meta',  'Meta Description updated', 'push');
-            add('push_desc',  _isBlog ? 'Excerpt updated' : 'Page Description updated', 'push');
+            // Products have no separate description field (the body IS the description) — skip it.
+            if (!_isProduct) add('push_desc',  _isBlog ? 'Excerpt updated' : 'Page Description updated', 'push');
             if (_isBlog && s.firstParagraph) add('add_firstpara', 'First paragraph added to blog body', 'push');
 
             // Keyword over-use fixes (blogs) — one tick per flagged item
@@ -1552,7 +1553,7 @@
                 <div class="action-block" style="border-color:#1976d2;">
                     <h3>✏️ SEO Fields — Copy &amp; Paste</h3>
                     <div style="margin-bottom:15px;">
-                        ${['push_title','push_meta','push_desc', ...((_isBlog && s.firstParagraph) ? ['add_firstpara'] : [])].map(key => {
+                        ${['push_title','push_meta', ...(!_isProduct ? ['push_desc'] : []), ...((_isBlog && s.firstParagraph) ? ['add_firstpara'] : [])].map(key => {
                             const it = allItems.find(i => i.key === key);
                             if (!it) return '';
                             return `<div id="row_${key}" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f0f0f0;opacity:${state[key]?'0.45':'1'};">
@@ -1574,11 +1575,12 @@
                         <div class="char-count"></div>
                         <button class="copy-btn" type="button" style="margin-top:6px;" onclick="copyToClipboard(document.getElementById('shopifyMetaField').value,this)">📋 Copy</button>
                     </div>
+                    ${!_isProduct ? `
                     <div class="field-group">
                         <label>${_isBlog ? 'Excerpt' : 'Page Description'}</label>
                         <textarea id="shopifyDescField" rows="3">${s.suggestedDescription||''}</textarea>
                         <button class="copy-btn" type="button" style="margin-top:6px;" onclick="copyToClipboard(document.getElementById('shopifyDescField').value,this)">📋 Copy</button>
-                    </div>
+                    </div>` : ''}
                     ${_isBlog ? `
                     <div class="field-group">
                         <label>Page Description</label>
@@ -1821,16 +1823,25 @@
                 </div>` : '';
 
             // ── Product description rewrite (products) — full body, copy + push to body_html ──
+            const _prodImg = (data.bodyImages || []).find(i => i.isMain) || (data.bodyImages || [])[0];
             const productDescBlock = (_isProduct && s.productDescription) ? `
                 <div class="action-block" id="productDescBlock" style="border-color:#6a1b9a;">
+                    <style>
+                        #productDescBlock .desc-preview h2 { font-size:1.05rem; margin:1.6em 0 0.5em; }
+                        #productDescBlock .desc-preview h3 { font-size:1rem; margin:1.6em 0 0.5em; }
+                        #productDescBlock .desc-preview p { margin:0 0 0.9em; }
+                        #productDescBlock .desc-preview ul { margin:0.2em 0 1em 1.3em; }
+                        #productDescBlock .desc-preview li { margin:0 0 0.3em; }
+                    </style>
                     <h3>📝 Product Description — Full Rewrite</h3>
-                    <p style="font-size:0.85rem;color:#666;margin-bottom:10px;">A complete, SEO-optimised rewrite of this product's description in the AboutWallArt voice. Review it, then copy or push it straight to the product body.</p>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">A complete, SEO-optimised rewrite of this product's description in the AboutWallArt voice. Review it, then copy or push it straight to the product body.</p>
+                    ${_prodImg ? `<div style="text-align:center;margin-bottom:14px;"><img src="${_prodImg.src}" alt="${(_prodImg.alt||'').replace(/"/g,'&quot;')}" style="max-width:220px;max-height:220px;border-radius:8px;border:1px solid #eee;"></div>` : ''}
                     <div id="row_prod_desc" style="opacity:${state['prod_desc']?'0.45':'1'};">
-                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
                             ${cb({ key: 'prod_desc' })}
                             <strong id="lbl_prod_desc" style="font-size:0.9rem;${state['prod_desc']?'text-decoration:line-through;':''}">Rewritten description</strong>
                         </div>
-                        <div style="font-size:0.9rem;line-height:1.6;background:#fff;border:1px solid #eee;border-radius:6px;padding:14px;margin-bottom:8px;">${s.productDescription}</div>
+                        <div class="desc-preview" style="font-size:0.9rem;line-height:1.65;background:#fff;border:1px solid #eee;border-radius:6px;padding:16px 18px;margin-bottom:10px;">${s.productDescription}</div>
                         <textarea id="prodDescHtml" style="display:none;">${(s.productDescription||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
                         <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('prodDescHtml').value,this)">📋 Copy HTML</button>
                         <button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushProductBody(this)">📤 Push to product body</button>
