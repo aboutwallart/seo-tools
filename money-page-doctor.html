@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 51.2</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 51.3</p>
                 </div>
             </div>
         </header>
@@ -1423,6 +1423,7 @@
             const _isBlog = data.yourPage.shopifyType === 'article';
             const _isCollection = (data.yourPage.shopifyType || '').includes('collection');
             const _isPage = data.yourPage.shopifyType === 'page';
+            const _isProduct = data.yourPage.shopifyType === 'product';
             add('push_title', 'SEO Title updated',        'push');
             add('push_meta',  'Meta Description updated', 'push');
             add('push_desc',  _isBlog ? 'Excerpt updated' : 'Page Description updated', 'push');
@@ -1468,6 +1469,9 @@
                 if (s.bodyAddition && s.bodyAddition.content) add('pf_bodyadd', 'Body Addition pushed to extra_seo_text', 'page');
                 if (s.browseTheCollection && s.browseTargetGid) add('pf_browse', 'Browse the Collection (inner) pushed', 'page');
             }
+
+            // Product-only checklist item.
+            if (_isProduct && s.productDescription) add('prod_desc', 'Product description rewrite pushed', 'product');
 
             // Copy-paste items
             if (s.pageSchema) add('schema_page',  'Page Schema — pasted into Custom Liquid',  'copy');
@@ -1695,11 +1699,11 @@
                         const key = `ai_${i}`;
                         const isScript = /^\s*<script/i.test(item.content);
                         const isHTML = item.content.includes('<');
-                        // Push target + type. Pages push rich_text/single_line per the snippet's
-                        // format; blogs/collections push multi_line. (P2: pages now push.)
+                        // Push target + type, driven by the snippet's "format" (pages + products set it):
+                        // richtext_snippet → rich_text, singleline_html → single_line, else multi_line (blogs/collections).
                         const pushKey = item.metafieldKey || snippetKeyForElement(item.element);
-                        const pushType = _isPage
-                            ? (item.format === 'richtext_snippet' ? 'rich_text_field' : 'single_line_text_field')
+                        const pushType = item.format === 'richtext_snippet' ? 'rich_text_field'
+                            : item.format === 'singleline_html' ? 'single_line_text_field'
                             : 'multi_line_text_field';
                         return `
                         <div id="row_${key}" style="display:flex;align-items:flex-start;gap:10px;margin-bottom:15px;opacity:${state[key]?'0.45':'1'};">
@@ -1813,6 +1817,23 @@
                         <input type="text" id="pageBrowseField" value="${(s.browseTheCollection||'').replace(/"/g,'&quot;')}" style="flex:1;min-width:0;padding:8px 10px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.85rem;font-family:'Poppins',sans-serif;">
                         <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('pageBrowseField').value,this)">📋 Copy</button>
                         <button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushPageBrowse(this)">📤 Push</button>
+                    </div>
+                </div>` : '';
+
+            // ── Product description rewrite (products) — full body, copy + push to body_html ──
+            const productDescBlock = (_isProduct && s.productDescription) ? `
+                <div class="action-block" id="productDescBlock" style="border-color:#6a1b9a;">
+                    <h3>📝 Product Description — Full Rewrite</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:10px;">A complete, SEO-optimised rewrite of this product's description in the AboutWallArt voice. Review it, then copy or push it straight to the product body.</p>
+                    <div id="row_prod_desc" style="opacity:${state['prod_desc']?'0.45':'1'};">
+                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+                            ${cb({ key: 'prod_desc' })}
+                            <strong id="lbl_prod_desc" style="font-size:0.9rem;${state['prod_desc']?'text-decoration:line-through;':''}">Rewritten description</strong>
+                        </div>
+                        <div style="font-size:0.9rem;line-height:1.6;background:#fff;border:1px solid #eee;border-radius:6px;padding:14px;margin-bottom:8px;">${s.productDescription}</div>
+                        <textarea id="prodDescHtml" style="display:none;">${(s.productDescription||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+                        <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('prodDescHtml').value,this)">📋 Copy HTML</button>
+                        <button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushProductBody(this)">📤 Push to product body</button>
                     </div>
                 </div>` : '';
 
@@ -2192,7 +2213,7 @@
                     </div>
                 </div>`;
 
-            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + aiBlock + pageQuestionsBlock + pageFieldsBlock + pageBrowseBlock + paaBlock + loserLinksBlock + relatedBlogsBlock + internalAddBlock + manualBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + linkedRefsBlock + internalAddBlockTmpl + imageBlock + autolinkBlock + reindexBlock;
+            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + productDescBlock + aiBlock + pageQuestionsBlock + pageFieldsBlock + pageBrowseBlock + paaBlock + loserLinksBlock + relatedBlogsBlock + internalAddBlock + manualBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + linkedRefsBlock + internalAddBlockTmpl + imageBlock + autolinkBlock + reindexBlock;
         }
 
         function formatMarkdown(text) {
@@ -2440,6 +2461,28 @@
             if (!v) { alert('Nothing to push.'); return; }
             if (!gid) { alert('No inner collection found for this page.'); return; }
             return pushMetafields([{ namespace: 'custom', key: 'browse_the_collection', type: 'single_line_text_field', value: v, ownerGid: gid }], btn);
+        }
+
+        // Products — overwrite the live product body_html with the rewritten description.
+        async function pushProductBody(btn) {
+            const sd = currentResults?.shopify;
+            const html = document.getElementById('prodDescHtml')?.value || '';
+            if (!sd?.id) { alert('Shopify data not available for this product.'); return; }
+            if (!html.trim()) { alert('Nothing to push.'); return; }
+            const orig = btn.textContent;
+            btn.disabled = true; btn.textContent = '⏳ Pushing…';
+            try {
+                const res = await fetch('/api/shopify-files?action=push-body', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shopifyId: sd.id, shopifyType: sd.type, shopifyBlogId: sd.blogId, html })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Push failed');
+                btn.textContent = '✅ Pushed'; btn.style.background = '#4caf50';
+            } catch (err) {
+                btn.disabled = false; btn.textContent = orig;
+                alert(`Push failed: ${err.message}`);
+            }
         }
 
         // Push every snippet currently on the page in one go.
