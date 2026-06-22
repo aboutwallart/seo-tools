@@ -1,7 +1,11 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v48.1
+// analyze-money-page.js — v48.2
+// v48.2 (June 22, 2026): FIX — product analysis was failing JSON.parse (long description HTML had
+//                        raw line breaks / double-quoted attrs → fell back to raw text, no blocks).
+//                        Parser now repairs raw control chars before parse; product prompt forces
+//                        single-quoted HTML attributes + one-line strings + no code fences.
 // v48.1 (June 22, 2026): PRODUCTS PR1 — new buildProductAnalysisPrompt (shopifyType 'product'):
 //                        full description REWRITE in locked AboutWallArt voice/structure (variant-
 //                        aware, never invents facts) + 3 rich-text H2 snippets (comparison_snippet,
@@ -945,7 +949,17 @@ async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = 
       if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
         jsonStr = jsonStr.slice(firstBrace, lastBrace + 1);
       }
-      const parsed = JSON.parse(jsonStr);
+      let parsed;
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch (firstErr) {
+        // Common failure on long HTML values (e.g. the product description rewrite): raw line
+        // breaks / tabs sit INSIDE a string, which JSON.parse rejects. Structural whitespace is
+        // optional in JSON, so collapsing raw control chars to spaces is safe and recovers it.
+        const repaired = jsonStr.replace(/[\r\n\t]/g, ' ');
+        parsed = JSON.parse(repaired);
+        console.log('[Claude] ✓ Structured JSON parsed after control-char repair');
+      }
       console.log('[Claude] ✓ Structured JSON parsed successfully');
       return { structured: parsed };
     } catch (parseErr) {
@@ -1903,11 +1917,16 @@ Return this exact JSON structure with real content (no placeholders):
   "otherActions": []
 }
 
+═══ ⚠️ JSON SAFETY (critical — the response MUST parse as JSON) ═══
+- Output RAW JSON only — NO markdown code fences (no \`\`\`json).
+- In productDescription AND every aiItems "content", use SINGLE QUOTES for ALL HTML attributes (e.g. <a href='https://...' target='_blank' rel='noopener'>), NEVER double quotes.
+- Keep every string value on ONE line — do NOT put raw line breaks, tabs, or unescaped double-quote characters inside any string value.
+
 ═══ PRODUCT DESCRIPTION — STRUCTURE (build "productDescription" as ONE HTML string, in THIS order) ═══
 1. INTRO: 2 short paragraphs, NO heading (do NOT repeat the product title as a heading). The FIRST sentence MUST open with an inspiring verb (Imagine, Picture, Discover, Fall in love, Refresh, Bring — vary it) AND contain the exact keyword "${keyword}". Inspiring, benefit-led — how the art improves the room AND daily life; mention that choosing a framed option means it arrives ready to hang.
 2. <h3>[a heading containing the keyword, e.g. "Frame, Canvas & Paper Options for ${keyword}"]</h3> then paragraph(s) covering: frame colours (white, black, oak) — selecting a framed option frames ALL prints in the set, ready to hang; frames handmade in the UK with a PERSPEX front (describe perspex: all the clarity of glass but lightweight, won't strain walls or cause damage, virtually unbreakable, safer with children/pets) — DO NOT call it acrylic; wrapped canvas option (moisture-resistant → bathrooms, kitchens, covered outdoor spaces); the TWO papers and the REAL sizes from THIS product's variants above; mounts (white/black, £8 each) are an add-on the CUSTOMER SELECTS on the product page under "Add mounts to your new wall art" and ONLY on the A2 and 20 × 30 in framed sizes; personalisation is available on UNFRAMED prints only (any custom size + an optional quote) — never on framed sizes.
 3. <h3>What's Included</h3> then a short <ul> of what the customer receives (use ONLY real facts from the current description — e.g. how many prints), supplied unframed unless a framed option is selected above; made in the UK with fade-resistant pigment inks; paper is indoor-only (canvas for damp/sheltered spots).
-4. <h2>How to Style [keyword] ...</h2> then one short paragraph with ONE internal link to a relevant collection/page (full URL, target="_blank" rel="noopener").
+4. <h2>How to Style [keyword] ...</h2> then one short paragraph with ONE internal link to a relevant collection/page (full URL, target='_blank' rel='noopener').
 5. <h2>What to Consider When Choosing [keyword]</h2> then one short paragraph.
 
 ═══ VOICE (mandatory) ═══
