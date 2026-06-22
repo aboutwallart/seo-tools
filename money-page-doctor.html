@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 50.9</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 51.0</p>
                 </div>
             </div>
         </header>
@@ -1103,6 +1103,16 @@
                 if (blockEl) blockEl.style.opacity = allDone ? '0.5' : '1';
             }
 
+            // Page SEO Fields: grey the whole block once every field's box is ticked.
+            if (key.indexOf('pf_') === 0) {
+                const blockEl = document.getElementById('pageFieldsBlock');
+                if (blockEl) {
+                    const boxes = blockEl.querySelectorAll('input[type=checkbox]');
+                    const allDone = boxes.length > 0 && Array.from(boxes).every(b => b.checked);
+                    blockEl.style.opacity = allDone ? '0.5' : '1';
+                }
+            }
+
             // Update master counter
             const state = loadChecklistState(currentAnalysisUrl);
             const done = Object.entries(state).filter(([k, v]) => k !== '_total' && v).length;
@@ -1444,6 +1454,18 @@
             // Collection-only: Browse the Collection SEO heading
             if (_isCollection && s.browseTheCollection) add('browsecoll', 'Browse the Collection heading pushed', 'collection');
 
+            // Page-only checklist items (so the master counter includes them).
+            if (_isPage) {
+                if (s.relatedQuestionsHtml || s.peopleAlsoAskThisHtml || s.peopleAlsoAskText) add('pgq_questions', 'Question fields pushed', 'page');
+                if (s.faqIntro)       add('pf_faqintro',  'FAQ Intro pushed', 'page');
+                if (s.seoBodyBlock)   add('pf_seobody',   'SEO Body Block pushed', 'page');
+                if (s.faqSchemaJson)  add('pf_faqschema', 'FAQ Schema pushed', 'page');
+                if (s.pageSchemaJson) add('pf_pageschema','Page Schema pushed', 'page');
+                if (s.unsureWhereToStart) add('pf_unsure', 'Unsure Where To Start pushed', 'page');
+                if (s.bodyAddition && s.bodyAddition.content) add('pf_bodyadd', 'Body Addition pushed to extra_seo_text', 'page');
+                if (s.browseTheCollection && s.browseTargetGid) add('pf_browse', 'Browse the Collection (inner) pushed', 'page');
+            }
+
             // Copy-paste items
             if (s.pageSchema) add('schema_page',  'Page Schema — pasted into Custom Liquid',  'copy');
             if (s.faqSchema)  add('schema_faq',   'FAQ Schema — pasted into Custom Liquid',   'copy');
@@ -1712,15 +1734,27 @@
                             <div style="font-size:0.85rem;color:#555;margin-top:4px;line-height:1.5;">${(q.answer||'').replace(/</g,'&lt;')}</div>
                         </div>`).join('')}
                     <textarea id="pageQuestionsRaw" style="display:none;">${pageQuestions.map(q => `${q.question}\n${q.answer}`).join('\n\n').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
-                    <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('pageQuestionsRaw').value,this)">📋 Copy all Q&amp;A</button>
+                    <textarea id="pageRelatedQuestions" style="display:none;">${(s.relatedQuestionsHtml||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+                    <textarea id="pagePeopleAlsoAskThis" style="display:none;">${(s.peopleAlsoAskThisHtml||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+                    <textarea id="pagePeopleAlsoAskText" style="display:none;">${(s.peopleAlsoAskText||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+                    <div id="row_pgq_questions" style="display:flex;align-items:center;gap:10px;margin-top:4px;">
+                        ${cb({ key: 'pgq_questions' })}
+                        <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('pageQuestionsRaw').value,this)">📋 Copy all Q&amp;A</button>
+                        ${(s.relatedQuestionsHtml || s.peopleAlsoAskThisHtml || s.peopleAlsoAskText) ? `<button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushPageQuestions(this)">📤 Push all 3 question fields</button>` : ''}
+                    </div>
                 </div>` : '';
 
             // ── Page-only fields (P2): FAQ Intro, SEO Body Block, FAQ Schema, Page Schema,
             //    Unsure Where To Start, Body addition. Each pushes to its own page metafield.
             const esc = v => (v || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-            const pageFieldRow = (title, desc, srcHtml, srcId, isPreviewHtml, pushKey, pushType) => `
-                <div style="padding:12px;background:#f9f9f9;border-radius:6px;margin-bottom:12px;">
-                    <strong style="font-size:0.9rem;">${title}</strong>
+            // Each row carries a "pf_*" checklist key + checkbox; the whole block greys out
+            // once every pf_* box is ticked (handled in onTaskChange).
+            const pageFieldRow = (key, title, desc, srcHtml, srcId, isPreviewHtml, pushKey, pushType) => `
+                <div id="row_${key}" style="padding:12px;background:#f9f9f9;border-radius:6px;margin-bottom:12px;opacity:${state[key]?'0.45':'1'};">
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        ${cb({ key })}
+                        <strong id="lbl_${key}" style="font-size:0.9rem;${state[key]?'text-decoration:line-through;':''}">${title}</strong>
+                    </div>
                     ${desc ? `<p style="font-size:0.8rem;color:#777;margin:4px 0 8px;">${desc}</p>` : ''}
                     ${isPreviewHtml
                         ? `<div style="font-size:0.88rem;line-height:1.6;margin-bottom:8px;">${srcHtml}</div><textarea id="${srcId}" style="display:none;">${esc(srcHtml)}</textarea>`
@@ -1730,16 +1764,21 @@
                 </div>`;
             const ba = s.bodyAddition;
             const _hasPageFields = _isPage && (s.faqIntro || s.seoBodyBlock || s.faqSchemaJson || s.pageSchemaJson || s.unsureWhereToStart || (ba && ba.content));
+            const _pfKeys = [s.faqIntro && 'pf_faqintro', s.seoBodyBlock && 'pf_seobody', s.faqSchemaJson && 'pf_faqschema', s.pageSchemaJson && 'pf_pageschema', s.unsureWhereToStart && 'pf_unsure', (ba && ba.content) && 'pf_bodyadd'].filter(Boolean);
+            const _pfAllDone = _pfKeys.length > 0 && _pfKeys.every(k => state[k]);
             const pageFieldsBlock = _hasPageFields ? `
-                <div class="action-block" style="border-color:#00695c;">
+                <div class="action-block" id="pageFieldsBlock" style="border-color:#00695c;opacity:${_pfAllDone ? '0.5' : '1'};">
                     <h3>📄 Page SEO Fields</h3>
-                    ${s.faqIntro ? pageFieldRow('FAQ Intro', 'Intro paragraph above the FAQ section.', s.faqIntro, 'pageFaqIntro', true, 'custom_seo_faq_intro', 'rich_text_field') : ''}
-                    ${s.seoBodyBlock ? pageFieldRow('SEO Body Block', 'A keyword-rich paragraph with internal links.', s.seoBodyBlock, 'pageSeoBodyBlock', true, 'custom_seo_body_block', 'single_line_text_field') : ''}
-                    ${s.faqSchemaJson ? pageFieldRow('FAQ Schema (JSON-LD)', 'Uses the SAME questions as the Q&amp;A set above.', s.faqSchemaJson, 'pageFaqSchema', false, 'faq_schema', 'json') : ''}
-                    ${s.pageSchemaJson ? pageFieldRow('Page Schema (JSON-LD)', 'CollectionPage schema for this page.', s.pageSchemaJson, 'pageSchemaJson', false, 'page_schema', 'json') : ''}
+                    ${s.faqIntro ? pageFieldRow('pf_faqintro', 'FAQ Intro', 'Intro paragraph above the FAQ section.', s.faqIntro, 'pageFaqIntro', true, 'custom_seo_faq_intro', 'rich_text_field') : ''}
+                    ${s.seoBodyBlock ? pageFieldRow('pf_seobody', 'SEO Body Block', 'A keyword-rich paragraph with internal links.', s.seoBodyBlock, 'pageSeoBodyBlock', true, 'custom_seo_body_block', 'single_line_text_field') : ''}
+                    ${s.faqSchemaJson ? pageFieldRow('pf_faqschema', 'FAQ Schema (JSON-LD)', 'Uses the SAME questions as the Q&amp;A set above.', s.faqSchemaJson, 'pageFaqSchema', false, 'faq_schema', 'json') : ''}
+                    ${s.pageSchemaJson ? pageFieldRow('pf_pageschema', 'Page Schema (JSON-LD)', 'CollectionPage schema for this page.', s.pageSchemaJson, 'pageSchemaJson', false, 'page_schema', 'json') : ''}
                     ${s.unsureWhereToStart ? `
-                    <div style="padding:12px;background:#f9f9f9;border-radius:6px;margin-bottom:12px;">
-                        <strong style="font-size:0.9rem;">Unsure Where To Start — Helper Title</strong>
+                    <div id="row_pf_unsure" style="padding:12px;background:#f9f9f9;border-radius:6px;margin-bottom:12px;opacity:${state['pf_unsure']?'0.45':'1'};">
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            ${cb({ key: 'pf_unsure' })}
+                            <strong id="lbl_pf_unsure" style="font-size:0.9rem;${state['pf_unsure']?'text-decoration:line-through;':''}">Unsure Where To Start — Helper Title</strong>
+                        </div>
                         <p style="font-size:0.8rem;color:#777;margin:4px 0 8px;">Edit if you like, then copy or push.</p>
                         <div style="display:flex;gap:8px;align-items:center;">
                             <input type="text" id="pageUnsure" value="${(s.unsureWhereToStart||'').replace(/"/g,'&quot;')}" style="flex:1;min-width:0;padding:8px 10px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.85rem;font-family:'Poppins',sans-serif;">
@@ -1748,13 +1787,30 @@
                         </div>
                     </div>` : ''}
                     ${(ba && ba.content) ? `
-                    <div style="padding:12px;background:#f9f9f9;border-radius:6px;margin-bottom:4px;">
-                        <strong style="font-size:0.9rem;">Body Addition — paste into the page body</strong>
-                        <p style="font-size:0.8rem;color:#777;margin:4px 0 8px;">A new content section for the page's main body (not a metafield). Copy and paste it into the page body editor.</p>
+                    <div id="row_pf_bodyadd" style="padding:12px;background:#f9f9f9;border-radius:6px;margin-bottom:4px;opacity:${state['pf_bodyadd']?'0.45':'1'};">
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            ${cb({ key: 'pf_bodyadd' })}
+                            <strong id="lbl_pf_bodyadd" style="font-size:0.9rem;${state['pf_bodyadd']?'text-decoration:line-through;':''}">Body Addition → extra_seo_text</strong>
+                        </div>
+                        <p style="font-size:0.8rem;color:#777;margin:4px 0 8px;">A new content section (H2 + paragraphs + internal links). Push it to the <strong>custom.extra_seo_text</strong> metafield, or copy the HTML.</p>
                         <div style="font-size:0.88rem;line-height:1.6;margin-bottom:8px;">${ba.content}</div>
                         <textarea id="pageBodyAddition" style="display:none;">${esc(ba.content)}</textarea>
                         <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('pageBodyAddition').value,this)">📋 Copy HTML</button>
+                        <button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushSnippet('extra_seo_text','pageBodyAddition',this,'multi_line_text_field')">📤 Push to extra_seo_text</button>
                     </div>` : ''}
+                </div>` : '';
+
+            // ── Browse the Collection (pages) — push the heading to the collection INSIDE the page ──
+            const pageBrowseBlock = (_isPage && s.browseTheCollection && s.browseTargetGid) ? `
+                <div class="action-block" id="pageBrowseBlock" style="border-color:#00838f;">
+                    <h3>🏷️ Browse the Collection — Inner Collection Heading</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:10px;">A keyword heading for the collection that lives inside this page. Edit if you like, then push to that collection's <strong>browse_the_collection</strong> field.</p>
+                    <div id="row_pf_browse" style="display:flex;align-items:center;gap:10px;opacity:${state['pf_browse']?'0.45':'1'};">
+                        ${cb({ key: 'pf_browse' })}
+                        <input type="text" id="pageBrowseField" value="${(s.browseTheCollection||'').replace(/"/g,'&quot;')}" style="flex:1;min-width:0;padding:8px 10px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.85rem;font-family:'Poppins',sans-serif;">
+                        <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('pageBrowseField').value,this)">📋 Copy</button>
+                        <button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushPageBrowse(this)">📤 Push</button>
+                    </div>
                 </div>` : '';
 
             // ── 4. Manual actions block ───────────────────────────────────────
@@ -2133,7 +2189,7 @@
                     </div>
                 </div>`;
 
-            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + aiBlock + pageQuestionsBlock + pageFieldsBlock + paaBlock + loserLinksBlock + relatedBlogsBlock + internalAddBlock + manualBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + linkedRefsBlock + internalAddBlockTmpl + imageBlock + autolinkBlock + reindexBlock;
+            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + aiBlock + pageQuestionsBlock + pageFieldsBlock + pageBrowseBlock + paaBlock + loserLinksBlock + relatedBlogsBlock + internalAddBlock + manualBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + linkedRefsBlock + internalAddBlockTmpl + imageBlock + autolinkBlock + reindexBlock;
         }
 
         function formatMarkdown(text) {
@@ -2358,6 +2414,29 @@
             const el = document.getElementById(elId);
             const val = el ? (el.value !== undefined ? el.value : el.textContent) : '';
             return pushMetafields([{ namespace: 'custom', key, type: type || 'multi_line_text_field', value: val }], btn);
+        }
+
+        // Pages — push all 3 question fields (one Q&A set, three formats) in one write.
+        function pushPageQuestions(btn) {
+            const items = [];
+            const rq  = document.getElementById('pageRelatedQuestions');
+            const pat = document.getElementById('pagePeopleAlsoAskThis');
+            const pa  = document.getElementById('pagePeopleAlsoAskText');
+            if (rq  && rq.value.trim())  items.push({ namespace: 'custom', key: 'related_questions',    type: 'rich_text_field',       value: rq.value });
+            if (pat && pat.value.trim()) items.push({ namespace: 'custom', key: 'people_also_ask_this', type: 'rich_text_field',       value: pat.value });
+            if (pa  && pa.value.trim())  items.push({ namespace: 'custom', key: 'people_also_ask',      type: 'multi_line_text_field', value: pa.value });
+            if (!items.length) { alert('No question content to push.'); return; }
+            return pushMetafields(items, btn);
+        }
+
+        // Pages — push the Browse heading to the collection that lives INSIDE the page
+        // (its GID comes from the analysis as browseTargetGid → ownerGid override).
+        function pushPageBrowse(btn) {
+            const v = (document.getElementById('pageBrowseField')?.value || '').trim();
+            const gid = currentResults?.analysis?.structured?.browseTargetGid;
+            if (!v) { alert('Nothing to push.'); return; }
+            if (!gid) { alert('No inner collection found for this page.'); return; }
+            return pushMetafields([{ namespace: 'custom', key: 'browse_the_collection', type: 'single_line_text_field', value: v, ownerGid: gid }], btn);
         }
 
         // Push every snippet currently on the page in one go.
