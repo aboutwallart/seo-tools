@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 51.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 51.1</p>
                 </div>
             </div>
         </header>
@@ -1078,6 +1078,19 @@
             return mpdChecklist[url] || {};
         }
 
+        // Grey out an action-block once every checkbox inside it is ticked (else restore).
+        function greyBlockIfComplete(blockEl) {
+            if (!blockEl) return;
+            const boxes = blockEl.querySelectorAll('input[type=checkbox]');
+            const allDone = boxes.length > 0 && Array.from(boxes).every(b => b.checked);
+            blockEl.style.opacity = allDone ? '0.5' : '1';
+        }
+
+        // Run the grey-out pass over every block (used on first render / reload).
+        function refreshAllBlockGreyout() {
+            document.querySelectorAll('#resultsContent .action-block').forEach(greyBlockIfComplete);
+        }
+
         function onTaskChange(checkbox) {
             const key = checkbox.dataset.key;
             saveChecklistItem(currentAnalysisUrl, key, checkbox.checked);
@@ -1096,22 +1109,10 @@
                     pb.style.opacity = checkbox.checked ? '0.5' : '1';
                     pb.style.cursor = checkbox.checked ? 'not-allowed' : 'pointer';
                 }
-                // Grey the whole block once all 3 groups are ticked.
-                const st = loadChecklistState(currentAnalysisUrl);
-                const allDone = st['linkedref_blogs'] && st['linkedref_collections'] && st['linkedref_trends'];
-                const blockEl = document.getElementById('linkedRefsBlock');
-                if (blockEl) blockEl.style.opacity = allDone ? '0.5' : '1';
             }
 
-            // Page SEO Fields: grey the whole block once every field's box is ticked.
-            if (key.indexOf('pf_') === 0) {
-                const blockEl = document.getElementById('pageFieldsBlock');
-                if (blockEl) {
-                    const boxes = blockEl.querySelectorAll('input[type=checkbox]');
-                    const allDone = boxes.length > 0 && Array.from(boxes).every(b => b.checked);
-                    blockEl.style.opacity = allDone ? '0.5' : '1';
-                }
-            }
+            // Generic: grey out whichever block this checkbox lives in once all its boxes are ticked.
+            greyBlockIfComplete(checkbox.closest('.action-block'));
 
             // Update master counter
             const state = loadChecklistState(currentAnalysisUrl);
@@ -1405,6 +1406,8 @@
                 // Title conflict check
                 const pType = getPageTypeForTitleCheck(data.yourPage.url);
                 if (pType) checkTitleConflicts(data.yourPage.url, pType);
+                // Grey any block whose checkboxes are all already ticked (e.g. on reload).
+                refreshAllBlockGreyout();
             }, 50);
         }
 
