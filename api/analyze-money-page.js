@@ -1,7 +1,13 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v47.6
+// analyze-money-page.js — v47.7
+// v47.7 (June 22, 2026): PAGES P2 (page-only fields) — page prompt now also returns faqIntro
+//                        (rich_text), seoBodyBlock (single_line one-liner), unsureWhereToStart
+//                        (single_line) and bodyAddition (h2 body section). Server-side builds
+//                        faqSchemaJson (FAQPage, SAME questions as the Q&A set) + pageSchemaJson
+//                        (CollectionPage) so the JSON is always valid. Push handled by existing
+//                        engine (rich_text / single_line / json all supported for pages).
 // v47.6 (June 22, 2026): PAGES P1 (backbone) — new buildPageAnalysisPrompt routed on
 //                        shopifyType === 'page'; returns SEO copy fields, Comparison Snippet
 //                        (rich_text H3) + Comparison Table (single_line one-liner), a single
@@ -235,6 +241,29 @@ module.exports = async function handler(req, res) {
     console.log('[Money Page] Step 5: Getting AI recommendations... (~20 sec)');
     const analysis = await getClaudeAnalysis(yourPageData, competitorData, keyword, searchResults.userPosition, contentGaps, loserPages, relatedBlogs);
     console.log(`[Money Page] ✓ AI analysis complete! Total time: ${Math.round((Date.now() - startTime) / 1000)}s`);
+
+    // Pages (P2): build guaranteed-valid JSON for the FAQ schema (SAME questions as the
+    // Q&A set) and the Page schema — server-side so the JSON is always valid and matches.
+    if (yourPageData.shopifyType === 'page' && analysis?.structured) {
+      const st = analysis.structured;
+      const qs = Array.isArray(st.questionSet) ? st.questionSet.filter(q => q && q.question && q.answer) : [];
+      if (qs.length) {
+        st.faqSchemaJson = JSON.stringify({
+          '@context': 'https://schema.org',
+          '@type': 'FAQPage',
+          mainEntity: qs.map(q => ({ '@type': 'Question', name: q.question, acceptedAnswer: { '@type': 'Answer', text: q.answer } }))
+        });
+      }
+      const cleanUrl = (yourPageData.url || pageUrl || '').split('?')[0];
+      st.pageSchemaJson = JSON.stringify({
+        '@context': 'https://schema.org',
+        '@type': 'CollectionPage',
+        name: st.suggestedTitle || yourPageData.title || '',
+        description: st.suggestedMeta || yourPageData.metaDescription || '',
+        url: cleanUrl,
+        provider: { '@type': 'Organization', name: 'AboutWallArt', url: 'https://aboutwallart.com' }
+      });
+    }
 
     // Resolve a DIRECT Shopify admin URL for each loser page so "Open in Shopify Admin"
     // opens the actual post/product instead of a search.
@@ -1664,6 +1693,13 @@ Return this exact JSON structure with real content (no placeholders):
       "competitorDriven": false
     }
   ],
+  "faqIntro": "<h3>Frequently Asked Questions About [Topic]</h3><p>[a 1-2 sentence intro to the FAQ section — natural, helpful, NO links, NO list]</p>",
+  "seoBodyBlock": "<h3>[a descriptive SEO heading]</h3><p>[one rich paragraph, 3-5 sentences, that naturally works in 1-2 internal links to relevant AboutWallArt collections or pages as <a href=\\"https://aboutwallart.com/collections/[handle]\\" target=\\"_blank\\" rel=\\"noopener\\">anchor text</a>]</p>",
+  "unsureWhereToStart": "A plain-text helper title built around the main keyword, e.g. 'How to Start Decorating Your Home in Transitional Style'. No HTML, max ~70 chars.",
+  "bodyAddition": {
+    "heading": "New H2 section heading for the page body (plain text, no tags)",
+    "content": "<h2>[heading]</h2><p>[1-2 paragraphs of genuinely new on-page content; weave in 1-2 internal links as full-URL <a href=\\"https://aboutwallart.com/...\\" target=\\"_blank\\" rel=\\"noopener\\">anchor</a>]</p>"
+  },
   "urlAnalysis": {
     "currentSlug": "exact-current-url-slug",
     "slugMatchesKeyword": "exact|similar|different",
@@ -1689,6 +1725,10 @@ RULES:
   - Comparison Snippet ("comparison_snippet", richtext_snippet) EXACT format: <h3>[the question]</h3><p>[answer paragraph, 3-5 sentences, first sentence is a standalone answer]</p> — H3 only, no other tags. ALWAYS generate this (a "What is ${keyword}?" style definition).
   - Comparison Table ("comparison_table", singleline_html) EXACT format: a single <h3>heading</h3> then a <table> with <thead> and <tbody>, MAX 4 columns and 6 rows, NO inline styles, NO <br>. Generate ONLY if there is a genuine comparison to make (styles, rooms, materials) — otherwise OMIT this item entirely.
   - Keep each item's "metafieldKey" and "format" EXACTLY as shown.
+- faqIntro: a short FAQ section intro — an <h3> heading reading "Frequently Asked Questions About [Topic]" (replace [Topic] with the page's real topic, NOT the raw keyword if that reads awkwardly) followed by ONE <p> of 1-2 sentences. NO links, NO list, NO other tags. This is rich text.
+- seoBodyBlock: ONE <h3> heading then ONE <p> paragraph (3-5 sentences) that naturally includes 1-2 internal links as full-URL anchors with target="_blank" rel="noopener". This becomes a single-line HTML field, so output it as ONE unbroken line — no line breaks, no <br>, no inline styles, no wrapper divs.
+- unsureWhereToStart: a single plain-text helper title built around the main keyword (no HTML, max ~70 chars), e.g. "How to Start Decorating Your Home in Transitional Style".
+- bodyAddition: ONE genuinely new content section for the PAGE BODY — an <h2> heading + 1-2 <p> paragraphs, weaving in 1-2 internal links as full-URL anchors with target="_blank" rel="noopener". Only add a section for a real content gap (check EXISTING PAGE CONTENT first — never duplicate a topic already covered). No inline styles, no wrapper divs. If the page is already complete and a new body section would be padding, return bodyAddition as null.
 - ⚠️ KEYWORD USAGE — NO STUFFING (critical): use the EXACT keyword "${keyword}" only where it matters most — the title, the first line, and at most one or two headings. EVERYWHERE else write naturally for the reader using secondary terms, natural variations and related phrases. NEVER repeat the exact keyword over and over — Google treats stuffing as spam.
 - ⚠️ NO CANNIBALISATION (critical): this page must NOT compete with another AboutWallArt page for the same keyword. Do NOT target a keyword clearly owned by a different page, collection, product or blog; any anchor text must describe the destination, never duplicate a keyword another page already ranks for. When in doubt, use a more specific long-tail variation unique to THIS page.
 - urlAnalysis: title changes are always safe (no redirect). Only recommend a slug change if the page has very few or zero clicks.
