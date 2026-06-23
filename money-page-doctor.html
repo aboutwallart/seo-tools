@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 51.6</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 51.8</p>
                 </div>
             </div>
         </header>
@@ -340,6 +340,7 @@
         </div>
 
         <div class="tabs">
+            <button class="tab" onclick="switchTab('startHere')">🎯 Start Here (<span id="startHereCount">0</span>)</button>
             <button class="tab active" onclick="switchTab('pages')">📋 To Optimise (<span id="pageCount">0</span>)</button>
             <button class="tab" onclick="switchTab('optimized')">✅ Optimized (<span id="optimizedCount">0</span>)</button>
         </div>
@@ -384,6 +385,14 @@
                 <button class="btn-secondary" onclick="removeDuplicates()">🧹 Remove Duplicates</button>
             </div>
             <div id="urlList"></div>
+        </div>
+
+        <!-- START HERE TAB -->
+        <div class="tab-content" id="startHereTab">
+            <h3>🎯 Start Here — your optimisation order</h3>
+            <p style="color:#666;margin-bottom:8px;">Work down this list, top to bottom — it's ordered for safe, high-impact gains. Start slow (a few a day), then speed up once you see things holding/growing on the Optimized tab.</p>
+            <p style="color:#888;font-size:0.85rem;margin-bottom:15px;">Order: 🔥 Quick Wins → 🖱 Fix CTR → 🚨 Danger (careful) → 📋 The rest → 🏆 Winners last (light touch). Done pages drop off automatically.</p>
+            <div id="startHereList"></div>
         </div>
 
         <!-- OPTIMIZED TAB -->
@@ -561,6 +570,87 @@
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.getElementById(tab + 'Tab').classList.add('active');
             document.querySelector(`[onclick="switchTab('${tab}')"]`).classList.add('active');
+            if (tab === 'startHere') renderStartHere();
+        }
+
+        // ── 🎯 Start Here — single ordered work-queue across all categories ──────────
+        // Order: Quick Wins → Fix CTR → Danger → the rest → Winners last. Done pages drop off.
+        function startHereCategory(url) {
+            const g = gscEnrichment[normalizeUrlPath(url)] || {};
+            const pos = g.position || null;
+            const imp = g.impressions || 0;
+            const clk = g.clicks || 0;
+            const ctr = imp > 0 ? clk / imp : 0;
+            if (pos && pos <= 3) return 'winner';                          // already top — light touch, last
+            if (g.urgency === 'quickwin') return 'quickwin';               // striking distance
+            if (imp >= 100 && pos && pos <= 15 && ctr < 0.01) return 'fixctr'; // seen a lot, rarely clicked
+            if (g.urgency === 'danger') return 'danger';                   // slipping
+            return 'rest';
+        }
+
+        function renderStartHere() {
+            const list = document.getElementById('startHereList');
+            if (!list) return;
+            const RANK = { quickwin: 1, fixctr: 2, danger: 3, rest: 4, winner: 5 };
+            const META = {
+                quickwin: { icon:'🔥', label:'Quick Win',  color:'#f97316', note:'' },
+                fixctr:   { icon:'🖱', label:'Fix CTR',    color:'#0277bd', note:'' },
+                danger:   { icon:'🚨', label:'Danger',     color:'#dc2626', note:'Already ranking — review carefully.' },
+                rest:     { icon:'📋', label:'To Optimise', color:'#757575', note:'' },
+                winner:   { icon:'🏆', label:'Winner',     color:'#2e7d32', note:'Top 3 already — light touch, don\'t rush.' }
+            };
+            // Exclude pages already optimised or with a completed checklist.
+            const optimisedSet = new Set((optimizedPages || []).map(p => (p.url || '').toLowerCase()));
+            const candidates = deduplicateUrls(urls).filter(item => {
+                if (optimisedSet.has((item.url || '').toLowerCase())) return false;
+                const cl = mpdChecklist[item.url] || {};
+                const total = cl._total || 0;
+                if (total > 0) { const done = Object.entries(cl).filter(([k,v]) => k !== '_total' && v).length; if (done >= total) return false; }
+                return true;
+            });
+            if (candidates.length === 0) {
+                list.innerHTML = '<p style="text-align:center;color:#666;padding:40px;">Nothing queued. Load your pages on the To Optimise tab first.</p>';
+                const c = document.getElementById('startHereCount'); if (c) c.textContent = '0';
+                return;
+            }
+            const ranked = candidates.map(item => ({ item, cat: startHereCategory(item.url) }))
+                .sort((a, b) => {
+                    if (RANK[a.cat] !== RANK[b.cat]) return RANK[a.cat] - RANK[b.cat];
+                    const ag = gscEnrichment[normalizeUrlPath(a.item.url)] || {};
+                    const bg = gscEnrichment[normalizeUrlPath(b.item.url)] || {};
+                    return (bg.impressions || 0) - (ag.impressions || 0);
+                });
+            const c = document.getElementById('startHereCount'); if (c) c.textContent = ranked.length;
+            list.innerHTML = ranked.map((row, i) => {
+                const item = row.item;
+                const m = META[row.cat];
+                const g = gscEnrichment[normalizeUrlPath(item.url)] || {};
+                const pageType = getPageType(item.url);
+                const displayKeyword = item.keyword || g.keyword;
+                const metrics = g.position ? `<div style="font-size:0.8rem;color:#666;margin-top:4px;display:flex;gap:14px;flex-wrap:wrap;">
+                        <span>📍 Pos <strong>${g.position.toFixed(1)}</strong></span>
+                        <span>👁 ${(g.impressions||0).toLocaleString()} imp/mo</span>
+                        <span>🖱 ${(g.clicks||0).toLocaleString()} clicks/mo</span>
+                    </div>` : '';
+                return `
+                <div class="url-item" style="border-left:4px solid ${m.color};background:#fff;">
+                    <div style="flex:1;">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap;">
+                            <span style="background:#1a1a1a;color:#fff;width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:700;flex-shrink:0;">${i + 1}</span>
+                            <span style="background:${m.color};color:#fff;padding:2px 9px;border-radius:4px;font-size:0.75rem;font-weight:600;">${m.icon} ${m.label}</span>
+                            <span style="font-size:0.72rem;color:#999;text-transform:uppercase;">${pageType}</span>
+                        </div>
+                        <div style="font-weight:500;margin-bottom:3px;word-break:break-all;">${item.url}</div>
+                        ${displayKeyword ? `<div style="font-size:0.85rem;color:#1976d2;margin-bottom:3px;">🎯 Keyword: "${displayKeyword}"</div>` : ''}
+                        ${metrics}
+                        ${m.note ? `<div style="font-size:0.78rem;color:${m.color};margin-top:4px;font-weight:600;">⚠️ ${m.note}</div>` : ''}
+                    </div>
+                    <div style="display:flex;gap:10px;">
+                        ${item.analyzed ? `<button class="btn-secondary" onclick="viewResults(${item.id})">📊 View</button>` : ''}
+                        <button onclick="openAnalyzeModal(${item.id})">${item.analyzed ? '🔄 Re-analyze' : '🔍 Analyze'}</button>
+                    </div>
+                </div>`;
+            }).join('');
         }
 
 
@@ -687,6 +777,9 @@
                     </div>
                 </div>`;
             }).join('');
+
+            // Keep the Start Here queue + count in sync on every load/refresh.
+            if (typeof renderStartHere === 'function') renderStartHere();
         }
 
         function updatePageTypeFilterCounts(dedupedList) {
@@ -795,6 +888,27 @@
                 const daysLeft = 90 - daysAgo;
                 const current = gscEnrichment[normalizeUrlPath(item.url)] || null;
 
+                // Live health light: 🔵 settling / 🟡 holding / 🟢 improving / 🔴 slipping / ⚪ no data.
+                // Red is CONSERVATIVE on purpose — only a real drop trips it, so no false alarms.
+                let health = { color:'#1565c0', bg:'#e3f2fd', icon:'🔵', label:'Settling (too early to judge)' };
+                if (daysAgo >= 14) {
+                    if (before && current) {
+                        const posDelta = before.position - current.position;          // + = moved up the rankings
+                        const baseClicks = before.clicks || 0;
+                        const clkPct = baseClicks > 0 ? ((current.clicks - baseClicks) / baseClicks) * 100
+                                                       : (current.clicks > 0 ? 100 : 0);
+                        if (posDelta <= -3 || clkPct <= -40) {
+                            health = { color:'#c62828', bg:'#fdecec', icon:'🔴', label:'Slipping — worth a look' };
+                        } else if (posDelta >= 1 || clkPct >= 20) {
+                            health = { color:'#2e7d32', bg:'#e8f5e9', icon:'🟢', label:'Improving' };
+                        } else {
+                            health = { color:'#f9a825', bg:'#fffdf2', icon:'🟡', label:'Holding steady' };
+                        }
+                    } else {
+                        health = { color:'#9e9e9e', bg:'#f7f7f7', icon:'⚪', label:'No data yet' };
+                    }
+                }
+
                 let comparisonHTML = '';
                 if (before) {
                     if (daysAgo >= 90 && current) {
@@ -833,14 +947,16 @@
                 }
 
                 return `
-                <div class="url-item" style="background:#e8f5e9;border-left:4px solid #4caf50;">
+                <div class="url-item" style="background:${health.bg};border-left:4px solid ${health.color};">
                     <div style="flex:1;">
+                        <span style="display:inline-block;background:#fff;color:${health.color};border:1px solid ${health.color};border-radius:20px;padding:2px 10px;font-size:0.78rem;font-weight:600;margin-bottom:6px;">${health.icon} ${health.label}</span>
                         <div style="font-weight:500;margin-bottom:5px;word-break:break-all;">✅ ${item.url}</div>
                         <div style="font-size:0.85rem;color:#1976d2;margin-bottom:3px;">🎯 Keyword: "${item.keyword}"</div>
                         <div style="font-size:0.85rem;color:#2e7d32;">Optimised: ${new Date(optimizedAt||item.optimizedAt).toLocaleDateString()}</div>
                         ${comparisonHTML}
                     </div>
-                    <div style="display:flex;gap:10px;">
+                    <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;">
+                        ${health.icon === '🔴' ? `<button class="btn-secondary" style="background:#c62828;color:#fff;border-color:#c62828;" onclick="window.open('/easy-seo-report.html?view=kwtracker&q=${encodeURIComponent(item.keyword||'')}','_blank')">📊 Keyword Tracker</button>` : ''}
                         ${item.results ? `<button class="btn-secondary" onclick="viewOptimizedResults('${item.url}')">📊 View</button>` : ''}
                         <button class="btn-secondary" onclick="unmarkAsOptimized('${item.url}', this)">↩️ Unmark</button>
                     </div>

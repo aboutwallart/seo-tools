@@ -148,7 +148,7 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <div class="tool-name">Easy SEO Report Tool</div>
-      <div class="tool-version">v59.58</div>
+      <div class="tool-version">v59.59</div>
     </div>
     <div class="nav-item active" onclick="showSection('overview', this)">High Level SEO Metrics</div>
     <div class="nav-item" onclick="showSection('historical', this)">Historical View (1 Year)</div>
@@ -6726,5 +6726,26 @@ Will save as LOCKED / DONE / TO_OPTIMIZE / User Resolved`))return;
     }
   </script>
 <datalist id="nokwKeywordList"></datalist>
+<script>
+  // Deep-link from Money Page Doctor: /easy-seo-report.html?view=kwtracker&q=<keyword>
+  // opens the Keyword Tracker section and (best-effort) pre-fills the keyword search.
+  window.addEventListener('load', function () {
+    try {
+      var p = new URLSearchParams(location.search);
+      if (p.get('view') !== 'kwtracker') return;
+      var nav = document.querySelector('[onclick*="showSection(\'kwtracker\'"]');
+      if (typeof showSection === 'function') showSection('kwtracker', nav);
+      var q = p.get('q');
+      if (q) {
+        var n = 0;
+        var t = setInterval(function () {
+          document.querySelectorAll('#kwrSearch').forEach(function (b) { b.value = q; });
+          if (typeof kwrFilterTable === 'function') { try { kwrFilterTable(true); } catch (e) {} }
+          if (++n >= 12) clearInterval(t);
+        }, 400);
+      }
+    } catch (e) {}
+  });
+</script>
 </body>
 </html>  
