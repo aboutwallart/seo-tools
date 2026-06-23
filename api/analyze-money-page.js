@@ -1,7 +1,10 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v48.9
+// analyze-money-page.js — v49.0
+// v49.0 (June 22, 2026): NE-BLOG-POSTS fixes — never put "People Also Ask" H2 in h2Sections / never
+//                        rename it (it's the people_also_ask_new metafield); don't flag more_about_/
+//                        people_also_ask_new/home_decor_trends_title/complete_the_look in over-use.
 // v48.9 (June 22, 2026): NE-BLOG-POSTS template branch — PAA metafield now starts with the
 //                        "Frequently Asked Questions About [Topic]" title line; templateChecks
 //                        gains more_about_text (→ more_about_new_only_text + more_about_),
@@ -1308,7 +1311,8 @@ RULES:
   - complete_the_look_title: only the NEW heading text for the "Complete the look" section (its title is a metafield). The rest stays; do not put it in h2Sections.
   - shop_here: if the body has plain "Click here"/"Shop Now"/"Buy now" product links, replace them with this EXACT button (fill [PRODUCT URL] and [PRODUCT TITLE]); also wrap the product image in the product URL. content MUST be exactly: <p style="text-align: center;"><a href="[PRODUCT URL]" title="[PRODUCT TITLE]" rel="noopener" target="_blank" style="display: inline-block; background-color: #000000; color: #ffffff; padding: 12px 28px; text-decoration: none; font-weight: bold; letter-spacing: 1px;">SHOP HERE</a></p>
   - youtube: if a relevant video should be embedded, content MUST be exactly (fill [YOUTUBE URL], [VIDEO TITLE], [EMBED URL]): <p>WATCH: <a href="[YOUTUBE URL]" title="[VIDEO TITLE]" rel="noopener" target="_blank">[VIDEO TITLE]</a></p><iframe width="100%" height="415" src="[EMBED URL]" title="[VIDEO TITLE]" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>. If no suitable video, content is "".
-  - "Feeling inspired" is a shared general section linking to the main money pages — NEVER flag it (not in h2Sections, not in keywordOveruse, no changes).` : ''}
+  - "Feeling inspired" is a shared general section linking to the main money pages — NEVER flag it (not in h2Sections, not in keywordOveruse, no changes).
+  - The "People Also Ask" / FAQ section is built from the people_also_ask_new metafield (handled above) — NEVER put it in h2Sections and NEVER suggest renaming a "People Also Ask…" body H2. Do not flag more_about_, people_also_ask_new, home_decor_trends_title or complete_the_look in keywordOveruse either — they are managed by templateChecks.` : ''}
 - Return ONLY the JSON object — no other text`;
 }
 
