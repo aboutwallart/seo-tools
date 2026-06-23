@@ -1,7 +1,13 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v48.8
+// analyze-money-page.js — v48.9
+// v48.9 (June 22, 2026): NE-BLOG-POSTS template branch — PAA metafield now starts with the
+//                        "Frequently Asked Questions About [Topic]" title line; templateChecks
+//                        gains more_about_text (→ more_about_new_only_text + more_about_),
+//                        more_about_url (→ more_about_new link, reuse/fetch authority),
+//                        home_decor_trends_title, complete_the_look_title; authority folded into
+//                        More About (no inline body link); "Feeling inspired" never flagged.
 // v48.8 (June 22, 2026): PRODUCTS voice — intro was too poetic/formal (user: "no friend talks like
 //                        this"); the styling sections were spot-on. Prompt now forces the INTRO into
 //                        the same grounded, practical, chatty voice as "How to Style", bans poetic/
@@ -1166,7 +1172,7 @@ Return this exact JSON structure with real content (no placeholders):
   ],
   "peopleAlsoAsk": {
     "html": "<h2>Frequently Asked Questions About ${keyword}</h2><p><strong>Question 1?</strong> Direct answer.</p><p><strong>Question 2?</strong> Direct answer.</p><p><strong>Question 3?</strong> Direct answer.</p>",
-    "metafield": "**Q: Question 1?**\\nA: Direct answer. 2-3 supporting sentences.\\n\\n**Q: Question 2?**\\nA: Direct answer. 2-3 supporting sentences.\\n\\n**Q: Question 3?**\\nA: Direct answer. 2-3 supporting sentences."
+    "metafield": "Frequently Asked Questions About [Topic]\\n\\n**Q: Question 1?**\\nA: Direct answer. 2-3 supporting sentences.\\n\\n**Q: Question 2?**\\nA: Direct answer. 2-3 supporting sentences.\\n\\n**Q: Question 3?**\\nA: Direct answer. 2-3 supporting sentences."
   },
   "urlAnalysis": {
     "currentSlug": "exact-current-url-slug",
@@ -1217,19 +1223,34 @@ Return this exact JSON structure with real content (no placeholders):
   ]` : ''}${isOldTemplate ? `,
   "templateChecks": [
     {
+      "type": "more_about_text",
+      "instruction": "Intro sentence for the 'More About' section (goes to metafields, NOT the body).",
+      "content": "ONE clean reader-focused sentence, MAXIMUM 30 words, describing what the reader will find at the linked authority source. No link, no HTML. Banned words: delve, explore, comprehensive, wealth of, dive into, invaluable, a range of, further insight."
+    },
+    {
+      "type": "more_about_url",
+      "instruction": "Authority source URL for the 'More About' section link.",
+      "content": "A single full URL to a reputable, NON-competing authority source about this topic. If the body/metafields already contain a good authority link, reuse that exact URL; otherwise provide a fresh reputable one. URL only — no anchor, no HTML."
+    },
+    {
+      "type": "home_decor_trends_title",
+      "instruction": "New SEO title for the 'Home decor trends' section (goes to its metafield; the rest of that block is general and stays).",
+      "content": "ONLY the heading text (plain text, no tags), keyword or close variation, natural case."
+    },
+    {
+      "type": "complete_the_look_title",
+      "instruction": "New SEO title for the 'Complete the look' section (goes to its metafield; the rest stays).",
+      "content": "ONLY the heading text (plain text, no tags), natural case."
+    },
+    {
       "type": "shop_here",
       "instruction": "Where/why to use the SHOP HERE button (e.g. replace a plain 'Click here'/'Shop Now' link).",
-      "content": "the EXACT SHOP HERE button HTML — see the OLD-TEMPLATE CHECKS rule"
+      "content": "the EXACT SHOP HERE button HTML — see the OLD-TEMPLATE CHECKS rule, or empty string if not needed"
     },
     {
       "type": "youtube",
       "instruction": "Whether a relevant video exists / should be embedded and where.",
       "content": "the EXACT full-width YouTube embed HTML — or empty string if no suitable video"
-    },
-    {
-      "type": "authority_source",
-      "instruction": "Whether a reputable non-Wikipedia authority source is cited; if not, add one.",
-      "content": "one natural inline external link <a href ... title target rel>anchor</a> to a reputable non-competing source — or empty string if already present"
     }
   ]` : ''}
 }
@@ -1265,7 +1286,7 @@ RULES:
 - BLOG BODY HTML: the "content" of every "add" section is destined for the blog body and MUST be complete, paste-ready HTML for the Shopify HTML editor. Rules: use <h2> for the section heading only (NEVER <strong> or <h3> as the title); the content must START with that <h2>; every paragraph in its own <p> tag; all links as <a href="..." title="..." target="_blank" rel="noopener">anchor text</a> (always include title, target and rel); NO plain text outside HTML tags; do NOT use <ul>, <li>, <br> or <div> unless the section genuinely needs a list; NO blank lines between tags; NO inline styles or classes. Each "add" paragraph should read naturally — use the keyword or a related/secondary term only where it genuinely fits, never forced or repeated — and may include 1-2 internal links to relevant AboutWallArt collections using the full anchor format above.
 - peopleAlsoAsk: write 3-5 real questions people search about "${keyword}" with direct, helpful answers. Return BOTH forms:
   - "html": clean HTML for the blog body — a single <h2>Frequently Asked Questions About [topic]</h2> followed by one <p> per question where the question is wrapped in <strong> and the answer follows in the same <p>. NEVER add schema markup (no itemscope, no itemtype). No <ul>/<li>/<br>/<div>, no blank lines, no inline styles.
-  - "metafield": plain text only (no HTML) for the people_also_ask_new metafield — each question as "**Q: ...?**" on its own line, the answer as "A: ..." on the next line (2-3 supporting sentences), with a blank line between pairs.
+  - "metafield": plain text only (no HTML) for the people_also_ask_new metafield. The FIRST line MUST be "Frequently Asked Questions About [Topic]" (replace [Topic] with the article's real topic — a custom Liquid turns this first line into the H2 title), then a blank line, then each question as "**Q: ...?**" on its own line, the answer as "A: ..." on the next line (2-3 supporting sentences), with a blank line between pairs.
   - The two forms must contain the same questions but NEVER be combined.
 - aiItems — WHICH to generate (only what genuinely fits this blog; do NOT force a poor fit):
   - "Related Questions" — ALWAYS generate. 4-6 real questions.
@@ -1281,10 +1302,13 @@ RULES:
 - loserPageLinks: ONLY include if loser pages are provided above. Unique natural sentence per loser page with a real HTML anchor to this page, plus a specific placement. If none provided, omit this field entirely.
 - relatedBlogLinks: for EACH blog in "RELATED OLDER BLOGS TO LINK FROM", produce one link FROM that blog INTO this page. The anchor text MUST be this page's exact main keyword "${keyword}" (NEVER a variation). If "keyword present: YES", use mode "replace" and wrap the keyword in that blog's given sentence as the link. If not present, use mode "new" with a short natural sentence/CTA that uses "${keyword}" as the anchor. The link URL is always ${yourPage.url}. One item per related blog. If no related blogs are listed above, omit this field entirely.
 - PLACEMENT MUST BE CONCRETE (relatedBlogLinks AND internalLinksToAdd): never say "after the first major section" or other vague guidance. Use the blog's OUTLINE to name the EXACT spot — the section heading plus the exact position, e.g. "In the section 'How To Find Your Perfect Home Decor Styles', between paragraph 1 and paragraph 2" or "Immediately after the paragraph that starts 'When choosing…'". The merchant must be able to find the spot without thinking.${isOldTemplate ? `
-- OLD-TEMPLATE CHECKS (this blog uses an older template, so the templateChecks field IS required):
+- OLD-TEMPLATE CHECKS (this blog uses the ne-blog-posts / guest-post template — these sections are built from METAFIELDS, not the body, so the templateChecks field IS required and the items below must NOT be duplicated in h2Sections):
+  - more_about_text + more_about_url: the "More About" section is rendered from metafields. Provide the intro sentence (more_about_text, ≤30 words) AND the authority URL (more_about_url). Do NOT also add an inline authority link in the body, and do NOT put "More about" in h2Sections — it is handled here.
+  - home_decor_trends_title: only the NEW heading text for the "Home decor trends" section (its title is a metafield). The rest of that block is general — do not touch it, and do not put it in h2Sections.
+  - complete_the_look_title: only the NEW heading text for the "Complete the look" section (its title is a metafield). The rest stays; do not put it in h2Sections.
   - shop_here: if the body has plain "Click here"/"Shop Now"/"Buy now" product links, replace them with this EXACT button (fill [PRODUCT URL] and [PRODUCT TITLE]); also wrap the product image in the product URL. content MUST be exactly: <p style="text-align: center;"><a href="[PRODUCT URL]" title="[PRODUCT TITLE]" rel="noopener" target="_blank" style="display: inline-block; background-color: #000000; color: #ffffff; padding: 12px 28px; text-decoration: none; font-weight: bold; letter-spacing: 1px;">SHOP HERE</a></p>
   - youtube: if a relevant video should be embedded, content MUST be exactly (fill [YOUTUBE URL], [VIDEO TITLE], [EMBED URL]): <p>WATCH: <a href="[YOUTUBE URL]" title="[VIDEO TITLE]" rel="noopener" target="_blank">[VIDEO TITLE]</a></p><iframe width="100%" height="415" src="[EMBED URL]" title="[VIDEO TITLE]" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>. If no suitable video, content is "".
-  - authority_source: if there is no reputable NON-Wikipedia authority source, add ONE natural inline external link to a reputable, non-competing source (full <a href title target="_blank" rel="noopener"> format). If one already exists, content is "".` : ''}
+  - "Feeling inspired" is a shared general section linking to the main money pages — NEVER flag it (not in h2Sections, not in keywordOveruse, no changes).` : ''}
 - Return ONLY the JSON object — no other text`;
 }
 
