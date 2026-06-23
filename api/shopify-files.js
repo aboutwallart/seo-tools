@@ -1,4 +1,8 @@
-// shopify-files.js — v1.9
+// shopify-files.js — v2.0
+// v2.0 (June 22, 2026): new update-image-alt action — sets ONE image's alt by URL: body images
+//                       via the resource body_html (re-fetched live so pushes don't clobber each
+//                       other), main/featured image via the resource image alt. Powers the per-image
+//                       "Push alt" button in Image SEO. Filenames stay manual (renaming changes URLs).
 // v1.9 (June 22, 2026): new push-body action — overwrites body_html (description) of a
 //                       product/page/article/collection. Powers the product description rewrite
 //                       "Push to product body" button.
@@ -799,6 +803,64 @@ module.exports = async function handler(req, res) {
       const r = await fetch(`${base}/${t.path}.json`, {
         method: 'PUT', headers: shopifyHeaders,
         body: JSON.stringify({ [t.wrap]: { id: shopifyId, body_html: html } })
+      });
+      if (r.ok) return res.status(200).json({ success: true });
+      const e = await r.json().catch(() => ({}));
+      return res.status(502).json({ success: false, error: JSON.stringify(e.errors || r.statusText) });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  // -------------------------------------------------------
+  // UPDATE IMAGE ALT — set the alt text of ONE image, by URL. For a body image it edits the
+  // alt attribute inside the resource's body_html (re-fetched live each call so earlier pushes
+  // aren't overwritten). For the featured/main image it sets the resource image alt.
+  // -------------------------------------------------------
+  if (req.query.action === 'update-image-alt' && req.method === 'POST') {
+    const { shopifyId, shopifyType, shopifyBlogId, imageSrc, alt, isMain } = req.body;
+    if (!shopifyId || !shopifyType || !imageSrc || typeof alt !== 'string') {
+      return res.status(400).json({ error: 'Missing shopifyId, shopifyType, imageSrc or alt' });
+    }
+    const shopifyHeaders = { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' };
+    const base = `https://${shopifyDomain}/admin/api/2025-01`;
+    const map = {
+      product:           { path: `products/${shopifyId}`,                        wrap: 'product' },
+      custom_collection: { path: `custom_collections/${shopifyId}`,              wrap: 'custom_collection' },
+      smart_collection:  { path: `smart_collections/${shopifyId}`,               wrap: 'smart_collection' },
+      page:              { path: `pages/${shopifyId}`,                           wrap: 'page' },
+      article:           { path: `blogs/${shopifyBlogId}/articles/${shopifyId}`, wrap: 'article' }
+    };
+    const t = map[shopifyType];
+    if (!t) return res.status(400).json({ error: `Unknown shopifyType: ${shopifyType}` });
+    const altEsc = alt.replace(/"/g, '&quot;');
+    try {
+      // ── Main/featured image alt (article, collection) ──
+      if (isMain && (shopifyType === 'article' || shopifyType.includes('collection'))) {
+        const r = await fetch(`${base}/${t.path}.json`, {
+          method: 'PUT', headers: shopifyHeaders,
+          body: JSON.stringify({ [t.wrap]: { id: shopifyId, image: { alt } } })
+        });
+        if (r.ok) return res.status(200).json({ success: true });
+        const e = await r.json().catch(() => ({}));
+        return res.status(502).json({ success: false, error: JSON.stringify(e.errors || r.statusText) });
+      }
+      // ── Body image: re-fetch the live body, set this <img>'s alt, save ──
+      const gr = await fetch(`${base}/${t.path}.json?fields=id,body_html`, { headers: shopifyHeaders });
+      const gd = await gr.json();
+      const body = gd[t.wrap]?.body_html || '';
+      if (!body) return res.status(404).json({ success: false, error: 'No body_html on this resource' });
+      const escaped = imageSrc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const imgRe = new RegExp('<img\\b[^>]*src=["\']' + escaped + '["\'][^>]*>', 'i');
+      if (!imgRe.test(body)) return res.status(404).json({ success: false, error: 'Image not found in body' });
+      const newBody = body.replace(imgRe, (tag) =>
+        /\balt=["'][^"']*["']/i.test(tag)
+          ? tag.replace(/\balt=["'][^"']*["']/i, `alt="${altEsc}"`)
+          : tag.replace(/<img\b/i, `<img alt="${altEsc}"`)
+      );
+      const r = await fetch(`${base}/${t.path}.json`, {
+        method: 'PUT', headers: shopifyHeaders,
+        body: JSON.stringify({ [t.wrap]: { id: shopifyId, body_html: newBody } })
       });
       if (r.ok) return res.status(200).json({ success: true });
       const e = await r.json().catch(() => ({}));
