@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 51.9</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 52.0</p>
                 </div>
             </div>
         </header>
@@ -1554,7 +1554,9 @@
             // The over-use check must NOT flag the SEO title / meta description — those are already
             // handled in the SEO Fields block (one source). Drop any such finding to avoid double-up.
             if (s.keywordOveruse && Array.isArray(s.keywordOveruse.findings)) {
-                const isSeoField = (f) => /global\.title_tag|global\.description_tag|title_tag|description_tag|meta description|seo title|title tag/.test(`${f.location||''} ${f.metafieldKey||''}`.toLowerCase());
+                // Skip fields the tool already manages elsewhere (SEO Fields block, PAA block,
+                // template fields) so the over-use check never double-handles or conflicts.
+                const isSeoField = (f) => /global\.title_tag|global\.description_tag|title_tag|description_tag|meta description|seo title|title tag|more_about_|more_about_new_only_text|people_also_ask|people_also_ask_new|home_decor_trends_title|complete_the_look/.test(`${f.location||''} ${f.metafieldKey||''}`.toLowerCase());
                 s.keywordOveruse.findings = s.keywordOveruse.findings.filter(f => !isSeoField(f));
                 if (!s.keywordOveruse.findings.length) s.keywordOveruse.isOverstuffed = false;
             }
@@ -2661,9 +2663,11 @@
         // ne-blog-posts: push the authority URL to the more_about_new link metafield (via metafieldsSet).
         function pushMoreAboutUrl(srcId, btn) {
             const el = document.getElementById(srcId);
-            const url = (el ? (el.value !== undefined ? el.value : el.textContent) : '').trim();
+            const raw = (el ? (el.value !== undefined ? el.value : el.textContent) : '').trim();
+            const m = raw.match(/https?:\/\/[^\s"'<>)]+/i);   // pull a clean absolute URL out of the text
+            const url = m ? m[0].replace(/[.,]+$/, '') : '';
             const id = currentResults?.shopify?.id;
-            if (!url) { alert('No URL to push.'); return; }
+            if (!url) { alert('No valid URL found to push.'); return; }
             if (!id) { alert('Shopify data not available.'); return; }
             return pushMetafields([
                 { namespace: 'custom', key: 'more_about_new', type: 'link', value: JSON.stringify({ url }), ownerGid: `gid://shopify/Article/${id}` }
