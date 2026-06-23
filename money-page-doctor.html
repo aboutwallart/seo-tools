@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 52.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 52.1</p>
                 </div>
             </div>
         </header>
@@ -1168,8 +1168,9 @@
                         <div>
                             <div style="font-size:0.78rem;color:#555;font-weight:600;margin-bottom:3px;">Suggested alt text</div>
                             <div style="display:flex;gap:8px;align-items:flex-start;">
-                                <textarea id="imgAlt${i}" readonly rows="2" style="flex:1;min-width:0;padding:7px 9px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.8rem;font-family:'Poppins',sans-serif;background:white;resize:vertical;">${im.suggestedAlt||''}</textarea>
+                                <textarea id="imgAlt${i}" rows="2" style="flex:1;min-width:0;padding:7px 9px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.8rem;font-family:'Poppins',sans-serif;background:white;resize:vertical;">${im.suggestedAlt||''}</textarea>
                                 <button class="copy-btn" onclick="copyToClipboard(document.getElementById('imgAlt${i}').value,this)">📋</button>
+                                <button class="copy-btn" type="button" style="background:#1976d2;color:#fff;white-space:nowrap;" onclick="pushImageAlt('${(im.src||'').replace(/'/g,"\\'")}','imgAlt${i}',${im.isMain?'true':'false'},this)">📤 Push alt</button>
                             </div>
                         </div>`}
                     </div>
@@ -2672,6 +2673,28 @@
             return pushMetafields([
                 { namespace: 'custom', key: 'more_about_new', type: 'link', value: JSON.stringify({ url }), ownerGid: `gid://shopify/Article/${id}` }
             ], btn);
+        }
+
+        // Push ONE image's alt text to Shopify (body image → body_html; main image → image alt).
+        async function pushImageAlt(src, altElId, isMain, btn) {
+            const sd = currentResults?.shopify;
+            const alt = (document.getElementById(altElId)?.value || '').trim();
+            if (!sd?.id) { alert('Shopify data not available.'); return; }
+            if (!alt) { alert('No alt text to push.'); return; }
+            const orig = btn.textContent;
+            btn.disabled = true; btn.textContent = '⏳';
+            try {
+                const res = await fetch('/api/shopify-files?action=update-image-alt', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shopifyId: sd.id, shopifyType: sd.type, shopifyBlogId: sd.blogId, imageSrc: src, alt, isMain: !!isMain })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Push failed');
+                btn.textContent = '✅ Pushed'; btn.style.background = '#4caf50';
+            } catch (err) {
+                btn.disabled = false; btn.textContent = orig;
+                alert(`Push failed: ${err.message}`);
+            }
         }
 
         // Push every snippet currently on the page in one go.
