@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 51.8</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 51.9</p>
                 </div>
             </div>
         </header>
@@ -1550,6 +1550,14 @@
             const _isCollection = (data.yourPage.shopifyType || '').includes('collection');
             const _isPage = data.yourPage.shopifyType === 'page';
             const _isProduct = data.yourPage.shopifyType === 'product';
+
+            // The over-use check must NOT flag the SEO title / meta description — those are already
+            // handled in the SEO Fields block (one source). Drop any such finding to avoid double-up.
+            if (s.keywordOveruse && Array.isArray(s.keywordOveruse.findings)) {
+                const isSeoField = (f) => /global\.title_tag|global\.description_tag|title_tag|description_tag|meta description|seo title|title tag/.test(`${f.location||''} ${f.metafieldKey||''}`.toLowerCase());
+                s.keywordOveruse.findings = s.keywordOveruse.findings.filter(f => !isSeoField(f));
+                if (!s.keywordOveruse.findings.length) s.keywordOveruse.isOverstuffed = false;
+            }
             add('push_title', 'SEO Title updated',        'push');
             add('push_meta',  'Meta Description updated', 'push');
             // Products have no separate description field (the body IS the description) — skip it.
@@ -2138,16 +2146,32 @@
                 </div>` : '';
 
             // ── Old-template checks block (only for older blog templates) ──────
-            const tmplLabels = { shop_here: '🛒 SHOP HERE button', youtube: '▶️ YouTube embed', authority_source: '🔗 Authority source' };
+            const tmplLabels = {
+                more_about_text: '📄 More About — intro text', more_about_url: '🔗 More About — authority link',
+                home_decor_trends_title: '🏷 Home decor trends — title', complete_the_look_title: '🏷 Complete the look — title',
+                shop_here: '🛒 SHOP HERE button', youtube: '▶️ YouTube embed', authority_source: '🔗 Authority source'
+            };
+            // Which template-check types push straight to a metafield (single_line) vs copy-only.
+            const tmplSingleKey = { home_decor_trends_title: 'home_decor_trends_title', complete_the_look_title: 'complete_the_look' };
             const internalAddBlockTmpl = (s.templateChecks && s.templateChecks.length > 0) ? `
                 <div class="action-block" style="border-color:#f9a825;">
-                    <h3>🧩 Older-Template Checks</h3>
-                    <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">This blog uses an older template. Check these items and paste any provided HTML into the body where indicated.</p>
+                    <h3>🧩 Older-Template Fields</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">This blog uses the ne-blog-posts template — these sections are built from metafields. Push each to Shopify (or copy where it's body HTML).</p>
                     ${s.templateChecks.map((t, i) => {
                         const key = `tmpl_${i}`;
                         const it  = allItems.find(x => x.key === key);
                         const instruction = (t.instruction || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                         const hasContent = t.content && t.content.trim().length > 0;
+                        let pushBtn = '';
+                        if (hasContent) {
+                            if (tmplSingleKey[t.type]) {
+                                pushBtn = `<button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushSnippet('${tmplSingleKey[t.type]}','tmplCode${i}',this,'single_line_text_field')">📤 Push to ${tmplSingleKey[t.type]}</button>`;
+                            } else if (t.type === 'more_about_text') {
+                                pushBtn = `<button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushMoreAboutText('tmplCode${i}',this)">📤 Push (More About text)</button>`;
+                            } else if (t.type === 'more_about_url') {
+                                pushBtn = `<button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushMoreAboutUrl('tmplCode${i}',this)">📤 Push to more_about_new</button>`;
+                            }
+                        }
                         return `
                         <div id="row_${key}" style="padding:14px;background:#f9f9f9;border-radius:6px;margin-bottom:10px;opacity:${state[key]?'0.45':'1'};">
                             <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:8px;">
@@ -2156,8 +2180,9 @@
                             </div>
                             <div style="font-size:0.83rem;color:#555;margin-bottom:8px;">${instruction}</div>
                             ${hasContent ? `
-                            <pre id="tmplCode${i}" style="white-space:pre-wrap;word-break:break-all;background:#f5f5f5;padding:10px;border-radius:6px;font-size:0.76rem;max-height:200px;overflow:auto;margin-bottom:8px;">${t.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
-                            <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('tmplCode${i}').textContent,this)">📋 Copy code</button>`
+                            <pre id="tmplCode${i}" style="white-space:pre-wrap;word-break:break-word;background:#f5f5f5;padding:10px;border-radius:6px;font-size:0.76rem;max-height:200px;overflow:auto;margin-bottom:8px;">${t.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
+                            <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('tmplCode${i}').textContent,this)">📋 Copy</button>
+                            ${pushBtn}`
                             : `<div style="font-size:0.85rem;color:#2e7d32;">✅ Already in place — nothing to add.</div>`}
                         </div>`;
                     }).join('')}
@@ -2620,6 +2645,29 @@
                 btn.disabled = false; btn.textContent = orig;
                 alert(`Push failed: ${err.message}`);
             }
+        }
+
+        // ne-blog-posts: push the "More About" intro text to BOTH more_about metafields.
+        function pushMoreAboutText(srcId, btn) {
+            const el = document.getElementById(srcId);
+            const val = el ? (el.value !== undefined ? el.value : el.textContent) : '';
+            if (!val.trim()) { alert('Nothing to push.'); return; }
+            return pushMetafields([
+                { namespace: 'custom', key: 'more_about_new_only_text', type: 'single_line_text_field', value: val },
+                { namespace: 'custom', key: 'more_about_', type: 'rich_text_field', value: val, richTextMode: 'patch-leading' }
+            ], btn);
+        }
+
+        // ne-blog-posts: push the authority URL to the more_about_new link metafield (via metafieldsSet).
+        function pushMoreAboutUrl(srcId, btn) {
+            const el = document.getElementById(srcId);
+            const url = (el ? (el.value !== undefined ? el.value : el.textContent) : '').trim();
+            const id = currentResults?.shopify?.id;
+            if (!url) { alert('No URL to push.'); return; }
+            if (!id) { alert('Shopify data not available.'); return; }
+            return pushMetafields([
+                { namespace: 'custom', key: 'more_about_new', type: 'link', value: JSON.stringify({ url }), ownerGid: `gid://shopify/Article/${id}` }
+            ], btn);
         }
 
         // Push every snippet currently on the page in one go.
