@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 52.2</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 52.3</p>
                 </div>
             </div>
         </header>
@@ -1538,6 +1538,28 @@
             }, 50);
         }
 
+        // Home page section images (curated — the storefront home page isn't a Shopify
+        // resource, so its theme images can't be auto-crawled). Preview from the live CDN;
+        // alt = suggested alt text; file = suggested SEO file name to rename it to.
+        const _CDN = 'https://aboutwallart.com/cdn/shop/files/';
+        const HOMEPAGE_IMAGES = [
+            { url: _CDN+'Image_with_thext_0002_Image_with_text_3_fde8c649-4cba-4403-a780-fd629bd8a090.jpg', alt: 'White Scandinavian living room with a set of three blue and gold abstract framed wall art prints', file: 'scandinavian-living-room-abstract-framed-wall-art-set.jpg' },
+            { url: _CDN+'Unique_Wall_Art_fc6baafb-71b1-456f-b3c9-9482d92c805d.jpg', alt: 'Woman arranging framed landscape wall art pictures in a bright living room', file: 'woman-arranging-framed-landscape-wall-art-living-room.jpg' },
+            { url: _CDN+'Home_Banner_2_c47c9257-c842-4469-83e9-967a83547673-min.jpg', alt: 'Styled living room with framed wall art and warm home decor accents', file: 'living-room-framed-wall-art-home-decor-accents.jpg' },
+            { url: _CDN+'Unique_wall_art_1.jpg', alt: 'Living room with a set of three neutral framed wall art prints above a sofa', file: 'living-room-set-of-three-neutral-framed-wall-art.jpg' },
+            { url: _CDN+'Unique_wall_art_2.jpg', alt: 'Pictures for a living room wall arranged as a framed gallery display', file: 'pictures-living-room-wall-framed-gallery.jpg' },
+            { url: _CDN+'lady-carrying-a-frame-mockup.jpg', alt: 'Woman carrying a black-framed modern wall art design print', file: 'woman-carrying-black-framed-modern-wall-art.jpg' },
+            { url: _CDN+'woman-browsing-wall-art-prints-online-scandinavian-home-office.png', alt: 'Woman browsing wall art prints online in a Scandinavian home office', file: 'woman-browsing-wall-art-prints-online-home-office.png' },
+            { url: _CDN+'black-woman-hanging-framed-wall-art-japandi-living-room.png', alt: 'Woman hanging framed wall art in a Japandi style living room', file: 'woman-hanging-framed-wall-art-japandi-living-room.png' },
+            { url: _CDN+'LIVLND108POSTER_2_24x36_DIGITAL.jpg', alt: 'Black and white minimalist landscape wrapped canvas wall art print', file: 'minimalist-landscape-wrapped-canvas-wall-art.jpg' },
+            { url: _CDN+'AdobeStock_492061810_43036155-770c-4557-b1d9-1bb736b22d1d.jpg', alt: 'Wooden stretcher frames behind durable wrapped canvas wall art prints', file: 'wooden-frames-wrapped-canvas-wall-art.jpg' },
+            { url: _CDN+'full-home-decor-wall-display-with-multiple-hanging-chairs_1.png', alt: 'Boho home decor wall display with rattan chairs, a sunburst mirror and cushions', file: 'boho-home-decor-wall-display-rattan-chairs-mirror.png' },
+            { url: _CDN+'Untitled_design_21.png', alt: 'Framed botanical wall art print styled on a living room wall', file: 'framed-botanical-wall-art-living-room.png' },
+            { url: _CDN+'Untitled_design_23.png', alt: 'Framed abstract wall art print in a modern living room', file: 'framed-abstract-wall-art-modern-living-room.png' },
+            { url: _CDN+'2_b990e8ac-43e3-4547-bc36-583f3ce53905.png', alt: 'Framed wall art decor displayed in a styled home setting', file: 'framed-wall-art-decor-styled-home.png' },
+            { url: _CDN+'3.png', alt: 'Framed wall art print styled in a contemporary interior', file: 'framed-wall-art-contemporary-interior.png' }
+        ];
+
         function renderStructuredResults(s, keyword, data) {
             const pageUrl = data.yourPage.url;
             const state = loadChecklistState(pageUrl);
@@ -1652,6 +1674,11 @@
                 (_bq.brandedLinks || []).forEach((l, i) => add(`bq_link_${i}`, `Branded link added: ${l.anchor}`, 'blogquality'));
                 if (_bq.authorBio) add('bq_bio', 'Author bio added', 'blogquality');
             }
+
+            // Home Page Image SEO (the storefront home page — not a Shopify resource, so its
+            // section images are an embedded curated list). One tick per image.
+            const _isHomepage = /^https?:\/\/(www\.)?aboutwallart\.com\/?(\?|#|$)/i.test(pageUrl);
+            if (_isHomepage) HOMEPAGE_IMAGES.forEach((img, i) => add(`hp_img_${i}`, `Home page image alt + file name: ${img.alt.slice(0,40)}…`, 'homepageimg'));
 
             // Image SEO step (blogs that have body images)
             const hasBodyImages = (_isBlog || _isCollection || _isPage || _isProduct) && (data.bodyImages || []).length > 0;
@@ -2362,6 +2389,33 @@
                     ${cb(allItems.find(it=>it.key===key))}
                     <div style="flex:1;">${inner}</div>
                 </div>`;
+
+            // ── Home Page Image SEO block (storefront home page) ─────────────
+            const homepageImageBlock = _isHomepage ? `
+                <div class="action-block" style="border-color:#00897b;">
+                    <h3>🏠 Home Page Image SEO</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:14px;">Your home page isn't a Shopify page, so its images live in the <strong>theme editor</strong>. For each one below: copy the <strong>alt text</strong> and the <strong>file name</strong>, then set them on the image in the theme editor (or re-upload the file with the new name). Tick each as you go — the block greys out when done.</p>
+                    ${HOMEPAGE_IMAGES.map((img, i) => {
+                        const key = `hp_img_${i}`;
+                        return `<div id="row_${key}" style="display:flex;gap:14px;align-items:flex-start;padding:12px;background:#f9f9f9;border-radius:8px;margin-bottom:12px;opacity:${state[key]?'0.45':'1'};">
+                            ${cb(allItems.find(it=>it.key===key))}
+                            <img src="${img.url}" alt="" loading="lazy" style="width:120px;height:90px;object-fit:cover;border-radius:6px;flex-shrink:0;background:#eee;">
+                            <div style="flex:1;min-width:0;">
+                                <label style="font-size:0.72rem;color:#888;font-weight:600;">ALT TEXT</label>
+                                <div style="display:flex;gap:6px;align-items:flex-start;margin-bottom:8px;">
+                                    <textarea id="hpAlt${i}" readonly style="flex:1;padding:7px 9px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.82rem;font-family:'Poppins',sans-serif;min-height:40px;background:white;">${img.alt}</textarea>
+                                    <button class="copy-btn" type="button" style="padding:4px 10px;font-size:0.72rem;white-space:nowrap;" onclick="copyToClipboard(document.getElementById('hpAlt${i}').value,this)">📋 Alt</button>
+                                </div>
+                                <label style="font-size:0.72rem;color:#888;font-weight:600;">FILE NAME</label>
+                                <div style="display:flex;gap:6px;align-items:center;">
+                                    <input id="hpFile${i}" type="text" readonly value="${img.file}" style="flex:1;padding:7px 9px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.78rem;font-family:monospace;background:white;">
+                                    <button class="copy-btn" type="button" style="padding:4px 10px;font-size:0.72rem;white-space:nowrap;" onclick="copyToClipboard(document.getElementById('hpFile${i}').value,this)">📋 File</button>
+                                </div>
+                            </div>
+                        </div>`;
+                    }).join('')}
+                </div>` : '';
+
             const blogQualityBlock = _bqHasFindings ? `
                 <div class="action-block" style="border-color:#6a1b9a;">
                     <h3>✅ Blog Quality Checks</h3>
@@ -2427,7 +2481,7 @@
                     </div>
                 </div>`;
 
-            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + productDescBlock + aiBlock + pageQuestionsBlock + pageFieldsBlock + pageBrowseBlock + paaBlock + loserLinksBlock + relatedBlogsBlock + internalAddBlock + manualBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + linkedRefsBlock + internalAddBlockTmpl + blogQualityBlock + imageBlock + autolinkBlock + reindexBlock;
+            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + productDescBlock + aiBlock + pageQuestionsBlock + pageFieldsBlock + pageBrowseBlock + paaBlock + loserLinksBlock + relatedBlogsBlock + internalAddBlock + manualBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + linkedRefsBlock + internalAddBlockTmpl + blogQualityBlock + homepageImageBlock + imageBlock + autolinkBlock + reindexBlock;
         }
 
         function formatMarkdown(text) {
