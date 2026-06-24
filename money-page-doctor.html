@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 52.1</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 52.2</p>
                 </div>
             </div>
         </header>
@@ -1644,6 +1644,15 @@
             // People Also Ask (blogs)
             if (s.peopleAlsoAsk && (s.peopleAlsoAsk.html || s.peopleAlsoAsk.metafield)) add('paa', 'People Also Ask added (metafield + body if old theme)', 'paa');
 
+            // Blog Quality Checks (blogs only) — one tick per finding.
+            const _bq = (_isBlog && data.blogQuality) ? data.blogQuality : null;
+            if (_bq) {
+                (_bq.britishEnglish || []).forEach((f, i) => add(`bq_brit_${i}`, `UK spelling: ${f.found} → ${f.suggestion}`, 'blogquality'));
+                (_bq.buzzwords || []).forEach((f, i) => add(`bq_buzz_${i}`, `AI buzzword removed: "${f.found}"`, 'blogquality'));
+                (_bq.brandedLinks || []).forEach((l, i) => add(`bq_link_${i}`, `Branded link added: ${l.anchor}`, 'blogquality'));
+                if (_bq.authorBio) add('bq_bio', 'Author bio added', 'blogquality');
+            }
+
             // Image SEO step (blogs that have body images)
             const hasBodyImages = (_isBlog || _isCollection || _isPage || _isProduct) && (data.bodyImages || []).length > 0;
             if (hasBodyImages) add('images', 'Image file names & alt text updated on Shopify', 'images');
@@ -2345,6 +2354,46 @@
                     </div>
                 </div>`;
 
+            // ── Blog Quality Checks block (blogs only — deterministic) ───────
+            const _esc = (str) => String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            const _bqHasFindings = _bq && ((_bq.britishEnglish||[]).length || (_bq.buzzwords||[]).length || (_bq.brandedLinks||[]).length || _bq.authorBio);
+            const bqRow = (key, inner) => `
+                <div id="row_${key}" style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:#f9f9f9;border-radius:6px;margin-bottom:8px;opacity:${state[key]?'0.45':'1'};">
+                    ${cb(allItems.find(it=>it.key===key))}
+                    <div style="flex:1;">${inner}</div>
+                </div>`;
+            const blogQualityBlock = _bqHasFindings ? `
+                <div class="action-block" style="border-color:#6a1b9a;">
+                    <h3>✅ Blog Quality Checks</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:14px;">Deterministic checks (no AI). Use your blog editor's search bar to find each item and fix it — the tool lists, it never edits for you. Tick each one as you go; the block greys out when you're done.</p>
+
+                    ${(_bq.britishEnglish||[]).length ? `
+                    <h4 style="margin:6px 0 8px;font-size:0.9rem;">🇬🇧 British English (${_bq.britishEnglish.length})</h4>
+                    ${_bq.britishEnglish.map((f, i) => bqRow(`bq_brit_${i}`, `
+                        <span id="lbl_bq_brit_${i}" style="font-size:0.9rem;${state['bq_brit_'+i]?'text-decoration:line-through;':''}"><strong>${f.found}</strong> → <strong>${f.suggestion}</strong></span>
+                        <button class="copy-btn" type="button" style="margin-left:10px;padding:2px 8px;font-size:0.72rem;" onclick="copyToClipboard('${_esc(f.suggestion)}',this)" title="Copy the UK spelling to paste as your replacement">📋 Copy '${f.suggestion}'</button>`)).join('')}` : ''}
+
+                    ${(_bq.buzzwords||[]).length ? `
+                    <h4 style="margin:14px 0 8px;font-size:0.9rem;">🚫 AI buzzwords (${_bq.buzzwords.length})</h4>
+                    ${_bq.buzzwords.map((f, i) => bqRow(`bq_buzz_${i}`, `
+                        <span id="lbl_bq_buzz_${i}" style="font-size:0.9rem;${state['bq_buzz_'+i]?'text-decoration:line-through;':''}">"<strong>${f.found}</strong>" — ${f.fix}</span>
+                        <button class="copy-btn" type="button" style="margin-left:10px;padding:2px 8px;font-size:0.72rem;" onclick="copyToClipboard('${_esc(f.found)}',this)" title="Copy the phrase to search for it in the editor">📋 Copy phrase</button>`)).join('')}` : ''}
+
+                    ${(_bq.brandedLinks||[]).length ? `
+                    <h4 style="margin:14px 0 8px;font-size:0.9rem;">🔗 Branded links (${_bq.brandedLinks.length})</h4>
+                    ${_bq.brandedLinks.map((l, i) => bqRow(`bq_link_${i}`, `
+                        <span id="lbl_bq_link_${i}" style="font-size:0.9rem;${state['bq_link_'+i]?'text-decoration:line-through;':''}">Add a link on <strong>${l.anchor}</strong> (not yet in the body)</span>
+                        <textarea id="bqLink${i}" readonly style="width:100%;margin-top:6px;padding:8px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.78rem;font-family:monospace;min-height:42px;background:white;">${l.snippet.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+                        <button class="copy-btn" type="button" style="margin-top:4px;padding:2px 8px;font-size:0.72rem;" onclick="copyToClipboard(document.getElementById('bqLink${i}').value,this)">📋 Copy link HTML</button>`)).join('')}` : ''}
+
+                    ${_bq.authorBio ? `
+                    <h4 style="margin:14px 0 8px;font-size:0.9rem;">✍️ Author bio</h4>
+                    ${bqRow('bq_bio', `
+                        <span id="lbl_bq_bio" style="font-size:0.9rem;${state['bq_bio']?'text-decoration:line-through;':''}">No author byline found — add this below the bold summary at the top.</span>
+                        <textarea id="bqBio" readonly style="width:100%;margin-top:6px;padding:8px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.8rem;font-family:'Poppins',sans-serif;min-height:42px;background:white;">${_bq.authorBio.snippet}</textarea>
+                        <button class="copy-btn" type="button" style="margin-top:4px;padding:2px 8px;font-size:0.72rem;" onclick="copyToClipboard(document.getElementById('bqBio').value,this)">📋 Copy bio</button>`)}` : ''}
+                </div>` : '';
+
             // ── Image SEO block (blogs with body images) ─────────────────────
             const imageBlock = hasBodyImages ? `
                 <div class="action-block" style="border-color:#00897b;">
@@ -2378,7 +2427,7 @@
                     </div>
                 </div>`;
 
-            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + productDescBlock + aiBlock + pageQuestionsBlock + pageFieldsBlock + pageBrowseBlock + paaBlock + loserLinksBlock + relatedBlogsBlock + internalAddBlock + manualBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + linkedRefsBlock + internalAddBlockTmpl + imageBlock + autolinkBlock + reindexBlock;
+            return masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + productDescBlock + aiBlock + pageQuestionsBlock + pageFieldsBlock + pageBrowseBlock + paaBlock + loserLinksBlock + relatedBlogsBlock + internalAddBlock + manualBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + linkedRefsBlock + internalAddBlockTmpl + blogQualityBlock + imageBlock + autolinkBlock + reindexBlock;
         }
 
         function formatMarkdown(text) {
