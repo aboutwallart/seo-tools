@@ -1,7 +1,11 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v49.0
+// analyze-money-page.js — v49.1
+// v49.1 (June 24, 2026): BLOG QUALITY CHECKS — deterministic scanBlogQuality() (no AI) for articles.
+//                        Scans body + excerpt + all metafields and returns blogQuality:{ britishEnglish,
+//                        buzzwords, brandedLinks, authorBio }. List-only (merchant find/replaces) — the
+//                        tool never auto-edits. Article fetch now also pulls summary_html (the excerpt).
 // v49.0 (June 22, 2026): NE-BLOG-POSTS fixes — never put "People Also Ask" H2 in h2Sections / never
 //                        rename it (it's the people_also_ask_new metafield); don't flag more_about_/
 //                        people_also_ask_new/home_decor_trends_title/complete_the_look in over-use.
@@ -229,6 +233,7 @@ module.exports = async function handler(req, res) {
       yourPageData.shopifySeoTitle = shopifyContent.seoTitle;
       yourPageData.shopifySeoDesc  = shopifyContent.seoDescription;
       yourPageData.shopifyBodyHtml = shopifyContent.bodyHtml;
+      yourPageData.shopifyExcerpt  = shopifyContent.excerpt || '';
       yourPageData.templateSuffix  = shopifyContent.templateSuffix || '';
       yourPageData.metafields      = shopifyContent.metafields || [];
       yourPageData.tags            = shopifyContent.tags || [];
@@ -296,6 +301,13 @@ module.exports = async function handler(req, res) {
     // Step 4.8: linked-reference metafields (blogs) — Linked Blogs / Collections / Trends
     const linkedReferences = await getLinkedReferences(yourPageData, keyword);
     console.log(`[Money Page] Linked refs — blogs:${linkedReferences.linkedBlogs.length} collections:${linkedReferences.linkedCollections.length} trends:${linkedReferences.linkedTrends.length}`);
+
+    // Step 4.9: deterministic Blog Quality Checks (blogs only — no AI)
+    const blogQuality = yourPageData.shopifyType === 'article'
+      ? scanBlogQuality(yourPageData) : null;
+    if (blogQuality) {
+      console.log(`[Money Page] Blog Quality — UK:${blogQuality.britishEnglish.length} buzz:${blogQuality.buzzwords.length} links:${blogQuality.brandedLinks.length} bio:${blogQuality.authorBio ? 'needed' : 'ok'}`);
+    }
 
     // Step 5: Get Claude analysis
     console.log('[Money Page] Step 5: Getting AI recommendations... (~20 sec)');
@@ -366,6 +378,7 @@ module.exports = async function handler(req, res) {
       competitors: competitorData,
       contentGaps: contentGaps,
       analysis: analysis,
+      blogQuality: blogQuality,
       inactiveProducts: inactiveProducts,
       linkedReferences: linkedReferences,
       bodyImages: buildImageList(shopifyContent),
@@ -715,6 +728,147 @@ function buildImageList(shopifyContent) {
     });
   }
   return images;
+}
+
+// ── BLOG QUALITY CHECKS (deterministic, no AI) ──────────────────────────────
+// US → UK spelling map. Output only the pairs actually present. Match \bword\b
+// case-insensitive; the merchant decides during manual find/replace. "decor"
+// intentionally stays WITHOUT an accent — not in this map.
+const US_TO_UK = {
+  // -our
+  color: 'colour', colors: 'colours', colored: 'coloured', coloring: 'colouring',
+  favorite: 'favourite', favorites: 'favourites', favorited: 'favourited',
+  favor: 'favour', favors: 'favours', favored: 'favoured',
+  honor: 'honour', honored: 'honoured',
+  neighbor: 'neighbour', neighbors: 'neighbours', neighborhood: 'neighbourhood',
+  behavior: 'behaviour', behaviors: 'behaviours',
+  glamor: 'glamour', humor: 'humour', humored: 'humoured',
+  labor: 'labour', labors: 'labours', vigor: 'vigour',
+  flavor: 'flavour', flavors: 'flavours', flavored: 'flavoured',
+  odor: 'odour', odors: 'odours', rumor: 'rumour', rumors: 'rumours',
+  splendor: 'splendour', endeavor: 'endeavour', endeavors: 'endeavours',
+  harbor: 'harbour', armor: 'armour', candor: 'candour',
+  // -re
+  center: 'centre', centers: 'centres', centered: 'centred',
+  meter: 'metre', meters: 'metres', theater: 'theatre', theaters: 'theatres',
+  fiber: 'fibre', fibers: 'fibres', liter: 'litre', liters: 'litres',
+  somber: 'sombre', luster: 'lustre', specter: 'spectre', caliber: 'calibre',
+  // -ise / -isation
+  organize: 'organise', organized: 'organised', organizing: 'organising', organization: 'organisation', organizations: 'organisations',
+  realize: 'realise', realized: 'realised', realizing: 'realising',
+  minimize: 'minimise', minimized: 'minimised', minimizing: 'minimising',
+  maximize: 'maximise', maximized: 'maximised', maximizing: 'maximising',
+  recognize: 'recognise', recognized: 'recognised', recognizing: 'recognising',
+  analyze: 'analyse', analyzed: 'analysed', analyzing: 'analysing',
+  emphasize: 'emphasise', emphasized: 'emphasised', emphasizing: 'emphasising',
+  customize: 'customise', customized: 'customised', customizing: 'customising',
+  harmonize: 'harmonise', harmonized: 'harmonised',
+  visualize: 'visualise', visualized: 'visualised', visualizing: 'visualising',
+  utilize: 'utilise', utilized: 'utilised', utilizing: 'utilising',
+  prioritize: 'prioritise', prioritized: 'prioritised', prioritizing: 'prioritising',
+  accessorize: 'accessorise', accessorized: 'accessorised', accessorizing: 'accessorising',
+  modernize: 'modernise', modernized: 'modernised', modernizing: 'modernising',
+  personalize: 'personalise', personalized: 'personalised', personalizing: 'personalising',
+  specialize: 'specialise', specialized: 'specialised', specializing: 'specialising',
+  finalize: 'finalise', finalized: 'finalised', finalizing: 'finalising',
+  normalize: 'normalise', normalized: 'normalised',
+  optimize: 'optimise', optimized: 'optimised', optimizing: 'optimising', optimization: 'optimisation',
+  characterize: 'characterise', characterized: 'characterised',
+  categorize: 'categorise', categorized: 'categorised', categorizing: 'categorising',
+  summarize: 'summarise', summarized: 'summarised', summarizing: 'summarising',
+  stabilize: 'stabilise', stabilized: 'stabilised',
+  neutralize: 'neutralise', neutralized: 'neutralised',
+  symbolize: 'symbolise', symbolized: 'symbolised',
+  synchronize: 'synchronise', synchronized: 'synchronised',
+  authorize: 'authorise', authorized: 'authorised',
+  capitalize: 'capitalise', capitalized: 'capitalised', capitalizing: 'capitalising',
+  criticize: 'criticise', criticized: 'criticised', criticizing: 'criticising',
+  // -ogue
+  catalog: 'catalogue', catalogs: 'catalogues', dialog: 'dialogue', analog: 'analogue', monolog: 'monologue',
+  // -ce
+  defense: 'defence', offense: 'offence', pretense: 'pretence',
+  // doubled / dropped l
+  jewelry: 'jewellery', skillful: 'skilful', fulfill: 'fulfil', fulfilled: 'fulfilled',
+  enroll: 'enrol', instill: 'instil',
+  traveling: 'travelling', traveled: 'travelled', labeling: 'labelling', labeled: 'labelled',
+  modeling: 'modelling', paneling: 'panelling', canceling: 'cancelling', canceled: 'cancelled',
+  leveling: 'levelling', counseling: 'counselling',
+  // misc + decor-vocabulary
+  cozy: 'cosy', gray: 'grey', while: 'whilst', among: 'amongst',
+  drapes: 'curtains', closet: 'wardrobe', couch: 'sofa', fall: 'autumn',
+  countertop: 'worktop', baseboard: 'skirting board', comforter: 'duvet',
+  shade: 'blind', pillow: 'cushion'
+};
+
+// AI-buzzword phrases to flag, with the suggested fix (empty fix = "remove / rephrase").
+const BUZZWORDS = [
+  { phrase: 'delve into', fix: 'remove or rephrase' },
+  { phrase: 'dive into', fix: 'remove or rephrase' },
+  { phrase: 'enter a world of', fix: 'remove' },
+  { phrase: 'journey of discovery', fix: 'remove' },
+  { phrase: 'a tapestry', fix: 'remove' },
+  { phrase: 'in conclusion', fix: 'remove' },
+  { phrase: 'in summary', fix: 'remove' },
+  { phrase: 'skyrocket', fix: 'rise sharply' },
+  { phrase: "today's digital landscape", fix: 'remove' },
+  { phrase: 'sanctuary', fix: 'calm retreat / peaceful space' },
+  { phrase: 'cohesive', fix: 'considered / unified / well-balanced' }
+];
+
+// Branded links to offer (only when the body doesn't already contain that URL).
+const BRANDED_LINKS = [
+  { anchor: 'wall art',          url: 'https://share.google/RKuQBBwmgZBHOL1VQ',            title: 'Wall Art' },
+  { anchor: 'unique wall art',   url: 'https://aboutwallart.com/pages/unique-wall-art',    title: 'Unique Wall Art' },
+  { anchor: 'unique home decor', url: 'https://aboutwallart.com/pages/home-decor-items',   title: 'Unique Home Decor' }
+];
+
+const AUTHOR_BIO_SNIPPET = 'By Mae Osz | Interior Design Consultant & Home Decor Expert with 12+ years of experience.';
+
+function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function htmlToText(html) {
+  return (html || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&').replace(/\s+/g, ' ').trim();
+}
+
+// Deterministic blog quality scan over body + excerpt + every text metafield.
+// Returns list-only findings — the merchant uses the editor search bar to fix them.
+function scanBlogQuality(yourPage) {
+  const bodyHtml = yourPage.shopifyBodyHtml || '';
+  const excerptHtml = yourPage.shopifyExcerpt || '';
+  const metaText = (yourPage.metafields || []).map(m => m.text || '').join(' ');
+  // Combined plain text (body + excerpt + metafields) for word/phrase matching.
+  const text = `${htmlToText(bodyHtml)} ${htmlToText(excerptHtml)} ${metaText}`;
+  const lower = text.toLowerCase();
+
+  // 1. British English — output only pairs actually present.
+  const britishEnglish = [];
+  const seenUk = new Set();
+  for (const [us, uk] of Object.entries(US_TO_UK)) {
+    if (seenUk.has(us)) continue;
+    const re = new RegExp(`\\b${escapeRegExp(us)}\\b`, 'i');
+    if (re.test(text)) { britishEnglish.push({ found: us, suggestion: uk }); seenUk.add(us); }
+  }
+
+  // 2. AI buzzwords — list with suggested fix.
+  const buzzwords = [];
+  for (const b of BUZZWORDS) {
+    const re = new RegExp(`\\b${escapeRegExp(b.phrase)}\\b`, 'i');
+    if (re.test(lower)) buzzwords.push({ found: b.phrase, fix: b.fix });
+  }
+
+  // 3. Branded links — offer a ready <a> snippet only if the body lacks that URL.
+  const brandedLinks = [];
+  for (const l of BRANDED_LINKS) {
+    if (bodyHtml.includes(l.url)) continue;
+    const snippet = `<a href="${l.url}" title="${l.title}" target="_blank" rel="noopener">${l.anchor}</a>`;
+    brandedLinks.push({ anchor: l.anchor, url: l.url, snippet });
+  }
+
+  // 4. Author bio — offer the snippet only if the body lacks the byline.
+  const hasBio = /mae\s+osz/i.test(text) || /interior\s+design\s+consultant/i.test(text);
+  const authorBio = hasBio ? null : { snippet: AUTHOR_BIO_SNIPPET };
+
+  return { britishEnglish, buzzwords, brandedLinks, authorBio };
 }
 
 // Extract the images used in a blog body: src, current alt text, and filename.
@@ -2141,7 +2295,7 @@ async function fetchShopifyContent(pageUrl) {
       const bd = await br.json();
       const blog = bd.blogs?.find(b => b.handle === blogHandle);
       if (!blog) return null;
-      const ar = await fetch(`${base}/blogs/${blog.id}/articles.json?handle=${articleHandle}&fields=id,title,body_html,template_suffix,image,tags`, { headers });
+      const ar = await fetch(`${base}/blogs/${blog.id}/articles.json?handle=${articleHandle}&fields=id,title,body_html,summary_html,template_suffix,image,tags`, { headers });
       const ad = await ar.json();
       const article = ad.articles?.[0];
       if (!article) return null;
@@ -2150,7 +2304,7 @@ async function fetchShopifyContent(pageUrl) {
         fetchShopifyMetafields(base, articleResourcePath, headers),
         fetchAllMetafields(base, articleResourcePath, headers)
       ]);
-      return { shopifyId: article.id, shopifyBlogId: blog.id, shopifyType: 'article', shopifyTitle: article.title, seoTitle: meta.title || article.title, seoDescription: meta.desc || '', bodyHtml: article.body_html || '', templateSuffix: article.template_suffix || '', mainImage: article.image?.src || '', mainImageAlt: article.image?.alt || '', metafields: allMeta, tags: article.tags ? article.tags.split(',').map(t => t.trim()).filter(Boolean) : [] };
+      return { shopifyId: article.id, shopifyBlogId: blog.id, shopifyType: 'article', shopifyTitle: article.title, seoTitle: meta.title || article.title, seoDescription: meta.desc || '', bodyHtml: article.body_html || '', excerpt: article.summary_html || '', templateSuffix: article.template_suffix || '', mainImage: article.image?.src || '', mainImageAlt: article.image?.alt || '', metafields: allMeta, tags: article.tags ? article.tags.split(',').map(t => t.trim()).filter(Boolean) : [] };
     }
 
     return null;
