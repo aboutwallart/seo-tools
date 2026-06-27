@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 52.6</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 52.7</p>
                 </div>
             </div>
         </header>
@@ -2018,6 +2018,18 @@
 
             // ── Product description rewrite (products) — full body, copy + push to body_html ──
             const _prodImg = (data.bodyImages || []).find(i => i.isMain) || (data.bodyImages || [])[0];
+            // Product description: either a full rewrite OR an "already optimised — keep it" verdict
+            // (the backend only declares already-optimised after judging the current description).
+            const productAlreadyOptimised = _isProduct && !s.productDescription && s.descriptionAlreadyOptimised;
+            const productDescOptimisedBlock = productAlreadyOptimised ? `
+                <div class="action-block" style="border-color:#2e7d32;">
+                    <h3>📝 Product Description</h3>
+                    <div style="background:#eafaf1;border:1px solid #d4efdf;border-radius:6px;padding:14px 16px;font-size:0.92rem;color:#1b5e20;">
+                        ✅ <strong>Already optimised — keep it.</strong> This product's description already uses the optimised template and is well written for "${keyword}", so there's nothing to rewrite.
+                        ${s.descriptionOptimisedReason ? `<div style="font-size:0.85rem;color:#2e7d32;margin-top:8px;">${(s.descriptionOptimisedReason||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>` : ''}
+                    </div>
+                </div>` : '';
+
             const productDescBlock = (_isProduct && s.productDescription) ? `
                 <div class="action-block" id="productDescBlock" style="border-color:#6a1b9a;">
                     <style>
@@ -2537,7 +2549,7 @@
             // 1) Everything that edits THIS page goes at the top, then
             // 2) blocks that ask you to edit OTHER pages (links from loser pages + links
             //    from related older blogs), then 3) Request Reindex in GSC — always last.
-            const thisPageBlocks = masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + productDescBlock + aiBlock + pageQuestionsBlock + pageFieldsBlock + pageBrowseBlock + paaBlock + internalAddBlock + manualBlock + tocBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + internalAddBlockTmpl + linkedRefsBlock + blogQualityBlock + homepageImageBlock + imageBlock + autolinkBlock;
+            const thisPageBlocks = masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + productDescBlock + productDescOptimisedBlock + aiBlock + pageQuestionsBlock + pageFieldsBlock + pageBrowseBlock + paaBlock + internalAddBlock + manualBlock + tocBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + internalAddBlockTmpl + linkedRefsBlock + blogQualityBlock + homepageImageBlock + imageBlock + autolinkBlock;
             const otherPageBlocks = loserLinksBlock + relatedBlogsBlock;
             return thisPageBlocks + otherPageBlocks + reindexBlock;
         }
