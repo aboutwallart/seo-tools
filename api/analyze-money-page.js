@@ -1,7 +1,12 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v49.3
+// analyze-money-page.js — v49.4
+// v49.4 (June 27, 2026): PRODUCTS — if the description already uses the optimised template, the AI now
+//                        JUDGES whether it is well-optimised and, if so, returns descriptionAlreadyOptimised
+//                        (no rewrite). If no template, it ALWAYS rewrites. Over-use is dropped only when a
+//                        rewrite IS returned (body replaced), so the rewrite and the over-use check can
+//                        never contradict each other again.
 // v49.3 (June 27, 2026): BATCH B — (1) "Free UK shipping!" auto-appended to every suggestedMeta
 //                        (meta budget tightened 155→135 so it always fits). (2) Concrete placement
 //                        now ALSO returned as structured placementSection + placementWhere on
@@ -370,6 +375,15 @@ module.exports = async function handler(req, res) {
           if (_toc.length && _changed) analysis.structured.updatedTableOfContents = _toc;
         }
       } catch (e) { /* non-fatal — ToC is a nicety */ }
+    }
+
+    // Products: the keyword over-use check only makes sense when the body is KEPT. If a full
+    // rewrite is returned, the old body is replaced — so its over-use findings are moot. Drop them
+    // (when the description is "already optimised" there is no rewrite, so over-use stays and edits
+    // the body you are keeping — coherent, like blogs/collections/pages).
+    if (yourPageData.shopifyType === 'product' && analysis?.structured) {
+      const _pst = analysis.structured;
+      if (_pst.productDescription && String(_pst.productDescription).trim()) _pst.keywordOveruse = null;
     }
 
     // Pages (P2): build guaranteed-valid JSON for the FAQ schema (SAME questions as the
@@ -2123,6 +2137,10 @@ function buildProductAnalysisPrompt(yourPage, competitors, keyword, userPosition
   const existingBodyText = yourPage.shopifyBodyHtml
     ? yourPage.shopifyBodyHtml.replace(/\s+/g, ' ').trim().substring(0, 4000)
     : '';
+  // Does the CURRENT description already use the new optimised template? Signature = the two
+  // stable headings the template always produces. Old/unoptimised descriptions never have these.
+  const _tplBody = yourPage.shopifyBodyHtml || '';
+  const usesNewTemplate = /<h3[^>]*>[^<]*what'?s\s+included/i.test(_tplBody) && /<h2[^>]*>[^<]*how\s+to\s+style/i.test(_tplBody);
   const existingMetafields = (yourPage.metafields || []).length > 0
     ? yourPage.metafields.map(m => `[${m.key}] ${m.text}`).join('\n')
     : 'None';
@@ -2161,7 +2179,9 @@ Return this exact JSON structure with real content (no placeholders):
 {
   "suggestedTitle": "Optimised SEO title tag, max 60 chars, keyword near start, UK spelling",
   "suggestedMeta": "Compelling meta description, max 135 chars, keyword included, ends with a benefit or CTA, UK spelling. Do NOT mention shipping — 'Free UK shipping!' is appended automatically.",
-  "productDescription": "The FULL rewritten product description as ONE HTML string (the body). Follow the EXACT structure + voice rules below.",
+  "descriptionAlreadyOptimised": false,
+  "descriptionOptimisedReason": "",
+  "productDescription": "The FULL rewritten product description as ONE HTML string (the body). Follow the EXACT structure + voice rules below. MAY be an empty string ONLY when descriptionAlreadyOptimised is true — see DESCRIPTION DECISION below.",
   "keywordOveruse": {
     "isOverstuffed": true,
     "summary": "One plain-English sentence about over-use of \\"${keyword}\\".",
@@ -2238,6 +2258,13 @@ ${b.outline || '(no outline available)'}`).join('\n')}
 - Output RAW JSON only — NO markdown code fences (no \`\`\`json).
 - In productDescription AND every aiItems "content", use SINGLE QUOTES for ALL HTML attributes (e.g. <a href='https://...' target='_blank' rel='noopener'>), NEVER double quotes.
 - Keep every string value on ONE line — do NOT put raw line breaks, tabs, or unescaped double-quote characters inside any string value.
+
+═══ DESCRIPTION DECISION (do this FIRST, before writing anything) ═══
+${usesNewTemplate
+  ? `This product's CURRENT description ALREADY uses the optimised template (it has the "What's Included" and "How to Style" sections). You MUST judge whether it is GENUINELY well-optimised: the keyword "${keyword}" is used correctly and SPARINGLY (title + at most 1-2 headings, never repeated/stuffed), it covers the topics and angles the top-3 competitors cover, it follows the AboutWallArt voice, it includes at least one relevant internal link, and it states the artwork's real facts.
+- If it IS already well-optimised: set "descriptionAlreadyOptimised": true, put a ONE-sentence plain reason in "descriptionOptimisedReason", and set "productDescription" to an EMPTY string. Do NOT rewrite something that is already good.
+- If the template is there but it is WEAK (keyword stuffed, thin vs competitors, missing internal link, off-voice): set "descriptionAlreadyOptimised": false and return the FULL improved rewrite in "productDescription".`
+  : `This product's current description does NOT use the optimised template. Set "descriptionAlreadyOptimised": false and ALWAYS return the FULL competitor-driven rewrite in "productDescription" following the structure + voice rules below. Do not assess the old description — replace it.`}
 
 ═══ PRODUCT DESCRIPTION — STRUCTURE (build "productDescription" as ONE HTML string, in THIS order) ═══
 Write it WARM and HUMAN — like a friendly home-decor advisor talking to ONE person, never a spec sheet. Paragraphs stay readable (2-4 flowing sentences), but personality, warmth and flow matter MORE than brevity — do not make it clipped or robotic. It must feel hand-written.
