@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 52.5</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 52.6</p>
                 </div>
             </div>
         </header>
@@ -1661,6 +1661,9 @@
             // Manual: other actions
             (s.otherActions || []).forEach((a, i) => add(`other_${i}`, a.action, 'manual', { priority: a.priority }));
 
+            // Updated Table of Contents (blogs whose body has a List of Contents AND whose H2s changed)
+            if (_isBlog && Array.isArray(s.updatedTableOfContents) && s.updatedTableOfContents.length) add('toc_update', 'Table of Contents updated', 'manual');
+
             // Internal links to loser pages
             (s.loserPageLinks || []).forEach((l, i) => add(`loser_${i}`, `Link added to: ${l.loserUrl}`, 'link'));
 
@@ -1706,6 +1709,21 @@
 
             // Badge shown on any recommendation that comes from the competitor comparison.
             const compBadge = (it) => (it && it.competitorDriven) ? `<span style="display:inline-block;background:#fff3e0;color:#e65100;border:1px solid #ffcc80;border-radius:4px;font-size:0.68rem;font-weight:600;padding:1px 6px;margin-left:6px;vertical-align:middle;">🎯 Based on competitor analysis</span>` : '';
+
+            // Scannable placement (Batch B items 11/12): section heading + position on their own
+            // lines so the merchant finds the spot instantly. Falls back to the old sentence if the
+            // structured fields aren't present.
+            const placementBlock = (section, where, fallback, color) => {
+                const sec = (section || '').replace(/</g,'&lt;').replace(/>/g,'&gt;').trim();
+                const whr = (where || '').replace(/</g,'&lt;').replace(/>/g,'&gt;').trim();
+                if (sec || whr) {
+                    return `<div style="background:#fff;border:1px solid #eee;border-left:3px solid ${color};border-radius:4px;padding:8px 10px;margin-bottom:8px;">
+                        ${sec ? `<div style="font-size:0.82rem;">📍 <span style="color:#888;">Section:</span> <strong style="color:${color};">${sec}</strong></div>` : ''}
+                        ${whr ? `<div style="font-size:0.82rem;margin-top:3px;">↳ <span style="color:#888;">Where:</span> <strong>${whr}</strong></div>` : ''}
+                    </div>`;
+                }
+                return fallback ? `<div style="font-size:0.8rem;color:${color};font-weight:600;margin-bottom:8px;">📍 Where to add it: ${fallback}</div>` : '';
+            };
 
             // ── Master progress bar ───────────────────────────────────────────
             const masterBar = `
@@ -2062,6 +2080,23 @@
                         </div>`).join('')}
                 </div>` : '';
 
+            // ── Updated Table of Contents block (blogs whose body has a List of Contents) ──
+            const _tocList = (_isBlog && Array.isArray(s.updatedTableOfContents)) ? s.updatedTableOfContents : [];
+            const _tocLis = _tocList.map(t => `<li>${(t||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</li>`).join('');
+            const tocBlock = _tocList.length ? `
+                <div class="action-block" style="border-color:#5e35b1;">
+                    <h3>📑 Updated Table of Contents</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">Your H2 changes above affect the List of Contents in the body. Paste this updated, bullet-pointed list of all section titles in to replace your current List of Contents so it matches.</p>
+                    <div id="row_toc_update" style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:#f9f9f9;border-radius:6px;opacity:${state['toc_update']?'0.45':'1'};">
+                        ${cb(allItems.find(it=>it.key==='toc_update'))}
+                        <div style="flex:1;">
+                            <ul style="margin:0 0 10px 18px;font-size:0.9rem;line-height:1.7;">${_tocLis}</ul>
+                            <textarea id="tocUpdateHtml" style="display:none;"><ul>${_tocLis}</ul></textarea>
+                            <button class="copy-btn" type="button" onclick="copyFormatted('tocUpdateHtml',this)">📋 Copy bulleted list</button>
+                        </div>
+                    </div>
+                </div>` : '';
+
             // ── SEO Text (with links) block — collections only (→ seo_text_links_) ──
             const collAddItems = _isCollection ? allItems.filter(it => it.group === 'manual' && it.action === 'add') : [];
             const seoTextLinksBlock = collAddItems.length > 0 ? `
@@ -2136,7 +2171,7 @@
                                 <span style="background:#9c27b0;color:white;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">${getPageTypeLabel(pt)}</span>
                                 <span style="font-size:0.82rem;word-break:break-all;color:#555;">${link.loserUrl}</span>
                             </div>
-                            <div style="font-size:0.8rem;color:#9c27b0;font-weight:600;margin-bottom:8px;">📍 Where to add it: ${link.placement}</div>
+                            ${placementBlock(link.placementSection, link.placementWhere, link.placement, '#9c27b0')}
                             ${(data.yourPage.shopifyType === 'article') ? `
                             <div style="background:white;border:2px solid #e0e0e0;border-radius:6px;padding:10px;font-size:0.9rem;line-height:1.6;margin-bottom:8px;">${link.suggestedSentence}</div>
                             <textarea id="loserSentence${i}" style="display:none;">${link.suggestedSentence.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
@@ -2169,8 +2204,9 @@
                         <div id="row_${key}" style="padding:14px;background:#f9f9f9;border-radius:6px;margin-bottom:10px;opacity:${state[key]?'0.45':'1'};">
                             <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:8px;">
                                 ${it ? cb(it) : ''}
-                                <span style="font-size:0.8rem;color:#00897b;font-weight:600;${state[key]?'text-decoration:line-through;':''}">📍 Where to add it: ${place}</span>${compBadge(l)}
+                                <span style="font-size:0.85rem;font-weight:600;${state[key]?'text-decoration:line-through;':''}">🔗 Link to add</span>${compBadge(l)}
                             </div>
+                            ${placementBlock(l.placementSection, l.placementWhere, place, '#00897b')}
                             ${isReplace ? `
                             <div style="font-size:0.8rem;color:#999;margin-bottom:4px;">Replace this existing text:</div>
                             <div style="background:#fff5f5;border:1px solid #f0d0d0;border-radius:4px;padding:8px;font-size:0.88rem;margin-bottom:8px;">${existing}</div>` : ''}
@@ -2250,7 +2286,7 @@
                                 ${it ? cb(it) : ''}
                                 <span style="font-size:0.85rem;font-weight:600;${state[key]?'text-decoration:line-through;':''}">📝 ${title}</span>
                             </div>
-                            <div style="font-size:0.8rem;color:#5e35b1;font-weight:600;margin-bottom:8px;">📍 Where to add it: ${place}</div>
+                            ${placementBlock(l.placementSection, l.placementWhere, place, '#5e35b1')}
                             ${isReplace ? `
                             <div style="font-size:0.8rem;color:#999;margin-bottom:4px;">Replace this existing text:</div>
                             <div style="background:#fff5f5;border:1px solid #f0d0d0;border-radius:4px;padding:8px;font-size:0.88rem;margin-bottom:8px;">${existing}</div>` : ''}
@@ -2501,7 +2537,7 @@
             // 1) Everything that edits THIS page goes at the top, then
             // 2) blocks that ask you to edit OTHER pages (links from loser pages + links
             //    from related older blogs), then 3) Request Reindex in GSC — always last.
-            const thisPageBlocks = masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + productDescBlock + aiBlock + pageQuestionsBlock + pageFieldsBlock + pageBrowseBlock + paaBlock + internalAddBlock + manualBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + internalAddBlockTmpl + linkedRefsBlock + blogQualityBlock + homepageImageBlock + imageBlock + autolinkBlock;
+            const thisPageBlocks = masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + overuseBlock + productDescBlock + aiBlock + pageQuestionsBlock + pageFieldsBlock + pageBrowseBlock + paaBlock + internalAddBlock + manualBlock + tocBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + internalAddBlockTmpl + linkedRefsBlock + blogQualityBlock + homepageImageBlock + imageBlock + autolinkBlock;
             const otherPageBlocks = loserLinksBlock + relatedBlogsBlock;
             return thisPageBlocks + otherPageBlocks + reindexBlock;
         }
@@ -2795,8 +2831,12 @@
             const id = currentResults?.shopify?.id;
             if (!url) { alert('No valid URL found to push.'); return; }
             if (!id) { alert('Shopify data not available.'); return; }
+            // A Shopify "link" metafield needs BOTH text and url — {"text":"…","url":"…"}.
+            // Sending url alone is rejected with "Value must be a valid link". Build a short label.
+            const kw = (currentKeyword || '').trim();
+            const text = kw ? ('More about ' + kw.replace(/\b\w/g, c => c.toUpperCase())) : 'More about this topic';
             return pushMetafields([
-                { namespace: 'custom', key: 'more_about_new', type: 'link', value: JSON.stringify({ url }), ownerGid: `gid://shopify/Article/${id}` }
+                { namespace: 'custom', key: 'more_about_new', type: 'link', value: JSON.stringify({ text, url }), ownerGid: `gid://shopify/Article/${id}` }
             ], btn);
         }
 
