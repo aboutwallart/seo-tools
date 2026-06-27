@@ -1,7 +1,17 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v49.1
+// analyze-money-page.js — v49.3
+// v49.3 (June 27, 2026): BATCH B — (1) "Free UK shipping!" auto-appended to every suggestedMeta
+//                        (meta budget tightened 155→135 so it always fits). (2) Concrete placement
+//                        now ALSO returned as structured placementSection + placementWhere on
+//                        internalLinksToAdd / relatedBlogLinks / loserPageLinks (so the merchant sees
+//                        section + paragraph at a glance). (3) Blogs with a List of Contents get a
+//                        deterministic updatedTableOfContents (final H2 titles after renames/adds/removes).
+// v49.2 (June 24, 2026): SPEED — the 3 competitors are now analysed IN PARALLEL (Promise.all)
+//                        instead of one-after-another, to stop big pages hitting the 60s serverless
+//                        timeout (was causing HTTP 504). SAME competitors, SAME depth, SAME output —
+//                        only faster. Also set explicit maxDuration:60 (Hobby cap, matches blogs.js).
 // v49.1 (June 24, 2026): BLOG QUALITY CHECKS — deterministic scanBlogQuality() (no AI) for articles.
 //                        Scans body + excerpt + all metafields and returns blogQuality:{ britishEnglish,
 //                        buzzwords, brandedLinks, authorBio }. List-only (merchant find/replaces) — the
@@ -263,19 +273,19 @@ module.exports = async function handler(req, res) {
     console.log(`[Money Page] ✓ Your page analyzed (${Math.round((Date.now() - startTime) / 1000)}s elapsed)`);
 
     // Step 3: Analyze competitors
-    console.log('[Money Page] Step 3: Analyzing 3 competitors... (~15 sec)');
-    const competitorData = [];
-    for (let i = 0; i < Math.min(3, searchResults.competitors.length); i++) {
-      const comp = searchResults.competitors[i];
-      console.log(`[Money Page]   - Analyzing position ${comp.position}: ${comp.url}`);
-      const data = await analyzePage(comp.url, keyword);
-      if (data) {
-        competitorData.push({
-          position: comp.position,
-          ...data
-        });
-      }
-    }
+    console.log('[Money Page] Step 3: Analyzing 3 competitors IN PARALLEL... (~15 sec)');
+    const _topCompetitors = searchResults.competitors.slice(0, 3);
+    // Analyse all 3 at once instead of one-after-another — same competitors, same depth,
+    // same results — just faster, so big pages stay under the serverless timeout. map()
+    // preserves order, so competitorData stays in position order after filtering nulls.
+    const _competitorResults = await Promise.all(
+      _topCompetitors.map(async (comp) => {
+        console.log(`[Money Page]   - Analyzing position ${comp.position}: ${comp.url}`);
+        const data = await analyzePage(comp.url, keyword);
+        return data ? { position: comp.position, ...data } : null;
+      })
+    );
+    const competitorData = _competitorResults.filter(Boolean);
     console.log(`[Money Page] ✓ All competitors analyzed (${Math.round((Date.now() - startTime) / 1000)}s elapsed)`);
 
     // Step 4: Analyze content gaps
@@ -313,6 +323,54 @@ module.exports = async function handler(req, res) {
     console.log('[Money Page] Step 5: Getting AI recommendations... (~20 sec)');
     const analysis = await getClaudeAnalysis(yourPageData, competitorData, keyword, searchResults.userPosition, contentGaps, loserPages, relatedBlogs);
     console.log(`[Money Page] ✓ AI analysis complete! Total time: ${Math.round((Date.now() - startTime) / 1000)}s`);
+
+    // Append the standard shipping CTA to EVERY meta description (all page types). Kept out of the
+    // prompt so it is guaranteed present; the meta budget was tightened to 135 chars so it always fits.
+    if (analysis?.structured && analysis.structured.suggestedMeta) {
+      let _m = String(analysis.structured.suggestedMeta).trim();
+      if (!/free uk shipping/i.test(_m)) {
+        _m = _m.replace(/[\s.!?]+$/, '');               // drop any trailing punctuation/space first
+        analysis.structured.suggestedMeta = `${_m}. Free UK shipping!`;
+      }
+    }
+
+    // Build a deterministic "updated Table of Contents" for blogs that HAVE a List of Contents.
+    // When H2s are renamed / added / removed, this is the full final H2 list (in order) ready to
+    // paste — so the merchant's contents list never goes stale. No AI: built from the body + h2Sections.
+    if (yourPageData.shopifyType === 'article' && analysis?.structured) {
+      try {
+        const _body = yourPageData.shopifyBodyHtml || '';
+        const _hasToc = /(list|table)\s+of\s+contents/i.test(_body) ||
+                        /<a[^>]+href\s*=\s*["']#[^"']+["']/i.test(_body);   // in-page jump links
+        if (_hasToc) {
+          // current H2 titles in document order
+          const _h2s = [];
+          const _re = /<h2\b[^>]*>([\s\S]*?)<\/h2>/gi;
+          let _mm;
+          while ((_mm = _re.exec(_body)) !== null) {
+            const _t = _mm[1].replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+            if (_t) _h2s.push(_t);
+          }
+          const _norm = s => (s || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+          const _changes = Array.isArray(analysis.structured.h2Sections) ? analysis.structured.h2Sections : [];
+          let _toc = _h2s.slice();
+          // apply renames + removes against the current list
+          for (const _c of _changes) {
+            if (!_c || _c.action === 'add') continue;
+            const _idx = _toc.findIndex(h => _norm(h) === _norm(_c.heading));
+            if (_idx === -1) continue;
+            if (_c.action === 'remove') _toc.splice(_idx, 1);
+            else if (_c.replacementText && _c.replacementText.trim()) _toc[_idx] = _c.replacementText.trim();
+          }
+          // append any brand-new sections
+          for (const _c of _changes) {
+            if (_c && _c.action === 'add' && _c.heading && _c.heading.trim()) _toc.push(_c.heading.trim());
+          }
+          const _changed = _changes.some(c => c && (c.action === 'add' || c.action === 'remove' || (c.action !== 'add' && c.replacementText && c.replacementText.trim())));
+          if (_toc.length && _changed) analysis.structured.updatedTableOfContents = _toc;
+        }
+      } catch (e) { /* non-fatal — ToC is a nicety */ }
+    }
 
     // Pages (P2): build guaranteed-valid JSON for the FAQ schema (SAME questions as the
     // Q&A set) and the Page schema — server-side so the JSON is always valid and matches.
@@ -1264,7 +1322,7 @@ Return this exact JSON structure with real content (no placeholders):
 
 {
   "suggestedTitle": "Optimised SEO title, max 60 chars, keyword near start, UK spelling",
-  "suggestedMeta": "Compelling meta description, max 155 chars, keyword included, ends with CTA, UK spelling",
+  "suggestedMeta": "Compelling meta description, max 135 chars, keyword included, ends with a benefit or CTA, UK spelling. Do NOT mention shipping — 'Free UK shipping!' is appended automatically.",
   "suggestedDescription": "2-3 sentences for the blog EXCERPT field (the short summary, NOT the body). Uses the keyword or a close variation once, written naturally. AboutWallArt brand voice. UK spelling. No HTML tags.",
   "firstParagraph": "The optimised opening paragraph for the blog BODY (plain text, no HTML). It directly addresses the question behind \\"${keyword}\\" — raise the question and begin answering it in a natural, engaging way. 2-4 sentences. Uses the main keyword once, naturally. British English. Must NOT duplicate the quickAnswer wording.",
   "quickAnswer": "<div style=\\"background:#f9f9f9;padding:16px 20px;margin-bottom:24px;\\"><strong>Quick Answer:</strong> [2-3 sentence direct factual answer in British English]</div>",
@@ -1357,6 +1415,8 @@ Return this exact JSON structure with real content (no placeholders):
       "existingText": "if mode=replace: the EXACT sentence/paragraph already in the body to swap out. If mode=new: empty string.",
       "newText": "the EXACT paste-ready paragraph WITH the link already embedded as <a href=\\"[url]\\" title=\\"[title]\\" target=\\"_blank\\" rel=\\"noopener\\">[anchorText]</a>. For mode=replace this is existingText rewritten with the link; for mode=new a short natural new sentence/paragraph containing the link.",
       "placement": "exactly where it goes — name the paragraph or section (shown outside the copy box)",
+      "placementSection": "ONLY the exact section heading where this goes (the H2/H3 text, nothing else)",
+      "placementWhere": "ONLY the position within that section, e.g. 'after paragraph 2' or 'after the paragraph starting \\"When choosing…\\"'",
       "competitorDriven": false
     }
   ],
@@ -1365,7 +1425,9 @@ Return this exact JSON structure with real content (no placeholders):
       "loserUrl": "exact URL of the loser page",
       "loserPageType": "product|collection|blog|page",
       "suggestedSentence": "One natural sentence with <a href='[winnerUrl]'>[relevant anchor text]</a> that sounds like editorial content — unique per loser page, never a template",
-      "placement": "Specific placement guidance — be specific, not 'at the end'"
+      "placement": "Specific placement guidance — be specific, not 'at the end'",
+      "placementSection": "the section heading where this goes, if known (else empty string)",
+      "placementWhere": "the position within that section, e.g. 'after paragraph 2' (else empty string)"
     }
   ]${relatedBlogs.length > 0 ? `,
   "relatedBlogLinks": [
@@ -1375,7 +1437,9 @@ Return this exact JSON structure with real content (no placeholders):
       "mode": "replace OR new",
       "existingText": "if that blog already contains the keyword (present: YES): the exact sentence to swap out. Otherwise empty.",
       "newText": "paste-ready text with THIS page's main keyword wrapped as the anchor: <a href=\\"${yourPage.url}\\" title=\\"...\\" target=\\"_blank\\" rel=\\"noopener\\">${keyword}</a>. For replace: the existing sentence rewritten with the link. For new: a short natural sentence/CTA using the keyword as the anchor.",
-      "placement": "where in that source blog to add it (shown outside the copy box)"
+      "placement": "where in that source blog to add it (shown outside the copy box)",
+      "placementSection": "ONLY the exact section heading in that source blog (the H2/H3 text, nothing else)",
+      "placementWhere": "ONLY the position within that section, e.g. 'after paragraph 2'"
     }
   ]` : ''}${isOldTemplate ? `,
   "templateChecks": [
@@ -1431,7 +1495,7 @@ RULES:
   - EXCLUDE GLOBAL/SHARED SECTIONS: NEVER report anything from site-wide navigation, menus, breadcrumbs, footer, cookie/consent notices, search, account, newsletter sign-up, "related posts", "recently viewed", or any section that is identical across every page and cannot be edited on this single page. The merchant only wants spots they can actually change on THIS page (its body, its metafields, its own page-specific sections). If a heading looks like shared theme chrome, leave it out entirely.
   - A single, natural use of the keyword is FINE — only flag genuine over-use, not every mention. If the page is not over-stuffed, return "isOverstuffed": false with an empty "findings" array.
 - suggestedTitle: max 60 chars (hard limit), keyword near start.
-- suggestedMeta: max 155 chars (hard limit), include the keyword once, main benefit, CTA.
+- suggestedMeta: max 135 chars (hard limit), include the keyword once, main benefit, CTA.
 - suggestedDescription: this is the blog EXCERPT — plain text only, no HTML, 2-3 sentences, UK spelling. Use the keyword or a close variation once, written naturally. It is NEVER added to the body.
 - firstParagraph: the blog's opening BODY paragraph (plain text, no HTML, 2-4 sentences, British English). It must directly address the question behind "${keyword}" — raise the question and start answering it in a natural, engaging way. Use the main keyword ONCE only, naturally. Do NOT duplicate the quickAnswer wording. The merchant copies this and pastes it manually as the first paragraph of the blog.
 - quickAnswer: return the EXACT HTML structure shown — do not change any tags or styles, and never add borders, colour lines, wrapper divs or extra tags. Replace ONLY the bracketed text with a direct, factual 2-3 sentence answer to the search intent of "${keyword}", written in British English. The whole value must be one single <div> exactly as shown. It is placed in the body after the second intro paragraph (before any List of Contents, Key Takeaways, or first H2).
@@ -1458,7 +1522,7 @@ RULES:
 - WORD COUNT: never say "reduce word count to X" or "increase keyword density to X%" generically. If specific bloated content must go, name the EXACT paragraph opening words and why; otherwise do not mention word count or density at all.
 - loserPageLinks: ONLY include if loser pages are provided above. Unique natural sentence per loser page with a real HTML anchor to this page, plus a specific placement. If none provided, omit this field entirely.
 - relatedBlogLinks: for EACH blog in "RELATED OLDER BLOGS TO LINK FROM", produce one link FROM that blog INTO this page. The anchor text MUST be this page's exact main keyword "${keyword}" (NEVER a variation). If "keyword present: YES", use mode "replace" and wrap the keyword in that blog's given sentence as the link. If not present, use mode "new" with a short natural sentence/CTA that uses "${keyword}" as the anchor. The link URL is always ${yourPage.url}. One item per related blog. If no related blogs are listed above, omit this field entirely.
-- PLACEMENT MUST BE CONCRETE (relatedBlogLinks AND internalLinksToAdd): never say "after the first major section" or other vague guidance. Use the blog's OUTLINE to name the EXACT spot — the section heading plus the exact position, e.g. "In the section 'How To Find Your Perfect Home Decor Styles', between paragraph 1 and paragraph 2" or "Immediately after the paragraph that starts 'When choosing…'". The merchant must be able to find the spot without thinking.${isOldTemplate ? `
+- PLACEMENT MUST BE CONCRETE (relatedBlogLinks AND internalLinksToAdd): never say "after the first major section" or other vague guidance. Use the blog's OUTLINE to name the EXACT spot — the section heading plus the exact position, e.g. "In the section 'How To Find Your Perfect Home Decor Styles', between paragraph 1 and paragraph 2" or "Immediately after the paragraph that starts 'When choosing…'". The merchant must be able to find the spot without thinking. ALSO fill the two structured fields on every such item: placementSection = the exact section heading ALONE (no other words), placementWhere = the position within it ALONE (e.g. "after paragraph 2"). These are shown as their own scannable lines, so keep each to just the heading / just the position.${isOldTemplate ? `
 - OLD-TEMPLATE CHECKS (this blog uses the ne-blog-posts / guest-post template — these sections are built from METAFIELDS, not the body, so the templateChecks field IS required and the items below must NOT be duplicated in h2Sections):
   - more_about_text + more_about_url: the "More About" section is rendered from metafields. Provide the intro sentence (more_about_text, ≤30 words) AND the authority URL (more_about_url). Do NOT also add an inline authority link in the body, and do NOT put "More about" in h2Sections — it is handled here.
   - home_decor_trends_title: only the NEW heading text for the "Home decor trends" section (its title is a metafield). The rest of that block is general — do not touch it, and do not put it in h2Sections.
@@ -1547,7 +1611,7 @@ Return this exact JSON structure with real content (no placeholders):
 
 {
   "suggestedTitle": "Optimised SEO title, max 60 chars, keyword near start, UK spelling",
-  "suggestedMeta": "Compelling meta description, max 155 chars, keyword included, ends with CTA, UK spelling",
+  "suggestedMeta": "Compelling meta description, max 135 chars, keyword included, ends with a benefit or CTA, UK spelling. Do NOT mention shipping — 'Free UK shipping!' is appended automatically.",
   "suggestedDescription": "2-3 sentences for the Shopify description field. Keyword-rich. AboutWallArt brand voice. UK spelling. No HTML tags.",
   "pageSchema": {
     "@context": "https://schema.org",
@@ -1625,7 +1689,7 @@ ${loserPages.map(l => `- ${l.loserUrl} (${l.pageType}, keyword: "${l.loserKeywor
 
 RULES:
 - suggestedTitle: max 60 chars (hard limit — audit flags above this), keyword near start, include brand or USP
-- suggestedMeta: max 155 chars (hard limit — also used as OG description, stricter threshold), keyword, main benefit, CTA
+- suggestedMeta: max 135 chars (hard limit — also used as OG description, stricter threshold), keyword, main benefit, CTA
 - suggestedDescription: plain text only, no HTML, 2-3 sentences, keyword-rich, UK spelling
 - pageSchema: write complete valid schema appropriate for the page type — for products include offers/price range, for collections include numberOfItems, for articles include author/datePublished. NEVER suggest product-level schema for individual items within a collection page — that belongs on each product page separately and should NOT appear here.
 - faqSchema: write 6-8 real questions people search about "${keyword}" with full helpful answers
@@ -1719,7 +1783,7 @@ Return this exact JSON structure with real content (no placeholders):
 
 {
   "suggestedTitle": "Optimised SEO title, max 60 chars, keyword near start, UK spelling",
-  "suggestedMeta": "Compelling meta description, max 155 chars, keyword included, ends with CTA, UK spelling",
+  "suggestedMeta": "Compelling meta description, max 135 chars, keyword included, ends with a benefit or CTA, UK spelling. Do NOT mention shipping — 'Free UK shipping!' is appended automatically.",
   "suggestedDescription": "2-3 sentences for the collection description field. Keyword-rich, AboutWallArt brand voice, UK spelling, no HTML tags.",
   "browseTheCollection": "An SEO-worthy on-page heading built around the main keyword (shown above the product grid). NOT generic, NEVER starts with 'Shop'. Max ~70 chars. e.g. for 'black and white wall art' → 'Black and White Wall Art for Modern Living Rooms'.",
   "faqSchema": {
@@ -1835,7 +1899,7 @@ RULES:
 - COMPETITOR-DRIVEN ANALYSIS (the backbone of this audit): your goal is to make THIS collection OUTRANK positions 1-3. Compare the full page against the competitor data above and silently answer: (1) what topics/buying questions do they cover that this page is missing? (2) what would a shopper want answered BEFORE buying that this page doesn't answer? (3) what makes their pages feel more complete or trustworthy? Let those answers DRIVE your recommendations (h2Sections, aiItems, keywordOveruse). Work ONLY from the competitor data provided — NEVER invent competitor content you cannot see.
 - competitorDriven flag: on EVERY h2Sections item and aiItem include a boolean "competitorDriven". Set it TRUE whenever the recommendation fills a gap one or more competitors cover, beats something they do, or matches content/depth they have and this page lacks — you MUST mark these true, do not default everything to false. Set it false ONLY for pure general SEO best practice unrelated to the competitor data. When true, the "reason" MUST name the competitive rationale (e.g. "all 3 competitors cover X; this page doesn't").
 - keywordOveruse: examine ALL of "EXISTING PAGE CONTENT" (every heading, the full body, every metafield) and decide whether "${keyword}" is over-used. For each over-used spot return where it lives, the EXACT current text, recommendation "reword" (with suggestedText using a related/secondary term) or "remove" (suggestedText empty). Always set "metafieldKey" to an empty string here. EXCLUDE global/shared theme chrome (nav, menus, breadcrumbs, footer, cookie notices, search, account, newsletter, "related"/"recently viewed"). A single natural use is FINE — only flag genuine over-use. If not over-stuffed, return "isOverstuffed": false with an empty findings array.
-- suggestedTitle: max 60 chars (hard limit), keyword near start. suggestedMeta: max 155 chars (hard limit), keyword once, benefit, CTA. suggestedDescription: plain text, no HTML, 2-3 sentences, UK spelling.
+- suggestedTitle: max 60 chars (hard limit), keyword near start. suggestedMeta: max 135 chars (hard limit), keyword once, benefit, CTA. suggestedDescription: plain text, no HTML, 2-3 sentences, UK spelling.
 - faqSchema: 6-8 real questions about "${keyword}" with full helpful answers. Do NOT return pageSchema or brandBlock — the theme already renders the collection page schema and the brand/About block site-wide.
 - browseTheCollection: a single SEO-worthy heading built around "${keyword}", shown on the page above the products. It must read naturally as a heading, include the keyword (or a close variation) and a useful qualifier, be at most ~70 characters, NEVER be a generic phrase like "Browse the Collection", and NEVER start with the word "Shop".
 - h2Sections: use action "change" (rename/retag a current H2, with reason + exactAction + replacementText), action "remove" (a body section that HURTS SEO — body content ONLY, never a global theme section), or action "add" (a NEW SEO content section — its "content" is paste-ready HTML, an <h2> heading + <p> paragraphs with 1-2 inline internal links, destined for the collection's SEO Text (with links) field). Add a section ONLY for a genuine content gap (check EXISTING PAGE CONTENT first — never duplicate a topic already covered, never add just to repeat "${keyword}"). NEVER flag these shared/theme sections for removal OR rename (they are site-wide, identical on every collection, and cannot be customised per collection): the brand/About section (e.g. "About Wall Art", "About AboutWallArt", "Why choose us"), "Visit the Content Hub", "Content Hub", "Trending Now", "Recently Viewed", "New Arrivals", "Customers Are Saying", or any auto-generated review/browsing/merchandising widget. Leave all of these out of h2Sections entirely. Include competitorDriven on every item.
@@ -1932,7 +1996,7 @@ Return this exact JSON structure with real content (no placeholders):
 
 {
   "suggestedTitle": "Optimised SEO title, max 60 chars, keyword near start, UK spelling",
-  "suggestedMeta": "Compelling meta description, max 155 chars, keyword included, ends with CTA, UK spelling",
+  "suggestedMeta": "Compelling meta description, max 135 chars, keyword included, ends with a benefit or CTA, UK spelling. Do NOT mention shipping — 'Free UK shipping!' is appended automatically.",
   "suggestedDescription": "2-3 sentences for the page description field. Keyword-rich, AboutWallArt brand voice, UK spelling, no HTML tags.",
   "keywordOveruse": {
     "isOverstuffed": true,
@@ -2024,7 +2088,7 @@ RULES:
 - COMPETITOR-DRIVEN ANALYSIS (the backbone of this audit): your goal is to make THIS page OUTRANK positions 1-3. Compare the full page against the competitor data above and silently answer: (1) what topics/buying questions do they cover that this page is missing? (2) what would a visitor want answered that this page doesn't answer? (3) what makes their pages feel more complete or trustworthy? Let those answers DRIVE your recommendations (aiItems, questionSet, keywordOveruse). Work ONLY from the competitor data provided — NEVER invent competitor content you cannot see.
 - competitorDriven flag: on EVERY aiItem include a boolean "competitorDriven". Set it TRUE whenever the recommendation fills a gap one or more competitors cover, beats something they do, or matches content/depth they have and this page lacks — you MUST mark these true, do not default everything to false. Set it false ONLY for pure general SEO best practice unrelated to the competitor data. When true, the reason/content rationale MUST name the competitive angle.
 - keywordOveruse: examine ALL of "EXISTING PAGE CONTENT" (every heading, the full body, every metafield) and decide whether "${keyword}" is over-used. For each over-used spot return where it lives, the EXACT current text, recommendation "reword" (with suggestedText using a related/secondary term) or "remove" (suggestedText empty). Always set "metafieldKey" to an empty string here. EXCLUDE global/shared theme chrome (nav, menus, breadcrumbs, footer, cookie notices, search, account, newsletter, "related"/"recently viewed"). A single natural use is FINE — only flag genuine over-use. If not over-stuffed, return "isOverstuffed": false with an empty findings array.
-- suggestedTitle: max 60 chars (hard limit), keyword near start. suggestedMeta: max 155 chars (hard limit), keyword once, benefit, CTA. suggestedDescription: plain text, no HTML, 2-3 sentences, UK spelling.
+- suggestedTitle: max 60 chars (hard limit), keyword near start. suggestedMeta: max 135 chars (hard limit), keyword once, benefit, CTA. suggestedDescription: plain text, no HTML, 2-3 sentences, UK spelling.
 - questionSet: 4-6 real "People Also Ask"-style questions about "${keyword}" with full, helpful one-sentence answers. This SINGLE set is reused to fill three different page fields, so make each question genuinely useful and self-contained. The first word of each question should vary (not all "What…").
 - aiItems — generate the page snippets in their EXACT formats below:
   - Comparison Snippet ("comparison_snippet", richtext_snippet) EXACT format: <h3>[the question]</h3><p>[answer paragraph, 3-5 sentences, first sentence is a standalone answer]</p> — H3 only, no other tags. ALWAYS generate this (a "What is ${keyword}?" style definition).
@@ -2096,7 +2160,7 @@ Return this exact JSON structure with real content (no placeholders):
 
 {
   "suggestedTitle": "Optimised SEO title tag, max 60 chars, keyword near start, UK spelling",
-  "suggestedMeta": "Compelling meta description, max 155 chars, keyword included, ends with CTA, UK spelling",
+  "suggestedMeta": "Compelling meta description, max 135 chars, keyword included, ends with a benefit or CTA, UK spelling. Do NOT mention shipping — 'Free UK shipping!' is appended automatically.",
   "productDescription": "The FULL rewritten product description as ONE HTML string (the body). Follow the EXACT structure + voice rules below.",
   "keywordOveruse": {
     "isOverstuffed": true,
@@ -2196,7 +2260,7 @@ IMPORTANT: do NOT describe frames, perspex, canvas, paper types, sizes, mounts, 
 - BANNED PHRASES: "in the ever-evolving world of", "at the forefront of", "in summary", "in conclusion", "in essence", "it's important to note", "emerges as a beacon", "dive into".
 
 ═══ OTHER RULES ═══
-- suggestedTitle: max 60 chars, keyword near start. suggestedMeta: max 155 chars, keyword once, benefit, CTA. (Copy-only — not pushed.)
+- suggestedTitle: max 60 chars, keyword near start. suggestedMeta: max 135 chars, keyword once, benefit, CTA. (Copy-only — not pushed.)
 - aiItems — generate all three rich-text snippets in the EXACT H2 formats shown (heading level 2). how_to_block and comparison_table use bold-labelled paragraphs (rich text cannot hold real tables). Keep "metafieldKey" and "format" EXACTLY as shown. competitorDriven: true when a snippet fills a competitor gap, else false.
 - keywordOveruse: examine the current description + metafields; flag genuine over-use of "${keyword}" only (exclude shared theme chrome). If clean, isOverstuffed:false with an empty findings array.
 - ⚠️ HEADINGS & KEYWORD (SEO balance): put the EXACT keyword "${keyword}" in AT MOST TWO headings across the WHOLE description + snippets (e.g. the "How to Style" H2 and the Comparison Snippet H2). For ALL other H2/H3 headings, write a NATURAL VARIATION or related phrasing (still topical and useful) — do NOT repeat the exact keyword in every heading; that is stuffing and hurts ranking.
@@ -2618,3 +2682,7 @@ async function findInactiveProductLinks(bodyHtml, origin) {
     return [];
   }
 }
+
+// Give the heavy analysis pipeline the full Hobby-plan ceiling (60s) so big pages
+// don't 504. Same value blogs.js uses.
+module.exports.config = { maxDuration: 60 };
