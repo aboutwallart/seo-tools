@@ -1,7 +1,14 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v49.6
+// analyze-money-page.js — v49.7
+// v49.7 (June 28, 2026): PROMO FIXER — Step 1 (find & show, read-only). (1) Dead Products: the
+//                        inactive-product scan now also returns the dead product's own image
+//                        (featuredImage) so the tool can show its thumbnail. (2) NEW Missing Buttons
+//                        detection (findMissingButtonPromos): finds product-image promos that have NO
+//                        "Shop Here" button, plus plain-text CTA phrases with no link (handle unknown
+//                        → user identifies). Skips handles already flagged as dead (no overlap).
+//                        Returned as response.missingButtons (blogs + collections). No store writes.
 // v49.6 (June 28, 2026): EXACT placement everywhere. Loser pages ("Internal Links to Add") and a
 //                        blog's own outbound links (internalLinksToAdd) now get a real findAnchor —
 //                        the tool reads each target page's live body (loser bodies are already
@@ -323,6 +330,13 @@ module.exports = async function handler(req, res) {
       ? await findInactiveProductLinks(yourPageData.shopifyBodyHtml, pageOrigin) : [];
     console.log(`[Money Page] Found ${inactiveProducts.length} inactive product links`);
 
+    // Step 4.75: Missing Buttons (read-only, deterministic) — product images without a Shop Here
+    // button + plain-text CTAs with no link. Skips handles already flagged as inactive/dead.
+    const missingButtons = _scanInactive
+      ? findMissingButtonPromos(yourPageData.shopifyBodyHtml, pageOrigin, inactiveProducts.map(p => p.handle))
+      : [];
+    console.log(`[Money Page] Found ${missingButtons.length} missing-button promos`);
+
     // Step 4.8: linked-reference metafields (blogs) — Linked Blogs / Collections / Trends
     const linkedReferences = await getLinkedReferences(yourPageData, keyword);
     console.log(`[Money Page] Linked refs — blogs:${linkedReferences.linkedBlogs.length} collections:${linkedReferences.linkedCollections.length} trends:${linkedReferences.linkedTrends.length}`);
@@ -488,6 +502,7 @@ module.exports = async function handler(req, res) {
       analysis: analysis,
       blogQuality: blogQuality,
       inactiveProducts: inactiveProducts,
+      missingButtons: missingButtons,
       linkedReferences: linkedReferences,
       bodyImages: buildImageList(shopifyContent),
       shopify: shopifyContent ? {
@@ -2763,17 +2778,17 @@ async function findInactiveProductLinks(bodyHtml, origin) {
     if (!handles.length) return [];
     const results = await Promise.all(handles.map(async (handle) => {
       try {
-        const data = await shopifyGraphQL(`{ products(first:1, query:"handle:${handle}") { edges { node { id title status productType tags } } } }`);
+        const data = await shopifyGraphQL(`{ products(first:1, query:"handle:${handle}") { edges { node { id title status productType tags featuredImage { url } } } } }`);
         const node = data && data.products && data.products.edges[0] && data.products.edges[0].node;
         const url = `${origin}/products/${handle}`;
         if (!node) {
           const replacements = await findReplacements({ handleWords: handle.replace(/-/g, ' '), excludeHandle: handle, origin });
-          return { handle, url, title: handle, status: 'NOT FOUND', adminUrl: null, replacements };
+          return { handle, url, title: handle, status: 'NOT FOUND', imageUrl: '', adminUrl: null, replacements };
         }
         if (node.status && node.status.toUpperCase() !== 'ACTIVE') {
           const idNum = (node.id || '').split('/').pop();
           const replacements = await findReplacements({ productType: node.productType, tags: node.tags, handleWords: handle.replace(/-/g, ' '), excludeHandle: handle, origin });
-          return { handle, url, title: node.title, status: node.status, adminUrl: idNum ? `https://admin.shopify.com/store/${STORE_HANDLE}/products/${idNum}` : null, replacements };
+          return { handle, url, title: node.title, status: node.status, imageUrl: node.featuredImage ? node.featuredImage.url : '', adminUrl: idNum ? `https://admin.shopify.com/store/${STORE_HANDLE}/products/${idNum}` : null, replacements };
         }
         return null;                                  // active → fine
       } catch { return null; }
@@ -2781,6 +2796,75 @@ async function findInactiveProductLinks(bodyHtml, origin) {
     return results.filter(Boolean);
   } catch (e) {
     console.warn('[Inactive Products] failed:', e.message);
+    return [];
+  }
+}
+
+// MISSING BUTTONS (Step 1, read-only, deterministic — no Shopify calls).
+// Two cases:
+//  • image-no-button: a product is shown via an <a href=/products/HANDLE> that WRAPS an <img>, but
+//    that product has NO "Shop Here"-style button anchor anywhere → the shopper sees it but there's
+//    no clear button to buy. We already know the handle + image from the body (thumbnail for free).
+//  • text-no-link: a CTA phrase ("Shop Here" etc.) sitting as PLAIN TEXT with no link → handle
+//    unknown, the user identifies the product later.
+// Handles already flagged as DEAD are skipped here (those belong to the Dead Products list).
+const _CTA_PHRASES = 'shop here|shop now|show me this product!?|buy now|shop the look|view product|get it here';
+function findMissingButtonPromos(bodyHtml, origin, inactiveHandles) {
+  try {
+    if (!bodyHtml) return [];
+    const deadSet = new Set((inactiveHandles || []).map(h => String(h).toLowerCase()));
+    const ctaRe = new RegExp('^(?:' + _CTA_PHRASES + ')$', 'i');
+    const anchorRe = /<a\b[^>]*href=["'][^"']*\/products\/([^"'?#\/]+)[^>]*>([\s\S]*?)<\/a>/gi;
+
+    // Pass 1 — which product handles already have a Shop Here-style BUTTON (anchor whose text is a CTA)
+    const buttonHandles = new Set();
+    let m;
+    while ((m = anchorRe.exec(bodyHtml))) {
+      const handle = (m[1] || '').toLowerCase();
+      const text = (m[2] || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      if (ctaRe.test(text)) buttonHandles.add(handle);
+    }
+
+    // Pass 2 — product-image promos (anchor wrapping an <img>) that have NO button for that handle
+    const results = [];
+    const seen = new Set();
+    anchorRe.lastIndex = 0;
+    while ((m = anchorRe.exec(bodyHtml))) {
+      const handle = (m[1] || '').toLowerCase();
+      const inner = (m[2] || '');
+      const imgM = inner.match(/<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/i);
+      if (!imgM) continue;                       // anchor wraps text, not an image → a normal inline link
+      if (buttonHandles.has(handle)) continue;   // already has a Shop Here button → fine
+      if (deadSet.has(handle)) continue;         // dead product → handled by Dead Products list
+      if (seen.has(handle)) continue;
+      seen.add(handle);
+      const altM = inner.match(/\balt=["']([^"']*)["']/i);
+      results.push({
+        kind: 'image-no-button',
+        handle,
+        url: `${origin}/products/${handle}`,
+        imageUrl: imgM[1],
+        title: (altM && altM[1]) ? altM[1] : handle.replace(/-/g, ' ')
+      });
+    }
+
+    // Pass 3 — plain-text CTA phrases that are NOT inside any link (product unknown)
+    const noAnchors = bodyHtml.replace(/<a\b[\s\S]*?<\/a>/gi, ' ');
+    const textOnly = noAnchors.replace(/<[^>]+>/g, ' ');
+    const plainRe = new RegExp('(' + _CTA_PHRASES + ')', 'gi');
+    const plainSeen = new Set();
+    let pm;
+    while ((pm = plainRe.exec(textOnly))) {
+      const phrase = pm[1].replace(/\s+/g, ' ').trim();
+      const key = phrase.toLowerCase();
+      if (plainSeen.has(key)) continue;
+      plainSeen.add(key);
+      results.push({ kind: 'text-no-link', handle: null, url: null, imageUrl: '', title: phrase });
+    }
+
+    return results;
+  } catch (e) {
+    console.warn('[Missing Buttons] failed:', e.message);
     return [];
   }
 }
