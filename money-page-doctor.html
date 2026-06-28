@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 53.2</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 54.0</p>
                 </div>
             </div>
         </header>
@@ -1604,8 +1604,8 @@
             // Related-blog links (links INTO this page from related older blogs)
             (s.relatedBlogLinks || []).forEach((l, i) => add(`relblog_${i}`, `Link added from: ${l.sourceTitle || l.sourceUrl}`, 'relblog'));
 
-            // Inactive product links found in the body (data-level, not from the AI)
-            (data.inactiveProducts || []).forEach((p, i) => add(`inactiveprod_${i}`, `Inactive product link fixed: ${p.title}`, 'inactiveprod'));
+            // Dead products found in the body (data-level, not from the AI)
+            (data.inactiveProducts || []).forEach((p, i) => add(`inactiveprod_${i}`, `Dead product replaced: ${p.title}`, 'inactiveprod'));
 
             // Linked References — one "pushed" tick per group (blogs / collections / trends).
             // Blogs, collections, pages AND products fill these three reference metafields.
@@ -2409,19 +2409,22 @@
             // ── Inactive product links block (shown for blogs + collections) ──
             const inactiveProductsBlock = (_isBlog || _isCollection) ? `
                 <div class="action-block" style="border-color:#d32f2f;">
-                    <h3>⚠️ Inactive Product Links</h3>
+                    <h3>🔴 Dead Products</h3>
+                    <p style="font-size:0.8rem;color:#888;margin:-6px 0 12px;background:#fff5f5;border-left:3px solid #d32f2f;padding:7px 10px;border-radius:4px;"><strong>What this means:</strong> a product linked in this blog that can't be bought — it's archived (sold out), hidden, or deleted. The shopper clicks and hits a dead page = lost sale.</p>
                     ${(data.inactiveProducts && data.inactiveProducts.length > 0) ? `
-                    <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">These products are linked in the blog body but are no longer active — remove or replace each link so readers don't hit a dead/unavailable product. Suggested active replacements are below each one.</p>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">These products are linked in the blog body but are no longer active. Suggested live replacements are shown below each one. <em>(Fixing/pushing comes in the next step — for now, just check the list is right.)</em></p>
                     ${data.inactiveProducts.map((p, i) => {
                         const key = `inactiveprod_${i}`;
                         const it  = allItems.find(x => x.key === key);
                         const title = (p.title || p.handle || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                         const url   = (p.url || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                         const status = (p.status || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        const deadImg = (p.imageUrl || '');
                         return `
                         <div id="row_${key}" style="padding:14px;background:#fff5f5;border:1px solid #f0c0c0;border-radius:6px;margin-bottom:10px;opacity:${state[key]?'0.45':'1'};">
                             <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:6px;">
                                 ${it ? cb(it) : ''}
+                                ${deadImg ? `<img src="${deadImg}" alt="" style="width:54px;height:54px;object-fit:cover;border-radius:4px;flex:0 0 auto;border:1px solid #f0c0c0;">` : ''}
                                 <div>
                                     <strong style="font-size:0.88rem;color:#c0392b;${state[key]?'text-decoration:line-through;':''}">${title}</strong>
                                     <span style="display:inline-block;background:#fdecea;color:#c0392b;font-size:0.7rem;font-weight:600;padding:1px 6px;border-radius:4px;margin-left:6px;">${status}</span>
@@ -2448,7 +2451,46 @@
                             </div>` : ''}
                         </div>`;
                     }).join('')}
-                    ` : `<p style="font-size:0.9rem;color:#2e7d32;">✅ No inactive product links — nothing to replace.</p>`}
+                    ` : `<p style="font-size:0.9rem;color:#2e7d32;">✅ No dead products — every linked product is live.</p>`}
+                </div>` : '';
+
+            // ── Missing Buttons block (blogs + collections) — Step 1: find & show only ──
+            const missingButtonsBlock = (_isBlog || _isCollection) ? `
+                <div class="action-block" style="border-color:#ef8c00;">
+                    <h3>🟠 Missing Buttons</h3>
+                    <p style="font-size:0.8rem;color:#888;margin:-6px 0 12px;background:#fff8ec;border-left:3px solid #ef8c00;padding:7px 10px;border-radius:4px;"><strong>What this means:</strong> a product is shown in this blog but there's no "Shop Here" button to click — so the shopper can't buy it = lost sale.</p>
+                    ${(data.missingButtons && data.missingButtons.length > 0) ? `
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">Found below. <em>(Adding the button comes in the next step — for now, just check the list is right.)</em></p>
+                    ${data.missingButtons.map((b, i) => {
+                        const title = (b.title || b.handle || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        const url   = (b.url || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        const img   = (b.imageUrl || '');
+                        if (b.kind === 'text-no-link') {
+                            return `
+                            <div style="padding:14px;background:#fff8ec;border:1px solid #f0d9b0;border-radius:6px;margin-bottom:10px;">
+                                <div style="display:flex;align-items:center;gap:10px;">
+                                    <span style="font-size:1.3rem;">⚠️</span>
+                                    <div>
+                                        <strong style="font-size:0.88rem;color:#b9770e;">"${title}"</strong>
+                                        <span style="display:inline-block;background:#fdeccb;color:#b9770e;font-size:0.7rem;font-weight:600;padding:1px 6px;border-radius:4px;margin-left:6px;">text, no link</span>
+                                        <div style="font-size:0.8rem;color:#777;margin-top:4px;">This wording sits as plain text with no product link — you'll identify which product it is in the next step.</div>
+                                    </div>
+                                </div>
+                            </div>`;
+                        }
+                        return `
+                        <div style="padding:14px;background:#fff8ec;border:1px solid #f0d9b0;border-radius:6px;margin-bottom:10px;">
+                            <div style="display:flex;align-items:flex-start;gap:10px;">
+                                ${img ? `<img src="${img}" alt="" style="width:54px;height:54px;object-fit:cover;border-radius:4px;flex:0 0 auto;border:1px solid #f0d9b0;">` : ''}
+                                <div>
+                                    <strong style="font-size:0.88rem;color:#b9770e;">${title}</strong>
+                                    <span style="display:inline-block;background:#fdeccb;color:#b9770e;font-size:0.7rem;font-weight:600;padding:1px 6px;border-radius:4px;margin-left:6px;">no button</span>
+                                    <div style="font-size:0.8rem;color:#777;word-break:break-all;margin-top:4px;">🔗 ${url}</div>
+                                </div>
+                            </div>
+                        </div>`;
+                    }).join('')}
+                    ` : `<p style="font-size:0.9rem;color:#2e7d32;">✅ No missing buttons — every product shown has a Shop Here button.</p>`}
                 </div>` : '';
 
             // ── Linked References block (blogs) — Linked Blogs / Collections / Trends ──
@@ -2642,7 +2684,7 @@
             // 1) Everything that edits THIS page goes at the top, then
             // 2) blocks that ask you to edit OTHER pages (links from loser pages + links
             //    from related older blogs), then 3) Request Reindex in GSC — always last.
-            const thisPageBlocks = masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + videoBlock + paaRemoveBlock + overuseBlock + productDescBlock + productDescOptimisedBlock + aiBlock + pageQuestionsBlock + pageFieldsBlock + pageBrowseBlock + paaBlock + internalAddBlock + manualBlock + tocBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + internalAddBlockTmpl + linkedRefsBlock + blogQualityBlock + homepageImageBlock + imageBlock + autolinkBlock;
+            const thisPageBlocks = masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + videoBlock + paaRemoveBlock + overuseBlock + productDescBlock + productDescOptimisedBlock + aiBlock + pageQuestionsBlock + pageFieldsBlock + pageBrowseBlock + paaBlock + internalAddBlock + manualBlock + tocBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + missingButtonsBlock + internalAddBlockTmpl + linkedRefsBlock + blogQualityBlock + homepageImageBlock + imageBlock + autolinkBlock;
             const otherPageBlocks = loserLinksBlock + relatedBlogsBlock;
             return thisPageBlocks + otherPageBlocks + reindexBlock;
         }
