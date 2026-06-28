@@ -1,4 +1,9 @@
-// shopify-files.js — v2.2
+// shopify-files.js — v2.3
+// v2.3 (June 28, 2026): body-edit — 'add-video' now adds a bold "WATCH: <title>" line (title
+//                       auto-fetched via YouTube oembed) above the embed; new op 'remove-paa'
+//                       removes an in-body People Also Ask section, but ONLY when the saved
+//                       people_also_ask_new metafield still has content (never loses copy);
+//                       preview highlights the removed section in red. Undo as usual.
 // v2.2 (June 28, 2026): body-edit gains op 'add-video' — builds the responsive YouTube embed
 //                       (exact blog format) from a pasted link and appends it at the end of the
 //                       body. Same preview + undo as Quick Answer. Powers the "🎬 Add a video" block.
@@ -879,6 +884,23 @@ module.exports = async function handler(req, res) {
       return `<div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;max-width:100%;"><iframe src="https://www.youtube.com/embed/${id}" style="position:absolute;top:0;left:0;width:100%;height:100%;" frameborder="0" allowfullscreen></iframe></div>`;
     }
     const markWrap = (html) => '<div data-bodyedit-preview="1" style="outline:3px solid #ff9800;outline-offset:4px;">' + html + '</div>';
+    // Find an in-body "People Also Ask" / FAQ section: from its H2/H3 heading to the next
+    // same-or-higher heading (or end of body). Returns { start, end } or null.
+    function findPaaSection(body) {
+      const re = /<(h2|h3)\b[^>]*>([\s\S]*?)<\/\1>/gi; let m;
+      while ((m = re.exec(body))) {
+        const txt = m[2].replace(/<[^>]+>/g, '').toLowerCase();
+        if (/people\s*also\s*ask|frequently\s*asked\s*questions|related\s*questions|common\s*questions/.test(txt)) {
+          const level = m[1].toLowerCase();
+          const after = m.index + m[0].length;
+          const nextRe = /<(h1|h2|h3)\b/gi; nextRe.lastIndex = after;
+          let n, end = body.length;
+          while ((n = nextRe.exec(body))) { if (n[1].toLowerCase() <= level) { end = n.index; break; } }
+          return { start: m.index, end };
+        }
+      }
+      return null;
+    }
 
     try {
       const gr = await fetch(`${base}/${t.path}.json?fields=id,body_html`, { headers: shopifyHeaders });
@@ -897,9 +919,40 @@ module.exports = async function handler(req, res) {
         const id = extractYouTubeId(videoUrl);
         if (!id) return res.status(200).json({ success: false, error: "That doesn't look like a YouTube link. Paste a normal YouTube video link." });
         if (oldBody.includes('youtube.com/embed/' + id)) return res.status(200).json({ success: false, already: true, error: 'This video is already in the blog.' });
-        const embed = buildResponsiveEmbed(id);
-        newBody = oldBody + '\n' + embed + '\n';
-        markedAfter = oldBody + '\n' + markWrap(embed) + '\n';
+        const watchUrl = `https://www.youtube.com/watch?v=${id}`;
+        // Fetch the real video title (no API key needed) for the bold "WATCH:" line.
+        let videoTitle = '';
+        try {
+          const o = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(watchUrl)}&format=json`);
+          if (o.ok) { const oj = await o.json(); videoTitle = (oj.title || '').trim(); }
+        } catch { /* fall back to generic link text */ }
+        const linkText = (videoTitle || 'Watch on YouTube').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const titleLine = `<p style="text-align:center;"><strong>WATCH: <a href="${watchUrl}" target="_blank" rel="noopener">${linkText}</a></strong></p>`;
+        const block = titleLine + '\n' + buildResponsiveEmbed(id);
+        newBody = oldBody + '\n' + block + '\n';
+        markedAfter = oldBody + '\n' + markWrap(block) + '\n';
+      }
+      else if (op === 'remove-paa') {
+        // Guard: the saved People Also Ask metafield MUST still have content, else removing the
+        // in-body copy would lose it. Read the article's metafields and check.
+        let savedExists = false;
+        try {
+          const mr = await fetch(`${base}/${t.path}/metafields.json?namespace=custom`, { headers: shopifyHeaders });
+          if (mr.ok) {
+            const md = await mr.json();
+            savedExists = (md.metafields || []).some(x => x.namespace === 'custom'
+              && (x.key === 'people_also_ask_new' || x.key === 'people_also_ask')
+              && String(x.value || '').trim().length > 0);
+          }
+        } catch { /* treat as not-found below */ }
+        const sec = findPaaSection(oldBody);
+        if (!sec) return res.status(200).json({ success: false, notFound: true, error: 'No People Also Ask section found in the blog body.' });
+        if (!savedExists) return res.status(200).json({ success: false, error: 'Your saved People Also Ask field looks empty — not removing the body copy, so nothing is lost.' });
+        const removed = oldBody.slice(sec.start, sec.end);
+        newBody = oldBody.slice(0, sec.start) + oldBody.slice(sec.end);
+        markedAfter = oldBody.slice(0, sec.start)
+          + '<div data-bodyedit-preview="1" style="outline:3px solid #e53935;background:#ffebee;text-decoration:line-through;">' + removed + '</div>'
+          + oldBody.slice(sec.end);
       }
       else {
         return res.status(400).json({ error: `Unknown op: ${op}` });
