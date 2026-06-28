@@ -1,4 +1,10 @@
-// shopify-files.js — v2.0
+// shopify-files.js — v2.1
+// v2.1 (June 28, 2026): body-edit engine + restore-body — safely insert content into a live blog
+//                       body for the user (Batch 1: Quick Answer box placed after the opening,
+//                       before the first List of Contents / H2). 'preview' shows the result with
+//                       the new box highlighted; 'apply' backs up the previous body to
+//                       data/body-undo.json (any-computer undo) then writes live. restore-body
+//                       rolls back to that backup. Powers the "✍️ Insert it for me" + Undo buttons.
 // v2.0 (June 22, 2026): new update-image-alt action — sets ONE image's alt by URL: body images
 //                       via the resource body_html (re-fetched live so pushes don't clobber each
 //                       other), main/featured image via the resource image alt. Powers the per-image
@@ -807,6 +813,147 @@ module.exports = async function handler(req, res) {
       if (r.ok) return res.status(200).json({ success: true });
       const e = await r.json().catch(() => ({}));
       return res.status(502).json({ success: false, error: JSON.stringify(e.errors || r.statusText) });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  // -------------------------------------------------------
+  // BODY EDIT ENGINE — safely insert/edit a blog (or page/collection/product) body for the user.
+  // The tool re-reads the LIVE body each call, makes ONE change, and (on apply) saves a backup
+  // of the previous body to data/body-undo.json so the change can be undone from any computer.
+  //   mode = 'preview' → returns the new body (inserted snippet highlighted) WITHOUT saving.
+  //   mode = 'apply'   → saves an undo backup, writes the new body live.
+  //   op  = 'quick-answer' (Batch 1) — places the Quick Answer box after the opening, before
+  //          the first List of Contents / first H2.
+  // -------------------------------------------------------
+  if (req.query.action === 'body-edit' && req.method === 'POST') {
+    const { shopifyId, shopifyType, shopifyBlogId, op, snippet, mode } = req.body;
+    if (!shopifyId || !shopifyType || !op || typeof snippet !== 'string' || !snippet.trim()) {
+      return res.status(400).json({ error: 'Missing shopifyId, shopifyType, op or snippet' });
+    }
+    const shopifyHeaders = { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' };
+    const base = `https://${shopifyDomain}/admin/api/2025-01`;
+    const bodyMap = {
+      product:           { path: `products/${shopifyId}`,                        wrap: 'product' },
+      page:              { path: `pages/${shopifyId}`,                           wrap: 'page' },
+      article:           { path: `blogs/${shopifyBlogId}/articles/${shopifyId}`, wrap: 'article' },
+      custom_collection: { path: `custom_collections/${shopifyId}`,              wrap: 'custom_collection' },
+      smart_collection:  { path: `smart_collections/${shopifyId}`,              wrap: 'smart_collection' }
+    };
+    const t = bodyMap[shopifyType];
+    if (!t) return res.status(400).json({ error: `Unknown shopifyType: ${shopifyType}` });
+
+    // Place the Quick Answer box after the second intro paragraph, but never after the first
+    // heading or List of Contents. Returns { idx } or { already:true } if a box is already there.
+    function placeQuickAnswer(body) {
+      if (/quick\s*answer\s*:/i.test(body)) return { already: true };
+      let count = 0, idx = -1, m;
+      const re = /<\/p>/gi;
+      while ((m = re.exec(body))) { count++; if (count === 2) { idx = m.index + m[0].length; break; } }
+      if (idx === -1) { const m1 = /<\/p>/i.exec(body); if (m1) idx = m1.index + m1[0].length; }
+      const mh = /<h2\b/i.exec(body);          // never let it land after the first H2
+      if (mh && (idx === -1 || idx > mh.index)) idx = mh.index;
+      if (idx === -1) idx = 0;                  // empty/odd body → prepend
+      return { idx };
+    }
+
+    try {
+      const gr = await fetch(`${base}/${t.path}.json?fields=id,body_html`, { headers: shopifyHeaders });
+      const gd = await gr.json();
+      const oldBody = gd[t.wrap]?.body_html || '';
+
+      let place;
+      if (op === 'quick-answer') place = placeQuickAnswer(oldBody);
+      else return res.status(400).json({ error: `Unknown op: ${op}` });
+
+      if (place.already) {
+        return res.status(200).json({ success: false, already: true, error: 'A Quick Answer box is already in this blog.' });
+      }
+      const cleanInsert = '\n' + snippet + '\n';
+      const newBody = oldBody.slice(0, place.idx) + cleanInsert + oldBody.slice(place.idx);
+
+      // PREVIEW — return the new body with the inserted box highlighted; nothing saved.
+      if (mode === 'preview') {
+        const marked = '\n<div data-bodyedit-preview="1" style="outline:3px solid #ff9800;outline-offset:4px;">' + snippet + '</div>\n';
+        const afterMarked = oldBody.slice(0, place.idx) + marked + oldBody.slice(place.idx);
+        return res.status(200).json({ success: true, mode: 'preview', after: afterMarked });
+      }
+
+      // APPLY — back up the current body, then write the new body live.
+      const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+      const REPO = 'aboutwallart/seo-tools';
+      const UNDO_FILE = 'data/body-undo.json';
+      const undoKey = `${shopifyType}:${shopifyId}`;
+      try {
+        let store = {}, sha = null;
+        const gh = await fetch(`https://api.github.com/repos/${REPO}/contents/${UNDO_FILE}`, {
+          headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
+        });
+        if (gh.ok) { const d = await gh.json(); sha = d.sha; store = JSON.parse(Buffer.from(d.content, 'base64').toString('utf-8') || '{}'); }
+        store[undoKey] = { body: oldBody, blogId: shopifyBlogId || null, ts: new Date().toISOString() };
+        await fetch(`https://api.github.com/repos/${REPO}/contents/${UNDO_FILE}`, {
+          method: 'PUT',
+          headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: `body-undo backup ${undoKey}`, content: Buffer.from(JSON.stringify(store, null, 2)).toString('base64'), ...(sha ? { sha } : {}) })
+        });
+      } catch (e) { /* backup failure must not silently lose the body */ return res.status(500).json({ success: false, error: 'Could not save undo backup — change not applied. ' + e.message }); }
+
+      const wr = await fetch(`${base}/${t.path}.json`, {
+        method: 'PUT', headers: shopifyHeaders,
+        body: JSON.stringify({ [t.wrap]: { id: shopifyId, body_html: newBody } })
+      });
+      if (wr.ok) return res.status(200).json({ success: true, mode: 'apply' });
+      const e = await wr.json().catch(() => ({}));
+      return res.status(502).json({ success: false, error: JSON.stringify(e.errors || wr.statusText) });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  // -------------------------------------------------------
+  // RESTORE BODY — roll the body back to the version saved before the last body-edit apply.
+  // -------------------------------------------------------
+  if (req.query.action === 'restore-body' && req.method === 'POST') {
+    const { shopifyId, shopifyType, shopifyBlogId } = req.body;
+    if (!shopifyId || !shopifyType) return res.status(400).json({ error: 'Missing shopifyId or shopifyType' });
+    const shopifyHeaders = { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' };
+    const base = `https://${shopifyDomain}/admin/api/2025-01`;
+    const bodyMap = {
+      product:           { path: `products/${shopifyId}`,                        wrap: 'product' },
+      page:              { path: `pages/${shopifyId}`,                           wrap: 'page' },
+      article:           { path: `blogs/${shopifyBlogId}/articles/${shopifyId}`, wrap: 'article' },
+      custom_collection: { path: `custom_collections/${shopifyId}`,              wrap: 'custom_collection' },
+      smart_collection:  { path: `smart_collections/${shopifyId}`,              wrap: 'smart_collection' }
+    };
+    const t = bodyMap[shopifyType];
+    if (!t) return res.status(400).json({ error: `Unknown shopifyType: ${shopifyType}` });
+    const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+    const REPO = 'aboutwallart/seo-tools';
+    const UNDO_FILE = 'data/body-undo.json';
+    const undoKey = `${shopifyType}:${shopifyId}`;
+    try {
+      const gh = await fetch(`https://api.github.com/repos/${REPO}/contents/${UNDO_FILE}`, {
+        headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
+      });
+      if (!gh.ok) return res.status(404).json({ success: false, error: 'No previous version saved.' });
+      const d = await gh.json();
+      const store = JSON.parse(Buffer.from(d.content, 'base64').toString('utf-8') || '{}');
+      const saved = store[undoKey];
+      if (!saved || typeof saved.body !== 'string') return res.status(404).json({ success: false, error: 'No previous version saved for this item.' });
+      const wr = await fetch(`${base}/${t.path}.json`, {
+        method: 'PUT', headers: shopifyHeaders,
+        body: JSON.stringify({ [t.wrap]: { id: shopifyId, body_html: saved.body } })
+      });
+      if (!wr.ok) { const e = await wr.json().catch(() => ({})); return res.status(502).json({ success: false, error: JSON.stringify(e.errors || wr.statusText) }); }
+      // Clear the used backup so a second undo doesn't re-apply a stale body.
+      delete store[undoKey];
+      await fetch(`https://api.github.com/repos/${REPO}/contents/${UNDO_FILE}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: `body-undo clear ${undoKey}`, content: Buffer.from(JSON.stringify(store, null, 2)).toString('base64'), sha: d.sha })
+      });
+      return res.status(200).json({ success: true });
     } catch (err) {
       return res.status(500).json({ success: false, error: err.message });
     }
