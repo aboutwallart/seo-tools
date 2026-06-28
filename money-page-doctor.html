@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 52.8</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 52.9</p>
                 </div>
             </div>
         </header>
@@ -1882,7 +1882,9 @@
                             <div style="margin-bottom:8px;">${s.quickAnswer}</div>
                             <div class="copy-block">
                                 <textarea id="quickAnswerCode" style="display:none;">${s.quickAnswer.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+                                <input type="hidden" id="quickAnswerRaw" value="${encodeURIComponent(s.quickAnswer)}">
                                 <button class="copy-btn" onclick="copyToClipboard(document.getElementById('quickAnswerCode').value,this)">📋 Copy HTML</button>
+                                <button class="copy-btn" style="background:#4caf50;color:#fff;border-color:#4caf50;" onclick="insertQuickAnswer(this)">✍️ Insert it for me</button>
                             </div>
                         </div>
                     </div>
@@ -2880,6 +2882,85 @@
                 btn.disabled = false; btn.textContent = orig;
                 alert(`Push failed: ${err.message}`);
             }
+        }
+
+        // ── Blog body-write engine (Batch 1: Quick Answer auto-insert) ───────────
+        // The tool reads the live blog, shows a highlighted preview, and (on confirm) inserts the
+        // Quick Answer box and saves it. Undo restores the previous body. No HTML editing for the user.
+        function bodyEditClose() { const o = document.getElementById('bodyEditOverlay'); if (o) o.remove(); }
+        function bodyEditModal(innerHtml) {
+            bodyEditClose();
+            const o = document.createElement('div');
+            o.id = 'bodyEditOverlay';
+            o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+            o.innerHTML = `<div style="background:#fff;max-width:820px;width:100%;max-height:88vh;border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,0.3);">${innerHtml}</div>`;
+            o.addEventListener('click', e => { if (e.target === o) bodyEditClose(); });
+            document.body.appendChild(o);
+        }
+        async function insertQuickAnswer(btn) {
+            const sd = currentResults?.shopify;
+            const rawEl = document.getElementById('quickAnswerRaw');
+            const snippet = rawEl ? decodeURIComponent(rawEl.value) : '';
+            if (!sd?.id) { alert('Blog data not available — re-run the analysis first.'); return; }
+            if (!snippet.trim()) { alert('No Quick Answer to insert.'); return; }
+            const orig = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Reading your blog…';
+            try {
+                const res = await fetch('/api/shopify-files?action=body-edit', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shopifyId: sd.id, shopifyType: sd.type, shopifyBlogId: sd.blogId, op: 'quick-answer', snippet, mode: 'preview' })
+                });
+                const data = await res.json();
+                btn.disabled = false; btn.textContent = orig;
+                if (data.already) { alert('A Quick Answer box is already in this blog — nothing to add.'); return; }
+                if (!data.success) throw new Error(data.error || 'Preview failed');
+                bodyEditModal(`
+                    <div style="padding:16px 20px;border-bottom:1px solid #eee;">
+                        <h3 style="margin:0;font-size:1.05rem;">Preview — Quick Answer added <span style="color:#ff9800;">(highlighted)</span></h3>
+                        <p style="margin:6px 0 0;font-size:0.82rem;color:#666;">This is your blog with the new box. <strong>Nothing is saved yet.</strong> Scroll to check it, then confirm.</p>
+                    </div>
+                    <div style="padding:18px 20px;overflow:auto;flex:1;background:#fafafa;font-size:0.9rem;line-height:1.5;">${data.after}</div>
+                    <div style="padding:14px 20px;border-top:1px solid #eee;display:flex;gap:10px;justify-content:flex-end;">
+                        <button onclick="bodyEditClose()" style="padding:9px 16px;border:1px solid #ccc;background:#fff;border-radius:8px;cursor:pointer;">Cancel</button>
+                        <button onclick="applyQuickAnswer(this)" style="padding:9px 18px;border:none;background:#4caf50;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;">✅ Confirm &amp; save</button>
+                    </div>`);
+            } catch (err) { btn.disabled = false; btn.textContent = orig; alert('Could not preview: ' + err.message); }
+        }
+        async function applyQuickAnswer(btn) {
+            const sd = currentResults?.shopify;
+            const rawEl = document.getElementById('quickAnswerRaw');
+            const snippet = rawEl ? decodeURIComponent(rawEl.value) : '';
+            btn.disabled = true; btn.textContent = '⏳ Saving…';
+            try {
+                const res = await fetch('/api/shopify-files?action=body-edit', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shopifyId: sd.id, shopifyType: sd.type, shopifyBlogId: sd.blogId, op: 'quick-answer', snippet, mode: 'apply' })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Save failed');
+                bodyEditModal(`
+                    <div style="padding:24px 22px;text-align:center;">
+                        <div style="font-size:2rem;margin-bottom:8px;">✅</div>
+                        <h3 style="margin:0 0 6px;">Quick Answer added to your blog</h3>
+                        <p style="margin:0 0 18px;font-size:0.85rem;color:#666;">Saved live. Changed your mind? Undo puts the blog back exactly as it was.</p>
+                        <div style="display:flex;gap:10px;justify-content:center;">
+                            <button onclick="undoBodyEdit(this)" style="padding:9px 16px;border:1px solid #e57373;background:#fff;color:#c62828;border-radius:8px;cursor:pointer;">↩️ Undo</button>
+                            <button onclick="bodyEditClose()" style="padding:9px 18px;border:none;background:#4caf50;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;">Done</button>
+                        </div>
+                    </div>`);
+            } catch (err) { btn.disabled = false; btn.textContent = '✅ Confirm & save'; alert('Could not save: ' + err.message); }
+        }
+        async function undoBodyEdit(btn) {
+            const sd = currentResults?.shopify;
+            btn.disabled = true; btn.textContent = '⏳ Undoing…';
+            try {
+                const res = await fetch('/api/shopify-files?action=restore-body', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shopifyId: sd.id, shopifyType: sd.type, shopifyBlogId: sd.blogId })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Undo failed');
+                bodyEditModal(`<div style="padding:24px 22px;text-align:center;"><div style="font-size:2rem;margin-bottom:8px;">↩️</div><h3 style="margin:0 0 6px;">Blog put back as it was</h3><p style="margin:0 0 18px;font-size:0.85rem;color:#666;">The Quick Answer box was removed.</p><button onclick="bodyEditClose()" style="padding:9px 18px;border:none;background:#607d8b;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;">Close</button></div>`);
+            } catch (err) { btn.disabled = false; btn.textContent = '↩️ Undo'; alert('Could not undo: ' + err.message); }
         }
 
         // ne-blog-posts: push the "More About" intro text to BOTH more_about metafields.
