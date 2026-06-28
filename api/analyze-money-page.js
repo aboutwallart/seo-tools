@@ -1,7 +1,13 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v49.5
+// analyze-money-page.js — v49.6
+// v49.6 (June 28, 2026): EXACT placement everywhere. Loser pages ("Internal Links to Add") and a
+//                        blog's own outbound links (internalLinksToAdd) now get a real findAnchor —
+//                        the tool reads each target page's live body (loser bodies are already
+//                        fetched for the admin link) and returns the EXACT existing line to paste
+//                        after + the real section heading. No more vague "roughly where". Applies to
+//                        all page types (blogs, products, pages, collections). Helpers: pickBodyAnchor.
 // v49.5 (June 27, 2026): (1) "Free UK shipping!" meta append is now PRODUCTS-ONLY (was all types).
 //                        (2) relatedBlogLinks gains "findAnchor" — the EXACT existing line to search for
 //                        (paste-after / replace target) so the new step-by-step link cards can give a
@@ -433,8 +439,34 @@ module.exports = async function handler(req, res) {
         try {
           const c = await fetchShopifyContent(link.loserUrl);
           link.adminUrl = buildLoserAdminUrl(c);
+          // EXACT placement: read the loser page's real body → exact line to paste after + real section.
+          const lp = loserPages.find(x => x.loserUrl === link.loserUrl) || {};
+          const a = pickBodyAnchor(c && c.bodyHtml, lp.loserKeyword || link.placementSection || keyword);
+          if (a) {
+            link.findAnchor = a.findAnchor;
+            link.placementSection = a.section || link.placementSection || '';
+            link.placementWhere = 'right after this line';
+          }
         } catch { link.adminUrl = null; }
       }));
+    }
+
+    // EXACT placement for a blog's OWN outbound links (internalLinksToAdd → pasted into THIS body).
+    if (analysis?.structured?.internalLinksToAdd?.length > 0) {
+      const myBody = yourPageData.shopifyBodyHtml || '';
+      analysis.structured.internalLinksToAdd.forEach((link) => {
+        const isReplace = String(link.mode || '').toLowerCase() === 'replace';
+        if (isReplace && link.existingText) {
+          link.findAnchor = exactLineFrom(link.existingText);          // the line being replaced IS the exact line
+        } else {
+          const a = pickBodyAnchor(myBody, link.anchorText || link.placementSection || keyword);
+          if (a) {
+            link.findAnchor = a.findAnchor;
+            link.placementSection = a.section || link.placementSection || '';
+            link.placementWhere = 'right after this line';
+          }
+        }
+      });
     }
 
     // Direct admin link for each related-blog source page (to edit it and add the link).
@@ -1188,6 +1220,44 @@ async function getLosersForPage(winnerUrl) {
     console.error('[Losers]', err.message);
     return [];
   }
+}
+
+// ── EXACT-PLACEMENT HELPERS ─────────────────────────────────────────────────
+// Read a real page body and hand back the EXACT existing line a link should be pasted after,
+// plus the real section heading it sits under — so the merchant never has to guess. Used for
+// loser pages ("Internal Links to Add") and a blog's own outbound links (internalLinksToAdd).
+function parseSectionsFromBody(body) {
+  const parts = (body || '').match(/<(h2|h3|p|li)[^>]*>[\s\S]*?<\/\1>/gi) || [];
+  const sections = [{ heading: '', paras: [] }];
+  for (const tag of parts) {
+    const text = tag.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    if (/^<h[23]/i.test(tag)) sections.push({ heading: text, paras: [] });
+    else if (text.split(/\s+/).length >= 4) sections[sections.length - 1].paras.push(text);
+  }
+  return sections.filter(s => s.heading || s.paras.length);
+}
+// First ~14 words of a line — long enough to be unique, short enough to paste into a Find box.
+function exactLineFrom(text) {
+  const clean = String(text || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  const words = clean.split(/\s+/);
+  return words.length > 14 ? words.slice(0, 14).join(' ') + '…' : clean;
+}
+// Choose the best section + exact line in `body` to anchor a link, biased toward a topic hint.
+// Returns { section, findAnchor } or null if the body has no usable paragraphs.
+function pickBodyAnchor(body, hint) {
+  const sections = parseSectionsFromBody(body).filter(s => s.paras.length);
+  if (!sections.length) return null;
+  const hintWords = String(hint || '').toLowerCase().match(/[a-z]{3,}/g) || [];
+  let best = null, bestScore = -1;
+  for (const s of sections) {
+    const hw = new Set(s.heading.toLowerCase().match(/[a-z]{3,}/g) || []);
+    let score = 0; hintWords.forEach(w => { if (hw.has(w)) score++; });
+    if (score > bestScore) { bestScore = score; best = s; }
+  }
+  if (!best || bestScore <= 0) best = sections[sections.length - 1];   // no topic match → last section
+  const para = best.paras[best.paras.length - 1];                      // link sits after that section's content
+  return { section: best.heading || '', findAnchor: exactLineFrom(para) };
 }
 
 // Get Claude analysis
