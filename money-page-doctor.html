@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 53.1</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 53.2</p>
                 </div>
             </div>
         </header>
@@ -1892,12 +1892,22 @@
 
             // ── Add a Video block (blogs) — paste a YouTube link, tool drops it at the end ─────
             const videoBlock = _isBlog ? `
-                <div class="action-block" style="border-color:#c0392b;">
-                    <h3>🎬 Add a Video</h3>
-                    <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">Paste a YouTube link and the tool adds the video at the <strong>end</strong> of your blog (same look your blogs already use). You'll see a preview before anything is saved.</p>
+                <div class="action-block" id="videoBlockCard" style="border-color:#c0392b;">
+                    <h3 style="display:flex;align-items:center;gap:10px;"><input type="checkbox" onclick="toggleBlockGrey('videoBlockCard',this)" style="width:18px;height:18px;cursor:pointer;flex-shrink:0;" title="Tick when done — greys this block out">🎬 Add a Video</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">Paste a YouTube link and the tool adds a bold <strong>WATCH: (video title)</strong> line plus the video at the <strong>end</strong> of your blog (same look your blogs already use). You'll see a preview before anything is saved.</p>
                     <div class="copy-block" id="videoActions">
                         <input type="text" id="videoUrlInput" placeholder="https://www.youtube.com/watch?v=…" style="flex:1;min-width:240px;padding:9px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.85rem;">
                         <button class="copy-btn" style="background:#c0392b;color:#fff;border-color:#c0392b;" onclick="bodyEditPreview('add-video',this)">🎬 Add it for me</button>
+                    </div>
+                </div>` : '';
+
+            // ── Duplicate People Also Ask block (blogs) — remove the in-body copy safely ──────
+            const paaRemoveBlock = _isBlog ? `
+                <div class="action-block" id="paaRemoveCard" style="border-color:#8e24aa;">
+                    <h3 style="display:flex;align-items:center;gap:10px;"><input type="checkbox" onclick="toggleBlockGrey('paaRemoveCard',this)" style="width:18px;height:18px;cursor:pointer;flex-shrink:0;" title="Tick when done — greys this block out">❓ Duplicate People Also Ask</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">If this blog shows the same Q&amp;A twice — once in the body and once in your saved field — remove the body copy. The tool only removes it when your saved copy still has the content, so nothing is ever lost. You'll see a preview first.</p>
+                    <div class="copy-block" id="paaRemoveActions">
+                        <button class="copy-btn" style="background:#8e24aa;color:#fff;border-color:#8e24aa;" onclick="bodyEditPreview('remove-paa',this)">🧹 Find &amp; remove the duplicate</button>
                     </div>
                 </div>` : '';
 
@@ -2632,7 +2642,7 @@
             // 1) Everything that edits THIS page goes at the top, then
             // 2) blocks that ask you to edit OTHER pages (links from loser pages + links
             //    from related older blogs), then 3) Request Reindex in GSC — always last.
-            const thisPageBlocks = masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + videoBlock + overuseBlock + productDescBlock + productDescOptimisedBlock + aiBlock + pageQuestionsBlock + pageFieldsBlock + pageBrowseBlock + paaBlock + internalAddBlock + manualBlock + tocBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + internalAddBlockTmpl + linkedRefsBlock + blogQualityBlock + homepageImageBlock + imageBlock + autolinkBlock;
+            const thisPageBlocks = masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + videoBlock + paaRemoveBlock + overuseBlock + productDescBlock + productDescOptimisedBlock + aiBlock + pageQuestionsBlock + pageFieldsBlock + pageBrowseBlock + paaBlock + internalAddBlock + manualBlock + tocBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + internalAddBlockTmpl + linkedRefsBlock + blogQualityBlock + homepageImageBlock + imageBlock + autolinkBlock;
             const otherPageBlocks = loserLinksBlock + relatedBlogsBlock;
             return thisPageBlocks + otherPageBlocks + reindexBlock;
         }
@@ -2910,9 +2920,15 @@
         // The tool reads the live blog, shows a highlighted preview, and (on confirm) makes the
         // change and saves it. Undo restores the previous body. No HTML editing for the user.
         const BODY_OPS = {
-            'quick-answer': { actionsId: 'qaActions',    addedMsg: 'Quick Answer added to your blog', previewTitle: 'Quick Answer added' },
-            'add-video':    { actionsId: 'videoActions', addedMsg: 'Video added to your blog',        previewTitle: 'Video added at the end' }
+            'quick-answer': { actionsId: 'qaActions',        addedMsg: 'Quick Answer added to your blog',        previewTitle: 'Quick Answer added',        doneLabel: '✅ Added to your blog' },
+            'add-video':    { actionsId: 'videoActions',     addedMsg: 'Video added to your blog',               previewTitle: 'Video added at the end',     doneLabel: '✅ Added to your blog' },
+            'remove-paa':   { actionsId: 'paaRemoveActions', addedMsg: 'Duplicate People Also Ask removed',      previewTitle: 'People Also Ask removed',    doneLabel: '✅ Removed from your blog' }
         };
+        // Manual "I've done this" tick — greys the whole block out (no save, just visual).
+        function toggleBlockGrey(cardId, cb) {
+            const card = document.getElementById(cardId);
+            if (card) card.style.opacity = cb.checked ? '0.45' : '1';
+        }
         function bodyEditClose() { const o = document.getElementById('bodyEditOverlay'); if (o) o.remove(); }
         function bodyEditModal(innerHtml) {
             bodyEditClose();
@@ -2945,8 +2961,7 @@
                 });
                 const data = await res.json();
                 btn.disabled = false; btn.textContent = orig;
-                if (data.already) { alert(data.error || 'Already in the blog.'); return; }
-                if (!data.success) throw new Error(data.error || 'Preview failed');
+                if (!data.success) { alert(data.error || 'Nothing to do here.'); return; }
                 const cfg = BODY_OPS[op];
                 bodyEditModal(`
                     <div style="padding:16px 20px;border-bottom:1px solid #eee;">
@@ -3001,7 +3016,7 @@
         function bodyEditSetDone(op) {
             const cfg = BODY_OPS[op]; if (!cfg) return;
             const el = document.getElementById(cfg.actionsId); if (!el) return;
-            el.innerHTML = `<span style="color:#2e7d32;font-weight:600;font-size:0.85rem;align-self:center;">✅ Added to your blog</span>
+            el.innerHTML = `<span style="color:#2e7d32;font-weight:600;font-size:0.85rem;align-self:center;">${cfg.doneLabel || '✅ Done'}</span>
                 <button class="copy-btn" style="background:#fff;color:#c62828;border:1px solid #e57373;" onclick="bodyEditRestore('${op}',this)">↩️ Undo</button>`;
         }
         function bodyEditSetReverted(op) {
