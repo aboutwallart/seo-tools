@@ -1,7 +1,13 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v49.7
+// analyze-money-page.js — v49.8
+// v49.8 (June 28, 2026): Missing Buttons detection FIX. Old promos wrap the image AND the CTA text
+//                        ("Show me this product!" / "Click here to see this product!") inside ONE
+//                        product link with NO styled button — v49.7 mistook that CTA text for a real
+//                        button and skipped them. Now a "proper button" = an anchor STYLED with a
+//                        background colour (the black box); any product-image promo without one is
+//                        flagged. Catches all old text-link promos + image-only promos.
 // v49.7 (June 28, 2026): PROMO FIXER — Step 1 (find & show, read-only). (1) Dead Products: the
 //                        inactive-product scan now also returns the dead product's own image
 //                        (featuredImage) so the tool can show its thumbnail. (2) NEW Missing Buttons
@@ -2808,43 +2814,53 @@ async function findInactiveProductLinks(bodyHtml, origin) {
 //  • text-no-link: a CTA phrase ("Shop Here" etc.) sitting as PLAIN TEXT with no link → handle
 //    unknown, the user identifies the product later.
 // Handles already flagged as DEAD are skipped here (those belong to the Dead Products list).
-const _CTA_PHRASES = 'shop here|shop now|show me this product!?|buy now|shop the look|view product|get it here';
+const _CTA_PHRASES = 'shop here|shop now|show me this product!?|buy now|shop the look|view product|get it here|click here to see this product!?|see this product!?';
 function findMissingButtonPromos(bodyHtml, origin, inactiveHandles) {
   try {
     if (!bodyHtml) return [];
     const deadSet = new Set((inactiveHandles || []).map(h => String(h).toLowerCase()));
-    const ctaRe = new RegExp('^(?:' + _CTA_PHRASES + ')$', 'i');
-    const anchorRe = /<a\b[^>]*href=["'][^"']*\/products\/([^"'?#\/]+)[^>]*>([\s\S]*?)<\/a>/gi;
+    const anchorRe = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
+    const hrefProdRe = /href=["'][^"']*\/products\/([^"'?#\/]+)/i;
 
-    // Pass 1 — which product handles already have a Shop Here-style BUTTON (anchor whose text is a CTA)
-    const buttonHandles = new Set();
+    // Pass 1 — which product handles already have a PROPER "Shop Here" button. A real button is an
+    // anchor STYLED with a background colour (the black box). Old promos put the CTA as plain TEXT
+    // inside the image link with no such styling — those are NOT proper buttons.
+    const properButton = new Set();
     let m;
     while ((m = anchorRe.exec(bodyHtml))) {
-      const handle = (m[1] || '').toLowerCase();
-      const text = (m[2] || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-      if (ctaRe.test(text)) buttonHandles.add(handle);
+      const attrs = m[1] || '';
+      const hp = attrs.match(hrefProdRe);
+      if (!hp) continue;
+      if (/style=["'][^"']*background-color/i.test(attrs)) properButton.add(hp[1].toLowerCase());
     }
 
-    // Pass 2 — product-image promos (anchor wrapping an <img>) that have NO button for that handle
+    // Pass 2 — product promos = an anchor that WRAPS an <img> and links to a product. If that
+    // product has no proper styled button it needs one. This covers BOTH old text-link promos
+    // (image + "Show me this product!" / "Click here…" inside one link) AND image-only promos.
+    // Skip dead handles (those belong to the Dead Products list).
     const results = [];
     const seen = new Set();
     anchorRe.lastIndex = 0;
     while ((m = anchorRe.exec(bodyHtml))) {
-      const handle = (m[1] || '').toLowerCase();
-      const inner = (m[2] || '');
+      const attrs = m[1] || '';
+      const inner = m[2] || '';
+      const hp = attrs.match(hrefProdRe);
+      if (!hp) continue;
+      const handle = hp[1].toLowerCase();
       const imgM = inner.match(/<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/i);
-      if (!imgM) continue;                       // anchor wraps text, not an image → a normal inline link
-      if (buttonHandles.has(handle)) continue;   // already has a Shop Here button → fine
+      if (!imgM) continue;                       // anchor wraps text only → a normal inline link
+      if (properButton.has(handle)) continue;    // already has the styled Shop Here button → fine
       if (deadSet.has(handle)) continue;         // dead product → handled by Dead Products list
       if (seen.has(handle)) continue;
       seen.add(handle);
-      const altM = inner.match(/\balt=["']([^"']*)["']/i);
+      const titleM = attrs.match(/\btitle=["']([^"']*)["']/i);
+      const altM = imgM[0].match(/\balt=["']([^"']*)["']/i);
       results.push({
         kind: 'image-no-button',
         handle,
         url: `${origin}/products/${handle}`,
         imageUrl: imgM[1],
-        title: (altM && altM[1]) ? altM[1] : handle.replace(/-/g, ' ')
+        title: (titleM && titleM[1]) ? titleM[1] : ((altM && altM[1]) ? altM[1] : handle.replace(/-/g, ' '))
       });
     }
 
