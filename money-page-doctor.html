@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 53.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 53.1</p>
                 </div>
             </div>
         </header>
@@ -2245,8 +2245,9 @@
                                 lineText: link.loserUrl,
                                 strike: state[key],
                                 section: link.placementSection || link.placement,
-                                sectionLabel: 'Roughly where to add it',
-                                findText: '',
+                                sectionLabel: 'Go to this section',
+                                findText: link.findAnchor || '',
+                                findId: `loserFind${i}`,
                                 mode: 'after',
                                 color: '#9c27b0',
                                 adminUrl: link.adminUrl || fallbackAdminUrl
@@ -2276,25 +2277,35 @@
                         const anchor   = (l.anchorText || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                         const url      = (l.url || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                         const place    = (l.placement || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        const findLine = isReplace ? (l.existingText || '') : (l.findAnchor || '');
                         return `
-                        <div id="row_${key}" style="padding:14px;background:#f9f9f9;border-radius:6px;margin-bottom:10px;opacity:${state[key]?'0.45':'1'};">
-                            <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:8px;">
-                                ${it ? cb(it) : ''}
-                                <span style="font-size:0.85rem;font-weight:600;${state[key]?'text-decoration:line-through;':''}">🔗 Link to add</span>${compBadge(l)}
-                            </div>
-                            ${placementBlock(l.placementSection, l.placementWhere, place, '#00897b')}
-                            ${isReplace ? `
-                            <div style="font-size:0.8rem;color:#999;margin-bottom:4px;">Replace this existing text:</div>
-                            <div style="background:#fff5f5;border:1px solid #f0d0d0;border-radius:4px;padding:8px;font-size:0.88rem;margin-bottom:8px;">${existing}</div>` : ''}
-                            <div style="font-size:0.8rem;color:#999;margin-bottom:4px;">${isReplace ? 'With this (link included):' : 'Paste this (link included):'}</div>
-                            <div style="background:white;border:2px solid #e0e0e0;border-radius:6px;padding:10px;font-size:0.9rem;line-height:1.6;margin-bottom:8px;">${newText}</div>
-                            <textarea id="intlinkHtml${i}" style="display:none;">${newText}</textarea>
-                            <textarea id="intlinkAnchor${i}" style="display:none;">${anchor}</textarea>
-                            <textarea id="intlinkUrl${i}" style="display:none;">${url}</textarea>
-                            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                                <button class="copy-btn" type="button" onclick="copyFormatted('intlinkHtml${i}',this)">📋 Copy for body</button>
-                                <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('intlinkAnchor${i}').value,this)">📋 Copy anchor text</button>
-                                <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('intlinkUrl${i}').value,this)">📋 Copy URL</button>
+                        <div id="row_${key}" style="border:1px solid #eee;border-radius:8px;padding:14px;background:#fafafa;margin-bottom:10px;opacity:${state[key]?'0.45':'1'};">
+                            ${linkCardHead({
+                                cbHtml: it ? cb(it) : '',
+                                pillHtml: `<span style="background:#00897b;color:#fff;padding:2px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;flex-shrink:0;">🔗 Link</span>`,
+                                lineText: l.anchorText || l.url || 'Link to add',
+                                strike: state[key],
+                                section: l.placementSection || place,
+                                sectionLabel: 'Go to this section',
+                                findText: findLine,
+                                findId: `intlinkFind${i}`,
+                                mode: isReplace ? 'replace' : 'after',
+                                color: '#00897b'
+                            })}
+                            <div style="display:flex;gap:10px;">
+                                <span style="flex-shrink:0;font-size:1rem;">📋</span>
+                                <div style="flex:1;min-width:0;">
+                                    <div style="font-size:0.74rem;color:#888;margin-bottom:3px;">${isReplace ? 'Replace it with this (link included)' : 'Paste this (link included)'}</div>
+                                    <div style="background:white;border:1px solid #e0e0e0;border-radius:6px;padding:10px 12px;font-size:0.9rem;line-height:1.6;margin-bottom:8px;">${newText}</div>
+                                    <textarea id="intlinkHtml${i}" style="display:none;">${newText}</textarea>
+                                    <textarea id="intlinkAnchor${i}" style="display:none;">${anchor}</textarea>
+                                    <textarea id="intlinkUrl${i}" style="display:none;">${url}</textarea>
+                                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                                        <button class="copy-btn" type="button" onclick="copyFormatted('intlinkHtml${i}',this)">📋 Copy for body</button>
+                                        <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('intlinkAnchor${i}').value,this)">📋 Copy anchor text</button>
+                                        <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('intlinkUrl${i}').value,this)">📋 Copy URL</button>
+                                    </div>
+                                </div>
                             </div>
                         </div>`;
                     }).join('')}
