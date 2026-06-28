@@ -1,4 +1,7 @@
-// shopify-files.js — v2.1
+// shopify-files.js — v2.2
+// v2.2 (June 28, 2026): body-edit gains op 'add-video' — builds the responsive YouTube embed
+//                       (exact blog format) from a pasted link and appends it at the end of the
+//                       body. Same preview + undo as Quick Answer. Powers the "🎬 Add a video" block.
 // v2.1 (June 28, 2026): body-edit engine + restore-body — safely insert content into a live blog
 //                       body for the user (Batch 1: Quick Answer box placed after the opening,
 //                       before the first List of Contents / H2). 'preview' shows the result with
@@ -822,15 +825,23 @@ module.exports = async function handler(req, res) {
   // BODY EDIT ENGINE — safely insert/edit a blog (or page/collection/product) body for the user.
   // The tool re-reads the LIVE body each call, makes ONE change, and (on apply) saves a backup
   // of the previous body to data/body-undo.json so the change can be undone from any computer.
-  //   mode = 'preview' → returns the new body (inserted snippet highlighted) WITHOUT saving.
+  //   mode = 'preview' → returns the new body (the change highlighted) WITHOUT saving.
   //   mode = 'apply'   → saves an undo backup, writes the new body live.
   //   op  = 'quick-answer' (Batch 1) — places the Quick Answer box after the opening, before
   //          the first List of Contents / first H2.
+  //   op  = 'add-video' (Batch 2) — builds the responsive YouTube embed from videoUrl and
+  //          appends it at the END of the body (same format the blogs already use).
   // -------------------------------------------------------
   if (req.query.action === 'body-edit' && req.method === 'POST') {
-    const { shopifyId, shopifyType, shopifyBlogId, op, snippet, mode } = req.body;
-    if (!shopifyId || !shopifyType || !op || typeof snippet !== 'string' || !snippet.trim()) {
-      return res.status(400).json({ error: 'Missing shopifyId, shopifyType, op or snippet' });
+    const { shopifyId, shopifyType, shopifyBlogId, op, snippet, videoUrl, mode } = req.body;
+    if (!shopifyId || !shopifyType || !op) {
+      return res.status(400).json({ error: 'Missing shopifyId, shopifyType or op' });
+    }
+    if (op === 'quick-answer' && (typeof snippet !== 'string' || !snippet.trim())) {
+      return res.status(400).json({ error: 'Missing snippet' });
+    }
+    if (op === 'add-video' && (typeof videoUrl !== 'string' || !videoUrl.trim())) {
+      return res.status(400).json({ error: 'Missing videoUrl' });
     }
     const shopifyHeaders = { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' };
     const base = `https://${shopifyDomain}/admin/api/2025-01`;
@@ -857,27 +868,46 @@ module.exports = async function handler(req, res) {
       if (idx === -1) idx = 0;                  // empty/odd body → prepend
       return { idx };
     }
+    // Pull the 11-char YouTube id from any watch / share / embed / shorts link. '' if none.
+    function extractYouTubeId(link) {
+      const patterns = [/[?&]v=([A-Za-z0-9_-]{11})/, /youtu\.be\/([A-Za-z0-9_-]{11})/, /youtube\.com\/embed\/([A-Za-z0-9_-]{11})/, /youtube\.com\/shorts\/([A-Za-z0-9_-]{11})/];
+      for (const p of patterns) { const m = (link || '').match(p); if (m) return m[1]; }
+      return '';
+    }
+    // Responsive 16:9 embed — the exact format the blogs already use.
+    function buildResponsiveEmbed(id) {
+      return `<div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;max-width:100%;"><iframe src="https://www.youtube.com/embed/${id}" style="position:absolute;top:0;left:0;width:100%;height:100%;" frameborder="0" allowfullscreen></iframe></div>`;
+    }
+    const markWrap = (html) => '<div data-bodyedit-preview="1" style="outline:3px solid #ff9800;outline-offset:4px;">' + html + '</div>';
 
     try {
       const gr = await fetch(`${base}/${t.path}.json?fields=id,body_html`, { headers: shopifyHeaders });
       const gd = await gr.json();
       const oldBody = gd[t.wrap]?.body_html || '';
 
-      let place;
-      if (op === 'quick-answer') place = placeQuickAnswer(oldBody);
-      else return res.status(400).json({ error: `Unknown op: ${op}` });
+      let newBody, markedAfter;
 
-      if (place.already) {
-        return res.status(200).json({ success: false, already: true, error: 'A Quick Answer box is already in this blog.' });
+      if (op === 'quick-answer') {
+        const place = placeQuickAnswer(oldBody);
+        if (place.already) return res.status(200).json({ success: false, already: true, error: 'A Quick Answer box is already in this blog.' });
+        newBody = oldBody.slice(0, place.idx) + '\n' + snippet + '\n' + oldBody.slice(place.idx);
+        markedAfter = oldBody.slice(0, place.idx) + '\n' + markWrap(snippet) + '\n' + oldBody.slice(place.idx);
       }
-      const cleanInsert = '\n' + snippet + '\n';
-      const newBody = oldBody.slice(0, place.idx) + cleanInsert + oldBody.slice(place.idx);
+      else if (op === 'add-video') {
+        const id = extractYouTubeId(videoUrl);
+        if (!id) return res.status(200).json({ success: false, error: "That doesn't look like a YouTube link. Paste a normal YouTube video link." });
+        if (oldBody.includes('youtube.com/embed/' + id)) return res.status(200).json({ success: false, already: true, error: 'This video is already in the blog.' });
+        const embed = buildResponsiveEmbed(id);
+        newBody = oldBody + '\n' + embed + '\n';
+        markedAfter = oldBody + '\n' + markWrap(embed) + '\n';
+      }
+      else {
+        return res.status(400).json({ error: `Unknown op: ${op}` });
+      }
 
-      // PREVIEW — return the new body with the inserted box highlighted; nothing saved.
+      // PREVIEW — return the body with the change highlighted; nothing saved.
       if (mode === 'preview') {
-        const marked = '\n<div data-bodyedit-preview="1" style="outline:3px solid #ff9800;outline-offset:4px;">' + snippet + '</div>\n';
-        const afterMarked = oldBody.slice(0, place.idx) + marked + oldBody.slice(place.idx);
-        return res.status(200).json({ success: true, mode: 'preview', after: afterMarked });
+        return res.status(200).json({ success: true, mode: 'preview', after: markedAfter });
       }
 
       // APPLY — back up the current body, then write the new body live.
