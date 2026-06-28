@@ -1,7 +1,11 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v49.4
+// analyze-money-page.js — v49.5
+// v49.5 (June 27, 2026): (1) "Free UK shipping!" meta append is now PRODUCTS-ONLY (was all types).
+//                        (2) relatedBlogLinks gains "findAnchor" — the EXACT existing line to search for
+//                        (paste-after / replace target) so the new step-by-step link cards can give a
+//                        copy-and-find string. (loserPageLinks have no body fetched, so no exact line there.)
 // v49.4 (June 27, 2026): PRODUCTS — if the description already uses the optimised template, the AI now
 //                        JUDGES whether it is well-optimised and, if so, returns descriptionAlreadyOptimised
 //                        (no rewrite). If no template, it ALWAYS rewrites. Over-use is dropped only when a
@@ -329,9 +333,9 @@ module.exports = async function handler(req, res) {
     const analysis = await getClaudeAnalysis(yourPageData, competitorData, keyword, searchResults.userPosition, contentGaps, loserPages, relatedBlogs);
     console.log(`[Money Page] ✓ AI analysis complete! Total time: ${Math.round((Date.now() - startTime) / 1000)}s`);
 
-    // Append the standard shipping CTA to EVERY meta description (all page types). Kept out of the
+    // Append the standard shipping CTA to the meta description — PRODUCTS ONLY. Kept out of the
     // prompt so it is guaranteed present; the meta budget was tightened to 135 chars so it always fits.
-    if (analysis?.structured && analysis.structured.suggestedMeta) {
+    if (yourPageData.shopifyType === 'product' && analysis?.structured && analysis.structured.suggestedMeta) {
       let _m = String(analysis.structured.suggestedMeta).trim();
       if (!/free uk shipping/i.test(_m)) {
         _m = _m.replace(/[\s.!?]+$/, '');               // drop any trailing punctuation/space first
@@ -1453,7 +1457,8 @@ Return this exact JSON structure with real content (no placeholders):
       "newText": "paste-ready text with THIS page's main keyword wrapped as the anchor: <a href=\\"${yourPage.url}\\" title=\\"...\\" target=\\"_blank\\" rel=\\"noopener\\">${keyword}</a>. For replace: the existing sentence rewritten with the link. For new: a short natural sentence/CTA using the keyword as the anchor.",
       "placement": "where in that source blog to add it (shown outside the copy box)",
       "placementSection": "ONLY the exact section heading in that source blog (the H2/H3 text, nothing else)",
-      "placementWhere": "ONLY the position within that section, e.g. 'after paragraph 2'"
+      "placementWhere": "ONLY the position within that section, e.g. 'after paragraph 2'",
+      "findAnchor": "the EXACT existing line in that source blog to SEARCH FOR — for mode=replace it is the line being replaced (same as existingText); for mode=new it is the existing sentence the new text is pasted AFTER. Copy it verbatim from that blog's OUTLINE so the merchant can paste it into their editor's find box and land on the exact spot. Keep it to ONE sentence."
     }
   ]` : ''}${isOldTemplate ? `,
   "templateChecks": [
@@ -1536,7 +1541,7 @@ RULES:
 - WORD COUNT: never say "reduce word count to X" or "increase keyword density to X%" generically. If specific bloated content must go, name the EXACT paragraph opening words and why; otherwise do not mention word count or density at all.
 - loserPageLinks: ONLY include if loser pages are provided above. Unique natural sentence per loser page with a real HTML anchor to this page, plus a specific placement. If none provided, omit this field entirely.
 - relatedBlogLinks: for EACH blog in "RELATED OLDER BLOGS TO LINK FROM", produce one link FROM that blog INTO this page. The anchor text MUST be this page's exact main keyword "${keyword}" (NEVER a variation). If "keyword present: YES", use mode "replace" and wrap the keyword in that blog's given sentence as the link. If not present, use mode "new" with a short natural sentence/CTA that uses "${keyword}" as the anchor. The link URL is always ${yourPage.url}. One item per related blog. If no related blogs are listed above, omit this field entirely.
-- PLACEMENT MUST BE CONCRETE (relatedBlogLinks AND internalLinksToAdd): never say "after the first major section" or other vague guidance. Use the blog's OUTLINE to name the EXACT spot — the section heading plus the exact position, e.g. "In the section 'How To Find Your Perfect Home Decor Styles', between paragraph 1 and paragraph 2" or "Immediately after the paragraph that starts 'When choosing…'". The merchant must be able to find the spot without thinking. ALSO fill the two structured fields on every such item: placementSection = the exact section heading ALONE (no other words), placementWhere = the position within it ALONE (e.g. "after paragraph 2"). These are shown as their own scannable lines, so keep each to just the heading / just the position.${isOldTemplate ? `
+- PLACEMENT MUST BE CONCRETE (relatedBlogLinks AND internalLinksToAdd): never say "after the first major section" or other vague guidance. Use the blog's OUTLINE to name the EXACT spot — the section heading plus the exact position, e.g. "In the section 'How To Find Your Perfect Home Decor Styles', between paragraph 1 and paragraph 2" or "Immediately after the paragraph that starts 'When choosing…'". The merchant must be able to find the spot without thinking. ALSO fill the two structured fields on every such item: placementSection = the exact section heading ALONE (no other words), placementWhere = the position within it ALONE (e.g. "after paragraph 2"). These are shown as their own scannable lines, so keep each to just the heading / just the position. For relatedBlogLinks ALSO fill findAnchor = the EXACT existing line (verbatim from that blog's outline) to search for — the line being replaced (mode=replace) or the line the new text goes AFTER (mode=new) — so the merchant can find/replace it instantly.${isOldTemplate ? `
 - OLD-TEMPLATE CHECKS (this blog uses the ne-blog-posts / guest-post template — these sections are built from METAFIELDS, not the body, so the templateChecks field IS required and the items below must NOT be duplicated in h2Sections):
   - more_about_text + more_about_url: the "More About" section is rendered from metafields. Provide the intro sentence (more_about_text, ≤30 words) AND the authority URL (more_about_url). Do NOT also add an inline authority link in the body, and do NOT put "More about" in h2Sections — it is handled here.
   - home_decor_trends_title: only the NEW heading text for the "Home decor trends" section (its title is a metafield). The rest of that block is general — do not touch it, and do not put it in h2Sections.
