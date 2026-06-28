@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 52.7</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 52.8</p>
                 </div>
             </div>
         </header>
@@ -1725,6 +1725,47 @@
                 return fallback ? `<div style="font-size:0.8rem;color:${color};font-weight:600;margin-bottom:8px;">📍 Where to add it: ${fallback}</div>` : '';
             };
 
+            // Step-by-step link card HEAD: header row + 📍 section + 🔍 exact line to find + the
+            // coloured action (paste-after / replace). Each block supplies its own "paste" footer.
+            const linkCardHead = (o) => {
+                const E = v => (v||'').replace(/</g,'&lt;').replace(/>/g,'&gt;').trim();
+                const sec = E(o.section);
+                const find = E(o.findText);
+                const isReplace = o.mode === 'replace';
+                const hasFind = !!find;
+                const actBg = isReplace ? '#fff8e1' : '#eafaf1';
+                const actCol = isReplace ? '#8a6500' : '#1b5e20';
+                const actTxt = isReplace ? '🔁 Replace that line with the text below'
+                            : (hasFind ? '⬇️ Paste the text below right AFTER that line'
+                                       : '✚ Paste the text below into this section');
+                return `
+                    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+                        ${o.cbHtml || ''}
+                        ${o.pillHtml || ''}
+                        <span style="flex:1;min-width:0;font-size:0.8rem;color:#666;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${o.strike?'text-decoration:line-through;':''}">${E(o.lineText)}</span>
+                        ${o.adminUrl ? `<a href="${o.adminUrl}" target="_blank" style="flex-shrink:0;font-size:0.75rem;background:#1a1a1a;color:#fff;padding:5px 10px;border-radius:4px;text-decoration:none;">🔗 Admin</a>` : ''}
+                    </div>
+                    ${sec ? `<div style="display:flex;gap:10px;margin-bottom:8px;">
+                        <span style="flex-shrink:0;font-size:1rem;">📍</span>
+                        <div style="flex:1;min-width:0;"><div style="font-size:0.74rem;color:#888;">${o.sectionLabel||'Go to this section'}</div><span style="font-size:0.9rem;font-weight:600;color:${o.color||'#333'};">${sec}</span></div>
+                    </div>` : ''}
+                    ${hasFind ? `<div style="display:flex;gap:10px;margin-bottom:8px;">
+                        <span style="flex-shrink:0;font-size:1rem;">🔍</span>
+                        <div style="flex:1;min-width:0;">
+                            <div style="font-size:0.74rem;color:#888;margin-bottom:3px;">Search your editor for this exact line</div>
+                            <div style="display:flex;gap:8px;align-items:stretch;">
+                                <div style="flex:1;min-width:0;font-family:monospace;font-size:0.8rem;background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:8px 10px;line-height:1.5;">${find}</div>
+                                <textarea id="${o.findId}" style="display:none;">${find}</textarea>
+                                <button class="copy-btn" type="button" style="flex-shrink:0;white-space:nowrap;" onclick="copyToClipboard(document.getElementById('${o.findId}').value,this)">🔍 Copy &amp; find</button>
+                            </div>
+                        </div>
+                    </div>` : ''}
+                    <div style="display:flex;gap:10px;margin-bottom:8px;">
+                        <span style="flex-shrink:0;font-size:1rem;">${isReplace?'🔁':'✏️'}</span>
+                        <span style="align-self:center;background:${actBg};color:${actCol};font-size:0.8rem;font-weight:600;padding:3px 10px;border-radius:6px;">${actTxt}</span>
+                    </div>`;
+            };
+
             // ── Master progress bar ───────────────────────────────────────────
             const masterBar = `
                 <div style="background:#f0f0f0;padding:15px 20px;border-radius:8px;margin-bottom:20px;border:2px solid ${done===total&&total>0?'#4caf50':'#e0e0e0'};position:sticky;top:0;z-index:10;">
@@ -2176,23 +2217,33 @@
                         const fallbackAdminUrl = buildShopifyAdminSearchUrl(link.loserPageType, handle);
                         const pt = link.loserPageType?.includes('collection') ? 'collection' : link.loserPageType;
                         const kickstartPrompt = htmlSentenceToKickstartPrompt(link.suggestedSentence, link.placement);
+                        const isArt = data.yourPage.shopifyType === 'article';
+                        const pasteFooter = isArt
+                            ? `<div style="background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:10px 12px;font-size:0.9rem;line-height:1.6;margin-bottom:8px;">${link.suggestedSentence}</div>
+                               <textarea id="loserSentence${i}" style="display:none;">${link.suggestedSentence.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+                               <button class="copy-btn" onclick="copyFormatted('loserSentence${i}',this)">📋 Copy for body</button>`
+                            : `<textarea id="loserSentence${i}" style="width:100%;padding:10px;border:1px solid #e0e0e0;border-radius:6px;font-size:0.85rem;font-family:'Poppins',sans-serif;resize:vertical;line-height:1.5;" rows="3">${kickstartPrompt}</textarea>
+                               <button class="copy-btn" style="margin-top:6px;" onclick="copyToClipboard(document.getElementById('loserSentence${i}').value,this)">📋 Copy</button>`;
                         return `
-                        <div id="row_${key}" style="padding:14px;background:#f9f9f9;border-radius:6px;margin-bottom:10px;opacity:${state[key]?'0.45':'1'};">
-                            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-                                ${cb(allItems.find(it=>it.key===key))}
-                                <span style="background:#9c27b0;color:white;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600;">${getPageTypeLabel(pt)}</span>
-                                <span style="font-size:0.82rem;word-break:break-all;color:#555;">${link.loserUrl}</span>
-                            </div>
-                            ${placementBlock(link.placementSection, link.placementWhere, link.placement, '#9c27b0')}
-                            ${(data.yourPage.shopifyType === 'article') ? `
-                            <div style="background:white;border:2px solid #e0e0e0;border-radius:6px;padding:10px;font-size:0.9rem;line-height:1.6;margin-bottom:8px;">${link.suggestedSentence}</div>
-                            <textarea id="loserSentence${i}" style="display:none;">${link.suggestedSentence.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
-                            ` : `
-                            <textarea id="loserSentence${i}" style="width:100%;padding:10px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.85rem;font-family:'Poppins',sans-serif;resize:vertical;line-height:1.5;" rows="3">${kickstartPrompt}</textarea>
-                            `}
-                            <div style="display:flex;gap:8px;margin-top:8px;">
-                                <button class="copy-btn" onclick="${(data.yourPage.shopifyType === 'article') ? `copyFormatted('loserSentence${i}',this)` : `copyToClipboard(document.getElementById('loserSentence${i}').value,this)`}">📋 ${(data.yourPage.shopifyType === 'article') ? 'Copy for body' : 'Copy'}</button>
-                                <a id="loserAdminBtn_${i}" href="${link.adminUrl || fallbackAdminUrl}" target="_blank" style="display:inline-flex;align-items:center;background:#1a1a1a;color:white;padding:6px 14px;border-radius:4px;font-size:0.8rem;text-decoration:none;">🔗 Open in Shopify Admin</a>
+                        <div id="row_${key}" style="border:1px solid #eee;border-radius:8px;padding:14px;margin-bottom:10px;background:#fafafa;opacity:${state[key]?'0.45':'1'};">
+                            ${linkCardHead({
+                                cbHtml: cb(allItems.find(it=>it.key===key)),
+                                pillHtml: `<span style="background:#9c27b0;color:white;padding:2px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;flex-shrink:0;">${getPageTypeLabel(pt)}</span>`,
+                                lineText: link.loserUrl,
+                                strike: state[key],
+                                section: link.placementSection || link.placement,
+                                sectionLabel: 'Roughly where to add it',
+                                findText: '',
+                                mode: 'after',
+                                color: '#9c27b0',
+                                adminUrl: link.adminUrl || fallbackAdminUrl
+                            })}
+                            <div style="display:flex;gap:10px;">
+                                <span style="flex-shrink:0;font-size:1rem;">📋</span>
+                                <div style="flex:1;min-width:0;">
+                                    <div style="font-size:0.74rem;color:#888;margin-bottom:3px;">Paste this</div>
+                                    ${pasteFooter}
+                                </div>
                             </div>
                         </div>`;
                     }).join('')}
@@ -2292,22 +2343,30 @@
                         const existing = (l.existingText || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                         const title    = (l.sourceTitle || l.sourceUrl || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                         const place    = (l.placement || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                        const findLine = isReplace ? (l.existingText || '') : (l.findAnchor || '');
                         return `
-                        <div id="row_${key}" style="padding:14px;background:#f9f9f9;border-radius:6px;margin-bottom:10px;opacity:${state[key]?'0.45':'1'};">
-                            <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:8px;">
-                                ${it ? cb(it) : ''}
-                                <span style="font-size:0.85rem;font-weight:600;${state[key]?'text-decoration:line-through;':''}">📝 ${title}</span>
-                            </div>
-                            ${placementBlock(l.placementSection, l.placementWhere, place, '#5e35b1')}
-                            ${isReplace ? `
-                            <div style="font-size:0.8rem;color:#999;margin-bottom:4px;">Replace this existing text:</div>
-                            <div style="background:#fff5f5;border:1px solid #f0d0d0;border-radius:4px;padding:8px;font-size:0.88rem;margin-bottom:8px;">${existing}</div>` : ''}
-                            <div style="font-size:0.8rem;color:#999;margin-bottom:4px;">${isReplace ? 'With this (link included):' : 'Add this (link included):'}</div>
-                            <div style="background:white;border:2px solid #e0e0e0;border-radius:6px;padding:10px;font-size:0.9rem;line-height:1.6;margin-bottom:8px;">${newText}</div>
-                            <textarea id="relblogHtml${i}" style="display:none;">${newText}</textarea>
-                            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                                <button class="copy-btn" type="button" onclick="copyFormatted('relblogHtml${i}',this)">📋 Copy for body</button>
-                                ${l.adminUrl ? `<a href="${l.adminUrl}" target="_blank" style="display:inline-flex;align-items:center;background:#1a1a1a;color:white;padding:6px 14px;border-radius:4px;font-size:0.8rem;text-decoration:none;">🔗 Open in Shopify Admin</a>` : ''}
+                        <div id="row_${key}" style="border:1px solid #eee;border-radius:8px;padding:14px;margin-bottom:10px;background:#fafafa;opacity:${state[key]?'0.45':'1'};">
+                            ${linkCardHead({
+                                cbHtml: it ? cb(it) : '',
+                                pillHtml: `<span style="background:#5e35b1;color:#fff;padding:2px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;flex-shrink:0;">📝 Blog</span>`,
+                                lineText: l.sourceTitle || l.sourceUrl || '',
+                                strike: state[key],
+                                section: l.placementSection,
+                                sectionLabel: 'Go to this section',
+                                findText: findLine,
+                                findId: `relblogFind${i}`,
+                                mode: isReplace ? 'replace' : 'after',
+                                color: '#5e35b1',
+                                adminUrl: l.adminUrl
+                            })}
+                            <div style="display:flex;gap:10px;">
+                                <span style="flex-shrink:0;font-size:1rem;">📋</span>
+                                <div style="flex:1;min-width:0;">
+                                    <div style="font-size:0.74rem;color:#888;margin-bottom:3px;">Paste this</div>
+                                    <div style="background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:10px 12px;font-size:0.9rem;line-height:1.6;margin-bottom:8px;">${newText}</div>
+                                    <textarea id="relblogHtml${i}" style="display:none;">${newText}</textarea>
+                                    <button class="copy-btn" type="button" onclick="copyFormatted('relblogHtml${i}',this)">📋 Copy for body</button>
+                                </div>
                             </div>
                         </div>`;
                     }).join('')}
