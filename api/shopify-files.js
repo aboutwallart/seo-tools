@@ -1,4 +1,11 @@
-// shopify-files.js — v2.6
+// shopify-files.js — v2.7
+// v2.7 (June 29, 2026): BATCH 3 push engine. NEW body-edit op 'push-edits' — applies one OR many
+//                       edits to a single body read + single write (single Undo reverts the lot) and
+//                       reports any not found. Kinds: 'overuse' (reword/remove), 'h2-rename',
+//                       'h2-remove', 'h2-add', 'link' (mode replace|new — used for BOTH this-page
+//                       outbound links AND inbound links on other pages, since the target's own
+//                       shopifyId/type/blogId are passed), 'toc' (replace/insert the contents list).
+//                       Helpers: locateBlock / locateHeadingSection / addSectionIndex / applyOneEdit.
 // v2.6 (June 29, 2026): (1) add-button now also strips any LEFTOVER separate old text-CTA link for
 //                       the product (stripLeftoverCtas) so the new black button truly replaces it
 //                       instead of leaving an old "SHOP HERE"/"Show me this product" link below.
@@ -977,12 +984,101 @@ module.exports = async function handler(req, res) {
       return out;
     }
 
+    // ===== Batch 3 — unified push edits (over-use, H2 rename/remove/add, links, ToC) =====
+    const _normTx = s => String(s || '').toLowerCase().replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+    // Smallest matching body element (by visible text). Returns {start,end,openTag,closeTag,tag} or null.
+    function locateBlock(body, text, tagsRe) {
+      const want = _normTx(text); if (!want) return null;
+      const re = new RegExp('<(' + (tagsRe || 'h1|h2|h3|h4|p|li') + ')\\b[^>]*>([\\s\\S]*?)<\\/\\1>', 'gi');
+      let m, best = null;
+      while ((m = re.exec(body))) {
+        const inner = _normTx(m[2]); if (!inner) continue;
+        const hit = inner === want || inner.includes(want) || (want.includes(inner) && inner.length >= 10);
+        if (hit) {
+          const openEnd = m.index + m[0].indexOf('>') + 1, closeStart = m.index + m[0].lastIndexOf('<');
+          const c = { start: m.index, end: m.index + m[0].length, openTag: body.slice(m.index, openEnd), closeTag: body.slice(closeStart, m.index + m[0].length), tag: m[1].toLowerCase() };
+          if (!best || (c.end - c.start) < (best.end - best.start)) best = c;
+        }
+      }
+      return best;
+    }
+    // A heading + its whole section (until the next same-or-higher heading or end of body).
+    function locateHeadingSection(body, text) {
+      const loc = locateBlock(body, text, 'h2|h3|h4'); if (!loc) return null;
+      const nextRe = /<(h1|h2|h3|h4)\b/gi; nextRe.lastIndex = loc.end; let n, end = body.length;
+      while ((n = nextRe.exec(body))) { if (n[1].toLowerCase() <= loc.tag) { end = n.index; break; } }
+      return { start: loc.start, end };
+    }
+    // Where a NEW section goes: before the first trailing/boilerplate section, else the end.
+    function addSectionIndex(body) {
+      const re = /<h[23]\b[^>]*>([\s\S]*?)<\/h[23]>/gi; let m;
+      while ((m = re.exec(body))) {
+        const t = m[2].replace(/<[^>]+>/g, '').toLowerCase();
+        if (/pro tip|more about|feeling inspired|people also ask|frequently asked|related questions/.test(t)) return m.index;
+      }
+      const w = /<p[^>]*>\s*<strong>\s*watch:/i.exec(body); if (w) return w.index;
+      return body.length;
+    }
+    const strikeWrap = (html) => '<div data-bodyedit-preview="1" style="outline:3px solid #e53935;background:#ffebee;text-decoration:line-through;">' + html + '</div>';
+    // Apply ONE edit to the clean body (b) and the marked-preview body (mk). Returns {b,mk,ok}.
+    function applyOneEdit(b, mk, e) {
+      const kind = e.kind, content = e.content || '';
+      // ── insertion kinds: h2-add, toc, link(mode=new) ──
+      if (kind === 'toc') {
+        const tocRe = /<h[23]\b[^>]*>\s*(list of contents|table of contents|contents|index)\s*<\/h[23]>\s*(<ul\b[\s\S]*?<\/ul>)?/i;
+        const mt = tocRe.exec(b);
+        if (mt) {
+          const mtk = tocRe.exec(mk);
+          b = b.slice(0, mt.index) + content + b.slice(mt.index + mt[0].length);
+          mk = mtk ? mk.slice(0, mtk.index) + markWrap(content) + mk.slice(mtk.index + mtk[0].length) : mk;
+          return { b, mk, ok: true };
+        }
+        const h = /<h2\b/i.exec(b), i = h ? h.index : 0, hk = /<h2\b/i.exec(mk), ik = hk ? hk.index : 0;
+        b = b.slice(0, i) + content + '\n' + b.slice(i); mk = mk.slice(0, ik) + markWrap(content) + '\n' + mk.slice(ik);
+        return { b, mk, ok: true };
+      }
+      if (kind === 'h2-add') {
+        const i = addSectionIndex(b), ik = addSectionIndex(mk);
+        b = b.slice(0, i) + '\n' + content + '\n' + b.slice(i); mk = mk.slice(0, ik) + '\n' + markWrap(content) + '\n' + mk.slice(ik);
+        return { b, mk, ok: true };
+      }
+      if (kind === 'link' && String(e.mode).toLowerCase() === 'new') {
+        const ins = content.trim().startsWith('<') ? content : ('<p>' + content + '</p>');
+        const loc = locateBlock(b, e.find), lk = locateBlock(mk, e.find);
+        const i = loc ? loc.end : b.length, ik = lk ? lk.end : mk.length;
+        b = b.slice(0, i) + '\n' + ins + '\n' + b.slice(i); mk = mk.slice(0, ik) + '\n' + markWrap(ins) + '\n' + mk.slice(ik);
+        return { b, mk, ok: true };
+      }
+      // ── find-based kinds: h2-remove, overuse(remove/reword), h2-rename, link(replace) ──
+      if (kind === 'h2-remove') {
+        const sec = locateHeadingSection(b, e.find), sk = locateHeadingSection(mk, e.find);
+        if (!sec) return { b, mk, ok: false };
+        b = b.slice(0, sec.start) + b.slice(sec.end);
+        mk = sk ? mk.slice(0, sk.start) + strikeWrap(mk.slice(sk.start, sk.end)) + mk.slice(sk.end) : mk;
+        return { b, mk, ok: true };
+      }
+      const tags = (kind === 'h2-rename') ? 'h2|h3|h4' : undefined;
+      const loc = locateBlock(b, e.find, tags), lk = locateBlock(mk, e.find, tags);
+      if (!loc) return { b, mk, ok: false };
+      if (kind === 'overuse' && (!e.replace || !String(e.replace).trim())) {   // over-use REMOVE
+        b = b.slice(0, loc.start) + b.slice(loc.end);
+        mk = lk ? mk.slice(0, lk.start) + strikeWrap(mk.slice(lk.start, lk.end)) + mk.slice(lk.end) : mk;
+        return { b, mk, ok: true };
+      }
+      const repl = (kind === 'link')
+        ? (String(content).trim().startsWith('<') ? content : (loc.openTag + content + loc.closeTag))
+        : (loc.openTag + (e.replace || '') + loc.closeTag);                    // over-use reword & H2 rename
+      b = b.slice(0, loc.start) + repl + b.slice(loc.end);
+      mk = lk ? mk.slice(0, lk.start) + markWrap(repl) + mk.slice(lk.end) : mk;
+      return { b, mk, ok: true };
+    }
+
     try {
       const gr = await fetch(`${base}/${t.path}.json?fields=id,body_html`, { headers: shopifyHeaders });
       const gd = await gr.json();
       const oldBody = gd[t.wrap]?.body_html || '';
 
-      let newBody, markedAfter;
+      let newBody, markedAfter, editReport = null;
 
       if (op === 'quick-answer') {
         const place = placeQuickAnswer(oldBody);
@@ -1064,13 +1160,23 @@ module.exports = async function handler(req, res) {
         newBody = oldBody.slice(0, a.index) + built + oldBody.slice(a.index + a.full.length);
         markedAfter = oldBody.slice(0, a.index) + markWrapC(built) + oldBody.slice(a.index + a.full.length);
       }
+      else if (op === 'push-edits') {
+        // One or many edits (over-use, H2 rename/remove/add, internal/inbound links, ToC) applied to
+        // ONE body read + ONE write, so a single Undo reverts the whole push. Reports any not found.
+        const edits = Array.isArray(req.body.edits) ? req.body.edits : [];
+        if (!edits.length) return res.status(400).json({ error: 'No edits supplied' });
+        let b = oldBody, mk = oldBody; const applied = [], failed = [];
+        edits.forEach((e, i) => { const r = applyOneEdit(b, mk, e); if (r.ok) { b = r.b; mk = r.mk; applied.push(i); } else failed.push(i); });
+        newBody = b; markedAfter = mk; editReport = { applied, failed };
+        if (!applied.length) return res.status(200).json({ success: false, notFound: true, failed, error: 'Could not find any of those items in the page any more — it may have been edited.' });
+      }
       else {
         return res.status(400).json({ error: `Unknown op: ${op}` });
       }
 
       // PREVIEW — return the body with the change highlighted; nothing saved.
       if (mode === 'preview') {
-        return res.status(200).json({ success: true, mode: 'preview', after: markedAfter });
+        return res.status(200).json({ success: true, mode: 'preview', after: markedAfter, ...(editReport || {}) });
       }
 
       // APPLY — back up the current body, then write the new body live.
@@ -1096,7 +1202,7 @@ module.exports = async function handler(req, res) {
         method: 'PUT', headers: shopifyHeaders,
         body: JSON.stringify({ [t.wrap]: { id: shopifyId, body_html: newBody } })
       });
-      if (wr.ok) return res.status(200).json({ success: true, mode: 'apply' });
+      if (wr.ok) return res.status(200).json({ success: true, mode: 'apply', ...(editReport || {}) });
       const e = await wr.json().catch(() => ({}));
       return res.status(502).json({ success: false, error: JSON.stringify(e.errors || wr.statusText) });
     } catch (err) {
