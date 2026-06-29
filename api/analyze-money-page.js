@@ -1,7 +1,15 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v50.0
+// analyze-money-page.js — v50.1
+// v50.1 (June 29, 2026): FACTS-ONLY find/replace + schema guard (Batch 1, Part B). (1) Every
+//                        "find this exact text" item (keyword over-use + H2 rename/remove) is now
+//                        checked against the REAL page (live headings + body blocks + metafield
+//                        text): snapped to the closest real line, or DROPPED if it isn't really on
+//                        the page — so the merchant is never sent to find invented text. (2) Schema
+//                        / Q&A prompts can no longer fabricate specifics (price, size, material,
+//                        GSM, counts, ratings, dates, guarantees) unless the fact is in the real
+//                        page data. (See buildPageHaystack / matchRealLine.)
 // v50.0 (June 29, 2026): FACTS-ONLY link guard (Batch 1, Part A). Internal links can no longer be
 //                        invented. (1) Loser links: kept ONLY when the URL is a real registry loser
 //                        page; none in registry → none shown. (2) Outbound links: kept ONLY when they
@@ -427,6 +435,33 @@ module.exports = async function handler(req, res) {
     if (yourPageData.shopifyType === 'product' && analysis?.structured) {
       const _pst = analysis.structured;
       if (_pst.productDescription && String(_pst.productDescription).trim()) _pst.keywordOveruse = null;
+    }
+
+    // ── FACTS-ONLY: verify find/replace items against the REAL page (v50.1) ──────
+    // "Find this text" items (keyword over-use + H2 rename/remove) must point at text that truly
+    // exists. Snap each to the closest real line; drop anything that isn't really on the page so the
+    // merchant is never sent to find invented text.
+    if (analysis?.structured) {
+      const st = analysis.structured;
+      const pageLines = buildPageHaystack(yourPageData);
+      if (st.keywordOveruse && Array.isArray(st.keywordOveruse.findings)) {
+        st.keywordOveruse.findings = st.keywordOveruse.findings.filter(f => {
+          if (!f || !f.currentText) return false;
+          const real = matchRealLine(f.currentText, pageLines);
+          if (real) { f.currentText = real; return true; }
+          return false;                                     // not on the page → invented → drop
+        });
+        if (!st.keywordOveruse.findings.length) st.keywordOveruse.isOverstuffed = false;
+      }
+      if (Array.isArray(st.h2Sections)) {
+        st.h2Sections = st.h2Sections.filter(h => {
+          if (!h || h.action === 'add') return true;        // "add" has no current text to find
+          if (!h.heading) return false;
+          const real = matchRealLine(h.heading, pageLines);
+          if (real) { h.heading = real; return true; }
+          return false;                                     // rename/remove of text not on page → drop
+        });
+      }
     }
 
     // Pages (P2): build guaranteed-valid JSON for the FAQ schema (SAME questions as the
@@ -1342,6 +1377,51 @@ function realLineForKeyword(body, keyword) {
   return a ? { findAnchor: a.findAnchor, section: a.section, where: 'right after this line' } : null;
 }
 
+// ── FACTS-ONLY find/replace verification (v50.1) ────────────────────────────
+// Build the list of REAL text lines on a page (live headings + body blocks + metafield text)
+// so any "find this exact text" suggestion can be checked against what is actually there.
+function buildPageHaystack(yp) {
+  const lines = [];
+  const lh = (yp && yp.liveHeadings) || { h1: yp && yp.h1, h2: yp && yp.h2, h3: yp && yp.h3 };
+  [...(lh.h1 || []), ...(lh.h2 || []), ...(lh.h3 || [])].forEach(h => { if (h) lines.push(String(h)); });
+  if (yp && yp.shopifyBodyHtml) {
+    (yp.shopifyBodyHtml.match(/<(h2|h3|h4|p|li)[^>]*>[\s\S]*?<\/\1>/gi) || []).forEach(t => {
+      const x = t.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+      if (x) lines.push(x);
+    });
+  }
+  ((yp && yp.metafields) || []).forEach(m => {
+    if (m && m.text) String(m.text).split(/\n+/).forEach(x => { const t = x.trim(); if (t) lines.push(t); });
+  });
+  return lines;
+}
+function _normTxt(s) {
+  return String(s || '').toLowerCase().replace(/<[^>]+>/g, ' ').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+// Match a claimed "current text" to a real page line. Returns the REAL line (verbatim) when it
+// exists or closely matches (≥70% of the claim's words); else null (treat as invented → drop).
+function matchRealLine(claim, lines) {
+  const c = _normTxt(claim);
+  if (!c) return null;
+  const cn = lines.map(l => ({ raw: l, n: _normTxt(l) })).filter(l => l.n);
+  for (const l of cn) {
+    if (l.n === c) return l.raw;
+    if (l.n.includes(c) && c.length >= 6) return l.raw;
+    if (c.includes(l.n) && l.n.length >= 10) return l.raw;
+  }
+  const cw = new Set(c.split(' ').filter(w => w.length > 2));
+  if (!cw.size) return null;
+  let best = null, bestScore = 0;
+  for (const l of cn) {
+    const ls = new Set(l.n.split(' ').filter(w => w.length > 2));
+    if (!ls.size) continue;
+    let hit = 0; cw.forEach(w => { if (ls.has(w)) hit++; });
+    const score = hit / cw.size;
+    if (score > bestScore) { bestScore = score; best = l.raw; }
+  }
+  return bestScore >= 0.7 ? best : null;
+}
+
 // Get Claude analysis
 async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = null, contentGaps = null, loserPages = [], relatedBlogs = []) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -1862,8 +1942,8 @@ RULES:
 - suggestedTitle: max 60 chars (hard limit — audit flags above this), keyword near start, include brand or USP
 - suggestedMeta: max 135 chars (hard limit — also used as OG description, stricter threshold), keyword, main benefit, CTA
 - suggestedDescription: plain text only, no HTML, 2-3 sentences, keyword-rich, UK spelling
-- pageSchema: write complete valid schema appropriate for the page type — for products include offers/price range, for collections include numberOfItems, for articles include author/datePublished. NEVER suggest product-level schema for individual items within a collection page — that belongs on each product page separately and should NOT appear here.
-- faqSchema: write 6-8 real questions people search about "${keyword}" with full helpful answers
+- pageSchema: write complete valid schema appropriate for the page type — for collections include numberOfItems, for articles include author/datePublished. NEVER fabricate a price or offer: only include offers/price if a real price is given in the page data above, otherwise omit them. NEVER suggest product-level schema for individual items within a collection page — that belongs on each product page separately and should NOT appear here.
+- faqSchema: write 6-8 real questions people search about "${keyword}" with full helpful answers. Answers must stay general and accurate — NEVER state a specific price, size, material, weight/GSM, product count, star rating, date or guarantee unless that exact fact already appears in the page data provided above.
 - brandBlock: use EXACTLY the text shown — do not change it. The brand block already includes star ratings and review count — never add a separate star rating suggestion anywhere else.
 - h2Sections: for EVERY H2 that needs attention use action "change" with reason + exactAction; for new H2s use action "add" with content. Never use action "delete" — always specify rename, retag, or delete with exact instruction and reason. NEVER flag these theme sections for removal or modification: "Trending Now", "Recently Viewed Products", "Recently Viewed", "New Arrivals", "Customers Are Saying", or any auto-generated review/browsing/merchandising widget.
 - h2Sections add content: for each "add" H2, write a full 2-3 sentence paragraph that naturally includes the target keyword and 1-2 variants. Include 1-2 internal links as actual HTML <a href="https://aboutwallart.com/collections/[relevant]">[anchor text]</a> tags within the paragraph text — do NOT add internal links as a separate otherAction.
@@ -2071,7 +2151,7 @@ RULES:
 - competitorDriven flag: on EVERY h2Sections item and aiItem include a boolean "competitorDriven". Set it TRUE whenever the recommendation fills a gap one or more competitors cover, beats something they do, or matches content/depth they have and this page lacks — you MUST mark these true, do not default everything to false. Set it false ONLY for pure general SEO best practice unrelated to the competitor data. When true, the "reason" MUST name the competitive rationale (e.g. "all 3 competitors cover X; this page doesn't").
 - keywordOveruse: examine ALL of "EXISTING PAGE CONTENT" (every heading, the full body, every metafield) and decide whether "${keyword}" is over-used. For each over-used spot return where it lives, the EXACT current text, recommendation "reword" (with suggestedText using a related/secondary term) or "remove" (suggestedText empty). Always set "metafieldKey" to an empty string here. EXCLUDE global/shared theme chrome (nav, menus, breadcrumbs, footer, cookie notices, search, account, newsletter, "related"/"recently viewed"). A single natural use is FINE — only flag genuine over-use. If not over-stuffed, return "isOverstuffed": false with an empty findings array.
 - suggestedTitle: max 60 chars (hard limit), keyword near start. suggestedMeta: max 135 chars (hard limit), keyword once, benefit, CTA. suggestedDescription: plain text, no HTML, 2-3 sentences, UK spelling.
-- faqSchema: 6-8 real questions about "${keyword}" with full helpful answers. Do NOT return pageSchema or brandBlock — the theme already renders the collection page schema and the brand/About block site-wide.
+- faqSchema: 6-8 real questions about "${keyword}" with full helpful answers. Answers must stay general and accurate — NEVER state a specific price, size, material, weight/GSM, product count, star rating, date or guarantee unless that exact fact already appears in the page data provided above. Do NOT return pageSchema or brandBlock — the theme already renders the collection page schema and the brand/About block site-wide.
 - browseTheCollection: a single SEO-worthy heading built around "${keyword}", shown on the page above the products. It must read naturally as a heading, include the keyword (or a close variation) and a useful qualifier, be at most ~70 characters, NEVER be a generic phrase like "Browse the Collection", and NEVER start with the word "Shop".
 - h2Sections: use action "change" (rename/retag a current H2, with reason + exactAction + replacementText), action "remove" (a body section that HURTS SEO — body content ONLY, never a global theme section), or action "add" (a NEW SEO content section — its "content" is paste-ready HTML, an <h2> heading + <p> paragraphs with 1-2 inline internal links, destined for the collection's SEO Text (with links) field). Add a section ONLY for a genuine content gap (check EXISTING PAGE CONTENT first — never duplicate a topic already covered, never add just to repeat "${keyword}"). NEVER flag these shared/theme sections for removal OR rename (they are site-wide, identical on every collection, and cannot be customised per collection): the brand/About section (e.g. "About Wall Art", "About AboutWallArt", "Why choose us"), "Visit the Content Hub", "Content Hub", "Trending Now", "Recently Viewed", "New Arrivals", "Customers Are Saying", or any auto-generated review/browsing/merchandising widget. Leave all of these out of h2Sections entirely. Include competitorDriven on every item.
 - ⚠️ KEYWORD USAGE — NO STUFFING (critical): use the EXACT keyword "${keyword}" only where it matters most — the title, the first line, and at most one or two headings. EVERYWHERE else (meta, description, body paragraphs, FAQ answers, snippets, the comparison table) write naturally for the reader using secondary terms, natural variations and related phrases. NEVER repeat the exact keyword over and over — Google does not reward exact-match repetition and treats stuffing as spam. If a suggestion would push the exact keyword in more than the spots above, rewrite it with a variation instead.
@@ -2260,7 +2340,7 @@ RULES:
 - competitorDriven flag: on EVERY aiItem include a boolean "competitorDriven". Set it TRUE whenever the recommendation fills a gap one or more competitors cover, beats something they do, or matches content/depth they have and this page lacks — you MUST mark these true, do not default everything to false. Set it false ONLY for pure general SEO best practice unrelated to the competitor data. When true, the reason/content rationale MUST name the competitive angle.
 - keywordOveruse: examine ALL of "EXISTING PAGE CONTENT" (every heading, the full body, every metafield) and decide whether "${keyword}" is over-used. For each over-used spot return where it lives, the EXACT current text, recommendation "reword" (with suggestedText using a related/secondary term) or "remove" (suggestedText empty). Always set "metafieldKey" to an empty string here. EXCLUDE global/shared theme chrome (nav, menus, breadcrumbs, footer, cookie notices, search, account, newsletter, "related"/"recently viewed"). A single natural use is FINE — only flag genuine over-use. If not over-stuffed, return "isOverstuffed": false with an empty findings array.
 - suggestedTitle: max 60 chars (hard limit), keyword near start. suggestedMeta: max 135 chars (hard limit), keyword once, benefit, CTA. suggestedDescription: plain text, no HTML, 2-3 sentences, UK spelling.
-- questionSet: 4-6 real "People Also Ask"-style questions about "${keyword}" with full, helpful one-sentence answers. This SINGLE set is reused to fill three different page fields, so make each question genuinely useful and self-contained. The first word of each question should vary (not all "What…").
+- questionSet: 4-6 real "People Also Ask"-style questions about "${keyword}" with full, helpful one-sentence answers. Answers must stay general and accurate — NEVER state a specific price, size, material, weight/GSM, product count, star rating, date or guarantee unless that exact fact already appears in the page data provided above. This SINGLE set is reused to fill three different page fields, so make each question genuinely useful and self-contained. The first word of each question should vary (not all "What…").
 - aiItems — generate the page snippets in their EXACT formats below:
   - Comparison Snippet ("comparison_snippet", richtext_snippet) EXACT format: <h3>[the question]</h3><p>[answer paragraph, 3-5 sentences, first sentence is a standalone answer]</p> — H3 only, no other tags. ALWAYS generate this (a "What is ${keyword}?" style definition).
   - Comparison Table ("comparison_table", singleline_html) EXACT format: a single <h3>heading</h3> then a <table> with <thead> and <tbody>, MAX 4 columns and 6 rows, NO inline styles, NO <br>. Generate ONLY if there is a genuine comparison to make (styles, rooms, materials) — otherwise OMIT this item entirely.
