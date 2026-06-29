@@ -1,7 +1,14 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v49.9
+// analyze-money-page.js — v50.0
+// v50.0 (June 29, 2026): FACTS-ONLY link guard (Batch 1, Part A). Internal links can no longer be
+//                        invented. (1) Loser links: kept ONLY when the URL is a real registry loser
+//                        page; none in registry → none shown. (2) Outbound links: kept ONLY when they
+//                        point at a real tag-related blog (the relatedBlogs list) — validated on the
+//                        actual pasted href; the AI can no longer pick a collection/product/page.
+//                        (3) Related-blog "paste after this line" rebuilt from each source blog's REAL
+//                        body so it is always findable. Blog prompt tightened to match.
 // v49.9 (June 29, 2026): updatedTableOfContents now generates BY DEFAULT whenever H2s are renamed/
 //                        added/removed — no longer gated on detecting a "List/Table of Contents"
 //                        heading (blogs whose contents list is called "Index" etc. were being
@@ -458,15 +465,28 @@ module.exports = async function handler(req, res) {
       }
     }
 
-    // Resolve a DIRECT Shopify admin URL for each loser page so "Open in Shopify Admin"
-    // opens the actual post/product instead of a search.
+    // ── FACTS-ONLY LINK GUARD (v50.0) ───────────────────────────────────────
+    // Internal links may ONLY point at REAL pages, never an address the AI made up.
+    //   (1) Loser links   → must be a real registry loser page (getLosersForPage).
+    //   (2) Outbound links → must be a real tag-related blog (the relatedBlogs list).
+    // Anything else is dropped before it can ever be shown or pushed.
+    const normUrl = u => String(u || '').toLowerCase().trim()
+      .replace(/^https?:\/\/www\./, 'https://').replace(/\/+$/, '').split(/[?#]/)[0];
+
+    // (1) Loser links: keep ONLY URLs sourced from the registry. None in registry → none shown.
+    if (analysis?.structured?.loserPageLinks?.length > 0) {
+      const validLoserUrls = new Set(loserPages.map(l => normUrl(l.loserUrl)));
+      analysis.structured.loserPageLinks = analysis.structured.loserPageLinks
+        .filter(link => link.loserUrl && validLoserUrls.has(normUrl(link.loserUrl)));
+    }
+    // Resolve a DIRECT Shopify admin URL + exact paste line for each (surviving) loser page.
     if (analysis?.structured?.loserPageLinks?.length > 0) {
       await Promise.all(analysis.structured.loserPageLinks.map(async (link) => {
         try {
           const c = await fetchShopifyContent(link.loserUrl);
           link.adminUrl = buildLoserAdminUrl(c);
           // EXACT placement: read the loser page's real body → exact line to paste after + real section.
-          const lp = loserPages.find(x => x.loserUrl === link.loserUrl) || {};
+          const lp = loserPages.find(x => normUrl(x.loserUrl) === normUrl(link.loserUrl)) || {};
           const a = pickBodyAnchor(c && c.bodyHtml, lp.loserKeyword || link.placementSection || keyword);
           if (a) {
             link.findAnchor = a.findAnchor;
@@ -477,6 +497,16 @@ module.exports = async function handler(req, res) {
       }));
     }
 
+    // (2) Outbound links: keep ONLY links that point at a real tag-related blog. Validate the
+    //     ACTUAL pasted href (read from newText), not just the url field, so nothing invented slips by.
+    if (analysis?.structured?.internalLinksToAdd?.length > 0) {
+      const validOutUrls = new Set((relatedBlogs || []).map(b => normUrl(b.url)));
+      analysis.structured.internalLinksToAdd = analysis.structured.internalLinksToAdd.filter(link => {
+        const hrefMatch = String(link.newText || '').match(/href=["']([^"']+)["']/i);
+        const pasted = hrefMatch ? hrefMatch[1] : link.url;
+        return pasted && validOutUrls.has(normUrl(pasted));
+      });
+    }
     // EXACT placement for a blog's OWN outbound links (internalLinksToAdd → pasted into THIS body).
     if (analysis?.structured?.internalLinksToAdd?.length > 0) {
       const myBody = yourPageData.shopifyBodyHtml || '';
@@ -495,12 +525,19 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // Direct admin link for each related-blog source page (to edit it and add the link).
+    // (3) Related-blog links: admin URL + rebuild the "paste after this line" from the source blog's
+    //     REAL body (the AI's findAnchor can be approximate → make it always findable).
     if (analysis?.structured?.relatedBlogLinks?.length > 0) {
       await Promise.all(analysis.structured.relatedBlogLinks.map(async (link) => {
         try {
           const c = await fetchShopifyContent(link.sourceUrl);
           link.adminUrl = buildLoserAdminUrl(c);
+          const real = realLineForKeyword(c && c.bodyHtml, keyword);
+          if (real) {
+            link.findAnchor = real.findAnchor;
+            link.placementSection = real.section || link.placementSection || '';
+            link.placementWhere = real.where;
+          }
         } catch { link.adminUrl = null; }
       }));
     }
@@ -1286,6 +1323,24 @@ function pickBodyAnchor(body, hint) {
   const para = best.paras[best.paras.length - 1];                      // link sits after that section's content
   return { section: best.heading || '', findAnchor: exactLineFrom(para) };
 }
+// Find the REAL line in a source blog to anchor a keyword link: prefer the actual sentence that
+// already contains the keyword (mode=replace lands exactly there); else the best section's last line.
+function realLineForKeyword(body, keyword) {
+  const kw = String(keyword || '').toLowerCase().trim();
+  const sections = parseSectionsFromBody(body).filter(s => s.paras.length);
+  if (!sections.length) return null;
+  if (kw) {
+    for (const s of sections) {
+      for (const p of s.paras) {
+        if (p.toLowerCase().includes(kw)) {
+          return { findAnchor: exactLineFrom(p), section: s.heading || '', where: 'this line (it already mentions the keyword)' };
+        }
+      }
+    }
+  }
+  const a = pickBodyAnchor(body, keyword);
+  return a ? { findAnchor: a.findAnchor, section: a.section, where: 'right after this line' } : null;
+}
 
 // Get Claude analysis
 async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = null, contentGaps = null, loserPages = [], relatedBlogs = []) {
@@ -1524,8 +1579,8 @@ Return this exact JSON structure with real content (no placeholders):
   ],
   "internalLinksToAdd": [
     {
-      "anchorText": "the exact anchor text to use (describes the destination; do NOT use this article's own main keyword as the anchor)",
-      "url": "full destination URL — a relevant AboutWallArt collection or page this article should link OUT to",
+      "anchorText": "the exact anchor text to use (describes the destination blog; do NOT use this article's own main keyword as the anchor)",
+      "url": "the EXACT url of ONE of the RELATED OLDER BLOGS listed below — this article links OUT to that blog. Use ONLY a url from that list; NEVER a collection, product, page, or any url not on the list, and NEVER invent one.",
       "mode": "replace OR new",
       "existingText": "if mode=replace: the EXACT sentence/paragraph already in the body to swap out. If mode=new: empty string.",
       "newText": "the EXACT paste-ready paragraph WITH the link already embedded as <a href=\\"[url]\\" title=\\"[title]\\" target=\\"_blank\\" rel=\\"noopener\\">[anchorText]</a>. For mode=replace this is existingText rewritten with the link; for mode=new a short natural new sentence/paragraph containing the link.",
@@ -1634,7 +1689,7 @@ RULES:
 - HOW-TO SCHEMA (the "How-To Schema" aiItem ONLY): its "content" is NOT HTML — it is a single line of valid JSON-LD wrapped in <script type="application/ld+json"> ... </script>, a schema.org HowTo object with "name", "description" and a "step" array of HowToStep objects ("name" + "text"). No markdown, no code fences, no extra text — just the <script> tag with the JSON inside.
 - urlAnalysis: title changes are always safe (no redirect). Only recommend a slug change if the page has very few or zero clicks; if so, set slugChangeWarning.
 - otherActions: NEVER include image filename or alt-text tasks — the Image SEO tool handles all blog images separately. NEVER include internal-link tasks — those go in internalLinksToAdd. Return an EMPTY array unless there is a genuine NON-image, NON-link action. NEVER include page speed, image compression, Core Web Vitals, canonical/OG/Twitter tags, meta robots, keyword density targets, schema, or anything already covered by h2Sections or aiItems. One sentence per action max.
-- internalLinksToAdd: when this article should link OUT to a relevant AboutWallArt collection or page, put it here (NOT in otherActions). Give 1-2 links max. For each, output paste-ready text with the link ALREADY embedded (full <a href title target rel> format). PREFER mode "replace" — find a natural existing sentence in the body and return it in existingText plus the rewritten version with the link in newText. Only use mode "new" when there is no natural existing spot; then newText is a short new sentence. The anchor text must describe the destination and must NOT be a keyword owned by another page (no cannibalisation) and must NOT be this article's own main keyword. If there is no good internal-link opportunity, return an empty array.
+- internalLinksToAdd: outbound links FROM this article (NOT in otherActions). The destination MUST be one of the RELATED OLDER BLOGS listed below — link out ONLY to those real tag-related blogs, NEVER to a collection, product, page, or any URL not on that list, and NEVER invent a URL. Give 1-2 links max, each to a DIFFERENT related blog. Put the chosen blog's exact URL in "url" and embed that SAME url in newText's <a href>. Output paste-ready text with the link ALREADY embedded (full <a href title target rel> format). PREFER mode "replace" — find a natural existing sentence in THIS article's body and return it in existingText plus the rewritten version with the link in newText. Only use mode "new" when there is no natural existing spot; then newText is a short new sentence. The anchor text must describe the destination blog and must NOT be a keyword owned by another page (no cannibalisation) and must NOT be this article's own main keyword. If no related blogs are listed below, return an empty array.
 - WORD COUNT: never say "reduce word count to X" or "increase keyword density to X%" generically. If specific bloated content must go, name the EXACT paragraph opening words and why; otherwise do not mention word count or density at all.
 - loserPageLinks: ONLY include if loser pages are provided above. Unique natural sentence per loser page with a real HTML anchor to this page, plus a specific placement. If none provided, omit this field entirely.
 - relatedBlogLinks: for EACH blog in "RELATED OLDER BLOGS TO LINK FROM", produce one link FROM that blog INTO this page. The anchor text MUST be this page's exact main keyword "${keyword}" (NEVER a variation). If "keyword present: YES", use mode "replace" and wrap the keyword in that blog's given sentence as the link. If not present, use mode "new" with a short natural sentence/CTA that uses "${keyword}" as the anchor. The link URL is always ${yourPage.url}. One item per related blog. If no related blogs are listed above, omit this field entirely.
