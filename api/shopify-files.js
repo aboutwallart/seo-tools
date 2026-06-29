@@ -1,4 +1,9 @@
-// shopify-files.js — v2.5
+// shopify-files.js — v2.6
+// v2.6 (June 29, 2026): (1) add-button now also strips any LEFTOVER separate old text-CTA link for
+//                       the product (stripLeftoverCtas) so the new black button truly replaces it
+//                       instead of leaving an old "SHOP HERE"/"Show me this product" link below.
+//                       (2) NEW action 'update-image-alt-bulk' — sets the alt of MANY body images in
+//                       ONE save (re-reads body once, applies all, backs up to body-undo for undo).
 // v2.5 (June 29, 2026): Promo fixer polish. (1) add-video WATCH line is now LEFT-aligned (matches
 //                       blog text). (2) add-button accepts MANY products (productHandles[]) so one
 //                       preview/approve can add ALL missing buttons at once (single body write +
@@ -953,6 +958,24 @@ module.exports = async function handler(req, res) {
       const alt = im[0].match(/\balt=["']([^"']*)["']/i);
       return { src: im[1], alt: alt ? alt[1] : '' };
     };
+    // Remove any LEFTOVER old text-CTA link to this product (a separate "SHOP HERE" / "Show me this
+    // product" link sitting near the image) so the new black button truly REPLACES it instead of
+    // leaving it behind. Keeps the new styled button (has background-color) and the image link.
+    const _CTA_TXT = /^(?:shop here|shop now|show me this product!?|click here to see this product!?|see this product!?|buy now|view product|get it here|click here)$/i;
+    function stripLeftoverCtas(body, handle) {
+      const h = String(handle || '').toLowerCase();
+      let out = body.replace(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi, (full, attrs, inner) => {
+        const hp = attrs.match(/href=["'][^"']*\/products\/([^"'?#\/]+)/i);
+        if (!hp || hp[1].toLowerCase() !== h) return full;          // not this product
+        if (/style=["'][^"']*background-color/i.test(attrs)) return full;  // the new black button → keep
+        if (/<img\b/i.test(inner)) return full;                     // an image link → keep
+        const text = inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        return _CTA_TXT.test(text) ? '' : full;                     // leftover old text CTA → remove
+      });
+      // Tidy any now-empty paragraph the removed CTA left behind.
+      out = out.replace(/<p[^>]*>\s*(?:<br\s*\/?>)?\s*<\/p>/gi, '');
+      return out;
+    }
 
     try {
       const gr = await fetch(`${base}/${t.path}.json?fields=id,body_html`, { headers: shopifyHeaders });
@@ -1025,6 +1048,9 @@ module.exports = async function handler(req, res) {
           const built = buildPromoInner(url, img.src, img.alt);
           newBody     = newBody.slice(0, a.index)  + built            + newBody.slice(a.index + a.full.length);
           markedAfter = markedAfter.slice(0, am.index) + markWrapC(built) + markedAfter.slice(am.index + am.full.length);
+          // Remove any leftover separate old CTA text link for this product (so it's replaced, not doubled).
+          newBody     = stripLeftoverCtas(newBody, h);
+          markedAfter = stripLeftoverCtas(markedAfter, h);
           doneCount++;
         }
         if (!doneCount) return res.status(200).json({ success: false, notFound: true, error: 'Could not find that product image in the blog body any more — it may have been edited.' });
@@ -1207,6 +1233,80 @@ module.exports = async function handler(req, res) {
       if (r.ok) return res.status(200).json({ success: true });
       const e = await r.json().catch(() => ({}));
       return res.status(502).json({ success: false, error: JSON.stringify(e.errors || r.statusText) });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  // -------------------------------------------------------
+  // UPDATE IMAGE ALT (BULK) — set the alt of MANY body images in ONE save. Re-reads the live body
+  // once, applies every {imageSrc, alt}, backs up the previous body to data/body-undo.json (so the
+  // whole batch can be undone via restore-body), then writes once. Featured/main image excluded.
+  // -------------------------------------------------------
+  if (req.query.action === 'update-image-alt-bulk' && req.method === 'POST') {
+    const { shopifyId, shopifyType, shopifyBlogId, images } = req.body;
+    if (!shopifyId || !shopifyType || !Array.isArray(images) || !images.length) {
+      return res.status(400).json({ error: 'Missing shopifyId, shopifyType or images' });
+    }
+    const shopifyHeaders = { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' };
+    const base = `https://${shopifyDomain}/admin/api/2025-01`;
+    const map = {
+      product:           { path: `products/${shopifyId}`,                        wrap: 'product' },
+      custom_collection: { path: `custom_collections/${shopifyId}`,              wrap: 'custom_collection' },
+      smart_collection:  { path: `smart_collections/${shopifyId}`,               wrap: 'smart_collection' },
+      page:              { path: `pages/${shopifyId}`,                           wrap: 'page' },
+      article:           { path: `blogs/${shopifyBlogId}/articles/${shopifyId}`, wrap: 'article' }
+    };
+    const t = map[shopifyType];
+    if (!t) return res.status(400).json({ error: `Unknown shopifyType: ${shopifyType}` });
+    try {
+      const gr = await fetch(`${base}/${t.path}.json?fields=id,body_html`, { headers: shopifyHeaders });
+      const gd = await gr.json();
+      const oldBody = gd[t.wrap]?.body_html || '';
+      if (!oldBody) return res.status(404).json({ success: false, error: 'No body_html on this resource' });
+
+      let newBody = oldBody, applied = 0, missed = 0;
+      for (const it of images) {
+        if (!it || !it.imageSrc || typeof it.alt !== 'string' || !it.alt.trim()) { missed++; continue; }
+        const escaped = it.imageSrc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const imgRe = new RegExp('<img\\b[^>]*src=["\']' + escaped + '["\'][^>]*>', 'i');
+        if (!imgRe.test(newBody)) { missed++; continue; }
+        const altEsc = it.alt.replace(/"/g, '&quot;');
+        newBody = newBody.replace(imgRe, (tag) =>
+          /\balt=["'][^"']*["']/i.test(tag)
+            ? tag.replace(/\balt=["'][^"']*["']/i, `alt="${altEsc}"`)
+            : tag.replace(/<img\b/i, `<img alt="${altEsc}"`)
+        );
+        applied++;
+      }
+      if (!applied) return res.status(200).json({ success: false, error: 'None of the images were found in the blog body.' });
+
+      // Back up the previous body so the whole batch can be undone (same slot as body-edit).
+      const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+      const REPO = 'aboutwallart/seo-tools';
+      const UNDO_FILE = 'data/body-undo.json';
+      const undoKey = `${shopifyType}:${shopifyId}`;
+      try {
+        let store = {}, sha = null;
+        const gh = await fetch(`https://api.github.com/repos/${REPO}/contents/${UNDO_FILE}`, {
+          headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
+        });
+        if (gh.ok) { const d = await gh.json(); sha = d.sha; store = JSON.parse(Buffer.from(d.content, 'base64').toString('utf-8') || '{}'); }
+        store[undoKey] = { body: oldBody, blogId: shopifyBlogId || null, ts: new Date().toISOString() };
+        await fetch(`https://api.github.com/repos/${REPO}/contents/${UNDO_FILE}`, {
+          method: 'PUT',
+          headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: `body-undo backup ${undoKey}`, content: Buffer.from(JSON.stringify(store, null, 2)).toString('base64'), ...(sha ? { sha } : {}) })
+        });
+      } catch (e) { return res.status(500).json({ success: false, error: 'Could not save undo backup — nothing changed. ' + e.message }); }
+
+      const wr = await fetch(`${base}/${t.path}.json`, {
+        method: 'PUT', headers: shopifyHeaders,
+        body: JSON.stringify({ [t.wrap]: { id: shopifyId, body_html: newBody } })
+      });
+      if (wr.ok) return res.status(200).json({ success: true, applied, missed });
+      const e = await wr.json().catch(() => ({}));
+      return res.status(502).json({ success: false, error: JSON.stringify(e.errors || wr.statusText) });
     } catch (err) {
       return res.status(500).json({ success: false, error: err.message });
     }
