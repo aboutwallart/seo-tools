@@ -1,7 +1,13 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v51.1
+// analyze-money-page.js — v51.2
+// v51.2 (June 29, 2026): BATCH 3 fixes. (#3) drop an outbound "Links to Add" item when keyword
+//                        over-use already handles that exact sentence (over-use wins). (#4) never flag
+//                        the contents-list heading (List of Contents/Contents/Index) in h2Sections —
+//                        the Table of Contents block owns it. (#9) the updated contents list keeps
+//                        ONLY real section titles (drops leaked sentences / "More About" lines). (#5)
+//                        max_tokens 12000→20000 so long blogs stop truncating into invalid JSON.
 // v51.1 (June 29, 2026): BATCH 3 support — loser-page links and related-blog links now also carry the
 //                        target page's shopifyId/type/blogId (targetId/targetType/targetBlogId) so the
 //                        inbound-link PUSH can edit that page directly via shopify-files push-edits.
@@ -434,6 +440,16 @@ module.exports = async function handler(req, res) {
           for (const _c of _changes) {
             if (_c && _c.action === 'add' && _c.heading && _c.heading.trim()) _toc.push(_c.heading.trim());
           }
+          // Keep ONLY real section titles — drop anything that leaked in as a full sentence
+          // (e.g. a "More About" authority line) or the contents label itself.
+          _toc = _toc.filter(t => {
+            const x = (t || '').trim();
+            if (!x) return false;
+            if (/^(list of contents|table of contents|contents|index)$/i.test(x)) return false;
+            if (/[.!?]$/.test(x)) return false;            // sentences end in punctuation; headings don't
+            if (x.split(/\s+/).length > 12) return false;  // too long to be a heading
+            return true;
+          });
           const _changed = _changes.some(c => c && (c.action === 'add' || c.action === 'remove' || (c.action !== 'add' && c.replacementText && c.replacementText.trim())));
           if (_toc.length && _changed) analysis.structured.updatedTableOfContents = _toc;
         }
@@ -476,12 +492,22 @@ module.exports = async function handler(req, res) {
           if (!h.heading) return false;
           // Never flag a video/WATCH section for rename OR removal — a WATCH H2 is fine SEO.
           if (/\b(watch|youtube|video)\b/i.test(h.heading)) return false;
+          // The contents list is owned by the Updated Table of Contents block — never also flag it here.
+          if (/^\s*(list of contents|table of contents|contents|index)\s*$/i.test(h.heading)) return false;
           const real = matchRealLine(h.heading, pageLines);
           if (!real) return false;                          // rename/remove of text not on page → drop
           h.heading = real;
           // De-dup: keyword over-use wins — drop an H2 rename for text it already handles.
           if (h.action !== 'remove' && overuseTexts.has(_normTxt(h.heading))) return false;
           return true;
+        });
+      }
+      // De-dup across blocks: if keyword over-use already handles a sentence, drop the outbound
+      // "Links to Add From This Article" item that targets the SAME sentence (over-use wins).
+      if (Array.isArray(st.internalLinksToAdd)) {
+        st.internalLinksToAdd = st.internalLinksToAdd.filter(l => {
+          const t = _normTxt(l && l.existingText || '');
+          return !(t && overuseTexts.has(t));
         });
       }
     }
@@ -1489,7 +1515,7 @@ async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = 
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 12000,
+        max_tokens: 20000,   // raised from 12000 — long blogs (6k+ words) were truncating → invalid JSON
         messages: [{ role: 'user', content: prompt }]
       })
     });
