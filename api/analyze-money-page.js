@@ -1,7 +1,13 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v51.2
+// analyze-money-page.js — v51.3
+// v51.3 (June 29, 2026): BATCH 4 (products). Preserve existing internal links on a description
+//                        rewrite: capture the current body's internal links, set each anchor by the
+//                        chain (registry locked keyword for that URL → Link Whisperer auto-link
+//                        keyword → existing anchor), tell the rewrite to keep them, and REPORT any the
+//                        rewrite dropped (preservedLinksMissing) so interlinking is never silently
+//                        lost. Helpers: extractInternalLinks / loadRegistryByUrl / loadAutolinkByUrl.
 // v51.2 (June 29, 2026): BATCH 3 fixes. (#3) drop an outbound "Links to Add" item when keyword
 //                        over-use already handles that exact sentence (over-use wins). (#4) never flag
 //                        the contents-list heading (List of Contents/Contents/Index) in h2Sections —
@@ -390,6 +396,23 @@ module.exports = async function handler(req, res) {
       console.log(`[Money Page] Blog Quality — UK:${blogQuality.britishEnglish.length} buzz:${blogQuality.buzzwords.length} links:${blogQuality.brandedLinks.length} bio:${blogQuality.authorBio ? 'needed' : 'ok'}`);
     }
 
+    // Step 4.95: PRODUCTS — capture existing internal links so the rewrite preserves them. Anchor
+    // per chain: registry locked keyword for that URL → Link Whisperer auto-link keyword → existing
+    // anchor. Reported back if the rewrite drops any (never silently lose interlinking).
+    if (yourPageData.shopifyType === 'product') {
+      try {
+        const links = extractInternalLinks(yourPageData.shopifyBodyHtml || '');
+        if (links.length) {
+          const [regByUrl, autoByUrl] = await Promise.all([loadRegistryByUrl(), loadAutolinkByUrl()]);
+          yourPageData.preserveLinks = links.map(l => {
+            const k = _normInternal(l.url);
+            return { url: l.url, anchor: regByUrl.get(k) || autoByUrl.get(k) || l.anchor };
+          });
+          console.log(`[Money Page] Product: ${yourPageData.preserveLinks.length} existing internal links to preserve`);
+        }
+      } catch (e) { console.warn('[preserveLinks]', e.message); }
+    }
+
     // Step 5: Get Claude analysis
     console.log('[Money Page] Step 5: Getting AI recommendations... (~20 sec)');
     const analysis = await getClaudeAnalysis(yourPageData, competitorData, keyword, searchResults.userPosition, contentGaps, loserPages, relatedBlogs);
@@ -463,6 +486,14 @@ module.exports = async function handler(req, res) {
     if (yourPageData.shopifyType === 'product' && analysis?.structured) {
       const _pst = analysis.structured;
       if (_pst.productDescription && String(_pst.productDescription).trim()) _pst.keywordOveruse = null;
+      // Report any existing internal link the rewrite did NOT carry over (so she re-adds it).
+      if (Array.isArray(yourPageData.preserveLinks) && _pst.productDescription && String(_pst.productDescription).trim()) {
+        const dl = String(_pst.productDescription).toLowerCase();
+        _pst.preservedLinksMissing = yourPageData.preserveLinks.filter(l => {
+          const k = _normInternal(l.url);
+          return !(k && (dl.includes(k) || dl.includes(String(l.url).toLowerCase())));
+        });
+      }
     }
 
     // ── FACTS-ONLY: verify find/replace items against the REAL page (v50.1) ──────
@@ -1360,6 +1391,55 @@ async function getPageSpeedScore(url, strategy) {
 }
 
 // Fetch loser pages that should link TO the winner page
+// ── PRODUCTS: preserve existing internal links on a description rewrite (Batch 4) ───────────
+const _normInternal = u => String(u || '').toLowerCase().replace(/^https?:\/\/(www\.)?aboutwallart\.com/, '').replace(/[?#].*$/, '').replace(/\/$/, '').trim();
+// Pull internal (AboutWallArt) links out of a body: [{url, anchor}], de-duped by URL.
+function extractInternalLinks(html) {
+  const out = [], seen = new Set();
+  const re = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi; let m;
+  while ((m = re.exec(html || ''))) {
+    const url = m[1];
+    if (!/aboutwallart\.com|^\/(products|collections|pages|blogs)\//i.test(url)) continue;   // internal only
+    const anchor = m[2].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+    const key = _normInternal(url);
+    if (!key || seen.has(key)) continue; seen.add(key);
+    out.push({ url, anchor });
+  }
+  return out;
+}
+// url(normalised) → locked keyword, from the registry CSV.
+async function loadRegistryByUrl() {
+  const map = new Map();
+  try {
+    const res = await fetch('https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keyword-locker-registry.csv');
+    if (!res.ok) return map;
+    const lines = (await res.text()).trim().split('\n');
+    const headerIdx = lines.findIndex(l => l.includes('Page URL') && l.includes('Keyword'));
+    if (headerIdx === -1) return map;
+    const headers = lines[headerIdx].split(',').map(h => h.trim());
+    const urlIdx = headers.indexOf('Page URL'), kwIdx = headers.indexOf('Keyword');
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+      const cols = lines[i].split(',');
+      const url = cols[urlIdx]?.trim(), kw = cols[kwIdx]?.trim();
+      if (url && kw) { const k = _normInternal(url); if (k && !map.has(k)) map.set(k, kw); }
+    }
+  } catch { /* registry optional */ }
+  return map;
+}
+// url(normalised) → Link Whisperer auto-link keyword, from autolink-rules.json.
+async function loadAutolinkByUrl() {
+  const map = new Map();
+  try {
+    const res = await fetch('https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/autolink-rules.json');
+    if (!res.ok) return map;
+    const rules = JSON.parse(await res.text());
+    for (const r of (Array.isArray(rules) ? rules : [])) {
+      if (r && r.url && r.keyword) { const k = _normInternal(r.url); if (k && !map.has(k)) map.set(k, r.keyword); }
+    }
+  } catch { /* rules optional */ }
+  return map;
+}
+
 async function getLosersForPage(winnerUrl) {
   try {
     const res = await fetch('https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keyword-locker-registry.csv');
@@ -2609,7 +2689,9 @@ IMPORTANT: do NOT describe frames, perspex, canvas, paper types, sizes, mounts, 
 - Do NOT generate FAQ Schema, People Also Ask, or Page Schema (the theme handles those). Do NOT flag shared global product theme sections ("OUR FRAMES", "Here's Why You'll Love It", "LIGHT UP YOUR ART!", reviews, lead-capture) for per-product rename.
 - loserPageLinks: ONLY include if loser pages are provided above; unique natural sentence per loser page with a real HTML anchor to this product and a specific placement. If none provided, omit the field entirely.
 - relatedBlogLinks: for EACH blog in "RELATED OLDER BLOGS TO LINK FROM", produce one link FROM that blog INTO this product; anchor MUST be this product's exact keyword "${keyword}"; mode "replace" if keyword present (rewrite the given sentence with the link), else "new"; link URL is always ${yourPage.url}; concrete placement from the OUTLINE. If none listed, omit the field entirely.
-- otherActions: return an EMPTY array.
+- otherActions: return an EMPTY array.${(yourPage.preserveLinks && yourPage.preserveLinks.length) ? `
+- ⚠️ PRESERVE EXISTING INTERNAL LINKS (MANDATORY): the current description links to the pages below. Your rewrite MUST keep a link to EACH destination URL, worked naturally into the new copy, using the given anchor text (or a close natural variation) and the EXACT URL. Do NOT invent new destinations and do NOT drop any of these:
+${yourPage.preserveLinks.map(l => `  • ${l.url}  (anchor: "${l.anchor}")`).join('\n')}` : ''}
 - Return ONLY the JSON object — no other text`;
 }
 
