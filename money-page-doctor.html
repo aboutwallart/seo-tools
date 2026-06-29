@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 59.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 60.0</p>
                 </div>
             </div>
         </header>
@@ -1489,9 +1489,18 @@
                     setTimeout(() => upgradeAdminLinks(structured.loserPageLinks), 100);
                 }
             } else {
-                // Markdown fallback
+                // Fallback. If the AI answer was cut off (very long blog), it comes back as raw/partial
+                // JSON — never dump that at her; show a clear "too long, re-run" message instead.
                 const mdText = data.analysis?.markdown || '';
-                analysisHTML = `<div class="action-block" style="white-space:pre-wrap;line-height:1.7;">${formatMarkdown(mdText)}</div>`;
+                const looksJson = /^\s*`{0,3}\s*json/i.test(mdText) || /^\s*\{[\s\S]*"suggested/i.test(mdText);
+                if (looksJson) {
+                    analysisHTML = `<div class="action-block" style="border-color:#e57373;">
+                        <h3>⚠️ This blog was too long to analyse in one go</h3>
+                        <p style="font-size:0.9rem;color:#555;line-height:1.6;">The AI's answer got cut off, so the formatted report couldn't be built — this happens on very long blogs. Please click <strong>Analyse</strong> again. If it keeps happening on this same blog, tell me and I'll raise the limit further.</p>
+                    </div>`;
+                } else {
+                    analysisHTML = `<div class="action-block" style="white-space:pre-wrap;line-height:1.7;">${formatMarkdown(mdText)}</div>`;
+                }
             }
 
             // Internal links block — now handled inside renderStructuredResults via loserPageLinks
@@ -2231,7 +2240,7 @@
             // ── Updated Table of Contents block (blogs whose body has a List of Contents) ──
             const _tocList = (_isBlog && Array.isArray(s.updatedTableOfContents)) ? s.updatedTableOfContents : [];
             const _tocLis = _tocList.map(t => `<li>${(t||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</li>`).join('');
-            const _tocEdit = _editsAttr([{ kind: 'toc', content: `<h2>List of Contents</h2><ul>${_tocList.map(t => `<li>${t}</li>`).join('')}</ul>` }]);
+            const _tocEdit = _editsAttr([{ kind: 'toc', content: `<p><strong>List of Contents</strong></p><ul>${_tocList.map(t => `<li>${t}</li>`).join('')}</ul>` }]);
             const tocBlock = _tocList.length ? `
                 <div class="action-block" style="border-color:#5e35b1;">
                     <h3>📑 Updated Table of Contents</h3>
@@ -2241,7 +2250,7 @@
                         <div style="flex:1;">
                             <strong style="display:block;margin-bottom:6px;">List of Contents</strong>
                             <ul style="margin:0 0 10px 18px;font-size:0.9rem;line-height:1.7;">${_tocLis}</ul>
-                            <textarea id="tocUpdateHtml" style="display:none;"><h2>List of Contents</h2><ul>${_tocLis}</ul></textarea>
+                            <textarea id="tocUpdateHtml" style="display:none;"><p><strong>List of Contents</strong></p><ul>${_tocLis}</ul></textarea>
                             <button class="copy-btn" type="button" onclick="copyFormatted('tocUpdateHtml',this)">📋 Copy (title + list)</button>
                             <button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushEditsFromAttr('${_tocEdit}',null,{title:'Update the contents list',doneMsg:'Contents list updated',tickKey:'toc_update'},this)">📤 Push to blog</button>
                         </div>
@@ -2725,17 +2734,23 @@
                     }).join('')}
                 </div>` : '';
 
+            // British English spelling is PUSHABLE (blogs): one-click whole-word swaps, bulk + per item.
+            const _britList = _isBlog ? (_bq && _bq.britishEnglish || []) : [];
+            const _britBulkEdits = _editsAttr(_britList.map(f => ({ kind: 'word-swap', find: f.found, replace: f.suggestion })));
+            const _britBulkKeys = JSON.stringify(_britList.map((f, i) => `bq_brit_${i}`)).replace(/"/g, "'");
             const blogQualityBlock = _bqHasFindings ? `
                 <div class="action-block" style="border-color:#6a1b9a;">
                     <h3>✅ Blog Quality Checks</h3>
-                    <p style="font-size:0.85rem;color:#666;margin-bottom:14px;">Deterministic checks (no AI). Use your blog editor's search bar to find each item and fix it — the tool lists, it never edits for you. Tick each one as you go; the block greys out when you're done.</p>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:14px;">Deterministic checks (no AI). British spelling can be pushed for you; the rest you fix by hand from the list (the tool never invents replacements for buzzwords). Tick each as you go; the block greys out when you're done.</p>
 
                     ${(_bq.britishEnglish||[]).length ? `
                     <h4 style="margin:6px 0 8px;font-size:0.9rem;">🇬🇧 British English (${_bq.britishEnglish.length})</h4>
+                    ${(_isBlog && _britList.length > 1) ? `<button class="copy-btn" type="button" style="background:#1565c0;color:#fff;font-weight:600;margin-bottom:8px;" onclick="pushEditsFromAttr('${_britBulkEdits}',null,{title:'Fix all British spelling',doneMsg:'All spelling fixed in your blog',tickKeys:${_britBulkKeys}},this)">📤 Push all (${_britList.length})</button>` : ''}
                     ${_bq.britishEnglish.map((f, i) => bqRow(`bq_brit_${i}`, `
                         <span id="lbl_bq_brit_${i}" style="font-size:0.9rem;${state['bq_brit_'+i]?'text-decoration:line-through;':''}"><strong>${f.found}</strong> → <strong>${f.suggestion}</strong></span>
                         <button class="copy-btn" type="button" style="margin-left:10px;padding:2px 8px;font-size:0.72rem;" onclick="copyToClipboard('${_esc(f.found)}',this)" title="Copy the word to find in your editor">🔍 Find '${f.found}'</button>
-                        <button class="copy-btn" type="button" style="margin-left:6px;padding:2px 8px;font-size:0.72rem;" onclick="copyToClipboard('${_esc(f.suggestion)}',this)" title="Copy the UK spelling to paste as your replacement">📋 Replace '${f.suggestion}'</button>`)).join('')}` : ''}
+                        <button class="copy-btn" type="button" style="margin-left:6px;padding:2px 8px;font-size:0.72rem;" onclick="copyToClipboard('${_esc(f.suggestion)}',this)" title="Copy the UK spelling to paste as your replacement">📋 Replace '${f.suggestion}'</button>
+                        ${_isBlog ? `<button class="copy-btn" type="button" style="margin-left:6px;padding:2px 8px;font-size:0.72rem;background:#1976d2;color:#fff;" onclick="pushEditsFromAttr('${_editsAttr([{ kind: 'word-swap', find: f.found, replace: f.suggestion }])}',null,{title:'British spelling fix',doneMsg:'Spelling fixed in your blog',tickKey:'bq_brit_${i}'},this)">📤 Push</button>` : ''}`)).join('')}` : ''}
 
                     ${(_bq.buzzwords||[]).length ? `
                     <h4 style="margin:14px 0 8px;font-size:0.9rem;">🚫 AI buzzwords (${_bq.buzzwords.length})</h4>
@@ -3261,8 +3276,11 @@
             } catch (err) { btn.disabled = false; btn.textContent = '↩️ Undo'; alert('Could not undo: ' + err.message); }
         }
         // Build the JS array literal for an onclick="pushEdits([...] ...)" — safely encoded.
+        // NOTE: encodeURIComponent does NOT escape the apostrophe ('), and the onclick wraps this in
+        // single quotes — so any text with an apostrophe (e.g. "you're") would break the button.
+        // We escape ' → %27 too; decodeURIComponent turns it back. (Fixes the silent push buttons.)
         function _editsAttr(edits) {
-            return encodeURIComponent(JSON.stringify(edits));
+            return encodeURIComponent(JSON.stringify(edits)).replace(/'/g, '%27');
         }
         function pushEditsFromAttr(enc, target, opts, btn) {
             pushEdits(JSON.parse(decodeURIComponent(enc)), target, opts, btn);
