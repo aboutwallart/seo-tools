@@ -1,7 +1,11 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v49.8
+// analyze-money-page.js — v49.9
+// v49.9 (June 29, 2026): updatedTableOfContents now generates BY DEFAULT whenever H2s are renamed/
+//                        added/removed — no longer gated on detecting a "List/Table of Contents"
+//                        heading (blogs whose contents list is called "Index" etc. were being
+//                        skipped). She decides whether to paste it.
 // v49.8 (June 28, 2026): Missing Buttons detection FIX. Old promos wrap the image AND the CTA text
 //                        ("Show me this product!" / "Click here to see this product!") inside ONE
 //                        product link with NO styled button — v49.7 mistook that CTA text for a real
@@ -375,8 +379,10 @@ module.exports = async function handler(req, res) {
     if (yourPageData.shopifyType === 'article' && analysis?.structured) {
       try {
         const _body = yourPageData.shopifyBodyHtml || '';
-        const _hasToc = /(list|table)\s+of\s+contents/i.test(_body) ||
-                        /<a[^>]+href\s*=\s*["']#[^"']+["']/i.test(_body);   // in-page jump links
+        // Generate the contents list BY DEFAULT whenever H2s change — no matter what the blog's
+        // contents list is called (Index, Contents, List of Contents…) or whether it has one.
+        // It's only shown when there ARE H2 changes (_changed below); she decides whether to use it.
+        const _hasToc = true;
         if (_hasToc) {
           // current H2 titles in document order
           const _h2s = [];

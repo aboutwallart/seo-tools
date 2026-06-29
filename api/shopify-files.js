@@ -1,4 +1,9 @@
-// shopify-files.js — v2.4
+// shopify-files.js — v2.5
+// v2.5 (June 29, 2026): Promo fixer polish. (1) add-video WATCH line is now LEFT-aligned (matches
+//                       blog text). (2) add-button accepts MANY products (productHandles[]) so one
+//                       preview/approve can add ALL missing buttons at once (single body write +
+//                       single undo). (3) promo previews use a centred highlight so the SHOP HERE
+//                       button shows centred in the preview (matches live).
 // v2.4 (June 29, 2026): PROMO FIXER Step 2. body-edit gains op 'add-button' (rebuild a Missing
 //                       Button promo into the modern format = linked image + black SHOP HERE
 //                       button, replacing the old text CTA) and op 'swap-promo' (replace a Dead
@@ -848,7 +853,7 @@ module.exports = async function handler(req, res) {
   // -------------------------------------------------------
   if (req.query.action === 'body-edit' && req.method === 'POST') {
     const { shopifyId, shopifyType, shopifyBlogId, op, snippet, videoUrl, mode,
-            productHandle, newUrl, newImageUrl, newTitle } = req.body;
+            productHandle, productHandles, newUrl, newImageUrl, newTitle } = req.body;
     if (!shopifyId || !shopifyType || !op) {
       return res.status(400).json({ error: 'Missing shopifyId, shopifyType or op' });
     }
@@ -858,8 +863,8 @@ module.exports = async function handler(req, res) {
     if (op === 'add-video' && (typeof videoUrl !== 'string' || !videoUrl.trim())) {
       return res.status(400).json({ error: 'Missing videoUrl' });
     }
-    if (op === 'add-button' && (typeof productHandle !== 'string' || !productHandle.trim())) {
-      return res.status(400).json({ error: 'Missing productHandle' });
+    if (op === 'add-button' && !(productHandle && productHandle.trim()) && !(Array.isArray(productHandles) && productHandles.length)) {
+      return res.status(400).json({ error: 'Missing productHandle / productHandles' });
     }
     if (op === 'swap-promo' && (!productHandle || !newUrl || !newImageUrl)) {
       return res.status(400).json({ error: 'Missing productHandle / newUrl / newImageUrl' });
@@ -900,6 +905,8 @@ module.exports = async function handler(req, res) {
       return `<div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;max-width:100%;"><iframe src="https://www.youtube.com/embed/${id}" style="position:absolute;top:0;left:0;width:100%;height:100%;" frameborder="0" allowfullscreen></iframe></div>`;
     }
     const markWrap = (html) => '<div data-bodyedit-preview="1" style="outline:3px solid #ff9800;outline-offset:4px;">' + html + '</div>';
+    // Centred variant — for promo rebuilds, so the preview shows the button centred (matching live).
+    const markWrapC = (html) => '<div data-bodyedit-preview="1" style="outline:3px solid #ff9800;outline-offset:4px;text-align:center;">' + html + '</div>';
     // Find an in-body "People Also Ask" / FAQ section: from its H2/H3 heading to the next
     // same-or-higher heading (or end of body). Returns { start, end } or null.
     function findPaaSection(body) {
@@ -972,7 +979,7 @@ module.exports = async function handler(req, res) {
           if (o.ok) { const oj = await o.json(); videoTitle = (oj.title || '').trim(); }
         } catch { /* fall back to generic link text */ }
         const linkText = (videoTitle || 'Watch on YouTube').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const titleLine = `<p style="text-align:center;"><strong>WATCH: <a href="${watchUrl}" target="_blank" rel="noopener">${linkText}</a></strong></p>`;
+        const titleLine = `<p><strong>WATCH: <a href="${watchUrl}" target="_blank" rel="noopener">${linkText}</a></strong></p>`;
         const block = titleLine + '\n' + buildResponsiveEmbed(id);
         newBody = oldBody + '\n' + block + '\n';
         markedAfter = oldBody + '\n' + markWrap(block) + '\n';
@@ -1002,16 +1009,25 @@ module.exports = async function handler(req, res) {
       else if (op === 'add-button') {
         // Missing Button: a product is shown with an image link but no proper black button.
         // Rebuild that promo into the modern format (linked image + black SHOP HERE button),
-        // replacing whatever old text CTA was inside the link.
-        const a = findProductAnchor(oldBody, productHandle);
-        if (!a) return res.status(200).json({ success: false, notFound: true, error: 'Could not find that product in the blog body any more — it may have been edited.' });
-        const img = getImgFrom(a.inner);
-        if (!img) return res.status(200).json({ success: false, error: 'That product has no image in the blog to build the button around — use the replacement finder instead.' });
-        const hrefM = a.attrs.match(/href=["']([^"']+)["']/i);
-        const url = hrefM ? hrefM[1] : `https://${shopifyDomain.replace('.myshopify.com','')}/products/${productHandle}`;
-        const built = buildPromoInner(url, img.src, img.alt);
-        newBody = oldBody.slice(0, a.index) + built + oldBody.slice(a.index + a.full.length);
-        markedAfter = oldBody.slice(0, a.index) + markWrap(built) + oldBody.slice(a.index + a.full.length);
+        // replacing whatever old text CTA was inside the link. Handles ONE productHandle or MANY
+        // productHandles (the "Add ALL buttons" action) in a single body write + single undo.
+        const handles = [...new Set((Array.isArray(productHandles) && productHandles.length ? productHandles : [productHandle]).map(h => String(h).toLowerCase()))];
+        newBody = oldBody; markedAfter = oldBody;
+        let doneCount = 0;
+        for (const h of handles) {
+          const a  = findProductAnchor(newBody, h);
+          const am = findProductAnchor(markedAfter, h);
+          if (!a || !am) continue;
+          const img = getImgFrom(a.inner);
+          if (!img) continue;                       // no image to build the button around → skip
+          const hrefM = a.attrs.match(/href=["']([^"']+)["']/i);
+          const url = hrefM ? hrefM[1] : `https://${shopifyDomain.replace('.myshopify.com','')}/products/${h}`;
+          const built = buildPromoInner(url, img.src, img.alt);
+          newBody     = newBody.slice(0, a.index)  + built            + newBody.slice(a.index + a.full.length);
+          markedAfter = markedAfter.slice(0, am.index) + markWrapC(built) + markedAfter.slice(am.index + am.full.length);
+          doneCount++;
+        }
+        if (!doneCount) return res.status(200).json({ success: false, notFound: true, error: 'Could not find that product image in the blog body any more — it may have been edited.' });
       }
       else if (op === 'swap-promo') {
         // Dead Product: replace the dead product's promo with the chosen live replacement
@@ -1020,7 +1036,7 @@ module.exports = async function handler(req, res) {
         if (!a) return res.status(200).json({ success: false, notFound: true, error: 'Could not find that product link in the blog body any more — it may have been edited.' });
         const built = buildPromoInner(newUrl, newImageUrl, newTitle || '');
         newBody = oldBody.slice(0, a.index) + built + oldBody.slice(a.index + a.full.length);
-        markedAfter = oldBody.slice(0, a.index) + markWrap(built) + oldBody.slice(a.index + a.full.length);
+        markedAfter = oldBody.slice(0, a.index) + markWrapC(built) + oldBody.slice(a.index + a.full.length);
       }
       else {
         return res.status(400).json({ error: `Unknown op: ${op}` });
