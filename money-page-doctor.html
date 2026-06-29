@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 57.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 58.0</p>
                 </div>
             </div>
         </header>
@@ -2178,7 +2178,7 @@
             // ── 4. Manual actions block ───────────────────────────────────────
             // Collections route "add" sections to the SEO Text (with links) field, not the body —
             // so keep them out of the body Manual Actions block.
-            const manualItems = allItems.filter(it => it.group === 'manual' && !(_isCollection && it.action === 'add'));
+            const manualItems = allItems.filter(it => it.group === 'manual' && it.key !== 'toc_update' && !(_isCollection && it.action === 'add'));
             const manualBlock = manualItems.length > 0 ? `
                 <div class="action-block">
                     <h3>✅ Manual Actions</h3>
@@ -2219,13 +2219,14 @@
             const tocBlock = _tocList.length ? `
                 <div class="action-block" style="border-color:#5e35b1;">
                     <h3>📑 Updated Table of Contents</h3>
-                    <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">Your H2 changes above mean your contents list (your "Index", "Contents" or "List of Contents") is now out of date. Here's the full, updated list of all your section titles with the new names — paste it in to replace your current one. Use it if you like.</p>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">Your H2 changes above mean your contents list is now out of date. Here's the full, updated list of section titles — paste it in to replace your current one. Use it if you like. The section is standardised to the title <strong>"List of Contents"</strong>.</p>
                     <div id="row_toc_update" style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:#f9f9f9;border-radius:6px;opacity:${state['toc_update']?'0.45':'1'};">
                         ${cb(allItems.find(it=>it.key==='toc_update'))}
                         <div style="flex:1;">
+                            <strong style="display:block;margin-bottom:6px;">List of Contents</strong>
                             <ul style="margin:0 0 10px 18px;font-size:0.9rem;line-height:1.7;">${_tocLis}</ul>
-                            <textarea id="tocUpdateHtml" style="display:none;"><ul>${_tocLis}</ul></textarea>
-                            <button class="copy-btn" type="button" onclick="copyFormatted('tocUpdateHtml',this)">📋 Copy bulleted list</button>
+                            <textarea id="tocUpdateHtml" style="display:none;"><h2>List of Contents</h2><ul>${_tocLis}</ul></textarea>
+                            <button class="copy-btn" type="button" onclick="copyFormatted('tocUpdateHtml',this)">📋 Copy (title + list)</button>
                         </div>
                     </div>
                 </div>` : '';
@@ -2603,7 +2604,7 @@
                 const autoItems = items || [];
                 const autoCount = autoItems.length;
                 const canAddMore = autoCount < 3;   // show the search box whenever fewer than 3 are linked
-                const pushBtn = `<button type="button" id="linkedrefPush_${group}" onclick="pushLinkedRefs('${group}',this)" ${checked ? 'disabled' : ''} style="background:${color};color:#fff;border:none;border-radius:6px;padding:7px 16px;font-weight:600;font-size:0.82rem;cursor:${checked ? 'not-allowed' : 'pointer'};opacity:${checked ? '0.5' : '1'};">📤 Push</button>`;
+                const pushBtn = `<button type="button" id="linkedrefPush_${group}" onclick="pushLinkedRefs('${group}',this)" ${checked ? 'disabled' : ''} style="background:#1976d2;color:#fff;border:none;border-radius:6px;padding:7px 16px;font-weight:600;font-size:0.82rem;cursor:${checked ? 'not-allowed' : 'pointer'};opacity:${checked ? '0.5' : '1'};">📤 Push</button>`;
                 // Checkbox on the LEFT (matches every other block); "pushed" label beside it.
                 const tickLabel = `<label style="display:flex;align-items:center;gap:6px;font-size:0.8rem;color:#555;cursor:pointer;">${it ? cb(it) : ''} pushed</label>`;
                 const rows = autoItems.map(item => {
