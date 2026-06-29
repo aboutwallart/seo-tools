@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 56.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 57.0</p>
                 </div>
             </div>
         </header>
@@ -1144,24 +1144,69 @@
             const container = document.getElementById('imageResults');
             if (!container) return;
             if (!images.length) { container.innerHTML = '<p style="font-size:0.85rem;color:#666;">No images to show.</p>'; return; }
-            container.innerHTML = images.map((im, i) => `
-                <div style="display:flex;gap:12px;padding:12px;background:#f9f9f9;border-radius:6px;margin-bottom:10px;align-items:flex-start;">
-                    <img src="${im.src}" alt="" style="width:90px;height:90px;object-fit:cover;border-radius:6px;flex-shrink:0;border:1px solid #e0e0e0;">
-                    <div style="flex:1;min-width:0;">
-                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
-                            ${im.isMain ? '<span style="background:#00897b;color:white;padding:1px 7px;border-radius:4px;font-size:0.7rem;font-weight:600;flex-shrink:0;">MAIN IMAGE</span>' : ''}
+
+            const tile = (im) => `<img src="${im.src}" alt="" style="width:90px;height:90px;object-fit:cover;border-radius:6px;flex-shrink:0;border:1px solid #e0e0e0;">`;
+            const altField = (im, i) => `
+                <div style="font-size:0.78rem;color:#555;font-weight:600;margin-bottom:3px;">Suggested alt text</div>
+                <textarea id="imgAlt${i}" rows="2" style="width:100%;padding:7px 9px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.8rem;font-family:'Poppins',sans-serif;background:white;resize:vertical;box-sizing:border-box;">${im.suggestedAlt||''}</textarea>`;
+
+            const mains = [], body = [];
+            images.forEach((im, i) => (im.isMain ? mains : body).push({ im, i }));
+            // Remember the body images so "Push all alts" can read each box.
+            window._imgSeoBody = body.map(({ im, i }) => ({ src: im.src, altId: 'imgAlt' + i }));
+
+            // ── Main (featured) image — its own bordered MANUAL section (can't be pushed) ──
+            const mainHtml = mains.map(({ im, i }) => `
+                <div style="border:2px solid #00897b;border-radius:8px;padding:14px;margin-bottom:18px;background:#f0faf8;">
+                    <div style="font-weight:700;color:#00695c;margin-bottom:6px;">🖼️ Main (featured) image — do this one yourself</div>
+                    <div style="font-size:0.8rem;color:#666;margin-bottom:10px;">The featured image's alt is edited in the blog post editor — it can't be pushed. Copy the alt below and paste it into the post's featured-image alt field.</div>
+                    <div style="display:flex;gap:12px;align-items:flex-start;">
+                        ${tile(im)}
+                        <div style="flex:1;min-width:0;">
+                            ${im.error ? `<div style="color:#f44336;font-size:0.82rem;">Could not analyse this image: ${im.error}</div>` : `
+                            ${altField(im, i)}
+                            <button class="copy-btn" type="button" style="margin-top:6px;" onclick="copyToClipboard(document.getElementById('imgAlt${i}').value,this)">📋 Copy alt</button>`}
                         </div>
-                        ${im.error ? `<div style="color:#f44336;font-size:0.82rem;">Could not analyse this image: ${im.error}</div>` : `
-                        <div>
-                            <div style="font-size:0.78rem;color:#555;font-weight:600;margin-bottom:3px;">Suggested alt text</div>
-                            <div style="display:flex;gap:8px;align-items:flex-start;">
-                                <textarea id="imgAlt${i}" rows="2" style="flex:1;min-width:0;padding:7px 9px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.8rem;font-family:'Poppins',sans-serif;background:white;resize:vertical;">${im.suggestedAlt||''}</textarea>
-                                <button class="copy-btn" onclick="copyToClipboard(document.getElementById('imgAlt${i}').value,this)">📋</button>
-                                <button class="copy-btn" type="button" style="background:#1976d2;color:#fff;white-space:nowrap;" onclick="pushImageAlt('${(im.src||'').replace(/'/g,"\\'")}','imgAlt${i}',${im.isMain?'true':'false'},this)">📤 Push alt</button>
-                            </div>
-                        </div>`}
                     </div>
                 </div>`).join('');
+
+            // ── Body images — list with a "Push all alts" button + a Push per image ──
+            const bodyHtml = body.length ? `
+                ${body.length > 1 ? `<button class="copy-btn" type="button" style="background:#1976d2;color:#fff;font-weight:600;margin-bottom:12px;" onclick="pushAllImageAlts(this)">📤 Push all alts (${body.length})</button>` : ''}
+                ${body.map(({ im, i }) => `
+                <div style="display:flex;gap:12px;padding:12px;background:#f9f9f9;border-radius:6px;margin-bottom:10px;align-items:flex-start;">
+                    ${tile(im)}
+                    <div style="flex:1;min-width:0;">
+                        ${im.error ? `<div style="color:#f44336;font-size:0.82rem;">Could not analyse this image: ${im.error}</div>` : `
+                        ${altField(im, i)}
+                        <div style="display:flex;gap:8px;margin-top:6px;">
+                            <button class="copy-btn" onclick="copyToClipboard(document.getElementById('imgAlt${i}').value,this)">📋</button>
+                            <button class="copy-btn" type="button" style="background:#1976d2;color:#fff;white-space:nowrap;" onclick="pushImageAlt('${(im.src||'').replace(/'/g,"\\'")}','imgAlt${i}',false,this)">📤 Push alt</button>
+                        </div>`}
+                    </div>
+                </div>`).join('')}` : '';
+
+            container.innerHTML = mainHtml + bodyHtml;
+        }
+        // Push every body image's alt in one save (re-reads the blog once, applies all, undo-covered).
+        async function pushAllImageAlts(btn) {
+            const sd = currentResults?.shopify;
+            if (!sd?.id) { alert('Shopify data not available.'); return; }
+            const list = (window._imgSeoBody || [])
+                .map(o => ({ imageSrc: o.src, alt: (document.getElementById(o.altId)?.value || '').trim() }))
+                .filter(x => x.alt);
+            if (!list.length) { alert('No alt text to push.'); return; }
+            const orig = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Pushing all…';
+            try {
+                const res = await fetch('/api/shopify-files?action=update-image-alt-bulk', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shopifyId: sd.id, shopifyType: sd.type, shopifyBlogId: sd.blogId, images: list })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Push failed');
+                btn.textContent = `✅ Pushed ${data.applied} alt${data.applied === 1 ? '' : 's'}` + (data.missed ? ` (${data.missed} not found)` : '');
+                btn.style.background = '#4caf50';
+            } catch (err) { btn.disabled = false; btn.textContent = orig; alert('Push all failed: ' + err.message); }
         }
 
         function updateCharCount(el, max) {
@@ -1568,9 +1613,10 @@
         function renderStructuredResults(s, keyword, data) {
             const pageUrl = data.yourPage.url;
             const state = loadChecklistState(pageUrl);
-            // The old manual "SHOP HERE button" template check is replaced by the Missing Buttons
-            // feature — drop it so it no longer shows (and isn't counted).
-            if (s && Array.isArray(s.templateChecks)) s.templateChecks = s.templateChecks.filter(t => t.type !== 'shop_here');
+            // The old manual "SHOP HERE button" check is replaced by Missing Buttons, and the
+            // "YouTube embed" check is replaced by the 🎬 Add a Video block — drop both so they no
+            // longer show (and aren't counted).
+            if (s && Array.isArray(s.templateChecks)) s.templateChecks = s.templateChecks.filter(t => !['shop_here', 'youtube'].includes(t.type));
 
             // ── Build master item list ────────────────────────────────────────
             const allItems = [];
