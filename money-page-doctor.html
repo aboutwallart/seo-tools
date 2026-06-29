@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 55.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 56.0</p>
                 </div>
             </div>
         </header>
@@ -1568,6 +1568,9 @@
         function renderStructuredResults(s, keyword, data) {
             const pageUrl = data.yourPage.url;
             const state = loadChecklistState(pageUrl);
+            // The old manual "SHOP HERE button" template check is replaced by the Missing Buttons
+            // feature — drop it so it no longer shows (and isn't counted).
+            if (s && Array.isArray(s.templateChecks)) s.templateChecks = s.templateChecks.filter(t => t.type !== 'shop_here');
 
             // ── Build master item list ────────────────────────────────────────
             const allItems = [];
@@ -2170,7 +2173,7 @@
             const tocBlock = _tocList.length ? `
                 <div class="action-block" style="border-color:#5e35b1;">
                     <h3>📑 Updated Table of Contents</h3>
-                    <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">Your H2 changes above affect the List of Contents in the body. Paste this updated, bullet-pointed list of all section titles in to replace your current List of Contents so it matches.</p>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">Your H2 changes above mean your contents list (your "Index", "Contents" or "List of Contents") is now out of date. Here's the full, updated list of all your section titles with the new names — paste it in to replace your current one. Use it if you like.</p>
                     <div id="row_toc_update" style="display:flex;align-items:flex-start;gap:10px;padding:12px;background:#f9f9f9;border-radius:6px;opacity:${state['toc_update']?'0.45':'1'};">
                         ${cb(allItems.find(it=>it.key==='toc_update'))}
                         <div style="flex:1;">
@@ -2471,6 +2474,20 @@
                         </div>`;
                     }).join('')}
                     ` : `<p style="font-size:0.9rem;color:#2e7d32;">✅ No dead products — every linked product is live.</p>`}
+                    <div style="margin-top:14px;padding-top:12px;border-top:1px dashed #f0c0c0;">
+                        <div style="font-size:0.8rem;color:#333;font-weight:600;margin-bottom:6px;">🔎 Spotted a dead product the tool missed?</div>
+                        <div style="display:flex;gap:6px;">
+                            <input id="manualDeadLink" type="text" placeholder="Paste the dead product's link from the blog" style="flex:1;padding:6px 10px;border:1px solid #ccc;border-radius:6px;font-size:0.8rem;" onkeydown="if(event.key==='Enter'){event.preventDefault();manualDeadProduct(this);}">
+                            <button class="copy-btn" type="button" onclick="manualDeadProduct(this)">Find replacement →</button>
+                        </div>
+                        <div id="manualDeadFinder" style="display:none;margin-top:8px;">
+                            <div style="display:flex;gap:6px;">
+                                <input id="promoSearch_manualdead" type="text" placeholder="Describe the replacement (e.g. botanical bedroom set of 3)" style="flex:1;padding:6px 10px;border:1px solid #ccc;border-radius:6px;font-size:0.8rem;" onkeydown="if(event.key==='Enter'){event.preventDefault();promoSearchManualDead();}">
+                                <button class="copy-btn" type="button" onclick="promoSearchManualDead()">🔍 Search</button>
+                            </div>
+                            <div id="promoResults_manualdead" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;"></div>
+                        </div>
+                    </div>
                 </div>` : '';
 
             // ── Missing Buttons block (blogs + collections) — Step 1: find & show only ──
@@ -2479,7 +2496,9 @@
                     <h3>🟠 Missing Buttons</h3>
                     <p style="font-size:0.8rem;color:#888;margin:-6px 0 12px;background:#fff8ec;border-left:3px solid #ef8c00;padding:7px 10px;border-radius:4px;"><strong>What this means:</strong> a product is shown in this blog but there's no "Shop Here" button to click — so the shopper can't buy it = lost sale.</p>
                     ${(data.missingButtons && data.missingButtons.length > 0) ? `
-                    <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">For each one, click <strong>Add SHOP HERE button</strong> → check the preview → confirm. It replaces the old text link with your black button.</p>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">Click <strong>Add SHOP HERE button</strong> on each → check the preview → confirm. It replaces the old text link with your black button.</p>
+                    ${((data.missingButtons || []).filter(b => b.kind !== 'text-no-link').length >= 2) ? `
+                    <button class="copy-btn" type="button" style="margin-bottom:14px;background:#000;color:#fff;border-color:#000;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;" onclick="addAllButtonsPreview(this)">➕ Add ALL SHOP HERE buttons (one preview)</button>` : ''}
                     ${data.missingButtons.map((b, i) => {
                         const title = (b.title || b.handle || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                         const url   = (b.url || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -2515,6 +2534,13 @@
                         </div>`;
                     }).join('')}
                     ` : `<p style="font-size:0.9rem;color:#2e7d32;">✅ No missing buttons — every product shown has a Shop Here button.</p>`}
+                    <div style="margin-top:14px;padding-top:12px;border-top:1px dashed #e0c79a;">
+                        <div style="font-size:0.8rem;color:#333;font-weight:600;margin-bottom:6px;">🔎 Spotted a product with no button that the tool missed?</div>
+                        <div style="display:flex;gap:6px;">
+                            <input id="manualBtnLink" type="text" placeholder="Paste the product's link from the blog" style="flex:1;padding:6px 10px;border:1px solid #ccc;border-radius:6px;font-size:0.8rem;" onkeydown="if(event.key==='Enter'){event.preventDefault();manualAddButton(this);}">
+                            <button class="copy-btn" type="button" style="background:#000;color:#fff;border-color:#000;text-transform:uppercase;letter-spacing:0.5px;font-size:0.72rem;" onclick="manualAddButton(this)">➕ Add button</button>
+                        </div>
+                    </div>
                 </div>` : '';
 
             // ── Linked References block (blogs) — Linked Blogs / Collections / Trends ──
@@ -3104,18 +3130,55 @@
             if (box && box.checked) { box.checked = false; onTaskChange(box); }
         }
         // Missing Button → build the black SHOP HERE button for this product.
+        // Pull the product handle out of any aboutwallart product link the user pastes.
+        function parseProductHandle(link) {
+            const m = (link || '').match(/\/products\/([^/?#\s]+)/i);
+            return m ? m[1].toLowerCase() : '';
+        }
         function addButtonPreview(handle, key, btn) {
             const sd = currentResults?.shopify;
             if (!sd?.id) { alert('Blog data not available — re-run the analysis first.'); return; }
-            promoPreviewRun({ shopifyId: sd.id, shopifyType: sd.type, shopifyBlogId: sd.blogId, op: 'add-button', productHandle: handle }, key, 'Add SHOP HERE button', btn);
+            promoPreviewRun({ shopifyId: sd.id, shopifyType: sd.type, shopifyBlogId: sd.blogId, op: 'add-button', productHandle: handle }, [key], 'Add SHOP HERE button', btn);
+        }
+        // Add ALL missing buttons in one preview + one push.
+        function addAllButtonsPreview(btn) {
+            const sd = currentResults?.shopify;
+            if (!sd?.id) { alert('Blog data not available — re-run the analysis first.'); return; }
+            const items = (currentResults.missingButtons || []).map((b, i) => ({ b, i })).filter(x => x.b.kind !== 'text-no-link');
+            const handles = items.map(x => x.b.handle).filter(Boolean);
+            if (!handles.length) { alert('No buttons to add.'); return; }
+            const keys = items.map(x => 'missingbtn_' + x.i);
+            promoPreviewRun({ shopifyId: sd.id, shopifyType: sd.type, shopifyBlogId: sd.blogId, op: 'add-button', productHandles: handles }, keys, `Add ALL SHOP HERE buttons (${handles.length})`, btn);
+        }
+        // Manual: user pastes the link of a product with no button the tool missed.
+        function manualAddButton(btn) {
+            const input = document.getElementById('manualBtnLink');
+            const handle = parseProductHandle(input ? input.value : '');
+            if (!handle) { alert("That doesn't look like a product link — paste the product's link from the blog."); return; }
+            addButtonPreview(handle, 'manual_missingbtn', btn);
+        }
+        // Manual: user pastes the link of a dead product the tool missed → reveal the finder.
+        let _manualDeadHandle = '';
+        function manualDeadProduct(btn) {
+            const input = document.getElementById('manualDeadLink');
+            const handle = parseProductHandle(input ? input.value : '');
+            if (!handle) { alert("That doesn't look like a product link — paste the dead product's link from the blog."); return; }
+            _manualDeadHandle = handle;
+            const finder = document.getElementById('manualDeadFinder');
+            if (finder) finder.style.display = 'block';
+            const s = document.getElementById('promoSearch_manualdead'); if (s) s.focus();
+        }
+        function promoSearchManualDead() {
+            if (!_manualDeadHandle) { alert('Paste the dead product link first.'); return; }
+            promoSearch(_manualDeadHandle, 'manualdead');
         }
         // Dead Product (or finder result) → swap in the chosen replacement product.
         function swapPromoUse(deadHandle, newUrl, newImageUrl, newTitle, key, btn) {
             const sd = currentResults?.shopify;
             if (!sd?.id) { alert('Blog data not available — re-run the analysis first.'); return; }
-            promoPreviewRun({ shopifyId: sd.id, shopifyType: sd.type, shopifyBlogId: sd.blogId, op: 'swap-promo', productHandle: deadHandle, newUrl, newImageUrl, newTitle }, key, 'Replace with this product', btn);
+            promoPreviewRun({ shopifyId: sd.id, shopifyType: sd.type, shopifyBlogId: sd.blogId, op: 'swap-promo', productHandle: deadHandle, newUrl, newImageUrl, newTitle }, [key], 'Replace with this product', btn);
         }
-        async function promoPreviewRun(payload, key, title, btn) {
+        async function promoPreviewRun(payload, keys, title, btn) {
             const orig = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Reading your blog…';
             try {
                 const res = await fetch('/api/shopify-files?action=body-edit', {
@@ -3125,7 +3188,7 @@
                 const data = await res.json();
                 btn.disabled = false; btn.textContent = orig;
                 if (!data.success) { alert(data.error || 'Nothing to do here.'); return; }
-                _pendingPromo = { payload, key };
+                _pendingPromo = { payload, keys };
                 bodyEditModal(`
                     <div style="padding:16px 20px;border-bottom:1px solid #eee;">
                         <h3 style="margin:0;font-size:1.05rem;">Preview — ${title} <span style="color:#ff9800;">(highlighted)</span></h3>
@@ -3140,7 +3203,7 @@
         }
         async function promoApplyPending(btn) {
             if (!_pendingPromo) return;
-            const { payload, key } = _pendingPromo;
+            const { payload, keys } = _pendingPromo;
             btn.disabled = true; btn.textContent = '⏳ Saving…';
             try {
                 const res = await fetch('/api/shopify-files?action=body-edit', {
@@ -3149,7 +3212,7 @@
                 });
                 const data = await res.json();
                 if (!data.success) throw new Error(data.error || 'Save failed');
-                markPromoDone(key);
+                (keys || []).forEach(k => markPromoDone(k));
                 bodyEditModal(`
                     <div style="padding:24px 22px;text-align:center;">
                         <div style="font-size:2rem;margin-bottom:8px;">✅</div>
@@ -3164,7 +3227,7 @@
         }
         async function promoUndo(btn) {
             const sd = currentResults?.shopify;
-            const key = _pendingPromo ? _pendingPromo.key : null;
+            const keys = _pendingPromo ? _pendingPromo.keys : null;
             if (btn) { btn.disabled = true; btn.textContent = '⏳ Undoing…'; }
             try {
                 const res = await fetch('/api/shopify-files?action=restore-body', {
@@ -3173,7 +3236,7 @@
                 });
                 const data = await res.json();
                 if (!data.success) throw new Error(data.error || 'Undo failed');
-                if (key) markPromoUndone(key);
+                (keys || []).forEach(k => markPromoUndone(k));
                 bodyEditModal(`<div style="padding:24px 22px;text-align:center;"><div style="font-size:2rem;margin-bottom:8px;">↩️</div><h3 style="margin:0 0 6px;">Blog put back as it was</h3><p style="margin:0 0 18px;font-size:0.85rem;color:#666;">The change was removed.</p><button onclick="bodyEditClose()" style="padding:9px 18px;border:none;background:#607d8b;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;">Close</button></div>`);
             } catch (err) { if (btn) { btn.disabled = false; btn.textContent = '↩️ Undo'; } alert('Could not undo: ' + err.message); }
         }
