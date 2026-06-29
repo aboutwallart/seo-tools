@@ -1,4 +1,13 @@
-// shopify-files.js — v2.3
+// shopify-files.js — v2.4
+// v2.4 (June 29, 2026): PROMO FIXER Step 2. body-edit gains op 'add-button' (rebuild a Missing
+//                       Button promo into the modern format = linked image + black SHOP HERE
+//                       button, replacing the old text CTA) and op 'swap-promo' (replace a Dead
+//                       Product's promo with a chosen live replacement: new linked image + button).
+//                       New SHOP HERE button style: black, white text, theme font, UPPERCASE,
+//                       normal weight, square corners; image up to 1024px, centred. Both link to
+//                       the same product URL. Preview highlights the rebuilt promo; undo as usual.
+//                       NEW action 'search-products-promo' (GET ?q=) returns up to 8 active
+//                       products (title/handle/thumbnail) for the describe-and-pick replacement.
 // v2.3 (June 28, 2026): body-edit — 'add-video' now adds a bold "WATCH: <title>" line (title
 //                       auto-fetched via YouTube oembed) above the embed; new op 'remove-paa'
 //                       removes an in-body People Also Ask section, but ONLY when the saved
@@ -838,7 +847,8 @@ module.exports = async function handler(req, res) {
   //          appends it at the END of the body (same format the blogs already use).
   // -------------------------------------------------------
   if (req.query.action === 'body-edit' && req.method === 'POST') {
-    const { shopifyId, shopifyType, shopifyBlogId, op, snippet, videoUrl, mode } = req.body;
+    const { shopifyId, shopifyType, shopifyBlogId, op, snippet, videoUrl, mode,
+            productHandle, newUrl, newImageUrl, newTitle } = req.body;
     if (!shopifyId || !shopifyType || !op) {
       return res.status(400).json({ error: 'Missing shopifyId, shopifyType or op' });
     }
@@ -847,6 +857,12 @@ module.exports = async function handler(req, res) {
     }
     if (op === 'add-video' && (typeof videoUrl !== 'string' || !videoUrl.trim())) {
       return res.status(400).json({ error: 'Missing videoUrl' });
+    }
+    if (op === 'add-button' && (typeof productHandle !== 'string' || !productHandle.trim())) {
+      return res.status(400).json({ error: 'Missing productHandle' });
+    }
+    if (op === 'swap-promo' && (!productHandle || !newUrl || !newImageUrl)) {
+      return res.status(400).json({ error: 'Missing productHandle / newUrl / newImageUrl' });
     }
     const shopifyHeaders = { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' };
     const base = `https://${shopifyDomain}/admin/api/2025-01`;
@@ -902,6 +918,35 @@ module.exports = async function handler(req, res) {
       return null;
     }
 
+    // ---- Promo rebuild helpers (add-button / swap-promo) ----
+    // The new SHOP HERE button style she confirmed: black box, white text, THEME font (none set),
+    // UPPERCASE, normal weight, no letter-spacing, square 90° corners. Image = original, centred,
+    // responsive up to 1024px. Image + button BOTH link to the same product URL.
+    const SHOP_BTN_STYLE = 'display:inline-block;margin-top:15px;padding:12px 30px;background-color:#000;color:#fff;text-decoration:none;text-transform:uppercase;font-weight:400;border-radius:0;';
+    const IMG_STYLE = 'max-width:1024px;width:100%;height:auto;';
+    const esc = (s) => String(s || '').replace(/"/g, '&quot;');
+    // Build the inner of a modern promo: linked image + black SHOP HERE button (both to url).
+    function buildPromoInner(url, imgSrc, imgAlt) {
+      return `<a href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(imgSrc)}" alt="${esc(imgAlt)}" style="${IMG_STYLE}"></a><br><a href="${esc(url)}" target="_blank" rel="noopener" style="${SHOP_BTN_STYLE}">Shop Here</a>`;
+    }
+    // Find the FIRST anchor that links to /products/HANDLE. Returns { full, attrs, inner, index } or null.
+    function findProductAnchor(body, handle) {
+      const re = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi; let m;
+      const h = String(handle || '').toLowerCase();
+      while ((m = re.exec(body))) {
+        const attrs = m[1] || '';
+        const hp = attrs.match(/href=["'][^"']*\/products\/([^"'?#\/]+)/i);
+        if (hp && hp[1].toLowerCase() === h) return { full: m[0], attrs, inner: m[2] || '', index: m.index };
+      }
+      return null;
+    }
+    const getImgFrom = (html) => {
+      const im = (html || '').match(/<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/i);
+      if (!im) return null;
+      const alt = im[0].match(/\balt=["']([^"']*)["']/i);
+      return { src: im[1], alt: alt ? alt[1] : '' };
+    };
+
     try {
       const gr = await fetch(`${base}/${t.path}.json?fields=id,body_html`, { headers: shopifyHeaders });
       const gd = await gr.json();
@@ -953,6 +998,29 @@ module.exports = async function handler(req, res) {
         markedAfter = oldBody.slice(0, sec.start)
           + '<div data-bodyedit-preview="1" style="outline:3px solid #e53935;background:#ffebee;text-decoration:line-through;">' + removed + '</div>'
           + oldBody.slice(sec.end);
+      }
+      else if (op === 'add-button') {
+        // Missing Button: a product is shown with an image link but no proper black button.
+        // Rebuild that promo into the modern format (linked image + black SHOP HERE button),
+        // replacing whatever old text CTA was inside the link.
+        const a = findProductAnchor(oldBody, productHandle);
+        if (!a) return res.status(200).json({ success: false, notFound: true, error: 'Could not find that product in the blog body any more — it may have been edited.' });
+        const img = getImgFrom(a.inner);
+        if (!img) return res.status(200).json({ success: false, error: 'That product has no image in the blog to build the button around — use the replacement finder instead.' });
+        const hrefM = a.attrs.match(/href=["']([^"']+)["']/i);
+        const url = hrefM ? hrefM[1] : `https://${shopifyDomain.replace('.myshopify.com','')}/products/${productHandle}`;
+        const built = buildPromoInner(url, img.src, img.alt);
+        newBody = oldBody.slice(0, a.index) + built + oldBody.slice(a.index + a.full.length);
+        markedAfter = oldBody.slice(0, a.index) + markWrap(built) + oldBody.slice(a.index + a.full.length);
+      }
+      else if (op === 'swap-promo') {
+        // Dead Product: replace the dead product's promo with the chosen live replacement
+        // (new linked image + black SHOP HERE button), removing the old dead link.
+        const a = findProductAnchor(oldBody, productHandle);
+        if (!a) return res.status(200).json({ success: false, notFound: true, error: 'Could not find that product link in the blog body any more — it may have been edited.' });
+        const built = buildPromoInner(newUrl, newImageUrl, newTitle || '');
+        newBody = oldBody.slice(0, a.index) + built + oldBody.slice(a.index + a.full.length);
+        markedAfter = oldBody.slice(0, a.index) + markWrap(built) + oldBody.slice(a.index + a.full.length);
       }
       else {
         return res.status(400).json({ error: `Unknown op: ${op}` });
@@ -1037,6 +1105,34 @@ module.exports = async function handler(req, res) {
         body: JSON.stringify({ message: `body-undo clear ${undoKey}`, content: Buffer.from(JSON.stringify(store, null, 2)).toString('base64'), sha: d.sha })
       });
       return res.status(200).json({ success: true });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  // -------------------------------------------------------
+  // SEARCH PRODUCTS (promo replacement finder) — returns up to 8 ACTIVE products matching a
+  // keyword/description, each with title + handle + thumbnail. Used by the Dead Products /
+  // Missing Buttons replacement picker so the user can describe what she wants and pick.
+  // -------------------------------------------------------
+  if (req.query.action === 'search-products-promo' && req.method === 'GET') {
+    const q = String(req.query.q || '').replace(/['"\\]/g, '').trim();
+    if (!q) return res.status(200).json({ success: true, products: [] });
+    try {
+      const gqlQuery = `status:active ${q}`;
+      const r = await fetch(`https://${shopifyDomain}/admin/api/2025-01/graphql.json`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken },
+        body: JSON.stringify({ query: `{ products(first:8, query:${JSON.stringify(gqlQuery)}) { edges { node { handle title featuredImage { url } } } } }` })
+      });
+      const d = await r.json();
+      const edges = (d && d.data && d.data.products) ? d.data.products.edges : [];
+      const products = edges.map(e => ({
+        handle: e.node.handle,
+        title: e.node.title,
+        imageUrl: e.node.featuredImage ? e.node.featuredImage.url : ''
+      }));
+      return res.status(200).json({ success: true, products });
     } catch (err) {
       return res.status(500).json({ success: false, error: err.message });
     }
