@@ -1,7 +1,12 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v51.3
+// analyze-money-page.js — v51.4
+// v51.4 (June 29, 2026): MANUAL COMPETITORS fallback. If the request includes manualCompetitors[]
+//                        (URLs), SerpAPI is skipped and the analysis runs on those. If SerpAPI is
+//                        called and returns 0 competitors, respond { needsManual:true } (200) so the
+//                        tool can ask for the 3 URLs instead of dead-ending. Covers SerpAPI hiccups
+//                        AND the monthly search limit.
 // v51.3 (June 29, 2026): BATCH 4 (products). Preserve existing internal links on a description
 //                        rewrite: capture the current body's internal links, set each anchor by the
 //                        chain (registry locked keyword for that URL → Link Whisperer auto-link
@@ -291,13 +296,24 @@ module.exports = async function handler(req, res) {
 
     const startTime = Date.now();
     console.log(`[Money Page] Analyzing: ${pageUrl} for keyword: "${keyword}"`);
-    // Step 1: Find competitors using SerpAPI and check user position
-    console.log('[Money Page] Step 1: Finding competitors... (~10 sec)');
-    const searchResults = await findCompetitors(keyword, pageUrl);
-    console.log(`[Money Page] ✓ User position: ${searchResults.userPosition || 'Not in top 10'} | Found ${searchResults.competitors.length} competitors (${Math.round((Date.now() - startTime) / 1000)}s elapsed)`);
 
-    if (searchResults.competitors.length === 0) {
-      return res.status(500).json({ error: 'Could not find competitors' });
+    // Step 1: competitors. Use MANUAL competitor URLs if the merchant supplied them (SerpAPI down or
+    // monthly limit reached); otherwise look them up via SerpAPI.
+    const manualCompetitors = Array.isArray(req.body.manualCompetitors)
+      ? req.body.manualCompetitors.map(u => String(u || '').trim()).filter(u => /^https?:\/\//i.test(u)).slice(0, 3)
+      : [];
+    let searchResults;
+    if (manualCompetitors.length) {
+      searchResults = { userPosition: null, competitors: manualCompetitors.map((url, i) => ({ position: i + 1, title: '', url })) };
+      console.log(`[Money Page] Using ${manualCompetitors.length} MANUAL competitor URL(s) — SerpAPI skipped`);
+    } else {
+      console.log('[Money Page] Step 1: Finding competitors... (~10 sec)');
+      searchResults = await findCompetitors(keyword, pageUrl);
+      console.log(`[Money Page] ✓ User position: ${searchResults.userPosition || 'Not in top 10'} | Found ${searchResults.competitors.length} competitors (${Math.round((Date.now() - startTime) / 1000)}s elapsed)`);
+      // SerpAPI returned nothing → don't dead-end. Tell the frontend to ask for manual URLs.
+      if (searchResults.competitors.length === 0) {
+        return res.status(200).json({ needsManual: true, error: 'SerpAPI returned no competitors (a hiccup or your monthly limit). Paste the top 3 competitor URLs to run the analysis.' });
+      }
     }
 
     // Step 2: Analyze your page
