@@ -1,7 +1,10 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v51.0
+// analyze-money-page.js — v51.1
+// v51.1 (June 29, 2026): BATCH 3 support — loser-page links and related-blog links now also carry the
+//                        target page's shopifyId/type/blogId (targetId/targetType/targetBlogId) so the
+//                        inbound-link PUSH can edit that page directly via shopify-files push-edits.
 // v51.0 (June 29, 2026): BATCH 2 (blog tidy-ups + quality checks). (1) Never flag a video/WATCH
 //                        section for rename or removal. (2) De-dup: drop an H2 rename when keyword
 //                        over-use already handles that exact text (over-use wins). (3) Updated
@@ -539,6 +542,8 @@ module.exports = async function handler(req, res) {
         try {
           const c = await fetchShopifyContent(link.loserUrl);
           link.adminUrl = buildLoserAdminUrl(c);
+          // Target page IDs → let the inbound-link push edit THIS loser page directly (reuses push-edits).
+          if (c) { link.targetId = c.shopifyId; link.targetType = c.shopifyType; link.targetBlogId = c.shopifyBlogId || null; }
           // EXACT placement: read the loser page's real body → exact line to paste after + real section.
           const lp = loserPages.find(x => normUrl(x.loserUrl) === normUrl(link.loserUrl)) || {};
           const a = pickBodyAnchor(c && c.bodyHtml, lp.loserKeyword || link.placementSection || keyword);
@@ -586,6 +591,8 @@ module.exports = async function handler(req, res) {
         try {
           const c = await fetchShopifyContent(link.sourceUrl);
           link.adminUrl = buildLoserAdminUrl(c);
+          // Target page IDs → let the inbound-link push edit THIS source blog directly (reuses push-edits).
+          if (c) { link.targetId = c.shopifyId; link.targetType = c.shopifyType; link.targetBlogId = c.shopifyBlogId || null; }
           const real = realLineForKeyword(c && c.bodyHtml, keyword);
           if (real) {
             link.findAnchor = real.findAnchor;
