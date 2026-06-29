@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 60.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 61.0</p>
                 </div>
             </div>
         </header>
@@ -2188,8 +2188,17 @@
                         </div>
                         <div class="desc-preview" style="font-size:0.9rem;line-height:1.65;background:#fff;border:1px solid #eee;border-radius:6px;padding:16px 18px;margin-bottom:10px;">${s.productDescription}</div>
                         <textarea id="prodDescHtml" style="display:none;">${(s.productDescription||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+                        <div style="margin-bottom:10px;">
+                            <div style="font-size:0.8rem;color:#666;margin-bottom:4px;">✍️ Custom phrases to add (optional — one per line; added as short paragraphs at the end when you push):</div>
+                            <textarea id="prodCustomPhrases" rows="2" style="width:100%;padding:8px 10px;border:1px solid #e0e0e0;border-radius:6px;font-size:0.85rem;font-family:'Poppins',sans-serif;" placeholder="e.g. Designed in our UK studio."></textarea>
+                        </div>
                         <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('prodDescHtml').value,this)">📋 Copy HTML</button>
                         <button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushProductBody(this)">📤 Push to product body</button>
+                        ${(Array.isArray(s.preservedLinksMissing) && s.preservedLinksMissing.length) ? `
+                        <div style="margin-top:12px;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:10px 12px;">
+                            <div style="font-size:0.82rem;color:#e65100;font-weight:600;margin-bottom:6px;">⚠️ These internal links were in the old description but aren't in the rewrite — add them back so you don't lose the interlinking:</div>
+                            ${s.preservedLinksMissing.map(l=>`<div style="font-size:0.85rem;margin-bottom:4px;">🔗 <strong>${(l.anchor||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</strong> → <span style="color:#666;">${(l.url||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</span></div>`).join('')}
+                        </div>` : ''}
                     </div>
                 </div>` : '';
 
@@ -3074,9 +3083,12 @@
         // Products — overwrite the live product body_html with the rewritten description.
         async function pushProductBody(btn) {
             const sd = currentResults?.shopify;
-            const html = document.getElementById('prodDescHtml')?.value || '';
+            let html = document.getElementById('prodDescHtml')?.value || '';
             if (!sd?.id) { alert('Shopify data not available for this product.'); return; }
             if (!html.trim()) { alert('Nothing to push.'); return; }
+            // Append any custom phrases (one per line) as short paragraphs — pushed with the rewrite.
+            const phrases = (document.getElementById('prodCustomPhrases')?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+            if (phrases.length) html += '\n' + phrases.map(p => `<p>${p.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`).join('\n');
             const orig = btn.textContent;
             btn.disabled = true; btn.textContent = '⏳ Pushing…';
             try {
