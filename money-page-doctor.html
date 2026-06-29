@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 61.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 62.0</p>
                 </div>
             </div>
         </header>
@@ -986,12 +986,34 @@
             document.getElementById('analyzeModal').classList.remove('active');
         }
 
-        async function startAnalysis() {
+        // SerpAPI couldn't supply competitors → let her paste the top 3 URLs and run on those.
+        function showManualCompetitorBox(keyword) {
+            bodyEditModal(`
+                <div style="padding:20px 22px;">
+                    <h3 style="margin:0 0 6px;">Paste the top 3 competitor URLs</h3>
+                    <p style="margin:0 0 14px;font-size:0.85rem;color:#666;line-height:1.55;">SerpAPI didn't return competitors (a hiccup, or your monthly search limit). Paste the pages ranking #1–3 on Google for "<strong>${(keyword||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</strong>" and the full analysis will run on those — no SerpAPI needed.</p>
+                    <input type="text" id="mc1" placeholder="https://…  (position 1)" style="width:100%;margin-bottom:8px;padding:9px 11px;border:1px solid #ddd;border-radius:6px;font-size:0.85rem;font-family:'Poppins',sans-serif;">
+                    <input type="text" id="mc2" placeholder="https://…  (position 2)" style="width:100%;margin-bottom:8px;padding:9px 11px;border:1px solid #ddd;border-radius:6px;font-size:0.85rem;font-family:'Poppins',sans-serif;">
+                    <input type="text" id="mc3" placeholder="https://…  (position 3)" style="width:100%;margin-bottom:14px;padding:9px 11px;border:1px solid #ddd;border-radius:6px;font-size:0.85rem;font-family:'Poppins',sans-serif;">
+                    <div style="display:flex;gap:10px;justify-content:flex-end;">
+                        <button onclick="bodyEditClose()" style="padding:9px 16px;border:1px solid #ccc;background:#fff;color:#333;border-radius:8px;cursor:pointer;">Cancel</button>
+                        <button id="mcRun" style="padding:9px 18px;border:none;background:#4caf50;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;">🔍 Run analysis with these</button>
+                    </div>
+                </div>`);
+            document.getElementById('mcRun').onclick = function () {
+                const urls = ['mc1', 'mc2', 'mc3'].map(id => (document.getElementById(id)?.value || '').trim()).filter(u => /^https?:\/\//i.test(u));
+                if (!urls.length) { alert('Paste at least one competitor URL (starting with https://).'); return; }
+                bodyEditClose();
+                startAnalysis(urls);
+            };
+        }
+        async function startAnalysis(manualCompetitors) {
             const keyword = document.getElementById('mainKeyword').value.trim();
             if (!keyword) {
                 alert('Please enter a main keyword');
                 return;
             }
+            const manual = Array.isArray(manualCompetitors) ? manualCompetitors : [];   // only arrays count
 
             closeModal();
             document.getElementById('loadingModal').classList.add('active');
@@ -1012,7 +1034,7 @@
                 const response = await fetch('/api/analyze-money-page', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ pageUrl: currentUrl.url, keyword })
+                    body: JSON.stringify({ pageUrl: currentUrl.url, keyword, ...(manual.length ? { manualCompetitors: manual } : {}) })
                 });
 
                 if (!response.ok) {
@@ -1021,6 +1043,14 @@
                 }
 
                 const data = await response.json();
+
+                // SerpAPI returned no competitors → ask for the 3 URLs instead of failing.
+                if (data.needsManual) {
+                    document.getElementById('loadingModal').classList.remove('active');
+                    showManualCompetitorBox(keyword);
+                    return;
+                }
+
                 currentUrl.analyzed = true;
                 currentUrl.keyword = keyword;
                 currentUrl.results = data;
