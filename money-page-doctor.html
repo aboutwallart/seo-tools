@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 58.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 59.0</p>
                 </div>
             </div>
         </header>
@@ -1970,11 +1970,16 @@
 
             // ── Keyword Over-Use Check block (blogs) ──────────────────────────
             const ko = s.keywordOveruse;
+            // Body-only over-use findings (metafield ones push via pushOveruse) → bulk "Fix all".
+            const _koBody = (ko && Array.isArray(ko.findings)) ? ko.findings.map((f, i) => ({ f, i })).filter(x => !((x.f.metafieldKey || '').trim())) : [];
+            const _koBulkEdits = _editsAttr(_koBody.map(x => ({ kind: 'overuse', find: x.f.currentText || '', replace: ((x.f.recommendation || '').toLowerCase().includes('remove')) ? '' : (x.f.suggestedText || '') })));
+            const _koBulkKeys = JSON.stringify(_koBody.map(x => `overuse_${x.i}`)).replace(/"/g, "'");
             const overuseBlock = ko ? `
                 <div class="action-block" style="border-color:#e67e22;">
                     <h3>🔁 Keyword Over-Use Check</h3>
                     ${(ko.isOverstuffed && Array.isArray(ko.findings) && ko.findings.length > 0) ? `
                     <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">${(ko.summary||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>
+                    ${_koBody.length > 1 ? `<button class="copy-btn" type="button" style="background:#1565c0;color:#fff;font-weight:600;margin-bottom:12px;" onclick="pushEditsFromAttr('${_koBulkEdits}',null,{title:'Fix all keyword over-use',doneMsg:'All over-use fixes saved',tickKeys:${_koBulkKeys}},this)">📤 Fix all in blog (${_koBody.length})</button>` : ''}
                     ${ko.findings.map((f,i) => {
                         const loc    = (f.location||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                         const cur    = (f.currentText||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -1984,6 +1989,7 @@
                         const mfKey = (f.metafieldKey||'').trim();
                         const oKey = `overuse_${i}`;
                         const oItem = allItems.find(it => it.key === oKey);
+                        const oEdit = _editsAttr([{ kind: 'overuse', find: (f.currentText || ''), replace: (isRemove ? '' : (f.suggestedText || '')) }]);
                         return `
                         <div id="row_${oKey}" style="border:1px solid #f0e0d0;border-radius:6px;padding:12px;margin-bottom:12px;opacity:${state[oKey]?'0.45':'1'};">
                             <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:6px;">
@@ -1996,12 +2002,15 @@
                             <button class="copy-btn" type="button" style="margin-bottom:8px;" onclick="copyToClipboard(document.getElementById('overuseCurrent${i}').value,this)">📋 Copy current</button>
                             ${reason ? `<div style="font-size:0.82rem;color:#555;margin-bottom:8px;">${reason}</div>` : ''}
                             ${isRemove
-                                ? `<div style="display:inline-block;background:#fdecea;color:#c0392b;font-weight:600;font-size:0.82rem;padding:6px 12px;border-radius:4px;">🗑️ Better to remove this entirely</div>`
+                                ? `<div style="display:inline-block;background:#fdecea;color:#c0392b;font-weight:600;font-size:0.82rem;padding:6px 12px;border-radius:4px;margin-bottom:8px;">🗑️ Better to remove this entirely</div><br>
+                                   ${mfKey ? '' : `<button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushEditsFromAttr('${oEdit}',null,{title:'Remove over-used text',doneMsg:'Removed from your blog',tickKey:'${oKey}'},this)">📤 Remove from blog</button>`}`
                                 : `<div style="font-size:0.8rem;color:#999;margin-bottom:4px;">Change it to:</div>
                                    <div style="background:#eafaf1;border:1px solid #d4efdf;border-radius:4px;padding:8px;font-size:0.88rem;margin-bottom:8px;">${sug}</div>
                                    <textarea id="overuseSuggest${i}" style="display:none;">${sug}</textarea>
                                    <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('overuseSuggest${i}').value,this)">📋 Copy replacement</button>
-                                   ${mfKey ? `<button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushOveruse('${mfKey}','overuseSuggest${i}',this)">📤 Push to Shopify</button>` : ''}`
+                                   ${mfKey
+                                        ? `<button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushOveruse('${mfKey}','overuseSuggest${i}',this)">📤 Push to Shopify</button>`
+                                        : `<button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushEditsFromAttr('${oEdit}',null,{title:'Keyword over-use fix',doneMsg:'Fixed in your blog',tickKey:'${oKey}'},this)">📤 Push to blog</button>`}`
                             }
                         </div>`;
                     }).join('')}
@@ -2179,10 +2188,15 @@
             // Collections route "add" sections to the SEO Text (with links) field, not the body —
             // so keep them out of the body Manual Actions block.
             const manualItems = allItems.filter(it => it.group === 'manual' && it.key !== 'toc_update' && !(_isCollection && it.action === 'add'));
+            // Pushable H2 changes (blogs): rename / remove / add — single + "Do all".
+            const _h2Items = _isBlog ? manualItems.filter(it => it.action) : [];
+            const _h2BulkEdits = _editsAttr(_h2Items.map(it => it.action === 'remove' ? { kind: 'h2-remove', find: it.findText || '' } : (it.action === 'add' ? { kind: 'h2-add', content: it.detail || '' } : { kind: 'h2-rename', find: it.findText || '', replace: it.replacementText || '' })));
+            const _h2BulkKeys = JSON.stringify(_h2Items.map(it => it.key)).replace(/"/g, "'");
             const manualBlock = manualItems.length > 0 ? `
                 <div class="action-block">
                     <h3>✅ Manual Actions</h3>
-                    ${manualItems.map(item => `
+                    ${_h2Items.length > 1 ? `<button class="copy-btn" type="button" style="background:#1565c0;color:#fff;font-weight:600;margin-bottom:10px;" onclick="pushEditsFromAttr('${_h2BulkEdits}',null,{title:'Apply all heading changes',doneMsg:'All heading changes saved',tickKeys:${_h2BulkKeys}},this)">📤 Do all headings (${_h2Items.length})</button>` : ''}
+                    ${manualItems.map(item => { const _h2Edit = (item.action === 'remove') ? _editsAttr([{ kind: 'h2-remove', find: item.findText || '' }]) : (item.action === 'add') ? _editsAttr([{ kind: 'h2-add', content: item.detail || '' }]) : _editsAttr([{ kind: 'h2-rename', find: item.findText || '', replace: item.replacementText || '' }]); return `
                         <div id="row_${item.key}" style="display:flex;align-items:flex-start;gap:12px;padding:12px;background:${item.action==='remove'?'#fff5f5':'#f9f9f9'};border:${item.action==='remove'?'1px solid #f0c0c0':'none'};border-radius:6px;margin-bottom:8px;opacity:${state[item.key]?'0.45':'1'};">
                             ${cb(item)}
                             <div style="flex:1;">
@@ -2209,13 +2223,15 @@
                                             <button class="copy-btn" onclick="copyToClipboard(document.getElementById('rt_${item.key}').value,this)">📋</button>
                                         </div>
                                     </div>` : ''}
+                                ${(_isBlog && item.action) ? `<div style="margin-top:8px;"><button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushEditsFromAttr('${_h2Edit}',null,{title:'${item.action === 'remove' ? 'Remove section' : (item.action === 'add' ? 'Add section' : 'Rename heading')}',doneMsg:'Saved to your blog',tickKey:'${item.key}'},this)">📤 ${item.action === 'remove' ? 'Remove from blog' : (item.action === 'add' ? 'Add to blog' : 'Push rename')}</button></div>` : ''}
                             </div>
-                        </div>`).join('')}
+                        </div>`; }).join('')}
                 </div>` : '';
 
             // ── Updated Table of Contents block (blogs whose body has a List of Contents) ──
             const _tocList = (_isBlog && Array.isArray(s.updatedTableOfContents)) ? s.updatedTableOfContents : [];
             const _tocLis = _tocList.map(t => `<li>${(t||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</li>`).join('');
+            const _tocEdit = _editsAttr([{ kind: 'toc', content: `<h2>List of Contents</h2><ul>${_tocList.map(t => `<li>${t}</li>`).join('')}</ul>` }]);
             const tocBlock = _tocList.length ? `
                 <div class="action-block" style="border-color:#5e35b1;">
                     <h3>📑 Updated Table of Contents</h3>
@@ -2227,6 +2243,7 @@
                             <ul style="margin:0 0 10px 18px;font-size:0.9rem;line-height:1.7;">${_tocLis}</ul>
                             <textarea id="tocUpdateHtml" style="display:none;"><h2>List of Contents</h2><ul>${_tocLis}</ul></textarea>
                             <button class="copy-btn" type="button" onclick="copyFormatted('tocUpdateHtml',this)">📋 Copy (title + list)</button>
+                            <button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushEditsFromAttr('${_tocEdit}',null,{title:'Update the contents list',doneMsg:'Contents list updated',tickKey:'toc_update'},this)">📤 Push to blog</button>
                         </div>
                     </div>
                 </div>` : '';
@@ -2299,6 +2316,7 @@
                         const pt = link.loserPageType?.includes('collection') ? 'collection' : link.loserPageType;
                         const kickstartPrompt = htmlSentenceToKickstartPrompt(link.suggestedSentence, link.placement);
                         const isArt = data.yourPage.shopifyType === 'article';
+                        const _loEdit = _editsAttr([{ kind: 'link', mode: 'new', find: link.findAnchor || '', content: link.suggestedSentence || '' }]);
                         const pasteFooter = isArt
                             ? `<div style="background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:10px 12px;font-size:0.9rem;line-height:1.6;margin-bottom:8px;">${link.suggestedSentence}</div>
                                <textarea id="loserSentence${i}" style="display:none;">${link.suggestedSentence.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
@@ -2325,6 +2343,7 @@
                                 <div style="flex:1;min-width:0;">
                                     <div style="font-size:0.74rem;color:#888;margin-bottom:3px;">Paste this</div>
                                     ${pasteFooter}
+                                    ${link.targetId ? `<button class="copy-btn" type="button" style="background:#1976d2;color:#fff;margin-top:6px;" onclick="pushEditsFromAttr('${_loEdit}',{id:'${link.targetId}',type:'${link.targetType}',blogId:'${link.targetBlogId||''}'},{title:'Add link on that page',doneMsg:'Link added to that page',tickKey:'${key}'},this)">📤 Add it on that page for me</button>` : ''}
                                 </div>
                             </div>
                         </div>`;
@@ -2346,6 +2365,7 @@
                         const url      = (l.url || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                         const place    = (l.placement || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                         const findLine = isReplace ? (l.existingText || '') : (l.findAnchor || '');
+                        const _ilEdit  = _editsAttr([{ kind: 'link', mode: isReplace ? 'replace' : 'new', find: findLine, content: newText }]);
                         return `
                         <div id="row_${key}" style="border:1px solid #eee;border-radius:8px;padding:14px;background:#fafafa;margin-bottom:10px;opacity:${state[key]?'0.45':'1'};">
                             ${linkCardHead({
@@ -2369,6 +2389,7 @@
                                     <textarea id="intlinkAnchor${i}" style="display:none;">${anchor}</textarea>
                                     <textarea id="intlinkUrl${i}" style="display:none;">${url}</textarea>
                                     <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                                        <button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushEditsFromAttr('${_ilEdit}',null,{title:'${isReplace ? 'Replace with the linked sentence' : 'Add the link'}',doneMsg:'Link added to your blog',tickKey:'${key}'},this)">📤 ${isReplace ? 'Push replacement' : 'Add it for me'}</button>
                                         <button class="copy-btn" type="button" onclick="copyFormatted('intlinkHtml${i}',this)">📋 Copy for body</button>
                                         <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('intlinkAnchor${i}').value,this)">📋 Copy anchor text</button>
                                         <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('intlinkUrl${i}').value,this)">📋 Copy URL</button>
@@ -2436,6 +2457,7 @@
                         const title    = (l.sourceTitle || l.sourceUrl || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                         const place    = (l.placement || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                         const findLine = isReplace ? (l.existingText || '') : (l.findAnchor || '');
+                        const _rbEdit  = _editsAttr([{ kind: 'link', mode: isReplace ? 'replace' : 'new', find: findLine, content: newText }]);
                         return `
                         <div id="row_${key}" style="border:1px solid #eee;border-radius:8px;padding:14px;margin-bottom:10px;background:#fafafa;opacity:${state[key]?'0.45':'1'};">
                             ${linkCardHead({
@@ -2458,6 +2480,7 @@
                                     <div style="background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:10px 12px;font-size:0.9rem;line-height:1.6;margin-bottom:8px;">${newText}</div>
                                     <textarea id="relblogHtml${i}" style="display:none;">${newText}</textarea>
                                     <button class="copy-btn" type="button" onclick="copyFormatted('relblogHtml${i}',this)">📋 Copy for body</button>
+                                    ${l.targetId ? `<button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushEditsFromAttr('${_rbEdit}',{id:'${l.targetId}',type:'${l.targetType}',blogId:'${l.targetBlogId||''}'},{title:'Add link on that blog',doneMsg:'Link added to that blog',tickKey:'${key}'},this)">📤 Add it on that blog for me</button>` : ''}
                                 </div>
                             </div>
                         </div>`;
@@ -3162,6 +3185,92 @@
             const cfg = BODY_OPS[op]; if (!cfg) return;
             const el = document.getElementById(cfg.actionsId); if (!el) return;
             el.innerHTML = `<span style="color:#777;font-size:0.85rem;align-self:center;">↩️ Removed. Re-run the analysis to add it again.</span>`;
+        }
+
+        // ── Batch 3 — unified PUSH (over-use, H2 rename/remove/add, internal & inbound links, ToC) ──
+        // edits = [{kind, find, replace?, content?, mode?}]; target = {id,type,blogId} (omit → this page).
+        // Preview → Confirm → save (one write) → one-step Undo. Reports any items that couldn't match.
+        function _pushTarget(target) {
+            const sd = currentResults?.shopify || {};
+            return target && target.id ? target : { id: sd.id, type: sd.type, blogId: sd.blogId };
+        }
+        async function pushEdits(edits, target, opts, btn) {
+            opts = opts || {};
+            const t = _pushTarget(target);
+            if (!t.id) { alert('Page data not available — re-run the analysis first.'); return; }
+            if (!edits || !edits.length) { alert('Nothing to push.'); return; }
+            const orig = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Reading the page…';
+            try {
+                const res = await fetch('/api/shopify-files?action=body-edit', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shopifyId: t.id, shopifyType: t.type, shopifyBlogId: t.blogId || null, op: 'push-edits', edits, mode: 'preview' })
+                });
+                const data = await res.json();
+                btn.disabled = false; btn.textContent = orig;
+                if (!data.success) { alert(data.error || 'Nothing to do here.'); return; }
+                const fn = (data.failed && data.failed.length) ? `<p style="margin:6px 0 0;font-size:0.8rem;color:#c62828;">${data.failed.length} item(s) couldn't be matched on the page and will be skipped.</p>` : '';
+                bodyEditModal(`
+                    <div style="padding:16px 20px;border-bottom:1px solid #eee;">
+                        <h3 style="margin:0;font-size:1.05rem;">Preview — ${opts.title || 'Change'} <span style="color:#ff9800;">(highlighted)</span></h3>
+                        <p style="margin:6px 0 0;font-size:0.82rem;color:#666;">This is the page with the change. <strong>Nothing is saved yet.</strong> Scroll to check it, then confirm.</p>${fn}
+                    </div>
+                    <div style="padding:18px 20px;overflow:auto;flex:1;background:#fafafa;font-size:0.9rem;line-height:1.5;">${data.after}</div>
+                    <div style="padding:14px 20px;border-top:1px solid #eee;display:flex;gap:10px;justify-content:flex-end;">
+                        <button onclick="bodyEditClose()" style="padding:9px 16px;border:1px solid #ccc;background:#fff;color:#333;border-radius:8px;cursor:pointer;">Cancel</button>
+                        <button id="pushEditsConfirmBtn" style="padding:9px 18px;border:none;background:#4caf50;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;">✅ Confirm &amp; save</button>
+                    </div>`);
+                const cbtn = document.getElementById('pushEditsConfirmBtn');
+                cbtn.onclick = function () { pushEditsApply(edits, t, opts, this); };
+            } catch (err) { btn.disabled = false; btn.textContent = orig; alert('Could not preview: ' + err.message); }
+        }
+        async function pushEditsApply(edits, t, opts, btn) {
+            btn.disabled = true; btn.textContent = '⏳ Saving…';
+            try {
+                const res = await fetch('/api/shopify-files?action=body-edit', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shopifyId: t.id, shopifyType: t.type, shopifyBlogId: t.blogId || null, op: 'push-edits', edits, mode: 'apply' })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Save failed');
+                if (opts.tickKey) tickPushItem(opts.tickKey);
+                if (Array.isArray(opts.tickKeys)) opts.tickKeys.forEach(tickPushItem);
+                if (typeof opts.onDone === 'function') { try { opts.onDone(); } catch (e) {} }
+                const fn = (data.failed && data.failed.length) ? `<p style="margin:0 0 10px;font-size:0.8rem;color:#c62828;">${data.failed.length} item(s) couldn't be matched — handle those by hand.</p>` : '';
+                bodyEditModal(`
+                    <div style="padding:24px 22px;text-align:center;">
+                        <div style="font-size:2rem;margin-bottom:8px;">✅</div>
+                        <h3 style="margin:0 0 6px;">${opts.doneMsg || 'Saved to the page'}</h3>${fn}
+                        <p style="margin:0 0 18px;font-size:0.85rem;color:#666;">Saved live. Changed your mind? Undo puts the page back exactly as it was.</p>
+                        <div style="display:flex;gap:10px;justify-content:center;">
+                            <button onclick="pushEditsUndo('${t.id}','${t.type}','${t.blogId || ''}',this)" style="padding:9px 16px;border:1px solid #e57373;background:#fff;color:#c62828;border-radius:8px;cursor:pointer;">↩️ Undo</button>
+                            <button onclick="bodyEditClose()" style="padding:9px 18px;border:none;background:#4caf50;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;">Done</button>
+                        </div>
+                    </div>`);
+            } catch (err) { btn.disabled = false; btn.textContent = '✅ Confirm & save'; alert('Could not save: ' + err.message); }
+        }
+        async function pushEditsUndo(id, type, blogId, btn) {
+            btn.disabled = true; btn.textContent = '⏳ Undoing…';
+            try {
+                const res = await fetch('/api/shopify-files?action=restore-body', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shopifyId: id, shopifyType: type, shopifyBlogId: blogId || null })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Undo failed');
+                bodyEditModal(`<div style="padding:24px 22px;text-align:center;"><div style="font-size:2rem;margin-bottom:8px;">↩️</div><h3 style="margin:0 0 6px;">Put back as it was</h3><p style="margin:0 0 18px;font-size:0.85rem;color:#666;">The change was removed.</p><button onclick="bodyEditClose()" style="padding:9px 18px;border:none;background:#607d8b;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;">Close</button></div>`);
+            } catch (err) { btn.disabled = false; btn.textContent = '↩️ Undo'; alert('Could not undo: ' + err.message); }
+        }
+        // Build the JS array literal for an onclick="pushEdits([...] ...)" — safely encoded.
+        function _editsAttr(edits) {
+            return encodeURIComponent(JSON.stringify(edits));
+        }
+        function pushEditsFromAttr(enc, target, opts, btn) {
+            pushEdits(JSON.parse(decodeURIComponent(enc)), target, opts, btn);
+        }
+        // Programmatically tick a pushable item's checkbox (updates master counter + greys the row).
+        function tickPushItem(key) {
+            const c = document.querySelector('input[type=checkbox][data-key="' + key + '"]');
+            if (c && !c.checked) { c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true })); }
         }
 
         // ── Promo Fixer (Step 2) — add a SHOP HERE button / swap a dead product ──────────
