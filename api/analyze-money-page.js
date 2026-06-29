@@ -1,7 +1,15 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v50.1
+// analyze-money-page.js — v51.0
+// v51.0 (June 29, 2026): BATCH 2 (blog tidy-ups + quality checks). (1) Never flag a video/WATCH
+//                        section for rename or removal. (2) De-dup: drop an H2 rename when keyword
+//                        over-use already handles that exact text (over-use wins). (3) Updated
+//                        Table of Contents no longer lists the contents heading itself as a bullet.
+//                        (4) Buzzword check now uses her EXACT banned-words list. (5) British-English
+//                        check switched to curated map + a safe -ize/-ise pattern with exceptions;
+//                        removed the false flags while→whilst, among→amongst and the risky vocab
+//                        swaps fall/shade/pillow. (Author bio: unchanged, per her decision.)
 // v50.1 (June 29, 2026): FACTS-ONLY find/replace + schema guard (Batch 1, Part B). (1) Every
 //                        "find this exact text" item (keyword over-use + H2 rename/remove) is now
 //                        checked against the REAL page (live headings + body blocks + metafield
@@ -405,7 +413,8 @@ module.exports = async function handler(req, res) {
           let _mm;
           while ((_mm = _re.exec(_body)) !== null) {
             const _t = _mm[1].replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
-            if (_t) _h2s.push(_t);
+            // Exclude the contents heading itself — it's the title, not a bullet in the list.
+            if (_t && !/^(list of contents|table of contents|contents|index|in this article|on this page|jump to|quick links)$/i.test(_t)) _h2s.push(_t);
           }
           const _norm = s => (s || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
           const _changes = Array.isArray(analysis.structured.h2Sections) ? analysis.structured.h2Sections : [];
@@ -453,13 +462,23 @@ module.exports = async function handler(req, res) {
         });
         if (!st.keywordOveruse.findings.length) st.keywordOveruse.isOverstuffed = false;
       }
+      // Texts already handled by keyword over-use → an H2 rename for the same text is a duplicate.
+      const overuseTexts = new Set();
+      if (st.keywordOveruse && Array.isArray(st.keywordOveruse.findings)) {
+        st.keywordOveruse.findings.forEach(f => { const n = _normTxt(f.currentText); if (n) overuseTexts.add(n); });
+      }
       if (Array.isArray(st.h2Sections)) {
         st.h2Sections = st.h2Sections.filter(h => {
           if (!h || h.action === 'add') return true;        // "add" has no current text to find
           if (!h.heading) return false;
+          // Never flag a video/WATCH section for rename OR removal — a WATCH H2 is fine SEO.
+          if (/\b(watch|youtube|video)\b/i.test(h.heading)) return false;
           const real = matchRealLine(h.heading, pageLines);
-          if (real) { h.heading = real; return true; }
-          return false;                                     // rename/remove of text not on page → drop
+          if (!real) return false;                          // rename/remove of text not on page → drop
+          h.heading = real;
+          // De-dup: keyword over-use wins — drop an H2 rename for text it already handles.
+          if (h.action !== 'remove' && overuseTexts.has(_normTxt(h.heading))) return false;
+          return true;
         });
       }
     }
@@ -1000,27 +1019,34 @@ const US_TO_UK = {
   traveling: 'travelling', traveled: 'travelled', labeling: 'labelling', labeled: 'labelled',
   modeling: 'modelling', paneling: 'panelling', canceling: 'cancelling', canceled: 'cancelled',
   leveling: 'levelling', counseling: 'counselling',
-  // misc + decor-vocabulary
-  cozy: 'cosy', gray: 'grey', while: 'whilst', among: 'amongst',
-  drapes: 'curtains', closet: 'wardrobe', couch: 'sofa', fall: 'autumn',
-  countertop: 'worktop', baseboard: 'skirting board', comforter: 'duvet',
-  shade: 'blind', pillow: 'cushion'
+  // misc + decor-vocabulary (NOTE: while/among are valid UK English — NOT flagged; fall/shade/pillow
+  // removed too as they are legit words, not spelling errors)
+  cozy: 'cosy', gray: 'grey',
+  drapes: 'curtains', closet: 'wardrobe', couch: 'sofa',
+  countertop: 'worktop', baseboard: 'skirting board', comforter: 'duvet'
 };
 
-// AI-buzzword phrases to flag, with the suggested fix (empty fix = "remove / rephrase").
+// AI-buzzword words/phrases to flag — her EXACT banned list (memory reference_banned_words).
+// fix = 'remove or rephrase' for all; it is a list-only check (she find/replaces by hand).
 const BUZZWORDS = [
-  { phrase: 'delve into', fix: 'remove or rephrase' },
-  { phrase: 'dive into', fix: 'remove or rephrase' },
-  { phrase: 'enter a world of', fix: 'remove' },
-  { phrase: 'journey of discovery', fix: 'remove' },
-  { phrase: 'a tapestry', fix: 'remove' },
-  { phrase: 'in conclusion', fix: 'remove' },
-  { phrase: 'in summary', fix: 'remove' },
-  { phrase: 'skyrocket', fix: 'rise sharply' },
-  { phrase: "today's digital landscape", fix: 'remove' },
-  { phrase: 'sanctuary', fix: 'calm retreat / peaceful space' },
-  { phrase: 'cohesive', fix: 'considered / unified / well-balanced' }
-];
+  'delve', 'dive', 'dive into', 'spearheading', 'embarking', 'compelling', 'empowering',
+  'encompassing', 'comprehensively', 'effectively', 'beacon', 'emerges as a beacon',
+  'multifaceted', 'revolutionary', 'testament', 'showcasing', 'remarked', 'aligns',
+  'surpassing', 'tragically', 'impacting', 'prioritize', 'prioritizing', 'sparking',
+  'standout', 'hindering', 'advancements', 'aiding', 'fostering', 'indicating potential',
+  'providing insights', 'gain valuable insights', 'shared insights', 'highlighting the need',
+  'highlights importance', 'highlights importance considering', 'making it challenging',
+  'emphasizing importance', 'emphasizing need', 'emphasized importance', 'aims to enhance',
+  'explores themes', 'struggles faced', 'facing criticism', 'secured win', 'secure win',
+  'potentially leading', 'showing promising results', 'notable figures', 'notable works include',
+  'consider factors like', 'address issues like', 'expressed excitement', 'study aims to explore',
+  'study sheds light', 'study introduce', 'research needed to understand',
+  'play a significant role in shaping', 'plays a significant role in shaping',
+  'crucial role in shaping', 'media plays a significant role', 'ensure long term success',
+  'make a positive impact on the world', "today's fast paced world", "today's digital age",
+  'in the ever-evolving world of', 'at the forefront of', 'in summary', 'in conclusion',
+  'in essence', "it's important to note"
+].map(phrase => ({ phrase, fix: 'remove or rephrase' }));
 
 // Branded links to offer (only when the body doesn't already contain that URL).
 const BRANDED_LINKS = [
@@ -1030,6 +1056,10 @@ const BRANDED_LINKS = [
 ];
 
 const AUTHOR_BIO_SNIPPET = 'By Mae Osz | Interior Design Consultant & Home Decor Expert with 12+ years of experience.';
+
+// British-English: legit words that must NEVER be flagged as US spelling (guards the -ize pattern
+// and any future rule). The -size family is handled by a regex rule in the scan itself.
+const SPELLING_EXCEPTIONS = new Set(['doctor', 'mirror', 'decor', 'error']);
 
 function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 function htmlToText(html) {
@@ -1047,13 +1077,26 @@ function scanBlogQuality(yourPage) {
   const text = `${htmlToText(bodyHtml)} ${htmlToText(excerptHtml)} ${metaText}`;
   const lower = text.toLowerCase();
 
-  // 1. British English — output only pairs actually present.
+  // 1. British English — curated map + a safe -ize/-ise pattern, with exceptions.
   const britishEnglish = [];
   const seenUk = new Set();
+  const flagUk = (found, suggestion) => {
+    const k = String(found).toLowerCase();
+    if (!k || seenUk.has(k) || SPELLING_EXCEPTIONS.has(k)) return;
+    seenUk.add(k); britishEnglish.push({ found: k, suggestion });
+  };
   for (const [us, uk] of Object.entries(US_TO_UK)) {
-    if (seenUk.has(us)) continue;
-    const re = new RegExp(`\\b${escapeRegExp(us)}\\b`, 'i');
-    if (re.test(text)) { britishEnglish.push({ found: us, suggestion: uk }); seenUk.add(us); }
+    if (new RegExp(`\\b${escapeRegExp(us)}\\b`, 'i').test(text)) flagUk(us, uk);
+  }
+  // Pattern: any word ending -ize/-ized/-izing/-ization(s) → the UK -ise form. Skips the -size
+  // family (size/resize/oversize…) so legit words are never flagged.
+  const _ize = /\b([a-z]{3,})(ize|izes|ized|izing|ization|izations)\b/gi;
+  const _suf = { ize: 'ise', izes: 'ises', ized: 'ised', izing: 'ising', ization: 'isation', izations: 'isations' };
+  let _zm;
+  while ((_zm = _ize.exec(text.toLowerCase())) !== null) {
+    const word = _zm[0];
+    if (/siz(e|es|ed|ing)$/.test(word)) continue;
+    flagUk(word, _zm[1] + _suf[_zm[2]]);
   }
 
   // 2. AI buzzwords — list with suggested fix.
