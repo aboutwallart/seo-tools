@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 62.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 63.0</p>
                 </div>
             </div>
         </header>
@@ -536,21 +536,33 @@
         let mpdChecklist = {};   // { url: { _total: N, key: true/false } }
         let mpdSnapshots = {};   // { url: { optimizedAt, position, impressions, clicks, keyword } }
         let mpdPushState = {};   // { url: { pushed: bool, linksPushed: bool } }
+        let mpdHold = new Set(); // URLs she's flagged "Winner — hold (don't optimise yet)"
         let checklistSaveTimer = null;
         let hiddenOptimizedSet = new Set(); // in-memory only — resets on page reload
 
         async function loadMPDData() {
             try {
-                const [clRes, snRes, psRes] = await Promise.all([
+                const [clRes, snRes, psRes, hdRes] = await Promise.all([
                     fetch('/api/blogs?action=get-mpd-checklist').then(r => r.json()).catch(() => ({ checklist: {} })),
                     fetch('/api/blogs?action=get-mpd-snapshots').then(r => r.json()).catch(() => ({ snapshots: {} })),
-                    fetch('/api/blogs?action=get-mpd-push-state').then(r => r.json()).catch(() => ({ pushState: {} }))
+                    fetch('/api/blogs?action=get-mpd-push-state').then(r => r.json()).catch(() => ({ pushState: {} })),
+                    fetch('/api/blogs?action=get-mpd-hold').then(r => r.json()).catch(() => ({ hold: [] }))
                 ]);
                 mpdChecklist = clRes.checklist || {};
                 mpdSnapshots = snRes.snapshots || {};
                 mpdPushState = psRes.pushState || {};
+                mpdHold = new Set(hdRes.hold || []);
                 console.log('[MPD Data] Loaded from GitHub');
             } catch(e) { console.warn('[MPD Data] Load failed:', e); }
+        }
+
+        // Toggle "Winner — hold" for a page (saved to GitHub so it survives close/re-open — no re-analysis).
+        async function toggleWinnerHold(url, hold) {
+            if (hold) mpdHold.add(url); else mpdHold.delete(url);   // optimistic
+            try {
+                await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-mpd-hold', url, hold }) });
+            } catch (e) { console.warn('[Winner-Hold] save failed:', e); }
+            renderStartHere();
         }
 
         async function saveChecklistToGitHub() {
@@ -581,6 +593,7 @@
             const imp = g.impressions || 0;
             const clk = g.clicks || 0;
             const ctr = imp > 0 ? clk / imp : 0;
+            if (mpdHold.has(url)) return 'hold';                           // she flagged it "don't optimise yet" — bottom
             if (pos && pos <= 3) return 'winner';                          // already top — light touch, last
             if (g.urgency === 'quickwin') return 'quickwin';               // striking distance
             if (imp >= 100 && pos && pos <= 15 && ctr < 0.01) return 'fixctr'; // seen a lot, rarely clicked
@@ -591,13 +604,14 @@
         function renderStartHere() {
             const list = document.getElementById('startHereList');
             if (!list) return;
-            const RANK = { quickwin: 1, fixctr: 2, danger: 3, rest: 4, winner: 5 };
+            const RANK = { quickwin: 1, fixctr: 2, danger: 3, rest: 4, winner: 5, hold: 6 };
             const META = {
                 quickwin: { icon:'🔥', label:'Quick Win',  color:'#f97316', note:'' },
                 fixctr:   { icon:'🖱', label:'Fix CTR',    color:'#0277bd', note:'' },
                 danger:   { icon:'🚨', label:'Danger',     color:'#dc2626', note:'Already ranking — review carefully.' },
                 rest:     { icon:'📋', label:'To Optimise', color:'#757575', note:'' },
-                winner:   { icon:'🏆', label:'Winner',     color:'#2e7d32', note:'Top 3 already — light touch, don\'t rush.' }
+                winner:   { icon:'🏆', label:'Winner',     color:'#2e7d32', note:'Top 3 already — light touch, don\'t rush.' },
+                hold:     { icon:'🏆', label:'Winner — Hold', color:'#2e7d32', note:'You flagged this to leave for now (already ranking).' }
             };
             // Exclude pages already optimised or with a completed checklist.
             const optimisedSet = new Set((optimizedPages || []).map(p => (p.url || '').toLowerCase()));
@@ -645,7 +659,8 @@
                         ${metrics}
                         ${m.note ? `<div style="font-size:0.78rem;color:${m.color};margin-top:4px;font-weight:600;">⚠️ ${m.note}</div>` : ''}
                     </div>
-                    <div style="display:flex;gap:10px;">
+                    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                        ${(() => { const held = mpdHold.has(item.url); return `<button class="btn-secondary" title="${held ? 'Bring it back into the queue' : 'Already ranking #1-3 — leave it for now (saved, no re-analysis needed)'}" onclick="toggleWinnerHold('${item.url.replace(/'/g, "\\'")}', ${held ? 'false' : 'true'})">${held ? '↩️ Un-hold' : '🏆 Hold'}</button>`; })()}
                         ${item.analyzed ? `<button class="btn-secondary" onclick="viewResults(${item.id})">📊 View</button>` : ''}
                         <button onclick="openAnalyzeModal(${item.id})">${item.analyzed ? '🔄 Re-analyze' : '🔍 Analyze'}</button>
                     </div>
@@ -909,47 +924,41 @@
                     }
                 }
 
+                // Results show AS SOON AS there's data (no 90-day wait). Each cell is PAINTED
+                // green (improved) / red (slipped) / grey (no change). Meaningful early; firmer over time.
                 let comparisonHTML = '';
-                if (before) {
-                    if (daysAgo >= 90 && current) {
-                        const posChange = (before.position - current.position).toFixed(1);
-                        const posUp = posChange > 0;
-                        const impChange = current.impressions - before.impressions;
-                        const clkChange = current.clicks - before.clicks;
-                        comparisonHTML = `
-                            <div style="margin-top:10px;background:white;border-radius:6px;padding:12px;border:1px solid #e0e0e0;">
-                                <div style="font-size:0.8rem;font-weight:600;color:#2e7d32;margin-bottom:8px;">📈 90-Day Results</div>
-                                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:0.82rem;">
-                                    <div style="text-align:center;">
-                                        <div style="color:#666;">Position</div>
-                                        <div style="font-weight:700;">${before.position.toFixed(1)} → ${current.position.toFixed(1)}</div>
-                                        <div style="color:${posUp?'#4caf50':'#f44336'};font-weight:600;">${posUp?'▲':'▼'} ${Math.abs(posChange)}</div>
-                                    </div>
-                                    <div style="text-align:center;">
-                                        <div style="color:#666;">Impressions</div>
-                                        <div style="font-weight:700;">${before.impressions.toLocaleString()} → ${current.impressions.toLocaleString()}</div>
-                                        <div style="color:${impChange>=0?'#4caf50':'#f44336'};font-weight:600;">${impChange>=0?'▲':'▼'} ${Math.abs(impChange).toLocaleString()}</div>
-                                    </div>
-                                    <div style="text-align:center;">
-                                        <div style="color:#666;">Clicks</div>
-                                        <div style="font-weight:700;">${before.clicks} → ${current.clicks}</div>
-                                        <div style="color:${clkChange>=0?'#4caf50':'#f44336'};font-weight:600;">${clkChange>=0?'▲':'▼'} ${Math.abs(clkChange)}</div>
-                                    </div>
-                                </div>
-                                <div style="font-size:0.75rem;color:#999;margin-top:6px;">Optimised ${daysAgo} days ago · GSC data updated daily</div>
-                            </div>`;
-                    } else if (daysAgo < 90) {
-                        comparisonHTML = `
-                            <div style="margin-top:8px;font-size:0.8rem;color:#666;">
-                                ⏳ Before/after results available in <strong>${daysLeft} day${daysLeft===1?'':'s'}</strong>
-                            </div>`;
-                    }
+                if (before && current) {
+                    const posChange = +(before.position - current.position).toFixed(1);   // + = climbed
+                    const impChange = current.impressions - before.impressions;
+                    const clkChange = current.clicks - before.clicks;
+                    const cell = (delta, label, beforeV, afterV, fmt) => {
+                        const up = delta > 0, down = delta < 0;
+                        const bg = up ? '#e8f5e9' : (down ? '#fdecec' : '#f7f7f7');
+                        const col = up ? '#2e7d32' : (down ? '#c62828' : '#999');
+                        const arrow = up ? '▲' : (down ? '▼' : '—');
+                        return `<div style="text-align:center;padding:7px 6px;border-radius:6px;background:${bg};">
+                                    <div style="color:#666;">${label}</div>
+                                    <div style="font-weight:700;">${beforeV} → ${afterV}</div>
+                                    <div style="color:${col};font-weight:700;">${arrow} ${fmt(Math.abs(delta))}</div>
+                                </div>`;
+                    };
+                    comparisonHTML = `
+                        <div style="margin-top:10px;background:white;border-radius:6px;padding:12px;border:1px solid #e0e0e0;">
+                            <div style="font-size:0.8rem;font-weight:600;color:#2e7d32;margin-bottom:8px;">📈 Results so far (15-day GSC)</div>
+                            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:0.82rem;">
+                                ${cell(posChange, 'Position', before.position.toFixed(1), current.position.toFixed(1), v => v.toFixed(1))}
+                                ${cell(impChange, 'Impressions', before.impressions.toLocaleString(), current.impressions.toLocaleString(), v => v.toLocaleString())}
+                                ${cell(clkChange, 'Clicks', before.clicks, current.clicks, v => v)}
+                            </div>
+                            <div style="font-size:0.75rem;color:#999;margin-top:6px;">Optimised ${daysAgo} day${daysAgo===1?'':'s'} ago · ${daysAgo < 14 ? 'still early — give it time to settle' : 'GSC 15-day window'}</div>
+                        </div>`;
                 }
 
                 return `
                 <div class="url-item" style="background:${health.bg};border-left:4px solid ${health.color};">
                     <div style="flex:1;">
                         <span style="display:inline-block;background:#fff;color:${health.color};border:1px solid ${health.color};border-radius:20px;padding:2px 10px;font-size:0.78rem;font-weight:600;margin-bottom:6px;">${health.icon} ${health.label}</span>
+                        ${(current && current.position && current.position <= 3) ? `<span style="display:inline-block;background:#2e7d32;color:#fff;border-radius:20px;padding:2px 10px;font-size:0.78rem;font-weight:600;margin-bottom:6px;margin-left:6px;">🏆 Winner · #${current.position.toFixed(1)}</span>` : ''}
                         <div style="font-weight:500;margin-bottom:5px;word-break:break-all;">✅ ${item.url}</div>
                         <div style="font-size:0.85rem;color:#1976d2;margin-bottom:3px;">🎯 Keyword: "${item.keyword}"</div>
                         <div style="font-size:0.85rem;color:#2e7d32;">Optimised: ${new Date(optimizedAt||item.optimizedAt).toLocaleDateString()}</div>
@@ -1461,13 +1470,13 @@
             currentAuditURL = data.yourPage.url;
             currentKeyword = keyword;
 
-            // GSC 28-day average position for this page (from the work-queue enrichment, if loaded).
+            // GSC 15-day average position for this page (from the work-queue enrichment, if loaded).
             // Shown alongside the LIVE Google rank so the two numbers aren't mistaken for each other:
             //  • Live rank (#)  = today's exact-keyword position in UK Google (SerpAPI)
-            //  • GSC avg        = this page's 28-day average across ALL its keywords (Search Console)
+            //  • GSC avg        = this page's 15-day average across ALL its keywords (Search Console)
             const _gscEnr = (typeof gscEnrichment !== 'undefined' && gscEnrichment) ? gscEnrichment[normalizeUrlPath(data.yourPage.url)] : null;
             const _gscPos = (_gscEnr && _gscEnr.position) ? _gscEnr.position.toFixed(1) : null;
-            const _gscLine = _gscPos ? `<br><small style="opacity:0.92;">📈 GSC 28-day average: position ${_gscPos} (across all this page's keywords)</small>` : '';
+            const _gscLine = _gscPos ? `<br><small style="opacity:0.92;">📈 GSC 15-day average: position ${_gscPos} (across all this page's keywords)</small>` : '';
 
             const positionBadge = data.userPosition === 1
                 ? `<div style="background:#4caf50;color:white;padding:15px;border-radius:6px;margin-bottom:20px;text-align:center;">👑 <strong>Live Google rank: #1 for "${keyword}"</strong><br><small>Analysis will help defend your position</small>${_gscLine}</div>`
@@ -1652,6 +1661,13 @@
         function renderStructuredResults(s, keyword, data) {
             const pageUrl = data.yourPage.url;
             const state = loadChecklistState(pageUrl);
+            // Winner-Page Guard: if this page already ranks #1–3, the risky (identity-changing) actions
+            // are painted RED so she doesn't break a ranking. Live rank first, GSC 15-day as fallback.
+            const _wpGsc = gscEnrichment[normalizeUrlPath(pageUrl)] || {};
+            const _isWinner = (data.userPosition && data.userPosition <= 3) || (_wpGsc.position && _wpGsc.position <= 3);
+            const _wpRank = data.userPosition || (_wpGsc.position ? _wpGsc.position.toFixed(1) : '1–3');
+            const _riskBox = _isWinner ? 'border:2px solid #e53935;background:#fff5f5;' : '';
+            const _riskLabel = _isWinner ? '<div style="display:inline-block;background:#fdecea;color:#c62828;font-weight:700;font-size:0.76rem;padding:4px 10px;border-radius:4px;margin-bottom:8px;">⚠️ Risky on a #1–3 ranking page — change with care</div>' : '';
             // The old manual "SHOP HERE button" check is replaced by Missing Buttons, and the
             // "YouTube embed" check is replaced by the 🎬 Add a Video block — drop both so they no
             // longer show (and aren't counted).
@@ -1891,7 +1907,8 @@
                             </div>`;
                         }).join('')}
                     </div>
-                    <div class="field-group">
+                    <div class="field-group" style="${_isWinner ? 'border-left:3px solid #e53935;padding-left:10px;' : ''}">
+                        ${_riskLabel}
                         <label>SEO Title</label>
                         <input type="text" id="shopifyTitleField" value="${(s.suggestedTitle||'').replace(/"/g,'&quot;')}" oninput="updateCharCount(this,60);scheduleTitleCheck()">
                         <div class="char-count"></div>
@@ -2200,7 +2217,7 @@
                 </div>` : '';
 
             const productDescBlock = (_isProduct && s.productDescription) ? `
-                <div class="action-block" id="productDescBlock" style="border-color:#6a1b9a;">
+                <div class="action-block" id="productDescBlock" style="border-color:#6a1b9a;${_riskBox}">
                     <style>
                         #productDescBlock .desc-preview h2 { font-size:1.05rem; margin:1.6em 0 0.5em; }
                         #productDescBlock .desc-preview h3 { font-size:1rem; margin:1.6em 0 0.5em; }
@@ -2209,6 +2226,7 @@
                         #productDescBlock .desc-preview li { margin:0 0 0.3em; }
                     </style>
                     <h3>📝 Product Description — Full Rewrite</h3>
+                    ${_riskLabel}
                     <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">A complete, SEO-optimised rewrite of this product's description in the AboutWallArt voice. Review it, then copy or push it straight to the product body.</p>
                     ${_prodImg ? `<div style="text-align:center;margin-bottom:14px;"><img src="${_prodImg.src}" alt="${(_prodImg.alt||'').replace(/"/g,'&quot;')}" style="max-width:220px;max-height:220px;border-radius:8px;border:1px solid #eee;"></div>` : ''}
                     <div id="row_prod_desc" style="opacity:${state['prod_desc']?'0.45':'1'};">
@@ -2250,6 +2268,7 @@
                             <div style="flex:1;">
                                 ${item.priority ? `<span class="priority-tag priority-${item.priority}">${item.priority}</span>` : ''}
                                 <strong id="lbl_${item.key}" style="${state[item.key]?'text-decoration:line-through;':''}${item.action==='remove'?'color:#c0392b;':''}">${item.action==='remove'?'🗑️ ':''}${item.label}</strong>${compBadge(item)}
+                                ${(_isWinner && item.action === 'remove') ? '<div style="margin-top:4px;">' + _riskLabel + '</div>' : ''}
                                 ${item.detail ? `
                                     <div style="font-size:0.85rem;color:#555;margin-top:4px;line-height:1.5;">${item.detail}</div>
                                     ${item.action === 'remove' ? '' : `
@@ -2362,15 +2381,13 @@
                         const handle = link.loserUrl.split('/').filter(Boolean).pop();
                         const fallbackAdminUrl = buildShopifyAdminSearchUrl(link.loserPageType, handle);
                         const pt = link.loserPageType?.includes('collection') ? 'collection' : link.loserPageType;
-                        const kickstartPrompt = htmlSentenceToKickstartPrompt(link.suggestedSentence, link.placement);
                         const isArt = data.yourPage.shopifyType === 'article';
                         const _loEdit = _editsAttr([{ kind: 'link', mode: 'new', find: link.findAnchor || '', content: link.suggestedSentence || '' }]);
-                        const pasteFooter = isArt
-                            ? `<div style="background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:10px 12px;font-size:0.9rem;line-height:1.6;margin-bottom:8px;">${link.suggestedSentence}</div>
-                               <textarea id="loserSentence${i}" style="display:none;">${link.suggestedSentence.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
-                               <button class="copy-btn" onclick="copyFormatted('loserSentence${i}',this)">📋 Copy for body</button>`
-                            : `<textarea id="loserSentence${i}" style="width:100%;padding:10px;border:1px solid #e0e0e0;border-radius:6px;font-size:0.85rem;font-family:'Poppins',sans-serif;resize:vertical;line-height:1.5;" rows="3">${kickstartPrompt}</textarea>
-                               <button class="copy-btn" style="margin-top:6px;" onclick="copyToClipboard(document.getElementById('loserSentence${i}').value,this)">📋 Copy</button>`;
+                        // ALWAYS clean, paste-ready: the real sentence with the link already embedded.
+                        // The "where to add it" guidance lives OUTSIDE the copy box (in linkCardHead above).
+                        const pasteFooter = `<div style="background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:10px 12px;font-size:0.9rem;line-height:1.6;margin-bottom:8px;">${link.suggestedSentence}</div>
+                               <textarea id="loserSentence${i}" style="display:none;">${(link.suggestedSentence||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+                               <button class="copy-btn" onclick="copyFormatted('loserSentence${i}',this)">📋 Copy for body (link included)</button>`;
                         return `
                         <div id="row_${key}" style="border:1px solid #eee;border-radius:8px;padding:14px;margin-bottom:10px;background:#fafafa;opacity:${state[key]?'0.45':'1'};">
                             ${linkCardHead({
@@ -2858,7 +2875,12 @@
             // 1) Everything that edits THIS page goes at the top, then
             // 2) blocks that ask you to edit OTHER pages (links from loser pages + links
             //    from related older blogs), then 3) Request Reindex in GSC — always last.
-            const thisPageBlocks = masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + videoBlock + paaRemoveBlock + overuseBlock + productDescBlock + productDescOptimisedBlock + aiBlock + pageQuestionsBlock + pageFieldsBlock + pageBrowseBlock + paaBlock + internalAddBlock + manualBlock + tocBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + missingButtonsBlock + internalAddBlockTmpl + linkedRefsBlock + blogQualityBlock + homepageImageBlock + imageBlock + autolinkBlock;
+            const winnerGuardBanner = _isWinner ? `
+                <div class="action-block" style="border:2px solid #e53935;background:#fff5f5;">
+                    <h3 style="color:#c62828;">🏆 This page already ranks #${_wpRank} — protect it</h3>
+                    <p style="font-size:0.86rem;color:#555;line-height:1.6;margin:0;">✅ <strong>Safe:</strong> add FAQ/snippets, internal &amp; related links, new sections, image alt. &nbsp; ⚠️ <strong>Be careful (the red-flagged items below):</strong> changing the title or slug, removing a section${_isProduct ? ', or the full description rewrite' : ''} — these can drop a ranking. You decide — the tool only flags them.</p>
+                </div>` : '';
+            const thisPageBlocks = winnerGuardBanner + masterBar + shopifyBlock + copyPasteBlock + quickAnswerBlock + videoBlock + paaRemoveBlock + overuseBlock + productDescBlock + productDescOptimisedBlock + aiBlock + pageQuestionsBlock + pageFieldsBlock + pageBrowseBlock + paaBlock + internalAddBlock + manualBlock + tocBlock + seoTextLinksBlock + browseBlock + inactiveProductsBlock + missingButtonsBlock + internalAddBlockTmpl + linkedRefsBlock + blogQualityBlock + homepageImageBlock + imageBlock + autolinkBlock;
             const otherPageBlocks = loserLinksBlock + relatedBlogsBlock;
             return thisPageBlocks + otherPageBlocks + reindexBlock;
         }
@@ -3277,10 +3299,10 @@
                         <button id="pushEditsConfirmBtn" style="padding:9px 18px;border:none;background:#4caf50;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;">✅ Confirm &amp; save</button>
                     </div>`);
                 const cbtn = document.getElementById('pushEditsConfirmBtn');
-                cbtn.onclick = function () { pushEditsApply(edits, t, opts, this); };
+                cbtn.onclick = function () { pushEditsApply(edits, t, opts, this, data.after); };   // pass preview so it stays visible after save
             } catch (err) { btn.disabled = false; btn.textContent = orig; alert('Could not preview: ' + err.message); }
         }
-        async function pushEditsApply(edits, t, opts, btn) {
+        async function pushEditsApply(edits, t, opts, btn, afterHtml) {
             btn.disabled = true; btn.textContent = '⏳ Saving…';
             try {
                 const res = await fetch('/api/shopify-files?action=body-edit', {
@@ -3292,16 +3314,21 @@
                 if (opts.tickKey) tickPushItem(opts.tickKey);
                 if (Array.isArray(opts.tickKeys)) opts.tickKeys.forEach(tickPushItem);
                 if (typeof opts.onDone === 'function') { try { opts.onDone(); } catch (e) {} }
-                const fn = (data.failed && data.failed.length) ? `<p style="margin:0 0 10px;font-size:0.8rem;color:#c62828;">${data.failed.length} item(s) couldn't be matched — handle those by hand.</p>` : '';
+                const fn = (data.failed && data.failed.length) ? `<p style="margin:0;font-size:0.8rem;color:#c62828;">${data.failed.length} item(s) couldn't be matched — handle those by hand.</p>` : '';
+                // Persistent: keep the change visible (✅ saved) so she can verify, then CLOSE herself.
                 bodyEditModal(`
-                    <div style="padding:24px 22px;text-align:center;">
-                        <div style="font-size:2rem;margin-bottom:8px;">✅</div>
-                        <h3 style="margin:0 0 6px;">${opts.doneMsg || 'Saved to the page'}</h3>${fn}
-                        <p style="margin:0 0 18px;font-size:0.85rem;color:#666;">Saved live. Changed your mind? Undo puts the page back exactly as it was.</p>
-                        <div style="display:flex;gap:10px;justify-content:center;">
-                            <button onclick="pushEditsUndo('${t.id}','${t.type}','${t.blogId || ''}',this)" style="padding:9px 16px;border:1px solid #e57373;background:#fff;color:#c62828;border-radius:8px;cursor:pointer;">↩️ Undo</button>
-                            <button onclick="bodyEditClose()" style="padding:9px 18px;border:none;background:#4caf50;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;">Done</button>
+                    <div style="padding:16px 20px;border-bottom:1px solid #eee;display:flex;align-items:flex-start;gap:12px;">
+                        <span style="font-size:1.5rem;">✅</span>
+                        <div style="flex:1;">
+                            <h3 style="margin:0;font-size:1.05rem;">${opts.doneMsg || 'Saved to the page'}</h3>
+                            <p style="margin:3px 0 0;font-size:0.8rem;color:#666;">Saved live. Check it below — <strong>Close</strong> when you're happy, or Undo to put it back exactly as it was.</p>
+                            ${fn}
                         </div>
+                    </div>
+                    <div style="padding:16px 20px;overflow:auto;flex:1;background:#fafafa;font-size:0.9rem;line-height:1.5;">${afterHtml || ''}</div>
+                    <div style="padding:14px 20px;border-top:1px solid #eee;display:flex;gap:10px;justify-content:flex-end;">
+                        <button onclick="pushEditsUndo('${t.id}','${t.type}','${t.blogId || ''}',this)" style="padding:9px 16px;border:1px solid #e57373;background:#fff;color:#c62828;border-radius:8px;cursor:pointer;">↩️ Undo</button>
+                        <button onclick="bodyEditClose()" style="padding:9px 18px;border:none;background:#4caf50;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;">Close</button>
                     </div>`);
             } catch (err) { btn.disabled = false; btn.textContent = '✅ Confirm & save'; alert('Could not save: ' + err.message); }
         }
@@ -4517,7 +4544,7 @@
             const loadingEl = document.getElementById('gscLoadingStatus');
             if (loadingEl) loadingEl.style.display = 'block';
             try {
-                const end = getDateStr(0), start = getDateStr(90), startPrev = getDateStr(180);
+                const end = getDateStr(0), start = getDateStr(15), startPrev = getDateStr(30);   // 15-day window (was 90) — fresher position so recent winners surface
                 const [rPages, rPrev, rPQ] = await Promise.all([
                     fetch(`/api/gsc?action=pages&startDate=${start}&endDate=${end}`),
                     fetch(`/api/gsc?action=pages&startDate=${startPrev}&endDate=${start}`),
