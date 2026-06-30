@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 63.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 64.0</p>
                 </div>
             </div>
         </header>
@@ -564,6 +564,13 @@
             } catch (e) { console.warn('[Winner-Hold] save failed:', e); }
             renderStartHere();
         }
+        // Hold/un-hold from inside an open analysis (after she's seen today's real position).
+        async function holdFromAnalysis(url, btn) {
+            const newHeld = !mpdHold.has(url);
+            if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving…'; }
+            await toggleWinnerHold(url, newHeld);
+            if (btn) { btn.disabled = false; btn.textContent = newHeld ? '↩️ Un-hold — bring back to the queue' : '🏆 Hold — leave this one for now (already ranking)'; }
+        }
 
         async function saveChecklistToGitHub() {
             try {
@@ -660,7 +667,7 @@
                         ${m.note ? `<div style="font-size:0.78rem;color:${m.color};margin-top:4px;font-weight:600;">⚠️ ${m.note}</div>` : ''}
                     </div>
                     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-                        ${(() => { const held = mpdHold.has(item.url); return `<button class="btn-secondary" title="${held ? 'Bring it back into the queue' : 'Already ranking #1-3 — leave it for now (saved, no re-analysis needed)'}" onclick="toggleWinnerHold('${item.url.replace(/'/g, "\\'")}', ${held ? 'false' : 'true'})">${held ? '↩️ Un-hold' : '🏆 Hold'}</button>`; })()}
+                        ${mpdHold.has(item.url) ? `<button class="btn-secondary" title="Bring it back into the queue" onclick="toggleWinnerHold('${item.url.replace(/'/g, "\\'")}', false)">↩️ Un-hold</button>` : ''}
                         ${item.analyzed ? `<button class="btn-secondary" onclick="viewResults(${item.id})">📊 View</button>` : ''}
                         <button onclick="openAnalyzeModal(${item.id})">${item.analyzed ? '🔄 Re-analyze' : '🔍 Analyze'}</button>
                     </div>
@@ -962,6 +969,12 @@
                         <div style="font-weight:500;margin-bottom:5px;word-break:break-all;">✅ ${item.url}</div>
                         <div style="font-size:0.85rem;color:#1976d2;margin-bottom:3px;">🎯 Keyword: "${item.keyword}"</div>
                         <div style="font-size:0.85rem;color:#2e7d32;">Optimised: ${new Date(optimizedAt||item.optimizedAt).toLocaleDateString()}</div>
+                        ${current ? `<div style="font-size:0.82rem;color:#444;margin-top:5px;display:flex;gap:16px;flex-wrap:wrap;font-weight:600;">
+                            <span>📍 Pos <strong>${current.position ? current.position.toFixed(1) : '—'}</strong></span>
+                            <span>👁 ${(current.impressions||0).toLocaleString()} impr</span>
+                            <span>🖱 ${(current.clicks||0).toLocaleString()} clicks</span>
+                            <span style="color:#999;font-weight:400;">(15-day)</span>
+                        </div>` : `<div style="font-size:0.8rem;color:#999;margin-top:5px;">No Search Console data in the last 15 days yet.</div>`}
                         ${comparisonHTML}
                     </div>
                     <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;">
@@ -1596,6 +1609,10 @@
                 ${templateBadge}
                 ${indexabilityBanner}
                 ${positionBadge}
+                ${(() => { const u = data.yourPage.url; const held = mpdHold.has(u);
+                    return `<div style="text-align:center;margin:-8px 0 20px;">
+                        <button id="analysisHoldBtn" class="btn-secondary" style="font-size:0.85rem;" onclick="holdFromAnalysis('${u.replace(/'/g, "\\'")}', this)">${held ? '↩️ Un-hold — bring back to the queue' : '🏆 Hold — leave this one for now (already ranking)'}</button>
+                    </div>`; })()}
                 <div class="results-tabs">
                     <button class="results-tab active" onclick="switchResultsTab('content')">📝 Content Analysis</button>
                     <button class="results-tab" onclick="switchResultsTab('technical')">🔧 Technical SEO</button>
@@ -4592,6 +4609,9 @@
                 }
                 if (loadingEl) loadingEl.style.display = 'none';
                 renderUrls();
+                renderStartHere();
+                renderOptimized();          // ← was missing: Optimised tab stayed blank because it
+                                            //    never re-rendered once the fresh GSC data arrived.
                 seedMissingSnapshots();
             } catch (err) {
                 console.error('[GSC Enrichment]', err);
