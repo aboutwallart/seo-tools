@@ -1,4 +1,6 @@
-// blogs.js — v3.9
+// blogs.js — v4.0
+// v4.0 (June 30, 2026): Money Page Doctor Winner-Hold — get-mpd-hold / save-mpd-hold actions
+//                       (data/mpd-hold.json, array of URLs flagged "winner — don't optimise yet").
 // v3.0: Blog Manager Batch 1 — send-to-sheet now auto-generates content sources (colG–colK):
 //        authority article (title+URL) + YouTube video (title+link+embed) via Claude web search.
 //        Fail-loud: if either is missing the row is NOT written; frontend collects missing parts manually.
@@ -1180,6 +1182,17 @@ Include 3 to 5 items.`;
         }
       }
 
+      // ── ACTION: get-mpd-hold ── (Money Page Doctor — Winner-Hold: URLs to NOT optimise yet)
+      if (req.query.action === 'get-mpd-hold') {
+        try {
+          const file = await getGitHubFile('data/mpd-hold.json');
+          const arr = JSON.parse(file.content);
+          return res.status(200).json({ success: true, hold: Array.isArray(arr) ? arr : [] });
+        } catch(e) {
+          return res.status(200).json({ success: true, hold: [] });
+        }
+      }
+
       // ── ACTION: seo-metafield-scan ──
       if (req.query.action === 'seo-metafield-scan') {
         const shopifyDomain = process.env.SHOPIFY_STORE_DOMAIN;
@@ -1822,6 +1835,22 @@ Include 3 to 5 items.`;
         existing[url] = { pushed: !!pushed, linksPushed: !!linksPushed };
         await updateGitHubFile('data/mpd-push-state.json', JSON.stringify(existing, null, 2), sha, `Save MPD push state: ${url}`);
         return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: save-mpd-hold ── (Money Page Doctor — toggle a Winner-Hold URL)
+      if (req.body.action === 'save-mpd-hold') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { url, hold } = req.body;
+        if (!url) return res.status(400).json({ error: 'url required' });
+        let existing = [];
+        let sha = null;
+        try { const file = await getGitHubFile('data/mpd-hold.json'); existing = JSON.parse(file.content); sha = file.sha; } catch(e) {}
+        if (!Array.isArray(existing)) existing = [];
+        const set = new Set(existing);
+        if (hold) set.add(url); else set.delete(url);
+        const updated = [...set];
+        await updateGitHubFile('data/mpd-hold.json', JSON.stringify(updated, null, 2), sha, `${hold ? 'Hold' : 'Unhold'} MPD winner: ${url}`);
+        return res.status(200).json({ success: true, hold: updated });
       }
 
       // ── ACTION: save-keyword-tabs ──
