@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 64.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 65.0</p>
                 </div>
             </div>
         </header>
@@ -342,6 +342,7 @@
         <div class="tabs">
             <button class="tab" onclick="switchTab('startHere')">🎯 Start Here (<span id="startHereCount">0</span>)</button>
             <button class="tab active" onclick="switchTab('pages')">📋 To Optimise (<span id="pageCount">0</span>)</button>
+            <button class="tab" onclick="switchTab('winners')">🏆 Winners &amp; Hold (<span id="winnersCount">0</span>)</button>
             <button class="tab" onclick="switchTab('optimized')">✅ Optimized (<span id="optimizedCount">0</span>)</button>
         </div>
 
@@ -393,6 +394,13 @@
             <p style="color:#666;margin-bottom:8px;">Work down this list, top to bottom — it's ordered for safe, high-impact gains. Start slow (a few a day), then speed up once you see things holding/growing on the Optimized tab.</p>
             <p style="color:#888;font-size:0.85rem;margin-bottom:15px;">Order: 🔥 Quick Wins → 🖱 Fix CTR → 🚨 Danger (careful) → 📋 The rest → 🏆 Winners last (light touch). Done pages drop off automatically.</p>
             <div id="startHereList"></div>
+        </div>
+
+        <!-- WINNERS & HOLD TAB -->
+        <div class="tab-content" id="winnersTab">
+            <h3>🏆 Winners &amp; Hold</h3>
+            <p style="color:#666;margin-bottom:15px;">Pages already ranking #1–3 (auto), or ones you've put on hold. Kept out of the Start Here queue — light touch only, don't rush these.</p>
+            <div id="winnersList"></div>
         </div>
 
         <!-- OPTIMIZED TAB -->
@@ -563,6 +571,7 @@
                 await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-mpd-hold', url, hold }) });
             } catch (e) { console.warn('[Winner-Hold] save failed:', e); }
             renderStartHere();
+            renderWinners();
         }
         // Hold/un-hold from inside an open analysis (after she's seen today's real position).
         async function holdFromAnalysis(url, btn) {
@@ -590,6 +599,7 @@
             document.getElementById(tab + 'Tab').classList.add('active');
             document.querySelector(`[onclick="switchTab('${tab}')"]`).classList.add('active');
             if (tab === 'startHere') renderStartHere();
+            if (tab === 'winners') renderWinners();
         }
 
         // ── 🎯 Start Here — single ordered work-queue across all categories ──────────
@@ -635,6 +645,7 @@
                 return;
             }
             const ranked = candidates.map(item => ({ item, cat: startHereCategory(item.url) }))
+                .filter(r => r.cat !== 'winner' && r.cat !== 'hold')   // winners + held live in their own tab
                 .sort((a, b) => {
                     if (RANK[a.cat] !== RANK[b.cat]) return RANK[a.cat] - RANK[b.cat];
                     const ag = gscEnrichment[normalizeUrlPath(a.item.url)] || {};
@@ -675,6 +686,46 @@
             }).join('');
         }
 
+
+        // 🏆 Winners & Hold tab — pages at #1–3 (auto) or flagged hold. Out of the Start Here queue.
+        function renderWinners() {
+            const list = document.getElementById('winnersList');
+            if (!list) return;
+            const optimisedSet = new Set((optimizedPages || []).map(p => (p.url || '').toLowerCase()));
+            const items = deduplicateUrls(urls)
+                .filter(item => {
+                    if (optimisedSet.has((item.url || '').toLowerCase())) return false;
+                    const cat = startHereCategory(item.url);
+                    return cat === 'winner' || cat === 'hold';
+                })
+                .map(item => ({ item, cat: startHereCategory(item.url) }))
+                .sort((a, b) => ((gscEnrichment[normalizeUrlPath(a.item.url)] || {}).position || 99) - ((gscEnrichment[normalizeUrlPath(b.item.url)] || {}).position || 99));
+            const c = document.getElementById('winnersCount'); if (c) c.textContent = items.length;
+            if (!items.length) { list.innerHTML = '<p style="text-align:center;color:#666;padding:40px;">No winners or held pages yet. Pages at #1–3 and ones you put on hold will show here.</p>'; return; }
+            list.innerHTML = items.map(row => {
+                const item = row.item, g = gscEnrichment[normalizeUrlPath(item.url)] || {};
+                const isHold = row.cat === 'hold';
+                const note = isHold ? 'You flagged this to leave for now.' : 'Top 3 already — light touch, don\'t rush.';
+                const metrics = g.position ? `<div style="font-size:0.8rem;color:#666;margin-top:4px;display:flex;gap:14px;flex-wrap:wrap;"><span>📍 Pos <strong>${g.position.toFixed(1)}</strong></span><span>👁 ${(g.impressions||0).toLocaleString()} imp/mo</span><span>🖱 ${(g.clicks||0).toLocaleString()} clicks/mo</span></div>` : '';
+                return `<div class="url-item" style="border-left:4px solid #2e7d32;background:#fff;">
+                    <div style="flex:1;">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap;">
+                            <span style="background:#2e7d32;color:#fff;padding:2px 9px;border-radius:4px;font-size:0.75rem;font-weight:600;">🏆 ${isHold ? 'Winner — Hold' : 'Winner'}</span>
+                            <span style="font-size:0.72rem;color:#999;text-transform:uppercase;">${getPageType(item.url)}</span>
+                        </div>
+                        <div style="font-weight:500;margin-bottom:3px;word-break:break-all;">${item.url}</div>
+                        ${(item.keyword || g.keyword) ? `<div style="font-size:0.85rem;color:#1976d2;margin-bottom:3px;">🎯 Keyword: "${item.keyword || g.keyword}"</div>` : ''}
+                        ${metrics}
+                        <div style="font-size:0.78rem;color:#2e7d32;margin-top:4px;font-weight:600;">⚠️ ${note}</div>
+                    </div>
+                    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                        ${isHold ? `<button class="btn-secondary" onclick="toggleWinnerHold('${item.url.replace(/'/g, "\\'")}', false)">↩️ Un-hold</button>` : ''}
+                        ${item.analyzed ? `<button class="btn-secondary" onclick="viewResults(${item.id})">📊 View</button>` : ''}
+                        <button onclick="openAnalyzeModal(${item.id})">${item.analyzed ? '🔄 Re-analyze' : '🔍 Analyze'}</button>
+                    </div>
+                </div>`;
+            }).join('');
+        }
 
         function getUrgency(url) {
             const g = gscEnrichment[normalizeUrlPath(url)] || {};
@@ -2254,10 +2305,10 @@
                         <div class="desc-preview" style="font-size:0.9rem;line-height:1.65;background:#fff;border:1px solid #eee;border-radius:6px;padding:16px 18px;margin-bottom:10px;">${s.productDescription}</div>
                         <textarea id="prodDescHtml" style="display:none;">${(s.productDescription||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
                         <div style="margin-bottom:10px;">
-                            <div style="font-size:0.8rem;color:#666;margin-bottom:4px;">✍️ Custom phrases to add (optional — one per line; added as short paragraphs at the end when you push):</div>
-                            <textarea id="prodCustomPhrases" rows="2" style="width:100%;padding:8px 10px;border:1px solid #e0e0e0;border-radius:6px;font-size:0.85rem;font-family:'Poppins',sans-serif;" placeholder="e.g. Designed in our UK studio."></textarea>
+                            <div style="font-size:0.8rem;color:#666;margin-bottom:4px;">✍️ Custom phrases to add (optional — one per line; added as short paragraphs at the end. You can paste text that includes a link — the link is kept):</div>
+                            <div id="prodCustomPhrases" contenteditable="true" style="min-height:48px;width:100%;padding:8px 10px;border:1px solid #e0e0e0;border-radius:6px;font-size:0.85rem;font-family:'Poppins',sans-serif;line-height:1.5;background:#fff;"></div>
                         </div>
-                        <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('prodDescHtml').value,this)">📋 Copy HTML</button>
+                        <button class="copy-btn" type="button" onclick="copyProductHtml(this)">📋 Copy HTML</button>
                         <button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushProductBody(this)">📤 Push to product body</button>
                         ${(Array.isArray(s.preservedLinksMissing) && s.preservedLinksMissing.length) ? `
                         <div style="margin-top:12px;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:10px 12px;">
@@ -3150,14 +3201,24 @@
         }
 
         // Products — overwrite the live product body_html with the rewritten description.
+        // Custom phrases → paragraphs, KEEPING any pasted hyperlinks (real HTML, not escaped).
+        function getCustomPhrasesHtml() {
+            const el = document.getElementById('prodCustomPhrases');
+            if (!el) return '';
+            const h = (el.innerHTML || '').replace(/<div>/gi, '\n').replace(/<\/div>/gi, '').replace(/<br\s*\/?>/gi, '\n');
+            const lines = h.split('\n').map(s => s.trim()).filter(s => s && s !== '&nbsp;');
+            return lines.length ? '\n' + lines.map(s => `<p>${s}</p>`).join('\n') : '';
+        }
+        function copyProductHtml(btn) {
+            copyToClipboard((document.getElementById('prodDescHtml')?.value || '') + getCustomPhrasesHtml(), btn);
+        }
         async function pushProductBody(btn) {
             const sd = currentResults?.shopify;
             let html = document.getElementById('prodDescHtml')?.value || '';
             if (!sd?.id) { alert('Shopify data not available for this product.'); return; }
             if (!html.trim()) { alert('Nothing to push.'); return; }
-            // Append any custom phrases (one per line) as short paragraphs — pushed with the rewrite.
-            const phrases = (document.getElementById('prodCustomPhrases')?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
-            if (phrases.length) html += '\n' + phrases.map(p => `<p>${p.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`).join('\n');
+            // Append any custom phrases as short paragraphs — links are kept (real HTML).
+            html += getCustomPhrasesHtml();
             const orig = btn.textContent;
             btn.disabled = true; btn.textContent = '⏳ Pushing…';
             try {
@@ -4610,6 +4671,7 @@
                 if (loadingEl) loadingEl.style.display = 'none';
                 renderUrls();
                 renderStartHere();
+                renderWinners();
                 renderOptimized();          // ← was missing: Optimised tab stayed blank because it
                                             //    never re-rendered once the fresh GSC data arrived.
                 seedMissingSnapshots();
