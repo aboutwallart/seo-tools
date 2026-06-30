@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 65.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 66.0</p>
                 </div>
             </div>
         </header>
@@ -409,6 +409,7 @@
             <p style="color: #666; margin-bottom: 15px;">Pages that have been analyzed and optimized. Keywords are locked in the master registry.</p>
             <div style="margin-bottom: 15px; display: flex; justify-content: flex-end; gap: 10px;">
                 <button onclick="downloadRegistry()" style="background: #2196f3;">📥 Download Registry</button>
+                <button class="btn-secondary" onclick="reBaselineSnapshots(this)" title="Re-capture each page's 'before' as the 15 days right before it was optimised, so the since-optimised numbers are a fair 15-vs-15">🔄 Refresh baselines (15-day)</button>
                 <button class="btn-secondary" onclick="clearAllOptimized()">🗑️ Clear All Optimized</button>
             </div>
             <div id="optimizedList"></div>
@@ -943,6 +944,46 @@
             document.getElementById('optimizedCount').textContent = optimizedPages.length;
         }
 
+        // Re-capture each optimised page's "before" as the 15 days BEFORE its optimise date, so the
+        // since-optimised numbers are a fair 15-vs-15 (one GSC fetch per unique optimise date).
+        async function reBaselineSnapshots(btn) {
+            if (!optimizedPages.length) { alert('No optimised pages to re-baseline.'); return; }
+            const orig = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Refreshing baselines…';
+            try {
+                const dayMs = 86400000, fmt = d => new Date(d).toISOString().split('T')[0];
+                const byDate = {};
+                optimizedPages.forEach(p => {
+                    const at = (mpdSnapshots[p.url] && mpdSnapshots[p.url].optimizedAt) || p.optimizedAt || Date.now();
+                    const key = fmt(at);
+                    (byDate[key] = byDate[key] || []).push({ url: p.url, at });
+                });
+                let done = 0;
+                for (const dateKey of Object.keys(byDate)) {
+                    const at = byDate[dateKey][0].at;
+                    const r = await fetch(`/api/gsc?action=pages&startDate=${fmt(at - 15 * dayMs)}&endDate=${fmt(at)}`);
+                    const j = await r.json();
+                    const map = {};
+                    if (j.success) (j.data.rows || []).forEach(row => {
+                        const pg = normalizeUrlPath(row.keys?.[0] || '');
+                        const ex = map[pg];
+                        if (!ex || (row.impressions || 0) > ex.impressions) map[pg] = { position: row.position || 0, impressions: row.impressions || 0, clicks: row.clicks || 0 };
+                    });
+                    for (const { url } of byDate[dateKey]) {
+                        const m = map[normalizeUrlPath(url)];
+                        if (!m) continue;
+                        const snap = Object.assign({}, mpdSnapshots[url] || {}, { position: m.position, impressions: m.impressions, clicks: m.clicks, baseline15: true });
+                        if (!snap.optimizedAt) snap.optimizedAt = at;
+                        mpdSnapshots[url] = snap;
+                        await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-mpd-snapshot', url, snapshot: snap }) });
+                        done++;
+                    }
+                }
+                btn.disabled = false; btn.textContent = orig;
+                renderOptimized();
+                alert(`✅ Re-baselined ${done} page(s) to the 15 days before each was optimised. The "since optimised" numbers are now a fair 15-vs-15.`);
+            } catch (e) { btn.disabled = false; btn.textContent = orig; alert('Re-baseline failed: ' + e.message); }
+        }
+
         function renderOptimized() {
             const list = document.getElementById('optimizedList');
             if (optimizedPages.length === 0) {
@@ -1025,6 +1066,7 @@
                             <span>👁 ${(current.impressions||0).toLocaleString()} impr</span>
                             <span>🖱 ${(current.clicks||0).toLocaleString()} clicks</span>
                             <span style="color:#999;font-weight:400;">(15-day)</span>
+                            ${(current.prevPosition && current.position) ? (() => { const d = current.prevPosition - current.position; const up = d > 0.1, down = d < -0.1; return `<span title="Latest 15 days vs the previous 15 days" style="color:${up?'#2e7d32':(down?'#c62828':'#999')};font-weight:700;">${up?'▲ climbing':(down?'▼ slipping':'— flat')}</span>`; })() : ''}
                         </div>` : `<div style="font-size:0.8rem;color:#999;margin-top:5px;">No Search Console data in the last 15 days yet.</div>`}
                         ${comparisonHTML}
                     </div>
@@ -4643,11 +4685,13 @@
                 }
 
                 // Previous period clicks for danger detection
-                const prevClicks = {};
+                // Previous 15-day period — used for urgency AND the optimised-tab trend arrow (direction).
+                const prevData = {};
                 if (jPrev.success) {
                     (jPrev.data.rows || []).forEach(r => {
                         const page = normalizeUrlPath(r.keys?.[0] || '');
-                        prevClicks[page] = Math.max(prevClicks[page] || 0, r.clicks || 0);
+                        const ex = prevData[page];
+                        if (!ex || (r.impressions || 0) > ex.impressions) prevData[page] = { position: r.position || 0, impressions: r.impressions || 0, clicks: r.clicks || 0 };
                     });
                 }
 
@@ -4658,14 +4702,15 @@
                         const page = normalizeUrlPath(r.keys?.[0] || '');
                         const pos = r.position || 0, imp = r.impressions || 0, clk = r.clicks || 0;
                         if (gscEnrichment[page] && imp <= gscEnrichment[page].impressions) return;
-                        const prev = prevClicks[page] || 0;
+                        const pv = prevData[page] || {};
+                        const prev = pv.clicks || 0;
                         let urgency = null, clickDrop = 0;
                         if (prev >= 10) {
                             const drop = (clk - prev) / prev * 100;
                             if (drop <= -20) { urgency = 'danger'; clickDrop = drop; }
                         }
                         if (!urgency && pos >= 4 && pos <= 20 && imp >= 100) urgency = 'quickwin';
-                        gscEnrichment[page] = { position: pos, impressions: imp, clicks: clk, urgency, clickDrop, keyword: topKw[page]?.query || null };
+                        gscEnrichment[page] = { position: pos, impressions: imp, clicks: clk, urgency, clickDrop, keyword: topKw[page]?.query || null, prevPosition: pv.position || 0, prevImpressions: pv.impressions || 0, prevClicks: pv.clicks || 0 };
                     });
                 }
                 if (loadingEl) loadingEl.style.display = 'none';
