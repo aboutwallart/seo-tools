@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 66.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 66.1</p>
                 </div>
             </div>
         </header>
@@ -1030,8 +1030,18 @@
                     const posChange = +(before.position - current.position).toFixed(1);   // + = climbed
                     const impChange = current.impressions - before.impressions;
                     const clkChange = current.clicks - before.clicks;
-                    const cell = (delta, label, beforeV, afterV, fmt) => {
-                        const up = delta > 0, down = delta < 0;
+                    const cell = (delta, label, beforeV, afterV, fmt, rawBefore) => {
+                        // RED-BUFFER: only colour a cell when the move is worth acting on.
+                        // Position: needs a full ±1.0 place. Impressions/Clicks: needs a ≥25%
+                        // swing AND a big-enough base (impr ≥50, clicks ≥10) — smaller = grey noise.
+                        let significant;
+                        if (label === 'Position') {
+                            significant = Math.abs(delta) >= 1.0;
+                        } else {
+                            const floor = (label === 'Impressions') ? 50 : 10;
+                            significant = rawBefore >= floor && Math.abs(delta) >= 0.25 * rawBefore;
+                        }
+                        const up = significant && delta > 0, down = significant && delta < 0;
                         const bg = up ? '#e8f5e9' : (down ? '#fdecec' : '#f7f7f7');
                         const col = up ? '#2e7d32' : (down ? '#c62828' : '#999');
                         const arrow = up ? '▲' : (down ? '▼' : '—');
@@ -1045,9 +1055,9 @@
                         <div style="margin-top:10px;background:white;border-radius:6px;padding:12px;border:1px solid #e0e0e0;">
                             <div style="font-size:0.8rem;font-weight:600;color:#2e7d32;margin-bottom:8px;">📈 Results so far (15-day GSC)</div>
                             <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:0.82rem;">
-                                ${cell(posChange, 'Position', before.position.toFixed(1), current.position.toFixed(1), v => v.toFixed(1))}
-                                ${cell(impChange, 'Impressions', before.impressions.toLocaleString(), current.impressions.toLocaleString(), v => v.toLocaleString())}
-                                ${cell(clkChange, 'Clicks', before.clicks, current.clicks, v => v)}
+                                ${cell(posChange, 'Position', before.position.toFixed(1), current.position.toFixed(1), v => v.toFixed(1), before.position)}
+                                ${cell(impChange, 'Impressions', before.impressions.toLocaleString(), current.impressions.toLocaleString(), v => v.toLocaleString(), before.impressions)}
+                                ${cell(clkChange, 'Clicks', before.clicks, current.clicks, v => v, before.clicks)}
                             </div>
                             <div style="font-size:0.75rem;color:#999;margin-top:6px;">Optimised ${daysAgo} day${daysAgo===1?'':'s'} ago · ${daysAgo < 14 ? 'still early — give it time to settle' : 'GSC 15-day window'}</div>
                         </div>`;
@@ -1066,7 +1076,7 @@
                             <span>👁 ${(current.impressions||0).toLocaleString()} impr</span>
                             <span>🖱 ${(current.clicks||0).toLocaleString()} clicks</span>
                             <span style="color:#999;font-weight:400;">(15-day)</span>
-                            ${(current.prevPosition && current.position) ? (() => { const d = current.prevPosition - current.position; const up = d > 0.1, down = d < -0.1; return `<span title="Latest 15 days vs the previous 15 days" style="color:${up?'#2e7d32':(down?'#c62828':'#999')};font-weight:700;">${up?'▲ climbing':(down?'▼ slipping':'— flat')}</span>`; })() : ''}
+                            ${(current.prevPosition && current.position) ? (() => { const d = current.prevPosition - current.position; const up = d >= 1.0, down = d <= -1.0; return `<span title="Latest 15 days vs the previous 15 days" style="color:${up?'#2e7d32':(down?'#c62828':'#999')};font-weight:700;">${up?'▲ climbing':(down?'▼ slipping':'— flat')}</span>`; })() : ''}
                         </div>` : `<div style="font-size:0.8rem;color:#999;margin-top:5px;">No Search Console data in the last 15 days yet.</div>`}
                         ${comparisonHTML}
                     </div>
