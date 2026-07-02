@@ -72,13 +72,20 @@ module.exports = async (req, res) => {
 
       var instructions =
         'You write prompts for Kling AI image-to-video (image-to-video, about ' + seconds + ' seconds, vertical 9:16 reel).\n' +
-        'You are given a START frame and (optionally) an END frame for a wall-art product.\n' +
+        'You are given a START frame and an END frame for a wall-art product.\n' +
         'Product: "' + title + '"' + (room ? (' — room: ' + room) : '') + '.\n\n' +
-        'Write ONE flowing Kling prompt (a single paragraph, ~90-140 words) describing the natural camera and subject motion that carries the scene from the start frame to the end frame. Rules:\n' +
-        '- Keep the framed wall-art prints sharp, well-lit and clearly visible on the wall THROUGHOUT.\n' +
-        '- If a person is present, keep the SAME face, hair and outfit throughout; all movement natural and human, at a normal pace — no slow motion, no floaty or unnatural movement.\n' +
-        '- Camera: a slow, smooth dolly-in or gentle pan. Lighting: soft, warm, natural. Mood: calm, premium editorial home lifestyle.\n' +
-        '- Describe only what plausibly bridges the two frames — do NOT invent objects that are not in the images.\n\n' +
+        'Write ONE rich, detailed Kling prompt as a single flowing paragraph (about 150-210 words). Match the EXACT structure, specificity and phrasing of this gold-standard example — but describe what YOU actually see in the two supplied images:\n\n' +
+        'GOLD-STANDARD EXAMPLE:\n' +
+        '"The video features three men in their 30s in smart-casual clothes, same faces, same hair, same outfits throughout, sitting around a table in a moody games room on poker night. The video opens with them mid-game, holding cards, focused and grinning, the set of 3 pop prints (darts, aces, chess king) clearly visible on the wall behind them. Naturally and at a completely normal human pace, they transition into a big win/lose moment — one throwing his arms up, the others reacting and laughing, the wall art prints prominently visible behind them. Throughout the video they move naturally between these two moments — playing, reacting, laughing, leaning back — in a lively relaxed games-room rhythm. Lip movement and natural facial expressions throughout. All movement completely natural and human — no slow motion, no floaty movement. They stay visible in frame at all times. The camera performs a very slow smooth dolly-in throughout, keeping the wall art prints sharp and visible. Lighting: warm moody low light with a pendant over the table. Mood: fun, confident, masculine games-room lifestyle. Style: premium editorial home lifestyle."\n\n' +
+        'Your prompt MUST include, in this order:\n' +
+        '1. Who is in the frame: describe the person/people EXACTLY as in the images (number, approx age, clothing) and state "same faces, same hair, same outfits throughout".\n' +
+        '2. The OPENING moment = the START image, and NAME the specific artwork on the wall as seen (e.g. subject of the prints), "clearly visible on the wall behind them".\n' +
+        '3. "Naturally and at a completely normal human pace, they transition into" the SECOND moment = the END image, describing it, "the wall art prints prominently visible".\n' +
+        '4. "Throughout the video they move naturally between these two moments" — list the beats — in a [room-appropriate] rhythm.\n' +
+        '5. "Lip movement and natural facial expressions throughout. All movement completely natural and human — no slow motion, no floaty movement. They stay visible in frame at all times."\n' +
+        '6. "The camera performs a very slow smooth dolly-in throughout, keeping the wall art prints sharp and visible."\n' +
+        '7. "Lighting:" (from the image) "Mood:" (fitting the room) "Style: premium editorial home lifestyle."\n' +
+        'Describe ONLY what is plausibly in the two images — never invent objects, people or art that are not there. If no person is visible, describe natural ambient motion (light, fabric, steam, a hand entering) instead, keeping every other rule.\n\n' +
         'Also write on-screen text (feeling only, NO product name, UK spelling, not salesy, no words like elevate/delve/showcase): one POETIC line and one RELATABLE line, each under 8 words.\n\n' +
         'Return ONLY strict JSON, no markdown: {"kling_prompt":"...","onscreen_poetic":"...","onscreen_relatable":"..."}';
 
