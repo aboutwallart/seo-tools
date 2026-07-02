@@ -58,6 +58,9 @@ module.exports = async (req, res) => {
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
       const title = (body.title || '').toString().slice(0, 300);
       const room = (body.room || '').toString().slice(0, 120);
+      let seconds = parseInt(body.duration, 10);
+      if (isNaN(seconds)) seconds = 8;
+      seconds = Math.max(8, Math.min(15, seconds));
       const startUrl = (body.startImageUrl || '').toString();
       const startData = (body.startImageBase64 || '').toString(); // full data URL or ''
       const endData = (body.endImageBase64 || '').toString(); // full data URL or ''
@@ -68,7 +71,7 @@ module.exports = async (req, res) => {
       }
 
       var instructions =
-        'You write prompts for Kling AI image-to-video (image-to-video, ~8 seconds, vertical 9:16 reel).\n' +
+        'You write prompts for Kling AI image-to-video (image-to-video, about ' + seconds + ' seconds, vertical 9:16 reel).\n' +
         'You are given a START frame and (optionally) an END frame for a wall-art product.\n' +
         'Product: "' + title + '"' + (room ? (' — room: ' + room) : '') + '.\n\n' +
         'Write ONE flowing Kling prompt (a single paragraph, ~90-140 words) describing the natural camera and subject motion that carries the scene from the start frame to the end frame. Rules:\n' +
