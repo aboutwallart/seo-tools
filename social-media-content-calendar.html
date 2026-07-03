@@ -201,20 +201,6 @@
   .capbhead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;}
   .capplat{font-size:13.5px;font-weight:800;display:inline-flex;align-items:center;gap:6px;}
   .capbhead .schk{margin-left:auto;}
-  /* real calendar */
-  .calwrap{display:flex;gap:20px;flex-wrap:wrap;}
-  .calmonth{flex:1;min-width:300px;}
-  .caltitle{font-size:15px;font-weight:800;margin:4px 0 8px;}
-  .calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
-  .caldow{font-size:10.5px;font-weight:700;color:var(--mut);text-align:center;text-transform:uppercase;padding-bottom:2px;}
-  .calcell{border:1px solid var(--line);border-radius:7px;min-height:52px;padding:4px 5px;background:#fff;}
-  .calcell.empty{border:none;background:transparent;}
-  .calcell .caldate{font-size:11px;font-weight:700;color:var(--mut);display:block;}
-  .calcell.has{border-color:transparent;}
-  .calcell.has .caltopic{display:block;font-size:11px;font-weight:800;line-height:1.15;margin-top:1px;}
-  .calcell.has .calsku{display:block;font-size:8.5px;font-weight:700;opacity:.7;margin-top:1px;}
-  .callegend{display:flex;gap:5px;flex-wrap:wrap;margin-top:14px;}
-  .callegend .leg{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;}
 </style>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.7.0/dist/tabler-icons.min.css">
 </head>
@@ -222,7 +208,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v2.3 · 3 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v2.5 · 3 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -494,8 +480,7 @@
   <h2>Schedule</h2>
   <div class="box gray"><strong>Schedule your done videos.</strong> Pick a platform, copy the caption, schedule it, then tap <em>Scheduled</em> to grey it off. Clear a whole platform to the archive when you're done. ☀️ 8am = Instagram · Facebook · Pinterest · 🌙 7pm = TikTok · X.</div>
   <nav class="subtabnav" id="schedSubnav">
-    <button class="subbtn active" type="button" data-sub="calendar"><i class="ti ti-calendar-month"></i> Calendar</button>
-    <button class="subbtn" type="button" data-sub="instagram"><i class="ti ti-brand-instagram"></i> Instagram</button>
+    <button class="subbtn active" type="button" data-sub="instagram"><i class="ti ti-brand-instagram"></i> Instagram</button>
     <button class="subbtn" type="button" data-sub="tiktok"><i class="ti ti-brand-tiktok"></i> TikTok</button>
     <button class="subbtn" type="button" data-sub="make"><i class="ti ti-bolt"></i> Make · FB · X · Pinterest</button>
   </nav>
@@ -507,7 +492,7 @@
   <h2>Content Monthly Plan</h2>
   <div class="box gray"><strong>Coming later.</strong> Marketing-date calendar (Valentine's, Mother's Day, Christmas, Black Friday…) that suggests product themes, then generates Kling prompts and captions for the month.</div>
 </section>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v2.3 — built 3 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v2.5 — built 3 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -1046,7 +1031,7 @@ function cc(btn){
 
 /* ---- SCHEDULE TAB ---- */
 (function(){
-  var SUBS = { calendar:[], instagram:['instagram'], tiktok:['tiktok'], make:['facebook','x','pinterest'] };
+  var SUBS = { instagram:['instagram'], tiktok:['tiktok'], make:['facebook','x','pinterest'] };
   var LABEL = { instagram:'Instagram', tiktok:'TikTok', facebook:'Facebook', x:'X', pinterest:'Pinterest' };
   var TIME  = { instagram:'8am', facebook:'8am', pinterest:'8am', tiktok:'7pm', x:'7pm' };
   var LINKR = { instagram:'Tag the product · no link', tiktok:'Tag in-app · no link', facebook:'Tag the product · link in caption', x:'Tracked link in the post', pinterest:'Shoppable from catalogue' };
@@ -1058,7 +1043,7 @@ function cc(btn){
 
   var body = document.getElementById('schedBody');
   if(!body) return;
-  var videos = [], byId = {}, state = {}, saved = {}, pending = {}, tmr = null, activeSub = 'calendar';
+  var videos = [], byId = {}, state = {}, saved = {}, pending = {}, tmr = null, activeSub = 'instagram';
 
   function pill(cls, txt){ var p = document.getElementById('schedPill'); if(p){ p.className = 'savepill ' + cls; p.textContent = txt; } }
   function capOf(v, plat){ var k = v.id + '_' + plat; if(k in pending) return pending[k]; if(k in saved) return saved[k]; return (v.captions && v.captions[plat]) || ''; }
@@ -1103,26 +1088,7 @@ function cc(btn){
     return ctrl + arch + '<div class="platcards">'+cards+'</div>';
   }
 
-  function parseDate(s){ var m=String(s).match(/(\d+)\s+([A-Za-z]+)/); if(!m) return null; var MON={Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11}; return { day:parseInt(m[1],10), month:MON[m[2]] }; }
-  function calendarHTML(){
-    var byDate={}; videos.forEach(function(v){ var p=parseDate(v.date); if(p) byDate[p.month+'-'+p.day]=v; });
-    var months=[[6,'July 2026',31],[7,'August 2026',31]], out='';
-    months.forEach(function(M){
-      var month=M[0], label=M[1], days=M[2], offset=(new Date(2026,month,1).getDay()+6)%7;
-      out+='<div class="calmonth"><div class="caltitle">'+label+'</div><div class="calgrid">';
-      ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach(function(d){ out+='<div class="caldow">'+d+'</div>'; });
-      var i; for(i=0;i<offset;i++){ out+='<div class="calcell empty"></div>'; }
-      for(var day=1;day<=days;day++){ var v=byDate[month+'-'+day];
-        if(v){ var c=rc(v.room); out+='<div class="calcell has" style="background:'+c[0]+';" title="'+attr(v.title)+' — '+attr(v.sku)+'"><span class="caldate" style="color:'+c[1]+';">'+day+'</span><span class="caltopic" style="color:'+c[1]+';">'+esc(v.name)+'</span><span class="calsku">'+esc(v.sku)+'</span></div>'; }
-        else { out+='<div class="calcell"><span class="caldate">'+day+'</span></div>'; }
-      }
-      out+='</div></div>';
-    });
-    var legend='<div class="callegend">'+Object.keys(ROOMCOL).map(function(r){ var c=ROOMCOL[r]; return '<span class="leg" style="background:'+c[0]+';color:'+c[1]+';">'+r+'</span>'; }).join('')+'</div>';
-    return '<div class="calwrap">'+out+'</div>'+legend;
-  }
-
-  function render(){ body.innerHTML = (activeSub==='calendar') ? calendarHTML() : sectionHTML(activeSub); }
+  function render(){ body.innerHTML = sectionHTML(activeSub); }
 
   // event delegation — clicks
   body.addEventListener('click', function(e){
