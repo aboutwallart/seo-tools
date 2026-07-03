@@ -71,16 +71,28 @@ module.exports = async (req, res) => {
         return mm ? { type: 'image', source: { type: 'base64', media_type: mm[1], data: mm[2] } } : null;
       }
 
+      var only = (body.only || '').toString();          // '', 'prompt', or 'onscreen'
+      var wantPrompt = only !== 'onscreen';
+      var wantLines = only !== 'prompt';
+
+      var PROMPT_PART =
+        'PROMPT — Produce the Kling prompt by FILLING IN the [bracketed] parts of this EXACT template and keeping every other word VERBATIM — same sentences, same order, same connective phrases. Do NOT paraphrase, reorder, shorten or "improve" the wording. One flowing paragraph, no brackets left.\n' +
+        'TEMPLATE: "The video features [the person/people exactly as seen in the images: number, approx age, hair, clothing], same [face/faces], same hair, same [outfit/outfits] throughout, [brief scene/room context]. The video opens with [the START-frame moment], the [name the specific artwork/prints exactly as seen on the wall] clearly visible on the wall behind [her/him/them]. Naturally and at a completely normal human pace, [she/he/they] transition[s] into [the END-frame moment], the wall art prints prominently visible behind [her/him/them]. Throughout the video [she/he/they] move[s] naturally between these two moments — [4-5 short beats] — in a [adjective] [room] rhythm. Lip movement and natural facial expressions throughout. All movement completely natural and human — no slow motion, no floaty movement. [She/He/They] stay[s] visible in frame at all times. The camera performs a very slow smooth dolly-in throughout, keeping the wall art prints sharp and visible. Lighting: [describe the light in the images]. Mood: [fitting the room]. Style: premium editorial home lifestyle."\n' +
+        'GOLD-STANDARD (template filled for a games-room poker video — match this structure and phrasing exactly): "The video features three men in their 30s in smart-casual clothes, same faces, same hair, same outfits throughout, sitting around a table in a moody games room on poker night. The video opens with them mid-game, holding cards, focused and grinning, the set of 3 pop prints (darts, aces, chess king) clearly visible on the wall behind them. Naturally and at a completely normal human pace, they transition into a big win/lose moment — one throwing his arms up, the others reacting and laughing, the wall art prints prominently visible behind them. Throughout the video they move naturally between these two moments — playing, reacting, laughing, leaning back — in a lively relaxed games-room rhythm. Lip movement and natural facial expressions throughout. All movement completely natural and human — no slow motion, no floaty movement. They stay visible in frame at all times. The camera performs a very slow smooth dolly-in throughout, keeping the wall art prints sharp and visible. Lighting: warm moody low light with a pendant over the table. Mood: fun, confident, masculine games-room lifestyle. Style: premium editorial home lifestyle."\n' +
+        'Rules: fill ONLY the brackets using what you actually SEE in the two images; keep all connective sentences word-for-word; the final sentence MUST be exactly "Style: premium editorial home lifestyle." Never invent people, art or objects not in the images. If no person is visible, use the ambient subject (light, fabric, steam, a hand entering) but keep the skeleton.';
+
+      var LINES_PART =
+        'ON-SCREEN TEXT — write AT LEAST 10 short caption options, each under 8 words. VOICE: FIRST PERSON, written AS THE PERSON IN THE VIDEO speaking about their OWN home (use "I / my / me / we / our"), like a caption they would post themselves. NEVER address the viewer — do NOT use the words "you" or "your". Feeling-led, NO product name, UK spelling, not salesy, no words like elevate/delve/showcase. FIRST think of clearly DIFFERENT angles (a feeling, an everyday thought, a little confession, a proud moment, a before/after, a cosy line, a playful line, a quiet-luxury line, a seasonal/mood line, a punchy line), THEN write the 10 — every one genuinely different, never ten versions of the same line. Voice examples: "obsessed with my new calm corner", "finally happy with my bathroom", "my little spa moment before work", "we redid this wall and I can\'t stop looking".';
+
+      var schema = (wantPrompt && wantLines) ? '{"kling_prompt":"...","onscreen":["...", at least 10 distinct lines]}'
+                 : wantPrompt ? '{"kling_prompt":"..."}'
+                 : '{"onscreen":["...", at least 10 distinct lines]}';
+
       var instructions =
-        'You write ONE prompt for Kling AI image-to-video (about ' + seconds + ' seconds, vertical 9:16). You are given a START frame and an END frame for this wall-art product: "' + title + '"' + (room ? (' (room: ' + room + ')') : '') + '.\n\n' +
-        'Produce the prompt by FILLING IN the [bracketed] parts of this EXACT template and keeping every other word VERBATIM — same sentences, same order, same connective phrases. Do NOT paraphrase, reorder, shorten or "improve" the wording. Output must be one flowing paragraph with no brackets left:\n\n' +
-        'TEMPLATE:\n' +
-        '"The video features [the person/people exactly as seen in the images: number, approx age, hair, clothing], same [face/faces], same hair, same [outfit/outfits] throughout, [brief scene/room context]. The video opens with [the START-frame moment], the [name the specific artwork/prints exactly as seen on the wall] clearly visible on the wall behind [her/him/them]. Naturally and at a completely normal human pace, [she/he/they] transition[s] into [the END-frame moment], the wall art prints prominently visible behind [her/him/them]. Throughout the video [she/he/they] move[s] naturally between these two moments — [4-5 short beats] — in a [adjective] [room] rhythm. Lip movement and natural facial expressions throughout. All movement completely natural and human — no slow motion, no floaty movement. [She/He/They] stay[s] visible in frame at all times. The camera performs a very slow smooth dolly-in throughout, keeping the wall art prints sharp and visible. Lighting: [describe the light in the images]. Mood: [fitting the room]. Style: premium editorial home lifestyle."\n\n' +
-        'GOLD-STANDARD (this is the template filled in for a games-room poker video — match this exactly in structure and phrasing):\n' +
-        '"The video features three men in their 30s in smart-casual clothes, same faces, same hair, same outfits throughout, sitting around a table in a moody games room on poker night. The video opens with them mid-game, holding cards, focused and grinning, the set of 3 pop prints (darts, aces, chess king) clearly visible on the wall behind them. Naturally and at a completely normal human pace, they transition into a big win/lose moment — one throwing his arms up, the others reacting and laughing, the wall art prints prominently visible behind them. Throughout the video they move naturally between these two moments — playing, reacting, laughing, leaning back — in a lively relaxed games-room rhythm. Lip movement and natural facial expressions throughout. All movement completely natural and human — no slow motion, no floaty movement. They stay visible in frame at all times. The camera performs a very slow smooth dolly-in throughout, keeping the wall art prints sharp and visible. Lighting: warm moody low light with a pendant over the table. Mood: fun, confident, masculine games-room lifestyle. Style: premium editorial home lifestyle."\n\n' +
-        'Rules: fill ONLY the brackets, using what you actually SEE in the two images; keep all connective sentences word-for-word; the final sentence MUST be exactly "Style: premium editorial home lifestyle." Never invent people, art or objects that are not in the images. If no person is visible, replace the person with the ambient subject (light, fabric, steam, a hand entering) but keep the same sentence skeleton.\n\n' +
-        'Then on-screen text. FIRST think of clearly DIFFERENT angles (a feeling, a relatable everyday thought, a gentle question, a first-person POV, a before/after, a cosy invitation, a quiet-luxury line, a playful line, a seasonal/mood line, a short punchy line). THEN write AT LEAST 10 on-screen text options, each under 8 words, feeling-only, NO product name, UK spelling, not salesy, no words like elevate/delve/showcase. Every option must be genuinely DIFFERENT — never ten versions of the same line; vary the wording, rhythm and angle so she has real choice.\n\n' +
-        'Return ONLY strict JSON, no markdown: {"kling_prompt":"...","onscreen":["line 1","line 2", ... at least 10 distinct lines]}';
+        'You are creating content for a Kling AI image-to-video (about ' + seconds + ' seconds, vertical 9:16) for this wall-art product: "' + title + '"' + (room ? (' (room: ' + room + ')') : '') + '. You are given a START frame and an END frame.\n\n'
+        + (wantPrompt ? (PROMPT_PART + '\n\n') : '')
+        + (wantLines ? (LINES_PART + '\n\n') : '')
+        + 'Return ONLY strict JSON, no markdown: ' + schema;
 
       var content = [{ type: 'text', text: instructions }];
       var startBlk = startData ? imgBlock(startData) : (startUrl ? { type: 'image', source: { type: 'url', url: startUrl } } : null);
@@ -105,8 +117,10 @@ module.exports = async (req, res) => {
       var jm = txt.match(/\{[\s\S]*\}/);
       var parsed = {};
       try { parsed = JSON.parse(jm ? jm[0] : txt); } catch (e) { return res.status(200).json({ ok: false, error: 'Could not parse AI output', raw: txt }); }
-      var onscreen = Array.isArray(parsed.onscreen) ? parsed.onscreen.filter(function (x) { return x && x.toString().trim(); }) : [];
-      return res.status(200).json({ ok: true, kling_prompt: parsed.kling_prompt || '', onscreen: onscreen });
+      var out = { ok: true };
+      if (wantPrompt) { out.kling_prompt = parsed.kling_prompt || ''; }
+      if (wantLines) { out.onscreen = Array.isArray(parsed.onscreen) ? parsed.onscreen.filter(function (x) { return x && x.toString().trim(); }) : []; }
+      return res.status(200).json(out);
     }
 
     if (action === 'get-cards') {
@@ -123,16 +137,30 @@ module.exports = async (req, res) => {
       const gh = await ghGet(CARDS_FILE);
       var data = { generated: {}, custom: {} };
       if (gh.content) { try { var p = JSON.parse(gh.content); data.generated = p.generated || {}; data.custom = p.custom || {}; } catch (e) {} }
-      data.generated[sku] = {
-        prompt: body.prompt || '',
-        onscreen: Array.isArray(body.onscreen) ? body.onscreen : [],
-        seconds: body.seconds || 8,
-        startImg: body.startImg || '',
-        endImg: body.endImg || '',
-        approved: true,
-        savedAt: new Date().toISOString()
-      };
-      await ghPut(CARDS_FILE, JSON.stringify(data, null, 2), gh.sha, 'Save generated card ' + sku);
+      // merge ONLY the fields sent, so images / prompt / lines can be saved independently
+      var rec = data.generated[sku] || {};
+      if (typeof body.prompt !== 'undefined') { rec.prompt = body.prompt || ''; }
+      if (typeof body.onscreen !== 'undefined') { rec.onscreen = Array.isArray(body.onscreen) ? body.onscreen : []; }
+      if (typeof body.seconds !== 'undefined') { rec.seconds = body.seconds || 8; }
+      if (typeof body.startImg !== 'undefined') { rec.startImg = body.startImg || ''; }
+      if (typeof body.endImg !== 'undefined') { rec.endImg = body.endImg || ''; }
+      rec.approved = true;
+      rec.savedAt = new Date().toISOString();
+      data.generated[sku] = rec;
+      await ghPut(CARDS_FILE, JSON.stringify(data, null, 2), gh.sha, 'Save card ' + sku);
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'remove-card') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      const sku = (body.sku || '').toString();
+      if (!sku) return res.status(400).json({ ok: false, error: 'Missing sku' });
+      const gh = await ghGet(CARDS_FILE);
+      var data = { generated: {}, custom: {} };
+      if (gh.content) { try { var p = JSON.parse(gh.content); data.generated = p.generated || {}; data.custom = p.custom || {}; } catch (e) {} }
+      delete data.custom[sku];
+      delete data.generated[sku];
+      await ghPut(CARDS_FILE, JSON.stringify(data, null, 2), gh.sha, 'Remove card ' + sku);
       return res.status(200).json({ ok: true });
     }
 
