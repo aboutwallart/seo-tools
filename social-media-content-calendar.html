@@ -139,6 +139,17 @@
   .addstatus{font-size:12.5px;font-weight:600;}
   .addstatus.ok{color:#0F6E56;}
   .addstatus.err{color:#b91c1c;}
+  .partrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0 2px;}
+  .savebtn{appearance:none;border:none;border-radius:8px;background:#0F6E56;color:#fff;font-size:12.5px;font-weight:700;padding:7px 12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;}
+  .savebtn:hover{background:#0b5a46;}
+  .redobtn{appearance:none;border:1px solid var(--line);border-radius:8px;background:#fff;color:#444;font-size:12.5px;font-weight:700;padding:7px 12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;}
+  .redobtn:hover{background:var(--soft);}
+  .savebtn:disabled,.redobtn:disabled{opacity:.6;cursor:default;}
+  .partstat{font-size:12px;font-weight:600;}
+  .partstat.ok{color:#0F6E56;}
+  .partstat.err{color:#b91c1c;}
+  .removebtn{appearance:none;border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;border-radius:20px;font-size:11px;font-weight:700;padding:2px 9px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;margin-left:auto;}
+  .removebtn:hover{background:#fee2e2;}
 </style>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.7.0/dist/tabler-icons.min.css">
 </head>
@@ -146,7 +157,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v1.9 · 3 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v2.0 · 3 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -425,7 +436,7 @@
   <h2>Content Monthly Plan</h2>
   <div class="box gray"><strong>Coming later.</strong> Marketing-date calendar (Valentine's, Mother's Day, Christmas, Black Friday…) that suggests product themes, then generates Kling prompts and captions for the month.</div>
 </section>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v1.9 — built 3 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v2.0 — built 3 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -612,7 +623,16 @@ function cc(btn){
       applyState();
     },
     refresh: function(){ refreshAll(); },
-    hasCard: function(id){ return !!document.getElementById(id); }
+    hasCard: function(id){ return !!document.getElementById(id); },
+    removeCard: function(cardEl){
+      var id = cardEl.id;
+      Object.keys(state).forEach(function(k){ if(k.indexOf(id + '_') === 0){ delete state[k]; } });
+      var idx = cards.indexOf(cardEl);
+      if(idx >= 0){ cards.splice(idx, 1); }
+      if(cardEl.parentNode){ cardEl.parentNode.removeChild(cardEl); }
+      refreshAll();
+      scheduleSave();
+    }
   };
 
   loadGitHub();
@@ -666,7 +686,7 @@ function cc(btn){
     var img = d.image || '', room = d.room || '';
     var html =
       '<div class="vcard gen" id="' + skuId(sku) + '" data-sku="' + attr(sku) + '" data-title="' + attr(title) + '" data-room="' + attr(room) + '" data-start="">'
-      + '<div class="chead"><img class="thumb" src="' + attr(img) + '" alt="' + attr(title) + '" loading="lazy"><div class="hmeta"><div class="hrow"><span class="day sku-big">' + esc(sku) + '</span><span class="chip">9:16</span><span class="badge new"><i class="ti ti-wand"></i> Generate prompt</span></div>'
+      + '<div class="chead"><img class="thumb" src="' + attr(img) + '" alt="' + attr(title) + '" loading="lazy"><div class="hmeta"><div class="hrow"><span class="day sku-big">' + esc(sku) + '</span><span class="chip">9:16</span><span class="badge new"><i class="ti ti-wand"></i> Generate prompt</span><button class="removebtn" type="button" title="Remove this card"><i class="ti ti-trash"></i> Remove</button></div>'
       + '<div class="ptitle">' + esc(title) + '</div>'
       + '<div class="plink"><i class="ti ti-link"></i> <a href="' + attr(url) + '" target="_blank">' + esc(url) + '</a><button class="copy" type="button" data-copy="' + attr(url) + '" onclick="cc(this)"><i class="ti ti-copy"></i> Copy</button></div></div></div>'
       + '<div class="cbody"><div class="genrow"><div class="upbox"><div class="uplabel">Start — upload your frame</div><label class="upframe updrop"><input type="file" accept="image/*" class="startfile" hidden><span class="uphint starthint"><i class="ti ti-upload"></i><br>Click or drop<br>start frame</span><img class="startprev" style="display:none" alt="start frame"></label></div>'
@@ -745,72 +765,105 @@ function cc(btn){
     lenIn.addEventListener('input', syncLabel);
     lenIn.addEventListener('change', function(){ lenIn.value = dur(); syncLabel(); });
 
-    // --- approve & save button (appears once a prompt exists) ---
-    var approveBtn = document.createElement('button');
-    approveBtn.className = 'approvebtn'; approveBtn.type = 'button'; approveBtn.style.display = 'none';
-    approveBtn.innerHTML = '<i class="ti ti-device-floppy"></i> Approve &amp; save';
-    if(status){ status.parentNode.insertBefore(approveBtn, status.nextSibling); }
+    // helpers
+    function stat(el, cls, txt){ if(!el) return; var base = el.classList.contains('genstatus') ? 'genstatus' : 'partstat'; el.className = base + (cls ? (' ' + cls) : ''); el.textContent = txt; }
+    function showPrompt(p){ lastPrompt = p || ''; var pt = card.querySelector('.genptext'); if(pt){ pt.textContent = lastPrompt; } var cp = card.querySelector('.genpcopy'); if(cp){ cp.setAttribute('data-copy', lastPrompt); cp.style.display = lastPrompt ? 'inline-flex' : 'none'; } if(thumb && startData){ thumb.src = startData; } }
+    function showLines(arr){ lastOnscreen = arr || []; var opts = card.querySelector('.genopts'); if(opts){ opts.innerHTML = renderOptions(lastOnscreen); } }
 
-    function showResult(prompt, onscreen){
-      lastPrompt = prompt || ''; lastOnscreen = onscreen || [];
-      var pt = card.querySelector('.genptext'); if(pt){ pt.textContent = lastPrompt; }
-      var cp = card.querySelector('.genpcopy'); if(cp){ cp.setAttribute('data-copy', lastPrompt); cp.style.display = 'inline-flex'; }
-      var opts = card.querySelector('.genopts'); if(opts){ opts.innerHTML = renderOptions(lastOnscreen); }
-      approveBtn.style.display = 'inline-flex';
+    // one call to the AI: only='' (both) | 'prompt' | 'onscreen'
+    function callGen(only, statEl, btnEl, msg, onOk){
+      if(!startData || !endData){ stat(statEl, 'err', 'Upload both a start and an end frame first.'); return; }
+      if(btnEl){ btnEl.disabled = true; }
+      stat(statEl, '', msg);
+      fetch('/api/social', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'generate-kling', only: only, title: card.getAttribute('data-title'), room: card.getAttribute('data-room'), duration: dur(), startImageBase64: startData, endImageBase64: endData }) })
+      .then(function(r){ if(!r.ok){ return r.text().then(function(t){ throw new Error('Server ' + r.status + ' — ' + (t || 'no detail').slice(0, 140)); }); } return r.json(); })
+      .then(function(d){ if(btnEl){ btnEl.disabled = false; } if(!d || !d.ok){ stat(statEl, 'err', 'Could not generate — ' + ((d && d.error) || 'try again') + '.'); return; } onOk(d); })
+      .catch(function(err){ if(btnEl){ btnEl.disabled = false; } stat(statEl, 'err', (err && err.message) ? err.message : 'Network error — try again.'); });
     }
 
+    // one call to save PART of the card (images / prompt / lines) independently
+    function saveCard(fields, statEl, btnEl, okMsg){
+      var payload = { action: 'save-card', sku: card.getAttribute('data-sku') };
+      for(var k in fields){ payload[k] = fields[k]; }
+      btnEl.disabled = true; stat(statEl, '', 'Saving…');
+      fetch('/api/social', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+        .then(function(r){ return r.json(); })
+        .then(function(d){ btnEl.disabled = false; if(d && d.ok){ card.classList.add('approved'); btnEl.innerHTML = '<i class="ti ti-check"></i> Saved'; stat(statEl, 'ok', okMsg); } else { stat(statEl, 'err', 'Save failed — try again.'); } })
+        .catch(function(){ btnEl.disabled = false; stat(statEl, 'err', 'Save failed — offline?'); });
+    }
+
+    // === Images: own Save ===
+    var imgRow = document.createElement('div'); imgRow.className = 'partrow';
+    imgRow.innerHTML = '<button class="savebtn saveimg" type="button"><i class="ti ti-device-floppy"></i> Save images</button><span class="partstat"></span>';
+    var genrow = card.querySelector('.genrow'); if(genrow){ genrow.parentNode.insertBefore(imgRow, genrow.nextSibling); }
+    var saveImgBtn = imgRow.querySelector('.saveimg'), imgStat = imgRow.querySelector('.partstat');
+    saveImgBtn.addEventListener('click', function(){
+      if(!startData && !endData){ stat(imgStat, 'err', 'Upload an image first.'); return; }
+      saveImgBtn.innerHTML = '<i class="ti ti-device-floppy"></i> Save images';
+      saveCard({ startImg: startData || (thumb ? thumb.src : ''), endImg: endData }, imgStat, saveImgBtn, 'Images saved.');
+    });
+
+    // === Generate BOTH (first pass) ===
     if(btn){
       btn.addEventListener('click', function(){
-        if(!startData || !endData){
-          status.className = 'genstatus err';
-          status.textContent = 'Upload both a start and an end frame first.';
-          return;
-        }
-        var seconds = dur();
-        btn.disabled = true;
-        status.className = 'genstatus';
-        status.textContent = 'Generating a ' + seconds + 's prompt from your images…';
-        fetch('/api/social', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'generate-kling', title: card.getAttribute('data-title'), room: card.getAttribute('data-room'), duration: seconds, startImageBase64: startData, endImageBase64: endData })
-        })
-        .then(function(r){ if(!r.ok){ return r.text().then(function(t){ throw new Error('Server ' + r.status + ' — ' + (t || 'no detail').slice(0, 140)); }); } return r.json(); })
-        .then(function(d){
-          btn.disabled = false;
-          if(!d || !d.ok){ status.className = 'genstatus err'; status.textContent = 'Could not generate — ' + ((d && d.error) || 'try again') + '.'; return; }
-          showResult(d.kling_prompt, d.onscreen);
-          if(thumb && startData){ thumb.src = startData; }
-          status.className = 'genstatus ok';
-          status.textContent = 'Done — pick an on-screen line, then press Approve & save to keep it.';
-        })
-        .catch(function(err){ btn.disabled = false; status.className = 'genstatus err'; status.textContent = (err && err.message) ? err.message : 'Network error — try again.'; });
+        callGen('', status, btn, 'Generating a ' + dur() + 's prompt + on-screen lines…', function(d){
+          showPrompt(d.kling_prompt); showLines(d.onscreen);
+          stat(status, 'ok', 'Done — save each part below, or redo just the prompt / just the lines.');
+        });
       });
     }
 
-    approveBtn.addEventListener('click', function(){
-      approveBtn.disabled = true;
-      var old = approveBtn.innerHTML;
-      approveBtn.innerHTML = '<i class="ti ti-loader"></i> Saving…';
-      fetch('/api/social', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'save-card', sku: card.getAttribute('data-sku'), prompt: lastPrompt, onscreen: lastOnscreen, seconds: dur(), startImg: startData || (thumb ? thumb.src : ''), endImg: endData })
-      })
-      .then(function(r){ return r.json(); })
-      .then(function(d){
-        approveBtn.disabled = false;
-        if(d && d.ok){ card.classList.add('approved'); approveBtn.innerHTML = '<i class="ti ti-check"></i> Saved'; status.className = 'genstatus ok'; status.textContent = 'Approved & saved — it will still be here next time you open the tool.'; }
-        else { approveBtn.innerHTML = old; status.className = 'genstatus err'; status.textContent = 'Save failed — try again.'; }
-      })
-      .catch(function(){ approveBtn.disabled = false; approveBtn.innerHTML = old; status.className = 'genstatus err'; status.textContent = 'Save failed — offline?'; });
+    // === Kling prompt: own Redo + Save ===
+    var pRow = document.createElement('div'); pRow.className = 'partrow';
+    pRow.innerHTML = '<button class="redobtn redoprompt" type="button"><i class="ti ti-refresh"></i> Redo prompt</button><button class="savebtn saveprompt" type="button"><i class="ti ti-device-floppy"></i> Save prompt</button><span class="partstat"></span>';
+    if(promptZone){ promptZone.appendChild(pRow); }
+    var redoPromptBtn = pRow.querySelector('.redoprompt'), savePromptBtn = pRow.querySelector('.saveprompt'), pStat = pRow.querySelector('.partstat');
+    redoPromptBtn.addEventListener('click', function(){
+      savePromptBtn.innerHTML = '<i class="ti ti-device-floppy"></i> Save prompt';
+      callGen('prompt', pStat, redoPromptBtn, 'Redoing the prompt only…', function(d){ showPrompt(d.kling_prompt); stat(pStat, 'ok', 'New prompt ready — Save it if you like it.'); });
     });
+    savePromptBtn.addEventListener('click', function(){
+      if(!lastPrompt){ stat(pStat, 'err', 'Generate a prompt first.'); return; }
+      saveCard({ prompt: lastPrompt, seconds: dur() }, pStat, savePromptBtn, 'Prompt saved.');
+    });
+
+    // === On-screen lines: own Redo + Save ===
+    var linesZone = card.querySelector('.genopts') ? card.querySelector('.genopts').closest('.zone') : null;
+    var lRow = document.createElement('div'); lRow.className = 'partrow';
+    lRow.innerHTML = '<button class="redobtn redolines" type="button"><i class="ti ti-refresh"></i> Redo lines</button><button class="savebtn savelines" type="button"><i class="ti ti-device-floppy"></i> Save lines</button><span class="partstat"></span>';
+    if(linesZone){ linesZone.appendChild(lRow); }
+    var redoLinesBtn = lRow.querySelector('.redolines'), saveLinesBtn = lRow.querySelector('.savelines'), lStat = lRow.querySelector('.partstat');
+    redoLinesBtn.addEventListener('click', function(){
+      saveLinesBtn.innerHTML = '<i class="ti ti-device-floppy"></i> Save lines';
+      callGen('onscreen', lStat, redoLinesBtn, 'Redoing the on-screen lines only…', function(d){ showLines(d.onscreen); stat(lStat, 'ok', 'New lines ready — Save them if you like them.'); });
+    });
+    saveLinesBtn.addEventListener('click', function(){
+      if(!lastOnscreen.length){ stat(lStat, 'err', 'Generate the lines first.'); return; }
+      saveCard({ onscreen: lastOnscreen }, lStat, saveLinesBtn, 'Lines saved.');
+    });
+
+    // === Remove card (custom cards only) ===
+    var removeBtn = card.querySelector('.removebtn');
+    if(removeBtn){
+      removeBtn.addEventListener('click', function(){
+        if(!confirm('Remove this card? This deletes its saved prompt and images.')) return;
+        removeBtn.disabled = true;
+        fetch('/api/social', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove-card', sku: card.getAttribute('data-sku') }) })
+          .then(function(r){ return r.json(); })
+          .then(function(d){ if(d && d.ok){ if(window.SMCC){ window.SMCC.removeCard(card); } } else { removeBtn.disabled = false; alert('Could not remove — try again.'); } })
+          .catch(function(){ removeBtn.disabled = false; alert('Could not remove — try again.'); });
+      });
+    }
 
     // restore a saved card
     card.__fill = function(g){
       if(g.seconds){ setSeconds(g.seconds); }
       if(g.startImg){ startData = g.startImg; if(startPrev){ startPrev.src = g.startImg; startPrev.style.display = 'block'; } if(startHint){ startHint.style.display = 'none'; } if(thumb){ thumb.src = g.startImg; } }
       if(g.endImg){ endData = g.endImg; if(endPrev){ endPrev.src = g.endImg; endPrev.style.display = 'block'; } if(endHint){ endHint.style.display = 'none'; } }
-      if(g.prompt){ showResult(g.prompt, g.onscreen || []); if(status){ status.className = 'genstatus ok'; status.textContent = 'Saved earlier — here is your prompt.'; } }
-      if(g.approved){ card.classList.add('approved'); approveBtn.innerHTML = '<i class="ti ti-check"></i> Saved'; }
+      if(g.prompt){ showPrompt(g.prompt); }
+      if(g.onscreen && g.onscreen.length){ showLines(g.onscreen); }
+      if(g.approved){ card.classList.add('approved'); if(status){ stat(status, 'ok', 'Saved earlier — your work is here.'); } }
     };
   }
 
