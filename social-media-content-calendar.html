@@ -126,6 +126,19 @@
   .lenrow{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:#333;margin:0 0 10px;flex-wrap:wrap;}
   .lenrow .lenin{width:64px;font-size:14px;font-weight:700;text-align:center;border:1px solid var(--line);border-radius:8px;padding:6px 8px;}
   .lenrow .lenhint{color:var(--mut);font-weight:500;font-size:12px;}
+  .approvebtn{appearance:none;border:none;border-radius:10px;background:#0F6E56;color:#fff;font-size:13.5px;font-weight:700;padding:9px 16px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;margin:6px 0 4px;}
+  .approvebtn:hover{background:#0b5a46;}
+  .approvebtn:disabled{opacity:.6;cursor:default;}
+  .vcard.approved{box-shadow:0 0 0 2px #bbf7d0;}
+  .optgrid.genopts{flex-direction:column;gap:7px;}
+  .addprod{background:#F3F2FE;border:1px solid #c7d2fe;border-radius:12px;padding:12px 16px;margin:14px 0;font-size:13.5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .addprod .addsku{font-size:14px;border:1px solid var(--line);border-radius:8px;padding:7px 10px;min-width:160px;}
+  .addprod .addbtn{appearance:none;border:none;border-radius:8px;background:#534AB7;color:#fff;font-weight:700;font-size:13px;padding:8px 14px;cursor:pointer;}
+  .addprod .addbtn:hover{background:#453d9e;}
+  .addprod .addbtn:disabled{opacity:.6;cursor:default;}
+  .addstatus{font-size:12.5px;font-weight:600;}
+  .addstatus.ok{color:#0F6E56;}
+  .addstatus.err{color:#b91c1c;}
 </style>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.7.0/dist/tabler-icons.min.css">
 </head>
@@ -133,7 +146,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v1.8 · 2 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v1.9 · 3 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -412,7 +425,7 @@
   <h2>Content Monthly Plan</h2>
   <div class="box gray"><strong>Coming later.</strong> Marketing-date calendar (Valentine's, Mother's Day, Christmas, Black Friday…) that suggests product themes, then generates Kling prompts and captions for the month.</div>
 </section>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v1.8 — built 2 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v1.9 — built 3 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -495,7 +508,7 @@ function cc(btn){
   var bar = document.createElement('div');
   bar.className = 'progress';
   bar.innerHTML = '<span class="ptxt"><i class="ti ti-checkbox"></i> <span id="pcount">0</span> / '
-    + cards.length + ' made</span><div class="ptrack"><div class="pfill" id="pfill"></div></div>'
+    + '<span id="ptotal">' + cards.length + '</span> made</span><div class="ptrack"><div class="pfill" id="pfill"></div></div>'
     + '<span class="savepill" id="savepill">Loading…</span>'
     + '<button class="preset" type="button" id="preset">Reset</button>';
   wrap.parentNode.insertBefore(bar, wrap);
@@ -523,6 +536,8 @@ function cc(btn){
     var pc = document.getElementById('pcount');
     var pf = document.getElementById('pfill');
     if(pc) pc.textContent = done;
+    var ptot = document.getElementById('ptotal');
+    if(ptot) ptot.textContent = cards.length;
     if(pf) pf.style.width = (cards.length ? (done/cards.length*100) : 0) + '%';
     var h = document.getElementById('cardsHeading');
     if(h) h.textContent = 'Your video cards — ' + (cards.length - done) + ' to make · ' + done + ' made';
@@ -577,6 +592,29 @@ function cc(btn){
     scheduleSave();
   });
 
+  // expose the engine so dynamically-added cards join ticks / sink / progress
+  var topOrd = -1;
+  window.SMCC = {
+    addCard: function(cardEl, atTop){
+      cardEl.setAttribute('data-ord', atTop ? (topOrd--) : cards.length);
+      wrap.appendChild(cardEl);
+      cards.push(cardEl);
+      var hrow = cardEl.querySelector('.hrow');
+      if(hrow && !hrow.querySelector('.doneflag')){
+        var f = document.createElement('span'); f.className = 'doneflag';
+        f.innerHTML = '<i class="ti ti-circle-check"></i> Made'; hrow.appendChild(f);
+      }
+      var id = cardEl.id;
+      cardEl.querySelectorAll('.cbody > .zone').forEach(function(z){
+        if(z.querySelector('.ptext')){ addBox(z, id+'_prompt'); }
+        else if(z.querySelector('.optgrid')){ addBox(z, id+'_onscreen'); }
+      });
+      applyState();
+    },
+    refresh: function(){ refreshAll(); },
+    hasCard: function(id){ return !!document.getElementById(id); }
+  };
+
   loadGitHub();
 })();
 
@@ -612,7 +650,36 @@ function cc(btn){
     });
   }
 
-  document.querySelectorAll('.vcard.gen').forEach(function(card){
+  function skuId(sku){ return 'gen' + String(sku).replace(/[^A-Za-z0-9]/g, ''); }
+
+  function renderOptions(list){
+    if(!list || !list.length){ return '<span class="genempty">Generated together with the prompt.</span>'; }
+    return list.map(function(line){
+      return '<div class="opt"><span>“' + esc(line) + '”</span><button class="copy" type="button" data-copy="' + attr(line) + '" onclick="cc(this)"><i class="ti ti-copy"></i> Copy</button></div>';
+    }).join('');
+  }
+
+  // build a generator card element from product data {sku,title,handle,url,image,room}
+  function buildGenCard(d){
+    var sku = d.sku, title = d.title || '';
+    var url = d.url || ('https://aboutwallart.com/products/' + (d.handle || ''));
+    var img = d.image || '', room = d.room || '';
+    var html =
+      '<div class="vcard gen" id="' + skuId(sku) + '" data-sku="' + attr(sku) + '" data-title="' + attr(title) + '" data-room="' + attr(room) + '" data-start="">'
+      + '<div class="chead"><img class="thumb" src="' + attr(img) + '" alt="' + attr(title) + '" loading="lazy"><div class="hmeta"><div class="hrow"><span class="day sku-big">' + esc(sku) + '</span><span class="chip">9:16</span><span class="badge new"><i class="ti ti-wand"></i> Generate prompt</span></div>'
+      + '<div class="ptitle">' + esc(title) + '</div>'
+      + '<div class="plink"><i class="ti ti-link"></i> <a href="' + attr(url) + '" target="_blank">' + esc(url) + '</a><button class="copy" type="button" data-copy="' + attr(url) + '" onclick="cc(this)"><i class="ti ti-copy"></i> Copy</button></div></div></div>'
+      + '<div class="cbody"><div class="genrow"><div class="upbox"><div class="uplabel">Start — upload your frame</div><label class="upframe updrop"><input type="file" accept="image/*" class="startfile" hidden><span class="uphint starthint"><i class="ti ti-upload"></i><br>Click or drop<br>start frame</span><img class="startprev" style="display:none" alt="start frame"></label></div>'
+      + '<div class="upbox"><div class="uplabel">End — upload your frame</div><label class="upframe updrop"><input type="file" accept="image/*" class="endfile" hidden><span class="uphint endhint"><i class="ti ti-upload"></i><br>Click or drop<br>end frame</span><img class="endprev" style="display:none" alt="end frame"></label></div></div>'
+      + '<button class="genbtn" type="button"><i class="ti ti-wand"></i> Generate Kling prompt</button><div class="genstatus"></div>'
+      + '<div class="zone" style="border-left:4px solid #534AB7;background:#F3F2FE;"><div class="zlabel" style="color:#3C3489;"><i class="ti ti-movie"></i> Kling prompt — image to video · 8s</div><p class="ptext genptext"><span class="genempty">Upload a start + end frame, then press Generate.</span></p><button class="copy genpcopy" type="button" data-copy="" onclick="cc(this)" style="display:none"><i class="ti ti-copy"></i> Copy</button></div>'
+      + '<div class="zone" style="border-left:4px solid #1D9E75;background:#E9F7F1;"><div class="zlabel" style="color:#0F6E56;"><i class="ti ti-text-caption"></i> On-screen text — pick one · feeling only, no product name</div><div class="optgrid genopts"><span class="genempty">Generated together with the prompt.</span></div></div></div></div>';
+    var holder = document.createElement('div'); holder.innerHTML = html;
+    return holder.firstChild;
+  }
+
+  function initGenCard(card){
+    if(card.__geninit) return; card.__geninit = true;
     var startInput = card.querySelector('.startfile');
     var endInput = card.querySelector('.endfile');
     var startPrev = card.querySelector('.startprev');
@@ -622,10 +689,9 @@ function cc(btn){
     var btn = card.querySelector('.genbtn');
     var status = card.querySelector('.genstatus');
     var thumb = card.querySelector('.chead .thumb');
-    var startData = '';
-    var endData = '';
+    var startData = '', endData = '';
+    var lastPrompt = '', lastOnscreen = [];
 
-    // --- upload OR drag-and-drop, with in-browser shrink ---
     function setupBox(input, prev, hint, setData){
       if(!input) return;
       var drop = input.closest('.updrop');
@@ -660,18 +726,38 @@ function cc(btn){
     setupBox(startInput, startPrev, startHint, function(d){ startData = d; });
     setupBox(endInput, endPrev, endHint, function(d){ endData = d; });
 
-    // --- video length: type-in seconds (8–15) ---
+    // --- video length: type-in seconds (8–15) — updates only the seconds, keeps the tick box ---
     var promptZone = card.querySelector('.genptext') ? card.querySelector('.genptext').closest('.zone') : null;
     var labelEl = promptZone ? promptZone.querySelector('.zlabel') : null;
+    if(labelEl){
+      var keepCb = labelEl.querySelector('.taskcb');
+      labelEl.innerHTML = '<i class="ti ti-movie"></i> Kling prompt — image to video · <span class="durval">8s</span>';
+      if(keepCb){ labelEl.insertBefore(keepCb, labelEl.firstChild); }
+    }
     var lenWrap = document.createElement('div');
     lenWrap.className = 'lenrow';
     lenWrap.innerHTML = '<i class="ti ti-clock"></i> Video length <input type="number" class="lenin" min="8" max="15" step="1" value="8"> seconds <span class="lenhint">(8–15)</span>';
     if(btn){ btn.parentNode.insertBefore(lenWrap, btn); }
     var lenIn = lenWrap.querySelector('.lenin');
     function dur(){ var n = parseInt(lenIn.value, 10); if(isNaN(n)) n = 8; return Math.max(8, Math.min(15, n)); }
-    function syncLabel(){ if(labelEl){ labelEl.innerHTML = '<i class="ti ti-movie"></i> Kling prompt — image to video · ' + dur() + 's'; } }
+    function syncLabel(){ var dv = labelEl && labelEl.querySelector('.durval'); if(dv){ dv.textContent = dur() + 's'; } }
+    function setSeconds(n){ lenIn.value = Math.max(8, Math.min(15, parseInt(n,10) || 8)); syncLabel(); }
     lenIn.addEventListener('input', syncLabel);
     lenIn.addEventListener('change', function(){ lenIn.value = dur(); syncLabel(); });
+
+    // --- approve & save button (appears once a prompt exists) ---
+    var approveBtn = document.createElement('button');
+    approveBtn.className = 'approvebtn'; approveBtn.type = 'button'; approveBtn.style.display = 'none';
+    approveBtn.innerHTML = '<i class="ti ti-device-floppy"></i> Approve &amp; save';
+    if(status){ status.parentNode.insertBefore(approveBtn, status.nextSibling); }
+
+    function showResult(prompt, onscreen){
+      lastPrompt = prompt || ''; lastOnscreen = onscreen || [];
+      var pt = card.querySelector('.genptext'); if(pt){ pt.textContent = lastPrompt; }
+      var cp = card.querySelector('.genpcopy'); if(cp){ cp.setAttribute('data-copy', lastPrompt); cp.style.display = 'inline-flex'; }
+      var opts = card.querySelector('.genopts'); if(opts){ opts.innerHTML = renderOptions(lastOnscreen); }
+      approveBtn.style.display = 'inline-flex';
+    }
 
     if(btn){
       btn.addEventListener('click', function(){
@@ -685,51 +771,108 @@ function cc(btn){
         status.className = 'genstatus';
         status.textContent = 'Generating a ' + seconds + 's prompt from your images…';
         fetch('/api/social', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'generate-kling',
-            title: card.getAttribute('data-title'),
-            room: card.getAttribute('data-room'),
-            duration: seconds,
-            startImageBase64: startData,
-            endImageBase64: endData
-          })
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'generate-kling', title: card.getAttribute('data-title'), room: card.getAttribute('data-room'), duration: seconds, startImageBase64: startData, endImageBase64: endData })
         })
-        .then(function(r){
-          if(!r.ok){ return r.text().then(function(t){ throw new Error('Server ' + r.status + ' — ' + (t || 'no detail').slice(0, 140)); }); }
-          return r.json();
-        })
+        .then(function(r){ if(!r.ok){ return r.text().then(function(t){ throw new Error('Server ' + r.status + ' — ' + (t || 'no detail').slice(0, 140)); }); } return r.json(); })
         .then(function(d){
           btn.disabled = false;
-          if(!d || !d.ok){
-            status.className = 'genstatus err';
-            status.textContent = 'Could not generate — ' + ((d && d.error) || 'try again') + '.';
-            return;
-          }
-          var pt = card.querySelector('.genptext');
-          pt.textContent = d.kling_prompt;
-          var cp = card.querySelector('.genpcopy');
-          cp.setAttribute('data-copy', d.kling_prompt);
-          cp.style.display = 'inline-flex';
-          var opts = card.querySelector('.genopts');
-          opts.innerHTML =
-            '<div class="optcol"><span class="otag poetic">Poetic</span><div class="opt"><span>“' + esc(d.onscreen_poetic) + '”</span>'
-            + '<button class="copy" type="button" data-copy="' + attr(d.onscreen_poetic) + '" onclick="cc(this)"><i class="ti ti-copy"></i> Copy</button></div></div>'
-            + '<div class="optcol"><span class="otag relate">Relatable</span><div class="opt"><span>“' + esc(d.onscreen_relatable) + '”</span>'
-            + '<button class="copy" type="button" data-copy="' + attr(d.onscreen_relatable) + '" onclick="cc(this)"><i class="ti ti-copy"></i> Copy</button></div></div>';
-          if(thumb && startData){ thumb.src = startData; } // keep your start frame, not the product image
+          if(!d || !d.ok){ status.className = 'genstatus err'; status.textContent = 'Could not generate — ' + ((d && d.error) || 'try again') + '.'; return; }
+          showResult(d.kling_prompt, d.onscreen);
+          if(thumb && startData){ thumb.src = startData; }
           status.className = 'genstatus ok';
-          status.textContent = 'Done — copy the prompt into Kling, then tick both boxes once the video is made.';
+          status.textContent = 'Done — pick an on-screen line, then press Approve & save to keep it.';
         })
-        .catch(function(err){
-          btn.disabled = false;
-          status.className = 'genstatus err';
-          status.textContent = (err && err.message) ? err.message : 'Network error — try again.';
-        });
+        .catch(function(err){ btn.disabled = false; status.className = 'genstatus err'; status.textContent = (err && err.message) ? err.message : 'Network error — try again.'; });
       });
     }
-  });
+
+    approveBtn.addEventListener('click', function(){
+      approveBtn.disabled = true;
+      var old = approveBtn.innerHTML;
+      approveBtn.innerHTML = '<i class="ti ti-loader"></i> Saving…';
+      fetch('/api/social', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'save-card', sku: card.getAttribute('data-sku'), prompt: lastPrompt, onscreen: lastOnscreen, seconds: dur(), startImg: startData || (thumb ? thumb.src : ''), endImg: endData })
+      })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        approveBtn.disabled = false;
+        if(d && d.ok){ card.classList.add('approved'); approveBtn.innerHTML = '<i class="ti ti-check"></i> Saved'; status.className = 'genstatus ok'; status.textContent = 'Approved & saved — it will still be here next time you open the tool.'; }
+        else { approveBtn.innerHTML = old; status.className = 'genstatus err'; status.textContent = 'Save failed — try again.'; }
+      })
+      .catch(function(){ approveBtn.disabled = false; approveBtn.innerHTML = old; status.className = 'genstatus err'; status.textContent = 'Save failed — offline?'; });
+    });
+
+    // restore a saved card
+    card.__fill = function(g){
+      if(g.seconds){ setSeconds(g.seconds); }
+      if(g.startImg){ startData = g.startImg; if(startPrev){ startPrev.src = g.startImg; startPrev.style.display = 'block'; } if(startHint){ startHint.style.display = 'none'; } if(thumb){ thumb.src = g.startImg; } }
+      if(g.endImg){ endData = g.endImg; if(endPrev){ endPrev.src = g.endImg; endPrev.style.display = 'block'; } if(endHint){ endHint.style.display = 'none'; } }
+      if(g.prompt){ showResult(g.prompt, g.onscreen || []); if(status){ status.className = 'genstatus ok'; status.textContent = 'Saved earlier — here is your prompt.'; } }
+      if(g.approved){ card.classList.add('approved'); approveBtn.innerHTML = '<i class="ti ti-check"></i> Saved'; }
+    };
+  }
+
+  // add a card from product data; join it to the tick/sink/progress engine
+  function addCardFromData(d, atTop){
+    var id = skuId(d.sku);
+    var existing = document.getElementById(id);
+    if(existing){ return existing; }
+    var el = buildGenCard(d);
+    if(window.SMCC){ window.SMCC.addCard(el, !!atTop); }
+    initGenCard(el);
+    if(window.SMCC){ window.SMCC.refresh(); }
+    if(atTop){ el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    return el;
+  }
+
+  // init all pre-built generator cards
+  document.querySelectorAll('.vcard.gen').forEach(initGenCard);
+
+  // --- "Add your own product" box ---
+  (function(){
+    var box = document.createElement('div');
+    box.className = 'addprod';
+    box.innerHTML = '<i class="ti ti-plus"></i> <strong>Add your own product</strong> — paste its <em>sku for print files</em>: '
+      + '<input class="addsku" type="text" placeholder="e.g. LIVLND50" spellcheck="false"> '
+      + '<button class="addbtn" type="button">Add card</button> <span class="addstatus"></span>';
+    var progress = document.querySelector('.progress');
+    if(progress){ progress.parentNode.insertBefore(box, progress); }
+    var skuIn = box.querySelector('.addsku'), addBtn = box.querySelector('.addbtn'), addStatus = box.querySelector('.addstatus');
+    function setStat(cls, txt){ addStatus.className = 'addstatus ' + cls; addStatus.textContent = txt; }
+    function doAdd(){
+      var sku = (skuIn.value || '').trim();
+      if(!sku){ setStat('err', 'Type a code first.'); return; }
+      var existing = document.getElementById(skuId(sku));
+      if(existing){ setStat('ok', 'Already here — scrolling to it.'); existing.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+      addBtn.disabled = true; setStat('', 'Finding product…');
+      fetch('/api/social', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add-product', sku: sku }) })
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          addBtn.disabled = false;
+          if(!d || !d.ok){ setStat('err', (d && d.error) || 'Not found.'); return; }
+          addCardFromData(d.card, true);
+          skuIn.value = ''; setStat('ok', 'Added “' + (d.card.sku) + '” — upload your frames and generate.');
+        })
+        .catch(function(){ addBtn.disabled = false; setStat('err', 'Network error — try again.'); });
+    }
+    addBtn.addEventListener('click', doAdd);
+    skuIn.addEventListener('keydown', function(e){ if(e.key === 'Enter'){ doAdd(); } });
+  })();
+
+  // --- restore saved cards + generated content from GitHub ---
+  fetch('/api/social?action=get-cards').then(function(r){ return r.json(); }).then(function(d){
+    if(!d || !d.ok){ return; }
+    var custom = d.custom || {}, gen = d.generated || {};
+    Object.keys(custom).forEach(function(sku){
+      if(!document.getElementById(skuId(sku))){ addCardFromData(custom[sku], false); }
+    });
+    Object.keys(gen).forEach(function(sku){
+      var card = document.getElementById(skuId(sku));
+      if(card && card.__fill){ card.__fill(gen[sku]); }
+    });
+  }).catch(function(){});
 })();
 </script>
 </body>
