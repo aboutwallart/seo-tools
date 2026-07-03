@@ -150,6 +150,15 @@
   .partstat.err{color:#b91c1c;}
   .removebtn{appearance:none;border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;border-radius:20px;font-size:11px;font-weight:700;padding:2px 9px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;margin-left:auto;}
   .removebtn:hover{background:#fee2e2;}
+  .findbar{background:#f4f4f4;border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:14px 0;font-size:13.5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .findbar .findsku{font-size:14px;border:1px solid var(--line);border-radius:8px;padding:7px 10px;min-width:160px;}
+  .findbar .findbtn{appearance:none;border:none;border-radius:8px;background:#1a1a1a;color:#fff;font-weight:700;font-size:13px;padding:8px 14px;cursor:pointer;}
+  .findbar .findbtn:hover{background:#333;}
+  .findstatus{font-size:12.5px;font-weight:600;}
+  .findstatus.ok{color:#0F6E56;}
+  .findstatus.err{color:#b91c1c;}
+  .vcard.flash{animation:flashcard 1.6s ease;}
+  @keyframes flashcard{0%{box-shadow:0 0 0 3px #534AB7;}60%{box-shadow:0 0 0 3px #534AB7;}100%{box-shadow:0 0 0 0 rgba(83,74,183,0);}}
 </style>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.7.0/dist/tabler-icons.min.css">
 </head>
@@ -157,19 +166,19 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v2.0 · 3 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v2.1 · 3 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
 
 
 <nav class="tabnav">
-  <button class="tabbtn active" type="button" data-tab="strategy"><i class="ti ti-bulb"></i> 1 · Strategy</button>
-  <button class="tabbtn" type="button" data-tab="video"><i class="ti ti-movie"></i> 2 · Video Creation</button>
-  <button class="tabbtn" type="button" data-tab="schedule"><i class="ti ti-calendar"></i> 3 · Schedule</button>
-  <button class="tabbtn" type="button" data-tab="monthly"><i class="ti ti-layout-grid"></i> 4 · Content Monthly Plan</button>
+  <button class="tabbtn active" type="button" data-tab="video"><i class="ti ti-movie"></i> 1 · Video Creation</button>
+  <button class="tabbtn" type="button" data-tab="schedule"><i class="ti ti-calendar"></i> 2 · Schedule</button>
+  <button class="tabbtn" type="button" data-tab="monthly"><i class="ti ti-layout-grid"></i> 3 · Content Monthly Plan</button>
+  <button class="tabbtn" type="button" data-tab="strategy"><i class="ti ti-bulb"></i> 4 · Strategy</button>
 </nav>
-<section class="tabpanel active" id="tab-strategy">
+<section class="tabpanel" id="tab-strategy">
 <div class="box gray">
   <strong>How to read this:</strong> This <strong>Strategy</strong> tab holds the rules (sections 1–8) and the Outfy image fix (section 10) — set once. Your video cards live in the <strong>Video Creation</strong> tab. <strong>Schedule</strong> and <strong>Content Monthly Plan</strong> come next.
 </div>
@@ -329,10 +338,8 @@
 <div class="box green">Switch on <strong>TikTok Shop</strong> + <strong>Instagram/Facebook Shop</strong>. Your catalogue already syncs to Meta, so the shops are a <strong>"verify &amp; switch on"</strong> job, not a build-from-scratch. Step-by-step guides come next, in their own document.</div>
 
 </section>
-<section class="tabpanel" id="tab-video">
+<section class="tabpanel active" id="tab-video">
 <h2 id="cardsHeading">Your video cards — tick each when made</h2>
-<div class="box gray"><strong>How to use these cards:</strong> one video per day. Each card has everything you need, colour-coded so you can find it fast: <span class="legend purple">purple = Kling prompt</span> <span class="legend green">green = on-screen text (pick one)</span>. Every block has its own <strong>Copy</strong> button.</div>
-<div class="box" style="border-color:#c7d2fe;background:#F3F2FE;"><strong>Videos to make — build each from your images.</strong> Upload your <em>start frame</em> and <em>end frame</em>, press <strong>Generate Kling prompt</strong>, and the tool writes the prompt + on-screen text from your two images (the card keeps your start frame). Tick both boxes when the video is made and the card greys out and drops to the bottom.</div>
 <div class="vcard gen" id="genBATHBOT47" data-sku="BATHBOT47" data-title="Bathroom wall art framed | set of 3 wall art" data-room="Bathroom" data-start=""><div class="chead"><img class="thumb" src="https://cdn.shopify.com/s/files/1/0710/7693/8014/products/watercolour-greenery-prints-for-bathroom-uk-set-of-3-wall-art-314774.jpg?v=1749590893" alt="Bathroom wall art framed | set of 3 wall art" loading="lazy"><div class="hmeta"><div class="hrow"><span class="day sku-big">BATHBOT47</span><span class="chip">9:16</span><span class="badge new"><i class="ti ti-wand"></i> Generate prompt</span></div><div class="ptitle">Bathroom wall art framed | set of 3 wall art</div><div class="plink"><i class="ti ti-link"></i> <a href="https://aboutwallart.com/products/watercolour-greenery-prints-for-bathroom-uk-set-of-3-wall-art" target="_blank">https://aboutwallart.com/products/watercolour-greenery-prints-for-bathroom-uk-set-of-3-wall-art</a><button class="copy" type="button" data-copy="https://aboutwallart.com/products/watercolour-greenery-prints-for-bathroom-uk-set-of-3-wall-art" onclick="cc(this)"><i class="ti ti-copy"></i> Copy</button></div></div></div><div class="cbody"><div class="genrow"><div class="upbox"><div class="uplabel">Start — upload your frame</div><label class="upframe updrop"><input type="file" accept="image/*" class="startfile" hidden><span class="uphint starthint"><i class="ti ti-upload"></i><br>Click or drop<br>start frame</span><img class="startprev" style="display:none" alt="start frame"></label></div><div class="upbox"><div class="uplabel">End — upload your frame</div><label class="upframe updrop"><input type="file" accept="image/*" class="endfile" hidden><span class="uphint endhint"><i class="ti ti-upload"></i><br>Click or drop<br>end frame</span><img class="endprev" style="display:none" alt="end frame"></label></div></div><button class="genbtn" type="button"><i class="ti ti-wand"></i> Generate Kling prompt</button><div class="genstatus"></div><div class="zone" style="border-left:4px solid #534AB7;background:#F3F2FE;"><div class="zlabel" style="color:#3C3489;"><i class="ti ti-movie"></i> Kling prompt — image to video · 8s</div><p class="ptext genptext"><span class="genempty">Upload a start + end frame, then press Generate.</span></p><button class="copy genpcopy" type="button" data-copy="" onclick="cc(this)" style="display:none"><i class="ti ti-copy"></i> Copy</button></div><div class="zone" style="border-left:4px solid #1D9E75;background:#E9F7F1;"><div class="zlabel" style="color:#0F6E56;"><i class="ti ti-text-caption"></i> On-screen text — pick one · feeling only, no product name</div><div class="optgrid genopts"><span class="genempty">Generated together with the prompt.</span></div></div></div></div>
 <div class="vcard gen" id="genBATHBOT52" data-sku="BATHBOT52" data-title="Flowers print | Set of 3 wall art for the Bathroom" data-room="Bathroom" data-start=""><div class="chead"><img class="thumb" src="https://cdn.shopify.com/s/files/1/0710/7693/8014/products/botanical-bathroom-prints-set-of-3-wall-art-428778.jpg?v=1749590886" alt="Flowers print | Set of 3 wall art for the Bathroom" loading="lazy"><div class="hmeta"><div class="hrow"><span class="day sku-big">BATHBOT52</span><span class="chip">9:16</span><span class="badge new"><i class="ti ti-wand"></i> Generate prompt</span></div><div class="ptitle">Flowers print | Set of 3 wall art for the Bathroom</div><div class="plink"><i class="ti ti-link"></i> <a href="https://aboutwallart.com/products/flowers-print-set-of-3-wall-art-for-the-bathroom" target="_blank">https://aboutwallart.com/products/flowers-print-set-of-3-wall-art-for-the-bathroom</a><button class="copy" type="button" data-copy="https://aboutwallart.com/products/flowers-print-set-of-3-wall-art-for-the-bathroom" onclick="cc(this)"><i class="ti ti-copy"></i> Copy</button></div></div></div><div class="cbody"><div class="genrow"><div class="upbox"><div class="uplabel">Start — upload your frame</div><label class="upframe updrop"><input type="file" accept="image/*" class="startfile" hidden><span class="uphint starthint"><i class="ti ti-upload"></i><br>Click or drop<br>start frame</span><img class="startprev" style="display:none" alt="start frame"></label></div><div class="upbox"><div class="uplabel">End — upload your frame</div><label class="upframe updrop"><input type="file" accept="image/*" class="endfile" hidden><span class="uphint endhint"><i class="ti ti-upload"></i><br>Click or drop<br>end frame</span><img class="endprev" style="display:none" alt="end frame"></label></div></div><button class="genbtn" type="button"><i class="ti ti-wand"></i> Generate Kling prompt</button><div class="genstatus"></div><div class="zone" style="border-left:4px solid #534AB7;background:#F3F2FE;"><div class="zlabel" style="color:#3C3489;"><i class="ti ti-movie"></i> Kling prompt — image to video · 8s</div><p class="ptext genptext"><span class="genempty">Upload a start + end frame, then press Generate.</span></p><button class="copy genpcopy" type="button" data-copy="" onclick="cc(this)" style="display:none"><i class="ti ti-copy"></i> Copy</button></div><div class="zone" style="border-left:4px solid #1D9E75;background:#E9F7F1;"><div class="zlabel" style="color:#0F6E56;"><i class="ti ti-text-caption"></i> On-screen text — pick one · feeling only, no product name</div><div class="optgrid genopts"><span class="genempty">Generated together with the prompt.</span></div></div></div></div>
 <div class="vcard gen" id="genBATHBOT53" data-sku="BATHBOT53" data-title="Decoration for bathroom walls | Set of 3 Tropical wall art" data-room="Bathroom" data-start=""><div class="chead"><img class="thumb" src="https://cdn.shopify.com/s/files/1/0710/7693/8014/products/tropical-art-prints-for-bathroom-set-of-3-wall-art-133764.jpg?v=1749590883" alt="Decoration for bathroom walls | Set of 3 Tropical wall art" loading="lazy"><div class="hmeta"><div class="hrow"><span class="day sku-big">BATHBOT53</span><span class="chip">9:16</span><span class="badge new"><i class="ti ti-wand"></i> Generate prompt</span></div><div class="ptitle">Decoration for bathroom walls | Set of 3 Tropical wall art</div><div class="plink"><i class="ti ti-link"></i> <a href="https://aboutwallart.com/products/decoration-for-bathroom-walls-set-of-3-tropical-wall-art" target="_blank">https://aboutwallart.com/products/decoration-for-bathroom-walls-set-of-3-tropical-wall-art</a><button class="copy" type="button" data-copy="https://aboutwallart.com/products/decoration-for-bathroom-walls-set-of-3-tropical-wall-art" onclick="cc(this)"><i class="ti ti-copy"></i> Copy</button></div></div></div><div class="cbody"><div class="genrow"><div class="upbox"><div class="uplabel">Start — upload your frame</div><label class="upframe updrop"><input type="file" accept="image/*" class="startfile" hidden><span class="uphint starthint"><i class="ti ti-upload"></i><br>Click or drop<br>start frame</span><img class="startprev" style="display:none" alt="start frame"></label></div><div class="upbox"><div class="uplabel">End — upload your frame</div><label class="upframe updrop"><input type="file" accept="image/*" class="endfile" hidden><span class="uphint endhint"><i class="ti ti-upload"></i><br>Click or drop<br>end frame</span><img class="endprev" style="display:none" alt="end frame"></label></div></div><button class="genbtn" type="button"><i class="ti ti-wand"></i> Generate Kling prompt</button><div class="genstatus"></div><div class="zone" style="border-left:4px solid #534AB7;background:#F3F2FE;"><div class="zlabel" style="color:#3C3489;"><i class="ti ti-movie"></i> Kling prompt — image to video · 8s</div><p class="ptext genptext"><span class="genempty">Upload a start + end frame, then press Generate.</span></p><button class="copy genpcopy" type="button" data-copy="" onclick="cc(this)" style="display:none"><i class="ti ti-copy"></i> Copy</button></div><div class="zone" style="border-left:4px solid #1D9E75;background:#E9F7F1;"><div class="zlabel" style="color:#0F6E56;"><i class="ti ti-text-caption"></i> On-screen text — pick one · feeling only, no product name</div><div class="optgrid genopts"><span class="genempty">Generated together with the prompt.</span></div></div></div></div>
@@ -436,7 +443,7 @@
   <h2>Content Monthly Plan</h2>
   <div class="box gray"><strong>Coming later.</strong> Marketing-date calendar (Valentine's, Mother's Day, Christmas, Black Friday…) that suggests product themes, then generates Kling prompts and captions for the month.</div>
 </section>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v2.0 — built 3 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v2.1 — built 3 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -876,7 +883,7 @@ function cc(btn){
     if(window.SMCC){ window.SMCC.addCard(el, !!atTop); }
     initGenCard(el);
     if(window.SMCC){ window.SMCC.refresh(); }
-    if(atTop){ el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    if(atTop){ el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.add('flash'); setTimeout(function(){ el.classList.remove('flash'); }, 1600); }
     return el;
   }
 
@@ -914,12 +921,45 @@ function cc(btn){
     skuIn.addEventListener('keydown', function(e){ if(e.key === 'Enter'){ doAdd(); } });
   })();
 
+  // --- "Find a card" search bar ---
+  (function(){
+    var box = document.createElement('div');
+    box.className = 'findbar';
+    box.innerHTML = '<i class="ti ti-search"></i> <strong>Find a card</strong> — type its <em>sku for print files</em>: '
+      + '<input class="findsku" type="text" placeholder="e.g. BATHBOT47" spellcheck="false"> '
+      + '<button class="findbtn" type="button">Find</button> <span class="findstatus"></span>';
+    var progress = document.querySelector('.progress');
+    if(progress){ progress.parentNode.insertBefore(box, progress); }
+    var inp = box.querySelector('.findsku'), btn = box.querySelector('.findbtn'), st = box.querySelector('.findstatus');
+    function setStat(cls, txt){ st.className = 'findstatus ' + cls; st.textContent = txt; }
+    function findCard(sku){
+      var el = document.getElementById(skuId(sku));
+      if(el){ return el; }
+      var want = sku.toLowerCase();
+      var all = document.querySelectorAll('.vcard');
+      for(var i = 0; i < all.length; i++){ if(((all[i].getAttribute('data-sku') || '').toLowerCase()) === want){ return all[i]; } }
+      return null;
+    }
+    function doFind(){
+      var sku = (inp.value || '').trim();
+      if(!sku){ setStat('err', 'Type a code first.'); return; }
+      var el = findCard(sku);
+      if(!el){ setStat('err', 'No card for “' + sku + '”.'); return; }
+      setStat('ok', 'Found — jumping to it.');
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('flash');
+      setTimeout(function(){ el.classList.remove('flash'); }, 1600);
+    }
+    btn.addEventListener('click', doFind);
+    inp.addEventListener('keydown', function(e){ if(e.key === 'Enter'){ doFind(); } });
+  })();
+
   // --- restore saved cards + generated content from GitHub ---
   fetch('/api/social?action=get-cards').then(function(r){ return r.json(); }).then(function(d){
     if(!d || !d.ok){ return; }
     var custom = d.custom || {}, gen = d.generated || {};
     Object.keys(custom).forEach(function(sku){
-      if(!document.getElementById(skuId(sku))){ addCardFromData(custom[sku], false); }
+      if(!document.getElementById(skuId(sku))){ addCardFromData(custom[sku], true); }
     });
     Object.keys(gen).forEach(function(sku){
       var card = document.getElementById(skuId(sku));
