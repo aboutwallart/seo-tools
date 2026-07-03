@@ -17,6 +17,7 @@ module.exports = async (req, res) => {
   const REPO = 'aboutwallart/seo-tools';
   const FILE = 'data/social-video-state.json';
   const CARDS_FILE = 'data/social-cards.json';
+  const SCHEDULE_FILE = 'data/social-schedule.json';
 
   async function ghGet(filePath) {
     const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${filePath}`, {
@@ -197,6 +198,58 @@ module.exports = async (req, res) => {
       data.custom[card.sku] = card;
       await ghPut(CARDS_FILE, JSON.stringify(data, null, 2), gh.sha, 'Add custom card ' + card.sku);
       return res.status(200).json({ ok: true, card: card });
+    }
+
+    if (action === 'get-schedule') {
+      const gh = await ghGet(SCHEDULE_FILE);
+      var sched = { videos: [], state: {}, savedCaptions: {} };
+      if (gh.content) { try { var p = JSON.parse(gh.content); sched.videos = p.videos || []; sched.state = p.state || {}; sched.savedCaptions = p.savedCaptions || {}; } catch (e) {} }
+      return res.status(200).json({ ok: true, videos: sched.videos, state: sched.state, savedCaptions: sched.savedCaptions });
+    }
+
+    if (action === 'save-schedule') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      const gh = await ghGet(SCHEDULE_FILE);
+      var sched = { videos: [], state: {}, savedCaptions: {} };
+      if (gh.content) { try { var p = JSON.parse(gh.content); sched.videos = p.videos || []; sched.state = p.state || {}; sched.savedCaptions = p.savedCaptions || {}; } catch (e) {} }
+      if (body.state && typeof body.state === 'object') { sched.state = body.state; }
+      if (body.savedCaptions && typeof body.savedCaptions === 'object') { sched.savedCaptions = body.savedCaptions; }
+      await ghPut(SCHEDULE_FILE, JSON.stringify(sched, null, 2), gh.sha, 'Update schedule state');
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'generate-caption') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      const platform = (body.platform || '').toString().toLowerCase();
+      const title = (body.title || '').toString().slice(0, 200);
+      const room = (body.room || '').toString().slice(0, 60);
+      const url = (body.url || '').toString();
+      const campaign = (body.campaign || '').toString();
+      var rules = {
+        instagram: 'Instagram Reel caption: 1-3 short warm sentences + a soft CTA "tap the product tag to shop" (NO url, links do not work on IG). End with 5-8 relevant hashtags.',
+        tiktok: 'TikTok caption: casual and short, lower-case is fine, one hook line + "tap to shop" (NO url). End with 3-5 hashtags.',
+        facebook: 'Facebook caption: 1-2 warm sentences, then "Shop here → ' + (url ? (url + '?utm_source=facebook&utm_medium=video&utm_campaign=' + campaign) : '[link]') + '". 1-2 hashtags max.',
+        x: 'X (Twitter) post: one short punchy line, then the link ' + (url ? (url + '?utm_source=twitter&utm_medium=video&utm_campaign=' + campaign) : '[link]') + '. No hashtags needed.',
+        pinterest: 'Pinterest pin description: keyword-rich and descriptive of the look and the room (Pinterest is a search engine), 1-2 sentences a decorator would search for, then a soft CTA. NO url (the pin is already shoppable from the catalogue). 2-4 keyword hashtags.'
+      };
+      if (!rules[platform]) return res.status(400).json({ ok: false, error: 'Unknown platform: ' + platform });
+      var instr =
+        'You are a warm, friendly home-decor advisor writing ONE social caption for a wall-art product to post with its styled-in-room video. Product: "' + title + '"' + (room ? (' — room: ' + room) : '') + '.\n' +
+        'Voice: like giving a friend genuine decor advice — warm, natural, specific, NOT salesy, UK spelling, no words like elevate/delve/showcase. Make it feel human and inviting.\n' +
+        'Platform — ' + rules[platform] + '\n' +
+        'Return ONLY strict JSON, no markdown: {"caption":"..."}';
+      var ar = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 700, messages: [{ role: 'user', content: instr }] })
+      });
+      if (!ar.ok) return res.status(ar.status).json({ ok: false, error: 'Claude error: ' + (await ar.text()) });
+      var ad = await ar.json();
+      var txt = (ad.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('\n');
+      var jm = txt.match(/\{[\s\S]*\}/);
+      var parsed = {};
+      try { parsed = JSON.parse(jm ? jm[0] : txt); } catch (e) { return res.status(200).json({ ok: false, error: 'Could not parse AI output', raw: txt }); }
+      return res.status(200).json({ ok: true, caption: parsed.caption || '' });
     }
 
     return res.status(400).json({ ok: false, error: 'Unknown action: ' + action });
