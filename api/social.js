@@ -26,7 +26,18 @@ module.exports = async (req, res) => {
     if (r.status === 404) return { content: null, sha: null };
     if (!r.ok) throw new Error('GitHub fetch failed: ' + r.status);
     const d = await r.json();
-    return { content: Buffer.from(d.content, 'base64').toString('utf-8'), sha: d.sha };
+    let content = (d.content && d.content.length) ? Buffer.from(d.content, 'base64').toString('utf-8') : '';
+    // The contents API returns EMPTY content for files over ~1MB. Reading that as empty
+    // is what wiped saved cards — so for a large file, read the blob directly (up to 100MB).
+    if ((!content || !content.length) && d.sha && d.size) {
+      const b = await fetch(`https://api.github.com/repos/${REPO}/git/blobs/${d.sha}`, {
+        headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
+      });
+      if (!b.ok) throw new Error('GitHub blob fetch failed: ' + b.status);
+      const bd = await b.json();
+      content = Buffer.from(bd.content, bd.encoding || 'base64').toString('utf-8');
+    }
+    return { content: content || null, sha: d.sha };
   }
 
   async function ghPut(filePath, content, sha, message) {
