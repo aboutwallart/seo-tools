@@ -159,6 +159,40 @@
   .findstatus.err{color:#b91c1c;}
   .vcard.flash{animation:flashcard 1.6s ease;}
   @keyframes flashcard{0%{box-shadow:0 0 0 3px #534AB7;}60%{box-shadow:0 0 0 3px #534AB7;}100%{box-shadow:0 0 0 0 rgba(83,74,183,0);}}
+  /* ---- schedule tab ---- */
+  .subtabnav{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:16px 0 4px;}
+  .subbtn{appearance:none;border:none;background:transparent;color:var(--mut);font-size:13.5px;font-weight:700;padding:9px 14px;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-1px;display:inline-flex;align-items:center;gap:6px;}
+  .subbtn:hover{color:var(--ink);}
+  .subbtn.active{color:var(--ink);border-bottom-color:var(--ink);}
+  .platsec{margin:18px 0 26px;}
+  .plathead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+  .platname{font-size:17px;font-weight:800;display:inline-flex;align-items:center;gap:7px;}
+  .chip.small{font-weight:600;color:var(--mut);}
+  .archbtn{margin-left:auto;appearance:none;border:1px solid var(--line);background:#fff;color:#444;border-radius:8px;font-size:12px;font-weight:700;padding:6px 11px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;}
+  .archbtn:hover{background:var(--soft);}
+  .calstrip{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:14px;}
+  .calchip{appearance:none;border:none;border-radius:6px;font-size:11px;font-weight:700;padding:4px 8px;cursor:pointer;}
+  .calchip:hover{outline:2px solid rgba(0,0,0,.15);}
+  .platcards{display:flex;flex-direction:column;gap:12px;}
+  .scard{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff;}
+  .scard.sdone{opacity:.5;filter:grayscale(1);}
+  .schead{display:flex;gap:12px;padding:12px;align-items:center;}
+  .sthumb{width:64px;height:64px;object-fit:cover;border-radius:9px;border:1px solid var(--line);flex:none;}
+  .smeta{flex:1;min-width:0;}
+  .srow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:2px;}
+  .sday{font-size:12.5px;font-weight:800;display:inline-flex;align-items:center;gap:4px;}
+  .ssku{font-size:11px;font-weight:700;background:#fff;border:1px solid var(--line);padding:1px 7px;border-radius:5px;}
+  .sroom{font-size:11px;font-weight:700;}
+  .stitle{font-size:14px;font-weight:700;}
+  .slink{font-size:11.5px;color:var(--mut);word-break:break-all;}
+  .slink a{color:#185FA5;text-decoration:none;}
+  .schk{flex:none;display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap;}
+  .schk input{width:16px;height:16px;accent-color:#0F6E56;cursor:pointer;}
+  .scap{padding:12px 14px;border-top:1px solid var(--line);}
+  .scaptext{font-size:13.5px;line-height:1.55;margin:0 0 8px;white-space:pre-wrap;}
+  .platsec.archived .platcards,.platsec.archived .calstrip{display:none;}
+  .platsec:not(.archived) .archnote{display:none;}
+  .archnote{font-size:12.5px;color:var(--mut);background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:12px 14px;line-height:1.6;}
 </style>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.7.0/dist/tabler-icons.min.css">
 </head>
@@ -166,7 +200,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v2.1 · 3 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v2.2 · 3 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -436,14 +470,21 @@
 
 <section class="tabpanel" id="tab-schedule">
   <h2>Schedule</h2>
-  <div class="box gray"><strong>Coming next.</strong> This is where each platform gets its calendar on top and the paste-ready caption packs below — sub-tabs for Instagram, TikTok and Make (Facebook · X · Pinterest). Captions move here out of the video cards.</div>
+  <div class="box gray"><strong>Schedule your done videos.</strong> Pick a platform, copy the caption, schedule it, then tap <em>Scheduled</em> to grey it off. Clear a whole platform to the archive when you're done. ☀️ 8am = Instagram · Facebook · Pinterest · 🌙 7pm = TikTok · X.</div>
+  <nav class="subtabnav" id="schedSubnav">
+    <button class="subbtn active" type="button" data-sub="instagram"><i class="ti ti-brand-instagram"></i> Instagram</button>
+    <button class="subbtn" type="button" data-sub="tiktok"><i class="ti ti-brand-tiktok"></i> TikTok</button>
+    <button class="subbtn" type="button" data-sub="make"><i class="ti ti-bolt"></i> Make · FB · X · Pinterest</button>
+  </nav>
+  <div class="savepill" id="schedPill" style="margin:8px 0;">Loading…</div>
+  <div id="schedBody"></div>
 </section>
 
 <section class="tabpanel" id="tab-monthly">
   <h2>Content Monthly Plan</h2>
   <div class="box gray"><strong>Coming later.</strong> Marketing-date calendar (Valentine's, Mother's Day, Christmas, Black Friday…) that suggests product themes, then generates Kling prompts and captions for the month.</div>
 </section>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v2.1 — built 3 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v2.2 — built 3 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -966,6 +1007,113 @@ function cc(btn){
       if(card && card.__fill){ card.__fill(gen[sku]); }
     });
   }).catch(function(){});
+})();
+
+/* ---- SCHEDULE TAB ---- */
+(function(){
+  var SUBS = { instagram:['instagram'], tiktok:['tiktok'], make:['facebook','x','pinterest'] };
+  var LABEL = { instagram:'Instagram', tiktok:'TikTok', facebook:'Facebook', x:'X', pinterest:'Pinterest' };
+  var TIME  = { instagram:'8am', facebook:'8am', pinterest:'8am', tiktok:'7pm', x:'7pm' };
+  var LINKR = { instagram:'Tag the product · no link', tiktok:'Tag in-app · no link', facebook:'Tag the product · link in caption', x:'Tracked link in the post', pinterest:'Shoppable from catalogue' };
+  var ICON  = { instagram:'ti-brand-instagram', tiktok:'ti-brand-tiktok', facebook:'ti-brand-facebook', x:'ti-brand-x', pinterest:'ti-brand-pinterest' };
+  var ROOMCOL = { Nursery:['#FBEAF0','#72243E'], Living:['#E6F1FB','#0C447C'], Kitchen:['#FAEEDA','#633806'], Bathroom:['#E1F5EE','#085041'], Bedroom:['#EEEDFE','#3C3489'], Games:['#EAF3DE','#27500A'], Hallway:['#F1EFE8','#444441'], Laundry:['#FAECE7','#712B13'] };
+  function rc(r){ return ROOMCOL[r] || ['#f4f4f4','#444']; }
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function attr(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  var body = document.getElementById('schedBody');
+  if(!body) return;
+  var videos = [], byId = {}, state = {}, saved = {}, pending = {}, tmr = null, activeSub = 'instagram';
+
+  function pill(cls, txt){ var p = document.getElementById('schedPill'); if(p){ p.className = 'savepill ' + cls; p.textContent = txt; } }
+  function capOf(v, plat){ var k = v.id + '_' + plat; if(k in pending) return pending[k]; if(k in saved) return saved[k]; return (v.captions && v.captions[plat]) || ''; }
+  function save(){
+    pill('saving', 'Saving…');
+    if(tmr) clearTimeout(tmr);
+    tmr = setTimeout(function(){
+      fetch('/api/social', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'save-schedule', state: state, savedCaptions: saved }) })
+      .then(function(r){ return r.json(); }).then(function(d){ pill(d && d.ok ? 'saved':'err', d && d.ok ? 'Saved to GitHub':'Save failed'); })
+      .catch(function(){ pill('err', 'Offline — not saved'); });
+    }, 700);
+  }
+
+  function cardHTML(v, plat){
+    var col = rc(v.room), done = !!state[v.id+'_'+plat+'_done'], cap = capOf(v, plat);
+    return '<div class="scard'+(done?' sdone':'')+'" data-id="'+attr(v.id)+'" data-plat="'+plat+'" id="sc-'+plat+'-'+attr(v.id)+'">'
+      + '<div class="schead" style="background:'+col[0]+';"><img class="sthumb" src="'+attr(v.image)+'" alt="'+attr(v.title)+'" loading="lazy">'
+      + '<div class="smeta"><div class="srow"><span class="sday" style="color:'+col[1]+';"><i class="ti ti-calendar"></i> '+esc(v.date)+' · '+TIME[plat]+'</span><span class="ssku">'+esc(v.sku)+'</span><span class="sroom" style="color:'+col[1]+';">'+esc(v.room)+'</span></div>'
+      + '<div class="stitle">'+esc(v.title)+'</div><div class="slink"><i class="ti ti-link"></i> <a href="'+attr(v.url)+'" target="_blank">'+esc(v.handle)+'</a></div></div>'
+      + '<label class="schk"><input type="checkbox" class="sdonecb"'+(done?' checked':'')+'> Scheduled</label></div>'
+      + '<div class="scap"><p class="scaptext">'+(cap?esc(cap):'<span class="genempty">No caption yet — press Regenerate.</span>')+'</p>'
+      + '<div class="partrow"><button class="savebtn scopy" type="button"'+(cap?'':' disabled')+'><i class="ti ti-copy"></i> Copy</button>'
+      + '<button class="redobtn sregen" type="button"><i class="ti ti-refresh"></i> Regenerate</button>'
+      + '<button class="savebtn ssave" type="button"><i class="ti ti-device-floppy"></i> Save</button><span class="partstat"></span></div></div>';
+  }
+
+  function sectionHTML(plat){
+    var arch = !!state[plat+'_archived'];
+    var cal = videos.map(function(v){ var c=rc(v.room); return '<button class="calchip" type="button" data-goto="sc-'+plat+'-'+attr(v.id)+'" style="background:'+c[0]+';color:'+c[1]+';" title="'+attr(v.title)+'">'+esc(v.date)+'</button>'; }).join('');
+    var cards = videos.map(function(v){ return cardHTML(v, plat); }).join('');
+    var archList = videos.map(function(v){ return esc(v.date)+' · '+esc(v.sku); }).join('  ·  ');
+    return '<div class="platsec'+(arch?' archived':'')+'" data-plat="'+plat+'">'
+      + '<div class="plathead"><span class="platname"><i class="ti '+(ICON[plat]||'ti-bolt')+'"></i> '+LABEL[plat]+'</span>'
+      + '<span class="chip"><i class="ti ti-clock"></i> '+TIME[plat]+'</span><span class="chip small">'+esc(LINKR[plat])+'</span>'
+      + '<button class="archbtn" type="button" data-plat="'+plat+'"><i class="ti ti-archive"></i> Clear all to archive</button></div>'
+      + '<div class="calstrip">'+cal+'</div><div class="platcards">'+cards+'</div>'
+      + '<div class="archnote"><i class="ti ti-archive"></i> Archived — '+archList+' <button class="redobtn archback" type="button" data-plat="'+plat+'"><i class="ti ti-arrow-back-up"></i> Bring back</button></div></div>';
+  }
+
+  function render(){ body.innerHTML = SUBS[activeSub].map(sectionHTML).join(''); }
+
+  // event delegation — clicks
+  body.addEventListener('click', function(e){
+    var goto = e.target.closest('.calchip');
+    if(goto){ var el = document.getElementById(goto.getAttribute('data-goto')); if(el){ el.scrollIntoView({behavior:'smooth',block:'center'}); el.classList.add('flash'); setTimeout(function(){ el.classList.remove('flash'); },1600); } return; }
+    var btn = e.target.closest('button'); if(!btn) return;
+    var card = btn.closest('.scard'); var plat, id, v;
+    if(card){ id = card.getAttribute('data-id'); plat = card.getAttribute('data-plat'); v = byId[id]; }
+    if(btn.classList.contains('archbtn')){ var p = btn.getAttribute('data-plat'); state[p+'_archived'] = true; var sec = btn.closest('.platsec'); if(sec) sec.classList.add('archived'); save(); return; }
+    if(btn.classList.contains('archback')){ var p2 = btn.getAttribute('data-plat'); state[p2+'_archived'] = false; var sec2 = btn.closest('.platsec'); if(sec2) sec2.classList.remove('archived'); save(); return; }
+    if(!card || !v) return;
+    var stat = card.querySelector('.partstat');
+    if(btn.classList.contains('scopy')){
+      var txt = capOf(v, plat); if(!txt) return;
+      navigator.clipboard.writeText(txt).then(function(){ var o=btn.innerHTML; btn.innerHTML='<i class="ti ti-check"></i> Copied'; setTimeout(function(){ btn.innerHTML=o; },1200); });
+    } else if(btn.classList.contains('sregen')){
+      btn.disabled = true; stat.className='partstat'; stat.textContent='Writing a '+LABEL[plat]+' caption…';
+      fetch('/api/social', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'generate-caption', platform:plat, title:v.title, room:v.room, url:v.url, campaign:v.campaign }) })
+      .then(function(r){ return r.json(); }).then(function(d){
+        btn.disabled=false;
+        if(!d || !d.ok){ stat.className='partstat err'; stat.textContent='Could not write — '+((d&&d.error)||'try again'); return; }
+        pending[id+'_'+plat] = d.caption;
+        card.querySelector('.scaptext').textContent = d.caption;
+        var cpy = card.querySelector('.scopy'); if(cpy) cpy.disabled=false;
+        stat.className='partstat ok'; stat.textContent='New caption ready — Save it if you like it.';
+      }).catch(function(){ btn.disabled=false; stat.className='partstat err'; stat.textContent='Network error — try again.'; });
+    } else if(btn.classList.contains('ssave')){
+      var k=id+'_'+plat; var cur=capOf(v,plat); if(!cur){ stat.className='partstat err'; stat.textContent='Nothing to save yet.'; return; }
+      saved[k]=cur; delete pending[k]; stat.className='partstat ok'; stat.textContent='Caption saved.'; save();
+    }
+  });
+  // event delegation — scheduled checkbox
+  body.addEventListener('change', function(e){
+    var cb = e.target.closest('.sdonecb'); if(!cb) return;
+    var card = cb.closest('.scard'); var id=card.getAttribute('data-id'), plat=card.getAttribute('data-plat');
+    state[id+'_'+plat+'_done'] = cb.checked; card.classList.toggle('sdone', cb.checked); save();
+  });
+
+  // sub-tab switching
+  var subnav = document.getElementById('schedSubnav');
+  if(subnav){ subnav.addEventListener('click', function(e){ var b=e.target.closest('.subbtn'); if(!b) return;
+    activeSub=b.getAttribute('data-sub'); subnav.querySelectorAll('.subbtn').forEach(function(x){ x.classList.toggle('active', x===b); }); render(); }); }
+
+  // load
+  pill('saving','Loading…');
+  fetch('/api/social?action=get-schedule').then(function(r){ return r.json(); }).then(function(d){
+    if(d && d.ok){ videos=d.videos||[]; state=d.state||{}; saved=d.savedCaptions||{}; }
+    videos.forEach(function(v){ byId[v.id]=v; });
+    render(); pill('saved', videos.length ? 'Saved to GitHub' : 'No schedule file yet');
+  }).catch(function(){ render(); pill('err','Offline — could not load'); });
 })();
 </script>
 </body>
