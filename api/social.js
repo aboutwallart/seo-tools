@@ -126,9 +126,9 @@ module.exports = async (req, res) => {
 
     if (action === 'get-cards') {
       const gh = await ghGet(CARDS_FILE);
-      var data = { generated: {}, custom: {} };
-      if (gh.content) { try { var p = JSON.parse(gh.content); data.generated = p.generated || {}; data.custom = p.custom || {}; } catch (e) {} }
-      return res.status(200).json({ ok: true, generated: data.generated, custom: data.custom });
+      var data = { generated: {}, custom: {}, removed: [] };
+      if (gh.content) { try { var p = JSON.parse(gh.content); data.generated = p.generated || {}; data.custom = p.custom || {}; data.removed = p.removed || []; } catch (e) {} }
+      return res.status(200).json({ ok: true, generated: data.generated, custom: data.custom, removed: data.removed });
     }
 
     if (action === 'save-card') {
@@ -136,8 +136,8 @@ module.exports = async (req, res) => {
       const sku = (body.sku || '').toString();
       if (!sku) return res.status(400).json({ ok: false, error: 'Missing sku' });
       const gh = await ghGet(CARDS_FILE);
-      var data = { generated: {}, custom: {} };
-      if (gh.content) { try { var p = JSON.parse(gh.content); data.generated = p.generated || {}; data.custom = p.custom || {}; } catch (e) {} }
+      var data = { generated: {}, custom: {}, removed: [] };
+      if (gh.content) { try { var p = JSON.parse(gh.content); data.generated = p.generated || {}; data.custom = p.custom || {}; data.removed = p.removed || []; } catch (e) {} }
       // merge ONLY the fields sent, so images / prompt / lines can be saved independently
       var rec = data.generated[sku] || {};
       if (typeof body.prompt !== 'undefined') { rec.prompt = body.prompt || ''; }
@@ -157,10 +157,11 @@ module.exports = async (req, res) => {
       const sku = (body.sku || '').toString();
       if (!sku) return res.status(400).json({ ok: false, error: 'Missing sku' });
       const gh = await ghGet(CARDS_FILE);
-      var data = { generated: {}, custom: {} };
-      if (gh.content) { try { var p = JSON.parse(gh.content); data.generated = p.generated || {}; data.custom = p.custom || {}; } catch (e) {} }
+      var data = { generated: {}, custom: {}, removed: [] };
+      if (gh.content) { try { var p = JSON.parse(gh.content); data.generated = p.generated || {}; data.custom = p.custom || {}; data.removed = p.removed || []; } catch (e) {} }
       delete data.custom[sku];
       delete data.generated[sku];
+      if (data.removed.indexOf(sku) === -1) { data.removed.push(sku); }
       await ghPut(CARDS_FILE, JSON.stringify(data, null, 2), gh.sha, 'Remove card ' + sku);
       return res.status(200).json({ ok: true });
     }
@@ -193,8 +194,8 @@ module.exports = async (req, res) => {
         room: room
       };
       const gh = await ghGet(CARDS_FILE);
-      var data = { generated: {}, custom: {} };
-      if (gh.content) { try { var p = JSON.parse(gh.content); data.generated = p.generated || {}; data.custom = p.custom || {}; } catch (e) {} }
+      var data = { generated: {}, custom: {}, removed: [] };
+      if (gh.content) { try { var p = JSON.parse(gh.content); data.generated = p.generated || {}; data.custom = p.custom || {}; data.removed = p.removed || []; } catch (e) {} }
       data.custom[card.sku] = card;
       await ghPut(CARDS_FILE, JSON.stringify(data, null, 2), gh.sha, 'Add custom card ' + card.sku);
       return res.status(200).json({ ok: true, card: card });
@@ -250,6 +251,24 @@ module.exports = async (req, res) => {
       var parsed = {};
       try { parsed = JSON.parse(jm ? jm[0] : txt); } catch (e) { return res.status(200).json({ ok: false, error: 'Could not parse AI output', raw: txt }); }
       return res.status(200).json({ ok: true, caption: parsed.caption || '' });
+    }
+
+    if (action === 'make-feed') {
+      // hands Make.com the approved FB / X / Pinterest / LinkedIn posts (caption + image + link)
+      const gh = await ghGet(SCHEDULE_FILE);
+      var sched = { videos: [], savedCaptions: {} };
+      if (gh.content) { try { var p = JSON.parse(gh.content); sched.videos = p.videos || []; sched.savedCaptions = p.savedCaptions || {}; } catch (e) {} }
+      var plats = ['facebook', 'x', 'pinterest', 'linkedin'];
+      var posts = [];
+      sched.videos.forEach(function (v) {
+        plats.forEach(function (plat) {
+          var k = v.id + '_' + plat;
+          var cap = (k in sched.savedCaptions) ? sched.savedCaptions[k] : ((v.captions && v.captions[plat]) || '');
+          if (!cap) return;
+          posts.push({ id: v.id, sku: v.sku, title: v.title, date: v.date, platform: plat, image: v.image, link: v.url, caption: cap });
+        });
+      });
+      return res.status(200).json({ ok: true, count: posts.length, posts: posts });
     }
 
     return res.status(400).json({ ok: false, error: 'Unknown action: ' + action });
