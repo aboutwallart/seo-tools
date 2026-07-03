@@ -30,12 +30,31 @@ module.exports = async (req, res) => {
   }
 
   async function ghPut(filePath, content, sha, message) {
-    const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${filePath}`, {
+    return fetch(`https://api.github.com/repos/${REPO}/contents/${filePath}`, {
       method: 'PUT',
       headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
       body: JSON.stringify({ message, content: Buffer.from(content).toString('base64'), ...(sha ? { sha } : {}) })
     });
-    if (!r.ok) throw new Error('GitHub put failed: ' + await r.text());
+  }
+
+  // Conflict-safe save: re-reads the latest file and re-applies the change if two
+  // saves collide, so a rapid one-by-one save can never be silently lost.
+  async function ghSave(filePath, build, message) {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const cur = await ghGet(filePath);
+      const newContent = build(cur.content);
+      const r = await ghPut(filePath, newContent, cur.sha, message);
+      if (r.ok) return;
+      if (r.status === 409 || r.status === 422) { await new Promise(function (res) { setTimeout(res, 200 * (attempt + 1)); }); continue; }
+      throw new Error('GitHub put failed: ' + r.status + ' ' + await r.text());
+    }
+    throw new Error('Save could not complete — please save again.');
+  }
+
+  function parseCards(content) {
+    var data = { generated: {}, custom: {}, removed: [] };
+    if (content) { try { var p = JSON.parse(content); data.generated = p.generated || {}; data.custom = p.custom || {}; data.removed = p.removed || []; } catch (e) {} }
+    return data;
   }
 
   try {
@@ -51,8 +70,7 @@ module.exports = async (req, res) => {
     if (action === 'save-state') {
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
       const state = body.state && typeof body.state === 'object' ? body.state : {};
-      const { sha } = await ghGet(FILE);
-      await ghPut(FILE, JSON.stringify(state, null, 2), sha, 'Update social video tick-state');
+      await ghSave(FILE, function () { return JSON.stringify(state, null, 2); }, 'Update social video tick-state');
       return res.status(200).json({ ok: true });
     }
 
@@ -135,20 +153,20 @@ module.exports = async (req, res) => {
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
       const sku = (body.sku || '').toString();
       if (!sku) return res.status(400).json({ ok: false, error: 'Missing sku' });
-      const gh = await ghGet(CARDS_FILE);
-      var data = { generated: {}, custom: {}, removed: [] };
-      if (gh.content) { try { var p = JSON.parse(gh.content); data.generated = p.generated || {}; data.custom = p.custom || {}; data.removed = p.removed || []; } catch (e) {} }
-      // merge ONLY the fields sent, so images / prompt / lines can be saved independently
-      var rec = data.generated[sku] || {};
-      if (typeof body.prompt !== 'undefined') { rec.prompt = body.prompt || ''; }
-      if (typeof body.onscreen !== 'undefined') { rec.onscreen = Array.isArray(body.onscreen) ? body.onscreen : []; }
-      if (typeof body.seconds !== 'undefined') { rec.seconds = body.seconds || 8; }
-      if (typeof body.startImg !== 'undefined') { rec.startImg = body.startImg || ''; }
-      if (typeof body.endImg !== 'undefined') { rec.endImg = body.endImg || ''; }
-      rec.approved = true;
-      rec.savedAt = new Date().toISOString();
-      data.generated[sku] = rec;
-      await ghPut(CARDS_FILE, JSON.stringify(data, null, 2), gh.sha, 'Save card ' + sku);
+      await ghSave(CARDS_FILE, function (content) {
+        var data = parseCards(content);
+        // merge ONLY the fields sent, so images / prompt / lines can be saved independently
+        var rec = data.generated[sku] || {};
+        if (typeof body.prompt !== 'undefined') { rec.prompt = body.prompt || ''; }
+        if (typeof body.onscreen !== 'undefined') { rec.onscreen = Array.isArray(body.onscreen) ? body.onscreen : []; }
+        if (typeof body.seconds !== 'undefined') { rec.seconds = body.seconds || 8; }
+        if (typeof body.startImg !== 'undefined') { rec.startImg = body.startImg || ''; }
+        if (typeof body.endImg !== 'undefined') { rec.endImg = body.endImg || ''; }
+        rec.approved = true;
+        rec.savedAt = new Date().toISOString();
+        data.generated[sku] = rec;
+        return JSON.stringify(data, null, 2);
+      }, 'Save card ' + sku);
       return res.status(200).json({ ok: true });
     }
 
@@ -156,13 +174,13 @@ module.exports = async (req, res) => {
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
       const sku = (body.sku || '').toString();
       if (!sku) return res.status(400).json({ ok: false, error: 'Missing sku' });
-      const gh = await ghGet(CARDS_FILE);
-      var data = { generated: {}, custom: {}, removed: [] };
-      if (gh.content) { try { var p = JSON.parse(gh.content); data.generated = p.generated || {}; data.custom = p.custom || {}; data.removed = p.removed || []; } catch (e) {} }
-      delete data.custom[sku];
-      delete data.generated[sku];
-      if (data.removed.indexOf(sku) === -1) { data.removed.push(sku); }
-      await ghPut(CARDS_FILE, JSON.stringify(data, null, 2), gh.sha, 'Remove card ' + sku);
+      await ghSave(CARDS_FILE, function (content) {
+        var data = parseCards(content);
+        delete data.custom[sku];
+        delete data.generated[sku];
+        if (data.removed.indexOf(sku) === -1) { data.removed.push(sku); }
+        return JSON.stringify(data, null, 2);
+      }, 'Remove card ' + sku);
       return res.status(200).json({ ok: true });
     }
 
@@ -193,11 +211,11 @@ module.exports = async (req, res) => {
         image: (n.featuredImage && n.featuredImage.url) || '',
         room: room
       };
-      const gh = await ghGet(CARDS_FILE);
-      var data = { generated: {}, custom: {}, removed: [] };
-      if (gh.content) { try { var p = JSON.parse(gh.content); data.generated = p.generated || {}; data.custom = p.custom || {}; data.removed = p.removed || []; } catch (e) {} }
-      data.custom[card.sku] = card;
-      await ghPut(CARDS_FILE, JSON.stringify(data, null, 2), gh.sha, 'Add custom card ' + card.sku);
+      await ghSave(CARDS_FILE, function (content) {
+        var data = parseCards(content);
+        data.custom[card.sku] = card;
+        return JSON.stringify(data, null, 2);
+      }, 'Add custom card ' + card.sku);
       return res.status(200).json({ ok: true, card: card });
     }
 
@@ -210,12 +228,13 @@ module.exports = async (req, res) => {
 
     if (action === 'save-schedule') {
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
-      const gh = await ghGet(SCHEDULE_FILE);
-      var sched = { videos: [], state: {}, savedCaptions: {} };
-      if (gh.content) { try { var p = JSON.parse(gh.content); sched.videos = p.videos || []; sched.state = p.state || {}; sched.savedCaptions = p.savedCaptions || {}; } catch (e) {} }
-      if (body.state && typeof body.state === 'object') { sched.state = body.state; }
-      if (body.savedCaptions && typeof body.savedCaptions === 'object') { sched.savedCaptions = body.savedCaptions; }
-      await ghPut(SCHEDULE_FILE, JSON.stringify(sched, null, 2), gh.sha, 'Update schedule state');
+      await ghSave(SCHEDULE_FILE, function (content) {
+        var sched = { videos: [], state: {}, savedCaptions: {} };
+        if (content) { try { var p = JSON.parse(content); sched.videos = p.videos || []; sched.state = p.state || {}; sched.savedCaptions = p.savedCaptions || {}; } catch (e) {} }
+        if (body.state && typeof body.state === 'object') { sched.state = body.state; }
+        if (body.savedCaptions && typeof body.savedCaptions === 'object') { sched.savedCaptions = body.savedCaptions; }
+        return JSON.stringify(sched, null, 2);
+      }, 'Update schedule state');
       return res.status(200).json({ ok: true });
     }
 
