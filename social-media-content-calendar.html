@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v2.8 · 3 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v2.9 · 9 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -492,9 +492,275 @@
 
 <section class="tabpanel" id="tab-monthly">
   <h2>Content Monthly Plan</h2>
-  <div class="box gray"><strong>Coming later.</strong> Marketing-date calendar (Valentine's, Mother's Day, Christmas, Black Friday…) that suggests product themes, then generates Kling prompts and captions for the month.</div>
+  <div class="box gray"><strong>Plan a whole month.</strong> Pick the month, tick the marketing occasions you want, then build the plan. Occasion days suggest matching products (you pick one); the empty days are auto-filled with unused products, rotating rooms so it stays varied. Nothing you've already made can ever repeat.</div>
+
+  <style>
+    #tab-monthly .mp-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:14px 0;}
+    #tab-monthly .mp-sel,#tab-monthly .mp-in{font-size:14px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;}
+    #tab-monthly .mp-in-date{min-width:150px;}
+    #tab-monthly .mp-btn{appearance:none;border:none;border-radius:9px;background:#534AB7;color:#fff;font-size:13.5px;font-weight:700;padding:9px 16px;cursor:pointer;}
+    #tab-monthly .mp-btn-go{background:#0F6E56;}
+    #tab-monthly .mp-btn-sm{appearance:none;border:1px solid var(--line);background:#fff;border-radius:8px;font-size:13px;font-weight:700;padding:7px 12px;cursor:pointer;}
+    #tab-monthly .mp-muted{color:var(--mut);}
+    #tab-monthly .mp-h3{font-size:15px;font-weight:800;margin:22px 0 8px;}
+    #tab-monthly .mp-occ{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;}
+    #tab-monthly .mp-occitem{border:1px solid var(--line);border-radius:10px;padding:9px 11px;display:flex;gap:9px;align-items:flex-start;font-size:13px;cursor:pointer;background:#fff;}
+    #tab-monthly .mp-occitem.on{border-color:#0F6E56;background:#f0fdf4;}
+    #tab-monthly .mp-occitem input{margin-top:2px;}
+    #tab-monthly .mp-occ-date{font-weight:700;color:var(--ink);}
+    #tab-monthly .mp-promo{font-size:10.5px;font-weight:700;background:#fef3c7;color:#92400e;padding:1px 7px;border-radius:20px;margin-left:5px;}
+    #tab-monthly .mp-addocc{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0;}
+    #tab-monthly .mp-day{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:10px 0;}
+    #tab-monthly .mp-day.occ{border-left:4px solid #0F6E56;}
+    #tab-monthly .mp-dhead{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13.5px;margin-bottom:8px;}
+    #tab-monthly .mp-ddate{font-weight:800;}
+    #tab-monthly .mp-occtag{font-size:11.5px;font-weight:700;background:#dcfce7;color:#065f46;padding:2px 10px;border-radius:20px;}
+    #tab-monthly .mp-picks{display:flex;gap:8px;flex-wrap:wrap;}
+    #tab-monthly .mp-pick{width:120px;border:2px solid var(--line);border-radius:10px;padding:6px;cursor:pointer;text-align:center;background:#fff;font-size:11px;}
+    #tab-monthly .mp-pick.on{border-color:#0F6E56;background:#f0fdf4;}
+    #tab-monthly .mp-pick img{width:100%;height:80px;object-fit:cover;border-radius:6px;}
+    #tab-monthly .mp-pick .mp-pt{display:block;margin-top:4px;font-weight:600;line-height:1.2;}
+    #tab-monthly .mp-chosen{display:flex;gap:10px;align-items:center;background:var(--soft);border-radius:10px;padding:8px 10px;font-size:13px;}
+    #tab-monthly .mp-chosen img{width:54px;height:54px;object-fit:cover;border-radius:8px;}
+    #tab-monthly .mp-manual{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:8px;}
+    #tab-monthly .mp-manual .mp-in{min-width:150px;}
+    #tab-monthly .mp-warn{color:#b91c1c;font-weight:600;font-size:12.5px;}
+    #tab-monthly .mp-roomtag{font-size:10.5px;font-weight:700;padding:1px 8px;border-radius:20px;background:var(--soft);color:var(--mut);}
+    #tab-monthly .mp-savebar{margin:18px 0;display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
+  </style>
+
+  <div class="mp-row">
+    <label class="mp-muted" style="font-weight:700;">Month
+      <select id="mpMonth" class="mp-sel"></select>
+    </label>
+    <button type="button" id="mpLoad" class="mp-btn">Show occasions</button>
+    <span id="mpUsedCount" class="small mp-muted"></span>
+  </div>
+
+  <div id="mpOccWrap" style="display:none;">
+    <h3 class="mp-h3">Tick the occasions to use</h3>
+    <div id="mpOccList" class="mp-occ"></div>
+    <div class="mp-addocc">
+      <input id="mpCustomName" class="mp-in" placeholder="Add your own occasion (name)">
+      <input id="mpCustomDate" class="mp-in mp-in-date" type="date">
+      <button type="button" id="mpAddOcc" class="mp-btn-sm">+ Add occasion</button>
+    </div>
+    <button type="button" id="mpBuild" class="mp-btn mp-btn-go" style="margin-top:6px;">Build the month plan →</button>
+  </div>
+
+  <div id="mpPlanWrap" style="display:none;">
+    <div id="mpSummary" class="box green"></div>
+    <div id="mpDays"></div>
+    <div class="mp-savebar">
+      <button type="button" id="mpSave" class="mp-btn mp-btn-go">Save month plan to GitHub</button>
+      <span id="mpSaveMsg" class="small mp-muted"></span>
+    </div>
+  </div>
 </section>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v2.8 — built 3 Jul 2026.</p>
+<script>
+/* ---- TAB 3: MONTHLY PLANNER ---- */
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  if(!$('mpMonth')) return;
+  var MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var ALL_OCC = [], CUSTOM_OCC = [], DAYS = [], POOL = [], chosen = {}; // chosen: sku -> true (used across the plan)
+
+  // month dropdown: this month + next 5
+  (function(){
+    var now = new Date(), sel = $('mpMonth');
+    for(var i=0;i<6;i++){
+      var d = new Date(now.getFullYear(), now.getMonth()+i, 1);
+      var val = d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2);
+      var o = document.createElement('option');
+      o.value = val; o.textContent = MONTHS[d.getMonth()]+' '+d.getFullYear();
+      if(i===1) o.selected = true; // default = next month
+      sel.appendChild(o);
+    }
+  })();
+
+  function selMonthNum(){ return parseInt($('mpMonth').value.split('-')[1],10); }
+  function selYear(){ return parseInt($('mpMonth').value.split('-')[0],10); }
+  function daysInMonth(y,m){ return new Date(y,m,0).getDate(); }
+  function mdMonth(md){ return md ? parseInt(String(md).split('-')[0],10) : 0; }
+  function mdDay(md){ return md ? parseInt(String(md).split('-')[1],10) : 0; }
+
+  // which months an occasion touches (concrete date + window, with year wrap)
+  function occMonths(o){
+    var set = {};
+    if(o.date2026) set[mdMonth(o.date2026)] = 1;
+    if(o.window && o.window.start && o.window.end){
+      var a = mdMonth(o.window.start), b = mdMonth(o.window.end), m = a;
+      for(var g=0; g<13; g++){ set[m]=1; if(m===b) break; m = m===12?1:m+1; }
+    }
+    return set;
+  }
+  function occDayInMonth(o, mNum, dim){
+    var d = 0;
+    if(o.date2026 && mdMonth(o.date2026)===mNum) d = mdDay(o.date2026);
+    else if(o.window && mdMonth(o.window.start)===mNum) d = mdDay(o.window.start);
+    else if(o.window && mdMonth(o.window.end)===mNum) d = mdDay(o.window.end);
+    else d = 1;
+    return Math.max(1, Math.min(dim, d||1));
+  }
+
+  fetch('/api/social?action=get-occasions').then(function(r){return r.json();}).then(function(d){ if(d&&d.ok) ALL_OCC = d.occasions||[]; });
+  fetch('/api/social?action=get-used').then(function(r){return r.json();}).then(function(d){ if(d&&d.ok) $('mpUsedCount').textContent = (d.used||[]).length+' videos already used (never re-suggested).'; });
+
+  $('mpLoad').addEventListener('click', function(){
+    var mNum = selMonthNum();
+    var list = $('mpOccList'); list.innerHTML = '';
+    var shown = ALL_OCC.filter(function(o){ return occMonths(o)[mNum]; }).concat(CUSTOM_OCC.filter(function(o){ return occMonths(o)[mNum]; }));
+    if(!shown.length){ list.innerHTML = '<div class="small mp-muted">No preset occasions this month — add your own below, or just build (all days auto-fill).</div>'; }
+    shown.forEach(function(o){
+      var lab = document.createElement('label'); lab.className='mp-occitem';
+      var dateTxt = o.date2026 ? (mdDay(o.date2026)+' '+MONTHS[mdMonth(o.date2026)-1].slice(0,3)) : 'season';
+      lab.innerHTML = '<input type="checkbox" data-oid="'+o.id+'"><span><span class="mp-occ-date">'+dateTxt+'</span> · '+o.name+(o.promoSuggested?'<span class="mp-promo">PROMO</span>':'')+'<br><span class="small mp-muted">'+(o.relevance||'')+'</span></span>';
+      var cb = lab.querySelector('input');
+      cb.addEventListener('change', function(){ lab.classList.toggle('on', cb.checked); });
+      list.appendChild(lab);
+    });
+    $('mpOccWrap').style.display='';
+    $('mpPlanWrap').style.display='none';
+  });
+
+  $('mpAddOcc').addEventListener('click', function(){
+    var name = ($('mpCustomName').value||'').trim(), date = $('mpCustomDate').value;
+    if(!name){ return; }
+    var md = date ? (date.split('-')[1]+'-'+date.split('-')[2]) : '';
+    CUSTOM_OCC.push({ id:'custom-'+Date.now(), name:name, date2026:md, category:'custom', relevance:'(your occasion)', match:{rooms:[],styles:[]}, promoSuggested:false, custom:true });
+    $('mpCustomName').value=''; $('mpCustomDate').value='';
+    $('mpLoad').click();
+  });
+
+  function occById(id){
+    var a = ALL_OCC.concat(CUSTOM_OCC);
+    for(var i=0;i<a.length;i++){ if(a[i].id===id) return a[i]; }
+    return null;
+  }
+
+  $('mpBuild').addEventListener('click', function(){
+    var mNum = selMonthNum(), y = selYear(), dim = daysInMonth(y, mNum);
+    var picked = [].slice.call($('mpOccList').querySelectorAll('input:checked')).map(function(cb){ return occById(cb.getAttribute('data-oid')); }).filter(Boolean);
+    // assign occasions to days (bump to next free day on collision)
+    var dayOcc = {};
+    picked.forEach(function(o){
+      var d = occDayInMonth(o, mNum, dim);
+      while(dayOcc[d] && d<dim){ d++; }
+      dayOcc[d] = o;
+    });
+    DAYS = []; chosen = {};
+    for(var day=1; day<=dim; day++){
+      DAYS.push({ day:day, date:y+'-'+('0'+mNum).slice(-2)+'-'+('0'+day).slice(-2), occ: dayOcc[day]||null, product:null });
+    }
+    renderDays();
+    // auto-fill the non-occasion days from one random pool, rotating rooms
+    fetch('/api/social', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'suggest-products',mode:'random',limit:40})})
+    .then(function(r){return r.json();}).then(function(d){
+      POOL = (d&&d.ok&&d.products)?d.products:[];
+      autoFillFillers();
+      renderDays();
+    });
+    $('mpPlanWrap').style.display='';
+  });
+
+  function takeFromPool(prevRoom){
+    // prefer an unused product whose room differs from the previous day
+    for(var i=0;i<POOL.length;i++){ var p=POOL[i]; if(chosen[p.sku]) continue; if(prevRoom && (p.room||'').toLowerCase()===prevRoom) continue; chosen[p.sku]=true; return p; }
+    for(var j=0;j<POOL.length;j++){ var q=POOL[j]; if(!chosen[q.sku]){ chosen[q.sku]=true; return q; } } // relax room rule
+    return null;
+  }
+  function autoFillFillers(){
+    var prevRoom='';
+    DAYS.forEach(function(d){
+      if(d.occ){ prevRoom = d.product? (d.product.room||'').toLowerCase() : prevRoom; return; }
+      if(d.product) { prevRoom=(d.product.room||'').toLowerCase(); return; }
+      var p = takeFromPool(prevRoom);
+      if(p){ d.product = p; prevRoom=(p.room||'').toLowerCase(); }
+    });
+  }
+
+  function esc2(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function renderDays(){
+    var wrap = $('mpDays'); wrap.innerHTML='';
+    var need = 0;
+    DAYS.forEach(function(d, idx){
+      var el = document.createElement('div'); el.className='mp-day'+(d.occ?' occ':'');
+      var head = '<div class="mp-dhead"><span class="mp-ddate">'+d.day+' '+MONTHS[selMonthNum()-1].slice(0,3)+'</span>'+
+        (d.occ? '<span class="mp-occtag">'+esc2(d.occ.name)+(d.occ.promoSuggested?' · needs promo code':'')+'</span>' : '<span class="small mp-muted">no occasion — auto-filled</span>')+'</div>';
+      var bodyHtml = '';
+      if(d.occ && !d.product){
+        bodyHtml = '<button type="button" class="mp-btn-sm" data-suggest="'+idx+'">Suggest products for this day</button><div class="mp-picks" data-picks="'+idx+'"></div>';
+      } else if(d.product){
+        need++;
+        bodyHtml = '<div class="mp-chosen"><img src="'+esc2(d.product.image)+'" alt=""><div><strong>'+esc2(d.product.title)+'</strong><br><span class="sku">'+esc2(d.product.sku)+'</span> <span class="mp-roomtag">'+esc2(d.product.room||'')+'</span></div>'+(!d.occ?'<button type="button" class="mp-btn-sm" data-shuffle="'+idx+'" style="margin-left:auto;">↻ change</button>':'')+'</div>';
+      }
+      bodyHtml += '<div class="mp-manual"><span class="small mp-muted">or add by SKU:</span><input class="mp-in" data-sku="'+idx+'" placeholder="print-files SKU"><button type="button" class="mp-btn-sm" data-lookup="'+idx+'">Use this</button><span class="mp-warn" data-warn="'+idx+'"></span></div>';
+      el.innerHTML = head + bodyHtml;
+      wrap.appendChild(el);
+    });
+    $('mpSummary').innerHTML = '<strong>'+need+' of '+DAYS.length+' days</strong> have a product ready. Pick products on the occasion days, then save. Each saved product becomes a video to create.';
+    bindDayButtons();
+  }
+
+  function bindDayButtons(){
+    [].slice.call($('mpDays').querySelectorAll('[data-suggest]')).forEach(function(b){
+      b.addEventListener('click', function(){ suggestForDay(parseInt(b.getAttribute('data-suggest'),10), b); });
+    });
+    [].slice.call($('mpDays').querySelectorAll('[data-shuffle]')).forEach(function(b){
+      b.addEventListener('click', function(){ var i=parseInt(b.getAttribute('data-shuffle'),10); var old=DAYS[i].product; if(old) delete chosen[old.sku]; var prev=i>0?(DAYS[i-1].product&&(DAYS[i-1].product.room||'').toLowerCase()):''; DAYS[i].product=takeFromPool(prev); renderDays(); });
+    });
+    [].slice.call($('mpDays').querySelectorAll('[data-lookup]')).forEach(function(b){
+      b.addEventListener('click', function(){ var i=parseInt(b.getAttribute('data-lookup'),10); manualLookup(i); });
+    });
+  }
+
+  function suggestForDay(idx, btn){
+    var d = DAYS[idx]; if(!d.occ) return;
+    btn.textContent='Finding…'; btn.disabled=true;
+    var m = d.occ.match||{};
+    fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'suggest-products',mode:'occasion',styles:m.styles||[],rooms:m.rooms||[],limit:5})})
+    .then(function(r){return r.json();}).then(function(res){
+      btn.textContent='Suggest products for this day'; btn.disabled=false;
+      var box = $('mpDays').querySelector('[data-picks="'+idx+'"]'); if(!box) return;
+      var prods = (res&&res.ok&&res.products)?res.products:[];
+      if(!prods.length){ box.innerHTML='<span class="small mp-muted">No matching products — try the SKU box below.</span>'; return; }
+      box.innerHTML='';
+      prods.forEach(function(p){
+        var c=document.createElement('div'); c.className='mp-pick';
+        c.innerHTML='<img src="'+esc2(p.image)+'" alt=""><span class="mp-pt">'+esc2(p.title)+'</span><span class="sku">'+esc2(p.sku)+'</span>';
+        c.addEventListener('click', function(){ if(DAYS[idx].product) delete chosen[DAYS[idx].product.sku]; DAYS[idx].product=p; chosen[p.sku]=true; renderDays(); });
+        box.appendChild(c);
+      });
+    });
+  }
+
+  function manualLookup(idx){
+    var inp = $('mpDays').querySelector('[data-sku="'+idx+'"]'), warn = $('mpDays').querySelector('[data-warn="'+idx+'"]');
+    var sku=(inp.value||'').trim(); if(!sku){ warn.textContent='Type a SKU.'; return; }
+    warn.textContent='Checking…';
+    fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'lookup-sku',sku:sku})})
+    .then(function(r){return r.json();}).then(function(res){
+      if(!res||!res.ok){ warn.textContent = (res&&res.error)||'Not found.'; return; }
+      if(res.used){ warn.textContent = 'That one is already used — choose another.'; return; }
+      warn.textContent='';
+      if(DAYS[idx].product) delete chosen[DAYS[idx].product.sku];
+      DAYS[idx].product = res.product; chosen[res.product.sku]=true; renderDays();
+    });
+  }
+
+  $('mpSave').addEventListener('click', function(){
+    var days = DAYS.filter(function(d){ return d.product; }).map(function(d){
+      return { date:d.date, occasionId:d.occ?d.occ.id:'', occasionName:d.occ?d.occ.name:'', promo:d.occ?!!d.occ.promoSuggested:false, sku:d.product.sku, title:d.product.title, handle:d.product.handle, url:d.product.url, image:d.product.image, room:d.product.room };
+    });
+    $('mpSaveMsg').textContent='Saving…';
+    fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'save-plan',month:$('mpMonth').value,days:days})})
+    .then(function(r){return r.json();}).then(function(res){ $('mpSaveMsg').textContent = (res&&res.ok)?('Saved '+days.length+' days to GitHub.'):'Save failed.'; })
+    .catch(function(){ $('mpSaveMsg').textContent='Offline — not saved.'; });
+  });
+})();
+</script>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v2.9 — built 9 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
