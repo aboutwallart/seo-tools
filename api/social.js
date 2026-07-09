@@ -301,6 +301,128 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, count: posts.length, posts: posts });
     }
 
+    // ---- MONTHLY PLANNER (Tab 3) ----
+    const OCC_FILE = 'data/marketing-occasions.json';
+    const USED_FILE = 'data/used-videos.json';
+    const PLAN_FILE = 'data/social-plan.json';
+
+    async function usedSetLower() {
+      const gh = await ghGet(USED_FILE);
+      var set = {};
+      if (gh.content) { try { (JSON.parse(gh.content).used || []).forEach(function (x) { set[(x.sku || '').toUpperCase()] = 1; }); } catch (e) {} }
+      return set;
+    }
+    // one Shopify lookup helper for the print-files SKU metafield
+    async function shopifyByTagOrSku(q, n) {
+      const domain = process.env.SHOPIFY_STORE_DOMAIN, stoken = process.env.SHOPIFY_ACCESS_TOKEN;
+      if (!domain || !stoken) throw new Error('Shopify not configured');
+      const gq = 'query($q:String!,$n:Int!){ products(first:$n, query:$q){ edges{ node{ title handle onlineStoreUrl featuredImage{url} tags room:metafield(namespace:"custom",key:"room_type"){value} skumf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } } }';
+      const sr = await fetch('https://' + domain + '/admin/api/2025-01/graphql.json', {
+        method: 'POST',
+        headers: { 'X-Shopify-Access-Token': stoken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: gq, variables: { q: q, n: n } })
+      });
+      if (!sr.ok) throw new Error('Shopify error ' + sr.status);
+      const sd = await sr.json();
+      return (sd && sd.data && sd.data.products && sd.data.products.edges) || [];
+    }
+    function nodeToCard(n, fallbackSku) {
+      var sku = (n.skumf && n.skumf.value) || fallbackSku || '';
+      var room = '';
+      try { var arr = JSON.parse((n.room && n.room.value) || '[]'); room = (arr[0] || '').toString().split(',')[0].trim(); } catch (e) { room = (n.room && n.room.value) || ''; }
+      return {
+        sku: sku, title: n.title || '', handle: n.handle || '',
+        url: n.onlineStoreUrl || ('https://aboutwallart.com/products/' + (n.handle || '')),
+        image: (n.featuredImage && n.featuredImage.url) || '', room: room, tags: n.tags || []
+      };
+    }
+
+    if (action === 'get-occasions') {
+      const gh = await ghGet(OCC_FILE);
+      var occ = [];
+      if (gh.content) { try { occ = (JSON.parse(gh.content).occasions) || []; } catch (e) {} }
+      return res.status(200).json({ ok: true, occasions: occ });
+    }
+
+    if (action === 'get-used') {
+      const gh = await ghGet(USED_FILE);
+      var used = [];
+      if (gh.content) { try { used = (JSON.parse(gh.content).used) || []; } catch (e) {} }
+      return res.status(200).json({ ok: true, used: used });
+    }
+
+    if (action === 'mark-used') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      const sku = (body.sku || '').toString().trim();
+      if (!sku) return res.status(400).json({ ok: false, error: 'Missing sku' });
+      await ghSave(USED_FILE, function (content) {
+        var doc = { used: [] };
+        if (content) { try { doc = JSON.parse(content); if (!Array.isArray(doc.used)) doc.used = []; } catch (e) { doc = { used: [] }; } }
+        if (!doc.used.some(function (x) { return (x.sku || '').toUpperCase() === sku.toUpperCase(); })) {
+          doc.used.push({ sku: sku, name: (body.name || '').toString(), room: (body.room || '').toString(), usedMonth: (body.usedMonth || '').toString() });
+        }
+        return JSON.stringify(doc, null, 2);
+      }, 'Mark video used ' + sku);
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'get-plan') {
+      const gh = await ghGet(PLAN_FILE);
+      var months = {};
+      if (gh.content) { try { months = (JSON.parse(gh.content).months) || {}; } catch (e) {} }
+      return res.status(200).json({ ok: true, months: months });
+    }
+
+    if (action === 'save-plan') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      const month = (body.month || '').toString();
+      if (!month) return res.status(400).json({ ok: false, error: 'Missing month' });
+      const days = Array.isArray(body.days) ? body.days : [];
+      await ghSave(PLAN_FILE, function (content) {
+        var plan = { months: {} };
+        if (content) { try { plan = JSON.parse(content); if (!plan.months) plan.months = {}; } catch (e) { plan = { months: {} }; } }
+        plan.months[month] = { updated: new Date().toISOString(), days: days };
+        return JSON.stringify(plan, null, 2);
+      }, 'Save monthly plan ' + month);
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'lookup-sku') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      const sku = (body.sku || '').toString().trim();
+      if (!sku) return res.status(400).json({ ok: false, error: 'Type a print-files SKU first' });
+      const edges = await shopifyByTagOrSku('metafield:custom.sku_for_print_files:' + sku, 1);
+      if (!edges.length) return res.status(200).json({ ok: false, error: 'No product found for "' + sku + '"' });
+      const card = nodeToCard(edges[0].node, sku);
+      const used = await usedSetLower();
+      return res.status(200).json({ ok: true, used: !!used[(card.sku || '').toUpperCase()], product: card });
+    }
+
+    if (action === 'suggest-products') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      var styles = Array.isArray(body.styles) ? body.styles : [];
+      var rooms = Array.isArray(body.rooms) ? body.rooms : [];
+      var excludeRoom = (body.excludeRoom || '').toString().toLowerCase();
+      var mode = (body.mode || 'occasion').toString();
+      var limit = Math.min(parseInt(body.limit, 10) || 8, 40);
+
+      var terms = styles.concat(rooms).filter(Boolean).map(function (t) { return 'tag:' + String(t).trim(); });
+      var q = (mode === 'occasion' && terms.length) ? ('(' + terms.join(' OR ') + ') AND status:active') : 'status:active';
+
+      const used = await usedSetLower();
+      const edges = await shopifyByTagOrSku(q, mode === 'occasion' ? 60 : 100);
+      var out = [];
+      edges.forEach(function (e) {
+        var c = nodeToCard(e.node, '');
+        if (!c.sku) return;
+        if (used[c.sku.toUpperCase()]) return;
+        if (excludeRoom && (c.room || '').toLowerCase() === excludeRoom) return;
+        out.push(c);
+      });
+      for (var i = out.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var tmp = out[i]; out[i] = out[j]; out[j] = tmp; }
+      return res.status(200).json({ ok: true, products: out.slice(0, limit) });
+    }
+
     return res.status(400).json({ ok: false, error: 'Unknown action: ' + action });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
