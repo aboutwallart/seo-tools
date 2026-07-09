@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v2.9 · 9 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v3.0 · 9 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -563,7 +563,7 @@
   var $ = function(id){ return document.getElementById(id); };
   if(!$('mpMonth')) return;
   var MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  var ALL_OCC = [], CUSTOM_OCC = [], DAYS = [], POOL = [], chosen = {}; // chosen: sku -> true (used across the plan)
+  var ALL_OCC = [], CUSTOM_OCC = [], DAYS = [], POOL = [], TAB1POOL = [], TAB1SET = {}, chosen = {};
 
   // month dropdown: this month + next 5
   (function(){
@@ -652,29 +652,36 @@
     for(var day=1; day<=dim; day++){
       DAYS.push({ day:day, date:y+'-'+('0'+mNum).slice(-2)+'-'+('0'+day).slice(-2), occ: dayOcc[day]||null, product:null });
     }
+    $('mpPlanWrap').style.display='';
     renderDays();
-    // auto-fill the non-occasion days from one random pool, rotating rooms
-    fetch('/api/social', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'suggest-products',mode:'random',limit:40})})
-    .then(function(r){return r.json();}).then(function(d){
-      POOL = (d&&d.ok&&d.products)?d.products:[];
+    // filler pools: Tab 1 UNUSED cards first (priority), then a general art fallback
+    var tab1Skus = [].slice.call(document.querySelectorAll('#tab-video .vcard[data-sku]')).map(function(c){ return c.getAttribute('data-sku'); }).filter(Boolean);
+    TAB1SET = {}; tab1Skus.forEach(function(s){ TAB1SET[s.toUpperCase()] = 1; });
+    Promise.all([
+      fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'hydrate-skus',skus:tab1Skus})}).then(function(r){return r.json();}).catch(function(){return {};}),
+      fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'suggest-products',collections:['art-prints-for-wall'],limit:40})}).then(function(r){return r.json();}).catch(function(){return {};})
+    ]).then(function(res){
+      TAB1POOL = (res[0]&&res[0].ok&&res[0].products)?res[0].products:[];
+      POOL = (res[1]&&res[1].ok&&res[1].products)?res[1].products:[];
       autoFillFillers();
       renderDays();
     });
-    $('mpPlanWrap').style.display='';
   });
 
-  function takeFromPool(prevRoom){
-    // prefer an unused product whose room differs from the previous day
-    for(var i=0;i<POOL.length;i++){ var p=POOL[i]; if(chosen[p.sku]) continue; if(prevRoom && (p.room||'').toLowerCase()===prevRoom) continue; chosen[p.sku]=true; return p; }
-    for(var j=0;j<POOL.length;j++){ var q=POOL[j]; if(!chosen[q.sku]){ chosen[q.sku]=true; return q; } } // relax room rule
+  function takeFiller(prevRoom){
+    var pools=[TAB1POOL, POOL]; // Tab 1 unused first, then general art fallback
+    for(var pi=0; pi<pools.length; pi++){ var pool=pools[pi];
+      for(var i=0;i<pool.length;i++){ var p=pool[i]; if(chosen[p.sku]) continue; if(prevRoom && (p.room||'').toLowerCase()===prevRoom) continue; chosen[p.sku]=true; return p; } }
+    for(var pj=0; pj<pools.length; pj++){ var pool2=pools[pj]; // relax room rule only if nothing else is left
+      for(var k=0;k<pool2.length;k++){ var q=pool2[k]; if(!chosen[q.sku]){ chosen[q.sku]=true; return q; } } }
     return null;
   }
   function autoFillFillers(){
     var prevRoom='';
     DAYS.forEach(function(d){
-      if(d.occ){ prevRoom = d.product? (d.product.room||'').toLowerCase() : prevRoom; return; }
+      if(d.occ){ if(d.product) prevRoom=(d.product.room||'').toLowerCase(); return; }
       if(d.product) { prevRoom=(d.product.room||'').toLowerCase(); return; }
-      var p = takeFromPool(prevRoom);
+      var p = takeFiller(prevRoom);
       if(p){ d.product = p; prevRoom=(p.room||'').toLowerCase(); }
     });
   }
@@ -708,7 +715,7 @@
       b.addEventListener('click', function(){ suggestForDay(parseInt(b.getAttribute('data-suggest'),10), b); });
     });
     [].slice.call($('mpDays').querySelectorAll('[data-shuffle]')).forEach(function(b){
-      b.addEventListener('click', function(){ var i=parseInt(b.getAttribute('data-shuffle'),10); var old=DAYS[i].product; if(old) delete chosen[old.sku]; var prev=i>0?(DAYS[i-1].product&&(DAYS[i-1].product.room||'').toLowerCase()):''; DAYS[i].product=takeFromPool(prev); renderDays(); });
+      b.addEventListener('click', function(){ var i=parseInt(b.getAttribute('data-shuffle'),10); var old=DAYS[i].product; if(old) delete chosen[old.sku]; var prev=i>0?(DAYS[i-1].product&&(DAYS[i-1].product.room||'').toLowerCase()):''; DAYS[i].product=takeFiller(prev); renderDays(); });
     });
     [].slice.call($('mpDays').querySelectorAll('[data-lookup]')).forEach(function(b){
       b.addEventListener('click', function(){ var i=parseInt(b.getAttribute('data-lookup'),10); manualLookup(i); });
@@ -718,17 +725,19 @@
   function suggestForDay(idx, btn){
     var d = DAYS[idx]; if(!d.occ) return;
     btn.textContent='Finding…'; btn.disabled=true;
-    var m = d.occ.match||{};
-    fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'suggest-products',mode:'occasion',styles:m.styles||[],rooms:m.rooms||[],limit:5})})
+    fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'suggest-products',collections:d.occ.collections||[],limit:8})})
     .then(function(r){return r.json();}).then(function(res){
       btn.textContent='Suggest products for this day'; btn.disabled=false;
       var box = $('mpDays').querySelector('[data-picks="'+idx+'"]'); if(!box) return;
       var prods = (res&&res.ok&&res.products)?res.products:[];
-      if(!prods.length){ box.innerHTML='<span class="small mp-muted">No matching products — try the SKU box below.</span>'; return; }
+      if(!prods.length){ box.innerHTML='<span class="small mp-muted">No matching products in that collection — try the SKU box below.</span>'; return; }
+      prods.sort(function(a,b){ return (TAB1SET[(a.sku||'').toUpperCase()]?0:1)-(TAB1SET[(b.sku||'').toUpperCase()]?0:1); }); // Tab 1 unused first
+      prods = prods.slice(0,5);
       box.innerHTML='';
       prods.forEach(function(p){
+        var onT1 = TAB1SET[(p.sku||'').toUpperCase()];
         var c=document.createElement('div'); c.className='mp-pick';
-        c.innerHTML='<img src="'+esc2(p.image)+'" alt=""><span class="mp-pt">'+esc2(p.title)+'</span><span class="sku">'+esc2(p.sku)+'</span>';
+        c.innerHTML='<img src="'+esc2(p.image)+'" alt=""><span class="mp-pt">'+esc2(p.title)+'</span><span class="sku">'+esc2(p.sku)+'</span>'+(onT1?'<span class="mp-roomtag" style="background:#dcfce7;color:#065f46;">on Tab 1</span>':'');
         c.addEventListener('click', function(){ if(DAYS[idx].product) delete chosen[DAYS[idx].product.sku]; DAYS[idx].product=p; chosen[p.sku]=true; renderDays(); });
         box.appendChild(c);
       });
@@ -760,7 +769,7 @@
   });
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v2.9 — built 9 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v3.0 — built 9 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
