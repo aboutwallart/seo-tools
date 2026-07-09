@@ -1,0 +1,353 @@
+{
+  "_meta": {
+    "version": "1.0",
+    "updated": "2026-07-09",
+    "purpose": "Master marketing-occasions calendar for the Social Content Tool (Tab 3 planner). Evergreen / annual - reused every year. The tool shows these for the chosen month, the owner ticks which to use, and each ticked occasion suggests products by matching 'match.rooms' / 'match.styles' to the product TAGS pulled from Shopify (via the tool backend). Days with no ticked occasion get a random unused product with room-rotation.",
+    "fields": {
+      "id": "stable slug",
+      "name": "display name",
+      "date2026": "concrete date this year (MM-DD) or empty for a window/season",
+      "window": "content lead-up range {start,end} MM-DD - when to post around it",
+      "rule": "how the date is worked out for movable dates (owner confirms exact day)",
+      "category": "gifting | seasonal | awareness | sale | wellness",
+      "relevance": "why it sells wall art / the angle",
+      "match": "{ rooms:[], styles:[] } - matched against product tags to suggest products",
+      "promoSuggested": "true if this occasion usually warrants a discount code"
+    },
+    "rooms_vocab": ["living","bedroom","kitchen","bathroom","nursery","kids","teens","hallway","office","games","laundry","dining"],
+    "styles_vocab": ["japanese","japandi","chinoiserie","asian","zen","buddha","landscape","botanical","floral","boho","boho-women","coastal","sea","tropical","travel","abstract","geometric","pop-art","sculpture","urban","minimalist","monochrome","neutral","dark-moody","festive","cranes","world-map"],
+    "note": "rooms/styles are matched to the owner's real Shopify product tags - align this vocab to her actual tags when wiring the tool."
+  },
+  "occasions": [
+    {
+      "id": "new-year-home-refresh",
+      "name": "New Year Home Refresh",
+      "date2026": "01-01",
+      "window": { "start": "12-27", "end": "01-15" },
+      "rule": "fixed - 1 Jan, runs through mid-January",
+      "category": "seasonal",
+      "relevance": "fresh-start energy; people redecorate and refresh rooms in January",
+      "match": { "rooms": ["living","bedroom"], "styles": ["minimalist","neutral","japandi","abstract"] },
+      "promoSuggested": true
+    },
+    {
+      "id": "blue-monday",
+      "name": "Blue Monday",
+      "date2026": "01-19",
+      "window": { "start": "01-12", "end": "01-19" },
+      "rule": "third Monday of January",
+      "category": "wellness",
+      "relevance": "brighten the home / lift the mood; calm, cheerful, uplifting art",
+      "match": { "rooms": ["living","kitchen"], "styles": ["botanical","floral","abstract","coastal"] },
+      "promoSuggested": false
+    },
+    {
+      "id": "winter-hygge",
+      "name": "Winter Cosy / Hygge",
+      "date2026": "",
+      "window": { "start": "01-05", "end": "02-15" },
+      "rule": "deep-winter season",
+      "category": "seasonal",
+      "relevance": "cosy, warm, layered homes in the coldest months",
+      "match": { "rooms": ["living","bedroom"], "styles": ["neutral","landscape","japandi","botanical"] },
+      "promoSuggested": false
+    },
+    {
+      "id": "lunar-new-year",
+      "name": "Lunar New Year",
+      "date2026": "02-17",
+      "window": { "start": "02-07", "end": "02-17" },
+      "rule": "varies (late Jan / Feb) - confirm each year",
+      "category": "seasonal",
+      "relevance": "Asian-inspired art has a natural moment; luck, cranes, koi, chinoiserie",
+      "match": { "rooms": ["living","hallway"], "styles": ["chinoiserie","asian","japanese","cranes","zen"] },
+      "promoSuggested": false
+    },
+    {
+      "id": "valentines-day",
+      "name": "Valentine's Day",
+      "date2026": "02-14",
+      "window": { "start": "01-27", "end": "02-14" },
+      "rule": "fixed - 14 Feb",
+      "category": "gifting",
+      "relevance": "romantic gifting, couples' bedrooms, warm and soft styling",
+      "match": { "rooms": ["bedroom","living"], "styles": ["floral","boho-women","neutral","botanical"] },
+      "promoSuggested": true
+    },
+    {
+      "id": "spring-refresh",
+      "name": "Spring Refresh",
+      "date2026": "03-20",
+      "window": { "start": "03-01", "end": "04-15" },
+      "rule": "spring equinox ~20 Mar; runs through April",
+      "category": "seasonal",
+      "relevance": "spring cleaning + redecorating; fresh, light, botanical looks",
+      "match": { "rooms": ["living","kitchen","bathroom"], "styles": ["botanical","floral","coastal","neutral"] },
+      "promoSuggested": false
+    },
+    {
+      "id": "international-womens-day",
+      "name": "International Women's Day",
+      "date2026": "03-08",
+      "window": { "start": "03-01", "end": "03-08" },
+      "rule": "fixed - 8 Mar",
+      "category": "awareness",
+      "relevance": "strong fit for the boho-women collection",
+      "match": { "rooms": ["living","bedroom"], "styles": ["boho-women","boho"] },
+      "promoSuggested": false
+    },
+    {
+      "id": "mothers-day-uk",
+      "name": "Mother's Day (UK)",
+      "date2026": "03-15",
+      "window": { "start": "02-28", "end": "03-15" },
+      "rule": "UK Mothering Sunday - 4th Sunday of Lent (mid-March); confirm each year",
+      "category": "gifting",
+      "relevance": "top gifting moment; art as a thoughtful gift for her space",
+      "match": { "rooms": ["living","bedroom","kitchen"], "styles": ["floral","botanical","boho-women","neutral"] },
+      "promoSuggested": true
+    },
+    {
+      "id": "easter",
+      "name": "Easter",
+      "date2026": "04-05",
+      "window": { "start": "03-22", "end": "04-05" },
+      "rule": "movable feast; confirm each year",
+      "category": "seasonal",
+      "relevance": "spring gathering, dining and family spaces refreshed",
+      "match": { "rooms": ["dining","kitchen","living"], "styles": ["botanical","floral","neutral"] },
+      "promoSuggested": false
+    },
+    {
+      "id": "earth-day",
+      "name": "Earth Day",
+      "date2026": "04-22",
+      "window": { "start": "04-15", "end": "04-22" },
+      "rule": "fixed - 22 Apr",
+      "category": "awareness",
+      "relevance": "nature, botanical, sustainable-feeling art",
+      "match": { "rooms": ["living","kitchen","bathroom"], "styles": ["botanical","landscape","tropical","coastal"] },
+      "promoSuggested": false
+    },
+    {
+      "id": "wedding-season",
+      "name": "Wedding Season",
+      "date2026": "",
+      "window": { "start": "04-01", "end": "09-30" },
+      "rule": "spring-to-autumn season",
+      "category": "gifting",
+      "relevance": "wedding gifts + newlyweds furnishing a first home together",
+      "match": { "rooms": ["living","bedroom"], "styles": ["neutral","botanical","landscape","abstract"] },
+      "promoSuggested": false
+    },
+    {
+      "id": "mental-health-awareness-week",
+      "name": "Mental Health Awareness Week",
+      "date2026": "05-18",
+      "window": { "start": "05-11", "end": "05-18" },
+      "rule": "mid-May (week); confirm each year",
+      "category": "wellness",
+      "relevance": "calming spaces, zen, restful bedrooms and reading corners",
+      "match": { "rooms": ["bedroom","living"], "styles": ["zen","buddha","japandi","landscape","neutral"] },
+      "promoSuggested": false
+    },
+    {
+      "id": "housewarming-moving-season",
+      "name": "Moving / Housewarming Season",
+      "date2026": "",
+      "window": { "start": "05-01", "end": "09-01" },
+      "rule": "peak UK moving months (summer)",
+      "category": "gifting",
+      "relevance": "new homes to decorate; housewarming gifts; blank walls everywhere",
+      "match": { "rooms": ["living","hallway","bedroom","kitchen"], "styles": ["neutral","abstract","landscape","minimalist"] },
+      "promoSuggested": false
+    },
+    {
+      "id": "fathers-day-uk",
+      "name": "Father's Day (UK)",
+      "date2026": "06-21",
+      "window": { "start": "06-07", "end": "06-21" },
+      "rule": "3rd Sunday of June",
+      "category": "gifting",
+      "relevance": "gifting for his space - office, games room, hallway, bold/urban art",
+      "match": { "rooms": ["office","games","hallway"], "styles": ["urban","abstract","monochrome","pop-art","travel"] },
+      "promoSuggested": true
+    },
+    {
+      "id": "summer-solstice",
+      "name": "Summer / Longest Day",
+      "date2026": "06-21",
+      "window": { "start": "06-01", "end": "07-31" },
+      "rule": "summer season",
+      "category": "seasonal",
+      "relevance": "bright, breezy, coastal and tropical looks; holiday mood at home",
+      "match": { "rooms": ["living","kitchen","bathroom"], "styles": ["coastal","sea","tropical","botanical"] },
+      "promoSuggested": false
+    },
+    {
+      "id": "home-office-refresh",
+      "name": "Home Office / WFH Refresh",
+      "date2026": "",
+      "window": { "start": "08-15", "end": "09-30" },
+      "rule": "late summer into autumn (back-to-routine)",
+      "category": "seasonal",
+      "relevance": "people re-set their workspace; calm, focused, professional art",
+      "match": { "rooms": ["office","living"], "styles": ["landscape","abstract","japandi","minimalist","travel"] },
+      "promoSuggested": false
+    },
+    {
+      "id": "back-to-school",
+      "name": "Back to School",
+      "date2026": "09-01",
+      "window": { "start": "08-20", "end": "09-10" },
+      "rule": "early September",
+      "category": "seasonal",
+      "relevance": "kids' and teens' rooms refreshed; study spaces",
+      "match": { "rooms": ["kids","teens","office"], "styles": ["world-map","abstract","pop-art","geometric"] },
+      "promoSuggested": false
+    },
+    {
+      "id": "autumn-cosy",
+      "name": "Autumn Cosy Season",
+      "date2026": "09-22",
+      "window": { "start": "09-15", "end": "11-01" },
+      "rule": "autumn equinox into late October",
+      "category": "seasonal",
+      "relevance": "nesting; warm, cosy, layered homes as nights draw in",
+      "match": { "rooms": ["living","bedroom"], "styles": ["neutral","landscape","botanical","dark-moody"] },
+      "promoSuggested": false
+    },
+    {
+      "id": "world-mental-health-day",
+      "name": "World Mental Health Day",
+      "date2026": "10-10",
+      "window": { "start": "10-03", "end": "10-10" },
+      "rule": "fixed - 10 Oct",
+      "category": "wellness",
+      "relevance": "calm, restful, mindful spaces",
+      "match": { "rooms": ["bedroom","living"], "styles": ["zen","buddha","japandi","landscape"] },
+      "promoSuggested": false
+    },
+    {
+      "id": "halloween",
+      "name": "Halloween",
+      "date2026": "10-31",
+      "window": { "start": "10-17", "end": "10-31" },
+      "rule": "fixed - 31 Oct",
+      "category": "seasonal",
+      "relevance": "dark & moody interiors moment; dramatic, gothic, bold styling",
+      "match": { "rooms": ["living","hallway","dining"], "styles": ["dark-moody","monochrome","abstract","botanical"] },
+      "promoSuggested": false
+    },
+    {
+      "id": "diwali",
+      "name": "Diwali",
+      "date2026": "11-08",
+      "window": { "start": "10-30", "end": "11-08" },
+      "rule": "movable (late Oct / Nov); confirm each year",
+      "category": "seasonal",
+      "relevance": "festival of light; warm, rich, decorative styling",
+      "match": { "rooms": ["living","hallway","dining"], "styles": ["chinoiserie","asian","botanical","abstract"] },
+      "promoSuggested": false
+    },
+    {
+      "id": "bonfire-night",
+      "name": "Bonfire Night",
+      "date2026": "11-05",
+      "window": { "start": "11-01", "end": "11-05" },
+      "rule": "fixed - 5 Nov",
+      "category": "seasonal",
+      "relevance": "cosy autumn-evening mood; warm living rooms",
+      "match": { "rooms": ["living"], "styles": ["dark-moody","neutral","abstract"] },
+      "promoSuggested": false
+    },
+    {
+      "id": "black-friday",
+      "name": "Black Friday",
+      "date2026": "11-27",
+      "window": { "start": "11-20", "end": "11-30" },
+      "rule": "4th Friday of November",
+      "category": "sale",
+      "relevance": "biggest sale moment; direct-sales promo code (no affiliate cost)",
+      "match": { "rooms": ["living","bedroom","kitchen","hallway"], "styles": ["landscape","abstract","boho","japandi","coastal"] },
+      "promoSuggested": true
+    },
+    {
+      "id": "cyber-monday",
+      "name": "Cyber Monday",
+      "date2026": "11-30",
+      "window": { "start": "11-28", "end": "11-30" },
+      "rule": "Monday after Black Friday",
+      "category": "sale",
+      "relevance": "online-sales continuation of Black Friday",
+      "match": { "rooms": ["living","bedroom","office"], "styles": ["abstract","monochrome","minimalist","landscape"] },
+      "promoSuggested": true
+    },
+    {
+      "id": "small-business-saturday",
+      "name": "Small Business Saturday",
+      "date2026": "12-05",
+      "window": { "start": "11-30", "end": "12-05" },
+      "rule": "first Saturday of December",
+      "category": "awareness",
+      "relevance": "shop-small story; brand + maker angle",
+      "match": { "rooms": ["living","kitchen"], "styles": ["boho","botanical","abstract","landscape"] },
+      "promoSuggested": false
+    },
+    {
+      "id": "christmas-gifting",
+      "name": "Christmas Gifting",
+      "date2026": "12-25",
+      "window": { "start": "11-15", "end": "12-20" },
+      "rule": "build-up through December; last order dates matter",
+      "category": "gifting",
+      "relevance": "peak gifting; art as a present; festive, warm, giftable sets",
+      "match": { "rooms": ["living","bedroom","kitchen","nursery"], "styles": ["festive","neutral","botanical","landscape","boho"] },
+      "promoSuggested": true
+    },
+    {
+      "id": "christmas-day",
+      "name": "Christmas / Festive Home",
+      "date2026": "12-25",
+      "window": { "start": "12-01", "end": "12-25" },
+      "rule": "fixed - 25 Dec",
+      "category": "seasonal",
+      "relevance": "festive styling of living and dining spaces",
+      "match": { "rooms": ["living","dining"], "styles": ["festive","neutral","botanical"] },
+      "promoSuggested": false
+    },
+    {
+      "id": "boxing-day-sales",
+      "name": "Boxing Day / January Sales",
+      "date2026": "12-26",
+      "window": { "start": "12-26", "end": "01-05" },
+      "rule": "26 Dec into early January",
+      "category": "sale",
+      "relevance": "post-Christmas sale mood; treat-yourself refresh",
+      "match": { "rooms": ["living","bedroom"], "styles": ["neutral","abstract","landscape","minimalist"] },
+      "promoSuggested": true
+    },
+    {
+      "id": "new-baby-nursery",
+      "name": "New Baby / Nursery Season",
+      "date2026": "",
+      "window": { "start": "01-01", "end": "12-31" },
+      "rule": "year-round buying trigger",
+      "category": "gifting",
+      "relevance": "new babies + baby showers; nursery walls; strong gifting",
+      "match": { "rooms": ["nursery","kids"], "styles": ["world-map","botanical","neutral","boho"] },
+      "promoSuggested": false
+    },
+    {
+      "id": "coastal-summer-holidays",
+      "name": "Summer Holidays / Coastal",
+      "date2026": "",
+      "window": { "start": "07-01", "end": "08-31" },
+      "rule": "school summer holidays",
+      "category": "seasonal",
+      "relevance": "holiday-at-home feeling; sea, coastal, tropical, travel",
+      "match": { "rooms": ["living","bathroom","bedroom"], "styles": ["coastal","sea","tropical","travel"] },
+      "promoSuggested": false
+    }
+  ]
+}
