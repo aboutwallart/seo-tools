@@ -267,6 +267,7 @@ module.exports = async (req, res) => {
         '- NO links, URLs, phone numbers, emails, @handles, QR codes, or any direction to go off TikTok.\n' +
         '- NO price, discount, sale, or exaggerated / unverifiable claims. Describe the product honestly.\n' +
         '- NO words in ALL CAPS, and no letters replaced by symbols or numbers.\n' +
+        '- Sentence case: start the caption and every new sentence with a capital letter; keep the rest natural (never a whole word in caps).\n' +
         '- Native, genuine, conversational; the product and room come through naturally. UK spelling. Never use words like elevate, delve, showcase, dive, beacon.\n' +
         'Hashtags: lowercase, relevant to wall art / the room / the decor style, not spammy, no banned words.\n' +
         'Return ONLY strict JSON, no markdown: {"caption":"...","hashtags":"#one #two #three"}';
@@ -281,7 +282,9 @@ module.exports = async (req, res) => {
       var jm = txt.match(/\{[\s\S]*\}/);
       var parsed = {};
       try { parsed = JSON.parse(jm ? jm[0] : txt); } catch (e) { return res.status(200).json({ ok: false, error: 'Could not parse AI output', raw: txt }); }
-      return res.status(200).json({ ok: true, caption: parsed.caption || '', hashtags: parsed.hashtags || '', length: length });
+      // guarantee sentence case: capitalise the first letter and the start of every sentence
+      var cap = (parsed.caption || '').replace(/(^\s*|[.!?]\s+|\n\s*)([a-z])/g, function (mm, pre, ch) { return pre + ch.toUpperCase(); });
+      return res.status(200).json({ ok: true, caption: cap, hashtags: parsed.hashtags || '', length: length });
     }
 
     if (action === 'make-feed') {
