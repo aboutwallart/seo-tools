@@ -5,34 +5,175 @@
     "purpose": "Single source of truth for which product videos have already been MADE + scheduled. The Social Content Tool checks every suggestion (occasion match, random filler day, and the manual SKU box) against this list and skips anything here, so a product video is never repeated. Keyed by SKU (the code on each Tab 1 card, e.g. BEDJPN3).",
     "how_it_updates": "When a Tab 1 card is marked complete (turns grey), the tool appends its SKU here and saves to GitHub. Nothing is stored locally.",
     "seed_note": "Seeded 2026-07-09 with the 26 videos already created and scheduled in Metricool (the original launch run). Owner to confirm/add any other greyed-out cards not in this list.",
-    "fields": { "sku": "product code", "name": "short name", "room": "room type (for variety/rotation reference)", "usedMonth": "YYYY-MM when the video went out" }
+    "fields": {
+      "sku": "product code",
+      "name": "short name",
+      "room": "room type (for variety/rotation reference)",
+      "usedMonth": "YYYY-MM when the video went out"
+    }
   },
   "used": [
-    { "sku": "NURSERYFAIRIES7", "name": "Baby Fairy", "room": "nursery", "usedMonth": "2026-07" },
-    { "sku": "BOHOWOMEN11", "name": "Boho Women", "room": "living", "usedMonth": "2026-07" },
-    { "sku": "KITTRAVITALY06", "name": "Lemons + Tiles", "room": "kitchen", "usedMonth": "2026-07" },
-    { "sku": "LIVLND2", "name": "Landscape", "room": "living", "usedMonth": "2026-07" },
-    { "sku": "BATHBOHOWOMEN14", "name": "Boho Spa", "room": "bathroom", "usedMonth": "2026-07" },
-    { "sku": "LIVLND87", "name": "Chinoiserie", "room": "living", "usedMonth": "2026-07" },
-    { "sku": "BEDJPN3", "name": "Japanese Bedroom", "room": "bedroom", "usedMonth": "2026-07" },
-    { "sku": "LIVLND118", "name": "Navy Cranes", "room": "living", "usedMonth": "2026-07" },
-    { "sku": "NURSERYMAP1", "name": "World Map", "room": "nursery", "usedMonth": "2026-07" },
-    { "sku": "OFLIVLND124", "name": "Red Sun XL", "room": "living", "usedMonth": "2026-07" },
-    { "sku": "KITCHBEECIRCLES", "name": "Bees", "room": "kitchen", "usedMonth": "2026-07" },
-    { "sku": "LIVLND19", "name": "Teal", "room": "living", "usedMonth": "2026-07" },
-    { "sku": "BATHBOT60", "name": "Relax / Wash", "room": "bathroom", "usedMonth": "2026-07" },
-    { "sku": "LIVLND125", "name": "Pine Forest", "room": "living", "usedMonth": "2026-07" },
-    { "sku": "BEDJPN10", "name": "Zen Enso", "room": "bedroom", "usedMonth": "2026-07" },
-    { "sku": "CLOCKS01", "name": "Clocks", "room": "living", "usedMonth": "2026-07" },
-    { "sku": "LUCKY02", "name": "Cool Pop", "room": "games", "usedMonth": "2026-07" },
-    { "sku": "LIVLND74", "name": "Japanese Living", "room": "living", "usedMonth": "2026-07" },
-    { "sku": "KITLEMONS1", "name": "Lemons", "room": "kitchen", "usedMonth": "2026-07" },
-    { "sku": "LIVLND129", "name": "B&W Ink", "room": "living", "usedMonth": "2026-07" },
-    { "sku": "SKYSCRAPERS03", "name": "Skyscrapers", "room": "hallway", "usedMonth": "2026-07" },
-    { "sku": "LIVLND121", "name": "Oak Frames", "room": "living", "usedMonth": "2026-07" },
-    { "sku": "BEDLND117", "name": "White & Black", "room": "bedroom", "usedMonth": "2026-08" },
-    { "sku": "SCULPTURES01", "name": "Sculpture", "room": "living", "usedMonth": "2026-08" },
-    { "sku": "UTBOT1", "name": "Botanical Laundry", "room": "laundry", "usedMonth": "2026-08" },
-    { "sku": "LIVLND123", "name": "Buddha", "room": "living", "usedMonth": "2026-08" }
+    {
+      "sku": "NURSERYFAIRIES7",
+      "name": "Baby Fairy",
+      "room": "nursery",
+      "usedMonth": "2026-07"
+    },
+    {
+      "sku": "BOHOWOMEN11",
+      "name": "Boho Women",
+      "room": "living",
+      "usedMonth": "2026-07"
+    },
+    {
+      "sku": "KITTRAVITALY06",
+      "name": "Lemons + Tiles",
+      "room": "kitchen",
+      "usedMonth": "2026-07"
+    },
+    {
+      "sku": "LIVLND2",
+      "name": "Landscape",
+      "room": "living",
+      "usedMonth": "2026-07"
+    },
+    {
+      "sku": "BATHBOHOWOMEN14",
+      "name": "Boho Spa",
+      "room": "bathroom",
+      "usedMonth": "2026-07"
+    },
+    {
+      "sku": "LIVLND87",
+      "name": "Chinoiserie",
+      "room": "living",
+      "usedMonth": "2026-07"
+    },
+    {
+      "sku": "BEDJPN3",
+      "name": "Japanese Bedroom",
+      "room": "bedroom",
+      "usedMonth": "2026-07"
+    },
+    {
+      "sku": "LIVLND118",
+      "name": "Navy Cranes",
+      "room": "living",
+      "usedMonth": "2026-07"
+    },
+    {
+      "sku": "NURSERYMAP1",
+      "name": "World Map",
+      "room": "nursery",
+      "usedMonth": "2026-07"
+    },
+    {
+      "sku": "OFLIVLND124",
+      "name": "Red Sun XL",
+      "room": "living",
+      "usedMonth": "2026-07"
+    },
+    {
+      "sku": "KITCHBEECIRCLES",
+      "name": "Bees",
+      "room": "kitchen",
+      "usedMonth": "2026-07"
+    },
+    {
+      "sku": "LIVLND19",
+      "name": "Teal",
+      "room": "living",
+      "usedMonth": "2026-07"
+    },
+    {
+      "sku": "BATHBOT60",
+      "name": "Relax / Wash",
+      "room": "bathroom",
+      "usedMonth": "2026-07"
+    },
+    {
+      "sku": "LIVLND125",
+      "name": "Pine Forest",
+      "room": "living",
+      "usedMonth": "2026-07"
+    },
+    {
+      "sku": "BEDJPN10",
+      "name": "Zen Enso",
+      "room": "bedroom",
+      "usedMonth": "2026-07"
+    },
+    {
+      "sku": "CLOCKS01",
+      "name": "Clocks",
+      "room": "living",
+      "usedMonth": "2026-07"
+    },
+    {
+      "sku": "LUCKY02",
+      "name": "Cool Pop",
+      "room": "games",
+      "usedMonth": "2026-07"
+    },
+    {
+      "sku": "LIVLND74",
+      "name": "Japanese Living",
+      "room": "living",
+      "usedMonth": "2026-07"
+    },
+    {
+      "sku": "KITLEMONS1",
+      "name": "Lemons",
+      "room": "kitchen",
+      "usedMonth": "2026-07"
+    },
+    {
+      "sku": "LIVLND129",
+      "name": "B&W Ink",
+      "room": "living",
+      "usedMonth": "2026-07"
+    },
+    {
+      "sku": "SKYSCRAPERS03",
+      "name": "Skyscrapers",
+      "room": "hallway",
+      "usedMonth": "2026-07"
+    },
+    {
+      "sku": "LIVLND121",
+      "name": "Oak Frames",
+      "room": "living",
+      "usedMonth": "2026-07"
+    },
+    {
+      "sku": "BEDLND117",
+      "name": "White & Black",
+      "room": "bedroom",
+      "usedMonth": "2026-08"
+    },
+    {
+      "sku": "SCULPTURES01",
+      "name": "Sculpture",
+      "room": "living",
+      "usedMonth": "2026-08"
+    },
+    {
+      "sku": "UTBOT1",
+      "name": "Botanical Laundry",
+      "room": "laundry",
+      "usedMonth": "2026-08"
+    },
+    {
+      "sku": "LIVLND123",
+      "name": "Buddha",
+      "room": "living",
+      "usedMonth": "2026-08"
+    },
+    {
+      "sku": "BOTFERN2",
+      "name": "Botanical art prints | set of 3 wall art for living room",
+      "room": "Living room",
+      "usedMonth": ""
+    }
   ]
 }
