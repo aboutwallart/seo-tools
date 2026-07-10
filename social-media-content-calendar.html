@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v3.2 · 10 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v3.3 · 10 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -479,13 +479,8 @@
 </section>
 
 <section class="tabpanel" id="tab-schedule">
-  <h2>Schedule</h2>
-  <div class="box gray"><strong>Schedule your done videos.</strong> Pick a platform, copy the caption, schedule it, then tap <em>Scheduled</em> to grey it off. Clear a whole platform to the archive when you're done. ☀️ 8am = Instagram · Facebook · Pinterest · 🌙 7pm = TikTok · X.</div>
-  <nav class="subtabnav" id="schedSubnav">
-    <button class="subbtn active" type="button" data-sub="instagram"><i class="ti ti-brand-instagram"></i> Instagram</button>
-    <button class="subbtn" type="button" data-sub="tiktok"><i class="ti ti-brand-tiktok"></i> TikTok</button>
-    <button class="subbtn" type="button" data-sub="make"><i class="ti ti-bolt"></i> Make · FB · X · Pinterest</button>
-  </nav>
+  <h2>Schedule — TikTok</h2>
+  <div class="box gray"><strong>Your TikTok posts.</strong> Each video has a <strong>short</strong> caption and a <strong>longer</strong> one — regenerate either, then copy the one you want (caption + hashtags together) and post it in TikTok. Tick <em>Scheduled</em> once it's set and the card greys and drops to the bottom. 🌙 Best time: 7pm.</div>
   <div class="savepill" id="schedPill" style="margin:8px 0;">Loading…</div>
   <div id="schedBody"></div>
 </section>
@@ -519,6 +514,7 @@
     #tab-monthly .mp-pick{width:120px;border:2px solid var(--line);border-radius:10px;padding:6px;cursor:pointer;text-align:center;background:#fff;font-size:11px;}
     #tab-monthly .mp-pick.on{border-color:#0F6E56;background:#f0fdf4;}
     #tab-monthly .mp-pick img{width:100%;height:80px;object-fit:cover;border-radius:6px;}
+    #tab-monthly .mp-pick.ont1 img{box-shadow:0 0 0 3px #0F6E56;}
     #tab-monthly .mp-pick .mp-pt{display:block;margin-top:4px;font-weight:600;line-height:1.2;}
     #tab-monthly .mp-chosen{display:flex;gap:10px;align-items:center;background:var(--soft);border-radius:10px;padding:8px 10px;font-size:13px;}
     #tab-monthly .mp-chosen img{width:54px;height:54px;object-fit:cover;border-radius:8px;}
@@ -568,6 +564,7 @@
 
   <div id="mpPlanWrap" style="display:none;">
     <div id="mpSummary" class="box green"></div>
+    <button type="button" id="mpToggleDays" class="mp-btn-sm" style="margin:0 0 8px;">Hide the day plan</button>
     <div id="mpDays"></div>
     <div class="mp-savebar">
       <button type="button" id="mpSave" class="mp-btn mp-btn-go">Save month plan to GitHub</button>
@@ -779,7 +776,7 @@
       box.innerHTML='';
       prods.forEach(function(p){
         var onT1 = TAB1SET[(p.sku||'').toUpperCase()];
-        var c=document.createElement('div'); c.className='mp-pick';
+        var c=document.createElement('div'); c.className='mp-pick'+(onT1?' ont1':'');
         c.innerHTML='<img src="'+esc2(p.image)+'" alt=""><span class="mp-pt">'+esc2(p.title)+'</span><span class="sku">'+esc2(p.sku)+'</span>'+(onT1?'<span class="mp-roomtag" style="background:#dcfce7;color:#065f46;">on Tab 1</span>':'');
         c.addEventListener('click', function(){ if(DAYS[idx].product) delete chosen[DAYS[idx].product.sku]; DAYS[idx].product=p; chosen[p.sku]=true; renderDays(); });
         box.appendChild(c);
@@ -813,13 +810,20 @@
         $('mpSaveMsg').textContent='';
         // push each picked product onto Tab 1, at the top, tagged with this month
         if(window.SMCC && window.SMCC.addProductCard){
-          days.forEach(function(d){ window.SMCC.addProductCard({ sku:d.sku, title:d.title, handle:d.handle, url:d.url, image:d.image, room:d.room }, month); });
+          days.forEach(function(d){ window.SMCC.addProductCard({ sku:d.sku, title:d.title, handle:d.handle, url:d.url, image:d.image, room:d.room, date:d.date }, month); });
         }
         loadSavedMonths();
         showSaveModal(days.length, month);
       } else { $('mpSaveMsg').textContent='Save failed.'; }
     })
     .catch(function(){ $('mpSaveMsg').textContent='Offline — not saved.'; });
+  });
+
+  // collapse / reopen the whole day plan to make it smaller
+  $('mpToggleDays').addEventListener('click', function(){
+    var d=$('mpDays'), hidden = d.style.display==='none';
+    d.style.display = hidden ? '' : 'none';
+    this.textContent = hidden ? 'Hide the day plan' : 'Show the day plan';
   });
 
   // ---- pop-ups + saved months ----
@@ -875,7 +879,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v3.2 — built 10 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v3.3 — built 10 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -1071,6 +1075,7 @@ function cc(btn){
     },
     refresh: function(){ refreshAll(); },
     bringToTop: function(cardEl){ cardEl.setAttribute('data-ord', topOrd--); refreshAll(); },
+    placeByOrd: function(cardEl, ord){ cardEl.setAttribute('data-ord', ord); refreshAll(); },
     hasCard: function(id){ return !!document.getElementById(id); },
     removeCard: function(cardEl){
       var id = cardEl.id;
@@ -1121,6 +1126,8 @@ function cc(btn){
   function skuId(sku){ return 'gen' + String(sku).replace(/[^A-Za-z0-9]/g, ''); }
   var GMONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   function mLabel(pm){ var p = String(pm || '').split('-'); if(p.length < 2) return pm; return (GMONTHS[parseInt(p[1],10)-1] || '') + ' ' + p[0]; }
+  // turn a post date (YYYY-MM-DD) into a sort order: earlier date = higher up, all planned cards above the built-in ones
+  function dateOrd(dateStr){ var n = parseInt(String(dateStr || '').replace(/-/g, ''), 10); return n ? (n - 30000000) : -1; }
 
   function renderOptions(list){
     if(!list || !list.length){ return '<span class="genempty">Generated together with the prompt.</span>'; }
@@ -1368,10 +1375,13 @@ function cc(btn){
   // let Tab 3 (the monthly planner) push planned products here, tag existing ones, and undo them
   if(window.SMCC){
     window.SMCC.addProductCard = function(d, planMonth){
+      var ord = dateOrd(d.date);
       var existing = document.getElementById(skuId(d.sku));
-      if(existing){ tagCardMonth(existing, planMonth); if(window.SMCC.bringToTop){ window.SMCC.bringToTop(existing); } return existing; }
+      if(existing){ tagCardMonth(existing, planMonth); window.SMCC.placeByOrd(existing, ord); return existing; }
       if(planMonth) d.planMonth = planMonth;
-      return addCardFromData(d, true);
+      var el = addCardFromData(d, true);
+      if(el) window.SMCC.placeByOrd(el, ord);
+      return el;
     };
     window.SMCC.undoCardBySku = function(sku){
       var el = document.getElementById(skuId(sku));
@@ -1454,8 +1464,8 @@ function cc(btn){
     Object.keys(custom).forEach(function(sku){
       if(removed.indexOf(sku) !== -1){ return; }
       var existing = document.getElementById(skuId(sku));
-      if(existing){ if(custom[sku] && custom[sku].planMonth){ tagCardMonth(existing, custom[sku].planMonth); if(window.SMCC){ window.SMCC.bringToTop(existing); } } }
-      else { addCardFromData(custom[sku], true); }
+      if(existing){ if(custom[sku] && custom[sku].planMonth){ tagCardMonth(existing, custom[sku].planMonth); if(window.SMCC){ window.SMCC.placeByOrd(existing, dateOrd(custom[sku].planDate)); } } }
+      else { var nc = addCardFromData(custom[sku], true); if(nc && custom[sku] && custom[sku].planMonth && window.SMCC){ window.SMCC.placeByOrd(nc, dateOrd(custom[sku].planDate)); } }
     });
     Object.keys(gen).forEach(function(sku){
       var card = document.getElementById(skuId(sku));
@@ -1499,80 +1509,82 @@ function cc(btn){
     }, 700);
   }
 
-  function capBlockHTML(v, plat){
-    var done = !!state[v.id+'_'+plat+'_done'], sp = splitCap(capOf(v, plat));
-    return '<div class="capblock'+(done?' sdone':'')+'" data-id="'+attr(v.id)+'" data-plat="'+plat+'">'
-      + '<div class="capbhead"><span class="capplat"><i class="ti '+(ICON[plat]||'ti-bolt')+'"></i> '+LABEL[plat]+'</span>'
-      + '<span class="chip"><i class="ti ti-clock"></i> '+TIME[plat]+'</span><span class="chip small">'+esc(LINKR[plat])+'</span>'
-      + '<label class="schk"><input type="checkbox" class="sdonecb"'+(done?' checked':'')+'> Scheduled</label></div>'
-      + '<p class="scaptext">'+(sp.text?esc(sp.text):'<span class="genempty">No caption yet — press Regenerate.</span>')+'</p>'
-      + '<div class="partrow"><button class="savebtn scopy" type="button"'+(sp.text?'':' disabled')+'><i class="ti ti-copy"></i> Copy caption</button>'
+  // TikTok only: each video shows a short caption and a longer one
+  function capOf2(v, len){ var k=v.id+'_tiktok_'+len; if(k in pending) return pending[k]; if(k in saved) return saved[k]; return ''; }
+  function tagOf2(v, len){ var k=v.id+'_tiktok_'+len+'_tags'; if(k in pending) return pending[k]; if(k in saved) return saved[k]; return ''; }
+
+  function lenBlock(v, len){
+    var label = len==='long' ? 'Longer caption' : 'Short caption';
+    var cap = capOf2(v, len), tags = tagOf2(v, len);
+    return '<div class="capblock" data-id="'+attr(v.id)+'" data-len="'+len+'">'
+      + '<div class="capbhead"><span class="capplat"><i class="ti ti-text-caption"></i> '+label+'</span></div>'
+      + '<p class="scaptext">'+(cap?esc(cap):'<span class="genempty">No caption yet — press Regenerate.</span>')+'</p>'
+      + (tags ? '<p class="taghtext">'+esc(tags)+'</p>' : '')
+      + '<div class="partrow"><button class="savebtn scopy" type="button"'+(cap?'':' disabled')+'><i class="ti ti-copy"></i> Copy caption + hashtags</button>'
       + '<button class="redobtn sregen" type="button"><i class="ti ti-refresh"></i> Regenerate</button>'
       + '<button class="savebtn ssave" type="button"><i class="ti ti-device-floppy"></i> Save</button><span class="partstat"></span></div>'
-      + (sp.tags ? '<div class="taghblock"><p class="taghtext">'+esc(sp.tags)+'</p><button class="redobtn tcopy" type="button"><i class="ti ti-copy"></i> Copy hashtags</button></div>' : '')
       + '</div>';
   }
 
-  function cardHTML(v, plats){
+  function cardHTML(v){
     var col = rc(v.room);
-    var allDone = plats.length && plats.every(function(p){ return !!state[v.id+'_'+p+'_done']; });
-    return '<div class="scard'+(allDone?' sdone':'')+'" data-id="'+attr(v.id)+'">'
+    var done = !!state[v.id+'_tiktok_done'];
+    return '<div class="scard'+(done?' sdone':'')+'" data-id="'+attr(v.id)+'">'
       + '<div class="schead" style="background:'+col[0]+';"><img class="sthumb" src="'+attr(v.image)+'" alt="'+attr(v.title)+'" loading="lazy">'
-      + '<div class="smeta"><div class="srow"><span class="sday" style="color:'+col[1]+';"><i class="ti ti-calendar"></i> '+esc(v.date)+'</span><span class="ssku">'+esc(v.sku)+'</span><span class="sroom" style="color:'+col[1]+';">'+esc(v.room)+'</span></div>'
+      + '<div class="smeta"><div class="srow"><span class="sday" style="color:'+col[1]+';"><i class="ti ti-calendar"></i> '+esc(v.date)+'</span><span class="ssku">'+esc(v.sku)+'</span><span class="sroom" style="color:'+col[1]+';">'+esc(v.room)+'</span>'
+      + '<label class="schk" style="margin-left:auto;"><input type="checkbox" class="sdonecb"'+(done?' checked':'')+'> Scheduled</label></div>'
       + '<div class="stitle">'+esc(v.title)+'</div><div class="slink"><i class="ti ti-link"></i> <a href="'+attr(v.url)+'" target="_blank">'+esc(v.handle)+'</a></div></div></div>'
-      + '<div class="capblocks">'+plats.map(function(p){ return capBlockHTML(v, p); }).join('')+'</div></div>';
+      + '<div class="capblocks">'+lenBlock(v,'short')+lenBlock(v,'long')+'</div></div>';
   }
 
-  function sectionHTML(sub){
-    var plats = SUBS[sub];
-    var active = plats.filter(function(p){ return !state[p+'_archived']; });
-    var archived = plats.filter(function(p){ return !!state[p+'_archived']; });
-    var ctrl = '<div class="platctrl">' + plats.map(function(p){ var a=!!state[p+'_archived']; return '<button class="archbtn" type="button" data-plat="'+p+'"><i class="ti ti-archive"></i> '+(a?('Bring '+LABEL[p]+' back'):('Clear '+LABEL[p]+' to archive'))+'</button>'; }).join('') + '</div>';
-    var arch = archived.map(function(p){ var dl=videos.map(function(v){ return esc(v.date)+' · '+esc(v.sku); }).join('  ·  '); return '<div class="archnote"><i class="ti ti-archive"></i> '+LABEL[p]+' cleared to archive — '+dl+'</div>'; }).join('');
-    var cards = active.length ? videos.map(function(v){ return cardHTML(v, active); }).join('') : '<div class="box gray">All platforms here are archived — bring one back above.</div>';
-    return ctrl + arch + '<div class="platcards">'+cards+'</div>';
+  function render(){
+    if(!videos.length){ body.innerHTML = '<div class="box gray">No videos yet. Finish videos in the Video Creation tab and they appear here.</div>'; return; }
+    // scheduled (greyed) videos drop to the bottom, keeping date order otherwise
+    var sorted = videos.slice().sort(function(a, b){
+      var da = state[a.id+'_tiktok_done']?1:0, db = state[b.id+'_tiktok_done']?1:0;
+      if(da!==db) return da-db; return 0;
+    });
+    body.innerHTML = '<div class="platcards">'+sorted.map(cardHTML).join('')+'</div>';
   }
-
-  function render(){ body.innerHTML = sectionHTML(activeSub); }
 
   // event delegation — clicks
   body.addEventListener('click', function(e){
     var btn = e.target.closest('button'); if(!btn) return;
-    if(btn.classList.contains('archbtn')){ var p=btn.getAttribute('data-plat'); state[p+'_archived']=!state[p+'_archived']; save(); render(); return; }
     var block = btn.closest('.capblock'); if(!block) return;
-    var id=block.getAttribute('data-id'), plat=block.getAttribute('data-plat'), v=byId[id];
+    var id=block.getAttribute('data-id'), len=block.getAttribute('data-len'), v=byId[id];
     if(!v) return;
     var stat = block.querySelector('.partstat');
+    var k=id+'_tiktok_'+len, tk=k+'_tags';
     if(btn.classList.contains('scopy')){
-      var txt = splitCap(capOf(v, plat)).text; if(!txt) return;
-      navigator.clipboard.writeText(txt).then(function(){ var o=btn.innerHTML; btn.innerHTML='<i class="ti ti-check"></i> Copied'; setTimeout(function(){ btn.innerHTML=o; },1200); });
-    } else if(btn.classList.contains('tcopy')){
-      var tg = splitCap(capOf(v, plat)).tags; if(!tg) return;
-      navigator.clipboard.writeText(tg).then(function(){ var o=btn.innerHTML; btn.innerHTML='<i class="ti ti-check"></i> Copied'; setTimeout(function(){ btn.innerHTML=o; },1200); });
+      var cap = capOf2(v, len); if(!cap) return;
+      var tags = tagOf2(v, len);
+      var full = cap + (tags ? ('\n\n'+tags) : '');
+      navigator.clipboard.writeText(full).then(function(){ var o=btn.innerHTML; btn.innerHTML='<i class="ti ti-check"></i> Copied'; setTimeout(function(){ btn.innerHTML=o; },1200); });
     } else if(btn.classList.contains('sregen')){
-      btn.disabled=true; stat.className='partstat'; stat.textContent='Writing a '+LABEL[plat]+' caption…';
-      fetch('/api/social', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'generate-caption', platform:plat, title:v.title, room:v.room, url:v.url, campaign:v.campaign }) })
+      btn.disabled=true; stat.className='partstat'; stat.textContent='Writing a '+(len==='long'?'longer':'short')+' caption…';
+      fetch('/api/social', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'generate-caption', platform:'tiktok', length:len, title:v.title, room:v.room }) })
       .then(function(r){ return r.json(); }).then(function(d){
         btn.disabled=false;
         if(!d || !d.ok){ stat.className='partstat err'; stat.textContent='Could not write — '+((d&&d.error)||'try again'); return; }
-        pending[id+'_'+plat]=d.caption;
-        var holder=document.createElement('div'); holder.innerHTML=capBlockHTML(v, plat);
+        pending[k]=d.caption; pending[tk]=d.hashtags||'';
+        var holder=document.createElement('div'); holder.innerHTML=lenBlock(v, len);
         var nb=holder.firstChild; block.replaceWith(nb);
         var ns=nb.querySelector('.partstat'); ns.className='partstat ok'; ns.textContent='New caption ready — Save it if you like it.';
       }).catch(function(){ btn.disabled=false; stat.className='partstat err'; stat.textContent='Network error — try again.'; });
     } else if(btn.classList.contains('ssave')){
-      var k=id+'_'+plat, cur=capOf(v,plat); if(!cur){ stat.className='partstat err'; stat.textContent='Nothing to save yet.'; return; }
-      saved[k]=cur; delete pending[k]; stat.className='partstat ok'; stat.textContent='Caption saved.'; save();
+      var cur=capOf2(v,len); if(!cur){ stat.className='partstat err'; stat.textContent='Nothing to save yet.'; return; }
+      saved[k]=cur; saved[tk]=tagOf2(v,len); delete pending[k]; delete pending[tk];
+      stat.className='partstat ok'; stat.textContent='Caption saved.'; save();
     }
   });
-  // event delegation — scheduled checkbox (per platform block)
+  // event delegation — scheduled checkbox (per video); greys it and drops it to the bottom
   body.addEventListener('change', function(e){
     var cb = e.target.closest('.sdonecb'); if(!cb) return;
-    var block = cb.closest('.capblock'); var id=block.getAttribute('data-id'), plat=block.getAttribute('data-plat');
-    state[id+'_'+plat+'_done']=cb.checked; block.classList.toggle('sdone', cb.checked);
-    var card = block.closest('.scard');
-    if(card){ var allDone = Array.prototype.every.call(card.querySelectorAll('.capblock'), function(b){ return b.classList.contains('sdone'); }); card.classList.toggle('sdone', allDone); }
+    var card = cb.closest('.scard'); if(!card) return;
+    var id=card.getAttribute('data-id');
+    state[id+'_tiktok_done']=cb.checked;
     save();
+    render();
   });
 
   // sub-tab switching
