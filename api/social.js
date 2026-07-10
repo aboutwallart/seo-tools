@@ -508,6 +508,103 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, products: out });
     }
 
+    if (action === 'metricool-file') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      const month = (body.month || '').toString();
+      const posts = Array.isArray(body.posts) ? body.posts : [];
+      if (!posts.length) return res.status(400).json({ ok: false, error: 'No posts selected' });
+
+      // Metricool import template header (94 columns)
+      var H = ['Text', 'Date', 'Time', 'Draft', 'Facebook', 'Twitter/X', 'LinkedIn', 'GBP', 'Instagram', 'Pinterest', 'TikTok', 'Youtube', 'Threads', 'Bluesky'];
+      for (var pi = 1; pi <= 10; pi++) H.push('Picture Url ' + pi);
+      for (var ali = 1; ali <= 10; ali++) H.push('Alt text picture ' + ali);
+      H = H.concat(['Document title', 'Shortener', 'Video Thumbnail Url', 'Video Cover Frame', 'Twitter/X Can reply', 'Twitter/X Type', 'Twitter/X Poll Duration minutes', 'Twitter/X Poll Option 1', 'Twitter/X Poll Option 2', 'Twitter/X Poll Option 3', 'Twitter/X Poll Option 4', 'Pinterest Board', 'Pinterest Pin Title', 'Pinterest Pin Link', 'Pinterest Pin New Format', 'Instagram Post Type', 'Instagram Show Reel On Feed', 'Youtube Video Title', 'Youtube Video Type', 'Youtube Video Privacy', 'Youtube video for kids', 'Youtube Video Category', 'Youtube Video Tags', 'Youtube playlist', 'GBP Post Type', 'Facebook Post Type', 'Facebook Title', 'First Comment Text', 'TikTok Title', 'TikTok disable comments', 'TikTok disable duet', 'TikTok disable stitch', 'TikTok Post Privacy', 'TikTok Branded Content', 'TikTok Your Brand', 'TikTok Auto Add Music', 'TikTok Photo Cover Index', 'TikTok musicId', 'TikTok music title', 'TikTok music author', 'TikTok music previewUrl', 'TikTok music thumbnailUrl', 'TikTok music soundVolume', 'TikTok music originalVolume', 'TikTok music startMillis', 'TikTok music endMillis', 'TikTok Ai generated content', 'LinkedIn Type', 'LinkedIn Poll Question', 'LinkedIn Poll Option 1', 'LinkedIn Poll Option 2', 'LinkedIn Poll Option 3', 'LinkedIn Poll Option 4', 'LinkedIn Poll Duration', 'LinkedIn Show link preview', 'LinkedIn Images as Carousel', 'Threads Reply Control', 'Threads Is Spoiler', 'Threads Post Type', 'Brand name']);
+      var BOOLC = { 'Draft': 1, 'Facebook': 1, 'Twitter/X': 1, 'LinkedIn': 1, 'GBP': 1, 'Instagram': 1, 'Pinterest': 1, 'TikTok': 1, 'Youtube': 1, 'Threads': 1, 'Bluesky': 1, 'Shortener': 1, 'Pinterest Pin New Format': 1, 'Instagram Show Reel On Feed': 1, 'Youtube video for kids': 1, 'TikTok disable comments': 1, 'TikTok disable duet': 1, 'TikTok disable stitch': 1, 'TikTok Branded Content': 1, 'TikTok Your Brand': 1, 'TikTok Auto Add Music': 1, 'TikTok Ai generated content': 1, 'LinkedIn Show link preview': 1, 'LinkedIn Images as Carousel': 1, 'Threads Is Spoiler': 1 };
+      function cell(col, val) { if (BOOLC[col]) return val === true ? 'true' : 'false'; if (val === undefined || val === null || val === '') return ''; return '"' + String(val).replace(/"/g, '""') + '"'; }
+      function rowLine(o) { return H.map(function (h) { return cell(h, o[h]); }).join(','); }
+
+      var out = [H.join(',')];
+      var usedToMark = [];
+
+      for (var mi = 0; mi < posts.length; mi++) {
+        var p = posts[mi];
+        var sku = (p.sku || '').toString();
+        var title = (p.title || '').toString();
+        var url = (p.url || ('https://aboutwallart.com/products/' + (p.handle || ''))).toString();
+        var room = (p.room || '').toString();
+        var image = (p.image || '').toString();
+        var video = (p.videoLink || '').toString();
+        var date = (p.date || '').toString();
+        var camp = 'vid-' + sku.toLowerCase();
+        var board = room ? (room + ' Decor') : 'Home Decor';
+        var shop = function (src, med) { return url + '?utm_source=' + src + (med ? ('&utm_medium=' + med) : '') + '&utm_campaign=' + camp; };
+
+        var instr = 'You write organic social captions for a wall-art product video (a reel) in the About Wall Art voice: warm, friendly home-decor advisor, UK spelling, NOT salesy, never words like elevate, delve, showcase, dive, beacon. Product: "' + title + '"' + (room ? (' — room: ' + room) : '') + '. It is a framed set, ready to hang.\n' +
+          'Write ONE caption per platform in this exact style (use the shop links EXACTLY as given, placed before any hashtags):\n' +
+          '- twitter: one short punchy hook line, then " Shop → ' + shop('twitter', '') + '", then 1 hashtag. Under 260 characters total.\n' +
+          '- facebook: 2 to 3 warm sentences (why it works in the room; framed and ready to hang), then " Shop the set → ' + shop('facebook', 'video') + '", then 3 hashtags.\n' +
+          '- youtube: one short warm line, then " Shop the set → ' + shop('youtube', 'video') + '", then "#shorts" and 3 lowercase hashtags.\n' +
+          '- threads: one short warm line, then " Shop the set → ' + shop('threads', 'video') + '", then 5 lowercase hashtags.\n' +
+          '- pinterest: keyword-rich and descriptive, 3 to 4 sentences a decorator would search, NO link, end "See more wall art ideas at About Wall Art." then 5 lowercase hashtags.\n' +
+          '- instagram: warm 3 to 4 sentences ("here is why I love it", framed and ready to hang, "tap Our Content Hub in my bio"), then a blank line, then about 25 lowercase hashtags. NO link.\n' +
+          'Also give: facebookTitle (max 40 chars), youtubeTitle (max 90 chars, ending " #shorts"), pinterestTitle (max 90 chars), alt (one short line describing the product styled in the room).\n' +
+          'Return ONLY strict JSON, no markdown: {"twitter":"","facebook":"","youtube":"","threads":"","pinterest":"","instagram":"","facebookTitle":"","youtubeTitle":"","pinterestTitle":"","alt":""}';
+        var ar = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 2000, messages: [{ role: 'user', content: instr }] }) });
+        if (!ar.ok) return res.status(ar.status).json({ ok: false, error: 'Caption AI error for ' + sku });
+        var ad = await ar.json();
+        var txt = (ad.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('\n');
+        var jm = txt.match(/\{[\s\S]*\}/); var caps = {};
+        try { caps = JSON.parse(jm ? jm[0] : txt); } catch (e) { return res.status(200).json({ ok: false, error: 'Could not parse captions for ' + sku }); }
+        var alt = caps.alt || (title + ' styled in a ' + room + ' room');
+
+        var mk = function (net) { var o = { Date: date, Draft: true, Shortener: true, 'Picture Url 1': video, 'Alt text picture 1': alt, 'Video Thumbnail Url': image }; o[net] = true; return o; };
+        var rTw = mk('Twitter/X'); rTw.Time = '10:00:00'; rTw['Twitter/X Type'] = 'POST'; rTw.Text = caps.twitter; out.push(rowLine(rTw));
+        var rFb = mk('Facebook'); rFb.Time = '10:00:00'; rFb['Facebook Post Type'] = 'REEL'; rFb['Facebook Title'] = caps.facebookTitle || title; rFb.Text = caps.facebook; out.push(rowLine(rFb));
+        var rYt = mk('Youtube'); rYt.Time = '10:00:00'; rYt['Youtube Video Title'] = caps.youtubeTitle || title; rYt['Youtube Video Type'] = 'SHORT'; rYt['Youtube Video Privacy'] = 'PUBLIC'; rYt.Text = caps.youtube; out.push(rowLine(rYt));
+        var rTh = mk('Threads'); rTh.Time = '11:00:00'; rTh['Threads Reply Control'] = 'EVERYONE'; rTh['Threads Post Type'] = 'POST'; rTh.Text = caps.threads; out.push(rowLine(rTh));
+        var rPi = mk('Pinterest'); rPi.Time = '11:00:00'; rPi['Pinterest Board'] = board; rPi['Pinterest Pin Title'] = caps.pinterestTitle || title; rPi['Pinterest Pin Link'] = shop('pinterest', 'video'); rPi.Text = caps.pinterest; out.push(rowLine(rPi));
+        var rIg = mk('Instagram'); rIg.Time = '11:00:00'; rIg['Instagram Post Type'] = 'REEL'; rIg['Instagram Show Reel On Feed'] = true; rIg.Text = caps.instagram; out.push(rowLine(rIg));
+
+        usedToMark.push({ sku: sku, name: title, room: room, usedMonth: month });
+      }
+
+      var csv = '﻿' + out.join('\r\n') + '\r\n';
+
+      if (usedToMark.length) {
+        await ghSave(USED_FILE, function (content) {
+          var doc = { used: [] };
+          if (content) { try { doc = JSON.parse(content); if (!Array.isArray(doc.used)) doc.used = []; } catch (e) { doc = { used: [] }; } }
+          usedToMark.forEach(function (u) { if (!doc.used.some(function (x) { return (x.sku || '').toUpperCase() === u.sku.toUpperCase(); })) doc.used.push(u); });
+          return JSON.stringify(doc, null, 2);
+        }, 'Mark used from Metricool file');
+      }
+
+      await ghSave(PLAN_FILE, function (content) {
+        var plan = { months: {} };
+        if (content) { try { plan = JSON.parse(content); if (!plan.months) plan.months = {}; } catch (e) { plan = { months: {} }; } }
+        posts.forEach(function (p) {
+          var sku = (p.sku || '').toString(); var newDate = (p.date || '').toString(); var newMonth = newDate.slice(0, 7);
+          Object.keys(plan.months).forEach(function (mkk) {
+            var days = plan.months[mkk].days || [];
+            for (var i = 0; i < days.length; i++) {
+              if ((days[i].sku || '') === sku) {
+                days[i].sent = true; days[i].videoLink = (p.videoLink || ''); if (newDate) days[i].date = newDate;
+                if (newMonth && newMonth !== mkk) {
+                  var day = days.splice(i, 1)[0];
+                  if (!plan.months[newMonth]) plan.months[newMonth] = { updated: new Date().toISOString(), days: [] };
+                  plan.months[newMonth].days.push(day);
+                }
+                break;
+              }
+            }
+          });
+        });
+        return JSON.stringify(plan, null, 2);
+      }, 'Mark plan posts sent for Metricool');
+
+      return res.status(200).json({ ok: true, csv: csv, count: posts.length });
+    }
+
     return res.status(400).json({ ok: false, error: 'Unknown action: ' + action });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
