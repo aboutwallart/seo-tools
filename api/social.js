@@ -384,7 +384,51 @@ module.exports = async (req, res) => {
         plan.months[month] = { updated: new Date().toISOString(), days: days };
         return JSON.stringify(plan, null, 2);
       }, 'Save monthly plan ' + month);
+      // also push each picked product onto Tab 1 as a card, tagged with its month
+      await ghSave(CARDS_FILE, function (content) {
+        var data = parseCards(content);
+        days.forEach(function (d) {
+          var sku = (d.sku || '').toString(); if (!sku) return;
+          var ri = data.removed.indexOf(sku); if (ri !== -1) data.removed.splice(ri, 1); // un-hide if removed before
+          var rec = data.custom[sku] || {};
+          rec.sku = sku;
+          rec.title = d.title || rec.title || '';
+          rec.handle = d.handle || rec.handle || '';
+          rec.url = d.url || rec.url || ('https://aboutwallart.com/products/' + (d.handle || ''));
+          rec.image = d.image || rec.image || '';
+          rec.room = d.room || rec.room || '';
+          rec.planMonth = month;
+          data.custom[sku] = rec;
+        });
+        return JSON.stringify(data, null, 2);
+      }, 'Push plan cards ' + month);
       return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'undo-plan-month') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      const month = (body.month || '').toString();
+      if (!month) return res.status(400).json({ ok: false, error: 'Missing month' });
+      const used = await usedSetLower();
+      var removedSkus = [];
+      await ghSave(CARDS_FILE, function (content) {
+        var data = parseCards(content);
+        Object.keys(data.custom).forEach(function (sku) {
+          var rec = data.custom[sku] || {};
+          if (rec.planMonth === month && !used[(sku || '').toUpperCase()]) {
+            delete data.custom[sku]; // remove the pushed card only if the video isn't made yet
+            removedSkus.push(sku);
+          }
+        });
+        return JSON.stringify(data, null, 2);
+      }, 'Undo plan cards ' + month);
+      await ghSave(PLAN_FILE, function (content) {
+        var plan = { months: {} };
+        if (content) { try { plan = JSON.parse(content); if (!plan.months) plan.months = {}; } catch (e) { plan = { months: {} }; } }
+        delete plan.months[month];
+        return JSON.stringify(plan, null, 2);
+      }, 'Remove monthly plan ' + month);
+      return res.status(200).json({ ok: true, removedSkus: removedSkus });
     }
 
     if (action === 'lookup-sku') {
@@ -403,15 +447,15 @@ module.exports = async (req, res) => {
     if (action === 'suggest-products') {
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
       var collections = Array.isArray(body.collections) ? body.collections.filter(Boolean) : [];
-      var limit = Math.min(parseInt(body.limit, 10) || 8, 40);
-      if (!collections.length) collections = ['art-prints-for-wall']; // general art fallback pool
+      var limit = Math.min(parseInt(body.limit, 10) || 8, 100);
+      if (!collections.length) collections = ['framed-wall-pictures-for-living-room']; // clean framed-art fallback pool
       const domain = process.env.SHOPIFY_STORE_DOMAIN, stoken = process.env.SHOPIFY_ACCESS_TOKEN;
       if (!domain || !stoken) return res.status(500).json({ ok: false, error: 'Shopify not configured' });
       var cq = collections.map(function (h) { return 'handle:' + h; }).join(' OR ');
       const gq = 'query($q:String!,$n:Int!){ collections(first:8, query:$q){ nodes{ handle products(first:$n){ nodes{ title handle vendor onlineStoreUrl featuredImage{url} room:metafield(namespace:"custom",key:"room_type"){value} skumf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } } } }';
       const sr = await fetch('https://' + domain + '/admin/api/2025-01/graphql.json', {
         method: 'POST', headers: { 'X-Shopify-Access-Token': stoken, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: gq, variables: { q: cq, n: 60 } })
+        body: JSON.stringify({ query: gq, variables: { q: cq, n: 100 } })
       });
       if (!sr.ok) return res.status(sr.status).json({ ok: false, error: 'Shopify error ' + sr.status });
       const sd = await sr.json();
