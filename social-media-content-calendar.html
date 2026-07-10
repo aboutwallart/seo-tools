@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v3.0 · 9 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v3.2 · 10 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -527,6 +527,19 @@
     #tab-monthly .mp-warn{color:#b91c1c;font-weight:600;font-size:12.5px;}
     #tab-monthly .mp-roomtag{font-size:10.5px;font-weight:700;padding:1px 8px;border-radius:20px;background:var(--soft);color:var(--mut);}
     #tab-monthly .mp-savebar{margin:18px 0;display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
+    #tab-monthly .mp-saved{display:flex;gap:10px;flex-wrap:wrap;}
+    #tab-monthly .mp-savedchip{display:flex;gap:9px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:#fff;font-size:13px;}
+    #tab-monthly .mp-savedchip strong{font-weight:800;}
+    #tab-monthly .mp-savedchip .mp-cnt{color:var(--mut);font-size:12px;}
+    #tab-monthly .mp-linkbtn{appearance:none;border:none;background:none;color:#534AB7;font-weight:700;font-size:12.5px;cursor:pointer;padding:0;}
+    #tab-monthly .mp-linkbtn.warn{color:#b91c1c;}
+    .mp-modal-bg{position:fixed;inset:0;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px;}
+    .mp-modal{background:#fff;border-radius:16px;max-width:560px;width:100%;max-height:82vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.25);padding:24px;}
+    .mp-modal h3{margin:0 0 6px;font-size:19px;}
+    .mp-modal .mp-close{appearance:none;border:none;border-radius:9px;background:#0F6E56;color:#fff;font-weight:700;font-size:14px;padding:10px 20px;cursor:pointer;margin-top:16px;}
+    .mp-modal .mp-vrow{display:flex;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--line);font-size:13px;}
+    .mp-modal .mp-vrow img{width:44px;height:44px;object-fit:cover;border-radius:7px;}
+    .mp-modal .mp-vtick{font-size:22px;line-height:1;}
   </style>
 
   <div class="mp-row">
@@ -535,6 +548,11 @@
     </label>
     <button type="button" id="mpLoad" class="mp-btn">Show occasions</button>
     <span id="mpUsedCount" class="small mp-muted"></span>
+  </div>
+
+  <div id="mpSavedWrap" style="display:none;">
+    <h3 class="mp-h3">Your saved months</h3>
+    <div id="mpSavedList" class="mp-saved"></div>
   </div>
 
   <div id="mpOccWrap" style="display:none;">
@@ -563,7 +581,7 @@
   var $ = function(id){ return document.getElementById(id); };
   if(!$('mpMonth')) return;
   var MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  var ALL_OCC = [], CUSTOM_OCC = [], DAYS = [], POOL = [], TAB1POOL = [], TAB1SET = {}, chosen = {};
+  var ALL_OCC = [], CUSTOM_OCC = [], DAYS = [], POOL = [], TAB1POOL = [], TAB1SET = {}, USEDSET = {}, chosen = {};
 
   // month dropdown: this month + next 5
   (function(){
@@ -604,7 +622,8 @@
   }
 
   fetch('/api/social?action=get-occasions').then(function(r){return r.json();}).then(function(d){ if(d&&d.ok) ALL_OCC = d.occasions||[]; });
-  fetch('/api/social?action=get-used').then(function(r){return r.json();}).then(function(d){ if(d&&d.ok) $('mpUsedCount').textContent = (d.used||[]).length+' videos already used (never re-suggested).'; });
+  fetch('/api/social?action=get-used').then(function(r){return r.json();}).then(function(d){ if(d&&d.ok){ (d.used||[]).forEach(function(u){ USEDSET[(u.sku||'').toUpperCase()] = 1; }); $('mpUsedCount').textContent = (d.used||[]).length+' videos already used (never re-suggested).'; } });
+  loadSavedMonths();
 
   $('mpLoad').addEventListener('click', function(){
     var mNum = selMonthNum();
@@ -654,26 +673,42 @@
     }
     $('mpPlanWrap').style.display='';
     renderDays();
-    // filler pools: Tab 1 UNUSED cards first (priority), then a general art fallback
-    var tab1Skus = [].slice.call(document.querySelectorAll('#tab-video .vcard[data-sku]')).map(function(c){ return c.getAttribute('data-sku'); }).filter(Boolean);
-    TAB1SET = {}; tab1Skus.forEach(function(s){ TAB1SET[s.toUpperCase()] = 1; });
-    Promise.all([
-      fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'hydrate-skus',skus:tab1Skus})}).then(function(r){return r.json();}).catch(function(){return {};}),
-      fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'suggest-products',collections:['art-prints-for-wall'],limit:40})}).then(function(r){return r.json();}).catch(function(){return {};})
-    ]).then(function(res){
-      TAB1POOL = (res[0]&&res[0].ok&&res[0].products)?res[0].products:[];
-      POOL = (res[1]&&res[1].ok&&res[1].products)?res[1].products:[];
+    // filler pools: Tab 1 UNUSED cards first (read straight from the page), then a general art fallback
+    TAB1SET = {}; TAB1POOL = readTab1Pool();
+    fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'suggest-products',collections:['framed-wall-pictures-for-living-room'],limit:80})}).then(function(r){return r.json();}).catch(function(){return {};})
+    .then(function(res){
+      POOL = (res&&res.ok&&res.products)?res.products:[];
       autoFillFillers();
       renderDays();
     });
   });
 
-  function takeFiller(prevRoom){
+  // build the "Tab 1 unused" filler pool from the page itself (no server call — can never come back empty)
+  function readTab1Pool(){
+    var out = [];
+    [].slice.call(document.querySelectorAll('#tab-video .vcard[data-sku]')).forEach(function(c){
+      var sku = (c.getAttribute('data-sku')||'').trim(); if(!sku) return;
+      TAB1SET[sku.toUpperCase()] = 1;                 // every Tab 1 card (for the "on Tab 1" badge)
+      if(USEDSET[sku.toUpperCase()]) return;          // already made in a past month
+      if(c.classList.contains('done')) return;        // already ticked as made
+      var linkA = c.querySelector('.plink a'), thumb = c.querySelector('.thumb'), ttl = c.querySelector('.ptitle');
+      var href = linkA ? (linkA.getAttribute('href')||'') : '';
+      out.push({ sku:sku, title:(c.getAttribute('data-title')||(ttl?ttl.textContent:'')||''), room:(c.getAttribute('data-room')||''), image:(thumb?thumb.getAttribute('src'):''), url:href, handle:(href.split('/products/')[1]||'') });
+    });
+    for(var i=out.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=out[i]; out[i]=out[j]; out[j]=t; }
+    return out;
+  }
+
+  function takeFiller(prevRoom, excludeSku){
     var pools=[TAB1POOL, POOL]; // Tab 1 unused first, then general art fallback
     for(var pi=0; pi<pools.length; pi++){ var pool=pools[pi];
-      for(var i=0;i<pool.length;i++){ var p=pool[i]; if(chosen[p.sku]) continue; if(prevRoom && (p.room||'').toLowerCase()===prevRoom) continue; chosen[p.sku]=true; return p; } }
+      for(var i=0;i<pool.length;i++){ var p=pool[i];
+        if(chosen[p.sku] || p.sku===excludeSku || USEDSET[(p.sku||'').toUpperCase()]) continue;
+        if(prevRoom && (p.room||'').toLowerCase()===prevRoom) continue;
+        chosen[p.sku]=true; return p; } }
     for(var pj=0; pj<pools.length; pj++){ var pool2=pools[pj]; // relax room rule only if nothing else is left
-      for(var k=0;k<pool2.length;k++){ var q=pool2[k]; if(!chosen[q.sku]){ chosen[q.sku]=true; return q; } } }
+      for(var k=0;k<pool2.length;k++){ var q=pool2[k];
+        if(!chosen[q.sku] && q.sku!==excludeSku && !USEDSET[(q.sku||'').toUpperCase()]){ chosen[q.sku]=true; return q; } } }
     return null;
   }
   function autoFillFillers(){
@@ -715,7 +750,15 @@
       b.addEventListener('click', function(){ suggestForDay(parseInt(b.getAttribute('data-suggest'),10), b); });
     });
     [].slice.call($('mpDays').querySelectorAll('[data-shuffle]')).forEach(function(b){
-      b.addEventListener('click', function(){ var i=parseInt(b.getAttribute('data-shuffle'),10); var old=DAYS[i].product; if(old) delete chosen[old.sku]; var prev=i>0?(DAYS[i-1].product&&(DAYS[i-1].product.room||'').toLowerCase()):''; DAYS[i].product=takeFiller(prev); renderDays(); });
+      b.addEventListener('click', function(){
+        var i=parseInt(b.getAttribute('data-shuffle'),10);
+        var old=DAYS[i].product, oldSku=old?old.sku:null;
+        if(old) delete chosen[old.sku];
+        var prev=i>0?(DAYS[i-1].product&&(DAYS[i-1].product.room||'').toLowerCase()):'';
+        var next=takeFiller(prev, oldSku);
+        if(next){ DAYS[i].product=next; renderDays(); }
+        else { if(old) chosen[old.sku]=true; var w=$('mpDays').querySelector('[data-warn="'+i+'"]'); if(w){ w.textContent='No more unused products to swap in.'; } }
+      });
     });
     [].slice.call($('mpDays').querySelectorAll('[data-lookup]')).forEach(function(b){
       b.addEventListener('click', function(){ var i=parseInt(b.getAttribute('data-lookup'),10); manualLookup(i); });
@@ -759,17 +802,80 @@
   }
 
   $('mpSave').addEventListener('click', function(){
+    var month = $('mpMonth').value;
     var days = DAYS.filter(function(d){ return d.product; }).map(function(d){
       return { date:d.date, occasionId:d.occ?d.occ.id:'', occasionName:d.occ?d.occ.name:'', promo:d.occ?!!d.occ.promoSuggested:false, sku:d.product.sku, title:d.product.title, handle:d.product.handle, url:d.product.url, image:d.product.image, room:d.product.room };
     });
     $('mpSaveMsg').textContent='Saving…';
-    fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'save-plan',month:$('mpMonth').value,days:days})})
-    .then(function(r){return r.json();}).then(function(res){ $('mpSaveMsg').textContent = (res&&res.ok)?('Saved '+days.length+' days to GitHub.'):'Save failed.'; })
+    fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'save-plan',month:month,days:days})})
+    .then(function(r){return r.json();}).then(function(res){
+      if(res&&res.ok){
+        $('mpSaveMsg').textContent='';
+        // push each picked product onto Tab 1, at the top, tagged with this month
+        if(window.SMCC && window.SMCC.addProductCard){
+          days.forEach(function(d){ window.SMCC.addProductCard({ sku:d.sku, title:d.title, handle:d.handle, url:d.url, image:d.image, room:d.room }, month); });
+        }
+        loadSavedMonths();
+        showSaveModal(days.length, month);
+      } else { $('mpSaveMsg').textContent='Save failed.'; }
+    })
     .catch(function(){ $('mpSaveMsg').textContent='Offline — not saved.'; });
   });
+
+  // ---- pop-ups + saved months ----
+  function monthLabel(m){ var p=String(m||'').split('-'); if(p.length<2) return m; return MONTHS[parseInt(p[1],10)-1]+' '+p[0]; }
+  function closeModal(){ var b=document.getElementById('mpModalBg'); if(b&&b.parentNode) b.parentNode.removeChild(b); }
+  function openModal(html){
+    closeModal();
+    var bg=document.createElement('div'); bg.id='mpModalBg'; bg.className='mp-modal-bg';
+    bg.innerHTML='<div class="mp-modal">'+html+'</div>';
+    bg.addEventListener('click', function(e){ if(e.target===bg) closeModal(); });
+    document.body.appendChild(bg);
+    var c=bg.querySelector('.mp-close'); if(c) c.addEventListener('click', closeModal);
+    return bg;
+  }
+  function showSaveModal(n, month){
+    openModal('<h3>Month plan saved</h3><p class="mp-muted" style="margin:0;">'+n+' products saved for <strong>'+esc2(monthLabel(month))+'</strong> and added to the top of your Video Creation tab, tagged with the month. Create a video for each one.</p><button type="button" class="mp-close">Got it</button>');
+  }
+
+  function loadSavedMonths(){
+    fetch('/api/social?action=get-plan').then(function(r){return r.json();}).then(function(d){
+      var months = (d&&d.ok&&d.months)?d.months:{};
+      var keys = Object.keys(months).sort();
+      var wrap=$('mpSavedWrap'), list=$('mpSavedList');
+      if(!keys.length){ wrap.style.display='none'; list.innerHTML=''; return; }
+      wrap.style.display=''; list.innerHTML='';
+      keys.forEach(function(k){
+        var m=months[k], cnt=(m.days||[]).length;
+        var chip=document.createElement('div'); chip.className='mp-savedchip';
+        chip.innerHTML='<strong>'+esc2(monthLabel(k))+'</strong><span class="mp-cnt">'+cnt+' posts</span><button type="button" class="mp-linkbtn" data-view="1">View</button><button type="button" class="mp-linkbtn warn" data-undo="1">Undo</button>';
+        chip.querySelector('[data-view]').addEventListener('click', function(){ viewMonth(k, m); });
+        chip.querySelector('[data-undo]').addEventListener('click', function(){ undoMonth(k); });
+        list.appendChild(chip);
+      });
+    }).catch(function(){});
+  }
+  function viewMonth(k, m){
+    var rows=(m.days||[]).map(function(d){
+      var made = USEDSET[(d.sku||'').toUpperCase()] ? '<span class="mp-vtick" style="color:#0F6E56;">&#9679;</span>' : '<span class="mp-vtick" style="color:#cbd5e1;">&#9675;</span>';
+      return '<div class="mp-vrow">'+made+'<img src="'+esc2(d.image)+'" alt=""><div><strong>'+esc2(d.title)+'</strong><br><span class="sku">'+esc2(d.sku)+'</span>'+(d.occasionName?' &middot; '+esc2(d.occasionName):'')+'</div></div>';
+    }).join('');
+    openModal('<h3>'+esc2(monthLabel(k))+'</h3><p class="mp-muted" style="margin:0 0 6px;">'+(m.days||[]).length+' posts &middot; &#9679; = video already made.</p>'+rows+'<button type="button" class="mp-close">Close</button>');
+  }
+  function undoMonth(k){
+    if(!confirm('Undo '+monthLabel(k)+'? This removes the products it added to your Video Creation tab (videos you have already made are kept).')) return;
+    fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'undo-plan-month',month:k})})
+    .then(function(r){return r.json();}).then(function(res){
+      if(res&&res.ok){
+        (res.removedSkus||[]).forEach(function(sku){ if(window.SMCC&&window.SMCC.undoCardBySku) window.SMCC.undoCardBySku(sku); });
+        loadSavedMonths();
+        openModal('<h3>Month removed</h3><p class="mp-muted" style="margin:0;">'+esc2(monthLabel(k))+' was removed. Any videos you already made are still on your Video Creation tab.</p><button type="button" class="mp-close">Got it</button>');
+      } else { alert('Could not undo — try again.'); }
+    }).catch(function(){ alert('Could not undo — offline?'); });
+  }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v3.0 — built 9 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v3.2 — built 10 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -801,6 +907,12 @@ function cc(btn){
   var LS = 'smcc_v14_state';          // local mirror / offline fallback
   var state = {};                     // { day1_prompt:true, day1_onscreen:true, ... }
   var saveTimer = null;
+  var booted = false;                 // don't fire "mark used" for cards already made when the page first loads
+
+  function markUsed(c){
+    var sku = c.getAttribute('data-sku'); if(!sku) return;
+    fetch('/api/social', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'mark-used', sku:sku, name:c.getAttribute('data-title')||'', room:c.getAttribute('data-room')||'', usedMonth:c.getAttribute('data-planmonth')||'' }) }).catch(function(){});
+  }
 
   var cards = Array.prototype.slice.call(document.querySelectorAll('.vcard'));
   if(!cards.length) return;
@@ -867,7 +979,7 @@ function cc(btn){
     cards.forEach(function(c){
       var d = cardDone(c);
       c.classList.toggle('done', d);
-      if(d) done++;
+      if(d){ done++; if(!c.__usedMarked){ if(booted) markUsed(c); c.__usedMarked = true; } }
     });
     // sink done cards to the bottom (keep original order within each group)
     cards.slice().sort(function(a, b){
@@ -919,11 +1031,13 @@ function cc(btn){
         state = (d && d.ok && d.state) ? d.state : {};
         try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e){}
         applyState();
+        booted = true;
         setPill('saved', 'Saved to GitHub');
       })
       .catch(function(){
         try{ state = JSON.parse(localStorage.getItem(LS) || '{}'); }catch(e){ state = {}; }
         applyState();
+        booted = true;
         setPill('err', 'Offline — showing this device');
       });
   }
@@ -956,6 +1070,7 @@ function cc(btn){
       applyState();
     },
     refresh: function(){ refreshAll(); },
+    bringToTop: function(cardEl){ cardEl.setAttribute('data-ord', topOrd--); refreshAll(); },
     hasCard: function(id){ return !!document.getElementById(id); },
     removeCard: function(cardEl){
       var id = cardEl.id;
@@ -1004,6 +1119,8 @@ function cc(btn){
   }
 
   function skuId(sku){ return 'gen' + String(sku).replace(/[^A-Za-z0-9]/g, ''); }
+  var GMONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function mLabel(pm){ var p = String(pm || '').split('-'); if(p.length < 2) return pm; return (GMONTHS[parseInt(p[1],10)-1] || '') + ' ' + p[0]; }
 
   function renderOptions(list){
     if(!list || !list.length){ return '<span class="genempty">Generated together with the prompt.</span>'; }
@@ -1017,9 +1134,11 @@ function cc(btn){
     var sku = d.sku, title = d.title || '';
     var url = d.url || ('https://aboutwallart.com/products/' + (d.handle || ''));
     var img = d.image || '', room = d.room || '';
+    var pm = d.planMonth || '';
+    var pmBadge = pm ? '<span class="badge month" style="background:#EEF0FF;color:#3C3489;"><i class="ti ti-calendar"></i> ' + esc(mLabel(pm)) + '</span>' : '';
     var html =
-      '<div class="vcard gen" id="' + skuId(sku) + '" data-sku="' + attr(sku) + '" data-title="' + attr(title) + '" data-room="' + attr(room) + '" data-start="">'
-      + '<div class="chead"><img class="thumb" src="' + attr(img) + '" alt="' + attr(title) + '" loading="lazy"><div class="hmeta"><div class="hrow"><span class="day sku-big">' + esc(sku) + '</span><span class="chip">9:16</span><span class="badge new"><i class="ti ti-wand"></i> Generate prompt</span></div>'
+      '<div class="vcard gen" id="' + skuId(sku) + '" data-sku="' + attr(sku) + '" data-title="' + attr(title) + '" data-room="' + attr(room) + '" data-planmonth="' + attr(pm) + '" data-start="">'
+      + '<div class="chead"><img class="thumb" src="' + attr(img) + '" alt="' + attr(title) + '" loading="lazy"><div class="hmeta"><div class="hrow"><span class="day sku-big">' + esc(sku) + '</span><span class="chip">9:16</span><span class="badge new"><i class="ti ti-wand"></i> Generate prompt</span>' + pmBadge + '</div>'
       + '<div class="ptitle">' + esc(title) + '</div>'
       + '<div class="plink"><i class="ti ti-link"></i> <a href="' + attr(url) + '" target="_blank">' + esc(url) + '</a><button class="copy" type="button" data-copy="' + attr(url) + '" onclick="cc(this)"><i class="ti ti-copy"></i> Copy</button></div></div></div>'
       + '<div class="cbody"><div class="genrow"><div class="upbox"><div class="uplabel">Start — upload your frame</div><label class="upframe updrop"><input type="file" accept="image/*" class="startfile" hidden><span class="uphint starthint"><i class="ti ti-upload"></i><br>Click or drop<br>start frame</span><img class="startprev" style="display:none" alt="start frame"></label></div>'
@@ -1226,6 +1345,42 @@ function cc(btn){
   }
   document.querySelectorAll('.vcard').forEach(wireRemove);
 
+  // built-in cards present at load — undo must never delete these, only untag them
+  var ORIGINAL = {};
+  document.querySelectorAll('#tab-video .vcard[data-sku]').forEach(function(c){ var s=c.getAttribute('data-sku'); if(s) ORIGINAL[s.toUpperCase()] = 1; });
+
+  function tagCardMonth(card, pm){
+    if(!card || !pm) return;
+    card.setAttribute('data-planmonth', pm);
+    var hrow = card.querySelector('.hrow'); if(!hrow) return;
+    var old = hrow.querySelector('.badge.month'); if(old && old.parentNode){ old.parentNode.removeChild(old); }
+    var b = document.createElement('span'); b.className = 'badge month';
+    b.style.background = '#EEF0FF'; b.style.color = '#3C3489';
+    b.innerHTML = '<i class="ti ti-calendar"></i> ' + mLabel(pm);
+    hrow.appendChild(b);
+  }
+  function untagCardMonth(card){
+    if(!card) return;
+    card.removeAttribute('data-planmonth');
+    var b = card.querySelector('.hrow .badge.month'); if(b && b.parentNode){ b.parentNode.removeChild(b); }
+  }
+
+  // let Tab 3 (the monthly planner) push planned products here, tag existing ones, and undo them
+  if(window.SMCC){
+    window.SMCC.addProductCard = function(d, planMonth){
+      var existing = document.getElementById(skuId(d.sku));
+      if(existing){ tagCardMonth(existing, planMonth); if(window.SMCC.bringToTop){ window.SMCC.bringToTop(existing); } return existing; }
+      if(planMonth) d.planMonth = planMonth;
+      return addCardFromData(d, true);
+    };
+    window.SMCC.undoCardBySku = function(sku){
+      var el = document.getElementById(skuId(sku));
+      if(!el) return;
+      if(ORIGINAL[(sku||'').toUpperCase()]){ untagCardMonth(el); if(window.SMCC.refresh){ window.SMCC.refresh(); } }
+      else { removeBySku(sku); }
+    };
+  }
+
   // --- "Add your own product" box ---
   (function(){
     var box = document.createElement('div');
@@ -1297,7 +1452,10 @@ function cc(btn){
     // hide any card the user removed (built-in or added) — stays gone
     removed.forEach(function(sku){ removeBySku(sku); });
     Object.keys(custom).forEach(function(sku){
-      if(removed.indexOf(sku) === -1 && !document.getElementById(skuId(sku))){ addCardFromData(custom[sku], true); }
+      if(removed.indexOf(sku) !== -1){ return; }
+      var existing = document.getElementById(skuId(sku));
+      if(existing){ if(custom[sku] && custom[sku].planMonth){ tagCardMonth(existing, custom[sku].planMonth); if(window.SMCC){ window.SMCC.bringToTop(existing); } } }
+      else { addCardFromData(custom[sku], true); }
     });
     Object.keys(gen).forEach(function(sku){
       var card = document.getElementById(skuId(sku));
