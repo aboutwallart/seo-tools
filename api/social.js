@@ -251,24 +251,25 @@ module.exports = async (req, res) => {
 
     if (action === 'generate-caption') {
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
-      const platform = (body.platform || '').toString().toLowerCase();
+      const platform = (body.platform || 'tiktok').toString().toLowerCase();
       const title = (body.title || '').toString().slice(0, 200);
       const room = (body.room || '').toString().slice(0, 60);
-      const url = (body.url || '').toString();
-      const campaign = (body.campaign || '').toString();
-      var rules = {
-        instagram: 'Instagram Reel caption: 1-3 short warm sentences + a soft CTA "tap the product tag to shop" (NO url, links do not work on IG). End with 5-8 relevant hashtags.',
-        tiktok: 'TikTok caption: casual and short, lower-case is fine, one hook line + "tap to shop" (NO url). End with 3-5 hashtags.',
-        facebook: 'Facebook caption: 1-2 warm sentences, then "Shop here → ' + (url ? (url + '?utm_source=facebook&utm_medium=video&utm_campaign=' + campaign) : '[link]') + '". 1-2 hashtags max.',
-        x: 'X (Twitter) post: one short punchy line, then the link ' + (url ? (url + '?utm_source=twitter&utm_medium=video&utm_campaign=' + campaign) : '[link]') + '. No hashtags needed.',
-        pinterest: 'Pinterest pin description: keyword-rich and descriptive of the look and the room (Pinterest is a search engine), 1-2 sentences a decorator would search for, then a soft CTA. NO url (the pin is already shoppable from the catalogue). 2-4 keyword hashtags.'
-      };
-      if (!rules[platform]) return res.status(400).json({ ok: false, error: 'Unknown platform: ' + platform });
+      const length = (body.length || 'short').toString().toLowerCase() === 'long' ? 'long' : 'short';
+      if (platform !== 'tiktok') return res.status(400).json({ ok: false, error: 'Only TikTok captions are generated here.' });
+      var lenInstr = length === 'long'
+        ? 'a longer caption of 2 to 3 short, warm sentences, then 5 to 8 relevant hashtags'
+        : 'a very short caption of one warm human line (about 120 characters max), then 3 to 5 relevant hashtags';
       var instr =
-        'You are a warm, friendly home-decor advisor writing ONE social caption for a wall-art product to post with its styled-in-room video. Product: "' + title + '"' + (room ? (' — room: ' + room) : '') + '.\n' +
-        'Voice: like giving a friend genuine decor advice — warm, natural, specific, NOT salesy, UK spelling, no words like elevate/delve/showcase. Make it feel human and inviting.\n' +
-        'Platform — ' + rules[platform] + '\n' +
-        'Return ONLY strict JSON, no markdown: {"caption":"..."}';
+        'You are a warm, friendly home-decor advisor writing ONE organic TikTok caption for a wall-art product, to post with its styled-in-room video. Product: "' + title + '"' + (room ? (' — room: ' + room) : '') + '.\n' +
+        'Write ' + lenInstr + '.\n' +
+        'STRICT TikTok rules — the caption MUST follow ALL of these (this is required to avoid policy strikes):\n' +
+        '- NO call to action of any kind. Never say shop, buy, tap, click, link, order, get yours, DM, or anything similar.\n' +
+        '- NO links, URLs, phone numbers, emails, @handles, QR codes, or any direction to go off TikTok.\n' +
+        '- NO price, discount, sale, or exaggerated / unverifiable claims. Describe the product honestly.\n' +
+        '- NO words in ALL CAPS, and no letters replaced by symbols or numbers.\n' +
+        '- Native, genuine, conversational; the product and room come through naturally. UK spelling. Never use words like elevate, delve, showcase, dive, beacon.\n' +
+        'Hashtags: lowercase, relevant to wall art / the room / the decor style, not spammy, no banned words.\n' +
+        'Return ONLY strict JSON, no markdown: {"caption":"...","hashtags":"#one #two #three"}';
       var ar = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' },
@@ -280,7 +281,7 @@ module.exports = async (req, res) => {
       var jm = txt.match(/\{[\s\S]*\}/);
       var parsed = {};
       try { parsed = JSON.parse(jm ? jm[0] : txt); } catch (e) { return res.status(200).json({ ok: false, error: 'Could not parse AI output', raw: txt }); }
-      return res.status(200).json({ ok: true, caption: parsed.caption || '' });
+      return res.status(200).json({ ok: true, caption: parsed.caption || '', hashtags: parsed.hashtags || '', length: length });
     }
 
     if (action === 'make-feed') {
@@ -398,6 +399,7 @@ module.exports = async (req, res) => {
           rec.image = d.image || rec.image || '';
           rec.room = d.room || rec.room || '';
           rec.planMonth = month;
+          rec.planDate = d.date || rec.planDate || '';
           data.custom[sku] = rec;
         });
         return JSON.stringify(data, null, 2);
