@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v3.4 · 10 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v3.5 · 10 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -716,7 +716,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v3.4 — built 10 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v3.5 — built 10 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -1300,17 +1300,26 @@ function cc(btn){
     inp.addEventListener('keydown', function(e){ if(e.key === 'Enter'){ doFind(); } });
   })();
 
-  // --- restore saved cards + generated content from GitHub ---
-  fetch('/api/social?action=get-cards').then(function(r){ return r.json(); }).then(function(d){
+  // --- restore saved cards + generated content from GitHub (pull plan dates too, so the badge shows the full post date) ---
+  Promise.all([
+    fetch('/api/social?action=get-cards').then(function(r){ return r.json(); }).catch(function(){ return null; }),
+    fetch('/api/social?action=get-plan').then(function(r){ return r.json(); }).catch(function(){ return null; })
+  ]).then(function(res){
+    var d = res[0], plan = res[1];
     if(!d || !d.ok){ return; }
+    // map each planned SKU -> its real post date, so cards saved before dates were tracked still show the full date
+    var PDATE = {};
+    if(plan && plan.ok && plan.months){ Object.keys(plan.months).forEach(function(mk){ (plan.months[mk].days||[]).forEach(function(day){ if(day && day.sku && day.date){ PDATE[day.sku] = day.date; } }); }); }
     var custom = d.custom || {}, gen = d.generated || {}, removed = d.removed || [];
     // hide any card the user removed (built-in or added) — stays gone
     removed.forEach(function(sku){ removeBySku(sku); });
     Object.keys(custom).forEach(function(sku){
       if(removed.indexOf(sku) !== -1){ return; }
+      var rec = custom[sku] || {};
+      var pdate = rec.planDate || PDATE[sku] || '';
       var existing = document.getElementById(skuId(sku));
-      if(existing){ if(custom[sku] && custom[sku].planMonth){ tagCardMonth(existing, custom[sku].planDate, custom[sku].planMonth); if(window.SMCC){ window.SMCC.placeByOrd(existing, dateOrd(custom[sku].planDate)); } } }
-      else { var nc = addCardFromData(custom[sku], true); if(nc && custom[sku] && custom[sku].planMonth && window.SMCC){ window.SMCC.placeByOrd(nc, dateOrd(custom[sku].planDate)); } }
+      if(existing){ if(rec.planMonth || pdate){ tagCardMonth(existing, pdate, rec.planMonth); if(window.SMCC){ window.SMCC.placeByOrd(existing, dateOrd(pdate)); } } }
+      else { rec.planDate = pdate; var nc = addCardFromData(rec, true); if(nc && (rec.planMonth || pdate) && window.SMCC){ window.SMCC.placeByOrd(nc, dateOrd(pdate)); } }
     });
     Object.keys(gen).forEach(function(sku){
       var card = document.getElementById(skuId(sku));
@@ -1382,39 +1391,35 @@ function cc(btn){
       + '<div class="capblocks">'+lenBlock(v,'short')+lenBlock(v,'long')+'</div></div>';
   }
 
-  var EXPANDED = {}; // monthKey -> true when the user reopens a finished month
-  var SMONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  function monthName(mk){ var p=String(mk||'').split('-'); if(p.length<2) return mk||'Undated'; return (SMONTHS[parseInt(p[1],10)-1]||'')+' '+p[0]; }
+  var COLLAPSED = false; // set true when the user presses "Collapse the month"
+  var MON3 = { Jan:'January',Feb:'February',Mar:'March',Apr:'April',May:'May',Jun:'June',Jul:'July',Aug:'August',Sep:'September',Oct:'October',Nov:'November',Dec:'December' };
+  function scheduleMonthLabel(){
+    var order=[], seen={};
+    videos.forEach(function(v){ var t=String(v.date||'').trim().split(/\s+/); var ab=t[t.length-1]; var full=MON3[ab]||''; if(full && !seen[full]){ seen[full]=1; order.push(full); } });
+    return (order.length?order.join(' / '):'Scheduled')+' '+new Date().getFullYear();
+  }
 
   function render(){
     if(!videos.length){ body.innerHTML = '<div class="box gray">No videos yet. Finish videos in the Video Creation tab and they appear here.</div>'; return; }
-    // group posts by month; once every post in a month is scheduled, collapse it into a small month + year block
-    var groups = {}, order = [];
-    videos.forEach(function(v){ var mk=(v.date||'').slice(0,7); if(!groups[mk]){ groups[mk]=[]; order.push(mk); } groups[mk].push(v); });
-    order.sort();
-    var html = '';
-    order.forEach(function(mk){
-      var vs = groups[mk];
-      var allDone = vs.length && vs.every(function(v){ return state[v.id+'_tiktok_done']; });
-      if(allDone && !EXPANDED[mk]){
-        html += '<div style="display:flex;gap:12px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:12px 0;background:var(--soft);">'
-          + '<strong style="font-size:15px;">'+esc(monthName(mk))+'</strong>'
-          + '<span class="small" style="color:var(--mut);">'+vs.length+' posts · all scheduled ✓</span>'
-          + '<button type="button" class="redobtn" data-reopen="'+attr(mk)+'" style="margin-left:auto;"><i class="ti ti-arrows-maximize"></i> Reopen</button></div>';
-      } else {
-        if(allDone){ html += '<div style="display:flex;gap:10px;align-items:center;margin:12px 0 4px;"><strong>'+esc(monthName(mk))+'</strong><span class="small" style="color:var(--mut);">all scheduled</span><button type="button" class="redobtn" data-collapse="'+attr(mk)+'" style="margin-left:auto;"><i class="ti ti-arrows-minimize"></i> Archive</button></div>'; }
-        var sorted = vs.slice().sort(function(a, b){ var da=state[a.id+'_tiktok_done']?1:0, db=state[b.id+'_tiktok_done']?1:0; if(da!==db) return da-db; return 0; });
-        html += '<div class="platcards">'+sorted.map(cardHTML).join('')+'</div>';
-      }
-    });
-    body.innerHTML = html;
+    if(COLLAPSED){
+      var done = videos.filter(function(v){ return state[v.id+'_tiktok_done']; }).length;
+      body.innerHTML = '<div style="display:flex;gap:12px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:14px 18px;margin:12px 0;background:var(--soft);">'
+        + '<strong style="font-size:16px;">'+esc(scheduleMonthLabel())+'</strong>'
+        + '<span class="small" style="color:var(--mut);">'+videos.length+' posts · '+done+' scheduled</span>'
+        + '<button type="button" class="redobtn" data-reopen="1" style="margin-left:auto;"><i class="ti ti-arrows-maximize"></i> Reopen</button></div>';
+      return;
+    }
+    // scheduled (greyed) videos drop to the bottom, keeping order otherwise
+    var sorted = videos.slice().sort(function(a, b){ var da=state[a.id+'_tiktok_done']?1:0, db=state[b.id+'_tiktok_done']?1:0; if(da!==db) return da-db; return 0; });
+    var bar = '<div style="margin:6px 0 12px;"><button type="button" class="redobtn" data-collapsemonth="1"><i class="ti ti-arrows-minimize"></i> Collapse the month into one block</button></div>';
+    body.innerHTML = bar + '<div class="platcards">'+sorted.map(cardHTML).join('')+'</div>';
   }
 
   // event delegation — clicks
   body.addEventListener('click', function(e){
     var btn = e.target.closest('button'); if(!btn) return;
-    if(btn.hasAttribute('data-reopen')){ EXPANDED[btn.getAttribute('data-reopen')] = true; render(); return; }
-    if(btn.hasAttribute('data-collapse')){ delete EXPANDED[btn.getAttribute('data-collapse')]; render(); return; }
+    if(btn.hasAttribute('data-collapsemonth')){ COLLAPSED = true; render(); return; }
+    if(btn.hasAttribute('data-reopen')){ COLLAPSED = false; render(); return; }
     var block = btn.closest('.capblock'); if(!block) return;
     var id=block.getAttribute('data-id'), len=block.getAttribute('data-len'), v=byId[id];
     if(!v) return;
