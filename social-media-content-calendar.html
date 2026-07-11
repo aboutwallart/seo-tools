@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v3.6 · 10 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v3.7 · 11 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -742,6 +742,18 @@
         }).catch(function(){ sendBtn.disabled=false; stat.textContent='Offline — not sent.'; });
       });
     }
+    // Auto-fill each post's video link from Google Drive by SKU (empty, unsent boxes only; stays editable).
+    fetch('/api/social?action=reel-links').then(function(r){return r.json();}).then(function(res){
+      if(!res||!res.ok||!res.links) return;
+      var links = res.links;
+      [].slice.call(document.querySelectorAll('#mpModalBg .mp-vrow')).forEach(function(row){
+        var d = days[parseInt(row.getAttribute('data-i'),10)];
+        var box = row.querySelector('.mpk-video');
+        if(!box || box.disabled || (box.value||'').trim()) return;
+        var link = links[(d.sku||'').toUpperCase()];
+        if(link) box.value = link;
+      });
+    }).catch(function(){});
   }
   function undoMonth(k){
     if(!confirm('Undo '+monthLabel(k)+'? This removes the products it added to your Video Creation tab (videos you have already made are kept).')) return;
@@ -756,7 +768,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v3.6 — built 10 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v3.7 — built 11 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
