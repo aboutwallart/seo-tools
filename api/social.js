@@ -548,42 +548,52 @@ module.exports = async (req, res) => {
         ['dressing room', 'Dressing Room Decor'], ['coffee', 'Coffee House Design'], ['breakfast nook', 'Breakfast Nook Decor'],
         ['contemporary', 'Contemporary Decor']
       ];
-      function boardForText(t) { t = (t || '').toLowerCase(); for (var bi = 0; bi < BOARD_MAP.length; bi++) { if (t.indexOf(BOARD_MAP[bi][0]) >= 0) return BOARD_MAP[bi][1]; } return ''; }
+      // board match uses the blog's own tags/title — hyphens normalised to spaces so "living-room-decor" matches "living room"
+      function boardForText(t) { t = (t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' '); for (var bi = 0; bi < BOARD_MAP.length; bi++) { if (t.indexOf(BOARD_MAP[bi][0]) >= 0) return BOARD_MAP[bi][1]; } return ''; }
       function artText(a) { return ((a.title || '') + ' ' + (a.handle || '') + ' ' + (Array.isArray(a.tags) ? a.tags.join(' ') : (a.tags || ''))).toLowerCase(); }
-      async function fetchLiveArticles() {
-        if (!SHOP_DOMAIN || !SHOP_TOKEN) return [];
-        var acc = []; var url = 'https://' + SHOP_DOMAIN + '/admin/api/2025-01/blogs/93572858142/articles.json?limit=250&published_status=published&fields=title,handle,image,published_at,tags';
-        for (var pg = 0; pg < 3 && url; pg++) {
-          var r = await fetch(url, { headers: { 'X-Shopify-Access-Token': SHOP_TOKEN } });
-          if (!r.ok) break;
-          var d = await r.json();
-          (d.articles || []).forEach(function (a) { acc.push(a); });
-          var link = r.headers.get('link') || '';
-          var lm = link.match(/<([^>]+)>;\s*rel="next"/);
-          url = lm ? lm[1] : null;
-        }
-        var now = Date.now();
-        return acc.filter(function (a) { return a.handle && a.published_at && new Date(a.published_at).getTime() <= now; });
-      }
       async function usedBlogSetLower() {
         var gh = await ghGet(USEDBLOG_FILE); var set = {};
         if (gh.content) { try { (JSON.parse(gh.content).used || []).forEach(function (x) { set[(x.handle || '').toLowerCase()] = 1; }); } catch (e) {} }
         return set;
       }
-      function pickBlog(day, arts, usedSet, batchUsed, lastTopic) {
-        var pool = arts.filter(function (a) { var h = (a.handle || '').toLowerCase(); return !usedSet[h] && !batchUsed[h]; });
-        if (!pool.length) return null;
-        var roomWords = (day.room || '').toLowerCase().split(/[^a-z]+/).filter(function (w) { return w.length > 3; });
-        var occWords = (day.occasionName || '').toLowerCase().split(/[^a-z]+/).filter(function (w) { return w.length > 3; });
-        function score(a) { var t = artText(a); var s = 0; roomWords.forEach(function (w) { if (t.indexOf(w) >= 0) s += 3; }); occWords.forEach(function (w) { if (t.indexOf(w) >= 0) s += 1; }); return s; }
-        var best = null, bestS = 0;
-        pool.forEach(function (a) { var s = score(a); if (s > bestS) { bestS = s; best = a; } });
-        if (best && bestS > 0) return best;
-        var alt = pool.filter(function (a) { var b = boardForText(artText(a)); return b && b !== lastTopic; });
-        return (alt[0] || pool[0]);
+      // Search the store's blog for LIVE articles matching a phrase (relevance-ranked by Shopify).
+      async function shopArticles(qextra, n) {
+        if (!SHOP_DOMAIN || !SHOP_TOKEN) return [];
+        var q = 'blog_id:93572858142' + (qextra ? (' ' + qextra) : '');
+        var gq = 'query($q:String!,$n:Int!){ articles(first:$n, query:$q){ edges{ node{ title handle publishedAt isPublished image{url} tags } } } }';
+        var r = await fetch('https://' + SHOP_DOMAIN + '/admin/api/2025-01/graphql.json', { method: 'POST', headers: { 'X-Shopify-Access-Token': SHOP_TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ query: gq, variables: { q: q, n: n } }) });
+        if (!r.ok) return [];
+        var d = await r.json();
+        var edges = (d && d.data && d.data.articles && d.data.articles.edges) || [];
+        var now = Date.now();
+        return edges.map(function (e) { return e.node; }).filter(function (a) { return a.handle && a.isPublished && a.publishedAt && new Date(a.publishedAt).getTime() <= now; });
+      }
+      // first meaningful theme word from the product title (drops generic wall-art words)
+      function themeKeyword(title) {
+        var stop = { art: 1, arts: 1, prints: 1, print: 1, set: 1, wall: 1, framed: 1, pictures: 1, picture: 1, poster: 1, posters: 1, decor: 1, canvas: 1, room: 1, home: 1 };
+        var ws = (title || '').toLowerCase().split(/[^a-z]+/).filter(function (w) { return w.length > 3 && !stop[w]; });
+        return ws[0] || '';
+      }
+      // MATCH 1 (video -> blog): an UNUSED blog matching the video's theme; else any unused. Never a used one.
+      async function chooseBlog(post, usedSet, batchUsed, lastTopic) {
+        function unusedOf(list) { return list.filter(function (a) { var h = (a.handle || '').toLowerCase(); return !usedSet[h] && !batchUsed[h]; }); }
+        var room = (post.room || '').toLowerCase();
+        var kw = themeKeyword(post.title);
+        var tries = [(kw + ' ' + room).trim(), room, kw];
+        for (var ti = 0; ti < tries.length; ti++) {
+          if (!tries[ti]) continue;
+          var un = unusedOf(await shopArticles(tries[ti], 25));
+          if (un.length) {
+            if (room) { var pref = un.filter(function (a) { return artText(a).replace(/[^a-z0-9]+/g, ' ').indexOf(room) >= 0; }); if (pref.length) return pref[0]; }
+            return un[0];
+          }
+        }
+        var all = unusedOf(await shopArticles('', 50));
+        if (!all.length) return null;
+        var alt = all.filter(function (a) { var b = boardForText(artText(a)); return b && b !== lastTopic; });
+        return (alt[0] || all[0]);
       }
 
-      var liveArticles = await fetchLiveArticles();
       var usedBlogSet = await usedBlogSetLower();
       var batchBlogUsed = {};
       var lastBlogTopic = '';
@@ -634,7 +644,7 @@ module.exports = async (req, res) => {
         usedToMark.push({ sku: sku, name: title, room: room, usedMonth: month });
 
         // ---- BLOG rows for this day (LinkedIn + GMB + repeats on FB/IG/Threads/Pinterest x2; NOT X) ----
-        var blog = pickBlog(p, liveArticles, usedBlogSet, batchBlogUsed, lastBlogTopic);
+        var blog = await chooseBlog(p, usedBlogSet, batchBlogUsed, lastBlogTopic);
         if (blog) {
           var bh = blog.handle;
           var bTitle = blog.title || '';
