@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v3.8 · 11 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v3.9 · 11 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -700,46 +700,50 @@
     var days = m.days||[];
     var rows = days.map(function(d, i){
       var sent = !!d.sent;
-      return '<div class="mp-vrow" data-i="'+i+'">'
-        + (sent ? '<span class="mp-vtick" style="color:#0F6E56;" title="Sent">&#10003;</span>' : '<input type="checkbox" class="mpk-cb" style="margin-top:4px;">')
+      return '<div class="mp-vrow" data-i="'+i+'"'+(sent?' data-sent="1"':'')+'>'
+        + '<input type="checkbox" class="mpk-cb" style="margin-top:4px;">'
         + '<img src="'+esc2(d.image)+'" alt="">'
         + '<div style="flex:1;min-width:0;"><strong>'+esc2(d.title)+'</strong><br><span class="sku">'+esc2(d.sku)+'</span>'+(d.occasionName?' &middot; '+esc2(d.occasionName):'')+(sent?' &middot; <span style="color:#0F6E56;font-weight:700;">Sent</span>':'')
         + '<div style="display:flex;gap:6px;margin-top:5px;flex-wrap:wrap;">'
-        + '<input type="date" class="mpk-date mp-in" value="'+esc2(d.date||'')+'"'+(sent?' disabled':'')+' style="font-size:12px;padding:4px 6px;">'
-        + '<input type="text" class="mpk-video mp-in" placeholder="paste video Drive link" value="'+esc2(d.videoLink||'')+'"'+(sent?' disabled':'')+' style="font-size:12px;padding:4px 6px;flex:1;min-width:150px;">'
+        + '<input type="date" class="mpk-date mp-in" value="'+esc2(d.date||'')+'" style="font-size:12px;padding:4px 6px;">'
+        + '<input type="text" class="mpk-video mp-in" placeholder="paste video Drive link" value="'+esc2(d.videoLink||'')+'" style="font-size:12px;padding:4px 6px;flex:1;min-width:150px;">'
         + '</div></div></div>';
     }).join('');
     openModal('<h3>'+esc2(monthLabel(k))+'</h3>'
-      + '<p class="mp-muted" style="margin:0 0 8px;">'+days.length+' posts. Tick the ones to send, paste each video&#39;s Drive link, then send. Sent posts are locked.</p>'
+      + '<p class="mp-muted" style="margin:0 0 8px;">'+days.length+' posts. Tick the ones to send, paste each video&#39;s Drive link, then send. Already-sent posts can be re-sent (you&#39;ll be asked to confirm).</p>'
       + '<div>'+rows+'</div>'
       + '<div style="display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap;"><button type="button" id="mpkSend" style="appearance:none;border:none;border-radius:9px;background:#534AB7;color:#fff;font-weight:700;font-size:14px;padding:10px 18px;cursor:pointer;">Send selected to Metricool file</button><button type="button" class="mp-close">Close</button><span class="small mp-muted" id="mpkStat"></span></div>');
     var sendBtn = document.getElementById('mpkSend');
     if(sendBtn){
       sendBtn.addEventListener('click', function(){
         var stat = document.getElementById('mpkStat');
-        var picked = [];
+        var picked = []; var anySent = false;
         [].slice.call(document.querySelectorAll('#mpModalBg .mp-vrow')).forEach(function(row){
           var cb = row.querySelector('.mpk-cb'); if(!cb || !cb.checked) return;
           var d = days[parseInt(row.getAttribute('data-i'),10)];
           var date = (row.querySelector('.mpk-date')||{}).value || d.date;
           var video = (((row.querySelector('.mpk-video')||{}).value)||'').trim();
+          if(row.getAttribute('data-sent')==='1') anySent = true;
           picked.push({ sku:d.sku, title:d.title, handle:d.handle, url:d.url, image:d.image, room:d.room, date:date, videoLink:video });
         });
         if(!picked.length){ stat.textContent='Tick at least one post.'; return; }
         var missing = picked.filter(function(p){ return !p.videoLink; });
         if(missing.length){ stat.textContent='Paste a video link for every ticked post ('+missing.length+' missing).'; return; }
-        sendBtn.disabled=true; stat.textContent='Writing captions + building the file… (a few seconds per post)';
+        if(anySent && !confirm('One or more of these were already published. Re-send them anyway?')){ return; }
+        sendBtn.disabled=true;
+        var secs=0; stat.textContent='Building your file… 0s (please wait — this takes ~20–40s per post, do not close)';
+        var timer=setInterval(function(){ secs++; stat.textContent='Building your file… '+secs+'s (please wait — do not close)'; },1000);
         fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'metricool-file',month:k,posts:picked})})
         .then(function(r){return r.json();}).then(function(res){
-          sendBtn.disabled=false;
+          clearInterval(timer); sendBtn.disabled=false;
           if(!res||!res.ok){ stat.textContent='Failed — '+((res&&res.error)||'try again'); return; }
           var blob=new Blob([res.csv],{type:'text/csv;charset=utf-8;'});
           var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='metricool-'+k+'.csv'; document.body.appendChild(a); a.click(); document.body.removeChild(a);
           picked.forEach(function(p){ USEDSET[(p.sku||'').toUpperCase()]=1; });
           loadSavedMonths();
           closeModal();
-          openModal('<h3>File ready</h3><p class="mp-muted" style="margin:0;">'+res.count+' post'+(res.count>1?'s':'')+' sent to the file (it just downloaded). Those products are marked used and locked, so you will not send them again. Import it into Metricool with <strong>Date = YYYY-MM-DD</strong> and <strong>Time = HH:MM:SS</strong>.</p><button type="button" class="mp-close">Got it</button>');
-        }).catch(function(){ sendBtn.disabled=false; stat.textContent='Offline — not sent.'; });
+          openModal('<h3>File ready</h3><p class="mp-muted" style="margin:0;">'+res.count+' post'+(res.count>1?'s':'')+' sent to the file (it just downloaded). Each day includes its video posts and its blog posts. Import it into Metricool with <strong>Date = YYYY-MM-DD</strong>. If Metricool flags the date as invalid, change its Time format to match the file.</p><button type="button" class="mp-close">Got it</button>');
+        }).catch(function(){ clearInterval(timer); sendBtn.disabled=false; stat.textContent='Offline — not sent.'; });
       });
     }
     // Auto-fill each post's video link from Google Drive by SKU (empty, unsent boxes only; stays editable).
@@ -768,7 +772,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v3.8 — built 11 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v3.9 — built 11 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
