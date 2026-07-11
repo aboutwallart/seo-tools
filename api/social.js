@@ -605,6 +605,22 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, csv: csv, count: posts.length });
     }
 
+    if (action === 'reel-links') {
+      // Fetches the SKU -> Google Drive video-link map from the Apps Script web app
+      // (runs as mae@aboutwallart.com, read-only on the REELS folder). Node's fetch
+      // follows the 302 redirect to googleusercontent.com automatically.
+      var REELS_URL = 'https://script.google.com/macros/s/AKfycbxPm9nrwHLCFFmGBieplcyMm6vysgWTNRBiBGEwHvvk3UA3YVnyfCTE4BjtTfCAAuhZeQ/exec';
+      var REELS_KEY = 'awa-reels-2026';
+      try {
+        var rl = await fetch(REELS_URL + '?key=' + REELS_KEY);
+        if (!rl.ok) return res.status(200).json({ ok: false, error: 'Drive link fetch failed: ' + rl.status, links: {} });
+        var rld = await rl.json();
+        return res.status(200).json({ ok: true, links: (rld && rld.links) ? rld.links : {} });
+      } catch (e) {
+        return res.status(200).json({ ok: false, error: e.message, links: {} });
+      }
+    }
+
     return res.status(400).json({ ok: false, error: 'Unknown action: ' + action });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
