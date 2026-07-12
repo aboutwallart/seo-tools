@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v4.2 · 12 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v4.3 · 12 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -712,7 +712,30 @@
     openModal('<h3>'+esc2(monthLabel(k))+'</h3>'
       + '<p class="mp-muted" style="margin:0 0 8px;">'+days.length+' posts. Tick the ones to send, paste each video&#39;s Drive link, then send. Already-sent posts can be re-sent (you&#39;ll be asked to confirm).</p>'
       + '<div>'+rows+'</div>'
-      + '<div style="display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap;"><button type="button" id="mpkSend" style="appearance:none;border:none;border-radius:9px;background:#534AB7;color:#fff;font-weight:700;font-size:14px;padding:10px 18px;cursor:pointer;">Send selected to Metricool file</button><button type="button" class="mp-close">Close</button><span class="small mp-muted" id="mpkStat"></span></div>');
+      + '<div style="display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap;"><button type="button" id="mpkSend" style="appearance:none;border:none;border-radius:9px;background:#534AB7;color:#fff;font-weight:700;font-size:14px;padding:10px 18px;cursor:pointer;">Send selected to Metricool file</button><button type="button" id="mpkSched" style="appearance:none;border:none;border-radius:9px;background:#0F6E56;color:#fff;font-weight:700;font-size:14px;padding:10px 18px;cursor:pointer;">Send selected to Schedule (TikTok)</button><button type="button" class="mp-close">Close</button><span class="small mp-muted" id="mpkStat"></span></div>');
+    var schedBtn = document.getElementById('mpkSched');
+    if(schedBtn){
+      schedBtn.addEventListener('click', function(){
+        var stat = document.getElementById('mpkStat');
+        var picked = [];
+        [].slice.call(document.querySelectorAll('#mpModalBg .mp-vrow')).forEach(function(row){
+          var cb = row.querySelector('.mpk-cb'); if(!cb || !cb.checked) return;
+          var d = days[parseInt(row.getAttribute('data-i'),10)];
+          var date = (row.querySelector('.mpk-date')||{}).value || d.date;
+          picked.push({ sku:d.sku, title:d.title, handle:d.handle, url:d.url, image:d.image, room:d.room, date:date });
+        });
+        if(!picked.length){ stat.textContent='Tick at least one post.'; return; }
+        schedBtn.disabled=true; stat.textContent='Adding to the Schedule tab…';
+        fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'add-to-schedule',posts:picked})})
+        .then(function(r){return r.json();}).then(function(res){
+          schedBtn.disabled=false;
+          if(!res||!res.ok){ stat.textContent='Failed — '+((res&&res.error)||'try again'); return; }
+          if(window.__reloadSchedule) window.__reloadSchedule();
+          closeModal();
+          openModal('<h3>Added to Schedule</h3><p class="mp-muted" style="margin:0;">'+res.added+' video'+(res.added===1?'':'s')+' added to the Schedule tab. Open the Schedule tab to write each TikTok caption.</p><button type="button" class="mp-close">Got it</button>');
+        }).catch(function(){ schedBtn.disabled=false; stat.textContent='Offline — not added.'; });
+      });
+    }
     var sendBtn = document.getElementById('mpkSend');
     if(sendBtn){
       sendBtn.addEventListener('click', function(){
@@ -772,7 +795,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v4.2 — built 12 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v4.3 — built 12 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -821,6 +844,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       var t = b.getAttribute('data-tab');
       btns.forEach(function(x){ x.classList.toggle('active', x===b); });
       panels.forEach(function(p){ p.classList.toggle('active', p.id==='tab-'+t); });
+      if(t==='schedule' && window.__reloadSchedule){ window.__reloadSchedule(); }
       window.scrollTo({top:0, behavior:'smooth'});
     });
   });
@@ -1546,25 +1570,30 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   if(subnav){ subnav.addEventListener('click', function(e){ var b=e.target.closest('.subbtn'); if(!b) return;
     activeSub=b.getAttribute('data-sub'); subnav.querySelectorAll('.subbtn').forEach(function(x){ x.classList.toggle('active', x===b); }); render(); }); }
 
-  // load
-  pill('saving','Loading…');
-  fetch('/api/social?action=get-schedule').then(function(r){ return r.json(); }).then(function(d){
-    if(d && d.ok){ videos=d.videos||[]; state=d.state||{}; saved=d.savedCaptions||{}; }
-    videos.forEach(function(v){ byId[v.id]=v; });
-    render(); pill('saved', videos.length ? 'Saved to GitHub' : 'No schedule file yet');
-    // keep product titles in sync with the live store (display only)
-    var hs = videos.map(function(v){ return v.handle; }).filter(Boolean);
-    if(hs.length){
-      fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'refresh-titles',handles:hs})})
-      .then(function(r){ return r.json(); }).then(function(rd){
-        if(rd && rd.ok && rd.titles){
-          var changed=false;
-          videos.forEach(function(v){ if(v.handle && rd.titles[v.handle] && rd.titles[v.handle]!==v.title){ v.title=rd.titles[v.handle]; if('name' in v) v.name=rd.titles[v.handle]; changed=true; } });
-          if(changed) render();
-        }
-      }).catch(function(){});
-    }
-  }).catch(function(){ render(); pill('err','Offline — could not load'); });
+  // load (also callable to refresh after new videos are added from the monthly plan)
+  function loadSchedule(){
+    pill('saving','Loading…');
+    Object.keys(byId).forEach(function(k){ delete byId[k]; });
+    return fetch('/api/social?action=get-schedule').then(function(r){ return r.json(); }).then(function(d){
+      if(d && d.ok){ videos=d.videos||[]; state=d.state||{}; saved=d.savedCaptions||{}; }
+      videos.forEach(function(v){ byId[v.id]=v; });
+      render(); pill('saved', videos.length ? 'Saved to GitHub' : 'No schedule file yet');
+      // keep product titles in sync with the live store (display only)
+      var hs = videos.map(function(v){ return v.handle; }).filter(Boolean);
+      if(hs.length){
+        fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'refresh-titles',handles:hs})})
+        .then(function(r){ return r.json(); }).then(function(rd){
+          if(rd && rd.ok && rd.titles){
+            var changed=false;
+            videos.forEach(function(v){ if(v.handle && rd.titles[v.handle] && rd.titles[v.handle]!==v.title){ v.title=rd.titles[v.handle]; if('name' in v) v.name=rd.titles[v.handle]; changed=true; } });
+            if(changed) render();
+          }
+        }).catch(function(){});
+      }
+    }).catch(function(){ render(); pill('err','Offline — could not load'); });
+  }
+  window.__reloadSchedule = loadSchedule;
+  loadSchedule();
 })();
 </script>
 </body>
