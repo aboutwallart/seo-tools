@@ -711,6 +711,32 @@ module.exports = async (req, res) => {
         }, 'Mark blogs used from Metricool file');
       }
 
+      // Add each pushed video into the Schedule tab's list so its TikTok card appears
+      // (deduped by SKU; captions stay per-card exactly as they are now — generated in the tab).
+      function fmtSchedDate(iso) {
+        var dd = new Date((iso || '') + 'T00:00:00');
+        if (isNaN(dd.getTime())) return (iso || '');
+        var days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        var mons = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        return days[dd.getDay()] + ' ' + dd.getDate() + ' ' + mons[dd.getMonth()];
+      }
+      await ghSave(SCHEDULE_FILE, function (content) {
+        var sched = { videos: [], state: {}, savedCaptions: {} };
+        if (content) { try { var pp = JSON.parse(content); sched.videos = pp.videos || []; sched.state = pp.state || {}; sched.savedCaptions = pp.savedCaptions || {}; } catch (e) { sched = { videos: [], state: {}, savedCaptions: {} }; } }
+        posts.forEach(function (po) {
+          var s = (po.sku || '').toString();
+          if (!s) return;
+          if (sched.videos.some(function (v) { return (v.sku || '').toUpperCase() === s.toUpperCase(); })) return;
+          sched.videos.push({
+            id: 'vid-' + s.toLowerCase(), sku: s, date: fmtSchedDate(po.date), room: (po.room || ''),
+            name: (po.title || ''), title: (po.title || ''), handle: (po.handle || ''),
+            url: (po.url || ('https://aboutwallart.com/products/' + (po.handle || ''))),
+            image: (po.image || ''), campaign: 'vid-' + s.toLowerCase(), captions: {}
+          });
+        });
+        return JSON.stringify(sched, null, 2);
+      }, 'Add pushed videos to schedule (TikTok cards)');
+
       await ghSave(PLAN_FILE, function (content) {
         var plan = { months: {} };
         if (content) { try { plan = JSON.parse(content); if (!plan.months) plan.months = {}; } catch (e) { plan = { months: {} }; } }
@@ -751,6 +777,29 @@ module.exports = async (req, res) => {
       } catch (e) {
         return res.status(200).json({ ok: false, error: e.message, links: {} });
       }
+    }
+
+    if (action === 'refresh-titles') {
+      // Returns { handle: currentTitle } from the live store so the Schedule tab shows titles that match Shopify.
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      var handles = Array.isArray(body.handles) ? body.handles.filter(Boolean) : [];
+      if (!handles.length) return res.status(200).json({ ok: true, titles: {} });
+      var domain = process.env.SHOPIFY_STORE_DOMAIN, stoken = process.env.SHOPIFY_ACCESS_TOKEN;
+      if (!domain || !stoken) return res.status(200).json({ ok: false, titles: {} });
+      var uniq = Array.from(new Set(handles));
+      var titles = {};
+      for (var i = 0; i < uniq.length; i += 30) {
+        var chunk = uniq.slice(i, i + 30);
+        var q = chunk.map(function (h) { return 'handle:' + h; }).join(' OR ');
+        var gq = 'query($q:String!){ products(first:250, query:$q){ edges{ node{ handle title } } } }';
+        try {
+          var r = await fetch('https://' + domain + '/admin/api/2025-01/graphql.json', { method: 'POST', headers: { 'X-Shopify-Access-Token': stoken, 'Content-Type': 'application/json' }, body: JSON.stringify({ query: gq, variables: { q: q } }) });
+          if (!r.ok) continue;
+          var d = await r.json();
+          ((d && d.data && d.data.products && d.data.products.edges) || []).forEach(function (e) { if (e.node && e.node.handle) titles[e.node.handle] = e.node.title; });
+        } catch (e) {}
+      }
+      return res.status(200).json({ ok: true, titles: titles });
     }
 
     return res.status(400).json({ ok: false, error: 'Unknown action: ' + action });
