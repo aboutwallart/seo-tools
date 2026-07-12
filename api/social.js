@@ -676,10 +676,8 @@ module.exports = async (req, res) => {
         var caps = pair[0]; var bc = pair[1];
         var alt = caps.alt || (title + ' styled in a ' + room + ' room');
 
-        // Video Thumbnail Url must be a public Shopify image URL, never a base64/data: blob.
-        var thumb = image;
-        if (thumb.indexOf('data:') === 0) { thumb = await productImageByHandle(p.handle); }
-        var mk = function (net) { var o = { Date: date, Draft: false, Shortener: true, 'Picture Url 1': video, 'Alt text picture 1': alt, 'Video Thumbnail Url': thumb }; o[net] = true; return o; };
+        // No video thumbnail — leave it empty so Metricool uses the video's own FIRST FRAME as the cover.
+        var mk = function (net) { var o = { Date: date, Draft: false, Shortener: true, 'Picture Url 1': video, 'Alt text picture 1': alt, 'Video Thumbnail Url': '' }; o[net] = true; return o; };
         var rTw = mk('Twitter/X'); rTw.Time = '10:00:00'; rTw['Twitter/X Type'] = 'POST'; rTw.Text = caps.twitter; rows.push(rowLine(rTw));
         var rFb = mk('Facebook'); rFb.Time = '10:00:00'; rFb['Facebook Post Type'] = 'REEL'; rFb['Facebook Title'] = caps.facebookTitle || title; rFb.Text = caps.facebook; rows.push(rowLine(rFb));
         var rYt = mk('Youtube'); rYt.Time = '10:00:00'; rYt['Youtube Video Title'] = caps.youtubeTitle || title; rYt['Youtube Video Type'] = 'SHORT'; rYt['Youtube Video Privacy'] = 'PUBLIC'; rYt.Text = caps.youtube; rows.push(rowLine(rYt));
