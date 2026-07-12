@@ -626,6 +626,12 @@ module.exports = async (req, res) => {
         var room = (p.room || '').toString();
         var image = (p.image || '').toString();
         var video = (p.videoLink || '').toString();
+        // Metricool CSV needs the Drive link ending in /view?usp=sharing (not /view) to read the video.
+        if (video.indexOf('drive.google.com') >= 0) {
+          var vbase = video.split('?')[0].replace(/\/$/, '');
+          if (vbase.slice(-5) !== '/view') { var vm = vbase.match(/\/file\/d\/([^/]+)/); if (vm) vbase = 'https://drive.google.com/file/d/' + vm[1] + '/view'; }
+          video = vbase + '?usp=sharing';
+        }
         var date = (p.date || '').toString();
         var camp = 'vid-' + sku.toLowerCase();
         var board = room ? (room + ' Decor') : 'Home Decor';
