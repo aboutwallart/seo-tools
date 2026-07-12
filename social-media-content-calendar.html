@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v4.1 · 12 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v4.2 · 12 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -703,7 +703,7 @@
       return '<div class="mp-vrow" data-i="'+i+'"'+(sent?' data-sent="1"':'')+'>'
         + '<input type="checkbox" class="mpk-cb" style="margin-top:4px;">'
         + '<img src="'+esc2(d.image)+'" alt="">'
-        + '<div style="flex:1;min-width:0;"><strong>'+esc2(d.title)+'</strong><br><span class="sku">'+esc2(d.sku)+'</span>'+(d.occasionName?' &middot; '+esc2(d.occasionName):'')+(sent?' &middot; <span style="color:#0F6E56;font-weight:700;">Sent</span>':'')
+        + '<div style="flex:1;min-width:0;"><strong>'+esc2(d.title)+'</strong> <button class="copy" type="button" onclick="ct(this)" data-copy-title="'+esc2(d.title)+'" title="Copy title"><i class="ti ti-copy"></i></button><br><span class="sku">'+esc2(d.sku)+'</span>'+(d.occasionName?' &middot; '+esc2(d.occasionName):'')+(sent?' &middot; <span style="color:#0F6E56;font-weight:700;">Sent</span>':'')
         + '<div style="display:flex;gap:6px;margin-top:5px;flex-wrap:wrap;">'
         + '<input type="date" class="mpk-date mp-in" value="'+esc2(d.date||'')+'" style="font-size:12px;padding:4px 6px;">'
         + '<input type="text" class="mpk-video mp-in" placeholder="paste video Drive link" value="'+esc2(d.videoLink||'')+'" style="font-size:12px;padding:4px 6px;flex:1;min-width:150px;">'
@@ -772,7 +772,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v4.1 — built 12 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v4.2 — built 12 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -784,6 +784,33 @@ function cc(btn){
     setTimeout(function(){ btn.classList.remove('done'); btn.innerHTML = old; }, 1400);
   });
 }
+// Copy the product TITLE (for pasting into TikTok). Used by injected buttons + modal rows.
+function ct(btn){
+  var t = btn.getAttribute('data-copy-title') || '';
+  navigator.clipboard.writeText(t).then(function(){
+    var old = btn.innerHTML;
+    btn.classList.add('done');
+    btn.innerHTML = '<i class="ti ti-check"></i> Copied';
+    setTimeout(function(){ btn.classList.remove('done'); btn.innerHTML = old; }, 1400);
+  });
+}
+// Auto-add a "Copy title" button to every product-title on the Video Creation cards (static + added).
+var _tcObs = null;
+function injectTitleCopies(){
+  if(_tcObs) _tcObs.disconnect();
+  document.querySelectorAll('.ptitle').forEach(function(el){
+    if(el.querySelector('.tcopyt')) return;
+    var t = (el.textContent || '').trim(); if(!t) return;
+    var b = document.createElement('button');
+    b.className = 'copy tcopyt'; b.type = 'button';
+    b.setAttribute('data-copy-title', t); b.setAttribute('onclick', 'ct(this)');
+    b.style.marginLeft = '8px'; b.style.fontSize = '11px';
+    b.innerHTML = '<i class="ti ti-copy"></i> Copy title';
+    el.appendChild(b);
+  });
+  if(_tcObs && document.body) _tcObs.observe(document.body, { childList:true, subtree:true });
+}
+try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitleCopies(); }); if(document.body) _tcObs.observe(document.body, { childList:true, subtree:true }); } catch(e){}
 
 /* ---- tabs ---- */
 (function(){
