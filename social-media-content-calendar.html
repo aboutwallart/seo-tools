@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v4.0 · 11 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v4.1 · 12 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -772,7 +772,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v4.0 — built 11 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v4.1 — built 12 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -1443,7 +1443,7 @@ function cc(btn){
       + '<div class="schead" style="background:'+col[0]+';"><img class="sthumb" src="'+attr(v.image)+'" alt="'+attr(v.title)+'" loading="lazy">'
       + '<div class="smeta"><div class="srow"><span class="sday" style="color:'+col[1]+';"><i class="ti ti-calendar"></i> '+esc(v.date)+'</span><span class="ssku">'+esc(v.sku)+'</span><span class="sroom" style="color:'+col[1]+';">'+esc(v.room)+'</span>'
       + '<label class="schk" style="margin-left:auto;"><input type="checkbox" class="sdonecb"'+(done?' checked':'')+'> Scheduled</label></div>'
-      + '<div class="stitle">'+esc(v.title)+'</div><div class="slink"><i class="ti ti-link"></i> <a href="'+attr(v.url)+'" target="_blank">'+esc(v.handle)+'</a></div></div></div>'
+      + '<div class="stitle">'+esc(v.title)+' <button class="tcopy" type="button" title="Copy product title" data-title="'+attr(v.title)+'"><i class="ti ti-copy"></i></button></div><div class="slink"><i class="ti ti-link"></i> <a href="'+attr(v.url)+'" target="_blank">'+esc(v.handle)+'</a></div></div></div>'
       + '<div class="capblocks">'+lenBlock(v,'short')+lenBlock(v,'long')+'</div></div>';
   }
 
@@ -1476,6 +1476,7 @@ function cc(btn){
     var btn = e.target.closest('button'); if(!btn) return;
     if(btn.hasAttribute('data-collapsemonth')){ COLLAPSED = true; render(); return; }
     if(btn.hasAttribute('data-reopen')){ COLLAPSED = false; render(); return; }
+    if(btn.classList.contains('tcopy')){ var t=btn.getAttribute('data-title')||''; navigator.clipboard.writeText(t).then(function(){ var o=btn.innerHTML; btn.innerHTML='<i class="ti ti-check"></i>'; setTimeout(function(){ btn.innerHTML=o; },1200); }); return; }
     var block = btn.closest('.capblock'); if(!block) return;
     var id=block.getAttribute('data-id'), len=block.getAttribute('data-len'), v=byId[id];
     if(!v) return;
@@ -1524,6 +1525,18 @@ function cc(btn){
     if(d && d.ok){ videos=d.videos||[]; state=d.state||{}; saved=d.savedCaptions||{}; }
     videos.forEach(function(v){ byId[v.id]=v; });
     render(); pill('saved', videos.length ? 'Saved to GitHub' : 'No schedule file yet');
+    // keep product titles in sync with the live store (display only)
+    var hs = videos.map(function(v){ return v.handle; }).filter(Boolean);
+    if(hs.length){
+      fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'refresh-titles',handles:hs})})
+      .then(function(r){ return r.json(); }).then(function(rd){
+        if(rd && rd.ok && rd.titles){
+          var changed=false;
+          videos.forEach(function(v){ if(v.handle && rd.titles[v.handle] && rd.titles[v.handle]!==v.title){ v.title=rd.titles[v.handle]; if('name' in v) v.name=rd.titles[v.handle]; changed=true; } });
+          if(changed) render();
+        }
+      }).catch(function(){});
+    }
   }).catch(function(){ render(); pill('err','Offline — could not load'); });
 })();
 </script>
