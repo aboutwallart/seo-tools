@@ -602,8 +602,24 @@ module.exports = async (req, res) => {
       var usedToMark = [];
       var blogUsedToMark = [];
 
-      for (var mi = 0; mi < posts.length; mi++) {
-        var p = posts[mi];
+      // Phase 1 — assign each post an UNUSED blog sequentially (keeps dedup + topic alternation correct; fast, just Shopify searches).
+      for (var ai = 0; ai < posts.length; ai++) {
+        var bpk = await chooseBlog(posts[ai], usedBlogSet, batchBlogUsed, lastBlogTopic);
+        posts[ai]._blog = bpk || null;
+        if (bpk) { batchBlogUsed[(bpk.handle || '').toLowerCase()] = 1; lastBlogTopic = boardForText(artText(bpk)) || lastBlogTopic; }
+      }
+
+      // one Anthropic call -> parsed JSON (throws on http/parse error)
+      async function callAI(prompt, maxTok) {
+        var r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: maxTok, messages: [{ role: 'user', content: prompt }] }) });
+        if (!r.ok) throw new Error('AI ' + r.status);
+        var d = await r.json();
+        var t = (d.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('\n');
+        var m = t.match(/\{[\s\S]*\}/); return JSON.parse(m ? m[0] : t);
+      }
+
+      // build ONE post's rows (its video + its blog). The video and blog AI calls run in parallel.
+      async function buildPost(p) {
         var sku = (p.sku || '').toString();
         var title = (p.title || '').toString();
         var url = (p.url || ('https://aboutwallart.com/products/' + (p.handle || ''))).toString();
@@ -614,6 +630,8 @@ module.exports = async (req, res) => {
         var camp = 'vid-' + sku.toLowerCase();
         var board = room ? (room + ' Decor') : 'Home Decor';
         var shop = function (src, med) { return url + '?utm_source=' + src + (med ? ('&utm_medium=' + med) : '') + '&utm_campaign=' + camp; };
+        var blog = p._blog;
+        var rows = [];
 
         var instr = 'You write organic social captions for a wall-art product video (a reel) in the About Wall Art voice: warm, friendly home-decor advisor, UK spelling, NOT salesy, never words like elevate, delve, showcase, dive, beacon. Product: "' + title + '"' + (room ? (' — room: ' + room) : '') + '. It is a framed set, ready to hang.\n' +
           'Write ONE caption per platform in this exact style (use the shop links EXACTLY as given, placed before any hashtags):\n' +
@@ -625,34 +643,10 @@ module.exports = async (req, res) => {
           '- instagram: warm 3 to 4 sentences ("here is why I love it", framed and ready to hang, "tap Our Content Hub in my bio"), then a blank line, then about 25 lowercase hashtags. NO link.\n' +
           'Also give: facebookTitle (max 40 chars), youtubeTitle (max 90 chars, ending " #shorts"), pinterestTitle (max 90 chars), alt (one short line describing the product styled in the room).\n' +
           'Return ONLY strict JSON, no markdown: {"twitter":"","facebook":"","youtube":"","threads":"","pinterest":"","instagram":"","facebookTitle":"","youtubeTitle":"","pinterestTitle":"","alt":""}';
-        var ar = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 2000, messages: [{ role: 'user', content: instr }] }) });
-        if (!ar.ok) return res.status(ar.status).json({ ok: false, error: 'Caption AI error for ' + sku });
-        var ad = await ar.json();
-        var txt = (ad.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('\n');
-        var jm = txt.match(/\{[\s\S]*\}/); var caps = {};
-        try { caps = JSON.parse(jm ? jm[0] : txt); } catch (e) { return res.status(200).json({ ok: false, error: 'Could not parse captions for ' + sku }); }
-        var alt = caps.alt || (title + ' styled in a ' + room + ' room');
 
-        var mk = function (net) { var o = { Date: date, Draft: false, Shortener: true, 'Picture Url 1': video, 'Alt text picture 1': alt, 'Video Thumbnail Url': image }; o[net] = true; return o; };
-        var rTw = mk('Twitter/X'); rTw.Time = '10:00 AM'; rTw['Twitter/X Type'] = 'POST'; rTw.Text = caps.twitter; out.push(rowLine(rTw));
-        var rFb = mk('Facebook'); rFb.Time = '10:00 AM'; rFb['Facebook Post Type'] = 'REEL'; rFb['Facebook Title'] = caps.facebookTitle || title; rFb.Text = caps.facebook; out.push(rowLine(rFb));
-        var rYt = mk('Youtube'); rYt.Time = '10:00 AM'; rYt['Youtube Video Title'] = caps.youtubeTitle || title; rYt['Youtube Video Type'] = 'SHORT'; rYt['Youtube Video Privacy'] = 'PUBLIC'; rYt.Text = caps.youtube; out.push(rowLine(rYt));
-        var rTh = mk('Threads'); rTh.Time = '11:00 AM'; rTh['Threads Reply Control'] = 'EVERYONE'; rTh['Threads Post Type'] = 'POST'; rTh.Text = caps.threads; out.push(rowLine(rTh));
-        var rPi = mk('Pinterest'); rPi.Time = '11:00 AM'; rPi['Pinterest Board'] = board; rPi['Pinterest Pin Title'] = caps.pinterestTitle || title; rPi['Pinterest Pin Link'] = shop('pinterest', 'video'); rPi.Text = caps.pinterest; out.push(rowLine(rPi));
-        var rIg = mk('Instagram'); rIg.Time = '11:00 AM'; rIg.Draft = true; rIg['Instagram Post Type'] = 'REEL'; rIg['Instagram Show Reel On Feed'] = true; rIg.Text = caps.instagram; out.push(rowLine(rIg));
-
-        usedToMark.push({ sku: sku, name: title, room: room, usedMonth: month });
-
-        // ---- BLOG rows for this day (LinkedIn + GMB + repeats on FB/IG/Threads/Pinterest x2; NOT X) ----
-        var blog = await chooseBlog(p, usedBlogSet, batchBlogUsed, lastBlogTopic);
+        var binstr = null;
         if (blog) {
-          var bh = blog.handle;
-          var bTitle = blog.title || '';
-          var bImg = (blog.image && blog.image.src) || image;
-          var bUrl = BLOG_BASE + bh;
-          var blink = function (src) { return bUrl + '?utm_source=' + src + '&utm_medium=blog&utm_campaign=' + bh; };
-          var topicBoard = boardForText(artText(blog));
-          var binstr = 'You write organic social copy for a home-decor BLOG article in the About Wall Art voice: warm, friendly UK-English advisor, NOT salesy, never words like elevate delve showcase dive beacon. Blog title: "' + bTitle + '". Write copy that makes people want to read it.\n' +
+          binstr = 'You write organic social copy for a home-decor BLOG article in the About Wall Art voice: warm, friendly UK-English advisor, NOT salesy, never words like elevate delve showcase dive beacon. Blog title: "' + (blog.title || '') + '". Write copy that makes people want to read it.\n' +
             'Return ONLY strict JSON, no markdown, with these keys:\n' +
             '- linkedin: professional but warm, 3 to 6 short paragraphs (up to ~2000 chars), a home-styling / workspace angle. NO link, NO hashtags.\n' +
             '- facebook: 2 to 3 warm sentences about the blog. NO link, NO hashtags.\n' +
@@ -664,32 +658,63 @@ module.exports = async (req, res) => {
             '- pinterestTitle: max 90 characters.\n' +
             '- alt: one short line describing a styled interior for this blog.\n' +
             'Return ONLY: {"linkedin":"","facebook":"","threads":"","instagram":"","gmb":"","pinterestA":"","pinterestB":"","pinterestTitle":"","alt":""}';
-          var bar = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 3000, messages: [{ role: 'user', content: binstr }] }) });
-          if (bar.ok) {
-            var bad = await bar.json();
-            var btxt = (bad.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('\n');
-            var bjm = btxt.match(/\{[\s\S]*\}/); var bc = {};
-            try { bc = JSON.parse(bjm ? bjm[0] : btxt); } catch (e) { bc = {}; }
-            var balt = bc.alt || bTitle;
-            var gmbText = (bc.gmb || bTitle).slice(0, 1400).replace(/\s+$/, '') + '\n\nRead more → ' + blink('gmb');
-            if (gmbText.length > 1500) gmbText = gmbText.slice(0, 1500);
-            var gmbImg = bImg + (bImg.indexOf('?') >= 0 ? '&' : '?') + 'format=jpg';
-            var mkb = function (net, img) { var o = { Date: date, Draft: false, Shortener: true, 'Picture Url 1': img || bImg, 'Alt text picture 1': balt }; o[net] = true; return o; };
-            var bFb = mkb('Facebook'); bFb.Time = '12:00 PM'; bFb['Facebook Post Type'] = 'POST'; bFb.Text = (bc.facebook || bTitle) + '\n\nRead more → ' + blink('facebook'); out.push(rowLine(bFb));
-            var bIg = mkb('Instagram'); bIg.Time = '1:00 PM'; bIg['Instagram Post Type'] = 'POST'; bIg.Text = (bc.instagram || bTitle); out.push(rowLine(bIg));
-            var bTh = mkb('Threads'); bTh.Time = '1:00 PM'; bTh['Threads Reply Control'] = 'EVERYONE'; bTh['Threads Post Type'] = 'POST'; bTh.Text = (bc.threads || bTitle) + '\n\nRead more → ' + blink('threads'); out.push(rowLine(bTh));
-            var pboard1 = topicBoard || EDU_BOARD;
-            var bP1 = mkb('Pinterest'); bP1.Time = '1:00 PM'; bP1['Pinterest Board'] = pboard1; bP1['Pinterest Pin Title'] = bc.pinterestTitle || bTitle; bP1['Pinterest Pin Link'] = blink('pinterest'); bP1.Text = (bc.pinterestA || bTitle); out.push(rowLine(bP1));
-            if (pboard1 !== EDU_BOARD) { var bP2 = mkb('Pinterest'); bP2.Time = '1:05 PM'; bP2['Pinterest Board'] = EDU_BOARD; bP2['Pinterest Pin Title'] = bc.pinterestTitle || bTitle; bP2['Pinterest Pin Link'] = blink('pinterest'); bP2.Text = (bc.pinterestB || bc.pinterestA || bTitle); out.push(rowLine(bP2)); }
-            var bLi = mkb('LinkedIn'); bLi.Time = '5:00 PM'; bLi['LinkedIn Type'] = 'POST'; bLi.Text = (bc.linkedin || bTitle) + '\n\nRead more → ' + blink('linkedin'); out.push(rowLine(bLi));
-            var bGb = mkb('GBP', gmbImg); bGb.Time = '5:00 PM'; bGb['GBP Post Type'] = 'publication'; bGb.Text = gmbText; out.push(rowLine(bGb));
-
-            batchBlogUsed[bh.toLowerCase()] = 1;
-            lastBlogTopic = topicBoard || lastBlogTopic;
-            blogUsedToMark.push({ handle: bh, title: bTitle, usedDate: date });
-          }
         }
+
+        var pair = await Promise.all([callAI(instr, 2000), binstr ? callAI(binstr, 3000).catch(function () { return null; }) : Promise.resolve(null)]);
+        var caps = pair[0]; var bc = pair[1];
+        var alt = caps.alt || (title + ' styled in a ' + room + ' room');
+
+        var mk = function (net) { var o = { Date: date, Draft: false, Shortener: true, 'Picture Url 1': video, 'Alt text picture 1': alt, 'Video Thumbnail Url': image }; o[net] = true; return o; };
+        var rTw = mk('Twitter/X'); rTw.Time = '10:00 AM'; rTw['Twitter/X Type'] = 'POST'; rTw.Text = caps.twitter; rows.push(rowLine(rTw));
+        var rFb = mk('Facebook'); rFb.Time = '10:00 AM'; rFb['Facebook Post Type'] = 'REEL'; rFb['Facebook Title'] = caps.facebookTitle || title; rFb.Text = caps.facebook; rows.push(rowLine(rFb));
+        var rYt = mk('Youtube'); rYt.Time = '10:00 AM'; rYt['Youtube Video Title'] = caps.youtubeTitle || title; rYt['Youtube Video Type'] = 'SHORT'; rYt['Youtube Video Privacy'] = 'PUBLIC'; rYt.Text = caps.youtube; rows.push(rowLine(rYt));
+        var rTh = mk('Threads'); rTh.Time = '11:00 AM'; rTh['Threads Reply Control'] = 'EVERYONE'; rTh['Threads Post Type'] = 'POST'; rTh.Text = caps.threads; rows.push(rowLine(rTh));
+        var rPi = mk('Pinterest'); rPi.Time = '11:00 AM'; rPi['Pinterest Board'] = board; rPi['Pinterest Pin Title'] = caps.pinterestTitle || title; rPi['Pinterest Pin Link'] = shop('pinterest', 'video'); rPi.Text = caps.pinterest; rows.push(rowLine(rPi));
+        var rIg = mk('Instagram'); rIg.Time = '11:00 AM'; rIg.Draft = true; rIg['Instagram Post Type'] = 'REEL'; rIg['Instagram Show Reel On Feed'] = true; rIg.Text = caps.instagram; rows.push(rowLine(rIg));
+
+        var usedB = null;
+        if (blog && bc) {
+          var bh = blog.handle;
+          var bTitle = blog.title || '';
+          var bImg = (blog.image && blog.image.src) || image;
+          var bUrl = BLOG_BASE + bh;
+          var blink = function (src) { return bUrl + '?utm_source=' + src + '&utm_medium=blog&utm_campaign=' + bh; };
+          var topicBoard = boardForText(artText(blog));
+          var balt = bc.alt || bTitle;
+          var gmbText = (bc.gmb || bTitle).slice(0, 1400).replace(/\s+$/, '') + '\n\nRead more → ' + blink('gmb');
+          if (gmbText.length > 1500) gmbText = gmbText.slice(0, 1500);
+          var gmbImg = bImg + (bImg.indexOf('?') >= 0 ? '&' : '?') + 'format=jpg';
+          var mkb = function (net, img) { var o = { Date: date, Draft: false, Shortener: true, 'Picture Url 1': img || bImg, 'Alt text picture 1': balt }; o[net] = true; return o; };
+          var bFb = mkb('Facebook'); bFb.Time = '12:00 PM'; bFb['Facebook Post Type'] = 'POST'; bFb.Text = (bc.facebook || bTitle) + '\n\nRead more → ' + blink('facebook'); rows.push(rowLine(bFb));
+          var bIg = mkb('Instagram'); bIg.Time = '1:00 PM'; bIg['Instagram Post Type'] = 'POST'; bIg.Text = (bc.instagram || bTitle); rows.push(rowLine(bIg));
+          var bTh = mkb('Threads'); bTh.Time = '1:00 PM'; bTh['Threads Reply Control'] = 'EVERYONE'; bTh['Threads Post Type'] = 'POST'; bTh.Text = (bc.threads || bTitle) + '\n\nRead more → ' + blink('threads'); rows.push(rowLine(bTh));
+          var pboard1 = topicBoard || EDU_BOARD;
+          var bP1 = mkb('Pinterest'); bP1.Time = '1:00 PM'; bP1['Pinterest Board'] = pboard1; bP1['Pinterest Pin Title'] = bc.pinterestTitle || bTitle; bP1['Pinterest Pin Link'] = blink('pinterest'); bP1.Text = (bc.pinterestA || bTitle); rows.push(rowLine(bP1));
+          if (pboard1 !== EDU_BOARD) { var bP2 = mkb('Pinterest'); bP2.Time = '1:05 PM'; bP2['Pinterest Board'] = EDU_BOARD; bP2['Pinterest Pin Title'] = bc.pinterestTitle || bTitle; bP2['Pinterest Pin Link'] = blink('pinterest'); bP2.Text = (bc.pinterestB || bc.pinterestA || bTitle); rows.push(rowLine(bP2)); }
+          var bLi = mkb('LinkedIn'); bLi.Time = '5:00 PM'; bLi['LinkedIn Type'] = 'POST'; bLi.Text = (bc.linkedin || bTitle) + '\n\nRead more → ' + blink('linkedin'); rows.push(rowLine(bLi));
+          var bGb = mkb('GBP', gmbImg); bGb.Time = '5:00 PM'; bGb['GBP Post Type'] = 'publication'; bGb.Text = gmbText; rows.push(rowLine(bGb));
+          usedB = { handle: bh, title: bTitle, usedDate: date };
+        }
+
+        return { rows: rows, usedV: { sku: sku, name: title, room: room, usedMonth: month }, usedB: usedB };
       }
+
+      // Phase 2 — build all posts IN PARALLEL (max 6 at once), order preserved.
+      async function mapLimit(arr, limit, fn) {
+        var resArr = new Array(arr.length); var idx = 0;
+        async function worker() { while (idx < arr.length) { var i = idx++; resArr[i] = await fn(arr[i]); } }
+        var ws = []; var n = Math.min(limit, arr.length); for (var w = 0; w < n; w++) ws.push(worker());
+        await Promise.all(ws); return resArr;
+      }
+
+      var built;
+      try { built = await mapLimit(posts, 6, buildPost); }
+      catch (e) { return res.status(200).json({ ok: false, error: 'Caption AI error — ' + (e && e.message ? e.message : 'try again') }); }
+      built.forEach(function (b) {
+        b.rows.forEach(function (rw) { out.push(rw); });
+        usedToMark.push(b.usedV);
+        if (b.usedB) blogUsedToMark.push(b.usedB);
+      });
 
       var csv = '﻿' + out.join('\r\n') + '\r\n';
 
