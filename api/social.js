@@ -556,6 +556,18 @@ module.exports = async (req, res) => {
         if (gh.content) { try { (JSON.parse(gh.content).used || []).forEach(function (x) { set[(x.handle || '').toLowerCase()] = 1; }); } catch (e) {} }
         return set;
       }
+      // real Shopify featured-image URL for a product handle (used when the plan image is a base64 blob)
+      async function productImageByHandle(h) {
+        if (!h || !SHOP_DOMAIN || !SHOP_TOKEN) return '';
+        try {
+          var gq = 'query($q:String!){ products(first:1, query:$q){ edges{ node{ featuredImage{ url } } } } }';
+          var r = await fetch('https://' + SHOP_DOMAIN + '/admin/api/2025-01/graphql.json', { method: 'POST', headers: { 'X-Shopify-Access-Token': SHOP_TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ query: gq, variables: { q: 'handle:' + h } }) });
+          if (!r.ok) return '';
+          var d = await r.json();
+          var e = (d && d.data && d.data.products && d.data.products.edges) || [];
+          return (e[0] && e[0].node && e[0].node.featuredImage && e[0].node.featuredImage.url) || '';
+        } catch (e) { return ''; }
+      }
       // Search the store's blog for LIVE articles matching a phrase (relevance-ranked by Shopify).
       async function shopArticles(qextra, n) {
         if (!SHOP_DOMAIN || !SHOP_TOKEN) return [];
@@ -626,12 +638,6 @@ module.exports = async (req, res) => {
         var room = (p.room || '').toString();
         var image = (p.image || '').toString();
         var video = (p.videoLink || '').toString();
-        // Metricool CSV needs the Drive link ending in /view?usp=sharing (not /view) to read the video.
-        if (video.indexOf('drive.google.com') >= 0) {
-          var vbase = video.split('?')[0].replace(/\/$/, '');
-          if (vbase.slice(-5) !== '/view') { var vm = vbase.match(/\/file\/d\/([^/]+)/); if (vm) vbase = 'https://drive.google.com/file/d/' + vm[1] + '/view'; }
-          video = vbase + '?usp=sharing';
-        }
         var date = (p.date || '').toString();
         var camp = 'vid-' + sku.toLowerCase();
         var board = room ? (room + ' Decor') : 'Home Decor';
@@ -670,35 +676,39 @@ module.exports = async (req, res) => {
         var caps = pair[0]; var bc = pair[1];
         var alt = caps.alt || (title + ' styled in a ' + room + ' room');
 
-        var mk = function (net) { var o = { Date: date, Draft: false, Shortener: true, 'Picture Url 1': video, 'Alt text picture 1': alt, 'Video Thumbnail Url': image }; o[net] = true; return o; };
-        var rTw = mk('Twitter/X'); rTw.Time = '10:00 AM'; rTw['Twitter/X Type'] = 'POST'; rTw.Text = caps.twitter; rows.push(rowLine(rTw));
-        var rFb = mk('Facebook'); rFb.Time = '10:00 AM'; rFb['Facebook Post Type'] = 'REEL'; rFb['Facebook Title'] = caps.facebookTitle || title; rFb.Text = caps.facebook; rows.push(rowLine(rFb));
-        var rYt = mk('Youtube'); rYt.Time = '10:00 AM'; rYt['Youtube Video Title'] = caps.youtubeTitle || title; rYt['Youtube Video Type'] = 'SHORT'; rYt['Youtube Video Privacy'] = 'PUBLIC'; rYt.Text = caps.youtube; rows.push(rowLine(rYt));
-        var rTh = mk('Threads'); rTh.Time = '11:00 AM'; rTh['Threads Reply Control'] = 'EVERYONE'; rTh['Threads Post Type'] = 'POST'; rTh.Text = caps.threads; rows.push(rowLine(rTh));
-        var rPi = mk('Pinterest'); rPi.Time = '11:00 AM'; rPi['Pinterest Board'] = board; rPi['Pinterest Pin Title'] = caps.pinterestTitle || title; rPi['Pinterest Pin Link'] = shop('pinterest', 'video'); rPi.Text = caps.pinterest; rows.push(rowLine(rPi));
-        var rIg = mk('Instagram'); rIg.Time = '11:00 AM'; rIg.Draft = true; rIg['Instagram Post Type'] = 'REEL'; rIg['Instagram Show Reel On Feed'] = true; rIg.Text = caps.instagram; rows.push(rowLine(rIg));
+        // Video Thumbnail Url must be a public Shopify image URL, never a base64/data: blob.
+        var thumb = image;
+        if (thumb.indexOf('data:') === 0) { thumb = await productImageByHandle(p.handle); }
+        var mk = function (net) { var o = { Date: date, Draft: false, Shortener: true, 'Picture Url 1': video, 'Alt text picture 1': alt, 'Video Thumbnail Url': thumb }; o[net] = true; return o; };
+        var rTw = mk('Twitter/X'); rTw.Time = '10:00:00'; rTw['Twitter/X Type'] = 'POST'; rTw.Text = caps.twitter; rows.push(rowLine(rTw));
+        var rFb = mk('Facebook'); rFb.Time = '10:00:00'; rFb['Facebook Post Type'] = 'REEL'; rFb['Facebook Title'] = caps.facebookTitle || title; rFb.Text = caps.facebook; rows.push(rowLine(rFb));
+        var rYt = mk('Youtube'); rYt.Time = '10:00:00'; rYt['Youtube Video Title'] = caps.youtubeTitle || title; rYt['Youtube Video Type'] = 'SHORT'; rYt['Youtube Video Privacy'] = 'PUBLIC'; rYt.Text = caps.youtube; rows.push(rowLine(rYt));
+        var rTh = mk('Threads'); rTh.Time = '11:00:00'; rTh['Threads Reply Control'] = 'EVERYONE'; rTh['Threads Post Type'] = 'POST'; rTh.Text = caps.threads; rows.push(rowLine(rTh));
+        var rPi = mk('Pinterest'); rPi.Time = '11:00:00'; rPi['Pinterest Board'] = board; rPi['Pinterest Pin Title'] = caps.pinterestTitle || title; rPi['Pinterest Pin Link'] = shop('pinterest', 'video'); rPi.Text = caps.pinterest; rows.push(rowLine(rPi));
+        var rIg = mk('Instagram'); rIg.Time = '11:00:00'; rIg.Draft = true; rIg['Instagram Post Type'] = 'REEL'; rIg['Instagram Show Reel On Feed'] = true; rIg.Text = caps.instagram; rows.push(rowLine(rIg));
 
         var usedB = null;
         if (blog && bc) {
           var bh = blog.handle;
           var bTitle = blog.title || '';
-          var bImg = (blog.image && blog.image.src) || image;
+          var bImg = (blog.image && blog.image.url) || '';
+          if (bImg.indexOf('data:') === 0) bImg = '';
           var bUrl = BLOG_BASE + bh;
           var blink = function (src) { return bUrl + '?utm_source=' + src + '&utm_medium=blog&utm_campaign=' + bh; };
           var topicBoard = boardForText(artText(blog));
           var balt = bc.alt || bTitle;
           var gmbText = (bc.gmb || bTitle).slice(0, 1400).replace(/\s+$/, '') + '\n\nRead more → ' + blink('gmb');
           if (gmbText.length > 1500) gmbText = gmbText.slice(0, 1500);
-          var gmbImg = bImg + (bImg.indexOf('?') >= 0 ? '&' : '?') + 'format=jpg';
+          var gmbImg = bImg ? (bImg + (bImg.indexOf('?') >= 0 ? '&' : '?') + 'format=jpg') : '';
           var mkb = function (net, img) { var o = { Date: date, Draft: false, Shortener: true, 'Picture Url 1': img || bImg, 'Alt text picture 1': balt }; o[net] = true; return o; };
-          var bFb = mkb('Facebook'); bFb.Time = '12:00 PM'; bFb['Facebook Post Type'] = 'POST'; bFb.Text = (bc.facebook || bTitle) + '\n\nRead more → ' + blink('facebook'); rows.push(rowLine(bFb));
-          var bIg = mkb('Instagram'); bIg.Time = '1:00 PM'; bIg['Instagram Post Type'] = 'POST'; bIg.Text = (bc.instagram || bTitle); rows.push(rowLine(bIg));
-          var bTh = mkb('Threads'); bTh.Time = '1:00 PM'; bTh['Threads Reply Control'] = 'EVERYONE'; bTh['Threads Post Type'] = 'POST'; bTh.Text = (bc.threads || bTitle) + '\n\nRead more → ' + blink('threads'); rows.push(rowLine(bTh));
+          var bFb = mkb('Facebook'); bFb.Time = '12:00:00'; bFb['Facebook Post Type'] = 'POST'; bFb.Text = (bc.facebook || bTitle) + '\n\nRead more → ' + blink('facebook'); rows.push(rowLine(bFb));
+          var bIg = mkb('Instagram'); bIg.Time = '13:00:00'; bIg['Instagram Post Type'] = 'POST'; bIg.Text = (bc.instagram || bTitle); rows.push(rowLine(bIg));
+          var bTh = mkb('Threads'); bTh.Time = '13:00:00'; bTh['Threads Reply Control'] = 'EVERYONE'; bTh['Threads Post Type'] = 'POST'; bTh.Text = (bc.threads || bTitle) + '\n\nRead more → ' + blink('threads'); rows.push(rowLine(bTh));
           var pboard1 = topicBoard || EDU_BOARD;
-          var bP1 = mkb('Pinterest'); bP1.Time = '1:00 PM'; bP1['Pinterest Board'] = pboard1; bP1['Pinterest Pin Title'] = bc.pinterestTitle || bTitle; bP1['Pinterest Pin Link'] = blink('pinterest'); bP1.Text = (bc.pinterestA || bTitle); rows.push(rowLine(bP1));
-          if (pboard1 !== EDU_BOARD) { var bP2 = mkb('Pinterest'); bP2.Time = '1:05 PM'; bP2['Pinterest Board'] = EDU_BOARD; bP2['Pinterest Pin Title'] = bc.pinterestTitle || bTitle; bP2['Pinterest Pin Link'] = blink('pinterest'); bP2.Text = (bc.pinterestB || bc.pinterestA || bTitle); rows.push(rowLine(bP2)); }
-          var bLi = mkb('LinkedIn'); bLi.Time = '5:00 PM'; bLi['LinkedIn Type'] = 'POST'; bLi.Text = (bc.linkedin || bTitle) + '\n\nRead more → ' + blink('linkedin'); rows.push(rowLine(bLi));
-          var bGb = mkb('GBP', gmbImg); bGb.Time = '5:00 PM'; bGb['GBP Post Type'] = 'publication'; bGb.Text = gmbText; rows.push(rowLine(bGb));
+          var bP1 = mkb('Pinterest'); bP1.Time = '13:00:00'; bP1['Pinterest Board'] = pboard1; bP1['Pinterest Pin Title'] = bc.pinterestTitle || bTitle; bP1['Pinterest Pin Link'] = blink('pinterest'); bP1.Text = (bc.pinterestA || bTitle); rows.push(rowLine(bP1));
+          if (pboard1 !== EDU_BOARD) { var bP2 = mkb('Pinterest'); bP2.Time = '13:05:00'; bP2['Pinterest Board'] = EDU_BOARD; bP2['Pinterest Pin Title'] = bc.pinterestTitle || bTitle; bP2['Pinterest Pin Link'] = blink('pinterest'); bP2.Text = (bc.pinterestB || bc.pinterestA || bTitle); rows.push(rowLine(bP2)); }
+          var bLi = mkb('LinkedIn'); bLi.Time = '17:00:00'; bLi['LinkedIn Type'] = 'POST'; bLi.Text = (bc.linkedin || bTitle) + '\n\nRead more → ' + blink('linkedin'); rows.push(rowLine(bLi));
+          var bGb = mkb('GBP', gmbImg); bGb.Time = '17:00:00'; bGb['GBP Post Type'] = 'publication'; bGb.Text = gmbText; rows.push(rowLine(bGb));
           usedB = { handle: bh, title: bTitle, usedDate: date };
         }
 
