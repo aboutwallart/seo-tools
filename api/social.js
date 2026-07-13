@@ -378,6 +378,22 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, months: months });
     }
 
+    if (action === 'set-plan-date') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      const month = (body.month || '').toString();
+      const index = parseInt(body.index, 10);
+      const date = (body.date || '').toString();
+      if (!month || isNaN(index) || !date) return res.status(400).json({ ok: false, error: 'Missing month/index/date' });
+      await ghSave(PLAN_FILE, function (content) {
+        var plan = { months: {} };
+        if (content) { try { plan = JSON.parse(content); if (!plan.months) plan.months = {}; } catch (e) { plan = { months: {} }; } }
+        var mm = plan.months[month];
+        if (mm && Array.isArray(mm.days) && mm.days[index]) { mm.days[index].date = date; mm.updated = new Date().toISOString(); }
+        return JSON.stringify(plan, null, 2);
+      }, 'Update plan date ' + month + ' #' + index);
+      return res.status(200).json({ ok: true });
+    }
+
     if (action === 'save-plan') {
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
       const month = (body.month || '').toString();
