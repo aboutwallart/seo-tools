@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v4.8 · 13 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v4.9 · 13 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -816,7 +816,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v4.8 — built 13 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v4.9 — built 13 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -924,8 +924,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   // progress bar + save pill
   var bar = document.createElement('div');
   bar.className = 'progress';
-  bar.innerHTML = '<span class="ptxt"><i class="ti ti-checkbox"></i> <span id="pcount">0</span> / '
-    + '<span id="ptotal">' + cards.length + '</span> made</span><div class="ptrack"><div class="pfill" id="pfill"></div></div>'
+  bar.innerHTML = '<span class="ptxt"><i class="ti ti-checkbox"></i> <span id="pcount">' + cards.length + '</span> to make</span><div class="ptrack"><div class="pfill" id="pfill"></div></div>'
     + '<span class="savepill" id="savepill">Loading…</span>'
     + '<button class="preset" type="button" id="preset">Reset</button>';
   wrap.parentNode.insertBefore(bar, wrap);
@@ -959,32 +958,61 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     if(p){ p.className = 'savepill ' + cls; p.textContent = txt; }
   }
 
+  // made (greyed) cards get grouped into collapsed month boxes; to-do cards stay flat, by date
+  var madeOpen = {}; // which made-month boxes the user has opened (default = collapsed)
+  var MADE_MONFULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  function monthKeyOf(card){
+    var pd = card.getAttribute('data-plandate') || '';
+    if(/^\d{4}-\d{2}/.test(pd)) return pd.slice(0,7);
+    var pm = card.getAttribute('data-planmonth') || '';
+    if(/^\d{4}-\d{2}/.test(pm)) return pm.slice(0,7);
+    return '2026-07'; // no date -> July 2026 box (her choice)
+  }
+  function monthKeyLabel(mk){ var p=mk.split('-'); var mi=parseInt(p[1],10)-1; return (MADE_MONFULL[mi]||mk)+' '+p[0]; }
+
   function refreshAll(){
-    var done = 0;
+    var _y = window.pageYOffset;
+    var done = 0, todo = [], madeBy = {}, madeOrder = [];
     cards.forEach(function(c){
       var d = cardDone(c);
       c.classList.toggle('done', d);
-      if(d){ done++; if(!c.__usedMarked){ if(booted) markUsed(c); c.__usedMarked = true; } }
+      if(d){
+        done++;
+        if(!c.__usedMarked){ if(booted) markUsed(c); c.__usedMarked = true; }
+        var mk = monthKeyOf(c);
+        if(!madeBy[mk]){ madeBy[mk] = []; madeOrder.push(mk); }
+        madeBy[mk].push(c);
+      } else { todo.push(c); }
     });
-    // sink done cards to the bottom (keep original order within each group)
-    // keep the page where it is — moving cards in the DOM otherwise jumps the scroll to the top
-    var _y = window.pageYOffset;
-    cards.slice().sort(function(a, b){
-      var da = a.classList.contains('done') ? 1 : 0;
-      var db = b.classList.contains('done') ? 1 : 0;
-      if(da !== db) return da - db;
-      return (+a.getAttribute('data-ord')) - (+b.getAttribute('data-ord'));
-    }).forEach(function(c){ wrap.appendChild(c); });
+    // to-do cards: by publishing date (data-ord tracks the date; base-library cards keep their order after)
+    todo.sort(function(a, b){ return (+a.getAttribute('data-ord')) - (+b.getAttribute('data-ord')); });
+    // drop the previous made-month boxes (cards are held in `cards` and re-placed below)
+    [].slice.call(wrap.querySelectorAll('.mademonth')).forEach(function(b){ if(b.parentNode) b.parentNode.removeChild(b); });
+    // lay out: to-do first (flat), then collapsed made-month boxes, newest month first
+    todo.forEach(function(c){ wrap.appendChild(c); });
+    madeOrder.sort(function(a, b){ return a < b ? 1 : (a > b ? -1 : 0); });
+    madeOrder.forEach(function(mk){
+      var list = madeBy[mk];
+      var open = !!madeOpen[mk];
+      var box = document.createElement('div'); box.className = 'mademonth'; box.style.cssText = 'margin:12px 0;';
+      var head = document.createElement('div'); head.className = 'mademonth-head'; head.setAttribute('data-mk', mk);
+      head.style.cssText = 'display:flex;gap:12px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:12px 16px;background:var(--soft);cursor:pointer;';
+      head.innerHTML = '<i class="ti ti-circle-check" style="color:#0F6E56;"></i> <strong style="font-size:15px;">'+monthKeyLabel(mk)+'</strong>'
+        + '<span class="small" style="color:var(--mut);">'+list.length+' made</span>'
+        + '<span style="margin-left:auto;font-weight:700;font-size:13px;color:#0F6E56;">'+(open?'Collapse ▲':'Open ▼')+'</span>';
+      box.appendChild(head);
+      var bodyDiv = document.createElement('div'); bodyDiv.className = 'mademonth-body'; bodyDiv.style.cssText = 'margin-top:12px;display:flex;flex-direction:column;gap:12px;';
+      if(!open) bodyDiv.style.display = 'none';
+      list.forEach(function(c){ bodyDiv.appendChild(c); });
+      box.appendChild(bodyDiv);
+      wrap.appendChild(box);
+    });
     window.scrollTo(0, _y);
 
-    var pc = document.getElementById('pcount');
-    var pf = document.getElementById('pfill');
-    if(pc) pc.textContent = done;
-    var ptot = document.getElementById('ptotal');
-    if(ptot) ptot.textContent = cards.length;
-    if(pf) pf.style.width = (cards.length ? (done/cards.length*100) : 0) + '%';
-    var h = document.getElementById('cardsHeading');
-    if(h) h.textContent = 'Your video cards — ' + (cards.length - done) + ' to make · ' + done + ' made';
+    var todoCount = cards.length - done;
+    var pc = document.getElementById('pcount'); if(pc) pc.textContent = todoCount;
+    var pf = document.getElementById('pfill'); if(pf) pf.style.width = (cards.length ? (done/cards.length*100) : 0) + '%';
+    var h = document.getElementById('cardsHeading'); if(h) h.textContent = 'Your video cards — ' + todoCount + ' to make';
   }
 
   function applyState(){
@@ -1067,6 +1095,14 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       scheduleSave();
     }
   };
+
+  // open / collapse a made-month box
+  wrap.addEventListener('click', function(e){
+    var head = e.target.closest('.mademonth-head'); if(!head) return;
+    var mk = head.getAttribute('data-mk'); if(!mk) return;
+    madeOpen[mk] = !madeOpen[mk];
+    refreshAll();
+  });
 
   loadGitHub();
 })();
