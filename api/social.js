@@ -631,6 +631,23 @@ module.exports = async (req, res) => {
       }
 
       // build ONE post's rows (its video + its blog). The video and blog AI calls run in parallel.
+      // Cap a caption to a platform character limit (Metricool counts the whole Text cell).
+      // Prefer cutting at a word boundary; drops trailing hashtags first on video rows (link sits before them).
+      function trimTo(text, limit) {
+        text = String(text == null ? '' : text);
+        if (text.length <= limit) return text;
+        var cut = text.slice(0, limit);
+        var sp = cut.lastIndexOf(' ');
+        if (sp > limit * 0.6) cut = cut.slice(0, sp);
+        return cut.replace(/\s+$/, '');
+      }
+      // Cap a caption that has a link appended after it — trim the CAPTION so caption+link fits (link never cut).
+      function trimWithLink(caption, suffix, limit) {
+        caption = String(caption == null ? '' : caption);
+        suffix = String(suffix == null ? '' : suffix);
+        var room = limit - suffix.length; if (room < 0) room = 0;
+        return trimTo(caption, room) + suffix;
+      }
       async function buildPost(p) {
         var sku = (p.sku || '').toString();
         var title = (p.title || '').toString();
@@ -678,12 +695,12 @@ module.exports = async (req, res) => {
 
         // No video thumbnail — leave it empty so Metricool uses the video's own FIRST FRAME as the cover.
         var mk = function (net) { var o = { Date: date, Draft: false, Shortener: true, 'Picture Url 1': video, 'Alt text picture 1': alt, 'Video Thumbnail Url': '' }; o[net] = true; return o; };
-        var rTw = mk('Twitter/X'); rTw.Time = '10:00:00'; rTw['Twitter/X Type'] = 'POST'; rTw.Text = caps.twitter; rows.push(rowLine(rTw));
-        var rFb = mk('Facebook'); rFb.Time = '10:00:00'; rFb['Facebook Post Type'] = 'REEL'; rFb['Facebook Title'] = caps.facebookTitle || title; rFb.Text = caps.facebook; rows.push(rowLine(rFb));
-        var rYt = mk('Youtube'); rYt.Time = '10:00:00'; rYt['Youtube Video Title'] = caps.youtubeTitle || title; rYt['Youtube Video Type'] = 'SHORT'; rYt['Youtube Video Privacy'] = 'PUBLIC'; rYt.Text = caps.youtube; rows.push(rowLine(rYt));
-        var rTh = mk('Threads'); rTh.Time = '11:00:00'; rTh['Threads Reply Control'] = 'EVERYONE'; rTh['Threads Post Type'] = 'POST'; rTh.Text = caps.threads; rows.push(rowLine(rTh));
-        var rPi = mk('Pinterest'); rPi.Time = '11:00:00'; rPi['Pinterest Board'] = board; rPi['Pinterest Pin Title'] = caps.pinterestTitle || title; rPi['Pinterest Pin Link'] = shop('pinterest', 'video'); rPi.Text = caps.pinterest; rows.push(rowLine(rPi));
-        var rIg = mk('Instagram'); rIg.Time = '11:00:00'; rIg.Draft = true; rIg['Instagram Post Type'] = 'REEL'; rIg['Instagram Show Reel On Feed'] = true; rIg.Text = caps.instagram; rows.push(rowLine(rIg));
+        var rTw = mk('Twitter/X'); rTw.Time = '10:00:00'; rTw['Twitter/X Type'] = 'POST'; rTw.Text = trimTo(caps.twitter, 280); rows.push(rowLine(rTw));
+        var rFb = mk('Facebook'); rFb.Time = '10:00:00'; rFb['Facebook Post Type'] = 'REEL'; rFb['Facebook Title'] = caps.facebookTitle || title; rFb.Text = trimTo(caps.facebook, 2000); rows.push(rowLine(rFb));
+        var rYt = mk('Youtube'); rYt.Time = '10:00:00'; rYt['Youtube Video Title'] = caps.youtubeTitle || title; rYt['Youtube Video Type'] = 'SHORT'; rYt['Youtube Video Privacy'] = 'PUBLIC'; rYt.Text = trimTo(caps.youtube, 4900); rows.push(rowLine(rYt));
+        var rTh = mk('Threads'); rTh.Time = '11:00:00'; rTh['Threads Reply Control'] = 'EVERYONE'; rTh['Threads Post Type'] = 'POST'; rTh.Text = trimTo(caps.threads, 500); rows.push(rowLine(rTh));
+        var rPi = mk('Pinterest'); rPi.Time = '11:00:00'; rPi['Pinterest Board'] = board; rPi['Pinterest Pin Title'] = caps.pinterestTitle || title; rPi['Pinterest Pin Link'] = shop('pinterest', 'video'); rPi.Text = trimTo(caps.pinterest, 500); rows.push(rowLine(rPi));
+        var rIg = mk('Instagram'); rIg.Time = '11:00:00'; rIg.Draft = true; rIg['Instagram Post Type'] = 'REEL'; rIg['Instagram Show Reel On Feed'] = true; rIg.Text = trimTo(caps.instagram, 2200); rows.push(rowLine(rIg));
 
         var usedB = null;
         if (blog && bc) {
@@ -699,13 +716,13 @@ module.exports = async (req, res) => {
           if (gmbText.length > 1500) gmbText = gmbText.slice(0, 1500);
           var gmbImg = bImg ? (bImg + (bImg.indexOf('?') >= 0 ? '&' : '?') + 'format=jpg') : '';
           var mkb = function (net, img) { var o = { Date: date, Draft: false, Shortener: true, 'Picture Url 1': img || bImg, 'Alt text picture 1': balt }; o[net] = true; return o; };
-          var bFb = mkb('Facebook'); bFb.Time = '12:00:00'; bFb['Facebook Post Type'] = 'POST'; bFb.Text = (bc.facebook || bTitle) + '\n\nRead more → ' + blink('facebook'); rows.push(rowLine(bFb));
-          var bIg = mkb('Instagram'); bIg.Time = '13:00:00'; bIg['Instagram Post Type'] = 'POST'; bIg.Text = (bc.instagram || bTitle); rows.push(rowLine(bIg));
-          var bTh = mkb('Threads'); bTh.Time = '13:00:00'; bTh['Threads Reply Control'] = 'EVERYONE'; bTh['Threads Post Type'] = 'POST'; bTh.Text = (bc.threads || bTitle) + '\n\nRead more → ' + blink('threads'); rows.push(rowLine(bTh));
+          var bFb = mkb('Facebook'); bFb.Time = '12:00:00'; bFb['Facebook Post Type'] = 'POST'; bFb.Text = trimWithLink(bc.facebook || bTitle, '\n\nRead more → ' + blink('facebook'), 2000); rows.push(rowLine(bFb));
+          var bIg = mkb('Instagram'); bIg.Time = '13:00:00'; bIg['Instagram Post Type'] = 'POST'; bIg.Text = trimTo(bc.instagram || bTitle, 2200); rows.push(rowLine(bIg));
+          var bTh = mkb('Threads'); bTh.Time = '13:00:00'; bTh['Threads Reply Control'] = 'EVERYONE'; bTh['Threads Post Type'] = 'POST'; bTh.Text = trimWithLink(bc.threads || bTitle, '\n\nRead more → ' + blink('threads'), 500); rows.push(rowLine(bTh));
           var pboard1 = topicBoard || EDU_BOARD;
-          var bP1 = mkb('Pinterest'); bP1.Time = '13:00:00'; bP1['Pinterest Board'] = pboard1; bP1['Pinterest Pin Title'] = bc.pinterestTitle || bTitle; bP1['Pinterest Pin Link'] = blink('pinterest'); bP1.Text = (bc.pinterestA || bTitle); rows.push(rowLine(bP1));
-          if (pboard1 !== EDU_BOARD) { var bP2 = mkb('Pinterest'); bP2.Time = '13:05:00'; bP2['Pinterest Board'] = EDU_BOARD; bP2['Pinterest Pin Title'] = bc.pinterestTitle || bTitle; bP2['Pinterest Pin Link'] = blink('pinterest'); bP2.Text = (bc.pinterestB || bc.pinterestA || bTitle); rows.push(rowLine(bP2)); }
-          var bLi = mkb('LinkedIn'); bLi.Time = '17:00:00'; bLi['LinkedIn Type'] = 'POST'; bLi.Text = (bc.linkedin || bTitle) + '\n\nRead more → ' + blink('linkedin'); rows.push(rowLine(bLi));
+          var bP1 = mkb('Pinterest'); bP1.Time = '13:00:00'; bP1['Pinterest Board'] = pboard1; bP1['Pinterest Pin Title'] = bc.pinterestTitle || bTitle; bP1['Pinterest Pin Link'] = blink('pinterest'); bP1.Text = trimTo(bc.pinterestA || bTitle, 500); rows.push(rowLine(bP1));
+          if (pboard1 !== EDU_BOARD) { var bP2 = mkb('Pinterest'); bP2.Time = '13:05:00'; bP2['Pinterest Board'] = EDU_BOARD; bP2['Pinterest Pin Title'] = bc.pinterestTitle || bTitle; bP2['Pinterest Pin Link'] = blink('pinterest'); bP2.Text = trimTo(bc.pinterestB || bc.pinterestA || bTitle, 500); rows.push(rowLine(bP2)); }
+          var bLi = mkb('LinkedIn'); bLi.Time = '17:00:00'; bLi['LinkedIn Type'] = 'POST'; bLi.Text = trimWithLink(bc.linkedin || bTitle, '\n\nRead more → ' + blink('linkedin'), 3000); rows.push(rowLine(bLi));
           var bGb = mkb('GBP', gmbImg); bGb.Time = '17:00:00'; bGb['GBP Post Type'] = 'publication'; bGb.Text = gmbText; rows.push(rowLine(bGb));
           usedB = { handle: bh, title: bTitle, usedDate: date };
         }
