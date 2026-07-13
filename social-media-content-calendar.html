@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v4.7 · 13 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v4.8 · 13 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -418,6 +418,7 @@
   if(!$('mpMonth')) return;
   var MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   var ALL_OCC = [], CUSTOM_OCC = [], DAYS = [], POOL = [], TAB1POOL = [], TAB1SET = {}, USEDSET = {}, chosen = {};
+  var SAVED_MONTHS = {}; // all saved monthly plans, so a new month can skip days another month already took
 
   // month dropdown: this month + next 5
   (function(){
@@ -501,9 +502,15 @@
       while(dayOcc[d] && d<dim){ d++; }
       dayOcc[d] = o;
     });
+    // days already used by ANOTHER saved month's plan — skip them so months don't collide at the boundary
+    var curKey = y+'-'+('0'+mNum).slice(-2);
+    var takenDates = {};
+    Object.keys(SAVED_MONTHS||{}).forEach(function(mk){ if(mk===curKey) return; (SAVED_MONTHS[mk].days||[]).forEach(function(dd){ if(dd&&dd.date) takenDates[dd.date]=1; }); });
     DAYS = []; chosen = {};
     for(var day=1; day<=dim; day++){
-      DAYS.push({ day:day, date:y+'-'+('0'+mNum).slice(-2)+'-'+('0'+day).slice(-2), occ: dayOcc[day]||null, product:null });
+      var ds = y+'-'+('0'+mNum).slice(-2)+'-'+('0'+day).slice(-2);
+      if(takenDates[ds]) continue; // another month already scheduled this exact day
+      DAYS.push({ day:day, date:ds, occ: dayOcc[day]||null, product:null });
     }
     $('mpPlanWrap').style.display='';
     renderDays();
@@ -682,6 +689,7 @@
   function loadSavedMonths(){
     fetch('/api/social?action=get-plan').then(function(r){return r.json();}).then(function(d){
       var months = (d&&d.ok&&d.months)?d.months:{};
+      SAVED_MONTHS = months;
       var keys = Object.keys(months).sort();
       var wrap=$('mpSavedWrap'), list=$('mpSavedList');
       if(!keys.length){ wrap.style.display='none'; list.innerHTML=''; return; }
@@ -700,7 +708,7 @@
     var days = m.days||[];
     var rows = days.map(function(d, i){
       var sent = !!d.sent;
-      return '<div class="mp-vrow" data-i="'+i+'"'+(sent?' data-sent="1"':'')+'>'
+      return '<div class="mp-vrow" data-i="'+i+'"'+(sent?' data-sent="1" style="background:#E9F7F1;border:1px solid #B8E6D5;border-radius:8px;padding:6px 8px;"':'')+'>'
         + '<input type="checkbox" class="mpk-cb" style="margin-top:4px;">'
         + '<img src="'+esc2(d.image)+'" alt="">'
         + '<div style="flex:1;min-width:0;"><strong>'+esc2(d.title)+'</strong> <button class="copy" type="button" onclick="ct(this)" data-copy-title="'+esc2(d.title)+'" title="Copy title"><i class="ti ti-copy"></i></button><br><span class="sku">'+esc2(d.sku)+'</span>'+(d.occasionName?' &middot; '+esc2(d.occasionName):'')+(sent?' &middot; <span style="color:#0F6E56;font-weight:700;">Sent</span>':'')
@@ -781,6 +789,19 @@
         if(link) box.value = link;
       });
     }).catch(function(){});
+    // save a manual date change straight away so it sticks (keeps Sent + video link)
+    [].slice.call(document.querySelectorAll('#mpModalBg .mpk-date')).forEach(function(inp){
+      inp.addEventListener('change', function(){
+        var row = inp.closest('.mp-vrow'); if(!row) return;
+        var di = parseInt(row.getAttribute('data-i'),10);
+        var nd = inp.value; if(!nd) return;
+        days[di].date = nd;
+        var stat = document.getElementById('mpkStat'); if(stat) stat.textContent='Saving date…';
+        fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'set-plan-date',month:k,index:di,date:nd})})
+        .then(function(r){return r.json();}).then(function(res){ if(stat) stat.textContent=(res&&res.ok)?'Date saved.':'Could not save the date — try again.'; })
+        .catch(function(){ if(stat) stat.textContent='Offline — date not saved.'; });
+      });
+    });
   }
   function undoMonth(k){
     if(!confirm('Undo '+monthLabel(k)+'? This removes the products it added to your Video Creation tab (videos you have already made are kept).')) return;
@@ -795,7 +816,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v4.7 — built 13 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v4.8 — built 13 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -871,42 +892,34 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   cards[0].parentNode.insertBefore(wrap, cards[0]);
   cards.forEach(function(c, i){ c.setAttribute('data-ord', i); wrap.appendChild(c); });
 
-  function addBox(zone, key){
-    var label = zone.querySelector('.zlabel');
-    if(!label) return;
-    var cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.className = 'taskcb';
-    cb.title = 'Mark done';
-    cb.setAttribute('data-key', key);
-    cb.addEventListener('change', function(){
-      state[key] = cb.checked;
-      refreshAll();
-      scheduleSave();
-    });
-    label.insertBefore(cb, label.firstChild);
+  // one clear "Made — grey out" toggle per card (greys + sinks; untick returns it), plus a "Select" box for bulk grey-out
+  function addMade(card){
+    var hrow = card.querySelector('.hrow'); if(!hrow || hrow.querySelector('.madecb')) return;
+    var id = card.id;
+    var selLab = document.createElement('label'); selLab.className='sellbl'; selLab.style.cssText='display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:12px;font-weight:700;color:var(--mut);cursor:pointer;';
+    var sel = document.createElement('input'); sel.type='checkbox'; sel.className='selcb'; sel.title='Select for bulk grey-out';
+    sel.addEventListener('change', updateBulkBar);
+    selLab.appendChild(sel); selLab.appendChild(document.createTextNode('Select'));
+    var madeLab = document.createElement('label'); madeLab.className='madelbl'; madeLab.style.cssText='display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:12px;font-weight:700;color:#0F6E56;cursor:pointer;';
+    var cb = document.createElement('input'); cb.type='checkbox'; cb.className='taskcb madecb'; cb.setAttribute('data-key', id+'_made'); cb.checked=!!state[id+'_made'];
+    cb.addEventListener('change', function(){ state[id+'_made']=cb.checked; refreshAll(); scheduleSave(); });
+    madeLab.appendChild(cb); madeLab.appendChild(document.createTextNode('Made — grey out'));
+    hrow.appendChild(selLab); hrow.appendChild(madeLab);
   }
 
   cards.forEach(function(card){
-    var id = card.id; // day1..day37
     var hrow = card.querySelector('.hrow');
-    if(hrow){
+    if(hrow && !hrow.querySelector('.doneflag')){
       var flag = document.createElement('span');
       flag.className = 'doneflag';
       flag.innerHTML = '<i class="ti ti-circle-check"></i> Made';
       hrow.appendChild(flag);
     }
-    card.querySelectorAll('.cbody > .zone').forEach(function(z){
-      if(z.querySelector('.ptext')){          addBox(z, id+'_prompt'); }
-      else if(z.querySelector('.optgrid')){   addBox(z, id+'_onscreen'); }
-    });
+    addMade(card);
   });
 
-  function cardDone(card){
-    var boxes = card.querySelectorAll('.taskcb');
-    if(!boxes.length) return false;
-    return Array.prototype.every.call(boxes, function(b){ return b.checked; });
-  }
+  // a card is "done" (greyed + sunk) purely by its own Made toggle — one reliable source
+  function cardDone(card){ return !!state[card.id + '_made']; }
 
   // progress bar + save pill
   var bar = document.createElement('div');
@@ -916,6 +929,30 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     + '<span class="savepill" id="savepill">Loading…</span>'
     + '<button class="preset" type="button" id="preset">Reset</button>';
   wrap.parentNode.insertBefore(bar, wrap);
+
+  // bulk grey-out toolbar (tick "Select" on several cards, then grey them all at once)
+  var bulk = document.createElement('div');
+  bulk.className = 'bulkbar';
+  bulk.style.cssText = 'display:flex;align-items:center;gap:10px;margin:8px 0 4px;font-size:13px;';
+  bulk.innerHTML = '<span class="bulkcount" style="font-weight:700;color:var(--mut);">0 selected</span>'
+    + '<button type="button" class="bulkgrey" disabled style="appearance:none;border:none;border-radius:8px;background:#0F6E56;color:#fff;font-weight:700;padding:7px 12px;cursor:pointer;">Grey out selected</button>'
+    + '<button type="button" class="bulkback" disabled style="appearance:none;border:1px solid var(--line);border-radius:8px;background:#fff;font-weight:700;padding:7px 12px;cursor:pointer;">Bring back selected</button>';
+  bar.parentNode.insertBefore(bulk, bar.nextSibling);
+  function updateBulkBar(){
+    var n = document.querySelectorAll('#cardwrap .selcb:checked').length;
+    var c = bulk.querySelector('.bulkcount'); if(c) c.textContent = n + ' selected';
+    bulk.querySelector('.bulkgrey').disabled = !n;
+    bulk.querySelector('.bulkback').disabled = !n;
+  }
+  function bulkApply(made){
+    [].slice.call(document.querySelectorAll('#cardwrap .selcb:checked')).forEach(function(s){
+      var card = s.closest('.vcard'); if(!card) return;
+      state[card.id + '_made'] = made; s.checked = false;
+    });
+    updateBulkBar(); applyState(); scheduleSave();
+  }
+  bulk.querySelector('.bulkgrey').addEventListener('click', function(){ bulkApply(true); });
+  bulk.querySelector('.bulkback').addEventListener('click', function(){ bulkApply(false); });
 
   function setPill(cls, txt){
     var p = document.getElementById('savepill');
@@ -930,12 +967,15 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       if(d){ done++; if(!c.__usedMarked){ if(booted) markUsed(c); c.__usedMarked = true; } }
     });
     // sink done cards to the bottom (keep original order within each group)
+    // keep the page where it is — moving cards in the DOM otherwise jumps the scroll to the top
+    var _y = window.pageYOffset;
     cards.slice().sort(function(a, b){
       var da = a.classList.contains('done') ? 1 : 0;
       var db = b.classList.contains('done') ? 1 : 0;
       if(da !== db) return da - db;
       return (+a.getAttribute('data-ord')) - (+b.getAttribute('data-ord'));
     }).forEach(function(c){ wrap.appendChild(c); });
+    window.scrollTo(0, _y);
 
     var pc = document.getElementById('pcount');
     var pf = document.getElementById('pfill');
@@ -1010,11 +1050,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         var f = document.createElement('span'); f.className = 'doneflag';
         f.innerHTML = '<i class="ti ti-circle-check"></i> Made'; hrow.appendChild(f);
       }
-      var id = cardEl.id;
-      cardEl.querySelectorAll('.cbody > .zone').forEach(function(z){
-        if(z.querySelector('.ptext')){ addBox(z, id+'_prompt'); }
-        else if(z.querySelector('.optgrid')){ addBox(z, id+'_onscreen'); }
-      });
+      addMade(cardEl);
       applyState();
     },
     refresh: function(){ refreshAll(); },
@@ -1505,7 +1541,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       + '<div class="capblocks">'+lenBlock(v,'short')+lenBlock(v,'long')+'</div></div>';
   }
 
-  var collapsedMonths = {}; // per-month collapse state, keyed by month abbrev
+  var openMonths = {}; // which months the user has expanded; default = all collapsed
   var MON3 = { Jan:'January',Feb:'February',Mar:'March',Apr:'April',May:'May',Jun:'June',Jul:'July',Aug:'August',Sep:'September',Oct:'October',Nov:'November',Dec:'December' };
   function scheduleMonthLabel(){
     var order=[], seen={};
@@ -1519,14 +1555,14 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     // group posts into month boxes; each month is its own calendar
     var groups = {}, order = [];
     videos.forEach(function(v){ var m = parseDay(v).mon || '?'; if(!groups[m]){ groups[m] = []; order.push(m); } groups[m].push(v); });
-    order.sort(function(a, b){ return MONTH_ABBR.indexOf(a) - MONTH_ABBR.indexOf(b); });
+    order.sort(function(a, b){ return MONTH_ABBR.indexOf(b) - MONTH_ABBR.indexOf(a); }); // newest month first
     var html = '';
     order.forEach(function(m){
       // items shown by date, earliest first to last
       var list = groups[m].slice().sort(function(a, b){ return parseDay(a).day - parseDay(b).day; });
       var done = list.filter(function(v){ return state[v.id+'_tiktok_done']; }).length;
       var label = (MON3[m] || m) + ' ' + YEAR;
-      var coll = !!collapsedMonths[m];
+      var coll = !openMonths[m]; // collapsed unless the user opened it
       html += '<div class="monthblock" style="margin:14px 0;">'
         + '<div style="display:flex;gap:12px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:12px 16px;background:var(--soft);">'
         + '<strong style="font-size:16px;">'+esc(label)+'</strong>'
@@ -1542,8 +1578,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   // event delegation — clicks
   body.addEventListener('click', function(e){
     var btn = e.target.closest('button'); if(!btn) return;
-    if(btn.hasAttribute('data-collapsemonth')){ collapsedMonths[btn.getAttribute('data-collapsemonth')] = true; render(); return; }
-    if(btn.hasAttribute('data-reopenmonth')){ collapsedMonths[btn.getAttribute('data-reopenmonth')] = false; render(); return; }
+    if(btn.hasAttribute('data-collapsemonth')){ openMonths[btn.getAttribute('data-collapsemonth')] = false; render(); return; }
+    if(btn.hasAttribute('data-reopenmonth')){ openMonths[btn.getAttribute('data-reopenmonth')] = true; render(); return; }
     if(btn.classList.contains('tcopy')){ var t=btn.getAttribute('data-title')||''; navigator.clipboard.writeText(t).then(function(){ var o=btn.innerHTML; btn.innerHTML='<i class="ti ti-check"></i>'; setTimeout(function(){ btn.innerHTML=o; },1200); }); return; }
     var block = btn.closest('.capblock'); if(!block) return;
     var id=block.getAttribute('data-id'), len=block.getAttribute('data-len'), v=byId[id];
