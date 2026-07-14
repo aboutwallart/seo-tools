@@ -1,7 +1,9 @@
-// shopify-video.js — v1.1 (14 Jul 2026)
-// v1.1: "sent" state now comes ONLY from the github log (videos pushed by this tool),
-//       verified against the live product. A pre-existing/different video is left alone
-//       (product ends up with 2 videos) and no longer greys the card.
+// shopify-video.js — v1.2 (14 Jul 2026)
+// v1.2: (1) manual SKU fixes are saved to data/sq-video-overrides.json and re-applied on
+//       every load (action 'manual-match'). (2) push accepts a `replace` flag that first
+//       removes any existing video(s) on the product, then pushes the new one.
+// v1.1: "sent" state comes ONLY from the github log (videos pushed by this tool), verified
+//       against the live product. A pre-existing/different video is left alone (2 videos).
 // Backend for the Shopify Video Uploader tool.
 // Pushes square videos from the Google Drive folder "SHOPIFY SQ VIDEOS" to the
 // correct Shopify product as a Video, placed at position 2. No local storage.
@@ -25,6 +27,7 @@ const SQ_VIDEOS_KEY = process.env.SQ_VIDEOS_KEY || 'awa-sqvideos-2026';
 
 const REPO = 'aboutwallart/seo-tools';
 const LOG_FILE = 'data/sq-video-log.json';
+const OVERRIDES_FILE = 'data/sq-video-overrides.json'; // saved manual SKU fixes (fileId -> sku)
 const API_VERSION = '2025-01';
 
 module.exports = async function handler(req, res) {
@@ -71,6 +74,30 @@ module.exports = async function handler(req, res) {
       method: 'PUT',
       headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
       body: JSON.stringify({ message, content: Buffer.from(JSON.stringify(entries, null, 2)).toString('base64'), ...(sha ? { sha } : {}) })
+    });
+  }
+
+  // ---- Saved manual SKU fixes (survive reloads): [{fileId, fileName, sku}] ----
+  async function overridesGet() {
+    if (!GITHUB_TOKEN) return { arr: [], map: {}, sha: null };
+    const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${OVERRIDES_FILE}`, {
+      headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
+    });
+    if (!r.ok) return { arr: [], map: {}, sha: null };
+    const d = await r.json();
+    let arr = [];
+    try { arr = JSON.parse(Buffer.from(d.content, 'base64').toString('utf-8')); } catch (e) { arr = []; }
+    if (!Array.isArray(arr)) arr = [];
+    const map = {};
+    arr.forEach(o => { if (o && o.fileId && o.sku) map[o.fileId] = String(o.sku).toUpperCase(); });
+    return { arr, map, sha: d.sha };
+  }
+  async function overridesPut(arr, sha, message) {
+    if (!GITHUB_TOKEN) return;
+    await fetch(`https://api.github.com/repos/${REPO}/contents/${OVERRIDES_FILE}`, {
+      method: 'PUT',
+      headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, content: Buffer.from(JSON.stringify(arr, null, 2)).toString('base64'), ...(sha ? { sha } : {}) })
     });
   }
 
@@ -150,10 +177,11 @@ module.exports = async function handler(req, res) {
       const { entries } = await logGet();
       const logBySku = {};
       entries.forEach(e => { logBySku[e.sku] = e; });
+      const { map: overrides } = await overridesGet();
 
       const videos = [];
       for (const f of files) {
-        const sku = skuFromName(f.name);
+        const sku = overrides[f.id] || skuFromName(f.name); // saved manual fix wins
         let match = null, matchError = null;
         try { match = await matchSku(sku); } catch (e) { matchError = e.message; }
         const logEntry = logBySku[sku] || null;
@@ -193,18 +221,51 @@ module.exports = async function handler(req, res) {
       });
     }
 
+    // -------------------------------------------------- MANUAL MATCH (saved)
+    if (action === 'manual-match') {
+      const { fileId, fileName } = req.body || {};
+      const sku = String((req.body && req.body.sku) || '').trim().toUpperCase();
+      if (!fileId || !sku) return res.status(400).json({ ok: false, error: 'Missing fileId or sku' });
+      const match = await matchSku(sku);
+      if (!match) return res.status(200).json({ ok: true, matched: false, sku });
+      // Persist the fix so it survives reloads (keyed by the Drive file id).
+      try {
+        const { arr, sha } = await overridesGet();
+        const filtered = arr.filter(o => o.fileId !== fileId);
+        filtered.push({ fileId, fileName: fileName || '', sku });
+        await overridesPut(filtered, sha, `SQ sku fix: ${sku}`);
+      } catch (e) { /* best-effort */ }
+      const { entries } = await logGet();
+      const logEntry = entries.find(e => e.sku === sku) || null;
+      const sentViaTool = !!(logEntry && logEntry.videoId && match.videoIds.includes(logEntry.videoId));
+      return res.status(200).json({
+        ok: true, matched: true, sku,
+        product: { id: match.productId, title: match.title, handle: match.handle, url: match.url },
+        sentViaTool, videoId: logEntry ? logEntry.videoId : null, productHasVideo: match.hasVideo
+      });
+    }
+
     // -------------------------------------------------- PUSH
     if (action === 'push') {
-      const { fileId, fileName, productId } = req.body || {};
+      const { fileId, fileName, productId, replace } = req.body || {};
       if (!fileId || !productId) return res.status(400).json({ ok: false, error: 'Missing fileId or productId' });
 
-      // 1) download bytes
+      // 1) download bytes (do this BEFORE any deletion, so a failed download changes nothing)
       const buf = await driveDownload(fileId);
       const head = buf.slice(0, 16).toString('latin1');
       if (head.indexOf('ftyp') === -1) {
         return res.status(200).json({ ok: false, error: 'Drive did not return a valid MP4 (got a warning/HTML page?). Check the folder is shared "Anyone with the link → Viewer".' });
       }
       const size = buf.length;
+
+      // 1b) REPLACE: remove any video(s) already on the product first
+      if (replace) {
+        const existing = await getVideos(productId);
+        if (existing.length) {
+          await shopify(`mutation del($mediaIds:[ID!]!, $productId:ID!){ productDeleteMedia(mediaIds:$mediaIds, productId:$productId){ deletedMediaIds mediaUserErrors{ field message } } }`,
+            { mediaIds: existing.map(v => v.id), productId });
+        }
+      }
 
       // 2) staged upload slot
       const staged = await shopify(`
