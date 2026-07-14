@@ -945,7 +945,58 @@ module.exports = async (req, res) => {
       const usedB = await usedVideoBlogSet();
       const season = currentSeason();
 
-      // 1) unused educational blog articles (LIVE), newest first
+      // ---- marketing-calendar-driven seasonality (data/marketing-occasions.json) ----
+      var occAll = [];
+      try { var go = await ghGet(OCC_FILE); if (go.content) { occAll = (JSON.parse(go.content).occasions) || []; } } catch (e) { occAll = []; }
+      var today = new Date();
+      function mmddDate(mmdd, y) { var p = (mmdd || '').split('-'); if (p.length < 2) return null; return new Date(y, parseInt(p[0], 10) - 1, parseInt(p[1], 10)); }
+      function occActive(o, leadDays) {
+        var w = o.window || {}; var s = w.start || o.date2026 || ''; var e = w.end || o.date2026 || '';
+        if (!s || !e) return false;
+        var horizon = new Date(today.getTime() + leadDays * 86400000);
+        for (var y = today.getFullYear() - 1; y <= today.getFullYear() + 1; y++) {
+          var sd = mmddDate(s, y), ed = mmddDate(e, y);
+          if (!sd || !ed) continue;
+          if (ed < sd) ed = mmddDate(e, y + 1);
+          if (sd <= horizon && ed >= today) return true;
+        }
+        return false;
+      }
+      // synonyms triggered by words in the occasion name/relevance (matched against BLOG titles/tags)
+      var OCC_SYN = [
+        [/islam|eid|ramadan/i, ['islam', 'islamic', 'muslim', 'arabic', 'calligraphy', 'ramadan', 'eid', 'moroccan', 'mosque']],
+        [/lunar|chinese new year/i, ['chinese', 'japanese', 'asian', 'chinoiserie', 'oriental', 'zen', 'cherry blossom', 'crane']],
+        [/christmas|advent|nativity/i, ['christmas', 'festive', 'nordic', 'scandi', 'winter', 'xmas', 'noel']],
+        [/easter|spring/i, ['spring', 'floral', 'pastel', 'blossom', 'botanical', 'fresh']],
+        [/valentine/i, ['romantic', 'love', 'pink', 'heart', 'couple']],
+        [/halloween|october/i, ['dark', 'moody', 'gothic', 'autumn', 'spooky', 'black']],
+        [/summer|coastal|beach/i, ['coastal', 'tropical', 'beach', 'summer', 'nautical', 'sea', 'boho', 'palm']],
+        [/autumn|fall|harvest/i, ['autumn', 'warm', 'amber', 'earthy', 'rustic', 'cosy', 'layered']],
+        [/winter|hygge|cosy/i, ['winter', 'cosy', 'hygge', 'fireplace', 'warm', 'candle', 'snug']],
+        [/wildlife|animal|safari/i, ['wildlife', 'animal', 'safari', 'jungle', 'botanical']],
+        [/mother|father|family/i, ['family', 'gift']],
+        [/wellness|yoga|meditation|mindful/i, ['calm', 'zen', 'wellness', 'minimal', 'serene']]
+      ];
+      function stopword(w) { return { the: 1, and: 1, for: 1, with: 1, your: 1, home: 1, art: 1, into: 1, that: 1, from: 1, this: 1, have: 1, has: 1, are: 1, you: 1, our: 1, day: 1, week: 1, new: 1, get: 1, all: 1, more: 1, people: 1, room: 1, rooms: 1, decor: 1 }[w]; }
+      function occKeywords(o) {
+        var set = {};
+        var base = ((o.name || '') + ' ' + (o.relevance || '')).toLowerCase();
+        base.split(/[^a-z]+/).forEach(function (w) { if (w.length > 3 && !stopword(w)) set[w] = 1; });
+        OCC_SYN.forEach(function (pair) { if (pair[0].test((o.name || '') + ' ' + (o.relevance || ''))) pair[1].forEach(function (k) { set[k] = 1; }); });
+        return Object.keys(set);
+      }
+      var activeOcc = occAll.filter(function (o) { return occActive(o, 45); }).map(function (o) { return { name: o.name || '', keys: occKeywords(o) }; });
+      function matchOccasion(text) {
+        text = (text || '').toLowerCase();
+        for (var i = 0; i < activeOcc.length; i++) {
+          var ks = activeOcc[i].keys;
+          for (var j = 0; j < ks.length; j++) { if (ks[j].length > 2 && text.indexOf(ks[j]) >= 0) return activeOcc[i].name; }
+        }
+        return '';
+      }
+      function firstImg(html) { var m = /<img[^>]+src=["']([^"']+)["']/i.exec(html || ''); return m ? m[1] : ''; }
+
+      // 1) unused educational blog articles (LIVE)
       var blogs = [];
       try {
         var ad = await shopGql('query($q:String!,$n:Int!){ articles(first:$n, query:$q){ edges{ node{ title handle publishedAt isPublished image{url} tags } } } }', { q: 'blog_id:93572858142', n: 120 });
@@ -958,15 +1009,15 @@ module.exports = async (req, res) => {
           return looksEducational((a.title || '') + ' ' + (Array.isArray(a.tags) ? a.tags.join(' ') : ''));
         }).map(function (a) {
           var txt = (a.title || '') + ' ' + (a.handle || '') + ' ' + (Array.isArray(a.tags) ? a.tags.join(' ') : '');
-          return { type: 'blog', handle: a.handle, title: a.title || a.handle, url: EDU_BLOG_BASE + a.handle, image: (a.image && a.image.url) || '', publishedAt: a.publishedAt, seasonMatch: seasonMatch(txt, season) };
+          var occ = matchOccasion(txt);
+          return { type: 'blog', handle: a.handle, title: a.title || a.handle, url: EDU_BLOG_BASE + a.handle, image: (a.image && a.image.url) || '', publishedAt: a.publishedAt, occasion: occ, seasonMatch: !!occ };
         });
       } catch (e) { blogs = []; }
 
-      // 2) education hub PAGES — read the hub page's body, pull its /pages/ links, resolve titles
+      // 2) education hub PAGES — read the hub page's body, pull its /pages/ links, resolve titles + first image
       var pages = [];
       try {
-        var domainp = process.env.SHOPIFY_STORE_DOMAIN, stokenp = process.env.SHOPIFY_ACCESS_TOKEN;
-        var pr = await fetch('https://' + domainp + '/admin/api/2025-01/pages.json?limit=250&fields=id,title,handle,body_html', { headers: { 'X-Shopify-Access-Token': stokenp } });
+        var pr = await fetch('https://' + process.env.SHOPIFY_STORE_DOMAIN + '/admin/api/2025-01/pages.json?limit=250&fields=id,title,handle,body_html', { headers: { 'X-Shopify-Access-Token': process.env.SHOPIFY_ACCESS_TOKEN } });
         if (pr.ok) {
           var pjson = await pr.json();
           var allPages = pjson.pages || [];
@@ -979,7 +1030,8 @@ module.exports = async (req, res) => {
               if (usedB[h]) return;
               var pg = byHandle[h];
               if (!pg) return;
-              pages.push({ type: 'page', handle: pg.handle, title: pg.title || pg.handle, url: 'https://aboutwallart.com/pages/' + pg.handle, image: '', seasonMatch: seasonMatch((pg.title || '') + ' ' + pg.handle, season) });
+              var occ = matchOccasion((pg.title || '') + ' ' + pg.handle);
+              pages.push({ type: 'page', handle: pg.handle, title: pg.title || pg.handle, url: 'https://aboutwallart.com/pages/' + pg.handle, image: firstImg(pg.body_html), occasion: occ, seasonMatch: !!occ });
             });
           }
         }
@@ -987,7 +1039,7 @@ module.exports = async (req, res) => {
 
       function seasonSort(a, b) { return (b.seasonMatch ? 1 : 0) - (a.seasonMatch ? 1 : 0); }
       blogs.sort(seasonSort); pages.sort(seasonSort);
-      return res.status(200).json({ ok: true, season: season, blogs: blogs, pages: pages });
+      return res.status(200).json({ ok: true, season: season, activeOccasions: activeOcc.map(function (o) { return o.name; }), blogs: blogs, pages: pages });
     }
 
     if (action === 'edu-products') {
@@ -1061,6 +1113,123 @@ module.exports = async (req, res) => {
       }
 
       return res.status(200).json({ ok: true, sourceTitle: sourceTitle, products: products });
+    }
+
+    if (action === 'edu-generate') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      const sourceType = (body.sourceType || 'blog').toString();
+      const handle = (body.handle || '').toString().trim();
+      if (!handle) return res.status(400).json({ ok: false, error: 'Missing source handle' });
+      var seconds = parseInt(body.seconds, 10); if (isNaN(seconds)) seconds = 150;
+      seconds = Math.max(60, Math.min(240, seconds));
+      var targetScenes = Math.max(10, Math.min(30, Math.round(seconds / 8)));
+      var selProducts = Array.isArray(body.products) ? body.products.filter(function (p) { return p && (p.title || p.sku); }).slice(0, 12) : [];
+
+      // fetch the source's real content (never invent)
+      var srcTitle = handle, srcBody = '', srcTags = [];
+      if (sourceType === 'page') {
+        try {
+          var pr3 = await fetch('https://' + process.env.SHOPIFY_STORE_DOMAIN + '/admin/api/2025-01/pages.json?limit=250&fields=id,title,handle,body_html', { headers: { 'X-Shopify-Access-Token': process.env.SHOPIFY_ACCESS_TOKEN } });
+          if (pr3.ok) { var pj3 = await pr3.json(); var pg3 = (pj3.pages || []).filter(function (p) { return (p.handle || '').toLowerCase() === handle.toLowerCase(); })[0]; if (pg3) { srcTitle = pg3.title || handle; srcBody = pg3.body_html || ''; } }
+        } catch (e) {}
+      } else {
+        try {
+          var ag = await shopGql('query($q:String!){ articles(first:5, query:$q){ edges{ node{ handle title tags body } } } }', { q: 'blog_id:93572858142 handle:' + handle });
+          var an = ((ag && ag.data && ag.data.articles && ag.data.articles.edges) || []).map(function (e) { return e.node; });
+          var art3 = an.filter(function (n) { return (n.handle || '').toLowerCase() === handle.toLowerCase(); })[0] || an[0];
+          if (art3) { srcTitle = art3.title || handle; srcBody = art3.body || ''; srcTags = art3.tags || []; }
+        } catch (e) {}
+      }
+      var plain = (srcBody || '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim().slice(0, 5000);
+      var topic = ((srcTitle || '') + ' ' + (Array.isArray(srcTags) ? srcTags.join(' ') : '')).toLowerCase();
+      var prodList = selProducts.map(function (p, i) { return (i + 1) + '. sku "' + (p.sku || '') + '" — "' + (p.title || '') + '"'; }).join('\n');
+
+      var OUTRO = [
+        "Did you know styling your home doesn't have to be guesswork?",
+        "We've built a free set of Home Decor tools and styling guides…",
+        "From colour theory and design principles to gallery wall layouts and art sizing. Download them all from our site!",
+        "Find all you need to transform your home into a calming oasis!",
+        "Happy Decorating!"
+      ];
+
+      var prompt =
+        'You are writing a short educational home-decor video for About Wall Art, based on the REAL blog/page content provided. Two deliverables: a SCRIPT and matching IMAGE PROMPTS.\n\n' +
+        'SOURCE TITLE: "' + srcTitle + '"\n' +
+        'SOURCE CONTENT (use this, never invent facts):\n"""' + plain + '"""\n\n' +
+        'SELECTED PRODUCTS (use ONLY these, on the wall-art / finishing-touches scenes; one product per such scene):\n' + (prodList || '(none)') + '\n\n' +
+        'SCRIPT RULES (the voice is everything):\n' +
+        '- Warm, human, first-person home-decor advisor talking to a friend. Personal little asides and gentle tips ("my favourite style", "a little tip I love", "if you\'re forgetful like me", "take care not to..."). Calm, plain-spoken, NEVER salesy or poetic-brochure.\n' +
+        '- UK spelling. NEVER use: elevate, delve, showcase, dive, beacon, embrace, unleash, "in conclusion", "look no further".\n' +
+        '- ONE short phrase per scene (max ~2 short lines each). About ' + targetScenes + ' content scenes.\n' +
+        '- Scene text must come from the source content; the FIRST field videoTitle is a warm question or hook (e.g. "How to...?").\n' +
+        '- Do NOT write the closing/outro — it is appended automatically.\n\n' +
+        'IMAGE PROMPT RULES (one per scene; each ILLUSTRATES its own scene text — educational, never an unrelated action):\n' +
+        '- Photoreal lifestyle photography, high resolution, soft natural daylight, airy and calm, bright minimalist base with the blog\'s style details, NO text/logos/watermarks.\n' +
+        '- People: a person present by default; use a COUPLE (a man and a woman) for bedroom/romantic scenes, a CHILD or BABY with a parent or both parents for nursery/kids scenes, FRIENDS for entertaining/social scenes, and a FAMILY INCLUDING OLDER RELATIVES for festive/occasion scenes. Vary ethnicity genuinely across the set (a real mix, not always white). Do NOT depict gay, lesbian or transgender couples.\n' +
+        '- COLOUR or MATERIAL scenes: the person is actively CHOOSING — holding/comparing swatches, palettes or material samples.\n' +
+        '- PRODUCT scenes (wall art / finishing touches): set "aspect":"square" and "productSku" to the chosen product\'s sku from the list; the image places the real framed art faithfully on the wall, the person in plain neutral clothing, the art stays the focus.\n' +
+        '- All other scenes: "aspect":"16:9", "productSku":"".\n' +
+        '- Also write a single "hero" paragraph for scene 1: the opening/thumbnail shot inspired by the source, telling the AI to generate 5 DIFFERENT OPTIONS varying room, composition and person.\n\n' +
+        'Return ONLY strict JSON, no markdown:\n' +
+        '{"videoTitle":"...","hero":"...","scenes":[{"text":"...","aspect":"16:9","productSku":"","image":"..."}]}';
+
+      var ar = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST', headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 6000, messages: [{ role: 'user', content: prompt }] })
+      });
+      if (!ar.ok) return res.status(ar.status).json({ ok: false, error: 'Claude error: ' + (await ar.text()) });
+      var ad4 = await ar.json();
+      var txt = (ad4.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('\n');
+      var jm = txt.match(/\{[\s\S]*\}/); var parsed;
+      try { parsed = JSON.parse(jm ? jm[0] : txt); } catch (e) { return res.status(200).json({ ok: false, error: 'Could not read the AI output — try again.', raw: txt.slice(0, 600) }); }
+
+      var videoTitle = (parsed.videoTitle || srcTitle || '').toString().trim();
+      var hero = (parsed.hero || '').toString().trim();
+      var scenes = Array.isArray(parsed.scenes) ? parsed.scenes : [];
+      var skuTitle = {}; selProducts.forEach(function (p) { if (p.sku) skuTitle[p.sku.toUpperCase()] = p.title || ''; });
+
+      // SCRIPT text = title + one phrase per scene + the fixed 5 outro lines
+      var scriptLines = [videoTitle];
+      scenes.forEach(function (s) { var t = (s && s.text ? s.text : '').toString().trim(); if (t) scriptLines.push(t); });
+      var scriptText = scriptLines.join('\n\n') + '\n\n' + OUTRO.join('\n\n');
+
+      // IMAGE-PROMPT block = brief + hero (5 options) + numbered scenes
+      var topicWord = topic.replace(/[^a-z ]+/g, ' ').split(/\s+/).filter(function (w) { return w.length > 4; })[0] || 'home decor';
+      var brief =
+        'Generate ONE image per numbered scene below, and name each output by its scene number. Scene 1 = give me 5 OPTIONS. Each image must SHOW what that scene\'s text is about (this is an educational video). [16:9] = landscape (YouTube), [SQUARE] = 1:1. ' +
+        'Style for all: photoreal lifestyle photography, high resolution, a person present (or a couple for bedrooms, a child with a parent for nursery/kids, friends for entertaining, a family including older relatives for festive/occasion scenes — couples shown as a man and a woman), vary ethnicity naturally across the set (a real mix, not always white), bright minimalist decor as base and ' + topicWord + '-related interior details, soft natural daylight, airy and calm, NO text/logos/watermarks. ' +
+        'For any item ending in `product = "..."`: use that named product\'s featured image and place the real framed art faithfully on the wall in the scene, keeping the artwork true to the product, with any person in plain neutral clothing so the art stays the focus.';
+      var block = [brief, '', '1. [16:9] MAIN HERO IMAGE — generate 5 DIFFERENT OPTIONS to choose from. ' + hero];
+      var num = 2;
+      scenes.forEach(function (s) {
+        var isProd = s && s.productSku && skuTitle[(s.productSku || '').toUpperCase()];
+        var aspect = (isProd || (s && s.aspect === 'square')) ? '[SQUARE]' : '[16:9]';
+        var line = num + '. ' + aspect + ' ' + ((s && s.image ? s.image : '').toString().trim());
+        if (isProd) line += ' → product = "' + skuTitle[(s.productSku || '').toUpperCase()] + '"';
+        block.push(line);
+        num++;
+      });
+      var imagePromptBlock = block.join('\n');
+
+      var payload = {
+        blogHandle: handle, sourceType: sourceType, blogTitle: srcTitle,
+        blogUrl: (sourceType === 'page' ? 'https://aboutwallart.com/pages/' + handle : EDU_BLOG_BASE + handle),
+        videoTitle: videoTitle, seconds: seconds, sceneCount: scenes.length,
+        script: scriptText, hero: hero, scenes: scenes, outro: OUTRO,
+        imagePromptBlock: imagePromptBlock, products: selProducts
+      };
+      return res.status(200).json({ ok: true, videoTitle: videoTitle, script: scriptText, imagePromptBlock: imagePromptBlock, sceneCount: scenes.length, payload: payload });
+    }
+
+    if (action === 'edu-save') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      const p = body.payload || {};
+      const handle = (p.blogHandle || body.handle || '').toString().trim().toLowerCase().replace(/[^a-z0-9\-]/g, '');
+      if (!handle) return res.status(400).json({ ok: false, error: 'Missing blog handle' });
+      p.savedAt = new Date().toISOString();
+      var efile = 'data/edu-video-' + handle + '.json';
+      await ghSave(efile, function () { return JSON.stringify(p, null, 2); }, 'Save educational video ' + handle);
+      return res.status(200).json({ ok: true, file: efile });
     }
 
     return res.status(400).json({ ok: false, error: 'Unknown action: ' + action });
