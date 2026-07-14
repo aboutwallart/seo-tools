@@ -84,6 +84,7 @@
         .ptitle a:hover { text-decoration: underline; }
         .muted { color: #aaa; font-size: 13px; }
         .warn { color: #f57f17; font-size: 13px; font-weight: 600; }
+        .note { color: #607d8b; font-size: 12px; background: #eceff1; padding: 6px 8px; border-radius: 6px; }
 
         .manual { display: flex; gap: 6px; margin-top: 4px; }
         .manual input { flex: 1; padding: 8px 10px; border: 2px solid #ffe082; border-radius: 8px; font-size: 13px; }
@@ -109,7 +110,7 @@
         <div class="header">
             <h1>🎬 Shopify Video Uploader</h1>
             <p>Push square videos from your Drive folder to the right product — placed as image&nbsp;2.</p>
-            <div class="subtitle">v1.0 · reads folder "SHOPIFY SQ VIDEOS" · matches by SKU for print files</div>
+            <div class="subtitle">v1.1 · reads folder "SHOPIFY SQ VIDEOS" · matches by SKU for print files · "sent" = pushed by this tool only</div>
         </div>
 
         <div class="toolbar">
@@ -135,9 +136,10 @@ const selected = new Set(); // fileIds selected for bulk send
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function setStatus(msg){ document.getElementById('status').innerHTML = msg; }
 
-// A video counts as "sent" if Shopify actually has a video on its product.
-function isSent(v){ return v.matched && v.hasVideo; }
-function isReady(v){ return v.matched && !v.hasVideo; }      // matched, no video yet
+// A video counts as "sent" ONLY if it was pushed by this tool (github record).
+// A pre-existing/different video on the product does NOT count — you can still send yours.
+function isSent(v){ return v.matched && v.sentViaTool; }
+function isReady(v){ return v.matched && !v.sentViaTool; }
 function isUnmatched(v){ return !v.matched; }
 
 async function loadVideos(){
@@ -185,8 +187,10 @@ function cardHTML(v){
         : '';
     let info = '';
     if (v.matched){
+        const note = (isReady(v) && v.productHasVideo)
+            ? '<div class="note">ℹ️ Product already has another video — sending adds yours as a 2nd one.</div>' : '';
         info = '<div class="sku">SKU <span>' + esc(v.sku) + '</span></div>' +
-               '<div class="ptitle"><a href="' + esc(v.product.url) + '" target="_blank" rel="noopener">' + esc(v.product.title) + '</a></div>';
+               '<div class="ptitle"><a href="' + esc(v.product.url) + '" target="_blank" rel="noopener">' + esc(v.product.title) + '</a></div>' + note;
     } else {
         info = '<div class="sku">SKU <span>' + esc(v.sku || '—') + '</span></div>' +
                '<div class="warn">⚠ No product found for this SKU</div>' +
@@ -196,8 +200,8 @@ function cardHTML(v){
     }
     let actions = '';
     if (isSent(v)){
-        const stamp = v.sentAt ? '<div class="sent-stamp">✓ live in Shopify' + (v.sentAt ? ' · sent ' + new Date(v.sentAt).toLocaleString() : '') + '</div>'
-                               : '<div class="sent-stamp">✓ live in Shopify</div>';
+        const stamp = v.sentAt ? '<div class="sent-stamp">✓ sent with this tool · ' + new Date(v.sentAt).toLocaleString() + '</div>'
+                               : '<div class="sent-stamp">✓ sent with this tool</div>';
         actions = stamp + '<div class="card-actions"><button class="btn btn-undo" onclick="undo(\'' + v.fileId + '\')">↺ Undo (remove &amp; resend)</button></div>';
     } else if (isReady(v)){
         actions = '<div class="card-actions"><button class="btn btn-green" onclick="sendOne(\'' + v.fileId + '\')">Send to Shopify</button></div>';
@@ -232,7 +236,7 @@ function render(){
         ? '<div class="section-title">Ready to send (' + ready.length + ')</div><div class="grid">' + ready.map(cardHTML).join('') + '</div>'
         : (videos.length && !q ? '' : '');
     secS.innerHTML = sent.length
-        ? '<div class="section-title">Already in Shopify (' + sent.length + ')</div><div class="grid">' + sent.map(cardHTML).join('') + '</div>'
+        ? '<div class="section-title">Sent with this tool (' + sent.length + ')</div><div class="grid">' + sent.map(cardHTML).join('') + '</div>'
         : '';
 
     if (!videos.length) secR.innerHTML = '<div class="empty">No videos loaded yet.</div>';
@@ -261,7 +265,7 @@ async function sendOne(fileId){
             body: JSON.stringify({ action:'push', fileId: v.fileId, fileName: v.fileName, productId: v.product.id }) });
         const d = await r.json();
         if (!d.ok){ setMsg(fileId, '⚠️ ' + esc(d.error), 'err'); if (card) card.classList.remove('busy'); return false; }
-        v.hasVideo = true; v.videoId = d.videoId; v.sentAt = new Date().toISOString();
+        v.sentViaTool = true; v.videoId = d.videoId; v.sentAt = new Date().toISOString();
         selected.delete(fileId);
         render();
         return true;
@@ -292,7 +296,7 @@ async function manualMatch(fileId){
         const r = await fetch(API + '?action=match&sku=' + encodeURIComponent(sku));
         const d = await r.json();
         if (!d.ok || !d.matched){ setMsg(fileId, '⚠️ No product found for "' + esc(sku) + '"', 'err'); return; }
-        v.sku = sku; v.matched = true; v.product = d.product; v.hasVideo = d.hasVideo; v.videoId = d.videoId;
+        v.sku = sku; v.matched = true; v.product = d.product; v.sentViaTool = d.sentViaTool; v.videoId = d.videoId; v.productHasVideo = d.productHasVideo;
         render();
     } catch(e){ setMsg(fileId, '⚠️ ' + esc(e.message), 'err'); }
 }
@@ -308,7 +312,7 @@ async function undo(fileId){
             body: JSON.stringify({ action:'undo', productId: v.product.id, videoId: v.videoId }) });
         const d = await r.json();
         if (!d.ok){ setMsg(fileId, '⚠️ ' + esc(d.error), 'err'); if (card) card.classList.remove('busy'); return; }
-        v.hasVideo = false; v.videoId = null; v.sentAt = null;
+        v.sentViaTool = false; v.videoId = null; v.sentAt = null;
         render();
     } catch(e){ setMsg(fileId, '⚠️ ' + esc(e.message), 'err'); if (card) card.classList.remove('busy'); }
 }
