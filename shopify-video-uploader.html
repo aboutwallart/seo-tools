@@ -78,7 +78,9 @@
         .card-body { padding: 14px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
         .filename { font-size: 12px; color: #999; word-break: break-all; }
         .sku { font-size: 13px; font-weight: 700; color: #1a1a1a; }
-        .sku span { display: inline-block; background: #eef2ff; color: #3949ab; padding: 2px 8px; border-radius: 6px; }
+        .sku span { display: inline-block; background: #eef2ff; color: #3949ab; padding: 2px 8px; border-radius: 6px; cursor: pointer; user-select: all; }
+        .sku span:hover { background: #dfe6ff; }
+        .sku span::after { content: " ⧉"; opacity: .45; font-size: 11px; }
         .ptitle { font-size: 14px; color: #333; line-height: 1.35; }
         .ptitle a { color: #1565c0; text-decoration: none; }
         .ptitle a:hover { text-decoration: underline; }
@@ -110,14 +112,15 @@
         <div class="header">
             <h1>🎬 Shopify Video Uploader</h1>
             <p>Push square videos from your Drive folder to the right product — placed as image&nbsp;2.</p>
-            <div class="subtitle">v1.2 · reads folder "SHOPIFY SQ VIDEOS" · matches by SKU for print files · "sent" = pushed by this tool only · manual fixes saved · Replace option</div>
+            <div class="subtitle">v1.3 · reads folder "SHOPIFY SQ VIDEOS" · matches by SKU for print files · "sent" = pushed by this tool only · manual fixes saved · Send/Replace individually or in bulk · click a SKU to copy</div>
         </div>
 
         <div class="toolbar">
             <button class="btn btn-primary" id="loadBtn" onclick="loadVideos()">↻ Load videos</button>
             <input type="search" id="search" placeholder="Search SKU, product title or filename…" oninput="render()">
             <button class="btn btn-light" id="selectAllBtn" onclick="toggleSelectAll()">Select all unsent</button>
-            <button class="btn btn-green" id="bulkBtn" onclick="sendSelected()" disabled>Send selected (0)</button>
+            <button class="btn btn-green" id="bulkBtn" onclick="sendSelected(false)" disabled>Send selected (0)</button>
+            <button class="btn btn-undo" id="bulkReplaceBtn" onclick="sendSelected(true)" disabled>↺ Replace selected (0)</button>
             <div class="stats" id="stats"></div>
         </div>
 
@@ -135,6 +138,17 @@ const selected = new Set(); // fileIds selected for bulk send
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function setStatus(msg){ document.getElementById('status').innerHTML = msg; }
+
+// Click-to-copy SKU badge
+function skuBadge(sku){
+    return '<div class="sku">SKU <span title="Click to copy" onclick="copySku(this, \'' + esc(sku||'') + '\')">' + esc(sku||'—') + '</span></div>';
+}
+function copySku(el, sku){
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(sku);
+    const orig = el.textContent;
+    el.textContent = '✓ copied';
+    setTimeout(function(){ el.textContent = orig; }, 900);
+}
 
 // A video counts as "sent" ONLY if it was pushed by this tool (github record).
 // A pre-existing/different video on the product does NOT count — you can still send yours.
@@ -177,6 +191,9 @@ function updateStats(){
     const bulk = document.getElementById('bulkBtn');
     bulk.textContent = 'Send selected (' + selected.size + ')';
     bulk.disabled = selected.size === 0;
+    const bulkR = document.getElementById('bulkReplaceBtn');
+    bulkR.textContent = '↺ Replace selected (' + selected.size + ')';
+    bulkR.disabled = selected.size === 0;
 }
 
 function cardHTML(v){
@@ -189,10 +206,10 @@ function cardHTML(v){
     if (v.matched){
         const note = (isReady(v) && v.productHasVideo)
             ? '<div class="note">ℹ️ Product already has another video — sending adds yours as a 2nd one.</div>' : '';
-        info = '<div class="sku">SKU <span>' + esc(v.sku) + '</span></div>' +
+        info = skuBadge(v.sku) +
                '<div class="ptitle"><a href="' + esc(v.product.url) + '" target="_blank" rel="noopener">' + esc(v.product.title) + '</a></div>' + note;
     } else {
-        info = '<div class="sku">SKU <span>' + esc(v.sku || '—') + '</span></div>' +
+        info = skuBadge(v.sku) +
                '<div class="warn">⚠ No product found for this SKU</div>' +
                '<div class="manual">' +
                '<input type="text" id="mf-' + v.fileId + '" placeholder="Type SKU for print files" value="' + esc(v.sku||'') + '">' +
@@ -262,9 +279,9 @@ function toggleSelectAll(){
 function find(fileId){ return videos.find(v => v.fileId === fileId); }
 function setMsg(fileId, text, kind){ const el = document.getElementById('msg-' + fileId); if (el){ el.className = 'row-msg ' + (kind||''); el.innerHTML = text; } }
 
-async function sendOne(fileId, replace){
+async function sendOne(fileId, replace, skipConfirm){
     const v = find(fileId); if (!v || !v.product) return false;
-    if (replace && !confirm('Remove the video already on "' + v.product.title + '" and replace it with this square one?')) return false;
+    if (replace && !skipConfirm && !confirm('Remove the video already on "' + v.product.title + '" and replace it with this square one?')) return false;
     const card = document.getElementById('card-' + fileId);
     if (card) card.classList.add('busy');
     setMsg(fileId, '<span class="spinner" style="border-top-color:#2e7d32"></span> ' + (replace ? 'Replacing…' : 'Uploading & attaching…'), '');
@@ -281,17 +298,21 @@ async function sendOne(fileId, replace){
     } catch(e){ setMsg(fileId, '⚠️ ' + esc(e.message), 'err'); if (card) card.classList.remove('busy'); return false; }
 }
 
-async function sendSelected(){
+async function sendSelected(replace){
     const ids = Array.from(selected);
     if (!ids.length) return;
-    const bulk = document.getElementById('bulkBtn'); bulk.disabled = true;
+    if (replace && !confirm('Replace the existing video on ' + ids.length + ' product' + (ids.length===1?'':'s') + ' with the new square ones? The current videos will be removed.')) return;
+    const bulk = document.getElementById('bulkBtn'); const bulkR = document.getElementById('bulkReplaceBtn');
+    bulk.disabled = true; bulkR.disabled = true;
+    const active = replace ? bulkR : bulk;
+    const label = replace ? 'Replacing' : 'Sending';
     let done = 0;
     for (const id of ids){                       // sequential — avoids GitHub log conflicts
-        bulk.textContent = 'Sending ' + (done+1) + '/' + ids.length + '…';
-        await sendOne(id);
+        active.textContent = label + ' ' + (done+1) + '/' + ids.length + '…';
+        await sendOne(id, replace, true);
         done++;
     }
-    setStatus('Finished sending ' + done + ' video' + (done===1?'':'s') + '.');
+    setStatus('Finished ' + (replace ? 'replacing ' : 'sending ') + done + ' video' + (done===1?'':'s') + '.');
     render();
 }
 
