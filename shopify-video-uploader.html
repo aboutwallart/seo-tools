@@ -110,7 +110,7 @@
         <div class="header">
             <h1>🎬 Shopify Video Uploader</h1>
             <p>Push square videos from your Drive folder to the right product — placed as image&nbsp;2.</p>
-            <div class="subtitle">v1.1 · reads folder "SHOPIFY SQ VIDEOS" · matches by SKU for print files · "sent" = pushed by this tool only</div>
+            <div class="subtitle">v1.2 · reads folder "SHOPIFY SQ VIDEOS" · matches by SKU for print files · "sent" = pushed by this tool only · manual fixes saved · Replace option</div>
         </div>
 
         <div class="toolbar">
@@ -204,7 +204,14 @@ function cardHTML(v){
                                : '<div class="sent-stamp">✓ sent with this tool</div>';
         actions = stamp + '<div class="card-actions"><button class="btn btn-undo" onclick="undo(\'' + v.fileId + '\')">↺ Undo (remove &amp; resend)</button></div>';
     } else if (isReady(v)){
-        actions = '<div class="card-actions"><button class="btn btn-green" onclick="sendOne(\'' + v.fileId + '\')">Send to Shopify</button></div>';
+        if (v.productHasVideo){
+            actions = '<div class="card-actions">' +
+                '<button class="btn btn-green" onclick="sendOne(\'' + v.fileId + '\', false)">Add as 2nd</button>' +
+                '<button class="btn btn-undo" onclick="sendOne(\'' + v.fileId + '\', true)">↺ Replace</button>' +
+                '</div>';
+        } else {
+            actions = '<div class="card-actions"><button class="btn btn-green" onclick="sendOne(\'' + v.fileId + '\', false)">Send to Shopify</button></div>';
+        }
     }
     return '<div class="card ' + cls + '" id="card-' + v.fileId + '">' +
         '<div class="thumb">' +
@@ -255,17 +262,19 @@ function toggleSelectAll(){
 function find(fileId){ return videos.find(v => v.fileId === fileId); }
 function setMsg(fileId, text, kind){ const el = document.getElementById('msg-' + fileId); if (el){ el.className = 'row-msg ' + (kind||''); el.innerHTML = text; } }
 
-async function sendOne(fileId){
-    const v = find(fileId); if (!v || !v.product) return;
+async function sendOne(fileId, replace){
+    const v = find(fileId); if (!v || !v.product) return false;
+    if (replace && !confirm('Remove the video already on "' + v.product.title + '" and replace it with this square one?')) return false;
     const card = document.getElementById('card-' + fileId);
     if (card) card.classList.add('busy');
-    setMsg(fileId, '<span class="spinner" style="border-top-color:#2e7d32"></span> Uploading & attaching…', '');
+    setMsg(fileId, '<span class="spinner" style="border-top-color:#2e7d32"></span> ' + (replace ? 'Replacing…' : 'Uploading & attaching…'), '');
     try {
         const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ action:'push', fileId: v.fileId, fileName: v.fileName, productId: v.product.id }) });
+            body: JSON.stringify({ action:'push', fileId: v.fileId, fileName: v.fileName, productId: v.product.id, replace: !!replace }) });
         const d = await r.json();
         if (!d.ok){ setMsg(fileId, '⚠️ ' + esc(d.error), 'err'); if (card) card.classList.remove('busy'); return false; }
         v.sentViaTool = true; v.videoId = d.videoId; v.sentAt = new Date().toISOString();
+        if (replace) v.productHasVideo = false;
         selected.delete(fileId);
         render();
         return true;
@@ -291,9 +300,10 @@ async function manualMatch(fileId){
     const input = document.getElementById('mf-' + fileId);
     const sku = (input.value||'').trim().toUpperCase();
     if (!sku){ setMsg(fileId, 'Type a SKU first.', 'err'); return; }
-    setMsg(fileId, '<span class="spinner" style="border-top-color:#333"></span> Looking up…', '');
+    setMsg(fileId, '<span class="spinner" style="border-top-color:#333"></span> Looking up & saving…', '');
     try {
-        const r = await fetch(API + '?action=match&sku=' + encodeURIComponent(sku));
+        const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ action:'manual-match', fileId: v.fileId, fileName: v.fileName, sku }) });
         const d = await r.json();
         if (!d.ok || !d.matched){ setMsg(fileId, '⚠️ No product found for "' + esc(sku) + '"', 'err'); return; }
         v.sku = sku; v.matched = true; v.product = d.product; v.sentViaTool = d.sentViaTool; v.videoId = d.videoId; v.productHasVideo = d.productHasVideo;
