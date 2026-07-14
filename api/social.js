@@ -883,6 +883,186 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, titles: titles });
     }
 
+    // ================= EDUCATIONAL VIDEO TAB — Part 1 (source + product pickers) =================
+    const USEDVIDBLOG_FILE = 'data/used-video-blogs.json';
+    const EDU_HUB_HANDLE = 'free-interior-design-education';
+    const EDU_BLOG_BASE = 'https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/';
+    const PRODUCT_FIELDS = 'title handle vendor onlineStoreUrl featuredImage{url} room:metafield(namespace:"custom",key:"room_type"){value} skumf:metafield(namespace:"custom",key:"sku_for_print_files"){value}';
+
+    async function shopGql(query, variables) {
+      const domain = process.env.SHOPIFY_STORE_DOMAIN, stoken = process.env.SHOPIFY_ACCESS_TOKEN;
+      if (!domain || !stoken) throw new Error('Shopify not configured');
+      const r = await fetch('https://' + domain + '/admin/api/2025-01/graphql.json', {
+        method: 'POST', headers: { 'X-Shopify-Access-Token': stoken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: query, variables: variables || {} })
+      });
+      if (!r.ok) throw new Error('Shopify error ' + r.status);
+      return r.json();
+    }
+    async function usedVideoBlogSet() {
+      const gh = await ghGet(USEDVIDBLOG_FILE);
+      var set = {};
+      if (gh.content) { try { (JSON.parse(gh.content).used || []).forEach(function (x) { var h = ((x && x.handle) || x || '').toString().toLowerCase(); if (h) set[h] = 1; }); } catch (e) {} }
+      return set;
+    }
+    function currentSeason() {
+      var m = new Date().getMonth() + 1;
+      if (m >= 3 && m <= 5) return 'spring';
+      if (m >= 6 && m <= 8) return 'summer';
+      if (m >= 9 && m <= 11) return 'autumn';
+      return 'winter';
+    }
+    var SEASON_WORDS = {
+      spring: ['spring', 'fresh', 'pastel', 'floral', 'botanical', 'bright', 'airy', 'renewal', 'garden', 'green', 'blossom'],
+      summer: ['summer', 'coastal', 'tropical', 'beach', 'boho', 'botanical', 'bright', 'airy', 'mediterranean', 'nautical', 'garden', 'greenery', 'palm', 'sea'],
+      autumn: ['autumn', 'fall', 'cosy', 'cozy', 'warm', 'amber', 'layered', 'rustic', 'earthy', 'harvest', 'moody'],
+      winter: ['winter', 'cosy', 'cozy', 'fireplace', 'festive', 'christmas', 'hygge', 'warm', 'snug', 'candle']
+    };
+    function seasonMatch(text, season) {
+      text = (text || '').toLowerCase();
+      var ws = SEASON_WORDS[season] || [];
+      for (var i = 0; i < ws.length; i++) { if (text.indexOf(ws[i]) >= 0) return true; }
+      return false;
+    }
+    function looksEducational(text) {
+      return /how to|how-to|\bideas\b|\bguide\b|\btips\b|ways to|styling|decorat|choosing|choose|arrange|arrang|hang|layout|inspiration|trend/i.test(text || '');
+    }
+    function themeWord(text) {
+      var stop = { the: 1, and: 1, for: 1, with: 1, your: 1, home: 1, wall: 1, art: 1, arts: 1, print: 1, prints: 1, decor: 1, room: 1, ideas: 1, guide: 1, tips: 1, how: 1, into: 1, that: 1, from: 1, ways: 1, style: 1, styling: 1 };
+      var ws = (text || '').toLowerCase().split(/[^a-z]+/).filter(function (w) { return w.length > 3 && !stop[w]; });
+      return ws[0] || '';
+    }
+
+    if (action === 'get-used-video-blogs') {
+      const gh = await ghGet(USEDVIDBLOG_FILE);
+      var usedv = [];
+      if (gh.content) { try { usedv = (JSON.parse(gh.content).used) || []; } catch (e) {} }
+      return res.status(200).json({ ok: true, used: usedv });
+    }
+
+    if (action === 'edu-sources') {
+      if (!process.env.SHOPIFY_STORE_DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return res.status(500).json({ ok: false, error: 'Shopify not configured' });
+      const usedB = await usedVideoBlogSet();
+      const season = currentSeason();
+
+      // 1) unused educational blog articles (LIVE), newest first
+      var blogs = [];
+      try {
+        var ad = await shopGql('query($q:String!,$n:Int!){ articles(first:$n, query:$q){ edges{ node{ title handle publishedAt isPublished image{url} tags } } } }', { q: 'blog_id:93572858142', n: 120 });
+        var now = Date.now();
+        var aedges = (ad && ad.data && ad.data.articles && ad.data.articles.edges) || [];
+        blogs = aedges.map(function (e) { return e.node; }).filter(function (a) {
+          if (!a.handle || !a.isPublished || !a.publishedAt) return false;
+          if (new Date(a.publishedAt).getTime() > now) return false;
+          if (usedB[a.handle.toLowerCase()]) return false;
+          return looksEducational((a.title || '') + ' ' + (Array.isArray(a.tags) ? a.tags.join(' ') : ''));
+        }).map(function (a) {
+          var txt = (a.title || '') + ' ' + (a.handle || '') + ' ' + (Array.isArray(a.tags) ? a.tags.join(' ') : '');
+          return { type: 'blog', handle: a.handle, title: a.title || a.handle, url: EDU_BLOG_BASE + a.handle, image: (a.image && a.image.url) || '', publishedAt: a.publishedAt, seasonMatch: seasonMatch(txt, season) };
+        });
+      } catch (e) { blogs = []; }
+
+      // 2) education hub PAGES — read the hub page's body, pull its /pages/ links, resolve titles
+      var pages = [];
+      try {
+        var domainp = process.env.SHOPIFY_STORE_DOMAIN, stokenp = process.env.SHOPIFY_ACCESS_TOKEN;
+        var pr = await fetch('https://' + domainp + '/admin/api/2025-01/pages.json?limit=250&fields=id,title,handle,body_html', { headers: { 'X-Shopify-Access-Token': stokenp } });
+        if (pr.ok) {
+          var pjson = await pr.json();
+          var allPages = pjson.pages || [];
+          var byHandle = {}; allPages.forEach(function (p) { byHandle[(p.handle || '').toLowerCase()] = p; });
+          var hub = byHandle[EDU_HUB_HANDLE];
+          if (hub) {
+            var seenh = {}, mm, re = /\/pages\/([a-z0-9\-]+)/gi;
+            while ((mm = re.exec(hub.body_html || ''))) { var h = mm[1].toLowerCase(); if (h !== EDU_HUB_HANDLE) seenh[h] = 1; }
+            Object.keys(seenh).forEach(function (h) {
+              if (usedB[h]) return;
+              var pg = byHandle[h];
+              if (!pg) return;
+              pages.push({ type: 'page', handle: pg.handle, title: pg.title || pg.handle, url: 'https://aboutwallart.com/pages/' + pg.handle, image: '', seasonMatch: seasonMatch((pg.title || '') + ' ' + pg.handle, season) });
+            });
+          }
+        }
+      } catch (e) { pages = []; }
+
+      function seasonSort(a, b) { return (b.seasonMatch ? 1 : 0) - (a.seasonMatch ? 1 : 0); }
+      blogs.sort(seasonSort); pages.sort(seasonSort);
+      return res.status(200).json({ ok: true, season: season, blogs: blogs, pages: pages });
+    }
+
+    if (action === 'edu-products') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      const sourceType = (body.sourceType || 'blog').toString();
+      const handle = (body.handle || '').toString().trim();
+      if (!handle) return res.status(400).json({ ok: false, error: 'Missing source handle' });
+      if (!process.env.SHOPIFY_STORE_DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return res.status(500).json({ ok: false, error: 'Shopify not configured' });
+
+      var bodyHtml = '', productGids = [], sourceTitle = handle, sourceTags = [];
+      if (sourceType === 'page') {
+        try {
+          var pr2 = await fetch('https://' + process.env.SHOPIFY_STORE_DOMAIN + '/admin/api/2025-01/pages.json?limit=250&fields=id,title,handle,body_html', { headers: { 'X-Shopify-Access-Token': process.env.SHOPIFY_ACCESS_TOKEN } });
+          if (pr2.ok) { var pj2 = await pr2.json(); var pg2 = (pj2.pages || []).filter(function (p) { return (p.handle || '').toLowerCase() === handle.toLowerCase(); })[0]; if (pg2) { bodyHtml = pg2.body_html || ''; sourceTitle = pg2.title || handle; } }
+        } catch (e) {}
+      } else {
+        try {
+          var ad2 = await shopGql('query($q:String!){ articles(first:5, query:$q){ edges{ node{ handle title tags body ctl:metafield(namespace:"custom",key:"blog_products_list"){value} } } } }', { q: 'blog_id:93572858142 handle:' + handle });
+          var a2 = (ad2 && ad2.data && ad2.data.articles && ad2.data.articles.edges) || [];
+          var nodes2 = a2.map(function (e) { return e.node; });
+          var art = nodes2.filter(function (n) { return (n.handle || '').toLowerCase() === handle.toLowerCase(); })[0] || nodes2[0];
+          if (art) {
+            bodyHtml = art.body || '';
+            sourceTitle = art.title || handle;
+            sourceTags = art.tags || [];
+            try { var pl = JSON.parse((art.ctl && art.ctl.value) || '[]'); if (Array.isArray(pl)) productGids = pl; } catch (e) {}
+          }
+        } catch (e) {}
+      }
+
+      var products = [], seen = {};
+      function pushNode(n, fallbackSku) {
+        if (!n || !isAWA(n.vendor)) return;
+        var c = nodeToCard(n, fallbackSku);
+        if (!c.handle || seen[c.handle.toLowerCase()]) return;
+        seen[c.handle.toLowerCase()] = 1;
+        delete c.tags;
+        products.push(c);
+      }
+
+      // product handles found in the source body
+      var hset = {}, m3, re3 = /\/products\/([a-z0-9\-]+)/gi;
+      while ((m3 = re3.exec(bodyHtml))) { hset[m3[1].toLowerCase()] = 1; }
+      var bodyHandles = Object.keys(hset);
+      try {
+        for (var i3 = 0; i3 < bodyHandles.length; i3 += 30) {
+          var chunk3 = bodyHandles.slice(i3, i3 + 30);
+          var q3 = chunk3.map(function (h) { return 'handle:' + h; }).join(' OR ');
+          var pd3 = await shopGql('query($q:String!){ products(first:100, query:$q){ nodes{ ' + PRODUCT_FIELDS + ' } } }', { q: q3 });
+          ((pd3 && pd3.data && pd3.data.products && pd3.data.products.nodes) || []).forEach(function (n) { pushNode(n); });
+        }
+      } catch (e) {}
+
+      // Complete-the-Look products (by GID)
+      if (productGids.length) {
+        try {
+          var nd3 = await shopGql('query($ids:[ID!]!){ nodes(ids:$ids){ ... on Product { ' + PRODUCT_FIELDS + ' } } }', { ids: productGids.slice(0, 30) });
+          ((nd3 && nd3.data && nd3.data.nodes) || []).forEach(function (n) { pushNode(n); });
+        } catch (e) {}
+      }
+
+      // top up to at least 5 with theme-matched products
+      if (products.length < 5) {
+        var word = themeWord((sourceTitle || '') + ' ' + (Array.isArray(sourceTags) ? sourceTags.join(' ') : ''));
+        if (word) {
+          try {
+            var td3 = await shopGql('query($q:String!){ products(first:40, query:$q){ nodes{ ' + PRODUCT_FIELDS + ' } } }', { q: 'title:*' + word + '*' });
+            ((td3 && td3.data && td3.data.products && td3.data.products.nodes) || []).forEach(function (n) { if (products.length < 10) pushNode(n); });
+          } catch (e) {}
+        }
+      }
+
+      return res.status(200).json({ ok: true, sourceTitle: sourceTitle, products: products });
+    }
+
     return res.status(400).json({ ok: false, error: 'Unknown action: ' + action });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
