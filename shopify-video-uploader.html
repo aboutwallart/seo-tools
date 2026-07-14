@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shopify Video Uploader</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5; min-height: 100vh; padding: 20px; color: #333;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+
+        .header {
+            background: white; padding: 30px; border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1); margin-bottom: 20px; text-align: center;
+        }
+        .header h1 { font-size: 36px; color: #333; margin-bottom: 8px; }
+        .header p { color: #666; font-size: 16px; }
+        .header .subtitle { color: #999; font-size: 13px; font-style: italic; margin-top: 6px; }
+
+        .toolbar {
+            background: white; padding: 18px 20px; border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.06); margin-bottom: 20px;
+            display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+        }
+        .toolbar input[type="search"] {
+            flex: 1; min-width: 220px; padding: 11px 14px; border: 2px solid #eee;
+            border-radius: 10px; font-size: 15px;
+        }
+        .btn {
+            padding: 11px 18px; border: none; border-radius: 10px; font-size: 15px;
+            font-weight: 600; cursor: pointer; transition: .15s; white-space: nowrap;
+        }
+        .btn:disabled { opacity: .5; cursor: not-allowed; }
+        .btn-primary { background: #1a1a1a; color: #fff; }
+        .btn-primary:hover:not(:disabled) { background: #000; }
+        .btn-green { background: #2e7d32; color: #fff; }
+        .btn-green:hover:not(:disabled) { background: #1b5e20; }
+        .btn-light { background: #f0f0f0; color: #333; }
+        .btn-light:hover:not(:disabled) { background: #e4e4e4; }
+        .btn-undo { background: #fff3e0; color: #e65100; border: 1px solid #ffcc80; }
+        .btn-undo:hover:not(:disabled) { background: #ffe0b2; }
+
+        .stats { display: flex; gap: 10px; flex-wrap: wrap; margin-left: auto; }
+        .chip { padding: 6px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; }
+        .chip.matched { background: #e8f5e9; color: #2e7d32; }
+        .chip.sent { background: #eceff1; color: #607d8b; }
+        .chip.unmatched { background: #fff8e1; color: #f57f17; }
+
+        .status { text-align: center; color: #666; font-size: 14px; margin: 10px 0 18px; min-height: 20px; }
+
+        .section-title { font-size: 15px; font-weight: 700; color: #888; text-transform: uppercase;
+            letter-spacing: .5px; margin: 26px 4px 12px; }
+
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+
+        .card {
+            background: white; border-radius: 14px; overflow: hidden; position: relative;
+            box-shadow: 0 4px 18px rgba(0,0,0,0.07); border: 2px solid transparent; transition: .15s;
+            display: flex; flex-direction: column;
+        }
+        .card.matched { border-color: #c8e6c9; }
+        .card.unmatched { border-color: #ffe082; background: #fffdf5; }
+        .card.sent { opacity: .62; filter: grayscale(.4); }
+        .card.busy { pointer-events: none; }
+
+        .thumb { position: relative; width: 100%; aspect-ratio: 1/1; background: #111; overflow: hidden; }
+        .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .thumb .play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+            color: rgba(255,255,255,.85); font-size: 40px; pointer-events: none; text-shadow: 0 2px 8px rgba(0,0,0,.5); }
+        .thumb .checkwrap { position: absolute; top: 10px; left: 10px; }
+        .thumb .checkwrap input { width: 22px; height: 22px; cursor: pointer; }
+        .badge-pos { position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,.65); color: #fff;
+            font-size: 11px; padding: 3px 8px; border-radius: 6px; }
+
+        .card-body { padding: 14px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+        .filename { font-size: 12px; color: #999; word-break: break-all; }
+        .sku { font-size: 13px; font-weight: 700; color: #1a1a1a; }
+        .sku span { display: inline-block; background: #eef2ff; color: #3949ab; padding: 2px 8px; border-radius: 6px; }
+        .ptitle { font-size: 14px; color: #333; line-height: 1.35; }
+        .ptitle a { color: #1565c0; text-decoration: none; }
+        .ptitle a:hover { text-decoration: underline; }
+        .muted { color: #aaa; font-size: 13px; }
+        .warn { color: #f57f17; font-size: 13px; font-weight: 600; }
+
+        .manual { display: flex; gap: 6px; margin-top: 4px; }
+        .manual input { flex: 1; padding: 8px 10px; border: 2px solid #ffe082; border-radius: 8px; font-size: 13px; }
+
+        .card-actions { margin-top: auto; display: flex; gap: 8px; padding-top: 6px; }
+        .card-actions .btn { flex: 1; font-size: 14px; padding: 9px 10px; }
+
+        .sent-stamp { font-size: 11px; color: #90a4ae; }
+        .row-msg { font-size: 12px; padding: 4px 0; min-height: 16px; }
+        .row-msg.err { color: #c62828; }
+        .row-msg.ok { color: #2e7d32; }
+
+        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.4);
+            border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .empty { text-align: center; color: #999; padding: 40px; background: #fff; border-radius: 14px; }
+    </style>
+</head>
+<body>
+    <script src="/auth-check.js"></script>
+    <div class="container">
+        <div class="header">
+            <h1>🎬 Shopify Video Uploader</h1>
+            <p>Push square videos from your Drive folder to the right product — placed as image&nbsp;2.</p>
+            <div class="subtitle">v1.0 · reads folder "SHOPIFY SQ VIDEOS" · matches by SKU for print files</div>
+        </div>
+
+        <div class="toolbar">
+            <button class="btn btn-primary" id="loadBtn" onclick="loadVideos()">↻ Load videos</button>
+            <input type="search" id="search" placeholder="Search SKU, product title or filename…" oninput="render()">
+            <button class="btn btn-light" id="selectAllBtn" onclick="toggleSelectAll()">Select all unsent</button>
+            <button class="btn btn-green" id="bulkBtn" onclick="sendSelected()" disabled>Send selected (0)</button>
+            <div class="stats" id="stats"></div>
+        </div>
+
+        <div class="status" id="status">Click <b>Load videos</b> to begin.</div>
+
+        <div id="unmatchedSection"></div>
+        <div id="readySection"></div>
+        <div id="sentSection"></div>
+    </div>
+
+<script>
+const API = '/api/shopify-video';
+let videos = [];          // full list from the backend
+const selected = new Set(); // fileIds selected for bulk send
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function setStatus(msg){ document.getElementById('status').innerHTML = msg; }
+
+// A video counts as "sent" if Shopify actually has a video on its product.
+function isSent(v){ return v.matched && v.hasVideo; }
+function isReady(v){ return v.matched && !v.hasVideo; }      // matched, no video yet
+function isUnmatched(v){ return !v.matched; }
+
+async function loadVideos(){
+    const btn = document.getElementById('loadBtn');
+    btn.disabled = true;
+    setStatus('<span class="spinner" style="border-top-color:#333"></span> Reading the Drive folder and matching products…');
+    try {
+        const r = await fetch(API + '?action=list');
+        const d = await r.json();
+        if (!d.ok) { setStatus('⚠️ ' + esc(d.error || 'Could not load')); btn.disabled = false; return; }
+        videos = d.videos || [];
+        selected.clear();
+        setStatus('Loaded <b>' + videos.length + '</b> video' + (videos.length===1?'':'s') + '.');
+        render();
+    } catch(e){ setStatus('⚠️ ' + esc(e.message)); }
+    btn.disabled = false;
+}
+
+function matchesSearch(v, q){
+    if (!q) return true;
+    q = q.toLowerCase();
+    return (v.sku||'').toLowerCase().includes(q)
+        || (v.fileName||'').toLowerCase().includes(q)
+        || (v.product && v.product.title||'').toLowerCase().includes(q);
+}
+
+function updateStats(){
+    const m = videos.filter(isReady).length;
+    const s = videos.filter(isSent).length;
+    const u = videos.filter(isUnmatched).length;
+    document.getElementById('stats').innerHTML =
+        '<span class="chip matched">' + m + ' ready</span>' +
+        '<span class="chip sent">' + s + ' sent</span>' +
+        '<span class="chip unmatched">' + u + ' not identified</span>';
+    const bulk = document.getElementById('bulkBtn');
+    bulk.textContent = 'Send selected (' + selected.size + ')';
+    bulk.disabled = selected.size === 0;
+}
+
+function cardHTML(v){
+    const cls = isSent(v) ? 'sent' : (isUnmatched(v) ? 'unmatched' : 'matched');
+    const checkbox = isReady(v)
+        ? '<div class="checkwrap"><input type="checkbox" ' + (selected.has(v.fileId)?'checked':'') +
+          ' onchange="toggleSelect(\'' + v.fileId + '\', this.checked)"></div>'
+        : '';
+    let info = '';
+    if (v.matched){
+        info = '<div class="sku">SKU <span>' + esc(v.sku) + '</span></div>' +
+               '<div class="ptitle"><a href="' + esc(v.product.url) + '" target="_blank" rel="noopener">' + esc(v.product.title) + '</a></div>';
+    } else {
+        info = '<div class="sku">SKU <span>' + esc(v.sku || '—') + '</span></div>' +
+               '<div class="warn">⚠ No product found for this SKU</div>' +
+               '<div class="manual">' +
+               '<input type="text" id="mf-' + v.fileId + '" placeholder="Type SKU for print files" value="' + esc(v.sku||'') + '">' +
+               '<button class="btn btn-light" onclick="manualMatch(\'' + v.fileId + '\')">Match</button></div>';
+    }
+    let actions = '';
+    if (isSent(v)){
+        const stamp = v.sentAt ? '<div class="sent-stamp">✓ live in Shopify' + (v.sentAt ? ' · sent ' + new Date(v.sentAt).toLocaleString() : '') + '</div>'
+                               : '<div class="sent-stamp">✓ live in Shopify</div>';
+        actions = stamp + '<div class="card-actions"><button class="btn btn-undo" onclick="undo(\'' + v.fileId + '\')">↺ Undo (remove &amp; resend)</button></div>';
+    } else if (isReady(v)){
+        actions = '<div class="card-actions"><button class="btn btn-green" onclick="sendOne(\'' + v.fileId + '\')">Send to Shopify</button></div>';
+    }
+    return '<div class="card ' + cls + '" id="card-' + v.fileId + '">' +
+        '<div class="thumb">' +
+            '<img src="' + esc(v.thumbnail) + '" loading="lazy" alt="" onerror="this.style.display=\'none\'">' +
+            '<div class="play">▶</div>' + checkbox +
+            (isSent(v) ? '' : '<div class="badge-pos">→ image 2</div>') +
+        '</div>' +
+        '<div class="card-body">' +
+            '<div class="filename">' + esc(v.fileName) + '</div>' + info +
+            '<div class="row-msg" id="msg-' + v.fileId + '"></div>' + actions +
+        '</div></div>';
+}
+
+function render(){
+    const q = document.getElementById('search').value.trim();
+    const shown = videos.filter(v => matchesSearch(v, q));
+    const unmatched = shown.filter(isUnmatched);
+    const ready = shown.filter(isReady);
+    const sent = shown.filter(isSent);
+
+    const secU = document.getElementById('unmatchedSection');
+    const secR = document.getElementById('readySection');
+    const secS = document.getElementById('sentSection');
+
+    secU.innerHTML = unmatched.length
+        ? '<div class="section-title">⚠ Not identified — add SKU manually (' + unmatched.length + ')</div><div class="grid">' + unmatched.map(cardHTML).join('') + '</div>'
+        : '';
+    secR.innerHTML = ready.length
+        ? '<div class="section-title">Ready to send (' + ready.length + ')</div><div class="grid">' + ready.map(cardHTML).join('') + '</div>'
+        : (videos.length && !q ? '' : '');
+    secS.innerHTML = sent.length
+        ? '<div class="section-title">Already in Shopify (' + sent.length + ')</div><div class="grid">' + sent.map(cardHTML).join('') + '</div>'
+        : '';
+
+    if (!videos.length) secR.innerHTML = '<div class="empty">No videos loaded yet.</div>';
+    updateStats();
+}
+
+function toggleSelect(fileId, on){ if (on) selected.add(fileId); else selected.delete(fileId); updateStats(); }
+function toggleSelectAll(){
+    const q = document.getElementById('search').value.trim();
+    const ready = videos.filter(v => isReady(v) && matchesSearch(v, q));
+    const allSel = ready.every(v => selected.has(v.fileId));
+    ready.forEach(v => { if (allSel) selected.delete(v.fileId); else selected.add(v.fileId); });
+    render();
+}
+
+function find(fileId){ return videos.find(v => v.fileId === fileId); }
+function setMsg(fileId, text, kind){ const el = document.getElementById('msg-' + fileId); if (el){ el.className = 'row-msg ' + (kind||''); el.innerHTML = text; } }
+
+async function sendOne(fileId){
+    const v = find(fileId); if (!v || !v.product) return;
+    const card = document.getElementById('card-' + fileId);
+    if (card) card.classList.add('busy');
+    setMsg(fileId, '<span class="spinner" style="border-top-color:#2e7d32"></span> Uploading & attaching…', '');
+    try {
+        const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ action:'push', fileId: v.fileId, fileName: v.fileName, productId: v.product.id }) });
+        const d = await r.json();
+        if (!d.ok){ setMsg(fileId, '⚠️ ' + esc(d.error), 'err'); if (card) card.classList.remove('busy'); return false; }
+        v.hasVideo = true; v.videoId = d.videoId; v.sentAt = new Date().toISOString();
+        selected.delete(fileId);
+        render();
+        return true;
+    } catch(e){ setMsg(fileId, '⚠️ ' + esc(e.message), 'err'); if (card) card.classList.remove('busy'); return false; }
+}
+
+async function sendSelected(){
+    const ids = Array.from(selected);
+    if (!ids.length) return;
+    const bulk = document.getElementById('bulkBtn'); bulk.disabled = true;
+    let done = 0;
+    for (const id of ids){                       // sequential — avoids GitHub log conflicts
+        bulk.textContent = 'Sending ' + (done+1) + '/' + ids.length + '…';
+        await sendOne(id);
+        done++;
+    }
+    setStatus('Finished sending ' + done + ' video' + (done===1?'':'s') + '.');
+    render();
+}
+
+async function manualMatch(fileId){
+    const v = find(fileId); if (!v) return;
+    const input = document.getElementById('mf-' + fileId);
+    const sku = (input.value||'').trim().toUpperCase();
+    if (!sku){ setMsg(fileId, 'Type a SKU first.', 'err'); return; }
+    setMsg(fileId, '<span class="spinner" style="border-top-color:#333"></span> Looking up…', '');
+    try {
+        const r = await fetch(API + '?action=match&sku=' + encodeURIComponent(sku));
+        const d = await r.json();
+        if (!d.ok || !d.matched){ setMsg(fileId, '⚠️ No product found for "' + esc(sku) + '"', 'err'); return; }
+        v.sku = sku; v.matched = true; v.product = d.product; v.hasVideo = d.hasVideo; v.videoId = d.videoId;
+        render();
+    } catch(e){ setMsg(fileId, '⚠️ ' + esc(e.message), 'err'); }
+}
+
+async function undo(fileId){
+    const v = find(fileId); if (!v || !v.product || !v.videoId) return;
+    if (!confirm('Remove this video from "' + v.product.title + '" so you can resend it?')) return;
+    const card = document.getElementById('card-' + fileId);
+    if (card) card.classList.add('busy');
+    setMsg(fileId, '<span class="spinner" style="border-top-color:#e65100"></span> Removing…', '');
+    try {
+        const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ action:'undo', productId: v.product.id, videoId: v.videoId }) });
+        const d = await r.json();
+        if (!d.ok){ setMsg(fileId, '⚠️ ' + esc(d.error), 'err'); if (card) card.classList.remove('busy'); return; }
+        v.hasVideo = false; v.videoId = null; v.sentAt = null;
+        render();
+    } catch(e){ setMsg(fileId, '⚠️ ' + esc(e.message), 'err'); if (card) card.classList.remove('busy'); }
+}
+</script>
+</body>
+</html>
