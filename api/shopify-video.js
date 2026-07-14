@@ -1,4 +1,7 @@
-// shopify-video.js — v1.0 (14 Jul 2026)
+// shopify-video.js — v1.1 (14 Jul 2026)
+// v1.1: "sent" state now comes ONLY from the github log (videos pushed by this tool),
+//       verified against the live product. A pre-existing/different video is left alone
+//       (product ends up with 2 videos) and no longer greys the card.
 // Backend for the Shopify Video Uploader tool.
 // Pushes square videos from the Google Drive folder "SHOPIFY SQ VIDEOS" to the
 // correct Shopify product as a Video, placed at position 2. No local storage.
@@ -98,8 +101,8 @@ module.exports = async function handler(req, res) {
       handle: node.handle,
       url: node.onlineStoreUrl || `https://aboutwallart.com/products/${node.handle}`,
       metafieldSku: node.metafield ? node.metafield.value : null,
-      hasVideo: videos.length > 0,
-      videoId: videos.length ? videos[0].id : null
+      hasVideo: videos.length > 0,      // product has ANY video (informational)
+      videoIds: videos.map(v => v.id)   // all video ids currently on the product
     };
   }
 
@@ -154,6 +157,8 @@ module.exports = async function handler(req, res) {
         let match = null, matchError = null;
         try { match = await matchSku(sku); } catch (e) { matchError = e.message; }
         const logEntry = logBySku[sku] || null;
+        // "Sent" = pushed via THIS tool (github log) AND that exact video still exists on the product.
+        const sentViaTool = !!(logEntry && logEntry.videoId && match && match.videoIds.includes(logEntry.videoId));
         videos.push({
           fileId: f.id,
           fileName: f.name,
@@ -161,9 +166,10 @@ module.exports = async function handler(req, res) {
           thumbnail: `https://drive.google.com/thumbnail?id=${f.id}&sz=w400`,
           matched: !!match,
           product: match ? { id: match.productId, title: match.title, handle: match.handle, url: match.url } : null,
-          hasVideo: match ? match.hasVideo : false,
-          videoId: match ? match.videoId : null,
-          sentAt: logEntry ? logEntry.sentAt : null,
+          sentViaTool,
+          videoId: logEntry ? logEntry.videoId : null,       // OUR pushed video (for undo)
+          productHasVideo: match ? match.hasVideo : false,   // any pre-existing video (info only)
+          sentAt: sentViaTool ? logEntry.sentAt : null,
           matchError
         });
       }
@@ -175,11 +181,15 @@ module.exports = async function handler(req, res) {
       const sku = String((req.query && req.query.sku) || '').trim().toUpperCase();
       if (!sku) return res.status(400).json({ ok: false, error: 'Missing sku' });
       const match = await matchSku(sku);
+      const { entries } = await logGet();
+      const logEntry = entries.find(e => e.sku === sku) || null;
+      const sentViaTool = !!(logEntry && logEntry.videoId && match && match.videoIds.includes(logEntry.videoId));
       return res.status(200).json({
         ok: true, sku, matched: !!match,
         product: match ? { id: match.productId, title: match.title, handle: match.handle, url: match.url } : null,
-        hasVideo: match ? match.hasVideo : false,
-        videoId: match ? match.videoId : null
+        sentViaTool,
+        videoId: logEntry ? logEntry.videoId : null,
+        productHasVideo: match ? match.hasVideo : false
       });
     }
 
@@ -237,7 +247,7 @@ module.exports = async function handler(req, res) {
       try {
         const { entries, sha } = await logGet();
         const sku = skuFromName(fileName);
-        const filtered = entries.filter(e => e.productId !== productId);
+        const filtered = entries.filter(e => e.sku !== sku);
         filtered.push({ sku, fileId, fileName, productId, videoId, sentAt: new Date().toISOString() });
         await logPut(filtered, sha, `SQ video sent: ${sku}`);
       } catch (e) { /* log is best-effort */ }
@@ -257,7 +267,7 @@ module.exports = async function handler(req, res) {
       if (dErr && dErr.length) return res.status(200).json({ ok: false, error: dErr[0].message });
       try {
         const { entries, sha } = await logGet();
-        const filtered = entries.filter(e => e.productId !== productId);
+        const filtered = entries.filter(e => e.videoId !== videoId);
         await logPut(filtered, sha, `SQ video undo: ${productId}`);
       } catch (e) { /* best-effort */ }
       return res.status(200).json({ ok: true, deleted: del.productDeleteMedia.deletedMediaIds });
