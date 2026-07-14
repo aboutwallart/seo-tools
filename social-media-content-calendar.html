@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v4.9 · 13 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v5.0 · 14 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -219,7 +219,8 @@
 <nav class="tabnav">
   <button class="tabbtn active" type="button" data-tab="monthly"><i class="ti ti-layout-grid"></i> 1 · Content Monthly Plan</button>
   <button class="tabbtn" type="button" data-tab="video"><i class="ti ti-movie"></i> 2 · Video Creation</button>
-  <button class="tabbtn" type="button" data-tab="schedule"><i class="ti ti-calendar"></i> 3 · Schedule</button>
+  <button class="tabbtn" type="button" data-tab="edu"><i class="ti ti-school"></i> 3 · Educational Video</button>
+  <button class="tabbtn" type="button" data-tab="schedule"><i class="ti ti-calendar"></i> 4 · Schedule</button>
 </nav>
 <section class="tabpanel" id="tab-video">
 <h2 id="cardsHeading">Your video cards — tick each when made</h2>
@@ -408,6 +409,72 @@
     <div class="mp-savebar">
       <button type="button" id="mpSave" class="mp-btn mp-btn-go">Save month plan to GitHub</button>
       <span id="mpSaveMsg" class="small mp-muted"></span>
+    </div>
+  </div>
+</section>
+
+<section class="tabpanel" id="tab-edu">
+  <h2>Educational Video Creation</h2>
+  <div class="box gray"><strong>Build one educational video.</strong> Pick an unused how-to blog or a page from your Free Education hub (seasonal picks show first), then choose the products to feature. Writing the script and image prompts comes next.</div>
+
+  <style>
+    #tab-edu .ev-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:14px 0;}
+    #tab-edu .ev-btn{appearance:none;border:none;border-radius:9px;background:#534AB7;color:#fff;font-size:13.5px;font-weight:700;padding:9px 16px;cursor:pointer;}
+    #tab-edu .ev-btn:disabled{opacity:.6;cursor:default;}
+    #tab-edu .ev-btn-sm{appearance:none;border:1px solid var(--line);background:#fff;border-radius:8px;font-size:13px;font-weight:700;padding:8px 13px;cursor:pointer;}
+    #tab-edu .ev-in{font-size:14px;border:1px solid var(--line);border-radius:8px;padding:8px 11px;min-width:220px;}
+    #tab-edu .ev-muted{color:var(--mut);}
+    #tab-edu .ev-warn{color:#b91c1c;font-weight:600;}
+    #tab-edu .ev-h3{font-size:15px;font-weight:800;margin:22px 0 10px;}
+    #tab-edu .ev-tabs{display:flex;gap:6px;margin:6px 0 12px;}
+    #tab-edu .ev-stab{appearance:none;border:1px solid var(--line);background:#fff;border-radius:20px;font-size:13px;font-weight:700;padding:7px 15px;cursor:pointer;color:var(--mut);}
+    #tab-edu .ev-stab.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+    #tab-edu .ev-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-top:10px;}
+    #tab-edu .ev-card{border:2px solid var(--line);border-radius:12px;padding:8px;cursor:pointer;background:#fff;text-align:left;position:relative;}
+    #tab-edu .ev-card.on{border-color:#0F6E56;background:#f0fdf4;}
+    #tab-edu .ev-card img{width:100%;height:110px;object-fit:cover;border-radius:8px;display:block;}
+    #tab-edu .ev-noimg{width:100%;height:110px;border-radius:8px;background:var(--soft);display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:12px;font-weight:700;}
+    #tab-edu .ev-ct{display:block;margin-top:7px;font-size:12.5px;font-weight:600;line-height:1.25;}
+    #tab-edu .ev-sun{display:inline-block;margin-top:5px;font-size:10.5px;font-weight:700;background:#fef3c7;color:#92400e;padding:1px 8px;border-radius:20px;}
+    #tab-edu .ev-chosen-src{background:var(--soft);border-radius:10px;padding:9px 12px;font-size:13.5px;margin-bottom:10px;}
+    #tab-edu .ev-chosen-src a{margin-left:8px;font-size:12.5px;}
+    #tab-edu .ev-picks{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:10px;}
+    #tab-edu .ev-pick{border:2px solid var(--line);border-radius:11px;padding:7px;cursor:pointer;text-align:center;background:#fff;font-size:11.5px;position:relative;}
+    #tab-edu .ev-pick.on{border-color:#0F6E56;background:#f0fdf4;}
+    #tab-edu .ev-pick img{width:100%;height:100px;object-fit:cover;border-radius:7px;display:block;}
+    #tab-edu .ev-pick .ev-noimg{height:100px;}
+    #tab-edu .ev-pick .ev-pt{display:block;margin-top:5px;font-weight:600;line-height:1.2;}
+    #tab-edu .ev-pick .ev-sku{display:block;margin-top:3px;color:var(--mut);font-size:10.5px;font-weight:700;}
+    #tab-edu .ev-manual{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:14px;}
+  </style>
+
+  <div class="ev-row">
+    <button type="button" id="evLoad" class="ev-btn">Load educational sources</button>
+    <span id="evSeason" class="small ev-muted"></span>
+  </div>
+
+  <div id="evSrcWrap" style="display:none;">
+    <h3 class="ev-h3">1 · Pick a blog or education page</h3>
+    <div class="ev-tabs">
+      <button type="button" class="ev-stab active" data-src="blog">Blogs</button>
+      <button type="button" class="ev-stab" data-src="page">Education pages</button>
+    </div>
+    <input id="evSearch" class="ev-in" placeholder="Search by keyword…">
+    <div id="evSrcList" class="ev-grid"></div>
+  </div>
+
+  <div id="evProdWrap" style="display:none;">
+    <h3 class="ev-h3">2 · Pick the products to feature</h3>
+    <div class="ev-chosen-src" id="evChosenSrc"></div>
+    <div id="evProdStatus" class="small ev-muted"></div>
+    <div id="evProdList" class="ev-picks"></div>
+    <div class="ev-manual">
+      <input id="evSku" class="ev-in" placeholder="Add a product by print-files SKU">
+      <button type="button" id="evAddSku" class="ev-btn-sm">+ Add product</button>
+      <span id="evSkuMsg" class="small ev-muted"></span>
+    </div>
+    <div class="box gray" style="margin-top:16px;">
+      <strong id="evCount">0 products selected.</strong> Next step — choosing the length, writing the script and the image-prompt block, then saving to GitHub — is being built as step 2.
     </div>
   </div>
 </section>
@@ -816,7 +883,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v4.9 — built 13 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v5.0 — built 14 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -1683,6 +1750,122 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   }
   window.__reloadSchedule = loadSchedule;
   loadSchedule();
+})();
+</script>
+
+<script>
+/* ---- TAB 3 (new): EDUCATIONAL VIDEO — Part 1 pickers ---- */
+(function(){
+  function $(id){ return document.getElementById(id); }
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function attr(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  var loadBtn = $('evLoad');
+  if(!loadBtn) return;
+
+  var EV = { blogs:[], pages:[], src:'blog', chosen:null, products:[], selected:{} };
+  var SEASON_NOTE = { summer:'summer — coastal, tropical, boho, botanical', spring:'spring — fresh, floral, bright', autumn:'autumn — cosy, warm, layered', winter:'winter — cosy, fireplace, festive' };
+
+  function keyOf(p){ return p.sku || p.handle; }
+  function currentList(){ return EV.src==='page' ? EV.pages : EV.blogs; }
+
+  loadBtn.addEventListener('click', function(){
+    loadBtn.disabled = true; loadBtn.textContent = 'Loading…';
+    fetch('/api/social?action=edu-sources').then(function(r){ return r.json(); }).then(function(d){
+      loadBtn.disabled = false; loadBtn.textContent = 'Reload sources';
+      if(!d || !d.ok){ $('evSeason').textContent = 'Could not load: ' + ((d&&d.error)||'error'); return; }
+      EV.blogs = d.blogs || []; EV.pages = d.pages || [];
+      $('evSeason').textContent = 'Season: ' + (SEASON_NOTE[d.season] || d.season) + '. Seasonal picks are marked ☀ and shown first.';
+      $('evSrcWrap').style.display = 'block';
+      renderSources();
+    }).catch(function(e){ loadBtn.disabled = false; loadBtn.textContent = 'Reload sources'; $('evSeason').textContent = 'Error: ' + e.message; });
+  });
+
+  var stabs = document.querySelectorAll('#tab-edu .ev-stab');
+  stabs.forEach(function(b){
+    b.addEventListener('click', function(){
+      EV.src = b.getAttribute('data-src');
+      stabs.forEach(function(x){ x.classList.toggle('active', x===b); });
+      renderSources();
+    });
+  });
+  $('evSearch').addEventListener('input', renderSources);
+
+  function renderSources(){
+    var q = ($('evSearch').value || '').toLowerCase().trim();
+    var list = currentList().filter(function(s){ return !q || (s.title||'').toLowerCase().indexOf(q)>=0 || (s.handle||'').toLowerCase().indexOf(q)>=0; });
+    var el = $('evSrcList');
+    if(!list.length){ el.innerHTML = '<p class="small ev-muted">No ' + (EV.src==='page'?'education pages':'unused educational blogs') + ' found.</p>'; return; }
+    el.innerHTML = list.map(function(s){
+      var img = s.image ? '<img src="'+attr(s.image)+'" alt="">' : '<div class="ev-noimg">'+(s.type==='page'?'Page':'Blog')+'</div>';
+      var sun = s.seasonMatch ? '<span class="ev-sun">☀ in season</span>' : '';
+      var on = (EV.chosen && EV.chosen.handle===s.handle && EV.chosen.type===s.type) ? ' on' : '';
+      return '<div class="ev-card'+on+'" data-h="'+attr(s.handle)+'">'+img+'<span class="ev-ct">'+esc(s.title)+'</span>'+sun+'</div>';
+    }).join('');
+    Array.prototype.forEach.call(el.querySelectorAll('.ev-card'), function(c){
+      c.addEventListener('click', function(){
+        var h = c.getAttribute('data-h');
+        var s = currentList().filter(function(x){ return x.handle===h; })[0];
+        if(s) chooseSource(s);
+      });
+    });
+  }
+
+  function chooseSource(s){
+    EV.chosen = s; EV.products = []; EV.selected = {};
+    renderSources();
+    $('evChosenSrc').innerHTML = '<strong>'+esc(s.title)+'</strong> <a href="'+attr(s.url)+'" target="_blank" rel="noopener">view</a>';
+    $('evProdWrap').style.display = 'block';
+    $('evProdStatus').textContent = 'Loading products from this ' + (s.type==='page'?'page':'blog') + '…';
+    $('evProdList').innerHTML = '';
+    $('evCount').textContent = '0 products selected.';
+    fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-products', sourceType:s.type, handle:s.handle }) })
+      .then(function(r){ return r.json(); }).then(function(d){
+        if(!d || !d.ok){ $('evProdStatus').textContent = 'Could not load products: ' + ((d&&d.error)||'error'); return; }
+        EV.products = d.products || [];
+        EV.products.slice(0,5).forEach(function(p){ EV.selected[keyOf(p)] = true; });
+        renderProducts();
+      }).catch(function(e){ $('evProdStatus').textContent = 'Error: ' + e.message; });
+  }
+
+  function renderProducts(){
+    var el = $('evProdList');
+    if(!EV.products.length){
+      $('evProdStatus').textContent = 'No products found in this source — add them by SKU below.';
+      el.innerHTML = '';
+    } else {
+      $('evProdStatus').textContent = EV.products.length + ' products found. Tick the ones for this video (first 5 are pre-selected).';
+      el.innerHTML = EV.products.map(function(p){
+        var k = keyOf(p); var on = EV.selected[k] ? ' on' : '';
+        var img = p.image ? '<img src="'+attr(p.image)+'" alt="">' : '<div class="ev-noimg">No image</div>';
+        return '<div class="ev-pick'+on+'" data-k="'+attr(k)+'">'+img+'<span class="ev-pt">'+esc(p.title)+'</span>'+(p.sku?'<span class="ev-sku">'+esc(p.sku)+'</span>':'')+'</div>';
+      }).join('');
+      Array.prototype.forEach.call(el.querySelectorAll('.ev-pick'), function(c){
+        c.addEventListener('click', function(){ var k = c.getAttribute('data-k'); EV.selected[k] = !EV.selected[k]; renderProducts(); });
+      });
+    }
+    updateCount();
+  }
+  function updateCount(){
+    var n = EV.products.filter(function(p){ return EV.selected[keyOf(p)]; }).length;
+    $('evCount').textContent = n + ' product' + (n===1?'':'s') + ' selected.';
+  }
+
+  $('evAddSku').addEventListener('click', function(){
+    var sku = ($('evSku').value || '').trim();
+    var msg = $('evSkuMsg');
+    if(!sku){ msg.className = 'small ev-warn'; msg.textContent = 'Type a SKU first.'; return; }
+    msg.className = 'small ev-muted'; msg.textContent = 'Looking up…';
+    fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'lookup-sku', sku:sku }) })
+      .then(function(r){ return r.json(); }).then(function(d){
+        if(!d || !d.ok || !d.product){ msg.className = 'small ev-warn'; msg.textContent = (d&&d.error) || 'Not found.'; return; }
+        var p = d.product;
+        if(EV.products.some(function(x){ return keyOf(x)===keyOf(p); })){ msg.className = 'small ev-muted'; msg.textContent = 'Already in the list.'; return; }
+        EV.products.push(p); EV.selected[keyOf(p)] = true; $('evSku').value = ''; msg.textContent = '';
+        if($('evProdWrap').style.display === 'none'){ $('evProdWrap').style.display = 'block'; }
+        renderProducts();
+      }).catch(function(e){ msg.className = 'small ev-warn'; msg.textContent = 'Error: ' + e.message; });
+  });
 })();
 </script>
 </body>
