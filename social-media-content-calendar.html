@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v5.0 · 14 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v5.1 · 14 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -446,6 +446,13 @@
     #tab-edu .ev-pick .ev-pt{display:block;margin-top:5px;font-weight:600;line-height:1.2;}
     #tab-edu .ev-pick .ev-sku{display:block;margin-top:3px;color:var(--mut);font-size:10.5px;font-weight:700;}
     #tab-edu .ev-manual{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:14px;}
+    #tab-edu .ev-btn-go{background:#0F6E56;}
+    #tab-edu .ev-outhead{display:flex;gap:12px;align-items:center;margin:18px 0 6px;font-size:14px;}
+    #tab-edu .ev-titlebox{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;font-weight:700;font-size:15px;}
+    #tab-edu .ev-pre{white-space:pre-wrap;word-wrap:break-word;background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:14px;font-size:13px;line-height:1.5;max-height:420px;overflow:auto;font-family:inherit;}
+    #tab-edu .ev-copy{appearance:none;border:1px solid var(--line);background:#fff;border-radius:7px;font-size:12px;font-weight:700;padding:5px 11px;cursor:pointer;}
+    #tab-edu .ev-copy.done{background:#0F6E56;color:#fff;border-color:#0F6E56;}
+    #tab-edu .ev-savebar{margin:18px 0;display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
   </style>
 
   <div class="ev-row">
@@ -473,8 +480,34 @@
       <button type="button" id="evAddSku" class="ev-btn-sm">+ Add product</button>
       <span id="evSkuMsg" class="small ev-muted"></span>
     </div>
-    <div class="box gray" style="margin-top:16px;">
-      <strong id="evCount">0 products selected.</strong> Next step — choosing the length, writing the script and the image-prompt block, then saving to GitHub — is being built as step 2.
+    <div class="box gray" style="margin-top:16px;"><strong id="evCount">0 products selected.</strong></div>
+  </div>
+
+  <div id="evGenWrap" style="display:none;">
+    <h3 class="ev-h3">3 · Length, script &amp; image prompts</h3>
+    <div class="ev-row">
+      <label class="ev-muted" style="font-weight:700;">Video length
+        <input id="evLen" class="ev-in" type="number" min="1" max="4" step="0.5" value="2.5" style="min-width:80px;width:80px;"> min
+      </label>
+      <span class="small ev-muted">suggested 2–3 min · about <span id="evScenes">19</span> scenes</span>
+      <button type="button" id="evGen" class="ev-btn">Generate script &amp; image prompts</button>
+    </div>
+    <div id="evGenStatus" class="small ev-muted"></div>
+
+    <div id="evOut" style="display:none;">
+      <div class="ev-outhead"><strong>Video title</strong> <button type="button" class="ev-copy" data-copy="evVidTitle">Copy title</button></div>
+      <div id="evVidTitle" class="ev-titlebox"></div>
+
+      <div class="ev-outhead"><strong>Script</strong> <button type="button" class="ev-copy" data-copy="evScript">Copy script</button></div>
+      <pre id="evScript" class="ev-pre"></pre>
+
+      <div class="ev-outhead"><strong>Image-prompt block</strong> <button type="button" class="ev-copy" data-copy="evPrompts">Copy prompts</button></div>
+      <pre id="evPrompts" class="ev-pre"></pre>
+
+      <div class="ev-savebar">
+        <button type="button" id="evSave" class="ev-btn ev-btn-go">Save this video to GitHub</button>
+        <span id="evSaveMsg" class="small ev-muted"></span>
+      </div>
     </div>
   </div>
 </section>
@@ -883,7 +916,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v5.0 — built 14 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v5.1 — built 14 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -1775,7 +1808,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       loadBtn.disabled = false; loadBtn.textContent = 'Reload sources';
       if(!d || !d.ok){ $('evSeason').textContent = 'Could not load: ' + ((d&&d.error)||'error'); return; }
       EV.blogs = d.blogs || []; EV.pages = d.pages || [];
-      $('evSeason').textContent = 'Season: ' + (SEASON_NOTE[d.season] || d.season) + '. Seasonal picks are marked ☀ and shown first.';
+      $('evSeason').textContent = 'On now / coming up: ' + ((d.activeOccasions && d.activeOccasions.length) ? d.activeOccasions.slice(0,6).join(', ') : (SEASON_NOTE[d.season] || d.season)) + '. Matching blogs are marked ☀ and shown first.';
       $('evSrcWrap').style.display = 'block';
       renderSources();
     }).catch(function(e){ loadBtn.disabled = false; loadBtn.textContent = 'Reload sources'; $('evSeason').textContent = 'Error: ' + e.message; });
@@ -1798,7 +1831,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     if(!list.length){ el.innerHTML = '<p class="small ev-muted">No ' + (EV.src==='page'?'education pages':'unused educational blogs') + ' found.</p>'; return; }
     el.innerHTML = list.map(function(s){
       var img = s.image ? '<img src="'+attr(s.image)+'" alt="">' : '<div class="ev-noimg">'+(s.type==='page'?'Page':'Blog')+'</div>';
-      var sun = s.seasonMatch ? '<span class="ev-sun">☀ in season</span>' : '';
+      var sun = s.seasonMatch ? '<span class="ev-sun">☀ ' + esc(s.occasion || 'in season') + '</span>' : '';
       var on = (EV.chosen && EV.chosen.handle===s.handle && EV.chosen.type===s.type) ? ' on' : '';
       return '<div class="ev-card'+on+'" data-h="'+attr(s.handle)+'">'+img+'<span class="ev-ct">'+esc(s.title)+'</span>'+sun+'</div>';
     }).join('');
@@ -1816,6 +1849,10 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     renderSources();
     $('evChosenSrc').innerHTML = '<strong>'+esc(s.title)+'</strong> <a href="'+attr(s.url)+'" target="_blank" rel="noopener">view</a>';
     $('evProdWrap').style.display = 'block';
+    $('evGenWrap').style.display = 'block';
+    $('evOut').style.display = 'none';
+    $('evSaveMsg').textContent = '';
+    $('evGenStatus').textContent = '';
     $('evProdStatus').textContent = 'Loading products from this ' + (s.type==='page'?'page':'blog') + '…';
     $('evProdList').innerHTML = '';
     $('evCount').textContent = '0 products selected.';
@@ -1865,6 +1902,59 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         if($('evProdWrap').style.display === 'none'){ $('evProdWrap').style.display = 'block'; }
         renderProducts();
       }).catch(function(e){ msg.className = 'small ev-warn'; msg.textContent = 'Error: ' + e.message; });
+  });
+
+  // ---- step 3: length -> generate -> save ----
+  function selectedProducts(){
+    return EV.products.filter(function(p){ return EV.selected[keyOf(p)]; }).map(function(p){
+      return { sku:p.sku||'', title:p.title||'', handle:p.handle||'', url:p.url||'', image:p.image||'' };
+    });
+  }
+  var lenIn = $('evLen');
+  function syncScenes(){ var mins = parseFloat(lenIn.value)||2.5; var n = Math.max(10, Math.min(30, Math.round(mins*60/8))); $('evScenes').textContent = n; }
+  if(lenIn){ lenIn.addEventListener('input', syncScenes); syncScenes(); }
+
+  $('evGen').addEventListener('click', function(){
+    if(!EV.chosen){ $('evGenStatus').className='small ev-warn'; $('evGenStatus').textContent='Pick a blog or page first.'; return; }
+    var prods = selectedProducts();
+    var mins = parseFloat(lenIn.value)||2.5;
+    var btn = $('evGen'); btn.disabled = true; btn.textContent = 'Writing… (takes a moment)';
+    $('evGenStatus').className='small ev-muted'; $('evGenStatus').textContent='Writing the script and image prompts from the blog…';
+    fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-generate', sourceType:EV.chosen.type, handle:EV.chosen.handle, seconds: Math.round(mins*60), products: prods }) })
+      .then(function(r){ return r.json(); }).then(function(d){
+        btn.disabled = false; btn.textContent = 'Regenerate';
+        if(!d || !d.ok){ $('evGenStatus').className='small ev-warn'; $('evGenStatus').textContent = 'Could not generate: ' + ((d&&d.error)||'error'); return; }
+        EV.generated = d.payload;
+        $('evVidTitle').textContent = d.videoTitle || '';
+        $('evScript').textContent = d.script || '';
+        $('evPrompts').textContent = d.imagePromptBlock || '';
+        $('evGenStatus').className='small ev-muted'; $('evGenStatus').textContent = 'Done — ' + (d.sceneCount||0) + ' scenes (plus the 5 fixed outro lines). Review, then save.';
+        $('evOut').style.display = 'block';
+        $('evSaveMsg').textContent = '';
+      }).catch(function(e){ btn.disabled=false; btn.textContent='Regenerate'; $('evGenStatus').className='small ev-warn'; $('evGenStatus').textContent='Error: '+e.message; });
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('#tab-edu .ev-copy'), function(b){
+    b.addEventListener('click', function(){
+      var el = $(b.getAttribute('data-copy')); if(!el) return;
+      var t = el.textContent || '';
+      function ok(){ b.classList.add('done'); var o=b.getAttribute('data-lbl')||b.textContent; b.setAttribute('data-lbl', o); b.textContent='Copied ✓'; setTimeout(function(){ b.classList.remove('done'); b.textContent=o; },1400); }
+      if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(t).then(ok, function(){ fallbackCopy(t); ok(); }); }
+      else { fallbackCopy(t); ok(); }
+    });
+  });
+  function fallbackCopy(t){ var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); try{ document.execCommand('copy'); }catch(e){} document.body.removeChild(ta); }
+
+  $('evSave').addEventListener('click', function(){
+    if(!EV.generated){ return; }
+    var btn = $('evSave'); btn.disabled = true;
+    $('evSaveMsg').className='small ev-muted'; $('evSaveMsg').textContent='Saving to GitHub…';
+    fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-save', payload: EV.generated }) })
+      .then(function(r){ return r.json(); }).then(function(d){
+        btn.disabled = false;
+        if(!d || !d.ok){ $('evSaveMsg').className='small ev-warn'; $('evSaveMsg').textContent='Could not save: '+((d&&d.error)||'error'); return; }
+        $('evSaveMsg').className='small ev-muted'; $('evSaveMsg').textContent='Saved ✓ — ' + (d.file||'');
+      }).catch(function(e){ btn.disabled=false; $('evSaveMsg').className='small ev-warn'; $('evSaveMsg').textContent='Error: '+e.message; });
   });
 })();
 </script>
