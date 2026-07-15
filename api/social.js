@@ -970,6 +970,7 @@ module.exports = async (req, res) => {
         var hasFile = !!savedFiles[h];
         o.saved = !!sv || hasFile;
         o.done = sv ? !!sv.done : hasFile; // index wins (respects Undo); otherwise a bare saved file = done
+        o.videoTitle = (sv && sv.videoTitle) || ''; // shown on the card + searchable
         return o;
       }
 
@@ -1303,6 +1304,89 @@ module.exports = async (req, res) => {
         var cur = await ghGet(f);
         if (cur.content) { var pj = JSON.parse(cur.content); pj.done = false; await ghSave(f, function () { return JSON.stringify(pj, null, 2); }, 'Un-mark done ' + handle); }
       } catch (e) {}
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'edu-youtube-pack') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      const handle = (body.handle || '').toString().trim().toLowerCase().replace(/[^a-z0-9\-]/g, '');
+      if (!handle) return res.status(400).json({ ok: false, error: 'Missing handle' });
+      const gh = await ghGet('data/edu-video-' + handle + '.json');
+      if (!gh.content) return res.status(200).json({ ok: false, error: 'Save the video first.' });
+      var p = {};
+      try { p = JSON.parse(gh.content); } catch (e) { return res.status(200).json({ ok: false, error: 'Saved file unreadable' }); }
+      var blogUrl = p.blogUrl || '';
+      var vTitle = p.videoTitle || p.blogTitle || '';
+      var products = Array.isArray(p.products) ? p.products : [];
+      var prodList = products.map(function (x) { return ((x.title || '') + ' — ' + (x.url || '')).trim(); }).filter(function (s) { return s && s !== '—'; });
+
+      var SOCIALS = 'Instagram: https://instagram.com/aboutwallart\nTikTok: https://tiktok.com/@aboutwallart\nPinterest: https://www.pinterest.com/aboutwallartstore\nFacebook: https://facebook.com/aboutwallart\nLinkedIn: https://www.linkedin.com/company/about-wall-art\nThreads: https://www.threads.net/@aboutwallart\nX: https://x.com/about_wall';
+      var HUB = 'https://aboutwallart.com/blogs/news-articles-home-decor-inspiration';
+      var FREE = 'https://aboutwallart.com/pages/free-interior-design-education';
+      var SHOP = 'https://aboutwallart.com';
+
+      var aiPrompt =
+        'Write YouTube metadata for an educational home-decor video by About Wall Art (warm, friendly UK-English advisor voice; NOT salesy; never words like elevate, delve, showcase, dive, beacon).\n' +
+        'Video is based on this content: title "' + vTitle + '"' + (blogUrl ? (', source ' + blogUrl) : '') + '.\n' +
+        'Return ONLY strict JSON: {"title":"...","hook":"...","tags":"tag1, tag2","hashtags":"#one #two #three"}\n' +
+        '- title: leads with the search keyword + a light hook, MAX 70 characters, truthful (no clickbait).\n' +
+        '- hook: one warm keyword-rich opening line for the description (shows before "Show more").\n' +
+        '- tags: 8 to 12 comma-separated topic keywords.\n' +
+        '- hashtags: 3 to 5 lowercase hashtags.';
+      var ai = {};
+      try {
+        var ar = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 900, messages: [{ role: 'user', content: aiPrompt }] }) });
+        if (ar.ok) { var adj = await ar.json(); var t = (adj.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('\n'); var mm = t.match(/\{[\s\S]*\}/); ai = JSON.parse(mm ? mm[0] : t); }
+      } catch (e) { ai = {}; }
+
+      var title = (ai.title || vTitle || '').toString().slice(0, 70);
+      var hook = (ai.hook || '').toString();
+      var tags = (ai.tags || '').toString();
+      var hashtags = (ai.hashtags || '').toString();
+      var filename = ((title || vTitle).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'educational-video') + '.mp4';
+
+      var d = [];
+      if (hook) d.push(hook);
+      d.push('Every print arrives framed and ready to hang.');
+      d.push('');
+      if (blogUrl) d.push('📖 Read the full guide: ' + blogUrl);
+      d.push('🖼️ Shop wall art: ' + SHOP);
+      d.push('📚 Free design guides & tools: ' + FREE);
+      d.push('🎨 More home styling ideas: ' + HUB);
+      if (prodList.length) { d.push(''); d.push('Featured in this video:'); prodList.forEach(function (l) { d.push('• ' + l); }); }
+      d.push(''); d.push('Follow us:'); d.push(SOCIALS);
+      if (hashtags) { d.push(''); d.push(hashtags); }
+      var description = d.join('\n');
+
+      var youtube = {
+        filename: filename, title: title, description: description, tags: tags,
+        category: 'Howto & Style', playlist: 'Home Decor Ideas & Interior Styling Tips',
+        endScreen: 'End screen: 1 playlist + 1 subscribe. Add a playlist card ~0:30 (message + teaser max 30 chars each). Visibility: Public.',
+        thumbnailNote: 'Thumbnail: in Adobe Express, open your hero scene → Download → JPG. That is your YouTube thumbnail (no separate grab needed).'
+      };
+      p.youtube = youtube; p.savedAt = new Date().toISOString();
+      await ghSave('data/edu-video-' + handle + '.json', function () { return JSON.stringify(p, null, 2); }, 'YouTube pack ' + handle);
+      return res.status(200).json({ ok: true, youtube: youtube });
+    }
+
+    if (action === 'edu-mark-used') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      const handle = (body.handle || '').toString().trim().toLowerCase().replace(/[^a-z0-9\-]/g, '');
+      const youtubeUrl = (body.youtubeUrl || '').toString().trim();
+      if (!handle) return res.status(400).json({ ok: false, error: 'Missing handle' });
+      var title = '', vTitle = '';
+      try {
+        var g = await ghGet('data/edu-video-' + handle + '.json');
+        if (g.content) { var pp = JSON.parse(g.content); title = pp.blogTitle || ''; vTitle = pp.videoTitle || ''; pp.youtubeUrl = youtubeUrl; pp.done = true; await ghSave('data/edu-video-' + handle + '.json', function () { return JSON.stringify(pp, null, 2); }, 'Add YouTube URL ' + handle); }
+      } catch (e) {}
+      await ghSave(USEDVIDBLOG_FILE, function (content) {
+        var doc = { used: [] };
+        if (content) { try { doc = JSON.parse(content); if (!Array.isArray(doc.used)) doc.used = []; } catch (e) { doc = { used: [] }; } }
+        if (!doc.used.some(function (x) { return (x.handle || '').toLowerCase() === handle; })) {
+          doc.used.push({ handle: handle, title: title, videoTitle: vTitle, youtubeUrl: youtubeUrl, usedDate: new Date().toISOString().slice(0, 10), status: 'done' });
+        }
+        return JSON.stringify(doc, null, 2);
+      }, 'Mark blog used (educational video) ' + handle);
       return res.status(200).json({ ok: true });
     }
 
