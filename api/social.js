@@ -905,6 +905,24 @@ module.exports = async (req, res) => {
       if (gh.content) { try { (JSON.parse(gh.content).used || []).forEach(function (x) { var h = ((x && x.handle) || x || '').toString().toLowerCase(); if (h) set[h] = 1; }); } catch (e) {} }
       return set;
     }
+    const EDU_INDEX_FILE = 'data/edu-video-index.json';
+    function decodeEnt(s) { return String(s == null ? '' : s).replace(/&amp;/g, '&').replace(/&#38;/g, '&').replace(/&#x26;/gi, '&'); }
+    // index of saved educational videos: { videos: { handle: {done, videoTitle, savedAt} } }
+    async function eduIndex() {
+      const gh = await ghGet(EDU_INDEX_FILE);
+      var vids = {};
+      if (gh.content) { try { vids = (JSON.parse(gh.content).videos) || {}; } catch (e) {} }
+      return vids;
+    }
+    // also list saved edu-video-*.json files directly, so videos saved before the index existed still show as done
+    async function eduSavedFiles() {
+      var set = {};
+      try {
+        var r = await fetch('https://api.github.com/repos/' + REPO + '/contents/data', { headers: { 'Authorization': 'token ' + GITHUB_TOKEN, 'Accept': 'application/vnd.github.v3+json' } });
+        if (r.ok) { var arr = await r.json(); if (Array.isArray(arr)) arr.forEach(function (f) { var m = /^edu-video-(.+)\.json$/.exec((f && f.name) || ''); if (m && m[1] !== 'index') set[m[1].toLowerCase()] = 1; }); }
+      } catch (e) {}
+      return set;
+    }
     function currentSeason() {
       var m = new Date().getMonth() + 1;
       if (m >= 3 && m <= 5) return 'spring';
@@ -944,6 +962,16 @@ module.exports = async (req, res) => {
       if (!process.env.SHOPIFY_STORE_DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return res.status(500).json({ ok: false, error: 'Shopify not configured' });
       const usedB = await usedVideoBlogSet();
       const season = currentSeason();
+      const savedIdx = await eduIndex(); // { handle: {done, videoTitle, savedAt} }
+      const savedFiles = await eduSavedFiles(); // handles that have an edu-video-<handle>.json
+      function markSaved(o) {
+        var h = (o.handle || '').toLowerCase();
+        var sv = savedIdx[h];
+        var hasFile = !!savedFiles[h];
+        o.saved = !!sv || hasFile;
+        o.done = sv ? !!sv.done : hasFile; // index wins (respects Undo); otherwise a bare saved file = done
+        return o;
+      }
 
       // ---- marketing-calendar-driven seasonality (data/marketing-occasions.json) ----
       var occAll = [];
@@ -1010,35 +1038,43 @@ module.exports = async (req, res) => {
         }).map(function (a) {
           var txt = (a.title || '') + ' ' + (a.handle || '') + ' ' + (Array.isArray(a.tags) ? a.tags.join(' ') : '');
           var occ = matchOccasion(txt);
-          return { type: 'blog', handle: a.handle, title: a.title || a.handle, url: EDU_BLOG_BASE + a.handle, image: (a.image && a.image.url) || '', publishedAt: a.publishedAt, occasion: occ, seasonMatch: !!occ };
+          return markSaved({ type: 'blog', handle: a.handle, title: a.title || a.handle, url: EDU_BLOG_BASE + a.handle, image: (a.image && a.image.url) || '', publishedAt: a.publishedAt, occasion: occ, seasonMatch: !!occ });
         });
       } catch (e) { blogs = []; }
 
-      // 2) education hub PAGES — read the hub page's body, pull its /pages/ links, resolve titles + first image
+      // 2) education hub PAGES — ONLY the "Comprehensive Design Guides" section (the resource cards),
+      //    NOT the interactive tools / calculators / quizzes below it. Uses each card's curated image.
       var pages = [];
       try {
         var pr = await fetch('https://' + process.env.SHOPIFY_STORE_DOMAIN + '/admin/api/2025-01/pages.json?limit=250&fields=id,title,handle,body_html', { headers: { 'X-Shopify-Access-Token': process.env.SHOPIFY_ACCESS_TOKEN } });
         if (pr.ok) {
           var pjson = await pr.json();
-          var allPages = pjson.pages || [];
-          var byHandle = {}; allPages.forEach(function (p) { byHandle[(p.handle || '').toLowerCase()] = p; });
-          var hub = byHandle[EDU_HUB_HANDLE];
-          if (hub) {
-            var seenh = {}, mm, re = /\/pages\/([a-z0-9\-]+)/gi;
-            while ((mm = re.exec(hub.body_html || ''))) { var h = mm[1].toLowerCase(); if (h !== EDU_HUB_HANDLE) seenh[h] = 1; }
-            Object.keys(seenh).forEach(function (h) {
-              if (usedB[h]) return;
-              var pg = byHandle[h];
-              if (!pg) return;
-              var occ = matchOccasion((pg.title || '') + ' ' + pg.handle);
-              pages.push({ type: 'page', handle: pg.handle, title: pg.title || pg.handle, url: 'https://aboutwallart.com/pages/' + pg.handle, image: firstImg(pg.body_html), occasion: occ, seasonMatch: !!occ });
-            });
-          }
+          var hub = (pjson.pages || []).filter(function (p) { return (p.handle || '').toLowerCase() === EDU_HUB_HANDLE; })[0];
+          var hb = (hub && hub.body_html) || '';
+          // slice the guides section only: from "Comprehensive Design Guides" heading to the tools section
+          var gi = hb.search(/Comprehensive Design Guides/i);
+          var ti = hb.search(/class=["']tools-section/i);
+          var slice = (gi >= 0) ? hb.slice(gi, ti > gi ? ti : hb.length) : '';
+          // each guide = one .resource-card with an <img ... src> and a /pages/<handle> link + <h3> title
+          var cards = slice.split(/class=["']resource-card["']/i).slice(1);
+          var seenp = {};
+          cards.forEach(function (card) {
+            var hm = /\/pages\/([a-z0-9\-]+)/i.exec(card); if (!hm) return;
+            var h = hm[1].toLowerCase();
+            if (h === EDU_HUB_HANDLE || usedB[h] || seenp[h]) return;
+            seenp[h] = 1;
+            var im = /<img[^>]+src=["']([^"']+)["']/i.exec(card);
+            var tm = /<h3[^>]*>([\s\S]*?)<\/h3>/i.exec(card);
+            var title = tm ? decodeEnt(tm[1].replace(/<[^>]+>/g, '').trim()) : h;
+            var occ = matchOccasion(title + ' ' + h);
+            pages.push(markSaved({ type: 'page', handle: h, title: title, url: 'https://aboutwallart.com/pages/' + h, image: im ? decodeEnt(im[1]) : '', occasion: occ, seasonMatch: !!occ }));
+          });
         }
       } catch (e) { pages = []; }
 
-      function seasonSort(a, b) { return (b.seasonMatch ? 1 : 0) - (a.seasonMatch ? 1 : 0); }
-      blogs.sort(seasonSort); pages.sort(seasonSort);
+      // sort: not-done first, then seasonal matches first (done items sink to the bottom)
+      function srt(a, b) { if (!!a.done !== !!b.done) return a.done ? 1 : -1; return (b.seasonMatch ? 1 : 0) - (a.seasonMatch ? 1 : 0); }
+      blogs.sort(srt); pages.sort(srt);
       return res.status(200).json({ ok: true, season: season, activeOccasions: activeOcc.map(function (o) { return o.name; }), blogs: blogs, pages: pages });
     }
 
@@ -1169,7 +1205,7 @@ module.exports = async (req, res) => {
         '- COLOUR or MATERIAL scenes: the person is actively CHOOSING — holding/comparing swatches, palettes or material samples.\n' +
         '- PRODUCT scenes (wall art / finishing touches): set "aspect":"square" and "productSku" to the chosen product\'s sku from the list; the image places the real framed art faithfully on the wall, the person in plain neutral clothing, the art stays the focus.\n' +
         '- All other scenes: "aspect":"16:9", "productSku":"".\n' +
-        '- Also write a single "hero" paragraph for scene 1: the opening/thumbnail shot inspired by the source, telling the AI to generate 5 DIFFERENT OPTIONS varying room, composition and person.\n\n' +
+        '- Also write a single "hero" paragraph for scene 1: the opening/thumbnail shot inspired by the source. (Scene 1 is later generated as 5 VARIATIONS of this SAME shot — same room, styling and composition; only the person or their position changes — so describe ONE strong scene, not several different ones.)\n\n' +
         'Return ONLY strict JSON, no markdown:\n' +
         '{"videoTitle":"...","hero":"...","scenes":[{"text":"...","aspect":"16:9","productSku":"","image":"..."}]}';
 
@@ -1193,32 +1229,31 @@ module.exports = async (req, res) => {
       scenes.forEach(function (s) { var t = (s && s.text ? s.text : '').toString().trim(); if (t) scriptLines.push(t); });
       var scriptText = scriptLines.join('\n\n') + '\n\n' + OUTRO.join('\n\n');
 
-      // IMAGE-PROMPT block = brief + hero (5 options) + numbered scenes
-      var topicWord = topic.replace(/[^a-z ]+/g, ' ').split(/\s+/).filter(function (w) { return w.length > 4; })[0] || 'home decor';
-      var brief =
-        'Generate ONE image per numbered scene below, and name each output by its scene number. Scene 1 = give me 5 OPTIONS. Each image must SHOW what that scene\'s text is about (this is an educational video). [16:9] = landscape (YouTube), [SQUARE] = 1:1. ' +
-        'Style for all: photoreal lifestyle photography, high resolution, a person present (or a couple for bedrooms, a child with a parent for nursery/kids, friends for entertaining, a family including older relatives for festive/occasion scenes — couples shown as a man and a woman), vary ethnicity naturally across the set (a real mix, not always white), bright minimalist decor as base and ' + topicWord + '-related interior details, soft natural daylight, airy and calm, NO text/logos/watermarks. ' +
-        'For any item ending in `product = "..."`: use that named product\'s featured image and place the real framed art faithfully on the wall in the scene, keeping the artwork true to the product, with any person in plain neutral clothing so the art stays the focus.';
-      var block = [brief, '', '1. [16:9] MAIN HERO IMAGE — generate 5 DIFFERENT OPTIONS to choose from. ' + hero];
+      // IMAGE-PROMPT output = numbered scenes ONLY (the brief lives in her Shopify AI skill).
+      // Scene 1 = the hero (5 variations of the SAME shot). Product scenes tagged [SQUARE] → product = "…".
+      var lines = ['1. [16:9] MAIN HERO IMAGE — 5 OPTIONS (5 variations of this SAME shot: same room, styling and composition; change only the person or their position). ' + hero];
       var num = 2;
       scenes.forEach(function (s) {
         var isProd = s && s.productSku && skuTitle[(s.productSku || '').toUpperCase()];
         var aspect = (isProd || (s && s.aspect === 'square')) ? '[SQUARE]' : '[16:9]';
         var line = num + '. ' + aspect + ' ' + ((s && s.image ? s.image : '').toString().trim());
         if (isProd) line += ' → product = "' + skuTitle[(s.productSku || '').toUpperCase()] + '"';
-        block.push(line);
+        lines.push(line);
         num++;
       });
-      var imagePromptBlock = block.join('\n');
+      var imagePromptBlock = lines.join('\n');
+      // small copyable batches for Shopify AI: hero alone, then groups of 3
+      var promptBatches = [lines[0]];
+      for (var bi = 1; bi < lines.length; bi += 3) { promptBatches.push(lines.slice(bi, bi + 3).join('\n')); }
 
       var payload = {
         blogHandle: handle, sourceType: sourceType, blogTitle: srcTitle,
         blogUrl: (sourceType === 'page' ? 'https://aboutwallart.com/pages/' + handle : EDU_BLOG_BASE + handle),
         videoTitle: videoTitle, seconds: seconds, sceneCount: scenes.length,
         script: scriptText, hero: hero, scenes: scenes, outro: OUTRO,
-        imagePromptBlock: imagePromptBlock, products: selProducts
+        imagePromptBlock: imagePromptBlock, promptBatches: promptBatches, products: selProducts
       };
-      return res.status(200).json({ ok: true, videoTitle: videoTitle, script: scriptText, imagePromptBlock: imagePromptBlock, sceneCount: scenes.length, payload: payload });
+      return res.status(200).json({ ok: true, videoTitle: videoTitle, script: scriptText, imagePromptBlock: imagePromptBlock, promptBatches: promptBatches, sceneCount: scenes.length, payload: payload });
     }
 
     if (action === 'edu-save') {
@@ -1227,9 +1262,48 @@ module.exports = async (req, res) => {
       const handle = (p.blogHandle || body.handle || '').toString().trim().toLowerCase().replace(/[^a-z0-9\-]/g, '');
       if (!handle) return res.status(400).json({ ok: false, error: 'Missing blog handle' });
       p.savedAt = new Date().toISOString();
+      p.done = true;
       var efile = 'data/edu-video-' + handle + '.json';
       await ghSave(efile, function () { return JSON.stringify(p, null, 2); }, 'Save educational video ' + handle);
+      // update the lightweight index so the source picker can grey/sort saved ones without reading every file
+      await ghSave(EDU_INDEX_FILE, function (content) {
+        var idx = { videos: {} };
+        if (content) { try { idx = JSON.parse(content); if (!idx.videos) idx.videos = {}; } catch (e) { idx = { videos: {} }; } }
+        idx.videos[handle] = { done: true, videoTitle: p.videoTitle || '', sourceType: p.sourceType || 'blog', savedAt: p.savedAt };
+        return JSON.stringify(idx, null, 2);
+      }, 'Index educational video ' + handle);
       return res.status(200).json({ ok: true, file: efile });
+    }
+
+    if (action === 'edu-get') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      const handle = ((req.query && req.query.handle) || body.handle || '').toString().trim().toLowerCase().replace(/[^a-z0-9\-]/g, '');
+      if (!handle) return res.status(400).json({ ok: false, error: 'Missing handle' });
+      const gh = await ghGet('data/edu-video-' + handle + '.json');
+      if (!gh.content) return res.status(200).json({ ok: false, error: 'No saved video for ' + handle });
+      var payload = {};
+      try { payload = JSON.parse(gh.content); } catch (e) { return res.status(200).json({ ok: false, error: 'Saved file unreadable' }); }
+      return res.status(200).json({ ok: true, payload: payload });
+    }
+
+    if (action === 'edu-undo') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      const handle = (body.handle || '').toString().trim().toLowerCase().replace(/[^a-z0-9\-]/g, '');
+      if (!handle) return res.status(400).json({ ok: false, error: 'Missing handle' });
+      // un-mark done (keep the saved data so it can still be reopened)
+      await ghSave(EDU_INDEX_FILE, function (content) {
+        var idx = { videos: {} };
+        if (content) { try { idx = JSON.parse(content); if (!idx.videos) idx.videos = {}; } catch (e) { idx = { videos: {} }; } }
+        if (idx.videos[handle]) idx.videos[handle].done = false;
+        return JSON.stringify(idx, null, 2);
+      }, 'Un-mark educational video ' + handle);
+      // also flip the flag inside the saved file (best-effort)
+      try {
+        var f = 'data/edu-video-' + handle + '.json';
+        var cur = await ghGet(f);
+        if (cur.content) { var pj = JSON.parse(cur.content); pj.done = false; await ghSave(f, function () { return JSON.stringify(pj, null, 2); }, 'Un-mark done ' + handle); }
+      } catch (e) {}
+      return res.status(200).json({ ok: true });
     }
 
     return res.status(400).json({ ok: false, error: 'Unknown action: ' + action });
