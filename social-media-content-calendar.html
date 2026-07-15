@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v5.1 · 14 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v5.2 · 15 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -453,6 +453,14 @@
     #tab-edu .ev-copy{appearance:none;border:1px solid var(--line);background:#fff;border-radius:7px;font-size:12px;font-weight:700;padding:5px 11px;cursor:pointer;}
     #tab-edu .ev-copy.done{background:#0F6E56;color:#fff;border-color:#0F6E56;}
     #tab-edu .ev-savebar{margin:18px 0;display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
+    #tab-edu .ev-card.done{background:var(--soft);}
+    #tab-edu .ev-card.done .ev-ct{color:var(--mut);}
+    #tab-edu .ev-saved-tag{display:inline-block;margin-top:5px;margin-left:6px;font-size:10.5px;font-weight:700;background:#dcfce7;color:#065f46;padding:1px 8px;border-radius:20px;}
+    #tab-edu .ev-undo{margin-top:7px;appearance:none;border:1px solid var(--line);background:#fff;border-radius:7px;font-size:11px;font-weight:700;padding:3px 10px;cursor:pointer;}
+    #tab-edu .ev-batch{margin:10px 0;}
+    #tab-edu .ev-bhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:12.5px;font-weight:700;color:var(--mut);}
+    #tab-edu .ev-bcopy{appearance:none;border:1px solid var(--line);background:#fff;border-radius:7px;font-size:11.5px;font-weight:700;padding:4px 10px;cursor:pointer;}
+    #tab-edu .ev-bcopy.done{background:#0F6E56;color:#fff;border-color:#0F6E56;}
   </style>
 
   <div class="ev-row">
@@ -501,8 +509,8 @@
       <div class="ev-outhead"><strong>Script</strong> <button type="button" class="ev-copy" data-copy="evScript">Copy script</button></div>
       <pre id="evScript" class="ev-pre"></pre>
 
-      <div class="ev-outhead"><strong>Image-prompt block</strong> <button type="button" class="ev-copy" data-copy="evPrompts">Copy prompts</button></div>
-      <pre id="evPrompts" class="ev-pre"></pre>
+      <div class="ev-outhead"><strong>Image prompts</strong> <span class="small ev-muted">— feed to your Shopify AI skill one batch at a time, in order</span></div>
+      <div id="evPromptsWrap"></div>
 
       <div class="ev-savebar">
         <button type="button" id="evSave" class="ev-btn ev-btn-go">Save this video to GitHub</button>
@@ -916,7 +924,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v5.1 — built 14 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v5.2 — built 15 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -1833,19 +1841,26 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       var img = s.image ? '<img src="'+attr(s.image)+'" alt="">' : '<div class="ev-noimg">'+(s.type==='page'?'Page':'Blog')+'</div>';
       var sun = s.seasonMatch ? '<span class="ev-sun">☀ ' + esc(s.occasion || 'in season') + '</span>' : '';
       var on = (EV.chosen && EV.chosen.handle===s.handle && EV.chosen.type===s.type) ? ' on' : '';
-      return '<div class="ev-card'+on+'" data-h="'+attr(s.handle)+'">'+img+'<span class="ev-ct">'+esc(s.title)+'</span>'+sun+'</div>';
+      var doneCls = s.done ? ' done' : '';
+      var savedTag = s.saved ? '<span class="ev-saved-tag">✓ saved</span>' : '';
+      var undoBtn = s.done ? '<button type="button" class="ev-undo" data-undo="'+attr(s.handle)+'">Undo</button>' : '';
+      return '<div class="ev-card'+on+doneCls+'" data-h="'+attr(s.handle)+'">'+img+'<span class="ev-ct">'+esc(s.title)+'</span>'+sun+savedTag+undoBtn+'</div>';
     }).join('');
     Array.prototype.forEach.call(el.querySelectorAll('.ev-card'), function(c){
       c.addEventListener('click', function(){
         var h = c.getAttribute('data-h');
         var s = currentList().filter(function(x){ return x.handle===h; })[0];
-        if(s) chooseSource(s);
+        if(!s) return;
+        if(s.saved) reopenSaved(s); else chooseSource(s);
       });
+    });
+    Array.prototype.forEach.call(el.querySelectorAll('.ev-undo'), function(u){
+      u.addEventListener('click', function(e){ e.stopPropagation(); doUndo(u.getAttribute('data-undo')); });
     });
   }
 
   function chooseSource(s){
-    EV.chosen = s; EV.products = []; EV.selected = {};
+    EV.chosen = s; EV.products = []; EV.selected = {}; EV.generated = null;
     renderSources();
     $('evChosenSrc').innerHTML = '<strong>'+esc(s.title)+'</strong> <a href="'+attr(s.url)+'" target="_blank" rel="noopener">view</a>';
     $('evProdWrap').style.display = 'block';
@@ -1863,6 +1878,58 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         EV.products.slice(0,5).forEach(function(p){ EV.selected[keyOf(p)] = true; });
         renderProducts();
       }).catch(function(e){ $('evProdStatus').textContent = 'Error: ' + e.message; });
+  }
+
+  function reopenSaved(s){
+    EV.chosen = s; EV.generated = null;
+    renderSources();
+    $('evChosenSrc').innerHTML = '<strong>'+esc(s.title)+'</strong> <a href="'+attr(s.url)+'" target="_blank" rel="noopener">view</a> <span class="ev-saved-tag">✓ saved</span>';
+    $('evProdWrap').style.display = 'block';
+    $('evGenWrap').style.display = 'block';
+    $('evProdStatus').textContent = 'Loading your saved video…';
+    $('evProdList').innerHTML = '';
+    $('evOut').style.display = 'none';
+    $('evGenStatus').textContent = '';
+    fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-get', handle:s.handle }) })
+      .then(function(r){ return r.json(); }).then(function(d){
+        if(!d || !d.ok || !d.payload){ $('evProdStatus').textContent = 'Could not reopen: ' + ((d&&d.error)||'error'); return; }
+        var p = d.payload;
+        EV.generated = p;
+        EV.products = p.products || []; EV.selected = {};
+        EV.products.forEach(function(x){ EV.selected[keyOf(x)] = true; });
+        renderProducts();
+        if(lenIn && p.seconds){ lenIn.value = Math.round((p.seconds/60)*2)/2; syncScenes(); }
+        $('evVidTitle').textContent = p.videoTitle || '';
+        $('evScript').textContent = p.script || '';
+        renderPromptBatches(p.promptBatches || (p.imagePromptBlock ? [p.imagePromptBlock] : []));
+        $('evOut').style.display = 'block';
+        $('evGenStatus').className = 'small ev-muted';
+        $('evGenStatus').textContent = 'Reopened your saved video — edit the length and Regenerate, or re-save.';
+      }).catch(function(e){ $('evProdStatus').textContent = 'Error: ' + e.message; });
+  }
+
+  function doUndo(handle){
+    fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-undo', handle:handle }) })
+      .then(function(r){ return r.json(); }).then(function(d){ if(d && d.ok && loadBtn){ loadBtn.click(); } }).catch(function(){});
+  }
+
+  function renderPromptBatches(batches){
+    var wrap = $('evPromptsWrap'); if(!wrap) return;
+    batches = Array.isArray(batches) ? batches : [];
+    if(!batches.length){ wrap.innerHTML = '<p class="small ev-muted">No prompts.</p>'; return; }
+    wrap.innerHTML = batches.map(function(b, i){
+      var label = i===0 ? 'Scene 1 · hero (5 options)' : 'Batch ' + (i+1);
+      return '<div class="ev-batch"><div class="ev-bhead"><span>'+label+'</span><button type="button" class="ev-bcopy">Copy</button></div><pre class="ev-pre">'+esc(b)+'</pre></div>';
+    }).join('');
+    Array.prototype.forEach.call(wrap.querySelectorAll('.ev-batch'), function(box){
+      var btn = box.querySelector('.ev-bcopy'), pre = box.querySelector('pre');
+      btn.addEventListener('click', function(){
+        var t = pre.textContent || '';
+        function ok(){ btn.classList.add('done'); btn.textContent='Copied ✓'; setTimeout(function(){ btn.classList.remove('done'); btn.textContent='Copy'; },1400); }
+        if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(t).then(ok, function(){ fallbackCopy(t); ok(); }); }
+        else { fallbackCopy(t); ok(); }
+      });
+    });
   }
 
   function renderProducts(){
@@ -1927,7 +1994,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         EV.generated = d.payload;
         $('evVidTitle').textContent = d.videoTitle || '';
         $('evScript').textContent = d.script || '';
-        $('evPrompts').textContent = d.imagePromptBlock || '';
+        renderPromptBatches(d.promptBatches || (d.imagePromptBlock ? [d.imagePromptBlock] : []));
         $('evGenStatus').className='small ev-muted'; $('evGenStatus').textContent = 'Done — ' + (d.sceneCount||0) + ' scenes (plus the 5 fixed outro lines). Review, then save.';
         $('evOut').style.display = 'block';
         $('evSaveMsg').textContent = '';
