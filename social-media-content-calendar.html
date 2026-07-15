@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v5.2 · 15 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v5.3 · 15 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -461,6 +461,10 @@
     #tab-edu .ev-bhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:12.5px;font-weight:700;color:var(--mut);}
     #tab-edu .ev-bcopy{appearance:none;border:1px solid var(--line);background:#fff;border-radius:7px;font-size:11.5px;font-weight:700;padding:4px 10px;cursor:pointer;}
     #tab-edu .ev-bcopy.done{background:#0F6E56;color:#fff;border-color:#0F6E56;}
+    #tab-edu .ev-imgwrap{position:relative;}
+    #tab-edu .ev-card.done .ev-imgwrap img{filter:grayscale(1);opacity:.5;}
+    #tab-edu .ev-donebadge{position:absolute;top:8px;left:8px;background:#0F6E56;color:#fff;font-size:11px;font-weight:800;letter-spacing:.5px;padding:3px 9px;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.25);}
+    #tab-edu .ev-vt{display:block;margin-top:4px;font-size:11px;font-weight:700;color:#0F6E56;line-height:1.2;}
   </style>
 
   <div class="ev-row">
@@ -515,6 +519,40 @@
       <div class="ev-savebar">
         <button type="button" id="evSave" class="ev-btn ev-btn-go">Save this video to GitHub</button>
         <span id="evSaveMsg" class="small ev-muted"></span>
+      </div>
+
+      <div id="evPubWrap" style="display:none;">
+        <h3 class="ev-h3">4 · Publish on YouTube</h3>
+        <div class="ev-row">
+          <button type="button" id="evYtGen" class="ev-btn">Generate YouTube pack</button>
+          <span id="evYtStatus" class="small ev-muted"></span>
+        </div>
+        <div id="evYtOut" style="display:none;">
+          <div class="ev-outhead"><strong>File name</strong> <button type="button" class="ev-copy" data-copy="evYtFile">Copy</button></div>
+          <div id="evYtFile" class="ev-titlebox"></div>
+          <div class="ev-outhead"><strong>Title</strong> <button type="button" class="ev-copy" data-copy="evYtTitle">Copy</button></div>
+          <div id="evYtTitle" class="ev-titlebox"></div>
+          <div class="ev-outhead"><strong>Description</strong> <button type="button" class="ev-copy" data-copy="evYtDesc">Copy</button></div>
+          <pre id="evYtDesc" class="ev-pre"></pre>
+          <div class="ev-outhead"><strong>Tags</strong> <button type="button" class="ev-copy" data-copy="evYtTags">Copy</button></div>
+          <div id="evYtTags" class="ev-titlebox"></div>
+          <div class="box gray" id="evYtMeta" style="margin-top:10px;"></div>
+        </div>
+
+        <h3 class="ev-h3">5 · After you publish</h3>
+        <div class="ev-manual">
+          <input id="evYtUrl" class="ev-in" placeholder="Paste the YouTube link (https://youtu.be/…)">
+          <button type="button" id="evFinish" class="ev-btn-sm">Build embed &amp; finish</button>
+        </div>
+        <div id="evFinishOut" style="display:none;">
+          <div class="ev-outhead"><strong>Blog embed block</strong> <span class="small ev-muted">— paste at the END of the blog</span> <button type="button" class="ev-copy" data-copy="evEmbed">Copy</button></div>
+          <pre id="evEmbed" class="ev-pre"></pre>
+          <div class="box gray" style="margin-top:8px;">Then reindex the blog: <button type="button" id="evReindex" class="ev-btn-sm">Open GSC</button> <span id="evReindexUrl" class="small ev-muted"></span></div>
+          <div class="ev-savebar">
+            <button type="button" id="evMarkUsed" class="ev-btn ev-btn-go">Mark blog used (done)</button>
+            <span id="evMarkMsg" class="small ev-muted"></span>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -924,7 +962,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v5.2 — built 15 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v5.3 — built 15 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -1834,17 +1872,18 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
 
   function renderSources(){
     var q = ($('evSearch').value || '').toLowerCase().trim();
-    var list = currentList().filter(function(s){ return !q || (s.title||'').toLowerCase().indexOf(q)>=0 || (s.handle||'').toLowerCase().indexOf(q)>=0; });
+    var list = currentList().filter(function(s){ return !q || (s.title||'').toLowerCase().indexOf(q)>=0 || (s.handle||'').toLowerCase().indexOf(q)>=0 || (s.videoTitle||'').toLowerCase().indexOf(q)>=0; });
     var el = $('evSrcList');
     if(!list.length){ el.innerHTML = '<p class="small ev-muted">No ' + (EV.src==='page'?'education pages':'unused educational blogs') + ' found.</p>'; return; }
     el.innerHTML = list.map(function(s){
-      var img = s.image ? '<img src="'+attr(s.image)+'" alt="">' : '<div class="ev-noimg">'+(s.type==='page'?'Page':'Blog')+'</div>';
+      var imgInner = s.image ? '<img src="'+attr(s.image)+'" alt="">' : '<div class="ev-noimg">'+(s.type==='page'?'Page':'Blog')+'</div>';
+      var badge = s.done ? '<span class="ev-donebadge">✓ SAVED</span>' : '';
       var sun = s.seasonMatch ? '<span class="ev-sun">☀ ' + esc(s.occasion || 'in season') + '</span>' : '';
       var on = (EV.chosen && EV.chosen.handle===s.handle && EV.chosen.type===s.type) ? ' on' : '';
       var doneCls = s.done ? ' done' : '';
-      var savedTag = s.saved ? '<span class="ev-saved-tag">✓ saved</span>' : '';
+      var vt = s.videoTitle ? '<span class="ev-vt">🎬 '+esc(s.videoTitle)+'</span>' : (s.saved ? '<span class="ev-vt">🎬 saved video</span>' : '');
       var undoBtn = s.done ? '<button type="button" class="ev-undo" data-undo="'+attr(s.handle)+'">Undo</button>' : '';
-      return '<div class="ev-card'+on+doneCls+'" data-h="'+attr(s.handle)+'">'+img+'<span class="ev-ct">'+esc(s.title)+'</span>'+sun+savedTag+undoBtn+'</div>';
+      return '<div class="ev-card'+on+doneCls+'" data-h="'+attr(s.handle)+'"><div class="ev-imgwrap">'+imgInner+badge+'</div><span class="ev-ct">'+esc(s.title)+'</span>'+vt+sun+undoBtn+'</div>';
     }).join('');
     Array.prototype.forEach.call(el.querySelectorAll('.ev-card'), function(c){
       c.addEventListener('click', function(){
@@ -1903,8 +1942,9 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         $('evScript').textContent = p.script || '';
         renderPromptBatches(p.promptBatches || (p.imagePromptBlock ? [p.imagePromptBlock] : []));
         $('evOut').style.display = 'block';
+        $('evPubWrap').style.display = 'block'; $('evYtOut').style.display = 'none'; $('evFinishOut').style.display = 'none';
         $('evGenStatus').className = 'small ev-muted';
-        $('evGenStatus').textContent = 'Reopened your saved video — edit the length and Regenerate, or re-save.';
+        $('evGenStatus').textContent = 'Reopened your saved video — edit the length and Regenerate, or re-save. Or go straight to the YouTube pack below.';
       }).catch(function(e){ $('evProdStatus').textContent = 'Error: ' + e.message; });
   }
 
@@ -1997,6 +2037,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         renderPromptBatches(d.promptBatches || (d.imagePromptBlock ? [d.imagePromptBlock] : []));
         $('evGenStatus').className='small ev-muted'; $('evGenStatus').textContent = 'Done — ' + (d.sceneCount||0) + ' scenes (plus the 5 fixed outro lines). Review, then save.';
         $('evOut').style.display = 'block';
+        $('evPubWrap').style.display = 'none'; $('evYtOut').style.display = 'none'; $('evFinishOut').style.display = 'none';
         $('evSaveMsg').textContent = '';
       }).catch(function(e){ btn.disabled=false; btn.textContent='Regenerate'; $('evGenStatus').className='small ev-warn'; $('evGenStatus').textContent='Error: '+e.message; });
   });
@@ -2021,8 +2062,70 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         btn.disabled = false;
         if(!d || !d.ok){ $('evSaveMsg').className='small ev-warn'; $('evSaveMsg').textContent='Could not save: '+((d&&d.error)||'error'); return; }
         $('evSaveMsg').className='small ev-muted'; $('evSaveMsg').textContent='Saved ✓ — ' + (d.file||'');
+        $('evPubWrap').style.display='block';
       }).catch(function(e){ btn.disabled=false; $('evSaveMsg').className='small ev-warn'; $('evSaveMsg').textContent='Error: '+e.message; });
   });
+
+  // ---- step 4/5: YouTube pack + post-publish ----
+  function ytId(u){ var m=/(?:youtu\.be\/|[?&]v=|\/embed\/|\/shorts\/)([A-Za-z0-9_\-]{6,})/.exec(u||''); return m?m[1]:''; }
+
+  var ytGenBtn = $('evYtGen');
+  if(ytGenBtn){
+    ytGenBtn.addEventListener('click', function(){
+      if(!EV.chosen){ return; }
+      ytGenBtn.disabled=true; ytGenBtn.textContent='Writing…';
+      $('evYtStatus').className='small ev-muted'; $('evYtStatus').textContent='Writing the YouTube title, description and tags…';
+      fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-youtube-pack', handle:EV.chosen.handle }) })
+        .then(function(r){ return r.json(); }).then(function(d){
+          ytGenBtn.disabled=false; ytGenBtn.textContent='Regenerate pack';
+          if(!d || !d.ok){ $('evYtStatus').className='small ev-warn'; $('evYtStatus').textContent='Could not generate: '+((d&&d.error)||'error'); return; }
+          var y=d.youtube||{};
+          $('evYtFile').textContent=y.filename||'';
+          $('evYtTitle').textContent=y.title||'';
+          $('evYtDesc').textContent=y.description||'';
+          $('evYtTags').textContent=y.tags||'';
+          $('evYtMeta').innerHTML='<strong>Category:</strong> '+esc(y.category||'')+'<br><strong>Playlist:</strong> '+esc(y.playlist||'')+'<br>'+esc(y.endScreen||'')+'<br>'+esc(y.thumbnailNote||'');
+          $('evYtStatus').textContent='Done — copy each field into YouTube.';
+          $('evYtOut').style.display='block';
+        }).catch(function(e){ ytGenBtn.disabled=false; ytGenBtn.textContent='Generate YouTube pack'; $('evYtStatus').className='small ev-warn'; $('evYtStatus').textContent='Error: '+e.message; });
+    });
+  }
+
+  var finishBtn = $('evFinish');
+  if(finishBtn){
+    finishBtn.addEventListener('click', function(){
+      var url=($('evYtUrl').value||'').trim();
+      if(!url){ return; }
+      var id=ytId(url);
+      var title=(EV.generated && EV.generated.videoTitle) || (EV.chosen && EV.chosen.title) || '';
+      var embed='<p><strong>WATCH:</strong> <a href="'+url+'" target="_blank" rel="noopener">'+esc(title)+'</a></p>\n'+
+        '<div style="position:relative;width:100%;padding-bottom:56.25%;height:0;overflow:hidden;margin:12px 0;">\n'+
+        '  <iframe src="https://www.youtube.com/embed/'+id+'" title="'+attr(title)+'" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>\n'+
+        '</div>';
+      $('evEmbed').textContent=embed;
+      $('evReindexUrl').textContent=(EV.generated && EV.generated.blogUrl) || '';
+      $('evFinishOut').style.display='block';
+    });
+  }
+
+  var reindexBtn = $('evReindex');
+  if(reindexBtn){ reindexBtn.addEventListener('click', function(){ window.open('https://search.google.com/search-console?resource_id=sc-domain%3Aaboutwallart.com', '_blank'); }); }
+
+  var markBtn = $('evMarkUsed');
+  if(markBtn){
+    markBtn.addEventListener('click', function(){
+      if(!EV.chosen){ return; }
+      var url=($('evYtUrl').value||'').trim();
+      markBtn.disabled=true;
+      $('evMarkMsg').className='small ev-muted'; $('evMarkMsg').textContent='Marking used…';
+      fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-mark-used', handle:EV.chosen.handle, youtubeUrl:url }) })
+        .then(function(r){ return r.json(); }).then(function(d){
+          markBtn.disabled=false;
+          if(!d || !d.ok){ $('evMarkMsg').className='small ev-warn'; $('evMarkMsg').textContent='Could not mark: '+((d&&d.error)||'error'); return; }
+          $('evMarkMsg').className='small ev-muted'; $('evMarkMsg').textContent='Done ✓ — this blog is marked used and will drop off the list on next reload.';
+        }).catch(function(e){ markBtn.disabled=false; $('evMarkMsg').className='small ev-warn'; $('evMarkMsg').textContent='Error: '+e.message; });
+    });
+  }
 })();
 </script>
 </body>
