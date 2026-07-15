@@ -1362,7 +1362,21 @@ module.exports = async (req, res) => {
         filename: filename, title: title, description: description, tags: tags,
         category: 'Howto & Style', playlist: 'Home Decor Ideas & Interior Styling Tips',
         endScreen: 'End screen: 1 playlist + 1 subscribe. Add a playlist card ~0:30 (message + teaser max 30 chars each). Visibility: Public.',
-        thumbnailNote: 'Thumbnail: in Adobe Express, open your hero scene → Download → JPG. That is your YouTube thumbnail (no separate grab needed).'
+        thumbnailNote: 'Thumbnail: in Adobe Express, open your hero scene → Download → JPG. That is your YouTube thumbnail (no separate grab needed).',
+        checklist: [
+          'Audience → "No, it\'s not made for kids".',
+          'Show more → AI use → "Yes" (the scenes and the people are AI-generated).',
+          'Show more → Category → "Howto & Style".',
+          'Show more → Tags → paste the Tags above.',
+          'Show more → Video language → leave "Not set". Do NOT pick a language — the captions are burned into the video, and selecting a language makes YouTube auto-add its own captions on top of them.',
+          'Show more → keep "Allow embedding" ON and "Publish to subscriptions feed and notify subscribers" ON.',
+          'Subtitles → skip (captions are burned into the video).',
+          'End screen → "Import from latest video" → Save.',
+          'Cards → add 1 Playlist card ("Home Decor Ideas & Interior Styling Tips") at ~0:30, with teaser "More home styling ideas". (Link card → skip until the channel is YPP-approved.)',
+          'Quiz → skip.',
+          'Thumbnail → export your hero scene from Adobe Express as a JPG.',
+          'Visibility → Schedule for your weekly slot (e.g. Sunday 9:30am UK), one video per week; or Public now for the very first.'
+        ]
       };
       p.youtube = youtube; p.savedAt = new Date().toISOString();
       await ghSave('data/edu-video-' + handle + '.json', function () { return JSON.stringify(p, null, 2); }, 'YouTube pack ' + handle);
