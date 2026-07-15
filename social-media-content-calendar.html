@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v5.3 · 15 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v5.4 · 15 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -962,7 +962,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v5.3 — built 15 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v5.4 — built 15 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -2084,7 +2084,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           $('evYtTitle').textContent=y.title||'';
           $('evYtDesc').textContent=y.description||'';
           $('evYtTags').textContent=y.tags||'';
-          $('evYtMeta').innerHTML='<strong>Category:</strong> '+esc(y.category||'')+'<br><strong>Playlist:</strong> '+esc(y.playlist||'')+'<br>'+esc(y.endScreen||'')+'<br>'+esc(y.thumbnailNote||'');
+          var ck = Array.isArray(y.checklist) ? y.checklist : [];
+          $('evYtMeta').innerHTML = '<strong>YouTube upload checklist</strong> <span class="small ev-muted">— set these in order</span><ol style="margin:8px 0 0 18px;padding:0;font-size:12.5px;line-height:1.55;">'+ck.map(function(s){ return '<li>'+esc(s)+'</li>'; }).join('')+'</ol>';
           $('evYtStatus').textContent='Done — copy each field into YouTube.';
           $('evYtOut').style.display='block';
         }).catch(function(e){ ytGenBtn.disabled=false; ytGenBtn.textContent='Generate YouTube pack'; $('evYtStatus').className='small ev-warn'; $('evYtStatus').textContent='Error: '+e.message; });
@@ -2100,7 +2101,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       var title=(EV.generated && EV.generated.videoTitle) || (EV.chosen && EV.chosen.title) || '';
       var embed='<p><strong>WATCH:</strong> <a href="'+url+'" target="_blank" rel="noopener">'+esc(title)+'</a></p>\n'+
         '<div style="position:relative;width:100%;padding-bottom:56.25%;height:0;overflow:hidden;margin:12px 0;">\n'+
-        '  <iframe src="https://www.youtube.com/embed/'+id+'" title="'+attr(title)+'" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>\n'+
+        '  <iframe src="https://www.youtube.com/embed/'+id+'?cc_load_policy=0" title="'+attr(title)+'" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>\n'+
         '</div>';
       $('evEmbed').textContent=embed;
       $('evReindexUrl').textContent=(EV.generated && EV.generated.blogUrl) || '';
