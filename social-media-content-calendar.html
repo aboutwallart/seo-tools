@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v5.4 · 15 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v5.7 · 17 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -515,6 +515,28 @@
 
       <div class="ev-outhead"><strong>Image prompts</strong> <span class="small ev-muted">— feed to your Shopify AI skill one batch at a time, in order</span></div>
       <div id="evPromptsWrap"></div>
+
+      <div id="evCanvaWrap" style="margin-top:22px;">
+        <div class="ev-h3">Make the Canva file (photos + captions)</div>
+        <div class="box gray" style="margin-bottom:10px;">Save this video's scene photos in one Google Drive folder (named 1, 2, 3… in scene order), then paste that folder's link. The tool builds the ready file — your captions + the photos placed inside the cells — for Canva Bulk Create.</div>
+        <div class="ev-row">
+          <input id="evCanvaFolder" class="ev-in" placeholder="Paste the Google Drive folder link" style="min-width:320px;flex:1;">
+          <button type="button" id="evCanvaBtn" class="ev-btn ev-btn-go">Make Canva file</button>
+          <span id="evCanvaStatus" class="small ev-muted"></span>
+        </div>
+        <div id="evCanvaOut" style="display:none;margin-top:10px;"></div>
+      </div>
+
+      <div id="evVideoWrap" style="margin-top:22px;">
+        <div class="ev-h3">Make the video (synced, with captions)</div>
+        <div class="box gray" style="margin-bottom:10px;">Put this video's scene photos (named 01, 02, 03… in order) and the voiceover .mp3 in one Google Drive folder, then paste that folder's link. The tool makes the finished video — timed to your voice, with the logo, title, outro cards and baked captions — and saves it back to that folder with a subtitles file.</div>
+        <div class="ev-row">
+          <input id="evVideoFolder" class="ev-in" placeholder="Paste the Google Drive folder link" style="min-width:320px;flex:1;">
+          <button type="button" id="evVideoBtn" class="ev-btn ev-btn-go">Make the video</button>
+        </div>
+        <div id="evVideoProgress" class="small ev-muted" style="margin-top:10px;display:none;"></div>
+        <div id="evVideoOut" style="display:none;margin-top:10px;"></div>
+      </div>
 
       <div class="ev-savebar">
         <button type="button" id="evSave" class="ev-btn ev-btn-go">Save this video to GitHub</button>
@@ -962,7 +984,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v5.4 — built 15 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v5.7 — built 17 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -2065,6 +2087,66 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         $('evPubWrap').style.display='block';
       }).catch(function(e){ btn.disabled=false; $('evSaveMsg').className='small ev-warn'; $('evSaveMsg').textContent='Error: '+e.message; });
   });
+
+  // ---- Make Canva file (photos + captions -> Canva Bulk Create) ----
+  $('evCanvaBtn').addEventListener('click', function(){
+    var raw = ($('evCanvaFolder').value||'').trim();
+    var mm = raw.match(/folders\/([\-\w]+)/) || raw.match(/[\-\w]{20,}/);
+    var folderId = mm ? (mm[1]||mm[0]) : '';
+    if(!folderId){ $('evCanvaStatus').className='small ev-warn'; $('evCanvaStatus').textContent='Paste your Google Drive folder link first.'; return; }
+    var scriptText = ($('evScript').textContent||'').trim();
+    var captions = scriptText.split(/\n\s*\n/).map(function(s){ return s.trim(); }).filter(Boolean);
+    if(!captions.length){ $('evCanvaStatus').className='small ev-warn'; $('evCanvaStatus').textContent='Generate the script first.'; return; }
+    var btn=$('evCanvaBtn'); btn.disabled=true; var lbl=btn.textContent; btn.textContent='Building…';
+    $('evCanvaStatus').className='small ev-muted'; $('evCanvaStatus').textContent='Reading the folder and placing the photos… (a moment)';
+    $('evCanvaOut').style.display='none';
+    fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-canva-file', folderId:folderId, captions:captions }) })
+      .then(function(r){ return r.json(); }).then(function(d){
+        btn.disabled=false; btn.textContent=lbl;
+        if(!d || !d.ok){ $('evCanvaStatus').className='small ev-warn'; $('evCanvaStatus').textContent='Could not build: '+((d&&d.error)||'error'); return; }
+        $('evCanvaStatus').className='small ev-muted'; $('evCanvaStatus').textContent='Done ✓';
+        var warn = (d.failed && d.failed.length) ? '<div class="ev-warn small" style="margin-top:8px;">'+d.failed.length+' photo(s) could not load: '+esc(d.failed.join(', '))+'</div>' : '';
+        $('evCanvaOut').style.display='block';
+        $('evCanvaOut').innerHTML = '<a class="ev-btn ev-btn-go" style="text-decoration:none;display:inline-block;" href="'+esc(d.xlsxUrl||'')+'">⬇ Download the Canva file (.xlsx)</a> <a class="ev-btn-sm" style="text-decoration:none;display:inline-block;margin-left:8px;" target="_blank" href="'+esc(d.sheetUrl||'')+'">Open in Google Sheets</a>'+warn+'<div class="small ev-muted" style="margin-top:8px;">Then upload this file to Canva Bulk Create.</div>';
+      }).catch(function(e){ btn.disabled=false; btn.textContent=lbl; $('evCanvaStatus').className='small ev-warn'; $('evCanvaStatus').textContent='Error: '+e.message; });
+  });
+
+  // ---- Make the video (Renderly pipeline: start + live progress) ----
+  (function(){
+    var vbtn = $('evVideoBtn'); if(!vbtn) return;
+    function folderIdFrom(raw){ raw=(raw||'').trim().replace(/.*folders\//,''); var m=/[-\w]{20,}/.exec(raw); return m?m[0]:''; }
+    function fmt(s){ var m=Math.floor(s/60), ss=s%60; return m+':'+(ss<10?'0':'')+ss; }
+    var timer=null, poll=null, t0=0, step='Starting…';
+    function stop(){ if(timer){clearInterval(timer);timer=null;} if(poll){clearInterval(poll);poll=null;} }
+    vbtn.addEventListener('click', function(){
+      var prog=$('evVideoProgress'), out=$('evVideoOut');
+      prog.style.display='block'; out.style.display='none'; prog.className='small ev-muted';
+      var folderId = folderIdFrom($('evVideoFolder').value);
+      var handle = (window.EV && EV.generated && EV.generated.blogHandle) || (window.EV && EV.currentHandle) || '';
+      if(!folderId){ prog.className='small ev-warn'; prog.textContent='Paste your Google Drive folder link first.'; return; }
+      if(!handle){ prog.className='small ev-warn'; prog.textContent='Generate or load a video first (so the tool has the script).'; return; }
+      vbtn.disabled=true; var lbl=vbtn.textContent; vbtn.textContent='Making…'; step='Starting…'; t0=Date.now();
+      timer=setInterval(function(){ if(prog.className.indexOf('warn')<0) prog.textContent=step+'   ('+fmt(Math.floor((Date.now()-t0)/1000))+')'; }, 1000);
+      fetch('/api/edu-video',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'edu-make-video',folderId:folderId,handle:handle})})
+        .then(function(r){return r.json();})
+        .then(function(d){
+          if(!d||!d.jobId){ stop(); vbtn.disabled=false; vbtn.textContent=lbl; prog.className='small ev-warn'; prog.textContent='Could not start: '+((d&&d.error)||'error'); return; }
+          var srtUri = d.srt||''; step='Rendering the video…';
+          poll=setInterval(function(){
+            fetch('/api/edu-video',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'edu-video-status',jobId:d.jobId})})
+              .then(function(r){return r.json();})
+              .then(function(s){
+                if(s && s.step) step=s.step;
+                if(s && s.error){ stop(); vbtn.disabled=false; vbtn.textContent=lbl; prog.className='small ev-warn'; prog.textContent='Error: '+s.error; return; }
+                if(s && s.done){ stop(); vbtn.disabled=false; vbtn.textContent=lbl; prog.className='small ev-muted'; prog.textContent='Done ✓   ('+fmt(Math.floor((Date.now()-t0)/1000))+')';
+                  out.style.display='block';
+                  out.innerHTML='<a class="ev-btn ev-btn-go" style="text-decoration:none;display:inline-block;" target="_blank" href="'+esc(s.videoUrl||'')+'">▶ Open / download the video</a>'+(srtUri?' <a class="ev-btn-sm" style="text-decoration:none;display:inline-block;margin-left:8px;" download="subtitles.srt" href="'+srtUri+'">⬇ Download subtitles (.srt)</a>':'')+'<div class="small ev-muted" style="margin-top:8px;">Download the video + subtitles, then upload both to YouTube.</div>';
+                }
+              }).catch(function(){});
+          }, 4000);
+        }).catch(function(e){ stop(); vbtn.disabled=false; vbtn.textContent=lbl; prog.className='small ev-warn'; prog.textContent='Error: '+e.message; });
+    });
+  })();
 
   // ---- step 4/5: YouTube pack + post-publish ----
   function ytId(u){ var m=/(?:youtu\.be\/|[?&]v=|\/embed\/|\/shorts\/)([A-Za-z0-9_\-]{6,})/.exec(u||''); return m?m[1]:''; }
