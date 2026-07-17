@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v5.7 · 17 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v5.8 · 17 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -984,7 +984,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v5.7 — built 17 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v5.8 — built 17 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -2122,7 +2122,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       var prog=$('evVideoProgress'), out=$('evVideoOut');
       prog.style.display='block'; out.style.display='none'; prog.className='small ev-muted';
       var folderId = folderIdFrom($('evVideoFolder').value);
-      var handle = (window.EV && EV.generated && EV.generated.blogHandle) || (window.EV && EV.currentHandle) || '';
+      var handle = (typeof EV !== 'undefined' && ((EV.generated && EV.generated.blogHandle) || (EV.chosen && EV.chosen.handle))) || '';
       if(!folderId){ prog.className='small ev-warn'; prog.textContent='Paste your Google Drive folder link first.'; return; }
       if(!handle){ prog.className='small ev-warn'; prog.textContent='Generate or load a video first (so the tool has the script).'; return; }
       vbtn.disabled=true; var lbl=vbtn.textContent; vbtn.textContent='Making…'; step='Starting…'; t0=Date.now();
