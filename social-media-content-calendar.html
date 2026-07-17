@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v5.8 · 17 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v5.9 · 17 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -532,8 +532,11 @@
         <div class="box gray" style="margin-bottom:10px;">Put this video's scene photos (named 01, 02, 03… in order) and the voiceover .mp3 in one Google Drive folder, then paste that folder's link. The tool makes the finished video — timed to your voice, with the logo, title, outro cards and baked captions — and saves it back to that folder with a subtitles file.</div>
         <div class="ev-row">
           <input id="evVideoFolder" class="ev-in" placeholder="Paste the Google Drive folder link" style="min-width:320px;flex:1;">
+          <button type="button" id="evPreviewBtn" class="ev-btn">Check images first</button>
           <button type="button" id="evVideoBtn" class="ev-btn ev-btn-go">Make the video</button>
         </div>
+        <div id="evPreviewStatus" class="small ev-muted" style="margin-top:8px;display:none;"></div>
+        <div id="evPreviewOut" style="display:none;margin-top:12px;max-height:520px;overflow-y:auto;border:1px solid #e5e5e5;border-radius:10px;padding:10px;"></div>
         <div id="evVideoProgress" class="small ev-muted" style="margin-top:10px;display:none;"></div>
         <div id="evVideoOut" style="display:none;margin-top:10px;"></div>
       </div>
@@ -984,7 +987,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v5.8 — built 17 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v5.9 — built 17 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -2145,6 +2148,36 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
               }).catch(function(){});
           }, 4000);
         }).catch(function(e){ stop(); vbtn.disabled=false; vbtn.textContent=lbl; prog.className='small ev-warn'; prog.textContent='Error: '+e.message; });
+    });
+  })();
+
+  // ---- Check images against the script (preview before rendering) ----
+  (function(){
+    var pbtn = $('evPreviewBtn'); if(!pbtn) return;
+    function folderIdFrom(raw){ raw=(raw||'').trim().replace(/.*folders\//,''); var m=/[-\w]{20,}/.exec(raw); return m?m[0]:''; }
+    pbtn.addEventListener('click', function(){
+      var st=$('evPreviewStatus'), out=$('evPreviewOut');
+      st.style.display='block'; st.className='small ev-muted';
+      var folderId=folderIdFrom($('evVideoFolder').value);
+      var handle=(typeof EV!=='undefined' && ((EV.generated&&EV.generated.blogHandle)||(EV.chosen&&EV.chosen.handle)))||'';
+      if(!folderId){ st.className='small ev-warn'; st.textContent='Paste your Google Drive folder link first.'; return; }
+      if(!handle){ st.className='small ev-warn'; st.textContent='Load a video first (so the tool has the script).'; return; }
+      pbtn.disabled=true; var lbl=pbtn.textContent; pbtn.textContent='Checking…'; st.textContent='Reading your photos…';
+      fetch('/api/edu-video',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'edu-preview',folderId:folderId,handle:handle})})
+        .then(function(r){return r.json();})
+        .then(function(d){
+          pbtn.disabled=false; pbtn.textContent=lbl;
+          if(!d||!d.ok){ st.className='small ev-warn'; st.textContent='Could not check: '+((d&&d.error)||'error'); return; }
+          var miss=(d.missing&&d.missing.length)?d.missing:[];
+          st.className = miss.length?'small ev-warn':'small ev-muted';
+          st.textContent = miss.length ? ('Missing photos: '+miss.map(function(x){return ('0'+x).slice(-2);}).join(', ')+' — add them to the folder.') : ('All '+d.needed+' scene photos found. Check each image matches its line below, then Make the video.');
+          var html='';
+          d.rows.forEach(function(r){
+            var img = r.img ? '<img src="'+esc(r.img)+'" style="width:120px;height:68px;object-fit:cover;border-radius:6px;flex:none;background:#eee;" loading="lazy">' : '<div style="width:120px;height:68px;border-radius:6px;flex:none;background:#111;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;text-align:center;">built-in<br>card</div>';
+            html += '<div style="display:flex;gap:12px;align-items:center;padding:8px 4px;border-bottom:1px solid #f0f0f0;">'+img+'<div><div class="small ev-muted" style="font-weight:600;">'+esc(r.label)+'</div><div style="font-size:14px;">'+esc(r.text)+'</div></div></div>';
+          });
+          out.style.display='block'; out.innerHTML=html;
+        }).catch(function(e){ pbtn.disabled=false; pbtn.textContent=lbl; st.className='small ev-warn'; st.textContent='Error: '+e.message; });
     });
   })();
 
