@@ -120,7 +120,7 @@ def bake_all(indir, edu, outdir):
     for ln in L: d.text((W//2, ty), ln, font=f, fill="white", anchor="ma"); ty += lh
     add_logo(b); b.save(os.path.join(outdir, "frame_00.png"))
     for i in range(1, n+1):
-        b = cover(openimg(img(i))); caption_box(b, edu["scenes"][i-1]["text"]); add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % i))
+        b = cover(openimg(img(i+1))); caption_box(b, edu["scenes"][i-1]["text"]); add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % i))
     o1, o2, o3, o4, o5 = n+1, n+2, n+3, n+4, n+5
     b = cover(openimg(OUTRO_BG[1])); d = ImageDraw.Draw(b); f = F(LEMON, 62)
     x = 1000; L = wrap(d, edu["outro"][0].upper(), f, W-x-90); asc, desc = f.getmetrics(); lh = int((asc+desc)*1.1)
@@ -178,11 +178,12 @@ def make_video(folder_id, handle):
     mp3 = next((f for f in files if f["name"].lower().endswith(".mp3")), None)
     if not mp3: raise RuntimeError("No .mp3 voiceover found in the folder")
     mp3_bytes = drive_download(mp3["id"])
-    # download the content-scene photos (01..n). Title reuses photo 01; ending cards are built-in.
+    # download photos: 01 = title/scene 1, then 02..n+1 = the content scenes (one image per line, no repeats).
+    # Ending cards are built-in (not from the folder).
     n = len(edu["scenes"])
-    for k in range(1, n + 1):
+    for k in range(1, n + 2):
         f = byname.get("%02d.png" % k) or byname.get("%02d.jpg" % k) or byname.get("%d.png" % k) or byname.get("%d.jpg" % k)
-        if not f: raise RuntimeError("Photo %02d is missing from the folder" % k)
+        if not f: raise RuntimeError("Photo %02d is missing from the folder — this video needs %d photos (01..%02d)." % (k, n + 1, n + 1))
         ext = "png" if f["name"].lower().endswith("png") else "jpg"
         open(os.path.join(indir, "%02d.%s" % (k, ext)), "wb").write(drive_download(f["id"]))
     words = transcribe(mp3_bytes, akey)
@@ -215,13 +216,13 @@ def preview(folder_id, handle):
     def thumb(k):
         f = byname.get("%02d.png" % k) or byname.get("%02d.jpg" % k) or byname.get("%d.png" % k) or byname.get("%d.jpg" % k)
         return ("https://drive.google.com/thumbnail?id=%s&sz=w400" % f["id"]) if f else ""
-    rows = [{"label": "Title", "text": edu["videoTitle"], "img": thumb(1)}]
+    rows = [{"label": "Title (scene 1) — photo 01", "text": edu["videoTitle"], "img": thumb(1)}]
     for i in range(1, n + 1):
-        rows.append({"label": "Scene %d" % i, "text": edu["scenes"][i-1]["text"], "img": thumb(i)})
+        rows.append({"label": "Scene %d — photo %02d" % (i + 1, i + 1), "text": edu["scenes"][i-1]["text"], "img": thumb(i + 1)})
     for i, o in enumerate(edu["outro"], 1):
         rows.append({"label": "Ending card %d" % i, "text": o, "img": "", "fixed": True})
-    missing = [i for i in range(1, n + 1) if not thumb(i)]
-    return {"ok": True, "rows": rows, "missing": missing, "photoCount": len([f for f in files if f["name"].lower().endswith((".png",".jpg",".jpeg"))]), "needed": n}
+    missing = [k for k in range(1, n + 2) if not thumb(k)]
+    return {"ok": True, "rows": rows, "missing": missing, "photoCount": len([f for f in files if f["name"].lower().endswith((".png",".jpg",".jpeg"))]), "needed": n + 1}
 
 class handler(BaseHTTPRequestHandler):
     def _send(self, obj, code=200):
