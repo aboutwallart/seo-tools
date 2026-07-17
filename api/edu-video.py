@@ -14,6 +14,9 @@ ASSETS = os.path.join(os.path.dirname(__file__), "..", "assets", "edu-video")
 LEMON = os.path.join(ASSETS, "LEMONMILK-Light.otf")
 LATO  = os.path.join(ASSETS, "Lato-Regular.ttf")
 LOGO  = os.path.join(ASSETS, "logo-circle.png")
+# Fixed ending-card backgrounds (same for every video) — bundled, NOT taken from the video folder.
+OUTRO_BG = {1: os.path.join(ASSETS, "outro1.png"), 2: os.path.join(ASSETS, "outro2.png"),
+            3: os.path.join(ASSETS, "outro3.png"), 4: os.path.join(ASSETS, "outro4.jpg")}
 REPO_RAW = "https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/edu-video-%s.json"
 
 def http(url, method="GET", headers=None, data=None, timeout=120):
@@ -117,16 +120,16 @@ def bake_all(indir, edu, outdir):
     for ln in L: d.text((W//2, ty), ln, font=f, fill="white", anchor="ma"); ty += lh
     add_logo(b); b.save(os.path.join(outdir, "frame_00.png"))
     for i in range(1, n+1):
-        b = cover(openimg(img(i+1))); caption_box(b, edu["scenes"][i-1]["text"]); add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % i))
+        b = cover(openimg(img(i))); caption_box(b, edu["scenes"][i-1]["text"]); add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % i))
     o1, o2, o3, o4, o5 = n+1, n+2, n+3, n+4, n+5
-    b = cover(openimg(img(o1+1))); d = ImageDraw.Draw(b); f = F(LEMON, 62)
+    b = cover(openimg(OUTRO_BG[1])); d = ImageDraw.Draw(b); f = F(LEMON, 62)
     x = 1000; L = wrap(d, edu["outro"][0].upper(), f, W-x-90); asc, desc = f.getmetrics(); lh = int((asc+desc)*1.1)
     y = H//2-(len(L)*lh)//2
     for ln in L: d.text((x, y), ln, font=f, fill="white", anchor="la"); y += lh
     add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % o1))
-    b = contain_white(openimg(img(o2+1))); caption_box(b, edu["outro"][1]); add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % o2))
-    b = contain_white(openimg(img(o3+1))); caption_box(b, edu["outro"][2]); add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % o3))
-    b = cover(openimg(img(o4+1))); caption_box(b, edu["outro"][3]); add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % o4))
+    b = contain_white(openimg(OUTRO_BG[2])); caption_box(b, edu["outro"][1]); add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % o2))
+    b = contain_white(openimg(OUTRO_BG[3])); caption_box(b, edu["outro"][2]); add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % o3))
+    b = cover(openimg(OUTRO_BG[4])); caption_box(b, edu["outro"][3]); add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % o4))
     b = Image.new("RGB", (W, H), (0,0,0)); d = ImageDraw.Draw(b)
     lg = Image.open(LOGO).convert("RGBA").resize((200,200), Image.LANCZOS); b.paste(lg, ((W-200)//2, 120), lg)
     f = F(LEMON, 96)
@@ -175,11 +178,11 @@ def make_video(folder_id, handle):
     mp3 = next((f for f in files if f["name"].lower().endswith(".mp3")), None)
     if not mp3: raise RuntimeError("No .mp3 voiceover found in the folder")
     mp3_bytes = drive_download(mp3["id"])
-    # download the numbered photos we need
-    need = len(edu["scenes"]) + 5  # content + 5 outro (title reuses 01)
-    for k in range(1, need + 2):
+    # download the content-scene photos (01..n). Title reuses photo 01; ending cards are built-in.
+    n = len(edu["scenes"])
+    for k in range(1, n + 1):
         f = byname.get("%02d.png" % k) or byname.get("%02d.jpg" % k) or byname.get("%d.png" % k) or byname.get("%d.jpg" % k)
-        if not f: continue
+        if not f: raise RuntimeError("Photo %02d is missing from the folder" % k)
         ext = "png" if f["name"].lower().endswith("png") else "jpg"
         open(os.path.join(indir, "%02d.%s" % (k, ext)), "wb").write(drive_download(f["id"]))
     words = transcribe(mp3_bytes, akey)
