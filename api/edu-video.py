@@ -206,6 +206,23 @@ def status(job):
     if d["status"] in ("FAILED", "ERROR"): return {"error": d.get("errorMessage") or "render failed"}
     return {"step": "Rendering the video…"}
 
+def preview(folder_id, handle):
+    # Show each scene's LINE next to the PHOTO that will be used — so she can check before rendering.
+    edu = json.loads(http(REPO_RAW % handle))
+    files = drive_list(folder_id)
+    byname = {f["name"]: f for f in files}
+    n = len(edu["scenes"])
+    def thumb(k):
+        f = byname.get("%02d.png" % k) or byname.get("%02d.jpg" % k) or byname.get("%d.png" % k) or byname.get("%d.jpg" % k)
+        return ("https://drive.google.com/thumbnail?id=%s&sz=w400" % f["id"]) if f else ""
+    rows = [{"label": "Title", "text": edu["videoTitle"], "img": thumb(1)}]
+    for i in range(1, n + 1):
+        rows.append({"label": "Scene %d" % i, "text": edu["scenes"][i-1]["text"], "img": thumb(i)})
+    for i, o in enumerate(edu["outro"], 1):
+        rows.append({"label": "Ending card %d" % i, "text": o, "img": "", "fixed": True})
+    missing = [i for i in range(1, n + 1) if not thumb(i)]
+    return {"ok": True, "rows": rows, "missing": missing, "photoCount": len([f for f in files if f["name"].lower().endswith((".png",".jpg",".jpeg"))]), "needed": n}
+
 class handler(BaseHTTPRequestHandler):
     def _send(self, obj, code=200):
         body = json.dumps(obj).encode()
@@ -223,6 +240,8 @@ class handler(BaseHTTPRequestHandler):
             a = b.get("action")
             if a == "edu-make-video":
                 self._send(make_video(b.get("folderId", ""), b.get("handle", "")))
+            elif a == "edu-preview":
+                self._send(preview(b.get("folderId", ""), b.get("handle", "")))
             elif a == "edu-video-status":
                 self._send(status(b.get("jobId", "")))
             else:
