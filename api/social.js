@@ -1086,7 +1086,7 @@ module.exports = async (req, res) => {
       if (!handle) return res.status(400).json({ ok: false, error: 'Missing source handle' });
       if (!process.env.SHOPIFY_STORE_DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return res.status(500).json({ ok: false, error: 'Shopify not configured' });
 
-      var bodyHtml = '', productGids = [], sourceTitle = handle, sourceTags = [];
+      var bodyHtml = '', productGids = [], sourceTitle = handle, sourceTags = [], featuredImage = '';
       if (sourceType === 'page') {
         try {
           var pr2 = await fetch('https://' + process.env.SHOPIFY_STORE_DOMAIN + '/admin/api/2025-01/pages.json?limit=250&fields=id,title,handle,body_html', { headers: { 'X-Shopify-Access-Token': process.env.SHOPIFY_ACCESS_TOKEN } });
@@ -1094,7 +1094,7 @@ module.exports = async (req, res) => {
         } catch (e) {}
       } else {
         try {
-          var ad2 = await shopGql('query($q:String!){ articles(first:5, query:$q){ edges{ node{ handle title tags body ctl:metafield(namespace:"custom",key:"blog_products_list"){value} } } } }', { q: 'blog_id:93572858142 handle:' + handle });
+          var ad2 = await shopGql('query($q:String!){ articles(first:5, query:$q){ edges{ node{ handle title tags body image{url} ctl:metafield(namespace:"custom",key:"blog_products_list"){value} } } } }', { q: 'blog_id:93572858142 handle:' + handle });
           var a2 = (ad2 && ad2.data && ad2.data.articles && ad2.data.articles.edges) || [];
           var nodes2 = a2.map(function (e) { return e.node; });
           var art = nodes2.filter(function (n) { return (n.handle || '').toLowerCase() === handle.toLowerCase(); })[0] || nodes2[0];
@@ -1102,6 +1102,7 @@ module.exports = async (req, res) => {
             bodyHtml = art.body || '';
             sourceTitle = art.title || handle;
             sourceTags = art.tags || [];
+            featuredImage = (art.image && art.image.url) || '';
             try { var pl = JSON.parse((art.ctl && art.ctl.value) || '[]'); if (Array.isArray(pl)) productGids = pl; } catch (e) {}
           }
         } catch (e) {}
@@ -1138,8 +1139,10 @@ module.exports = async (req, res) => {
         } catch (e) {}
       }
 
-      // top up to at least 5 with theme-matched products
-      if (products.length < 5) {
+      // top up to at least 5 with theme-matched products — PAGES ONLY.
+      // Blogs must use ONLY the products inserted in the blog (body links + Complete-the-Look),
+      // plus any she adds herself — never auto-proposed ones.
+      if (sourceType === 'page' && products.length < 5) {
         var word = themeWord((sourceTitle || '') + ' ' + (Array.isArray(sourceTags) ? sourceTags.join(' ') : ''));
         if (word) {
           try {
@@ -1149,7 +1152,44 @@ module.exports = async (req, res) => {
         }
       }
 
-      return res.status(200).json({ ok: true, sourceTitle: sourceTitle, products: products });
+      // --- REUSABLE BODY IMAGES: each body <img> + the H2/H3 it sits under + its TRUE shape ---
+      function _imgSize(buf) {
+        if (buf.length >= 24 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
+        if (buf.length >= 10 && buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return { w: buf.readUInt16LE(6), h: buf.readUInt16LE(8) };
+        if (buf.length >= 30 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') {
+          var fmt = buf.toString('ascii', 12, 16);
+          if (fmt === 'VP8 ') return { w: buf.readUInt16LE(26) & 0x3fff, h: buf.readUInt16LE(28) & 0x3fff };
+          if (fmt === 'VP8L') { var b0 = buf[21], b1 = buf[22], b2 = buf[23], b3 = buf[24]; return { w: 1 + (((b1 & 0x3f) << 8) | b0), h: 1 + (((b3 & 0xf) << 10) | (b2 << 2) | ((b1 & 0xc0) >> 6)) }; }
+          if (fmt === 'VP8X') return { w: 1 + (buf[24] | (buf[25] << 8) | (buf[26] << 16)), h: 1 + (buf[27] | (buf[28] << 8) | (buf[29] << 16)) };
+        }
+        if (buf.length >= 4 && buf[0] === 0xFF && buf[1] === 0xD8) {
+          var o = 2;
+          while (o < buf.length - 8) {
+            if (buf[o] !== 0xFF) { o++; continue; }
+            var mk = buf[o + 1];
+            if (mk >= 0xC0 && mk <= 0xCF && mk !== 0xC4 && mk !== 0xC8 && mk !== 0xCC) return { h: buf.readUInt16BE(o + 5), w: buf.readUInt16BE(o + 7) };
+            o += 2 + buf.readUInt16BE(o + 2);
+          }
+        }
+        return null;
+      }
+      function _ratioBucket(w, h) { var r = w / h; if (r >= 0.9 && r <= 1.1) return 'square'; if (r >= 1.45 && r <= 1.55) return '3:2'; if (r >= 1.7 && r <= 1.85) return '16:9'; return 'other'; }
+      var bodyImages = [];
+      try {
+        var _heads = [], _mH, _headRe = /<h([23])[^>]*>([\s\S]*?)<\/h\1>/gi;
+        while ((_mH = _headRe.exec(bodyHtml))) { _heads.push({ pos: _mH.index, text: _mH[2].replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim() }); }
+        function _headingFor(pos) { var h = ''; for (var i = 0; i < _heads.length; i++) { if (_heads[i].pos < pos) h = _heads[i].text; else break; } return h; }
+        var _srcs = [], _mI, _imgRe = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi, _seenImg = {};
+        while ((_mI = _imgRe.exec(bodyHtml))) { var _u = _mI[1]; if (_u && !_seenImg[_u]) { _seenImg[_u] = 1; _srcs.push({ url: _u, heading: _headingFor(_mI.index) }); } }
+        _srcs = _srcs.slice(0, 20);
+        bodyImages = await Promise.all(_srcs.map(async function (it) {
+          var ratio = 'other', wh = null;
+          try { var ir = await fetch(it.url); var ib = Buffer.from(await ir.arrayBuffer()); wh = _imgSize(ib); if (wh) ratio = _ratioBucket(wh.w, wh.h); } catch (e) {}
+          return { url: it.url, heading: it.heading, ratio: ratio, reuse: (ratio === '3:2' || ratio === '16:9'), width: wh ? wh.w : 0, height: wh ? wh.h : 0 };
+        }));
+      } catch (e) {}
+
+      return res.status(200).json({ ok: true, sourceTitle: sourceTitle, products: products, bodyImages: bodyImages, featuredImage: featuredImage });
     }
 
     if (action === 'edu-generate') {
@@ -1186,7 +1226,7 @@ module.exports = async (req, res) => {
         "We've built a free set of Home Decor tools and styling guides…",
         "From colour theory and design principles to gallery wall layouts and art sizing. Download them all from our site!",
         "Find all you need to transform your home into a calming oasis!",
-        "Happy Decorating!"
+        "aboutwallart.com"
       ];
 
       var prompt =
@@ -1204,7 +1244,7 @@ module.exports = async (req, res) => {
         '- Photoreal lifestyle photography, high resolution, soft natural daylight, airy and calm, bright minimalist base with the blog\'s style details, NO text/logos/watermarks.\n' +
         '- People: a person present by default; use a COUPLE (a man and a woman) for bedroom/romantic scenes, a CHILD or BABY with a parent or both parents for nursery/kids scenes, FRIENDS for entertaining/social scenes, and a FAMILY INCLUDING OLDER RELATIVES for festive/occasion scenes. Vary ethnicity genuinely across the set (a real mix, not always white). Do NOT depict gay, lesbian or transgender couples.\n' +
         '- COLOUR or MATERIAL scenes: the person is actively CHOOSING — holding/comparing swatches, palettes or material samples.\n' +
-        '- PRODUCT scenes (wall art / finishing touches): set "aspect":"square" and "productSku" to the chosen product\'s sku from the list; the image places the real framed art faithfully on the wall, the person in plain neutral clothing, the art stays the focus.\n' +
+        '- PRODUCT scenes (wall art / finishing touches): set "aspect":"16:9" and "productSku" to the chosen product\'s sku from the list; the image places the real framed art faithfully on the wall, the person in plain neutral clothing, the art stays the focus. The product photo is SQUARE, so it must be EXTENDED sideways to 16:9 (add more of the same room) — never stretched or distorted.\n' +
         '- All other scenes: "aspect":"16:9", "productSku":"".\n' +
         '- Also write a single "hero" paragraph for scene 1: the opening/thumbnail shot inspired by the source. (Scene 1 is later generated as 5 VARIATIONS of this SAME shot — same room, styling and composition; only the person or their position changes — so describe ONE strong scene, not several different ones.)\n\n' +
         'Return ONLY strict JSON, no markdown:\n' +
@@ -1231,12 +1271,13 @@ module.exports = async (req, res) => {
       var scriptText = scriptLines.join('\n\n') + '\n\n' + OUTRO.join('\n\n');
 
       // IMAGE-PROMPT output = numbered scenes ONLY (the brief lives in her Shopify AI skill).
-      // Scene 1 = the hero (5 variations of the SAME shot). Product scenes tagged [SQUARE] → product = "…".
+      // Scene 1 = the hero (5 variations of the SAME shot). Every scene is [16:9] (landscape video);
+      // product scenes keep the square art faithful but get EXTENDED to 16:9, and add → product = "…".
       var lines = ['1. [16:9] MAIN HERO IMAGE — 5 OPTIONS (5 variations of this SAME shot: same room, styling and composition; change only the person or their position). ' + hero];
       var num = 2;
       scenes.forEach(function (s) {
         var isProd = s && s.productSku && skuTitle[(s.productSku || '').toUpperCase()];
-        var aspect = (isProd || (s && s.aspect === 'square')) ? '[SQUARE]' : '[16:9]';
+        var aspect = '[16:9]'; // whole video is landscape; product squares are extended to 16:9 (never distorted)
         var line = num + '. ' + aspect + ' ' + ((s && s.image ? s.image : '').toString().trim());
         if (isProd) line += ' → product = "' + skuTitle[(s.productSku || '').toUpperCase()] + '"';
         lines.push(line);
@@ -1285,6 +1326,25 @@ module.exports = async (req, res) => {
       var payload = {};
       try { payload = JSON.parse(gh.content); } catch (e) { return res.status(200).json({ ok: false, error: 'Saved file unreadable' }); }
       return res.status(200).json({ ok: true, payload: payload });
+    }
+
+    if (action === 'edu-canva-file') {
+      // Builds the Canva Bulk Create file: calls the Canva-sheet Apps Script web app (runs as mae),
+      // which reads the given Drive folder's photos, places them INSIDE the cells next to the captions,
+      // and returns a direct .xlsx download link. Node's fetch follows the Apps Script 302 redirect.
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      var folderId = (body.folderId || '').toString().trim();
+      var captions = Array.isArray(body.captions) ? body.captions : [];
+      if (!folderId) return res.status(400).json({ ok: false, error: 'Missing Drive folder' });
+      var CANVA_URL = 'https://script.google.com/macros/s/AKfycbxnyRp3Eur4SfAONlZBVVVcKs967Pke0s6sh7xJqEk_fOcndFT1tV8_TnG57hYkWLFcsg/exec';
+      try {
+        var cf = await fetch(CANVA_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderId: folderId, captions: captions }) });
+        var ctxt = await cf.text();
+        var cj; try { cj = JSON.parse(ctxt); } catch (e) { return res.status(200).json({ ok: false, error: 'The Canva script did not return valid data', raw: ctxt.slice(0, 300) }); }
+        return res.status(200).json(cj);
+      } catch (e) {
+        return res.status(200).json({ ok: false, error: e.message });
+      }
     }
 
     if (action === 'edu-undo') {
