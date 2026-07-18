@@ -1235,7 +1235,7 @@ module.exports = async (req, res) => {
         "We've built a free set of Home Decor tools and styling guides…",
         "From colour theory and design principles to gallery wall layouts and art sizing. Download them all from our site!",
         "Find all you need to transform your home into a calming oasis!",
-        "aboutwallart.com"
+        "Happy Decorating!"
       ];
 
       var prompt =
@@ -1284,11 +1284,12 @@ module.exports = async (req, res) => {
       // IMAGE-PROMPT output = numbered scenes ONLY (the brief lives in her Shopify AI skill).
       // Scene 1 = the hero (5 variations of the SAME shot). Every scene is [16:9] (landscape video);
       // product scenes keep the square art faithful but get EXTENDED to 16:9, and add → product = "…".
+      function _pad2(n) { return n < 10 ? '0' + n : '' + n; }
       var heroLine;
       if (featured && featured.url) {
-        heroLine = '1. [16:9] TITLE IMAGE — 5 OPTIONS — REMAKE THIS BLOG FEATURED PHOTO to 16:9: extend the sides as a natural continuation of the same room (never stretch or distort); keep the person if there is one, add one if not. Make 5 variations (same room/styling, change only the person or their position). PHOTO TO REMAKE: ' + featured.url + (hero ? ('  |  context: ' + hero) : '');
+        heroLine = '01. [16:9] TITLE IMAGE — 5 OPTIONS — REMAKE THIS BLOG FEATURED PHOTO to 16:9: extend the sides as a natural continuation of the same room (never stretch or distort); keep the person if there is one, add one if not. Make 5 variations (same room/styling, change only the person or their position). PHOTO TO REMAKE: ' + featured.url + (hero ? ('  |  context: ' + hero) : '');
       } else {
-        heroLine = '1. [16:9] MAIN HERO IMAGE — 5 OPTIONS (5 variations of this SAME shot: same room, styling and composition; change only the person or their position). ' + hero;
+        heroLine = '01. [16:9] MAIN HERO IMAGE — 5 OPTIONS (5 variations of this SAME shot: same room, styling and composition; change only the person or their position). ' + hero;
       }
       // Prompt lines are numbered by SCENE/PHOTO slot. A scene that reuses a blog image AS-IS gets NO
       // prompt (a skipped number simply means that slot is a reused blog image the tool provides).
@@ -1301,7 +1302,7 @@ module.exports = async (req, res) => {
         if (use === 'reuse' && reuseUrl) { num++; return; }
         var isProd = kind === 'product' && s && s.productSku && skuTitle[(s.productSku || '').toUpperCase()];
         var tag = kind === 'infographic' ? '[16:9][INFOGRAPHIC]' : '[16:9]';
-        var line = num + '. ' + tag + ' ';
+        var line = _pad2(num) + '. ' + tag + ' ';
         if (use === 'remake' && reuseUrl) { line += 'REMAKE THIS BLOG PHOTO to 16:9 (extend the sides as a natural continuation, never stretch or distort): ' + reuseUrl + ' — '; }
         line += ((s && s.image ? s.image : '').toString().trim());
         if (isProd) line += ' → product = "' + skuTitle[(s.productSku || '').toUpperCase()] + '"';
@@ -1328,6 +1329,44 @@ module.exports = async (req, res) => {
         featured: featured, reuseImages: reuseImgs
       };
       return res.status(200).json({ ok: true, videoTitle: videoTitle, script: scriptText, imagePromptBlock: imagePromptBlock, promptBatches: promptBatches, sceneCount: scenes.length, payload: payload });
+    }
+
+    if (action === 'edu-save-reused') {
+      // Create a Drive folder named after the video (inside "Images to make videos") and save the
+      // REUSE-AS-IS blog images into it, each named with its scene/photo number (03.jpg …), so they
+      // sit in the right slots. She then adds the generated images + the mp3 into the same folder.
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      var EDU_PARENT_FOLDER = '1nsqMmrzYQoMZfUOMuls2cQmubcOz36RV'; // My Drive › EDUCATIONAL VIDEOS › Images to make videos
+      var DRIVE = process.env.EDU_DRIVE_URL;
+      if (!DRIVE) return res.status(500).json({ ok: false, error: 'The Drive helper is not set up (EDU_DRIVE_URL missing).' });
+      var vTitle = (body.videoTitle || 'Untitled video').toString().trim() || 'Untitled video';
+      var reused = Array.isArray(body.reused) ? body.reused.filter(function (x) { return x && x.url && x.slot; }) : [];
+      function _pad2s(n) { n = parseInt(n, 10) || 0; return n < 10 ? '0' + n : '' + n; }
+      // 1) create the folder
+      var folderId = '', folderUrl = '';
+      try {
+        var cf = await fetch(DRIVE, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'create-folder', parentId: EDU_PARENT_FOLDER, name: vTitle }) });
+        var cj = await cf.json();
+        if (!cj || !cj.ok || !cj.id) return res.status(200).json({ ok: false, error: 'Could not create the folder. Re-deploy the Drive helper (it needs the new folder-create step). ' + ((cj && cj.error) || '') });
+        folderId = cj.id; folderUrl = cj.url || ('https://drive.google.com/drive/folders/' + cj.id);
+      } catch (e) { return res.status(200).json({ ok: false, error: 'Could not reach the Drive helper: ' + e.message }); }
+      // 2) download each reused image and upload it into the folder with its slot number
+      var saved = 0, failed = [];
+      for (var i = 0; i < reused.length; i++) {
+        var it = reused[i];
+        try {
+          var ir = await fetch(it.url);
+          var buf = Buffer.from(await ir.arrayBuffer());
+          var clean = it.url.split('?')[0];
+          var ext = (clean.split('.').pop() || 'jpg').toLowerCase(); if (ext.length > 4 || ext.indexOf('/') >= 0) ext = 'jpg';
+          var mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/jpeg';
+          var nm = _pad2s(it.slot) + '.' + ext;
+          var up = await fetch(DRIVE, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'upload', folderId: folderId, name: nm, mime: mime, dataBase64: buf.toString('base64') }) });
+          var uj = await up.json();
+          if (uj && uj.ok) saved++; else failed.push(nm);
+        } catch (e) { failed.push(_pad2s(it.slot)); }
+      }
+      return res.status(200).json({ ok: true, folderId: folderId, folderUrl: folderUrl, saved: saved, total: reused.length, failed: failed });
     }
 
     if (action === 'edu-save') {
