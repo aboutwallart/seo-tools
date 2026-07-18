@@ -1218,8 +1218,17 @@ module.exports = async (req, res) => {
         } catch (e) {}
       }
       var plain = (srcBody || '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim().slice(0, 5000);
+      // FULL section outline (every H2/H3 heading, in order) so the script covers the WHOLE blog,
+      // not just the first 5,000 letters — keeps it cheap while never missing a section.
+      var _oh = [], _moh, _ohre = /<h([23])[^>]*>([\s\S]*?)<\/h\1>/gi;
+      while ((_moh = _ohre.exec(srcBody || ''))) { var _oht = _moh[2].replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim(); if (_oht) _oh.push(_oht); }
+      var outline = _oh.length ? _oh.map(function (h, i) { return (i + 1) + '. ' + h; }).join('\n') : '(no headings found)';
       var topic = ((srcTitle || '') + ' ' + (Array.isArray(srcTags) ? srcTags.join(' ') : '')).toLowerCase();
       var prodList = selProducts.map(function (p, i) { return (i + 1) + '. sku "' + (p.sku || '') + '" — "' + (p.title || '') + '"'; }).join('\n');
+      // images she ticked to reuse (from Step 1 preview) + the featured/title image
+      var reuseImgs = Array.isArray(body.reuseImages) ? body.reuseImages.filter(function (x) { return x && x.url; }).slice(0, 30) : [];
+      var featured = (body.featured && body.featured.url && body.featured.use) ? body.featured : null;
+      var reuseList = reuseImgs.length ? reuseImgs.map(function (im, i) { return (i + 1) + '. [' + (im.reuse ? 'USE AS-IS' : 'REMAKE to 16:9') + '] under heading "' + (im.heading || '(none)') + '" — ' + im.url; }).join('\n') : '(none)';
 
       var OUTRO = [
         "Did you know styling your home doesn't have to be guesswork?",
@@ -1233,22 +1242,24 @@ module.exports = async (req, res) => {
         'You are writing a short educational home-decor video for About Wall Art, based on the REAL blog/page content provided. Two deliverables: a SCRIPT and matching IMAGE PROMPTS.\n\n' +
         'SOURCE TITLE: "' + srcTitle + '"\n' +
         'SOURCE CONTENT (use this, never invent facts):\n"""' + plain + '"""\n\n' +
+        'FULL SECTION OUTLINE — every heading in the blog/page, in order. The video MUST cover these sections; do NOT skip any and do NOT drift into generic advice about the topic:\n' + outline + '\n\n' +
         'SELECTED PRODUCTS (use ONLY these, on the wall-art / finishing-touches scenes; one product per such scene):\n' + (prodList || '(none)') + '\n\n' +
-        'SCRIPT RULES (the voice is everything):\n' +
+        'REUSED IMAGES (already-made photos from the blog — place each on the ONE scene that matches its heading; never repeat one):\n' + reuseList + '\n\n' +
+        'SCRIPT RULES (the voice is everything — keep exactly this style):\n' +
         '- Warm, human, first-person home-decor advisor talking to a friend. Personal little asides and gentle tips ("my favourite style", "a little tip I love", "if you\'re forgetful like me", "take care not to..."). Calm, plain-spoken, NEVER salesy or poetic-brochure.\n' +
         '- UK spelling. NEVER use: elevate, delve, showcase, dive, beacon, embrace, unleash, "in conclusion", "look no further".\n' +
         '- ONE short phrase per scene (max ~2 short lines each). About ' + targetScenes + ' content scenes.\n' +
-        '- Scene text must come from the source content; the FIRST field videoTitle is a warm question or hook (e.g. "How to...?").\n' +
+        '- Scene text must come from the source content and COVER THE WHOLE OUTLINE above, in order; the FIRST field videoTitle is a warm question or hook (e.g. "How to...?").\n' +
         '- Do NOT write the closing/outro — it is appended automatically.\n\n' +
-        'IMAGE PROMPT RULES (one per scene; each ILLUSTRATES its own scene text — educational, never an unrelated action):\n' +
-        '- Photoreal lifestyle photography, high resolution, soft natural daylight, airy and calm, bright minimalist base with the blog\'s style details, NO text/logos/watermarks.\n' +
-        '- People: a person present by default; use a COUPLE (a man and a woman) for bedroom/romantic scenes, a CHILD or BABY with a parent or both parents for nursery/kids scenes, FRIENDS for entertaining/social scenes, and a FAMILY INCLUDING OLDER RELATIVES for festive/occasion scenes. Vary ethnicity genuinely across the set (a real mix, not always white). Do NOT depict gay, lesbian or transgender couples.\n' +
-        '- COLOUR or MATERIAL scenes: the person is actively CHOOSING — holding/comparing swatches, palettes or material samples.\n' +
-        '- PRODUCT scenes (wall art / finishing touches): set "aspect":"16:9" and "productSku" to the chosen product\'s sku from the list; the image places the real framed art faithfully on the wall, the person in plain neutral clothing, the art stays the focus. The product photo is SQUARE, so it must be EXTENDED sideways to 16:9 (add more of the same room) — never stretched or distorted.\n' +
-        '- All other scenes: "aspect":"16:9", "productSku":"".\n' +
-        '- Also write a single "hero" paragraph for scene 1: the opening/thumbnail shot inspired by the source. (Scene 1 is later generated as 5 VARIATIONS of this SAME shot — same room, styling and composition; only the person or their position changes — so describe ONE strong scene, not several different ones.)\n\n' +
+        'IMAGE RULES — for EACH scene set "use", "kind", "reuseUrl", "productSku", "image":\n' +
+        '- "use": "reuse" if a REUSED IMAGE marked USE AS-IS matches this scene\'s heading (put its url in "reuseUrl", leave "image" empty — no prompt needed). "remake" if a REUSED IMAGE marked REMAKE matches (put its url in "reuseUrl" and write "image" as instructions to extend that same photo to 16:9). Otherwise "generate" (write a fresh "image" prompt). Attach each reused image to ONE best-matching scene only.\n' +
+        '- EVERY scene must end up with an image (reused or generated) so the WHOLE script is covered — like before.\n' +
+        '- ★ The image must show EXACTLY what THIS scene\'s line says — the specific room, object, action, colour, number or step named in the text. NEVER a generic decor shot.\n' +
+        '- "kind": "infographic" when the scene explains a concept, rule, number, measurement, step or proportion. Then the "image" prompt MUST specify: WHITE background, BLACK text, British English spelling, and PREFER real photographs over flat vector graphics. "kind":"product" for wall-art / finishing-touch scenes (set "productSku" from the list; place the real framed art faithfully on the wall, person in plain neutral clothing, the art stays the focus; the square product photo is EXTENDED sideways to 16:9, never stretched). "kind":"photo" for everything else.\n' +
+        '- PHOTO scenes: photoreal lifestyle photography, high resolution, soft natural daylight, airy and calm, bright minimalist base with the blog\'s style details, NO text/logos/watermarks. A person present by default; a COUPLE (a man and a woman) for bedroom/romantic, a CHILD or BABY with a parent for nursery/kids, FRIENDS for entertaining, a FAMILY INCLUDING OLDER RELATIVES for festive. Vary ethnicity genuinely (a real mix, not always white). Do NOT depict gay, lesbian or transgender couples. COLOUR/MATERIAL scenes: the person is actively CHOOSING — holding/comparing swatches or samples.\n' +
+        '- Also write a single "hero" paragraph for scene 1: the opening/thumbnail shot inspired by the source (ONE strong scene — it becomes 5 variations, same room/styling/composition, only the person or their position changes).\n\n' +
         'Return ONLY strict JSON, no markdown:\n' +
-        '{"videoTitle":"...","hero":"...","scenes":[{"text":"...","aspect":"16:9","productSku":"","image":"..."}]}';
+        '{"videoTitle":"...","hero":"...","scenes":[{"text":"...","use":"generate","kind":"photo","reuseUrl":"","productSku":"","image":"..."}]}';
 
       var ar = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST', headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' },
@@ -1273,27 +1284,48 @@ module.exports = async (req, res) => {
       // IMAGE-PROMPT output = numbered scenes ONLY (the brief lives in her Shopify AI skill).
       // Scene 1 = the hero (5 variations of the SAME shot). Every scene is [16:9] (landscape video);
       // product scenes keep the square art faithful but get EXTENDED to 16:9, and add → product = "…".
-      var lines = ['1. [16:9] MAIN HERO IMAGE — 5 OPTIONS (5 variations of this SAME shot: same room, styling and composition; change only the person or their position). ' + hero];
+      var heroLine;
+      if (featured && featured.url) {
+        heroLine = '1. [16:9] TITLE IMAGE — 5 OPTIONS — REMAKE THIS BLOG FEATURED PHOTO to 16:9: extend the sides as a natural continuation of the same room (never stretch or distort); keep the person if there is one, add one if not. Make 5 variations (same room/styling, change only the person or their position). PHOTO TO REMAKE: ' + featured.url + (hero ? ('  |  context: ' + hero) : '');
+      } else {
+        heroLine = '1. [16:9] MAIN HERO IMAGE — 5 OPTIONS (5 variations of this SAME shot: same room, styling and composition; change only the person or their position). ' + hero;
+      }
+      // Prompt lines are numbered by SCENE/PHOTO slot. A scene that reuses a blog image AS-IS gets NO
+      // prompt (a skipped number simply means that slot is a reused blog image the tool provides).
+      var lines = [heroLine];
       var num = 2;
       scenes.forEach(function (s) {
-        var isProd = s && s.productSku && skuTitle[(s.productSku || '').toUpperCase()];
-        var aspect = '[16:9]'; // whole video is landscape; product squares are extended to 16:9 (never distorted)
-        var line = num + '. ' + aspect + ' ' + ((s && s.image ? s.image : '').toString().trim());
+        var use = (s && s.use ? s.use : 'generate').toString();
+        var kind = (s && s.kind ? s.kind : 'photo').toString();
+        var reuseUrl = (s && s.reuseUrl ? s.reuseUrl : '').toString().trim();
+        if (use === 'reuse' && reuseUrl) { num++; return; }
+        var isProd = kind === 'product' && s && s.productSku && skuTitle[(s.productSku || '').toUpperCase()];
+        var tag = kind === 'infographic' ? '[16:9][INFOGRAPHIC]' : '[16:9]';
+        var line = num + '. ' + tag + ' ';
+        if (use === 'remake' && reuseUrl) { line += 'REMAKE THIS BLOG PHOTO to 16:9 (extend the sides as a natural continuation, never stretch or distort): ' + reuseUrl + ' — '; }
+        line += ((s && s.image ? s.image : '').toString().trim());
         if (isProd) line += ' → product = "' + skuTitle[(s.productSku || '').toUpperCase()] + '"';
         lines.push(line);
         num++;
       });
       var imagePromptBlock = lines.join('\n');
-      // small copyable batches for Shopify AI: hero alone, then groups of 3
+      // copyable batches for Shopify AI: hero alone first, then fill each batch up to <10,000 characters
       var promptBatches = [lines[0]];
-      for (var bi = 1; bi < lines.length; bi += 3) { promptBatches.push(lines.slice(bi, bi + 3).join('\n')); }
+      var _cur = '';
+      for (var bi = 1; bi < lines.length; bi++) {
+        var _ln = lines[bi];
+        if (_cur && (_cur.length + 1 + _ln.length) > 9500) { promptBatches.push(_cur); _cur = _ln; }
+        else { _cur = _cur ? (_cur + '\n' + _ln) : _ln; }
+      }
+      if (_cur) promptBatches.push(_cur);
 
       var payload = {
         blogHandle: handle, sourceType: sourceType, blogTitle: srcTitle,
         blogUrl: (sourceType === 'page' ? 'https://aboutwallart.com/pages/' + handle : EDU_BLOG_BASE + handle),
         videoTitle: videoTitle, seconds: seconds, sceneCount: scenes.length,
         script: scriptText, hero: hero, scenes: scenes, outro: OUTRO,
-        imagePromptBlock: imagePromptBlock, promptBatches: promptBatches, products: selProducts
+        imagePromptBlock: imagePromptBlock, promptBatches: promptBatches, products: selProducts,
+        featured: featured, reuseImages: reuseImgs
       };
       return res.status(200).json({ ok: true, videoTitle: videoTitle, script: scriptText, imagePromptBlock: imagePromptBlock, promptBatches: promptBatches, sceneCount: scenes.length, payload: payload });
     }
