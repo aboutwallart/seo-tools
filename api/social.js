@@ -1277,13 +1277,14 @@ module.exports = async (req, res) => {
         '- Warm, human, first-person home-decor advisor talking to a friend. Personal little asides and gentle tips ("my favourite style", "a little tip I love", "if you\'re forgetful like me", "take care not to..."). Calm, plain-spoken, NEVER salesy or poetic-brochure.\n' +
         '- UK spelling. NEVER use: elevate, delve, showcase, dive, beacon, embrace, unleash, "in conclusion", "look no further".\n' +
         '- ONE short phrase per scene (max ~2 short lines each). About ' + targetScenes + ' content scenes.\n' +
-        '- Scene text must come from the source content and COVER THE WHOLE OUTLINE above, in order; the FIRST field videoTitle is a warm question or hook (e.g. "How to...?").\n' +
+        '- Scene text must come from the source content and COVER THE WHOLE OUTLINE above, in order. Set videoTitle to the blog\'s REAL title (it carries the SEO keyword) — do NOT invent a keyword-less hook.\n' +
         '- Do NOT write the closing/outro — it is appended automatically.\n\n' +
         'IMAGE RULES — for EACH scene set "use", "kind", "reuseUrl", "productSku", "image":\n' +
         '- "use": "reuse" if a REUSED IMAGE marked USE AS-IS matches this scene\'s heading (put its url in "reuseUrl", leave "image" empty — no prompt needed). "remake" if a REUSED IMAGE marked REMAKE matches (put its url in "reuseUrl" and write "image" as instructions to extend that same photo to 16:9). Otherwise "generate" (write a fresh "image" prompt). Attach each reused image to ONE best-matching scene only.\n' +
         '- EVERY scene must end up with an image (reused or generated) so the WHOLE script is covered — like before.\n' +
         '- ★ The image must show EXACTLY what THIS scene\'s line says — the specific room, object, action, colour, number or step named in the text. NEVER a generic decor shot.\n' +
-        '- "kind": "infographic" when the scene explains a concept, rule, number, measurement, step or proportion. Then the "image" prompt MUST specify: WHITE background, BLACK text, British English spelling, and PREFER real photographs over flat vector graphics. "kind":"product" for wall-art / finishing-touch scenes (set "productSku" from the list; place the real framed art faithfully on the wall, person in plain neutral clothing, the art stays the focus; the square product photo is EXTENDED sideways to 16:9, never stretched). "kind":"photo" for everything else.\n' +
+        '- ★ FULL BLEED, ALWAYS: every image must FILL THE ENTIRE 16:9 FRAME, edge to edge. NEVER add black, white or BLURRED bars, blocks or bands on the top, bottom or sides; no letterboxing or pillarboxing. The scene fills the whole frame.\n' +
+        '- "kind": "infographic" when the scene explains a concept, rule, number, measurement, step or proportion. Then the "image" prompt MUST specify: WHITE background, BLACK text, British English spelling, and PREFER real photographs over flat vector graphics. "kind":"product" for wall-art / finishing-touch scenes (set "productSku" from the list). The product "image" prompt MUST say: USE THE EXACT product photo provided (it is pasted into the AI chat), extend its sides NATURALLY to fill 16:9 (never stretch or distort), ADD the person(s) as described (in plain neutral clothing), keep the real framed art the clear focus, FULL BLEED. "kind":"photo" for everything else.\n' +
         '- PHOTO scenes: photoreal lifestyle photography, high resolution, soft natural daylight, airy and calm, bright minimalist base with the blog\'s style details, NO text/logos/watermarks. A person present by default; a COUPLE (a man and a woman) for bedroom/romantic, a CHILD or BABY with a parent for nursery/kids, FRIENDS for entertaining, a FAMILY INCLUDING OLDER RELATIVES for festive. Vary ethnicity genuinely (a real mix, not always white). Do NOT depict gay, lesbian or transgender couples. COLOUR/MATERIAL scenes: the person is actively CHOOSING — holding/comparing swatches or samples.\n' +
         '- Also write a single "hero" paragraph for scene 1: the opening/thumbnail shot inspired by the source (ONE strong scene — it becomes 5 variations, same room/styling/composition, only the person or their position changes).\n\n' +
         'Return ONLY strict JSON, no markdown:\n' +
@@ -1299,12 +1300,16 @@ module.exports = async (req, res) => {
       var jm = txt.match(/\{[\s\S]*\}/); var parsed;
       try { parsed = JSON.parse(jm ? jm[0] : txt); } catch (e) { return res.status(200).json({ ok: false, error: 'Could not read the AI output — try again.', raw: txt.slice(0, 600) }); }
 
-      var videoTitle = (parsed.videoTitle || srcTitle || '').toString().trim();
+      var videoTitle = (srcTitle || parsed.videoTitle || '').toString().trim(); // use the blog's REAL title so the video keeps the blog's SEO keyword (she can edit it in the tool)
       var hero = (parsed.hero || '').toString().trim();
       var scenes = Array.isArray(parsed.scenes) ? parsed.scenes : [];
       var skuTitle = {}; selProducts.forEach(function (p) { if (p.sku) skuTitle[p.sku.toUpperCase()] = p.title || ''; });
-      // attach each ticked PRODUCT photo to its product scene (by SKU) → reuse the real photo, remade to 16:9
-      var prodBySku = {}; prodReuse.forEach(function (im) { if (im.sku) prodBySku[im.sku.toUpperCase()] = im.url; });
+      // attach each product's REAL photo to its product scene (by SKU) so the generated image matches the
+      // actual product — not a generic invented one. Every selected product's own photo is used; a ticked
+      // section-3 product photo overrides it.
+      var prodBySku = {};
+      selProducts.forEach(function (p) { if (p.sku && p.image) prodBySku[p.sku.toUpperCase()] = p.image; });
+      prodReuse.forEach(function (im) { if (im.sku && im.url) prodBySku[im.sku.toUpperCase()] = im.url; });
       scenes.forEach(function (s) {
         var sk = (s && s.productSku ? s.productSku : '').toString().toUpperCase();
         if (sk && prodBySku[sk]) { s.use = 'remake'; s.reuseUrl = prodBySku[sk]; s.kind = 'product'; }
@@ -1337,7 +1342,7 @@ module.exports = async (req, res) => {
         var isProd = kind === 'product' && s && s.productSku && skuTitle[(s.productSku || '').toUpperCase()];
         var tag = kind === 'infographic' ? '[16:9][INFOGRAPHIC]' : '[16:9]';
         var line = _pad2(num) + '. ' + tag + ' ';
-        if (use === 'remake' && reuseUrl) { line += 'REMAKE THIS PHOTO to 16:9 (extend the sides as a natural continuation, never stretch or distort): ' + reuseUrl + ' — '; }
+        if (use === 'remake' && reuseUrl) { line += 'USE THE EXACT PHOTO PROVIDED and extend its sides naturally to FILL 16:9 (never stretch or distort), add the person(s) as described, FULL BLEED — no black/white/blurred bars or blocks: ' + reuseUrl + ' — '; }
         line += ((s && s.image ? s.image : '').toString().trim());
         if (isProd) line += ' → product = "' + skuTitle[(s.productSku || '').toUpperCase()] + '"';
         lines.push(line);
