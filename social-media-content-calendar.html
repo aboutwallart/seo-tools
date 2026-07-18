@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v6.1 · 18 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v6.2 · 18 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -533,7 +533,7 @@
       <div class="ev-outhead"><strong>Script</strong> <button type="button" class="ev-copy" data-copy="evScript">Copy script</button></div>
       <pre id="evScript" class="ev-pre"></pre>
 
-      <div class="ev-outhead"><strong>Image prompts</strong> <span class="small ev-muted">— feed to your Shopify AI skill one batch at a time, in order</span></div>
+      <div class="ev-outhead"><strong>Image prompts</strong> <span class="small ev-muted">— feed to your Shopify AI skill one batch at a time, in order. A skipped number means that scene reuses one of your blog images.</span></div>
       <div id="evPromptsWrap"></div>
 
       <div id="evVideoWrap" style="margin-top:22px;">
@@ -997,7 +997,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v6.1 — built 18 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v6.2 — built 18 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -2097,9 +2097,11 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     if(!EV.chosen){ $('evGenStatus').className='small ev-warn'; $('evGenStatus').textContent='Pick a blog or page first.'; return; }
     var prods = selectedProducts();
     var mins = parseFloat(lenIn.value)||2.5;
+    var reuseImages = (EV.bodyImages||[]).filter(function(im){ return EV.imgSelected[im.url]; }).map(function(im){ return { url: im.url, heading: im.heading, ratio: im.ratio, reuse: !!im.reuse }; });
+    var featured = (EV.featuredImage && EV.featuredUse) ? { url: EV.featuredImage, use: true } : null;
     var btn = $('evGen'); btn.disabled = true; btn.textContent = 'Writing… (takes a moment)';
     $('evGenStatus').className='small ev-muted'; $('evGenStatus').textContent='Writing the script and image prompts from the blog…';
-    fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-generate', sourceType:EV.chosen.type, handle:EV.chosen.handle, seconds: Math.round(mins*60), products: prods }) })
+    fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-generate', sourceType:EV.chosen.type, handle:EV.chosen.handle, seconds: Math.round(mins*60), products: prods, reuseImages: reuseImages, featured: featured }) })
       .then(function(r){ return r.json(); }).then(function(d){
         btn.disabled = false; btn.textContent = 'Regenerate';
         if(!d || !d.ok){ $('evGenStatus').className='small ev-warn'; $('evGenStatus').textContent = 'Could not generate: ' + ((d&&d.error)||'error'); return; }
