@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v6.2 · 18 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v6.3 · 18 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -535,6 +535,12 @@
 
       <div class="ev-outhead"><strong>Image prompts</strong> <span class="small ev-muted">— feed to your Shopify AI skill one batch at a time, in order. A skipped number means that scene reuses one of your blog images.</span></div>
       <div id="evPromptsWrap"></div>
+
+      <div id="evDriveWrap" style="margin-top:18px;">
+        <div class="ev-outhead"><strong>Drive folder</strong> <span class="small ev-muted">— makes a folder named after the video and drops your reused images in, numbered. Then add your generated images + the mp3 into it.</span></div>
+        <button type="button" id="evDriveBtn" class="ev-btn">Create the Drive folder + save reused images</button>
+        <div id="evDriveStatus" class="small ev-muted" style="margin-top:8px;"></div>
+      </div>
 
       <div id="evVideoWrap" style="margin-top:22px;">
         <div class="ev-h3">Make the video (synced, with captions)</div>
@@ -997,7 +1003,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v6.2 — built 18 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v6.3 — built 18 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -2092,6 +2098,24 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   var lenIn = $('evLen');
   function syncScenes(){ var mins = parseFloat(lenIn.value)||2.5; var n = Math.max(10, Math.min(30, Math.round(mins*60/8))); $('evScenes').textContent = n; }
   if(lenIn){ lenIn.addEventListener('input', syncScenes); syncScenes(); }
+
+  (function(){
+    var driveBtn = $('evDriveBtn'); if(!driveBtn) return;
+    driveBtn.addEventListener('click', function(){
+      if(!EV.generated){ $('evDriveStatus').className='small ev-warn'; $('evDriveStatus').textContent='Generate the script first.'; return; }
+      var scenes = EV.generated.scenes || [];
+      var reused = scenes.map(function(s,i){ return { url:(s&&s.reuseUrl)||'', slot:i+2, use:(s&&s.use)||'' }; }).filter(function(x){ return x.use==='reuse' && x.url; });
+      driveBtn.disabled=true; var old=driveBtn.textContent; driveBtn.textContent='Creating folder & saving…';
+      $('evDriveStatus').className='small ev-muted'; $('evDriveStatus').textContent='Working…';
+      fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-save-reused', videoTitle: EV.generated.videoTitle, reused: reused }) })
+        .then(function(r){ return r.json(); }).then(function(d){
+          driveBtn.disabled=false; driveBtn.textContent=old;
+          if(!d || !d.ok){ $('evDriveStatus').className='small ev-warn'; $('evDriveStatus').textContent = 'Could not do it: ' + ((d&&d.error)||'error'); return; }
+          $('evDriveStatus').className='small ev-muted';
+          $('evDriveStatus').innerHTML = '✓ Folder created: <a href="'+attr(d.folderUrl)+'" target="_blank" rel="noopener">open folder</a> — saved '+d.saved+' of '+d.total+' reused image'+(d.total===1?'':'s')+'. Now add your generated images + the mp3 into it.';
+        }).catch(function(e){ driveBtn.disabled=false; driveBtn.textContent=old; $('evDriveStatus').className='small ev-warn'; $('evDriveStatus').textContent='Error: '+e.message; });
+    });
+  })();
 
   $('evGen').addEventListener('click', function(){
     if(!EV.chosen){ $('evGenStatus').className='small ev-warn'; $('evGenStatus').textContent='Pick a blog or page first.'; return; }
