@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v6.6 · 18 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v6.7 · 18 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -523,7 +523,7 @@
         <input id="evLen" class="ev-in" type="number" min="1" max="4" step="0.5" value="2.5" style="min-width:80px;width:80px;"> min
       </label>
       <span class="small ev-muted">suggested 2–3 min · about <span id="evScenes">19</span> scenes</span>
-      <button type="button" id="evGen" class="ev-btn">Generate script &amp; image prompts</button>
+      <button type="button" id="evGen" class="ev-btn">1 · Generate script &amp; image prompts</button>
     </div>
     <div id="evGenStatus" class="small ev-muted"></div>
 
@@ -536,10 +536,16 @@
 
       <div class="ev-outhead"><strong>Image prompts</strong> <span class="small ev-muted">— feed to your Shopify AI skill one batch at a time, in order. A skipped number means that scene reuses one of your blog images.</span></div>
       <div id="evPromptsWrap"></div>
+      <div id="evImgCount" class="small ev-muted" style="margin-top:8px;font-weight:700;"></div>
+
+      <div class="ev-savebar">
+        <button type="button" id="evSave" class="ev-btn ev-btn-go">2 · Save this video's script</button>
+        <span id="evSaveMsg" class="small ev-muted"></span>
+      </div>
 
       <div id="evDriveWrap" style="margin-top:18px;">
         <div class="ev-outhead"><strong>Drive folder</strong> <span class="small ev-muted">— makes a folder named after the video and drops your reused images in, numbered. Then add your generated images + the mp3 into it.</span></div>
-        <button type="button" id="evDriveBtn" class="ev-btn">Create the Drive folder + save reused images</button>
+        <button type="button" id="evDriveBtn" class="ev-btn">3 · Create the Drive folder + save reused images</button>
         <div id="evDriveStatus" class="small ev-muted" style="margin-top:8px;"></div>
       </div>
 
@@ -548,8 +554,8 @@
         <div class="box gray" style="margin-bottom:10px;">Put this video's scene photos (named 01, 02, 03… in order) and the voiceover .mp3 in one Google Drive folder, then paste that folder's link. The tool makes the finished video — timed to your voice, with the logo, title, outro cards and baked captions — and saves it back to that folder with a subtitles file.</div>
         <div class="ev-row">
           <input id="evVideoFolder" class="ev-in" placeholder="Paste the Google Drive folder link" style="min-width:320px;flex:1;">
-          <button type="button" id="evPreviewBtn" class="ev-btn">Check images first</button>
-          <button type="button" id="evVideoBtn" class="ev-btn ev-btn-go" disabled title="Check the images first">Make the video</button>
+          <button type="button" id="evPreviewBtn" class="ev-btn">4 · Check images first</button>
+          <button type="button" id="evVideoBtn" class="ev-btn ev-btn-go" disabled title="Check the images first">5 · Make the video</button>
         </div>
         <div id="evPreviewStatus" class="small ev-muted" style="margin-top:8px;display:none;"></div>
         <div id="evPreviewOut" style="display:none;margin-top:12px;max-height:520px;overflow-y:auto;border:1px solid #e5e5e5;border-radius:10px;padding:10px;"></div>
@@ -558,13 +564,8 @@
         <div id="evVideoOut" style="display:none;margin-top:10px;"></div>
       </div>
 
-      <div class="ev-savebar">
-        <button type="button" id="evSave" class="ev-btn ev-btn-go">Save this video to GitHub</button>
-        <span id="evSaveMsg" class="small ev-muted"></span>
-      </div>
-
       <div id="evPubWrap" style="display:none;">
-        <h3 class="ev-h3">4 · Publish on YouTube</h3>
+        <h3 class="ev-h3">6 · Publish on YouTube</h3>
         <div class="ev-row">
           <button type="button" id="evYtGen" class="ev-btn">Generate YouTube pack</button>
           <span id="evYtStatus" class="small ev-muted"></span>
@@ -1004,7 +1005,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v6.6 — built 18 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v6.7 — built 18 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -2135,6 +2136,9 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         $('evVidTitle').textContent = d.videoTitle || '';
         $('evScript').textContent = d.script || '';
         renderPromptBatches(d.promptBatches || (d.imagePromptBlock ? [d.imagePromptBlock] : []));
+        var _sc = (d.payload && d.payload.scenes) || [];
+        var _toMake = 1 + _sc.filter(function(s){ return (s && s.use ? s.use : 'generate') !== 'reuse'; }).length; // title + every non-reused scene
+        $('evImgCount').textContent = '🖼️ You need to create ' + _toMake + ' image' + (_toMake===1?'':'s') + ' with Shopify AI (the numbered prompts above). Reused blog images are handled for you.';
         $('evGenStatus').className='small ev-muted'; $('evGenStatus').textContent = 'Done — ' + (d.sceneCount||0) + ' scenes (plus the 5 fixed outro lines). Review, then save.';
         $('evOut').style.display = 'block';
         $('evPubWrap').style.display = 'none'; $('evYtOut').style.display = 'none'; $('evFinishOut').style.display = 'none';
@@ -2186,7 +2190,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       fetch('/api/edu-video',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'edu-make-video',folderId:folderId,handle:handle})})
         .then(function(r){return r.json();})
         .then(function(d){
-          if(!d||!d.jobId){ stop(); vbtn.disabled=false; vbtn.textContent=lbl; prog.className='small ev-warn'; prog.textContent='Could not start: '+((d&&d.error)||'error'); return; }
+          if(!d||!d.jobId){ stop(); vbtn.disabled=false; vbtn.textContent=lbl; var _e2=((d&&d.error)||'error'); prog.className='small ev-warn'; prog.textContent = /404|not found/i.test(_e2) ? "Save this video's script first (step 2), then make the video." : ('Could not start: '+_e2); return; }
           var srtUri = d.srt||''; step='Rendering the video…';
           poll=setInterval(function(){
             fetch('/api/edu-video',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'edu-video-status',jobId:d.jobId})})
@@ -2220,7 +2224,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         .then(function(r){return r.json();})
         .then(function(d){
           pbtn.disabled=false; pbtn.textContent=lbl;
-          if(!d||!d.ok){ st.className='small ev-warn'; st.textContent='Could not check: '+((d&&d.error)||'error'); return; }
+          if(!d||!d.ok){ var _e=((d&&d.error)||'error'); st.className='small ev-warn'; st.textContent = /404|not found/i.test(_e) ? "Save this video's script first (step 2), then check images." : ('Could not check: '+_e); return; }
           var miss=(d.missing&&d.missing.length)?d.missing:[];
           st.className = miss.length?'small ev-warn':'small ev-muted';
           st.textContent = miss.length ? ('Missing photos: '+miss.map(function(x){return ('0'+x).slice(-2);}).join(', ')+' — add them to the folder.') : ('All '+d.needed+' scene photos found. Check each image matches its line below, then Make the video.');
