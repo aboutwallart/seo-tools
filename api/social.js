@@ -1185,8 +1185,20 @@ module.exports = async (req, res) => {
         bodyImages = await Promise.all(_srcs.map(async function (it) {
           var ratio = 'other', wh = null;
           try { var ir = await fetch(it.url); var ib = Buffer.from(await ir.arrayBuffer()); wh = _imgSize(ib); if (wh) ratio = _ratioBucket(wh.w, wh.h); } catch (e) {}
-          return { url: it.url, heading: it.heading, ratio: ratio, reuse: (ratio === '3:2' || ratio === '16:9'), width: wh ? wh.w : 0, height: wh ? wh.h : 0 };
+          return { url: it.url, heading: it.heading, ratio: ratio, reuse: (ratio === '3:2' || ratio === '16:9'), width: wh ? wh.w : 0, height: wh ? wh.h : 0, isProduct: false, sku: '' };
         }));
+      } catch (e) {}
+
+      // Add each About Wall Art product's own photo (from body links + Complete the Look) so she can
+      // reuse the real product image on its scene. Labelled as products; NOT pre-ticked (she picks).
+      try {
+        var _prodImgs = products.filter(function (p) { return p && p.image; }).map(function (p) { return { url: p.image, heading: p.title || '(product)', sku: p.sku || '' }; });
+        var _pdone = await Promise.all(_prodImgs.map(async function (it) {
+          var ratio = 'square', wh = null;
+          try { var ir = await fetch(it.url); var ib = Buffer.from(await ir.arrayBuffer()); wh = _imgSize(ib); if (wh) ratio = _ratioBucket(wh.w, wh.h); } catch (e) {}
+          return { url: it.url, heading: it.heading, ratio: ratio, reuse: (ratio === '3:2' || ratio === '16:9'), width: wh ? wh.w : 0, height: wh ? wh.h : 0, isProduct: true, sku: it.sku };
+        }));
+        bodyImages = bodyImages.concat(_pdone);
       } catch (e) {}
 
       return res.status(200).json({ ok: true, sourceTitle: sourceTitle, products: products, bodyImages: bodyImages, featuredImage: featuredImage });
@@ -1226,9 +1238,11 @@ module.exports = async (req, res) => {
       var topic = ((srcTitle || '') + ' ' + (Array.isArray(srcTags) ? srcTags.join(' ') : '')).toLowerCase();
       var prodList = selProducts.map(function (p, i) { return (i + 1) + '. sku "' + (p.sku || '') + '" — "' + (p.title || '') + '"'; }).join('\n');
       // images she ticked to reuse (from Step 1 preview) + the featured/title image
-      var reuseImgs = Array.isArray(body.reuseImages) ? body.reuseImages.filter(function (x) { return x && x.url; }).slice(0, 30) : [];
+      var reuseImgs = Array.isArray(body.reuseImages) ? body.reuseImages.filter(function (x) { return x && x.url; }).slice(0, 40) : [];
+      var bodyReuse = reuseImgs.filter(function (x) { return !x.isProduct; });        // blog photos → matched to scenes by heading
+      var prodReuse = reuseImgs.filter(function (x) { return x.isProduct && x.sku; }); // product photos → matched to their product scene by SKU
       var featured = (body.featured && body.featured.url && body.featured.use) ? body.featured : null;
-      var reuseList = reuseImgs.length ? reuseImgs.map(function (im, i) { return (i + 1) + '. [' + (im.reuse ? 'USE AS-IS' : 'REMAKE to 16:9') + '] under heading "' + (im.heading || '(none)') + '" — ' + im.url; }).join('\n') : '(none)';
+      var reuseList = bodyReuse.length ? bodyReuse.map(function (im, i) { return (i + 1) + '. [' + (im.reuse ? 'USE AS-IS' : 'REMAKE to 16:9') + '] under heading "' + (im.heading || '(none)') + '" — ' + im.url; }).join('\n') : '(none)';
 
       var OUTRO = [
         "Did you know styling your home doesn't have to be guesswork?",
@@ -1243,7 +1257,7 @@ module.exports = async (req, res) => {
         'SOURCE TITLE: "' + srcTitle + '"\n' +
         'SOURCE CONTENT (use this, never invent facts):\n"""' + plain + '"""\n\n' +
         'FULL SECTION OUTLINE — every heading in the blog/page, in order. The video MUST cover these sections; do NOT skip any and do NOT drift into generic advice about the topic:\n' + outline + '\n\n' +
-        'SELECTED PRODUCTS (use ONLY these, on the wall-art / finishing-touches scenes; one product per such scene):\n' + (prodList || '(none)') + '\n\n' +
+        'SELECTED PRODUCTS (use ONLY these). Create ONE product scene for EACH selected product — every selected product must appear exactly once as a product scene (kind:"product", its "productSku" set):\n' + (prodList || '(none)') + '\n\n' +
         'REUSED IMAGES (already-made photos from the blog — place each on the ONE scene that matches its heading; never repeat one):\n' + reuseList + '\n\n' +
         'SCRIPT RULES (the voice is everything — keep exactly this style):\n' +
         '- Warm, human, first-person home-decor advisor talking to a friend. Personal little asides and gentle tips ("my favourite style", "a little tip I love", "if you\'re forgetful like me", "take care not to..."). Calm, plain-spoken, NEVER salesy or poetic-brochure.\n' +
@@ -1275,6 +1289,12 @@ module.exports = async (req, res) => {
       var hero = (parsed.hero || '').toString().trim();
       var scenes = Array.isArray(parsed.scenes) ? parsed.scenes : [];
       var skuTitle = {}; selProducts.forEach(function (p) { if (p.sku) skuTitle[p.sku.toUpperCase()] = p.title || ''; });
+      // attach each ticked PRODUCT photo to its product scene (by SKU) → reuse the real photo, remade to 16:9
+      var prodBySku = {}; prodReuse.forEach(function (im) { if (im.sku) prodBySku[im.sku.toUpperCase()] = im.url; });
+      scenes.forEach(function (s) {
+        var sk = (s && s.productSku ? s.productSku : '').toString().toUpperCase();
+        if (sk && prodBySku[sk]) { s.use = 'remake'; s.reuseUrl = prodBySku[sk]; s.kind = 'product'; }
+      });
 
       // SCRIPT text = title + one phrase per scene + the fixed 5 outro lines
       var scriptLines = [videoTitle];
@@ -1303,7 +1323,7 @@ module.exports = async (req, res) => {
         var isProd = kind === 'product' && s && s.productSku && skuTitle[(s.productSku || '').toUpperCase()];
         var tag = kind === 'infographic' ? '[16:9][INFOGRAPHIC]' : '[16:9]';
         var line = _pad2(num) + '. ' + tag + ' ';
-        if (use === 'remake' && reuseUrl) { line += 'REMAKE THIS BLOG PHOTO to 16:9 (extend the sides as a natural continuation, never stretch or distort): ' + reuseUrl + ' — '; }
+        if (use === 'remake' && reuseUrl) { line += 'REMAKE THIS PHOTO to 16:9 (extend the sides as a natural continuation, never stretch or distort): ' + reuseUrl + ' — '; }
         line += ((s && s.image ? s.image : '').toString().trim());
         if (isProd) line += ' → product = "' + skuTitle[(s.productSku || '').toUpperCase()] + '"';
         lines.push(line);
