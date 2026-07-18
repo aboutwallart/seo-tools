@@ -1190,7 +1190,10 @@ module.exports = async (req, res) => {
       } catch (e) {}
 
       // Add each About Wall Art product's own photo (from body links + Complete the Look) so she can
-      // reuse the real product image on its scene. Labelled as products; NOT pre-ticked (she picks).
+      // reuse the real product image on its scene. NOT pre-ticked (she picks). If a product photo is
+      // the SAME file already shown as a content image, DON'T duplicate it — keep the content card and
+      // just tag it with the product's SKU so it still maps to that product's scene.
+      function _imgKey(u) { try { var s = u.split('?')[0].split('/').pop(); return s.replace(/_\d+x\d+(?=\.[a-z0-9]+$)/i, '').toLowerCase(); } catch (e) { return (u || '').toLowerCase(); } }
       try {
         var _prodImgs = products.filter(function (p) { return p && p.image; }).map(function (p) { return { url: p.image, heading: p.title || '(product)', sku: p.sku || '' }; });
         var _pdone = await Promise.all(_prodImgs.map(async function (it) {
@@ -1198,7 +1201,14 @@ module.exports = async (req, res) => {
           try { var ir = await fetch(it.url); var ib = Buffer.from(await ir.arrayBuffer()); wh = _imgSize(ib); if (wh) ratio = _ratioBucket(wh.w, wh.h); } catch (e) {}
           return { url: it.url, heading: it.heading, ratio: ratio, reuse: (ratio === '3:2' || ratio === '16:9'), width: wh ? wh.w : 0, height: wh ? wh.h : 0, isProduct: true, sku: it.sku };
         }));
-        bodyImages = bodyImages.concat(_pdone);
+        var _bodyByKey = {}; bodyImages.forEach(function (bi) { _bodyByKey[_imgKey(bi.url)] = bi; });
+        var _uniqueProds = [];
+        _pdone.forEach(function (pi) {
+          var hit = _bodyByKey[_imgKey(pi.url)];
+          if (hit) { hit.isProduct = true; if (pi.sku && !hit.sku) hit.sku = pi.sku; } // same file already in content → tag it, no duplicate card
+          else { _uniqueProds.push(pi); }
+        });
+        bodyImages = bodyImages.concat(_uniqueProds);
       } catch (e) {}
 
       return res.status(200).json({ ok: true, sourceTitle: sourceTitle, products: products, bodyImages: bodyImages, featuredImage: featuredImage });
@@ -1239,8 +1249,8 @@ module.exports = async (req, res) => {
       var prodList = selProducts.map(function (p, i) { return (i + 1) + '. sku "' + (p.sku || '') + '" — "' + (p.title || '') + '"'; }).join('\n');
       // images she ticked to reuse (from Step 1 preview) + the featured/title image
       var reuseImgs = Array.isArray(body.reuseImages) ? body.reuseImages.filter(function (x) { return x && x.url; }).slice(0, 40) : [];
-      var bodyReuse = reuseImgs.filter(function (x) { return !x.isProduct; });        // blog photos → matched to scenes by heading
-      var prodReuse = reuseImgs.filter(function (x) { return x.isProduct && x.sku; }); // product photos → matched to their product scene by SKU
+      var prodReuse = reuseImgs.filter(function (x) { return x.sku; });   // any ticked image carrying a SKU → its product scene (matched by SKU)
+      var bodyReuse = reuseImgs.filter(function (x) { return !x.sku; });  // plain blog photos → matched to scenes by heading
       var featured = (body.featured && body.featured.url && body.featured.use) ? body.featured : null;
       var reuseList = bodyReuse.length ? bodyReuse.map(function (im, i) { return (i + 1) + '. [' + (im.reuse ? 'USE AS-IS' : 'REMAKE to 16:9') + '] under heading "' + (im.heading || '(none)') + '" — ' + im.url; }).join('\n') : '(none)';
 
