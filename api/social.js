@@ -1284,7 +1284,7 @@ module.exports = async (req, res) => {
         '- EVERY scene must end up with an image (reused or generated) so the WHOLE script is covered — like before.\n' +
         '- ★ The image must show EXACTLY what THIS scene\'s line says — the specific room, object, action, colour, number or step named in the text. NEVER a generic decor shot.\n' +
         '- ★ FULL BLEED, ALWAYS: every image must FILL THE ENTIRE 16:9 FRAME, edge to edge. NEVER add black, white or BLURRED bars, blocks or bands on the top, bottom or sides; no letterboxing or pillarboxing. The scene fills the whole frame.\n' +
-        '- "kind": "infographic" when the scene explains a concept, rule, number, measurement, step or proportion. Then the "image" prompt MUST specify: WHITE background, BLACK text, British English spelling, and PREFER real photographs over flat vector graphics. "kind":"product" for wall-art / finishing-touch scenes (set "productSku" from the list). The product "image" prompt MUST say: USE THE EXACT product photo provided (it is pasted into the AI chat), extend its sides NATURALLY to fill 16:9 (never stretch or distort), ADD the person(s) as described (in plain neutral clothing), keep the real framed art the clear focus, FULL BLEED. "kind":"photo" for everything else.\n' +
+        '- "kind": "infographic" ONLY when the scene is a genuinely VISUAL idea — a COMPARISON, before/after, proportion, measurement, or steps. For plain tips/lists use "kind":"photo" instead (a normal scene + the caption), NEVER a text-list "infographic". When it IS an infographic, the "image" prompt MUST be this shape: "A clean minimal educational infographic on a plain WHITE background, photoreal, British English, all text solid BLACK. A generous blank margin at the TOP, then a short centred title. Below it a VISUAL comparison — e.g. two real photos side by side with only TWO short labels (no paragraphs, minimal words). Leave the entire BOTTOM THIRD blank white. IMPORTANT: this image WILL be cropped to 16:9 and subtitles sit along the bottom, so keep the title and content in the CENTRE band with nothing important near the top or bottom edges. High resolution, no watermarks." "kind":"product" for wall-art / finishing-touch scenes (set "productSku" from the list). The product "image" prompt MUST say: USE THE EXACT product photo provided (it is pasted into the AI chat), extend its sides NATURALLY to fill 16:9 (never stretch or distort), ADD the person(s) as described (in plain neutral clothing), keep the real framed art the clear focus, FULL BLEED. "kind":"photo" for everything else.\n' +
         '- PHOTO scenes: photoreal lifestyle photography, high resolution, soft natural daylight, airy and calm, bright minimalist base with the blog\'s style details, NO text/logos/watermarks. A person present by default; a COUPLE (a man and a woman) for bedroom/romantic, a CHILD or BABY with a parent for nursery/kids, FRIENDS for entertaining, a FAMILY INCLUDING OLDER RELATIVES for festive. Vary ethnicity genuinely (a real mix, not always white). Do NOT depict gay, lesbian or transgender couples. COLOUR/MATERIAL scenes: the person is actively CHOOSING — holding/comparing swatches or samples.\n' +
         '- Also write a single "hero" paragraph for scene 1: the opening/thumbnail shot inspired by the source (ONE strong scene — it becomes 5 variations, same room/styling/composition, only the person or their position changes).\n\n' +
         'Return ONLY strict JSON, no markdown:\n' +
@@ -1294,7 +1294,13 @@ module.exports = async (req, res) => {
         method: 'POST', headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' },
         body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 6000, messages: [{ role: 'user', content: prompt }] })
       });
-      if (!ar.ok) return res.status(ar.status).json({ ok: false, error: 'Claude error: ' + (await ar.text()) });
+      if (!ar.ok) {
+        var aerr = await ar.text();
+        if (ar.status === 401 || ar.status === 402 || ar.status === 429 || /credit|quota|insufficient|billing|balance/i.test(aerr)) {
+          return res.status(200).json({ ok: false, error: '❌ Couldn\'t write the script — your Claude API credits/quota look used up. Top up and try again.' });
+        }
+        return res.status(ar.status).json({ ok: false, error: 'Claude error: ' + aerr });
+      }
       var ad4 = await ar.json();
       var txt = (ad4.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('\n');
       var jm = txt.match(/\{[\s\S]*\}/); var parsed;

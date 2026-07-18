@@ -5,7 +5,7 @@
 # Env vars needed on Vercel: ASSEMBLYAI_KEY, RENDERLY_KEY, EDU_DRIVE_URL (the Apps Script /exec url).
 # Reads the saved script from GitHub raw (public repo). Fonts/logo from repo assets/edu-video.
 
-import os, re, io, json, time, base64, urllib.request
+import os, re, io, json, time, base64, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler
 from PIL import Image, ImageDraw, ImageFont
 
@@ -21,8 +21,18 @@ REPO_RAW = "https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/e
 
 def http(url, method="GET", headers=None, data=None, timeout=120):
     r = urllib.request.Request(url, method=method, headers=headers or {}, data=data)
-    with urllib.request.urlopen(r, timeout=timeout) as resp:
-        return resp.read()
+    try:
+        with urllib.request.urlopen(r, timeout=timeout) as resp:
+            return resp.read()
+    except urllib.error.HTTPError as e:
+        body = ""
+        try: body = e.read().decode("utf-8", "ignore")[:300]
+        except Exception: pass
+        svc = ("Renderly" if "renderly" in url else "AssemblyAI" if "assemblyai" in url
+               else "ElevenLabs" if "elevenlabs" in url else "Google Drive" if "google" in url else "the service")
+        if e.code in (401, 402, 429) or re.search(r"credit|quota|insufficient|payment|balance|limit", body, re.I):
+            raise RuntimeError("❌ Couldn't finish — your %s credits/quota look used up (error %d). Top up %s and try again." % (svc, e.code, svc))
+        raise RuntimeError("%s error %d: %s" % (svc, e.code, body))
 
 # ---------- Drive ----------
 def drive_list(folder_id):
@@ -33,6 +43,15 @@ def drive_list(folder_id):
     return d["files"]
 def drive_download(file_id):
     return http("https://drive.google.com/uc?export=download&id=" + file_id)
+def photo_for(files, k):
+    # Match a photo by its LEADING NUMBER (03.png, 03-earthy-room.png, 3.jpg … all = photo 3),
+    # so any extra text Shopify AI appends after the number doesn't break the lookup (no renaming needed).
+    for f in files:
+        low = f["name"].lower()
+        if not (low.endswith(".png") or low.endswith(".jpg") or low.endswith(".jpeg")): continue
+        m = re.match(r"0*(\d+)", f["name"])
+        if m and int(m.group(1)) == k: return f
+    return None
 
 # ---------- transcribe + align ----------
 def transcribe(mp3_bytes, key):
@@ -182,7 +201,7 @@ def make_video(folder_id, handle):
     # Ending cards are built-in (not from the folder).
     n = len(edu["scenes"])
     for k in range(1, n + 2):
-        f = byname.get("%02d.png" % k) or byname.get("%02d.jpg" % k) or byname.get("%d.png" % k) or byname.get("%d.jpg" % k)
+        f = photo_for(files, k)
         if not f: raise RuntimeError("Photo %02d is missing from the folder — this video needs %d photos (01..%02d)." % (k, n + 1, n + 1))
         ext = "png" if f["name"].lower().endswith("png") else "jpg"
         open(os.path.join(indir, "%02d.%s" % (k, ext)), "wb").write(drive_download(f["id"]))
@@ -214,7 +233,7 @@ def preview(folder_id, handle):
     byname = {f["name"]: f for f in files}
     n = len(edu["scenes"])
     def thumb(k):
-        f = byname.get("%02d.png" % k) or byname.get("%02d.jpg" % k) or byname.get("%d.png" % k) or byname.get("%d.jpg" % k)
+        f = photo_for(files, k)
         return ("https://drive.google.com/thumbnail?id=%s&sz=w400" % f["id"]) if f else ""
     rows = [{"label": "Title (scene 1) — photo 01", "text": edu["videoTitle"], "img": thumb(1)}]
     for i in range(1, n + 1):
