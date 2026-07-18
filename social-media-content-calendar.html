@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v6.0 · 17 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v6.1 · 18 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -495,8 +495,28 @@
     <div class="box gray" style="margin-top:16px;"><strong id="evCount">0 products selected.</strong></div>
   </div>
 
+  <style>
+    .ev-imgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-top:10px;}
+    .ev-imgcard{display:block;border:1px solid #e5e5e5;border-radius:10px;overflow:hidden;cursor:pointer;background:#fff;}
+    .ev-imgcard img{width:100%;height:130px;object-fit:cover;display:block;}
+    .ev-imghead{font-size:12px;font-weight:700;padding:6px 8px;background:#f6f6f6;border-bottom:1px solid #eee;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .ev-imgmeta{display:flex;align-items:center;gap:6px;padding:8px;}
+    .ev-tag{font-size:11px;padding:2px 6px;border-radius:6px;font-weight:700;}
+    .ev-tag-ok{background:#e7f6ec;color:#177245;}
+    .ev-tag-fix{background:#fdeede;color:#a55200;}
+    .ev-feat-card{max-width:360px;margin-bottom:6px;}
+    .ev-feat-card img{height:170px;}
+  </style>
+  <div id="evImgWrap" style="display:none;">
+    <h3 class="ev-h3">3 · Reuse the blog's own images</h3>
+    <div class="small ev-muted" style="margin-bottom:8px;">Tick the images you want in the video. Ones already 16:9 or 3:2 are reused as they are; square or odd-shaped ones get remade to 16:9. The tool works out each shape by itself.</div>
+    <div id="evFeatured"></div>
+    <div id="evImgStatus" class="small ev-muted"></div>
+    <div id="evImgList" class="ev-imgs"></div>
+  </div>
+
   <div id="evGenWrap" style="display:none;">
-    <h3 class="ev-h3">3 · Length, script &amp; image prompts</h3>
+    <h3 class="ev-h3">4 · Length, script &amp; image prompts</h3>
     <div class="ev-row">
       <label class="ev-muted" style="font-weight:700;">Video length
         <input id="evLen" class="ev-in" type="number" min="1" max="4" step="0.5" value="2.5" style="min-width:80px;width:80px;"> min
@@ -977,7 +997,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v6.0 — built 17 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v6.1 — built 18 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -1915,10 +1935,14 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
 
   function chooseSource(s){
     EV.chosen = s; EV.products = []; EV.selected = {}; EV.generated = null;
+    EV.bodyImages = []; EV.featuredImage = ''; EV.imgSelected = {}; EV.featuredUse = true;
     renderSources();
     $('evChosenSrc').innerHTML = '<strong>'+esc(s.title)+'</strong> <a href="'+attr(s.url)+'" target="_blank" rel="noopener">view</a>';
     $('evProdWrap').style.display = 'block';
+    $('evImgWrap').style.display = 'block';
     $('evGenWrap').style.display = 'block';
+    $('evImgStatus').textContent = 'Loading the images inside this ' + (s.type==='page'?'page':'blog') + '…';
+    $('evFeatured').innerHTML = ''; $('evImgList').innerHTML = '';
     $('evOut').style.display = 'none';
     $('evSaveMsg').textContent = '';
     $('evGenStatus').textContent = '';
@@ -1931,7 +1955,38 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         EV.products = d.products || [];
         EV.products.slice(0,5).forEach(function(p){ EV.selected[keyOf(p)] = true; });
         renderProducts();
+        EV.bodyImages = d.bodyImages || [];
+        EV.featuredImage = d.featuredImage || '';
+        EV.bodyImages.forEach(function(im){ if(im.reuse) EV.imgSelected[im.url] = true; });
+        renderEduImages();
       }).catch(function(e){ $('evProdStatus').textContent = 'Error: ' + e.message; });
+  }
+
+  function renderEduImages(){
+    var wrap = $('evImgWrap'); if(!wrap) return;
+    var feat = $('evFeatured'), list = $('evImgList'), st = $('evImgStatus');
+    if(EV.featuredImage){
+      feat.innerHTML = '<label class="ev-imgcard ev-feat-card"><div class="ev-imghead">Title image (scene 1)</div><img src="'+attr(EV.featuredImage)+'"><div class="ev-imgmeta"><input type="checkbox" '+(EV.featuredUse?'checked':'')+' data-feat="1"><span class="small ev-muted">Reused as 5 remade 16:9 options — <a href="'+attr((EV.chosen&&EV.chosen.url)||'')+'" target="_blank" rel="noopener">open live page</a> to grab it</span></div></label>';
+    } else { feat.innerHTML = ''; }
+    var imgs = EV.bodyImages || [];
+    if(!imgs.length){ st.textContent = 'No images found inside this '+((EV.chosen&&EV.chosen.type==='page')?'page':'blog')+'.'; list.innerHTML = ''; }
+    else {
+      st.textContent = imgs.length+' images found inside. Tick the ones to use.';
+      list.innerHTML = imgs.map(function(im){
+        var on = EV.imgSelected[im.url] ? 'checked' : '';
+        var tag = im.reuse
+          ? '<span class="ev-tag ev-tag-ok">'+esc(im.ratio)+' · reuse as-is</span>'
+          : '<span class="ev-tag ev-tag-fix">'+esc(im.ratio==='other'?'odd shape':im.ratio)+' · remade to 16:9</span>';
+        var head = im.heading ? '<div class="ev-imghead">'+esc(im.heading)+'</div>' : '<div class="ev-imghead ev-muted">(no heading)</div>';
+        return '<label class="ev-imgcard">'+head+'<img src="'+attr(im.url)+'" loading="lazy"><div class="ev-imgmeta"><input type="checkbox" '+on+' data-imgurl="'+attr(im.url)+'"> '+tag+'</div></label>';
+      }).join('');
+    }
+    Array.prototype.forEach.call(wrap.querySelectorAll('input[type=checkbox]'), function(cb){
+      cb.addEventListener('change', function(){
+        if(cb.getAttribute('data-feat')){ EV.featuredUse = cb.checked; }
+        else { EV.imgSelected[cb.getAttribute('data-imgurl')] = cb.checked; }
+      });
+    });
   }
 
   function reopenSaved(s){
@@ -1939,6 +1994,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     renderSources();
     $('evChosenSrc').innerHTML = '<strong>'+esc(s.title)+'</strong> <a href="'+attr(s.url)+'" target="_blank" rel="noopener">view</a> <span class="ev-saved-tag">✓ saved</span>';
     $('evProdWrap').style.display = 'block';
+    $('evImgWrap').style.display = 'none';
     $('evGenWrap').style.display = 'block';
     $('evProdStatus').textContent = 'Loading your saved video…';
     $('evProdList').innerHTML = '';
