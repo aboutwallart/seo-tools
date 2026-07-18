@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v6.7 · 18 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v6.8 · 18 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -528,11 +528,13 @@
     <div id="evGenStatus" class="small ev-muted"></div>
 
     <div id="evOut" style="display:none;">
-      <div class="ev-outhead"><strong>Video title</strong> <button type="button" class="ev-copy" data-copy="evVidTitle">Copy title</button></div>
-      <div id="evVidTitle" class="ev-titlebox"></div>
+      <div class="ev-outhead"><strong>Video title</strong> <span class="small ev-muted">— editable · keep your blog's keyword</span></div>
+      <input id="evVidTitle" class="ev-in" style="width:100%;font-weight:700;font-size:15px;" placeholder="Video title">
 
-      <div class="ev-outhead"><strong>Script</strong> <button type="button" class="ev-copy" data-copy="evScript">Copy script</button></div>
-      <pre id="evScript" class="ev-pre"></pre>
+      <div class="ev-outhead"><strong>Script</strong> <span class="small ev-muted">— editable · one line per scene, keep the same number of lines · re-record the voiceover if you change the words</span> <button type="button" class="ev-copy" data-copy="evScript">Copy script</button></div>
+      <textarea id="evScriptEdit" class="ev-in" style="width:100%;min-height:240px;line-height:1.5;"></textarea>
+      <div class="small ev-muted" style="margin-top:6px;"><strong>Fixed ending lines</strong> (spoken, not editable): <span id="evOutroView"></span></div>
+      <pre id="evScript" class="ev-pre" style="display:none;"></pre>
 
       <div class="ev-outhead"><strong>Image prompts</strong> <span class="small ev-muted">— feed to your Shopify AI skill one batch at a time, in order. A skipped number means that scene reuses one of your blog images.</span></div>
       <div id="evPromptsWrap"></div>
@@ -582,7 +584,7 @@
           <div class="box gray" id="evYtMeta" style="margin-top:10px;"></div>
         </div>
 
-        <h3 class="ev-h3">5 · After you publish</h3>
+        <h3 class="ev-h3">7 · After you publish</h3>
         <div class="ev-manual">
           <input id="evYtUrl" class="ev-in" placeholder="Paste the YouTube link (https://youtu.be/…)">
           <button type="button" id="evFinish" class="ev-btn-sm">Build embed &amp; finish</button>
@@ -1005,7 +1007,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v6.7 — built 18 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v6.8 — built 18 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -2018,9 +2020,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         EV.products.forEach(function(x){ EV.selected[keyOf(x)] = true; });
         renderProducts();
         if(lenIn && p.seconds){ lenIn.value = Math.round((p.seconds/60)*2)/2; syncScenes(); }
-        $('evVidTitle').textContent = p.videoTitle || '';
-        $('evScript').textContent = p.script || '';
         renderPromptBatches(p.promptBatches || (p.imagePromptBlock ? [p.imagePromptBlock] : []));
+        fillEduEditable(p);
         $('evOut').style.display = 'block';
         $('evPubWrap').style.display = 'block'; $('evYtOut').style.display = 'none'; $('evFinishOut').style.display = 'none';
         $('evGenStatus').className = 'small ev-muted';
@@ -2133,12 +2134,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         btn.disabled = false; btn.textContent = 'Regenerate';
         if(!d || !d.ok){ $('evGenStatus').className='small ev-warn'; $('evGenStatus').textContent = 'Could not generate: ' + ((d&&d.error)||'error'); return; }
         EV.generated = d.payload;
-        $('evVidTitle').textContent = d.videoTitle || '';
-        $('evScript').textContent = d.script || '';
         renderPromptBatches(d.promptBatches || (d.imagePromptBlock ? [d.imagePromptBlock] : []));
-        var _sc = (d.payload && d.payload.scenes) || [];
-        var _toMake = 1 + _sc.filter(function(s){ return (s && s.use ? s.use : 'generate') !== 'reuse'; }).length; // title + every non-reused scene
-        $('evImgCount').textContent = '🖼️ You need to create ' + _toMake + ' image' + (_toMake===1?'':'s') + ' with Shopify AI (the numbered prompts above). Reused blog images are handled for you.';
+        fillEduEditable(EV.generated);
         $('evGenStatus').className='small ev-muted'; $('evGenStatus').textContent = 'Done — ' + (d.sceneCount||0) + ' scenes (plus the 5 fixed outro lines). Review, then save.';
         $('evOut').style.display = 'block';
         $('evPubWrap').style.display = 'none'; $('evYtOut').style.display = 'none'; $('evFinishOut').style.display = 'none';
@@ -2157,8 +2154,38 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   });
   function fallbackCopy(t){ var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); try{ document.execCommand('copy'); }catch(e){} document.body.removeChild(ta); }
 
+  // Fill the editable title + script fields from a payload (works for freshly generated AND reopened saved videos)
+  function fillEduEditable(p){
+    p = p || {};
+    if($('evVidTitle')) $('evVidTitle').value = p.videoTitle || '';
+    var scenes = p.scenes || [];
+    if($('evScriptEdit')) $('evScriptEdit').value = scenes.map(function(s){ return (s&&s.text)?s.text:''; }).join('\n');
+    if($('evOutroView')) $('evOutroView').textContent = (p.outro||[]).join('  ·  ');
+    if($('evScript')) $('evScript').textContent = p.script || '';
+    var toMake = 1 + scenes.filter(function(s){ return (s&&s.use?s.use:'generate')!=='reuse'; }).length;
+    if($('evImgCount')) $('evImgCount').textContent = '🖼️ You need to create ' + toMake + ' image' + (toMake===1?'':'s') + ' with Shopify AI (the numbered prompts above). Reused blog images are handled for you.';
+  }
+  // Apply her title/script edits back into EV.generated before saving. Returns false (and warns) if the line count changed.
+  function applyEduEdits(){
+    if(!EV.generated) return true;
+    var newTitle = (($('evVidTitle')&&$('evVidTitle').value)||'').trim();
+    var lines = (($('evScriptEdit')&&$('evScriptEdit').value)||'').split('\n').map(function(x){return x.trim();}).filter(function(x){return x.length;});
+    var scenes = EV.generated.scenes || [];
+    if(scenes.length && lines.length !== scenes.length){
+      $('evSaveMsg').className='small ev-warn';
+      $('evSaveMsg').textContent = 'Keep one line per scene ('+scenes.length+' scenes, you have '+lines.length+' lines). Edit the words — don\'t add or remove lines.';
+      return false;
+    }
+    if(newTitle) EV.generated.videoTitle = newTitle;
+    scenes.forEach(function(s,i){ if(lines[i]!=null) s.text = lines[i]; });
+    EV.generated.script = [EV.generated.videoTitle].concat(scenes.map(function(s){return s.text;})).concat(EV.generated.outro||[]).join('\n\n');
+    if($('evScript')) $('evScript').textContent = EV.generated.script;
+    return true;
+  }
+
   $('evSave').addEventListener('click', function(){
     if(!EV.generated){ return; }
+    if(!applyEduEdits()){ return; }
     var btn = $('evSave'); btn.disabled = true;
     $('evSaveMsg').className='small ev-muted'; $('evSaveMsg').textContent='Saving to GitHub…';
     fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-save', payload: EV.generated }) })
