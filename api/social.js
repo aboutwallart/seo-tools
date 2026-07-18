@@ -1174,6 +1174,18 @@ module.exports = async (req, res) => {
         return null;
       }
       function _ratioBucket(w, h) { var r = w / h; if (r >= 0.9 && r <= 1.1) return 'square'; if (r >= 1.45 && r <= 1.55) return '3:2'; if (r >= 1.7 && r <= 1.85) return '16:9'; return 'other'; }
+      // which body images are LINKED to a product? (image wrapped in <a href=".../products/HANDLE">)
+      // That image IS that product → tag it with the product's SKU (so it maps to that product's scene).
+      var _prodByHandle = {}; products.forEach(function (p) { if (p && p.handle) _prodByHandle[p.handle.toLowerCase()] = p; });
+      var _imgToProd = {}, _linkedHandles = {};
+      try {
+        var _aRe = /<a\s+[^>]*?href="[^"]*?\/products\/([a-z0-9\-]+)[^"]*?"[^>]*>([\s\S]*?)<\/a>/gi, _ma;
+        while ((_ma = _aRe.exec(bodyHtml))) {
+          var _hh2 = (_ma[1] || '').toLowerCase(), _inner = _ma[2] || '';
+          var _mi2, _iRe2 = /<img[^>]+src=["']([^"']+)["']/gi;
+          while ((_mi2 = _iRe2.exec(_inner))) { var _pp2 = _prodByHandle[_hh2]; if (_pp2) { _imgToProd[_mi2[1]] = _pp2; _linkedHandles[_hh2] = 1; } }
+        }
+      } catch (e) {}
       var bodyImages = [];
       try {
         var _heads = [], _mH, _headRe = /<h([23])[^>]*>([\s\S]*?)<\/h\1>/gi;
@@ -1185,30 +1197,22 @@ module.exports = async (req, res) => {
         bodyImages = await Promise.all(_srcs.map(async function (it) {
           var ratio = 'other', wh = null;
           try { var ir = await fetch(it.url); var ib = Buffer.from(await ir.arrayBuffer()); wh = _imgSize(ib); if (wh) ratio = _ratioBucket(wh.w, wh.h); } catch (e) {}
-          return { url: it.url, heading: it.heading, ratio: ratio, reuse: (ratio === '3:2' || ratio === '16:9'), width: wh ? wh.w : 0, height: wh ? wh.h : 0, isProduct: false, sku: '' };
+          var _lp = _imgToProd[it.url] || null; // this body image is linked to a product
+          return { url: it.url, heading: it.heading, ratio: ratio, reuse: (ratio === '3:2' || ratio === '16:9'), width: wh ? wh.w : 0, height: wh ? wh.h : 0, isProduct: !!_lp, sku: _lp ? (_lp.sku || '') : '' };
         }));
       } catch (e) {}
 
-      // Add each About Wall Art product's own photo (from body links + Complete the Look) so she can
-      // reuse the real product image on its scene. NOT pre-ticked (she picks). If a product photo is
-      // the SAME file already shown as a content image, DON'T duplicate it — keep the content card and
-      // just tag it with the product's SKU so it still maps to that product's scene.
-      function _imgKey(u) { try { var s = u.split('?')[0].split('/').pop(); return s.replace(/_\d+x\d+(?=\.[a-z0-9]+$)/i, '').toLowerCase(); } catch (e) { return (u || '').toLowerCase(); } }
+      // Add a product card ONLY for products NOT already shown as a linked image in the body
+      // (a product linked-as-image in the body is already represented — don't repeat it).
+      // NOT pre-ticked (she picks per video length).
       try {
-        var _prodImgs = products.filter(function (p) { return p && p.image; }).map(function (p) { return { url: p.image, heading: p.title || '(product)', sku: p.sku || '' }; });
+        var _prodImgs = products.filter(function (p) { return p && p.image && !_linkedHandles[(p.handle || '').toLowerCase()]; }).map(function (p) { return { url: p.image, heading: p.title || '(product)', sku: p.sku || '' }; });
         var _pdone = await Promise.all(_prodImgs.map(async function (it) {
           var ratio = 'square', wh = null;
           try { var ir = await fetch(it.url); var ib = Buffer.from(await ir.arrayBuffer()); wh = _imgSize(ib); if (wh) ratio = _ratioBucket(wh.w, wh.h); } catch (e) {}
           return { url: it.url, heading: it.heading, ratio: ratio, reuse: (ratio === '3:2' || ratio === '16:9'), width: wh ? wh.w : 0, height: wh ? wh.h : 0, isProduct: true, sku: it.sku };
         }));
-        var _bodyByKey = {}; bodyImages.forEach(function (bi) { _bodyByKey[_imgKey(bi.url)] = bi; });
-        var _uniqueProds = [];
-        _pdone.forEach(function (pi) {
-          var hit = _bodyByKey[_imgKey(pi.url)];
-          if (hit) { hit.isProduct = true; if (pi.sku && !hit.sku) hit.sku = pi.sku; } // same file already in content → tag it, no duplicate card
-          else { _uniqueProds.push(pi); }
-        });
-        bodyImages = bodyImages.concat(_uniqueProds);
+        bodyImages = bodyImages.concat(_pdone);
       } catch (e) {}
 
       return res.status(200).json({ ok: true, sourceTitle: sourceTitle, products: products, bodyImages: bodyImages, featuredImage: featuredImage });
