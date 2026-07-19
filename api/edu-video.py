@@ -186,13 +186,20 @@ def build_recipe(urls, audio, timing):
                "row": 9, "top": 0, "left": 0, "width": 0, "height": 0, "startFromSound": 0, "styles": {"volume": 1}})
     return {"width": W, "height": H, "fps": FPS, "durationInFrames": T,
             "inputProps": {"durationInFrames": T, "width": W, "height": H, "fps": FPS, "backgroundColor": "#000000", "overlays": ov}}
-def srt_data_uri(timing, lines):
+def srt_text(timing, lines):
     def ts(ms):
         ms = int(ms); return "%02d:%02d:%02d,%03d" % (ms//3600000, (ms%3600000)//60000, (ms%60000)//1000, ms%1000)
     out = []
     for i, (t, ln) in enumerate(zip(timing, lines), 1):
         out += [str(i), "%s --> %s" % (ts(t["start_ms"]), ts(t["end_ms"])), ln.strip(), ""]
-    return "data:text/plain;base64," + base64.b64encode("\n".join(out).encode()).decode()
+    return "\n".join(out)
+def srt_data_uri(timing, lines):
+    return "data:text/plain;base64," + base64.b64encode(srt_text(timing, lines).encode()).decode()
+def drive_upload(folder_id, name, mime, data):
+    # upload a (small) file into a Drive folder via the Apps Script helper
+    url = os.environ["EDU_DRIVE_URL"]
+    body = json.dumps({"action": "upload", "folderId": folder_id, "name": name, "mime": mime, "dataBase64": base64.b64encode(data).decode()}).encode()
+    return json.loads(http(url, "POST", {"Content-Type": "application/json"}, body))
 
 # ---------- pipeline ----------
 def make_video(folder_id, handle):
@@ -220,7 +227,12 @@ def make_video(folder_id, handle):
     recipe = build_recipe(urls, audio_url, timing)
     job = json.loads(http("https://renderly.video/api/v1/renders", "POST",
         {"Authorization": "Bearer "+rkey, "content-type": "application/json"}, json.dumps(recipe).encode()))["data"]["jobId"]
-    return {"jobId": job, "srt": srt_data_uri(timing, lines)}
+    # auto-save the subtitles into the same Drive folder, named after the video title (.srt is small)
+    st = srt_text(timing, lines)
+    safe = (re.sub(r"[^A-Za-z0-9 _-]", "", edu.get("videoTitle") or "subtitles").strip()[:80]) or "subtitles"
+    try: drive_upload(folder_id, safe + ".srt", "text/plain", st.encode("utf-8"))
+    except Exception: pass
+    return {"jobId": job, "srt": "data:text/plain;base64," + base64.b64encode(st.encode()).decode(), "title": safe}
 def rl_upload_bytes(data, ct, key):
     d = json.loads(http("https://renderly.video/api/v1/uploads", "POST",
         {"Authorization": "Bearer "+key, "content-type": "application/json"},
