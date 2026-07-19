@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v7.2 · 19 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v7.4 · 19 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -1014,7 +1014,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v7.2 — built 19 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v7.4 — built 19 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -1982,8 +1982,12 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   function renderEduImages(){
     var wrap = $('evImgWrap'); if(!wrap) return;
     var feat = $('evFeatured'), list = $('evImgList'), st = $('evImgStatus');
+    // map each image URL to its scene/photo number (from the generated script) so she knows which prompt each image is for
+    var sceneByUrl = {};
+    if(EV.generated){ (EV.generated.scenes||[]).forEach(function(s,idx){ var u=(s&&s.reuseUrl)?s.reuseUrl:''; if(u) sceneByUrl[u]=idx+2; }); }
+    function scBadge(n){ return n ? '<div class="ev-imghead" style="background:#2563eb;color:#fff;border-radius:6px;padding:2px 9px;display:inline-block;margin-bottom:5px;font-weight:800;">🎬 Scene '+(n<10?('0'+n):n)+'</div>' : ''; }
     if(EV.featuredImage){
-      feat.innerHTML = '<label class="ev-imgcard ev-feat-card"><div class="ev-imghead">Title image (scene 1)</div><img src="'+attr(EV.featuredImage)+'"><div class="ev-imgmeta"><input type="checkbox" '+(EV.featuredUse?'checked':'')+' data-feat="1"><span class="small ev-muted">Reused as 5 remade 16:9 options</span></div><div style="margin-top:5px;display:flex;gap:6px;align-items:center;"><button type="button" class="ev-btn-sm ev-cardcopy" data-img="'+attr(EV.featuredImage)+'" style="font-size:11px;padding:5px 9px;">Copy image</button><a href="'+attr((EV.chosen&&EV.chosen.url)||'')+'" target="_blank" rel="noopener" class="small" style="text-decoration:none;">open page</a></div></label>';
+      feat.innerHTML = '<label class="ev-imgcard ev-feat-card">'+scBadge(1)+'<div class="ev-imghead">Title image (scene 1)</div><img src="'+attr(EV.featuredImage)+'"><div class="ev-imgmeta"><input type="checkbox" '+(EV.featuredUse?'checked':'')+' data-feat="1"><span class="small ev-muted">Reused as 5 remade 16:9 options</span></div><div style="margin-top:5px;display:flex;gap:6px;align-items:center;"><button type="button" class="ev-btn-sm ev-cardcopy" data-img="'+attr(EV.featuredImage)+'" style="font-size:11px;padding:5px 9px;">Copy image</button><a href="'+attr((EV.chosen&&EV.chosen.url)||'')+'" target="_blank" rel="noopener" class="small" style="text-decoration:none;">open page</a></div></label>';
     } else { feat.innerHTML = ''; }
     var imgs = EV.bodyImages || [];
     if(!imgs.length){ st.textContent = 'No images found inside this '+((EV.chosen&&EV.chosen.type==='page')?'page':'blog')+'.'; list.innerHTML = ''; }
@@ -1995,7 +1999,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           ? '<span class="ev-tag ev-tag-ok">'+esc(im.ratio)+' · reuse as-is</span>'
           : '<span class="ev-tag ev-tag-fix">'+esc(im.ratio==='other'?'odd shape':im.ratio)+' · remade to 16:9</span>';
         var prodBadge = im.isProduct ? '<span class="ev-tag ev-tag-prod">product</span>' : '';
-        var head = im.heading ? '<div class="ev-imghead">'+(im.isProduct?'🛒 ':'')+esc(im.heading)+'</div>' : '<div class="ev-imghead ev-muted">(no heading)</div>';
+        var head = scBadge(sceneByUrl[im.url]) + (im.heading ? '<div class="ev-imghead">'+(im.isProduct?'🛒 ':'')+esc(im.heading)+'</div>' : '<div class="ev-imghead ev-muted">(no heading)</div>');
         return '<label class="ev-imgcard">'+head+'<img src="'+attr(im.url)+'" loading="lazy"><div class="ev-imgmeta"><input type="checkbox" '+on+' data-imgurl="'+attr(im.url)+'"> '+prodBadge+tag+'</div><div style="margin-top:5px;display:flex;gap:6px;align-items:center;"><button type="button" class="ev-btn-sm ev-cardcopy" data-img="'+attr(im.url)+'" style="font-size:11px;padding:5px 9px;">Copy image</button><a href="'+attr(im.url)+'" target="_blank" rel="noopener" class="small" style="text-decoration:none;">open</a></div></label>';
       }).join('');
     }
@@ -2174,6 +2178,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         EV.generated = d.payload;
         renderPromptBatches(d.promptBatches || (d.imagePromptBlock ? [d.imagePromptBlock] : []));
         fillEduEditable(EV.generated);
+        renderEduImages(); // re-render so each image card now shows its Scene number
         reflectDriveFolder();
         $('evGenStatus').className='small ev-muted'; $('evGenStatus').textContent = 'Done — ' + (d.sceneCount||0) + ' scenes (plus the 5 fixed outro lines). Review, then save.';
         $('evOut').style.display = 'block';
@@ -2233,6 +2238,14 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       })
       .then(function(){ btn.disabled=false; btn.classList.add('done'); btn.textContent='Copied ✓'; setTimeout(function(){ btn.classList.remove('done'); btn.textContent=orig; },1600); })
       .catch(function(e){ btn.disabled=false; btn.textContent=orig; alert('Could not copy the image: '+e.message+'. Use the "open" link, then right-click → Copy Image.'); });
+  }
+  // download the finished video already named after the title (done in the browser, so no size limit)
+  function downloadVideoNamed(url, title, btn){
+    if(!url){ return; }
+    var orig=btn.textContent; btn.disabled=true; btn.textContent='Preparing the file…';
+    fetch(url).then(function(r){ if(!r.ok) throw new Error('status '+r.status); return r.blob(); })
+      .then(function(b){ var u=URL.createObjectURL(b); var a=document.createElement('a'); a.href=u; a.download=(title||'video')+'.mp4'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){ URL.revokeObjectURL(u); },5000); btn.disabled=false; btn.classList.add('ev-done'); btn.textContent='Downloaded ✓'; })
+      .catch(function(e){ btn.disabled=false; btn.textContent=orig; alert('Could not download it named (the video host blocked the browser). Use "Open in browser" to save it, then rename it to:\n\n'+(title||'video')+'.mp4'); });
   }
   // Apply her title/script edits back into EV.generated before saving. Returns false (and warns) if the line count changed.
   function applyEduEdits(){
@@ -2314,7 +2327,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         .then(function(r){return r.json();})
         .then(function(d){
           if(!d||!d.jobId){ stop(); vbtn.disabled=false; vbtn.textContent=lbl; var _e2=((d&&d.error)||'error'); prog.className='small ev-warn'; prog.textContent = /404|not found/i.test(_e2) ? "Save this video's script first (step 2), then make the video." : ('Could not start: '+_e2); return; }
-          var srtUri = d.srt||''; step='Rendering the video…';
+          var srtUri = d.srt||''; var vidTitle = d.title || (EV.generated&&EV.generated.videoTitle) || 'video'; step='Rendering the video…';
           poll=setInterval(function(){
             fetch('/api/edu-video',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'edu-video-status',jobId:d.jobId})})
               .then(function(r){return r.json();})
@@ -2323,7 +2336,11 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
                 if(s && s.error){ stop(); vbtn.disabled=false; vbtn.textContent=lbl; prog.className='small ev-warn'; prog.textContent='Error: '+s.error; return; }
                 if(s && s.done){ stop(); vbtn.disabled=false; vbtn.textContent=lbl; prog.className='small ev-muted'; prog.textContent='Done ✓   ('+fmt(Math.floor((Date.now()-t0)/1000))+')';
                   out.style.display='block';
-                  out.innerHTML='<a class="ev-btn ev-btn-go" style="text-decoration:none;display:inline-block;" target="_blank" href="'+esc(s.videoUrl||'')+'">▶ Open / download the video</a>'+(srtUri?' <a class="ev-btn-sm" style="text-decoration:none;display:inline-block;margin-left:8px;" download="subtitles.srt" href="'+srtUri+'">⬇ Download subtitles (.srt)</a>':'')+'<div class="small ev-muted" style="margin-top:8px;">Download the video + subtitles, then upload both to YouTube.</div>';
+                  out.innerHTML='<button type="button" class="ev-btn ev-btn-go ev-dlvid">⬇ Download video ('+esc(vidTitle)+'.mp4)</button>'+
+                    ' <a class="ev-btn-sm" style="text-decoration:none;display:inline-block;margin-left:8px;" target="_blank" href="'+esc(s.videoUrl||'')+'">▶ Open in browser</a>'+
+                    (srtUri?' <a class="ev-btn-sm" style="text-decoration:none;display:inline-block;margin-left:8px;" download="'+esc(vidTitle)+'.srt" href="'+srtUri+'">⬇ Download subtitles (.srt)</a>':'')+
+                    '<div class="small ev-muted" style="margin-top:8px;">The subtitles are also saved into your Drive folder automatically. Download the video (already named), then upload both to YouTube.</div>';
+                  var dv=out.querySelector('.ev-dlvid'); if(dv) dv.addEventListener('click', function(){ downloadVideoNamed(s.videoUrl||'', vidTitle, dv); });
                 }
               }).catch(function(){});
           }, 4000);
