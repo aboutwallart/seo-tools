@@ -1273,11 +1273,13 @@ module.exports = async (req, res) => {
         'FULL SECTION OUTLINE — every heading in the blog/page, in order. The video MUST cover these sections; do NOT skip any and do NOT drift into generic advice about the topic:\n' + outline + '\n\n' +
         'SELECTED PRODUCTS (use ONLY these). Create ONE product scene for EACH selected product — every selected product must appear exactly once as a product scene (kind:"product", its "productSku" set):\n' + (prodList || '(none)') + '\n\n' +
         'REUSED IMAGES (already-made photos from the blog — place each on the ONE scene that matches its heading; never repeat one):\n' + reuseList + '\n\n' +
-        'SCRIPT RULES (the voice is everything — keep exactly this style):\n' +
-        '- Warm, human, first-person home-decor advisor talking to a friend. Personal little asides and gentle tips ("my favourite style", "a little tip I love", "if you\'re forgetful like me", "take care not to..."). Calm, plain-spoken, NEVER salesy or poetic-brochure.\n' +
+        'SCRIPT RULES (this voice is everything — follow it exactly):\n' +
+        '- Write like a CASUAL, FRIENDLY home-decor advisor chatting to a friend — warm, human, first-person. Short spoken bursts and FRAGMENTS, not tidy polished sentences. Casual openers ("Okay —", "You know that feeling when…", "Here\'s the thing…"), the odd verbal tick ("you know?", "right?"), and REAL personal asides ("honestly, one of my favourites", "a little tip I love:", "trust me —"). Use "…" for a natural trailing pause. Calm and friendly, NEVER salesy or poetic-brochure.\n' +
+        '- ★ EMOTIONS: add an ElevenLabs voice tag in [square brackets] to guide how a line is spoken, using ONLY these seven: [warmly] [gently] [softly] [curious] [excited] [laughs] [sighs]. Put the tag at the very START of the line (or right before the phrase it colours). Use them SPARINGLY — roughly one every few scenes, only where the feeling is genuine; NOT on every line. Keep the mood calm and friendly. NEVER use any other tag (no [shouts], [gunshot], etc.).\n' +
+        '- Emphasis: occasionally put the ONE key word of a line in CAPITALS (e.g. "start with just ONE wall"). Never shout a whole line.\n' +
         '- UK spelling. NEVER use: elevate, delve, showcase, dive, beacon, embrace, unleash, "in conclusion", "look no further".\n' +
-        '- ONE short phrase per scene (max ~2 short lines each). About ' + targetScenes + ' content scenes.\n' +
-        '- Scene text must come from the source content and COVER THE WHOLE OUTLINE above, in order. Set videoTitle to the blog\'s REAL title (it carries the SEO keyword) — do NOT invent a keyword-less hook.\n' +
+        '- ONE line per scene — a single short spoken burst, no line breaks inside a scene. About ' + targetScenes + ' content scenes.\n' +
+        '- Scene text must come from the source content and COVER THE WHOLE OUTLINE above, in order. Set videoTitle to the blog\'s REAL title (it carries the SEO keyword) — do NOT invent a keyword-less hook, and do NOT put any [tag] on the videoTitle.\n' +
         '- Do NOT write the closing/outro — it is appended automatically.\n\n' +
         'IMAGE RULES — for EACH scene set "use", "kind", "reuseUrl", "productSku", "image":\n' +
         '- "use": "reuse" if a REUSED IMAGE marked USE AS-IS matches this scene\'s heading (put its url in "reuseUrl", leave "image" empty — no prompt needed). "remake" if a REUSED IMAGE marked REMAKE matches (put its url in "reuseUrl" and write "image" as instructions to extend that same photo to 16:9). Otherwise "generate" (write a fresh "image" prompt). Attach each reused image to ONE best-matching scene only.\n' +
@@ -1412,6 +1414,69 @@ module.exports = async (req, res) => {
         } catch (e) { failed.push(_pad2s(it.slot)); }
       }
       return res.status(200).json({ ok: true, folderId: folderId, folderUrl: folderUrl, saved: saved, total: reused.length, failed: failed });
+    }
+
+    if (action === 'edu-voiceover') {
+      // Make the ElevenLabs voiceover from the SAVED script and drop voiceover.mp3 into the video's Drive folder.
+      // Voice = Serena (British, Friendly Ad). Model = Eleven v3. Stability = Natural (0.5) so the [audio tags] work.
+      // The spoken text = videoTitle + every scene line (WITH its [tags]) + the 5 fixed outro lines — same order the
+      // render's timing uses, so the audio and the on-screen scenes line up. The render strips the tags for captions.
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      const handle = (body.handle || '').toString().trim().toLowerCase().replace(/[^a-z0-9\-]/g, '');
+      if (!handle) return res.status(400).json({ ok: false, error: 'Missing handle' });
+      var EL_KEY = process.env.ELEVENLABS_KEY;
+      if (!EL_KEY) return res.status(200).json({ ok: false, error: 'The voiceover is not set up (ELEVENLABS_KEY missing).' });
+      var DRIVE = process.env.EDU_DRIVE_URL;
+      if (!DRIVE) return res.status(200).json({ ok: false, error: 'The Drive helper is not set up (EDU_DRIVE_URL missing).' });
+      var VOICE_ID = '1YfmfuouRyRwVbpAZP7R'; // Serena — British, Friendly Ad
+      const gh = await ghGet('data/edu-video-' + handle + '.json');
+      if (!gh.content) return res.status(200).json({ ok: false, error: 'Save the video first (step 2), then make the voiceover.' });
+      var p = {};
+      try { p = JSON.parse(gh.content); } catch (e) { return res.status(200).json({ ok: false, error: 'Saved file unreadable' }); }
+      var folderId = (body.folderId || '').toString().trim() || (p.driveFolderId || '').toString().trim();
+      if (!folderId) return res.status(200).json({ ok: false, error: 'Create the Drive folder first (step 3), or paste the folder link.' });
+      // build the spoken script (keep the [tags] — they are the voice cues for ElevenLabs)
+      var parts = [];
+      var vt = (p.videoTitle || '').toString().trim(); if (vt) parts.push(vt);
+      (Array.isArray(p.scenes) ? p.scenes : []).forEach(function (s) { var t = (s && s.text ? s.text : '').toString().trim(); if (t) parts.push(t); });
+      (Array.isArray(p.outro) ? p.outro : []).forEach(function (o) { var t = (o || '').toString().trim(); if (t) parts.push(t); });
+      var scriptText = parts.join('\n\n');
+      if (!scriptText) return res.status(200).json({ ok: false, error: 'The saved script is empty — generate and save it first.' });
+      // ElevenLabs v3 handles up to ~5,000 characters per request. Her scripts are ~3,400 so it is one call;
+      // if a script is ever longer, split it at paragraph breaks and join the mp3 pieces.
+      var chunks = [];
+      if (scriptText.length <= 5000) { chunks = [scriptText]; }
+      else {
+        var paras = scriptText.split('\n\n'); var cur = '';
+        paras.forEach(function (pp) { if (cur && (cur.length + 2 + pp.length) > 4800) { chunks.push(cur); cur = pp; } else { cur = cur ? (cur + '\n\n' + pp) : pp; } });
+        if (cur) chunks.push(cur);
+      }
+      async function ttsChunk(text) {
+        var r = await fetch('https://api.elevenlabs.io/v1/text-to-speech/' + VOICE_ID + '?output_format=mp3_44100_128', {
+          method: 'POST',
+          headers: { 'xi-api-key': EL_KEY, 'Content-Type': 'application/json', 'accept': 'audio/mpeg' },
+          body: JSON.stringify({ text: text, model_id: 'eleven_v3', voice_settings: { stability: 0.5, use_speaker_boost: true } })
+        });
+        if (!r.ok) {
+          var et = await r.text();
+          if (r.status === 401 || r.status === 402 || r.status === 429 || /credit|quota|insufficient|balance|payment|limit/i.test(et)) {
+            throw new Error('❌ Couldn\'t make the voiceover — your ElevenLabs credits/quota look used up. Top up and try again.');
+          }
+          throw new Error('ElevenLabs error ' + r.status + ': ' + et.slice(0, 200));
+        }
+        return Buffer.from(await r.arrayBuffer());
+      }
+      try {
+        var bufs = [];
+        for (var ci = 0; ci < chunks.length; ci++) { bufs.push(await ttsChunk(chunks[ci])); }
+        var mp3 = Buffer.concat(bufs);
+        var up = await fetch(DRIVE, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'upload', folderId: folderId, name: 'voiceover.mp3', mime: 'audio/mpeg', dataBase64: mp3.toString('base64') }) });
+        var uj = await up.json();
+        if (!uj || !uj.ok) return res.status(200).json({ ok: false, error: 'Made the voiceover but could not save it to Drive: ' + ((uj && uj.error) || 'upload failed') });
+        return res.status(200).json({ ok: true, folderId: folderId, folderUrl: 'https://drive.google.com/drive/folders/' + folderId, fileUrl: uj.url || '', chars: scriptText.length });
+      } catch (e) {
+        return res.status(200).json({ ok: false, error: e.message });
+      }
     }
 
     if (action === 'edu-save') {

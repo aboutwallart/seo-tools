@@ -66,6 +66,10 @@ def transcribe(mp3_bytes, key):
         if d["status"] == "error": raise RuntimeError(d.get("error"))
         time.sleep(5)
 CANON = {"colour":"color","colours":"colors","favourite":"favorite","favourites":"favorites","vs":"versus","grey":"gray","cosy":"cozy","travelled":"traveled","metre":"meter"}
+def clean(t):
+    # Strip ElevenLabs [audio tags] (voice cues for the mp3 only) so they never show in the
+    # on-screen captions / subtitles and never break the word-timing match.
+    return re.sub(r"\s+", " ", re.sub(r"\[[^\]]*\]", "", t or "")).strip()
 def toks(t):
     t = t.lower().replace("’", "'")
     return [CANON.get(w, w) for w in re.split(r"[^a-z0-9']+", re.sub(r"[-–—/]", " ", t)) if w]
@@ -134,21 +138,21 @@ def bake_all(indir, edu, outdir):
     n = len(edu["scenes"])
     b = cover(openimg(img(1))); d = ImageDraw.Draw(b); barh = 240
     d.rectangle([0, H-barh, W, H], fill=(0,0,0)); f = F(LEMON, 66)
-    L = wrap(d, edu["videoTitle"].upper(), f, W-300); asc, desc = f.getmetrics(); lh = int((asc+desc)*1.05)
+    L = wrap(d, clean(edu["videoTitle"]).upper(), f, W-300); asc, desc = f.getmetrics(); lh = int((asc+desc)*1.05)
     ty = H-barh//2-(len(L)*lh)//2
     for ln in L: d.text((W//2, ty), ln, font=f, fill="white", anchor="ma"); ty += lh
     add_logo(b); b.save(os.path.join(outdir, "frame_00.png"))
     for i in range(1, n+1):
-        b = cover(openimg(img(i+1))); caption_box(b, edu["scenes"][i-1]["text"]); add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % i))
+        b = cover(openimg(img(i+1))); caption_box(b, clean(edu["scenes"][i-1]["text"])); add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % i))
     o1, o2, o3, o4, o5 = n+1, n+2, n+3, n+4, n+5
     b = cover(openimg(OUTRO_BG[1])); d = ImageDraw.Draw(b); f = F(LEMON, 62)
-    x = 1000; L = wrap(d, edu["outro"][0].upper(), f, W-x-90); asc, desc = f.getmetrics(); lh = int((asc+desc)*1.1)
+    x = 1000; L = wrap(d, clean(edu["outro"][0]).upper(), f, W-x-90); asc, desc = f.getmetrics(); lh = int((asc+desc)*1.1)
     y = H//2-(len(L)*lh)//2
     for ln in L: d.text((x, y), ln, font=f, fill="white", anchor="la"); y += lh
     add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % o1))
-    b = contain_white(openimg(OUTRO_BG[2])); caption_box(b, edu["outro"][1]); add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % o2))
-    b = contain_white(openimg(OUTRO_BG[3])); caption_box(b, edu["outro"][2]); add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % o3))
-    b = cover(openimg(OUTRO_BG[4])); caption_box(b, edu["outro"][3]); add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % o4))
+    b = contain_white(openimg(OUTRO_BG[2])); caption_box(b, clean(edu["outro"][1])); add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % o2))
+    b = contain_white(openimg(OUTRO_BG[3])); caption_box(b, clean(edu["outro"][2])); add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % o3))
+    b = cover(openimg(OUTRO_BG[4])); caption_box(b, clean(edu["outro"][3])); add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % o4))
     b = Image.new("RGB", (W, H), (0,0,0)); d = ImageDraw.Draw(b)
     lg = Image.open(LOGO).convert("RGBA").resize((200,200), Image.LANCZOS); b.paste(lg, ((W-200)//2, 120), lg)
     f = F(LEMON, 96)
@@ -158,7 +162,7 @@ def bake_all(indir, edu, outdir):
     b.save(os.path.join(outdir, "frame_%02d.png" % o5))
     return o5 + 1
 
-def scene_lines(edu): return [edu["videoTitle"]] + [s["text"] for s in edu["scenes"]] + list(edu["outro"])
+def scene_lines(edu): return [clean(edu["videoTitle"])] + [clean(s["text"]) for s in edu["scenes"]] + [clean(o) for o in edu["outro"]]
 
 # ---------- Renderly ----------
 def rl_upload(path, ct, key):
@@ -235,11 +239,11 @@ def preview(folder_id, handle):
     def thumb(k):
         f = photo_for(files, k)
         return ("https://drive.google.com/thumbnail?id=%s&sz=w400" % f["id"]) if f else ""
-    rows = [{"label": "Title (scene 1) — photo 01", "text": edu["videoTitle"], "img": thumb(1)}]
+    rows = [{"label": "Title (scene 1) — photo 01", "text": clean(edu["videoTitle"]), "img": thumb(1)}]
     for i in range(1, n + 1):
-        rows.append({"label": "Scene %d — photo %02d" % (i + 1, i + 1), "text": edu["scenes"][i-1]["text"], "img": thumb(i + 1)})
+        rows.append({"label": "Scene %d — photo %02d" % (i + 1, i + 1), "text": clean(edu["scenes"][i-1]["text"]), "img": thumb(i + 1)})
     for i, o in enumerate(edu["outro"], 1):
-        rows.append({"label": "Ending card %d" % i, "text": o, "img": "", "fixed": True})
+        rows.append({"label": "Ending card %d" % i, "text": clean(o), "img": "", "fixed": True})
     missing = [k for k in range(1, n + 2) if not thumb(k)]
     return {"ok": True, "rows": rows, "missing": missing, "photoCount": len([f for f in files if f["name"].lower().endswith((".png",".jpg",".jpeg"))]), "needed": n + 1}
 
