@@ -1286,9 +1286,9 @@ module.exports = async (req, res) => {
         '- EVERY scene must end up with an image (reused or generated) so the WHOLE script is covered — like before.\n' +
         '- ★ The image must show EXACTLY what THIS scene\'s line says — the specific room, object, action, colour, number or step named in the text. NEVER a generic decor shot.\n' +
         '- ★ FULL BLEED, ALWAYS: every image must FILL THE ENTIRE 16:9 FRAME, edge to edge. NEVER add black, white or BLURRED bars, blocks or bands on the top, bottom or sides; no letterboxing or pillarboxing. The scene fills the whole frame.\n' +
-        '- ★ EDITORIAL LOOK — EVERY image (hero, photo AND product): make it look like a high-end interior-design MAGAZINE (Architectural Digest / Kinfolk / Elle Decoration) — art-directed, beautifully styled, cohesive and ASPIRATIONAL, a room someone would want to buy into. Natural directional daylight, soft shadows, premium finish; layered and considered. The framed wall art is the FOCAL POINT and its colours MUST echo the room\'s palette (matching, never clashing). NEVER a bland empty room with one sofa and a random mismatched print; NO generic stock-photo look, no clutter, no dated or corporate furniture.\n' +
+        '- ★ EDITORIAL LOOK — EVERY image (hero, photo AND product): make it look like a high-end interior-design MAGAZINE (Architectural Digest / Kinfolk / Elle Decoration) — art-directed, beautifully styled, cohesive and ASPIRATIONAL, a room someone would want to buy into. Natural directional daylight, soft shadows, premium finish; layered and considered. The framed wall art is the FOCAL POINT and its colours MUST echo the room\'s palette (matching, never clashing). NEVER a bland empty room with one sofa and a random mismatched print; NO generic stock-photo look, no clutter, no dated or corporate furniture. Keep the whole palette CALM and MUTED — soft, tonal, low-saturation art and decor; the wall art is NEVER loud or overly colourful, unless a scene must specifically prove a colour point.\n' +
         '- ★ STYLE: default to SCANDI-MINIMAL / JAPANDI, UNLESS this scene\'s topic is clearly about a different interior style — then style the room authentically in THAT style at the same editorial quality (don\'t force Scandi onto a scene about another look). SCANDI-MINIMAL — palette: warm white, soft grey, pale oak, muted beige, black accents, hints of sage or dusty blue; materials: light oak/ash wood, linen, wool, ceramic, matte-black metal, jute; objects: low linen sofa, wool or sheepskin throw, woven baskets, ceramic vases with dried pampas/grasses, stacked books, a simple lamp, an olive or rubber plant. JAPANDI — palette: warm taupe, clay, muted terracotta, charcoal, deep brown, off-white, black; materials: light-and-dark wood contrast, rattan or bamboo, stoneware, linen, paper, matte black; objects: low wooden furniture, floor cushions, wabi-sabi handmade pottery, a single-stem or ikebana arrangement, textured throws, a bonsai.\n' +
-        '- "kind": "infographic" ONLY when the scene is a genuinely VISUAL idea — a COMPARISON, before/after, proportion, measurement, or steps. For plain tips/lists use "kind":"photo" instead (a normal scene + the caption), NEVER a text-list "infographic". When it IS an infographic, the "image" prompt MUST be this shape: "A clean minimal educational infographic on a plain WHITE background, photoreal, British English, all text solid BLACK. A generous blank margin at the TOP, then a short centred title. Below it a VISUAL comparison — e.g. two real photos side by side with only TWO short labels (no paragraphs, minimal words). Leave the entire BOTTOM THIRD blank white. IMPORTANT: this image WILL be cropped to 16:9 and subtitles sit along the bottom, so keep the title and content in the CENTRE band with nothing important near the top or bottom edges. High resolution, no watermarks." "kind":"product" for wall-art / finishing-touch scenes (set "productSku" from the list). The product "image" prompt MUST say: USE THE EXACT product photo provided (it is pasted into the AI chat), extend its sides NATURALLY to fill 16:9 (never stretch or distort), ADD the person(s) as described (in plain neutral clothing), keep the real framed art the clear focus, FULL BLEED. "kind":"photo" for everything else.\n' +
+        '- "kind": "infographic" ONLY when the scene is a genuinely VISUAL idea — a COMPARISON, before/after, proportion, measurement, or steps. For plain tips/lists use "kind":"photo" instead (a normal scene + the caption), NEVER a text-list "infographic". When it IS an infographic, the "image" prompt MUST be this shape: "A clean minimal educational infographic on a plain WHITE background, photoreal, all text solid BLACK. A generous blank margin at the TOP, then a short centred title. Below it a VISUAL comparison — e.g. two real photos side by side with only TWO short labels (no paragraphs, minimal words). Leave the entire BOTTOM THIRD blank white. IMPORTANT: this image WILL be cropped to 16:9 and subtitles sit along the bottom, so keep the title and content in the CENTRE band with nothing important near the top or bottom edges. High resolution, no watermarks." "kind":"product" for wall-art / finishing-touch scenes (set "productSku" from the list). The product "image" prompt MUST say: USE THE EXACT product photo provided (it is pasted into the AI chat) and extend its sides NATURALLY to fill 16:9 (never stretch or distort), keep the real framed art the clear focus, FULL BLEED — and DO NOT add or change anything else: no extra people, no new objects, no different scene, just widen the existing photo to fit. "kind":"photo" for everything else.\n' +
         '- PHOTO scenes: photoreal, high-resolution EDITORIAL interior photography exactly as described above (styled, aspirational, cohesive palette, wall art matching the room), NO text/logos/watermarks. A person present by default; a COUPLE (a man and a woman) for bedroom/romantic, a CHILD or BABY with a parent for nursery/kids, FRIENDS for entertaining, a FAMILY INCLUDING OLDER RELATIVES for festive. Vary ethnicity genuinely (a real mix, not always white). Do NOT depict gay, lesbian or transgender couples. COLOUR/MATERIAL scenes: the person is actively CHOOSING — holding/comparing swatches or samples.\n' +
         '- Also write a single "hero" paragraph for scene 1: the opening/thumbnail shot inspired by the source (ONE strong scene — it becomes 5 variations, same room/styling/composition, only the person or their position changes).\n\n' +
         'Return ONLY strict JSON, no markdown:\n' +
@@ -1336,7 +1336,7 @@ module.exports = async (req, res) => {
       function _pad2(n) { return n < 10 ? '0' + n : '' + n; }
       var heroLine;
       if (featured && featured.url) {
-        heroLine = '01. [16:9] TITLE IMAGE — 5 OPTIONS — REMAKE THIS BLOG FEATURED PHOTO to 16:9: extend the sides as a natural continuation of the same room (never stretch or distort); keep the person if there is one, add one if not. Make 5 variations (same room/styling, change only the person or their position). PHOTO TO REMAKE: ' + featured.url + (hero ? ('  |  context: ' + hero) : '');
+        heroLine = '01. [16:9] TITLE IMAGE — 5 OPTIONS — USE THIS EXACT BLOG FEATURED PHOTO and extend the sides naturally to FILL 16:9 (never stretch or distort), FULL BLEED — do NOT add or change anything else (no new people, no new objects, no different scene). Make 5 variations of the extension (the original photo stays as-is; only the widened sides differ). PHOTO: ' + featured.url;
       } else {
         heroLine = '01. [16:9] MAIN HERO IMAGE — 5 OPTIONS (5 variations of this SAME shot: same room, styling and composition; change only the person or their position). ' + hero;
       }
@@ -1352,7 +1352,11 @@ module.exports = async (req, res) => {
         var isProd = kind === 'product' && s && s.productSku && skuTitle[(s.productSku || '').toUpperCase()];
         var tag = kind === 'infographic' ? '[16:9][INFOGRAPHIC]' : '[16:9]';
         var line = _pad2(num) + '. ' + tag + ' ';
-        if (use === 'remake' && reuseUrl) { line += 'USE THE EXACT PHOTO PROVIDED and extend its sides naturally to FILL 16:9 (never stretch or distort), add the person(s) as described, FULL BLEED — no black/white/blurred bars or blocks: ' + reuseUrl + ' — '; }
+        if (use === 'remake' && reuseUrl) {
+          // extend-ONLY: use the exact photo, just widen it to 16:9 — no people, no scene, nothing else added
+          line += 'USE THIS EXACT PHOTO and extend the sides naturally to FILL 16:9 (never stretch or distort), FULL BLEED — do NOT add or change anything else: no extra people, no new objects, no different scene, just widen the existing image to fit: ' + reuseUrl;
+          lines.push(line); num++; return;
+        }
         line += ((s && s.image ? s.image : '').toString().trim());
         if (isProd) line += ' → product = "' + skuTitle[(s.productSku || '').toUpperCase()] + '"';
         lines.push(line);
@@ -1389,6 +1393,7 @@ module.exports = async (req, res) => {
       var DRIVE = process.env.EDU_DRIVE_URL;
       if (!DRIVE) return res.status(500).json({ ok: false, error: 'The Drive helper is not set up (EDU_DRIVE_URL missing).' });
       var vTitle = (body.videoTitle || 'Untitled video').toString().trim() || 'Untitled video';
+      var handle = (body.handle || '').toString().trim().toLowerCase().replace(/[^a-z0-9\-]/g, '');
       var reused = Array.isArray(body.reused) ? body.reused.filter(function (x) { return x && x.url && x.slot; }) : [];
       function _pad2s(n) { n = parseInt(n, 10) || 0; return n < 10 ? '0' + n : '' + n; }
       // 1) create the folder
@@ -1414,6 +1419,16 @@ module.exports = async (req, res) => {
           var uj = await up.json();
           if (uj && uj.ok) saved++; else failed.push(nm);
         } catch (e) { failed.push(_pad2s(it.slot)); }
+      }
+      // remember the folder on the saved video so it's still there when she reopens it later
+      if (handle) {
+        try {
+          var ex = await ghGet('data/edu-video-' + handle + '.json');
+          if (ex.content) {
+            var pp = JSON.parse(ex.content); pp.driveFolderId = folderId; pp.driveFolderUrl = folderUrl;
+            await ghSave('data/edu-video-' + handle + '.json', function () { return JSON.stringify(pp, null, 2); }, 'Save Drive folder ' + handle);
+          }
+        } catch (e) {}
       }
       return res.status(200).json({ ok: true, folderId: folderId, folderUrl: folderUrl, saved: saved, total: reused.length, failed: failed });
     }

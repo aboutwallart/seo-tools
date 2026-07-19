@@ -68,8 +68,11 @@ def transcribe(mp3_bytes, key):
 CANON = {"colour":"color","colours":"colors","favourite":"favorite","favourites":"favorites","vs":"versus","grey":"gray","cosy":"cozy","travelled":"traveled","metre":"meter"}
 def clean(t):
     # Strip ElevenLabs [audio tags] (voice cues for the mp3 only) so they never show in the
-    # on-screen captions / subtitles and never break the word-timing match.
-    return re.sub(r"\s+", " ", re.sub(r"\[[^\]]*\]", "", t or "")).strip()
+    # on-screen captions / subtitles and never break the word-timing match. Also turn ALL-CAPS
+    # emphasis words (voice cues too) back to normal case so captions aren't shouty.
+    t = re.sub(r"\[[^\]]*\]", "", t or "")
+    t = re.sub(r"[A-Za-z][A-Za-z']*", lambda m: m.group(0).lower() if (len(m.group(0)) >= 2 and m.group(0).isupper()) else m.group(0), t)
+    return re.sub(r"\s+", " ", t).strip()
 def toks(t):
     t = t.lower().replace("’", "'")
     return [CANON.get(w, w) for w in re.split(r"[^a-z0-9']+", re.sub(r"[-–—/]", " ", t)) if w]
