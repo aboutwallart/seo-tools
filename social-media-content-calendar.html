@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v7.1 · 19 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v7.2 · 19 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -419,7 +419,8 @@
 
   <style>
     #tab-edu .ev-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:14px 0;}
-    #tab-edu .ev-btn{appearance:none;border:none;border-radius:9px;background:#534AB7;color:#fff;font-size:13.5px;font-weight:700;padding:9px 16px;cursor:pointer;}
+    #tab-edu .ev-btn{appearance:none;border:none;border-radius:9px;background:#2563eb;color:#fff;font-size:13.5px;font-weight:700;padding:9px 16px;cursor:pointer;}
+    #tab-edu .ev-btn.ev-done{background:#0F6E56;}
     #tab-edu .ev-btn:disabled{opacity:.6;cursor:default;}
     #tab-edu .ev-btn-sm{appearance:none;border:1px solid var(--line);background:#fff;border-radius:8px;font-size:13px;font-weight:700;padding:8px 13px;cursor:pointer;}
     #tab-edu .ev-in{font-size:14px;border:1px solid var(--line);border-radius:8px;padding:8px 11px;min-width:220px;}
@@ -446,7 +447,7 @@
     #tab-edu .ev-pick .ev-pt{display:block;margin-top:5px;font-weight:600;line-height:1.2;}
     #tab-edu .ev-pick .ev-sku{display:block;margin-top:3px;color:var(--mut);font-size:10.5px;font-weight:700;}
     #tab-edu .ev-manual{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:14px;}
-    #tab-edu .ev-btn-go{background:#0F6E56;}
+    #tab-edu .ev-btn-go{background:#2563eb;}
     #tab-edu .ev-outhead{display:flex;gap:12px;align-items:center;margin:18px 0 6px;font-size:14px;}
     #tab-edu .ev-titlebox{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;font-weight:700;font-size:15px;}
     #tab-edu .ev-pre{white-space:pre-wrap;word-wrap:break-word;background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:14px;font-size:13px;line-height:1.5;max-height:420px;overflow:auto;font-family:inherit;}
@@ -540,8 +541,6 @@
       <div id="evPromptsWrap"></div>
       <div id="evImgCount" class="small ev-muted" style="margin-top:8px;font-weight:700;"></div>
       <div id="evSourceLink" class="small ev-muted" style="margin-top:10px;"></div>
-      <div id="evProdLinks" class="small ev-muted" style="margin-top:6px;"></div>
-      <div id="evPasteImgs" style="margin-top:12px;"></div>
 
       <div class="ev-savebar">
         <button type="button" id="evSave" class="ev-btn ev-btn-go">2 · Save this video's script</button>
@@ -562,6 +561,7 @@
         </div>
         <div class="ev-row" style="margin-top:10px;">
           <button type="button" id="evPreviewBtn" class="ev-btn">4 · Check images first</button>
+          <button type="button" id="evReloadCaps" class="ev-btn-sm" title="Save your latest script edits, then refresh the captions shown below">🔄 Reload captions</button>
         </div>
         <div id="evPreviewStatus" class="small ev-muted" style="margin-top:8px;display:none;"></div>
         <div id="evPreviewOut" style="display:none;margin-top:12px;max-height:520px;overflow-y:auto;border:1px solid #e5e5e5;border-radius:10px;padding:10px;"></div>
@@ -574,9 +574,9 @@
       </div>
 
       <div id="evPubWrap" style="display:none;">
-        <h3 class="ev-h3">7 · Publish on YouTube</h3>
+        <h3 class="ev-h3">Publish on YouTube</h3>
         <div class="ev-row">
-          <button type="button" id="evYtGen" class="ev-btn">Generate YouTube pack</button>
+          <button type="button" id="evYtGen" class="ev-btn">7 · Generate YouTube pack</button>
           <span id="evYtStatus" class="small ev-muted"></span>
         </div>
         <div id="evYtOut" style="display:none;">
@@ -591,10 +591,10 @@
           <div class="box gray" id="evYtMeta" style="margin-top:10px;"></div>
         </div>
 
-        <h3 class="ev-h3">7 · After you publish</h3>
+        <h3 class="ev-h3">After you publish</h3>
         <div class="ev-manual">
           <input id="evYtUrl" class="ev-in" placeholder="Paste the YouTube link (https://youtu.be/…)">
-          <button type="button" id="evFinish" class="ev-btn-sm">Build embed &amp; finish</button>
+          <button type="button" id="evFinish" class="ev-btn">8 · Build embed &amp; finish</button>
         </div>
         <div id="evFinishOut" style="display:none;">
           <div class="ev-outhead"><strong>Blog embed block</strong> <span class="small ev-muted">— paste at the END of the blog</span> <button type="button" class="ev-copy" data-copy="evEmbed">Copy</button></div>
@@ -1014,7 +1014,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v7.1 — built 19 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v7.2 — built 19 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -1983,7 +1983,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     var wrap = $('evImgWrap'); if(!wrap) return;
     var feat = $('evFeatured'), list = $('evImgList'), st = $('evImgStatus');
     if(EV.featuredImage){
-      feat.innerHTML = '<label class="ev-imgcard ev-feat-card"><div class="ev-imghead">Title image (scene 1)</div><img src="'+attr(EV.featuredImage)+'"><div class="ev-imgmeta"><input type="checkbox" '+(EV.featuredUse?'checked':'')+' data-feat="1"><span class="small ev-muted">Reused as 5 remade 16:9 options — <a href="'+attr((EV.chosen&&EV.chosen.url)||'')+'" target="_blank" rel="noopener">open live page</a> to grab it</span></div></label>';
+      feat.innerHTML = '<label class="ev-imgcard ev-feat-card"><div class="ev-imghead">Title image (scene 1)</div><img src="'+attr(EV.featuredImage)+'"><div class="ev-imgmeta"><input type="checkbox" '+(EV.featuredUse?'checked':'')+' data-feat="1"><span class="small ev-muted">Reused as 5 remade 16:9 options</span></div><div style="margin-top:5px;display:flex;gap:6px;align-items:center;"><button type="button" class="ev-btn-sm ev-cardcopy" data-img="'+attr(EV.featuredImage)+'" style="font-size:11px;padding:5px 9px;">Copy image</button><a href="'+attr((EV.chosen&&EV.chosen.url)||'')+'" target="_blank" rel="noopener" class="small" style="text-decoration:none;">open page</a></div></label>';
     } else { feat.innerHTML = ''; }
     var imgs = EV.bodyImages || [];
     if(!imgs.length){ st.textContent = 'No images found inside this '+((EV.chosen&&EV.chosen.type==='page')?'page':'blog')+'.'; list.innerHTML = ''; }
@@ -1996,7 +1996,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           : '<span class="ev-tag ev-tag-fix">'+esc(im.ratio==='other'?'odd shape':im.ratio)+' · remade to 16:9</span>';
         var prodBadge = im.isProduct ? '<span class="ev-tag ev-tag-prod">product</span>' : '';
         var head = im.heading ? '<div class="ev-imghead">'+(im.isProduct?'🛒 ':'')+esc(im.heading)+'</div>' : '<div class="ev-imghead ev-muted">(no heading)</div>';
-        return '<label class="ev-imgcard">'+head+'<img src="'+attr(im.url)+'" loading="lazy"><div class="ev-imgmeta"><input type="checkbox" '+on+' data-imgurl="'+attr(im.url)+'"> '+prodBadge+tag+'</div></label>';
+        return '<label class="ev-imgcard">'+head+'<img src="'+attr(im.url)+'" loading="lazy"><div class="ev-imgmeta"><input type="checkbox" '+on+' data-imgurl="'+attr(im.url)+'"> '+prodBadge+tag+'</div><div style="margin-top:5px;display:flex;gap:6px;align-items:center;"><button type="button" class="ev-btn-sm ev-cardcopy" data-img="'+attr(im.url)+'" style="font-size:11px;padding:5px 9px;">Copy image</button><a href="'+attr(im.url)+'" target="_blank" rel="noopener" class="small" style="text-decoration:none;">open</a></div></label>';
       }).join('');
     }
     Array.prototype.forEach.call(wrap.querySelectorAll('input[type=checkbox]'), function(cb){
@@ -2005,6 +2005,9 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         else { EV.imgSelected[cb.getAttribute('data-imgurl')] = cb.checked; }
       });
     });
+    Array.prototype.forEach.call(wrap.querySelectorAll('.ev-cardcopy'), function(b){
+      b.addEventListener('click', function(e){ e.stopPropagation(); e.preventDefault(); copyImageToClipboard(b.getAttribute('data-img'), b); });
+    });
   }
 
   function reopenSaved(s){
@@ -2012,10 +2015,11 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     renderSources();
     $('evChosenSrc').innerHTML = '<strong>'+esc(s.title)+'</strong> <a href="'+attr(s.url)+'" target="_blank" rel="noopener">view</a> <span class="ev-saved-tag">✓ saved</span>';
     $('evProdWrap').style.display = 'block';
-    $('evImgWrap').style.display = 'none';
+    $('evImgWrap').style.display = 'block';
     $('evGenWrap').style.display = 'block';
     $('evProdStatus').textContent = 'Loading your saved video…';
     $('evProdList').innerHTML = '';
+    $('evFeatured').innerHTML = ''; $('evImgList').innerHTML = '';
     $('evOut').style.display = 'none';
     $('evGenStatus').textContent = '';
     fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-get', handle:s.handle }) })
@@ -2026,9 +2030,19 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         EV.products = p.products || []; EV.selected = {};
         EV.products.forEach(function(x){ EV.selected[keyOf(x)] = true; });
         renderProducts();
+        // restore the blog-image selection + reload the blog's images so she can see/tick them on reopen
+        EV.bodyImages = []; EV.featuredImage = ''; EV.imgSelected = {}; EV.featuredUse = !!(p.featured && p.featured.use);
+        (p.reuseImages||[]).forEach(function(im){ if(im && im.url) EV.imgSelected[im.url] = true; });
+        $('evImgStatus').textContent = 'Loading the blog images…';
+        fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-products', sourceType:s.type, handle:s.handle }) })
+          .then(function(r){ return r.json(); }).then(function(id){
+            if(id && id.ok){ EV.bodyImages = id.bodyImages || []; EV.featuredImage = id.featuredImage || ''; }
+            renderEduImages();
+          }).catch(function(){ renderEduImages(); });
         if(lenIn && p.seconds){ lenIn.value = Math.round((p.seconds/60)*2)/2; syncScenes(); }
         renderPromptBatches(p.promptBatches || (p.imagePromptBlock ? [p.imagePromptBlock] : []));
         fillEduEditable(p);
+        reflectDriveFolder();
         $('evOut').style.display = 'block';
         $('evPubWrap').style.display = 'block'; $('evYtOut').style.display = 'none'; $('evFinishOut').style.display = 'none';
         $('evGenStatus').className = 'small ev-muted';
@@ -2071,10 +2085,14 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         var k = keyOf(p); var on = EV.selected[k] ? ' on' : '';
         var img = p.image ? '<img src="'+attr(p.image)+'" alt="">' : '<div class="ev-noimg">No image</div>';
         var purl = p.url || ('https://aboutwallart.com/products/'+(p.handle||''));
-        return '<div class="ev-pick'+on+'" data-k="'+attr(k)+'">'+img+'<span class="ev-pt">'+esc(p.title)+'</span>'+(p.sku?'<span class="ev-sku">'+esc(p.sku)+'</span>':'')+'<a class="ev-open" href="'+attr(purl)+'" target="_blank" rel="noopener" title="Open the product page (to copy the image)" onclick="event.stopPropagation();" style="display:block;font-size:11px;margin-top:4px;color:#2563eb;text-decoration:none;">↗ open page</a></div>';
+        var copyBtn = p.image ? '<button type="button" class="ev-btn-sm ev-cardcopy" data-img="'+attr(p.image)+'" onclick="event.stopPropagation();" style="margin-top:5px;font-size:11px;padding:5px 9px;">Copy image</button>' : '';
+        return '<div class="ev-pick'+on+'" data-k="'+attr(k)+'">'+img+'<span class="ev-pt">'+esc(p.title)+'</span>'+(p.sku?'<span class="ev-sku">'+esc(p.sku)+'</span>':'')+'<a class="ev-open" href="'+attr(purl)+'" target="_blank" rel="noopener" title="Open the product page (to grab another image)" onclick="event.stopPropagation();" style="display:block;font-size:11px;margin-top:4px;color:#2563eb;text-decoration:none;">↗ open page</a>'+copyBtn+'</div>';
       }).join('');
       Array.prototype.forEach.call(el.querySelectorAll('.ev-pick'), function(c){
         c.addEventListener('click', function(){ var k = c.getAttribute('data-k'); EV.selected[k] = !EV.selected[k]; renderProducts(); });
+      });
+      Array.prototype.forEach.call(el.querySelectorAll('.ev-cardcopy'), function(b){
+        b.addEventListener('click', function(e){ e.stopPropagation(); copyImageToClipboard(b.getAttribute('data-img'), b); });
       });
     }
     updateCount();
@@ -2110,22 +2128,33 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   function syncScenes(){ var mins = parseFloat(lenIn.value)||2.5; var n = Math.max(10, Math.min(30, Math.round(mins*60/8))); $('evScenes').textContent = n; }
   if(lenIn){ lenIn.addEventListener('input', syncScenes); syncScenes(); }
 
+  // grey out "Create the Drive folder" once it exists, and keep the folder link filled in (works on reopen too)
+  function reflectDriveFolder(){
+    var b = $('evDriveBtn'), vf = $('evVideoFolder');
+    var has = !!(EV.generated && EV.generated.driveFolderId);
+    if(b){
+      if(has){ b.disabled = true; b.classList.add('ev-done'); b.textContent = '✓ Drive folder created'; }
+      else { b.disabled = false; b.classList.remove('ev-done'); b.textContent = '3 · Create the Drive folder + save reused images'; }
+    }
+    if(vf && has && EV.generated.driveFolderUrl && !vf.value){ vf.value = EV.generated.driveFolderUrl; }
+  }
   (function(){
     var driveBtn = $('evDriveBtn'); if(!driveBtn) return;
     driveBtn.addEventListener('click', function(){
       if(!EV.generated){ $('evDriveStatus').className='small ev-warn'; $('evDriveStatus').textContent='Generate the script first.'; return; }
       var scenes = EV.generated.scenes || [];
       var reused = scenes.map(function(s,i){ return { url:(s&&s.reuseUrl)||'', slot:i+2, use:(s&&s.use)||'' }; }).filter(function(x){ return x.use==='reuse' && x.url; });
+      var handle = (EV.generated.blogHandle) || (EV.chosen&&EV.chosen.handle) || '';
       driveBtn.disabled=true; var old=driveBtn.textContent; driveBtn.textContent='Creating folder & saving…';
       $('evDriveStatus').className='small ev-muted'; $('evDriveStatus').textContent='Working…';
-      fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-save-reused', videoTitle: EV.generated.videoTitle, reused: reused }) })
+      fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-save-reused', videoTitle: EV.generated.videoTitle, handle: handle, reused: reused }) })
         .then(function(r){ return r.json(); }).then(function(d){
-          driveBtn.disabled=false; driveBtn.textContent=old;
-          if(!d || !d.ok){ $('evDriveStatus').className='small ev-warn'; $('evDriveStatus').textContent = 'Could not do it: ' + ((d&&d.error)||'error'); return; }
+          if(!d || !d.ok){ driveBtn.disabled=false; driveBtn.textContent=old; $('evDriveStatus').className='small ev-warn'; $('evDriveStatus').textContent = 'Could not do it: ' + ((d&&d.error)||'error'); return; }
           $('evDriveStatus').className='small ev-muted';
-          $('evDriveStatus').innerHTML = '✓ Folder created: <a href="'+attr(d.folderUrl)+'" target="_blank" rel="noopener">open folder</a> — saved '+d.saved+' of '+d.total+' reused image'+(d.total===1?'':'s')+'. Now add your generated images into it, then make the voiceover below (step 4).';
-          if(EV.generated) EV.generated.driveFolderId = d.folderId;
+          $('evDriveStatus').innerHTML = '✓ Folder created: <a href="'+attr(d.folderUrl)+'" target="_blank" rel="noopener">open folder</a> — saved '+d.saved+' of '+d.total+' reused image'+(d.total===1?'':'s')+'. Now add your generated images into it, then make the voiceover below (step 5).';
+          if(EV.generated){ EV.generated.driveFolderId = d.folderId; EV.generated.driveFolderUrl = d.folderUrl; }
           var _vf=$('evVideoFolder'); if(_vf && d.folderUrl) _vf.value = d.folderUrl;
+          reflectDriveFolder();
         }).catch(function(e){ driveBtn.disabled=false; driveBtn.textContent=old; $('evDriveStatus').className='small ev-warn'; $('evDriveStatus').textContent='Error: '+e.message; });
     });
   })();
@@ -2145,12 +2174,16 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         EV.generated = d.payload;
         renderPromptBatches(d.promptBatches || (d.imagePromptBlock ? [d.imagePromptBlock] : []));
         fillEduEditable(EV.generated);
+        reflectDriveFolder();
         $('evGenStatus').className='small ev-muted'; $('evGenStatus').textContent = 'Done — ' + (d.sceneCount||0) + ' scenes (plus the 5 fixed outro lines). Review, then save.';
         $('evOut').style.display = 'block';
         $('evPubWrap').style.display = 'none'; $('evYtOut').style.display = 'none'; $('evFinishOut').style.display = 'none';
         $('evSaveMsg').textContent = '';
       }).catch(function(e){ btn.disabled=false; btn.textContent='Regenerate'; $('evGenStatus').className='small ev-warn'; $('evGenStatus').textContent='Error: '+e.message; });
   });
+
+  // every step button turns GREEN once clicked, so she can see what she has already done
+  (function(){ var te=document.getElementById('tab-edu'); if(!te) return; te.addEventListener('click', function(e){ var b=e.target.closest('.ev-btn'); if(b && !b.disabled) b.classList.add('ev-done'); }); })();
 
   Array.prototype.forEach.call(document.querySelectorAll('#tab-edu .ev-copy'), function(b){
     b.addEventListener('click', function(){
@@ -2175,36 +2208,11 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     if($('evImgCount')) $('evImgCount').textContent = '🖼️ You need to create ' + toMake + ' image' + (toMake===1?'':'s') + ' with Shopify AI (the numbered prompts above). Reused blog images are handled for you.';
     renderEduHelpers(p);
   }
-  // Source link + product links + copy-image buttons — shown for fresh AND reopened videos.
+  // Source-blog link — shown for fresh AND reopened videos. (Copy-image + open now live on the cards.)
   function renderEduHelpers(p){
     p = p || {};
     var sl = $('evSourceLink');
     if(sl){ sl.innerHTML = p.blogUrl ? ('📖 Based on: <a href="'+attr(p.blogUrl)+'" target="_blank" rel="noopener"><strong>'+esc(p.blogTitle||p.videoTitle||'source')+'</strong></a>') : ''; }
-    var pl = $('evProdLinks');
-    if(pl){
-      var prods = (p.products||[]).filter(function(x){ return x && (x.url||x.handle); });
-      pl.innerHTML = prods.length ? ('🛒 Products (open to grab another image): '+prods.map(function(x){ var u = x.url || ('https://aboutwallart.com/products/'+(x.handle||'')); return '<a href="'+attr(u)+'" target="_blank" rel="noopener">'+esc(x.title||x.sku||'product')+' ↗</a>'; }).join(' · ')) : '';
-    }
-    renderPasteImages(p);
-  }
-  function renderPasteImages(p){
-    var wrap = $('evPasteImgs'); if(!wrap) return;
-    var list = [];
-    if(p.featured && p.featured.url && p.featured.use) list.push({num:1, url:p.featured.url, label:'Scene 1 · title image'});
-    (p.scenes||[]).forEach(function(s,idx){
-      var num = idx+2, use=(s&&s.use)||'generate', kind=(s&&s.kind)||'photo', url=(s&&s.reuseUrl)||'';
-      if(url && (use==='remake' || kind==='product')) list.push({num:num, url:url, label:'Scene '+num+(kind==='product'?' · product':'')});
-    });
-    if(!list.length){ wrap.innerHTML=''; return; }
-    wrap.innerHTML = '<div class="ev-outhead"><strong>Images to paste into Shopify AI</strong> <span class="small ev-muted">— when a prompt asks for a photo, copy the exact one by scene number and paste it in the chat</span></div>'+
-      '<div style="display:flex;flex-wrap:wrap;gap:8px;">'+list.map(function(it,i){
-        return '<div class="ev-paste" data-i="'+i+'" style="display:flex;align-items:center;gap:8px;border:1px solid #e5e5e5;border-radius:8px;padding:6px 8px;"><img src="'+attr(it.url)+'" style="width:46px;height:46px;object-fit:cover;border-radius:5px;background:#eee;flex:none;" loading="lazy"><span class="small" style="font-weight:600;">'+esc(it.label)+'</span><button type="button" class="ev-btn-sm ev-copyimg">Copy image</button><a href="'+attr(it.url)+'" target="_blank" rel="noopener" class="small" style="text-decoration:none;">open</a></div>';
-      }).join('')+'</div>';
-    Array.prototype.forEach.call(wrap.querySelectorAll('.ev-paste'), function(box){
-      var it = list[parseInt(box.getAttribute('data-i'),10)];
-      var btn = box.querySelector('.ev-copyimg');
-      btn.addEventListener('click', function(){ copyImageToClipboard(it.url, btn); });
-    });
   }
   function copyImageToClipboard(url, btn){
     var orig = btn.textContent; btn.disabled = true; btn.textContent = 'Copying…';
@@ -2358,6 +2366,24 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     // safety gate: Make the video stays locked until she confirms the images
     var cb=$('evConfirmImgs'); if(cb) cb.addEventListener('click', function(){ $('evVideoBtn').disabled=false; this.style.display='none'; });
     var fi=$('evVideoFolder'); if(fi) fi.addEventListener('input', function(){ $('evVideoBtn').disabled=true; var c=$('evConfirmImgs'); if(c) c.style.display='none'; });
+  })();
+
+  // ---- Reload captions: save the latest script edits, then re-check images so the captions refresh ----
+  (function(){
+    var rb=$('evReloadCaps'); if(!rb) return;
+    rb.addEventListener('click', function(){
+      var st=$('evPreviewStatus'); st.style.display='block';
+      if(!EV.generated){ st.className='small ev-warn'; st.textContent='Generate or load a video first.'; return; }
+      if(!applyEduEdits()){ st.className='small ev-warn'; st.textContent='Fix the script lines first (see the message next to Save).'; return; }
+      rb.disabled=true; var lbl=rb.textContent; rb.textContent='Saving…';
+      st.className='small ev-muted'; st.textContent='Saving your edits, then refreshing the captions…';
+      fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'edu-save',payload:EV.generated})})
+        .then(function(r){return r.json();}).then(function(d){
+          rb.disabled=false; rb.textContent=lbl;
+          if(!d||!d.ok){ st.className='small ev-warn'; st.textContent='Could not save: '+((d&&d.error)||'error'); return; }
+          setTimeout(function(){ $('evPreviewBtn').click(); }, 1500);
+        }).catch(function(e){ rb.disabled=false; rb.textContent=lbl; st.className='small ev-warn'; st.textContent='Error: '+e.message; });
+    });
   })();
 
   // ---- step 4/5: YouTube pack + post-publish ----
