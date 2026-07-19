@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v7.0 · 19 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v7.1 · 19 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -539,6 +539,9 @@
       <div class="ev-outhead"><strong>Image prompts</strong> <span class="small ev-muted">— feed to your Shopify AI skill one batch at a time, in order. A skipped number means that scene reuses one of your blog images.</span></div>
       <div id="evPromptsWrap"></div>
       <div id="evImgCount" class="small ev-muted" style="margin-top:8px;font-weight:700;"></div>
+      <div id="evSourceLink" class="small ev-muted" style="margin-top:10px;"></div>
+      <div id="evProdLinks" class="small ev-muted" style="margin-top:6px;"></div>
+      <div id="evPasteImgs" style="margin-top:12px;"></div>
 
       <div class="ev-savebar">
         <button type="button" id="evSave" class="ev-btn ev-btn-go">2 · Save this video's script</button>
@@ -552,20 +555,20 @@
       </div>
 
       <div id="evVideoWrap" style="margin-top:22px;">
-        <div class="ev-h3">Make the voiceover &amp; the video</div>
-        <div class="box gray" style="margin-bottom:10px;">Paste this video's Google Drive folder link (from step 3). The tool makes the voiceover from your saved script — Serena's voice, with your [bracketed] emotions — and saves <strong>voiceover.mp3</strong> into that folder. Add your scene photos (named 01, 02, 03… in order). Then check the images and make the finished video — timed to the voice, with logo, title, outro cards and captions, plus a subtitles file.</div>
+        <div class="ev-h3">Check images · voiceover · make the video</div>
+        <div class="box gray" style="margin-bottom:10px;">Paste this video's Google Drive folder link (from step 3). Add your scene photos (named 01, 02, 03… in order). Check the images match the script, make the voiceover (Serena's voice, with your [bracketed] emotions → saved as <strong>voiceover.mp3</strong> in the folder), then make the finished video — timed to the voice, with logo, title, outro cards and captions, plus a subtitles file.</div>
         <div class="ev-row">
           <input id="evVideoFolder" class="ev-in" placeholder="Paste the Google Drive folder link" style="min-width:320px;flex:1;">
         </div>
-        <button type="button" id="evVoiceBtn" class="ev-btn ev-btn-go" style="margin-top:10px;display:block;">4 · Make the voiceover</button>
-        <div id="evVoiceStatus" class="small ev-muted" style="margin-top:8px;display:none;"></div>
-        <div class="ev-row" style="margin-top:14px;">
-          <button type="button" id="evPreviewBtn" class="ev-btn">5 · Check images first</button>
+        <div class="ev-row" style="margin-top:10px;">
+          <button type="button" id="evPreviewBtn" class="ev-btn">4 · Check images first</button>
         </div>
         <div id="evPreviewStatus" class="small ev-muted" style="margin-top:8px;display:none;"></div>
         <div id="evPreviewOut" style="display:none;margin-top:12px;max-height:520px;overflow-y:auto;border:1px solid #e5e5e5;border-radius:10px;padding:10px;"></div>
         <button type="button" id="evConfirmImgs" class="ev-btn ev-btn-go" style="display:none;margin-top:10px;">✓ Images are correct — enable "Make the video"</button>
-        <button type="button" id="evVideoBtn" class="ev-btn ev-btn-go" disabled title="Check the images first" style="margin-top:12px;display:block;">6 · Make the video</button>
+        <button type="button" id="evVoiceBtn" class="ev-btn ev-btn-go" style="margin-top:14px;display:block;">5 · Make the voiceover</button>
+        <div id="evVoiceStatus" class="small ev-muted" style="margin-top:8px;display:none;"></div>
+        <button type="button" id="evVideoBtn" class="ev-btn ev-btn-go" disabled title="Check the images first" style="margin-top:14px;display:block;">6 · Make the video</button>
         <div id="evVideoProgress" class="small ev-muted" style="margin-top:10px;display:none;"></div>
         <div id="evVideoOut" style="display:none;margin-top:10px;"></div>
       </div>
@@ -1011,7 +1014,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v7.0 — built 19 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v7.1 — built 19 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -2170,6 +2173,58 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     if($('evScript')) $('evScript').textContent = p.script || '';
     var toMake = 1 + scenes.filter(function(s){ return (s&&s.use?s.use:'generate')!=='reuse'; }).length;
     if($('evImgCount')) $('evImgCount').textContent = '🖼️ You need to create ' + toMake + ' image' + (toMake===1?'':'s') + ' with Shopify AI (the numbered prompts above). Reused blog images are handled for you.';
+    renderEduHelpers(p);
+  }
+  // Source link + product links + copy-image buttons — shown for fresh AND reopened videos.
+  function renderEduHelpers(p){
+    p = p || {};
+    var sl = $('evSourceLink');
+    if(sl){ sl.innerHTML = p.blogUrl ? ('📖 Based on: <a href="'+attr(p.blogUrl)+'" target="_blank" rel="noopener"><strong>'+esc(p.blogTitle||p.videoTitle||'source')+'</strong></a>') : ''; }
+    var pl = $('evProdLinks');
+    if(pl){
+      var prods = (p.products||[]).filter(function(x){ return x && (x.url||x.handle); });
+      pl.innerHTML = prods.length ? ('🛒 Products (open to grab another image): '+prods.map(function(x){ var u = x.url || ('https://aboutwallart.com/products/'+(x.handle||'')); return '<a href="'+attr(u)+'" target="_blank" rel="noopener">'+esc(x.title||x.sku||'product')+' ↗</a>'; }).join(' · ')) : '';
+    }
+    renderPasteImages(p);
+  }
+  function renderPasteImages(p){
+    var wrap = $('evPasteImgs'); if(!wrap) return;
+    var list = [];
+    if(p.featured && p.featured.url && p.featured.use) list.push({num:1, url:p.featured.url, label:'Scene 1 · title image'});
+    (p.scenes||[]).forEach(function(s,idx){
+      var num = idx+2, use=(s&&s.use)||'generate', kind=(s&&s.kind)||'photo', url=(s&&s.reuseUrl)||'';
+      if(url && (use==='remake' || kind==='product')) list.push({num:num, url:url, label:'Scene '+num+(kind==='product'?' · product':'')});
+    });
+    if(!list.length){ wrap.innerHTML=''; return; }
+    wrap.innerHTML = '<div class="ev-outhead"><strong>Images to paste into Shopify AI</strong> <span class="small ev-muted">— when a prompt asks for a photo, copy the exact one by scene number and paste it in the chat</span></div>'+
+      '<div style="display:flex;flex-wrap:wrap;gap:8px;">'+list.map(function(it,i){
+        return '<div class="ev-paste" data-i="'+i+'" style="display:flex;align-items:center;gap:8px;border:1px solid #e5e5e5;border-radius:8px;padding:6px 8px;"><img src="'+attr(it.url)+'" style="width:46px;height:46px;object-fit:cover;border-radius:5px;background:#eee;flex:none;" loading="lazy"><span class="small" style="font-weight:600;">'+esc(it.label)+'</span><button type="button" class="ev-btn-sm ev-copyimg">Copy image</button><a href="'+attr(it.url)+'" target="_blank" rel="noopener" class="small" style="text-decoration:none;">open</a></div>';
+      }).join('')+'</div>';
+    Array.prototype.forEach.call(wrap.querySelectorAll('.ev-paste'), function(box){
+      var it = list[parseInt(box.getAttribute('data-i'),10)];
+      var btn = box.querySelector('.ev-copyimg');
+      btn.addEventListener('click', function(){ copyImageToClipboard(it.url, btn); });
+    });
+  }
+  function copyImageToClipboard(url, btn){
+    var orig = btn.textContent; btn.disabled = true; btn.textContent = 'Copying…';
+    fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-image', url:url }) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(!d || !d.ok || !d.dataBase64){ throw new Error((d&&d.error)||'could not load the image'); }
+        return new Promise(function(resolve, reject){
+          var img = new Image();
+          img.onload = function(){ var c=document.createElement('canvas'); c.width=img.naturalWidth; c.height=img.naturalHeight; c.getContext('2d').drawImage(img,0,0); c.toBlob(function(b){ b?resolve(b):reject(new Error('convert failed')); }, 'image/png'); };
+          img.onerror = function(){ reject(new Error('image decode failed')); };
+          img.src = 'data:'+(d.mime||'image/png')+';base64,'+d.dataBase64;
+        });
+      })
+      .then(function(blob){
+        if(navigator.clipboard && window.ClipboardItem){ return navigator.clipboard.write([new ClipboardItem({'image/png':blob})]); }
+        throw new Error('this browser can\'t copy images — use the "open" link instead');
+      })
+      .then(function(){ btn.disabled=false; btn.classList.add('done'); btn.textContent='Copied ✓'; setTimeout(function(){ btn.classList.remove('done'); btn.textContent=orig; },1600); })
+      .catch(function(e){ btn.disabled=false; btn.textContent=orig; alert('Could not copy the image: '+e.message+'. Use the "open" link, then right-click → Copy Image.'); });
   }
   // Apply her title/script edits back into EV.generated before saving. Returns false (and warns) if the line count changed.
   function applyEduEdits(){
@@ -2286,8 +2341,11 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           pbtn.disabled=false; pbtn.textContent=lbl;
           if(!d||!d.ok){ var _e=((d&&d.error)||'error'); st.className='small ev-warn'; st.textContent = /404|not found/i.test(_e) ? "Save this video's script first (step 2), then check images." : ('Could not check: '+_e); return; }
           var miss=(d.missing&&d.missing.length)?d.missing:[];
-          st.className = miss.length?'small ev-warn':'small ev-muted';
-          st.textContent = miss.length ? ('Missing photos: '+miss.map(function(x){return ('0'+x).slice(-2);}).join(', ')+' — add them to the folder.') : ('All '+d.needed+' scene photos found. Check each image matches its line below, then Make the video.');
+          var dup=(d.dupes&&d.dupes.length)?d.dupes:[];
+          var msg = miss.length ? ('Missing photos: '+miss.map(function(x){return ('0'+x).slice(-2);}).join(', ')+' — add them to the folder.') : ('All '+d.needed+' scene photos found. Check each image matches its line below, then make the voiceover and the video.');
+          if(dup.length){ msg += ' ⚠️ Two files share number '+dup.map(function(x){return ('0'+x).slice(-2);}).join(', ')+' — delete the old one so the right image is used.'; }
+          st.className = (miss.length||dup.length)?'small ev-warn':'small ev-muted';
+          st.textContent = msg;
           var html='';
           d.rows.forEach(function(r){
             var img = r.img ? '<img src="'+esc(r.img)+'" style="width:120px;height:68px;object-fit:cover;border-radius:6px;flex:none;background:#eee;" loading="lazy">' : '<div style="width:120px;height:68px;border-radius:6px;flex:none;background:#111;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;text-align:center;">built-in<br>card</div>';
