@@ -1324,6 +1324,16 @@ module.exports = async (req, res) => {
         var sk = (s && s.productSku ? s.productSku : '').toString().toUpperCase();
         if (sk && prodBySku[sk]) { s.use = 'remake'; s.reuseUrl = prodBySku[sk]; s.kind = 'product'; }
       });
+      // ★ The TOOL is authoritative on shape, NOT the AI: a reused BLOG image that is square/odd MUST be
+      // remade (gets an "extend to 16:9" prompt); one already 16:9/3:2 is used as-is. This fixes the AI
+      // mislabelling squares as "use as-is" (which skipped their prompt AND wrongly auto-saved them un-remade).
+      var reuseShape = {};
+      bodyReuse.forEach(function (im) { if (im && im.url) reuseShape[im.url] = !!im.reuse; }); // true = as-is, false = remake
+      scenes.forEach(function (s) {
+        if (!s || s.kind === 'product') return;
+        var ru = (s.reuseUrl || '').toString();
+        if (ru && Object.prototype.hasOwnProperty.call(reuseShape, ru)) { s.use = reuseShape[ru] ? 'reuse' : 'remake'; }
+      });
 
       // SCRIPT text = title + one phrase per scene + the fixed 5 outro lines
       var scriptLines = [videoTitle];
@@ -1336,7 +1346,7 @@ module.exports = async (req, res) => {
       function _pad2(n) { return n < 10 ? '0' + n : '' + n; }
       var heroLine;
       if (featured && featured.url) {
-        heroLine = '01. [16:9] TITLE IMAGE — 5 OPTIONS — USE THIS EXACT BLOG FEATURED PHOTO and extend the sides naturally to FILL 16:9 (never stretch or distort), FULL BLEED — do NOT add or change anything else (no new people, no new objects, no different scene). Make 5 variations of the extension (the original photo stays as-is; only the widened sides differ). PHOTO: ' + featured.url;
+        heroLine = '01. [16:9] TITLE IMAGE — 5 OPTIONS — USE THIS EXACT BLOG FEATURED PHOTO and extend the sides naturally to FILL 16:9 (never stretch or distort), FULL BLEED. Keep the existing scene; if there is NO person in the photo, ADD one person naturally in the room; if a person is already there, keep them (do not add extra objects or change the scene). Make 5 variations (only the person / their position and the widened sides differ). PHOTO: ' + featured.url;
       } else {
         heroLine = '01. [16:9] MAIN HERO IMAGE — 5 OPTIONS (5 variations of this SAME shot: same room, styling and composition; change only the person or their position). ' + hero;
       }
