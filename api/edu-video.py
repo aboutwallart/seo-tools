@@ -194,7 +194,7 @@ def srt_data_uri(timing, lines):
 # ---------- pipeline ----------
 def make_video(folder_id, handle):
     akey = os.environ["ASSEMBLYAI_KEY"]; rkey = os.environ["RENDERLY_KEY"]
-    edu = json.loads(http(REPO_RAW % handle))
+    edu = json.loads(http((REPO_RAW % handle) + "?_=" + str(int(time.time()))))  # cache-buster: always read the LATEST saved script (raw.githubusercontent is CDN-cached)
     files = drive_list(folder_id)
     byname = {f["name"]: f for f in files}
     indir = "/tmp/edu_in"; os.makedirs(indir, exist_ok=True)
@@ -232,20 +232,29 @@ def status(job):
 
 def preview(folder_id, handle):
     # Show each scene's LINE next to the PHOTO that will be used — so she can check before rendering.
-    edu = json.loads(http(REPO_RAW % handle))
+    edu = json.loads(http((REPO_RAW % handle) + "?_=" + str(int(time.time()))))  # cache-buster: always read the LATEST saved script (raw.githubusercontent is CDN-cached)
     files = drive_list(folder_id)
     byname = {f["name"]: f for f in files}
     n = len(edu["scenes"])
+    _cb = int(time.time())
     def thumb(k):
         f = photo_for(files, k)
-        return ("https://drive.google.com/thumbnail?id=%s&sz=w400" % f["id"]) if f else ""
+        return ("https://drive.google.com/thumbnail?id=%s&sz=w400&_=%d" % (f["id"], _cb)) if f else ""
     rows = [{"label": "Title (scene 1) — photo 01", "text": clean(edu["videoTitle"]), "img": thumb(1)}]
     for i in range(1, n + 1):
         rows.append({"label": "Scene %d — photo %02d" % (i + 1, i + 1), "text": clean(edu["scenes"][i-1]["text"]), "img": thumb(i + 1)})
     for i, o in enumerate(edu["outro"], 1):
         rows.append({"label": "Ending card %d" % i, "text": clean(o), "img": "", "fixed": True})
     missing = [k for k in range(1, n + 2) if not thumb(k)]
-    return {"ok": True, "rows": rows, "missing": missing, "photoCount": len([f for f in files if f["name"].lower().endswith((".png",".jpg",".jpeg"))]), "needed": n + 1}
+    # warn if two photo files share the same leading number (e.g. an old one not deleted) — photo_for would pick one at random
+    dcount = {}
+    for f in files:
+        low = f["name"].lower()
+        if not (low.endswith(".png") or low.endswith(".jpg") or low.endswith(".jpeg")): continue
+        m = re.match(r"0*(\d+)", f["name"])
+        if m: dcount[int(m.group(1))] = dcount.get(int(m.group(1)), 0) + 1
+    dupes = sorted([k for k, v in dcount.items() if v > 1])
+    return {"ok": True, "rows": rows, "missing": missing, "dupes": dupes, "photoCount": len([f for f in files if f["name"].lower().endswith((".png",".jpg",".jpeg"))]), "needed": n + 1}
 
 class handler(BaseHTTPRequestHandler):
     def _send(self, obj, code=200):
