@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v6.9 · 18 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v7.0 · 19 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -531,7 +531,7 @@
       <div class="ev-outhead"><strong>Video title</strong> <span class="small ev-muted">— editable · keep your blog's keyword</span></div>
       <input id="evVidTitle" class="ev-in" style="width:100%;font-weight:700;font-size:15px;" placeholder="Video title">
 
-      <div class="ev-outhead"><strong>Script</strong> <span class="small ev-muted">— editable · one line per scene, keep the same number of lines · re-record the voiceover if you change the words</span> <button type="button" class="ev-copy" data-copy="evScript">Copy script</button></div>
+      <div class="ev-outhead"><strong>Script</strong> <span class="small ev-muted">— editable · one line per scene, keep the same number of lines · the emotions in [brackets] guide the voiceover · make the voiceover again (step 4) if you change the words</span> <button type="button" class="ev-copy" data-copy="evScript">Copy script</button></div>
       <textarea id="evScriptEdit" class="ev-in" style="width:100%;min-height:240px;line-height:1.5;"></textarea>
       <div class="small ev-muted" style="margin-top:6px;"><strong>Fixed ending lines</strong> (spoken, not editable): <span id="evOutroView"></span></div>
       <pre id="evScript" class="ev-pre" style="display:none;"></pre>
@@ -552,22 +552,26 @@
       </div>
 
       <div id="evVideoWrap" style="margin-top:22px;">
-        <div class="ev-h3">Make the video (synced, with captions)</div>
-        <div class="box gray" style="margin-bottom:10px;">Put this video's scene photos (named 01, 02, 03… in order) and the voiceover .mp3 in one Google Drive folder, then paste that folder's link. The tool makes the finished video — timed to your voice, with the logo, title, outro cards and baked captions — and saves it back to that folder with a subtitles file.</div>
+        <div class="ev-h3">Make the voiceover &amp; the video</div>
+        <div class="box gray" style="margin-bottom:10px;">Paste this video's Google Drive folder link (from step 3). The tool makes the voiceover from your saved script — Serena's voice, with your [bracketed] emotions — and saves <strong>voiceover.mp3</strong> into that folder. Add your scene photos (named 01, 02, 03… in order). Then check the images and make the finished video — timed to the voice, with logo, title, outro cards and captions, plus a subtitles file.</div>
         <div class="ev-row">
           <input id="evVideoFolder" class="ev-in" placeholder="Paste the Google Drive folder link" style="min-width:320px;flex:1;">
-          <button type="button" id="evPreviewBtn" class="ev-btn">4 · Check images first</button>
+        </div>
+        <button type="button" id="evVoiceBtn" class="ev-btn ev-btn-go" style="margin-top:10px;display:block;">4 · Make the voiceover</button>
+        <div id="evVoiceStatus" class="small ev-muted" style="margin-top:8px;display:none;"></div>
+        <div class="ev-row" style="margin-top:14px;">
+          <button type="button" id="evPreviewBtn" class="ev-btn">5 · Check images first</button>
         </div>
         <div id="evPreviewStatus" class="small ev-muted" style="margin-top:8px;display:none;"></div>
         <div id="evPreviewOut" style="display:none;margin-top:12px;max-height:520px;overflow-y:auto;border:1px solid #e5e5e5;border-radius:10px;padding:10px;"></div>
         <button type="button" id="evConfirmImgs" class="ev-btn ev-btn-go" style="display:none;margin-top:10px;">✓ Images are correct — enable "Make the video"</button>
-        <button type="button" id="evVideoBtn" class="ev-btn ev-btn-go" disabled title="Check the images first" style="margin-top:12px;display:block;">5 · Make the video</button>
+        <button type="button" id="evVideoBtn" class="ev-btn ev-btn-go" disabled title="Check the images first" style="margin-top:12px;display:block;">6 · Make the video</button>
         <div id="evVideoProgress" class="small ev-muted" style="margin-top:10px;display:none;"></div>
         <div id="evVideoOut" style="display:none;margin-top:10px;"></div>
       </div>
 
       <div id="evPubWrap" style="display:none;">
-        <h3 class="ev-h3">6 · Publish on YouTube</h3>
+        <h3 class="ev-h3">7 · Publish on YouTube</h3>
         <div class="ev-row">
           <button type="button" id="evYtGen" class="ev-btn">Generate YouTube pack</button>
           <span id="evYtStatus" class="small ev-muted"></span>
@@ -1007,7 +1011,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v6.9 — built 18 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v7.0 — built 19 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -2116,7 +2120,9 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           driveBtn.disabled=false; driveBtn.textContent=old;
           if(!d || !d.ok){ $('evDriveStatus').className='small ev-warn'; $('evDriveStatus').textContent = 'Could not do it: ' + ((d&&d.error)||'error'); return; }
           $('evDriveStatus').className='small ev-muted';
-          $('evDriveStatus').innerHTML = '✓ Folder created: <a href="'+attr(d.folderUrl)+'" target="_blank" rel="noopener">open folder</a> — saved '+d.saved+' of '+d.total+' reused image'+(d.total===1?'':'s')+'. Now add your generated images + the mp3 into it.';
+          $('evDriveStatus').innerHTML = '✓ Folder created: <a href="'+attr(d.folderUrl)+'" target="_blank" rel="noopener">open folder</a> — saved '+d.saved+' of '+d.total+' reused image'+(d.total===1?'':'s')+'. Now add your generated images into it, then make the voiceover below (step 4).';
+          if(EV.generated) EV.generated.driveFolderId = d.folderId;
+          var _vf=$('evVideoFolder'); if(_vf && d.folderUrl) _vf.value = d.folderUrl;
         }).catch(function(e){ driveBtn.disabled=false; driveBtn.textContent=old; $('evDriveStatus').className='small ev-warn'; $('evDriveStatus').textContent='Error: '+e.message; });
     });
   })();
@@ -2197,6 +2203,33 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       }).catch(function(e){ btn.disabled=false; $('evSaveMsg').className='small ev-warn'; $('evSaveMsg').textContent='Error: '+e.message; });
   });
 
+
+  // ---- Make the voiceover (ElevenLabs → voiceover.mp3 into the Drive folder) ----
+  (function(){
+    var vb = $('evVoiceBtn'); if(!vb) return;
+    function folderIdFrom(raw){ raw=(raw||'').trim().replace(/.*folders\//,''); var m=/[-\w]{20,}/.exec(raw); return m?m[0]:''; }
+    vb.addEventListener('click', function(){
+      var st=$('evVoiceStatus'); st.style.display='block';
+      if(!EV.generated){ st.className='small ev-warn'; st.textContent='Generate or load a video first.'; return; }
+      if(!applyEduEdits()){ st.className='small ev-warn'; st.textContent='Fix the script lines first (see the message next to Save).'; return; }
+      var handle = (EV.generated.blogHandle)||(EV.chosen&&EV.chosen.handle)||'';
+      var folderId = (EV.generated.driveFolderId||'') || folderIdFrom($('evVideoFolder').value);
+      if(!handle){ st.className='small ev-warn'; st.textContent='Load a video first.'; return; }
+      if(!folderId){ st.className='small ev-warn'; st.textContent='Create the Drive folder (step 3), or paste the folder link above.'; return; }
+      vb.disabled=true; var lbl=vb.textContent; vb.textContent='Making the voiceover…';
+      st.className='small ev-muted'; st.textContent='Saving your script, then making the voiceover with Serena… (about a minute)';
+      fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'edu-save',payload:EV.generated})})
+        .then(function(r){return r.json();}).then(function(sv){
+          if(!sv||!sv.ok){ throw new Error((sv&&sv.error)||'could not save the script'); }
+          return fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'edu-voiceover',handle:handle,folderId:folderId})});
+        }).then(function(r){return r.json();}).then(function(d){
+          vb.disabled=false; vb.textContent=lbl;
+          if(!d||!d.ok){ st.className='small ev-warn'; st.textContent='Could not make the voiceover: '+((d&&d.error)||'error'); return; }
+          st.className='small ev-muted';
+          st.innerHTML='✓ Voiceover saved as <strong>voiceover.mp3</strong> in your Drive folder'+(d.folderUrl?(' — <a href="'+attr(d.folderUrl)+'" target="_blank" rel="noopener">open folder</a>'):'')+'. Now add your scene photos, then check the images and make the video.';
+        }).catch(function(e){ vb.disabled=false; vb.textContent=lbl; st.className='small ev-warn'; st.textContent='Error: '+e.message; });
+    });
+  })();
 
   // ---- Make the video (Renderly pipeline: start + live progress) ----
   (function(){
