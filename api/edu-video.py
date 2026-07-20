@@ -146,7 +146,10 @@ def bake_all(indir, edu, outdir):
     for ln in L: d.text((W//2, ty), ln, font=f, fill="white", anchor="ma"); ty += lh
     add_logo(b); b.save(os.path.join(outdir, "frame_00.png"))
     for i in range(1, n+1):
-        b = cover(openimg(img(i+1))); caption_box(b, clean(edu["scenes"][i-1]["text"])); add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % i))
+        _k = (edu["scenes"][i-1].get("kind") or "photo")
+        # infographics are shown WHOLE (contain on white) so the title/edges are never cropped; photos cover-fill
+        b = contain_white(openimg(img(i+1))) if _k == "infographic" else cover(openimg(img(i+1)))
+        caption_box(b, clean(edu["scenes"][i-1]["text"])); add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % i))
     o1, o2, o3, o4, o5 = n+1, n+2, n+3, n+4, n+5
     b = cover(openimg(OUTRO_BG[1])); d = ImageDraw.Draw(b); f = F(LEMON, 62)
     x = 1000; L = wrap(d, clean(edu["outro"][0]).upper(), f, W-x-90); asc, desc = f.getmetrics(); lh = int((asc+desc)*1.1)
@@ -254,12 +257,14 @@ def preview(folder_id, handle):
     _cb = int(time.time())
     def thumb(k):
         f = photo_for(files, k)
-        return ("https://drive.google.com/thumbnail?id=%s&sz=w400&_=%d" % (f["id"], _cb)) if f else ""
-    rows = [{"label": "Title (scene 1) — photo 01", "text": clean(edu["videoTitle"]), "img": thumb(1)}]
+        return ("https://drive.google.com/thumbnail?id=%s&sz=w800&_=%d" % (f["id"], _cb)) if f else ""
+    # kind per scene tells the preview how it will be shown: photos/products/title = cover-cropped to 16:9 (show a red crop box);
+    # infographics = contained whole (no crop box).
+    rows = [{"label": "Title (scene 1) — photo 01", "text": clean(edu["videoTitle"]), "img": thumb(1), "kind": "title"}]
     for i in range(1, n + 1):
-        rows.append({"label": "Scene %d — photo %02d" % (i + 1, i + 1), "text": clean(edu["scenes"][i-1]["text"]), "img": thumb(i + 1)})
+        rows.append({"label": "Scene %d — photo %02d" % (i + 1, i + 1), "text": clean(edu["scenes"][i-1]["text"]), "img": thumb(i + 1), "kind": (edu["scenes"][i-1].get("kind") or "photo")})
     for i, o in enumerate(edu["outro"], 1):
-        rows.append({"label": "Ending card %d" % i, "text": clean(o), "img": "", "fixed": True})
+        rows.append({"label": "Ending card %d" % i, "text": clean(o), "img": "", "fixed": True, "kind": "card"})
     missing = [k for k in range(1, n + 2) if not thumb(k)]
     # warn if two photo files share the same leading number (e.g. an old one not deleted) — photo_for would pick one at random
     dcount = {}
