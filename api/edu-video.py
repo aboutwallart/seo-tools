@@ -2,6 +2,7 @@
 # Actions (POST JSON):
 #   { action:"edu-make-video", folderId, handle } -> { jobId, srt }   (long: download->transcribe->align->bake->upload->submit render)
 #   { action:"edu-video-status", jobId }           -> { step } or { done:true, videoUrl }
+#   { action:"edu-thumbnail", folderId, handle }    -> { ok, thumbUrl }   (bake the title card -> Drive -> public link)
 # Env vars needed on Vercel: ASSEMBLYAI_KEY, RENDERLY_KEY, EDU_DRIVE_URL (the Apps Script /exec url).
 # Reads the saved script from GitHub raw (public repo). Fonts/logo from repo assets/edu-video.
 
@@ -276,6 +277,32 @@ def preview(folder_id, handle):
     dupes = sorted([k for k, v in dcount.items() if v > 1])
     return {"ok": True, "rows": rows, "missing": missing, "dupes": dupes, "photoCount": len([f for f in files if f["name"].lower().endswith((".png",".jpg",".jpeg",".webp"))]), "needed": n + 1}
 
+# ---------- thumbnail ----------
+def bake_title(img01_path, video_title):
+    # exactly the video's title card (frame_00): cover-fill the 01 image + black title bar + LEMON title + logo.
+    b = cover(openimg(img01_path)); d = ImageDraw.Draw(b); barh = 240
+    d.rectangle([0, H-barh, W, H], fill=(0, 0, 0)); f = F(LEMON, 66)
+    L = wrap(d, clean(video_title).upper(), f, W-300); asc, desc = f.getmetrics(); lh = int((asc+desc)*1.05)
+    ty = H-barh//2-(len(L)*lh)//2
+    for ln in L: d.text((W//2, ty), ln, font=f, fill="white", anchor="ma"); ty += lh
+    add_logo(b); return b
+def make_thumbnail(folder_id, handle):
+    # Rebuild the title card and save it into the video's Drive folder as thumbnail.png, so the
+    # Metricool file can use a clean branded frame (never the black first frame). Works on any
+    # already-rendered video — it only needs the 01 image that's already in the folder.
+    edu = json.loads(http((REPO_RAW % handle) + "?_=" + str(int(time.time()))))
+    files = drive_list(folder_id)
+    f01 = photo_for(files, 1)
+    if not f01: raise RuntimeError("Photo 01 (the title image) is missing from the folder.")
+    indir = "/tmp/edu_thumb"; os.makedirs(indir, exist_ok=True)
+    low = f01["name"].lower(); ext = "png" if low.endswith("png") else ("webp" if low.endswith("webp") else "jpg")
+    p = os.path.join(indir, "01." + ext); open(p, "wb").write(drive_download(f01["id"]))
+    img = bake_title(p, edu.get("videoTitle") or handle)
+    buf = io.BytesIO(); img.save(buf, "PNG"); data = buf.getvalue()
+    up = drive_upload(folder_id, "thumbnail.png", "image/png", data)
+    if not up.get("ok"): raise RuntimeError("Could not save the thumbnail to Drive: " + str(up.get("error")))
+    return {"ok": True, "thumbUrl": "https://drive.google.com/uc?export=download&id=" + up["id"], "fileId": up["id"]}
+
 class handler(BaseHTTPRequestHandler):
     def _send(self, obj, code=200):
         body = json.dumps(obj).encode()
@@ -297,6 +324,8 @@ class handler(BaseHTTPRequestHandler):
                 self._send(preview(b.get("folderId", ""), b.get("handle", "")))
             elif a == "edu-video-status":
                 self._send(status(b.get("jobId", "")))
+            elif a == "edu-thumbnail":
+                self._send(make_thumbnail(b.get("folderId", ""), b.get("handle", "")))
             else:
                 self._send({"error": "unknown action"}, 400)
         except Exception as e:

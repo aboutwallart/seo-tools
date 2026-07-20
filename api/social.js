@@ -1111,15 +1111,17 @@ module.exports = async (req, res) => {
       // sort: not-done first, then seasonal matches first (done items sink to the bottom)
       function srt(a, b) { if (!!a.done !== !!b.done) return a.done ? 1 : -1; return (b.seasonMatch ? 1 : 0) - (a.seasonMatch ? 1 : 0); }
       blogs.sort(srt); pages.sort(srt);
-      // ALL saved/made videos (published or not) for the "Already made" tab, so she can find + reopen any of them
+      // ALL saved/made videos for the "Already made" tab (not published) + the "Published / scheduled" tab.
+      // published = the video was marked used (manual publish) or built into a Metricool file.
       var made = []; var seenMade = {};
+      function isPub(h, sv) { return !!usedB[(h || '').toLowerCase()] || !!(sv && sv.published); }
       Object.keys(savedIdx || {}).forEach(function (h) {
         var sv = savedIdx[h] || {}; var typ = sv.sourceType || 'blog'; seenMade[h] = 1;
-        made.push({ type: typ, handle: h, title: sv.videoTitle || h, saved: true, done: !!sv.done, videoTitle: sv.videoTitle || '', url: (typ === 'page' ? 'https://aboutwallart.com/pages/' + h : EDU_BLOG_BASE + h), image: '' });
+        made.push({ type: typ, handle: h, title: sv.videoTitle || h, saved: true, done: !!sv.done, published: isPub(h, sv), videoTitle: sv.videoTitle || '', url: (typ === 'page' ? 'https://aboutwallart.com/pages/' + h : EDU_BLOG_BASE + h), image: '' });
       });
       Object.keys(savedFiles || {}).forEach(function (h) {
         if (seenMade[h]) return;
-        made.push({ type: 'blog', handle: h, title: h, saved: true, done: true, videoTitle: '', url: EDU_BLOG_BASE + h, image: '' });
+        made.push({ type: 'blog', handle: h, title: h, saved: true, done: true, published: isPub(h, null), videoTitle: '', url: EDU_BLOG_BASE + h, image: '' });
       });
       made.sort(function (a, b) { return (a.title || '').toLowerCase().localeCompare((b.title || '').toLowerCase()); });
       return res.status(200).json({ ok: true, season: season, activeOccasions: activeOcc.map(function (o) { return o.name; }), blogs: blogs, pages: pages, made: made });
@@ -1587,25 +1589,50 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, payload: payload });
     }
 
-    // ---- "Already made" cards: read each saved video's own image (lazy — fired when the tab opens) ----
+    // ---- "Already made" / "Published" cards: read each saved video's own image (lazy — fired when the tab opens).
+    //      Falls back to the source blog/page's live image when the saved file has none. ----
     if (action === 'edu-made-images') {
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
-      var mhandles = Array.isArray(body.handles) ? body.handles.filter(Boolean).map(function (h) { return (h || '').toString().toLowerCase(); }).slice(0, 300) : [];
+      var items = Array.isArray(body.items) ? body.items
+        : (Array.isArray(body.handles) ? body.handles.map(function (h) { return { handle: h, type: 'blog' }; }) : []);
+      items = items.filter(function (it) { return it && it.handle; }).map(function (it) { return { handle: (it.handle || '').toString().toLowerCase(), type: (it.type === 'page' ? 'page' : 'blog') }; }).slice(0, 300);
       var images = {};
-      async function oneImg(h) {
+      function firstImgOf(html) { var m = /<img[^>]+src=["']([^"']+)["']/i.exec(html || ''); return m ? m[1].replace(/&amp;/g, '&') : ''; }
+      // pass 1 — read each saved file
+      async function fromFile(it) {
         try {
-          var gh = await ghGet('data/edu-video-' + h + '.json');
+          var gh = await ghGet('data/edu-video-' + it.handle + '.json');
           if (!gh.content) return;
           var p = JSON.parse(gh.content);
           var img = (p.featured && p.featured.url) || p.featuredImage || '';
           if (!img && Array.isArray(p.reuseImages)) { for (var i = 0; i < p.reuseImages.length; i++) { if (p.reuseImages[i] && p.reuseImages[i].url) { img = p.reuseImages[i].url; break; } } }
-          if (img) images[h] = img;
+          if (!img && Array.isArray(p.scenes)) { for (var j = 0; j < p.scenes.length; j++) { var u = p.scenes[j] && p.scenes[j].reuseUrl; if (u) { img = u; break; } } }
+          if (img) images[it.handle] = img;
         } catch (e) {}
       }
-      var mi = 0;
-      async function mworker() { while (mi < mhandles.length) { var i = mi++; await oneImg(mhandles[i]); } }
-      var mws = []; for (var mw = 0; mw < Math.min(6, mhandles.length); mw++) mws.push(mworker());
-      await Promise.all(mws);
+      var fi = 0;
+      async function fworker() { while (fi < items.length) { var i = fi++; await fromFile(items[i]); } }
+      var fws = []; for (var fw = 0; fw < Math.min(6, items.length); fw++) fws.push(fworker());
+      await Promise.all(fws);
+      // pass 2 — fall back to the source's own live image for any still missing
+      var missBlogs = items.filter(function (it) { return !images[it.handle] && it.type !== 'page'; });
+      var missPages = items.filter(function (it) { return !images[it.handle] && it.type === 'page'; });
+      if (missBlogs.length && process.env.SHOPIFY_STORE_DOMAIN) {
+        try {
+          for (var b = 0; b < missBlogs.length; b += 20) {
+            var chunk = missBlogs.slice(b, b + 20);
+            var q = 'blog_id:93572858142 (' + chunk.map(function (it) { return 'handle:' + it.handle; }).join(' OR ') + ')';
+            var ad = await shopGql('query($q:String!){ articles(first:50, query:$q){ edges{ node{ handle image{url} } } } }', { q: q });
+            ((ad && ad.data && ad.data.articles && ad.data.articles.edges) || []).forEach(function (e) { var n = e.node; if (n && n.handle && n.image && n.image.url) images[n.handle.toLowerCase()] = n.image.url; });
+          }
+        } catch (e) {}
+      }
+      if (missPages.length && process.env.SHOPIFY_STORE_DOMAIN) {
+        try {
+          var pr = await fetch('https://' + process.env.SHOPIFY_STORE_DOMAIN + '/admin/api/2025-01/pages.json?limit=250&fields=handle,body_html', { headers: { 'X-Shopify-Access-Token': process.env.SHOPIFY_ACCESS_TOKEN } });
+          if (pr.ok) { var pj = await pr.json(); var byH = {}; (pj.pages || []).forEach(function (pg) { byH[(pg.handle || '').toLowerCase()] = pg.body_html || ''; }); missPages.forEach(function (it) { var im = firstImgOf(byH[it.handle]); if (im) images[it.handle] = im; }); }
+        } catch (e) {}
+      }
       return res.status(200).json({ ok: true, images: images });
     }
 
@@ -1692,8 +1719,34 @@ module.exports = async (req, res) => {
       }
       function trimE(s, n) { s = String(s == null ? '' : s); return s.length <= n ? s : s.slice(0, n); }
 
+      // Ask the Python engine to bake the title card into the video's Drive folder + return a public link,
+      // so the Metricool file uses a clean branded thumbnail (never the black first frame).
+      var SELF = 'https://' + (req.headers['x-forwarded-host'] || req.headers.host || '');
+      async function eduThumb(folderId, handle) {
+        if (!folderId) return '';
+        try {
+          var r = await fetch(SELF + '/api/edu-video', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'edu-thumbnail', folderId: folderId, handle: handle }) });
+          if (!r.ok) return '';
+          var d = await r.json();
+          return (d && d.ok && d.thumbUrl) ? d.thumbUrl : '';
+        } catch (e) { return ''; }
+      }
+      // A scheduled London wall-clock time -> the exact UTC instant (handles BST vs GMT).
+      function londonToUTCISO(dateStr, hhmmss) {
+        var p = (dateStr || '').split('-'); var t = (hhmmss || '16:00:00').split(':');
+        var y = +p[0], mo = +p[1], d = +p[2], H = +t[0], Mi = +t[1] || 0;
+        if (!y || !mo || !d) return '';
+        function lastSunday(year, month) { var dt = new Date(Date.UTC(year, month + 1, 0)); dt.setUTCDate(dt.getUTCDate() - dt.getUTCDay()); return dt.getUTCDate(); }
+        var bstStart = Date.UTC(y, 2, lastSunday(y, 2), 1), bstEnd = Date.UTC(y, 9, lastSunday(y, 9), 1);
+        var localAsUTC = Date.UTC(y, mo - 1, d, H, Mi);
+        var off = (localAsUTC >= bstStart && localAsUTC < bstEnd) ? 1 : 0;
+        return new Date(localAsUTC - off * 3600000).toISOString();
+      }
+      const EDU_QUEUE_FILE = 'data/edu-publish-queue.json';
+
       var rows = [H.join(',')];
       var publishedHandles = [];
+      var queueAdds = [];
       var problems = [];
       for (var vi = 0; vi < vids.length; vi++) {
         var v = vids[vi] || {};
@@ -1715,7 +1768,8 @@ module.exports = async (req, res) => {
         try { caps = await eduCaps(vTitle, blogUrl, nets); }
         catch (e) { if (e.message === 'CREDITS') return res.status(200).json({ ok: false, error: '❌ Couldn\'t write the captions — your Claude API credits/quota look used up. Top up and try again.' }); caps = {}; }
 
-        var mk = function (net) { var o = { Date: date, Draft: false, Shortener: true, 'Picture Url 1': link, 'Alt text picture 1': alt, 'Video Thumbnail Url': '' }; o[net] = true; return o; };
+        var thumb = wantYt ? await eduThumb(p.driveFolderId || '', handle) : '';
+        var mk = function (net) { var o = { Date: date, Draft: false, Shortener: true, 'Picture Url 1': link, 'Alt text picture 1': alt, 'Video Thumbnail Url': thumb }; o[net] = true; return o; };
         if (wantYt) {
           var rY = mk('Youtube'); rY.Time = timeFor('youtube');
           rY['Youtube Video Title'] = trimE(yt.title || vTitle, 100); rY['Youtube Video Type'] = 'VIDEO'; rY['Youtube Video Privacy'] = 'PUBLIC';
@@ -1733,6 +1787,7 @@ module.exports = async (req, res) => {
         if (nets.indexOf('tiktok') >= 0) { var rK = mk('TikTok'); rK.Time = timeFor('tiktok'); rK['TikTok Title'] = trimE(vTitle, 90); rK['TikTok Post Privacy'] = 'PUBLIC_TO_EVERYONE'; rK['TikTok Ai generated content'] = true; rK.Text = trimE(caps.tiktok || vTitle, 2000); rows.push(rowLineE(rK)); }
 
         publishedHandles.push({ handle: handle, title: vTitle });
+        if (wantYt) { queueAdds.push({ handle: handle, title: vTitle, blogUrl: blogUrl, youtubeUrl: '', liveAt: londonToUTCISO(date, timeFor('youtube')), addedAt: new Date().toISOString() }); }
       }
 
       if (publishedHandles.length === 0) {
@@ -1754,6 +1809,16 @@ module.exports = async (req, res) => {
         publishedHandles.forEach(function (u) { if (!idx.videos[u.handle]) idx.videos[u.handle] = {}; idx.videos[u.handle].published = true; });
         return JSON.stringify(idx, null, 2);
       }, 'Index educational videos published');
+
+      // add each YouTube-scheduled video to the reminder queue (the weekly email script reads this)
+      if (queueAdds.length) {
+        await ghSave(EDU_QUEUE_FILE, function (content) {
+          var q = { videos: [] };
+          if (content) { try { q = JSON.parse(content); if (!Array.isArray(q.videos)) q.videos = []; } catch (e) { q = { videos: [] }; } }
+          queueAdds.forEach(function (a) { if (!q.videos.some(function (x) { return (x.handle || '') === a.handle && (x.liveAt || '') === a.liveAt; })) q.videos.push(a); });
+          return JSON.stringify(q, null, 2);
+        }, 'Queue educational videos for blog-link reminder');
+      }
 
       return res.status(200).json({ ok: true, csv: csvE, count: publishedHandles.length, published: publishedHandles.map(function (u) { return u.title; }), problems: problems });
     }
