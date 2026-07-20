@@ -1841,19 +1841,8 @@ module.exports = async (req, res) => {
 
       var csvE = '﻿' + rows.join('\r\n') + '\r\n';
 
-      // mark each built video as published so the monthly calendar never offers it again
-      await ghSave(USEDVIDBLOG_FILE, function (content) {
-        var doc = { used: [] };
-        if (content) { try { doc = JSON.parse(content); if (!Array.isArray(doc.used)) doc.used = []; } catch (e) { doc = { used: [] }; } }
-        publishedHandles.forEach(function (u) { if (!doc.used.some(function (x) { return ((x && x.handle) || x || '').toString().toLowerCase() === u.handle; })) doc.used.push({ handle: u.handle, title: u.title, publishedAt: new Date().toISOString() }); });
-        return JSON.stringify(doc, null, 2);
-      }, 'Mark educational videos published (Metricool)');
-      await ghSave(EDU_INDEX_FILE, function (content) {
-        var idx = { videos: {} };
-        if (content) { try { idx = JSON.parse(content); if (!idx.videos) idx.videos = {}; } catch (e) { idx = { videos: {} }; } }
-        publishedHandles.forEach(function (u) { if (!idx.videos[u.handle]) idx.videos[u.handle] = {}; idx.videos[u.handle].published = true; });
-        return JSON.stringify(idx, null, 2);
-      }, 'Index educational videos published');
+      // NOTE: building the file does NOT mark anything done. She marks each video herself (edu-mark-used)
+      // AFTER she has uploaded the file to Metricool, so a rebuild never loses videos.
 
       // add each YouTube-scheduled video to the reminder queue (the weekly email script reads this)
       if (queueAdds.length) {
@@ -1865,7 +1854,7 @@ module.exports = async (req, res) => {
         }, 'Queue educational videos for blog-link reminder');
       }
 
-      return res.status(200).json({ ok: true, csv: csvE, count: publishedHandles.length, published: publishedHandles.map(function (u) { return u.title; }), problems: problems });
+      return res.status(200).json({ ok: true, csv: csvE, count: publishedHandles.length, built: publishedHandles, published: publishedHandles.map(function (u) { return u.title; }), problems: problems });
     }
 
     if (action === 'edu-image') {
