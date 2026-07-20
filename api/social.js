@@ -1650,6 +1650,11 @@ module.exports = async (req, res) => {
       Object.keys(savedIdxP || {}).forEach(function (h) { pushPool(h, savedIdxP[h] || {}); });
       Object.keys(savedFilesP || {}).forEach(function (h) { pushPool(h, {}); });
       pool.sort(function (a, b) { return (a.savedAt || '').localeCompare(b.savedAt || ''); }); // oldest saved first (publish the ones waiting longest)
+      // flag which ones already have a YouTube pack (small pool → read each file)
+      var poolI = 0;
+      async function poolPack() { while (poolI < pool.length) { var i = poolI++; try { var gh = await ghGet('data/edu-video-' + pool[i].handle + '.json'); if (gh.content) { var pp = JSON.parse(gh.content); pool[i].hasPack = !!(pp.youtube && pp.youtube.title); } } catch (e) {} } }
+      var poolWs = []; for (var pk = 0; pk < Math.min(6, pool.length); pk++) poolWs.push(poolPack());
+      await Promise.all(poolWs);
       return res.status(200).json({ ok: true, pool: pool, count: pool.length });
     }
 
