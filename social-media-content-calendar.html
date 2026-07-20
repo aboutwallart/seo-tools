@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v7.8 · 20 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v7.9 · 20 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -329,6 +329,40 @@
   <h2>Content Monthly Plan</h2>
   <div class="box gray"><strong>Plan a whole month.</strong> Pick the month, tick the marketing occasions you want, then build the plan. Occasion days suggest matching products (you pick one); the empty days are auto-filled with unused products, rotating rooms so it stays varied. Nothing you've already made can ever repeat.</div>
 
+  <!-- BEST-POST TIMES BRIDGE -->
+  <div class="bt-panel" id="btPanel">
+    <div class="bt-head">
+      <strong>⏰ Best-post times</strong>
+      <span id="btUpdated" class="small mp-muted"></span>
+      <button type="button" id="btToggle" class="mp-btn-sm" style="margin-left:auto;">Refresh times</button>
+    </div>
+    <div id="btBody" style="display:none;">
+      <p class="small mp-muted" style="margin:8px 0;">The tool can't reach Metricool. So: open a Claude chat, paste the prompt below (it pulls your best times from Metricool), then paste the answer back here and Save.</p>
+      <div class="bt-sub"><strong>1 · Copy this into a Claude chat</strong> <button type="button" id="btCopyPrompt" class="mp-btn-sm">Copy prompt</button></div>
+      <pre id="btPrompt" class="bt-pre"></pre>
+      <div class="bt-sub"><strong>2 · Paste Claude's answer here</strong></div>
+      <textarea id="btPaste" class="mp-in" style="width:100%;min-height:150px;font-family:ui-monospace,monospace;font-size:12.5px;" placeholder="youtube: Wednesday 16:00&#10;facebook: ...&#10;updated: 2026-07-20"></textarea>
+      <div class="mp-savebar" style="margin:10px 0;">
+        <button type="button" id="btSave" class="mp-btn mp-btn-go">Save best times</button>
+        <span id="btSaveMsg" class="small mp-muted"></span>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    #tab-monthly .bt-panel{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:14px 0;background:#fff;}
+    #tab-monthly .bt-head{display:flex;gap:10px;align-items:center;font-size:14px;}
+    #tab-monthly .bt-sub{display:flex;gap:10px;align-items:center;margin:12px 0 5px;font-size:13px;}
+    #tab-monthly .bt-pre{white-space:pre-wrap;word-wrap:break-word;background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:12px;font-size:12.5px;line-height:1.5;font-family:ui-monospace,monospace;}
+    #tab-monthly .ev-block{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:20px 0;background:#fff;}
+    #tab-monthly .ev-weekrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--line);padding:10px 0;}
+    #tab-monthly .ev-weekrow img{width:60px;height:34px;object-fit:cover;border-radius:6px;background:var(--soft);}
+    #tab-monthly .ev-weeksel{font-size:13px;border:1px solid var(--line);border-radius:8px;padding:7px 9px;min-width:220px;flex:1;}
+    #tab-monthly .ev-weekdate{font-size:13px;border:1px solid var(--line);border-radius:8px;padding:7px 9px;}
+    #tab-monthly .ev-netrow{display:flex;gap:12px;flex-wrap:wrap;margin:10px 0;font-size:13px;}
+    #tab-monthly .ev-netrow label{display:flex;gap:5px;align-items:center;cursor:pointer;}
+  </style>
+
   <style>
     #tab-monthly .mp-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:14px 0;}
     #tab-monthly .mp-sel,#tab-monthly .mp-in{font-size:14px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;}
@@ -411,6 +445,35 @@
       <span id="mpSaveMsg" class="small mp-muted"></span>
     </div>
   </div>
+
+  <!-- EDUCATIONAL VIDEOS IN THE MONTHLY CALENDAR -->
+  <div class="ev-block" id="evMonthBlock">
+    <h3 class="mp-h3" style="margin-top:0;">🎓 Educational videos this month — 1 per week</h3>
+    <p class="small mp-muted">One educational video a week, pulled from the ones you've made but NOT published yet. Set each date, tick the networks, then build the Metricool file — YouTube long-form + your networks, each at its best time. The video plays from its Google Drive link. Anything published here never comes back on the list.</p>
+    <div class="mp-row">
+      <button type="button" id="evmLoad" class="mp-btn">Load the videos to schedule</button>
+      <span id="evmStatus" class="small mp-muted"></span>
+    </div>
+    <div id="evmWrap" style="display:none;">
+      <div id="evmWeeks"></div>
+      <div class="ev-netrow" id="evmNets">
+        <strong style="width:100%;font-size:13px;">Publish to:</strong>
+        <label><input type="checkbox" value="youtube" checked> YouTube</label>
+        <label><input type="checkbox" value="facebook"> Facebook</label>
+        <label><input type="checkbox" value="instagram"> Instagram</label>
+        <label><input type="checkbox" value="pinterest"> Pinterest</label>
+        <label><input type="checkbox" value="linkedin"> LinkedIn</label>
+        <label><input type="checkbox" value="threads"> Threads</label>
+        <label><input type="checkbox" value="twitter"> X / Twitter</label>
+        <label><input type="checkbox" value="tiktok"> TikTok</label>
+        <label><input type="checkbox" value="gbp"> Google Business</label>
+      </div>
+      <div class="mp-savebar">
+        <button type="button" id="evmBuild" class="mp-btn mp-btn-go">Build Metricool file for these videos</button>
+        <span id="evmBuildMsg" class="small mp-muted"></span>
+      </div>
+    </div>
+  </div>
 </section>
 
 <section class="tabpanel" id="tab-edu">
@@ -458,6 +521,9 @@
     #tab-edu .ev-card.done .ev-ct{color:var(--mut);}
     #tab-edu .ev-saved-tag{display:inline-block;margin-top:5px;margin-left:6px;font-size:10.5px;font-weight:700;background:#dcfce7;color:#065f46;padding:1px 8px;border-radius:20px;}
     #tab-edu .ev-undo{margin-top:7px;appearance:none;border:1px solid var(--line);background:#fff;border-radius:7px;font-size:11px;font-weight:700;padding:3px 10px;cursor:pointer;}
+    #tab-edu .ev-cardbtns{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px;}
+    #tab-edu .ev-openmade{appearance:none;border:none;background:#2563eb;color:#fff;border-radius:7px;font-size:11px;font-weight:800;padding:4px 12px;cursor:pointer;}
+    #tab-edu .ev-openmade:hover{background:#1d4ed8;}
     #tab-edu .ev-batch{margin:10px 0;}
     #tab-edu .ev-bhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:12.5px;font-weight:700;color:var(--mut);}
     #tab-edu .ev-bcopy{appearance:none;border:1px solid var(--line);background:#fff;border-radius:7px;font-size:11.5px;font-weight:700;padding:4px 10px;cursor:pointer;}
@@ -1015,7 +1081,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v7.8 — built 20 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v7.9 — built 20 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -1906,7 +1972,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     fetch('/api/social?action=edu-sources').then(function(r){ return r.json(); }).then(function(d){
       loadBtn.disabled = false; loadBtn.textContent = 'Reload sources';
       if(!d || !d.ok){ $('evSeason').textContent = 'Could not load: ' + ((d&&d.error)||'error'); return; }
-      EV.blogs = d.blogs || []; EV.pages = d.pages || []; EV.made = d.made || [];
+      EV.blogs = d.blogs || []; EV.pages = d.pages || []; EV.made = d.made || []; madeImgsDone = false;
       $('evSeason').textContent = 'On now / coming up: ' + ((d.activeOccasions && d.activeOccasions.length) ? d.activeOccasions.slice(0,6).join(', ') : (SEASON_NOTE[d.season] || d.season)) + '. Matching blogs are marked ☀ and shown first.';
       $('evSrcWrap').style.display = 'block';
       renderSources();
@@ -1919,9 +1985,23 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       EV.src = b.getAttribute('data-src');
       stabs.forEach(function(x){ x.classList.toggle('active', x===b); });
       renderSources();
+      if(EV.src==='made') loadMadeImages();
     });
   });
   $('evSearch').addEventListener('input', renderSources);
+
+  // Lazily fetch each "Already made" card's own blog/page image (the index doesn't store it).
+  var madeImgsDone = false;
+  function loadMadeImages(){
+    var need = (EV.made||[]).filter(function(s){ return !s.image; }).map(function(s){ return s.handle; });
+    if(!need.length || madeImgsDone) { if(madeImgsDone) renderSources(); return; }
+    fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-made-images', handles:need }) })
+      .then(function(r){ return r.json(); }).then(function(d){
+        madeImgsDone = true;
+        if(d && d.ok && d.images){ (EV.made||[]).forEach(function(s){ if(!s.image && d.images[s.handle]) s.image = d.images[s.handle]; }); }
+        renderSources();
+      }).catch(function(){});
+  }
 
   function renderSources(){
     var q = ($('evSearch').value || '').toLowerCase().trim();
@@ -1936,8 +2016,12 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       var doneCls = s.done ? ' done' : '';
       var vt = s.videoTitle ? '<span class="ev-vt">🎬 '+esc(s.videoTitle)+'</span>' : (s.saved ? '<span class="ev-vt">🎬 saved video</span>' : '');
       var undoBtn = s.done ? '<button type="button" class="ev-undo" data-undo="'+attr(s.handle)+'">Undo</button>' : '';
-      return '<div class="ev-card'+on+doneCls+'" data-h="'+attr(s.handle)+'"><div class="ev-imgwrap">'+imgInner+badge+'</div><span class="ev-ct">'+esc(s.title)+'</span>'+vt+sun+undoBtn+'</div>';
+      var openBtn = (EV.src==='made' || s.saved) ? '<button type="button" class="ev-openmade" data-open="'+attr(s.handle)+'">Open</button>' : '';
+      return '<div class="ev-card'+on+doneCls+'" data-h="'+attr(s.handle)+'"><div class="ev-imgwrap">'+imgInner+badge+'</div><span class="ev-ct">'+esc(s.title)+'</span>'+vt+sun+'<div class="ev-cardbtns">'+openBtn+undoBtn+'</div></div>';
     }).join('');
+    Array.prototype.forEach.call(el.querySelectorAll('.ev-openmade'), function(o){
+      o.addEventListener('click', function(e){ e.stopPropagation(); var h=o.getAttribute('data-open'); var s=currentList().filter(function(x){ return x.handle===h; })[0]; if(s) reopenSaved(s); });
+    });
     Array.prototype.forEach.call(el.querySelectorAll('.ev-card'), function(c){
       c.addEventListener('click', function(){
         var h = c.getAttribute('data-h');
@@ -2052,6 +2136,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         reflectDriveFolder();
         $('evOut').style.display = 'block';
         $('evPubWrap').style.display = 'block'; $('evYtOut').style.display = 'none'; $('evFinishOut').style.display = 'none';
+        reflectYtPack();
         $('evGenStatus').className = 'small ev-muted';
         $('evGenStatus').textContent = 'Reopened your saved video — edit the length and Regenerate, or re-save. Or go straight to the YouTube pack below.';
       }).catch(function(e){ $('evProdStatus').textContent = 'Error: ' + e.message; });
@@ -2436,6 +2521,13 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   function ytId(u){ var m=/(?:youtu\.be\/|[?&]v=|\/embed\/|\/shorts\/)([A-Za-z0-9_\-]{6,})/.exec(u||''); return m?m[1]:''; }
 
   var ytGenBtn = $('evYtGen');
+  // Reflect whether this video ALREADY has a saved YouTube pack — green button so she knows without clicking.
+  function reflectYtPack(){
+    if(!ytGenBtn) return;
+    var has = !!(EV.generated && EV.generated.youtube && EV.generated.youtube.title);
+    if(has){ ytGenBtn.classList.add('ev-done'); ytGenBtn.textContent='✓ Already generated · click to regenerate'; }
+    else { ytGenBtn.classList.remove('ev-done'); ytGenBtn.textContent='7 · Generate YouTube pack'; }
+  }
   if(ytGenBtn){
     ytGenBtn.addEventListener('click', function(){
       if(!EV.chosen){ return; }
@@ -2443,9 +2535,11 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       $('evYtStatus').className='small ev-muted'; $('evYtStatus').textContent='Writing the YouTube title, description and tags…';
       fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-youtube-pack', handle:EV.chosen.handle }) })
         .then(function(r){ return r.json(); }).then(function(d){
-          ytGenBtn.disabled=false; ytGenBtn.textContent='Regenerate pack';
-          if(!d || !d.ok){ $('evYtStatus').className='small ev-warn'; $('evYtStatus').textContent='Could not generate: '+((d&&d.error)||'error'); return; }
+          ytGenBtn.disabled=false;
+          if(!d || !d.ok){ reflectYtPack(); $('evYtStatus').className='small ev-warn'; $('evYtStatus').textContent='Could not generate: '+((d&&d.error)||'error'); return; }
           var y=d.youtube||{};
+          if(EV.generated){ EV.generated.youtube = y; }
+          reflectYtPack();
           $('evYtFile').textContent=y.filename||'';
           $('evYtTitle').textContent=y.title||'';
           $('evYtDesc').textContent=y.description||'';
@@ -2493,6 +2587,143 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         }).catch(function(e){ markBtn.disabled=false; $('evMarkMsg').className='small ev-warn'; $('evMarkMsg').textContent='Error: '+e.message; });
     });
   }
+})();
+</script>
+
+<script>
+// ===== BEST-POST TIMES BRIDGE + EDUCATIONAL VIDEOS IN THE MONTHLY CALENDAR =====
+(function(){
+  function $(id){ return document.getElementById(id); }
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function attr(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
+  if(!$('btPanel')) return;
+
+  var BT_PROMPT =
+    'Refresh my Metricool best-posting-times for my Social Content Tool.\n' +
+    'Use my Metricool connection. Brand: About Wall Art · brandId 2130965 · timezone Europe/London.\n' +
+    'For each of these networks, call getBestTimeToPostByNetwork over the next 7 days and pick the SINGLE best slot\n' +
+    '(the day + hour with the highest value): youtube, facebook, instagram, linkedin, tiktok, twitter.\n' +
+    'Metricool has no best-time data for pinterest, threads or gbp — use fixed: pinterest = Saturday 20:00,\n' +
+    'threads = Tuesday 12:00, gbp = Wednesday 10:00.\n' +
+    'Output ONLY this block (24-hour, London time):\n' +
+    'youtube: <day> <HH:MM>\n' +
+    'facebook: <day> <HH:MM>\n' +
+    'instagram: <day> <HH:MM>\n' +
+    'linkedin: <day> <HH:MM>\n' +
+    'tiktok: <day> <HH:MM>\n' +
+    'twitter: <day> <HH:MM>\n' +
+    'pinterest: Saturday 20:00\n' +
+    'threads: Tuesday 12:00\n' +
+    'gbp: Wednesday 10:00\n' +
+    'updated: <today YYYY-MM-DD>';
+  $('btPrompt').textContent = BT_PROMPT;
+
+  var BT = { times:{}, updated:'' };
+  function thisMonth(){ return new Date().toISOString().slice(0,7); }
+  function isStale(){ return !BT.updated || BT.updated.slice(0,7) < thisMonth(); }
+  function reflectBt(){
+    var u = $('btUpdated');
+    if(!BT.updated){ u.textContent = '— not set yet. Refresh for accurate scheduling.'; u.style.color = '#b91c1c'; }
+    else if(isStale()){ u.textContent = '⚠ Last refreshed ' + BT.updated + ' — refresh for this month.'; u.style.color = '#b91c1c'; }
+    else { u.textContent = 'Last refreshed ' + BT.updated + '.'; u.style.color = ''; }
+  }
+  function loadBt(){
+    fetch('/api/social?action=get-best-times').then(function(r){ return r.json(); }).then(function(d){
+      if(d && d.ok){ BT.times = d.times || {}; BT.updated = d.updated || ''; }
+      reflectBt();
+      if(isStale()){ $('btBody').style.display = 'block'; } // nudge her to refresh when starting a month
+    }).catch(function(){ reflectBt(); });
+  }
+  $('btToggle').addEventListener('click', function(){ var b=$('btBody'); b.style.display = (b.style.display==='none'?'block':'none'); });
+  $('btCopyPrompt').addEventListener('click', function(){
+    var b=$('btCopyPrompt');
+    function ok(){ var o=b.textContent; b.textContent='Copied ✓'; setTimeout(function(){ b.textContent=o; },1400); }
+    if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(BT_PROMPT).then(ok, ok); } else { ok(); }
+  });
+  $('btSave').addEventListener('click', function(){
+    var raw = ($('btPaste').value||'').trim();
+    if(!raw){ $('btSaveMsg').textContent='Paste the times first.'; return; }
+    var btn=$('btSave'); btn.disabled=true; $('btSaveMsg').style.color=''; $('btSaveMsg').textContent='Saving…';
+    fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'save-best-times', raw:raw }) })
+      .then(function(r){ return r.json(); }).then(function(d){
+        btn.disabled=false;
+        if(!d || !d.ok){ $('btSaveMsg').style.color='#b91c1c'; $('btSaveMsg').textContent = (d&&d.error)||'Could not save.'; return; }
+        BT.times = d.times || {}; BT.updated = d.updated || ''; reflectBt();
+        $('btSaveMsg').style.color=''; $('btSaveMsg').textContent = 'Saved ✓ (' + Object.keys(BT.times).length + ' networks).';
+      }).catch(function(e){ btn.disabled=false; $('btSaveMsg').style.color='#b91c1c'; $('btSaveMsg').textContent='Error: '+e.message; });
+  });
+  loadBt();
+
+  // ---- Educational videos into the monthly calendar ----
+  var EVM = { pool:[] };
+  var DAYNAMES = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+  function ytWeekday(){
+    var v = (BT.times.youtube||'').toLowerCase();
+    for(var i=0;i<DAYNAMES.length;i++){ if(v.indexOf(DAYNAMES[i])>=0) return i; }
+    return 3; // default Wednesday
+  }
+  function selectedMonth(){ var m=$('mpMonth'); return (m && m.value) ? m.value : thisMonth(); }
+  function weekdayDatesInMonth(ym, wd){
+    var parts = (ym||'').split('-'); if(parts.length<2) { var n=new Date(); parts=[n.getFullYear(), n.getMonth()+1]; }
+    var y=parseInt(parts[0],10), mo=parseInt(parts[1],10)-1, out=[];
+    var d=new Date(y,mo,1);
+    while(d.getMonth()===mo){ if(d.getDay()===wd){ out.push(d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2)); } d.setDate(d.getDate()+1); }
+    return out;
+  }
+  function renderWeeks(){
+    var wrap=$('evmWeeks');
+    if(!EVM.pool.length){ wrap.innerHTML='<p class="small mp-muted">No unpublished videos ready. Make videos in the Educational Video tab first.</p>'; return; }
+    var dates = weekdayDatesInMonth(selectedMonth(), ytWeekday());
+    var weeks = Math.min(5, Math.max(dates.length, 1));
+    if(weeks > EVM.pool.length) weeks = EVM.pool.length; // never more slots than videos
+    var opts = EVM.pool.map(function(v,i){ return '<option value="'+attr(v.handle)+'">'+esc(v.videoTitle||v.title||v.handle)+'</option>'; }).join('');
+    var rows='';
+    for(var w=0; w<weeks; w++){
+      var pre = EVM.pool[w] ? EVM.pool[w].handle : '';
+      var dt = dates[w] || '';
+      var sel = opts.replace('value="'+attr(pre)+'"', 'value="'+attr(pre)+'" selected');
+      rows += '<div class="ev-weekrow"><span style="font-weight:800;min-width:64px;">Week '+(w+1)+'</span>'
+            + '<select class="ev-weeksel" data-week="'+w+'"><option value="">— skip —</option>'+sel+'</select>'
+            + '<input type="date" class="ev-weekdate" data-week="'+w+'" value="'+attr(dt)+'"></div>';
+    }
+    wrap.innerHTML = rows;
+  }
+  $('evmLoad').addEventListener('click', function(){
+    var b=$('evmLoad'); b.disabled=true; $('evmStatus').textContent='Loading…';
+    fetch('/api/social?action=edu-pool').then(function(r){ return r.json(); }).then(function(d){
+      b.disabled=false; b.textContent='Reload the videos';
+      if(!d || !d.ok){ $('evmStatus').textContent='Could not load: '+((d&&d.error)||'error'); return; }
+      EVM.pool = d.pool || [];
+      $('evmStatus').textContent = EVM.pool.length + ' videos ready to publish.';
+      $('evmWrap').style.display='block';
+      renderWeeks();
+    }).catch(function(e){ b.disabled=false; $('evmStatus').textContent='Error: '+e.message; });
+  });
+
+  $('evmBuild').addEventListener('click', function(){
+    var rows = Array.prototype.slice.call(document.querySelectorAll('#evmWeeks .ev-weekrow'));
+    var videos=[], seen={};
+    rows.forEach(function(row){
+      var sel=row.querySelector('.ev-weeksel'), dt=row.querySelector('.ev-weekdate');
+      var h=(sel&&sel.value)||'', date=(dt&&dt.value)||'';
+      if(!h || !date || seen[h]) return; seen[h]=1;
+      videos.push({ handle:h, date:date });
+    });
+    var nets = Array.prototype.slice.call(document.querySelectorAll('#evmNets input:checked')).map(function(c){ return c.value; });
+    if(!videos.length){ $('evmBuildMsg').style.color='#b91c1c'; $('evmBuildMsg').textContent='Pick at least one video with a date.'; return; }
+    if(!nets.length){ $('evmBuildMsg').style.color='#b91c1c'; $('evmBuildMsg').textContent='Tick at least one network.'; return; }
+    var btn=$('evmBuild'); btn.disabled=true; $('evmBuildMsg').style.color=''; $('evmBuildMsg').textContent='Building the file… (writing captions)';
+    fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-metricool', videos:videos, networks:nets }) })
+      .then(function(r){ return r.json(); }).then(function(d){
+        btn.disabled=false;
+        if(!d || !d.ok){ $('evmBuildMsg').style.color='#b91c1c'; $('evmBuildMsg').textContent = (d&&d.error)||'Could not build.'; return; }
+        var blob=new Blob([d.csv],{type:'text/csv;charset=utf-8;'});
+        var u=URL.createObjectURL(blob); var a=document.createElement('a'); a.href=u; a.download='educational-videos-'+selectedMonth()+'.csv'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){ URL.revokeObjectURL(u); },5000);
+        var msg='Built ✓ '+d.count+' video(s) — file downloaded. Upload it to Metricool.';
+        if(d.problems && d.problems.length){ msg += ' Skipped: '+d.problems.join(' · '); }
+        $('evmBuildMsg').style.color=''; $('evmBuildMsg').textContent=msg;
+      }).catch(function(e){ btn.disabled=false; $('evmBuildMsg').style.color='#b91c1c'; $('evmBuildMsg').textContent='Error: '+e.message; });
+  });
 })();
 </script>
 </body>
