@@ -286,17 +286,40 @@ def bake_title(img01_path, video_title):
     ty = H-barh//2-(len(L)*lh)//2
     for ln in L: d.text((W//2, ty), ln, font=f, fill="white", anchor="ma"); ty += lh
     add_logo(b); return b
+def _title_source_image(files, indir, edu):
+    # Pick the image to bake the title card on — robust so the thumbnail is NEVER black:
+    #   1) photo 01  ->  2) the lowest-numbered image  ->  3) any image in the folder
+    #   4) the saved script's featured / first reuse image (downloaded from its URL)
+    IMG = (".png", ".jpg", ".jpeg", ".webp")
+    f = photo_for(files, 1)
+    if not f:
+        imgs = [x for x in files if (x.get("name") or "").lower().endswith(IMG)]
+        def numkey(x):
+            m = re.match(r"0*(\d+)", x["name"]); return int(m.group(1)) if m else 10 ** 9
+        imgs.sort(key=numkey)
+        f = imgs[0] if imgs else None
+    if f:
+        low = f["name"].lower(); ext = "png" if low.endswith("png") else ("webp" if low.endswith("webp") else "jpg")
+        p = os.path.join(indir, "src." + ext); open(p, "wb").write(drive_download(f["id"]))
+        return p
+    # fallback: the featured / first reuse image from the saved script
+    url = ((edu.get("featured") or {}).get("url")) or edu.get("featuredImage") or ""
+    if not url:
+        for im in (edu.get("reuseImages") or []):
+            if im and im.get("url"): url = im["url"]; break
+    if url:
+        p = os.path.join(indir, "src.img"); open(p, "wb").write(http(url))
+        return p
+    return None
 def make_thumbnail(folder_id, handle):
     # Rebuild the title card and save it into the video's Drive folder as thumbnail.png, so the
-    # Metricool file can use a clean branded frame (never the black first frame). Works on any
-    # already-rendered video — it only needs the 01 image that's already in the folder.
+    # Metricool file can use a clean branded frame (never the black first frame). Falls back through
+    # 01 -> lowest-numbered -> any image -> the saved featured image, so it never comes out black.
     edu = json.loads(http((REPO_RAW % handle) + "?_=" + str(int(time.time()))))
     files = drive_list(folder_id)
-    f01 = photo_for(files, 1)
-    if not f01: raise RuntimeError("Photo 01 (the title image) is missing from the folder.")
     indir = "/tmp/edu_thumb"; os.makedirs(indir, exist_ok=True)
-    low = f01["name"].lower(); ext = "png" if low.endswith("png") else ("webp" if low.endswith("webp") else "jpg")
-    p = os.path.join(indir, "01." + ext); open(p, "wb").write(drive_download(f01["id"]))
+    p = _title_source_image(files, indir, edu)
+    if not p: raise RuntimeError("No image found to build the thumbnail (no folder image and no featured image).")
     img = bake_title(p, edu.get("videoTitle") or handle)
     buf = io.BytesIO(); img.save(buf, "PNG"); data = buf.getvalue()
     up = drive_upload(folder_id, "thumbnail.png", "image/png", data)
