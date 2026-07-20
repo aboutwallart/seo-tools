@@ -478,6 +478,7 @@
     <div class="ev-tabs">
       <button type="button" class="ev-stab active" data-src="blog">Blogs</button>
       <button type="button" class="ev-stab" data-src="page">Education pages</button>
+      <button type="button" class="ev-stab" data-src="made">Already made</button>
     </div>
     <input id="evSearch" class="ev-in" placeholder="Search by keyword…">
     <div id="evSrcList" class="ev-grid"></div>
@@ -1898,14 +1899,14 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   var SEASON_NOTE = { summer:'summer — coastal, tropical, boho, botanical', spring:'spring — fresh, floral, bright', autumn:'autumn — cosy, warm, layered', winter:'winter — cosy, fireplace, festive' };
 
   function keyOf(p){ return p.sku || p.handle; }
-  function currentList(){ return EV.src==='page' ? EV.pages : EV.blogs; }
+  function currentList(){ return EV.src==='made' ? (EV.made||[]) : (EV.src==='page' ? EV.pages : EV.blogs); }
 
   loadBtn.addEventListener('click', function(){
     loadBtn.disabled = true; loadBtn.textContent = 'Loading…';
     fetch('/api/social?action=edu-sources').then(function(r){ return r.json(); }).then(function(d){
       loadBtn.disabled = false; loadBtn.textContent = 'Reload sources';
       if(!d || !d.ok){ $('evSeason').textContent = 'Could not load: ' + ((d&&d.error)||'error'); return; }
-      EV.blogs = d.blogs || []; EV.pages = d.pages || [];
+      EV.blogs = d.blogs || []; EV.pages = d.pages || []; EV.made = d.made || [];
       $('evSeason').textContent = 'On now / coming up: ' + ((d.activeOccasions && d.activeOccasions.length) ? d.activeOccasions.slice(0,6).join(', ') : (SEASON_NOTE[d.season] || d.season)) + '. Matching blogs are marked ☀ and shown first.';
       $('evSrcWrap').style.display = 'block';
       renderSources();
@@ -1926,7 +1927,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     var q = ($('evSearch').value || '').toLowerCase().trim();
     var list = currentList().filter(function(s){ return !q || (s.title||'').toLowerCase().indexOf(q)>=0 || (s.handle||'').toLowerCase().indexOf(q)>=0 || (s.videoTitle||'').toLowerCase().indexOf(q)>=0; });
     var el = $('evSrcList');
-    if(!list.length){ el.innerHTML = '<p class="small ev-muted">No ' + (EV.src==='page'?'education pages':'unused educational blogs') + ' found.</p>'; return; }
+    if(!list.length){ el.innerHTML = '<p class="small ev-muted">No ' + (EV.src==='made'?'videos made yet':(EV.src==='page'?'education pages':'unused educational blogs')) + ' found.</p>'; return; }
     el.innerHTML = list.map(function(s){
       var imgInner = s.image ? '<img src="'+attr(s.image)+'" alt="">' : '<div class="ev-noimg">'+(s.type==='page'?'Page':'Blog')+'</div>';
       var badge = s.done ? '<span class="ev-donebadge">✓ SAVED</span>' : '';
