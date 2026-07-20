@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v8.1 · 20 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v8.2 · 20 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -361,6 +361,10 @@
     #tab-monthly .ev-weekdate{font-size:13px;border:1px solid var(--line);border-radius:8px;padding:7px 9px;}
     #tab-monthly .ev-netrow{display:flex;gap:12px;flex-wrap:wrap;margin:10px 0;font-size:13px;}
     #tab-monthly .ev-netrow label{display:flex;gap:5px;align-items:center;cursor:pointer;}
+    #tab-monthly .ev-packstatus{font-size:12.5px;font-weight:700;}
+    #tab-monthly .ev-packok{color:#0F6E56;}
+    #tab-monthly .ev-packbad{color:#b91c1c;}
+    #tab-monthly .ev-genpack{color:#2563eb;font-weight:800;margin-left:6px;text-decoration:none;}
   </style>
 
   <style>
@@ -1082,7 +1086,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v8.1 — built 20 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v8.2 — built 20 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -2152,6 +2156,15 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       .then(function(r){ return r.json(); }).then(function(d){ if(d && d.ok && loadBtn){ loadBtn.click(); } }).catch(function(){});
   }
 
+  // Called from Tab 1 (monthly plan) — jump to this tab, open the saved video, scroll to the YouTube-pack button.
+  window.eduOpenVideo = function(handle, type, title){
+    var tb = document.querySelector('.tabbtn[data-tab="edu"]'); if(tb) tb.click();
+    var url = (type==='page') ? ('https://aboutwallart.com/pages/'+handle) : ('https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/'+handle);
+    var s = (EV.made||[]).filter(function(x){ return x.handle===handle; })[0] || { handle:handle, type:(type||'blog'), saved:true, done:false, videoTitle:title||'', title:title||handle, url:url };
+    reopenSaved(s);
+    setTimeout(function(){ var el=$('evYtGen'); if(el) el.scrollIntoView({ behavior:'smooth', block:'center' }); }, 500);
+  };
+
   function renderPromptBatches(batches){
     var wrap = $('evPromptsWrap'); if(!wrap) return;
     batches = Array.isArray(batches) ? batches : [];
@@ -2675,6 +2688,18 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     while(d.getMonth()===mo){ if(d.getDay()===wd){ out.push(d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2)); } d.setDate(d.getDate()+1); }
     return out;
   }
+  function poolByHandle(h){ return (EVM.pool||[]).filter(function(v){ return v.handle===h; })[0]; }
+  function packStatusHtml(h){
+    var v = poolByHandle(h); if(!h || !v) return '';
+    if(v.hasPack) return '<span class="ev-packok">✓ pack ready</span>';
+    return '<span class="ev-packbad">⚠ no YouTube pack</span> <a href="#" class="ev-genpack" data-h="'+attr(h)+'" data-type="'+attr(v.sourceType||'blog')+'" data-title="'+attr(v.videoTitle||v.title||'')+'">Generate it →</a>';
+  }
+  function wireGenLinks(scope){
+    if(!scope || !scope.querySelectorAll) return;
+    Array.prototype.forEach.call(scope.querySelectorAll('.ev-genpack'), function(a){
+      a.addEventListener('click', function(e){ e.preventDefault(); if(window.eduOpenVideo) window.eduOpenVideo(a.getAttribute('data-h'), a.getAttribute('data-type'), a.getAttribute('data-title')); });
+    });
+  }
   function renderWeeks(){
     var wrap=$('evmWeeks');
     if(!EVM.pool.length){ wrap.innerHTML='<p class="small mp-muted">No unpublished videos ready. Make videos in the Educational Video tab first.</p>'; return; }
@@ -2689,9 +2714,17 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       var sel = opts.replace('value="'+attr(pre)+'"', 'value="'+attr(pre)+'" selected');
       rows += '<div class="ev-weekrow"><span style="font-weight:800;min-width:64px;">Week '+(w+1)+'</span>'
             + '<select class="ev-weeksel" data-week="'+w+'"><option value="">— skip —</option>'+sel+'</select>'
-            + '<input type="date" class="ev-weekdate" data-week="'+w+'" value="'+attr(dt)+'"></div>';
+            + '<input type="date" class="ev-weekdate" data-week="'+w+'" value="'+attr(dt)+'">'
+            + '<span class="ev-packstatus" data-week="'+w+'">'+packStatusHtml(pre)+'</span></div>';
     }
     wrap.innerHTML = rows;
+    wireGenLinks(wrap);
+    Array.prototype.forEach.call(wrap.querySelectorAll('.ev-weeksel'), function(sel){
+      sel.addEventListener('change', function(){
+        var row=sel.closest('.ev-weekrow'); var span=row.querySelector('.ev-packstatus');
+        if(span){ span.innerHTML = packStatusHtml(sel.value); wireGenLinks(span); }
+      });
+    });
   }
   $('evmLoad').addEventListener('click', function(){
     var b=$('evmLoad'); b.disabled=true; $('evmStatus').textContent='Loading…';
@@ -2724,9 +2757,13 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         if(!d || !d.ok){ $('evmBuildMsg').style.color='#b91c1c'; $('evmBuildMsg').textContent = (d&&d.error)||'Could not build.'; return; }
         var blob=new Blob([d.csv],{type:'text/csv;charset=utf-8;'});
         var u=URL.createObjectURL(blob); var a=document.createElement('a'); a.href=u; a.download='educational-videos-'+selectedMonth()+'.csv'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){ URL.revokeObjectURL(u); },5000);
-        var msg='Built ✓ '+d.count+' video(s) — file downloaded. Upload it to Metricool.';
-        if(d.problems && d.problems.length){ msg += ' Skipped: '+d.problems.join(' · '); }
-        $('evmBuildMsg').style.color=''; $('evmBuildMsg').textContent=msg;
+        if(d.problems && d.problems.length){
+          $('evmBuildMsg').style.color='#b91c1c';
+          $('evmBuildMsg').textContent='Built ✓ '+d.count+' video(s) — file downloaded. ⚠ SKIPPED '+d.problems.length+': '+d.problems.join(' · ');
+        } else {
+          $('evmBuildMsg').style.color='';
+          $('evmBuildMsg').textContent='Built ✓ '+d.count+' video(s) — file downloaded. Upload it to Metricool.';
+        }
       }).catch(function(e){ btn.disabled=false; $('evmBuildMsg').style.color='#b91c1c'; $('evmBuildMsg').textContent='Error: '+e.message; });
   });
 })();
