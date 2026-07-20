@@ -310,6 +310,7 @@ module.exports = async (req, res) => {
     const USED_FILE = 'data/used-videos.json';
     const USEDBLOG_FILE = 'data/used-blogs.json';
     const PLAN_FILE = 'data/social-plan.json';
+    const BEST_TIMES_FILE = 'data/metricool-best-times.json';
 
     async function usedSetLower() {
       const gh = await ghGet(USED_FILE);
@@ -425,6 +426,40 @@ module.exports = async (req, res) => {
         return JSON.stringify(data, null, 2);
       }, 'Push plan cards ' + month);
       return res.status(200).json({ ok: true });
+    }
+
+    // ---- BEST-POST TIMES BRIDGE ----
+    // She pulls the times from Metricool in a Claude chat, then pastes the block here.
+    // Stored as data/metricool-best-times.json = { times:{ youtube:"Wednesday 16:00", ... }, updated:"YYYY-MM-DD" }.
+    const BEST_TIME_NETS = ['youtube', 'facebook', 'instagram', 'linkedin', 'tiktok', 'twitter', 'pinterest', 'threads', 'gbp'];
+    function parseBestTimes(raw) {
+      var times = {}, updated = '';
+      String(raw || '').split(/\r?\n/).forEach(function (ln) {
+        var i = ln.indexOf(':'); if (i < 0) return;
+        var key = ln.slice(0, i).trim().toLowerCase().replace(/[^a-z]/g, '');
+        var val = ln.slice(i + 1).trim();
+        if (!key || !val) return;
+        if (key === 'updated') { updated = val; return; }
+        if (key === 'x' || key === 'twitterx') key = 'twitter';
+        if (BEST_TIME_NETS.indexOf(key) >= 0) times[key] = val;
+      });
+      return { times: times, updated: updated };
+    }
+
+    if (action === 'get-best-times') {
+      const gh = await ghGet(BEST_TIMES_FILE);
+      var doc = { times: {}, updated: '' };
+      if (gh.content) { try { var p = JSON.parse(gh.content); doc.times = p.times || {}; doc.updated = p.updated || ''; } catch (e) {} }
+      return res.status(200).json({ ok: true, times: doc.times, updated: doc.updated });
+    }
+
+    if (action === 'save-best-times') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      const parsed = parseBestTimes(body.raw || '');
+      if (!Object.keys(parsed.times).length) return res.status(200).json({ ok: false, error: 'Could not read any times — paste the block exactly as the prompt gives it (one line per network, like "youtube: Wednesday 16:00").' });
+      if (!parsed.updated) parsed.updated = new Date().toISOString().slice(0, 10);
+      await ghSave(BEST_TIMES_FILE, function () { return JSON.stringify(parsed, null, 2); }, 'Save Metricool best times ' + parsed.updated);
+      return res.status(200).json({ ok: true, times: parsed.times, updated: parsed.updated });
     }
 
     if (action === 'undo-plan-month') {
@@ -1550,6 +1585,177 @@ module.exports = async (req, res) => {
       var payload = {};
       try { payload = JSON.parse(gh.content); } catch (e) { return res.status(200).json({ ok: false, error: 'Saved file unreadable' }); }
       return res.status(200).json({ ok: true, payload: payload });
+    }
+
+    // ---- "Already made" cards: read each saved video's own image (lazy — fired when the tab opens) ----
+    if (action === 'edu-made-images') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      var mhandles = Array.isArray(body.handles) ? body.handles.filter(Boolean).map(function (h) { return (h || '').toString().toLowerCase(); }).slice(0, 300) : [];
+      var images = {};
+      async function oneImg(h) {
+        try {
+          var gh = await ghGet('data/edu-video-' + h + '.json');
+          if (!gh.content) return;
+          var p = JSON.parse(gh.content);
+          var img = (p.featured && p.featured.url) || p.featuredImage || '';
+          if (!img && Array.isArray(p.reuseImages)) { for (var i = 0; i < p.reuseImages.length; i++) { if (p.reuseImages[i] && p.reuseImages[i].url) { img = p.reuseImages[i].url; break; } } }
+          if (img) images[h] = img;
+        } catch (e) {}
+      }
+      var mi = 0;
+      async function mworker() { while (mi < mhandles.length) { var i = mi++; await oneImg(mhandles[i]); } }
+      var mws = []; for (var mw = 0; mw < Math.min(6, mhandles.length); mw++) mws.push(mworker());
+      await Promise.all(mws);
+      return res.status(200).json({ ok: true, images: images });
+    }
+
+    // ---- The NOT-yet-published educational-video pool (for the monthly calendar: 1/week) ----
+    if (action === 'edu-pool') {
+      var savedIdxP = await eduIndex();       // { handle: {done, videoTitle, sourceType, savedAt} }
+      var savedFilesP = await eduSavedFiles(); // handles with an edu-video-<handle>.json
+      var publishedP = await usedVideoBlogSet(); // handles already published (edu-mark-used / edu-metricool)
+      var pool = [], seenP = {};
+      function pushPool(h, meta) {
+        h = (h || '').toLowerCase(); if (!h || seenP[h] || publishedP[h]) return; seenP[h] = 1;
+        var typ = (meta && meta.sourceType) || 'blog';
+        pool.push({ handle: h, title: (meta && meta.videoTitle) || h, videoTitle: (meta && meta.videoTitle) || '', sourceType: typ, savedAt: (meta && meta.savedAt) || '', url: (typ === 'page' ? 'https://aboutwallart.com/pages/' + h : EDU_BLOG_BASE + h) });
+      }
+      Object.keys(savedIdxP || {}).forEach(function (h) { pushPool(h, savedIdxP[h] || {}); });
+      Object.keys(savedFilesP || {}).forEach(function (h) { pushPool(h, {}); });
+      pool.sort(function (a, b) { return (a.savedAt || '').localeCompare(b.savedAt || ''); }); // oldest saved first (publish the ones waiting longest)
+      return res.status(200).json({ ok: true, pool: pool, count: pool.length });
+    }
+
+    // ---- Build a Metricool import file to PUBLISH educational videos from their Drive link ----
+    // YouTube long-form (VIDEO) + the networks she ticks, each at its best time. Marks each published
+    // so the monthly calendar never offers it again. Reuses the same 94-column Metricool template.
+    if (action === 'edu-metricool') {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      var vids = Array.isArray(body.videos) ? body.videos : [];
+      var nets = Array.isArray(body.networks) ? body.networks.map(function (n) { return (n || '').toString().toLowerCase(); }) : [];
+      if (!vids.length) return res.status(400).json({ ok: false, error: 'No videos selected' });
+      if (!nets.length) return res.status(400).json({ ok: false, error: 'Tick at least one network to publish to' });
+      var wantYt = nets.indexOf('youtube') >= 0;
+
+      // 94-column Metricool template (same as the metricool-file action)
+      var H = ['Text', 'Date', 'Time', 'Draft', 'Facebook', 'Twitter/X', 'LinkedIn', 'GBP', 'Instagram', 'Pinterest', 'TikTok', 'Youtube', 'Threads', 'Bluesky'];
+      for (var pi = 1; pi <= 10; pi++) H.push('Picture Url ' + pi);
+      for (var ali = 1; ali <= 10; ali++) H.push('Alt text picture ' + ali);
+      H = H.concat(['Document title', 'Shortener', 'Video Thumbnail Url', 'Video Cover Frame', 'Twitter/X Can reply', 'Twitter/X Type', 'Twitter/X Poll Duration minutes', 'Twitter/X Poll Option 1', 'Twitter/X Poll Option 2', 'Twitter/X Poll Option 3', 'Twitter/X Poll Option 4', 'Pinterest Board', 'Pinterest Pin Title', 'Pinterest Pin Link', 'Pinterest Pin New Format', 'Instagram Post Type', 'Instagram Show Reel On Feed', 'Youtube Video Title', 'Youtube Video Type', 'Youtube Video Privacy', 'Youtube video for kids', 'Youtube Video Category', 'Youtube Video Tags', 'Youtube playlist', 'GBP Post Type', 'Facebook Post Type', 'Facebook Title', 'First Comment Text', 'TikTok Title', 'TikTok disable comments', 'TikTok disable duet', 'TikTok disable stitch', 'TikTok Post Privacy', 'TikTok Branded Content', 'TikTok Your Brand', 'TikTok Auto Add Music', 'TikTok Photo Cover Index', 'TikTok musicId', 'TikTok music title', 'TikTok music author', 'TikTok music previewUrl', 'TikTok music thumbnailUrl', 'TikTok music soundVolume', 'TikTok music originalVolume', 'TikTok music startMillis', 'TikTok music endMillis', 'TikTok Ai generated content', 'LinkedIn Type', 'LinkedIn Poll Question', 'LinkedIn Poll Option 1', 'LinkedIn Poll Option 2', 'LinkedIn Poll Option 3', 'LinkedIn Poll Option 4', 'LinkedIn Poll Duration', 'LinkedIn Show link preview', 'LinkedIn Images as Carousel', 'Threads Reply Control', 'Threads Is Spoiler', 'Threads Post Type', 'Brand name']);
+      var BOOLC = { 'Draft': 1, 'Facebook': 1, 'Twitter/X': 1, 'LinkedIn': 1, 'GBP': 1, 'Instagram': 1, 'Pinterest': 1, 'TikTok': 1, 'Youtube': 1, 'Threads': 1, 'Bluesky': 1, 'Shortener': 1, 'Pinterest Pin New Format': 1, 'Instagram Show Reel On Feed': 1, 'Youtube video for kids': 1, 'TikTok disable comments': 1, 'TikTok disable duet': 1, 'TikTok disable stitch': 1, 'TikTok Branded Content': 1, 'TikTok Your Brand': 1, 'TikTok Auto Add Music': 1, 'TikTok Ai generated content': 1, 'LinkedIn Show link preview': 1, 'LinkedIn Images as Carousel': 1, 'Threads Is Spoiler': 1 };
+      function cellE(col, val) { if (BOOLC[col]) return val === true ? 'true' : 'false'; if (val === undefined || val === null || val === '') return ''; return '"' + String(val).replace(/"/g, '""') + '"'; }
+      function rowLineE(o) { return H.map(function (h) { return cellE(h, o[h]); }).join(','); }
+
+      // best times (day + HH:MM) -> HH:MM:SS per network
+      var btGh = await ghGet(BEST_TIMES_FILE);
+      var BT = {}; if (btGh.content) { try { BT = (JSON.parse(btGh.content).times) || {}; } catch (e) { BT = {}; } }
+      function timeFor(net) {
+        var v = BT[net] || ''; var m = /(\d{1,2}):(\d{2})/.exec(v);
+        if (!m) { var def = { youtube: '16:00', facebook: '10:00', instagram: '11:00', linkedin: '17:00', tiktok: '18:00', twitter: '10:00', pinterest: '20:00', threads: '12:00', gbp: '10:00' }; var d = def[net] || '10:00'; return d + ':00'; }
+        var hh = ('0' + m[1]).slice(-2); return hh + ':' + m[2] + ':00';
+      }
+
+      var DRIVE = process.env.EDU_DRIVE_URL;
+      async function driveVideoLink(folderId, pasted) {
+        if (pasted && /^https?:\/\//i.test(pasted)) return pasted;
+        if (!folderId || !DRIVE) return '';
+        try {
+          var r = await fetch(DRIVE, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'list', folderId: folderId }) });
+          if (!r.ok) return '';
+          var d = await r.json(); var files = (d && d.files) || [];
+          var vid = files.filter(function (f) { var n = (f.name || '').toLowerCase(); return (f.mime === 'video/mp4') || /\.(mp4|mov|m4v)$/.test(n); })[0];
+          return vid ? ('https://drive.google.com/uc?export=download&id=' + vid.id) : '';
+        } catch (e) { return ''; }
+      }
+
+      async function eduCaps(vTitle, blogUrl, wantNets) {
+        var list = wantNets.filter(function (n) { return n !== 'youtube'; });
+        if (!list.length) return {};
+        var SHOP = 'https://aboutwallart.com';
+        var prompt = 'Write warm, friendly UK-English social captions for an EDUCATIONAL home-decor video by About Wall Art (a calm home-styling advisor voice, NOT salesy, never words like elevate delve showcase dive beacon). Video title: "' + vTitle + '"' + (blogUrl ? ('. Full written guide: ' + blogUrl) : '') + '.\n' +
+          'Return ONLY strict JSON with a key for EACH of these networks: ' + list.join(', ') + '.\n' +
+          '- facebook: 2 to 3 warm sentences about what the video teaches' + (blogUrl ? (', then " Full guide → ' + blogUrl + '"') : '') + ', then 3 hashtags.\n' +
+          '- instagram: warm 3 to 4 sentences, then "Tap the link in my bio for the full guide.", then a blank line, then about 20 lowercase hashtags. NO link.\n' +
+          '- linkedin: professional but warm, 3 to 5 short paragraphs on the styling idea' + (blogUrl ? (', end with "Full guide: ' + blogUrl + '"') : '') + '. NO hashtags.\n' +
+          '- twitter: one short punchy line' + (blogUrl ? (', then " Watch/read → ' + blogUrl + '"') : '') + ', then 1 hashtag. Under 260 characters.\n' +
+          '- threads: one or two short warm lines, then 5 lowercase hashtags. NO link.\n' +
+          '- pinterest: keyword-rich descriptive text a decorator would search, 3 to 4 sentences, then 5 lowercase hashtags. NO link.\n' +
+          '- gbp: a full informative Google Business post of about 900 to 1200 characters on the styling topic. NO hashtags.\n' +
+          '- tiktok: one short warm hook line about the tip. ABSOLUTELY NO link and NO call-to-action (no "shop", no "link in bio", no "watch on…"). Just the hook, then 3 lowercase hashtags.\n' +
+          'Return ONLY the JSON object.';
+        try {
+          var r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 2000, messages: [{ role: 'user', content: prompt }] }) });
+          if (!r.ok) { var et = await r.text(); if (r.status === 401 || r.status === 402 || r.status === 429 || /credit|quota|insufficient|billing|balance/i.test(et)) throw new Error('CREDITS'); throw new Error('AI ' + r.status); }
+          var d = await r.json(); var t = (d.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('\n');
+          var mm = t.match(/\{[\s\S]*\}/); return JSON.parse(mm ? mm[0] : t);
+        } catch (e) { if (e.message === 'CREDITS') throw e; return {}; }
+      }
+      function trimE(s, n) { s = String(s == null ? '' : s); return s.length <= n ? s : s.slice(0, n); }
+
+      var rows = [H.join(',')];
+      var publishedHandles = [];
+      var problems = [];
+      for (var vi = 0; vi < vids.length; vi++) {
+        var v = vids[vi] || {};
+        var handle = (v.handle || '').toString().toLowerCase().replace(/[^a-z0-9\-]/g, '');
+        var date = (v.date || '').toString();
+        if (!handle || !date) { problems.push('A video is missing its handle or date.'); continue; }
+        var gh = await ghGet('data/edu-video-' + handle + '.json');
+        if (!gh.content) { problems.push(handle + ': not saved yet.'); continue; }
+        var p = {}; try { p = JSON.parse(gh.content); } catch (e) { problems.push(handle + ': saved file unreadable.'); continue; }
+        var vTitle = (p.videoTitle || p.blogTitle || handle).toString();
+        var blogUrl = (p.blogUrl || '').toString();
+        var yt = p.youtube || null;
+        if (wantYt && (!yt || !yt.title)) { problems.push(vTitle + ': generate its YouTube pack first (step 7).'); continue; }
+        var link = await driveVideoLink(p.driveFolderId || '', v.driveLink || '');
+        if (!link) { problems.push(vTitle + ': no video file found in its Drive folder — put the finished mp4 in the folder, or paste its Drive link.'); continue; }
+
+        var alt = vTitle;
+        var caps;
+        try { caps = await eduCaps(vTitle, blogUrl, nets); }
+        catch (e) { if (e.message === 'CREDITS') return res.status(200).json({ ok: false, error: '❌ Couldn\'t write the captions — your Claude API credits/quota look used up. Top up and try again.' }); caps = {}; }
+
+        var mk = function (net) { var o = { Date: date, Draft: false, Shortener: true, 'Picture Url 1': link, 'Alt text picture 1': alt, 'Video Thumbnail Url': '' }; o[net] = true; return o; };
+        if (wantYt) {
+          var rY = mk('Youtube'); rY.Time = timeFor('youtube');
+          rY['Youtube Video Title'] = trimE(yt.title || vTitle, 100); rY['Youtube Video Type'] = 'VIDEO'; rY['Youtube Video Privacy'] = 'PUBLIC';
+          rY['Youtube video for kids'] = false; rY['Youtube Video Category'] = yt.category || 'Howto & Style';
+          rY['Youtube Video Tags'] = yt.tags || ''; rY['Youtube playlist'] = yt.playlist || '';
+          rY.Text = trimE(yt.description || vTitle, 4900); rows.push(rowLineE(rY));
+        }
+        if (nets.indexOf('facebook') >= 0) { var rF = mk('Facebook'); rF.Time = timeFor('facebook'); rF['Facebook Post Type'] = 'POST'; rF['Facebook Title'] = trimE(vTitle, 40); rF.Text = trimE(caps.facebook || vTitle, 2000); rows.push(rowLineE(rF)); }
+        if (nets.indexOf('instagram') >= 0) { var rI = mk('Instagram'); rI.Time = timeFor('instagram'); rI.Draft = true; rI['Instagram Post Type'] = 'POST'; rI.Text = trimE(caps.instagram || vTitle, 2200); rows.push(rowLineE(rI)); }
+        if (nets.indexOf('linkedin') >= 0) { var rL = mk('LinkedIn'); rL.Time = timeFor('linkedin'); rL['LinkedIn Type'] = 'POST'; rL.Text = trimE(caps.linkedin || vTitle, 3000); rows.push(rowLineE(rL)); }
+        if (nets.indexOf('twitter') >= 0) { var rT = mk('Twitter/X'); rT.Time = timeFor('twitter'); rT['Twitter/X Type'] = 'POST'; rT.Text = trimE(caps.twitter || vTitle, 280); rows.push(rowLineE(rT)); }
+        if (nets.indexOf('threads') >= 0) { var rH = mk('Threads'); rH.Time = timeFor('threads'); rH['Threads Reply Control'] = 'EVERYONE'; rH['Threads Post Type'] = 'POST'; rH.Text = trimE(caps.threads || vTitle, 500); rows.push(rowLineE(rH)); }
+        if (nets.indexOf('pinterest') >= 0) { var rP = mk('Pinterest'); rP.Time = timeFor('pinterest'); rP['Pinterest Board'] = 'Home Decor Ideas & Interior Styling Tips'; rP['Pinterest Pin Title'] = trimE(vTitle, 90); rP['Pinterest Pin Link'] = blogUrl || 'https://aboutwallart.com'; rP.Text = trimE(caps.pinterest || vTitle, 500); rows.push(rowLineE(rP)); }
+        if (nets.indexOf('gbp') >= 0) { var rG = mk('GBP'); rG.Time = timeFor('gbp'); rG['GBP Post Type'] = 'publication'; rG.Text = trimE(caps.gbp || vTitle, 1500); rows.push(rowLineE(rG)); }
+        if (nets.indexOf('tiktok') >= 0) { var rK = mk('TikTok'); rK.Time = timeFor('tiktok'); rK['TikTok Title'] = trimE(vTitle, 90); rK['TikTok Post Privacy'] = 'PUBLIC_TO_EVERYONE'; rK['TikTok Ai generated content'] = true; rK.Text = trimE(caps.tiktok || vTitle, 2000); rows.push(rowLineE(rK)); }
+
+        publishedHandles.push({ handle: handle, title: vTitle });
+      }
+
+      if (publishedHandles.length === 0) {
+        return res.status(200).json({ ok: false, error: (problems[0] || 'Nothing could be published.'), problems: problems });
+      }
+
+      var csvE = '﻿' + rows.join('\r\n') + '\r\n';
+
+      // mark each built video as published so the monthly calendar never offers it again
+      await ghSave(USEDVIDBLOG_FILE, function (content) {
+        var doc = { used: [] };
+        if (content) { try { doc = JSON.parse(content); if (!Array.isArray(doc.used)) doc.used = []; } catch (e) { doc = { used: [] }; } }
+        publishedHandles.forEach(function (u) { if (!doc.used.some(function (x) { return ((x && x.handle) || x || '').toString().toLowerCase() === u.handle; })) doc.used.push({ handle: u.handle, title: u.title, publishedAt: new Date().toISOString() }); });
+        return JSON.stringify(doc, null, 2);
+      }, 'Mark educational videos published (Metricool)');
+      await ghSave(EDU_INDEX_FILE, function (content) {
+        var idx = { videos: {} };
+        if (content) { try { idx = JSON.parse(content); if (!idx.videos) idx.videos = {}; } catch (e) { idx = { videos: {} }; } }
+        publishedHandles.forEach(function (u) { if (!idx.videos[u.handle]) idx.videos[u.handle] = {}; idx.videos[u.handle].published = true; });
+        return JSON.stringify(idx, null, 2);
+      }, 'Index educational videos published');
+
+      return res.status(200).json({ ok: true, csv: csvE, count: publishedHandles.length, published: publishedHandles.map(function (u) { return u.title; }), problems: problems });
     }
 
     if (action === 'edu-image') {
