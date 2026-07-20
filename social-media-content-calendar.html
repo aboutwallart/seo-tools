@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v8.4 · 20 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v8.5 · 20 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -368,6 +368,9 @@
     #tab-monthly .ev-donerow{display:flex;gap:10px;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding:8px 0;font-size:13px;}
     #tab-monthly .ev-markdone{appearance:none;border:none;background:#0F6E56;color:#fff;border-radius:8px;font-size:12.5px;font-weight:700;padding:6px 12px;cursor:pointer;white-space:nowrap;}
     #tab-monthly .ev-markdone:disabled{background:#9ca3af;cursor:default;}
+    #tab-monthly .ev-needrow{display:flex;gap:10px;align-items:center;padding:6px 0;font-size:13px;flex-wrap:wrap;}
+    #tab-monthly .ev-needrow span{min-width:200px;flex:1;}
+    #tab-monthly .ev-needin{flex:2;min-width:260px;font-size:13px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;}
   </style>
 
   <style>
@@ -479,6 +482,7 @@
         <button type="button" id="evmBuild" class="mp-btn mp-btn-go">Build Metricool file for these videos</button>
         <span id="evmBuildMsg" class="small mp-muted"></span>
       </div>
+      <div id="evmNeed"></div>
       <div id="evmBuilt"></div>
     </div>
   </div>
@@ -1090,7 +1094,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v8.4 — built 20 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v8.5 — built 20 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -2746,15 +2750,15 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     var btn=$('evmBuild'); btn.disabled=true; $('evmBuildMsg').style.color=''; $('evmBuildMsg').textContent='Building the file… (writing captions)';
     fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-metricool', videos:videos, networks:nets, allowPartial:!!allowPartial }) })
       .then(function(r){ return r.json(); }).then(function(d){
-        // some videos have no video file the tool could find → ask for each one's Drive link, then rebuild
+        // some videos have no video file the tool could find → ask for each one's Drive link (INLINE box, then rebuild)
         if(d && !d.ok && d.needLinks && d.needLinks.length){
-          d.needLinks.forEach(function(nl){
-            var url = window.prompt('Couldn’t find a video in the Drive folder for:\n\n"'+nl.title+'"\n\nPaste its Google Drive FOLDER link (or the video’s link). Cancel to skip it.','');
-            if(url && url.trim()){ var vv = videos.filter(function(x){ return x.handle===nl.handle; })[0]; if(vv) vv.driveLink = url.trim(); }
-          });
-          buildEduFile(videos, nets, true); // rebuild; anything still without a link is just skipped
+          btn.disabled=false;
+          $('evmBuildMsg').style.color='#b91c1c';
+          $('evmBuildMsg').textContent='Need the Drive folder link for '+d.needLinks.length+' video(s) — fill them in below.';
+          showNeedLinks(d.needLinks, videos, nets);
           return;
         }
+        $('evmNeed').innerHTML='';
         btn.disabled=false;
         if(!d || !d.ok){ $('evmBuildMsg').style.color='#b91c1c'; $('evmBuildMsg').textContent = (d&&d.error)||'Could not build.'; return; }
         var blob=new Blob([d.csv],{type:'text/csv;charset=utf-8;'});
@@ -2768,6 +2772,20 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         }
         renderBuilt(d.built||[]);
       }).catch(function(e){ btn.disabled=false; $('evmBuildMsg').style.color='#b91c1c'; $('evmBuildMsg').textContent='Error: '+e.message; });
+  }
+  // Ask for the missing Drive folder link(s) with a normal in-page box (a browser pop-up gets blocked here).
+  function showNeedLinks(needLinks, videos, nets){
+    var el=$('evmNeed'); if(!el) return;
+    el.innerHTML = '<div class="mp-warn" style="margin:12px 0 6px;">Couldn’t find a video in the Drive folder for these. Paste each one’s Drive <strong>folder</strong> link, then Continue:</div>'
+      + needLinks.map(function(nl){ return '<div class="ev-needrow"><span>'+esc(nl.title)+'</span><input type="text" class="ev-needin" data-h="'+attr(nl.handle)+'" placeholder="Paste the Drive folder link"></div>'; }).join('')
+      + '<button type="button" id="evmNeedGo" class="mp-btn mp-btn-go" style="margin-top:10px;">Continue building →</button>';
+    $('evmNeedGo').addEventListener('click', function(){
+      Array.prototype.forEach.call(el.querySelectorAll('.ev-needin'), function(inp){
+        var u=(inp.value||'').trim(); if(u){ var vv=videos.filter(function(x){ return x.handle===inp.getAttribute('data-h'); })[0]; if(vv) vv.driveLink=u; }
+      });
+      el.innerHTML='';
+      buildEduFile(videos, nets, true);
+    });
   }
   function renderBuilt(built){
     var bl=$('evmBuilt'); if(!bl) return;
