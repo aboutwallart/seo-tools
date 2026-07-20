@@ -1028,7 +1028,7 @@ module.exports = async (req, res) => {
       // 1) unused educational blog articles (LIVE)
       var blogs = [];
       try {
-        var ad = await shopGql('query($q:String!,$n:Int!){ articles(first:$n, query:$q){ edges{ node{ title handle publishedAt isPublished image{url} tags } } } }', { q: 'blog_id:93572858142', n: 120 });
+        var ad = await shopGql('query($q:String!,$n:Int!){ articles(first:$n, query:$q, sortKey:PUBLISHED_AT, reverse:true){ edges{ node{ title handle publishedAt isPublished image{url} tags } } } }', { q: 'blog_id:93572858142', n: 120 });
         var now = Date.now();
         var aedges = (ad && ad.data && ad.data.articles && ad.data.articles.edges) || [];
         blogs = aedges.map(function (e) { return e.node; }).filter(function (a) {

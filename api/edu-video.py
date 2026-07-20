@@ -48,7 +48,7 @@ def photo_for(files, k):
     # so any extra text Shopify AI appends after the number doesn't break the lookup (no renaming needed).
     for f in files:
         low = f["name"].lower()
-        if not (low.endswith(".png") or low.endswith(".jpg") or low.endswith(".jpeg")): continue
+        if not (low.endswith(".png") or low.endswith(".jpg") or low.endswith(".jpeg") or low.endswith(".webp")): continue
         m = re.match(r"0*(\d+)", f["name"])
         if m and int(m.group(1)) == k: return f
     return None
@@ -270,11 +270,11 @@ def preview(folder_id, handle):
     dcount = {}
     for f in files:
         low = f["name"].lower()
-        if not (low.endswith(".png") or low.endswith(".jpg") or low.endswith(".jpeg")): continue
+        if not (low.endswith(".png") or low.endswith(".jpg") or low.endswith(".jpeg") or low.endswith(".webp")): continue
         m = re.match(r"0*(\d+)", f["name"])
         if m: dcount[int(m.group(1))] = dcount.get(int(m.group(1)), 0) + 1
     dupes = sorted([k for k, v in dcount.items() if v > 1])
-    return {"ok": True, "rows": rows, "missing": missing, "dupes": dupes, "photoCount": len([f for f in files if f["name"].lower().endswith((".png",".jpg",".jpeg"))]), "needed": n + 1}
+    return {"ok": True, "rows": rows, "missing": missing, "dupes": dupes, "photoCount": len([f for f in files if f["name"].lower().endswith((".png",".jpg",".jpeg",".webp"))]), "needed": n + 1}
 
 class handler(BaseHTTPRequestHandler):
     def _send(self, obj, code=200):
