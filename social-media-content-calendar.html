@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v7.9 · 20 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v8.1 · 20 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -545,6 +545,7 @@
       <button type="button" class="ev-stab active" data-src="blog">Blogs</button>
       <button type="button" class="ev-stab" data-src="page">Education pages</button>
       <button type="button" class="ev-stab" data-src="made">Already made</button>
+      <button type="button" class="ev-stab" data-src="published">Published / scheduled</button>
     </div>
     <input id="evSearch" class="ev-in" placeholder="Search by keyword…">
     <div id="evSrcList" class="ev-grid"></div>
@@ -1081,7 +1082,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v7.9 — built 20 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v8.1 — built 20 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -1965,7 +1966,11 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   var SEASON_NOTE = { summer:'summer — coastal, tropical, boho, botanical', spring:'spring — fresh, floral, bright', autumn:'autumn — cosy, warm, layered', winter:'winter — cosy, fireplace, festive' };
 
   function keyOf(p){ return p.sku || p.handle; }
-  function currentList(){ return EV.src==='made' ? (EV.made||[]) : (EV.src==='page' ? EV.pages : EV.blogs); }
+  function currentList(){
+    if(EV.src==='made') return (EV.made||[]).filter(function(x){ return !x.published; });
+    if(EV.src==='published') return (EV.made||[]).filter(function(x){ return x.published; });
+    return EV.src==='page' ? EV.pages : EV.blogs;
+  }
 
   loadBtn.addEventListener('click', function(){
     loadBtn.disabled = true; loadBtn.textContent = 'Loading…';
@@ -1985,17 +1990,17 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       EV.src = b.getAttribute('data-src');
       stabs.forEach(function(x){ x.classList.toggle('active', x===b); });
       renderSources();
-      if(EV.src==='made') loadMadeImages();
+      if(EV.src==='made' || EV.src==='published') loadMadeImages();
     });
   });
   $('evSearch').addEventListener('input', renderSources);
 
-  // Lazily fetch each "Already made" card's own blog/page image (the index doesn't store it).
+  // Lazily fetch each made/published card's own blog/page image (the index doesn't store it).
   var madeImgsDone = false;
   function loadMadeImages(){
-    var need = (EV.made||[]).filter(function(s){ return !s.image; }).map(function(s){ return s.handle; });
+    var need = (EV.made||[]).filter(function(s){ return !s.image; }).map(function(s){ return { handle:s.handle, type:s.type }; });
     if(!need.length || madeImgsDone) { if(madeImgsDone) renderSources(); return; }
-    fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-made-images', handles:need }) })
+    fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-made-images', items:need }) })
       .then(function(r){ return r.json(); }).then(function(d){
         madeImgsDone = true;
         if(d && d.ok && d.images){ (EV.made||[]).forEach(function(s){ if(!s.image && d.images[s.handle]) s.image = d.images[s.handle]; }); }
@@ -2007,7 +2012,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     var q = ($('evSearch').value || '').toLowerCase().trim();
     var list = currentList().filter(function(s){ return !q || (s.title||'').toLowerCase().indexOf(q)>=0 || (s.handle||'').toLowerCase().indexOf(q)>=0 || (s.videoTitle||'').toLowerCase().indexOf(q)>=0; });
     var el = $('evSrcList');
-    if(!list.length){ el.innerHTML = '<p class="small ev-muted">No ' + (EV.src==='made'?'videos made yet':(EV.src==='page'?'education pages':'unused educational blogs')) + ' found.</p>'; return; }
+    if(!list.length){ el.innerHTML = '<p class="small ev-muted">No ' + (EV.src==='published'?'published or scheduled videos yet':(EV.src==='made'?'videos made yet':(EV.src==='page'?'education pages':'unused educational blogs'))) + ' found.</p>'; return; }
     el.innerHTML = list.map(function(s){
       var imgInner = s.image ? '<img src="'+attr(s.image)+'" alt="">' : '<div class="ev-noimg">'+(s.type==='page'?'Page':'Blog')+'</div>';
       var badge = s.done ? '<span class="ev-donebadge">✓ SAVED</span>' : '';
@@ -2015,7 +2020,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       var on = (EV.chosen && EV.chosen.handle===s.handle && EV.chosen.type===s.type) ? ' on' : '';
       var doneCls = s.done ? ' done' : '';
       var vt = s.videoTitle ? '<span class="ev-vt">🎬 '+esc(s.videoTitle)+'</span>' : (s.saved ? '<span class="ev-vt">🎬 saved video</span>' : '');
-      var undoBtn = s.done ? '<button type="button" class="ev-undo" data-undo="'+attr(s.handle)+'">Undo</button>' : '';
+      var undoBtn = (s.done && EV.src!=='published') ? '<button type="button" class="ev-undo" data-undo="'+attr(s.handle)+'">Undo</button>' : '';
       var openBtn = (EV.src==='made' || s.saved) ? '<button type="button" class="ev-openmade" data-open="'+attr(s.handle)+'">Open</button>' : '';
       return '<div class="ev-card'+on+doneCls+'" data-h="'+attr(s.handle)+'"><div class="ev-imgwrap">'+imgInner+badge+'</div><span class="ev-ct">'+esc(s.title)+'</span>'+vt+sun+'<div class="ev-cardbtns">'+openBtn+undoBtn+'</div></div>';
     }).join('');
