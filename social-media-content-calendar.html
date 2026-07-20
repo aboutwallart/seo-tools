@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v7.6 · 19 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v7.7 · 20 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -1014,7 +1014,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v7.6 — built 19 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v7.7 — built 20 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -1989,7 +1989,9 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     if(EV.featuredImage){
       feat.innerHTML = '<label class="ev-imgcard ev-feat-card">'+scBadge(1)+'<div class="ev-imghead">Title image (scene 1)</div><img src="'+attr(EV.featuredImage)+'"><div class="ev-imgmeta"><input type="checkbox" '+(EV.featuredUse?'checked':'')+' data-feat="1"><span class="small ev-muted">Reused as 5 remade 16:9 options</span></div><div style="margin-top:5px;display:flex;gap:6px;align-items:center;"><button type="button" class="ev-btn-sm ev-cardcopy" data-img="'+attr(EV.featuredImage)+'" style="font-size:11px;padding:5px 9px;">Copy image</button><a href="'+attr((EV.chosen&&EV.chosen.url)||'')+'" target="_blank" rel="noopener" class="small" style="text-decoration:none;">open page</a></div></label>';
     } else { feat.innerHTML = ''; }
-    var imgs = EV.bodyImages || [];
+    var imgs = (EV.bodyImages || []).slice();
+    // after Generate, order the cards by their scene number (01, 02, 03…); unused/unnumbered go last
+    if(EV.generated){ imgs.sort(function(a,b){ return (sceneByUrl[a.url]||999) - (sceneByUrl[b.url]||999); }); }
     if(!imgs.length){ st.textContent = 'No images found inside this '+((EV.chosen&&EV.chosen.type==='page')?'page':'blog')+'.'; list.innerHTML = ''; }
     else {
       st.textContent = imgs.length+' images found inside. Tick the ones to use.';
@@ -2373,10 +2375,36 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           st.textContent = msg;
           var html='';
           d.rows.forEach(function(r){
-            var img = r.img ? '<img src="'+esc(r.img)+'" style="width:120px;height:68px;object-fit:cover;border-radius:6px;flex:none;background:#eee;" loading="lazy">' : '<div style="width:120px;height:68px;border-radius:6px;flex:none;background:#111;color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;text-align:center;">built-in<br>card</div>';
-            html += '<div style="display:flex;gap:12px;align-items:center;padding:8px 4px;border-bottom:1px solid #f0f0f0;">'+img+'<div><div class="small ev-muted" style="font-weight:600;">'+esc(r.label)+'</div><div style="font-size:14px;">'+esc(r.text)+'</div></div></div>';
+            var kind = r.kind || 'photo';
+            var imgHtml;
+            if(!r.img){
+              imgHtml = '<div style="width:360px;height:203px;border-radius:8px;flex:none;background:#111;color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center;text-align:center;">built-in<br>card</div>';
+            } else {
+              imgHtml = '<div class="prevwrap" data-kind="'+esc(kind)+'" style="position:relative;width:360px;flex:none;background:#eee;border-radius:8px;overflow:hidden;line-height:0;">'
+                + '<img class="previmg" src="'+esc(r.img)+'" style="width:100%;display:block;" loading="lazy">'
+                + '<div class="prevcrop" style="position:absolute;display:none;border:3px solid #e11d48;box-sizing:border-box;pointer-events:none;"></div>'
+                + '<div class="prevcap" style="position:absolute;display:none;background:rgba(0,0,0,0.5);pointer-events:none;"></div>'
+                + '</div>';
+            }
+            var note = (r.img && kind==='infographic') ? '<div class="small" style="color:#0F6E56;margin-top:5px;font-weight:600;">shown whole — not cropped</div>'
+                     : (r.img ? '<div class="small ev-muted" style="margin-top:5px;">🔴 red box = what stays in the video · dark strip = where the caption sits</div>' : '');
+            html += '<div style="display:flex;gap:14px;align-items:flex-start;padding:12px 4px;border-bottom:1px solid #f0f0f0;">'+imgHtml+'<div style="padding-top:2px;"><div class="small ev-muted" style="font-weight:700;">'+esc(r.label)+'</div><div style="font-size:15px;margin-top:3px;">'+esc(r.text)+'</div>'+note+'</div></div>';
           });
           out.style.display='block'; out.innerHTML=html;
+          // draw the red 16:9 crop box + caption strip on each cover image (once loaded, so we know its real shape)
+          Array.prototype.forEach.call(out.querySelectorAll('.prevwrap'), function(w){
+            if(w.getAttribute('data-kind')==='infographic') return; // contained → no crop
+            var im=w.querySelector('.previmg'), crop=w.querySelector('.prevcrop'), cap=w.querySelector('.prevcap');
+            function place(){
+              var iw=im.naturalWidth, ih=im.naturalHeight, dw=im.clientWidth, dh=im.clientHeight;
+              if(!iw||!ih||!dw||!dh) return;
+              var t=16/9, a=iw/ih, bw,bh,bx,by;
+              if(a>=t){ bh=dh; bw=dh*t; bx=(dw-bw)/2; by=0; } else { bw=dw; bh=dw/t; bx=0; by=(dh-bh)/2; }
+              crop.style.left=bx+'px'; crop.style.top=by+'px'; crop.style.width=bw+'px'; crop.style.height=bh+'px'; crop.style.display='block';
+              var ch=bh*0.20; cap.style.left=bx+'px'; cap.style.top=(by+bh-ch)+'px'; cap.style.width=bw+'px'; cap.style.height=ch+'px'; cap.style.display='block';
+            }
+            if(im.complete && im.naturalWidth) place(); else im.addEventListener('load', place);
+          });
           if(!miss.length){ $('evConfirmImgs').style.display='inline-block'; }
         }).catch(function(e){ pbtn.disabled=false; pbtn.textContent=lbl; st.className='small ev-warn'; st.textContent='Error: '+e.message; });
     });
