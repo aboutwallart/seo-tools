@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v8.3 · 20 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v8.4 · 20 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -365,6 +365,9 @@
     #tab-monthly .ev-packok{color:#0F6E56;}
     #tab-monthly .ev-packbad{color:#b91c1c;}
     #tab-monthly .ev-genpack{color:#2563eb;font-weight:800;margin-left:6px;text-decoration:none;}
+    #tab-monthly .ev-donerow{display:flex;gap:10px;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding:8px 0;font-size:13px;}
+    #tab-monthly .ev-markdone{appearance:none;border:none;background:#0F6E56;color:#fff;border-radius:8px;font-size:12.5px;font-weight:700;padding:6px 12px;cursor:pointer;white-space:nowrap;}
+    #tab-monthly .ev-markdone:disabled{background:#9ca3af;cursor:default;}
   </style>
 
   <style>
@@ -476,6 +479,7 @@
         <button type="button" id="evmBuild" class="mp-btn mp-btn-go">Build Metricool file for these videos</button>
         <span id="evmBuildMsg" class="small mp-muted"></span>
       </div>
+      <div id="evmBuilt"></div>
     </div>
   </div>
 </section>
@@ -1086,7 +1090,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v8.3 — built 20 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v8.4 — built 20 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -2762,7 +2766,24 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           $('evmBuildMsg').style.color='';
           $('evmBuildMsg').textContent='Built ✓ '+d.count+' video(s) — file downloaded. Upload it to Metricool.';
         }
+        renderBuilt(d.built||[]);
       }).catch(function(e){ btn.disabled=false; $('evmBuildMsg').style.color='#b91c1c'; $('evmBuildMsg').textContent='Error: '+e.message; });
+  }
+  function renderBuilt(built){
+    var bl=$('evmBuilt'); if(!bl) return;
+    if(!built.length){ bl.innerHTML=''; return; }
+    bl.innerHTML = '<div class="small mp-muted" style="margin:12px 0 4px;">Once you\'ve uploaded the file to Metricool, mark each one done so it leaves the schedule list:</div>'
+      + built.map(function(u){ return '<div class="ev-donerow" data-h="'+attr(u.handle)+'"><span>'+esc(u.title)+'</span><button type="button" class="ev-markdone" data-h="'+attr(u.handle)+'">✓ Mark done</button></div>'; }).join('');
+    Array.prototype.forEach.call(bl.querySelectorAll('.ev-markdone'), function(b){
+      b.addEventListener('click', function(){
+        b.disabled=true; b.textContent='…';
+        fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-mark-used', handle:b.getAttribute('data-h') }) })
+          .then(function(r){ return r.json(); }).then(function(d){
+            if(d && d.ok){ var row=b.closest('.ev-donerow'); if(row) row.style.opacity='.5'; b.textContent='done ✓'; }
+            else { b.disabled=false; b.textContent='✓ Mark done'; }
+          }).catch(function(){ b.disabled=false; b.textContent='✓ Mark done'; });
+      });
+    });
   }
   $('evmBuild').addEventListener('click', function(){
     var rows = Array.prototype.slice.call(document.querySelectorAll('#evmWeeks .ev-weekrow'));
