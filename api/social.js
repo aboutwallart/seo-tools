@@ -1076,7 +1076,18 @@ module.exports = async (req, res) => {
       // sort: not-done first, then seasonal matches first (done items sink to the bottom)
       function srt(a, b) { if (!!a.done !== !!b.done) return a.done ? 1 : -1; return (b.seasonMatch ? 1 : 0) - (a.seasonMatch ? 1 : 0); }
       blogs.sort(srt); pages.sort(srt);
-      return res.status(200).json({ ok: true, season: season, activeOccasions: activeOcc.map(function (o) { return o.name; }), blogs: blogs, pages: pages });
+      // ALL saved/made videos (published or not) for the "Already made" tab, so she can find + reopen any of them
+      var made = []; var seenMade = {};
+      Object.keys(savedIdx || {}).forEach(function (h) {
+        var sv = savedIdx[h] || {}; var typ = sv.sourceType || 'blog'; seenMade[h] = 1;
+        made.push({ type: typ, handle: h, title: sv.videoTitle || h, saved: true, done: !!sv.done, videoTitle: sv.videoTitle || '', url: (typ === 'page' ? 'https://aboutwallart.com/pages/' + h : EDU_BLOG_BASE + h), image: '' });
+      });
+      Object.keys(savedFiles || {}).forEach(function (h) {
+        if (seenMade[h]) return;
+        made.push({ type: 'blog', handle: h, title: h, saved: true, done: true, videoTitle: '', url: EDU_BLOG_BASE + h, image: '' });
+      });
+      made.sort(function (a, b) { return (a.title || '').toLowerCase().localeCompare((b.title || '').toLowerCase()); });
+      return res.status(200).json({ ok: true, season: season, activeOccasions: activeOcc.map(function (o) { return o.name; }), blogs: blogs, pages: pages, made: made });
     }
 
     if (action === 'edu-products') {
