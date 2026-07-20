@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v8.2 · 20 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v8.3 · 20 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -1086,7 +1086,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v8.2 — built 20 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v8.3 — built 20 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -2738,21 +2738,19 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     }).catch(function(e){ b.disabled=false; $('evmStatus').textContent='Error: '+e.message; });
   });
 
-  $('evmBuild').addEventListener('click', function(){
-    var rows = Array.prototype.slice.call(document.querySelectorAll('#evmWeeks .ev-weekrow'));
-    var videos=[], seen={};
-    rows.forEach(function(row){
-      var sel=row.querySelector('.ev-weeksel'), dt=row.querySelector('.ev-weekdate');
-      var h=(sel&&sel.value)||'', date=(dt&&dt.value)||'';
-      if(!h || !date || seen[h]) return; seen[h]=1;
-      videos.push({ handle:h, date:date });
-    });
-    var nets = Array.prototype.slice.call(document.querySelectorAll('#evmNets input:checked')).map(function(c){ return c.value; });
-    if(!videos.length){ $('evmBuildMsg').style.color='#b91c1c'; $('evmBuildMsg').textContent='Pick at least one video with a date.'; return; }
-    if(!nets.length){ $('evmBuildMsg').style.color='#b91c1c'; $('evmBuildMsg').textContent='Tick at least one network.'; return; }
+  function buildEduFile(videos, nets, allowPartial){
     var btn=$('evmBuild'); btn.disabled=true; $('evmBuildMsg').style.color=''; $('evmBuildMsg').textContent='Building the file… (writing captions)';
-    fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-metricool', videos:videos, networks:nets }) })
+    fetch('/api/social',{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'edu-metricool', videos:videos, networks:nets, allowPartial:!!allowPartial }) })
       .then(function(r){ return r.json(); }).then(function(d){
+        // some videos have no video file the tool could find → ask for each one's Drive link, then rebuild
+        if(d && !d.ok && d.needLinks && d.needLinks.length){
+          d.needLinks.forEach(function(nl){
+            var url = window.prompt('Couldn’t find a video in the Drive folder for:\n\n"'+nl.title+'"\n\nPaste its Google Drive FOLDER link (or the video’s link). Cancel to skip it.','');
+            if(url && url.trim()){ var vv = videos.filter(function(x){ return x.handle===nl.handle; })[0]; if(vv) vv.driveLink = url.trim(); }
+          });
+          buildEduFile(videos, nets, true); // rebuild; anything still without a link is just skipped
+          return;
+        }
         btn.disabled=false;
         if(!d || !d.ok){ $('evmBuildMsg').style.color='#b91c1c'; $('evmBuildMsg').textContent = (d&&d.error)||'Could not build.'; return; }
         var blob=new Blob([d.csv],{type:'text/csv;charset=utf-8;'});
@@ -2765,6 +2763,20 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           $('evmBuildMsg').textContent='Built ✓ '+d.count+' video(s) — file downloaded. Upload it to Metricool.';
         }
       }).catch(function(e){ btn.disabled=false; $('evmBuildMsg').style.color='#b91c1c'; $('evmBuildMsg').textContent='Error: '+e.message; });
+  }
+  $('evmBuild').addEventListener('click', function(){
+    var rows = Array.prototype.slice.call(document.querySelectorAll('#evmWeeks .ev-weekrow'));
+    var videos=[], seen={};
+    rows.forEach(function(row){
+      var sel=row.querySelector('.ev-weeksel'), dt=row.querySelector('.ev-weekdate');
+      var h=(sel&&sel.value)||'', date=(dt&&dt.value)||'';
+      if(!h || !date || seen[h]) return; seen[h]=1;
+      videos.push({ handle:h, date:date });
+    });
+    var nets = Array.prototype.slice.call(document.querySelectorAll('#evmNets input:checked')).map(function(c){ return c.value; });
+    if(!videos.length){ $('evmBuildMsg').style.color='#b91c1c'; $('evmBuildMsg').textContent='Pick at least one video with a date.'; return; }
+    if(!nets.length){ $('evmBuildMsg').style.color='#b91c1c'; $('evmBuildMsg').textContent='Tick at least one network.'; return; }
+    buildEduFile(videos, nets, false);
   });
 })();
 </script>
