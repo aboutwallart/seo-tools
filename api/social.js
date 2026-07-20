@@ -1665,6 +1665,7 @@ module.exports = async (req, res) => {
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
       var vids = Array.isArray(body.videos) ? body.videos : [];
       var nets = Array.isArray(body.networks) ? body.networks.map(function (n) { return (n || '').toString().toLowerCase(); }) : [];
+      var allowPartial = !!body.allowPartial; // true = don't pause for missing links, just skip them
       if (!vids.length) return res.status(400).json({ ok: false, error: 'No videos selected' });
       if (!nets.length) return res.status(400).json({ ok: false, error: 'Tick at least one network to publish to' });
       var wantYt = nets.indexOf('youtube') >= 0;
@@ -1688,8 +1689,13 @@ module.exports = async (req, res) => {
       }
 
       var DRIVE = process.env.EDU_DRIVE_URL;
-      async function driveVideoLink(folderId, pasted) {
-        if (pasted && /^https?:\/\//i.test(pasted)) return pasted;
+      function driveIdFrom(u) {
+        var m = /\/folders\/([-\w]{20,})/.exec(u); if (m) return { type: 'folder', id: m[1] };
+        m = /\/file\/d\/([-\w]{20,})/.exec(u) || /[?&]id=([-\w]{20,})/.exec(u) || /\/d\/([-\w]{20,})/.exec(u);
+        if (m) return { type: 'file', id: m[1] };
+        return null;
+      }
+      async function mp4InFolder(folderId) {
         if (!folderId || !DRIVE) return '';
         try {
           var r = await fetch(DRIVE, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'list', folderId: folderId }) });
@@ -1698,6 +1704,18 @@ module.exports = async (req, res) => {
           var vid = files.filter(function (f) { var n = (f.name || '').toLowerCase(); return (f.mime === 'video/mp4') || /\.(mp4|mov|m4v)$/.test(n); })[0];
           return vid ? ('https://drive.google.com/uc?export=download&id=' + vid.id) : '';
         } catch (e) { return ''; }
+      }
+      // Resolve a video's media link. A pasted link can be a Drive FOLDER link (find the 1 mp4 in it) or a
+      // FILE link. Returns { link, folderId } — folderId set when discovered from a pasted folder link (to save back).
+      async function resolveVideo(folderId, pasted) {
+        if (pasted && /^https?:\/\//i.test(pasted)) {
+          var ex = driveIdFrom(pasted);
+          if (ex && ex.type === 'folder') { var l = await mp4InFolder(ex.id); return { link: l, folderId: l ? ex.id : '' }; }
+          if (ex && ex.type === 'file') { return { link: 'https://drive.google.com/uc?export=download&id=' + ex.id, folderId: '' }; }
+          return { link: pasted, folderId: '' };
+        }
+        if (folderId) { return { link: await mp4InFolder(folderId), folderId: '' }; }
+        return { link: '', folderId: '' };
       }
 
       async function eduCaps(vTitle, blogUrl, wantNets) {
@@ -1753,6 +1771,10 @@ module.exports = async (req, res) => {
       var publishedHandles = [];
       var queueAdds = [];
       var problems = [];
+
+      // ---- PHASE 1: resolve each video's pack + Drive link (cheap). Classify; collect any needing a link. ----
+      var items = [];
+      var needLinks = [];
       for (var vi = 0; vi < vids.length; vi++) {
         var v = vids[vi] || {};
         var handle = (v.handle || '').toString().toLowerCase().replace(/[^a-z0-9\-]/g, '');
@@ -1762,12 +1784,30 @@ module.exports = async (req, res) => {
         if (!gh.content) { problems.push(handle + ': not saved yet.'); continue; }
         var p = {}; try { p = JSON.parse(gh.content); } catch (e) { problems.push(handle + ': saved file unreadable.'); continue; }
         var vTitle = (p.videoTitle || p.blogTitle || handle).toString();
-        var blogUrl = (p.blogUrl || '').toString();
         var yt = p.youtube || null;
         if (wantYt && (!yt || !yt.title)) { problems.push(vTitle + ': generate its YouTube pack first (step 7).'); continue; }
-        var link = await driveVideoLink(p.driveFolderId || '', v.driveLink || '');
-        if (!link) { problems.push(vTitle + ': no video file found in its Drive folder — put the finished mp4 in the folder, or paste its Drive link.'); continue; }
+        var rv = await resolveVideo(p.driveFolderId || '', v.driveLink || '');
+        if (!rv.link) {
+          if (!allowPartial) needLinks.push({ handle: handle, title: vTitle });
+          else problems.push(vTitle + ': no video found in its Drive folder.');
+          continue;
+        }
+        var saveFolder = '';
+        if (rv.folderId && !p.driveFolderId) { p.driveFolderId = rv.folderId; saveFolder = rv.folderId; } // remember it
+        items.push({ handle: handle, date: date, p: p, vTitle: vTitle, blogUrl: (p.blogUrl || '').toString(), yt: yt, link: rv.link, saveFolder: saveFolder });
+      }
 
+      // Pause and ask for the Drive link(s) — unless she already chose to skip them.
+      if (needLinks.length && !allowPartial) {
+        return res.status(200).json({ ok: false, needLinks: needLinks });
+      }
+
+      // ---- PHASE 2: build each ready video (captions + thumbnail + rows). ----
+      for (var it = 0; it < items.length; it++) {
+        var item = items[it];
+        var handle = item.handle, date = item.date, p = item.p, vTitle = item.vTitle, blogUrl = item.blogUrl, yt = item.yt, link = item.link;
+        // remember a newly-discovered Drive folder so we never ask for it again
+        if (item.saveFolder) { try { await ghSave('data/edu-video-' + handle + '.json', (function (pp) { return function () { return JSON.stringify(pp, null, 2); }; })(p), 'Remember Drive folder ' + handle); } catch (e) {} }
         var alt = vTitle;
         var caps;
         try { caps = await eduCaps(vTitle, blogUrl, nets); }
