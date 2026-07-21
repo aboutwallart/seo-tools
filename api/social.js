@@ -866,6 +866,176 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, csv: csv, count: posts.length });
     }
 
+    // ---- FIX BROKEN BLOG IMAGES (Part 3) — read-only, self-contained (cannot affect metricool-file) ----
+    // A Metricool post freezes the blog's featured-image URL at build time. If she re-uploads that blog's
+    // featured image later (SEO optimisation) Shopify gives it a NEW url and the old one 404s -> "No image".
+    // This finds the already-scheduled blog posts whose image was replaced AFTER the plan was built and
+    // rebuilds JUST those, with the featured image frozen to a stable public Drive copy, into a mini CSV.
+    if (action === 'fix-blog-images') {
+      var fbBody = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      var fbMonth = (fbBody.month || '').toString();
+      if (!/^\d{4}-\d{2}$/.test(fbMonth)) return res.status(400).json({ ok: false, error: 'Pick a month first.' });
+
+      // 1 — the tool's own record of every scheduled blog + its scheduled date, for this month
+      var ubGh = await ghGet(USEDBLOG_FILE);
+      var scheduled = [];
+      if (ubGh.content) { try { scheduled = (JSON.parse(ubGh.content).used || []).filter(function (x) { return x && x.handle && (x.usedDate || '').slice(0, 7) === fbMonth; }); } catch (e) { scheduled = []; } }
+      if (!scheduled.length) return res.status(200).json({ ok: true, count: 0, fixed: [], csv: '', message: 'No scheduled blogs recorded for ' + fbMonth + '.' });
+
+      // 2 — when the plan for this month was built (image replaced AFTER this = broken). Missing build date -> flag nothing.
+      var planGh = await ghGet(PLAN_FILE);
+      var builtMs = Infinity;
+      if (planGh.content) { try { var pm = (JSON.parse(planGh.content).months || {})[fbMonth]; if (pm && pm.updated) builtMs = new Date(pm.updated).getTime(); } catch (e) {} }
+
+      var FB_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN, FB_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
+      async function fbArticle(h) {
+        if (!FB_DOMAIN || !FB_TOKEN) return null;
+        try {
+          var gq = 'query($q:String!){ articles(first:3, query:$q){ edges{ node{ handle title isPublished image{url} tags } } } }';
+          var r = await fetch('https://' + FB_DOMAIN + '/admin/api/2025-01/graphql.json', { method: 'POST', headers: { 'X-Shopify-Access-Token': FB_TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ query: gq, variables: { q: 'blog_id:93572858142 handle:' + h } }) });
+          if (!r.ok) return null;
+          var d = await r.json();
+          var edges = (d && d.data && d.data.articles && d.data.articles.edges) || [];
+          for (var i = 0; i < edges.length; i++) { if (((edges[i].node.handle) || '').toLowerCase() === h.toLowerCase()) return edges[i].node; }
+          return (edges[0] && edges[0].node) || null;
+        } catch (e) { return null; }
+      }
+      function fbImgMs(u) { var m = String(u || '').match(/[?&]v=(\d+)/); return m ? parseInt(m[1], 10) * 1000 : 0; }
+
+      // 3 — detect broken: current featured-image version newer than the plan build time
+      var brokenList = [];
+      for (var si = 0; si < scheduled.length; si++) {
+        var scn = scheduled[si];
+        var node = await fbArticle(scn.handle);
+        if (!node || !node.image || !node.image.url) continue; // can't check -> leave alone
+        var imgMs = fbImgMs(node.image.url);
+        if (imgMs && imgMs > builtMs) brokenList.push({ handle: scn.handle, title: node.title || scn.title || scn.handle, date: scn.usedDate, node: node });
+      }
+      if (!brokenList.length) return res.status(200).json({ ok: true, count: 0, fixed: [], csv: '', message: 'No broken images found for ' + fbMonth + '.' });
+
+      // ---- rebuild JUST the broken blogs — mirrors metricool-file's blog half exactly (isolated copies) ----
+      var FBH = ['Text', 'Date', 'Time', 'Draft', 'Facebook', 'Twitter/X', 'LinkedIn', 'GBP', 'Instagram', 'Pinterest', 'TikTok', 'Youtube', 'Threads', 'Bluesky'];
+      for (var fpi = 1; fpi <= 10; fpi++) FBH.push('Picture Url ' + fpi);
+      for (var fai = 1; fai <= 10; fai++) FBH.push('Alt text picture ' + fai);
+      FBH = FBH.concat(['Document title', 'Shortener', 'Video Thumbnail Url', 'Video Cover Frame', 'Twitter/X Can reply', 'Twitter/X Type', 'Twitter/X Poll Duration minutes', 'Twitter/X Poll Option 1', 'Twitter/X Poll Option 2', 'Twitter/X Poll Option 3', 'Twitter/X Poll Option 4', 'Pinterest Board', 'Pinterest Pin Title', 'Pinterest Pin Link', 'Pinterest Pin New Format', 'Instagram Post Type', 'Instagram Show Reel On Feed', 'Youtube Video Title', 'Youtube Video Type', 'Youtube Video Privacy', 'Youtube video for kids', 'Youtube Video Category', 'Youtube Video Tags', 'Youtube playlist', 'GBP Post Type', 'Facebook Post Type', 'Facebook Title', 'First Comment Text', 'TikTok Title', 'TikTok disable comments', 'TikTok disable duet', 'TikTok disable stitch', 'TikTok Post Privacy', 'TikTok Branded Content', 'TikTok Your Brand', 'TikTok Auto Add Music', 'TikTok Photo Cover Index', 'TikTok musicId', 'TikTok music title', 'TikTok music author', 'TikTok music previewUrl', 'TikTok music thumbnailUrl', 'TikTok music soundVolume', 'TikTok music originalVolume', 'TikTok music startMillis', 'TikTok music endMillis', 'TikTok Ai generated content', 'LinkedIn Type', 'LinkedIn Poll Question', 'LinkedIn Poll Option 1', 'LinkedIn Poll Option 2', 'LinkedIn Poll Option 3', 'LinkedIn Poll Option 4', 'LinkedIn Poll Duration', 'LinkedIn Show link preview', 'LinkedIn Images as Carousel', 'Threads Reply Control', 'Threads Is Spoiler', 'Threads Post Type', 'Brand name']);
+      var FBBOOL = { 'Draft': 1, 'Facebook': 1, 'Twitter/X': 1, 'LinkedIn': 1, 'GBP': 1, 'Instagram': 1, 'Pinterest': 1, 'TikTok': 1, 'Youtube': 1, 'Threads': 1, 'Bluesky': 1, 'Shortener': 1, 'Pinterest Pin New Format': 1, 'Instagram Show Reel On Feed': 1, 'Youtube video for kids': 1, 'TikTok disable comments': 1, 'TikTok disable duet': 1, 'TikTok disable stitch': 1, 'TikTok Branded Content': 1, 'TikTok Your Brand': 1, 'TikTok Auto Add Music': 1, 'TikTok Ai generated content': 1, 'LinkedIn Show link preview': 1, 'LinkedIn Images as Carousel': 1, 'Threads Is Spoiler': 1 };
+      function fbCell(col, val) { if (FBBOOL[col]) return val === true ? 'true' : 'false'; if (val === undefined || val === null || val === '') return ''; return '"' + String(val).replace(/"/g, '""') + '"'; }
+      function fbRow(o) { return FBH.map(function (h) { return fbCell(h, o[h]); }).join(','); }
+
+      var FB_BLOG_BASE = 'https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/';
+      var FB_EDU_BOARD = 'Home Decor Ideas & Interior Styling Tips';
+      var FB_BOARD_MAP = [
+        ['bathroom', 'Bathroom Decor'], ['nursery', 'Nursery & Kids Decor'], ['kids', 'Nursery & Kids Decor'],
+        ['bedroom', 'Bedroom Decor'], ['kitchen', 'Kitchen Decor'], ['dining', 'Dining Room Decor'],
+        ['home office', 'Home Office Decor'], ['office', 'Home Office Decor'], ['hallway', 'Hallway Decor'],
+        ['entryway', 'Hallway Decor'], ['living room', 'Living Room Decor'], ['tv room', 'Living Room Decor'],
+        ['boho', 'Boho Decor'], ['bohemian', 'Boho Decor'], ['coastal', 'Coastal Decor'], ['farmhouse', 'Farmhouse Decor'],
+        ['scandi', 'Scandi Decor'], ['japandi', 'Japandi Decor'], ['japanese', 'Zen Decor'], ['asian', 'Zen Decor'],
+        ['zen', 'Zen Decor'], ['cherry blossom', 'Zen Decor'], ['warm minimalism', 'Minimalism Decor'], ['minimal', 'Minimalism Decor'],
+        ['mid century', 'Mid Century Decor'], ['mid-century', 'Mid Century Decor'], ['industrial', 'Industrial Decor'],
+        ['old money', 'Old Money Decor'], ['moroccan', 'Moroccan Decor'], ['mediterranean', 'Mediterranean Decor'],
+        ['tropical', 'Tropical Decor'], ['dark and moody', 'Dark and Moody Home Decor'], ['dark moody', 'Dark and Moody Home Decor'],
+        ['moody', 'Dark and Moody Home Decor'], ['gallery wall', 'Gallery Wall Ideas'], ['biophilic', 'Biophilic Design'],
+        ['plants', 'Biophilic Design'], ['black and white', 'Black & White Decor'], ['christian', 'Christian Decor'],
+        ['islamic', 'Islamic Decor'], ['christmas', 'Christmas Decor'], ['wildlife', 'Wildlife Decor'], ['masculine', 'Masculine Decor'],
+        ['transitional', 'Transitional Decor'], ['eclectic', 'Eclectic Decor'], ['french country', 'French Country Decor'],
+        ['cottage', 'Country Cottage Decor'], ['pet', 'Pet Decor'], ['outdoor', 'Outdoor Decor'], ['fireplace', 'Fireplace Decor'],
+        ['home bar', 'Home Bar Decor'], ['games room', 'Games Room Decor'], ['laundry', 'Laundry Room Decor'],
+        ['dressing room', 'Dressing Room Decor'], ['coffee', 'Coffee House Design'], ['breakfast nook', 'Breakfast Nook Decor'],
+        ['contemporary', 'Contemporary Decor']
+      ];
+      function fbBoardFor(t) { t = (t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' '); for (var bi = 0; bi < FB_BOARD_MAP.length; bi++) { if (t.indexOf(FB_BOARD_MAP[bi][0]) >= 0) return FB_BOARD_MAP[bi][1]; } return ''; }
+      function fbArtText(a) { return ((a.title || '') + ' ' + (a.handle || '') + ' ' + (Array.isArray(a.tags) ? a.tags.join(' ') : (a.tags || ''))).toLowerCase(); }
+      function fbTrimTo(text, limit) { text = String(text == null ? '' : text); if (text.length <= limit) return text; var cut = text.slice(0, limit); var sp = cut.lastIndexOf(' '); if (sp > limit * 0.6) cut = cut.slice(0, sp); return cut.replace(/\s+$/, ''); }
+      function fbTrimLink(caption, suffix, limit) { caption = String(caption == null ? '' : caption); suffix = String(suffix == null ? '' : suffix); var room = limit - suffix.length; if (room < 0) room = 0; return fbTrimTo(caption, room) + suffix; }
+      async function fbCallAI(prompt, maxTok) {
+        var r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: maxTok, messages: [{ role: 'user', content: prompt }] }) });
+        if (!r.ok) throw new Error('AI ' + r.status);
+        var d = await r.json();
+        var t = (d.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('\n');
+        var m = t.match(/\{[\s\S]*\}/); return JSON.parse(m ? m[0] : t);
+      }
+      var FB_SOCIAL_DRIVE = process.env.EDU_DRIVE_URL;
+      var FB_IMG_FOLDER = '1TVn11XySWBWd941f-Ip_nTkIrQnwFWMQ';
+      async function fbCopyImg(imgUrl, name) {
+        if (!imgUrl || !FB_SOCIAL_DRIVE) return '';
+        try {
+          var jurl = imgUrl + (imgUrl.indexOf('?') >= 0 ? '&' : '?') + 'format=jpg';
+          var ir = await fetch(jurl);
+          if (!ir.ok) return '';
+          var b64 = Buffer.from(await ir.arrayBuffer()).toString('base64');
+          var up = await fetch(FB_SOCIAL_DRIVE, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'upload', folderId: FB_IMG_FOLDER, name: ((name || 'blog').replace(/[^a-z0-9\-]/gi, '-').slice(0, 80)) + '.jpg', mime: 'image/jpeg', dataBase64: b64 }) });
+          if (!up.ok) return '';
+          var ud = await up.json();
+          return (ud && ud.ok && ud.id) ? ('https://drive.google.com/uc?export=download&id=' + ud.id) : '';
+        } catch (e) { return ''; }
+      }
+
+      async function fbBuildBlogRows(blog, date) {
+        var rows = [];
+        var binstr = 'You write organic social copy for a home-decor BLOG article in the About Wall Art voice: warm, friendly UK-English advisor, NOT salesy, never words like elevate delve showcase dive beacon. Blog title: "' + (blog.title || '') + '". Write copy that makes people want to read it.\n' +
+          'Return ONLY strict JSON, no markdown, with these keys:\n' +
+          '- linkedin: professional but warm, 3 to 6 short paragraphs (up to ~2000 chars), a home-styling / workspace angle. NO link, NO hashtags.\n' +
+          '- facebook: 2 to 3 warm sentences about the blog. NO link, NO hashtags.\n' +
+          '- threads: one or two short lines, then 5 lowercase hashtags. NO link.\n' +
+          '- instagram: warm 3 to 4 sentences, then "Tap Our Content Hub in my bio for the full guide.", then a blank line, then about 25 to 30 lowercase hashtags. NO link.\n' +
+          '- gmb: a full, informative Google Business description of about 900 to 1200 characters pulling real value from the blog. NO link, NO hashtags.\n' +
+          '- pinterestA: keyword-rich descriptive Pinterest description a decorator would search, about 500 to 700 characters. NO link.\n' +
+          '- pinterestB: a DIFFERENT keyword-rich Pinterest description, about 500 to 700 characters. NO link.\n' +
+          '- pinterestTitle: max 90 characters.\n' +
+          '- alt: one short line describing a styled interior for this blog.\n' +
+          'Return ONLY: {"linkedin":"","facebook":"","threads":"","instagram":"","gmb":"","pinterestA":"","pinterestB":"","pinterestTitle":"","alt":""}';
+        var bc = await fbCallAI(binstr, 3000).catch(function () { return null; });
+        if (!bc) return rows;
+        var bh = blog.handle;
+        var bTitle = blog.title || '';
+        var bImg = (blog.image && blog.image.url) || '';
+        if (bImg.indexOf('data:') === 0) bImg = '';
+        var driveImg = bImg ? await fbCopyImg(bImg, bh) : '';
+        var gmbImg;
+        if (driveImg) { bImg = driveImg; gmbImg = driveImg; }
+        else { gmbImg = bImg ? (bImg + (bImg.indexOf('?') >= 0 ? '&' : '?') + 'format=jpg') : ''; }
+        var bUrl = FB_BLOG_BASE + bh;
+        var blink = function (src) { return bUrl + '?utm_source=' + src + '&utm_medium=blog&utm_campaign=' + bh; };
+        var topicBoard = fbBoardFor(fbArtText(blog));
+        var balt = bc.alt || bTitle;
+        var gmbText = (bc.gmb || bTitle).slice(0, 1400).replace(/\s+$/, '') + '\n\nRead more → ' + blink('gmb');
+        if (gmbText.length > 1500) gmbText = gmbText.slice(0, 1500);
+        var mkb = function (net, img) { var o = { Date: date, Draft: false, Shortener: true, 'Picture Url 1': img || bImg, 'Alt text picture 1': balt }; o[net] = true; return o; };
+        var bFb = mkb('Facebook'); bFb.Time = '12:00:00'; bFb['Facebook Post Type'] = 'POST'; bFb.Text = fbTrimLink(bc.facebook || bTitle, '\n\nRead more → ' + blink('facebook'), 2000); rows.push(fbRow(bFb));
+        var bIg = mkb('Instagram'); bIg.Time = '13:00:00'; bIg['Instagram Post Type'] = 'POST'; bIg.Text = fbTrimTo(bc.instagram || bTitle, 2200); rows.push(fbRow(bIg));
+        var bTh = mkb('Threads'); bTh.Time = '13:00:00'; bTh['Threads Reply Control'] = 'EVERYONE'; bTh['Threads Post Type'] = 'POST'; bTh.Text = fbTrimLink(bc.threads || bTitle, '\n\nRead more → ' + blink('threads'), 500); rows.push(fbRow(bTh));
+        var pboard1 = topicBoard || FB_EDU_BOARD;
+        var bP1 = mkb('Pinterest'); bP1.Time = '13:00:00'; bP1['Pinterest Board'] = pboard1; bP1['Pinterest Pin Title'] = bc.pinterestTitle || bTitle; bP1['Pinterest Pin Link'] = blink('pinterest'); bP1.Text = fbTrimTo(bc.pinterestA || bTitle, 500); rows.push(fbRow(bP1));
+        if (pboard1 !== FB_EDU_BOARD) { var bP2 = mkb('Pinterest'); bP2.Time = '13:05:00'; bP2['Pinterest Board'] = FB_EDU_BOARD; bP2['Pinterest Pin Title'] = bc.pinterestTitle || bTitle; bP2['Pinterest Pin Link'] = blink('pinterest'); bP2.Text = fbTrimTo(bc.pinterestB || bc.pinterestA || bTitle, 500); rows.push(fbRow(bP2)); }
+        var bLi = mkb('LinkedIn'); bLi.Time = '17:00:00'; bLi['LinkedIn Type'] = 'POST'; bLi.Text = fbTrimLink(bc.linkedin || bTitle, '\n\nRead more → ' + blink('linkedin'), 3000); rows.push(fbRow(bLi));
+        var bGb = mkb('GBP', gmbImg); bGb.Time = '17:00:00'; bGb['GBP Post Type'] = 'publication'; bGb.Text = gmbText; rows.push(fbRow(bGb));
+        return rows;
+      }
+
+      // build broken blogs in parallel (max 4 at once), order preserved
+      async function fbMapLimit(arr, limit, fn) {
+        var resArr = new Array(arr.length); var idx = 0;
+        async function worker() { while (idx < arr.length) { var i = idx++; resArr[i] = await fn(arr[i]); } }
+        var ws = []; var n = Math.min(limit, arr.length); for (var w = 0; w < n; w++) ws.push(worker());
+        await Promise.all(ws); return resArr;
+      }
+
+      var fbBuilt;
+      try { fbBuilt = await fbMapLimit(brokenList, 4, function (b) { return fbBuildBlogRows(b.node, b.date); }); }
+      catch (e) { return res.status(200).json({ ok: false, error: 'Caption builder error — ' + (e && e.message ? e.message : 'try again') }); }
+
+      var fbOut = [FBH.join(',')];
+      var fixed = [];
+      for (var bi2 = 0; bi2 < brokenList.length; bi2++) {
+        var rws = fbBuilt[bi2] || [];
+        if (rws.length) { rws.forEach(function (r) { fbOut.push(r); }); fixed.push({ handle: brokenList[bi2].handle, title: brokenList[bi2].title, date: brokenList[bi2].date }); }
+      }
+      if (!fixed.length) return res.status(200).json({ ok: false, error: 'Found broken images but the caption builder failed — try again.' });
+      var fbCsv = '﻿' + fbOut.join('\r\n') + '\r\n';
+      return res.status(200).json({ ok: true, count: fixed.length, fixed: fixed, csv: fbCsv });
+    }
+
     if (action === 'reel-links') {
       // Fetches the SKU -> Google Drive video-link map from the Apps Script web app
       // (runs as mae@aboutwallart.com, read-only on the REELS folder). Node's fetch
