@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v8.7 · 20 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v8.8 · 21 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -347,6 +347,21 @@
         <span id="btSaveMsg" class="small mp-muted"></span>
       </div>
     </div>
+  </div>
+
+  <!-- FIX BROKEN BLOG IMAGES (Part 3) -->
+  <div class="bt-panel" id="fbiPanel">
+    <div class="bt-head">
+      <strong>🖼️ Fix broken blog images</strong>
+      <span class="small mp-muted" style="margin-left:auto;">Finds scheduled blog posts whose picture was changed after the plan was built.</span>
+    </div>
+    <div class="bt-sub" style="margin-top:10px;flex-wrap:wrap;">
+      <label for="fbiMonth"><strong>Month</strong></label>
+      <select id="fbiMonth" class="ev-weeksel" style="min-width:170px;flex:0 0 auto;"></select>
+      <button type="button" id="fbiFind" class="mp-btn mp-btn-go">Find &amp; fix broken images</button>
+      <span id="fbiMsg" class="small mp-muted"></span>
+    </div>
+    <div id="fbiOut" style="margin-top:10px;"></div>
   </div>
 
   <style>
@@ -1094,7 +1109,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v8.7 — built 20 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v8.8 — built 21 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -2679,6 +2694,43 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       }).catch(function(e){ btn.disabled=false; $('btSaveMsg').style.color='#b91c1c'; $('btSaveMsg').textContent='Error: '+e.message; });
   });
   loadBt();
+
+  // ---- Fix broken blog images (Part 3) ----
+  (function(){
+    var sel = $('fbiMonth'), fbtn = $('fbiFind'), fmsg = $('fbiMsg'), fout = $('fbiOut');
+    if(!sel || !fbtn) return;
+    function fesc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    function mLabel(m){ var p=String(m).split('-'); var names=['January','February','March','April','May','June','July','August','September','October','November','December']; var mi=parseInt(p[1],10)-1; return (names[mi]||m)+' '+(p[0]||''); }
+    function fillMonths(){
+      fetch('/api/social?action=get-plan').then(function(r){return r.json();}).then(function(d){
+        var months = (d && d.ok && d.months) ? Object.keys(d.months) : [];
+        months.sort();
+        if(!months.length){ var n=new Date(); months=[n.getFullYear()+'-'+('0'+(n.getMonth()+1)).slice(-2)]; }
+        sel.innerHTML='';
+        months.forEach(function(m){ var o=document.createElement('option'); o.value=m; o.textContent=mLabel(m); sel.appendChild(o); });
+        sel.value = months[months.length-1];
+      }).catch(function(){ var n=new Date(); var m=n.getFullYear()+'-'+('0'+(n.getMonth()+1)).slice(-2); sel.innerHTML='<option value="'+m+'">'+mLabel(m)+'</option>'; });
+    }
+    fbtn.addEventListener('click', function(){
+      var month = sel.value; if(!month){ fmsg.textContent='Pick a month.'; return; }
+      fout.innerHTML=''; fmsg.style.color=''; fbtn.disabled=true;
+      var secs=0; fmsg.textContent='Checking your scheduled blog posts… 0s (please wait)';
+      var timer=setInterval(function(){ secs++; fmsg.textContent='Checking your scheduled blog posts… '+secs+'s (please wait — do not close)'; },1000);
+      fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'fix-blog-images',month:month})})
+      .then(function(r){return r.json();}).then(function(res){
+        clearInterval(timer); fbtn.disabled=false;
+        if(!res || !res.ok){ fmsg.style.color='#b91c1c'; fmsg.textContent='Failed — '+((res&&res.error)||'try again'); return; }
+        if(!res.count){ fmsg.style.color=''; fmsg.textContent = res.message || ('No broken images found for '+mLabel(month)+'.'); return; }
+        var blob=new Blob([res.csv],{type:'text/csv;charset=utf-8;'});
+        var u=URL.createObjectURL(blob); var a=document.createElement('a'); a.href=u; a.download='metricool-fix-'+month+'.csv'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){ URL.revokeObjectURL(u); },5000);
+        fmsg.style.color=''; fmsg.textContent = 'Found '+res.count+' broken post'+(res.count>1?'s':'')+' — a fix file just downloaded.';
+        var list = (res.fixed||[]).map(function(f){ return '<li>'+fesc(f.title)+' <span class="mp-muted">· '+fesc(f.date)+'</span></li>'; }).join('');
+        fout.innerHTML = '<div class="box gray" style="margin:0;"><strong>These blog posts had their picture changed after the plan was built:</strong><ul style="margin:8px 0 10px 18px;">'+list+'</ul>'
+          + '<strong>What to do in Metricool:</strong><ol style="margin:8px 0 0 18px;"><li>Find each post above by its title and date, and <strong>delete</strong> the old one.</li><li>Then <strong>import</strong> the file that just downloaded (<em>metricool-fix-'+month+'.csv</em>) — they come back with a stable picture that won\'t break again.</li></ol></div>';
+      }).catch(function(){ clearInterval(timer); fbtn.disabled=false; fmsg.style.color='#b91c1c'; fmsg.textContent='Offline — try again.'; });
+    });
+    fillMonths();
+  })();
 
   // ---- Educational videos into the monthly calendar ----
   var EVM = { pool:[] };
