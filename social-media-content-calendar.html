@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v8.8 · 21 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v8.9 · 21 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -710,7 +710,7 @@
   var $ = function(id){ return document.getElementById(id); };
   if(!$('mpMonth')) return;
   var MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  var ALL_OCC = [], CUSTOM_OCC = [], DAYS = [], POOL = [], TAB1POOL = [], TAB1SET = {}, USEDSET = {}, chosen = {};
+  var ALL_OCC = [], CUSTOM_OCC = [], DAYS = [], POOL = [], TAB1POOL = [], TAB1SET = {}, USEDSET = {}, chosen = {}, PLANNEDSET = {};
   var SAVED_MONTHS = {}; // all saved monthly plans, so a new month can skip days another month already took
 
   // month dropdown: this month + next 5
@@ -798,7 +798,8 @@
     // days already used by ANOTHER saved month's plan — skip them so months don't collide at the boundary
     var curKey = y+'-'+('0'+mNum).slice(-2);
     var takenDates = {};
-    Object.keys(SAVED_MONTHS||{}).forEach(function(mk){ if(mk===curKey) return; (SAVED_MONTHS[mk].days||[]).forEach(function(dd){ if(dd&&dd.date) takenDates[dd.date]=1; }); });
+    PLANNEDSET = {}; // products already planned in ANOTHER saved month (even if not sent yet) — don't re-offer
+    Object.keys(SAVED_MONTHS||{}).forEach(function(mk){ if(mk===curKey) return; (SAVED_MONTHS[mk].days||[]).forEach(function(dd){ if(!dd) return; if(dd.date) takenDates[dd.date]=1; if(dd.sku) PLANNEDSET[(dd.sku||'').toUpperCase()]=1; }); });
     DAYS = []; chosen = {};
     for(var day=1; day<=dim; day++){
       var ds = y+'-'+('0'+mNum).slice(-2)+'-'+('0'+day).slice(-2);
@@ -824,6 +825,7 @@
       var sku = (c.getAttribute('data-sku')||'').trim(); if(!sku) return;
       TAB1SET[sku.toUpperCase()] = 1;                 // every Tab 1 card (for the "on Tab 1" badge)
       if(USEDSET[sku.toUpperCase()]) return;          // already made in a past month
+      if(PLANNEDSET[sku.toUpperCase()]) return;       // already planned in another month (not sent yet)
       if(c.classList.contains('done')) return;        // already ticked as made
       var linkA = c.querySelector('.plink a'), thumb = c.querySelector('.thumb'), ttl = c.querySelector('.ptitle');
       var href = linkA ? (linkA.getAttribute('href')||'') : '';
@@ -837,12 +839,12 @@
     var pools=[TAB1POOL, POOL]; // Tab 1 unused first, then general art fallback
     for(var pi=0; pi<pools.length; pi++){ var pool=pools[pi];
       for(var i=0;i<pool.length;i++){ var p=pool[i];
-        if(chosen[p.sku] || p.sku===excludeSku || USEDSET[(p.sku||'').toUpperCase()]) continue;
+        if(chosen[p.sku] || p.sku===excludeSku || USEDSET[(p.sku||'').toUpperCase()] || PLANNEDSET[(p.sku||'').toUpperCase()]) continue;
         if(prevRoom && (p.room||'').toLowerCase()===prevRoom) continue;
         chosen[p.sku]=true; return p; } }
     for(var pj=0; pj<pools.length; pj++){ var pool2=pools[pj]; // relax room rule only if nothing else is left
       for(var k=0;k<pool2.length;k++){ var q=pool2[k];
-        if(!chosen[q.sku] && q.sku!==excludeSku && !USEDSET[(q.sku||'').toUpperCase()]){ chosen[q.sku]=true; return q; } } }
+        if(!chosen[q.sku] && q.sku!==excludeSku && !USEDSET[(q.sku||'').toUpperCase()] && !PLANNEDSET[(q.sku||'').toUpperCase()]){ chosen[q.sku]=true; return q; } } }
     return null;
   }
   function autoFillFillers(){
@@ -907,6 +909,7 @@
       btn.textContent='Suggest products for this day'; btn.disabled=false;
       var box = $('mpDays').querySelector('[data-picks="'+idx+'"]'); if(!box) return;
       var prods = (res&&res.ok&&res.products)?res.products:[];
+      prods = prods.filter(function(p){ var s=(p.sku||'').toUpperCase(); return !chosen[p.sku] && !USEDSET[s] && !PLANNEDSET[s]; }); // hide ones already chosen, made, or planned in another month
       if(!prods.length){ box.innerHTML='<span class="small mp-muted">No matching products in that collection — try the SKU box below.</span>'; return; }
       prods.sort(function(a,b){ return (TAB1SET[(a.sku||'').toUpperCase()]?0:1)-(TAB1SET[(b.sku||'').toUpperCase()]?0:1); }); // Tab 1 unused first
       prods = prods.slice(0,5);
@@ -929,6 +932,7 @@
     .then(function(r){return r.json();}).then(function(res){
       if(!res||!res.ok){ warn.textContent = (res&&res.error)||'Not found.'; return; }
       if(res.used){ warn.textContent = 'That one is already used — choose another.'; return; }
+      if(PLANNEDSET[(sku||'').toUpperCase()]){ warn.textContent = 'That one is already planned in another month — choose another.'; return; }
       warn.textContent='';
       if(DAYS[idx].product) delete chosen[DAYS[idx].product.sku];
       DAYS[idx].product = res.product; chosen[res.product.sku]=true; renderDays();
@@ -1109,7 +1113,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v8.8 — built 21 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v8.9 — built 21 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
