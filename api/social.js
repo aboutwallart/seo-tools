@@ -699,6 +699,24 @@ module.exports = async (req, res) => {
         var room = limit - suffix.length; if (room < 0) room = 0;
         return trimTo(caption, room) + suffix;
       }
+      // Copy a blog's featured image into the tool's own Drive folder and return a STABLE public link,
+      // so optimising the Shopify blog later (which changes its image URL) never breaks the scheduled post.
+      var SOCIAL_DRIVE = process.env.EDU_DRIVE_URL;
+      var SOCIAL_IMG_FOLDER = '1TVn11XySWBWd941f-Ip_nTkIrQnwFWMQ';
+      async function copyImageToDrive(imgUrl, name) {
+        if (!imgUrl || !SOCIAL_DRIVE) return '';
+        try {
+          var jurl = imgUrl + (imgUrl.indexOf('?') >= 0 ? '&' : '?') + 'format=jpg';
+          var ir = await fetch(jurl);
+          if (!ir.ok) return '';
+          var b64 = Buffer.from(await ir.arrayBuffer()).toString('base64');
+          var up = await fetch(SOCIAL_DRIVE, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'upload', folderId: SOCIAL_IMG_FOLDER, name: ((name || 'blog').replace(/[^a-z0-9\-]/gi, '-').slice(0, 80)) + '.jpg', mime: 'image/jpeg', dataBase64: b64 }) });
+          if (!up.ok) return '';
+          var ud = await up.json();
+          return (ud && ud.ok && ud.id) ? ('https://drive.google.com/uc?export=download&id=' + ud.id) : '';
+        } catch (e) { return ''; }
+      }
+
       async function buildPost(p) {
         var sku = (p.sku || '').toString();
         var title = (p.title || '').toString();
@@ -759,13 +777,17 @@ module.exports = async (req, res) => {
           var bTitle = blog.title || '';
           var bImg = (blog.image && blog.image.url) || '';
           if (bImg.indexOf('data:') === 0) bImg = '';
+          // freeze a public copy of the featured image in Drive (stable — survives blog re-optimisation)
+          var driveImg = bImg ? await copyImageToDrive(bImg, bh) : '';
+          var gmbImg;
+          if (driveImg) { bImg = driveImg; gmbImg = driveImg; }
+          else { gmbImg = bImg ? (bImg + (bImg.indexOf('?') >= 0 ? '&' : '?') + 'format=jpg') : ''; }
           var bUrl = BLOG_BASE + bh;
           var blink = function (src) { return bUrl + '?utm_source=' + src + '&utm_medium=blog&utm_campaign=' + bh; };
           var topicBoard = boardForText(artText(blog));
           var balt = bc.alt || bTitle;
           var gmbText = (bc.gmb || bTitle).slice(0, 1400).replace(/\s+$/, '') + '\n\nRead more → ' + blink('gmb');
           if (gmbText.length > 1500) gmbText = gmbText.slice(0, 1500);
-          var gmbImg = bImg ? (bImg + (bImg.indexOf('?') >= 0 ? '&' : '?') + 'format=jpg') : '';
           var mkb = function (net, img) { var o = { Date: date, Draft: false, Shortener: true, 'Picture Url 1': img || bImg, 'Alt text picture 1': balt }; o[net] = true; return o; };
           var bFb = mkb('Facebook'); bFb.Time = '12:00:00'; bFb['Facebook Post Type'] = 'POST'; bFb.Text = trimWithLink(bc.facebook || bTitle, '\n\nRead more → ' + blink('facebook'), 2000); rows.push(rowLine(bFb));
           var bIg = mkb('Instagram'); bIg.Time = '13:00:00'; bIg['Instagram Post Type'] = 'POST'; bIg.Text = trimTo(bc.instagram || bTitle, 2200); rows.push(rowLine(bIg));
