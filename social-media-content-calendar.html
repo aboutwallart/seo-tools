@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.3 · 21 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.4 · 21 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -723,7 +723,7 @@
     if(m){ note.style.display=''; note.style.color='#b45309'; note.innerHTML='✓ '+esc2(monthLabel(mk))+' is already planned ('+((m.days||[]).length)+' posts) — see <strong>Your saved months</strong> below. Building again will re-plan it.'; }
     else { note.style.display='none'; note.innerHTML=''; }
   }
-  function updateEduMonthLabel(){ var h=document.querySelector('#evMonthBlock h3'); if(h){ h.textContent='🎓 Educational videos — '+monthLabel(selectedMonth())+' · 1 per week'; } }
+  function updateEduMonthLabel(){ var mv=($('mpMonth')||{}).value||''; var h=document.querySelector('#evMonthBlock h3'); if(h && mv){ h.textContent='🎓 Educational videos — '+monthLabel(mv)+' · 1 per week'; } }
   $('mpMonth').addEventListener('change', function(){
     reflectPlannedMonth();
     updateEduMonthLabel();
@@ -1120,7 +1120,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v9.3 — built 21 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v9.4 — built 21 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
