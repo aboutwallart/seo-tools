@@ -110,6 +110,17 @@ def contain_white(im):
     c = Image.new("RGB", (W, H), "white"); im = im.convert("RGB"); iw, ih = im.size
     s = min((W-200)/iw, (H-160)/ih); nw, nh = int(iw*s), int(ih*s)
     c.paste(im.resize((nw, nh), Image.LANCZOS), ((W-nw)//2, (H-nh)//2)); return c
+def is_white_bg(im):
+    # True when the image sits on a WHITE background (e.g. a blog infographic) — sampled at 8 edge points.
+    # Such images are shown WHOLE (contained), never cropped, so titles/captions are kept.
+    im = im.convert("RGB"); iw, ih = im.size
+    if iw < 4 or ih < 4: return False
+    pts = [(1,1),(iw-2,1),(1,ih-2),(iw-2,ih-2),(iw//2,1),(iw//2,ih-2),(1,ih//2),(iw-2,ih//2)]
+    white = 0
+    for x,y in pts:
+        r,g,b = im.getpixel((x,y))
+        if r>232 and g>232 and b>232: white += 1
+    return white >= 6
 def add_logo(b, size=150, m=55):
     lg = Image.open(LOGO).convert("RGBA").resize((size, size), Image.LANCZOS); b.paste(lg, (W-size-m, m), lg)
 def wrap(d, t, f, mw):
@@ -148,8 +159,9 @@ def bake_all(indir, edu, outdir):
     add_logo(b); b.save(os.path.join(outdir, "frame_00.png"))
     for i in range(1, n+1):
         _k = (edu["scenes"][i-1].get("kind") or "photo")
-        # infographics are shown WHOLE (contain on white) so the title/edges are never cropped; photos cover-fill
-        b = contain_white(openimg(img(i+1))) if _k == "infographic" else cover(openimg(img(i+1)))
+        _im = openimg(img(i+1))
+        # infographics AND any white-background image are shown WHOLE (contain) so titles/edges/captions are never cropped; photos cover-fill
+        b = contain_white(_im) if (_k == "infographic" or (_k == "photo" and is_white_bg(_im))) else cover(_im)
         caption_box(b, clean(edu["scenes"][i-1]["text"])); add_logo(b); b.save(os.path.join(outdir, "frame_%02d.png" % i))
     o1, o2, o3, o4, o5 = n+1, n+2, n+3, n+4, n+5
     b = cover(openimg(OUTRO_BG[1])); d = ImageDraw.Draw(b); f = F(LEMON, 62)
@@ -261,9 +273,20 @@ def preview(folder_id, handle):
         return ("https://drive.google.com/thumbnail?id=%s&sz=w800&_=%d" % (f["id"], _cb)) if f else ""
     # kind per scene tells the preview how it will be shown: photos/products/title = cover-cropped to 16:9 (show a red crop box);
     # infographics = contained whole (no crop box).
+    from io import BytesIO
+    def white_scene(k):
+        # peek the small Drive thumbnail to see if this photo sits on a white background (blog infographic)
+        try:
+            f = photo_for(files, k)
+            if not f: return False
+            return is_white_bg(Image.open(BytesIO(http("https://drive.google.com/thumbnail?id=%s&sz=w400" % f["id"]))))
+        except Exception:
+            return False
     rows = [{"label": "Title (scene 1) — photo 01", "text": clean(edu["videoTitle"]), "img": thumb(1), "kind": "title"}]
     for i in range(1, n + 1):
-        rows.append({"label": "Scene %d — photo %02d" % (i + 1, i + 1), "text": clean(edu["scenes"][i-1]["text"]), "img": thumb(i + 1), "kind": (edu["scenes"][i-1].get("kind") or "photo")})
+        _pk = (edu["scenes"][i-1].get("kind") or "photo")
+        if _pk == "photo" and white_scene(i + 1): _pk = "infographic"  # white-bg -> shown whole, no crop box
+        rows.append({"label": "Scene %d — photo %02d" % (i + 1, i + 1), "text": clean(edu["scenes"][i-1]["text"]), "img": thumb(i + 1), "kind": _pk})
     for i, o in enumerate(edu["outro"], 1):
         rows.append({"label": "Ending card %d" % i, "text": clean(o), "img": "", "fixed": True, "kind": "card"})
     missing = [k for k in range(1, n + 2) if not thumb(k)]
