@@ -1833,9 +1833,22 @@ module.exports = async (req, res) => {
       var savedIdxP = await eduIndex();       // { handle: {done, videoTitle, sourceType, savedAt} }
       var savedFilesP = await eduSavedFiles(); // handles with an edu-video-<handle>.json
       var publishedP = await usedVideoBlogSet(); // handles already published (edu-mark-used / edu-metricool)
+      // Hide videos already scheduled (built into a Metricool file) for a DIFFERENT month than the one being planned.
+      // Keeps the current month's ones in the pool so re-downloading that month's file never loses them.
+      var otherMonthP = {};
+      var targetMonthP = ((req.query && req.query.month) || '').toString();
+      if (/^\d{4}-\d{2}$/.test(targetMonthP)) {
+        var qGhP = await ghGet('data/edu-publish-queue.json');
+        if (qGhP.content) { try {
+          var qvP = (JSON.parse(qGhP.content).videos) || [];
+          var inTargetP = {}, inOtherP = {};
+          qvP.forEach(function (v) { var h = (v.handle || '').toLowerCase(); var mo = (v.liveAt || '').slice(0, 7); if (!h || !mo) return; if (mo === targetMonthP) inTargetP[h] = 1; else inOtherP[h] = 1; });
+          Object.keys(inOtherP).forEach(function (h) { if (!inTargetP[h]) otherMonthP[h] = 1; });
+        } catch (e) {} }
+      }
       var pool = [], seenP = {};
       function pushPool(h, meta) {
-        h = (h || '').toLowerCase(); if (!h || seenP[h] || publishedP[h]) return; seenP[h] = 1;
+        h = (h || '').toLowerCase(); if (!h || seenP[h] || publishedP[h] || otherMonthP[h]) return; seenP[h] = 1;
         var typ = (meta && meta.sourceType) || 'blog';
         pool.push({ handle: h, title: (meta && meta.videoTitle) || h, videoTitle: (meta && meta.videoTitle) || '', sourceType: typ, savedAt: (meta && meta.savedAt) || '', url: (typ === 'page' ? 'https://aboutwallart.com/pages/' + h : EDU_BLOG_BASE + h) });
       }
