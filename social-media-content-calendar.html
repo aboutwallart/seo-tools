@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.2 · 21 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.3 · 21 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -1120,7 +1120,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v9.2 — built 21 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v9.3 — built 21 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -2517,6 +2517,13 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
             var imgHtml;
             if(!r.img){
               imgHtml = '<div style="width:360px;height:203px;border-radius:8px;flex:none;background:#111;color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center;text-align:center;">built-in<br>card</div>';
+            } else if(kind==='infographic'){
+              // contained on a white 16:9 frame — the whole image is shrunk to fit inside; show the red edge + caption strip so she can check nothing spills out or hides behind the caption
+              imgHtml = '<div class="prevwrap" data-kind="infographic" style="position:relative;width:360px;height:202px;flex:none;background:#fff;border-radius:8px;overflow:hidden;">'
+                + '<img src="'+esc(r.img)+'" style="position:absolute;left:5.2%;top:7.4%;width:89.6%;height:85.2%;object-fit:contain;display:block;" loading="lazy">'
+                + '<div style="position:absolute;inset:0;border:3px solid #e11d48;box-sizing:border-box;border-radius:8px;pointer-events:none;"></div>'
+                + '<div style="position:absolute;left:0;bottom:0;width:100%;height:20%;background:rgba(0,0,0,0.5);pointer-events:none;"></div>'
+                + '</div>';
             } else {
               imgHtml = '<div class="prevwrap" data-kind="'+esc(kind)+'" style="position:relative;width:360px;flex:none;background:#eee;border-radius:8px;overflow:hidden;line-height:0;">'
                 + '<img class="previmg" src="'+esc(r.img)+'" style="width:100%;display:block;" loading="lazy">'
@@ -2524,7 +2531,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
                 + '<div class="prevcap" style="position:absolute;display:none;background:rgba(0,0,0,0.5);pointer-events:none;"></div>'
                 + '</div>';
             }
-            var note = (r.img && kind==='infographic') ? '<div class="small" style="color:#0F6E56;margin-top:5px;font-weight:600;">shown whole — not cropped</div>'
+            var note = (r.img && kind==='infographic') ? '<div class="small" style="color:#0F6E56;margin-top:5px;font-weight:600;">🔴 red edge = video frame · dark strip = caption. Whole image shrunk to fit inside — nothing cut. Check the bottom labels sit above the strip.</div>'
                      : (r.img ? '<div class="small ev-muted" style="margin-top:5px;">🔴 red box = what stays in the video · dark strip = where the caption sits</div>' : '');
             html += '<div style="display:flex;gap:14px;align-items:flex-start;padding:12px 4px;border-bottom:1px solid #f0f0f0;">'+imgHtml+'<div style="padding-top:2px;"><div class="small ev-muted" style="font-weight:700;">'+esc(r.label)+'</div><div style="font-size:15px;margin-top:3px;">'+esc(r.text)+'</div>'+note+'</div></div>';
           });
