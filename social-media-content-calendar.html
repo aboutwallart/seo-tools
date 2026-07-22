@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.1 · 21 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.2 · 21 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -334,7 +334,7 @@
     <div class="bt-head">
       <strong>⏰ Best-post times</strong>
       <span id="btUpdated" class="small mp-muted"></span>
-      <button type="button" id="btToggle" class="mp-btn-sm" style="margin-left:auto;">Refresh times</button>
+      <button type="button" id="btToggle" class="mp-btn-sm" style="margin-left:auto;">Open ▾</button>
     </div>
     <div id="btBody" style="display:none;">
       <p class="small mp-muted" style="margin:8px 0;">The tool can't reach Metricool. So: open a Claude chat, paste the prompt below (it pulls your best times from Metricool), then paste the answer back here and Save.</p>
@@ -431,10 +431,6 @@
   </div>
   <div id="mpPlannedNote" class="small" style="margin:2px 0 0;display:none;"></div>
 
-  <div id="mpSavedWrap" style="display:none;">
-    <h3 class="mp-h3">Your saved months</h3>
-    <div id="mpSavedList" class="mp-saved"></div>
-  </div>
 
   <div id="mpOccWrap" style="display:none;">
     <h3 class="mp-h3">Tick the occasions to use</h3>
@@ -486,6 +482,11 @@
       <div id="evmNeed"></div>
       <div id="evmBuilt"></div>
     </div>
+  </div>
+
+  <div id="mpSavedWrap" style="display:none;margin-top:20px;">
+    <h3 class="mp-h3">Your saved months</h3>
+    <div id="mpSavedList" class="mp-saved"></div>
   </div>
 </section>
 
@@ -722,7 +723,12 @@
     if(m){ note.style.display=''; note.style.color='#b45309'; note.innerHTML='✓ '+esc2(monthLabel(mk))+' is already planned ('+((m.days||[]).length)+' posts) — see <strong>Your saved months</strong> below. Building again will re-plan it.'; }
     else { note.style.display='none'; note.innerHTML=''; }
   }
-  $('mpMonth').addEventListener('change', reflectPlannedMonth);
+  function updateEduMonthLabel(){ var h=document.querySelector('#evMonthBlock h3'); if(h){ h.textContent='🎓 Educational videos — '+monthLabel(selectedMonth())+' · 1 per week'; } }
+  $('mpMonth').addEventListener('change', function(){
+    reflectPlannedMonth();
+    updateEduMonthLabel();
+    var w=$('evmWrap'); if(w && w.style.display!=='none'){ $('evmLoad').click(); } // videos follow the chosen month automatically
+  });
 
   function selMonthNum(){ return parseInt($('mpMonth').value.split('-')[1],10); }
   function selYear(){ return parseInt($('mpMonth').value.split('-')[0],10); }
@@ -987,6 +993,7 @@
       SAVED_MONTHS = months;
       if(!didDefaultMonth){ var u=firstUnplannedMonth(); if(u) $('mpMonth').value=u; didDefaultMonth=true; } // land on the first month not yet planned
       reflectPlannedMonth();
+      updateEduMonthLabel();
       var keys = Object.keys(months).sort();
       var wrap=$('mpSavedWrap'), list=$('mpSavedList');
       if(!keys.length){ wrap.style.display='none'; list.innerHTML=''; return; }
@@ -1113,7 +1120,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v9.1 — built 21 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v9.2 — built 21 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
@@ -2676,10 +2683,9 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     fetch('/api/social?action=get-best-times').then(function(r){ return r.json(); }).then(function(d){
       if(d && d.ok){ BT.times = d.times || {}; BT.updated = d.updated || ''; }
       reflectBt();
-      if(isStale()){ $('btBody').style.display = 'block'; } // nudge her to refresh when starting a month
     }).catch(function(){ reflectBt(); });
   }
-  $('btToggle').addEventListener('click', function(){ var b=$('btBody'); b.style.display = (b.style.display==='none'?'block':'none'); });
+  $('btToggle').addEventListener('click', function(){ var b=$('btBody'); var open=(b.style.display==='none'); b.style.display = open?'block':'none'; $('btToggle').textContent = open?'Close ▴':'Open ▾'; });
   $('btCopyPrompt').addEventListener('click', function(){
     var b=$('btCopyPrompt');
     function ok(){ var o=b.textContent; b.textContent='Copied ✓'; setTimeout(function(){ b.textContent=o; },1400); }
