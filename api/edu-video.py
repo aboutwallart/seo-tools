@@ -274,19 +274,32 @@ def preview(folder_id, handle):
     # kind per scene tells the preview how it will be shown: photos/products/title = cover-cropped to 16:9 (show a red crop box);
     # infographics = contained whole (no crop box).
     from io import BytesIO
-    def white_scene(k):
-        # peek the small Drive thumbnail to see if this photo sits on a white background (blog infographic)
+    import base64
+    _imgcache = {}
+    def real_img(k):
+        # download the ACTUAL current file (never Drive's cached thumbnail) so the preview is never stale before a Renderly render;
+        # returns a small fresh JPEG data-URI + whether it sits on a white background
+        if k in _imgcache: return _imgcache[k]
+        res = {"uri": "", "white": False}
         try:
             f = photo_for(files, k)
-            if not f: return False
-            return is_white_bg(Image.open(BytesIO(http("https://drive.google.com/thumbnail?id=%s&sz=w400" % f["id"]))))
+            if f:
+                im = Image.open(BytesIO(drive_download(f["id"]))).convert("RGB")
+                res["white"] = is_white_bg(im)
+                pv = im.copy(); pv.thumbnail((400, 400))
+                buf = BytesIO(); pv.save(buf, "JPEG", quality=80)
+                res["uri"] = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
         except Exception:
-            return False
-    rows = [{"label": "Title (scene 1) — photo 01", "text": clean(edu["videoTitle"]), "img": thumb(1), "kind": "title"}]
+            pass
+        _imgcache[k] = res
+        return res
+    _tt = real_img(1)
+    rows = [{"label": "Title (scene 1) — photo 01", "text": clean(edu["videoTitle"]), "img": _tt["uri"], "kind": "title"}]
     for i in range(1, n + 1):
+        r = real_img(i + 1)
         _pk = (edu["scenes"][i-1].get("kind") or "photo")
-        if _pk == "photo" and white_scene(i + 1): _pk = "infographic"  # white-bg -> shown whole, no crop box
-        rows.append({"label": "Scene %d — photo %02d" % (i + 1, i + 1), "text": clean(edu["scenes"][i-1]["text"]), "img": thumb(i + 1), "kind": _pk})
+        if _pk == "photo" and r["white"]: _pk = "infographic"  # white-bg -> shown whole, no crop box
+        rows.append({"label": "Scene %d — photo %02d" % (i + 1, i + 1), "text": clean(edu["scenes"][i-1]["text"]), "img": r["uri"], "kind": _pk})
     for i, o in enumerate(edu["outro"], 1):
         rows.append({"label": "Ending card %d" % i, "text": clean(o), "img": "", "fixed": True, "kind": "card"})
     missing = [k for k in range(1, n + 2) if not thumb(k)]
