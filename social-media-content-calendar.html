@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.4 · 21 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.5 · 21 Jul 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -703,7 +703,7 @@
   // month dropdown: this month + next 5
   (function(){
     var now = new Date(), sel = $('mpMonth');
-    for(var i=0;i<6;i++){
+    for(var i=0;i<15;i++){
       var d = new Date(now.getFullYear(), now.getMonth()+i, 1);
       var val = d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2);
       var o = document.createElement('option');
@@ -716,6 +716,20 @@
   var didDefaultMonth = false;
   function firstUnplannedMonth(){
     var sel=$('mpMonth'); for(var i=0;i<sel.options.length;i++){ if(!SAVED_MONTHS[sel.options[i].value]) return sel.options[i].value; } return '';
+  }
+  function refreshMonthOptions(){
+    // rebuild the month list, hiding months already planned (view/edit those in "Your saved months"); restores them if she Undoes
+    var sel=$('mpMonth'); var cur=sel.value; var now=new Date();
+    sel.innerHTML='';
+    for(var i=0;i<15;i++){
+      var d=new Date(now.getFullYear(), now.getMonth()+i, 1);
+      var val=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2);
+      if(SAVED_MONTHS[val]) continue;
+      var o=document.createElement('option'); o.value=val; o.textContent=MONTHS[d.getMonth()]+' '+d.getFullYear();
+      sel.appendChild(o);
+    }
+    var keep=false; for(var j=0;j<sel.options.length;j++){ if(sel.options[j].value===cur){ keep=true; break; } }
+    sel.value = keep ? cur : (sel.options.length ? sel.options[0].value : '');
   }
   function reflectPlannedMonth(){
     var note=$('mpPlannedNote'); if(!note) return;
@@ -991,7 +1005,7 @@
     fetch('/api/social?action=get-plan').then(function(r){return r.json();}).then(function(d){
       var months = (d&&d.ok&&d.months)?d.months:{};
       SAVED_MONTHS = months;
-      if(!didDefaultMonth){ var u=firstUnplannedMonth(); if(u) $('mpMonth').value=u; didDefaultMonth=true; } // land on the first month not yet planned
+      refreshMonthOptions(); // drop already-planned months from the dropdown, land on the first unplanned one
       reflectPlannedMonth();
       updateEduMonthLabel();
       var keys = Object.keys(months).sort();
@@ -1120,7 +1134,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v9.4 — built 21 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v9.5 — built 21 Jul 2026.</p>
 </div>
 <script>
 function cc(btn){
