@@ -456,14 +456,20 @@ If you genuinely cannot find one of the two, leave its two fields as empty strin
       });
       const titlesBlock = blocks.map(b => b.text).join('\n\n');
 
-      const prompt = `You are an SEO editor for aboutwallart.com (wall art + home decor). Judge cannibalisation the way Google would — by SEARCH INTENT, not shared words.
+      const prompt = `You are an SEO editor for aboutwallart.com (wall art + home decor). Judge cannibalisation the way Google would — by the FULL SEARCH INTENT, not shared words.
 
 For EACH working title (T#), with its candidate published blogs (C#):
-1) Give the TRUE main keyword a real person types into Google. CRUCIAL: keep the QUALIFIER that defines the intent — e.g. "gallery wall WITHOUT NAILS", "biophilic design in SMALL SPACES", "wall art FOR KIDS". The qualifier is the whole point; never strip it down to just the head topic ("gallery wall"). 2 to 6 words, UK spelling ("colour", "decor" no accent), lowercase.
-2) Decide if any CANDIDATE targets the SAME QUALIFIED search — i.e. a person searching your full keyword (with its qualifier) would be satisfied by that existing blog. A blog about the general topic that does NOT cover your qualifier is NOT a clash (e.g. a general "gallery wall" blog does not answer "gallery wall without nails").
+1) Give the TRUE main keyword a real person types into Google. CRUCIAL: keep the QUALIFIER that defines the intent — e.g. "gallery wall WITHOUT NAILS", "biophilic design in SMALL SPACES", "wall art FOR KIDS". The qualifier is the whole point; never strip it to the head topic ("gallery wall"). 2 to 6 words, UK spelling ("colour", "decor" no accent), lowercase.
+2) Decide if any CANDIDATE targets the SAME QUALIFIED SEARCH. THE HARD RULE: sharing the head topic word (gallery, match, bohemian, colour, small...) is NOT a clash by itself. Two blogs clash ONLY when the QUALIFIER — the specific thing the searcher wants — is essentially the SAME. If the qualifiers differ, it is NO CONFLICT.
+   Worked examples (follow this exactly):
+   - "gallery wall WITHOUT NAILS" vs "gallery wall IDEAS" → NO CONFLICT (nails ≠ ideas).
+   - "match wall art with OFFICE FURNITURE" vs "match wall art to PAINT COLOURS" → NO CONFLICT (furniture ≠ paint).
+   - "mix patterns in BOHEMIAN wall art" vs "master BOHEMIAN wall decor" → NO CONFLICT (mixing patterns ≠ general boho decor).
+   - "gallery wall without nails" vs "how to hang a gallery wall WITHOUT DAMAGE / no nails" → DANGER (same qualified search).
+   DEFAULT TO NO CONFLICT. Only flag when you are confident the qualified intent is the same.
    - "DANGER"      = same qualified search (a real clash).
-   - "CAUTION"     = closely related but a clearly different angle.
-   - "NO CONFLICT" = no candidate answers the same qualified search (or no candidates).
+   - "CAUTION"     = the qualifier is nearly the same, only a small framing difference. Use RARELY.
+   - "NO CONFLICT" = qualifiers differ, or no candidate matches (the normal answer).
    Pick only the SINGLE closest candidate.
 
 WORKING TITLES with candidates:
@@ -2428,22 +2434,24 @@ Include 3 to 5 items.`;
           const trimmed = line.trim().replace(/\r/g, '');
           if (!trimmed) return line;
           const cols = parseCSVLine(trimmed);
-          // Header row — make sure the 8th column (CLASH INTENT) name exists.
+          // Header row — make sure the CLASH INTENT (8th) + CHECKED (9th) column names exist.
           if (norm(cols[1]) === 'blog post title') {
-            while (cols.length < 8) cols.push('');
+            while (cols.length < 9) cols.push('');
             if (!cols[7]) cols[7] = 'CLASH INTENT';
+            if (!cols[8]) cols[8] = 'CHECKED';
             return cols.map(esc).join(',');
           }
           const key = norm(cols[1]);
           const r = byTitle.get(key);
           if (r && !done.has(key)) {
-            while (cols.length < 8) cols.push('');
+            while (cols.length < 9) cols.push('');
             if (r.keyword !== undefined && r.keyword !== null) cols[0] = r.keyword;
             if (r.newTitle) cols[1] = r.newTitle;
             if (r.cannibalization) cols[3] = r.cannibalization;
             cols[4] = r.conflictingKeyword || '';
             cols[5] = r.conflictingUrl || '';
             cols[7] = r.clashIntent || '';
+            cols[8] = '1';
             done.add(key);
             return cols.map(esc).join(',');
           }
