@@ -423,38 +423,58 @@ If you genuinely cannot find one of the two, leave its two fields as empty strin
   }
 
   // Helper: for each working title, derive the TRUE short main keyword and flag cannibalisation
-  // against the already-published blogs. Judges by the short keyword only (not stray shared words).
-  // Returns [{ title, keyword, cannibalization, conflictingKeyword, conflictingUrl, reason }].
+  // against the already-published blogs — judged the way Google would: by SEARCH INTENT, not shared words.
+  // Method: (1) derive the real short keyword, (2) NARROW to a shortlist of published blogs that share a
+  // distinctive word (generic site words like "wall art" ignored; a few synonyms expanded), (3) let Claude
+  // pick the SINGLE closest blog by whether a searcher would be satisfied by the same page.
+  // Returns [{ title, keyword, cannibalization, conflictingKeyword (blog TITLE), conflictingUrl, looserCount }].
   async function analyzeTitlesForKeywords(titles, published) {
-    const listStr = published.map((b, i) => `${i + 1}. ${b.title}`).join('\n');
+    // Words shared across the whole site — not clues to cannibalisation.
+    const GENERIC = new Set(['wall','art','arts','decor','decoration','home','house','best','how','what','why','can','do','does','i','my','me','the','a','an','in','on','for','to','of','with','your','you','and','or','is','are','be','ideas','idea','tips','tip','guide','using','use','into','without','make','made']);
+    // Tiny synonym map so a same-intent blog worded differently still gets shortlisted.
+    const SYN = { protect:['care','maintain','preserve','clean'], care:['protect','maintain','preserve'], maintain:['care','protect','preserve'], colour:['color','colours','colors','colourway','colorway'], color:['colour','colours','colors'], small:['tiny','compact','little'], kids:['children','child','nursery'], budget:['cheap','affordable','inexpensive'] };
+    const sig = (s) => String(s || '').toLowerCase().split(/[^a-z]+/).filter(w => w.length > 2 && !GENERIC.has(w));
+    const expand = (words) => { const out = new Set(words); words.forEach(w => (SYN[w] || []).forEach(x => out.add(x))); return out; };
+
     const results = [];
-    const CHUNK = 12;
+    const CHUNK = 8;
     for (let i = 0; i < titles.length; i += CHUNK) {
       const chunk = titles.slice(i, i + CHUNK);
-      const titlesBlock = chunk.map((t, j) => `T${j + 1}. ${t}`).join('\n');
-      const prompt = `You are an SEO editor for aboutwallart.com (wall art + home decor).
+      // Build a per-title candidate shortlist (max 15) from shared distinctive words.
+      const blocks = chunk.map((t, j) => {
+        const want = expand(sig(t));
+        const cands = [];
+        for (const b of published) {
+          const bw = sig(b.title);
+          if (bw.some(w => want.has(w))) cands.push(b);
+          if (cands.length >= 15) break;
+        }
+        const candText = cands.length
+          ? cands.map((c, k) => `  C${k + 1}. ${c.title}`).join('\n')
+          : '  (none)';
+        return { title: t, cands, text: `T${j + 1}. ${t}\n${candText}` };
+      });
+      const titlesBlock = blocks.map(b => b.text).join('\n\n');
 
-For EACH working blog title below, do two things:
-1) Give the TRUE short main keyword a real person types into Google — 2 to 4 words, a genuine search term (e.g. "wall art colour variations", "boho small space decor"). NEVER use the long title as the keyword. Strip question words and filler. UK spelling ("colour", "decor" with no accent), lowercase.
-2) Decide if that short keyword would CANNIBALISE (compete for the same Google search) an ALREADY-PUBLISHED blog in the list. Judge by the SHORT main keyword/topic ONLY — not by stray shared words like "wall art". Two blogs only clash if a searcher would expect the SAME page.
-   - "DANGER"      = same main keyword/topic (a real clash).
+      const prompt = `You are an SEO editor for aboutwallart.com (wall art + home decor). Judge cannibalisation the way Google would — by SEARCH INTENT, not shared words.
+
+For EACH working title (T#), with its candidate published blogs (C#):
+1) Give the TRUE short main keyword a real person types into Google — 2 to 4 words, a genuine search term. NEVER the long title. UK spelling ("colour", "decor" no accent), lowercase.
+2) Decide if any CANDIDATE targets the SAME Google search — i.e. a person searching your keyword would be satisfied by that existing blog. Judge intent, ignore generic words like "wall art".
+   - "DANGER"      = same search (a real clash).
    - "CAUTION"     = closely related but a clearly different angle.
-   - "NO CONFLICT" = different topic.
+   - "NO CONFLICT" = no candidate targets the same search (or no candidates).
+   Pick only the SINGLE closest candidate.
 
-PUBLISHED BLOGS (numbered):
-${listStr}
-
-WORKING TITLES:
+WORKING TITLES with candidates:
 ${titlesBlock}
 
-Return ONLY a JSON array, one object per working title, in the same order, exactly this shape:
-[{"t":1,"keyword":"","verdict":"NO CONFLICT","conflictIndex":0,"conflictKeyword":"","reason":""}]
-- keyword: the short main keyword.
+Return ONLY a JSON array, one object per working title in order, exactly:
+[{"t":1,"keyword":"","verdict":"NO CONFLICT","closest":0,"looser":0}]
 - verdict: NO CONFLICT | CAUTION | DANGER.
-- conflictIndex: the NUMBER of the clashing published blog from the list above, or 0 if none. Use ONLY a number from that list — never invent one.
-- conflictKeyword: the clashing blog's short topic, or "".
-- reason: max 12 words, plain English.`;
-      const raw = await callClaudeText(prompt, 4000);
+- closest: the C-number of the single closest candidate for THIS title, or 0 if none clash. Never invent a number.
+- looser: how many OTHER candidates are loosely related but not the closest (a count, 0 if none).`;
+      const raw = await callClaudeText(prompt, 3000);
       const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '');
       const m = cleaned.match(/\[[\s\S]*\]/);
       if (!m) throw new Error('Could not read the keyword check result');
@@ -465,20 +485,21 @@ Return ONLY a JSON array, one object per working title, in the same order, exact
         const o = arr.find(x => Number(x.t) === j + 1) || arr[j] || {};
         const verdict = ['NO CONFLICT', 'CAUTION', 'DANGER'].includes(String(o.verdict || '').toUpperCase())
           ? String(o.verdict).toUpperCase() : 'NO CONFLICT';
-        let conflictUrl = '';
-        let conflictKeyword = String(o.conflictKeyword || '').trim();
-        const ci = parseInt(o.conflictIndex, 10);
-        if (verdict !== 'NO CONFLICT' && ci >= 1 && ci <= published.length) {
-          conflictUrl = published[ci - 1].url;
-          if (!conflictKeyword) conflictKeyword = published[ci - 1].title;
+        const cands = blocks[j].cands;
+        const ci = parseInt(o.closest, 10);
+        let blogTitle = '', blogUrl = '';
+        if (verdict !== 'NO CONFLICT' && ci >= 1 && ci <= cands.length) {
+          blogTitle = cands[ci - 1].title;
+          blogUrl = cands[ci - 1].url;
         }
+        const finalVerdict = blogTitle ? verdict : 'NO CONFLICT';
         results.push({
           title: chunk[j],
           keyword: String(o.keyword || '').trim(),
-          cannibalization: verdict,
-          conflictingKeyword: verdict === 'NO CONFLICT' ? '' : conflictKeyword,
-          conflictingUrl: verdict === 'NO CONFLICT' ? '' : conflictUrl,
-          reason: String(o.reason || '').trim()
+          cannibalization: finalVerdict,
+          conflictingKeyword: blogTitle,
+          conflictingUrl: blogUrl,
+          looserCount: Math.max(0, parseInt(o.looser, 10) || 0)
         });
       }
     }
