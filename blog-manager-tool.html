@@ -271,7 +271,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v3.3 - 2026-07-24</p>
+        <p class="version">v3.4 - 2026-07-24</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -299,7 +299,7 @@
                 <button class="btn-filter" onclick="setFilter('red')">🔴 Danger <span id="fc-red">0</span></button>
             </div>
             <div id="fix-danger-bar" style="display:none;margin:0 0 14px;">
-                <button id="fix-danger-btn" onclick="fixDangerKeywords()" style="background:#111;color:#fff;border:none;border-radius:6px;padding:9px 16px;font-weight:700;cursor:pointer;">🔧 Fix keywords on Danger cards</button>
+                <button id="fix-danger-btn" onclick="fixDangerKeywords()" style="background:#111;color:#fff;border:none;border-radius:6px;padding:9px 16px;font-weight:700;cursor:pointer;">🔧 Fix flagged cards</button>
                 <span id="fix-danger-note" style="margin-left:10px;color:#666;font-size:13px;"></span>
             </div>
             <div class="bulk-action-row" id="bulk-action-row">
@@ -777,8 +777,9 @@
             set('fc-all', ideasOnly.length); set('fc-green', g); set('fc-yellow', y); set('fc-red', r);
             const bar = document.getElementById('fix-danger-bar');
             const note = document.getElementById('fix-danger-note');
-            if (bar) bar.style.display = r > 0 ? 'block' : 'none';
-            if (note) note.textContent = r > 0 ? `${r} Danger card${r === 1 ? '' : 's'} — re-checks the real short keyword for each.` : '';
+            const flagged = r + y;
+            if (bar) bar.style.display = flagged > 0 ? 'block' : 'none';
+            if (note) note.textContent = flagged > 0 ? `${flagged} flagged card${flagged === 1 ? '' : 's'} (Danger + Caution) — re-checks the real keyword + clash for each.` : '';
         }
 
         // ============================================
@@ -855,7 +856,7 @@
                     const looser = idea.looserCount ? `<div style="font-size:12px;color:#555;margin-top:8px;">${idea.looserCount} looser match${idea.looserCount === 1 ? '' : 'es'} hidden</div>` : '';
                     clashSection = `<div style="border-top:1px solid rgba(0,0,0,0.10);margin-top:14px;padding-top:12px;font-size:15px;color:#1a1a1a;">${blogHtml}</div>${both}${looser}`;
                 } else if (level !== 'NO CONFLICT' && isOldPile) {
-                    clashSection = `<div style="border-top:1px solid rgba(0,0,0,0.10);margin-top:14px;padding-top:12px;font-size:13px;color:#8a6d1a;">Old check — press “Fix keywords on Danger cards” to clean this up.</div>`;
+                    clashSection = `<div style="border-top:1px solid rgba(0,0,0,0.10);margin-top:14px;padding-top:12px;font-size:13px;color:#8a6d1a;">Old check — press “Fix flagged cards” to clean this up.</div>`;
                 }
                 const editBar = `<div class="inline-edit-section" id="editbar-${index}" style="display:none;">
                         <span class="inline-edit-label">Change title &amp; re-check</span>
@@ -1266,7 +1267,7 @@
             const blog = idea.conflictingKeyword || '';
             const isOldPile = blog.includes(' | ') || (idea.conflictingUrl || '').includes(' | ');
             if (isOldPile) {
-                return kwHtml + `<div style="font-size:13px;color:#8a6d1a;">Old check — press “Fix keywords on Danger cards” to clean this up.</div>`;
+                return kwHtml + `<div style="font-size:13px;color:#8a6d1a;">Old check — press “Fix flagged cards” to clean this up.</div>`;
             }
             if (!blog) {
                 return kwHtml + `<div style="font-size:14px;color:#1a1a1a;">Blog: none — safe to write</div>`;
@@ -1281,14 +1282,14 @@
 
         // Re-check the real short keyword + cannibalisation for every DANGER card, then review before saving.
         async function fixDangerKeywords() {
-            const danger = allIdeas.filter(i => i.status === '' && i.cannibalization === 'DANGER');
-            if (!danger.length) { alert('No Danger cards to fix.'); return; }
+            const flagged = allIdeas.filter(i => i.status === '' && (i.cannibalization === 'DANGER' || i.cannibalization === 'CAUTION'));
+            if (!flagged.length) { alert('No flagged cards to fix.'); return; }
             const btn = document.getElementById('fix-danger-btn');
-            btn.disabled = true; btn.textContent = `🔄 Checking ${danger.length} cards…`;
+            btn.disabled = true; btn.textContent = `🔄 Checking ${flagged.length} cards…`;
             try {
                 const res = await fetch('/api/blogs', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'analyze-blog-titles', titles: danger.map(i => i.title) })
+                    body: JSON.stringify({ action: 'analyze-blog-titles', titles: flagged.map(i => i.title) })
                 });
                 const data = await res.json();
                 if (!data.success) throw new Error(data.error || 'Check failed');
@@ -1296,7 +1297,7 @@
             } catch (e) {
                 alert('❌ Could not check keywords: ' + e.message);
             } finally {
-                btn.disabled = false; btn.textContent = '🔧 Fix keywords on Danger cards';
+                btn.disabled = false; btn.textContent = '🔧 Fix flagged cards';
             }
         }
 
