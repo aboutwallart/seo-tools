@@ -271,7 +271,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v3.0 - 2026-07-24</p>
+        <p class="version">v3.1 - 2026-07-24</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -298,6 +298,10 @@
                 <button class="btn-filter" onclick="setFilter('yellow')">🟡 Caution <span id="fc-yellow">0</span></button>
                 <button class="btn-filter" onclick="setFilter('red')">🔴 Danger <span id="fc-red">0</span></button>
             </div>
+            <div id="fix-danger-bar" style="display:none;margin:0 0 14px;">
+                <button id="fix-danger-btn" onclick="fixDangerKeywords()" style="background:#111;color:#fff;border:none;border-radius:6px;padding:9px 16px;font-weight:700;cursor:pointer;">🔧 Fix keywords on Danger cards</button>
+                <span id="fix-danger-note" style="margin-left:10px;color:#666;font-size:13px;"></span>
+            </div>
             <div class="bulk-action-row" id="bulk-action-row">
                 <span class="bulk-action-info" id="bulk-action-info">0 selected</span>
                 <button class="btn-bulk-clear" onclick="clearSelection()">Clear</button>
@@ -310,6 +314,14 @@
         </div>
 
         <div class="tab-content" id="panel-towrite">
+            <div class="add-title-box" style="background:#f4f8ff;border:1px solid #cfe0ff;border-radius:10px;padding:14px;margin-bottom:16px;">
+                <div style="font-weight:700;margin-bottom:8px;">➕ Add a new blog title</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <input id="new-title-input" type="text" placeholder="Type the blog title…" onkeydown="if(event.key==='Enter')checkNewTitle()" style="flex:1;min-width:260px;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:15px;">
+                    <button id="add-title-btn" onclick="checkNewTitle()" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:10px 18px;font-weight:700;cursor:pointer;">Check &amp; Add</button>
+                </div>
+                <div id="add-title-result" style="margin-top:10px;font-size:14px;"></div>
+            </div>
             <div class="filter-bar" style="margin-bottom:14px;">
                 <button class="btn-filter" onclick="selectAllUnsent()" style="background:#43a047;color:#fff;border-color:#43a047;">☑ Select All</button>
                 <button class="btn-filter" onclick="clearToSendSelection()">Clear</button>
@@ -740,6 +752,10 @@
             const r = ideasOnly.filter(i => i.cannibalization === 'DANGER').length;
             const set = (id, n) => { const el = document.getElementById(id); if (el) el.textContent = n; };
             set('fc-all', ideasOnly.length); set('fc-green', g); set('fc-yellow', y); set('fc-red', r);
+            const bar = document.getElementById('fix-danger-bar');
+            const note = document.getElementById('fix-danger-note');
+            if (bar) bar.style.display = r > 0 ? 'block' : 'none';
+            if (note) note.textContent = r > 0 ? `${r} Danger card${r === 1 ? '' : 's'} — re-checks the real short keyword for each.` : '';
         }
 
         // ============================================
@@ -1184,9 +1200,186 @@
         }
 
         // ============================================
+        // KEYWORD FIX + CANNIBALISATION (v3.1)
+        // ============================================
+        const FLAG_PILL = (f) => {
+            const c = f === 'DANGER' ? '#e53935' : f === 'CAUTION' ? '#f39c12' : '#43a047';
+            const t = f === 'DANGER' ? '🔴 Danger' : f === 'CAUTION' ? '🟡 Caution' : '🟢 No conflict';
+            return `<span style="background:${c};color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;white-space:nowrap;">${t}</span>`;
+        };
+        const escHtml = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+
+        // Re-check the real short keyword + cannibalisation for every DANGER card, then review before saving.
+        async function fixDangerKeywords() {
+            const danger = allIdeas.filter(i => i.status === '' && i.cannibalization === 'DANGER');
+            if (!danger.length) { alert('No Danger cards to fix.'); return; }
+            const btn = document.getElementById('fix-danger-btn');
+            btn.disabled = true; btn.textContent = `🔄 Checking ${danger.length} cards…`;
+            try {
+                const res = await fetch('/api/blogs', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'analyze-blog-titles', titles: danger.map(i => i.title) })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Check failed');
+                openReview(data.results, 'existing');
+            } catch (e) {
+                alert('❌ Could not check keywords: ' + e.message);
+            } finally {
+                btn.disabled = false; btn.textContent = '🔧 Fix keywords on Danger cards';
+            }
+        }
+
+        // Build the review popup from analyzer results. mode 'existing' = updating cards already in the list.
+        function openReview(results, mode) {
+            window._review = results;
+            const rowsHtml = results.map((r, idx) => {
+                const old = allIdeas.find(i => (i.title || '').toLowerCase() === (r.title || '').toLowerCase());
+                const oldKw = old ? old.currentKeyword || old.keyword : '';
+                const conflict = r.cannibalization !== 'NO CONFLICT' && r.conflictingUrl
+                    ? `<div style="margin-top:4px;font-size:12px;color:#a33;">Clashes with: <a href="${escHtml(r.conflictingUrl)}" target="_blank" rel="noopener">${escHtml(r.conflictingKeyword || 'published blog')}</a>${r.reason ? ' — ' + escHtml(r.reason) : ''}</div>`
+                    : (r.reason ? `<div style="margin-top:4px;font-size:12px;color:#777;">${escHtml(r.reason)}</div>` : '');
+                return `<div style="border:1px solid #eee;border-radius:8px;padding:10px 12px;margin-bottom:8px;display:flex;gap:12px;align-items:flex-start;">
+                    <input type="checkbox" id="rev-${idx}" checked style="margin-top:4px;transform:scale(1.2);">
+                    <div style="flex:1;">
+                        <div style="font-weight:600;margin-bottom:4px;">${escHtml(r.title)}</div>
+                        <div style="font-size:13px;">
+                            <span style="color:#999;text-decoration:line-through;">${escHtml(oldKw) || '—'}</span>
+                            <span style="margin:0 6px;">→</span>
+                            <span style="font-weight:700;color:#1565c0;">${escHtml(r.keyword) || '—'}</span>
+                            <span style="margin-left:8px;">${FLAG_PILL(r.cannibalization)}</span>
+                        </div>
+                        ${conflict}
+                    </div>
+                </div>`;
+            }).join('');
+            document.getElementById('review-list').innerHTML = rowsHtml;
+            document.getElementById('review-modal').style.display = 'block';
+        }
+
+        function closeReview() { document.getElementById('review-modal').style.display = 'none'; window._review = null; }
+
+        // Save the ticked reviewed rows into blog_ideas.csv and update the cards in place.
+        async function saveReviewed() {
+            const results = window._review || [];
+            const chosen = results.filter((r, idx) => { const cb = document.getElementById(`rev-${idx}`); return cb && cb.checked; });
+            if (!chosen.length) { alert('Nothing ticked.'); return; }
+            const btn = document.getElementById('review-save-btn');
+            btn.disabled = true; btn.textContent = '💾 Saving…';
+            try {
+                const rows = chosen.map(r => ({
+                    title: r.title, keyword: r.keyword, cannibalization: r.cannibalization,
+                    conflictingKeyword: r.conflictingKeyword, conflictingUrl: r.conflictingUrl
+                }));
+                const res = await fetch('/api/blogs', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'save-blog-ideas', rows })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Save failed');
+                // Update the cards locally so nothing needs a reload
+                chosen.forEach(r => {
+                    const idea = allIdeas.find(i => (i.title || '').toLowerCase() === (r.title || '').toLowerCase());
+                    if (idea) {
+                        idea.keyword = r.keyword; idea.currentKeyword = r.keyword;
+                        idea.cannibalization = r.cannibalization;
+                        idea.conflictingKeyword = r.conflictingKeyword;
+                        idea.conflictingUrl = r.conflictingUrl;
+                    }
+                });
+                closeReview();
+                refreshAll();
+                alert(`✅ Saved ${data.updated} card${data.updated === 1 ? '' : 's'}.`);
+            } catch (e) {
+                alert('❌ Could not save: ' + e.message);
+            } finally {
+                btn.disabled = false; btn.textContent = 'Save ticked';
+            }
+        }
+
+        // Add-a-title box: check the new title (real keyword + cannibalisation) before it saves.
+        async function checkNewTitle() {
+            const input = document.getElementById('new-title-input');
+            const out = document.getElementById('add-title-result');
+            const title = (input.value || '').trim();
+            if (!title) { out.innerHTML = '<span style="color:#a33;">Type a title first.</span>'; return; }
+            if (allIdeas.some(i => (i.title || '').toLowerCase() === title.toLowerCase())) {
+                out.innerHTML = '<span style="color:#a33;">⚠️ That title is already in your list.</span>'; return;
+            }
+            const btn = document.getElementById('add-title-btn');
+            btn.disabled = true; btn.textContent = 'Checking…'; out.innerHTML = '🔄 Checking against your published blogs…';
+            try {
+                const res = await fetch('/api/blogs', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'analyze-blog-titles', titles: [title] })
+                });
+                const data = await res.json();
+                if (!data.success || !data.results || !data.results[0]) throw new Error(data.error || 'Check failed');
+                const r = data.results[0];
+                window._pendingNew = r;
+                const conflict = r.cannibalization !== 'NO CONFLICT' && r.conflictingUrl
+                    ? `<div style="margin-top:4px;font-size:12px;color:#a33;">Clashes with: <a href="${escHtml(r.conflictingUrl)}" target="_blank" rel="noopener">${escHtml(r.conflictingKeyword || 'published blog')}</a>${r.reason ? ' — ' + escHtml(r.reason) : ''}</div>`
+                    : '';
+                const btnLabel = r.cannibalization === 'NO CONFLICT' ? '✅ Add to To Write' : '⚠️ Add anyway';
+                out.innerHTML = `<div style="background:#fff;border:1px solid #ddd;border-radius:8px;padding:10px 12px;">
+                    <div style="margin-bottom:4px;">Keyword: <strong style="color:#1565c0;">${escHtml(r.keyword) || '—'}</strong> ${FLAG_PILL(r.cannibalization)}</div>
+                    ${conflict}
+                    <button onclick="confirmAddNew()" style="margin-top:8px;background:#43a047;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">${btnLabel}</button>
+                </div>`;
+            } catch (e) {
+                out.innerHTML = '<span style="color:#a33;">❌ ' + escHtml(e.message) + '</span>';
+            } finally {
+                btn.disabled = false; btn.textContent = 'Check & Add';
+            }
+        }
+
+        // Save the checked new title into blog_ideas.csv (STATUS = TO_WRITE) and show it on the tab.
+        async function confirmAddNew() {
+            const r = window._pendingNew;
+            const out = document.getElementById('add-title-result');
+            if (!r) return;
+            try {
+                const res = await fetch('/api/blogs', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'save-blog-ideas', rows: [{
+                        title: r.title, keyword: r.keyword, cannibalization: r.cannibalization,
+                        conflictingKeyword: r.conflictingKeyword, conflictingUrl: r.conflictingUrl, isNew: true
+                    }] })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Save failed');
+                const nextIndex = allIdeas.length ? Math.max(...allIdeas.map(i => i.index)) + 1 : 0;
+                allIdeas.push({
+                    index: nextIndex, keyword: r.keyword, title: r.title, perspective: '',
+                    cannibalization: r.cannibalization, conflictingKeyword: r.conflictingKeyword,
+                    conflictingUrl: r.conflictingUrl, currentTitle: r.title, currentKeyword: r.keyword,
+                    status: 'TO_WRITE'
+                });
+                document.getElementById('new-title-input').value = '';
+                window._pendingNew = null;
+                out.innerHTML = '<span style="color:#2e7d32;">✅ Added to To Write.</span>';
+                refreshAll();
+            } catch (e) {
+                out.innerHTML = '<span style="color:#a33;">❌ ' + escHtml(e.message) + '</span>';
+            }
+        }
+
+        // ============================================
         // INITIALIZE
         // ============================================
         loadData();
     </script>
+
+    <div id="review-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;overflow:auto;padding:30px 16px;">
+        <div style="background:#fff;max-width:920px;margin:0 auto;border-radius:12px;padding:22px;">
+            <h3 style="margin:0 0 4px;">Review new keywords</h3>
+            <p style="margin:0 0 14px;color:#666;font-size:13px;">Untick any you don't want to change. Ticked ones are saved.</p>
+            <div id="review-list"></div>
+            <div style="margin-top:16px;display:flex;gap:10px;">
+                <button id="review-save-btn" onclick="saveReviewed()" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:10px 18px;font-weight:700;cursor:pointer;">Save ticked</button>
+                <button onclick="closeReview()" style="background:#eee;border:none;border-radius:6px;padding:10px 18px;cursor:pointer;">Cancel</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
