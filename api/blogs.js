@@ -394,6 +394,97 @@ If you genuinely cannot find one of the two, leave its two fields as empty strin
     };
   }
 
+  // Helper: fetch ALL live-published blog articles (title + real URL) for the cannibalisation check.
+  // Paginates the Shopify articles connection; skips drafts and future-scheduled posts.
+  async function fetchPublishedBlogs() {
+    const out = [];
+    let cursor = null;
+    const now = Date.now();
+    for (let page = 0; page < 12; page++) {
+      const data = await shopifyGraphQL(
+        `query($cursor:String){ articles(first:250, after:$cursor, sortKey:PUBLISHED_AT, reverse:true){ edges{ cursor node{ title handle publishedAt blog{ handle } } } pageInfo{ hasNextPage } } }`,
+        { cursor }
+      );
+      const conn = data.articles;
+      if (!conn) break;
+      const edges = conn.edges || [];
+      for (const e of edges) {
+        const n = e.node;
+        if (!n || !n.publishedAt) continue;                       // draft / not published
+        if (new Date(n.publishedAt).getTime() > now) continue;    // scheduled for the future
+        const blogHandle = (n.blog && n.blog.handle) || 'news-articles-home-decor-inspiration';
+        out.push({ title: n.title || '', url: `https://aboutwallart.com/blogs/${blogHandle}/${n.handle || ''}` });
+      }
+      if (!conn.pageInfo || !conn.pageInfo.hasNextPage) break;
+      cursor = edges.length ? edges[edges.length - 1].cursor : null;
+      if (!cursor) break;
+    }
+    return out;
+  }
+
+  // Helper: for each working title, derive the TRUE short main keyword and flag cannibalisation
+  // against the already-published blogs. Judges by the short keyword only (not stray shared words).
+  // Returns [{ title, keyword, cannibalization, conflictingKeyword, conflictingUrl, reason }].
+  async function analyzeTitlesForKeywords(titles, published) {
+    const listStr = published.map((b, i) => `${i + 1}. ${b.title}`).join('\n');
+    const results = [];
+    const CHUNK = 12;
+    for (let i = 0; i < titles.length; i += CHUNK) {
+      const chunk = titles.slice(i, i + CHUNK);
+      const titlesBlock = chunk.map((t, j) => `T${j + 1}. ${t}`).join('\n');
+      const prompt = `You are an SEO editor for aboutwallart.com (wall art + home decor).
+
+For EACH working blog title below, do two things:
+1) Give the TRUE short main keyword a real person types into Google — 2 to 4 words, a genuine search term (e.g. "wall art colour variations", "boho small space decor"). NEVER use the long title as the keyword. Strip question words and filler. UK spelling ("colour", "decor" with no accent), lowercase.
+2) Decide if that short keyword would CANNIBALISE (compete for the same Google search) an ALREADY-PUBLISHED blog in the list. Judge by the SHORT main keyword/topic ONLY — not by stray shared words like "wall art". Two blogs only clash if a searcher would expect the SAME page.
+   - "DANGER"      = same main keyword/topic (a real clash).
+   - "CAUTION"     = closely related but a clearly different angle.
+   - "NO CONFLICT" = different topic.
+
+PUBLISHED BLOGS (numbered):
+${listStr}
+
+WORKING TITLES:
+${titlesBlock}
+
+Return ONLY a JSON array, one object per working title, in the same order, exactly this shape:
+[{"t":1,"keyword":"","verdict":"NO CONFLICT","conflictIndex":0,"conflictKeyword":"","reason":""}]
+- keyword: the short main keyword.
+- verdict: NO CONFLICT | CAUTION | DANGER.
+- conflictIndex: the NUMBER of the clashing published blog from the list above, or 0 if none. Use ONLY a number from that list — never invent one.
+- conflictKeyword: the clashing blog's short topic, or "".
+- reason: max 12 words, plain English.`;
+      const raw = await callClaudeText(prompt, 4000);
+      const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+      const m = cleaned.match(/\[[\s\S]*\]/);
+      if (!m) throw new Error('Could not read the keyword check result');
+      let arr;
+      try { arr = JSON.parse(m[0]); }
+      catch (e) { throw new Error('Keyword check result was not in a readable format'); }
+      for (let j = 0; j < chunk.length; j++) {
+        const o = arr.find(x => Number(x.t) === j + 1) || arr[j] || {};
+        const verdict = ['NO CONFLICT', 'CAUTION', 'DANGER'].includes(String(o.verdict || '').toUpperCase())
+          ? String(o.verdict).toUpperCase() : 'NO CONFLICT';
+        let conflictUrl = '';
+        let conflictKeyword = String(o.conflictKeyword || '').trim();
+        const ci = parseInt(o.conflictIndex, 10);
+        if (verdict !== 'NO CONFLICT' && ci >= 1 && ci <= published.length) {
+          conflictUrl = published[ci - 1].url;
+          if (!conflictKeyword) conflictKeyword = published[ci - 1].title;
+        }
+        results.push({
+          title: chunk[j],
+          keyword: String(o.keyword || '').trim(),
+          cannibalization: verdict,
+          conflictingKeyword: verdict === 'NO CONFLICT' ? '' : conflictKeyword,
+          conflictingUrl: verdict === 'NO CONFLICT' ? '' : conflictUrl,
+          reason: String(o.reason || '').trim()
+        });
+      }
+    }
+    return results;
+  }
+
   // Helper: plain Claude text call (no web search) — used by Batch 2 writers
   async function callClaudeText(prompt, maxTokens) {
     const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
@@ -2279,6 +2370,69 @@ Include 3 to 5 items.`;
         }).join('\n');
         await updateGitHubFile('data/blog_ideas.csv', updatedIdeas, ideasFile.sha, `Bulk update blog status: ${keywords.length} keywords → ${status || 'blank'}`);
         return res.status(200).json({ success: true, count: keywords.length, status });
+      }
+
+      // ── ACTION: analyze-blog-titles ── (the brain: real short keyword + cannibalisation flag)
+      // Input: { titles: ["...", ...] }. Fetches live published blogs once, then judges each title.
+      // Saves NOTHING — the tool shows the result for review first.
+      if (req.body.action === 'analyze-blog-titles') {
+        const titles = Array.isArray(req.body.titles) ? req.body.titles.map(t => String(t || '').trim()).filter(Boolean) : [];
+        if (!titles.length) return res.status(400).json({ error: 'titles array required' });
+        const published = await fetchPublishedBlogs();
+        const results = await analyzeTitlesForKeywords(titles, published);
+        return res.status(200).json({ success: true, publishedCount: published.length, results });
+      }
+
+      // ── ACTION: save-blog-ideas ── (writes reviewed keyword + cannibalisation into blog_ideas.csv)
+      // Input: { rows: [{ title, keyword, cannibalization, conflictingKeyword, conflictingUrl, perspective?, isNew? }] }
+      // Existing rows (matched by Blog Post Title) get their Keyword + CANNIBALIZATION + conflict columns updated.
+      // Rows flagged isNew that aren't already present are APPENDED with STATUS = TO_WRITE.
+      if (req.body.action === 'save-blog-ideas') {
+        const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
+        if (!rows.length) return res.status(400).json({ error: 'rows array required' });
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const esc = (c) => {
+          const s = String(c == null ? '' : c);
+          return (s.includes(',') || s.includes('"') || s.includes('\n')) ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+        const norm = (s) => String(s || '').trim().toLowerCase();
+        const byTitle = new Map(rows.map(r => [norm(r.title), r]));
+        const done = new Set();
+        const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+        const lines = ideasFile.content.split('\n');
+        const updated = lines.map(line => {
+          const trimmed = line.trim().replace(/\r/g, '');
+          if (!trimmed) return line;
+          const cols = parseCSVLine(trimmed);
+          const key = norm(cols[1]);
+          const r = byTitle.get(key);
+          if (r && !done.has(key)) {
+            while (cols.length < 7) cols.push('');
+            if (r.keyword !== undefined && r.keyword !== null) cols[0] = r.keyword;
+            if (r.cannibalization) cols[3] = r.cannibalization;
+            cols[4] = r.conflictingKeyword || '';
+            cols[5] = r.conflictingUrl || '';
+            done.add(key);
+            return cols.map(esc).join(',');
+          }
+          return line;
+        });
+        while (updated.length && updated[updated.length - 1].trim() === '') updated.pop();
+        let appended = 0;
+        for (const r of rows) {
+          if (r.isNew && !done.has(norm(r.title))) {
+            const newCols = [
+              r.keyword || '', r.title || '', r.perspective || '',
+              r.cannibalization || 'NO CONFLICT', r.conflictingKeyword || '', r.conflictingUrl || '', 'TO_WRITE'
+            ];
+            updated.push(newCols.map(esc).join(','));
+            done.add(norm(r.title));
+            appended++;
+          }
+        }
+        const out = updated.join('\n') + '\n';
+        await updateGitHubFile('data/blog_ideas.csv', out, ideasFile.sha, `Blog keywords + cannibalisation: ${done.size} rows (${appended} new)`);
+        return res.status(200).json({ success: true, updated: done.size, appended });
       }
 
       const { keyword, url, title, perspective, galleryCode, collectionUrl, writeToSheet } = req.body;
