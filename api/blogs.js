@@ -459,20 +459,22 @@ If you genuinely cannot find one of the two, leave its two fields as empty strin
       const prompt = `You are an SEO editor for aboutwallart.com (wall art + home decor). Judge cannibalisation the way Google would — by SEARCH INTENT, not shared words.
 
 For EACH working title (T#), with its candidate published blogs (C#):
-1) Give the TRUE short main keyword a real person types into Google — 2 to 4 words, a genuine search term. NEVER the long title. UK spelling ("colour", "decor" no accent), lowercase.
-2) Decide if any CANDIDATE targets the SAME Google search — i.e. a person searching your keyword would be satisfied by that existing blog. Judge intent, ignore generic words like "wall art".
-   - "DANGER"      = same search (a real clash).
+1) Give the TRUE main keyword a real person types into Google. CRUCIAL: keep the QUALIFIER that defines the intent — e.g. "gallery wall WITHOUT NAILS", "biophilic design in SMALL SPACES", "wall art FOR KIDS". The qualifier is the whole point; never strip it down to just the head topic ("gallery wall"). 2 to 6 words, UK spelling ("colour", "decor" no accent), lowercase.
+2) Decide if any CANDIDATE targets the SAME QUALIFIED search — i.e. a person searching your full keyword (with its qualifier) would be satisfied by that existing blog. A blog about the general topic that does NOT cover your qualifier is NOT a clash (e.g. a general "gallery wall" blog does not answer "gallery wall without nails").
+   - "DANGER"      = same qualified search (a real clash).
    - "CAUTION"     = closely related but a clearly different angle.
-   - "NO CONFLICT" = no candidate targets the same search (or no candidates).
+   - "NO CONFLICT" = no candidate answers the same qualified search (or no candidates).
    Pick only the SINGLE closest candidate.
 
 WORKING TITLES with candidates:
 ${titlesBlock}
 
 Return ONLY a JSON array, one object per working title in order, exactly:
-[{"t":1,"keyword":"","verdict":"NO CONFLICT","closest":0,"looser":0}]
+[{"t":1,"keyword":"","verdict":"NO CONFLICT","closest":0,"shared":"","looser":0}]
+- keyword: the full main keyword WITH its qualifier.
 - verdict: NO CONFLICT | CAUTION | DANGER.
 - closest: the C-number of the single closest candidate for THIS title, or 0 if none clash. Never invent a number.
+- shared: if it clashes, the short search phrase BOTH target (2-5 words, e.g. "hanging a gallery wall without nails"); "" if no clash.
 - looser: how many OTHER candidates are loosely related but not the closest (a count, 0 if none).`;
       const raw = await callClaudeText(prompt, 3000);
       const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '');
@@ -499,6 +501,7 @@ Return ONLY a JSON array, one object per working title in order, exactly:
           cannibalization: finalVerdict,
           conflictingKeyword: blogTitle,
           conflictingUrl: blogUrl,
+          clashIntent: finalVerdict === 'NO CONFLICT' ? '' : String(o.shared || '').trim(),
           looserCount: Math.max(0, parseInt(o.looser, 10) || 0)
         });
       }
@@ -2425,14 +2428,22 @@ Include 3 to 5 items.`;
           const trimmed = line.trim().replace(/\r/g, '');
           if (!trimmed) return line;
           const cols = parseCSVLine(trimmed);
+          // Header row — make sure the 8th column (CLASH INTENT) name exists.
+          if (norm(cols[1]) === 'blog post title') {
+            while (cols.length < 8) cols.push('');
+            if (!cols[7]) cols[7] = 'CLASH INTENT';
+            return cols.map(esc).join(',');
+          }
           const key = norm(cols[1]);
           const r = byTitle.get(key);
           if (r && !done.has(key)) {
-            while (cols.length < 7) cols.push('');
+            while (cols.length < 8) cols.push('');
             if (r.keyword !== undefined && r.keyword !== null) cols[0] = r.keyword;
+            if (r.newTitle) cols[1] = r.newTitle;
             if (r.cannibalization) cols[3] = r.cannibalization;
             cols[4] = r.conflictingKeyword || '';
             cols[5] = r.conflictingUrl || '';
+            cols[7] = r.clashIntent || '';
             done.add(key);
             return cols.map(esc).join(',');
           }
@@ -2444,7 +2455,7 @@ Include 3 to 5 items.`;
           if (r.isNew && !done.has(norm(r.title))) {
             const newCols = [
               r.keyword || '', r.title || '', r.perspective || '',
-              r.cannibalization || 'NO CONFLICT', r.conflictingKeyword || '', r.conflictingUrl || '', 'TO_WRITE'
+              r.cannibalization || 'NO CONFLICT', r.conflictingKeyword || '', r.conflictingUrl || '', 'TO_WRITE', r.clashIntent || ''
             ];
             updated.push(newCols.map(esc).join(','));
             done.add(norm(r.title));
