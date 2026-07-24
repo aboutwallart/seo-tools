@@ -271,7 +271,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v3.1 - 2026-07-24</p>
+        <p class="version">v3.3 - 2026-07-24</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -601,6 +601,7 @@
                         cannibalization: row['CANNIBALIZATION'] || 'NO CONFLICT',
                         conflictingKeyword: row['CONFLICTING KEYWORD'] || '',
                         conflictingUrl: row['CONFLICTING BLOG URL'] || '',
+                        clashIntent: row['CLASH INTENT'] || '',
                         currentTitle: row['Blog Post Title'] || '',
                         currentKeyword: row['Keyword'] || '',
                         status: status
@@ -798,7 +799,7 @@
                 checkboxHTML = `<input type="checkbox" class="card-checkbox" id="cb-${index}" ${isSelected ? 'checked' : ''} onchange="toggleSelect(${index})">`;
                 actionsHTML = `
                     <button class="btn-mark" onclick="markForWriting(${index})">Mark for Writing</button>
-                    <button class="btn-keyword-change" onclick="markForKwChange(${index})">Change Keyword</button>
+                    <button class="btn-keyword-change" onclick="toggleEditBar(${index})">Change Keyword</button>
                     <button class="btn-ignore" onclick="ignoreIdea(${index})">Ignore</button>
                 `;
             } else if (tab === 'towrite') {
@@ -839,16 +840,35 @@
                 `;
             }
 
-            const conflictHTML = level !== 'NO CONFLICT' && tab === 'ideas' ? `
-                ${conflictBox(idea)}
-                <div class="inline-edit-section">
-                    <span class="inline-edit-label">Change title &amp; re-check</span>
-                    <div class="inline-edit-row">
-                        <input type="text" class="inline-edit-input" id="new-title-${index}" value="${idea.currentTitle.replace(/"/g, '&quot;')}" placeholder="Enter new blog title...">
-                        <button class="btn-save-title" id="save-btn-${index}" onclick="saveNewTitle(${index})">Save &amp; Re-check</button>
-                    </div>
-                </div>
-            ` : '';
+            // Blog Ideas tab — approved layout: keyword big (left) + proposed title (right),
+            // divider, clashing blog title, "Both answer: xxx". Edit bar hidden until Change Keyword.
+            const ideasBodyHTML = (tab === 'ideas') ? (function () {
+                const bigKw = highlightOverlap(idea.currentKeyword || '', idea.clashIntent || idea.conflictingKeyword || idea.currentKeyword || '');
+                let clashSection = '';
+                const isOldPile = String(idea.conflictingKeyword || '').includes(' | ');
+                if (level !== 'NO CONFLICT' && idea.conflictingKeyword && !isOldPile) {
+                    const blogInner = highlightOverlap(idea.conflictingKeyword, idea.clashIntent || idea.currentKeyword || '');
+                    const blogHtml = idea.conflictingUrl
+                        ? `<a href="${escHtml(idea.conflictingUrl)}" target="_blank" rel="noopener" style="color:#1a1a1a;text-decoration:none;">${blogInner}</a>`
+                        : blogInner;
+                    const both = idea.clashIntent ? `<div style="font-size:14px;color:#444;margin-top:6px;">Both answer: <span style="font-weight:700;text-decoration:underline;text-underline-offset:2px;">${escHtml(idea.clashIntent)}</span></div>` : '';
+                    const looser = idea.looserCount ? `<div style="font-size:12px;color:#555;margin-top:8px;">${idea.looserCount} looser match${idea.looserCount === 1 ? '' : 'es'} hidden</div>` : '';
+                    clashSection = `<div style="border-top:1px solid rgba(0,0,0,0.10);margin-top:14px;padding-top:12px;font-size:15px;color:#1a1a1a;">${blogHtml}</div>${both}${looser}`;
+                } else if (level !== 'NO CONFLICT' && isOldPile) {
+                    clashSection = `<div style="border-top:1px solid rgba(0,0,0,0.10);margin-top:14px;padding-top:12px;font-size:13px;color:#8a6d1a;">Old check — press “Fix keywords on Danger cards” to clean this up.</div>`;
+                }
+                const editBar = `<div class="inline-edit-section" id="editbar-${index}" style="display:none;">
+                        <span class="inline-edit-label">Change title &amp; re-check</span>
+                        <div class="inline-edit-row">
+                            <input type="text" class="inline-edit-input" id="new-title-${index}" value="${(idea.currentTitle || '').replace(/"/g, '&quot;')}" placeholder="Enter new blog title...">
+                            <button class="btn-save-title" id="save-btn-${index}" onclick="saveNewTitle(${index})">Save &amp; Re-check</button>
+                        </div>
+                    </div>`;
+                return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px;">
+                        <div style="flex:1.1;font-size:18px;font-weight:500;color:#1a1a1a;">${bigKw || '—'}</div>
+                        <div style="flex:1;text-align:right;font-size:14px;color:#444;">${escHtml(idea.currentTitle || '')}</div>
+                    </div>${clashSection}${editBar}`;
+            })() : '';
 
             // Manual content-sources form — only on unsent To Write cards. Hidden until a send needs manual entry.
             const manualFormHTML = (tab === 'towrite' && idea.status !== 'TO_WRITE_SENT') ? `
@@ -879,10 +899,10 @@
                         <span class="card-number">#${index + 1}</span>
                         ${badgeHtml}
                     </div>
+                    ${tab === 'ideas' ? ideasBodyHTML : `
                     <div class="keyword">${idea.currentKeyword}</div>
                     <div class="title">${idea.currentTitle}</div>
-                    <div class="perspective">${idea.perspective}</div>
-                    ${conflictHTML}
+                    <div class="perspective">${idea.perspective}</div>`}
                     <div class="card-actions">${actionsHTML}</div>
                     ${manualFormHTML}
                 </div>
@@ -1168,51 +1188,50 @@
         // ============================================
         // SAVE NEW TITLE & RE-CHECK CANNIBALIZATION
         // ============================================
-        function saveNewTitle(index) {
+        // Show/hide the Change title & re-check bar (opened by the Change Keyword button).
+        function toggleEditBar(index) {
+            const el = document.getElementById(`editbar-${index}`);
+            if (el) el.style.display = (el.style.display === 'none' || !el.style.display) ? 'block' : 'none';
+        }
+
+        // Change the title → re-run the SAME intent check, then save the new title + result.
+        async function saveNewTitle(index) {
             const idea = allIdeas.find(i => i.index === index);
             if (!idea) return;
             const input = document.getElementById(`new-title-${index}`);
             const btn   = document.getElementById(`save-btn-${index}`);
             const newTitle = input.value.trim();
-            if (!newTitle || newTitle === idea.currentTitle) return;
-
-            btn.disabled = true;
-            btn.textContent = 'Checking...';
-
-            const cleaned = newTitle
-                .replace(/^(can i|how to|how do i|what is|what are|do i|does|is it|will|should i|why|when)\s+/i, '')
-                .replace(/\?$/, '').trim();
-
-            const stopWords = new Set(['can','i','how','to','what','is','are','a','the','in','for','of','do','does','my','your','be','will','would','should','could','at','on','with','and','or','but','not','it','its','this','that','did','an','as','if','so','up']);
-
-            const extractWords = (text) => text.toLowerCase()
-                .replace(/[^a-z0-9\s]/g, '').split(/\s+/)
-                .filter(w => w.length > 2 && !stopWords.has(w));
-
-            const newWords = extractWords(cleaned);
-            let conflictLevel = 'NO CONFLICT', conflictingKeyword = '', conflictingUrl = '';
-
-            for (const row of allRows) {
-                const rowKeyword = (row['Keyword'] || '').trim();
-                if (!rowKeyword || rowKeyword.toLowerCase() === idea.keyword.toLowerCase()) continue;
-                const rowWords = extractWords(rowKeyword);
-                const overlap = newWords.filter(w => rowWords.includes(w)).length;
-                if (overlap >= 3) {
-                    conflictLevel = 'DANGER'; conflictingKeyword = rowKeyword;
-                    conflictingUrl = row['CONFLICTING BLOG URL'] || ''; break;
-                } else if (overlap >= 2 && conflictLevel !== 'DANGER') {
-                    conflictLevel = 'CAUTION'; conflictingKeyword = rowKeyword;
-                    conflictingUrl = row['CONFLICTING BLOG URL'] || '';
-                }
+            if (!newTitle) return;
+            btn.disabled = true; btn.textContent = 'Checking…';
+            try {
+                const res = await fetch('/api/blogs', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'analyze-blog-titles', titles: [newTitle] })
+                });
+                const data = await res.json();
+                if (!data.success || !data.results || !data.results[0]) throw new Error(data.error || 'Check failed');
+                const r = data.results[0];
+                const saveRes = await fetch('/api/blogs', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'save-blog-ideas', rows: [{
+                        title: idea.currentTitle, newTitle: newTitle, keyword: r.keyword, cannibalization: r.cannibalization,
+                        conflictingKeyword: r.conflictingKeyword, conflictingUrl: r.conflictingUrl, clashIntent: r.clashIntent
+                    }] })
+                });
+                const saveData = await saveRes.json();
+                if (!saveData.success) throw new Error(saveData.error || 'Save failed');
+                idea.currentTitle = newTitle; idea.title = newTitle;
+                idea.keyword = r.keyword; idea.currentKeyword = r.keyword;
+                idea.cannibalization = r.cannibalization;
+                idea.conflictingKeyword = r.conflictingKeyword;
+                idea.conflictingUrl = r.conflictingUrl;
+                idea.clashIntent = r.clashIntent || '';
+                idea.looserCount = r.looserCount || 0;
+                refreshAll();
+            } catch (e) {
+                btn.disabled = false; btn.textContent = 'Save & Re-check';
+                alert('❌ ' + e.message);
             }
-
-            idea.currentTitle = newTitle;
-            idea.currentKeyword = cleaned;
-            idea.cannibalization = conflictLevel;
-            idea.conflictingKeyword = conflictingKeyword;
-            idea.conflictingUrl = conflictingUrl;
-
-            refreshAll();
         }
 
         // ============================================
@@ -1291,16 +1310,18 @@
             window._review = results;
             const rowsHtml = results.map((r, idx) => {
                 const p = PASTEL[r.cannibalization] || PASTEL['NO CONFLICT'];
+                const hl = r.clashIntent || r.keyword;
                 const blogLine = r.conflictingKeyword
-                    ? `Blog: ${r.conflictingUrl ? `<a href="${escHtml(r.conflictingUrl)}" target="_blank" rel="noopener" style="color:#1a1a1a;text-decoration:none;">${highlightOverlap(r.conflictingKeyword, r.keyword)}</a>` : highlightOverlap(r.conflictingKeyword, r.keyword)}`
-                    : 'Blog: none — safe to write';
+                    ? `${r.conflictingUrl ? `<a href="${escHtml(r.conflictingUrl)}" target="_blank" rel="noopener" style="color:#1a1a1a;text-decoration:none;">${highlightOverlap(r.conflictingKeyword, hl)}</a>` : highlightOverlap(r.conflictingKeyword, hl)}`
+                    : 'none — safe to write';
+                const both = r.clashIntent ? `<div style="font-size:14px;color:#444;margin-top:6px;">Both answer: <span style="font-weight:700;text-decoration:underline;text-underline-offset:2px;">${escHtml(r.clashIntent)}</span></div>` : '';
                 const looser = r.looserCount ? `<div style="font-size:12px;color:#555;margin-top:8px;">${r.looserCount} looser match${r.looserCount === 1 ? '' : 'es'} hidden</div>` : '';
                 return `<div style="background:${p.bg};border:1px solid ${p.bd};border-radius:12px;padding:12px 14px;margin-bottom:10px;display:flex;gap:12px;align-items:flex-start;color:#1a1a1a;">
                     <input type="checkbox" id="rev-${idx}" checked style="margin-top:3px;transform:scale(1.2);">
                     <div style="flex:1;">
-                        <div style="font-size:15px;margin-bottom:8px;">${escHtml(r.title)}</div>
-                        <div style="font-size:14px;margin-bottom:6px;">Keyword: <span style="font-weight:700;text-decoration:underline;text-underline-offset:2px;">${escHtml(r.keyword) || '—'}</span></div>
+                        <div style="font-size:15px;margin-bottom:8px;font-weight:500;">${highlightOverlap(r.keyword || r.title, hl)}</div>
                         <div style="font-size:14px;">${blogLine}</div>
+                        ${both}
                         ${looser}
                     </div>
                 </div>`;
@@ -1321,7 +1342,8 @@
             try {
                 const rows = chosen.map(r => ({
                     title: r.title, keyword: r.keyword, cannibalization: r.cannibalization,
-                    conflictingKeyword: r.conflictingKeyword, conflictingUrl: r.conflictingUrl, looserCount: r.looserCount
+                    conflictingKeyword: r.conflictingKeyword, conflictingUrl: r.conflictingUrl,
+                    clashIntent: r.clashIntent, looserCount: r.looserCount
                 }));
                 const res = await fetch('/api/blogs', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1337,6 +1359,7 @@
                         idea.cannibalization = r.cannibalization;
                         idea.conflictingKeyword = r.conflictingKeyword;
                         idea.conflictingUrl = r.conflictingUrl;
+                        idea.clashIntent = r.clashIntent || '';
                         idea.looserCount = r.looserCount || 0;
                     }
                 });
@@ -1371,13 +1394,16 @@
                 const r = data.results[0];
                 window._pendingNew = r;
                 const p = PASTEL[r.cannibalization] || PASTEL['NO CONFLICT'];
+                const hl = r.clashIntent || r.keyword;
                 const blogLine = r.conflictingKeyword
-                    ? `Blog: ${r.conflictingUrl ? `<a href="${escHtml(r.conflictingUrl)}" target="_blank" rel="noopener" style="color:#1a1a1a;text-decoration:none;">${highlightOverlap(r.conflictingKeyword, r.keyword)}</a>` : highlightOverlap(r.conflictingKeyword, r.keyword)}`
-                    : 'Blog: none — safe to write';
+                    ? `${r.conflictingUrl ? `<a href="${escHtml(r.conflictingUrl)}" target="_blank" rel="noopener" style="color:#1a1a1a;text-decoration:none;">${highlightOverlap(r.conflictingKeyword, hl)}</a>` : highlightOverlap(r.conflictingKeyword, hl)}`
+                    : 'none — safe to write';
+                const both = r.clashIntent ? `<div style="font-size:14px;color:#444;margin-top:6px;">Both answer: <span style="font-weight:700;text-decoration:underline;text-underline-offset:2px;">${escHtml(r.clashIntent)}</span></div>` : '';
                 const btnLabel = r.cannibalization === 'NO CONFLICT' ? '✅ Add to To Write' : '⚠️ Add anyway';
                 out.innerHTML = `<div style="background:${p.bg};border:1px solid ${p.bd};border-radius:12px;padding:12px 14px;color:#1a1a1a;">
-                    <div style="font-size:14px;margin-bottom:6px;">Keyword: <span style="font-weight:700;text-decoration:underline;text-underline-offset:2px;">${escHtml(r.keyword) || '—'}</span></div>
+                    <div style="font-size:15px;margin-bottom:6px;font-weight:500;">${highlightOverlap(r.keyword || '', hl) || '—'}</div>
                     <div style="font-size:14px;">${blogLine}</div>
+                    ${both}
                     <button onclick="confirmAddNew()" style="margin-top:10px;background:#43a047;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">${btnLabel}</button>
                 </div>`;
             } catch (e) {
@@ -1397,7 +1423,8 @@
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action: 'save-blog-ideas', rows: [{
                         title: r.title, keyword: r.keyword, cannibalization: r.cannibalization,
-                        conflictingKeyword: r.conflictingKeyword, conflictingUrl: r.conflictingUrl, looserCount: r.looserCount, isNew: true
+                        conflictingKeyword: r.conflictingKeyword, conflictingUrl: r.conflictingUrl,
+                        clashIntent: r.clashIntent, looserCount: r.looserCount, isNew: true
                     }] })
                 });
                 const data = await res.json();
@@ -1406,7 +1433,7 @@
                 allIdeas.push({
                     index: nextIndex, keyword: r.keyword, title: r.title, perspective: '',
                     cannibalization: r.cannibalization, conflictingKeyword: r.conflictingKeyword,
-                    conflictingUrl: r.conflictingUrl, looserCount: r.looserCount || 0,
+                    conflictingUrl: r.conflictingUrl, clashIntent: r.clashIntent || '', looserCount: r.looserCount || 0,
                     currentTitle: r.title, currentKeyword: r.keyword,
                     status: 'TO_WRITE'
                 });
