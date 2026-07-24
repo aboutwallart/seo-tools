@@ -89,6 +89,13 @@
             cursor: pointer; transition: all 0.2s ease;
         }
         .btn-bulk-clear:hover { border-color: #999999; color: #1a1a1a; }
+        .btn-bulk-ignore {
+            background: #9e9e9e; color: #ffffff; border: none;
+            padding: 10px 18px; font-size: 13px; font-weight: 500;
+            font-family: 'Poppins', sans-serif; border-radius: 6px;
+            cursor: pointer; transition: all 0.2s ease;
+        }
+        .btn-bulk-ignore:hover { background: #757575; }
 
         /* IDEA CARD */
         .idea-card {
@@ -264,7 +271,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v2.9 - 2026-06-15</p>
+        <p class="version">v3.0 - 2026-07-24</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -286,15 +293,16 @@
         <div class="tab-content active" id="panel-ideas">
             <div id="filter-bar" class="filter-bar" style="display:none;">
                 <span class="filter-label">Filter:</span>
-                <button class="btn-filter active-all" onclick="setFilter('all')">All</button>
-                <button class="btn-filter" onclick="setFilter('green')">🟢 No Conflict</button>
-                <button class="btn-filter" onclick="setFilter('yellow')">🟡 Caution</button>
-                <button class="btn-filter" onclick="setFilter('red')">🔴 Danger</button>
+                <button class="btn-filter active-all" onclick="setFilter('all')">All <span id="fc-all">0</span></button>
+                <button class="btn-filter" onclick="setFilter('green')">🟢 No Conflict <span id="fc-green">0</span></button>
+                <button class="btn-filter" onclick="setFilter('yellow')">🟡 Caution <span id="fc-yellow">0</span></button>
+                <button class="btn-filter" onclick="setFilter('red')">🔴 Danger <span id="fc-red">0</span></button>
             </div>
             <div class="bulk-action-row" id="bulk-action-row">
                 <span class="bulk-action-info" id="bulk-action-info">0 selected</span>
                 <button class="btn-bulk-clear" onclick="clearSelection()">Clear</button>
                 <button class="btn-bulk-move" onclick="bulkMoveToWrite()">✓ Move selected to To Write</button>
+                <button class="btn-bulk-ignore" onclick="bulkIgnore()">⚪ Ignore selected</button>
             </div>
             <div id="ideas-container">
                 <div class="loading">🔄 Loading blog ideas...</div>
@@ -468,7 +476,6 @@
             });
             clearSelection();
             refreshAll();
-            switchTab('towrite');
 
             try {
                 await fetch('/api/blogs', {
@@ -477,6 +484,28 @@
                     body: JSON.stringify({ action: 'bulk-update-blog-status', keywords, status: 'TO_WRITE_PENDING' })
                 });
             } catch(e) { console.error('Bulk save failed:', e); }
+        }
+
+        // ============================================
+        // BULK IGNORE (Blog Ideas — park several at once)
+        // ============================================
+        async function bulkIgnore() {
+            if (selectedIdeas.size === 0) return;
+            const keywords = [];
+            selectedIdeas.forEach(idx => {
+                const idea = allIdeas.find(i => i.index === idx);
+                if (idea) { idea.status = 'IGNORED'; keywords.push(idea.keyword); }
+            });
+            clearSelection();
+            refreshAll();
+
+            try {
+                await fetch('/api/blogs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'bulk-update-blog-status', keywords, status: 'IGNORED' })
+                });
+            } catch(e) { console.error('Bulk ignore failed:', e); }
         }
 
         // ============================================
@@ -562,12 +591,7 @@
                 const yellow = ideasOnly.filter(i => i.cannibalization === 'CAUTION').length;
                 const red    = ideasOnly.filter(i => i.cannibalization === 'DANGER').length;
 
-                document.getElementById('stats').innerHTML = `
-                    <strong>Loaded:</strong> ${allIdeas.length} blog ideas &nbsp;|&nbsp;
-                    🟢 ${green} No Conflict &nbsp;|&nbsp;
-                    🟡 ${yellow} Caution &nbsp;|&nbsp;
-                    🔴 ${red} Danger
-                `;
+                document.getElementById('stats').innerHTML = `<strong>Loaded:</strong> ${allIdeas.length} blog ideas`;
 
                 document.getElementById('filter-bar').style.display = 'flex';
                 updateTabCounts();
@@ -705,7 +729,17 @@
         }
 
         function refreshAll() {
-            displayIdeas(); displayToWrite(); displayKwChange(); displayIgnored(); updateTabCounts();
+            displayIdeas(); displayToWrite(); displayKwChange(); displayIgnored(); updateTabCounts(); updateFilterCounts();
+        }
+
+        // Colour counts shown ON the filter buttons (Blog Ideas only)
+        function updateFilterCounts() {
+            const ideasOnly = allIdeas.filter(i => i.status === '');
+            const g = ideasOnly.filter(i => i.cannibalization === 'NO CONFLICT').length;
+            const y = ideasOnly.filter(i => i.cannibalization === 'CAUTION').length;
+            const r = ideasOnly.filter(i => i.cannibalization === 'DANGER').length;
+            const set = (id, n) => { const el = document.getElementById(id); if (el) el.textContent = n; };
+            set('fc-all', ideasOnly.length); set('fc-green', g); set('fc-yellow', y); set('fc-red', r);
         }
 
         // ============================================
@@ -727,7 +761,7 @@
                 actionsHTML = `
                     <button class="btn-mark" onclick="markForWriting(${index})">Mark for Writing</button>
                     <button class="btn-keyword-change" onclick="markForKwChange(${index})">Change Keyword</button>
-                    ${level !== 'NO CONFLICT' ? `<button class="btn-ignore" onclick="ignoreIdea(${index})">Ignore</button>` : ''}
+                    <button class="btn-ignore" onclick="ignoreIdea(${index})">Ignore</button>
                 `;
             } else if (tab === 'towrite') {
                 const isSent = idea.status === 'TO_WRITE_SENT';
@@ -798,12 +832,20 @@
                 </div>
             ` : '';
 
+            // To Write cards are already approved — show them neutral (no conflict colour/badge).
+            // Sent-to-sheet ones stay grey to mark them done. Ignored = grey.
+            let cardColorClass;
+            if (tab === 'ignored') cardColorClass = 'grey';
+            else if (tab === 'towrite') cardColorClass = (idea.status === 'TO_WRITE_SENT') ? 'grey' : '';
+            else cardColorClass = cardClass;
+            const badgeHtml = (tab === 'towrite') ? '' : `<span class="status-badge ${tab === 'ignored' ? 'badge-grey' : badgeClass}">${tab === 'ignored' ? 'IGNORED' : level}</span>`;
+
             return `
-                <div class="idea-card ${tab === 'ignored' ? 'grey' : cardClass}${isSelected ? ' selected-card' : ''}" id="card-${index}">
+                <div class="idea-card ${cardColorClass}${isSelected ? ' selected-card' : ''}" id="card-${index}">
                     ${checkboxHTML}
                     <div class="card-header">
                         <span class="card-number">#${index + 1}</span>
-                        <span class="status-badge ${tab === 'ignored' ? 'badge-grey' : badgeClass}">${tab === 'ignored' ? 'IGNORED' : level}</span>
+                        ${badgeHtml}
                     </div>
                     <div class="keyword">${idea.currentKeyword}</div>
                     <div class="title">${idea.currentTitle}</div>
@@ -824,7 +866,6 @@
             idea.status = 'TO_WRITE';
             selectedIdeas.delete(index);
             refreshAll();
-            switchTab('towrite');
 
             const saveStatus = document.getElementById(`save-status-${index}`);
             if (saveStatus) { saveStatus.textContent = '⏳ Saving...'; saveStatus.className = 'saving-indicator saving'; }
@@ -998,7 +1039,6 @@
             idea.status = 'KEYWORD_CHANGE';
             selectedIdeas.delete(index);
             refreshAll();
-            switchTab('kwchange');
 
             try {
                 await fetch('/api/blogs', {
@@ -1063,7 +1103,6 @@
             idea.status = 'IGNORED';
             selectedIdeas.delete(index);
             refreshAll();
-            switchTab('ignored');
 
             try {
                 await fetch('/api/blogs', {
