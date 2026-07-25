@@ -1355,6 +1355,17 @@ Include 3 to 5 items.`;
         }
       }
 
+      // ── ACTION: get-drafts ── (saved written blogs, keyed by lowercased blog title)
+      if (req.query.action === 'get-drafts') {
+        try {
+          const file = await getGitHubFile('data/blog-drafts.json');
+          const map = JSON.parse(file.content || '{}');
+          return res.status(200).json({ success: true, drafts: (map && typeof map === 'object') ? map : {} });
+        } catch(e) {
+          return res.status(200).json({ success: true, drafts: {} });
+        }
+      }
+
       // ── ACTION: seo-metafield-scan ──
       if (req.query.action === 'seo-metafield-scan') {
         const shopifyDomain = process.env.SHOPIFY_STORE_DOMAIN;
@@ -2689,6 +2700,20 @@ Return ONLY a JSON array, one object per title in order, exactly:
         return res.status(200).json({ success: true });
       }
 
+      // ── ACTION: save-draft ── (persist a written blog so it survives reload / a reset)
+      // Input: { title, draft:{bodyHtml,featuredBase,authority,youtube} }. Stored in data/blog-drafts.json keyed by lowercased title.
+      if (req.body.action === 'save-draft') {
+        const t = String(req.body.title || '').trim();
+        const draft = req.body.draft && typeof req.body.draft === 'object' ? req.body.draft : null;
+        if (!t || !draft) return res.status(400).json({ error: 'title and draft required' });
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        let map = {}, sha;
+        try { const f = await getGitHubFile('data/blog-drafts.json'); map = JSON.parse(f.content || '{}'); sha = f.sha; } catch (e) { map = {}; sha = undefined; }
+        map[t.toLowerCase()] = { ...draft, savedAt: new Date().toISOString() };
+        await updateGitHubFile('data/blog-drafts.json', JSON.stringify(map, null, 2), sha, `Save blog draft: ${t}`);
+        return res.status(200).json({ success: true });
+      }
+
       // ── ACTION: write-blog-sources ── (Stage 2 STEP 1: find real authority link + video + trend links)
       // Split from the body write so neither step runs long enough to time out, and the screen can show real progress.
       // Input: { keyword, title }. Output: { success, featuredBase, authority, youtube, trendsHtml }
@@ -2761,38 +2786,43 @@ TARGET LENGTH: about ${wordTarget} words (match or beat this).
 ${mustCover.length ? `MUST COVER these topics as H2 sections: ${mustCover.join('; ')}.` : ''}
 ${gaps.length ? `WIN ON these gaps the top pages miss (add as extra H2 sections): ${gaps.join('; ')}.` : ''}
 
-VOICE:
-- First person (I / we), warm friendly advisor talking to the reader. Active voice, varied sentence length, the odd engaging question.
+VOICE (this is what makes it sound human, not AI):
+- First person (I / we), a warm, friendly personal decorator advisor talking directly to the reader — like a friend who styles homes for a living.
+- Write with real PERSONALITY. In several sections, include a short personal anecdote or a real problem-and-fix — "I once helped a client whose...", "the mistake I always see is...", "here's what happened when I tried...". You MAY invent these anecdotes naturally (a client, a room, a mistake) — keep them realistic and grounded. NEVER invent hard facts, brands, prices, stats or URLs.
+- Talk TO the reader — ask the odd genuine question, acknowledge how they feel.
+- Keep paragraphs SHORT: 2 to 4 sentences maximum. Break long explanations into several short paragraphs so it never becomes a wall of text.
 - UK spelling always. "decor" with NO accent, everywhere.
-- Grounded and practical, NEVER poetic or brochure-like. Write the way you'd actually talk to a friend styling their home.
+- Grounded and practical, NEVER poetic or brochure-like. Write the way you'd actually talk.
 - The main keyword MUST appear in the first sentence, and naturally in 1-2 headings — do NOT stuff it.
 - BANNED words/phrases (never use any of these): ${BANNED}
 
 EXACT ORDER (follow precisely):
 1. Bold first paragraph that directly answers the main question. Wrap it in <p><strong>...</strong></p>.
-2. Author bio, italic: <p><em>By Mae Osz | Interior Design Consultant &amp; Home Decor Expert with 12+ years of experience.</em></p>
-3. Hook — a relatable question ("Have you ever..."). In this paragraph link the words wall art to the Google Business Profile: <a href="https://share.google/RKuQBBwmgZBHOL1VQ" target="_blank" rel="noopener">wall art</a>.
-4. Quick Answer box — a grey box: <div style="background:#f5f5f5;border-radius:8px;padding:16px 20px;margin:18px 0;"><strong>Quick answer:</strong> 2-3 sentence direct answer.</div>
+2. Author bio, italic, on its own line: <p><em>By Mae Osz | Interior Design Consultant &amp; Home Decor Expert with 12+ years of experience.</em></p>
+3. Hook — a relatable question ("Have you ever..."), its own paragraph. In it link the words wall art to the Google Business Profile: <a href="https://share.google/RKuQBBwmgZBHOL1VQ" target="_blank" rel="noopener">wall art</a>.
+4. Quick Answer box — EXACTLY this grey box, no border, no rounded corners: <div style="background:#f9f9f9;padding:16px 20px;margin-bottom:24px;"><strong>Quick answer:</strong> 2-3 sentence direct answer.</div>
 5. Intro paragraph — context + a plain definition. In it, link unique wall art to <a href="https://aboutwallart.com/pages/unique-wall-art">/pages/unique-wall-art</a> and unique home decor to <a href="https://aboutwallart.com/pages/home-decor-items">/pages/home-decor-items</a> (use those exact URLs; invent no others).
-6. Contents list — <p><strong>What you'll find:</strong></p> then a <ul> listing every H2 below.
-7. About 5 main H2 sections. EACH main section, in this order:
+6. Contents — a heading exactly: <h2>List of Contents</h2> then a <ul> listing every H2 below.
+7. The MAIN body sections — one <h2> per topic from MUST COVER, plus the GAPS as their own sections. EVERY H2 section (main and gap sections alike), in this order:
    a. <h2> heading (SEO-friendly, keyword/topic based).
    b. A direct 2-3 sentence answer paragraph.
-   c. An image marker on its own line: [[IMG|a-short-seo-filename-slug|clear alt text describing the scene, include the topic|3:2|photo]]  (use "infographic" instead of "photo" for at least 2 of the sections that suit a diagram/checklist).
-   d. Either an <h3> + a <ul> of practical bullets, OR a comparison <table> (use a real <table> for at least ONE section).
-   e. A product marker on its own line: [[PRODUCT|the specific thing this section is about]]
-   f. A callout: <p><strong>Pro Tip:</strong> ...</p> or <p><strong>Real Example:</strong> ...</p>.
-8. A few extra text-only H2 sections covering the gaps/depth topics above.
+   c. An image marker on its own line — EVERY section gets one: [[IMG|a-short-seo-filename-slug|clear alt text describing a real lifestyle scene for this section|3:2|photo]]  (use "infographic" instead of "photo" where a diagram/checklist/comparison suits — at least 3 sections must be infographics).
+   d. Either an <h3> + a <ul> of practical bullets, OR a comparison <table>.
+   e. In several sections (not all), a short personal anecdote paragraph (invented but realistic — a client, a room, a fix).
+   f. A callout in EXACTLY this grey box (no border, no rounded corners): <div style="background:#f9f9f9;padding:16px 20px;margin-bottom:24px;"><strong>Pro Tip:</strong> ...</div> or the same box with <strong>Real Example:</strong>.
+8. Product markers — place EXACTLY 6 markers total across the whole blog, in the 6 most product-relevant sections (NOT one in every section). Each on its own line: [[PRODUCT|the specific thing this section is about]]
 9. Visual-Inspiration section — an <h2> with an SEO-usable heading (about styles/looks, NOT just "Visual Inspiration"), a short intro line, then the marker [[TRENDS]] on its own line.
 10. More-About section — an <h2> with an SEO-usable heading (NOT just "More About"), a bold lead sentence, then the supporting paragraph. ${authorityLine}
 11. WATCH section. ${watchLine}
-12. A warm closing paragraph (1-2 sentences, friendly, no CTA hype).
+12. A closing section — an <h2> heading, a short warm wrap-up that speaks directly to the reader, and END with a genuine question to the reader to keep them engaged (a friendly question, NOT a salesy call to action). Do NOT use the words "in conclusion" or "in summary".
 
 HARD RULES:
 - Do NOT write any FAQ / "People Also Ask" / "Frequently Asked Questions" section — questions live elsewhere.
 - Do NOT write a "Key Takeaways" section.
-- Include at least ONE <table> and at least TWO [[IMG|...]] markers with kind "infographic".
-- Use ONLY the exact links given above. Never invent a URL, product, price or fact.
+- EVERY H2 body section gets its own [[IMG|...]] marker. At least 3 of them must be kind "infographic". Include at least ONE <table>.
+- Place EXACTLY 6 [[PRODUCT|...]] markers total (3 will be About Wall Art products, 3 Collective — chosen later).
+- Keep every paragraph to 2-4 sentences.
+- Use ONLY the exact links given above. Never invent a URL, product, price or fact (anecdotes are the only thing you may invent).
 - Output ONLY the blog body HTML (start at the first <p>). No <html>, <head>, <body>, no markdown fences, no commentary.`;
 
         let bodyHtml = await callClaudeText(bodyPrompt, 8000);
