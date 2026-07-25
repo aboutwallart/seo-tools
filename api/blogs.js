@@ -515,6 +515,36 @@ Return ONLY a JSON array, one object per working title in order, exactly:
     return results;
   }
 
+  // Helper: build the pre-write brief from the top-ranking competitor pages (reuse MPD's approach).
+  async function generateCompetitorBrief(keyword, pages) {
+    const summary = pages.map((p, i) => `Competitor ${i + 1}: ${p.url}\n  H1: ${(p.h1 || []).join(' | ') || '-'}\n  H2s: ${(p.h2 || []).join(' | ') || '-'}\n  ~words: ${p.words || 0}`).join('\n\n');
+    const prompt = `You are an SEO content strategist for aboutwallart.com (wall art + home decor). A NEW blog will target the keyword "${keyword}". Below are the pages currently ranking top for it. Build a brief to OUTRANK them.
+
+${summary}
+
+Return ONLY a JSON object, no commentary, exactly:
+{"wordTarget":0,"faqCount":4,"mustCover":["",""],"gaps":["",""],"angle":""}
+- wordTarget: integer word count to match/beat their depth.
+- faqCount: how many FAQ questions the blog should answer, 3 to 5.
+- mustCover: the key H2 topics the blog MUST include to compete.
+- gaps: topics they MISS that this blog can win on.
+- angle: one sentence on the winning angle.`;
+    const raw = await callClaudeText(prompt, 1500);
+    const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+    const m = cleaned.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error('Could not read the competitor brief');
+    let o;
+    try { o = JSON.parse(m[0]); }
+    catch (e) { throw new Error('Competitor brief was not in a readable format'); }
+    return {
+      wordTarget: parseInt(o.wordTarget, 10) || 2200,
+      faqCount: Math.min(5, Math.max(3, parseInt(o.faqCount, 10) || 4)),
+      mustCover: Array.isArray(o.mustCover) ? o.mustCover.filter(Boolean) : [],
+      gaps: Array.isArray(o.gaps) ? o.gaps.filter(Boolean) : [],
+      angle: String(o.angle || '').trim()
+    };
+  }
+
   // Helper: plain Claude text call (no web search) — used by Batch 2 writers
   async function callClaudeText(prompt, maxTokens) {
     const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
@@ -2536,6 +2566,101 @@ Return ONLY a JSON array, one object per title in order, exactly:
         const out = updated.join('\n');
         await updateGitHubFile('data/blog_ideas.csv', out, ideasFile.sha, `Clean keywords (light pass): ${done.size} rows`);
         return res.status(200).json({ success: true, updated: done.size });
+      }
+
+      // ── ACTION: competitor-check ── (pre-write brief: SerpAPI top 3 → analyse → brief)
+      // Input: { keyword, manualUrls?: [] }. Detects SerpAPI out-of-credits → { outOfCredits:true }.
+      if (req.body.action === 'competitor-check') {
+        const keyword = String(req.body.keyword || '').trim();
+        const manualUrls = Array.isArray(req.body.manualUrls) ? req.body.manualUrls.map(u => String(u || '').trim()).filter(Boolean) : [];
+        if (!keyword && !manualUrls.length) return res.status(400).json({ error: 'keyword or manualUrls required' });
+
+        let competitors = [];
+        if (manualUrls.length) {
+          competitors = manualUrls.slice(0, 3).map((u, i) => ({ position: i + 1, title: '', url: u }));
+        } else {
+          const SERPAPI_KEY = process.env.SERPAPI_KEY;
+          if (!SERPAPI_KEY) return res.status(200).json({ success: false, error: 'SERPAPI_KEY not configured' });
+          let data;
+          try {
+            const r = await fetch(`https://serpapi.com/search.json?q=${encodeURIComponent(keyword)}&api_key=${SERPAPI_KEY}&num=10&gl=uk&hl=en`);
+            data = await r.json();
+          } catch (e) {
+            return res.status(200).json({ success: false, error: 'Could not reach SerpAPI: ' + e.message });
+          }
+          // SerpAPI signals problems in data.error — detect the "out of searches/credits" case explicitly.
+          if (data.error) {
+            const e = String(data.error).toLowerCase();
+            const outOfCredits = e.includes('run out') || e.includes('ran out') || e.includes('exceeded') || e.includes('no searches') || e.includes('out of searches') || e.includes('plan') || e.includes('limit');
+            return res.status(200).json({ success: false, outOfCredits, error: data.error });
+          }
+          const organic = data.organic_results || [];
+          const isMine = (u) => /aboutwallart\.com/i.test(u || '');
+          competitors = organic.filter(o => o.link && !isMine(o.link)).slice(0, 3).map((o, i) => ({ position: i + 1, title: o.title || '', url: o.link }));
+          if (!competitors.length) {
+            return res.status(200).json({ success: false, needsManual: true, error: 'No competitors found for this keyword — paste 3 competitor URLs.' });
+          }
+        }
+
+        // Analyse each competitor page (headings + rough word count). Best-effort — never throws.
+        const strip = (s) => String(s || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        const analyzed = [];
+        for (const c of competitors) {
+          try {
+            const pr = await fetch(c.url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AWA-Bot/1.0)' } });
+            const html = await pr.text();
+            const h1 = [...html.matchAll(/<h1[^>]*>([\s\S]*?)<\/h1>/gi)].map(m => strip(m[1])).filter(Boolean).slice(0, 3);
+            const h2 = [...html.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi)].map(m => strip(m[1])).filter(Boolean).slice(0, 15);
+            const body = strip(html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' '));
+            analyzed.push({ url: c.url, title: c.title, h1, h2, words: body ? body.split(' ').length : 0 });
+          } catch (e) {
+            analyzed.push({ url: c.url, title: c.title, h1: [], h2: [], words: 0, error: 'could not fetch page' });
+          }
+        }
+
+        let brief;
+        try { brief = await generateCompetitorBrief(keyword || (manualUrls[0] || ''), analyzed); }
+        catch (e) { return res.status(200).json({ success: false, error: 'Could not build the brief — ' + e.message, competitors: analyzed }); }
+        return res.status(200).json({ success: true, keyword, competitors: analyzed, brief });
+      }
+
+      // ── ACTION: save-month ── (tag picked blogs with a month, e.g. "2026-03"). New column MONTH (10th).
+      // Input: { titles: [...], month: "YYYY-MM" }. Empty month clears the tag.
+      if (req.body.action === 'save-month') {
+        const titles = Array.isArray(req.body.titles) ? req.body.titles : [];
+        const month = String(req.body.month || '').trim();
+        if (!titles.length) return res.status(400).json({ error: 'titles array required' });
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const esc = (c) => {
+          const s = String(c == null ? '' : c);
+          return (s.includes(',') || s.includes('"') || s.includes('\n')) ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+        const norm = (s) => String(s || '').trim().toLowerCase();
+        const want = new Set(titles.map(norm));
+        const done = new Set();
+        const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+        const lines = ideasFile.content.split('\n');
+        const updated = lines.map(line => {
+          const trimmed = line.trim().replace(/\r/g, '');
+          if (!trimmed) return line;
+          const cols = parseCSVLine(trimmed);
+          if (norm(cols[1]) === 'blog post title') {
+            while (cols.length < 10) cols.push('');
+            if (!cols[9]) cols[9] = 'MONTH';
+            return cols.map(esc).join(',');
+          }
+          const key = norm(cols[1]);
+          if (want.has(key) && !done.has(key)) {
+            while (cols.length < 10) cols.push('');
+            cols[9] = month;
+            done.add(key);
+            return cols.map(esc).join(',');
+          }
+          return line;
+        });
+        const out = updated.join('\n');
+        await updateGitHubFile('data/blog_ideas.csv', out, ideasFile.sha, `Assign month ${month || '(cleared)'}: ${done.size} blogs`);
+        return res.status(200).json({ success: true, updated: done.size, month });
       }
 
       const { keyword, url, title, perspective, galleryCode, collectionUrl, writeToSheet } = req.body;
