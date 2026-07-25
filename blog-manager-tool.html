@@ -231,15 +231,6 @@
         }
         .btn-undo:hover { background: #ef5350; color: #ffffff; }
 
-        .btn-send-sheet {
-            background: #ffffff; color: #1976d2; border: 1px solid #1976d2;
-            padding: 8px 16px; font-size: 13px; font-weight: 500;
-            font-family: 'Poppins', sans-serif; border-radius: 6px;
-            cursor: pointer; transition: all 0.2s ease;
-        }
-        .btn-send-sheet:hover { background: #1976d2; color: #ffffff; }
-        .btn-send-sheet:disabled { opacity: 0.5; cursor: not-allowed; }
-
         .btn-delete {
             background: #ffffff; color: #ef5350; border: 1px solid #ef5350;
             padding: 8px 16px; font-size: 13px; font-weight: 500;
@@ -247,19 +238,6 @@
             cursor: pointer; transition: all 0.2s ease;
         }
         .btn-delete:hover { background: #ef5350; color: #ffffff; }
-
-        /* MANUAL CONTENT SOURCES FORM (shown only when a send needs manual entry) */
-        .manual-sources {
-            display: none;
-            margin-top: 16px;
-            background: #fff8f1;
-            border: 1px solid #ffa726;
-            border-radius: 6px;
-            padding: 14px 16px;
-        }
-        .manual-sources.visible { display: block; }
-        .manual-msg { font-size: 13px; font-weight: 600; color: #ef6c00; margin-bottom: 12px; }
-        .manual-input { display: block; width: 100%; margin-bottom: 8px; }
 
         /* STATUS INDICATORS */
         .saving-indicator { font-size: 12px; color: #66bb6a; margin-left: 10px; }
@@ -271,7 +249,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v3.6 - 2026-07-24</p>
+        <p class="version">v4.0 - 2026-07-25 — Write blog + image prompts</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -341,7 +319,7 @@
             </div>
             <div class="bulk-action-row" id="bulk-send-row">
                 <span class="bulk-action-info" id="bulk-send-info">0 selected</span>
-                <button class="btn-bulk-move" style="background:#43a047;" onclick="bulkSendToSheet()">📤 Send selected to Google Sheet</button>
+                <button class="btn-bulk-clear" onclick="clearToSendSelection()">Clear</button>
             </div>
             <div id="towrite-container">
                 <div class="empty-state">No blogs marked for writing yet.</div>
@@ -688,6 +666,12 @@
                 if (cb) cb.checked = true;
                 if (card) card.classList.add('selected-card');
             });
+            // Re-show any blog drafts written this session (survive a card re-render).
+            if (window._drafts) {
+                Object.keys(window._drafts).forEach(idx => {
+                    if (document.getElementById(`write-${idx}`)) renderDraft(Number(idx), window._drafts[idx]);
+                });
+            }
             updateBulkSendBar();
         }
 
@@ -718,15 +702,6 @@
                 row.classList.add('visible');
             } else {
                 row.classList.remove('visible');
-            }
-        }
-
-        async function bulkSendToSheet() {
-            if (selectedToSend.size === 0) return;
-            const indices = [...selectedToSend];
-            clearToSendSelection();
-            for (const idx of indices) {
-                await sendToSheet(idx);
             }
         }
 
@@ -819,18 +794,16 @@
                         <button class="btn-undo" onclick="undoWriting(${index})">↩ Undo</button>
                     `;
                 } else {
-                    // TO_WRITE or TO_WRITE_PENDING — not yet sent to Google Sheet
+                    // TO_WRITE or TO_WRITE_PENDING
                     checkboxHTML = `<input type="checkbox" class="ts-checkbox card-checkbox" id="ts-cb-${index}" onchange="toggleToSend(${index})">`;
-                    const saveText  = idea.status === 'TO_WRITE' ? '✅ Saved to registry' : '⏳ Not saved yet';
-                    const saveClass = idea.status === 'TO_WRITE' ? 'saving-indicator' : 'saving-indicator pending';
                     const monthTag = idea.month ? `<span style="background:#e8f0fe;color:#1565c0;font-size:12px;font-weight:700;padding:2px 8px;border-radius:10px;">📅 ${idea.month}</span>` : '';
                     actionsHTML = `
                         <button class="btn-mark marked" disabled>✓ To Write Blog</button>
                         <button class="btn-undo" onclick="undoWriting(${index})">↩ Undo</button>
                         <button style="background:#6a1b9a;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;" id="comp-btn-${index}" onclick="runCompetitorCheck(${index})">🔍 Competitor check</button>
-                        <button class="btn-send-sheet" id="sheet-btn-${index}" onclick="sendToSheet(${index})">📤 Send to Google Sheet</button>
+                        <button style="background:#1a1a1a;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;" id="write-btn-${index}" onclick="writeBlog(${index})">✍️ Write blog</button>
+                        <button style="background:#00796b;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;" id="imgp-btn-${index}" onclick="getImagePrompts(${index})">🖼️ Get image prompts</button>
                         ${monthTag}
-                        <span class="${saveClass}" id="save-status-${index}">${saveText}</span>
                     `;
                 }
             } else if (tab === 'kwchange') {
@@ -879,19 +852,9 @@
                     </div>${clashSection}${editBar}`;
             })() : '';
 
-            // Manual content-sources form — only on unsent To Write cards. Hidden until a send needs manual entry.
-            const manualFormHTML = (tab === 'towrite' && idea.status !== 'TO_WRITE_SENT') ? `
-                <div class="manual-sources" id="manual-${index}">
-                    <div class="manual-msg" id="manual-msg-${index}"></div>
-                    <span class="inline-edit-label">Authority article</span>
-                    <input type="text" class="inline-edit-input manual-input" id="ms-at-${index}" placeholder="Article title">
-                    <input type="text" class="inline-edit-input manual-input" id="ms-au-${index}" placeholder="Article link (https://...)">
-                    <span class="inline-edit-label" style="margin-top:10px;">YouTube video</span>
-                    <input type="text" class="inline-edit-input manual-input" id="ms-yt-${index}" placeholder="Video title">
-                    <input type="text" class="inline-edit-input manual-input" id="ms-yl-${index}" placeholder="Video link (https://www.youtube.com/watch?v=...)">
-                    <button class="btn-mark" style="margin-top:10px;" id="ms-send-${index}" onclick="sendToSheetManual(${index})">📤 Send with these details</button>
-                </div>
-            ` : '';
+            // Blog draft + image-prompt output — only on To Write cards.
+            const manualFormHTML = (tab === 'towrite' && idea.status !== 'TO_WRITE_SENT')
+                ? `<div id="write-${index}" style="margin-top:12px;font-size:14px;"></div>` : '';
 
             // Competitor-brief container — only on unsent To Write cards.
             const compHTML = (tab === 'towrite' && idea.status !== 'TO_WRITE_SENT')
@@ -924,7 +887,7 @@
         }
 
         // ============================================
-        // MARK FOR WRITING (single — saves to registry + sheets)
+        // MARK FOR WRITING (single — moves to To Write + registers the keyword)
         // ============================================
         async function markForWriting(index) {
             const idea = allIdeas.find(i => i.index === index);
@@ -933,23 +896,13 @@
             selectedIdeas.delete(index);
             refreshAll();
 
-            const saveStatus = document.getElementById(`save-status-${index}`);
-            if (saveStatus) { saveStatus.textContent = '⏳ Saving...'; saveStatus.className = 'saving-indicator saving'; }
-
             try {
-                const response = await fetch('/api/blogs', {
+                await fetch('/api/blogs', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ keyword: idea.currentKeyword, url: generateUrl(idea.currentTitle), title: idea.currentTitle, perspective: idea.perspective })
                 });
-                const data = await response.json();
-                if (saveStatus) {
-                    saveStatus.textContent = data.success ? '✅ Saved to registry' : '❌ ' + (data.error || 'Save failed');
-                    saveStatus.className = data.success ? 'saving-indicator' : 'saving-indicator error';
-                }
-            } catch(e) {
-                if (saveStatus) { saveStatus.textContent = '❌ ' + e.message; saveStatus.className = 'saving-indicator error'; }
-            }
+            } catch(e) { console.error('Register keyword failed:', e); }
         }
 
         // ============================================
@@ -982,118 +935,156 @@
         }
 
         // ============================================
-        // SEND TO GOOGLE SHEET
+        // WRITE BLOG (Stage 2) — writes the full body from the title + competitor brief
         // ============================================
-        async function sendToSheet(index) {
+        // Keeps the last competitor brief + written draft per card so they survive a re-render.
+        window._briefs = window._briefs || {};
+        window._drafts = window._drafts || {};
+
+        async function writeBlog(index) {
             const idea = allIdeas.find(i => i.index === index);
             if (!idea) return;
-            const btn = document.getElementById(`sheet-btn-${index}`);
-            const saveStatus = document.getElementById(`save-status-${index}`);
-
-            btn.disabled = true;
-            btn.textContent = '⏳ Sending...';
-
+            const out = document.getElementById(`write-${index}`);
+            const btn = document.getElementById(`write-btn-${index}`);
+            const stored = window._briefs[index] || {};
+            const keyword = (stored.keyword || idea.keyword || idea.currentKeyword || '').trim();
+            if (btn) { btn.disabled = true; btn.textContent = '✍️ Writing…'; }
+            if (out) out.innerHTML = '🔄 Writing the blog (this takes a moment — it also finds a real authority link + video)…';
             try {
-                const gallery = matchGallery(idea.currentKeyword, idea.currentTitle);
-                const response = await fetch('/api/blogs', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        action: 'send-to-sheet',
-                        keyword: idea.currentKeyword,
-                        title: idea.currentTitle,
-                        perspective: idea.perspective,
-                        galleryCode: gallery.code,
-                        collectionUrl: gallery.url
-                    })
+                const res = await fetch('/api/blogs', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'write-blog', keyword, title: idea.currentTitle, brief: stored.brief || null })
                 });
-                const data = await response.json();
-                if (data.success) {
-                    idea.status = 'TO_WRITE_SENT';
-                    selectedToSend.delete(index);
-                    await fetch('/api/blogs', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'update-blog-status', keyword: idea.keyword, status: 'TO_WRITE_SENT' })
-                    }).catch(() => {});
-                    refreshAll();
-                } else if (data.needsManual) {
-                    // Search couldn't complete — open the manual boxes, prefilling whatever was found
-                    const found = data.found || {};
-                    const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
-                    set(`ms-at-${index}`, found.authorityTitle);
-                    set(`ms-au-${index}`, found.authorityUrl);
-                    set(`ms-yt-${index}`, found.youtubeTitle);
-                    set(`ms-yl-${index}`, found.youtubeLink);
-                    const msg = document.getElementById(`manual-msg-${index}`);
-                    if (msg) msg.textContent = '⚠ ' + (data.error || 'Please complete the missing details below, then send.');
-                    const form = document.getElementById(`manual-${index}`);
-                    if (form) form.classList.add('visible');
-                    if (btn) { btn.disabled = false; btn.textContent = '📤 Send to Google Sheet'; }
-                    if (saveStatus) saveStatus.textContent = '';
-                } else {
-                    if (btn) { btn.disabled = false; btn.textContent = '📤 Send to Google Sheet'; }
-                    if (saveStatus) saveStatus.textContent = '❌ ' + (data.error || 'Unknown error');
-                }
-            } catch(e) {
-                if (btn) { btn.disabled = false; btn.textContent = '📤 Send to Google Sheet'; }
-                if (saveStatus) saveStatus.textContent = '❌ ' + e.message;
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Writing failed');
+                window._drafts[index] = data;   // keep for image prompts + fetch step
+                renderDraft(index, data);
+            } catch (e) {
+                if (out) out.innerHTML = '<span style="color:#a33;">❌ ' + escHtml(e.message) + '</span>';
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = '✍️ Write blog'; }
             }
         }
 
+        // Show the written draft: a preview, a copy button, and the placeholders visible in place.
+        function renderDraft(index, data) {
+            const out = document.getElementById(`write-${index}`);
+            if (!out) return;
+            const imgs = parseImageMarkers(data.bodyHtml);
+            const prods = (data.bodyHtml.match(/\[\[PRODUCT\|[^\]]*\]\]/g) || []).length;
+            out.innerHTML = `
+                <div style="background:#f6fff6;border:1px solid #cfe6d3;border-radius:8px;padding:12px;">
+                    <div style="font-weight:700;margin-bottom:6px;">✅ Blog written</div>
+                    <div style="font-size:13px;color:#555;margin-bottom:8px;">
+                        ${imgs.length} image spot${imgs.length===1?'':'s'} · ${prods} product spot${prods===1?'':'s'}
+                        ${data.authority && data.authority.url ? ' · authority link found' : ' · no authority link'}
+                        ${data.youtube && data.youtube.link ? ' · video found' : ' · no video'}
+                    </div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+                        <button onclick="copyDraft(${index})" style="background:#1a1a1a;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">📋 Copy body HTML</button>
+                        <button onclick="toggleDraftPreview(${index})" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;border-radius:6px;padding:8px 14px;font-weight:600;cursor:pointer;">👁 Show / hide preview</button>
+                    </div>
+                    <div id="draft-prev-${index}" style="display:none;background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:14px;max-height:460px;overflow:auto;"></div>
+                </div>`;
+            // Render a readable preview (markers shown as neat labels).
+            const prev = document.getElementById(`draft-prev-${index}`);
+            if (prev) prev.innerHTML = previewHtml(data.bodyHtml);
+        }
+
+        // Pull the image markers [[IMG|filename|alt|ratio|kind]] out of the body.
+        function parseImageMarkers(html) {
+            const out = [];
+            const re = /\[\[IMG\|([^|]*)\|([^|]*)\|([^|]*)\|([^\]]*)\]\]/g;
+            let m;
+            while ((m = re.exec(html)) !== null) {
+                out.push({ filename: (m[1]||'').trim(), alt: (m[2]||'').trim(), ratio: (m[3]||'').trim() || '3:2', kind: (m[4]||'').trim() || 'photo' });
+            }
+            return out;
+        }
+
+        // Show markers as coloured labels so Mae can read where images + products will go.
+        function previewHtml(html) {
+            return html
+                .replace(/\[\[IMG\|([^|]*)\|([^|]*)\|([^|]*)\|([^\]]*)\]\]/g, (m,f,a,r,k)=>`<div style="background:#eef4ff;border:1px dashed #7aa7ff;border-radius:6px;padding:8px;margin:8px 0;font-size:13px;color:#1a3b7a;">🖼️ ${escHtml(k)} (${escHtml(r)}) — <strong>${escHtml(f)}</strong><br>alt: ${escHtml(a)}</div>`)
+                .replace(/\[\[PRODUCT\|([^\]]*)\]\]/g, (m,t)=>`<div style="background:#f0fff0;border:1px dashed #67b26a;border-radius:6px;padding:8px;margin:8px 0;font-size:13px;color:#1e5e21;">🛒 Product spot — ${escHtml(t)}</div>`);
+        }
+
+        function toggleDraftPreview(index) {
+            const el = document.getElementById(`draft-prev-${index}`);
+            if (el) el.style.display = (el.style.display === 'none' || !el.style.display) ? 'block' : 'none';
+        }
+
+        function copyDraft(index) {
+            const d = window._drafts[index];
+            if (!d) return;
+            navigator.clipboard.writeText(d.bodyHtml).then(() => {
+                const el = document.getElementById(`write-${index}`);
+                const note = document.createElement('div');
+                note.textContent = '✅ Copied to clipboard';
+                note.style.cssText = 'color:#2e7d32;font-size:13px;margin-top:6px;';
+                if (el) el.appendChild(note);
+                setTimeout(() => note.remove(), 2000);
+            });
+        }
+
         // ============================================
-        // SEND TO GOOGLE SHEET — MANUAL (after auto-search left something blank)
+        // GET IMAGE PROMPTS — copyable Shopify-AI instruction from the draft's image spots
         // ============================================
-        async function sendToSheetManual(index) {
+        function getImagePrompts(index) {
             const idea = allIdeas.find(i => i.index === index);
-            if (!idea) return;
-            const at = (document.getElementById(`ms-at-${index}`).value || '').trim();
-            const au = (document.getElementById(`ms-au-${index}`).value || '').trim();
-            const yt = (document.getElementById(`ms-yt-${index}`).value || '').trim();
-            const yl = (document.getElementById(`ms-yl-${index}`).value || '').trim();
-            const msg = document.getElementById(`manual-msg-${index}`);
-            const btn = document.getElementById(`ms-send-${index}`);
+            const d = window._drafts[index];
+            const out = document.getElementById(`write-${index}`);
+            if (!d) { if (out) out.innerHTML = '<span style="color:#a33;">Write the blog first, then get the image prompts.</span>'; return; }
+            const featuredBase = d.featuredBase || 'blog';
+            const imgs = parseImageMarkers(d.bodyHtml);
 
-            if (!at || !au || !yt || !yl) {
-                if (msg) msg.textContent = '⚠ Please fill in all four boxes before sending.';
-                return;
+            const STYLE = 'Editorial magazine interior photography, full bleed, calm muted palette, wall art as the focal point, Scandi-minimal / Japandi styling unless the scene says otherwise. Natural soft light. No text overlay on photos.';
+            const INFO  = 'Clean infographic: plain white background, black text, simple icons, no big empty top or bottom margins.';
+
+            // Featured = 5 square options.
+            const featuredPrompts = [];
+            for (let i = 1; i <= 5; i++) {
+                featuredPrompts.push(`${String(i).padStart(2,'0')}. [1:1] ${STYLE} Hero image for a blog titled "${idea.currentTitle}". Variation ${i}: a different composition of the same idea. SAVE this image named "${featuredBase}-featured-option${i}".`);
             }
+            // Body images continue the numbering.
+            const bodyPrompts = imgs.map((im, k) => {
+                const n = String(k + 6).padStart(2, '0');
+                const isInfo = /infograph/i.test(im.kind);
+                const look = isInfo ? INFO : STYLE;
+                return `${n}. [${im.ratio || '3:2'}] ${look} Show: ${im.alt}. SAVE this image named "${im.filename}".`;
+            });
 
-            if (btn) { btn.disabled = true; btn.textContent = '⏳ Sending...'; }
+            // Batch everything under 9,500 characters per block.
+            const header = `INSTRUCTIONS FOR SHOPIFY AI IMAGE GENERATOR:\n- Generate each numbered line as its own image at the aspect ratio in [brackets].\n- IMPORTANT: name/save each image EXACTLY as the name in quotes (this is how the tool finds them).\n- Do them in order. Featured options 01-05 first, then the body images.\n\n`;
+            const all = [...featuredPrompts, ...bodyPrompts];
+            const batches = [];
+            let cur = header;
+            all.forEach(line => {
+                if ((cur + line + '\n').length > 9500) { batches.push(cur.trim()); cur = header; }
+                cur += line + '\n';
+            });
+            if (cur.trim()) batches.push(cur.trim());
 
-            try {
-                const gallery = matchGallery(idea.currentKeyword, idea.currentTitle);
-                const response = await fetch('/api/blogs', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        action: 'send-to-sheet', manual: true,
-                        keyword: idea.currentKeyword,
-                        title: idea.currentTitle,
-                        perspective: idea.perspective,
-                        galleryCode: gallery.code,
-                        collectionUrl: gallery.url,
-                        authorityTitle: at, authorityUrl: au, youtubeTitle: yt, youtubeLink: yl
-                    })
-                });
-                const data = await response.json();
-                if (data.success) {
-                    idea.status = 'TO_WRITE_SENT';
-                    selectedToSend.delete(index);
-                    await fetch('/api/blogs', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'update-blog-status', keyword: idea.keyword, status: 'TO_WRITE_SENT' })
-                    }).catch(() => {});
-                    refreshAll();
-                } else {
-                    if (msg) msg.textContent = '❌ ' + (data.error || 'Could not send — please check the details.');
-                    if (btn) { btn.disabled = false; btn.textContent = '📤 Send with these details'; }
-                }
-            } catch(e) {
-                if (msg) msg.textContent = '❌ ' + e.message;
-                if (btn) { btn.disabled = false; btn.textContent = '📤 Send with these details'; }
-            }
+            const boxes = batches.map((b, bi) => `
+                <div style="margin-bottom:10px;">
+                    <div style="font-size:13px;font-weight:700;margin-bottom:4px;">Batch ${bi + 1} of ${batches.length}</div>
+                    <textarea readonly style="width:100%;height:140px;font-family:monospace;font-size:12px;padding:8px;border:1px solid #ccc;border-radius:6px;">${escHtml(b)}</textarea>
+                    <button onclick="copyText(this.previousElementSibling)" style="margin-top:4px;background:#00796b;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">📋 Copy batch ${bi + 1}</button>
+                </div>`).join('');
+
+            if (out) out.innerHTML = `<div style="background:#f2fbfa;border:1px solid #b6e0da;border-radius:8px;padding:12px;">
+                <div style="font-weight:700;margin-bottom:6px;">🖼️ Image prompts — paste into Shopify's AI, one batch at a time</div>
+                <div style="font-size:12px;color:#666;margin-bottom:8px;">Featured picture has 5 options — you'll pick one later. Save every image with the exact name shown so the tool can fetch them.</div>
+                ${boxes}
+            </div>`;
+        }
+
+        function copyText(el) {
+            if (!el) return;
+            el.select();
+            navigator.clipboard.writeText(el.value);
+            const b = el.nextElementSibling;
+            if (b) { const t = b.textContent; b.textContent = '✅ Copied'; setTimeout(() => b.textContent = t, 1500); }
         }
 
         // ============================================
@@ -1587,6 +1578,8 @@
                 if (data.outOfCredits) { document.getElementById('ooc-modal').style.display = 'block'; out.innerHTML = '<span style="color:#a33;">Out of SerpAPI credits.</span>'; return; }
                 if (data.needsManual) { out.innerHTML = manualUrlsForm(index); return; }
                 if (!data.success) { out.innerHTML = '<span style="color:#a33;">❌ ' + escHtml(data.error || 'Check failed') + '</span>'; return; }
+                window._briefs = window._briefs || {};
+                window._briefs[index] = { brief: data.brief, keyword: kw };
                 out.innerHTML = renderBrief(index, data);
             } catch (e) {
                 out.innerHTML = '<span style="color:#a33;">❌ ' + escHtml(e.message) + '</span>';
