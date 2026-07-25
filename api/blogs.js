@@ -1344,6 +1344,17 @@ Include 3 to 5 items.`;
         }
       }
 
+      // ── ACTION: get-briefs ── (saved competitor briefs, keyed by lowercased blog title)
+      if (req.query.action === 'get-briefs') {
+        try {
+          const file = await getGitHubFile('data/blog-briefs.json');
+          const map = JSON.parse(file.content || '{}');
+          return res.status(200).json({ success: true, briefs: (map && typeof map === 'object') ? map : {} });
+        } catch(e) {
+          return res.status(200).json({ success: true, briefs: {} });
+        }
+      }
+
       // ── ACTION: seo-metafield-scan ──
       if (req.query.action === 'seo-metafield-scan') {
         const shopifyDomain = process.env.SHOPIFY_STORE_DOMAIN;
@@ -2663,10 +2674,47 @@ Return ONLY a JSON array, one object per title in order, exactly:
         return res.status(200).json({ success: true, updated: done.size, month });
       }
 
-      // ── ACTION: write-blog ── (Stage 2: write the full blog body from the title + competitor brief)
-      // Input: { keyword, title, brief?:{wordTarget,faqCount,mustCover[],gaps[],angle} }
+      // ── ACTION: save-brief ── (persist a competitor brief per blog so it survives reload + works across days)
+      // Input: { title, keyword, brief }. Stored in data/blog-briefs.json keyed by lowercased title.
+      if (req.body.action === 'save-brief') {
+        const t = String(req.body.title || '').trim();
+        const kw = String(req.body.keyword || '').trim();
+        const brief = req.body.brief && typeof req.body.brief === 'object' ? req.body.brief : null;
+        if (!t) return res.status(400).json({ error: 'title required' });
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        let map = {}, sha;
+        try { const f = await getGitHubFile('data/blog-briefs.json'); map = JSON.parse(f.content || '{}'); sha = f.sha; } catch (e) { map = {}; sha = undefined; }
+        map[t.toLowerCase()] = { keyword: kw, brief, savedAt: new Date().toISOString() };
+        await updateGitHubFile('data/blog-briefs.json', JSON.stringify(map, null, 2), sha, `Save competitor brief: ${t}`);
+        return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: write-blog-sources ── (Stage 2 STEP 1: find real authority link + video + trend links)
+      // Split from the body write so neither step runs long enough to time out, and the screen can show real progress.
+      // Input: { keyword, title }. Output: { success, featuredBase, authority, youtube, trendsHtml }
+      if (req.body.action === 'write-blog-sources') {
+        const wbKeyword = String(req.body.keyword || '').trim();
+        const wbTitle   = String(req.body.title || '').trim();
+        if (!wbKeyword || !wbTitle) return res.status(400).json({ error: 'keyword and title required' });
+        const slugify = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+        const featuredBase = slugify(wbTitle).slice(0, 60) || slugify(wbKeyword);
+        let sources = { authorityTitle: '', authorityUrl: '', youtubeTitle: '', youtubeLink: '' };
+        try { sources = await generateContentSources(wbKeyword, wbTitle); } catch (e) { /* leave blank; body still writes */ }
+        let trendsHtml = '';
+        try { const vi = await generateVisualInspiration(wbKeyword, wbTitle, ''); trendsHtml = (vi && vi.html) || ''; } catch (e) { /* optional */ }
+        return res.status(200).json({
+          success: true,
+          featuredBase,
+          authority: { title: sources.authorityTitle, url: sources.authorityUrl },
+          youtube: { title: sources.youtubeTitle, link: sources.youtubeLink },
+          trendsHtml
+        });
+      }
+
+      // ── ACTION: write-blog-body ── (Stage 2 STEP 2: write the full body using the sources from step 1)
+      // Input: { keyword, title, brief?, authority?, youtube?, trendsHtml? }
       // Output: { success, bodyHtml (with [[IMG|...]] + [[PRODUCT|...]] markers), featuredBase, authority, youtube }
-      if (req.body.action === 'write-blog') {
+      if (req.body.action === 'write-blog-body' || req.body.action === 'write-blog') {
         const wbKeyword = String(req.body.keyword || '').trim();
         const wbTitle   = String(req.body.title || '').trim();
         const brief     = req.body.brief && typeof req.body.brief === 'object' ? req.body.brief : {};
@@ -2675,13 +2723,20 @@ Return ONLY a JSON array, one object per title in order, exactly:
         const slugify = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
         const featuredBase = slugify(wbTitle).slice(0, 60) || slugify(wbKeyword);
 
-        // 1) Real authority article + YouTube video (live web search) — never invented.
-        let sources = { authorityTitle: '', authorityUrl: '', youtubeTitle: '', youtubeLink: '' };
-        try { sources = await generateContentSources(wbKeyword, wbTitle); } catch (e) { /* leave blank; body still writes */ }
-
-        // 2) Real trend-page links for the Visual Inspiration section.
-        let trendsHtml = '';
-        try { const vi = await generateVisualInspiration(wbKeyword, wbTitle, ''); trendsHtml = (vi && vi.html) || ''; } catch (e) { /* optional */ }
+        // Sources come from step 1 if provided; otherwise fetch them here (keeps the old one-shot path working).
+        let sources = {
+          authorityTitle: (req.body.authority && req.body.authority.title) || '',
+          authorityUrl:   (req.body.authority && req.body.authority.url) || '',
+          youtubeTitle:   (req.body.youtube && req.body.youtube.title) || '',
+          youtubeLink:    (req.body.youtube && req.body.youtube.link) || ''
+        };
+        let trendsHtml = String(req.body.trendsHtml || '');
+        if (!sources.authorityUrl && !sources.youtubeLink && req.body.authority === undefined) {
+          try { sources = await generateContentSources(wbKeyword, wbTitle); } catch (e) { /* leave blank */ }
+        }
+        if (!trendsHtml) {
+          try { const vi = await generateVisualInspiration(wbKeyword, wbTitle, ''); trendsHtml = (vi && vi.html) || ''; } catch (e) { /* optional */ }
+        }
 
         const wordTarget = parseInt(brief.wordTarget, 10) || 2200;
         const mustCover = Array.isArray(brief.mustCover) ? brief.mustCover.filter(Boolean) : [];
