@@ -2663,6 +2663,104 @@ Return ONLY a JSON array, one object per title in order, exactly:
         return res.status(200).json({ success: true, updated: done.size, month });
       }
 
+      // ── ACTION: write-blog ── (Stage 2: write the full blog body from the title + competitor brief)
+      // Input: { keyword, title, brief?:{wordTarget,faqCount,mustCover[],gaps[],angle} }
+      // Output: { success, bodyHtml (with [[IMG|...]] + [[PRODUCT|...]] markers), featuredBase, authority, youtube }
+      if (req.body.action === 'write-blog') {
+        const wbKeyword = String(req.body.keyword || '').trim();
+        const wbTitle   = String(req.body.title || '').trim();
+        const brief     = req.body.brief && typeof req.body.brief === 'object' ? req.body.brief : {};
+        if (!wbKeyword || !wbTitle) return res.status(400).json({ error: 'keyword and title required' });
+
+        const slugify = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+        const featuredBase = slugify(wbTitle).slice(0, 60) || slugify(wbKeyword);
+
+        // 1) Real authority article + YouTube video (live web search) — never invented.
+        let sources = { authorityTitle: '', authorityUrl: '', youtubeTitle: '', youtubeLink: '' };
+        try { sources = await generateContentSources(wbKeyword, wbTitle); } catch (e) { /* leave blank; body still writes */ }
+
+        // 2) Real trend-page links for the Visual Inspiration section.
+        let trendsHtml = '';
+        try { const vi = await generateVisualInspiration(wbKeyword, wbTitle, ''); trendsHtml = (vi && vi.html) || ''; } catch (e) { /* optional */ }
+
+        const wordTarget = parseInt(brief.wordTarget, 10) || 2200;
+        const mustCover = Array.isArray(brief.mustCover) ? brief.mustCover.filter(Boolean) : [];
+        const gaps = Array.isArray(brief.gaps) ? brief.gaps.filter(Boolean) : [];
+        const angle = String(brief.angle || '').trim();
+
+        const BANNED = 'Delve, Spearheading, Embarking, Embark, Compelling, Empowering, Encompassing, Comprehensively, Effectively, Beacon, Dive, Showcasing, Remarked, Aligns, Surpassing, Tragically, Impacting, Prioritize, Prioritizing, Sparking, Standout, Hindering, Advancements, Aiding, Fostering, Multifaceted, Revolutionary, Testament, Elevate, journey. Banned phrases: "in the ever-evolving world of", "at the forefront of", "in summary", "in conclusion", "in essence", "it\'s important to note", "emerges as a beacon", "dive into", "study aims to explore", "plays a significant role in shaping", "explores themes", "gain valuable insights".';
+
+        const authorityLine = sources.authorityUrl
+          ? `A real authority article was found — use it once, as a natural in-body link next to the fact it supports, inside the More-About section: <a href="${sources.authorityUrl}" target="_blank" rel="noopener">${(sources.authorityTitle || 'this guide').replace(/"/g, '')}</a>. Do NOT invent any other external link.`
+          : `No authority article was found — write the More-About section WITHOUT an external link (do not invent one).`;
+        const watchLine = sources.youtubeLink
+          ? `A real YouTube video was found. Write the WATCH section as: <p><strong>WATCH:</strong> <a href="${sources.youtubeLink}" target="_blank" rel="noopener">${(sources.youtubeTitle || 'watch the video').replace(/"/g, '')}</a></p> then on the next line put the marker [[VIDEO|${sources.youtubeLink}]] where the video embed should go.`
+          : `No video was found — SKIP the WATCH section entirely (do not invent a video).`;
+
+        const bodyPrompt = `You are Mae Osz, a friendly UK home-decor advisor writing a blog for aboutwallart.com (wall art + home decor). Write the FULL blog body as clean HTML.
+
+BLOG TITLE (use as the reader's main question): "${wbTitle}"
+MAIN KEYWORD: "${wbKeyword}"
+${angle ? `WINNING ANGLE: ${angle}` : ''}
+TARGET LENGTH: about ${wordTarget} words (match or beat this).
+${mustCover.length ? `MUST COVER these topics as H2 sections: ${mustCover.join('; ')}.` : ''}
+${gaps.length ? `WIN ON these gaps the top pages miss (add as extra H2 sections): ${gaps.join('; ')}.` : ''}
+
+VOICE:
+- First person (I / we), warm friendly advisor talking to the reader. Active voice, varied sentence length, the odd engaging question.
+- UK spelling always. "decor" with NO accent, everywhere.
+- Grounded and practical, NEVER poetic or brochure-like. Write the way you'd actually talk to a friend styling their home.
+- The main keyword MUST appear in the first sentence, and naturally in 1-2 headings — do NOT stuff it.
+- BANNED words/phrases (never use any of these): ${BANNED}
+
+EXACT ORDER (follow precisely):
+1. Bold first paragraph that directly answers the main question. Wrap it in <p><strong>...</strong></p>.
+2. Author bio, italic: <p><em>By Mae Osz | Interior Design Consultant &amp; Home Decor Expert with 12+ years of experience.</em></p>
+3. Hook — a relatable question ("Have you ever..."). In this paragraph link the words wall art to the Google Business Profile: <a href="https://share.google/RKuQBBwmgZBHOL1VQ" target="_blank" rel="noopener">wall art</a>.
+4. Quick Answer box — a grey box: <div style="background:#f5f5f5;border-radius:8px;padding:16px 20px;margin:18px 0;"><strong>Quick answer:</strong> 2-3 sentence direct answer.</div>
+5. Intro paragraph — context + a plain definition. In it, link unique wall art to <a href="https://aboutwallart.com/pages/unique-wall-art">/pages/unique-wall-art</a> and unique home decor to <a href="https://aboutwallart.com/pages/home-decor-items">/pages/home-decor-items</a> (use those exact URLs; invent no others).
+6. Contents list — <p><strong>What you'll find:</strong></p> then a <ul> listing every H2 below.
+7. About 5 main H2 sections. EACH main section, in this order:
+   a. <h2> heading (SEO-friendly, keyword/topic based).
+   b. A direct 2-3 sentence answer paragraph.
+   c. An image marker on its own line: [[IMG|a-short-seo-filename-slug|clear alt text describing the scene, include the topic|3:2|photo]]  (use "infographic" instead of "photo" for at least 2 of the sections that suit a diagram/checklist).
+   d. Either an <h3> + a <ul> of practical bullets, OR a comparison <table> (use a real <table> for at least ONE section).
+   e. A product marker on its own line: [[PRODUCT|the specific thing this section is about]]
+   f. A callout: <p><strong>Pro Tip:</strong> ...</p> or <p><strong>Real Example:</strong> ...</p>.
+8. A few extra text-only H2 sections covering the gaps/depth topics above.
+9. Visual-Inspiration section — an <h2> with an SEO-usable heading (about styles/looks, NOT just "Visual Inspiration"), a short intro line, then the marker [[TRENDS]] on its own line.
+10. More-About section — an <h2> with an SEO-usable heading (NOT just "More About"), a bold lead sentence, then the supporting paragraph. ${authorityLine}
+11. WATCH section. ${watchLine}
+12. A warm closing paragraph (1-2 sentences, friendly, no CTA hype).
+
+HARD RULES:
+- Do NOT write any FAQ / "People Also Ask" / "Frequently Asked Questions" section — questions live elsewhere.
+- Do NOT write a "Key Takeaways" section.
+- Include at least ONE <table> and at least TWO [[IMG|...]] markers with kind "infographic".
+- Use ONLY the exact links given above. Never invent a URL, product, price or fact.
+- Output ONLY the blog body HTML (start at the first <p>). No <html>, <head>, <body>, no markdown fences, no commentary.`;
+
+        let bodyHtml = await callClaudeText(bodyPrompt, 8000);
+        bodyHtml = bodyHtml.replace(/```html\n?/g, '').replace(/```\n?/g, '').trim();
+        // Inject the real trend links into the Visual-Inspiration marker.
+        if (trendsHtml) bodyHtml = bodyHtml.replace(/\[\[TRENDS\]\]/g, trendsHtml);
+        else bodyHtml = bodyHtml.replace(/\[\[TRENDS\]\]/g, '');
+        // Turn a [[VIDEO|url]] marker into a full-bleed responsive embed.
+        bodyHtml = bodyHtml.replace(/\[\[VIDEO\|(https?:\/\/[^\]]+)\]\]/g, (m, u) => {
+          const idm = String(u).match(/[?&]v=([^&]+)/) || String(u).match(/youtu\.be\/([^?&]+)/);
+          const id = idm ? idm[1] : '';
+          return id ? `<div style="position:relative;width:100%;padding-bottom:56.25%;margin:16px 0;"><iframe src="https://www.youtube.com/embed/${id}" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;" allowfullscreen loading="lazy"></iframe></div>` : '';
+        });
+
+        return res.status(200).json({
+          success: true,
+          bodyHtml,
+          featuredBase,
+          authority: { title: sources.authorityTitle, url: sources.authorityUrl },
+          youtube: { title: sources.youtubeTitle, link: sources.youtubeLink }
+        });
+      }
+
       const { keyword, url, title, perspective, galleryCode, collectionUrl, writeToSheet } = req.body;
       if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
       if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured in environment variables' });
