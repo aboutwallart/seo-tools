@@ -249,7 +249,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v4.0 - 2026-07-25 — Write blog + image prompts</p>
+        <p class="version">v4.1 - 2026-07-25 — progress bar, saved briefs, Month in progress tab</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -259,6 +259,9 @@
             </button>
             <button class="tab-btn" onclick="switchTab('towrite')" id="tab-towrite">
                 To Write <span class="tab-count" id="count-towrite">0</span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('monthprog')" id="tab-monthprog">
+                Month in progress <span class="tab-count" id="count-monthprog">0</span>
             </button>
             <button class="tab-btn" onclick="switchTab('kwchange')" id="tab-kwchange">
                 Keyword Change <span class="tab-count" id="count-kwchange">0</span>
@@ -323,6 +326,17 @@
             </div>
             <div id="towrite-container">
                 <div class="empty-state">No blogs marked for writing yet.</div>
+            </div>
+        </div>
+
+        <div class="tab-content" id="panel-monthprog">
+            <div style="background:#f4f8ff;border:1px solid #cfe0ff;border-radius:10px;padding:14px;margin-bottom:16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <span style="font-weight:700;">📅 Month:</span>
+                <select id="mp-month-filter" onchange="displayMonthProgress()" style="padding:9px;border:1px solid #ccc;border-radius:6px;font-size:14px;"></select>
+                <span id="mp-note" style="color:#666;font-size:13px;"></span>
+            </div>
+            <div id="monthprog-container">
+                <div class="empty-state">No months in progress yet. Plan a month in the To Write tab, then Save selection to month.</div>
             </div>
         </div>
 
@@ -416,8 +430,10 @@
         }
 
         function updateTabCounts() {
+            const isToWrite = (i) => i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING';
             document.getElementById('count-ideas').textContent    = allIdeas.filter(i => i.status === '').length;
-            document.getElementById('count-towrite').textContent  = allIdeas.filter(i => i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING').length;
+            document.getElementById('count-towrite').textContent  = allIdeas.filter(i => isToWrite(i) && !i.month).length;
+            document.getElementById('count-monthprog').textContent= allIdeas.filter(i => isToWrite(i) && i.month).length;
             document.getElementById('count-kwchange').textContent = allIdeas.filter(i => i.status === 'KEYWORD_CHANGE').length;
             document.getElementById('count-ignored').textContent  = allIdeas.filter(i => i.status === 'IGNORED').length;
         }
@@ -601,6 +617,7 @@
                 document.getElementById('filter-bar').style.display = 'flex';
                 populateMonthYear();
                 updateTabCounts();
+                await loadBriefs();
                 refreshAll();
 
             } catch (error) {
@@ -644,7 +661,8 @@
         // ============================================
         function displayToWrite() {
             const container = document.getElementById('towrite-container');
-            const all = allIdeas.filter(i => ['TO_WRITE','TO_WRITE_PENDING','TO_WRITE_SENT'].includes(i.status));
+            // Month-tagged blogs move to the "Month in progress" tab, so To Write shows only untagged ones.
+            const all = allIdeas.filter(i => ['TO_WRITE','TO_WRITE_PENDING','TO_WRITE_SENT'].includes(i.status) && !i.month);
             if (all.length === 0) {
                 container.innerHTML = `<div class="empty-state">No blogs marked for writing yet.</div>`;
                 updateBulkSendBar();
@@ -672,6 +690,7 @@
                     if (document.getElementById(`write-${idx}`)) renderDraft(Number(idx), window._drafts[idx]);
                 });
             }
+            [...unsent, ...sent].forEach(idea => restoreBriefNote(idea.index));
             updateBulkSendBar();
         }
 
@@ -743,8 +762,61 @@
             container.innerHTML = items.map(idea => buildIdeaCard(idea, 'ignored')).join('');
         }
 
+        // ============================================
+        // MONTH IN PROGRESS (Tab) — blogs tagged to a month, worked over several days
+        // ============================================
+        function displayMonthProgress() {
+            const container = document.getElementById('monthprog-container');
+            const filter = document.getElementById('mp-month-filter');
+            if (!container) return;
+            const tagged = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && i.month);
+            const months = [...new Set(tagged.map(i => i.month))].sort();
+            if (filter) {
+                const cur = filter.value;
+                filter.innerHTML = months.map(m => `<option value="${m}">${m}</option>`).join('');
+                if (months.includes(cur)) filter.value = cur;
+            }
+            const note = document.getElementById('mp-note');
+            if (!tagged.length) {
+                container.innerHTML = `<div class="empty-state">No months in progress yet. Plan a month in the To Write tab, then Save selection to month.</div>`;
+                if (note) note.textContent = '';
+                return;
+            }
+            const sel = (filter && filter.value) || months[0];
+            const list = tagged.filter(i => i.month === sel);
+            container.innerHTML = list.map(idea => buildIdeaCard(idea, 'towrite')).join('');
+            // Restore ticks, drafts and saved-brief notes for the visible cards.
+            selectedToSend.forEach(idx => {
+                const cb = document.getElementById(`ts-cb-${idx}`);
+                const card = document.getElementById(`card-${idx}`);
+                if (cb) cb.checked = true;
+                if (card) card.classList.add('selected-card');
+            });
+            if (window._drafts) Object.keys(window._drafts).forEach(idx => { if (document.getElementById(`write-${idx}`)) renderDraft(Number(idx), window._drafts[idx]); });
+            list.forEach(idea => restoreBriefNote(idea.index));
+            if (note) note.textContent = `${list.length} blog${list.length === 1 ? '' : 's'} in ${sel}`;
+        }
+
+        // If a competitor brief was already saved for this blog, show a small "ready" note on the card.
+        function restoreBriefNote(index) {
+            const idea = allIdeas.find(i => i.index === index);
+            const el = document.getElementById(`comp-${index}`);
+            if (!idea || !el || el.innerHTML.trim()) return;
+            const b = window._briefsByTitle && window._briefsByTitle[(idea.currentTitle || '').toLowerCase()];
+            if (b) el.innerHTML = `<div style="font-size:13px;color:#2e7d32;">✅ Competitor brief saved — ready to Write blog. (Press Competitor check to view or update it.)</div>`;
+        }
+
+        // Load the saved competitor briefs from GitHub on startup.
+        async function loadBriefs() {
+            try {
+                const res = await fetch('/api/blogs?action=get-briefs');
+                const data = await res.json();
+                window._briefsByTitle = (data && data.success && data.briefs) ? data.briefs : {};
+            } catch (e) { window._briefsByTitle = window._briefsByTitle || {}; }
+        }
+
         function refreshAll() {
-            displayIdeas(); displayToWrite(); displayKwChange(); displayIgnored(); updateTabCounts(); updateFilterCounts();
+            displayIdeas(); displayToWrite(); displayMonthProgress(); displayKwChange(); displayIgnored(); updateTabCounts(); updateFilterCounts();
         }
 
         // Colour counts shown ON the filter buttons (Blog Ideas only)
@@ -941,25 +1013,63 @@
         window._briefs = window._briefs || {};
         window._drafts = window._drafts || {};
 
+        // Look up this blog's saved brief — first from this session, then from the ones saved on GitHub.
+        function briefFor(idea) {
+            if (!idea) return {};
+            if (window._briefs && window._briefs[idea.index]) return window._briefs[idea.index];
+            const key = (idea.currentTitle || '').toLowerCase();
+            if (window._briefsByTitle && window._briefsByTitle[key]) return window._briefsByTitle[key];
+            return {};
+        }
+
+        // A simple progress bar so Mae always knows the writing isn't frozen.
+        function progBar(pct, label) {
+            const p = Math.round(Math.max(0, Math.min(100, pct)));
+            return `<div style="background:#f5f5f5;border:1px solid #e0e0e0;border-radius:8px;padding:12px;">
+                <div style="font-size:13px;color:#333;margin-bottom:6px;">✍️ ${escHtml(label)} <strong>${p}%</strong></div>
+                <div style="background:#e0e0e0;border-radius:6px;height:10px;overflow:hidden;"><div style="width:${p}%;height:100%;background:#1a1a1a;transition:width .4s ease;"></div></div>
+            </div>`;
+        }
+
         async function writeBlog(index) {
             const idea = allIdeas.find(i => i.index === index);
             if (!idea) return;
             const out = document.getElementById(`write-${index}`);
             const btn = document.getElementById(`write-btn-${index}`);
-            const stored = window._briefs[index] || {};
+            const stored = briefFor(idea);
             const keyword = (stored.keyword || idea.keyword || idea.currentKeyword || '').trim();
             if (btn) { btn.disabled = true; btn.textContent = '✍️ Writing…'; }
-            if (out) out.innerHTML = '🔄 Writing the blog (this takes a moment — it also finds a real authority link + video)…';
+
+            let pct = 5;
+            let label = 'Finding a real authority link + video…';
+            const draw = () => { if (out) out.innerHTML = progBar(pct, label); };
+            draw();
+            // Gentle creep so it never looks stuck between the two steps.
+            const creep = setInterval(() => { if (pct < 92) { pct += 1; draw(); } }, 700);
+
             try {
-                const res = await fetch('/api/blogs', {
+                // STEP 1 — sources (authority link, video, trend links)
+                const s = await fetch('/api/blogs', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'write-blog', keyword, title: idea.currentTitle, brief: stored.brief || null })
+                    body: JSON.stringify({ action: 'write-blog-sources', keyword, title: idea.currentTitle })
                 });
-                const data = await res.json();
+                const sd = await s.json();
+                if (!sd.success) throw new Error(sd.error || 'Could not gather sources');
+                pct = Math.max(pct, 45); label = 'Writing the blog…'; draw();
+
+                // STEP 2 — the body, using those sources
+                const r = await fetch('/api/blogs', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'write-blog-body', keyword, title: idea.currentTitle, brief: stored.brief || null, authority: sd.authority, youtube: sd.youtube, trendsHtml: sd.trendsHtml })
+                });
+                const data = await r.json();
                 if (!data.success) throw new Error(data.error || 'Writing failed');
+                clearInterval(creep);
+                pct = 100; label = 'Done'; draw();
                 window._drafts[index] = data;   // keep for image prompts + fetch step
                 renderDraft(index, data);
             } catch (e) {
+                clearInterval(creep);
                 if (out) out.innerHTML = '<span style="color:#a33;">❌ ' + escHtml(e.message) + '</span>';
             } finally {
                 if (btn) { btn.disabled = false; btn.textContent = '✍️ Write blog'; }
@@ -1544,7 +1654,13 @@
                 const data = await res.json();
                 if (!data.success) throw new Error(data.error || 'Save failed');
                 picked.forEach(i => { i.month = monthStr; });
-                note.textContent = `✅ ${data.updated} blogs assigned to ${MONTH_NAMES[month - 1]} ${year}. Now process each — start with its Competitor check.`;
+                selectedToSend.clear();
+                window._monthlyOrder = null;
+                note.textContent = `✅ ${data.updated} blogs moved to "Month in progress" (${MONTH_NAMES[month - 1]} ${year}). Work through them there over several days.`;
+                refreshAll();
+                const mf = document.getElementById('mp-month-filter');
+                if (mf) { mf.value = monthStr; displayMonthProgress(); }
+                switchTab('monthprog');
             } catch (e) { note.textContent = '❌ ' + e.message; }
         }
 
@@ -1578,9 +1694,18 @@
                 if (data.outOfCredits) { document.getElementById('ooc-modal').style.display = 'block'; out.innerHTML = '<span style="color:#a33;">Out of SerpAPI credits.</span>'; return; }
                 if (data.needsManual) { out.innerHTML = manualUrlsForm(index); return; }
                 if (!data.success) { out.innerHTML = '<span style="color:#a33;">❌ ' + escHtml(data.error || 'Check failed') + '</span>'; return; }
+                const idea = allIdeas.find(i => i.index === index);
+                const title = idea ? idea.currentTitle : '';
                 window._briefs = window._briefs || {};
+                window._briefsByTitle = window._briefsByTitle || {};
                 window._briefs[index] = { brief: data.brief, keyword: kw };
+                if (title) window._briefsByTitle[title.toLowerCase()] = { brief: data.brief, keyword: kw };
                 out.innerHTML = renderBrief(index, data);
+                // Save it so it survives reload + works across days (no need to re-run).
+                fetch('/api/blogs', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'save-brief', title, keyword: kw, brief: data.brief })
+                }).catch(() => {});
             } catch (e) {
                 out.innerHTML = '<span style="color:#a33;">❌ ' + escHtml(e.message) + '</span>';
             } finally {
