@@ -244,12 +244,30 @@
         .saving-indicator.saving  { color: #ffa726; }
         .saving-indicator.error   { color: #ef5350; }
         .saving-indicator.pending { color: #999999; }
+
+        /* BLOG DRAFT PREVIEW — breathing space so it reads like a real page */
+        .blog-prev { line-height: 1.7; color: #1a1a1a; }
+        .blog-prev h2 { font-size: 20px; font-weight: 700; line-height: 1.3; margin: 28px 0 8px; padding-top: 20px; border-top: 1px solid #e4e4e4; }
+        .blog-prev h3 { font-size: 16px; font-weight: 700; margin: 22px 0 8px; }
+        .blog-prev p  { margin: 0 0 15px; }
+        .blog-prev ul, .blog-prev ol { margin: 8px 0 20px; padding-left: 20px; }
+        .blog-prev li { margin: 0 0 8px; }
+        .blog-prev a  { color: #1a1a1a; text-underline-offset: 3px; }
+        .blog-prev table { border-collapse: collapse; width: 100%; margin: 18px 0; font-size: 13px; }
+        .blog-prev th, .blog-prev td { border: 1px solid #e4e4e4; padding: 8px 10px; text-align: left; }
+        .blog-prev img { max-width: 100%; height: auto; }
+
+        /* COLLAPSIBLE PANELS (competitor brief / draft / image prompts) */
+        .cp { margin-top: 12px; }
+        .cp-hdr { cursor: pointer; font-weight: 700; background: #f0f0f0; padding: 9px 13px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; }
+        .cp-hdr:hover { background: #e8e8e8; }
+        .cp-body { padding-top: 10px; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v4.1 - 2026-07-25 — progress bar, saved briefs, Month in progress tab</p>
+        <p class="version">v4.2 - 2026-07-25 — spaced draft, saved drafts, collapsible sections, richer images, human voice</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -309,8 +327,8 @@
                 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                     <select id="plan-month" style="padding:9px;border:1px solid #ccc;border-radius:6px;font-size:14px;"></select>
                     <select id="plan-year" style="padding:9px;border:1px solid #ccc;border-radius:6px;font-size:14px;"></select>
-                    <button onclick="autoPickMonth()" style="background:#1565c0;color:#fff;border:none;border-radius:6px;padding:10px 16px;font-weight:700;cursor:pointer;">Auto-pick for this month</button>
-                    <button onclick="assignSelectedToMonth()" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:10px 16px;font-weight:700;cursor:pointer;">Save selection to month</button>
+                    <button id="autopick-btn" onclick="autoPickMonth()" style="background:#1565c0;color:#fff;border:none;border-radius:6px;padding:10px 16px;font-weight:700;cursor:pointer;">Auto-pick for this month</button>
+                    <button id="savemonth-btn" onclick="assignSelectedToMonth()" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:10px 16px;font-weight:700;cursor:pointer;">Save selection to month</button>
                     <span id="monthly-note" style="color:#666;font-size:13px;"></span>
                 </div>
                 <div style="margin-top:6px;color:#888;font-size:12px;">Picks the right number for the month (days in it), seasonal topics matched, spread by room/style. Then process each one — start with its Competitor check.</div>
@@ -618,6 +636,7 @@
                 populateMonthYear();
                 updateTabCounts();
                 await loadBriefs();
+                await loadDrafts();
                 refreshAll();
 
             } catch (error) {
@@ -684,13 +703,8 @@
                 if (cb) cb.checked = true;
                 if (card) card.classList.add('selected-card');
             });
-            // Re-show any blog drafts written this session (survive a card re-render).
-            if (window._drafts) {
-                Object.keys(window._drafts).forEach(idx => {
-                    if (document.getElementById(`write-${idx}`)) renderDraft(Number(idx), window._drafts[idx]);
-                });
-            }
-            [...unsent, ...sent].forEach(idea => restoreBriefNote(idea.index));
+            // Re-show any written blogs (session or saved) + saved-brief notes on the visible cards.
+            [...unsent, ...sent].forEach(idea => { restoreDraft(idea.index); restoreBriefNote(idea.index); });
             updateBulkSendBar();
         }
 
@@ -792,8 +806,7 @@
                 if (cb) cb.checked = true;
                 if (card) card.classList.add('selected-card');
             });
-            if (window._drafts) Object.keys(window._drafts).forEach(idx => { if (document.getElementById(`write-${idx}`)) renderDraft(Number(idx), window._drafts[idx]); });
-            list.forEach(idea => restoreBriefNote(idea.index));
+            list.forEach(idea => { restoreDraft(idea.index); restoreBriefNote(idea.index); });
             if (note) note.textContent = `${list.length} blog${list.length === 1 ? '' : 's'} in ${sel}`;
         }
 
@@ -815,8 +828,41 @@
             } catch (e) { window._briefsByTitle = window._briefsByTitle || {}; }
         }
 
+        // Load saved written blogs from GitHub on startup (so a reset never loses them).
+        async function loadDrafts() {
+            try {
+                const res = await fetch('/api/blogs?action=get-drafts');
+                const data = await res.json();
+                window._draftsByTitle = (data && data.success && data.drafts) ? data.drafts : (window._draftsByTitle || {});
+            } catch (e) { window._draftsByTitle = window._draftsByTitle || {}; }
+        }
+
+        // Re-show a saved written blog on its card (session copy first, then the one saved on GitHub).
+        function restoreDraft(index) {
+            const idea = allIdeas.find(i => i.index === index);
+            const el = document.getElementById(`write-${index}`);
+            if (!idea || !el || el.innerHTML.trim()) return;
+            const d = window._drafts[index] || (window._draftsByTitle && window._draftsByTitle[(idea.currentTitle || '').toLowerCase()]);
+            if (d) { window._drafts[index] = d; renderDraft(index, d); }
+        }
+
+        // One month in progress at a time — lock "Plan a month" while any month is still in progress.
+        function updatePlanLock() {
+            const inProgress = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && i.month);
+            const months = [...new Set(inProgress.map(i => i.month))].sort();
+            const locked = months.length > 0;
+            const ap = document.getElementById('autopick-btn');
+            const sv = document.getElementById('savemonth-btn');
+            const note = document.getElementById('monthly-note');
+            [ap, sv].forEach(b => { if (b) { b.disabled = locked; b.style.opacity = locked ? '0.45' : '1'; b.style.cursor = locked ? 'not-allowed' : 'pointer'; } });
+            if (note) {
+                if (locked && !note.textContent.trim()) note.textContent = `🔒 ${months.join(', ')} in progress — finish it (send all to Shopify) before planning a new month.`;
+                else if (!locked && note.textContent.trim().startsWith('🔒')) note.textContent = '';
+            }
+        }
+
         function refreshAll() {
-            displayIdeas(); displayToWrite(); displayMonthProgress(); displayKwChange(); displayIgnored(); updateTabCounts(); updateFilterCounts();
+            displayIdeas(); displayToWrite(); displayMonthProgress(); displayKwChange(); displayIgnored(); updateTabCounts(); updateFilterCounts(); updatePlanLock();
         }
 
         // Colour counts shown ON the filter buttons (Blog Ideas only)
@@ -924,9 +970,9 @@
                     </div>${clashSection}${editBar}`;
             })() : '';
 
-            // Blog draft + image-prompt output — only on To Write cards.
+            // Blog draft + image-prompt output — separate containers so one never wipes the other.
             const manualFormHTML = (tab === 'towrite' && idea.status !== 'TO_WRITE_SENT')
-                ? `<div id="write-${index}" style="margin-top:12px;font-size:14px;"></div>` : '';
+                ? `<div id="write-${index}" style="margin-top:12px;font-size:14px;"></div><div id="imgp-${index}" style="margin-top:12px;font-size:14px;"></div>` : '';
 
             // Competitor-brief container — only on unsent To Write cards.
             const compHTML = (tab === 'towrite' && idea.status !== 'TO_WRITE_SENT')
@@ -944,7 +990,6 @@
                 <div class="idea-card ${cardColorClass}${isSelected ? ' selected-card' : ''}" id="card-${index}">
                     ${checkboxHTML}
                     <div class="card-header">
-                        <span class="card-number">#${index + 1}</span>
                         ${badgeHtml}
                     </div>
                     ${tab === 'ideas' ? ideasBodyHTML : `
@@ -1031,6 +1076,21 @@
             </div>`;
         }
 
+        // Collapsible panel — lets each section (brief / draft / image prompts) collapse without disappearing.
+        function toggleCollapse(hdr) {
+            const b = hdr.nextElementSibling;
+            if (!b) return;
+            const hide = b.style.display !== 'none';
+            b.style.display = hide ? 'none' : 'block';
+            const c = hdr.querySelector('.cp-caret');
+            if (c) c.textContent = hide ? '▸' : '▾';
+        }
+        function panel(title, bodyHtml, open) {
+            const disp = open ? 'block' : 'none';
+            const caret = open ? '▾' : '▸';
+            return `<div class="cp"><div class="cp-hdr" onclick="toggleCollapse(this)"><span>${title}</span><span class="cp-caret">${caret}</span></div><div class="cp-body" style="display:${disp};">${bodyHtml}</div></div>`;
+        }
+
         async function writeBlog(index) {
             const idea = allIdeas.find(i => i.index === index);
             if (!idea) return;
@@ -1067,7 +1127,14 @@
                 clearInterval(creep);
                 pct = 100; label = 'Done'; draw();
                 window._drafts[index] = data;   // keep for image prompts + fetch step
+                window._draftsByTitle = window._draftsByTitle || {};
+                window._draftsByTitle[(idea.currentTitle || '').toLowerCase()] = data;
                 renderDraft(index, data);
+                // Save it so it survives a reload / reset (no need to re-write).
+                fetch('/api/blogs', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'save-draft', title: idea.currentTitle, draft: data })
+                }).catch(() => {});
             } catch (e) {
                 clearInterval(creep);
                 if (out) out.innerHTML = '<span style="color:#a33;">❌ ' + escHtml(e.message) + '</span>';
@@ -1076,29 +1143,24 @@
             }
         }
 
-        // Show the written draft: a preview, a copy button, and the placeholders visible in place.
+        // Show the written draft in a collapsible panel: summary, copy button, and a spaced preview.
         function renderDraft(index, data) {
             const out = document.getElementById(`write-${index}`);
             if (!out) return;
             const imgs = parseImageMarkers(data.bodyHtml);
             const prods = (data.bodyHtml.match(/\[\[PRODUCT\|[^\]]*\]\]/g) || []).length;
-            out.innerHTML = `
-                <div style="background:#f6fff6;border:1px solid #cfe6d3;border-radius:8px;padding:12px;">
-                    <div style="font-weight:700;margin-bottom:6px;">✅ Blog written</div>
-                    <div style="font-size:13px;color:#555;margin-bottom:8px;">
-                        ${imgs.length} image spot${imgs.length===1?'':'s'} · ${prods} product spot${prods===1?'':'s'}
-                        ${data.authority && data.authority.url ? ' · authority link found' : ' · no authority link'}
-                        ${data.youtube && data.youtube.link ? ' · video found' : ' · no video'}
-                    </div>
-                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-                        <button onclick="copyDraft(${index})" style="background:#1a1a1a;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">📋 Copy body HTML</button>
-                        <button onclick="toggleDraftPreview(${index})" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;border-radius:6px;padding:8px 14px;font-weight:600;cursor:pointer;">👁 Show / hide preview</button>
-                    </div>
-                    <div id="draft-prev-${index}" style="display:none;background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:14px;max-height:460px;overflow:auto;"></div>
-                </div>`;
-            // Render a readable preview (markers shown as neat labels).
-            const prev = document.getElementById(`draft-prev-${index}`);
-            if (prev) prev.innerHTML = previewHtml(data.bodyHtml);
+            const body = `
+                <div style="font-size:13px;color:#555;margin-bottom:10px;">
+                    ${imgs.length} image spot${imgs.length===1?'':'s'} · ${prods} product spot${prods===1?'':'s'}
+                    ${data.authority && data.authority.url ? ' · authority link found' : ' · no authority link'}
+                    ${data.youtube && data.youtube.link ? ' · video found' : ' · no video'}
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+                    <button onclick="copyDraft(${index})" style="background:#1a1a1a;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">📋 Copy body HTML</button>
+                    <button onclick="toggleDraftPreview(${index})" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;border-radius:6px;padding:8px 14px;font-weight:600;cursor:pointer;">👁 Show / hide preview</button>
+                </div>
+                <div id="draft-prev-${index}" class="blog-prev" style="background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:16px 18px;max-height:520px;overflow:auto;">${previewHtml(data.bodyHtml)}</div>`;
+            out.innerHTML = panel('✍️ Written blog', body, true);
         }
 
         // Pull the image markers [[IMG|filename|alt|ratio|kind]] out of the body.
@@ -1142,26 +1204,40 @@
         // ============================================
         function getImagePrompts(index) {
             const idea = allIdeas.find(i => i.index === index);
-            const d = window._drafts[index];
-            const out = document.getElementById(`write-${index}`);
+            const d = window._drafts[index] || (window._draftsByTitle && window._draftsByTitle[(idea && idea.currentTitle || '').toLowerCase()]);
+            const out = document.getElementById(`imgp-${index}`);
             if (!d) { if (out) out.innerHTML = '<span style="color:#a33;">Write the blog first, then get the image prompts.</span>'; return; }
             const featuredBase = d.featuredBase || 'blog';
             const imgs = parseImageMarkers(d.bodyHtml);
 
-            const STYLE = 'Editorial magazine interior photography, full bleed, calm muted palette, wall art as the focal point, Scandi-minimal / Japandi styling unless the scene says otherwise. Natural soft light. No text overlay on photos.';
-            const INFO  = 'Clean infographic: plain white background, black text, simple icons, no big empty top or bottom margins.';
+            const STYLE = 'Photoreal editorial interior photography, full bleed, calm muted palette, wall art as the focal point, Scandi-minimal / Japandi styling unless the scene says otherwise. Natural soft light. No text, logos or watermarks.';
+            const PEOPLE = 'Include real people in the scene, natural candid poses. Do NOT depict gay, lesbian or transgender couples.';
+            const INFO  = 'Clean minimal infographic, plain WHITE background, all text solid BLACK, simple icons. NO people. No big empty top or bottom margins.';
+            // Rotate the cast so the people vary across the blog — mix of gender and ethnicity, not always white.
+            const CAST = [
+                'a woman in her 30s, East Asian',
+                'a man in his 40s, Black',
+                'a couple — a man and a woman, White',
+                'a young woman, South Asian',
+                'a middle-aged man, Middle Eastern',
+                'two female friends, mixed ethnicities',
+                'a mother and young child, Hispanic',
+                'an older couple, White',
+                'a man in his 30s, South East Asian',
+                'a woman in her 50s, Black'
+            ];
 
-            // Featured = 5 square options.
+            // Featured = 5 square options, each with a person, varied.
             const featuredPrompts = [];
             for (let i = 1; i <= 5; i++) {
-                featuredPrompts.push(`${String(i).padStart(2,'0')}. [1:1] ${STYLE} Hero image for a blog titled "${idea.currentTitle}". Variation ${i}: a different composition of the same idea. SAVE this image named "${featuredBase}-featured-option${i}".`);
+                featuredPrompts.push(`${String(i).padStart(2,'0')}. [1:1] ${STYLE} ${PEOPLE} Feature ${CAST[(i - 1) % CAST.length]}. Hero image for a blog titled "${idea.currentTitle}". Variation ${i}: a different composition of the same idea. SAVE this image named "${featuredBase}-featured-option${i}".`);
             }
-            // Body images continue the numbering.
+            // Body images continue the numbering. Photos get people (varied); infographics do not.
             const bodyPrompts = imgs.map((im, k) => {
                 const n = String(k + 6).padStart(2, '0');
                 const isInfo = /infograph/i.test(im.kind);
-                const look = isInfo ? INFO : STYLE;
-                return `${n}. [${im.ratio || '3:2'}] ${look} Show: ${im.alt}. SAVE this image named "${im.filename}".`;
+                if (isInfo) return `${n}. [${im.ratio || '3:2'}] ${INFO} Show: ${im.alt}. SAVE this image named "${im.filename}".`;
+                return `${n}. [${im.ratio || '3:2'}] ${STYLE} ${PEOPLE} Feature ${CAST[(k) % CAST.length]}. Show: ${im.alt}. SAVE this image named "${im.filename}".`;
             });
 
             // Batch everything under 9,500 characters per block.
@@ -1182,11 +1258,8 @@
                     <button onclick="copyText(this.previousElementSibling)" style="margin-top:4px;background:#00796b;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">📋 Copy batch ${bi + 1}</button>
                 </div>`).join('');
 
-            if (out) out.innerHTML = `<div style="background:#f2fbfa;border:1px solid #b6e0da;border-radius:8px;padding:12px;">
-                <div style="font-weight:700;margin-bottom:6px;">🖼️ Image prompts — paste into Shopify's AI, one batch at a time</div>
-                <div style="font-size:12px;color:#666;margin-bottom:8px;">Featured picture has 5 options — you'll pick one later. Save every image with the exact name shown so the tool can fetch them.</div>
-                ${boxes}
-            </div>`;
+            const inner = `<div style="font-size:12px;color:#666;margin-bottom:8px;">Featured picture has 5 options — you'll pick one later. Save every image with the exact name shown so the tool can fetch them.</div>${boxes}`;
+            if (out) out.innerHTML = panel('🖼️ Image prompts — paste into Shopify\'s AI, one batch at a time', inner, true);
         }
 
         function copyText(el) {
@@ -1700,7 +1773,7 @@
                 window._briefsByTitle = window._briefsByTitle || {};
                 window._briefs[index] = { brief: data.brief, keyword: kw };
                 if (title) window._briefsByTitle[title.toLowerCase()] = { brief: data.brief, keyword: kw };
-                out.innerHTML = renderBrief(index, data);
+                out.innerHTML = panel('📋 Competitor brief', renderBrief(index, data), true);
                 // Save it so it survives reload + works across days (no need to re-run).
                 fetch('/api/blogs', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
