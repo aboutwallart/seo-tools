@@ -271,7 +271,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v3.5 - 2026-07-24</p>
+        <p class="version">v3.6 - 2026-07-24</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -324,14 +324,15 @@
             </div>
 
             <div style="background:#f4f8ff;border:1px solid #cfe0ff;border-radius:10px;padding:14px;margin-bottom:16px;">
-                <div style="font-weight:700;margin-bottom:8px;">🎯 Plan this month</div>
+                <div style="font-weight:700;margin-bottom:8px;">🎯 Plan a month</div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                    <button id="clean-kw-btn" onclick="cleanAllKeywords()" style="background:#6a1b9a;color:#fff;border:none;border-radius:6px;padding:10px 16px;font-weight:700;cursor:pointer;">🧹 Clean all keywords</button>
-                    <button onclick="autoPick30()" style="background:#1565c0;color:#fff;border:none;border-radius:6px;padding:10px 16px;font-weight:700;cursor:pointer;">Auto-pick 30 (spread)</button>
-                    <button onclick="makeUbersuggestMessage()" style="background:#111;color:#fff;border:none;border-radius:6px;padding:10px 16px;font-weight:700;cursor:pointer;">📋 Make Ubersuggest message</button>
+                    <select id="plan-month" style="padding:9px;border:1px solid #ccc;border-radius:6px;font-size:14px;"></select>
+                    <select id="plan-year" style="padding:9px;border:1px solid #ccc;border-radius:6px;font-size:14px;"></select>
+                    <button onclick="autoPickMonth()" style="background:#1565c0;color:#fff;border:none;border-radius:6px;padding:10px 16px;font-weight:700;cursor:pointer;">Auto-pick for this month</button>
+                    <button onclick="assignSelectedToMonth()" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:10px 16px;font-weight:700;cursor:pointer;">Save selection to month</button>
                     <span id="monthly-note" style="color:#666;font-size:13px;"></span>
                 </div>
-                <div id="clean-kw-note" style="margin-top:8px;color:#666;font-size:13px;"></div>
+                <div style="margin-top:6px;color:#888;font-size:12px;">Picks the right number for the month (days in it), seasonal topics matched, spread by room/style. Then process each one — start with its Competitor check.</div>
             </div>
 
             <div class="filter-bar" style="margin-bottom:14px;">
@@ -604,6 +605,7 @@
                         conflictingKeyword: row['CONFLICTING KEYWORD'] || '',
                         conflictingUrl: row['CONFLICTING BLOG URL'] || '',
                         clashIntent: row['CLASH INTENT'] || '',
+                        month: row['MONTH'] || '',
                         currentTitle: row['Blog Post Title'] || '',
                         currentKeyword: row['Keyword'] || '',
                         status: status
@@ -619,6 +621,7 @@
                 document.getElementById('stats').innerHTML = `<strong>Loaded:</strong> ${allIdeas.length} blog ideas`;
 
                 document.getElementById('filter-bar').style.display = 'flex';
+                populateMonthYear();
                 updateTabCounts();
                 refreshAll();
 
@@ -820,10 +823,13 @@
                     checkboxHTML = `<input type="checkbox" class="ts-checkbox card-checkbox" id="ts-cb-${index}" onchange="toggleToSend(${index})">`;
                     const saveText  = idea.status === 'TO_WRITE' ? '✅ Saved to registry' : '⏳ Not saved yet';
                     const saveClass = idea.status === 'TO_WRITE' ? 'saving-indicator' : 'saving-indicator pending';
+                    const monthTag = idea.month ? `<span style="background:#e8f0fe;color:#1565c0;font-size:12px;font-weight:700;padding:2px 8px;border-radius:10px;">📅 ${idea.month}</span>` : '';
                     actionsHTML = `
                         <button class="btn-mark marked" disabled>✓ To Write Blog</button>
                         <button class="btn-undo" onclick="undoWriting(${index})">↩ Undo</button>
+                        <button style="background:#6a1b9a;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;" id="comp-btn-${index}" onclick="runCompetitorCheck(${index})">🔍 Competitor check</button>
                         <button class="btn-send-sheet" id="sheet-btn-${index}" onclick="sendToSheet(${index})">📤 Send to Google Sheet</button>
+                        ${monthTag}
                         <span class="${saveClass}" id="save-status-${index}">${saveText}</span>
                     `;
                 }
@@ -887,6 +893,10 @@
                 </div>
             ` : '';
 
+            // Competitor-brief container — only on unsent To Write cards.
+            const compHTML = (tab === 'towrite' && idea.status !== 'TO_WRITE_SENT')
+                ? `<div id="comp-${index}" style="margin-top:12px;font-size:14px;"></div>` : '';
+
             // To Write cards are already approved — show them neutral (no conflict colour/badge).
             // Sent-to-sheet ones stay grey to mark them done. Ignored = grey.
             let cardColorClass;
@@ -907,6 +917,7 @@
                     <div class="title">${idea.currentTitle}</div>
                     <div class="perspective">${idea.perspective}</div>`}
                     <div class="card-actions">${actionsHTML}</div>
+                    ${compHTML}
                     ${manualFormHTML}
                 </div>
             `;
@@ -1468,108 +1479,142 @@
             while (added) { added = false; for (const l of lists) { if (l.length) { out.push(l.shift()); added = true; } } }
             return out;
         }
-        // LIGHT PASS — derive the real keyword on every To Write card (no clash check). Batched, one save.
-        async function cleanAllKeywords() {
-            const cards = allIdeas.filter(i => i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING');
-            if (!cards.length) { alert('No To Write cards to clean.'); return; }
-            if (!confirm(`Clean the real keyword on all ${cards.length} To Write cards? Uses the AI once (the cheap job — no clash check).`)) return;
-            const btn = document.getElementById('clean-kw-btn');
-            const note = document.getElementById('clean-kw-note');
-            btn.disabled = true;
-            const BATCH = 20;
-            const all = [];
-            let doneCount = 0;
-            const saveAll = async () => {
-                if (!all.length) return 0;
-                const res = await fetch('/api/blogs', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'save-keywords', rows: all })
-                });
-                const data = await res.json();
-                if (!data.success) throw new Error(data.error || 'Save failed');
-                all.forEach(r => { const idea = allIdeas.find(i => (i.title || '').toLowerCase() === (r.title || '').toLowerCase()); if (idea && r.keyword) { idea.keyword = r.keyword; idea.currentKeyword = r.keyword; } });
-                return data.updated;
-            };
-            try {
-                for (let i = 0; i < cards.length; i += BATCH) {
-                    const chunk = cards.slice(i, i + BATCH);
-                    btn.textContent = `🔄 Cleaning ${Math.min(i + BATCH, cards.length)}/${cards.length}…`;
-                    note.textContent = `Cleaning keywords… ${doneCount}/${cards.length} done`;
-                    const res = await fetch('/api/blogs', {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'clean-keywords', titles: chunk.map(c => c.title) })
-                    });
-                    const data = await res.json();
-                    if (!data.success) throw new Error(data.error || 'Clean failed');
-                    data.results.forEach(r => all.push(r));
-                    doneCount += chunk.length;
-                }
-                const saved = await saveAll();
-                refreshAll();
-                note.textContent = `✅ Cleaned ${saved} keywords. Now Auto-pick 30, then make the Ubersuggest message.`;
-            } catch (e) {
-                // Save whatever we already cleaned so the progress isn't lost
-                try { const saved = await saveAll(); refreshAll(); note.textContent = `⚠️ Stopped at ${doneCount}/${cards.length} (saved ${saved}). ${e.message}. Press again to continue.`; }
-                catch (e2) { note.textContent = '❌ ' + e.message; }
-            } finally {
-                btn.disabled = false; btn.textContent = '🧹 Clean all keywords';
-            }
+        // Seasonal matching — keyword → which month numbers it belongs to (grounded in marketing-occasions).
+        const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+        const SEASON = {
+            'christmas':[12],'festive':[12],'xmas':[12],'advent':[12],'santa':[12],
+            'new year':[1,12],'hygge':[12,1,2],'winter':[12,1,2],
+            "valentine":[2],'galentine':[2],'romantic':[2],'lunar new year':[2],
+            'spring':[3,4],'mother':[3],'easter':[4],'earth day':[4],
+            'summer':[6,7,8],'coastal':[6,7,8],'beach':[6,7,8],'nautical':[6,7,8],'tropical':[6,7,8],'father':[6],
+            'autumn':[9,10,11],'fall ':[9,10,11],'back to school':[9],'halloween':[10],'spooky':[10],'pumpkin':[10],
+            'black friday':[11],'cyber monday':[11],
+            'housewarming':[5],'moving':[5]
+        };
+        function seasonalMonths(title) {
+            const t = ' ' + (title || '').toLowerCase() + ' ';
+            const set = new Set();
+            for (const k in SEASON) { if (t.includes(k)) SEASON[k].forEach(m => set.add(m)); }
+            return [...set];
+        }
+        function daysInMonth(year, month) { return new Date(year, month, 0).getDate(); } // month 1-12
+
+        // Fill the month + year dropdowns (default = next month).
+        function populateMonthYear() {
+            const mSel = document.getElementById('plan-month');
+            const ySel = document.getElementById('plan-year');
+            if (!mSel || !ySel || mSel.options.length) return;
+            const now = new Date();
+            let defMonth = now.getMonth() + 2; let defYear = now.getFullYear();
+            if (defMonth > 12) { defMonth -= 12; defYear += 1; }
+            MONTH_NAMES.forEach((n, i) => { const o = document.createElement('option'); o.value = i + 1; o.textContent = n; if (i + 1 === defMonth) o.selected = true; mSel.appendChild(o); });
+            for (let y = now.getFullYear(); y <= now.getFullYear() + 2; y++) { const o = document.createElement('option'); o.value = y; o.textContent = y; if (y === defYear) o.selected = true; ySel.appendChild(o); }
         }
 
-        function autoPick30() {
-            const items = allIdeas.filter(i => i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING');
-            if (!items.length) { alert('No blogs in To Write yet.'); return; }
-            const ordered = diversityOrder(items);
-            const pick = ordered.slice(0, 30);
+        // Auto-pick the right number for the chosen month: seasonal-for-this-month first, then evergreen, spread.
+        function autoPickMonth() {
+            const month = parseInt(document.getElementById('plan-month').value, 10);
+            const year = parseInt(document.getElementById('plan-year').value, 10);
+            const monthStr = `${year}-${String(month).padStart(2, '0')}`;
+            const count = daysInMonth(year, month);
+            // Eligible = To Write, not already tagged to a DIFFERENT month.
+            const pool = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && (!i.month || i.month === monthStr));
+            if (!pool.length) { alert('No available To Write blogs to plan.'); return; }
+            const seasonalThis = [], evergreen = [];
+            pool.forEach(i => {
+                const sm = seasonalMonths(i.title);
+                if (sm.length === 0) evergreen.push(i);           // evergreen — any month
+                else if (sm.includes(month)) seasonalThis.push(i); // in season for this month
+                // else: off-season → skipped for this month
+            });
+            const ordered = [...diversityOrder(seasonalThis), ...diversityOrder(evergreen)];
+            const pick = ordered.slice(0, count);
             selectedToSend = new Set(pick.map(i => i.index));
             window._monthlyOrder = ordered.map(i => i.index);
             displayToWrite();
-            document.getElementById('monthly-note').textContent = `${pick.length} picked, spread across rooms & styles. Untick or tick any to adjust.`;
+            const seasonalUsed = pick.filter(i => seasonalMonths(i.title).includes(month)).length;
+            document.getElementById('monthly-note').textContent = `${pick.length} picked for ${MONTH_NAMES[month - 1]} ${year} (${count} days${seasonalUsed ? `, ${seasonalUsed} seasonal` : ''}). Adjust ticks, then Save selection to month.`;
         }
 
-        function makeUbersuggestMessage() {
+        // Save the currently-ticked blogs to the chosen month (persists a MONTH tag).
+        async function assignSelectedToMonth() {
+            const month = parseInt(document.getElementById('plan-month').value, 10);
+            const year = parseInt(document.getElementById('plan-year').value, 10);
+            const monthStr = `${year}-${String(month).padStart(2, '0')}`;
             const picked = allIdeas.filter(i => selectedToSend.has(i.index));
-            if (!picked.length) { alert('Pick some blogs first — Auto-pick 30, or tick them.'); return; }
-            const kws = picked.map(i => i.keyword || i.currentKeyword || i.title).filter(Boolean);
-            const list = kws.map((k, n) => `${n + 1}. ${k}`).join('\n');
-            const msg = `Using Ubersuggest, give the UK search volume and SEO difficulty for each keyword below. If a clearly stronger related keyword exists (more volume, similar or lower difficulty), add it too. Return one per line EXACTLY as: keyword | volume | difficulty\n\n${list}`;
-            document.getElementById('uber-prompt').value = msg;
-            document.getElementById('uber-paste').value = '';
-            document.getElementById('uber-result').innerHTML = '';
-            document.getElementById('uber-modal').style.display = 'block';
+            if (!picked.length) { alert('Nothing selected. Auto-pick or tick blogs first.'); return; }
+            const note = document.getElementById('monthly-note');
+            note.textContent = '💾 Saving…';
+            try {
+                const res = await fetch('/api/blogs', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'save-month', titles: picked.map(i => i.title), month: monthStr })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Save failed');
+                picked.forEach(i => { i.month = monthStr; });
+                note.textContent = `✅ ${data.updated} blogs assigned to ${MONTH_NAMES[month - 1]} ${year}. Now process each — start with its Competitor check.`;
+            } catch (e) { note.textContent = '❌ ' + e.message; }
         }
-        function copyUber() {
-            const v = document.getElementById('uber-prompt').value;
-            if (navigator.clipboard) { navigator.clipboard.writeText(v); }
-            else { const t = document.getElementById('uber-prompt'); t.select(); document.execCommand('copy'); }
+
+        // ── COMPETITOR CHECK (per blog) ──
+        // Open the keyword editor for this card (focus keyword editable before running).
+        function runCompetitorCheck(index) {
+            const idea = allIdeas.find(i => i.index === index);
+            if (!idea) return;
+            const kw = idea.keyword || idea.currentKeyword || idea.title || '';
+            const el = document.getElementById(`comp-${index}`);
+            el.innerHTML = `<div style="background:#faf5ff;border:1px solid #e5d5f5;border-radius:8px;padding:12px;">
+                <div style="font-size:13px;color:#555;margin-bottom:6px;">Focus keyword (edit if wrong):</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <input type="text" id="comp-kw-${index}" value="${escHtml(kw).replace(/"/g,'&quot;')}" style="flex:1;min-width:220px;padding:9px;border:1px solid #ccc;border-radius:6px;font-size:14px;">
+                    <button id="comp-run-${index}" onclick="doCompetitorCheck(${index})" style="background:#6a1b9a;color:#fff;border:none;border-radius:6px;padding:9px 16px;font-weight:700;cursor:pointer;">Run check</button>
+                </div>
+                <div id="comp-out-${index}" style="margin-top:10px;"></div>
+            </div>`;
         }
-        function importUbersuggest() {
-            const raw = document.getElementById('uber-paste').value || '';
-            const metrics = {};
-            raw.split('\n').forEach(line => {
-                const parts = line.split('|').map(s => s.trim());
-                if (parts.length >= 3) {
-                    const kw = parts[0].replace(/^\d+\.\s*/, '').toLowerCase();
-                    const vol = parseInt(parts[1].replace(/[^0-9]/g, ''), 10);
-                    const diff = parseInt(parts[2].replace(/[^0-9]/g, ''), 10);
-                    if (kw) metrics[kw] = { vol: isNaN(vol) ? null : vol, diff: isNaN(diff) ? null : diff };
-                }
-            });
-            const outEl = document.getElementById('uber-result');
-            if (!Object.keys(metrics).length) { outEl.innerHTML = '<span style="color:#a33;">Could not read any lines. Use: keyword | volume | difficulty</span>'; return; }
-            window._metrics = metrics;
-            const picked = allIdeas.filter(i => selectedToSend.has(i.index));
-            const scored = picked.map(i => { const m = metrics[(i.keyword || i.currentKeyword || i.title || '').toLowerCase()] || {}; return { i, vol: m.vol, diff: m.diff }; });
-            scored.sort((a, b) => {
-                const da = a.diff == null ? 999 : a.diff, db = b.diff == null ? 999 : b.diff;
-                if (da !== db) return da - db;
-                const va = a.vol == null ? -1 : a.vol, vb = b.vol == null ? -1 : b.vol;
-                return vb - va;
-            });
-            window._monthlyOrder = scored.map(s => s.i.index);
-            displayToWrite();
-            const rows = scored.map((s, n) => `<div style="padding:6px 0;border-bottom:1px solid #eee;">${n + 1}. <strong>${escHtml(s.i.keyword || s.i.title)}</strong> — vol ${s.vol == null ? '?' : s.vol} · diff ${s.diff == null ? '?' : s.diff}</div>`).join('');
-            outEl.innerHTML = `<div style="margin:8px 0;">Ranked easiest-to-win first (your To Write list is now in this order):</div>${rows}`;
+        async function doCompetitorCheck(index, manualUrls) {
+            const kw = (document.getElementById(`comp-kw-${index}`).value || '').trim();
+            const out = document.getElementById(`comp-out-${index}`);
+            const runBtn = document.getElementById(`comp-run-${index}`);
+            if (!manualUrls && !kw) { out.innerHTML = '<span style="color:#a33;">Enter a keyword first.</span>'; return; }
+            if (runBtn) { runBtn.disabled = true; runBtn.textContent = 'Checking…'; }
+            out.innerHTML = '🔄 Looking at the top-ranking pages…';
+            try {
+                const body = manualUrls ? { action: 'competitor-check', keyword: kw, manualUrls } : { action: 'competitor-check', keyword: kw };
+                const res = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                const data = await res.json();
+                if (data.outOfCredits) { document.getElementById('ooc-modal').style.display = 'block'; out.innerHTML = '<span style="color:#a33;">Out of SerpAPI credits.</span>'; return; }
+                if (data.needsManual) { out.innerHTML = manualUrlsForm(index); return; }
+                if (!data.success) { out.innerHTML = '<span style="color:#a33;">❌ ' + escHtml(data.error || 'Check failed') + '</span>'; return; }
+                out.innerHTML = renderBrief(index, data);
+            } catch (e) {
+                out.innerHTML = '<span style="color:#a33;">❌ ' + escHtml(e.message) + '</span>';
+            } finally {
+                if (runBtn) { runBtn.disabled = false; runBtn.textContent = 'Run check'; }
+            }
+        }
+        function manualUrlsForm(index) {
+            return `<div style="background:#fff;border:1px solid #ddd;border-radius:8px;padding:10px;">
+                <div style="font-size:13px;color:#a33;margin-bottom:6px;">No results from Google — paste the top 3 competitor URLs:</div>
+                <input type="text" id="cu1-${index}" placeholder="https://competitor1…" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;margin-bottom:6px;">
+                <input type="text" id="cu2-${index}" placeholder="https://competitor2…" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;margin-bottom:6px;">
+                <input type="text" id="cu3-${index}" placeholder="https://competitor3…" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;margin-bottom:8px;">
+                <button onclick="doCompetitorCheck(${index}, [document.getElementById('cu1-${index}').value, document.getElementById('cu2-${index}').value, document.getElementById('cu3-${index}').value].filter(Boolean))" style="background:#6a1b9a;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">Check these URLs</button>
+            </div>`;
+        }
+        function renderBrief(index, data) {
+            const b = data.brief || {};
+            const list = (arr) => (arr && arr.length) ? '<ul style="margin:4px 0 0;padding-left:18px;">' + arr.map(x => `<li>${escHtml(x)}</li>`).join('') + '</ul>' : ' —';
+            const comps = (data.competitors || []).map((c, i) => `<div style="font-size:12px;color:#555;">${i + 1}. <a href="${escHtml(c.url)}" target="_blank" rel="noopener">${escHtml(c.title || c.url)}</a> · ~${c.words || 0} words</div>`).join('');
+            return `<div style="background:#eef7ee;border:1px solid #cfe6d3;border-radius:8px;padding:12px;">
+                <div style="font-weight:700;margin-bottom:6px;">📋 Brief to beat the top pages</div>
+                <div style="font-size:14px;margin-bottom:4px;">Target length: <strong>${b.wordTarget || '?'} words</strong> · FAQ questions: <strong>${b.faqCount || '?'}</strong></div>
+                ${b.angle ? `<div style="font-size:14px;margin-bottom:6px;">Angle: <em>${escHtml(b.angle)}</em></div>` : ''}
+                <div style="font-size:14px;">Must cover:${list(b.mustCover)}</div>
+                <div style="font-size:14px;margin-top:6px;">Gaps to win on:${list(b.gaps)}</div>
+                <div style="margin-top:8px;">${comps}</div>
+            </div>`;
         }
 
         // ============================================
@@ -1590,19 +1635,12 @@
         </div>
     </div>
 
-    <div id="uber-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;overflow:auto;padding:30px 16px;">
-        <div style="background:#fff;max-width:760px;margin:0 auto;border-radius:12px;padding:22px;">
-            <h3 style="margin:0 0 4px;">Ubersuggest message</h3>
-            <p style="margin:0 0 10px;color:#666;font-size:13px;">1. Copy this. 2. Paste it to Claude with Ubersuggest. 3. Paste the answer back below.</p>
-            <textarea id="uber-prompt" readonly style="width:100%;height:150px;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:13px;font-family:monospace;"></textarea>
-            <div style="margin:8px 0 18px;"><button onclick="copyUber()" style="background:#111;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">Copy message</button></div>
-            <p style="margin:0 0 6px;color:#666;font-size:13px;">Paste Ubersuggest's answer here:</p>
-            <textarea id="uber-paste" placeholder="keyword | volume | difficulty" style="width:100%;height:120px;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:13px;font-family:monospace;"></textarea>
-            <div style="margin-top:14px;display:flex;gap:10px;">
-                <button onclick="importUbersuggest()" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:10px 18px;font-weight:700;cursor:pointer;">Import + rank easiest first</button>
-                <button onclick="document.getElementById('uber-modal').style.display='none'" style="background:#eee;border:none;border-radius:6px;padding:10px 18px;cursor:pointer;">Close</button>
-            </div>
-            <div id="uber-result" style="margin-top:10px;font-size:13px;"></div>
+    <div id="ooc-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;overflow:auto;padding:30px 16px;">
+        <div style="background:#fff;max-width:460px;margin:8% auto 0;border-radius:12px;padding:24px;text-align:center;">
+            <div style="font-size:34px;margin-bottom:8px;">🛑</div>
+            <h3 style="margin:0 0 8px;">Out of SerpAPI credits</h3>
+            <p style="margin:0 0 16px;color:#555;font-size:14px;">Your SerpAPI search allowance is used up, so the competitor check can't run. Top up SerpAPI, or paste 3 competitor URLs manually on the card.</p>
+            <button onclick="document.getElementById('ooc-modal').style.display='none'" style="background:#111;color:#fff;border:none;border-radius:6px;padding:10px 20px;font-weight:700;cursor:pointer;">OK</button>
         </div>
     </div>
 </body>
