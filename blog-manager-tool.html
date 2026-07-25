@@ -271,7 +271,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v3.4 - 2026-07-24</p>
+        <p class="version">v3.5 - 2026-07-24</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -326,10 +326,12 @@
             <div style="background:#f4f8ff;border:1px solid #cfe0ff;border-radius:10px;padding:14px;margin-bottom:16px;">
                 <div style="font-weight:700;margin-bottom:8px;">🎯 Plan this month</div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                    <button id="clean-kw-btn" onclick="cleanAllKeywords()" style="background:#6a1b9a;color:#fff;border:none;border-radius:6px;padding:10px 16px;font-weight:700;cursor:pointer;">🧹 Clean all keywords</button>
                     <button onclick="autoPick30()" style="background:#1565c0;color:#fff;border:none;border-radius:6px;padding:10px 16px;font-weight:700;cursor:pointer;">Auto-pick 30 (spread)</button>
                     <button onclick="makeUbersuggestMessage()" style="background:#111;color:#fff;border:none;border-radius:6px;padding:10px 16px;font-weight:700;cursor:pointer;">📋 Make Ubersuggest message</button>
                     <span id="monthly-note" style="color:#666;font-size:13px;"></span>
                 </div>
+                <div id="clean-kw-note" style="margin-top:8px;color:#666;font-size:13px;"></div>
             </div>
 
             <div class="filter-bar" style="margin-bottom:14px;">
@@ -1466,6 +1468,54 @@
             while (added) { added = false; for (const l of lists) { if (l.length) { out.push(l.shift()); added = true; } } }
             return out;
         }
+        // LIGHT PASS — derive the real keyword on every To Write card (no clash check). Batched, one save.
+        async function cleanAllKeywords() {
+            const cards = allIdeas.filter(i => i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING');
+            if (!cards.length) { alert('No To Write cards to clean.'); return; }
+            if (!confirm(`Clean the real keyword on all ${cards.length} To Write cards? Uses the AI once (the cheap job — no clash check).`)) return;
+            const btn = document.getElementById('clean-kw-btn');
+            const note = document.getElementById('clean-kw-note');
+            btn.disabled = true;
+            const BATCH = 20;
+            const all = [];
+            let doneCount = 0;
+            const saveAll = async () => {
+                if (!all.length) return 0;
+                const res = await fetch('/api/blogs', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'save-keywords', rows: all })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Save failed');
+                all.forEach(r => { const idea = allIdeas.find(i => (i.title || '').toLowerCase() === (r.title || '').toLowerCase()); if (idea && r.keyword) { idea.keyword = r.keyword; idea.currentKeyword = r.keyword; } });
+                return data.updated;
+            };
+            try {
+                for (let i = 0; i < cards.length; i += BATCH) {
+                    const chunk = cards.slice(i, i + BATCH);
+                    btn.textContent = `🔄 Cleaning ${Math.min(i + BATCH, cards.length)}/${cards.length}…`;
+                    note.textContent = `Cleaning keywords… ${doneCount}/${cards.length} done`;
+                    const res = await fetch('/api/blogs', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'clean-keywords', titles: chunk.map(c => c.title) })
+                    });
+                    const data = await res.json();
+                    if (!data.success) throw new Error(data.error || 'Clean failed');
+                    data.results.forEach(r => all.push(r));
+                    doneCount += chunk.length;
+                }
+                const saved = await saveAll();
+                refreshAll();
+                note.textContent = `✅ Cleaned ${saved} keywords. Now Auto-pick 30, then make the Ubersuggest message.`;
+            } catch (e) {
+                // Save whatever we already cleaned so the progress isn't lost
+                try { const saved = await saveAll(); refreshAll(); note.textContent = `⚠️ Stopped at ${doneCount}/${cards.length} (saved ${saved}). ${e.message}. Press again to continue.`; }
+                catch (e2) { note.textContent = '❌ ' + e.message; }
+            } finally {
+                btn.disabled = false; btn.textContent = '🧹 Clean all keywords';
+            }
+        }
+
         function autoPick30() {
             const items = allIdeas.filter(i => i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING');
             if (!items.length) { alert('No blogs in To Write yet.'); return; }
