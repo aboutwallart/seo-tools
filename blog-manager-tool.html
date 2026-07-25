@@ -267,7 +267,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v4.2 - 2026-07-25 — spaced draft, saved drafts, collapsible sections, richer images, human voice</p>
+        <p class="version">v4.3 - 2026-07-25 — AI-written image prompts + real hero, body length fix, no cut-off</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1163,13 +1163,13 @@
             out.innerHTML = panel('✍️ Written blog', body, true);
         }
 
-        // Pull the image markers [[IMG|filename|alt|ratio|kind]] out of the body.
+        // Pull the image markers [[IMG|filename|ratio|kind|full prompt]] out of the body.
         function parseImageMarkers(html) {
             const out = [];
-            const re = /\[\[IMG\|([^|]*)\|([^|]*)\|([^|]*)\|([^\]]*)\]\]/g;
+            const re = /\[\[IMG\|([^|]*)\|([^|]*)\|([^|]*)\|([\s\S]*?)\]\]/g;
             let m;
             while ((m = re.exec(html)) !== null) {
-                out.push({ filename: (m[1]||'').trim(), alt: (m[2]||'').trim(), ratio: (m[3]||'').trim() || '3:2', kind: (m[4]||'').trim() || 'photo' });
+                out.push({ filename: (m[1]||'').trim(), ratio: (m[2]||'').trim() || '3:2', kind: (m[3]||'').trim() || 'photo', prompt: (m[4]||'').trim() });
             }
             return out;
         }
@@ -1177,7 +1177,7 @@
         // Show markers as coloured labels so Mae can read where images + products will go.
         function previewHtml(html) {
             return html
-                .replace(/\[\[IMG\|([^|]*)\|([^|]*)\|([^|]*)\|([^\]]*)\]\]/g, (m,f,a,r,k)=>`<div style="background:#eef4ff;border:1px dashed #7aa7ff;border-radius:6px;padding:8px;margin:8px 0;font-size:13px;color:#1a3b7a;">🖼️ ${escHtml(k)} (${escHtml(r)}) — <strong>${escHtml(f)}</strong><br>alt: ${escHtml(a)}</div>`)
+                .replace(/\[\[IMG\|([^|]*)\|([^|]*)\|([^|]*)\|([\s\S]*?)\]\]/g, (m,f,r,k,p)=>`<div style="background:#eef4ff;border:1px dashed #7aa7ff;border-radius:6px;padding:8px;margin:8px 0;font-size:13px;color:#1a3b7a;">🖼️ ${escHtml(k)} (${escHtml(r)}) — <strong>${escHtml(f)}</strong><br>${escHtml((p||'').slice(0,160))}${(p||'').length>160?'…':''}</div>`)
                 .replace(/\[\[PRODUCT\|([^\]]*)\]\]/g, (m,t)=>`<div style="background:#f0fff0;border:1px dashed #67b26a;border-radius:6px;padding:8px;margin:8px 0;font-size:13px;color:#1e5e21;">🛒 Product spot — ${escHtml(t)}</div>`);
         }
 
@@ -1209,35 +1209,17 @@
             if (!d) { if (out) out.innerHTML = '<span style="color:#a33;">Write the blog first, then get the image prompts.</span>'; return; }
             const featuredBase = d.featuredBase || 'blog';
             const imgs = parseImageMarkers(d.bodyHtml);
+            const hero = (d.heroPrompt || '').trim() || `Photoreal editorial interior photography, full bleed, calm muted palette, wall art the focal point, one person in a natural pose. Hero image for a blog titled "${idea.currentTitle}".`;
 
-            const STYLE = 'Photoreal editorial interior photography, full bleed, calm muted palette, wall art as the focal point, Scandi-minimal / Japandi styling unless the scene says otherwise. Natural soft light. No text, logos or watermarks.';
-            const PEOPLE = 'Include real people in the scene, natural candid poses. Do NOT depict gay, lesbian or transgender couples.';
-            const INFO  = 'Clean minimal infographic, plain WHITE background, all text solid BLACK, simple icons. NO people. No big empty top or bottom margins.';
-            // Rotate the cast so the people vary across the blog — mix of gender and ethnicity, not always white.
-            const CAST = [
-                'a woman in her 30s, East Asian',
-                'a man in his 40s, Black',
-                'a couple — a man and a woman, White',
-                'a young woman, South Asian',
-                'a middle-aged man, Middle Eastern',
-                'two female friends, mixed ethnicities',
-                'a mother and young child, Hispanic',
-                'an older couple, White',
-                'a man in his 30s, South East Asian',
-                'a woman in her 50s, Black'
-            ];
-
-            // Featured = 5 square options, each with a person, varied.
+            // Featured = 5 square options — all 5 are variations of the ONE hero scene our AI wrote.
             const featuredPrompts = [];
             for (let i = 1; i <= 5; i++) {
-                featuredPrompts.push(`${String(i).padStart(2,'0')}. [1:1] ${STYLE} ${PEOPLE} Feature ${CAST[(i - 1) % CAST.length]}. Hero image for a blog titled "${idea.currentTitle}". Variation ${i}: a different composition of the same idea. SAVE this image named "${featuredBase}-featured-option${i}".`);
+                featuredPrompts.push(`${String(i).padStart(2,'0')}. [1:1] ${hero} Variation ${i}: the SAME scene, styling and composition — change only the person (or their position). SAVE this image named "${featuredBase}-featured-option${i}".`);
             }
-            // Body images continue the numbering. Photos get people (varied); infographics do not.
+            // Body images continue the numbering — each uses the FULL prompt our AI wrote for that section.
             const bodyPrompts = imgs.map((im, k) => {
                 const n = String(k + 6).padStart(2, '0');
-                const isInfo = /infograph/i.test(im.kind);
-                if (isInfo) return `${n}. [${im.ratio || '3:2'}] ${INFO} Show: ${im.alt}. SAVE this image named "${im.filename}".`;
-                return `${n}. [${im.ratio || '3:2'}] ${STYLE} ${PEOPLE} Feature ${CAST[(k) % CAST.length]}. Show: ${im.alt}. SAVE this image named "${im.filename}".`;
+                return `${n}. [${im.ratio || '3:2'}] ${im.prompt} SAVE this image named "${im.filename}".`;
             });
 
             // Batch everything under 9,500 characters per block.
