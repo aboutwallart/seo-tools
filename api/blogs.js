@@ -2763,7 +2763,10 @@ Return ONLY a JSON array, one object per title in order, exactly:
           try { const vi = await generateVisualInspiration(wbKeyword, wbTitle, ''); trendsHtml = (vi && vi.html) || ''; } catch (e) { /* optional */ }
         }
 
-        const wordTarget = parseInt(brief.wordTarget, 10) || 2200;
+        // The competitor number is the whole-page target; the theme adds ~500 words below the body
+        // (FAQ + summary + related), so the BODY targets that minus 500 — but never under 1,000.
+        const competitorTarget = parseInt(brief.wordTarget, 10) || 2200;
+        const wordTarget = Math.max(1000, competitorTarget - 500);
         const mustCover = Array.isArray(brief.mustCover) ? brief.mustCover.filter(Boolean) : [];
         const gaps = Array.isArray(brief.gaps) ? brief.gaps.filter(Boolean) : [];
         const angle = String(brief.angle || '').trim();
@@ -2782,7 +2785,7 @@ Return ONLY a JSON array, one object per title in order, exactly:
 BLOG TITLE (use as the reader's main question): "${wbTitle}"
 MAIN KEYWORD: "${wbKeyword}"
 ${angle ? `WINNING ANGLE: ${angle}` : ''}
-TARGET LENGTH: about ${wordTarget} words (match or beat this).
+TARGET LENGTH: at least ${wordTarget} words IN THE BODY (this already leaves ~500 words for the FAQ/summary/related sections that render below the body). Match or beat this — never write less.
 ${mustCover.length ? `MUST COVER these topics as H2 sections: ${mustCover.join('; ')}.` : ''}
 ${gaps.length ? `WIN ON these gaps the top pages miss (add as extra H2 sections): ${gaps.join('; ')}.` : ''}
 
@@ -2806,7 +2809,7 @@ EXACT ORDER (follow precisely):
 7. The MAIN body sections — one <h2> per topic from MUST COVER, plus the GAPS as their own sections. EVERY H2 section (main and gap sections alike), in this order:
    a. <h2> heading (SEO-friendly, keyword/topic based).
    b. A direct 2-3 sentence answer paragraph.
-   c. An image marker on its own line — EVERY section gets one: [[IMG|a-short-seo-filename-slug|clear alt text describing a real lifestyle scene for this section|3:2|photo]]  (use "infographic" instead of "photo" where a diagram/checklist/comparison suits — at least 3 sections must be infographics).
+   c. An image marker on its own line — EVERY section gets one, EXACT shape: [[IMG|filename-slug|3:2|photo|FULL PROMPT]] where FULL PROMPT is the complete image instruction YOU write for this section (see IMAGE RULES). Set kind to "photo" or "infographic" per the IMAGE RULES.
    d. Either an <h3> + a <ul> of practical bullets, OR a comparison <table>.
    e. In several sections (not all), a short personal anecdote paragraph (invented but realistic — a client, a room, a fix).
    f. A callout in EXACTLY this grey box (no border, no rounded corners): <div style="background:#f9f9f9;padding:16px 20px;margin-bottom:24px;"><strong>Pro Tip:</strong> ...</div> or the same box with <strong>Real Example:</strong>.
@@ -2819,14 +2822,26 @@ EXACT ORDER (follow precisely):
 HARD RULES:
 - Do NOT write any FAQ / "People Also Ask" / "Frequently Asked Questions" section — questions live elsewhere.
 - Do NOT write a "Key Takeaways" section.
-- EVERY H2 body section gets its own [[IMG|...]] marker. At least 3 of them must be kind "infographic". Include at least ONE <table>.
+- EVERY H2 body section gets its own [[IMG|...]] marker (see IMAGE RULES). Include at least ONE <table>.
 - Place EXACTLY 6 [[PRODUCT|...]] markers total (3 will be About Wall Art products, 3 Collective — chosen later).
 - Keep every paragraph to 2-4 sentences.
 - Use ONLY the exact links given above. Never invent a URL, product, price or fact (anecdotes are the only thing you may invent).
-- Output ONLY the blog body HTML (start at the first <p>). No <html>, <head>, <body>, no markdown fences, no commentary.`;
+- Output ONLY the blog body HTML (start at the first <p>). No <html>, <head>, <body>, no markdown fences, no commentary.
 
-        let bodyHtml = await callClaudeText(bodyPrompt, 8000);
+IMAGE RULES — YOU write the full prompt for every image; the generator only draws exactly what you write:
+- Marker shape: [[IMG|filename-slug|3:2|photo|FULL PROMPT]] (filename = short SEO slug; ratio 3:2 for body images; kind "photo" or "infographic").
+- PHOTO (the default) — the FULL PROMPT begins: "Photoreal editorial interior photography, full bleed, calm muted palette, the wall art the focal point with colours echoing the room, Scandi-minimal / Japandi styling unless this section is about another interior style. Natural soft light, no text, logos or watermarks." THEN describe the EXACT scene for THIS section (the specific room, objects, colours, action named in the text). THEN the people: include real people in natural candid poses, appropriate to the context — a couple (a man and a woman) for bedroom/romantic, a child or baby with a parent for nursery/kids, friends for entertaining, a family including older relatives for festive, a person actively holding/comparing swatches for a colour or material section; otherwise one person. Vary ethnicity genuinely across the blog (a real mix, not always white). Do NOT depict gay, lesbian or transgender couples.
+- INFOGRAPHIC — use kind "infographic" ONLY when the section is genuinely a COMPARISON, before/after, proportion, measurement, steps, or a stats/checklist. NEVER for a plain tip list or a room scene. When it is, the FULL PROMPT must be: "Clean minimal educational infographic, plain WHITE background, photoreal, all text solid BLACK. A short centred title near the top, then a clear VISUAL comparison (two labelled photos side by side, or simple labelled icons/steps), minimal words, generous white space, nothing near the edges. No people, no watermarks." THEN name the exact comparison/steps to show.
+- Aim for about 3 infographics WHERE THEY GENUINELY FIT; if fewer sections truly suit one, that is fine — never mislabel a room scene as an infographic.
+
+HERO IMAGE — at the VERY END, after the closing paragraph, output ONE line exactly: [[HERO|FULL PROMPT]] — one strong square featured scene for this blog (the reader's main situation, wall art the focal point, ONE person, editorial look as above, the keyword idea reflected). This is the ONLY place you describe the hero; it becomes 5 variations later. Write it as a full photo prompt like the PHOTO rule above.`;
+
+        // Bigger ceiling so a long body (every section imaged, a table, 6 products) always finishes.
+        let bodyHtml = await callClaudeText(bodyPrompt, 16000);
         bodyHtml = bodyHtml.replace(/```html\n?/g, '').replace(/```\n?/g, '').trim();
+        // Pull the hero (featured) image prompt out of the body — it's not part of the body.
+        let heroPrompt = '';
+        bodyHtml = bodyHtml.replace(/\[\[HERO\|([\s\S]*?)\]\]/, (m, p) => { heroPrompt = (p || '').trim(); return ''; }).trim();
         // Inject the real trend links into the Visual-Inspiration marker.
         if (trendsHtml) bodyHtml = bodyHtml.replace(/\[\[TRENDS\]\]/g, trendsHtml);
         else bodyHtml = bodyHtml.replace(/\[\[TRENDS\]\]/g, '');
@@ -2841,6 +2856,7 @@ HARD RULES:
           success: true,
           bodyHtml,
           featuredBase,
+          heroPrompt,
           authority: { title: sources.authorityTitle, url: sources.authorityUrl },
           youtube: { title: sources.youtubeTitle, link: sources.youtubeLink }
         });
