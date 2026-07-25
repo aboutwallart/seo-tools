@@ -2475,6 +2475,69 @@ Include 3 to 5 items.`;
         return res.status(200).json({ success: true, updated: done.size, appended });
       }
 
+      // ── ACTION: clean-keywords ── (LIGHT PASS: derive the real keyword only, NO clash check)
+      // Input: { titles: ["...", ...] } — one batch (the frontend loops in batches). Saves NOTHING.
+      if (req.body.action === 'clean-keywords') {
+        const titles = Array.isArray(req.body.titles) ? req.body.titles.map(t => String(t || '').trim()).filter(Boolean) : [];
+        if (!titles.length) return res.status(400).json({ error: 'titles array required' });
+        const titlesBlock = titles.map((t, j) => `T${j + 1}. ${t}`).join('\n');
+        const prompt = `You are an SEO editor for aboutwallart.com (wall art + home decor).
+For EACH blog title below, give the TRUE main keyword a real person types into Google.
+CRUCIAL: keep the QUALIFIER that defines the intent — e.g. "gallery wall WITHOUT NAILS", "biophilic design in SMALL SPACES", "wall art FOR KIDS". Never strip it to the head topic, and NEVER just repeat the long title. 2 to 6 words, UK spelling ("colour", "decor" no accent), lowercase.
+
+TITLES:
+${titlesBlock}
+
+Return ONLY a JSON array, one object per title in order, exactly:
+[{"t":1,"keyword":""}]`;
+        const raw = await callClaudeText(prompt, 2000);
+        const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+        const m = cleaned.match(/\[[\s\S]*\]/);
+        if (!m) throw new Error('Could not read the keyword result');
+        let arr;
+        try { arr = JSON.parse(m[0]); }
+        catch (e) { throw new Error('Keyword result was not in a readable format'); }
+        const results = titles.map((t, j) => {
+          const o = arr.find(x => Number(x.t) === j + 1) || arr[j] || {};
+          return { title: t, keyword: String(o.keyword || '').trim() };
+        });
+        return res.status(200).json({ success: true, results });
+      }
+
+      // ── ACTION: save-keywords ── (writes ONLY the Keyword column — used by the light pass)
+      // Input: { rows: [{ title, keyword }] }. Touches nothing else (no clash/checked columns).
+      if (req.body.action === 'save-keywords') {
+        const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
+        if (!rows.length) return res.status(400).json({ error: 'rows array required' });
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const esc = (c) => {
+          const s = String(c == null ? '' : c);
+          return (s.includes(',') || s.includes('"') || s.includes('\n')) ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+        const norm = (s) => String(s || '').trim().toLowerCase();
+        const byTitle = new Map(rows.filter(r => r.keyword).map(r => [norm(r.title), r]));
+        const done = new Set();
+        const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+        const lines = ideasFile.content.split('\n');
+        const updated = lines.map(line => {
+          const trimmed = line.trim().replace(/\r/g, '');
+          if (!trimmed) return line;
+          const cols = parseCSVLine(trimmed);
+          if (norm(cols[1]) === 'blog post title') return line; // header untouched
+          const key = norm(cols[1]);
+          const r = byTitle.get(key);
+          if (r && !done.has(key)) {
+            cols[0] = r.keyword;
+            done.add(key);
+            return cols.map(esc).join(',');
+          }
+          return line;
+        });
+        const out = updated.join('\n');
+        await updateGitHubFile('data/blog_ideas.csv', out, ideasFile.sha, `Clean keywords (light pass): ${done.size} rows`);
+        return res.status(200).json({ success: true, updated: done.size });
+      }
+
       const { keyword, url, title, perspective, galleryCode, collectionUrl, writeToSheet } = req.body;
       if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
       if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured in environment variables' });
