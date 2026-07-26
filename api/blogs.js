@@ -2790,15 +2790,28 @@ Return ONLY a JSON array, one object per title in order, exactly:
             for (const n of use) { if (seen.has(n.id)) continue; seen.add(n.id); awa.push(toProd(n)); }
           } catch (e) { /* best effort */ }
         }
-        // Collective = choose VARIED types, highest price per type first (not just the first found — Mae's rule).
-        const byType = {};
-        for (const p of coll) { const t = p.productType || 'Other'; if (!byType[t] || p.price > byType[t].price) byType[t] = p; }
-        const topPerType = Object.values(byType).sort((a, b) => b.price - a.price);
-        const topGids = new Set(topPerType.map(p => p.gid));
-        const collRest = coll.filter(p => !topGids.has(p.gid)).sort((a, b) => b.price - a.price);
-        // Keep it small: only a handful to choose from (3 pre-picked + a few alternates), never the whole collection.
-        const collectiveOrdered = [...topPerType, ...collRest].slice(0, 8);
-        return res.status(200).json({ success: true, awa: awa.slice(0, 8), collective: collectiveOrdered });
+        // Match partner items to the blog's NEEDS: topic collection (done above) → the TYPE needed → highest price.
+        // Frontend sends needs: [{ topic, type, keys:[...] }]. We return one product per need, aligned in order.
+        const needs = Array.isArray(req.body.needs) ? req.body.needs : [];
+        const pool = coll.slice().sort((a, b) => b.price - a.price); // highest price first
+        const usedC = new Set();
+        let collectiveByNeed;
+        if (needs.length) {
+          collectiveByNeed = needs.map(nd => {
+            const keys = Array.isArray(nd.keys) ? nd.keys.map(k => String(k).toLowerCase()).filter(Boolean) : [];
+            let p = null;
+            if (keys.length) p = pool.find(x => !usedC.has(x.gid) && keys.some(k => ((x.productType || '') + ' ' + (x.title || '')).toLowerCase().includes(k)));
+            if (!p && !keys.length) p = pool.find(x => !usedC.has(x.gid)); // "choose freely" → best remaining
+            if (p) usedC.add(p.gid);
+            return p || null; // no match for this type → null (frontend shows "add by SKU"), never a wrong type
+          });
+        } else {
+          // no needs sent — a few varied highest-price items as a fallback
+          const byType = {};
+          for (const p of coll) { const t = p.productType || 'Other'; if (!byType[t] || p.price > byType[t].price) byType[t] = p; }
+          collectiveByNeed = Object.values(byType).sort((a, b) => b.price - a.price).slice(0, 4);
+        }
+        return res.status(200).json({ success: true, awa: awa.slice(0, 8), collective: collectiveByNeed });
       }
 
       // ── ACTION: lookup-product ── (Add a product by its print-files SKU, or by product name)
