@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v4.7 - 2026-07-26 — Step 4 Pick products: topic-matched picker, choose any image, Copy image, add by SKU, About Wall Art lifestyle prompts (saved, no re-fetch)</p>
+        <p class="version">v4.8 - 2026-07-26 — Pick products = step 3 (before image prompts); bar layout, big side-by-side images, only 6 shown (3 prints + 3 varied partner items), always finds prints (trend collection + Living Room fallback)</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -939,10 +939,10 @@
                             <div id="comp-${index}" style="font-size:14px;"></div>
                             <button id="write-btn-${index}" data-done="${hasDraft ? '1' : '0'}" onclick="stepClick(${index},'write')" style="${stepStyle(hasDraft,'#1a1a1a')}"><span class="step-label">2 · ✍️ Write blog${hasDraft ? ' ✓' : ''}</span><span class="step-caret">${hasDraft ? '▸' : ''}</span></button>
                             <div id="write-${index}" style="font-size:14px;"></div>
-                            <button id="imgp-btn-${index}" data-done="${hasImgp ? '1' : '0'}" onclick="stepClick(${index},'imgp')" style="${stepStyle(hasImgp,'#00796b')}"><span class="step-label">3 · 🖼️ Get image prompts${hasImgp ? ' ✓' : ''}</span><span class="step-caret">${hasImgp ? '▸' : ''}</span></button>
-                            <div id="imgp-${index}" style="font-size:14px;"></div>
-                            <button id="prod-btn-${index}" data-done="${hasProducts ? '1' : '0'}" onclick="stepClick(${index},'prod')" style="${stepStyle(hasProducts,'#c0561d')}"><span class="step-label">4 · 🛒 Pick products${hasProducts ? ' ✓' : ''}</span><span class="step-caret">${hasProducts ? '▸' : ''}</span></button>
+                            <button id="prod-btn-${index}" data-done="${hasProducts ? '1' : '0'}" onclick="stepClick(${index},'prod')" style="${stepStyle(hasProducts,'#c0561d')}"><span class="step-label">3 · 🛒 Pick products${hasProducts ? ' ✓' : ''}</span><span class="step-caret">${hasProducts ? '▸' : ''}</span></button>
                             <div id="prod-${index}" style="font-size:14px;"></div>
+                            <button id="imgp-btn-${index}" data-done="${hasImgp ? '1' : '0'}" onclick="stepClick(${index},'imgp')" style="${stepStyle(hasImgp,'#00796b')}"><span class="step-label">4 · 🖼️ Get image prompts${hasImgp ? ' ✓' : ''}</span><span class="step-caret">${hasImgp ? '▸' : ''}</span></button>
+                            <div id="imgp-${index}" style="font-size:14px;"></div>
                         </div>
                     `;
                 }
@@ -1489,52 +1489,68 @@
             }
         }
 
-        // Build the whole picker UI into prod-${index}.
+        // Build the whole picker UI into prod-${index}. Shows only the chosen few (calm), each as a BIG BAR
+        // with all its images side by side; "show other options" reveals the rest to swap in.
         function renderProductPicker(index, open) {
             const s = window._products[index];
             const out = document.getElementById(`prod-${index}`);
             if (!s || !out) return;
             const count = prodAll(index).filter(p => s.selected[p.gid]).length;
-            const awaCards = (s.awa || []).map(p => productCardHtml(index, p)).join('') || '<div style="color:#999;font-size:13px;">None matched — add by SKU.</div>';
-            const collCards = (s.collective || []).map(p => productCardHtml(index, p)).join('') || '<div style="color:#999;font-size:13px;">None matched — add by SKU.</div>';
-            const extraCards = (s.extra || []).map(p => productCardHtml(index, p)).join('');
-            const grid = (cards) => `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin:8px 0 14px;">${cards}</div>`;
-            const regen = `<button onclick="regenProducts(${index})" style="${regenBtnStyle}">↻ Find again</button>`;
+            const rows = (list) => list.map(p => productRowHtml(index, p)).join('');
+            const group = (label, colour, list, moreKey) => {
+                const chosen = list.filter(p => s.selected[p.gid]);
+                const others = list.filter(p => !s.selected[p.gid]);
+                const showMore = !!s[moreKey];
+                return `<div style="font-weight:800;font-size:15px;color:${colour};margin:16px 0 8px;">${label}</div>
+                    ${chosen.length ? rows(chosen) : '<div style="color:#999;font-size:13px;margin-bottom:8px;">None chosen — use "Show other options" or add by SKU.</div>'}
+                    ${others.length ? `<button onclick="prodToggleMore(${index},'${moreKey}')" style="${regenBtnStyle}margin:2px 0 10px;">${showMore ? '▾ Hide other options' : '▸ Show other options (' + others.length + ')'}</button>` : ''}
+                    ${showMore ? rows(others) : ''}`;
+            };
             const html = `
-                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px;">
-                    <div style="font-size:13px;color:#555;"><strong>${count}</strong> product${count===1?'':'s'} chosen · pre-picked 3 About Wall Art + 3 Collective matched to this blog. Click a card to add/remove it; click any thumbnail to choose which image.</div>
-                    ${regen}
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:4px;">
+                    <div style="font-size:13px;color:#555;"><strong>${count}</strong> chosen · 3 prints + 3 partner items matched to this blog. Click a picture to choose it; ✓ Chosen to keep or drop.</div>
+                    <button onclick="regenProducts(${index})" style="${regenBtnStyle}">↻ Find again</button>
                 </div>
-                <div style="font-weight:700;font-size:13px;color:#c0561d;margin:6px 0;">About Wall Art (your prints)</div>
-                ${grid(awaCards)}
-                <div style="font-weight:700;font-size:13px;color:#1565c0;margin:6px 0;">Collective (partner products)</div>
-                ${grid(collCards)}
-                ${extraCards ? `<div style="font-weight:700;font-size:13px;color:#2e7d32;margin:6px 0;">Added by you</div>${grid(extraCards)}` : ''}
+                ${group('🖼️ About Wall Art — your prints', '#c0561d', s.awa || [], 'showAwa')}
+                ${group('🪴 Collective — partner items', '#1565c0', s.collective || [], 'showColl')}
+                ${(s.extra||[]).length ? `<div style="font-weight:800;font-size:15px;color:#2e7d32;margin:16px 0 8px;">Added by you</div>${rows(s.extra)}` : ''}
                 ${prodAddBar(index)}
                 <div id="awaprompts-${index}" style="margin-top:16px;">${awaPromptsHtml(index)}</div>`;
             out.innerHTML = stepBox(html);
             setStepDone(index, 'prod', open !== false);
         }
 
-        // One product card: name, SKU, ALL images as clickable thumbnails, Copy image, open link. Click card = approve (green).
-        function productCardHtml(index, p) {
+        // Show/hide the extra (unchosen) options in a group.
+        function prodToggleMore(index, key) {
+            const s = window._products[index]; if (!s) return;
+            s[key] = !s[key];
+            renderProductPicker(index, true);
+        }
+
+        // One product BAR: ✓ Chosen toggle · title · SKU/price/type · Copy image · open, then ALL its images
+        // side by side (scroll the row), click a picture to choose which one (orange = chosen).
+        function productRowHtml(index, p) {
             const s = window._products[index];
             const on = !!s.selected[p.gid];
             const chosen = s.chosen[p.gid] || (p.images && p.images[0]) || '';
-            const thumbs = (p.images || []).map(u => {
-                const sel = (u === chosen) ? 'outline:3px solid #c0561d;outline-offset:-1px;' : 'border:1px solid #ddd;';
-                return `<img src="${escAttr(u)}" onclick="event.stopPropagation();prodChooseImg(${index},'${escAttr(p.gid)}','${escAttr(u)}')" style="width:44px;height:44px;object-fit:cover;border-radius:4px;cursor:pointer;${sel}" title="Use this image">`;
-            }).join('');
-            const copyBtn = chosen ? `<button onclick="event.stopPropagation();copyProductImage('${escAttr(chosen)}',this)" style="background:#c0561d;color:#fff;border:none;border-radius:6px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer;margin-top:6px;">📋 Copy image</button>` : '';
+            const strip = (p.images || []).map(u => {
+                const sel = (u === chosen) ? 'border-color:#c0561d;box-shadow:0 0 0 3px #c0561d55;' : '';
+                return `<img src="${escAttr(u)}" onclick="prodChooseImg(${index},'${escAttr(p.gid)}','${escAttr(u)}')" style="height:180px;width:auto;border-radius:8px;border:2px solid #e4e4e7;background:#faf7f2;cursor:pointer;flex-shrink:0;${sel}" title="Use this image">`;
+            }).join('') || '<span style="font-size:12px;color:#999;">no images</span>';
+            const priceTxt = p.price ? ('£' + p.price) : '';
+            const meta = [escHtml(p.sku || '(no SKU)'), priceTxt, escHtml(p.productType || p.vendor || '')].filter(Boolean).join(' · ');
+            const copyBtn = chosen ? `<button onclick="copyProductImage('${escAttr(chosen)}',this)" style="background:#c0561d;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer;">📋 Copy image</button>` : '';
             return `
-                <div onclick="prodToggle(${index},'${escAttr(p.gid)}')" style="border:2px solid ${on?'#43a047':'#e0e0e0'};background:${on?'#f1f8f2':'#fff'};border-radius:8px;padding:10px;cursor:pointer;">
-                    <div style="font-weight:700;font-size:13px;margin-bottom:2px;">${on?'✅ ':''}${escHtml(p.title)}</div>
-                    <div style="font-size:11px;color:#888;margin-bottom:6px;">${escHtml(p.sku || '(no SKU)')} · ${escHtml(p.vendor || '')}</div>
-                    <div style="display:flex;flex-wrap:wrap;gap:4px;">${thumbs || '<span style="font-size:12px;color:#999;">no images</span>'}</div>
-                    <div style="display:flex;gap:8px;align-items:center;">
+                <div style="background:${on?'#f2fbf3':'#fff'};border:2px solid ${on?'#43a047':'#e4e4e7'};border-radius:12px;padding:14px 16px;margin-bottom:12px;">
+                    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+                        <button onclick="prodToggle(${index},'${escAttr(p.gid)}')" style="border:none;border-radius:8px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer;background:${on?'#43a047':'#eee'};color:${on?'#fff':'#333'};">${on?'✓ Chosen':'＋ Add'}</button>
+                        <span style="font-weight:700;font-size:15px;flex:1;min-width:200px;">${escHtml(p.title)}</span>
+                        <span style="color:#888;font-size:12.5px;font-weight:500;">${meta}</span>
                         ${copyBtn}
-                        <a href="${escAttr(p.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation();" style="font-size:12px;color:#2563eb;text-decoration:none;margin-top:6px;">↗ open</a>
+                        <a href="${escAttr(p.url)}" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:none;font-size:13px;">↗ open</a>
                     </div>
+                    <div style="display:flex;gap:10px;overflow-x:auto;padding:2px 2px 8px;">${strip}</div>
+                    <div style="font-size:12px;color:#999;">← scroll to see all images · click one to choose it (orange = chosen)</div>
                 </div>`;
         }
 
