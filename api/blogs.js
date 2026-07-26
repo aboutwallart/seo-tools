@@ -2874,6 +2874,168 @@ Return ONLY a JSON array, one object per title in order, exactly:
         return res.status(200).json({ success: true });
       }
 
+      // ── ACTION: finish-blog ── (Batch B: fetch the saved images from Shopify Files, drop the scene photos + the 6
+      // product blocks into the blog body, and save the finished body so the Publish step can use it.)
+      // Input: { title, keyword }. Output: { success, report:[{ok,label,fix}], finishedBody, featuredUrl }.
+      if (req.body.action === 'finish-blog') {
+        const fbT = String(req.body.title || '').trim();
+        const fbKwIn = String(req.body.keyword || '').trim();
+        if (!fbT) return res.status(400).json({ error: 'title required' });
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+
+        // 1) load the draft (the blog body) + the saved product picks
+        let draftsMap = {}, draftsSha;
+        try { const f = await getGitHubFile('data/blog-drafts.json'); draftsMap = JSON.parse(f.content || '{}'); draftsSha = f.sha; } catch (e) { draftsMap = {}; }
+        const draft = draftsMap[fbT.toLowerCase()];
+        if (!draft || !draft.bodyHtml) return res.status(200).json({ success: false, error: 'No written blog found for "' + fbT + '". Write the blog first (step 2).' });
+        let prodMap = {};
+        try { const f = await getGitHubFile('data/blog-products.json'); prodMap = JSON.parse(f.content || '{}'); } catch (e) { prodMap = {}; }
+        const prods = prodMap[fbT.toLowerCase()] || { awa: [], needs: [], collective: [], extra: [], selected: {}, chosen: {} };
+        prods.selected = prods.selected || {}; prods.chosen = prods.chosen || {};
+
+        const fbKw = fbKwIn || prods.keyword || '';
+        const report = [];
+        const escF = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+        // the plain name inside a Shopify file URL (lowercased, no extension, no ?v= version)
+        const urlName = (u) => { try { const seg = (u || '').split('/files/')[1] || ''; return decodeURIComponent(seg.split('?')[0].replace(/\.[a-z0-9]+$/i, '')).toLowerCase(); } catch (e) { return ''; } };
+        // Find a saved image by name. The Files search is fuzzy (word-based), so we ALWAYS filter for the real match.
+        // exact=false → the file name must EQUAL the wanted name; prefix=true → it must START WITH it (used for the
+        // featured image, so everything after "-option" is ignored).
+        async function findImage(name, prefix) {
+          const want = String(name || '').toLowerCase();
+          if (!want) return null;
+          let data;
+          try { data = await shopifyGraphQL(`query($q:String!){ files(first:40, query:$q){ edges{ node{ __typename ... on MediaImage { image{ url } } } } } }`, { q: 'filename:' + want }); }
+          catch (e) { return null; }
+          const nodes = (data && data.files && data.files.edges || []).map(e => e.node).filter(n => n && n.image && n.image.url);
+          const hit = nodes.find(n => { const nm = urlName(n.image.url); return prefix ? (nm.indexOf(want) === 0) : (nm === want); });
+          return hit ? hit.image.url : null;
+        }
+
+        // Same TYPE map the picker uses (to place any add-by-SKU extras into the best free spot).
+        const SVR_TYPES = [
+          { re: /plant|greenery|fern|succulent|tree|foliage|palm|monstera/, keys: ['plant','fern','succulent','tree','foliage','palm','greenery'] },
+          { re: /\bpot\b|planter/, keys: ['pot','planter'] },
+          { re: /lamp|light|pendant|sconce|lantern/, keys: ['lamp','light','pendant','sconce','lantern'] },
+          { re: /chair|stool|\bseat|sofa|armchair|bench|ottoman/, keys: ['chair','sofa','bench','stool','armchair','ottoman'] },
+          { re: /table|desk|console|sideboard|nightstand|bedside/, keys: ['table','desk','console','sideboard'] },
+          { re: /\brug\b|carpet/, keys: ['rug','carpet'] },
+          { re: /basket|storage|box/, keys: ['basket','storage'] },
+          { re: /mirror/, keys: ['mirror'] },
+          { re: /vase|vessel/, keys: ['vase','vessel'] },
+          { re: /shelf|shelving|ladder/, keys: ['shelf','shelving','ladder'] },
+          { re: /cushion|pillow|throw|blanket|textile|linen/, keys: ['cushion','pillow','throw','blanket'] },
+          { re: /clock/, keys: ['clock'] },
+          { re: /candle/, keys: ['candle'] }
+        ];
+        const topicKeys = (topic) => { const s = (topic || '').toLowerCase(); for (const t of SVR_TYPES) if (t.re.test(s)) return t.keys; return []; };
+        const extraFitsSpot = (topic, p) => { const keys = topicKeys(topic); if (!keys.length) return true; const hay = ((p.productType || '') + ' ' + (p.title || '')).toLowerCase(); return keys.some(k => hay.includes(k)); };
+        const slugSku = (p) => String(p.sku || p.handle || 'product').toLowerCase().replace(/[^a-z0-9\-]/g, '-').replace(/-+/g, '-');
+
+        // Build one product block: About Wall Art → the static lifestyle photo saved in Files;
+        // Collective (any other vendor) → a LIVE block that hides itself if the product ever goes unavailable.
+        async function productBlock(p) {
+          const chosenImg = (prods.chosen && prods.chosen[p.gid]) || (p.images && p.images[0]) || '';
+          if (p.vendor === 'About Wall Art') {
+            const name = slugSku(p) + '-lifestyle';
+            const url = await findImage(name, false);
+            const alt = (fbKw ? fbKw + ' — ' : '') + p.title + ' styled in a room';
+            if (url) return { ok: true, label: 'Wall art photo placed: ' + p.title, html: '<figure style="margin:1.6em 0;"><img src="' + escF(url) + '" alt="' + escF(alt) + '" loading="lazy" style="width:100%;height:auto;border-radius:8px;display:block;"></figure>' };
+            return { ok: false, label: 'Wall art photo not found: ' + name, fix: 'Make the lifestyle photo for "' + p.title + '" and save it in Shopify named "' + name + '", then press again.' };
+          }
+          const handle = p.handle || '';
+          const img = chosenImg ? (chosenImg + (chosenImg.indexOf('?') >= 0 ? '&' : '?') + 'width=400') : '';
+          const alt = (fbKw ? fbKw + ' — ' : '') + p.title;
+          const price = p.price ? ('&pound;' + Number(p.price).toFixed(2)) : '';
+          const block =
+            '<div class="awa-partner" data-handle="' + escF(handle) + '" style="display:flex;gap:16px;align-items:center;border:1px solid #ececec;border-radius:12px;padding:14px 16px;margin:1.6em 0;background:#fafafa;">' +
+              '<a href="/products/' + escF(handle) + '" style="flex-shrink:0;"><img src="' + escF(img) + '" alt="' + escF(alt) + '" loading="lazy" style="width:110px;height:110px;object-fit:cover;border-radius:8px;display:block;"></a>' +
+              '<div style="min-width:0;">' +
+                '<div style="font-weight:700;font-size:16px;line-height:1.3;">' + escF(p.title) + '</div>' +
+                (price ? '<div style="font-weight:800;font-size:15px;margin:5px 0;">' + price + '</div>' : '') +
+                '<a href="/products/' + escF(handle) + '" style="color:#0066cc;text-decoration:none;font-size:14px;font-weight:600;">View product &rarr;</a>' +
+              '</div>' +
+            '</div>' +
+            '<script>(function(){var s=document.currentScript,el=s&&s.previousElementSibling;if(!el)return;var h=' + JSON.stringify(handle) + ';fetch("/products/"+h+".js").then(function(r){if(!r.ok)throw 0;return r.json();}).then(function(p){if(p&&p.available===false)el.style.display="none";}).catch(function(){el.style.display="none";});})();<\/script>';
+          return { ok: true, label: 'Collective block placed (live · auto-hides): ' + p.title, html: block };
+        }
+
+        // Always start from the ORIGINAL body (markers intact) so this step can be run again safely.
+        let body = String(draft.bodyHtml);
+
+        // ---- FEATURED — one image, ignore everything after "-option" ----
+        const featuredBase = draft.featuredBase || '';
+        let featuredUrl = '';
+        const featuredAlt = (fbKw ? fbKw + ' — ' : '') + fbT;
+        if (featuredBase) {
+          featuredUrl = await findImage(featuredBase + '-featured', true);
+          if (featuredUrl) report.push({ ok: true, label: 'Featured image found — "' + featuredAlt + '"' });
+          else report.push({ ok: false, label: 'Featured image not found', fix: 'Save your favourite featured photo in Shopify with a name starting "' + featuredBase + '-featured-option", then press again.' });
+        } else {
+          report.push({ ok: false, label: 'This blog has no featured name yet', fix: 'Re-write the blog (step 2) so it has a featured name, then press again.' });
+        }
+
+        // ---- SCENE PHOTOS — each [[IMG|name|ratio|kind|prompt]], with its H2 section for the alt text ----
+        const imgRe = /<h2[^>]*>([\s\S]*?)<\/h2>|\[\[IMG\|([^|]*)\|([^|]*)\|([^|]*)\|([\s\S]*?)\]\]/g;
+        let mm, curSec = '';
+        const sceneMarkers = [];
+        while ((mm = imgRe.exec(body)) !== null) {
+          if (mm[1] !== undefined) curSec = mm[1].replace(/<[^>]+>/g, '').trim();
+          else sceneMarkers.push({ full: mm[0], filename: (mm[2] || '').trim(), section: curSec });
+        }
+        let sceneOk = 0;
+        for (const im of sceneMarkers) {
+          const alt = (fbKw ? fbKw + ' — ' : '') + (im.section || fbT);
+          const url = await findImage(im.filename, false);
+          if (url) {
+            body = body.split(im.full).join('<figure style="margin:1.6em 0;"><img src="' + escF(url) + '" alt="' + escF(alt) + '" loading="lazy" style="width:100%;height:auto;border-radius:8px;display:block;"></figure>');
+            sceneOk++;
+          } else {
+            report.push({ ok: false, label: 'Photo not saved yet: ' + im.filename, fix: 'Save that image in Shopify with the exact name "' + im.filename + '", then press again.' });
+          }
+        }
+        if (sceneOk) report.push({ ok: true, label: sceneOk + ' scene photo' + (sceneOk === 1 ? '' : 's') + ' placed with alt text' });
+
+        // ---- PRODUCT BLOCKS — the [[PRODUCT|topic]] spots, in order ----
+        // Rebuild the picker's alignment: print-type spots ← the chosen prints; the other spots ← the aligned
+        // Collective items (one per need). Any add-by-SKU extras fill the best free spot, else go at the end.
+        const printRe = /wall art|\bprint|artwork|poster|picture|painting/i;
+        const prodMarkers = body.match(/\[\[PRODUCT\|[^\]]*\]\]/g) || [];
+        const spots = prodMarkers.map(mk => ({ full: mk, topic: mk.slice(10, -2).trim() }));
+        spots.forEach(sp => { sp.kind = printRe.test(sp.topic) ? 'print' : 'need'; sp.product = null; });
+        const selectedPrints = (prods.awa || []).filter(p => p && prods.selected[p.gid]);
+        const collAligned = prods.collective || [];
+        let pi = 0, ni = 0;
+        spots.forEach(sp => {
+          if (sp.kind === 'print') { sp.product = selectedPrints[pi++] || null; }
+          else { const cp = collAligned[ni++]; sp.product = (cp && prods.selected[cp.gid]) ? cp : null; }
+        });
+        // extras → first free spot they fit, else keep for the end
+        const extrasSel = (prods.extra || []).filter(p => p && prods.selected[p.gid]);
+        const appendExtras = [];
+        extrasSel.forEach(ex => { const spot = spots.find(sp => !sp.product && extraFitsSpot(sp.topic, ex)); if (spot) spot.product = ex; else appendExtras.push(ex); });
+
+        for (const sp of spots) {
+          if (!sp.product) { report.push({ ok: false, label: 'No product chosen for a spot: ' + sp.topic, fix: 'Open “Pick products”, choose an item for “' + sp.topic + '”, save, then press again.' }); continue; }
+          const r = await productBlock(sp.product);
+          report.push({ ok: r.ok, label: r.label, fix: r.fix });
+          if (r.ok) body = body.split(sp.full).join(r.html); // leave the marker in place if it failed, so a re-run can fix it
+        }
+        for (const ex of appendExtras) {
+          const r = await productBlock(ex);
+          report.push({ ok: r.ok, label: 'Added at the end (no matching spot): ' + r.label, fix: r.fix });
+          if (r.ok) body += '\n' + r.html;
+        }
+
+        // ---- SAVE the finished body next to the draft (bodyHtml stays untouched so this can be re-run) ----
+        draftsMap[fbT.toLowerCase()] = { ...draft, finishedBody: body, featuredUrl, featuredAlt, finished: true, finishedAt: new Date().toISOString() };
+        try { await updateGitHubFile('data/blog-drafts.json', JSON.stringify(draftsMap, null, 2), draftsSha, `Finish blog body: ${fbT}`); }
+        catch (e) { return res.status(200).json({ success: false, error: 'Built the blog but could not save it: ' + e.message, report }); }
+        report.push({ ok: true, label: 'Finished blog saved — ready for the Publish step' });
+        return res.status(200).json({ success: true, report, finishedBody: body, featuredUrl });
+      }
+
       // ── ACTION: write-blog-sources ── (Stage 2 STEP 1: find real authority link + video + trend links)
       // Split from the body write so neither step runs long enough to time out, and the screen can show real progress.
       // Input: { keyword, title }. Output: { success, featuredBase, authority, youtube, trendsHtml }
