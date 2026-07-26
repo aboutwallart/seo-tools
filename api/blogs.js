@@ -2898,7 +2898,7 @@ Return ONLY a JSON array, one object per title in order, exactly:
         const escF = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
         // the plain name inside a Shopify file URL (lowercased, no extension, no ?v= version)
-        const urlName = (u) => { try { const seg = (u || '').split('/files/')[1] || ''; return decodeURIComponent(seg.split('?')[0].replace(/\.[a-z0-9]+$/i, '')).toLowerCase(); } catch (e) { return ''; } };
+        const urlName = (u) => { try { const seg = (u || '').split('/files/').pop() || ''; return decodeURIComponent(seg.split('?')[0].replace(/\.[a-z0-9]+$/i, '')).toLowerCase(); } catch (e) { return ''; } };
         // Find a saved image by name. The Files search is fuzzy (word-based), so we ALWAYS filter for the real match.
         // exact=false → the file name must EQUAL the wanted name; prefix=true → it must START WITH it (used for the
         // featured image, so everything after "-option" is ignored).
