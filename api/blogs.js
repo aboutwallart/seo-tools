@@ -2732,44 +2732,72 @@ Return ONLY a JSON array, one object per title in order, exactly:
         const ti = String(req.body.title || '').trim();
         if (!kw && !ti) return res.status(400).json({ error: 'keyword or title required' });
         const AWA_VENDOR = 'About Wall Art';
-        // Work out the topic collections via the same cluster taxonomy the blog uses at publish.
+        // Every blog topic (room / style / colour / occasion) has a matching collection — and a trend PAGE
+        // shares its handle with a collection that holds BOTH the wall-art prints AND the partner items.
+        // So take the LAST path segment of each cluster URL as a collection handle (works for /collections/<h> AND /pages/<h>).
         let handles = [];
         try {
           const clusters = await generateClusters(kw || ti, ti || kw);
           const tags = [clusters.primaryCluster, ...(clusters.supporting || [])].filter(Boolean);
           for (const tag of tags) {
             const url = CLUSTER_URLS[tag];
-            if (url && url.includes('/collections/')) {
-              const h = url.split('/collections/')[1].split('/')[0].split('?')[0];
-              if (h && !handles.includes(h)) handles.push(h);
-            }
+            if (!url) continue;
+            const h = url.split('?')[0].replace(/\/$/, '').split('/').pop();
+            if (h && !handles.includes(h)) handles.push(h);
           }
-        } catch (e) { /* fall back to best-sellers below */ }
-        if (!handles.length) handles = ['best-sellers'];
+        } catch (e) { /* fall back below */ }
+        if (!handles.length) handles = ['framed-wall-pictures-for-living-room'];
 
         const seen = new Set();
         const awa = [], coll = [];
-        const PFIELDS = 'id title vendor handle onlineStoreUrl sku:metafield(namespace:"custom",key:"sku_for_print_files"){ value } media(first:15){ edges{ node{ ... on MediaImage { image{ url } } } } }';
+        const toProd = (n) => {
+          const images = (n.media && n.media.edges ? n.media.edges : []).map(m => m.node && m.node.image && m.node.image.url).filter(Boolean);
+          const price = parseFloat((n.variants && n.variants.edges[0] && n.variants.edges[0].node.price) || '0') || 0;
+          return { gid: n.id, title: n.title || '', vendor: n.vendor || '', handle: n.handle || '', productType: n.productType || '', price, url: n.onlineStoreUrl || ('https://aboutwallart.com/products/' + (n.handle || '')), sku: (n.sku && n.sku.value) || '', images };
+        };
+        const PFIELDS = 'id title vendor handle productType onlineStoreUrl sku:metafield(namespace:"custom",key:"sku_for_print_files"){ value } variants(first:1){ edges{ node{ price } } } media(first:15){ edges{ node{ ... on MediaImage { image{ url } } } } }';
         for (const handle of handles) {
           let data;
           try {
             data = await shopifyGraphQL(
-              `query($handle:String!){ collectionByHandle(handle:$handle){ products(first:40){ edges{ node{ ${PFIELDS} } } } } }`,
+              `query($handle:String!){ collectionByHandle(handle:$handle){ products(first:50){ edges{ node{ ${PFIELDS} } } } } }`,
               { handle }
             );
           } catch (e) { continue; }
-          const c = data.collectionByHandle;
+          const c = data && data.collectionByHandle;
           if (!c || !c.products) continue;
           for (const e of c.products.edges) {
             const n = e.node;
             if (seen.has(n.id)) continue;
             seen.add(n.id);
-            const images = (n.media && n.media.edges ? n.media.edges : []).map(m => m.node && m.node.image && m.node.image.url).filter(Boolean);
-            const p = { gid: n.id, title: n.title || '', vendor: n.vendor || '', handle: n.handle || '', url: n.onlineStoreUrl || ('https://aboutwallart.com/products/' + (n.handle || '')), sku: (n.sku && n.sku.value) || '', images };
+            const p = toProd(n);
             if (p.vendor === AWA_VENDOR) awa.push(p); else coll.push(p);
           }
         }
-        return res.status(200).json({ success: true, awa, collective: coll });
+        // Guarantee prints: if the topic collection(s) gave no About Wall Art prints, fall back to the
+        // Living Room Pictures collection and match prints by title to the blog topic (Mae's rule).
+        if (!awa.length) {
+          const term = (kw || ti).toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 3)[0] || '';
+          try {
+            const fb = await shopifyGraphQL(
+              `query($handle:String!){ collectionByHandle(handle:$handle){ products(first:60){ edges{ node{ ${PFIELDS} } } } } }`,
+              { handle: 'framed-wall-pictures-for-living-room' }
+            );
+            const fc = fb && fb.collectionByHandle;
+            const prints = (fc && fc.products ? fc.products.edges : []).map(e => e.node).filter(n => n.vendor === AWA_VENDOR);
+            const matched = term ? prints.filter(n => (n.title || '').toLowerCase().includes(term)) : [];
+            const use = (matched.length ? matched : prints).slice(0, 8);
+            for (const n of use) { if (seen.has(n.id)) continue; seen.add(n.id); awa.push(toProd(n)); }
+          } catch (e) { /* best effort */ }
+        }
+        // Collective = choose VARIED types, highest price per type first (not just the first found — Mae's rule).
+        const byType = {};
+        for (const p of coll) { const t = p.productType || 'Other'; if (!byType[t] || p.price > byType[t].price) byType[t] = p; }
+        const topPerType = Object.values(byType).sort((a, b) => b.price - a.price);
+        const topGids = new Set(topPerType.map(p => p.gid));
+        const collRest = coll.filter(p => !topGids.has(p.gid)).sort((a, b) => b.price - a.price);
+        const collectiveOrdered = [...topPerType, ...collRest];
+        return res.status(200).json({ success: true, awa, collective: collectiveOrdered });
       }
 
       // ── ACTION: lookup-product ── (Add a product by its print-files SKU, or by product name)
