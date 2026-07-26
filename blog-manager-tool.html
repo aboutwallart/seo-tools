@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v5.1 - 2026-07-26 — Pick products: wall art grouped first, then each Collective need → its one option (type shown inline); exact SKU search + stricter name search</p>
+        <p class="version">v5.2 - 2026-07-26 — Batch A: partner items matched to the need (topic→type→price, never wrong type); product prompts name the product + SKU; every image prompt gives the person + SEO alt text</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1360,6 +1360,8 @@
             const out = document.getElementById(`imgp-${index}`);
             if (!d) { if (out) out.innerHTML = '<span style="color:#a33;">Write the blog first, then get the image prompts.</span>'; return; }
             const featuredBase = d.featuredBase || 'blog';
+            const stored = (typeof briefFor === 'function' && idea) ? briefFor(idea) : {};
+            const kw = ((stored && stored.keyword) || (idea && (idea.keyword || idea.currentKeyword || idea.currentTitle)) || '').trim();
             const imgs = imagesWithSection(d.bodyHtml);
             const hero = (d.heroPrompt || '').trim() || `Photoreal editorial interior photography, full bleed, calm muted palette, one person in a natural pose, plain uncluttered walls. Hero image for a blog titled "${idea.currentTitle}".`;
 
@@ -1381,17 +1383,19 @@
             ];
             const featuredPrompts = [];
             for (let i = 1; i <= 5; i++) {
-                featuredPrompts.push(`${String(i).padStart(2,'0')}. [1:1] FEATURED (hero) — ${hero} For this option make it ${COMPS[i-1]}. Feature ${CAST[i-1]} in a natural candid pose. Keep the same blog topic/room but a genuinely different shot. SAVE this image named "${featuredBase}-featured-option${i}".`);
+                const fAlt = `${kw ? kw + ' — ' : ''}${idea ? idea.currentTitle : ''}`.trim();
+                featuredPrompts.push(`${String(i).padStart(2,'0')}. [1:1] FEATURED (hero) — ${hero} For this option make it ${COMPS[i-1]}. Feature ${CAST[i-1]} in a natural candid pose. Keep the same blog topic/room but a genuinely different shot. SAVE this image named "${featuredBase}-featured-option${i}". ALT TEXT (SEO — use this, NOT the file name): "${fAlt}".`);
             }
-            // Body images continue the numbering — each shows its section title, then the AI's full prompt.
+            // Body images continue the numbering — each shows its section title, the AI's full prompt, then the SEO alt text.
             const bodyPrompts = imgs.map((im, k) => {
                 const n = String(k + 6).padStart(2, '0');
                 const sec = im.section ? `SECTION: "${im.section}" — ` : '';
-                return `${n}. [${im.ratio || '3:2'}] ${sec}${im.prompt} SAVE this image named "${im.filename}".`;
+                const alt = `${kw ? kw + ' — ' : ''}${im.section || (idea ? idea.currentTitle : '')}`.replace(/\s+/g, ' ').trim();
+                return `${n}. [${im.ratio || '3:2'}] ${sec}${im.prompt} SAVE this image named "${im.filename}". ALT TEXT (SEO — use this, NOT the file name): "${alt}".`;
             });
 
             // Batch everything under 9,500 characters per block.
-            const header = `INSTRUCTIONS FOR SHOPIFY AI IMAGE GENERATOR:\n- Generate each numbered line as its own image at the aspect ratio in [brackets].\n- IMPORTANT: name/save each image EXACTLY as the name in quotes (this is how the tool finds them).\n- Do them in order. Featured options 01-05 first, then the body images.\n\n`;
+            const header = `INSTRUCTIONS FOR SHOPIFY AI IMAGE GENERATOR:\n- Generate each numbered line as its own image at the aspect ratio in [brackets].\n- IMPORTANT: name/save each image EXACTLY as the name in quotes (this is how the tool finds them).\n- Each line also gives an ALT TEXT — that is the SEO text for the image; the tool sets it on the image in the blog (never use the file name as alt).\n- Do them in order. Featured options 01-05 first, then the body images.\n\n`;
             const all = [...featuredPrompts, ...bodyPrompts];
             const batches = [];
             let cur = header;
@@ -1452,12 +1456,12 @@
 
         // Make sure a saved/loaded state has all the maps we rely on.
         function normaliseProducts(s) {
-            return { awa: s.awa || [], collective: s.collective || [], extra: s.extra || [], selected: s.selected || {}, chosen: s.chosen || {}, keyword: s.keyword || '' };
+            return { awa: s.awa || [], needs: s.needs || [], collective: s.collective || [], extra: s.extra || [], selected: s.selected || {}, chosen: s.chosen || {}, keyword: s.keyword || '' };
         }
 
         function prodAll(index) {
             const s = window._products[index]; if (!s) return [];
-            return [...(s.awa||[]), ...(s.collective||[]), ...(s.extra||[])];
+            return [...(s.awa||[]), ...(s.collective||[]), ...(s.extra||[])].filter(Boolean);
         }
         function prodFind(index, gid) { return prodAll(index).find(p => p.gid === gid); }
 
@@ -1469,19 +1473,23 @@
             const out = document.getElementById(`prod-${index}`);
             const stored = (typeof briefFor === 'function') ? briefFor(idea) : {};
             const keyword = ((stored && stored.keyword) || idea.keyword || idea.currentKeyword || idea.currentTitle || '').trim();
+            // Read the blog's product spots → the partner-item NEEDS (everything that isn't a wall-art print).
+            const d = window._drafts[index] || (window._draftsByTitle && window._draftsByTitle[(idea.currentTitle || '').toLowerCase()]);
+            const topics = d ? ((d.bodyHtml || '').match(/\[\[PRODUCT\|([^\]]*)\]\]/g) || []).map(m => m.slice(10, -2).trim()) : [];
+            const needs = topics.filter(t => guessType(t) !== 'wall art / a print').map(t => ({ topic: t, type: guessType(t) || 'choose freely', keys: typeKeys(t) }));
             if (out) { out.style.display = 'block'; out.innerHTML = stepBox('<div style="font-size:14px;color:#555;">🔄 Finding products that match this blog…</div>'); }
             try {
-                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'pick-products', keyword, title: idea.currentTitle }) });
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'pick-products', keyword, title: idea.currentTitle, needs }) });
                 const data = await r.json();
                 if (!data.success) throw new Error(data.error || 'Could not find products');
-                const awa = data.awa || [], coll = data.collective || [];
-                if (!awa.length && !coll.length) throw new Error('No matching products found — add them by print-files SKU below.');
+                const awa = data.awa || [], coll = data.collective || []; // coll is aligned to needs (may hold nulls)
+                if (!awa.length && !coll.filter(Boolean).length) throw new Error('No matching products found — add them by print-files SKU below.');
                 const selected = {}, chosen = {};
-                awa.slice(0, 3).forEach(p => { selected[p.gid] = true; chosen[p.gid] = (p.images && p.images[0]) || ''; });
-                coll.slice(0, 3).forEach(p => { selected[p.gid] = true; chosen[p.gid] = (p.images && p.images[0]) || ''; });
+                awa.slice(0, 3).forEach(p => { if (p) { selected[p.gid] = true; chosen[p.gid] = (p.images && p.images[0]) || ''; } });
+                coll.forEach(p => { if (p) { selected[p.gid] = true; chosen[p.gid] = (p.images && p.images[0]) || ''; } });
                 // default a chosen image for every product so Copy image always works
-                [...awa, ...coll].forEach(p => { if (!chosen[p.gid]) chosen[p.gid] = (p.images && p.images[0]) || ''; });
-                window._products[index] = { awa, collective: coll, extra: [], selected, chosen, keyword };
+                [...awa, ...coll].forEach(p => { if (p && !chosen[p.gid]) chosen[p.gid] = (p.images && p.images[0]) || ''; });
+                window._products[index] = { awa, needs, collective: coll, extra: [], selected, chosen, keyword };
                 renderProductPicker(index, true);
                 saveProductsState(index);
             } catch (e) {
@@ -1489,28 +1497,25 @@
             }
         }
 
-        // Work out the TYPE a product spot is asking for (a plant, a chair, a lamp…) so Mae knows what to pick.
-        function guessType(topic) {
-            const s = (topic || '').toLowerCase();
-            const map = [
-                ['a plant', /plant|greenery|fern|succulent|tree|foliage|palm|monstera/],
-                ['a pot / planter', /\bpot\b|planter/],
-                ['a lamp / lighting', /lamp|light|pendant|sconce|lantern/],
-                ['a chair / seating', /chair|stool|\bseat|sofa|armchair|bench|ottoman/],
-                ['a table', /table|desk|console|sideboard|nightstand|bedside/],
-                ['a rug', /\brug\b|carpet/],
-                ['a basket / storage', /basket|storage|box/],
-                ['a mirror', /mirror/],
-                ['a vase', /vase|vessel/],
-                ['a shelf', /shelf|shelving|ladder/],
-                ['a cushion / textile', /cushion|pillow|throw|blanket|textile|linen/],
-                ['a clock', /clock/],
-                ['a candle', /candle/],
-                ['wall art / a print', /wall art|\bprint|artwork|poster|picture|painting/]
-            ];
-            for (const [label, re] of map) if (re.test(s)) return label;
-            return '';
-        }
+        // What TYPE a product spot is asking for (a plant, a chair, a lamp…) + the words we match products on.
+        const TYPE_MAP = [
+            { label: 'a plant', re: /plant|greenery|fern|succulent|tree|foliage|palm|monstera/, keys: ['plant','fern','succulent','tree','foliage','palm','greenery'] },
+            { label: 'a pot / planter', re: /\bpot\b|planter/, keys: ['pot','planter'] },
+            { label: 'a lamp / lighting', re: /lamp|light|pendant|sconce|lantern/, keys: ['lamp','light','pendant','sconce','lantern'] },
+            { label: 'a chair / seating', re: /chair|stool|\bseat|sofa|armchair|bench|ottoman/, keys: ['chair','sofa','bench','stool','armchair','ottoman'] },
+            { label: 'a table', re: /table|desk|console|sideboard|nightstand|bedside/, keys: ['table','desk','console','sideboard'] },
+            { label: 'a rug', re: /\brug\b|carpet/, keys: ['rug','carpet'] },
+            { label: 'a basket / storage', re: /basket|storage|box/, keys: ['basket','storage'] },
+            { label: 'a mirror', re: /mirror/, keys: ['mirror'] },
+            { label: 'a vase', re: /vase|vessel/, keys: ['vase','vessel'] },
+            { label: 'a shelf', re: /shelf|shelving|ladder/, keys: ['shelf','shelving','ladder'] },
+            { label: 'a cushion / textile', re: /cushion|pillow|throw|blanket|textile|linen/, keys: ['cushion','pillow','throw','blanket'] },
+            { label: 'a clock', re: /clock/, keys: ['clock'] },
+            { label: 'a candle', re: /candle/, keys: ['candle'] },
+            { label: 'wall art / a print', re: /wall art|\bprint|artwork|poster|picture|painting/, keys: ['print','wall art','poster'] }
+        ];
+        function guessType(topic) { const s = (topic || '').toLowerCase(); for (const t of TYPE_MAP) if (t.re.test(s)) return t.label; return ''; }
+        function typeKeys(topic) { const s = (topic || '').toLowerCase(); for (const t of TYPE_MAP) if (t.re.test(s)) return t.keys; return []; }
 
         // Build the whole picker UI into prod-${index}. Shows only the chosen few (calm), each as a BIG BAR
         // with all its images side by side; "show other options" reveals the rest to swap in.
@@ -1522,13 +1527,12 @@
             const idea = allIdeas.find(i => i.index === index);
             const d = window._drafts[index] || (idea && window._draftsByTitle && window._draftsByTitle[(idea.currentTitle || '').toLowerCase()]);
             const topics = d ? ((d.bodyHtml || '').match(/\[\[PRODUCT\|([^\]]*)\]\]/g) || []).map(m => m.slice(10, -2).trim()) : [];
-            const isPrintNeed = (t) => guessType(t) === 'wall art / a print';
-            const collectiveNeeds = topics.filter(t => !isPrintNeed(t));
-
-            const all = prodAll(index);
-            const chosenPrints = all.filter(p => s.selected[p.gid] && p.vendor === AWA_VENDOR);
-            const chosenColl = all.filter(p => s.selected[p.gid] && p.vendor !== AWA_VENDOR);
-            const count = chosenPrints.length + chosenColl.length;
+            const needs = s.needs || [];
+            const collAligned = s.collective || [];              // one option per need, aligned in order (may hold nulls)
+            const chosenPrints = (s.awa || []).filter(p => p && s.selected[p.gid]);
+            const collChosen = collAligned.filter(p => p && s.selected[p.gid]).length;
+            const extraChosen = (s.extra || []).filter(p => s.selected[p.gid]);
+            const count = chosenPrints.length + collChosen + extraChosen.length;
 
             // 🖼️ Wall art prints — all together.
             const printsSection = `
@@ -1536,32 +1540,25 @@
                 <div style="font-size:12px;color:#888;margin-bottom:8px;">Pick from these — don't like one? Drop it (✓ Chosen → off) and add another print by SKU below.</div>
                 ${chosenPrints.length ? rows(chosenPrints) : '<div style="color:#999;font-size:13px;margin-bottom:8px;">No prints chosen — add one by SKU below.</div>'}`;
 
-            // 🪴 Collective — each NEED shown with its one option right beneath it.
-            const used = new Set();
-            const pickFor = (needType) => {
-                let p = chosenColl.find(x => !used.has(x.gid) && (guessType(x.productType) === needType || guessType(x.title) === needType));
-                if (!p) p = chosenColl.find(x => !used.has(x.gid));
-                if (p) used.add(p.gid);
-                return p;
-            };
+            // 🪴 Collective — each NEED shown with its one matched option right beneath it (matched by type on the server).
             let collBlocks;
-            if (collectiveNeeds.length) {
-                collBlocks = collectiveNeeds.map(need => {
-                    const ty = guessType(need) || 'choose freely';
-                    const p = pickFor(guessType(need));
-                    const label = `<div style="font-weight:700;font-size:13px;color:#1565c0;margin:14px 0 4px;">Needed: ${escHtml(ty)} <span style="color:#999;font-weight:500;">— ${escHtml(need)}</span></div>`;
-                    const body = p ? productRowHtml(index, p) : `<div style="color:#999;font-size:13px;margin-bottom:8px;">No option yet — add one by SKU below (${escHtml(ty)}).</div>`;
+            if (needs.length) {
+                collBlocks = needs.map((nd, i) => {
+                    const ty = nd.type || 'choose freely';
+                    const p = collAligned[i];
+                    const label = `<div style="font-weight:700;font-size:13px;color:#1565c0;margin:14px 0 4px;">Needed: ${escHtml(ty)} <span style="color:#999;font-weight:500;">— ${escHtml(nd.topic)}</span></div>`;
+                    const body = (p && s.selected[p.gid]) ? productRowHtml(index, p) : `<div style="color:#999;font-size:13px;margin-bottom:8px;">No option yet — add one by SKU below (${escHtml(ty)}).</div>`;
                     return label + body;
                 }).join('');
             } else {
-                collBlocks = chosenColl.length ? rows(chosenColl) : '<div style="color:#999;font-size:13px;">None chosen — add by SKU below.</div>';
+                const cc = collAligned.filter(p => p && s.selected[p.gid]);
+                collBlocks = cc.length ? rows(cc) : '<div style="color:#999;font-size:13px;">None chosen — add by SKU below.</div>';
             }
-            const leftover = chosenColl.filter(x => !used.has(x.gid));
-            const leftoverHtml = leftover.length ? `<div style="font-weight:700;font-size:13px;color:#2e7d32;margin:14px 0 4px;">Other chosen items</div>${rows(leftover)}` : '';
+            const extraHtml = extraChosen.length ? `<div style="font-weight:700;font-size:13px;color:#2e7d32;margin:14px 0 4px;">Added by you</div>${rows(extraChosen)}` : '';
             const collSection = `
                 <div style="font-weight:800;font-size:15px;color:#1565c0;margin:20px 0 4px;">🪴 Collective — partner items</div>
                 <div style="font-size:12px;color:#888;margin-bottom:2px;">Don't like one? The type is shown next to it — search that yourself by SKU below.</div>
-                ${collBlocks}${leftoverHtml}`;
+                ${collBlocks}${extraHtml}`;
 
             const html = `
                 <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:4px;">
@@ -1690,14 +1687,16 @@
             if (!awaSel.length) return '<div style="font-size:12px;color:#999;">Approve at least one About Wall Art product to get its lifestyle-image prompt.</div>';
             const person = personForBlog(s.keyword);
             const rules = `Add ${person}. Vary their ethnicity naturally (a real mix, not always white). Do NOT depict gay, lesbian or transgender couples.`;
+            const kw = s.keyword || '';
             const blocks = awaSel.map((p, i) => {
                 const base = (p.sku || p.handle || ('product' + (i + 1))).toLowerCase().replace(/[^a-z0-9\-]/g, '-').replace(/-+/g, '-');
-                const prompt = `USE THIS EXACT PRODUCT PHOTO (paste it into the chat). Keep the image and its size/format EXACTLY as it is — do NOT crop, zoom, stretch, distort, recolour or change anything about the framed art, the wall or the room. ONLY add people into the scene, standing or sitting naturally and enjoying the space, never covering or blocking the framed art. ${rules} Keep it photoreal and editorial, matching the existing light and style. SAVE the new image named "${base}-lifestyle".`;
+                const altText = `${kw ? kw + ' — ' : ''}${p.title} styled in a room`;
+                const prompt = `PRODUCT: "${p.title}" (print-files SKU: ${p.sku || '—'}). Ask Shopify for THIS exact product's photo so you paste the right one. USE THAT EXACT PRODUCT PHOTO (paste it into the chat). Keep the image and its size/format EXACTLY as it is — do NOT crop, zoom, stretch, distort, recolour or change anything about the framed art, the wall or the room. ONLY add people into the scene, standing or sitting naturally and enjoying the space, never covering or blocking the framed art. ${rules} Keep it photoreal and editorial, matching the existing light and style. SAVE the new image named "${base}-lifestyle". ALT TEXT (SEO — use this, NOT the file name): "${altText}".`;
                 return `
                     <div style="margin-bottom:10px;">
-                        <div style="font-size:13px;font-weight:700;margin-bottom:4px;">${escHtml(p.title)}</div>
+                        <div style="font-size:13px;font-weight:700;margin-bottom:4px;">${escHtml(p.title)} <span style="color:#888;font-weight:500;">· SKU ${escHtml(p.sku || '—')}</span></div>
                         <div style="font-size:12px;color:#888;margin-bottom:4px;">1) Click <strong>Copy image</strong> on this product above · 2) paste it into Shopify AI · 3) paste this prompt · 4) save it as <code>${escHtml(base)}-lifestyle</code></div>
-                        <textarea readonly style="width:100%;height:120px;font-family:monospace;font-size:12px;padding:8px;border:1px solid #ccc;border-radius:6px;">${escHtml(prompt)}</textarea>
+                        <textarea readonly style="width:100%;height:140px;font-family:monospace;font-size:12px;padding:8px;border:1px solid #ccc;border-radius:6px;">${escHtml(prompt)}</textarea>
                         <button onclick="copyText(this.previousElementSibling)" style="margin-top:4px;background:#c0561d;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">📋 Copy prompt</button>
                     </div>`;
             }).join('');
