@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v4.6 - 2026-07-26 — single bar per step (coloured = run · grey ✓ = show/hide · ↻ regenerate inside)</p>
+        <p class="version">v4.7 - 2026-07-26 — Step 4 Pick products: topic-matched picker, choose any image, Copy image, add by SKU, About Wall Art lifestyle prompts (saved, no re-fetch)</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -639,6 +639,7 @@
                 updateTabCounts();
                 await loadBriefs();
                 await loadDrafts();
+                await loadProducts();
                 refreshAll();
 
             } catch (error) {
@@ -706,7 +707,7 @@
                 if (card) card.classList.add('selected-card');
             });
             // Re-show any written blogs (session or saved) + saved-brief notes on the visible cards.
-            [...unsent, ...sent].forEach(idea => { restoreDraft(idea.index); restoreBriefNote(idea.index); });
+            [...unsent, ...sent].forEach(idea => { restoreDraft(idea.index); restoreBriefNote(idea.index); restoreProducts(idea.index); });
             updateBulkSendBar();
         }
 
@@ -808,7 +809,7 @@
                 if (cb) cb.checked = true;
                 if (card) card.classList.add('selected-card');
             });
-            list.forEach(idea => { restoreDraft(idea.index); restoreBriefNote(idea.index); });
+            list.forEach(idea => { restoreDraft(idea.index); restoreBriefNote(idea.index); restoreProducts(idea.index); });
             if (note) note.textContent = `${list.length} blog${list.length === 1 ? '' : 's'} in ${sel}`;
         }
 
@@ -925,6 +926,7 @@
                     const hasBrief = !!((window._briefs && window._briefs[index] && window._briefs[index].brief) || (window._briefsByTitle && window._briefsByTitle[t] && window._briefsByTitle[t].brief));
                     const hasDraft = !!((window._drafts && window._drafts[index]) || (window._draftsByTitle && window._draftsByTitle[t]));
                     const hasImgp = !!(window._imgpDone && window._imgpDone[index]);
+                    const hasProducts = !!((window._products && window._products[index]) || (window._productsByTitle && window._productsByTitle[t]));
                     const stepStyle = (done, colour) => `display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;margin:12px 0 0;background:${done ? '#9e9e9e' : colour};color:#fff;border:none;border-radius:6px;padding:11px 16px;font-weight:700;cursor:pointer;`;
                     actionsHTML = `
                         <div style="width:100%;">
@@ -939,6 +941,8 @@
                             <div id="write-${index}" style="font-size:14px;"></div>
                             <button id="imgp-btn-${index}" data-done="${hasImgp ? '1' : '0'}" onclick="stepClick(${index},'imgp')" style="${stepStyle(hasImgp,'#00796b')}"><span class="step-label">3 · 🖼️ Get image prompts${hasImgp ? ' ✓' : ''}</span><span class="step-caret">${hasImgp ? '▸' : ''}</span></button>
                             <div id="imgp-${index}" style="font-size:14px;"></div>
+                            <button id="prod-btn-${index}" data-done="${hasProducts ? '1' : '0'}" onclick="stepClick(${index},'prod')" style="${stepStyle(hasProducts,'#c0561d')}"><span class="step-label">4 · 🛒 Pick products${hasProducts ? ' ✓' : ''}</span><span class="step-caret">${hasProducts ? '▸' : ''}</span></button>
+                            <div id="prod-${index}" style="font-size:14px;"></div>
                         </div>
                     `;
                 }
@@ -1071,6 +1075,8 @@
         // Keeps the last competitor brief + written draft per card so they survive a re-render.
         window._briefs = window._briefs || {};
         window._drafts = window._drafts || {};
+        window._products = window._products || {};
+        window._productsByTitle = window._productsByTitle || {};
 
         // Look up this blog's saved brief — first from this session, then from the ones saved on GitHub.
         function briefFor(idea) {
@@ -1124,6 +1130,7 @@
             if (which === 'comp') runCompetitorCheck(index);
             else if (which === 'write') writeBlog(index);
             else if (which === 'imgp') getImagePrompts(index);
+            else if (which === 'prod') pickProducts(index);
         }
         // Turn a step bar grey with a ✓ + caret, and show (open) or hide its content beneath it.
         function setStepDone(index, which, open) {
@@ -1414,6 +1421,240 @@
             navigator.clipboard.writeText(el.value);
             const b = el.nextElementSibling;
             if (b) { const t = b.textContent; b.textContent = '✅ Copied'; setTimeout(() => b.textContent = t, 1500); }
+        }
+
+        // ============================================
+        // STEP 4 — PICK PRODUCTS (chunk 1): topic-matched products, choose any image, copy, add by SKU,
+        // + About Wall Art lifestyle-image prompts. Selection is saved to GitHub so it never has to be re-fetched.
+        // ============================================
+        const AWA_VENDOR = 'About Wall Art';
+
+        // Load all saved product picks on startup (keyed by lowercased blog title).
+        async function loadProducts() {
+            try {
+                const res = await fetch('/api/blogs?action=get-products');
+                const data = await res.json();
+                window._productsByTitle = (data && data.success && data.products) ? data.products : (window._productsByTitle || {});
+            } catch (e) { window._productsByTitle = window._productsByTitle || {}; }
+        }
+
+        // Re-show a saved product pick on its card (collapsed), so nothing is lost and nothing is re-fetched.
+        function restoreProducts(index) {
+            const idea = allIdeas.find(i => i.index === index);
+            const el = document.getElementById(`prod-${index}`);
+            if (!idea || !el || el.innerHTML.trim()) return;
+            const saved = window._products[index] || (window._productsByTitle && window._productsByTitle[(idea.currentTitle || '').toLowerCase()]);
+            if (saved && (saved.awa || saved.collective)) {
+                window._products[index] = normaliseProducts(saved);
+                renderProductPicker(index, false);
+            }
+        }
+
+        // Make sure a saved/loaded state has all the maps we rely on.
+        function normaliseProducts(s) {
+            return { awa: s.awa || [], collective: s.collective || [], extra: s.extra || [], selected: s.selected || {}, chosen: s.chosen || {}, keyword: s.keyword || '' };
+        }
+
+        function prodAll(index) {
+            const s = window._products[index]; if (!s) return [];
+            return [...(s.awa||[]), ...(s.collective||[]), ...(s.extra||[])];
+        }
+        function prodFind(index, gid) { return prodAll(index).find(p => p.gid === gid); }
+
+        // Click the "4 · Pick products" bar (only reached when NOT done — done bars just show/hide).
+        async function pickProducts(index) {
+            const idea = allIdeas.find(i => i.index === index);
+            if (!idea) return;
+            if (window._products[index]) { renderProductPicker(index, true); return; }
+            const out = document.getElementById(`prod-${index}`);
+            const stored = (typeof briefFor === 'function') ? briefFor(idea) : {};
+            const keyword = ((stored && stored.keyword) || idea.keyword || idea.currentKeyword || idea.currentTitle || '').trim();
+            if (out) { out.style.display = 'block'; out.innerHTML = stepBox('<div style="font-size:14px;color:#555;">🔄 Finding products that match this blog…</div>'); }
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'pick-products', keyword, title: idea.currentTitle }) });
+                const data = await r.json();
+                if (!data.success) throw new Error(data.error || 'Could not find products');
+                const awa = data.awa || [], coll = data.collective || [];
+                if (!awa.length && !coll.length) throw new Error('No matching products found — add them by print-files SKU below.');
+                const selected = {}, chosen = {};
+                awa.slice(0, 3).forEach(p => { selected[p.gid] = true; chosen[p.gid] = (p.images && p.images[0]) || ''; });
+                coll.slice(0, 3).forEach(p => { selected[p.gid] = true; chosen[p.gid] = (p.images && p.images[0]) || ''; });
+                // default a chosen image for every product so Copy image always works
+                [...awa, ...coll].forEach(p => { if (!chosen[p.gid]) chosen[p.gid] = (p.images && p.images[0]) || ''; });
+                window._products[index] = { awa, collective: coll, extra: [], selected, chosen, keyword };
+                renderProductPicker(index, true);
+                saveProductsState(index);
+            } catch (e) {
+                if (out) out.innerHTML = stepBox('<span style="color:#a33;">❌ ' + escHtml(e.message) + '</span>' + prodAddBar(index));
+            }
+        }
+
+        // Build the whole picker UI into prod-${index}.
+        function renderProductPicker(index, open) {
+            const s = window._products[index];
+            const out = document.getElementById(`prod-${index}`);
+            if (!s || !out) return;
+            const count = prodAll(index).filter(p => s.selected[p.gid]).length;
+            const awaCards = (s.awa || []).map(p => productCardHtml(index, p)).join('') || '<div style="color:#999;font-size:13px;">None matched — add by SKU.</div>';
+            const collCards = (s.collective || []).map(p => productCardHtml(index, p)).join('') || '<div style="color:#999;font-size:13px;">None matched — add by SKU.</div>';
+            const extraCards = (s.extra || []).map(p => productCardHtml(index, p)).join('');
+            const grid = (cards) => `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin:8px 0 14px;">${cards}</div>`;
+            const regen = `<button onclick="regenProducts(${index})" style="${regenBtnStyle}">↻ Find again</button>`;
+            const html = `
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px;">
+                    <div style="font-size:13px;color:#555;"><strong>${count}</strong> product${count===1?'':'s'} chosen · pre-picked 3 About Wall Art + 3 Collective matched to this blog. Click a card to add/remove it; click any thumbnail to choose which image.</div>
+                    ${regen}
+                </div>
+                <div style="font-weight:700;font-size:13px;color:#c0561d;margin:6px 0;">About Wall Art (your prints)</div>
+                ${grid(awaCards)}
+                <div style="font-weight:700;font-size:13px;color:#1565c0;margin:6px 0;">Collective (partner products)</div>
+                ${grid(collCards)}
+                ${extraCards ? `<div style="font-weight:700;font-size:13px;color:#2e7d32;margin:6px 0;">Added by you</div>${grid(extraCards)}` : ''}
+                ${prodAddBar(index)}
+                <div id="awaprompts-${index}" style="margin-top:16px;">${awaPromptsHtml(index)}</div>`;
+            out.innerHTML = stepBox(html);
+            setStepDone(index, 'prod', open !== false);
+        }
+
+        // One product card: name, SKU, ALL images as clickable thumbnails, Copy image, open link. Click card = approve (green).
+        function productCardHtml(index, p) {
+            const s = window._products[index];
+            const on = !!s.selected[p.gid];
+            const chosen = s.chosen[p.gid] || (p.images && p.images[0]) || '';
+            const thumbs = (p.images || []).map(u => {
+                const sel = (u === chosen) ? 'outline:3px solid #c0561d;outline-offset:-1px;' : 'border:1px solid #ddd;';
+                return `<img src="${escAttr(u)}" onclick="event.stopPropagation();prodChooseImg(${index},'${escAttr(p.gid)}','${escAttr(u)}')" style="width:44px;height:44px;object-fit:cover;border-radius:4px;cursor:pointer;${sel}" title="Use this image">`;
+            }).join('');
+            const copyBtn = chosen ? `<button onclick="event.stopPropagation();copyProductImage('${escAttr(chosen)}',this)" style="background:#c0561d;color:#fff;border:none;border-radius:6px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer;margin-top:6px;">📋 Copy image</button>` : '';
+            return `
+                <div onclick="prodToggle(${index},'${escAttr(p.gid)}')" style="border:2px solid ${on?'#43a047':'#e0e0e0'};background:${on?'#f1f8f2':'#fff'};border-radius:8px;padding:10px;cursor:pointer;">
+                    <div style="font-weight:700;font-size:13px;margin-bottom:2px;">${on?'✅ ':''}${escHtml(p.title)}</div>
+                    <div style="font-size:11px;color:#888;margin-bottom:6px;">${escHtml(p.sku || '(no SKU)')} · ${escHtml(p.vendor || '')}</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:4px;">${thumbs || '<span style="font-size:12px;color:#999;">no images</span>'}</div>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        ${copyBtn}
+                        <a href="${escAttr(p.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation();" style="font-size:12px;color:#2563eb;text-decoration:none;margin-top:6px;">↗ open</a>
+                    </div>
+                </div>`;
+        }
+
+        function prodAddBar(index) {
+            return `
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;background:#fafafa;border:1px solid #eee;border-radius:6px;padding:10px;">
+                    <span style="font-size:13px;color:#555;">Add a product by print-files SKU (or name):</span>
+                    <input type="text" id="prod-sku-${index}" placeholder="e.g. ALEXANDRITE1" style="flex:1;min-width:180px;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;">
+                    <button onclick="prodAddBySku(${index})" style="background:#2e7d32;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">+ Add product</button>
+                    <span id="prod-addmsg-${index}" style="font-size:12px;color:#a33;"></span>
+                </div>`;
+        }
+
+        function prodToggle(index, gid) {
+            const s = window._products[index]; if (!s) return;
+            s.selected[gid] = !s.selected[gid];
+            renderProductPicker(index, true); saveProductsState(index);
+        }
+        function prodChooseImg(index, gid, url) {
+            const s = window._products[index]; if (!s) return;
+            s.chosen[gid] = url;
+            renderProductPicker(index, true); saveProductsState(index);
+        }
+
+        async function prodAddBySku(index) {
+            const inp = document.getElementById(`prod-sku-${index}`);
+            const msg = document.getElementById(`prod-addmsg-${index}`);
+            const sku = (inp && inp.value || '').trim();
+            if (!sku) { if (msg) msg.textContent = 'Type a SKU or name first.'; return; }
+            if (msg) { msg.style.color = '#888'; msg.textContent = 'Looking up…'; }
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'lookup-product', sku }) });
+                const data = await r.json();
+                if (!data.success || !data.product) throw new Error((data && data.error) || 'Not found.');
+                const p = data.product;
+                const s = window._products[index];
+                if (prodFind(index, p.gid)) { if (msg) { msg.style.color = '#888'; msg.textContent = 'Already in the list.'; } return; }
+                s.extra.push(p);
+                s.selected[p.gid] = true;
+                s.chosen[p.gid] = (p.images && p.images[0]) || '';
+                if (inp) inp.value = '';
+                renderProductPicker(index, true); saveProductsState(index);
+            } catch (e) { if (msg) { msg.style.color = '#a33'; msg.textContent = e.message; } }
+        }
+
+        // Copy the chosen image to the clipboard (via a small proxy so the browser can read it).
+        function copyProductImage(url, btn) {
+            const orig = btn.textContent; btn.disabled = true; btn.textContent = 'Copying…';
+            fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'product-image', url }) })
+                .then(r => r.json())
+                .then(d => {
+                    if (!d || !d.ok || !d.dataBase64) throw new Error((d && d.error) || 'could not load the image');
+                    return new Promise((resolve, reject) => {
+                        const img = new Image();
+                        img.onload = () => { const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight; c.getContext('2d').drawImage(img, 0, 0); c.toBlob(b => b ? resolve(b) : reject(new Error('convert failed')), 'image/png'); };
+                        img.onerror = () => reject(new Error('image decode failed'));
+                        img.src = 'data:' + (d.mime || 'image/png') + ';base64,' + d.dataBase64;
+                    });
+                })
+                .then(blob => { if (navigator.clipboard && window.ClipboardItem) return navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); throw new Error('this browser can\'t copy images — use the "open" link instead'); })
+                .then(() => { btn.disabled = false; btn.textContent = 'Copied ✓'; setTimeout(() => btn.textContent = orig, 1600); })
+                .catch(e => { btn.disabled = false; btn.textContent = orig; alert('Could not copy the image: ' + e.message + '. Use the "open" link, then right-click → Copy Image.'); });
+        }
+
+        // Work out which people to add, based on the blog's topic (mirrors the social/edu tool rules).
+        function personForBlog(kw) {
+            const s = (kw || '').toLowerCase();
+            if (/nursery|kids|child|baby|playroom|toddler/.test(s)) return 'a parent with a young child (or a baby)';
+            if (/bedroom|romantic|master|couple/.test(s)) return 'a couple — a man and a woman';
+            if (/christmas|festive|thanksgiving|family|holiday|easter/.test(s)) return 'a family together, including an older relative';
+            if (/dining|entertain|party|guest|living room|lounge|hallway/.test(s)) return 'a couple or a few friends together';
+            if (/colour|color|palette|swatch|material|paint|tone/.test(s)) return 'a person choosing and holding colour swatches';
+            return 'one person';
+        }
+
+        // Build the About Wall Art lifestyle-image prompts for the approved AWA products (so she can start generating now).
+        function awaPromptsHtml(index) {
+            const s = window._products[index]; if (!s) return '';
+            const awaSel = prodAll(index).filter(p => s.selected[p.gid] && (p.vendor === AWA_VENDOR));
+            if (!awaSel.length) return '<div style="font-size:12px;color:#999;">Approve at least one About Wall Art product to get its lifestyle-image prompt.</div>';
+            const person = personForBlog(s.keyword);
+            const rules = `Add ${person}. Vary their ethnicity naturally (a real mix, not always white). Do NOT depict gay, lesbian or transgender couples.`;
+            const blocks = awaSel.map((p, i) => {
+                const base = (p.sku || p.handle || ('product' + (i + 1))).toLowerCase().replace(/[^a-z0-9\-]/g, '-').replace(/-+/g, '-');
+                const prompt = `USE THIS EXACT PRODUCT PHOTO (paste it into the chat). Keep the image and its size/format EXACTLY as it is — do NOT crop, zoom, stretch, distort, recolour or change anything about the framed art, the wall or the room. ONLY add people into the scene, standing or sitting naturally and enjoying the space, never covering or blocking the framed art. ${rules} Keep it photoreal and editorial, matching the existing light and style. SAVE the new image named "${base}-lifestyle".`;
+                return `
+                    <div style="margin-bottom:10px;">
+                        <div style="font-size:13px;font-weight:700;margin-bottom:4px;">${escHtml(p.title)}</div>
+                        <div style="font-size:12px;color:#888;margin-bottom:4px;">1) Click <strong>Copy image</strong> on this product above · 2) paste it into Shopify AI · 3) paste this prompt · 4) save it as <code>${escHtml(base)}-lifestyle</code></div>
+                        <textarea readonly style="width:100%;height:120px;font-family:monospace;font-size:12px;padding:8px;border:1px solid #ccc;border-radius:6px;">${escHtml(prompt)}</textarea>
+                        <button onclick="copyText(this.previousElementSibling)" style="margin-top:4px;background:#c0561d;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">📋 Copy prompt</button>
+                    </div>`;
+            }).join('');
+            return `<div style="border-top:1px solid #eee;padding-top:12px;">
+                <div style="font-weight:700;font-size:14px;margin-bottom:6px;">🖼️ About Wall Art — lifestyle image prompts (add people into your exact photo)</div>
+                ${blocks}
+            </div>`;
+        }
+
+        function regenProducts(index) {
+            if (!confirm('Find matching products again? This replaces the current list (your added-by-SKU products stay).')) return;
+            const s = window._products[index];
+            const keepExtra = s ? (s.extra || []) : [];
+            const keepSel = s ? s.selected : {};
+            const keepChosen = s ? s.chosen : {};
+            delete window._products[index];
+            pickProducts(index).then(() => {
+                const ns = window._products[index];
+                if (ns) { ns.extra = keepExtra; keepExtra.forEach(p => { if (keepSel[p.gid]) ns.selected[p.gid] = true; if (keepChosen[p.gid]) ns.chosen[p.gid] = keepChosen[p.gid]; }); renderProductPicker(index, true); saveProductsState(index); }
+            });
+        }
+
+        // Persist the picks (candidates + selection + chosen images) so a reload never re-fetches or costs anything.
+        function saveProductsState(index) {
+            const idea = allIdeas.find(i => i.index === index);
+            const s = window._products[index];
+            if (!idea || !s) return;
+            window._productsByTitle = window._productsByTitle || {};
+            window._productsByTitle[(idea.currentTitle || '').toLowerCase()] = s;
+            fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-products', title: idea.currentTitle, data: s }) }).catch(() => {});
         }
 
         // ============================================
