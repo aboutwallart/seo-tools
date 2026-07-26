@@ -267,7 +267,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v4.3 - 2026-07-25 — AI-written image prompts + real hero, body length fix, no cut-off</p>
+        <p class="version">v4.4 - 2026-07-26 — edit body + save, varied featured, plain walls, section titles on prompts</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1157,6 +1157,7 @@
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
                     <button onclick="copyDraft(${index})" style="background:#1a1a1a;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">📋 Copy body HTML</button>
+                    <button onclick="editDraft(${index})" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;border-radius:6px;padding:8px 14px;font-weight:600;cursor:pointer;">✏️ Edit</button>
                     <button onclick="toggleDraftPreview(${index})" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;border-radius:6px;padding:8px 14px;font-weight:600;cursor:pointer;">👁 Show / hide preview</button>
                 </div>
                 <div id="draft-prev-${index}" class="blog-prev" style="background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:16px 18px;max-height:520px;overflow:auto;">${previewHtml(data.bodyHtml)}</div>`;
@@ -1172,6 +1173,18 @@
                 out.push({ filename: (m[1]||'').trim(), ratio: (m[2]||'').trim() || '3:2', kind: (m[3]||'').trim() || 'photo', prompt: (m[4]||'').trim() });
             }
             return out;
+        }
+
+        // Parse image markers WITH the H2 section each one sits under (for the section label on prompts).
+        function imagesWithSection(html) {
+            const items = [];
+            const re = /<h2[^>]*>([\s\S]*?)<\/h2>|\[\[IMG\|([^|]*)\|([^|]*)\|([^|]*)\|([\s\S]*?)\]\]/g;
+            let m, sec = '';
+            while ((m = re.exec(html)) !== null) {
+                if (m[1] !== undefined) { sec = m[1].replace(/<[^>]+>/g, '').trim(); }
+                else { items.push({ section: sec, filename: (m[2]||'').trim(), ratio: (m[3]||'').trim() || '3:2', kind: (m[4]||'').trim() || 'photo', prompt: (m[5]||'').trim() }); }
+            }
+            return items;
         }
 
         // Show markers as coloured labels so Mae can read where images + products will go.
@@ -1200,6 +1213,68 @@
         }
 
         // ============================================
+        // EDIT THE BLOG BODY YOURSELF + SAVE (no AI cost) — clean, no code shown
+        // ============================================
+        const escAttr = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+        // Turn the body into an editable view: real words stay editable; image/product spots become
+        // little grey chips you can delete (with ✕) but not type inside.
+        function editableBody(html) {
+            const chip = (label, marker) => `<span class="mk" contenteditable="false" data-mk="${escAttr(marker)}" style="display:inline-block;background:#eef1f6;border:1px dashed #9aa7c7;border-radius:6px;padding:2px 8px;margin:4px 0;font-size:12px;color:#33406a;">${escHtml(label)} <span onclick="this.parentNode.remove()" title="Remove this spot" style="cursor:pointer;color:#a33;font-weight:700;">✕</span></span>`;
+            return html
+                .replace(/\[\[IMG\|([^|]*)\|([^|]*)\|([^|]*)\|([\s\S]*?)\]\]/g, (m, f, r, k) => chip('🖼️ ' + k + ' — ' + f, m))
+                .replace(/\[\[PRODUCT\|([^\]]*)\]\]/g, (m, t) => chip('🛒 Product — ' + t, m));
+        }
+
+        function editDraft(index) {
+            const d = window._drafts[index];
+            const out = document.getElementById(`write-${index}`);
+            if (!d || !out) return;
+            const body = `
+                <div style="font-size:13px;color:#555;margin-bottom:10px;">Edit the words below. The grey chips are your pictures and products — press ✕ on a chip to remove that spot. Saving is free (no AI).</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+                    <button onclick="saveDraftEdit(${index})" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">💾 Save changes</button>
+                    <button onclick="renderDraft(${index}, window._drafts[${index}])" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;border-radius:6px;padding:8px 14px;font-weight:600;cursor:pointer;">Cancel</button>
+                </div>
+                <div id="edit-prev-${index}" class="blog-prev" contenteditable="true" style="background:#fff;border:2px solid #1a1a1a;border-radius:6px;padding:16px 18px;max-height:600px;overflow:auto;outline:none;">${editableBody(d.bodyHtml)}</div>`;
+            out.innerHTML = panel('✏️ Editing blog', body, true);
+        }
+
+        async function saveDraftEdit(index) {
+            const d = window._drafts[index];
+            const prev = document.getElementById(`edit-prev-${index}`);
+            if (!d || !prev) return;
+            // Swap each chip for a safe token, read the HTML, then put the real markers back.
+            const clone = prev.cloneNode(true);
+            const map = {}; let i = 0;
+            clone.querySelectorAll('[data-mk]').forEach(el => {
+                const tok = '@@MK' + (i++) + '@@';
+                map[tok] = el.getAttribute('data-mk') || '';
+                el.replaceWith(document.createTextNode('\n' + tok + '\n'));
+            });
+            let newBody = clone.innerHTML;
+            Object.keys(map).forEach(tok => { newBody = newBody.split(tok).join(map[tok]); });
+
+            window._drafts[index] = Object.assign({}, d, { bodyHtml: newBody });
+            const idea = allIdeas.find(x => x.index === index);
+            if (idea) {
+                window._draftsByTitle = window._draftsByTitle || {};
+                window._draftsByTitle[(idea.currentTitle || '').toLowerCase()] = window._drafts[index];
+            }
+            renderDraft(index, window._drafts[index]);
+            const out = document.getElementById(`write-${index}`);
+            if (out) { const n = document.createElement('div'); n.textContent = '💾 Saving your edits…'; n.style.cssText = 'color:#ff9800;font-size:13px;margin-top:6px;'; out.appendChild(n);
+                try {
+                    const res = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-draft', title: idea ? idea.currentTitle : '', draft: window._drafts[index] }) });
+                    const data = await res.json();
+                    n.textContent = data.success ? '✅ Edits saved' : '❌ ' + (data.error || 'Save failed');
+                    n.style.color = data.success ? '#2e7d32' : '#a33';
+                } catch (e) { n.textContent = '❌ ' + e.message; n.style.color = '#a33'; }
+                setTimeout(() => n.remove(), 2500);
+            }
+        }
+
+        // ============================================
         // GET IMAGE PROMPTS — copyable Shopify-AI instruction from the draft's image spots
         // ============================================
         function getImagePrompts(index) {
@@ -1208,18 +1283,26 @@
             const out = document.getElementById(`imgp-${index}`);
             if (!d) { if (out) out.innerHTML = '<span style="color:#a33;">Write the blog first, then get the image prompts.</span>'; return; }
             const featuredBase = d.featuredBase || 'blog';
-            const imgs = parseImageMarkers(d.bodyHtml);
-            const hero = (d.heroPrompt || '').trim() || `Photoreal editorial interior photography, full bleed, calm muted palette, wall art the focal point, one person in a natural pose. Hero image for a blog titled "${idea.currentTitle}".`;
+            const imgs = imagesWithSection(d.bodyHtml);
+            const hero = (d.heroPrompt || '').trim() || `Photoreal editorial interior photography, full bleed, calm muted palette, one person in a natural pose, plain uncluttered walls. Hero image for a blog titled "${idea.currentTitle}".`;
 
-            // Featured = 5 square options — all 5 are variations of the ONE hero scene our AI wrote.
+            // Featured = 5 square options — 5 genuinely DIFFERENT shots of the same hero topic (real choice).
+            const COMPS = [
+                'a wide editorial establishing shot of the whole room',
+                'a closer, cosy composition focused on one corner of the space',
+                'shot from a different, lower and more intimate angle',
+                'a bright, airy composition seen from across the room',
+                'a lifestyle moment — the person mid-action, enjoying the space'
+            ];
             const featuredPrompts = [];
             for (let i = 1; i <= 5; i++) {
-                featuredPrompts.push(`${String(i).padStart(2,'0')}. [1:1] ${hero} Variation ${i}: the SAME scene, styling and composition — change only the person (or their position). SAVE this image named "${featuredBase}-featured-option${i}".`);
+                featuredPrompts.push(`${String(i).padStart(2,'0')}. [1:1] FEATURED (hero) — ${hero} For this option make it ${COMPS[i-1]}; keep the same blog topic/room but a genuinely different shot, and vary the person. SAVE this image named "${featuredBase}-featured-option${i}".`);
             }
-            // Body images continue the numbering — each uses the FULL prompt our AI wrote for that section.
+            // Body images continue the numbering — each shows its section title, then the AI's full prompt.
             const bodyPrompts = imgs.map((im, k) => {
                 const n = String(k + 6).padStart(2, '0');
-                return `${n}. [${im.ratio || '3:2'}] ${im.prompt} SAVE this image named "${im.filename}".`;
+                const sec = im.section ? `SECTION: "${im.section}" — ` : '';
+                return `${n}. [${im.ratio || '3:2'}] ${sec}${im.prompt} SAVE this image named "${im.filename}".`;
             });
 
             // Batch everything under 9,500 characters per block.
