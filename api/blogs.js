@@ -2796,8 +2796,9 @@ Return ONLY a JSON array, one object per title in order, exactly:
         const topPerType = Object.values(byType).sort((a, b) => b.price - a.price);
         const topGids = new Set(topPerType.map(p => p.gid));
         const collRest = coll.filter(p => !topGids.has(p.gid)).sort((a, b) => b.price - a.price);
-        const collectiveOrdered = [...topPerType, ...collRest];
-        return res.status(200).json({ success: true, awa, collective: collectiveOrdered });
+        // Keep it small: only a handful to choose from (3 pre-picked + a few alternates), never the whole collection.
+        const collectiveOrdered = [...topPerType, ...collRest].slice(0, 8);
+        return res.status(200).json({ success: true, awa: awa.slice(0, 8), collective: collectiveOrdered });
       }
 
       // ── ACTION: lookup-product ── (Add a product by its print-files SKU, or by product name)
