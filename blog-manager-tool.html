@@ -20,6 +20,8 @@
 
         h1 { font-size: 32px; font-weight: 600; margin-bottom: 4px; color: #1a1a1a; }
         .version { color: #999999; font-size: 13px; margin-bottom: 30px; }
+        .step-label { flex: 1; }
+        .step-caret { font-size: 12px; opacity: 0.9; margin-left: 12px; }
 
         .stats {
             background: #f5f5f5;
@@ -267,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v4.5 - 2026-07-26 — numbered 1·2·3 layout, collapsible steps, grey-when-done, wall decor allowed, varied featured people</p>
+        <p class="version">v4.6 - 2026-07-26 — single bar per step (coloured = run · grey ✓ = show/hide · ↻ regenerate inside)</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -816,7 +818,11 @@
             const el = document.getElementById(`comp-${index}`);
             if (!idea || !el || el.innerHTML.trim()) return;
             const b = window._briefsByTitle && window._briefsByTitle[(idea.currentTitle || '').toLowerCase()];
-            if (b && b.brief) { el.innerHTML = panel('📋 Competitor brief (saved)', renderBrief(index, { brief: b.brief, competitors: [] }), false); markStepDone(`comp-btn-${index}`); }
+            if (b && b.brief) {
+                const regen = `<div style="margin-bottom:10px;"><button onclick="runCompetitorCheck(${index})" style="${regenBtnStyle}">↻ Re-check</button></div>`;
+                el.innerHTML = stepBox(regen + renderBrief(index, { brief: b.brief, competitors: [] }));
+                setStepDone(index, 'comp', false);
+            }
         }
 
         // Load the saved competitor briefs from GitHub on startup.
@@ -919,7 +925,7 @@
                     const hasBrief = !!((window._briefs && window._briefs[index] && window._briefs[index].brief) || (window._briefsByTitle && window._briefsByTitle[t] && window._briefsByTitle[t].brief));
                     const hasDraft = !!((window._drafts && window._drafts[index]) || (window._draftsByTitle && window._draftsByTitle[t]));
                     const hasImgp = !!(window._imgpDone && window._imgpDone[index]);
-                    const stepStyle = (done, colour) => `display:block;width:100%;text-align:left;margin:12px 0 0;background:${done ? '#9e9e9e' : colour};color:#fff;border:none;border-radius:6px;padding:11px 16px;font-weight:700;cursor:pointer;`;
+                    const stepStyle = (done, colour) => `display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;margin:12px 0 0;background:${done ? '#9e9e9e' : colour};color:#fff;border:none;border-radius:6px;padding:11px 16px;font-weight:700;cursor:pointer;`;
                     actionsHTML = `
                         <div style="width:100%;">
                             <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
@@ -927,11 +933,11 @@
                                 <button class="btn-undo" onclick="undoWriting(${index})">↩ Undo</button>
                                 ${monthTag}
                             </div>
-                            <button id="comp-btn-${index}" onclick="runCompetitorCheck(${index})" style="${stepStyle(hasBrief,'#6a1b9a')}">1 · 🔍 Competitor check${hasBrief ? ' ✓' : ''}</button>
+                            <button id="comp-btn-${index}" data-done="${hasBrief ? '1' : '0'}" onclick="stepClick(${index},'comp')" style="${stepStyle(hasBrief,'#6a1b9a')}"><span class="step-label">1 · 🔍 Competitor check${hasBrief ? ' ✓' : ''}</span><span class="step-caret">${hasBrief ? '▸' : ''}</span></button>
                             <div id="comp-${index}" style="font-size:14px;"></div>
-                            <button id="write-btn-${index}" onclick="writeBlog(${index})" style="${stepStyle(hasDraft,'#1a1a1a')}">2 · ✍️ Write blog${hasDraft ? ' ✓' : ''}</button>
+                            <button id="write-btn-${index}" data-done="${hasDraft ? '1' : '0'}" onclick="stepClick(${index},'write')" style="${stepStyle(hasDraft,'#1a1a1a')}"><span class="step-label">2 · ✍️ Write blog${hasDraft ? ' ✓' : ''}</span><span class="step-caret">${hasDraft ? '▸' : ''}</span></button>
                             <div id="write-${index}" style="font-size:14px;"></div>
-                            <button id="imgp-btn-${index}" onclick="getImagePrompts(${index})" style="${stepStyle(hasImgp,'#00796b')}">3 · 🖼️ Get image prompts${hasImgp ? ' ✓' : ''}</button>
+                            <button id="imgp-btn-${index}" data-done="${hasImgp ? '1' : '0'}" onclick="stepClick(${index},'imgp')" style="${stepStyle(hasImgp,'#00796b')}"><span class="step-label">3 · 🖼️ Get image prompts${hasImgp ? ' ✓' : ''}</span><span class="step-caret">${hasImgp ? '▸' : ''}</span></button>
                             <div id="imgp-${index}" style="font-size:14px;"></div>
                         </div>
                     `;
@@ -1098,15 +1104,54 @@
             const caret = open ? '▾' : '▸';
             return `<div class="cp"><div class="cp-hdr" onclick="toggleCollapse(this)"><span>${title}</span><span class="cp-caret">${caret}</span></div><div class="cp-body" style="display:${disp};">${bodyHtml}</div></div>`;
         }
-        // Grey out a step button to show it's done (still clickable to regenerate).
-        function markStepDone(btnId) {
-            const b = document.getElementById(btnId);
-            if (b) { b.style.background = '#9e9e9e'; if (!/✓/.test(b.textContent)) b.textContent = b.textContent + ' ✓'; }
+        // ONE BAR PER STEP: coloured bar = RUN the step; once done it turns grey ✓ and just shows/hides its content.
+        const regenBtnStyle = 'background:#fff;color:#555;border:1px solid #ccc;border-radius:6px;padding:6px 12px;font-weight:600;font-size:13px;cursor:pointer;';
+        // Wrap a step's content in a plain box that sits directly under its bar (no second header bar).
+        function stepBox(inner) {
+            return `<div style="border:1px solid #eee;border-top:none;border-radius:0 0 6px 6px;padding:12px 14px;background:#fff;">${inner}</div>`;
         }
-        // Reset a step button back to its "to do" colour.
-        function markStepTodo(btnId, colour) {
-            const b = document.getElementById(btnId);
-            if (b) { b.style.background = colour; b.textContent = b.textContent.replace(/\s*✓\s*$/, ''); }
+        // Click a step bar: if it's already done, show/hide its content; otherwise run the step.
+        function stepClick(index, which) {
+            const btn = document.getElementById(`${which}-btn-${index}`);
+            if (btn && btn.dataset.done === '1') {
+                const content = document.getElementById(`${which}-${index}`);
+                const open = content.style.display === 'none';
+                content.style.display = open ? 'block' : 'none';
+                const c = btn.querySelector('.step-caret');
+                if (c) c.textContent = open ? '▾' : '▸';
+                return;
+            }
+            if (which === 'comp') runCompetitorCheck(index);
+            else if (which === 'write') writeBlog(index);
+            else if (which === 'imgp') getImagePrompts(index);
+        }
+        // Turn a step bar grey with a ✓ + caret, and show (open) or hide its content beneath it.
+        function setStepDone(index, which, open) {
+            const btn = document.getElementById(`${which}-btn-${index}`);
+            const content = document.getElementById(`${which}-${index}`);
+            if (btn) {
+                btn.style.background = '#9e9e9e';
+                btn.dataset.done = '1';
+                const lbl = btn.querySelector('.step-label');
+                if (lbl && !/✓/.test(lbl.textContent)) lbl.textContent = lbl.textContent + ' ✓';
+                const c = btn.querySelector('.step-caret');
+                if (c) c.textContent = open ? '▾' : '▸';
+            }
+            if (content) content.style.display = open ? 'block' : 'none';
+        }
+        // Reset a step bar back to its coloured "to do" state and clear its content.
+        function setStepTodo(index, which, colour) {
+            const btn = document.getElementById(`${which}-btn-${index}`);
+            const content = document.getElementById(`${which}-${index}`);
+            if (btn) {
+                btn.style.background = colour;
+                btn.dataset.done = '0';
+                const lbl = btn.querySelector('.step-label');
+                if (lbl) lbl.textContent = lbl.textContent.replace(/\s*✓\s*$/, '');
+                const c = btn.querySelector('.step-caret');
+                if (c) c.textContent = '';
+            }
+            if (content) { content.innerHTML = ''; content.style.display = 'none'; }
         }
 
         async function writeBlog(index) {
@@ -1116,7 +1161,7 @@
             const btn = document.getElementById(`write-btn-${index}`);
             const stored = briefFor(idea);
             const keyword = (stored.keyword || idea.keyword || idea.currentKeyword || '').trim();
-            if (btn) { btn.disabled = true; btn.textContent = '✍️ Writing…'; }
+            if (btn) { btn.disabled = true; const l = btn.querySelector('.step-label'); if (l) l.textContent = '2 · ✍️ Writing…'; }
 
             let pct = 5;
             let label = 'Finding a real authority link + video…';
@@ -1147,11 +1192,11 @@
                 window._drafts[index] = data;   // keep for image prompts + fetch step
                 window._draftsByTitle = window._draftsByTitle || {};
                 window._draftsByTitle[(idea.currentTitle || '').toLowerCase()] = data;
+                if (btn) { const l = btn.querySelector('.step-label'); if (l) l.textContent = '2 · ✍️ Write blog'; }
                 renderDraft(index, data, true);
-                // Re-writing makes any old image prompts stale — clear + reset step 3.
-                const imgpEl = document.getElementById(`imgp-${index}`); if (imgpEl) imgpEl.innerHTML = '';
+                // Re-writing makes any old image prompts stale — reset step 3.
                 if (window._imgpDone) window._imgpDone[index] = false;
-                markStepTodo(`imgp-btn-${index}`, '#00796b');
+                setStepTodo(index, 'imgp', '#00796b');
                 // Save it so it survives a reload / reset (no need to re-write).
                 fetch('/api/blogs', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1160,8 +1205,9 @@
             } catch (e) {
                 clearInterval(creep);
                 if (out) out.innerHTML = '<span style="color:#a33;">❌ ' + escHtml(e.message) + '</span>';
+                if (btn) { const l = btn.querySelector('.step-label'); if (l) l.textContent = '2 · ✍️ Write blog'; }
             } finally {
-                if (btn) { btn.disabled = false; btn.textContent = '✍️ Write blog'; }
+                if (btn) btn.disabled = false;
             }
         }
 
@@ -1181,11 +1227,11 @@
                 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
                     <button onclick="copyDraft(${index})" style="background:#1a1a1a;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">📋 Copy body HTML</button>
                     <button onclick="editDraft(${index})" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;border-radius:6px;padding:8px 14px;font-weight:600;cursor:pointer;">✏️ Edit</button>
-                    <button onclick="toggleDraftPreview(${index})" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;border-radius:6px;padding:8px 14px;font-weight:600;cursor:pointer;">👁 Show / hide preview</button>
+                    <button onclick="writeBlog(${index})" style="${regenBtnStyle}">↻ Regenerate</button>
                 </div>
                 <div id="draft-prev-${index}" class="blog-prev" style="background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:16px 18px;max-height:520px;overflow:auto;">${previewHtml(data.bodyHtml)}</div>`;
-            out.innerHTML = panel('✍️ Written blog', body, open !== false);
-            markStepDone(`write-btn-${index}`);
+            out.innerHTML = stepBox(body);
+            setStepDone(index, 'write', open !== false);
         }
 
         // Pull the image markers [[IMG|filename|ratio|kind|full prompt]] out of the body.
@@ -1261,7 +1307,7 @@
                     <button onclick="renderDraft(${index}, window._drafts[${index}])" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;border-radius:6px;padding:8px 14px;font-weight:600;cursor:pointer;">Cancel</button>
                 </div>
                 <div id="edit-prev-${index}" class="blog-prev" contenteditable="true" style="background:#fff;border:2px solid #1a1a1a;border-radius:6px;padding:16px 18px;max-height:600px;overflow:auto;outline:none;">${editableBody(d.bodyHtml)}</div>`;
-            out.innerHTML = panel('✏️ Editing blog', body, true);
+            out.innerHTML = stepBox(body);
         }
 
         async function saveDraftEdit(index) {
@@ -1356,9 +1402,10 @@
                 </div>`).join('');
 
             const inner = `<div style="font-size:12px;color:#666;margin-bottom:8px;">Featured picture has 5 options — you'll pick one later. Save every image with the exact name shown so the tool can fetch them.</div>${boxes}`;
-            if (out) out.innerHTML = panel('🖼️ Image prompts — paste into Shopify\'s AI, one batch at a time', inner, true);
+            const regen = `<div style="margin-bottom:8px;"><button onclick="getImagePrompts(${index})" style="${regenBtnStyle}">↻ Regenerate</button></div>`;
+            if (out) out.innerHTML = stepBox(regen + inner);
             window._imgpDone = window._imgpDone || {}; window._imgpDone[index] = true;
-            markStepDone(`imgp-btn-${index}`);
+            setStepDone(index, 'imgp', true);
         }
 
         function copyText(el) {
@@ -1843,6 +1890,7 @@
             if (!idea) return;
             const kw = idea.keyword || idea.currentKeyword || idea.title || '';
             const el = document.getElementById(`comp-${index}`);
+            el.style.display = 'block';
             el.innerHTML = `<div style="background:#faf5ff;border:1px solid #e5d5f5;border-radius:8px;padding:12px;">
                 <div style="font-size:13px;color:#555;margin-bottom:6px;">Focus keyword (edit if wrong):</div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -1872,8 +1920,10 @@
                 window._briefsByTitle = window._briefsByTitle || {};
                 window._briefs[index] = { brief: data.brief, keyword: kw };
                 if (title) window._briefsByTitle[title.toLowerCase()] = { brief: data.brief, keyword: kw };
-                out.innerHTML = panel('📋 Competitor brief', renderBrief(index, data), true);
-                markStepDone(`comp-btn-${index}`);
+                const compEl = document.getElementById(`comp-${index}`);
+                const regen = `<div style="margin-bottom:10px;"><button onclick="runCompetitorCheck(${index})" style="${regenBtnStyle}">↻ Re-check</button></div>`;
+                if (compEl) compEl.innerHTML = stepBox(regen + renderBrief(index, data));
+                setStepDone(index, 'comp', true);
                 // Save it so it survives reload + works across days (no need to re-run).
                 fetch('/api/blogs', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
