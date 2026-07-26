@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v5.0 - 2026-07-26 — Pick products: shows ONLY the chosen items (no options list), "what this blog needs" type guide, add your own by SKU, clear 💾 Save selection button</p>
+        <p class="version">v5.1 - 2026-07-26 — Pick products: wall art grouped first, then each Collective need → its one option (type shown inline); exact SKU search + stricter name search</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1518,26 +1518,58 @@
             const s = window._products[index];
             const out = document.getElementById(`prod-${index}`);
             if (!s || !out) return;
-            const count = prodAll(index).filter(p => s.selected[p.gid]).length;
             const rows = (list) => list.map(p => productRowHtml(index, p)).join('');
             const idea = allIdeas.find(i => i.index === index);
             const d = window._drafts[index] || (idea && window._draftsByTitle && window._draftsByTitle[(idea.currentTitle || '').toLowerCase()]);
             const topics = d ? ((d.bodyHtml || '').match(/\[\[PRODUCT\|([^\]]*)\]\]/g) || []).map(m => m.slice(10, -2).trim()) : [];
-            const needsHtml = topics.length ? `<div style="background:#fff8f2;border:1px solid #f0d9c6;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px;"><strong>What this blog needs</strong> (so you know what type to pick if you swap one):<ul style="margin:6px 0 0;padding-left:18px;">${topics.map(t => { const ty = guessType(t); return `<li>${escHtml(t)} — <strong style="color:#c0561d;">${ty || 'choose freely'}</strong></li>`; }).join('')}</ul></div>` : '';
-            const group = (label, colour, list) => {
-                const chosen = list.filter(p => s.selected[p.gid]);
-                return `<div style="font-weight:800;font-size:15px;color:${colour};margin:16px 0 8px;">${label}</div>
-                    ${chosen.length ? rows(chosen) : '<div style="color:#999;font-size:13px;margin-bottom:8px;">None chosen — add one by SKU below.</div>'}`;
+            const isPrintNeed = (t) => guessType(t) === 'wall art / a print';
+            const collectiveNeeds = topics.filter(t => !isPrintNeed(t));
+
+            const all = prodAll(index);
+            const chosenPrints = all.filter(p => s.selected[p.gid] && p.vendor === AWA_VENDOR);
+            const chosenColl = all.filter(p => s.selected[p.gid] && p.vendor !== AWA_VENDOR);
+            const count = chosenPrints.length + chosenColl.length;
+
+            // 🖼️ Wall art prints — all together.
+            const printsSection = `
+                <div style="font-weight:800;font-size:15px;color:#c0561d;margin:16px 0 6px;">🖼️ Wall art prints</div>
+                <div style="font-size:12px;color:#888;margin-bottom:8px;">Pick from these — don't like one? Drop it (✓ Chosen → off) and add another print by SKU below.</div>
+                ${chosenPrints.length ? rows(chosenPrints) : '<div style="color:#999;font-size:13px;margin-bottom:8px;">No prints chosen — add one by SKU below.</div>'}`;
+
+            // 🪴 Collective — each NEED shown with its one option right beneath it.
+            const used = new Set();
+            const pickFor = (needType) => {
+                let p = chosenColl.find(x => !used.has(x.gid) && (guessType(x.productType) === needType || guessType(x.title) === needType));
+                if (!p) p = chosenColl.find(x => !used.has(x.gid));
+                if (p) used.add(p.gid);
+                return p;
             };
+            let collBlocks;
+            if (collectiveNeeds.length) {
+                collBlocks = collectiveNeeds.map(need => {
+                    const ty = guessType(need) || 'choose freely';
+                    const p = pickFor(guessType(need));
+                    const label = `<div style="font-weight:700;font-size:13px;color:#1565c0;margin:14px 0 4px;">Needed: ${escHtml(ty)} <span style="color:#999;font-weight:500;">— ${escHtml(need)}</span></div>`;
+                    const body = p ? productRowHtml(index, p) : `<div style="color:#999;font-size:13px;margin-bottom:8px;">No option yet — add one by SKU below (${escHtml(ty)}).</div>`;
+                    return label + body;
+                }).join('');
+            } else {
+                collBlocks = chosenColl.length ? rows(chosenColl) : '<div style="color:#999;font-size:13px;">None chosen — add by SKU below.</div>';
+            }
+            const leftover = chosenColl.filter(x => !used.has(x.gid));
+            const leftoverHtml = leftover.length ? `<div style="font-weight:700;font-size:13px;color:#2e7d32;margin:14px 0 4px;">Other chosen items</div>${rows(leftover)}` : '';
+            const collSection = `
+                <div style="font-weight:800;font-size:15px;color:#1565c0;margin:20px 0 4px;">🪴 Collective — partner items</div>
+                <div style="font-size:12px;color:#888;margin-bottom:2px;">Don't like one? The type is shown next to it — search that yourself by SKU below.</div>
+                ${collBlocks}${leftoverHtml}`;
+
             const html = `
-                ${needsHtml}
                 <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:4px;">
-                    <div style="font-size:13px;color:#555;"><strong>${count}</strong> chosen · your prints + partner items matched to this blog. Click a picture to choose it; ✓ Chosen to keep or drop. Don't like one? Drop it and add your own by SKU.</div>
+                    <div style="font-size:13px;color:#555;"><strong>${count}</strong> chosen · click a picture to choose it; ✓ Chosen to keep or drop.</div>
                     <button onclick="regenProducts(${index})" style="${regenBtnStyle}">↻ Find again</button>
                 </div>
-                ${group('🖼️ About Wall Art — your prints', '#c0561d', s.awa || [])}
-                ${group('🪴 Collective — partner items', '#1565c0', s.collective || [])}
-                ${(s.extra||[]).length ? `<div style="font-weight:800;font-size:15px;color:#2e7d32;margin:16px 0 8px;">Added by you</div>${rows(s.extra)}` : ''}
+                ${printsSection}
+                ${collSection}
                 ${prodAddBar(index)}
                 <div style="margin-top:14px;"><button onclick="saveSelection(${index},this)" style="background:#43a047;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-weight:800;font-size:14px;cursor:pointer;">💾 Save selection</button></div>
                 <div id="awaprompts-${index}" style="margin-top:16px;">${awaPromptsHtml(index)}</div>`;
