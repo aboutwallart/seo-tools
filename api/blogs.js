@@ -2806,24 +2806,29 @@ Return ONLY a JSON array, one object per title in order, exactly:
       if (req.body.action === 'lookup-product') {
         const q = String(req.body.sku || '').trim();
         if (!q) return res.status(400).json({ error: 'sku required' });
-        const PFIELDS = 'id title vendor handle onlineStoreUrl sku:metafield(namespace:"custom",key:"sku_for_print_files"){ value } media(first:15){ edges{ node{ ... on MediaImage { image{ url } } } } }';
+        const PFIELDS = 'id title vendor handle productType onlineStoreUrl sku:metafield(namespace:"custom",key:"sku_for_print_files"){ value } variants(first:1){ edges{ node{ price } } } media(first:15){ edges{ node{ ... on MediaImage { image{ url } } } } }';
         const toProduct = (n) => {
           const images = (n.media && n.media.edges ? n.media.edges : []).map(m => m.node && m.node.image && m.node.image.url).filter(Boolean);
-          return { gid: n.id, title: n.title || '', vendor: n.vendor || '', handle: n.handle || '', url: n.onlineStoreUrl || ('https://aboutwallart.com/products/' + (n.handle || '')), sku: (n.sku && n.sku.value) || '', images };
+          const price = parseFloat((n.variants && n.variants.edges[0] && n.variants.edges[0].node.price) || '0') || 0;
+          return { gid: n.id, title: n.title || '', vendor: n.vendor || '', handle: n.handle || '', productType: n.productType || '', price, url: n.onlineStoreUrl || ('https://aboutwallart.com/products/' + (n.handle || '')), sku: (n.sku && n.sku.value) || '', images };
         };
-        // 1) exact print-files SKU (working syntax: metafield:custom.sku_for_print_files:VALUE)
+        const ql = q.toLowerCase();
+        // 1) EXACT print-files SKU only. Fetch a few (the search can prefix-match, e.g. LIVLND1 → LIVLND10)
+        //    then keep ONLY the one whose SKU equals what was typed.
         try {
-          const d = await shopifyGraphQL(`query($q:String!){ products(first:1, query:$q){ edges{ node{ ${PFIELDS} } } } }`, { q: 'metafield:custom.sku_for_print_files:' + q });
-          const n = d.products && d.products.edges[0] && d.products.edges[0].node;
-          if (n) return res.status(200).json({ success: true, product: toProduct(n) });
+          const d = await shopifyGraphQL(`query($q:String!){ products(first:20, query:$q){ edges{ node{ ${PFIELDS} } } } }`, { q: 'metafield:custom.sku_for_print_files:' + q });
+          const nodes = (d.products && d.products.edges || []).map(e => e.node);
+          const exact = nodes.find(n => ((n.sku && n.sku.value) || '').toLowerCase() === ql);
+          if (exact) return res.status(200).json({ success: true, product: toProduct(exact) });
         } catch (e) { /* try name next */ }
-        // 2) fall back to product name / title search
+        // 2) name search — only accept a result whose TITLE actually contains what was typed (no unrelated hits).
         try {
-          const d = await shopifyGraphQL(`query($q:String!){ products(first:1, query:$q){ edges{ node{ ${PFIELDS} } } } }`, { q: 'title:*' + q.replace(/[*"]/g, '') + '*' });
-          const n = d.products && d.products.edges[0] && d.products.edges[0].node;
-          if (n) return res.status(200).json({ success: true, product: toProduct(n) });
+          const d = await shopifyGraphQL(`query($q:String!){ products(first:10, query:$q){ edges{ node{ ${PFIELDS} } } } }`, { q: 'title:*' + q.replace(/[*"()]/g, ' ').trim() + '*' });
+          const nodes = (d.products && d.products.edges || []).map(e => e.node);
+          const hit = nodes.find(n => (n.title || '').toLowerCase().includes(ql));
+          if (hit) return res.status(200).json({ success: true, product: toProduct(hit) });
         } catch (e) { /* not found */ }
-        return res.status(200).json({ success: false, error: 'No product found for "' + q + '"' });
+        return res.status(200).json({ success: false, error: 'No exact match for "' + q + '". Check the print-files SKU, or paste the full product name.' });
       }
 
       // ── ACTION: product-image ── (Copy image: fetch a Shopify image and return it as base64 for the clipboard)
