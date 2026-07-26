@@ -1366,6 +1366,17 @@ Include 3 to 5 items.`;
         }
       }
 
+      // ── ACTION: get-products ── (saved product picks per blog, keyed by lowercased blog title)
+      if (req.query.action === 'get-products') {
+        try {
+          const file = await getGitHubFile('data/blog-products.json');
+          const map = JSON.parse(file.content || '{}');
+          return res.status(200).json({ success: true, products: (map && typeof map === 'object') ? map : {} });
+        } catch(e) {
+          return res.status(200).json({ success: true, products: {} });
+        }
+      }
+
       // ── ACTION: seo-metafield-scan ──
       if (req.query.action === 'seo-metafield-scan') {
         const shopifyDomain = process.env.SHOPIFY_STORE_DOMAIN;
@@ -2711,6 +2722,108 @@ Return ONLY a JSON array, one object per title in order, exactly:
         try { const f = await getGitHubFile('data/blog-drafts.json'); map = JSON.parse(f.content || '{}'); sha = f.sha; } catch (e) { map = {}; sha = undefined; }
         map[t.toLowerCase()] = { ...draft, savedAt: new Date().toISOString() };
         await updateGitHubFile('data/blog-drafts.json', JSON.stringify(map, null, 2), sha, `Save blog draft: ${t}`);
+        return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: pick-products ── (Products batch, chunk 1: topic-matched products with ALL images, split About Wall Art vs Collective)
+      // Input: { keyword, title }. Output: { success, awa:[{gid,title,vendor,handle,url,sku,images:[url]}], collective:[...] }
+      if (req.body.action === 'pick-products') {
+        const kw = String(req.body.keyword || '').trim();
+        const ti = String(req.body.title || '').trim();
+        if (!kw && !ti) return res.status(400).json({ error: 'keyword or title required' });
+        const AWA_VENDOR = 'About Wall Art';
+        // Work out the topic collections via the same cluster taxonomy the blog uses at publish.
+        let handles = [];
+        try {
+          const clusters = await generateClusters(kw || ti, ti || kw);
+          const tags = [clusters.primaryCluster, ...(clusters.supporting || [])].filter(Boolean);
+          for (const tag of tags) {
+            const url = CLUSTER_URLS[tag];
+            if (url && url.includes('/collections/')) {
+              const h = url.split('/collections/')[1].split('/')[0].split('?')[0];
+              if (h && !handles.includes(h)) handles.push(h);
+            }
+          }
+        } catch (e) { /* fall back to best-sellers below */ }
+        if (!handles.length) handles = ['best-sellers'];
+
+        const seen = new Set();
+        const awa = [], coll = [];
+        const PFIELDS = 'id title vendor handle onlineStoreUrl sku:metafield(namespace:"custom",key:"sku_for_print_files"){ value } media(first:15){ edges{ node{ ... on MediaImage { image{ url } } } } }';
+        for (const handle of handles) {
+          let data;
+          try {
+            data = await shopifyGraphQL(
+              `query($handle:String!){ collectionByHandle(handle:$handle){ products(first:40){ edges{ node{ ${PFIELDS} } } } } }`,
+              { handle }
+            );
+          } catch (e) { continue; }
+          const c = data.collectionByHandle;
+          if (!c || !c.products) continue;
+          for (const e of c.products.edges) {
+            const n = e.node;
+            if (seen.has(n.id)) continue;
+            seen.add(n.id);
+            const images = (n.media && n.media.edges ? n.media.edges : []).map(m => m.node && m.node.image && m.node.image.url).filter(Boolean);
+            const p = { gid: n.id, title: n.title || '', vendor: n.vendor || '', handle: n.handle || '', url: n.onlineStoreUrl || ('https://aboutwallart.com/products/' + (n.handle || '')), sku: (n.sku && n.sku.value) || '', images };
+            if (p.vendor === AWA_VENDOR) awa.push(p); else coll.push(p);
+          }
+        }
+        return res.status(200).json({ success: true, awa, collective: coll });
+      }
+
+      // ── ACTION: lookup-product ── (Add a product by its print-files SKU, or by product name)
+      // Input: { sku }. Output: { success, product:{gid,title,vendor,handle,url,sku,images:[url]} }
+      if (req.body.action === 'lookup-product') {
+        const q = String(req.body.sku || '').trim();
+        if (!q) return res.status(400).json({ error: 'sku required' });
+        const PFIELDS = 'id title vendor handle onlineStoreUrl sku:metafield(namespace:"custom",key:"sku_for_print_files"){ value } media(first:15){ edges{ node{ ... on MediaImage { image{ url } } } } }';
+        const toProduct = (n) => {
+          const images = (n.media && n.media.edges ? n.media.edges : []).map(m => m.node && m.node.image && m.node.image.url).filter(Boolean);
+          return { gid: n.id, title: n.title || '', vendor: n.vendor || '', handle: n.handle || '', url: n.onlineStoreUrl || ('https://aboutwallart.com/products/' + (n.handle || '')), sku: (n.sku && n.sku.value) || '', images };
+        };
+        // 1) exact print-files SKU (working syntax: metafield:custom.sku_for_print_files:VALUE)
+        try {
+          const d = await shopifyGraphQL(`query($q:String!){ products(first:1, query:$q){ edges{ node{ ${PFIELDS} } } } }`, { q: 'metafield:custom.sku_for_print_files:' + q });
+          const n = d.products && d.products.edges[0] && d.products.edges[0].node;
+          if (n) return res.status(200).json({ success: true, product: toProduct(n) });
+        } catch (e) { /* try name next */ }
+        // 2) fall back to product name / title search
+        try {
+          const d = await shopifyGraphQL(`query($q:String!){ products(first:1, query:$q){ edges{ node{ ${PFIELDS} } } } }`, { q: 'title:*' + q.replace(/[*"]/g, '') + '*' });
+          const n = d.products && d.products.edges[0] && d.products.edges[0].node;
+          if (n) return res.status(200).json({ success: true, product: toProduct(n) });
+        } catch (e) { /* not found */ }
+        return res.status(200).json({ success: false, error: 'No product found for "' + q + '"' });
+      }
+
+      // ── ACTION: product-image ── (Copy image: fetch a Shopify image and return it as base64 for the clipboard)
+      // Input: { url }. Output: { ok, dataBase64, mime }
+      if (req.body.action === 'product-image') {
+        const url = String(req.body.url || '').trim();
+        if (!/^https?:\/\//i.test(url)) return res.status(400).json({ ok: false, error: 'valid image url required' });
+        try {
+          const ir = await fetch(url);
+          if (!ir.ok) return res.status(200).json({ ok: false, error: 'image fetch failed: ' + ir.status });
+          const mime = ir.headers.get('content-type') || 'image/jpeg';
+          const dataBase64 = Buffer.from(await ir.arrayBuffer()).toString('base64');
+          return res.status(200).json({ ok: true, mime, dataBase64 });
+        } catch (e) {
+          return res.status(200).json({ ok: false, error: e.message });
+        }
+      }
+
+      // ── ACTION: save-products ── (persist the product picks per blog so they survive reload / a reset — no re-fetch, no AI)
+      // Input: { title, data }. Stored in data/blog-products.json keyed by lowercased title.
+      if (req.body.action === 'save-products') {
+        const t = String(req.body.title || '').trim();
+        const data = req.body.data && typeof req.body.data === 'object' ? req.body.data : null;
+        if (!t || !data) return res.status(400).json({ error: 'title and data required' });
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        let map = {}, sha;
+        try { const f = await getGitHubFile('data/blog-products.json'); map = JSON.parse(f.content || '{}'); sha = f.sha; } catch (e) { map = {}; sha = undefined; }
+        map[t.toLowerCase()] = { ...data, savedAt: new Date().toISOString() };
+        await updateGitHubFile('data/blog-products.json', JSON.stringify(map, null, 2), sha, `Save blog product picks: ${t}`);
         return res.status(200).json({ success: true });
       }
 
