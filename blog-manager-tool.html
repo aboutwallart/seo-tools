@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v5.2 - 2026-07-26 — Batch A: partner items matched to the need (topic→type→price, never wrong type); product prompts name the product + SKU; every image prompt gives the person + SEO alt text</p>
+        <p class="version">v6.0 - 2026-07-26 — Batch B: new step 5 "Images saved — fetch &amp; finish" (finds your saved photos in Shopify, drops scene photos + the 6 product blocks into the blog with alt text, live auto-hide Collective blocks, full tick/cross report, saves the finished blog); one copy box for the About Wall Art prompts + "use image position N"; featured = save one, tool ignores the number</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -707,7 +707,7 @@
                 if (card) card.classList.add('selected-card');
             });
             // Re-show any written blogs (session or saved) + saved-brief notes on the visible cards.
-            [...unsent, ...sent].forEach(idea => { restoreDraft(idea.index); restoreBriefNote(idea.index); restoreProducts(idea.index); });
+            [...unsent, ...sent].forEach(idea => { restoreDraft(idea.index); restoreBriefNote(idea.index); restoreProducts(idea.index); restoreFinish(idea.index); });
             updateBulkSendBar();
         }
 
@@ -809,7 +809,7 @@
                 if (cb) cb.checked = true;
                 if (card) card.classList.add('selected-card');
             });
-            list.forEach(idea => { restoreDraft(idea.index); restoreBriefNote(idea.index); restoreProducts(idea.index); });
+            list.forEach(idea => { restoreDraft(idea.index); restoreBriefNote(idea.index); restoreProducts(idea.index); restoreFinish(idea.index); });
             if (note) note.textContent = `${list.length} blog${list.length === 1 ? '' : 's'} in ${sel}`;
         }
 
@@ -927,6 +927,7 @@
                     const hasDraft = !!((window._drafts && window._drafts[index]) || (window._draftsByTitle && window._draftsByTitle[t]));
                     const hasImgp = !!(window._imgpDone && window._imgpDone[index]);
                     const hasProducts = !!((window._products && window._products[index]) || (window._productsByTitle && window._productsByTitle[t]));
+                    const hasFinish = !!(window._finishDone && window._finishDone[index]);
                     const stepStyle = (done, colour) => `display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;margin:12px 0 0;background:${done ? '#9e9e9e' : colour};color:#fff;border:none;border-radius:6px;padding:11px 16px;font-weight:700;cursor:pointer;`;
                     actionsHTML = `
                         <div style="width:100%;">
@@ -943,6 +944,8 @@
                             <div id="prod-${index}" style="font-size:14px;"></div>
                             <button id="imgp-btn-${index}" data-done="${hasImgp ? '1' : '0'}" onclick="stepClick(${index},'imgp')" style="${stepStyle(hasImgp,'#00796b')}"><span class="step-label">4 · 🖼️ Get image prompts${hasImgp ? ' ✓' : ''}</span><span class="step-caret">${hasImgp ? '▸' : ''}</span></button>
                             <div id="imgp-${index}" style="font-size:14px;"></div>
+                            <button id="finish-btn-${index}" data-done="${hasFinish ? '1' : '0'}" onclick="stepClick(${index},'finish')" style="${stepStyle(hasFinish,'#0d7a6f')}"><span class="step-label">5 · ✅ Images saved — fetch &amp; finish${hasFinish ? ' ✓' : ''}</span><span class="step-caret">${hasFinish ? '▸' : ''}</span></button>
+                            <div id="finish-${index}" style="font-size:14px;"></div>
                         </div>
                     `;
                 }
@@ -1131,6 +1134,7 @@
             else if (which === 'write') writeBlog(index);
             else if (which === 'imgp') getImagePrompts(index);
             else if (which === 'prod') pickProducts(index);
+            else if (which === 'finish') finishBlog(index);
         }
         // Turn a step bar grey with a ✓ + caret, and show (open) or hide its content beneath it.
         function setStepDone(index, which, open) {
@@ -1201,9 +1205,11 @@
                 window._draftsByTitle[(idea.currentTitle || '').toLowerCase()] = data;
                 if (btn) { const l = btn.querySelector('.step-label'); if (l) l.textContent = '2 · ✍️ Write blog'; }
                 renderDraft(index, data, true);
-                // Re-writing makes any old image prompts stale — reset step 3.
+                // Re-writing makes any old image prompts + the finished blog stale — reset steps 4 and 5.
                 if (window._imgpDone) window._imgpDone[index] = false;
                 setStepTodo(index, 'imgp', '#00796b');
+                if (window._finishDone) window._finishDone[index] = false;
+                setStepTodo(index, 'finish', '#0d7a6f');
                 // Save it so it survives a reload / reset (no need to re-write).
                 fetch('/api/blogs', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1412,7 +1418,7 @@
                     <button onclick="copyText(this.previousElementSibling)" style="margin-top:4px;background:#00796b;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">📋 Copy batch ${bi + 1}</button>
                 </div>`).join('');
 
-            const inner = `<div style="font-size:12px;color:#666;margin-bottom:8px;">Featured picture has 5 options — you'll pick one later. Save every image with the exact name shown so the tool can fetch them.</div>${boxes}`;
+            const inner = `<div style="font-size:12px;color:#666;margin-bottom:8px;">Featured picture has 5 looks — make them, then save <strong>only your favourite one</strong> (any of the “option” names is fine; the tool ignores the number). Save every body image with the exact name shown so the tool can fetch them.</div>${boxes}`;
             const regen = `<div style="margin-bottom:8px;"><button onclick="getImagePrompts(${index})" style="${regenBtnStyle}">↻ Regenerate</button></div>`;
             if (out) out.innerHTML = stepBox(regen + inner);
             window._imgpDone = window._imgpDone || {}; window._imgpDone[index] = true;
@@ -1425,6 +1431,69 @@
             navigator.clipboard.writeText(el.value);
             const b = el.nextElementSibling;
             if (b) { const t = b.textContent; b.textContent = '✅ Copied'; setTimeout(() => b.textContent = t, 1500); }
+        }
+
+        // ============================================
+        // STEP 5 — FETCH & FINISH: pull the saved images from Shopify, drop scene photos + product blocks
+        // into the blog body, and save the finished blog. Full tick/cross report — nothing silent.
+        // ============================================
+        async function finishBlog(index) {
+            const idea = allIdeas.find(i => i.index === index);
+            if (!idea) return;
+            const out = document.getElementById(`finish-${index}`);
+            const stored = (typeof briefFor === 'function') ? briefFor(idea) : {};
+            const keyword = ((stored && stored.keyword) || idea.keyword || idea.currentKeyword || idea.currentTitle || '').trim();
+            if (out) { out.style.display = 'block'; out.innerHTML = stepBox('<div style="font-size:14px;color:#555;">🔄 Fetching your saved photos from Shopify and building the blog…</div>'); }
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'finish-blog', title: idea.currentTitle, keyword }) });
+                const data = await r.json();
+                if (!data.success) throw new Error(data.error || 'Could not finish the blog');
+                window._finishDone = window._finishDone || {}; window._finishDone[index] = true;
+                if (window._drafts[index]) { window._drafts[index].finished = true; window._drafts[index].finishedBody = data.finishedBody; }
+                renderFinishReport(index, data);
+            } catch (e) {
+                if (out) out.innerHTML = stepBox('<span style="color:#a33;">❌ ' + escHtml(e.message) + '</span> <button onclick="finishBlog(' + index + ')" style="' + regenBtnStyle + '">↻ Try again</button>');
+            }
+        }
+
+        function finishReportRows(rep) {
+            return (rep || []).map(l => `
+                <div style="display:flex;gap:10px;align-items:flex-start;font-size:13.5px;padding:7px 0;border-bottom:1px solid #f2efe8;">
+                    <span style="font-size:15px;flex-shrink:0;">${l.ok ? '✅' : '❌'}</span>
+                    <div><div style="${l.ok ? '' : 'color:#c62828;font-weight:600;'}">${escHtml(l.label)}</div>${l.fix ? `<div style="font-size:12px;color:#c62828;background:#fff0f0;border:1px solid #ffd6d6;border-radius:6px;padding:6px 8px;margin-top:4px;">${escHtml(l.fix)}</div>` : ''}</div>
+                </div>`).join('');
+        }
+        // Strip inline scripts so the tool's preview can't run the live auto-hide code (the blocks show as-is here).
+        function finishPreviewBox(finishedBody) {
+            if (!finishedBody) return '';
+            const safe = finishedBody.replace(/<script[\s\S]*?<\/script>/gi, '');
+            return `<div style="margin-top:14px;"><div style="font-size:13px;font-weight:700;color:#555;margin-bottom:6px;">Preview of the finished blog</div><div class="blog-prev" style="background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:16px 18px;max-height:520px;overflow:auto;">${safe}</div></div>`;
+        }
+        function renderFinishReport(index, data) {
+            const out = document.getElementById(`finish-${index}`); if (!out) return;
+            const rep = data.report || [];
+            const anyBad = rep.some(l => !l.ok);
+            const head = anyBad
+                ? '<div style="font-size:13px;color:#c62828;font-weight:700;margin-bottom:6px;">Some photos aren\'t saved yet — fix the ❌ items below, then press “Fetch &amp; finish again”.</div>'
+                : '<div style="font-size:13px;color:#2e7d32;font-weight:700;margin-bottom:6px;">All done — everything placed. Ready for the Publish step. 🎉</div>';
+            const regen = `<div style="margin-bottom:10px;"><button onclick="finishBlog(${index})" style="${regenBtnStyle}">↻ Fetch &amp; finish again</button></div>`;
+            out.innerHTML = stepBox(regen + head + finishReportRows(rep) + finishPreviewBox(data.finishedBody));
+            setStepDone(index, 'finish', true);
+        }
+
+        // Re-show the "finished" state on reopen so nothing is lost (works on already-finished blogs too).
+        function restoreFinish(index) {
+            const idea = allIdeas.find(i => i.index === index);
+            if (!idea) return;
+            const d = window._drafts[index] || (window._draftsByTitle && window._draftsByTitle[(idea.currentTitle || '').toLowerCase()]);
+            if (!(d && d.finished)) return;
+            window._finishDone = window._finishDone || {}; window._finishDone[index] = true;
+            const out = document.getElementById(`finish-${index}`);
+            if (out && !out.innerHTML.trim()) {
+                const regen = `<div style="margin-bottom:10px;"><button onclick="finishBlog(${index})" style="${regenBtnStyle}">↻ Fetch &amp; finish again</button></div>`;
+                out.innerHTML = stepBox(regen + '<div style="font-size:13px;color:#2e7d32;font-weight:700;margin-bottom:6px;">✅ This blog was finished earlier. Press “Fetch &amp; finish again” if you changed any photos or products.</div>' + finishPreviewBox(d.finishedBody));
+                setStepDone(index, 'finish', false);
+            }
         }
 
         // ============================================
@@ -1688,21 +1757,21 @@
             const person = personForBlog(s.keyword);
             const rules = `Add ${person}. Vary their ethnicity naturally (a real mix, not always white). Do NOT depict gay, lesbian or transgender couples.`;
             const kw = s.keyword || '';
-            const blocks = awaSel.map((p, i) => {
+            // One numbered line per product — Shopify pulls the chosen image itself (image position N), no pasting.
+            const lines = awaSel.map((p, i) => {
                 const base = (p.sku || p.handle || ('product' + (i + 1))).toLowerCase().replace(/[^a-z0-9\-]/g, '-').replace(/-+/g, '-');
+                const chosen = s.chosen[p.gid] || (p.images && p.images[0]) || '';
+                const pos = Math.max(1, (p.images || []).indexOf(chosen) + 1);
                 const altText = `${kw ? kw + ' — ' : ''}${p.title} styled in a room`;
-                const prompt = `PRODUCT: "${p.title}" (print-files SKU: ${p.sku || '—'}). Ask Shopify for THIS exact product's photo so you paste the right one. USE THAT EXACT PRODUCT PHOTO (paste it into the chat). Keep the image and its size/format EXACTLY as it is — do NOT crop, zoom, stretch, distort, recolour or change anything about the framed art, the wall or the room. ONLY add people into the scene, standing or sitting naturally and enjoying the space, never covering or blocking the framed art. ${rules} Keep it photoreal and editorial, matching the existing light and style. SAVE the new image named "${base}-lifestyle". ALT TEXT (SEO — use this, NOT the file name): "${altText}".`;
-                return `
-                    <div style="margin-bottom:10px;">
-                        <div style="font-size:13px;font-weight:700;margin-bottom:4px;">${escHtml(p.title)} <span style="color:#888;font-weight:500;">· SKU ${escHtml(p.sku || '—')}</span></div>
-                        <div style="font-size:12px;color:#888;margin-bottom:4px;">1) Click <strong>Copy image</strong> on this product above · 2) paste it into Shopify AI · 3) paste this prompt · 4) save it as <code>${escHtml(base)}-lifestyle</code></div>
-                        <textarea readonly style="width:100%;height:140px;font-family:monospace;font-size:12px;padding:8px;border:1px solid #ccc;border-radius:6px;">${escHtml(prompt)}</textarea>
-                        <button onclick="copyText(this.previousElementSibling)" style="margin-top:4px;background:#c0561d;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">📋 Copy prompt</button>
-                    </div>`;
-            }).join('');
+                return `${String(i + 1).padStart(2, '0')}. PRODUCT: "${p.title}" (print-files SKU: ${p.sku || '—'}). Use image position ${pos} of this product — Shopify pulls that exact photo for you (no pasting). Keep that photo and its size/format EXACTLY as it is — do NOT crop, zoom, stretch, distort, recolour or change anything about the framed art, the wall or the room. ONLY add people into the scene, standing or sitting naturally and enjoying the space, never covering or blocking the framed art. ${rules} Keep it photoreal and editorial, matching the existing light and style. SAVE the new image named "${base}-lifestyle". ALT TEXT (SEO — use this, NOT the file name): "${altText}".`;
+            });
+            const header = `INSTRUCTIONS FOR SHOPIFY AI — About Wall Art lifestyle photos:\n- Do each numbered product as its own image.\n- For each one, take the product's photo at the image position shown, then add people into that exact photo.\n- Save each image EXACTLY as the name in quotes (this is how the tool finds it).\n\n`;
+            const all = header + lines.join('\n\n');
             return `<div style="border-top:1px solid #eee;padding-top:12px;">
-                <div style="font-weight:700;font-size:14px;margin-bottom:6px;">🖼️ About Wall Art — lifestyle image prompts (add people into your exact photo)</div>
-                ${blocks}
+                <div style="font-weight:700;font-size:14px;margin-bottom:4px;">🖼️ About Wall Art — lifestyle image prompts (${awaSel.length})</div>
+                <div style="font-size:12px;color:#888;margin-bottom:6px;">All your About Wall Art prompts in one box. Copy it, paste into Shopify AI, and save each image with the name it gives.</div>
+                <textarea readonly style="width:100%;height:200px;font-family:monospace;font-size:12px;padding:8px;border:1px solid #ccc;border-radius:6px;">${escHtml(all)}</textarea>
+                <button onclick="copyText(this.previousElementSibling)" style="margin-top:4px;background:#c0561d;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">📋 Copy all prompts</button>
             </div>`;
         }
 
