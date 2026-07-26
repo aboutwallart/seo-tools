@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v4.8 - 2026-07-26 — Pick products = step 3 (before image prompts); bar layout, big side-by-side images, only 6 shown (3 prints + 3 varied partner items), always finds prints (trend collection + Living Room fallback)</p>
+        <p class="version">v5.0 - 2026-07-26 — Pick products: shows ONLY the chosen items (no options list), "what this blog needs" type guide, add your own by SKU, clear 💾 Save selection button</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1489,6 +1489,29 @@
             }
         }
 
+        // Work out the TYPE a product spot is asking for (a plant, a chair, a lamp…) so Mae knows what to pick.
+        function guessType(topic) {
+            const s = (topic || '').toLowerCase();
+            const map = [
+                ['a plant', /plant|greenery|fern|succulent|tree|foliage|palm|monstera/],
+                ['a pot / planter', /\bpot\b|planter/],
+                ['a lamp / lighting', /lamp|light|pendant|sconce|lantern/],
+                ['a chair / seating', /chair|stool|\bseat|sofa|armchair|bench|ottoman/],
+                ['a table', /table|desk|console|sideboard|nightstand|bedside/],
+                ['a rug', /\brug\b|carpet/],
+                ['a basket / storage', /basket|storage|box/],
+                ['a mirror', /mirror/],
+                ['a vase', /vase|vessel/],
+                ['a shelf', /shelf|shelving|ladder/],
+                ['a cushion / textile', /cushion|pillow|throw|blanket|textile|linen/],
+                ['a clock', /clock/],
+                ['a candle', /candle/],
+                ['wall art / a print', /wall art|\bprint|artwork|poster|picture|painting/]
+            ];
+            for (const [label, re] of map) if (re.test(s)) return label;
+            return '';
+        }
+
         // Build the whole picker UI into prod-${index}. Shows only the chosen few (calm), each as a BIG BAR
         // with all its images side by side; "show other options" reveals the rest to swap in.
         function renderProductPicker(index, open) {
@@ -1497,24 +1520,26 @@
             if (!s || !out) return;
             const count = prodAll(index).filter(p => s.selected[p.gid]).length;
             const rows = (list) => list.map(p => productRowHtml(index, p)).join('');
-            const group = (label, colour, list, moreKey) => {
+            const idea = allIdeas.find(i => i.index === index);
+            const d = window._drafts[index] || (idea && window._draftsByTitle && window._draftsByTitle[(idea.currentTitle || '').toLowerCase()]);
+            const topics = d ? ((d.bodyHtml || '').match(/\[\[PRODUCT\|([^\]]*)\]\]/g) || []).map(m => m.slice(10, -2).trim()) : [];
+            const needsHtml = topics.length ? `<div style="background:#fff8f2;border:1px solid #f0d9c6;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:13px;"><strong>What this blog needs</strong> (so you know what type to pick if you swap one):<ul style="margin:6px 0 0;padding-left:18px;">${topics.map(t => { const ty = guessType(t); return `<li>${escHtml(t)} — <strong style="color:#c0561d;">${ty || 'choose freely'}</strong></li>`; }).join('')}</ul></div>` : '';
+            const group = (label, colour, list) => {
                 const chosen = list.filter(p => s.selected[p.gid]);
-                const others = list.filter(p => !s.selected[p.gid]);
-                const showMore = !!s[moreKey];
                 return `<div style="font-weight:800;font-size:15px;color:${colour};margin:16px 0 8px;">${label}</div>
-                    ${chosen.length ? rows(chosen) : '<div style="color:#999;font-size:13px;margin-bottom:8px;">None chosen — use "Show other options" or add by SKU.</div>'}
-                    ${others.length ? `<button onclick="prodToggleMore(${index},'${moreKey}')" style="${regenBtnStyle}margin:2px 0 10px;">${showMore ? '▾ Hide other options' : '▸ Show other options (' + others.length + ')'}</button>` : ''}
-                    ${showMore ? rows(others) : ''}`;
+                    ${chosen.length ? rows(chosen) : '<div style="color:#999;font-size:13px;margin-bottom:8px;">None chosen — add one by SKU below.</div>'}`;
             };
             const html = `
+                ${needsHtml}
                 <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:4px;">
-                    <div style="font-size:13px;color:#555;"><strong>${count}</strong> chosen · 3 prints + 3 partner items matched to this blog. Click a picture to choose it; ✓ Chosen to keep or drop.</div>
+                    <div style="font-size:13px;color:#555;"><strong>${count}</strong> chosen · your prints + partner items matched to this blog. Click a picture to choose it; ✓ Chosen to keep or drop. Don't like one? Drop it and add your own by SKU.</div>
                     <button onclick="regenProducts(${index})" style="${regenBtnStyle}">↻ Find again</button>
                 </div>
-                ${group('🖼️ About Wall Art — your prints', '#c0561d', s.awa || [], 'showAwa')}
-                ${group('🪴 Collective — partner items', '#1565c0', s.collective || [], 'showColl')}
+                ${group('🖼️ About Wall Art — your prints', '#c0561d', s.awa || [])}
+                ${group('🪴 Collective — partner items', '#1565c0', s.collective || [])}
                 ${(s.extra||[]).length ? `<div style="font-weight:800;font-size:15px;color:#2e7d32;margin:16px 0 8px;">Added by you</div>${rows(s.extra)}` : ''}
                 ${prodAddBar(index)}
+                <div style="margin-top:14px;"><button onclick="saveSelection(${index},this)" style="background:#43a047;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-weight:800;font-size:14px;cursor:pointer;">💾 Save selection</button></div>
                 <div id="awaprompts-${index}" style="margin-top:16px;">${awaPromptsHtml(index)}</div>`;
             out.innerHTML = stepBox(html);
             setStepDone(index, 'prod', open !== false);
@@ -1661,6 +1686,20 @@
                 const ns = window._products[index];
                 if (ns) { ns.extra = keepExtra; keepExtra.forEach(p => { if (keepSel[p.gid]) ns.selected[p.gid] = true; if (keepChosen[p.gid]) ns.chosen[p.gid] = keepChosen[p.gid]; }); renderProductPicker(index, true); saveProductsState(index); }
             });
+        }
+
+        // Explicit "Save selection" button — same save, but with a clear ✅ so Mae knows it saved.
+        function saveSelection(index, btn) {
+            const idea = allIdeas.find(i => i.index === index);
+            const s = window._products[index];
+            if (!idea || !s) return;
+            const orig = btn.textContent; btn.disabled = true; btn.textContent = '💾 Saving…';
+            window._productsByTitle = window._productsByTitle || {};
+            window._productsByTitle[(idea.currentTitle || '').toLowerCase()] = s;
+            fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-products', title: idea.currentTitle, data: s }) })
+                .then(r => r.json())
+                .then(d => { btn.disabled = false; btn.textContent = (d && d.success) ? '✅ Saved' : '❌ Save failed'; setTimeout(() => btn.textContent = orig, 2200); })
+                .catch(() => { btn.disabled = false; btn.textContent = '❌ Save failed'; setTimeout(() => btn.textContent = orig, 2200); });
         }
 
         // Persist the picks (candidates + selection + chosen images) so a reload never re-fetches or costs anything.
