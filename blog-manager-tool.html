@@ -267,7 +267,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v4.4 - 2026-07-26 — edit body + save, varied featured, plain walls, section titles on prompts</p>
+        <p class="version">v4.5 - 2026-07-26 — numbered 1·2·3 layout, collapsible steps, grey-when-done, wall decor allowed, varied featured people</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -810,13 +810,13 @@
             if (note) note.textContent = `${list.length} blog${list.length === 1 ? '' : 's'} in ${sel}`;
         }
 
-        // If a competitor brief was already saved for this blog, show a small "ready" note on the card.
+        // If a competitor brief was already saved for this blog, show it as a COLLAPSED panel (click arrow to open).
         function restoreBriefNote(index) {
             const idea = allIdeas.find(i => i.index === index);
             const el = document.getElementById(`comp-${index}`);
             if (!idea || !el || el.innerHTML.trim()) return;
             const b = window._briefsByTitle && window._briefsByTitle[(idea.currentTitle || '').toLowerCase()];
-            if (b) el.innerHTML = `<div style="font-size:13px;color:#2e7d32;">✅ Competitor brief saved — ready to Write blog. (Press Competitor check to view or update it.)</div>`;
+            if (b && b.brief) { el.innerHTML = panel('📋 Competitor brief (saved)', renderBrief(index, { brief: b.brief, competitors: [] }), false); markStepDone(`comp-btn-${index}`); }
         }
 
         // Load the saved competitor briefs from GitHub on startup.
@@ -843,7 +843,7 @@
             const el = document.getElementById(`write-${index}`);
             if (!idea || !el || el.innerHTML.trim()) return;
             const d = window._drafts[index] || (window._draftsByTitle && window._draftsByTitle[(idea.currentTitle || '').toLowerCase()]);
-            if (d) { window._drafts[index] = d; renderDraft(index, d); }
+            if (d) { window._drafts[index] = d; renderDraft(index, d, false); }
         }
 
         // One month in progress at a time — lock "Plan a month" while any month is still in progress.
@@ -912,16 +912,28 @@
                         <button class="btn-undo" onclick="undoWriting(${index})">↩ Undo</button>
                     `;
                 } else {
-                    // TO_WRITE or TO_WRITE_PENDING
+                    // TO_WRITE or TO_WRITE_PENDING — numbered checklist: each step's panel opens right under it.
                     checkboxHTML = `<input type="checkbox" class="ts-checkbox card-checkbox" id="ts-cb-${index}" onchange="toggleToSend(${index})">`;
                     const monthTag = idea.month ? `<span style="background:#e8f0fe;color:#1565c0;font-size:12px;font-weight:700;padding:2px 8px;border-radius:10px;">📅 ${idea.month}</span>` : '';
+                    const t = (idea.currentTitle || '').toLowerCase();
+                    const hasBrief = !!((window._briefs && window._briefs[index] && window._briefs[index].brief) || (window._briefsByTitle && window._briefsByTitle[t] && window._briefsByTitle[t].brief));
+                    const hasDraft = !!((window._drafts && window._drafts[index]) || (window._draftsByTitle && window._draftsByTitle[t]));
+                    const hasImgp = !!(window._imgpDone && window._imgpDone[index]);
+                    const stepStyle = (done, colour) => `display:block;width:100%;text-align:left;margin:12px 0 0;background:${done ? '#9e9e9e' : colour};color:#fff;border:none;border-radius:6px;padding:11px 16px;font-weight:700;cursor:pointer;`;
                     actionsHTML = `
-                        <button class="btn-mark marked" disabled>✓ To Write Blog</button>
-                        <button class="btn-undo" onclick="undoWriting(${index})">↩ Undo</button>
-                        <button style="background:#6a1b9a;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;" id="comp-btn-${index}" onclick="runCompetitorCheck(${index})">🔍 Competitor check</button>
-                        <button style="background:#1a1a1a;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;" id="write-btn-${index}" onclick="writeBlog(${index})">✍️ Write blog</button>
-                        <button style="background:#00796b;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;" id="imgp-btn-${index}" onclick="getImagePrompts(${index})">🖼️ Get image prompts</button>
-                        ${monthTag}
+                        <div style="width:100%;">
+                            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+                                <button class="btn-mark marked" disabled>✓ To Write Blog</button>
+                                <button class="btn-undo" onclick="undoWriting(${index})">↩ Undo</button>
+                                ${monthTag}
+                            </div>
+                            <button id="comp-btn-${index}" onclick="runCompetitorCheck(${index})" style="${stepStyle(hasBrief,'#6a1b9a')}">1 · 🔍 Competitor check${hasBrief ? ' ✓' : ''}</button>
+                            <div id="comp-${index}" style="font-size:14px;"></div>
+                            <button id="write-btn-${index}" onclick="writeBlog(${index})" style="${stepStyle(hasDraft,'#1a1a1a')}">2 · ✍️ Write blog${hasDraft ? ' ✓' : ''}</button>
+                            <div id="write-${index}" style="font-size:14px;"></div>
+                            <button id="imgp-btn-${index}" onclick="getImagePrompts(${index})" style="${stepStyle(hasImgp,'#00796b')}">3 · 🖼️ Get image prompts${hasImgp ? ' ✓' : ''}</button>
+                            <div id="imgp-${index}" style="font-size:14px;"></div>
+                        </div>
                     `;
                 }
             } else if (tab === 'kwchange') {
@@ -970,13 +982,9 @@
                     </div>${clashSection}${editBar}`;
             })() : '';
 
-            // Blog draft + image-prompt output — separate containers so one never wipes the other.
-            const manualFormHTML = (tab === 'towrite' && idea.status !== 'TO_WRITE_SENT')
-                ? `<div id="write-${index}" style="margin-top:12px;font-size:14px;"></div><div id="imgp-${index}" style="margin-top:12px;font-size:14px;"></div>` : '';
-
-            // Competitor-brief container — only on unsent To Write cards.
-            const compHTML = (tab === 'towrite' && idea.status !== 'TO_WRITE_SENT')
-                ? `<div id="comp-${index}" style="margin-top:12px;font-size:14px;"></div>` : '';
+            // The comp / write / imgp containers now live INSIDE the numbered layout above (per step).
+            const manualFormHTML = '';
+            const compHTML = '';
 
             // To Write cards are already approved — show them neutral (no conflict colour/badge).
             // Sent-to-sheet ones stay grey to mark them done. Ignored = grey.
@@ -1090,6 +1098,16 @@
             const caret = open ? '▾' : '▸';
             return `<div class="cp"><div class="cp-hdr" onclick="toggleCollapse(this)"><span>${title}</span><span class="cp-caret">${caret}</span></div><div class="cp-body" style="display:${disp};">${bodyHtml}</div></div>`;
         }
+        // Grey out a step button to show it's done (still clickable to regenerate).
+        function markStepDone(btnId) {
+            const b = document.getElementById(btnId);
+            if (b) { b.style.background = '#9e9e9e'; if (!/✓/.test(b.textContent)) b.textContent = b.textContent + ' ✓'; }
+        }
+        // Reset a step button back to its "to do" colour.
+        function markStepTodo(btnId, colour) {
+            const b = document.getElementById(btnId);
+            if (b) { b.style.background = colour; b.textContent = b.textContent.replace(/\s*✓\s*$/, ''); }
+        }
 
         async function writeBlog(index) {
             const idea = allIdeas.find(i => i.index === index);
@@ -1129,7 +1147,11 @@
                 window._drafts[index] = data;   // keep for image prompts + fetch step
                 window._draftsByTitle = window._draftsByTitle || {};
                 window._draftsByTitle[(idea.currentTitle || '').toLowerCase()] = data;
-                renderDraft(index, data);
+                renderDraft(index, data, true);
+                // Re-writing makes any old image prompts stale — clear + reset step 3.
+                const imgpEl = document.getElementById(`imgp-${index}`); if (imgpEl) imgpEl.innerHTML = '';
+                if (window._imgpDone) window._imgpDone[index] = false;
+                markStepTodo(`imgp-btn-${index}`, '#00796b');
                 // Save it so it survives a reload / reset (no need to re-write).
                 fetch('/api/blogs', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1144,7 +1166,8 @@
         }
 
         // Show the written draft in a collapsible panel: summary, copy button, and a spaced preview.
-        function renderDraft(index, data) {
+        // open = true when freshly written (auto-open); false when restored (starts collapsed).
+        function renderDraft(index, data, open) {
             const out = document.getElementById(`write-${index}`);
             if (!out) return;
             const imgs = parseImageMarkers(data.bodyHtml);
@@ -1161,7 +1184,8 @@
                     <button onclick="toggleDraftPreview(${index})" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;border-radius:6px;padding:8px 14px;font-weight:600;cursor:pointer;">👁 Show / hide preview</button>
                 </div>
                 <div id="draft-prev-${index}" class="blog-prev" style="background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:16px 18px;max-height:520px;overflow:auto;">${previewHtml(data.bodyHtml)}</div>`;
-            out.innerHTML = panel('✍️ Written blog', body, true);
+            out.innerHTML = panel('✍️ Written blog', body, open !== false);
+            markStepDone(`write-btn-${index}`);
         }
 
         // Pull the image markers [[IMG|filename|ratio|kind|full prompt]] out of the body.
@@ -1294,9 +1318,17 @@
                 'a bright, airy composition seen from across the room',
                 'a lifestyle moment — the person mid-action, enjoying the space'
             ];
+            // Hero has no person, so each option adds a DIFFERENT person (real mix of gender/ethnicity).
+            const CAST = [
+                'a woman in her 30s, East Asian',
+                'a man in his 40s, Black',
+                'a couple — a man and a woman, White',
+                'a young woman, South Asian',
+                'a person in their 50s, Middle Eastern'
+            ];
             const featuredPrompts = [];
             for (let i = 1; i <= 5; i++) {
-                featuredPrompts.push(`${String(i).padStart(2,'0')}. [1:1] FEATURED (hero) — ${hero} For this option make it ${COMPS[i-1]}; keep the same blog topic/room but a genuinely different shot, and vary the person. SAVE this image named "${featuredBase}-featured-option${i}".`);
+                featuredPrompts.push(`${String(i).padStart(2,'0')}. [1:1] FEATURED (hero) — ${hero} For this option make it ${COMPS[i-1]}. Feature ${CAST[i-1]} in a natural candid pose. Keep the same blog topic/room but a genuinely different shot. SAVE this image named "${featuredBase}-featured-option${i}".`);
             }
             // Body images continue the numbering — each shows its section title, then the AI's full prompt.
             const bodyPrompts = imgs.map((im, k) => {
@@ -1325,6 +1357,8 @@
 
             const inner = `<div style="font-size:12px;color:#666;margin-bottom:8px;">Featured picture has 5 options — you'll pick one later. Save every image with the exact name shown so the tool can fetch them.</div>${boxes}`;
             if (out) out.innerHTML = panel('🖼️ Image prompts — paste into Shopify\'s AI, one batch at a time', inner, true);
+            window._imgpDone = window._imgpDone || {}; window._imgpDone[index] = true;
+            markStepDone(`imgp-btn-${index}`);
         }
 
         function copyText(el) {
@@ -1839,6 +1873,7 @@
                 window._briefs[index] = { brief: data.brief, keyword: kw };
                 if (title) window._briefsByTitle[title.toLowerCase()] = { brief: data.brief, keyword: kw };
                 out.innerHTML = panel('📋 Competitor brief', renderBrief(index, data), true);
+                markStepDone(`comp-btn-${index}`);
                 // Save it so it survives reload + works across days (no need to re-run).
                 fetch('/api/blogs', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
