@@ -2935,30 +2935,35 @@ Return ONLY a JSON array, one object per title in order, exactly:
 
         // Build one product block: About Wall Art → the static lifestyle photo saved in Files;
         // Collective (any other vendor) → a LIVE block that hides itself if the product ever goes unavailable.
+        // Same block your published blogs use: a centred, full-width image that links to the product,
+        // with a black "Shop Here" button under it. Wall art = the saved lifestyle photo; Collective = the
+        // product's chosen photo (and it quietly hides itself if that product ever goes unavailable).
         async function productBlock(p) {
-          const chosenImg = (prods.chosen && prods.chosen[p.gid]) || (p.images && p.images[0]) || '';
-          if (p.vendor === 'About Wall Art') {
+          const isAwa = (p.vendor === 'About Wall Art');
+          let imgUrl = '';
+          if (isAwa) {
             const name = slugSku(p) + '-lifestyle';
-            const url = await findImage(name, false);
-            const alt = (fbKw ? fbKw + ' — ' : '') + p.title + ' styled in a room';
-            if (url) return { ok: true, label: 'Wall art photo placed: ' + p.title, html: '<figure style="margin:1.6em 0;"><img src="' + escF(url) + '" alt="' + escF(alt) + '" loading="lazy" style="width:100%;height:auto;border-radius:8px;display:block;"></figure>' };
-            return { ok: false, label: 'Wall art photo not found: ' + name, fix: 'Make the lifestyle photo for "' + p.title + '" and save it in Shopify named "' + name + '", then press again.' };
+            imgUrl = await findImage(name, false);
+            if (!imgUrl) return { ok: false, label: 'Wall art photo not found: ' + name, fix: 'Make the lifestyle photo for "' + p.title + '" and save it in Shopify named "' + name + '", then press again.' };
+          } else {
+            imgUrl = (prods.chosen && prods.chosen[p.gid]) || (p.images && p.images[0]) || '';
+            if (!imgUrl) return { ok: false, label: 'No image chosen for: ' + p.title, fix: 'Open “Pick products”, choose an image for "' + p.title + '", save, then press again.' };
+            imgUrl = imgUrl + (imgUrl.indexOf('?') >= 0 ? '&' : '?') + 'width=1024';
+          }
+          const url = p.url || ('https://aboutwallart.com/products/' + (p.handle || ''));
+          const alt = (fbKw ? fbKw + ' — ' : '') + p.title + (isAwa ? ' styled in a room' : '');
+          const inner =
+            '<a rel="noopener" href="' + escF(url) + '" target="_blank"><img style="max-width: 1024px; width: 100%; height: auto;" alt="' + escF(alt) + '" src="' + escF(imgUrl) + '"></a>' +
+            '<br>' +
+            '<a style="display: inline-block; margin-top: 15px; padding: 12px 30px; background-color: #000; color: #fff; text-decoration: none; font-weight: bold; border-radius: 4px;" rel="noopener" href="' + escF(url) + '" target="_blank">Shop Here</a>';
+          if (isAwa) {
+            return { ok: true, label: 'Wall art product placed: ' + p.title, html: '<div style="text-align: center; margin: 30px 0;">' + inner + '</div>' };
           }
           const handle = p.handle || '';
-          const img = chosenImg ? (chosenImg + (chosenImg.indexOf('?') >= 0 ? '&' : '?') + 'width=400') : '';
-          const alt = (fbKw ? fbKw + ' — ' : '') + p.title;
-          const price = p.price ? ('&pound;' + Number(p.price).toFixed(2)) : '';
-          const block =
-            '<div class="awa-partner" data-handle="' + escF(handle) + '" style="display:flex;gap:16px;align-items:center;border:1px solid #ececec;border-radius:12px;padding:14px 16px;margin:1.6em 0;background:#fafafa;">' +
-              '<a href="/products/' + escF(handle) + '" style="flex-shrink:0;"><img src="' + escF(img) + '" alt="' + escF(alt) + '" loading="lazy" style="width:110px;height:110px;object-fit:cover;border-radius:8px;display:block;"></a>' +
-              '<div style="min-width:0;">' +
-                '<div style="font-weight:700;font-size:16px;line-height:1.3;">' + escF(p.title) + '</div>' +
-                (price ? '<div style="font-weight:800;font-size:15px;margin:5px 0;">' + price + '</div>' : '') +
-                '<a href="/products/' + escF(handle) + '" style="color:#0066cc;text-decoration:none;font-size:14px;font-weight:600;">View product &rarr;</a>' +
-              '</div>' +
-            '</div>' +
+          const html =
+            '<div class="awa-partner" data-handle="' + escF(handle) + '" style="text-align: center; margin: 30px 0;">' + inner + '</div>' +
             '<script>(function(){var s=document.currentScript,el=s&&s.previousElementSibling;if(!el)return;var h=' + JSON.stringify(handle) + ';fetch("/products/"+h+".js").then(function(r){if(!r.ok)throw 0;return r.json();}).then(function(p){if(p&&p.available===false)el.style.display="none";}).catch(function(){el.style.display="none";});})();<\/script>';
-          return { ok: true, label: 'Collective block placed (live · auto-hides): ' + p.title, html: block };
+          return { ok: true, label: 'Collective product placed (live · auto-hides): ' + p.title, html };
         }
 
         // Always start from the ORIGINAL body (markers intact) so this step can be run again safely.
@@ -2989,7 +2994,7 @@ Return ONLY a JSON array, one object per title in order, exactly:
           const alt = (fbKw ? fbKw + ' — ' : '') + (im.section || fbT);
           const url = await findImage(im.filename, false);
           if (url) {
-            body = body.split(im.full).join('<figure style="margin:1.6em 0;"><img src="' + escF(url) + '" alt="' + escF(alt) + '" loading="lazy" style="width:100%;height:auto;border-radius:8px;display:block;"></figure>');
+            body = body.split(im.full).join('<div style="text-align: center; margin: 20px 0;"><img style="max-width: 1024px; width: 100%; height: auto;" alt="' + escF(alt) + '" src="' + escF(url) + '"></div>');
             sceneOk++;
           } else {
             report.push({ ok: false, label: 'Photo not saved yet: ' + im.filename, fix: 'Save that image in Shopify with the exact name "' + im.filename + '", then press again.' });
@@ -3011,21 +3016,54 @@ Return ONLY a JSON array, one object per title in order, exactly:
           if (sp.kind === 'print') { sp.product = selectedPrints[pi++] || null; }
           else { const cp = collAligned[ni++]; sp.product = (cp && prods.selected[cp.gid]) ? cp : null; }
         });
-        // extras → first free spot they fit, else keep for the end
+        // extras → first fill any EMPTY spot they fit; the rest go into the best-matching H2 below
         const extrasSel = (prods.extra || []).filter(p => p && prods.selected[p.gid]);
-        const appendExtras = [];
-        extrasSel.forEach(ex => { const spot = spots.find(sp => !sp.product && extraFitsSpot(sp.topic, ex)); if (spot) spot.product = ex; else appendExtras.push(ex); });
+        extrasSel.forEach(ex => { const spot = spots.find(sp => !sp.product && extraFitsSpot(sp.topic, ex)); if (spot) spot.product = ex; });
 
+        // place the in-body [[PRODUCT]] spots first
         for (const sp of spots) {
           if (!sp.product) { report.push({ ok: false, label: 'No product chosen for a spot: ' + sp.topic, fix: 'Open “Pick products”, choose an item for “' + sp.topic + '”, save, then press again.' }); continue; }
           const r = await productBlock(sp.product);
           report.push({ ok: r.ok, label: r.label, fix: r.fix });
-          if (r.ok) body = body.split(sp.full).join(r.html); // leave the marker in place if it failed, so a re-run can fix it
+          if (r.ok) body = body.split(sp.full).join(r.html); // leave the marker if it failed, so a re-run can fix it
         }
-        for (const ex of appendExtras) {
-          const r = await productBlock(ex);
-          report.push({ ok: r.ok, label: 'Added at the end (no matching spot): ' + r.label, fix: r.fix });
-          if (r.ok) body += '\n' + r.html;
+
+        // anything selected but NOT placed in a spot → drop into the H2 section it fits best (closest if none). Never at the end.
+        const placedGids = new Set(spots.filter(s => s.product).map(s => s.product.gid));
+        const leftovers = [];
+        selectedPrints.forEach(p => { if (p && !placedGids.has(p.gid)) { leftovers.push(p); placedGids.add(p.gid); } });
+        collAligned.forEach(p => { if (p && prods.selected[p.gid] && !placedGids.has(p.gid)) { leftovers.push(p); placedGids.add(p.gid); } });
+        extrasSel.forEach(p => { if (p && !placedGids.has(p.gid)) { leftovers.push(p); placedGids.add(p.gid); } });
+
+        const productTermsFor = (p) => {
+          const keys = [];
+          const hay = ((p.productType || '') + ' ' + (p.title || '')).toLowerCase();
+          for (const t of SVR_TYPES) if (t.re.test(hay)) keys.push(...t.keys);
+          (p.title || '').toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 3).forEach(w => keys.push(w));
+          return [...new Set(keys)];
+        };
+        // Insert a block at the end of the H2 section whose heading/text best fits the product; ties/none → closest (first-highest).
+        const insertIntoBestH2 = (html, block, p) => {
+          const parts = html.split(/(?=<h2)/); // parts[0] = intro; each later part begins with an <h2>
+          if (parts.length < 2) return html + '\n' + block;
+          const terms = productTermsFor(p);
+          let bestI = 1, bestScore = -1;
+          for (let i = 1; i < parts.length; i++) {
+            const hm = parts[i].match(/<h2[^>]*>([\s\S]*?)<\/h2>/);
+            const head = hm ? hm[1].replace(/<[^>]+>/g, '').toLowerCase() : '';
+            const secText = parts[i].replace(/<[^>]+>/g, ' ').toLowerCase();
+            let score = 0;
+            for (const t of terms) { if (head.includes(t)) score += 3; else if (secText.includes(t)) score += 1; }
+            if (score > bestScore) { bestScore = score; bestI = i; }
+          }
+          parts[bestI] = parts[bestI] + '\n' + block;
+          return parts.join('');
+        };
+
+        for (const p of leftovers) {
+          const r = await productBlock(p);
+          report.push({ ok: r.ok, label: (r.ok ? 'Placed in best-matching section: ' + p.title : r.label), fix: r.fix });
+          if (r.ok) body = insertIntoBestH2(body, r.html, p);
         }
 
         // ---- SAVE the finished body next to the draft (bodyHtml stays untouched so this can be re-run) ----
