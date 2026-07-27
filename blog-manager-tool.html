@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.0.2 - 2026-07-26 — Batch B: new step 5 "Images saved — fetch &amp; finish" (finds your saved photos in Shopify, drops scene photos + the 6 product blocks into the blog with alt text, live auto-hide Collective blocks, full tick/cross report, saves the finished blog); one copy box for the About Wall Art prompts + "use image position N"; featured = save one, tool ignores the number</p>
+        <p class="version">v6.1.0 - 2026-07-27 — Stage 3 Publish: creates + schedules the finished blog on Shopify (hidden until its date — first blog today 19:00 UK, then 10am daily, one per day), fills every template box + tags + SEO title/meta/handle/excerpt + shoppable gallery + People-Also-Ask/FAQ + How-To schema when it fits + internal-link boxes, sets the featured image, registers the blog in your blog list, adds the auto-link rule + reciprocal links from related blogs, gives a Request-indexing button, full tick/cross report, and clears the month once all its blogs are sent. Includes v6.0.3 (SHOP HERE button in caps). · Batch B: new step 5 "Images saved — fetch &amp; finish" (finds your saved photos in Shopify, drops scene photos + the 6 product blocks into the blog with alt text, live auto-hide Collective blocks, full tick/cross report, saves the finished blog); one copy box for the About Wall Art prompts + "use image position N"; featured = save one, tool ignores the number</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -707,7 +707,7 @@
                 if (card) card.classList.add('selected-card');
             });
             // Re-show any written blogs (session or saved) + saved-brief notes on the visible cards.
-            [...unsent, ...sent].forEach(idea => { restoreDraft(idea.index); restoreBriefNote(idea.index); restoreProducts(idea.index); restoreFinish(idea.index); });
+            [...unsent, ...sent].forEach(idea => { restoreDraft(idea.index); restoreBriefNote(idea.index); restoreProducts(idea.index); restoreFinish(idea.index); restorePublish(idea.index); });
             updateBulkSendBar();
         }
 
@@ -809,7 +809,7 @@
                 if (cb) cb.checked = true;
                 if (card) card.classList.add('selected-card');
             });
-            list.forEach(idea => { restoreDraft(idea.index); restoreBriefNote(idea.index); restoreProducts(idea.index); restoreFinish(idea.index); });
+            list.forEach(idea => { restoreDraft(idea.index); restoreBriefNote(idea.index); restoreProducts(idea.index); restoreFinish(idea.index); restorePublish(idea.index); });
             if (note) note.textContent = `${list.length} blog${list.length === 1 ? '' : 's'} in ${sel}`;
         }
 
@@ -928,6 +928,7 @@
                     const hasImgp = !!(window._imgpDone && window._imgpDone[index]);
                     const hasProducts = !!((window._products && window._products[index]) || (window._productsByTitle && window._productsByTitle[t]));
                     const hasFinish = !!(window._finishDone && window._finishDone[index]);
+                    const hasPublish = !!((window._publishDone && window._publishDone[index]) || (window._drafts && window._drafts[index] && window._drafts[index].published) || (window._draftsByTitle && window._draftsByTitle[t] && window._draftsByTitle[t].published));
                     const stepStyle = (done, colour) => `display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;margin:12px 0 0;background:${done ? '#9e9e9e' : colour};color:#fff;border:none;border-radius:6px;padding:11px 16px;font-weight:700;cursor:pointer;`;
                     actionsHTML = `
                         <div style="width:100%;">
@@ -946,6 +947,8 @@
                             <div id="imgp-${index}" style="font-size:14px;"></div>
                             <button id="finish-btn-${index}" data-done="${hasFinish ? '1' : '0'}" onclick="stepClick(${index},'finish')" style="${stepStyle(hasFinish,'#0d7a6f')}"><span class="step-label">5 · ✅ Images saved — fetch &amp; finish${hasFinish ? ' ✓' : ''}</span><span class="step-caret">${hasFinish ? '▸' : ''}</span></button>
                             <div id="finish-${index}" style="font-size:14px;"></div>
+                            <button id="publish-btn-${index}" data-done="${hasPublish ? '1' : '0'}" onclick="stepClick(${index},'publish')" style="${stepStyle(hasPublish,'#1b5e20')}"><span class="step-label">6 · 🚀 Publish &amp; schedule${hasPublish ? ' ✓' : ''}</span><span class="step-caret">${hasPublish ? '▸' : ''}</span></button>
+                            <div id="publish-${index}" style="font-size:14px;"></div>
                         </div>
                     `;
                 }
@@ -1135,6 +1138,7 @@
             else if (which === 'imgp') getImagePrompts(index);
             else if (which === 'prod') pickProducts(index);
             else if (which === 'finish') finishBlog(index);
+            else if (which === 'publish') publishBlog(index);
         }
         // Turn a step bar grey with a ✓ + caret, and show (open) or hide its content beneath it.
         function setStepDone(index, which, open) {
@@ -1493,6 +1497,70 @@
                 const regen = `<div style="margin-bottom:10px;"><button onclick="finishBlog(${index})" style="${regenBtnStyle}">↻ Fetch &amp; finish again</button></div>`;
                 out.innerHTML = stepBox(regen + '<div style="font-size:13px;color:#2e7d32;font-weight:700;margin-bottom:6px;">✅ This blog was finished earlier. Press “Fetch &amp; finish again” if you changed any photos or products.</div>' + finishPreviewBox(d.finishedBody));
                 setStepDone(index, 'finish', false);
+            }
+        }
+
+        // ============================================
+        // STEP 6 — PUBLISH: create + schedule the finished blog on Shopify, fill every box, register it,
+        // add the links, prepare the Google reindex. Full tick/cross report — nothing silent.
+        // ============================================
+        async function publishBlog(index) {
+            const idea = allIdeas.find(i => i.index === index);
+            if (!idea) return;
+            const out = document.getElementById(`publish-${index}`);
+            const stored = (typeof briefFor === 'function') ? briefFor(idea) : {};
+            const keyword = ((stored && stored.keyword) || idea.keyword || idea.currentKeyword || idea.currentTitle || '').trim();
+            if (!confirm('Publish “' + (idea.currentTitle || '') + '” to Shopify now?\n\nIt is created HIDDEN and scheduled — it will not be live until its scheduled date, so you can review or delete it first.')) return;
+            if (out) { out.style.display = 'block'; out.innerHTML = stepBox('<div style="font-size:14px;color:#555;">🚀 Creating the blog on Shopify and filling everything… this can take a moment.</div>'); }
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'publish-blog', title: idea.currentTitle, keyword }) });
+                const data = await r.json();
+                if (!data.success) {
+                    if (data.alreadyDone) { renderPublishReport(index, { report: [{ ok: false, label: data.error, fix: 'If you deleted it on Shopify, refresh this page to publish again.' }], articleUrl: data.articleUrl }); return; }
+                    throw new Error(data.error || 'Could not publish the blog');
+                }
+                window._publishDone = window._publishDone || {}; window._publishDone[index] = true;
+                const d = window._drafts[index] || (window._draftsByTitle && window._draftsByTitle[(idea.currentTitle || '').toLowerCase()]);
+                if (d) { d.published = true; }
+                renderPublishReport(index, data);
+                if (data.monthCleared && data.month) { setTimeout(() => alert('🎉 Every blog for ' + data.month + ' is now published — that month is cleared from “Month in progress”.'), 400); }
+            } catch (e) {
+                if (out) out.innerHTML = stepBox('<span style="color:#a33;">❌ ' + escHtml(e.message) + '</span> <button onclick="publishBlog(' + index + ')" style="' + regenBtnStyle + '">↻ Try again</button>');
+            }
+        }
+        function renderPublishReport(index, data) {
+            const out = document.getElementById(`publish-${index}`); if (!out) return;
+            const rep = data.report || [];
+            const anyBad = rep.some(l => !l.ok);
+            const head = anyBad
+                ? '<div style="font-size:13px;color:#c62828;font-weight:700;margin-bottom:6px;">Published — but a few bits need a look. Fix the ❌ items (each shows exactly what to do).</div>'
+                : '<div style="font-size:13px;color:#2e7d32;font-weight:700;margin-bottom:6px;">Published + scheduled — everything filled. 🎉</div>';
+            const links = [];
+            if (data.articleUrl) links.push(`<a href="${escHtml(data.articleUrl)}" target="_blank" rel="noopener" style="display:inline-block;margin:4px 8px 4px 0;padding:8px 14px;background:#1a1a1a;color:#fff;border-radius:6px;text-decoration:none;font-size:13px;">👁 View the blog</a>`);
+            if (data.adminUrl) links.push(`<a href="${escHtml(data.adminUrl)}" target="_blank" rel="noopener" style="display:inline-block;margin:4px 8px 4px 0;padding:8px 14px;background:#5a3e85;color:#fff;border-radius:6px;text-decoration:none;font-size:13px;">✏️ Edit in Shopify</a>`);
+            if (data.gscUrl) links.push(`<a href="${escHtml(data.gscUrl)}" target="_blank" rel="noopener" style="display:inline-block;margin:4px 8px 4px 0;padding:8px 14px;background:#1a73e8;color:#fff;border-radius:6px;text-decoration:none;font-size:13px;">🔎 Request indexing (Google)</a>`);
+            const linkBar = links.length ? `<div style="margin:6px 0 12px;">${links.join('')}</div>` : '';
+            const rowsHtml = rep.map(l => `
+                <div style="display:flex;gap:10px;align-items:flex-start;font-size:13.5px;padding:7px 0;border-bottom:1px solid #f2efe8;">
+                    <span style="font-size:15px;flex-shrink:0;">${l.ok ? '✅' : '❌'}</span>
+                    <div style="flex:1;"><div style="${l.ok ? '' : 'color:#c62828;font-weight:600;'}">${escHtml(l.label)}</div>${l.fix ? `<div style="font-size:12px;color:#c62828;background:#fff0f0;border:1px solid #ffd6d6;border-radius:6px;padding:6px 8px;margin-top:4px;">${escHtml(l.fix)}</div>` : ''}${l.copy ? `<div style="margin-top:4px;"><code style="background:#f4f4f4;border:1px solid #e0e0e0;border-radius:4px;padding:3px 6px;font-size:12px;">${escHtml(l.copy)}</code></div>` : ''}</div>
+                </div>`).join('');
+            out.innerHTML = stepBox(head + linkBar + rowsHtml);
+            setStepDone(index, 'publish', true);
+        }
+        // Re-show the "published" state on reopen so it is never lost (works on already-published blogs too).
+        function restorePublish(index) {
+            const idea = allIdeas.find(i => i.index === index);
+            if (!idea) return;
+            const d = window._drafts[index] || (window._draftsByTitle && window._draftsByTitle[(idea.currentTitle || '').toLowerCase()]);
+            if (!(d && d.published)) return;
+            window._publishDone = window._publishDone || {}; window._publishDone[index] = true;
+            const out = document.getElementById(`publish-${index}`);
+            if (out && !out.innerHTML.trim()) {
+                const url = d.publishedHandle ? ('https://aboutwallart.com/blogs/news/' + d.publishedHandle) : '';
+                const viewBtn = url ? `<a href="${escHtml(url)}" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;padding:8px 14px;background:#1a1a1a;color:#fff;border-radius:6px;text-decoration:none;font-size:13px;">👁 View the blog</a>` : '';
+                out.innerHTML = stepBox('<div style="font-size:13px;color:#2e7d32;font-weight:700;">✅ This blog is already published + scheduled on Shopify.</div>' + viewBtn);
+                setStepDone(index, 'publish', false);
             }
         }
 
