@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.1.4 - 2026-07-27</p>
+        <p class="version">v6.1.6 - 2026-07-27</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -915,7 +915,6 @@
                     cardExtraClass = 'grey';
                     actionsHTML = `
                         <button class="btn-mark marked" disabled style="opacity:0.5;">✓ To Write Blog</button>
-                        <span class="saving-indicator" style="color:#66bb6a;">✅ Sent to Google Sheet</span>
                         <button class="btn-undo" onclick="undoWriting(${index})">↩ Undo</button>
                     `;
                 } else {
@@ -1547,6 +1546,7 @@
         function renderPublishReport(index, data) {
             const out = document.getElementById(`publish-${index}`); if (!out) return;
             window._publishGid = window._publishGid || {}; if (data.articleGid) window._publishGid[index] = data.articleGid;
+            window._publishGalleries = window._publishGalleries || {}; if (data.galleries) window._publishGalleries[index] = data.galleries;
             const rep = data.report || [];
             const anyBad = rep.some(l => !l.ok);
             const head = anyBad
@@ -1555,11 +1555,30 @@
             const links = [];
             if (data.articleUrl) links.push(`<a href="${escHtml(data.articleUrl)}" target="_blank" rel="noopener" style="display:inline-block;margin:4px 8px 4px 0;padding:8px 14px;background:#1a1a1a;color:#fff;border-radius:6px;text-decoration:none;font-size:13px;">👁 View the blog</a>`);
             if (data.adminUrl) links.push(`<a href="${escHtml(data.adminUrl)}" target="_blank" rel="noopener" style="display:inline-block;margin:4px 8px 4px 0;padding:8px 14px;background:#5a3e85;color:#fff;border-radius:6px;text-decoration:none;font-size:13px;">✏️ Edit in Shopify</a>`);
-            if (data.gscUrl) links.push(`<a href="${escHtml(data.gscUrl)}" target="_blank" rel="noopener" style="display:inline-block;margin:4px 8px 4px 0;padding:8px 14px;background:#1a73e8;color:#fff;border-radius:6px;text-decoration:none;font-size:13px;">🔎 Request indexing (Google)</a>`);
+            // Request-indexing is now the dedicated Money-Page-Doctor-style block below (with the working link + a done tick).
             const linkBar = links.length ? `<div style="margin:6px 0 12px;">${links.join('')}</div>` : '';
+            const reindexBlock = data.articleUrl ? `
+                <div style="margin-top:14px;padding:12px 14px;background:#f9f9f9;border-radius:8px;">
+                    <div style="font-weight:700;font-size:13px;margin-bottom:4px;">🔍 Request Reindex in Google</div>
+                    <div style="font-size:12px;color:#555;margin-bottom:8px;">Copy the URL, open GSC URL Inspection, paste it and press Request Indexing — then tick it done.</div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                        <input id="reindex-url-${index}" type="text" value="${escHtml(data.articleUrl)}" readonly style="flex:1;min-width:200px;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:12.5px;background:#fff;">
+                        <button onclick="copyText2('reindex-url-${index}',this)" style="background:#1a1a1a;color:#fff;border:none;border-radius:6px;padding:8px 12px;font-weight:700;font-size:13px;cursor:pointer;">📋 Copy URL</button>
+                        <a href="https://search.google.com/u/3/search-console?resource_id=sc-domain%3Aaboutwallart.com" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;background:#1a73e8;color:#fff;padding:8px 12px;border-radius:6px;font-size:13px;text-decoration:none;font-weight:600;">🔍 Open GSC ↗</a>
+                    </div>
+                    <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;color:#333;cursor:pointer;">
+                        <input type="checkbox" id="reindex-done-${index}" onchange="toggleReindexDone(${index},'${escHtml(data.articleUrl)}',this)" style="width:16px;height:16px;">
+                        <span id="reindex-lbl-${index}">Mark: submitted for reindexing in Google</span>
+                    </label>
+                </div>` : '';
             const addBox = (l) => {
                 if (!l.add) return '';
                 const aid = 'pf-' + index + '-' + l.add.key;
+                if (l.add.kind === 'gallery') {
+                    const gals = (window._publishGalleries && window._publishGalleries[index]) || [];
+                    const opts = ['<option value="">— pick a gallery —</option>'].concat(gals.map(g => `<option value="${escHtml(String(g.id))}">${escHtml(g.title)}</option>`)).join('');
+                    return `<div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;"><select id="${aid}" style="flex:1;min-width:200px;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;">${opts}</select><button onclick="setBlogGallery(${index},'${aid}')" style="background:#1b5e20;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-weight:700;font-size:13px;cursor:pointer;">Add to blog</button> <span id="${aid}-msg" style="font-size:12px;margin-left:6px;"></span></div>`;
+                }
                 const multi = (l.add.kind === 'text' || l.add.kind === 'urls');
                 const field = multi
                     ? `<textarea id="${aid}" rows="3" placeholder="Paste here…" style="width:100%;box-sizing:border-box;border:1px solid #ccc;border-radius:6px;padding:8px;font-size:13px;"></textarea>`
@@ -1571,8 +1590,44 @@
                     <span style="font-size:15px;flex-shrink:0;">${l.ok ? '✅' : '❌'}</span>
                     <div style="flex:1;"><div style="${l.ok ? '' : 'color:#c62828;font-weight:600;'}">${escHtml(l.label)}</div>${l.fix ? `<div style="font-size:12px;color:#c62828;background:#fff0f0;border:1px solid #ffd6d6;border-radius:6px;padding:6px 8px;margin-top:4px;">${escHtml(l.fix)}</div>` : ''}${l.copy ? `<div style="margin-top:4px;"><code style="background:#f4f4f4;border:1px solid #e0e0e0;border-radius:4px;padding:3px 6px;font-size:12px;">${escHtml(l.copy)}</code></div>` : ''}${addBox(l)}</div>
                 </div>`).join('');
-            out.innerHTML = stepBox(head + linkBar + rowsHtml);
+            out.innerHTML = stepBox(head + linkBar + rowsHtml + reindexBlock);
             setStepDone(index, 'publish', true);
+        }
+        // Copy a readonly input's value to the clipboard.
+        function copyText2(id, btn) {
+            const el = document.getElementById(id); if (!el) return;
+            const done = () => { const o = btn.textContent; btn.textContent = 'Copied ✓'; setTimeout(() => btn.textContent = o, 1500); };
+            if (navigator.clipboard) { navigator.clipboard.writeText(el.value).then(done).catch(() => { el.select(); document.execCommand('copy'); done(); }); }
+            else { el.select(); document.execCommand('copy'); done(); }
+        }
+        // Tick "submitted for reindexing" — saved so it sticks.
+        async function toggleReindexDone(index, url, cb) {
+            const lbl = document.getElementById('reindex-lbl-' + index);
+            try {
+                const r = await fetch('/api/blogs?action=get-reindex-done');
+                const d = await readJson(r);
+                let done = (d && Array.isArray(d.done)) ? d.done : [];
+                if (cb.checked) { if (!done.includes(url)) done.push(url); } else { done = done.filter(u => u !== url); }
+                await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-reindex-done', done }) });
+                if (lbl) lbl.style.textDecoration = cb.checked ? 'line-through' : 'none';
+            } catch (e) { cb.checked = !cb.checked; if (lbl) { const o = lbl.textContent; lbl.textContent = 'Could not save — try again'; setTimeout(() => lbl.textContent = o, 1800); } }
+        }
+        // Pick a Shoppable Gallery by name → set it + add its 2 products to the Product List.
+        async function setBlogGallery(index, selectId) {
+            const gid = window._publishGid && window._publishGid[index];
+            const sel = document.getElementById(selectId);
+            const msg = document.getElementById(selectId + '-msg');
+            if (!gid) { if (msg) { msg.style.color = '#a33'; msg.textContent = 'Publish the blog first.'; } return; }
+            const galleryId = sel ? sel.value : '';
+            if (!galleryId) { if (msg) { msg.style.color = '#a33'; msg.textContent = 'Pick a gallery first.'; } return; }
+            if (msg) { msg.style.color = '#555'; msg.textContent = 'Adding…'; }
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set-blog-gallery', articleGid: gid, galleryId }) });
+                const data = await readJson(r);
+                if (!data.success) throw new Error(data.error || 'Could not add it');
+                if (msg) { msg.style.color = '#2e7d32'; msg.textContent = '✅ Gallery set + ' + (data.added || 0) + ' products added to the list'; }
+                if (sel) sel.disabled = true;
+            } catch (e) { if (msg) { msg.style.color = '#a33'; msg.textContent = '❌ ' + e.message; } }
         }
         // "Add it yourself" — push one metafield onto the just-published blog.
         async function addBlogMetafield(index, key, type, inputId) {
