@@ -541,7 +541,7 @@ Return ONLY a JSON object, no commentary, exactly:
     try { o = JSON.parse(m[0]); }
     catch (e) { throw new Error('Competitor brief was not in a readable format'); }
     return {
-      wordTarget: parseInt(o.wordTarget, 10) || 2200,
+      wordTarget: Math.min(2500, parseInt(o.wordTarget, 10) || 2200), // never ask for more than 2500 words (avoids cut-offs)
       faqCount: Math.min(5, Math.max(3, parseInt(o.faqCount, 10) || 4)),
       mustCover: Array.isArray(o.mustCover) ? o.mustCover.filter(Boolean) : [],
       gaps: Array.isArray(o.gaps) ? o.gaps.filter(Boolean) : [],
@@ -2959,7 +2959,7 @@ Return ONLY a JSON array, one object per title in order, exactly:
             imgUrl = imgUrl + (imgUrl.indexOf('?') >= 0 ? '&' : '?') + 'width=1024';
           }
           const url = p.url || ('https://aboutwallart.com/products/' + (p.handle || ''));
-          const alt = (fbKw ? fbKw + ' — ' : '') + p.title + (isAwa ? ' styled in a room' : '');
+          const alt = altMap['prod:' + p.gid] || ((fbKw ? fbKw + ' — ' : '') + p.title + (isAwa ? ' styled in a room' : ''));
           const inner =
             '<a rel="noopener" href="' + escF(url) + '" target="_blank"><img style="max-width: 1024px; width: 100%; height: auto;" alt="' + escF(alt) + '" src="' + escF(imgUrl) + '"></a>' +
             '<br>' +
@@ -2977,29 +2977,81 @@ Return ONLY a JSON array, one object per title in order, exactly:
         // Always start from the ORIGINAL body (markers intact) so this step can be run again safely.
         let body = String(draft.bodyHtml);
 
+        // ---- ALT TEXT — real descriptions of what's in each image, with the keyword woven in naturally ----
+        // One small AI pass writes every image's alt at once. If the AI is unavailable (e.g. out of credits),
+        // we fall back to a readable name + keyword so a blog can still be finished.
+        let altMap = {};
+        const rawReadable = (fname) => String(fname || '').trim()
+          .replace(/\.[a-z0-9]+$/i, '')                 // drop any file extension
+          .replace(/-(featured|option)s?(-\d+)?$/i, '') // drop trailing role words + number
+          .replace(/-\d+$/, '')                         // drop any remaining trailing number
+          .replace(/[-_]+/g, ' ')                       // hyphens/underscores → spaces
+          .replace(/\s+/g, ' ').trim();
+        const readableAlt = (fname) => (fbKw ? fbKw + ' — ' : '') + (rawReadable(fname) || fbT);
+
         // ---- FEATURED — one image, ignore everything after "-option" ----
         const featuredBase = draft.featuredBase || '';
         let featuredUrl = '';
-        const featuredAlt = (fbKw ? fbKw + ' — ' : '') + fbT;
         if (featuredBase) {
           featuredUrl = await findImage(featuredBase + '-featured', true);
-          if (featuredUrl) report.push({ ok: true, label: 'Featured image found — "' + featuredAlt + '"' });
-          else report.push({ ok: false, label: 'Featured image not found', fix: 'Save your favourite featured photo in Shopify with a name starting "' + featuredBase + '-featured-option", then press again.' });
+          if (!featuredUrl) report.push({ ok: false, label: 'Featured image not found', fix: 'Save your favourite featured photo in Shopify with a name starting "' + featuredBase + '-featured-option", then press again.' });
         } else {
           report.push({ ok: false, label: 'This blog has no featured name yet', fix: 'Re-write the blog (step 2) so it has a featured name, then press again.' });
         }
 
-        // ---- SCENE PHOTOS — each [[IMG|name|ratio|kind|prompt]], with its H2 section for the alt text ----
+        // ---- SCENE PHOTOS — each [[IMG|name|ratio|kind|prompt]]; keep each photo's own written description for its alt ----
         const imgRe = /<h2[^>]*>([\s\S]*?)<\/h2>|\[\[IMG\|([^|]*)\|([^|]*)\|([^|]*)\|([\s\S]*?)\]\]/g;
         let mm, curSec = '';
         const sceneMarkers = [];
         while ((mm = imgRe.exec(body)) !== null) {
           if (mm[1] !== undefined) curSec = mm[1].replace(/<[^>]+>/g, '').trim();
-          else sceneMarkers.push({ full: mm[0], filename: (mm[2] || '').trim(), section: curSec });
+          else sceneMarkers.push({ full: mm[0], filename: (mm[2] || '').trim(), section: curSec, prompt: (mm[5] || '').trim() });
         }
+
+        // Gather every product that will appear (unique) so its alt can describe the actual product.
+        const _seenP = new Set(); const selProducts = [];
+        [].concat(prods.prints || [], prods.awa || [], prods.collective || [], prods.extra || []).forEach(p => {
+          if (p && p.gid && prods.selected && prods.selected[p.gid] && !_seenP.has(p.gid)) { _seenP.add(p.gid); selProducts.push(p); }
+        });
+
+        // One AI pass → a real, unique, SEO-natural alt for every image (featured + scenes + products).
+        async function writeAltTexts() {
+          try {
+            const items = [];
+            items.push({ id: 'featured', hint: 'Main featured photo. Shows: ' + (rawReadable(featuredBase) || fbT) });
+            sceneMarkers.forEach(s => { const shows = (s.prompt && s.prompt.length > 4) ? s.prompt : (s.section || rawReadable(s.filename)); items.push({ id: 'scene:' + s.filename, hint: 'Scene photo. Shows: ' + shows }); });
+            selProducts.forEach(p => { items.push({ id: 'prod:' + p.gid, hint: 'Product photo of "' + (p.title || '') + '"' + (p.productType ? ' (' + p.productType + ')' : '') }); });
+            if (!items.length) return {};
+            const listTxt = items.map(it => it.id + ' :: ' + it.hint.replace(/\s+/g, ' ').slice(0, 400)).join('\n');
+            const prompt = `You are writing image ALT TEXT for a home-decor blog on aboutwallart.com. Use UK spelling ("colour", "decor").
+Blog title: "${fbT}". Main keyword: "${fbKw}".
+
+Write ONE alt line for EACH image id below. Each alt MUST:
+- DESCRIBE what the image actually shows, concretely, for a blind reader (the room, objects, colours, or the product). 8 to 16 words.
+- Read like natural English. Never begin with "image of" or "photo of".
+- Include the keyword "${fbKw}" (or a close natural variation) ONLY on the few images where it genuinely fits — do NOT put it on every image, and never stuff it. Most alts should simply describe the image.
+- Be different from every other alt.
+
+Images (id :: what it shows):
+${listTxt}
+
+Return ONLY a JSON object mapping each id to its alt line, and nothing else.`;
+            const raw = await callClaudeText(prompt, 2000);
+            const jsonStr = (raw.match(/\{[\s\S]*\}/) || [raw])[0];
+            const map = JSON.parse(jsonStr);
+            const clean = {};
+            Object.keys(map).forEach(k => { if (typeof map[k] === 'string' && map[k].trim()) clean[k] = map[k].trim().replace(/\s+/g, ' '); });
+            return clean;
+          } catch (e) { return {}; }
+        }
+        altMap = await writeAltTexts();
+
+        const featuredAlt = altMap['featured'] || readableAlt(featuredBase);
+        if (featuredBase && featuredUrl) report.push({ ok: true, label: 'Featured image found — "' + featuredAlt + '"' });
+
         let sceneOk = 0;
         for (const im of sceneMarkers) {
-          const alt = (fbKw ? fbKw + ' — ' : '') + (im.section || fbT);
+          const alt = altMap['scene:' + im.filename] || readableAlt(im.filename);
           const url = await findImage(im.filename, false);
           if (url) {
             body = body.split(im.full).join('<div style="text-align: center; margin: 20px 0;"><img style="max-width: 1024px; width: 100%; height: auto;" alt="' + escF(alt) + '" src="' + escF(url) + '"></div>');
@@ -3065,9 +3117,12 @@ Return ONLY a JSON array, one object per title in order, exactly:
         const insertIntoBestH2 = (html, block, p) => {
           const parts = html.split(/(?=<h2)/); // parts[0] = intro; each later part begins with an <h2>
           if (parts.length < 2) return html + '\n' + block;
+          // never insert into or after the video (WATCH) section — the video is the last visual piece
+          let videoI = parts.length;
+          for (let i = 1; i < parts.length; i++) { if (/youtube\.com\/embed|watch:/i.test(parts[i])) { videoI = i; break; } }
           const terms = productTermsFor(p);
           let bestI = 1, bestScore = -1;
-          for (let i = 1; i < parts.length; i++) {
+          for (let i = 1; i < videoI; i++) {
             const hm = parts[i].match(/<h2[^>]*>([\s\S]*?)<\/h2>/);
             const head = hm ? hm[1].replace(/<[^>]+>/g, '').toLowerCase() : '';
             const secText = parts[i].replace(/<[^>]+>/g, ' ').toLowerCase();
@@ -3075,6 +3130,7 @@ Return ONLY a JSON array, one object per title in order, exactly:
             for (const t of terms) { if (head.includes(t)) score += 3; else if (secText.includes(t)) score += 1; }
             if (score > bestScore) { bestScore = score; bestI = i; }
           }
+          if (bestI >= videoI) bestI = Math.max(1, videoI - 1); // safety: stay before the video
           parts[bestI] = parts[bestI] + '\n' + block;
           return parts.join('');
         };
@@ -3212,18 +3268,43 @@ Return only the JSON.`;
           const idx = JSON.parse(idxFile.content || '{}');
           const all = Array.isArray(idx.articles) ? idx.articles : [];
           const hay = new Set(((keyword + ' ' + pbTitle + ' ' + tags.join(' ')).toLowerCase().match(/[a-z]+/g) || []).filter(w => w.length > 3 && !LINK_STOP.has(w)));
-          relatedBlogObjs = all.filter(a => a.gid && norm(a.handle) !== norm(handle) && norm(a.title) !== norm(pbTitle))
-            .map(a => { const ws = ((a.title || '') + ' ' + (a.tags || []).join(' ')).toLowerCase().match(/[a-z]+/g) || []; let sc = 0; const seen = new Set(); ws.forEach(w => { if (hay.has(w) && !seen.has(w)) { sc++; seen.add(w); } }); return { gid: a.gid, handle: a.handle, sc }; })
-            .filter(a => a.sc > 0).sort((a, b) => b.sc - a.sc).slice(0, 3);
+          // Inbound-link count per blog (how many blogs already link to it) → spread link equity: fewest first.
+          const inbound = {};
+          try {
+            let cursor = null, pg = 0;
+            while (pg < 6) { pg++;
+              const q = await shopifyGraphQL(`query($c:String){ articles(first:250, after:$c, query:"blog_id:93572858142"){ pageInfo{ hasNextPage endCursor } edges{ node{ metafield(namespace:"custom", key:"linked_blogs"){ value } } } } }`, { c: cursor });
+              const conn = q && q.articles; if (!conn) break;
+              for (const e of conn.edges) { let v = []; try { v = JSON.parse((e.node.metafield && e.node.metafield.value) || '[]'); } catch (e2) {} (Array.isArray(v) ? v : []).forEach(g => { inbound[g] = (inbound[g] || 0) + 1; }); }
+              if (!conn.pageInfo.hasNextPage) break; cursor = conn.pageInfo.endCursor;
+            }
+          } catch (e) {}
+          const candidates = all.filter(a => a.gid && norm(a.handle) !== norm(handle) && norm(a.title) !== norm(pbTitle))
+            .map(a => { const ws = ((a.title || '') + ' ' + (a.tags || []).join(' ')).toLowerCase().match(/[a-z]+/g) || []; let sc = 0; const seen = new Set(); ws.forEach(w => { if (hay.has(w) && !seen.has(w)) { sc++; seen.add(w); } }); return { gid: a.gid, handle: a.handle, sc, inb: inbound[a.gid] || 0 }; })
+            .filter(a => a.sc > 0);
+          // topic-relevant only, then among them prefer the ones with the FEWEST inbound links (spread evenly).
+          candidates.sort((a, b) => (a.inb - b.inb) || (b.sc - a.sc));
+          relatedBlogObjs = candidates.slice(0, 3);
           linkedBlogs = relatedBlogObjs.map(a => a.gid);
         } catch (e) {}
 
         // ---- 5) Shoppable gallery — match by meaning, blank if no clear fit (never a default) ----
-        let galleryId = '';
+        let galleryId = '', bestGallery = null, galleriesList = [];
+        const galleryProductGids = (g, exclude) => {
+          const ex = new Set(exclude || []);
+          const items = ((g && g.images) || [])
+            .map(im => ({ gid: im.productId ? ('gid://shopify/Product/' + im.productId) : '', price: parseFloat(im.productPrice) || 0 }))
+            .filter(x => x.gid && !ex.has(x.gid))
+            .sort((a, b) => b.price - a.price);
+          const seen = new Set(), out = [];
+          for (const x of items) { if (!seen.has(x.gid)) { seen.add(x.gid); out.push(x.gid); } }
+          return out.slice(0, 2); // 2 priciest = the Collective / partner items in the gallery
+        };
         try {
           const gf = await getGitHubFile('data/galleries.json');
           const gsRaw = JSON.parse(gf.content || '[]');
           const arr = Array.isArray(gsRaw) ? gsRaw : (gsRaw.galleries || []);
+          galleriesList = arr.filter(g => g && g.id != null && (!g.status || g.status === 'active')).map(g => ({ id: g.id, title: g.title || String(g.id) }));
           const hay = (keyword + ' ' + pbTitle + ' ' + tags.join(' ')).toLowerCase();
           let best = null, bestSc = 0;
           for (const g of arr) {
@@ -3233,11 +3314,15 @@ Return only the JSON.`;
             words.forEach(w => { if (w.length > 3 && !LINK_STOP.has(w) && hay.includes(w) && !seen.has(w)) { sc++; seen.add(w); } });
             if (sc > bestSc) { bestSc = sc; best = g; }
           }
-          if (best && bestSc >= 2) galleryId = String(best.id);
+          if (best && bestSc >= 1) { galleryId = String(best.id); bestGallery = best; } // one clear style word is enough
         } catch (e) {}
 
-        // ---- 6) blog_products_list — up to 4 of the selected About Wall Art prints ----
-        const productGids = (prods.awa || []).filter(p => p && prods.selected[p.gid]).map(p => p.gid).slice(0, 4);
+        // ---- 6) blog_products_list — 2 About Wall Art (priciest) + 2 from the matched gallery's collection
+        //      (priciest = the Collective / partner items). No gallery yet → just the 2 About Wall Art; when she
+        //      picks a gallery from the report, its 2 get added (set-blog-gallery). Separate from the body products.
+        const awaGids = (prods.awa || []).filter(p => p && p.gid).sort((a, b) => (b.price || 0) - (a.price || 0)).map(p => p.gid).slice(0, 2);
+        const galleryGids = bestGallery ? galleryProductGids(bestGallery, awaGids) : [];
+        const productGids = [...awaGids, ...galleryGids].slice(0, 4);
 
         // ---- 7) Schedule — the first free day; today → 19:00 UK, any future day → 10:00 UK, one per day ----
         function londonOffsetMin(date) { const u = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' })); const l = new Date(date.toLocaleString('en-US', { timeZone: 'Europe/London' })); return Math.round((l - u) / 60000); }
@@ -3246,6 +3331,13 @@ Return only the JSON.`;
         try {
           const d = await shopifyGraphQL(`{ articles(first:5, query:"blog_id:93572858142", sortKey:PUBLISHED_AT, reverse:true){ edges{ node{ publishedAt } } } }`);
           const dates = (d && d.articles ? d.articles.edges : []).map(e => e.node.publishedAt).filter(Boolean).map(s => new Date(s));
+          // ALSO read the blog list file — it includes hidden/scheduled blogs that Shopify's date-sorted query leaves out,
+          // so scheduled-but-not-yet-live blogs no longer get ignored (which used to stack every new blog on the same day).
+          try {
+            const idxF = await getGitHubFile('data/blog-index.json');
+            const idxJson = JSON.parse(idxF.content || '{}');
+            (idxJson.articles || []).forEach(a => { if (a.publishedAt) dates.push(new Date(a.publishedAt)); });
+          } catch (eIdx) {}
           const last = dates.length ? new Date(Math.max(...dates.map(x => x.getTime()))) : null;
           const nowUk = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/London' }));
           const todayMid = Date.UTC(nowUk.getFullYear(), nowUk.getMonth(), nowUk.getDate());
@@ -3441,7 +3533,7 @@ Return only the JSON.`;
           { key: 'people_also_ask_new', type: 'multi_line_text_field', kind: 'text', label: 'People Also Ask', has: !!boxes.peopleAlsoAsk },
           { key: 'complete_the_look', type: 'single_line_text_field', kind: 'line', label: 'Complete the Look title', has: !!boxes.completeTheLook },
           { key: 'home_decor_trends_title', type: 'single_line_text_field', kind: 'line', label: 'Home Decor Trends title', has: !!boxes.homeDecorTrendsTitle },
-          { key: 'shoppable_gallery_new', type: 'number_integer', kind: 'number', label: 'Shoppable Gallery (paste the gallery ID number)', has: !!galleryId },
+          { key: 'shoppable_gallery_new', type: 'number_integer', kind: 'gallery', label: 'Shoppable Gallery — pick one (it also adds its 2 products to the Product List)', has: !!galleryId },
           { key: 'linked_collections', type: 'list.collection_reference', kind: 'urls', label: 'Linked Collections (paste collection URLs, one per line)', has: linkedCollections.length > 0 },
           { key: 'linked_trends', type: 'list.page_reference', kind: 'urls', label: 'Linked Trends (paste trend-page URLs, one per line)', has: linkedTrends.length > 0 },
           { key: 'linked_blogs', type: 'list.article_reference', kind: 'urls', label: 'Linked Blogs (paste blog URLs, one per line)', has: linkedBlogs.length > 0 },
@@ -3449,7 +3541,7 @@ Return only the JSON.`;
         ];
         for (const fb of fillable) { if (!fb.has) report.push({ ok: false, label: fb.label + ' — empty', add: { key: fb.key, type: fb.type, kind: fb.kind, label: fb.label } }); }
 
-        return res.status(200).json({ success: true, report, articleGid, articleUrl, adminUrl: adminId ? ('https://admin.shopify.com/store/' + storeHandle + '/content/articles/' + adminId) : '', gscUrl, month, monthCleared, monthLeft });
+        return res.status(200).json({ success: true, report, articleGid, articleUrl, adminUrl: adminId ? ('https://admin.shopify.com/store/' + storeHandle + '/content/articles/' + adminId) : '', gscUrl, galleries: galleriesList, month, monthCleared, monthLeft });
       }
 
       // ── ACTION: set-blog-metafield ── (Publish report: "add it yourself" — push ONE metafield onto the
@@ -3491,6 +3583,42 @@ Return only the JSON.`;
           const errs = sd && sd.metafieldsSet && sd.metafieldsSet.userErrors;
           if (errs && errs.length) return res.status(200).json({ success: false, error: errs[0].message });
           return res.status(200).json({ success: true });
+        } catch (e) { return res.status(200).json({ success: false, error: e.message }); }
+      }
+
+      // ── ACTION: set-blog-gallery ── (Publish report: pick a Shoppable Gallery by name → set it AND add its
+      // 2 priciest products (the Collective / partner items) to the Product List, keeping the 2 About Wall Art.)
+      // Input: { articleGid, galleryId }. Output: { success, products, added }.
+      if (req.body.action === 'set-blog-gallery') {
+        const gid = String(req.body.articleGid || '').trim();
+        const galId = String(req.body.galleryId || '').trim();
+        if (!gid || !galId) return res.status(400).json({ error: 'articleGid and galleryId required' });
+        try {
+          const gf = await getGitHubFile('data/galleries.json');
+          const gsRaw = JSON.parse(gf.content || '[]');
+          const arr = Array.isArray(gsRaw) ? gsRaw : (gsRaw.galleries || []);
+          const g = arr.find(x => x && String(x.id) === galId);
+          if (!g) return res.status(200).json({ success: false, error: 'That gallery was not found.' });
+          const galProds = ((g.images) || [])
+            .map(im => ({ gid: im.productId ? ('gid://shopify/Product/' + im.productId) : '', price: parseFloat(im.productPrice) || 0 }))
+            .filter(x => x.gid).sort((a, b) => b.price - a.price);
+          const seen = new Set(), gg = [];
+          for (const x of galProds) { if (!seen.has(x.gid)) { seen.add(x.gid); gg.push(x.gid); } }
+          const galleryGids = gg.slice(0, 2);
+          // keep the article's current Product List (the 2 About Wall Art), add the gallery's 2
+          let current = [];
+          try { const q = await shopifyGraphQL(`query($id:ID!){ node(id:$id){ ... on Article { metafield(namespace:"custom", key:"blog_products_list"){ value } } } }`, { id: gid }); current = JSON.parse((q && q.node && q.node.metafield && q.node.metafield.value) || '[]'); } catch (e) { current = []; }
+          if (!Array.isArray(current)) current = [];
+          const merged = [], mseen = new Set();
+          [...current, ...galleryGids].forEach(x => { if (x && !mseen.has(x)) { mseen.add(x); merged.push(x); } });
+          const finalList = merged.slice(0, 4);
+          const sd = await shopifyGraphQL(`mutation($m:[MetafieldsSetInput!]!){ metafieldsSet(metafields:$m){ userErrors{ message } } }`, { m: [
+            { ownerId: gid, namespace: 'custom', key: 'shoppable_gallery_new', type: 'number_integer', value: String(parseInt(galId, 10)) },
+            { ownerId: gid, namespace: 'custom', key: 'blog_products_list', type: 'list.product_reference', value: JSON.stringify(finalList) }
+          ] });
+          const errs = sd && sd.metafieldsSet && sd.metafieldsSet.userErrors;
+          if (errs && errs.length) return res.status(200).json({ success: false, error: errs[0].message });
+          return res.status(200).json({ success: true, products: finalList.length, added: galleryGids.length });
         } catch (e) { return res.status(200).json({ success: false, error: e.message }); }
       }
 
@@ -3545,7 +3673,7 @@ Return only the JSON.`;
 
         // The competitor number is the whole-page target; the theme adds ~500 words below the body
         // (FAQ + summary + related), so the BODY targets that minus 500 — but never under 1,000.
-        const competitorTarget = parseInt(brief.wordTarget, 10) || 2200;
+        const competitorTarget = Math.min(2500, parseInt(brief.wordTarget, 10) || 2200); // hard cap 2500 words
         const wordTarget = Math.max(1000, competitorTarget - 500);
         const mustCover = Array.isArray(brief.mustCover) ? brief.mustCover.filter(Boolean) : [];
         const gaps = Array.isArray(brief.gaps) ? brief.gaps.filter(Boolean) : [];
@@ -3583,7 +3711,7 @@ EXACT ORDER (follow precisely):
 1. Bold first paragraph that directly answers the main question. Wrap it in <p><strong>...</strong></p>.
 2. Author bio, italic, on its own line: <p><em>By Mae Osz | Interior Design Consultant &amp; Home Decor Expert with 12+ years of experience.</em></p>
 3. Hook — a relatable question ("Have you ever..."), its own paragraph. In it link the words wall art to the Google Business Profile: <a href="https://share.google/RKuQBBwmgZBHOL1VQ" target="_blank" rel="noopener">wall art</a>.
-4. Quick Answer box — EXACTLY this grey box, no border, no rounded corners: <div style="background:#ededed;padding:16px 20px;margin-bottom:24px;"><strong>Quick answer:</strong> 2-3 sentence direct answer.</div>
+4. Quick Answer box — EXACTLY this grey box, no border, no rounded corners: <div style="background:#ededed;padding:16px 20px;margin:24px 0;"><strong>Quick answer:</strong> 2-3 sentence direct answer.</div>
 5. Intro paragraph — context + a plain definition. In it, link unique wall art to <a href="https://aboutwallart.com/pages/unique-wall-art">/pages/unique-wall-art</a> and unique home decor to <a href="https://aboutwallart.com/pages/home-decor-items">/pages/home-decor-items</a> (use those exact URLs; invent no others).
 6. Contents — a bold line (NOT a heading) exactly: <p><strong>List of Contents</strong></p> then a <ul> listing every H2 below.
 7. The MAIN body sections — one <h2> per topic from MUST COVER, plus the GAPS as their own sections. EVERY H2 section (main and gap sections alike), in this order:
@@ -3592,7 +3720,7 @@ EXACT ORDER (follow precisely):
    c. An image marker on its own line — EVERY section gets one, EXACT shape: [[IMG|filename-slug|3:2|photo|FULL PROMPT]] where FULL PROMPT is the complete image instruction YOU write for this section (see IMAGE RULES). Set kind to "photo" or "infographic" per the IMAGE RULES.
    d. Either an <h3> + a <ul> of practical bullets, OR a comparison <table>.
    e. In several sections (not all), a short personal anecdote paragraph (invented but realistic — a client, a room, a fix).
-   f. A callout in EXACTLY this grey box (no border, no rounded corners): <div style="background:#ededed;padding:16px 20px;margin-bottom:24px;"><strong>Pro Tip:</strong> ...</div> or the same box with <strong>Real Example:</strong>.
+   f. A callout in EXACTLY this grey box (no border, no rounded corners): <div style="background:#ededed;padding:16px 20px;margin:24px 0;"><strong>Pro Tip:</strong> ...</div> or the same box with <strong>Real Example:</strong>.
 8. Product markers — place EXACTLY 6 markers total across the whole blog, in the 6 most product-relevant sections (NOT one in every section). Each on its own line: [[PRODUCT|the specific thing this section is about]]
 9. Visual-Inspiration section — an <h2> with an SEO-usable heading (about styles/looks, NOT just "Visual Inspiration"), a short intro line, then the marker [[TRENDS]] on its own line.
 10. More-About section — an <h2> with an SEO-usable heading (NOT just "More About"), a bold lead sentence, then the supporting paragraph. ${authorityLine}
@@ -3602,6 +3730,7 @@ EXACT ORDER (follow precisely):
 HARD RULES:
 - Do NOT write any FAQ / "People Also Ask" / "Frequently Asked Questions" section — questions live elsewhere.
 - Do NOT write a "Key Takeaways" section.
+- The WATCH / video section is the LAST visual piece of the blog: do NOT place any image markers [[IMG|...]] or product markers [[PRODUCT|...]] in it or anywhere after it. Only the short closing text comes after the video.
 - EVERY H2 body section gets its own [[IMG|...]] marker (see IMAGE RULES). Include at least ONE <table>.
 - Place EXACTLY 6 [[PRODUCT|...]] markers total (3 will be About Wall Art products, 3 Collective — chosen later).
 - Keep every paragraph to 2-4 sentences.
