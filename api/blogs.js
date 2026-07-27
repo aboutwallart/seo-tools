@@ -721,7 +721,7 @@ Main keyword: "${keyword}"
 
 TAGGING RULES
 1. Select exactly ONE Primary_Cluster — the single most relevant ROOM, STYLE or COLOUR cluster for the blog. If none clearly applies, use living-room-decor.
-2. Select exactly ONE Intent_Tag — from INTENT clusters (mandatory).
+2. Select exactly ONE Intent_Tag — from INTENT clusters (mandatory). Do NOT choose the "how-to" intent tag unless this blog is a GENUINE step-by-step how-to guide; for anything that is not step-by-step, pick a different intent tag.
 3. Select 2 or 3 Supporting_Clusters related to the blog's topic — these may come from ANY group (Room, Style, Colour, Decor Accessory, Occasion or Educational/Concept). If fewer than 2 clearly apply, add general decor concept tags such as home-decor-theory, design-principles or interior-design-concepts.
 4. Minimum 4 tags total.
 5. Do NOT invent new tags. Do NOT modify spelling. Do NOT repeat tags.
@@ -833,7 +833,7 @@ Main keyword: "${keyword}"
 Style cluster: "${styleCluster || '(none provided)'}"
 
 SELECTION RULES:
-- Select 3 to 5 relevant Trend Pages from the ALLOWED list below.
+- Select EXACTLY 3 relevant Trend Pages from the ALLOWED list below.
 - If a Style cluster is provided, choose the trend(s) most related to that style first.
 - If the Style cluster is empty or too general, choose the trends closest to the blog topic.
 - If nothing clearly fits, default to "Cosy Minimalism Home Decor Trend".
@@ -845,7 +845,7 @@ ${allowedNames.join('\n')}
 
 Return ONLY valid JSON in this exact shape, no other text:
 {"trends":[{"name":"","description":""}]}
-Include 3 to 5 items.`;
+Include EXACTLY 3 items.`;
     let text = await callClaudeText(prompt, 900);
     text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '');
     const m = text.match(/\{[\s\S]*\}/);
@@ -866,7 +866,7 @@ Include 3 to 5 items.`;
       trends.push({ name, url, description });
     }
     if (trends.length < 2) throw new Error('Visual Inspiration returned fewer than 2 trends');
-    if (trends.length > 5) trends.length = 5;
+    if (trends.length > 3) trends.length = 3;
 
     const lis = trends.map(t => `<li><a href="${t.url}">${t.name}</a> - ${t.description}</li>`).join('');
     const html = `<h3>Visual Inspiration</h3><p>Explore complementary design ideas on our Home Decor by Trend page:</p><ul>${lis}</ul>`;
@@ -3127,7 +3127,7 @@ Return ONE valid JSON object, no code fences, exactly these keys:
 "excerpt": "2 to 3 sentence plain-text summary, no HTML, keyword once, warm and specific",
 "relatedQuestions": "HTML only: <h2>People Also Ask About [topic]</h2> then 3 or 4 <p><strong>Question?</strong> Short answer.</p>. Use only h2, p and strong. No ul, li, br or div.",
 "summaryBlock": "HTML only: <h2>Summary: [Topic]</h2> then 5 to 7 <p><strong>Label:</strong> point.</p>. Use only h2, p and strong.",
-"comparisonSnippet": "ONLY if the blog genuinely compares two or more things (e.g. canvas vs framed). Then HTML: <h2>...</h2><p><strong>...:</strong> ...</p>. If there is NO real comparison, return an empty string.",
+"comparisonSnippet": "ALWAYS find the most genuine, useful comparison angle for THIS topic (two or more real options / materials / styles / approaches relevant to it, e.g. real plants vs artificial vs botanical art for dark rooms) and write it as HTML: <h2>...</h2><p><strong>...:</strong> ...</p>. Return an empty string ONLY if there is truly no sensible comparison at all.",
 "peopleAlsoAsk": "PLAIN TEXT in this EXACT shape: first line 'Frequently Asked Questions About [Topic]', then a blank line, then ${faqCount} pairs, each pair being '**Q: the question?**' on one line and 'A: the answer.' on the next line, with a blank line between pairs. No HTML.",
 "completeTheLook": "short single-line heading, e.g. 'Complete Your Bedroom Look'",
 "homeDecorTrendsTitle": "short single-line SEO heading for a trends section about this topic",
@@ -3170,6 +3170,18 @@ Return only the JSON.`;
             linkedCollections = nodes.map(n => { const cw = (n.title || '').toLowerCase().match(/[a-z]+/g) || []; let sc = 0; cw.forEach(w => { if (hayWords.has(w)) sc++; }); return { gid: n.id, sc }; }).filter(c => c.sc > 0).sort((a, b) => b.sc - a.sc).slice(0, 3).map(c => c.gid);
           }
         } catch (e) {}
+        // Fallback: if the keyword search found no collections, use the topic's own cluster collections (tags → CLUSTER_URLS).
+        if (!linkedCollections.length) {
+          try {
+            const handles = [];
+            for (const tag of tags) { const u = CLUSTER_URLS[tag]; if (!u || !/\/collections\//.test(u)) continue; const h = u.split('?')[0].replace(/\/$/, '').split('/').pop(); if (h && !handles.includes(h)) handles.push(h); }
+            for (const h of handles.slice(0, 3)) {
+              const cd = await shopifyGraphQL(`query($h:String!){ collectionByHandle(handle:$h){ id } }`, { h });
+              const cgid = cd && cd.collectionByHandle && cd.collectionByHandle.id;
+              if (cgid && !linkedCollections.includes(cgid)) linkedCollections.push(cgid);
+            }
+          } catch (e) {}
+        }
         try {
           const hay = (keyword + ' ' + pbTitle + ' ' + tags.join(' ')).toLowerCase();
           const d = await shopifyGraphQL(`{ pages(first:100){ edges{ node{ id title handle } } } }`);
@@ -3294,9 +3306,9 @@ Return only the JSON.`;
         report.push({ ok: true, label: mf.length + ' template boxes + SEO fields filled' });
         report.push({ ok: (tags.length > 0), label: tags.length ? ('Tags: ' + tags.join(', ')) : 'No tags set', fix: tags.length ? undefined : 'Add tags by hand in Shopify.' });
         report.push({ ok: !!featuredUrl, label: featuredUrl ? 'Featured image + alt set' : 'No featured image set', fix: featuredUrl ? undefined : 'Set the featured image on the blog in Shopify.' });
-        report.push({ ok: !!boxes.peopleAlsoAsk, label: boxes.peopleAlsoAsk ? (faqCount + ' People-Also-Ask questions + FAQ schema') : 'People Also Ask not written', fix: boxes.peopleAlsoAsk ? undefined : 'Add People Also Ask by hand in Shopify.' });
+        if (boxes.peopleAlsoAsk) report.push({ ok: true, label: faqCount + ' People-Also-Ask questions + FAQ schema' });
         report.push({ ok: true, label: howToSchema ? 'How-To step schema added — glance it renders on this first how-to' : 'Not a how-to blog — step schema skipped (correct)' });
-        report.push({ ok: !!galleryId, label: galleryId ? ('Shoppable gallery matched (#' + galleryId + ')') : 'No clear gallery match — left blank', fix: galleryId ? undefined : 'Pick a Shoppable Gallery by hand in Shopify if a good one fits.' });
+        if (galleryId) report.push({ ok: true, label: 'Shoppable gallery matched (#' + galleryId + ')' });
         report.push({ ok: true, label: 'Internal links — collections: ' + linkedCollections.length + ', trends: ' + linkedTrends.length + ', related blogs: ' + linkedBlogs.length });
         report.push({ ok: true, label: 'Product list — ' + productGids.length + ' product' + (productGids.length === 1 ? '' : 's') });
 
@@ -3384,7 +3396,65 @@ Return only the JSON.`;
         const gscUrl = 'https://search.google.com/search-console/inspect?resource_id=' + encodeURIComponent('sc-domain:aboutwallart.com') + '&id=' + encodeURIComponent(articleUrl);
         report.push({ ok: true, label: 'Ready for Google — use the "Request indexing" button below' });
 
-        return res.status(200).json({ success: true, report, articleUrl, adminUrl: adminId ? ('https://admin.shopify.com/store/' + storeHandle + '/content/articles/' + adminId) : '', gscUrl, month, monthCleared, monthLeft });
+        // Any fillable box that came out EMPTY → an "add it yourself" row (never a dead end).
+        const fillable = [
+          { key: 'ai_comparison_snippet', type: 'multi_line_text_field', kind: 'text', label: 'AI Comparison Snippet', has: !!boxes.comparisonSnippet },
+          { key: 'ai_summary_block', type: 'multi_line_text_field', kind: 'text', label: 'AI Summary Block', has: !!boxes.summaryBlock },
+          { key: 'ai_related_questions', type: 'multi_line_text_field', kind: 'text', label: 'AI Related Questions', has: !!boxes.relatedQuestions },
+          { key: 'people_also_ask_new', type: 'multi_line_text_field', kind: 'text', label: 'People Also Ask', has: !!boxes.peopleAlsoAsk },
+          { key: 'complete_the_look', type: 'single_line_text_field', kind: 'line', label: 'Complete the Look title', has: !!boxes.completeTheLook },
+          { key: 'home_decor_trends_title', type: 'single_line_text_field', kind: 'line', label: 'Home Decor Trends title', has: !!boxes.homeDecorTrendsTitle },
+          { key: 'shoppable_gallery_new', type: 'number_integer', kind: 'number', label: 'Shoppable Gallery (paste the gallery ID number)', has: !!galleryId },
+          { key: 'linked_collections', type: 'list.collection_reference', kind: 'urls', label: 'Linked Collections (paste collection URLs, one per line)', has: linkedCollections.length > 0 },
+          { key: 'linked_trends', type: 'list.page_reference', kind: 'urls', label: 'Linked Trends (paste trend-page URLs, one per line)', has: linkedTrends.length > 0 },
+          { key: 'linked_blogs', type: 'list.article_reference', kind: 'urls', label: 'Linked Blogs (paste blog URLs, one per line)', has: linkedBlogs.length > 0 },
+          { key: 'blog_products_list', type: 'list.product_reference', kind: 'urls', label: 'Product List (paste product URLs, one per line)', has: productGids.length > 0 }
+        ];
+        for (const fb of fillable) { if (!fb.has) report.push({ ok: false, label: fb.label + ' — empty', add: { key: fb.key, type: fb.type, kind: fb.kind, label: fb.label } }); }
+
+        return res.status(200).json({ success: true, report, articleGid, articleUrl, adminUrl: adminId ? ('https://admin.shopify.com/store/' + storeHandle + '/content/articles/' + adminId) : '', gscUrl, month, monthCleared, monthLeft });
+      }
+
+      // ── ACTION: set-blog-metafield ── (Publish report: "add it yourself" — push ONE metafield onto the
+      // just-created blog. Text/number = as typed; link = a URL; reference lists = pasted URLs/handles resolved to GIDs.)
+      // Input: { articleGid, key, type, value }. Output: { success, error? }.
+      if (req.body.action === 'set-blog-metafield') {
+        const gid = String(req.body.articleGid || '').trim();
+        const key = String(req.body.key || '').trim();
+        const type = String(req.body.type || '').trim();
+        let value = req.body.value;
+        if (!gid || !key || !type) return res.status(400).json({ error: 'articleGid, key and type are required' });
+        try {
+          if (type.startsWith('list.')) {
+            const raw = String(value == null ? '' : value).split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+            const gids = [];
+            for (const item of raw) {
+              const handle = item.replace(/^https?:\/\/[^/]+/, '').split('?')[0].replace(/\/$/, '').split('/').pop();
+              if (!handle) continue;
+              let g = null;
+              if (type === 'list.collection_reference') { const d = await shopifyGraphQL(`query($h:String!){ collectionByHandle(handle:$h){ id } }`, { h: handle }); g = d && d.collectionByHandle && d.collectionByHandle.id; }
+              else if (type === 'list.page_reference') { const d = await shopifyGraphQL(`query($q:String!){ pages(first:1, query:$q){ edges{ node{ id } } } }`, { q: 'handle:' + handle }); g = d && d.pages && d.pages.edges[0] && d.pages.edges[0].node.id; }
+              else if (type === 'list.article_reference') { const d = await shopifyGraphQL(`query($q:String!){ articles(first:1, query:$q){ edges{ node{ id } } } }`, { q: 'handle:' + handle }); g = d && d.articles && d.articles.edges[0] && d.articles.edges[0].node.id; }
+              else if (type === 'list.product_reference') { const d = await shopifyGraphQL(`query($q:String!){ products(first:1, query:$q){ edges{ node{ id } } } }`, { q: 'handle:' + handle }); g = d && d.products && d.products.edges[0] && d.products.edges[0].node.id; }
+              if (g && !gids.includes(g)) gids.push(g);
+            }
+            if (!gids.length) return res.status(200).json({ success: false, error: 'Could not find any of those on your store — paste the full page/collection/product URLs, one per line.' });
+            value = JSON.stringify(gids);
+          } else if (type === 'link') {
+            value = JSON.stringify({ url: String(value == null ? '' : value).trim(), text: null });
+          } else if (type === 'number_integer') {
+            const n = parseInt(String(value).replace(/[^0-9-]/g, ''), 10);
+            if (isNaN(n)) return res.status(200).json({ success: false, error: 'That is not a number.' });
+            value = String(n);
+          } else {
+            value = String(value == null ? '' : value);
+          }
+          const ns = (key === 'title_tag' || key === 'description_tag') ? 'global' : 'custom';
+          const sd = await shopifyGraphQL(`mutation($m:[MetafieldsSetInput!]!){ metafieldsSet(metafields:$m){ userErrors{ message } } }`, { m: [{ ownerId: gid, namespace: ns, key, type, value }] });
+          const errs = sd && sd.metafieldsSet && sd.metafieldsSet.userErrors;
+          if (errs && errs.length) return res.status(200).json({ success: false, error: errs[0].message });
+          return res.status(200).json({ success: true });
+        } catch (e) { return res.status(200).json({ success: false, error: e.message }); }
       }
 
       // ── ACTION: write-blog-sources ── (Stage 2 STEP 1: find real authority link + video + trend links)
@@ -3476,16 +3546,16 @@ EXACT ORDER (follow precisely):
 1. Bold first paragraph that directly answers the main question. Wrap it in <p><strong>...</strong></p>.
 2. Author bio, italic, on its own line: <p><em>By Mae Osz | Interior Design Consultant &amp; Home Decor Expert with 12+ years of experience.</em></p>
 3. Hook — a relatable question ("Have you ever..."), its own paragraph. In it link the words wall art to the Google Business Profile: <a href="https://share.google/RKuQBBwmgZBHOL1VQ" target="_blank" rel="noopener">wall art</a>.
-4. Quick Answer box — EXACTLY this grey box, no border, no rounded corners: <div style="background:#f9f9f9;padding:16px 20px;margin-bottom:24px;"><strong>Quick answer:</strong> 2-3 sentence direct answer.</div>
+4. Quick Answer box — EXACTLY this grey box, no border, no rounded corners: <div style="background:#ededed;padding:16px 20px;margin-bottom:24px;"><strong>Quick answer:</strong> 2-3 sentence direct answer.</div>
 5. Intro paragraph — context + a plain definition. In it, link unique wall art to <a href="https://aboutwallart.com/pages/unique-wall-art">/pages/unique-wall-art</a> and unique home decor to <a href="https://aboutwallart.com/pages/home-decor-items">/pages/home-decor-items</a> (use those exact URLs; invent no others).
-6. Contents — a heading exactly: <h2>List of Contents</h2> then a <ul> listing every H2 below.
+6. Contents — a bold line (NOT a heading) exactly: <p><strong>List of Contents</strong></p> then a <ul> listing every H2 below.
 7. The MAIN body sections — one <h2> per topic from MUST COVER, plus the GAPS as their own sections. EVERY H2 section (main and gap sections alike), in this order:
    a. <h2> heading (SEO-friendly, keyword/topic based).
    b. A direct 2-3 sentence answer paragraph.
    c. An image marker on its own line — EVERY section gets one, EXACT shape: [[IMG|filename-slug|3:2|photo|FULL PROMPT]] where FULL PROMPT is the complete image instruction YOU write for this section (see IMAGE RULES). Set kind to "photo" or "infographic" per the IMAGE RULES.
    d. Either an <h3> + a <ul> of practical bullets, OR a comparison <table>.
    e. In several sections (not all), a short personal anecdote paragraph (invented but realistic — a client, a room, a fix).
-   f. A callout in EXACTLY this grey box (no border, no rounded corners): <div style="background:#f9f9f9;padding:16px 20px;margin-bottom:24px;"><strong>Pro Tip:</strong> ...</div> or the same box with <strong>Real Example:</strong>.
+   f. A callout in EXACTLY this grey box (no border, no rounded corners): <div style="background:#ededed;padding:16px 20px;margin-bottom:24px;"><strong>Pro Tip:</strong> ...</div> or the same box with <strong>Real Example:</strong>.
 8. Product markers — place EXACTLY 6 markers total across the whole blog, in the 6 most product-relevant sections (NOT one in every section). Each on its own line: [[PRODUCT|the specific thing this section is about]]
 9. Visual-Inspiration section — an <h2> with an SEO-usable heading (about styles/looks, NOT just "Visual Inspiration"), a short intro line, then the marker [[TRENDS]] on its own line.
 10. More-About section — an <h2> with an SEO-usable heading (NOT just "More About"), a bold lead sentence, then the supporting paragraph. ${authorityLine}
