@@ -3017,12 +3017,22 @@ Return ONLY a JSON array, one object per title in order, exactly:
         const prodMarkers = body.match(/\[\[PRODUCT\|[^\]]*\]\]/g) || [];
         const spots = prodMarkers.map(mk => ({ full: mk, topic: mk.slice(10, -2).trim() }));
         spots.forEach(sp => { sp.kind = printRe.test(sp.topic) ? 'print' : 'need'; sp.product = null; });
-        const selectedPrints = (prods.awa || []).filter(p => p && prods.selected[p.gid]);
+        // Prints: prefer the per-spot picks (prods.prints); for any spot without one, fall back to the
+        // pool — the auto About Wall Art prints PLUS any About Wall Art print she added by SKU (extras).
+        const printsAligned = Array.isArray(prods.prints) ? prods.prints : null;
+        const printPool = [
+          ...(prods.awa || []).filter(p => p && prods.selected[p.gid]),
+          ...(prods.extra || []).filter(p => p && prods.selected[p.gid] && p.vendor === 'About Wall Art')
+        ];
         const collAligned = prods.collective || [];
         let pi = 0, ni = 0;
         spots.forEach(sp => {
-          if (sp.kind === 'print') { sp.product = selectedPrints[pi++] || null; }
-          else { const cp = collAligned[ni++]; sp.product = (cp && prods.selected[cp.gid]) ? cp : null; }
+          if (sp.kind === 'print') {
+            let pp = (printsAligned && printsAligned[pi] && prods.selected[printsAligned[pi].gid]) ? printsAligned[pi] : null;
+            if (!pp) pp = printPool[pi] || null;
+            pi++;
+            sp.product = (pp && prods.selected[pp.gid]) ? pp : null;
+          } else { const cp = collAligned[ni++]; sp.product = (cp && prods.selected[cp.gid]) ? cp : null; }
         });
         // extras → first fill any EMPTY spot they fit; the rest go into the best-matching H2 below
         const extrasSel = (prods.extra || []).filter(p => p && prods.selected[p.gid]);
@@ -3039,7 +3049,8 @@ Return ONLY a JSON array, one object per title in order, exactly:
         // anything selected but NOT placed in a spot → drop into the H2 section it fits best (closest if none). Never at the end.
         const placedGids = new Set(spots.filter(s => s.product).map(s => s.product.gid));
         const leftovers = [];
-        selectedPrints.forEach(p => { if (p && !placedGids.has(p.gid)) { leftovers.push(p); placedGids.add(p.gid); } });
+        printPool.forEach(p => { if (p && !placedGids.has(p.gid)) { leftovers.push(p); placedGids.add(p.gid); } });
+        (Array.isArray(prods.prints) ? prods.prints : []).forEach(p => { if (p && prods.selected[p.gid] && !placedGids.has(p.gid)) { leftovers.push(p); placedGids.add(p.gid); } });
         collAligned.forEach(p => { if (p && prods.selected[p.gid] && !placedGids.has(p.gid)) { leftovers.push(p); placedGids.add(p.gid); } });
         extrasSel.forEach(p => { if (p && !placedGids.has(p.gid)) { leftovers.push(p); placedGids.add(p.gid); } });
 
