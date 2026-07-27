@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.1.2 - 2026-07-27</p>
+        <p class="version">v6.1.3 - 2026-07-27</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1170,6 +1170,14 @@
             if (content) { content.innerHTML = ''; content.style.display = 'none'; }
         }
 
+        // Read a fetch response as JSON; if the server crashed or timed out (a non-JSON body),
+        // give a clear reason — most often Claude out of credits — instead of a cryptic parse error.
+        async function readJson(r) {
+            let text = '';
+            try { text = await r.text(); } catch (e) { text = ''; }
+            try { return JSON.parse(text); }
+            catch (e) { throw new Error('⚠️ The AI step didn\'t respond — you may be out of Claude credits (or it timed out). Check your Anthropic account, top up if needed, then press again.'); }
+        }
         async function writeBlog(index) {
             const idea = allIdeas.find(i => i.index === index);
             if (!idea) return;
@@ -1192,7 +1200,7 @@
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action: 'write-blog-sources', keyword, title: idea.currentTitle })
                 });
-                const sd = await s.json();
+                const sd = await readJson(s);
                 if (!sd.success) throw new Error(sd.error || 'Could not gather sources');
                 pct = Math.max(pct, 45); label = 'Writing the blog…'; draw();
 
@@ -1201,7 +1209,7 @@
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action: 'write-blog-body', keyword, title: idea.currentTitle, brief: stored.brief || null, authority: sd.authority, youtube: sd.youtube, trendsHtml: sd.trendsHtml })
                 });
-                const data = await r.json();
+                const data = await readJson(r);
                 if (!data.success) throw new Error(data.error || 'Writing failed');
                 clearInterval(creep);
                 pct = 100; label = 'Done'; draw();
@@ -1451,7 +1459,7 @@
             if (out) { out.style.display = 'block'; out.innerHTML = stepBox('<div style="font-size:14px;color:#555;">🔄 Fetching your saved photos from Shopify and building the blog…</div>'); }
             try {
                 const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'finish-blog', title: idea.currentTitle, keyword }) });
-                const data = await r.json();
+                const data = await readJson(r);
                 if (!data.success) throw new Error(data.error || 'Could not finish the blog');
                 window._finishDone = window._finishDone || {}; window._finishDone[index] = true;
                 if (window._drafts[index]) { window._drafts[index].finished = true; window._drafts[index].finishedBody = data.finishedBody; }
@@ -1519,7 +1527,7 @@
             const creep = setInterval(() => { if (pct < 92) { pct += 1; draw(); } }, 700);
             try {
                 const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'publish-blog', title: idea.currentTitle, keyword }) });
-                const data = await r.json();
+                const data = await readJson(r);
                 clearInterval(creep);
                 if (!data.success) {
                     if (data.alreadyDone) { renderPublishReport(index, { report: [{ ok: false, label: data.error, fix: 'If you deleted it on Shopify, refresh this page to publish again.' }], articleUrl: data.articleUrl }); return; }
@@ -1577,7 +1585,7 @@
             if (msg) { msg.style.color = '#555'; msg.textContent = 'Adding…'; }
             try {
                 const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set-blog-metafield', articleGid: gid, key, type, value }) });
-                const data = await r.json();
+                const data = await readJson(r);
                 if (!data.success) throw new Error(data.error || 'Could not add it');
                 if (msg) { msg.style.color = '#2e7d32'; msg.textContent = '✅ Added to the blog'; }
                 if (el) el.disabled = true;
@@ -1594,7 +1602,7 @@
             window._publishDone = window._publishDone || {}; window._publishDone[index] = true;
             const out = document.getElementById(`publish-${index}`);
             if (out && !out.innerHTML.trim()) {
-                const url = d.publishedHandle ? ('https://aboutwallart.com/blogs/news/' + d.publishedHandle) : '';
+                const url = d.publishedHandle ? ('https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/' + d.publishedHandle) : '';
                 const viewBtn = url ? `<a href="${escHtml(url)}" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;padding:8px 14px;background:#1a1a1a;color:#fff;border-radius:6px;text-decoration:none;font-size:13px;">👁 View the blog</a>` : '';
                 out.innerHTML = stepBox('<div style="font-size:13px;color:#2e7d32;font-weight:700;">✅ This blog is already published + scheduled on Shopify.</div>' + viewBtn);
                 setStepDone(index, 'publish', false);
@@ -1654,7 +1662,7 @@
             if (out) { out.style.display = 'block'; out.innerHTML = stepBox('<div style="font-size:14px;color:#555;">🔄 Finding products that match this blog…</div>'); }
             try {
                 const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'pick-products', keyword, title: idea.currentTitle, needs }) });
-                const data = await r.json();
+                const data = await readJson(r);
                 if (!data.success) throw new Error(data.error || 'Could not find products');
                 const awa = data.awa || [], coll = data.collective || []; // coll is aligned to needs (may hold nulls)
                 if (!awa.length && !coll.filter(Boolean).length) throw new Error('No matching products found — add them by print-files SKU below.');
@@ -1721,8 +1729,8 @@
                     const ty = nd.type || 'choose freely';
                     const p = collAligned[i];
                     const label = `<div style="font-weight:700;font-size:13px;color:#1565c0;margin:14px 0 4px;">Needed: ${escHtml(ty)} <span style="color:#999;font-weight:500;">— ${escHtml(nd.topic)}</span></div>`;
-                    const body = (p && s.selected[p.gid]) ? productRowHtml(index, p) : `<div style="color:#999;font-size:13px;margin-bottom:8px;">No option yet — add one by SKU below (${escHtml(ty)}).</div>`;
-                    return label + body;
+                    const body = (p && s.selected[p.gid]) ? productRowHtml(index, p) : `<div style="color:#999;font-size:13px;margin-bottom:6px;">No option yet — use the box below to add one for this spot (${escHtml(ty)}).</div>`;
+                    return label + body + prodSlotAddBar(index, i, ty);
                 }).join('');
             } else {
                 const cc = collAligned.filter(p => p && s.selected[p.gid]);
@@ -1741,6 +1749,7 @@
                 </div>
                 ${printsSection}
                 ${collSection}
+                <div style="font-weight:700;font-size:13px;color:#2e7d32;margin:16px 0 4px;">➕ Extra products (not tied to a spot)</div>
                 ${prodAddBar(index)}
                 <div style="margin-top:14px;"><button onclick="saveSelection(${index},this)" style="background:#43a047;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-weight:800;font-size:14px;cursor:pointer;">💾 Save selection</button></div>
                 <div id="awaprompts-${index}" style="margin-top:16px;">${awaPromptsHtml(index)}</div>`;
@@ -1811,7 +1820,7 @@
             if (msg) { msg.style.color = '#888'; msg.textContent = 'Looking up…'; }
             try {
                 const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'lookup-product', sku }) });
-                const data = await r.json();
+                const data = await readJson(r);
                 if (!data.success || !data.product) throw new Error((data && data.error) || 'Not found.');
                 const p = data.product;
                 const s = window._products[index];
@@ -1820,6 +1829,41 @@
                 s.selected[p.gid] = true;
                 s.chosen[p.gid] = (p.images && p.images[0]) || '';
                 if (inp) inp.value = '';
+                renderProductPicker(index, true); saveProductsState(index);
+            } catch (e) { if (msg) { msg.style.color = '#a33'; msg.textContent = e.message; } }
+        }
+
+        // A per-spot "use a specific product here" bar (SKU or name) → fills THAT spot, not the extras.
+        function prodSlotAddBar(index, slotIndex, ty) {
+            return `
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 10px;background:#f4f8ff;border:1px solid #d6e4ff;border-radius:6px;padding:8px 10px;">
+                    <span style="font-size:12.5px;color:#1565c0;">Use a specific product here (${escHtml(ty)}) — SKU or name:</span>
+                    <input type="text" id="prod-slot-${index}-${slotIndex}" placeholder="e.g. BBRUST6735BOT" style="flex:1;min-width:150px;padding:7px;border:1px solid #ccc;border-radius:6px;font-size:13px;">
+                    <button onclick="prodAddToSlot(${index},${slotIndex})" style="background:#1565c0;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:700;cursor:pointer;font-size:13px;">Use for this spot</button>
+                    <span id="prod-slot-msg-${index}-${slotIndex}" style="font-size:12px;color:#a33;"></span>
+                </div>`;
+        }
+        async function prodAddToSlot(index, slotIndex) {
+            const inp = document.getElementById(`prod-slot-${index}-${slotIndex}`);
+            const msg = document.getElementById(`prod-slot-msg-${index}-${slotIndex}`);
+            const sku = (inp && inp.value || '').trim();
+            if (!sku) { if (msg) msg.textContent = 'Type a SKU or name first.'; return; }
+            if (msg) { msg.style.color = '#888'; msg.textContent = 'Looking up…'; }
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'lookup-product', sku }) });
+                const data = await readJson(r);
+                if (!data.success || !data.product) throw new Error((data && data.error) || 'Not found.');
+                const p = data.product;
+                const s = window._products[index]; if (!s) return;
+                s.collective = s.collective || [];
+                // drop whatever was in this spot before, so it doesn't linger as a stray pick
+                const old = s.collective[slotIndex];
+                if (old && old.gid && old.gid !== p.gid) delete s.selected[old.gid];
+                // if this product was sitting in "extras", take it out — it now owns a spot
+                s.extra = (s.extra || []).filter(x => x.gid !== p.gid);
+                s.collective[slotIndex] = p;
+                s.selected[p.gid] = true;
+                s.chosen[p.gid] = (p.images && p.images[0]) || '';
                 renderProductPicker(index, true); saveProductsState(index);
             } catch (e) { if (msg) { msg.style.color = '#a33'; msg.textContent = e.message; } }
         }
