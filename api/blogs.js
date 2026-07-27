@@ -3255,7 +3255,10 @@ Return only the JSON.`;
           body,
           summary: excerpt || undefined,
           author: { name: 'Mae Osz' },
-          isPublished: true,
+          // Scheduling: give the future publish date and DON'T flag it published-now.
+          // Shopify rejects isPublished:true together with a future publishDate; false + a future
+          // date = scheduled (hidden until then, auto-publishes on the date).
+          isPublished: false,
           publishDate: publishIso,
           templateSuffix: 'full-metafields-blog-post',
           tags,
