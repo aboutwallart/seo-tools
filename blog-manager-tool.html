@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.1.0 - 2026-07-27 — Stage 3 Publish: creates + schedules the finished blog on Shopify (hidden until its date — first blog today 19:00 UK, then 10am daily, one per day), fills every template box + tags + SEO title/meta/handle/excerpt + shoppable gallery + People-Also-Ask/FAQ + How-To schema when it fits + internal-link boxes, sets the featured image, registers the blog in your blog list, adds the auto-link rule + reciprocal links from related blogs, gives a Request-indexing button, full tick/cross report, and clears the month once all its blogs are sent. Includes v6.0.3 (SHOP HERE button in caps). · Batch B: new step 5 "Images saved — fetch &amp; finish" (finds your saved photos in Shopify, drops scene photos + the 6 product blocks into the blog with alt text, live auto-hide Collective blocks, full tick/cross report, saves the finished blog); one copy box for the About Wall Art prompts + "use image position N"; featured = save one, tool ignores the number</p>
+        <p class="version">v6.1.1 - 2026-07-27 — Stage 3 Publish fix: schedule the blog the way Shopify requires (future publish date, NOT flagged published-now) so "today 19:00 UK" works; added a % progress bar to the Publish step (like Write blog); removed the confirm pop-up (publishes straight away). · v6.1.0 creates + schedules the finished blog on Shopify (hidden until its date — first blog today 19:00 UK, then 10am daily, one per day), fills every template box + tags + SEO title/meta/handle/excerpt + shoppable gallery + People-Also-Ask/FAQ + How-To schema when it fits + internal-link boxes, sets the featured image, registers the blog in your blog list, adds the auto-link rule + reciprocal links from related blogs, gives a Request-indexing button, full tick/cross report, and clears the month once all its blogs are sent. Includes v6.0.3 (SHOP HERE button in caps). · Batch B: new step 5 "Images saved — fetch &amp; finish" (finds your saved photos in Shopify, drops scene photos + the 6 product blocks into the blog with alt text, live auto-hide Collective blocks, full tick/cross report, saves the finished blog); one copy box for the About Wall Art prompts + "use image position N"; featured = save one, tool ignores the number</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1094,10 +1094,11 @@
         }
 
         // A simple progress bar so Mae always knows the writing isn't frozen.
-        function progBar(pct, label) {
+        function progBar(pct, label, emoji) {
             const p = Math.round(Math.max(0, Math.min(100, pct)));
+            const e = emoji || '✍️';
             return `<div style="background:#f5f5f5;border:1px solid #e0e0e0;border-radius:8px;padding:12px;">
-                <div style="font-size:13px;color:#333;margin-bottom:6px;">✍️ ${escHtml(label)} <strong>${p}%</strong></div>
+                <div style="font-size:13px;color:#333;margin-bottom:6px;">${escHtml(e)} ${escHtml(label)} <strong>${p}%</strong></div>
                 <div style="background:#e0e0e0;border-radius:6px;height:10px;overflow:hidden;"><div style="width:${p}%;height:100%;background:#1a1a1a;transition:width .4s ease;"></div></div>
             </div>`;
         }
@@ -1510,21 +1511,28 @@
             const out = document.getElementById(`publish-${index}`);
             const stored = (typeof briefFor === 'function') ? briefFor(idea) : {};
             const keyword = ((stored && stored.keyword) || idea.keyword || idea.currentKeyword || idea.currentTitle || '').trim();
-            if (!confirm('Publish “' + (idea.currentTitle || '') + '” to Shopify now?\n\nIt is created HIDDEN and scheduled — it will not be live until its scheduled date, so you can review or delete it first.')) return;
-            if (out) { out.style.display = 'block'; out.innerHTML = stepBox('<div style="font-size:14px;color:#555;">🚀 Creating the blog on Shopify and filling everything… this can take a moment.</div>'); }
+            if (out) out.style.display = 'block';
+            let pct = 5, label = 'Creating the blog on Shopify…';
+            const draw = () => { if (out) out.innerHTML = progBar(pct, label, '🚀'); };
+            draw();
+            // Gentle creep so it never looks frozen while Shopify + all the boxes are filled.
+            const creep = setInterval(() => { if (pct < 92) { pct += 1; draw(); } }, 700);
             try {
                 const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'publish-blog', title: idea.currentTitle, keyword }) });
                 const data = await r.json();
+                clearInterval(creep);
                 if (!data.success) {
                     if (data.alreadyDone) { renderPublishReport(index, { report: [{ ok: false, label: data.error, fix: 'If you deleted it on Shopify, refresh this page to publish again.' }], articleUrl: data.articleUrl }); return; }
                     throw new Error(data.error || 'Could not publish the blog');
                 }
+                pct = 100; label = 'Done'; draw();
                 window._publishDone = window._publishDone || {}; window._publishDone[index] = true;
                 const d = window._drafts[index] || (window._draftsByTitle && window._draftsByTitle[(idea.currentTitle || '').toLowerCase()]);
                 if (d) { d.published = true; }
                 renderPublishReport(index, data);
                 if (data.monthCleared && data.month) { setTimeout(() => alert('🎉 Every blog for ' + data.month + ' is now published — that month is cleared from “Month in progress”.'), 400); }
             } catch (e) {
+                clearInterval(creep);
                 if (out) out.innerHTML = stepBox('<span style="color:#a33;">❌ ' + escHtml(e.message) + '</span> <button onclick="publishBlog(' + index + ')" style="' + regenBtnStyle + '">↻ Try again</button>');
             }
         }
