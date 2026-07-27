@@ -370,7 +370,11 @@ If you genuinely cannot find one of the two, leave its two fields as empty strin
 
     if (!response.ok) {
       const errText = await response.text();
-      throw new Error(`Claude API error: ${response.status} ${errText.slice(0, 200)}`);
+      const low = (errText || '').toLowerCase();
+      const outOfCredits = response.status === 402 || response.status === 429 || low.includes('credit') || low.includes('billing') || low.includes('quota') || low.includes('insufficient');
+      throw new Error(outOfCredits
+        ? 'Claude is out of credits or rate-limited — top up your Anthropic account, then press again.'
+        : `Claude API error: ${response.status} ${errText.slice(0, 150)}`);
     }
 
     const data = await response.json();
@@ -564,7 +568,11 @@ Return ONLY a JSON object, no commentary, exactly:
     });
     if (!response.ok) {
       const errText = await response.text();
-      throw new Error(`Claude API error: ${response.status} ${errText.slice(0, 200)}`);
+      const low = (errText || '').toLowerCase();
+      const outOfCredits = response.status === 402 || response.status === 429 || low.includes('credit') || low.includes('billing') || low.includes('quota') || low.includes('insufficient');
+      throw new Error(outOfCredits
+        ? 'Claude is out of credits or rate-limited — top up your Anthropic account, then press again.'
+        : `Claude API error: ${response.status} ${errText.slice(0, 150)}`);
     }
     const data = await response.json();
     let text = '';
@@ -3096,7 +3104,7 @@ Return ONLY a JSON array, one object per title in order, exactly:
         const draft = draftsMap[pbTitle.toLowerCase()];
         if (!draft) return res.status(200).json({ success: false, error: 'No blog found for "' + pbTitle + '". Write + finish it first.' });
         if (!draft.finished || !draft.finishedBody) return res.status(200).json({ success: false, error: 'This blog is not finished yet — do step 5 (Images saved — fetch & finish) first.' });
-        if (draft.publishedArticleId) return res.status(200).json({ success: false, alreadyDone: true, error: 'This blog is already on Shopify (published ' + (draft.publishedAt || '') + '). Delete it there first if you want to publish it again.', articleUrl: draft.publishedHandle ? (ORIGIN + '/blogs/news/' + draft.publishedHandle) : '' });
+        if (draft.publishedArticleId) return res.status(200).json({ success: false, alreadyDone: true, error: 'This blog is already on Shopify (published ' + (draft.publishedAt || '') + '). Delete it there first if you want to publish it again.', articleUrl: draft.publishedHandle ? (ORIGIN + '/blogs/news-articles-home-decor-inspiration/' + draft.publishedHandle) : '' });
 
         let prodMap = {};
         try { const f = await getGitHubFile('data/blog-products.json'); prodMap = JSON.parse(f.content || '{}'); } catch (e) { prodMap = {}; }
@@ -3297,7 +3305,7 @@ Return only the JSON.`;
         }
         const finalHandle = created.handle || handle;
         const articleGid = created.id;
-        const articleUrl = ORIGIN + '/blogs/news/' + finalHandle;
+        const articleUrl = ORIGIN + '/blogs/news-articles-home-decor-inspiration/' + finalHandle;
         const adminId = (articleGid || '').split('/').pop();
         const storeHandle = (process.env.SHOPIFY_STORE_DOMAIN || '').split('.')[0] || 'aboutwallart';
         const whenTxt = new Date(publishIso).toLocaleString('en-GB', { timeZone: 'Europe/London', dateStyle: 'medium', timeStyle: 'short' });
@@ -3318,7 +3326,7 @@ Return only the JSON.`;
           const idx = JSON.parse(f.content || '{}');
           idx.articles = Array.isArray(idx.articles) ? idx.articles : [];
           if (!idx.articles.some(a => norm(a.handle) === norm(finalHandle))) {
-            idx.articles.unshift({ gid: articleGid, handle: finalHandle, title: pbTitle, tags, blogHandle: 'news', publishedAt: publishIso });
+            idx.articles.unshift({ gid: articleGid, handle: finalHandle, title: pbTitle, tags, blogHandle: 'news-articles-home-decor-inspiration', publishedAt: publishIso });
             idx.count = idx.articles.length; idx.updatedAt = new Date().toISOString();
             await updateGitHubFile('data/blog-index.json', JSON.stringify(idx, null, 2), f.sha, 'Register new blog: ' + pbTitle);
           }
@@ -3332,11 +3340,29 @@ Return only the JSON.`;
             const rules = JSON.parse(f.content || '[]');
             if (!rules.some(r => norm(r.keyword) === norm(keyword))) {
               const maxId = rules.reduce((mx, r) => Math.max(mx, parseInt(r.id) || 0), 0);
-              rules.unshift({ id: maxId + 1, keyword, url: '/blogs/news/' + finalHandle, linksAdded: 0, verified: 'ok' });
+              rules.unshift({ id: maxId + 1, keyword, url: '/blogs/news-articles-home-decor-inspiration/' + finalHandle, linksAdded: 0, verified: 'ok' });
               await updateGitHubFile('data/autolink-rules.json', JSON.stringify(rules, null, 2), f.sha, 'Auto-link rule for new blog: ' + keyword);
               report.push({ ok: true, label: 'Auto-link rule added ("' + keyword + '" → this blog)' });
             } else { report.push({ ok: true, label: 'Auto-link rule already existed for "' + keyword + '"' }); }
-          } catch (e) { report.push({ ok: false, label: 'Could not add the auto-link rule', fix: 'Add it by hand in Auto-Link.', copy: keyword + ' → /blogs/news/' + finalHandle }); }
+          } catch (e) { report.push({ ok: false, label: 'Could not add the auto-link rule', fix: 'Add it by hand in Auto-Link.', copy: keyword + ' → /blogs/news-articles-home-decor-inspiration/' + finalHandle }); }
+        }
+
+        // ---- 10b) Lock the keyword in the registry so it can't be reused for other content ----
+        if (keyword) {
+          try {
+            const reg = await getGitHubFile('data/keyword-locker-registry.csv');
+            const rlines = reg.content.split('\n').map(l => l.replace(/\r/g, ''));
+            const csvQ = (s) => { s = String(s == null ? '' : s); return (/[",\n]/.test(s)) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+            const kwLow = keyword.toLowerCase();
+            const already = rlines.some(line => { if (!line.trim()) return false; const c = parseCSVLine(line); const locked = (c[2] || '').toUpperCase(); const st = (c[3] || '').toUpperCase(); const ac = (c[4] || '').toUpperCase(); return (c[0] || '').toLowerCase() === kwLow && locked === 'LOCKED' && st === 'DONE' && (ac === 'TO_OPTIMIZE' || ac === 'OPTIMIZED'); });
+            if (already) { report.push({ ok: true, label: 'Keyword already locked in the registry ("' + keyword + '")' }); }
+            else {
+              const row = `${csvQ(keyword)},${csvQ(articleUrl)},LOCKED,DONE,OPTIMIZED,N/A,N/A,N/A,N/A,Blog published,Informational,`;
+              const updated = rlines.join('\n').replace(/\n+$/, '') + '\n' + row + '\n';
+              await updateGitHubFile('data/keyword-locker-registry.csv', updated, reg.sha, 'Lock blog keyword: ' + keyword);
+              report.push({ ok: true, label: 'Keyword locked in the registry ("' + keyword + '") — won\'t be reused for other content' });
+            }
+          } catch (e) { report.push({ ok: false, label: 'Could not lock the keyword in the registry', fix: 'Lock it by hand in the Keyword Locker.', copy: keyword + ' → ' + articleUrl }); }
         }
 
         // ---- 11) Reciprocal links — add THIS blog to the related older blogs' "You may also read" box ----
