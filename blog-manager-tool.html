@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.1.3 - 2026-07-27</p>
+        <p class="version">v6.1.4 - 2026-07-27</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1643,7 +1643,7 @@
 
         function prodAll(index) {
             const s = window._products[index]; if (!s) return [];
-            return [...(s.awa||[]), ...(s.collective||[]), ...(s.extra||[])].filter(Boolean);
+            return [...(s.awa||[]), ...(s.collective||[]), ...(s.prints||[]), ...(s.extra||[])].filter(Boolean);
         }
         function prodFind(index, gid) { return prodAll(index).find(p => p.gid === gid); }
 
@@ -1712,15 +1712,27 @@
             const needs = s.needs || [];
             const collAligned = s.collective || [];              // one option per need, aligned in order (may hold nulls)
             const chosenPrints = (s.awa || []).filter(p => p && s.selected[p.gid]);
-            const collChosen = collAligned.filter(p => p && s.selected[p.gid]).length;
             const extraChosen = (s.extra || []).filter(p => s.selected[p.gid]);
-            const count = chosenPrints.length + collChosen + extraChosen.length;
+            const count = prodAll(index).filter(p => s.selected[p.gid]).length;
 
-            // 🖼️ Wall art prints — all together.
+            // 🖼️ Wall art prints — one per print spot (same idea as the collective needs).
+            const printTopics = topics.filter(t => guessType(t) === 'wall art / a print');
+            let printBlocks;
+            if (printTopics.length) {
+                if (!Array.isArray(s.prints)) s.prints = printTopics.map((_, i) => chosenPrints[i] || null);
+                printBlocks = printTopics.map((topic, i) => {
+                    const p = s.prints[i];
+                    const label = `<div style="font-weight:700;font-size:13px;color:#c0561d;margin:14px 0 4px;">Print spot ${i + 1} <span style="color:#999;font-weight:500;">— ${escHtml(topic)}</span></div>`;
+                    const body = (p && s.selected[p.gid]) ? productRowHtml(index, p) : `<div style="color:#999;font-size:13px;margin-bottom:6px;">No print yet — use the box below to add one for this spot.</div>`;
+                    return label + body + prodSlotAddBar(index, 'p' + i, 'wall art / a print');
+                }).join('');
+            } else {
+                printBlocks = chosenPrints.length ? rows(chosenPrints) : '<div style="color:#999;font-size:13px;margin-bottom:8px;">No prints chosen — add one by SKU below.</div>';
+            }
             const printsSection = `
                 <div style="font-weight:800;font-size:15px;color:#c0561d;margin:16px 0 6px;">🖼️ Wall art prints</div>
-                <div style="font-size:12px;color:#888;margin-bottom:8px;">Pick from these — don't like one? Drop it (✓ Chosen → off) and add another print by SKU below.</div>
-                ${chosenPrints.length ? rows(chosenPrints) : '<div style="color:#999;font-size:13px;margin-bottom:8px;">No prints chosen — add one by SKU below.</div>'}`;
+                <div style="font-size:12px;color:#888;margin-bottom:8px;">One print per spot. Don't like one? Add a specific print by SKU under that spot.</div>
+                ${printBlocks}`;
 
             // 🪴 Collective — each NEED shown with its one matched option right beneath it (matched by type on the server).
             let collBlocks;
@@ -1839,7 +1851,7 @@
                 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 10px;background:#f4f8ff;border:1px solid #d6e4ff;border-radius:6px;padding:8px 10px;">
                     <span style="font-size:12.5px;color:#1565c0;">Use a specific product here (${escHtml(ty)}) — SKU or name:</span>
                     <input type="text" id="prod-slot-${index}-${slotIndex}" placeholder="e.g. BBRUST6735BOT" style="flex:1;min-width:150px;padding:7px;border:1px solid #ccc;border-radius:6px;font-size:13px;">
-                    <button onclick="prodAddToSlot(${index},${slotIndex})" style="background:#1565c0;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:700;cursor:pointer;font-size:13px;">Use for this spot</button>
+                    <button onclick="prodAddToSlot(${index},'${slotIndex}')" style="background:#1565c0;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:700;cursor:pointer;font-size:13px;">Use for this spot</button>
                     <span id="prod-slot-msg-${index}-${slotIndex}" style="font-size:12px;color:#a33;"></span>
                 </div>`;
         }
@@ -1855,13 +1867,15 @@
                 if (!data.success || !data.product) throw new Error((data && data.error) || 'Not found.');
                 const p = data.product;
                 const s = window._products[index]; if (!s) return;
-                s.collective = s.collective || [];
+                const isPrint = (typeof slotIndex === 'string' && slotIndex.charAt(0) === 'p');
+                const slot = parseInt(isPrint ? slotIndex.slice(1) : slotIndex, 10) || 0;
+                const arr = isPrint ? (s.prints = s.prints || []) : (s.collective = s.collective || []);
                 // drop whatever was in this spot before, so it doesn't linger as a stray pick
-                const old = s.collective[slotIndex];
+                const old = arr[slot];
                 if (old && old.gid && old.gid !== p.gid) delete s.selected[old.gid];
                 // if this product was sitting in "extras", take it out — it now owns a spot
                 s.extra = (s.extra || []).filter(x => x.gid !== p.gid);
-                s.collective[slotIndex] = p;
+                arr[slot] = p;
                 s.selected[p.gid] = true;
                 s.chosen[p.gid] = (p.images && p.images[0]) || '';
                 renderProductPicker(index, true); saveProductsState(index);
