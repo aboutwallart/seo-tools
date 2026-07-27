@@ -2955,7 +2955,7 @@ Return ONLY a JSON array, one object per title in order, exactly:
           const inner =
             '<a rel="noopener" href="' + escF(url) + '" target="_blank"><img style="max-width: 1024px; width: 100%; height: auto;" alt="' + escF(alt) + '" src="' + escF(imgUrl) + '"></a>' +
             '<br>' +
-            '<a style="display: inline-block; margin-top: 15px; padding: 12px 30px; background-color: #000; color: #fff; text-decoration: none; font-weight: bold; border-radius: 4px;" rel="noopener" href="' + escF(url) + '" target="_blank">Shop Here</a>';
+            '<a style="display: inline-block; margin-top: 15px; padding: 12px 30px; background-color: #000; color: #fff; text-decoration: none; border-radius: 4px;" rel="noopener" href="' + escF(url) + '" target="_blank">SHOP HERE</a>';
           if (isAwa) {
             return { ok: true, label: 'Wall art product placed: ' + p.title, html: '<div style="text-align: center; margin: 30px 0;">' + inner + '</div>' };
           }
@@ -3072,6 +3072,316 @@ Return ONLY a JSON array, one object per title in order, exactly:
         catch (e) { return res.status(200).json({ success: false, error: 'Built the blog but could not save it: ' + e.message, report }); }
         report.push({ ok: true, label: 'Finished blog saved — ready for the Publish step' });
         return res.status(200).json({ success: true, report, finishedBody: body, featuredUrl });
+      }
+
+      // ── ACTION: publish-blog ── (STAGE 3: create + schedule the finished blog on Shopify, fill every
+      // metafield / tag / SEO field, register it in the blog index, add the auto-link rule + reciprocal
+      // links from the related older blogs, prepare the Google reindex, mark it done + clear the month.)
+      // Input: { title, keyword }. Output: { success, report:[{ok,label,fix,copy}], articleUrl, adminUrl, gscUrl, month, monthCleared, monthLeft }.
+      if (req.body.action === 'publish-blog') {
+        const pbTitle = String(req.body.title || '').trim();
+        const pbKwIn  = String(req.body.keyword || '').trim();
+        if (!pbTitle) return res.status(400).json({ error: 'title required' });
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+
+        const report = [];
+        const NEWS_BLOG_GID = 'gid://shopify/Blog/93572858142';
+        const ORIGIN = 'https://aboutwallart.com';
+        const slugify = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+        const norm = (s) => String(s || '').trim().toLowerCase();
+
+        // 1) load the finished blog + the saved product picks
+        let draftsMap = {}, draftsSha;
+        try { const f = await getGitHubFile('data/blog-drafts.json'); draftsMap = JSON.parse(f.content || '{}'); draftsSha = f.sha; } catch (e) { draftsMap = {}; }
+        const draft = draftsMap[pbTitle.toLowerCase()];
+        if (!draft) return res.status(200).json({ success: false, error: 'No blog found for "' + pbTitle + '". Write + finish it first.' });
+        if (!draft.finished || !draft.finishedBody) return res.status(200).json({ success: false, error: 'This blog is not finished yet — do step 5 (Images saved — fetch & finish) first.' });
+        if (draft.publishedArticleId) return res.status(200).json({ success: false, alreadyDone: true, error: 'This blog is already on Shopify (published ' + (draft.publishedAt || '') + '). Delete it there first if you want to publish it again.', articleUrl: draft.publishedHandle ? (ORIGIN + '/blogs/news/' + draft.publishedHandle) : '' });
+
+        let prodMap = {};
+        try { const f = await getGitHubFile('data/blog-products.json'); prodMap = JSON.parse(f.content || '{}'); } catch (e) { prodMap = {}; }
+        const prods = prodMap[pbTitle.toLowerCase()] || { awa: [], collective: [], extra: [], selected: {} };
+        prods.selected = prods.selected || {};
+
+        const keyword = pbKwIn || prods.keyword || draft.keyword || '';
+        const body = String(draft.finishedBody);
+        const bodyText = body.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 6000);
+        let handle = slugify(pbTitle).slice(0, 110) || slugify(keyword);
+        const featuredUrl = draft.featuredUrl || '';
+        const featuredAlt = draft.featuredAlt || ((keyword ? keyword + ' — ' : '') + pbTitle);
+        const brief = (draft.brief && typeof draft.brief === 'object') ? draft.brief : {};
+        const faqCount = Math.max(3, Math.min(5, parseInt(brief.faqCount) || 4));
+
+        // ---- 2) SEO boxes + snippets (ONE AI call, strict JSON, formats copied from the live blogs) ----
+        let boxes = {};
+        try {
+          const seoPrompt = `You are writing the SEO metafields for a NEW About Wall Art blog. UK spelling. Always "decor", never "décor".
+Blog title: "${pbTitle}"
+Main keyword: "${keyword}"
+Blog text (for context): """${bodyText}"""
+
+Return ONE valid JSON object, no code fences, exactly these keys:
+{
+"seoTitle": "SEO page title, 60 characters or fewer, includes the keyword naturally",
+"metaDescription": "Google meta description, 155 characters or fewer, keyword near the start, one or two clean sentences. NO shipping line. No quotes.",
+"excerpt": "2 to 3 sentence plain-text summary, no HTML, keyword once, warm and specific",
+"relatedQuestions": "HTML only: <h2>People Also Ask About [topic]</h2> then 3 or 4 <p><strong>Question?</strong> Short answer.</p>. Use only h2, p and strong. No ul, li, br or div.",
+"summaryBlock": "HTML only: <h2>Summary: [Topic]</h2> then 5 to 7 <p><strong>Label:</strong> point.</p>. Use only h2, p and strong.",
+"comparisonSnippet": "ONLY if the blog genuinely compares two or more things (e.g. canvas vs framed). Then HTML: <h2>...</h2><p><strong>...:</strong> ...</p>. If there is NO real comparison, return an empty string.",
+"peopleAlsoAsk": "PLAIN TEXT in this EXACT shape: first line 'Frequently Asked Questions About [Topic]', then a blank line, then ${faqCount} pairs, each pair being '**Q: the question?**' on one line and 'A: the answer.' on the next line, with a blank line between pairs. No HTML.",
+"completeTheLook": "short single-line heading, e.g. 'Complete Your Bedroom Look'",
+"homeDecorTrendsTitle": "short single-line SEO heading for a trends section about this topic",
+"isHowTo": true or false (true ONLY if this blog is a genuine step-by-step how-to),
+"howToName": "if isHowTo a short how-to name, else empty string",
+"howToDescription": "if isHowTo one sentence, else empty string",
+"howToSteps": "if isHowTo an array of 3 to 6 real steps from the blog as {\\"name\\":\\"...\\",\\"text\\":\\"...\\"}, else an empty array"
+}
+Return only the JSON.`;
+          let raw = await callClaudeText(seoPrompt, 2600);
+          raw = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+          const m = raw.match(/\{[\s\S]*\}/);
+          boxes = m ? JSON.parse(m[0]) : {};
+        } catch (e) { boxes = {}; report.push({ ok: false, label: 'Could not auto-write the SEO boxes', fix: 'Press Publish again. The blog still gets created either way — you can add the boxes by hand.' }); }
+
+        const seoTitle = String(boxes.seoTitle || pbTitle).slice(0, 70);
+        const metaDescription = String(boxes.metaDescription || '').slice(0, 160);
+        const excerpt = String(boxes.excerpt || '');
+        // How-To schema — Money Page Doctor's exact format (JSON-LD in a script tag), only for real how-tos
+        let howToSchema = '';
+        if (boxes.isHowTo && Array.isArray(boxes.howToSteps) && boxes.howToSteps.length) {
+          const obj = { '@context': 'https://schema.org', '@type': 'HowTo', name: String(boxes.howToName || pbTitle), description: String(boxes.howToDescription || ''), step: boxes.howToSteps.map(s => ({ '@type': 'HowToStep', name: String(s.name || ''), text: String(s.text || '') })) };
+          howToSchema = '<script type="application/ld+json">' + JSON.stringify(obj) + '</script>';
+        }
+
+        // ---- 3) Tags (reuse the existing tag-maker) ----
+        let tags = [];
+        try { const c = await generateClusters(keyword, pbTitle); tags = [c.primaryCluster, c.intentTag, ...(c.supporting || [])].filter(Boolean); }
+        catch (e) { report.push({ ok: false, label: 'Could not auto-pick the tags', fix: 'The blog still publishes — add tags by hand, or press Publish again.' }); }
+
+        // ---- 4) Internal-link boxes (same logic as Money Page Doctor) ----
+        const LINK_STOP = new Set(['art','wall','decor','home','print','prints','canvas','ideas','idea','guide','best','with','from','your','this','that','have','into','about','and','the','for','are','you','trend','trends','interior','design','style','room','living']);
+        let linkedCollections = [], linkedTrends = [], linkedBlogs = [], relatedBlogObjs = [];
+        try {
+          const hayWords = new Set(((keyword + ' ' + tags.slice(0, 6).join(' ') + ' ' + pbTitle).toLowerCase().match(/[a-z]+/g) || []).filter(w => w.length > 3 && !LINK_STOP.has(w)));
+          const q = keyword.replace(/["\\]/g, ' ').trim();
+          if (q && hayWords.size) {
+            const d = await shopifyGraphQL(`{ collections(first:30, query:${JSON.stringify(q)}){ edges{ node{ id title handle } } } }`);
+            const nodes = (d && d.collections ? d.collections.edges.map(e => e.node) : []);
+            linkedCollections = nodes.map(n => { const cw = (n.title || '').toLowerCase().match(/[a-z]+/g) || []; let sc = 0; cw.forEach(w => { if (hayWords.has(w)) sc++; }); return { gid: n.id, sc }; }).filter(c => c.sc > 0).sort((a, b) => b.sc - a.sc).slice(0, 3).map(c => c.gid);
+          }
+        } catch (e) {}
+        try {
+          const hay = (keyword + ' ' + pbTitle + ' ' + tags.join(' ')).toLowerCase();
+          const d = await shopifyGraphQL(`{ pages(first:100){ edges{ node{ id title handle } } } }`);
+          const pages = (d && d.pages ? d.pages.edges.map(e => e.node) : []).filter(p => /trend/i.test(p.title || ''));
+          linkedTrends = pages.map(p => { const ws = (p.title || '').toLowerCase().match(/[a-z]+/g) || []; let sc = 0; ws.forEach(w => { if (w.length > 3 && !LINK_STOP.has(w) && hay.includes(w)) sc++; }); return { gid: p.id, sc }; }).filter(t => t.sc > 0).sort((a, b) => b.sc - a.sc).slice(0, 2).map(t => t.gid);
+        } catch (e) {}
+        try {
+          const idxFile = await getGitHubFile('data/blog-index.json');
+          const idx = JSON.parse(idxFile.content || '{}');
+          const all = Array.isArray(idx.articles) ? idx.articles : [];
+          const hay = new Set(((keyword + ' ' + pbTitle + ' ' + tags.join(' ')).toLowerCase().match(/[a-z]+/g) || []).filter(w => w.length > 3 && !LINK_STOP.has(w)));
+          relatedBlogObjs = all.filter(a => a.gid && norm(a.handle) !== norm(handle) && norm(a.title) !== norm(pbTitle))
+            .map(a => { const ws = ((a.title || '') + ' ' + (a.tags || []).join(' ')).toLowerCase().match(/[a-z]+/g) || []; let sc = 0; const seen = new Set(); ws.forEach(w => { if (hay.has(w) && !seen.has(w)) { sc++; seen.add(w); } }); return { gid: a.gid, handle: a.handle, sc }; })
+            .filter(a => a.sc > 0).sort((a, b) => b.sc - a.sc).slice(0, 3);
+          linkedBlogs = relatedBlogObjs.map(a => a.gid);
+        } catch (e) {}
+
+        // ---- 5) Shoppable gallery — match by meaning, blank if no clear fit (never a default) ----
+        let galleryId = '';
+        try {
+          const gf = await getGitHubFile('data/galleries.json');
+          const gsRaw = JSON.parse(gf.content || '[]');
+          const arr = Array.isArray(gsRaw) ? gsRaw : (gsRaw.galleries || []);
+          const hay = (keyword + ' ' + pbTitle + ' ' + tags.join(' ')).toLowerCase();
+          let best = null, bestSc = 0;
+          for (const g of arr) {
+            if (!g || (g.status && g.status !== 'active') || g.id == null) continue;
+            const words = ((g.title || '') + ' ' + (g.description || '')).toLowerCase().match(/[a-z]+/g) || [];
+            let sc = 0; const seen = new Set();
+            words.forEach(w => { if (w.length > 3 && !LINK_STOP.has(w) && hay.includes(w) && !seen.has(w)) { sc++; seen.add(w); } });
+            if (sc > bestSc) { bestSc = sc; best = g; }
+          }
+          if (best && bestSc >= 2) galleryId = String(best.id);
+        } catch (e) {}
+
+        // ---- 6) blog_products_list — up to 4 of the selected About Wall Art prints ----
+        const productGids = (prods.awa || []).filter(p => p && prods.selected[p.gid]).map(p => p.gid).slice(0, 4);
+
+        // ---- 7) Schedule — the first free day; today → 19:00 UK, any future day → 10:00 UK, one per day ----
+        function londonOffsetMin(date) { const u = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' })); const l = new Date(date.toLocaleString('en-US', { timeZone: 'Europe/London' })); return Math.round((l - u) / 60000); }
+        function ukIso(y, m0, d, hour) { const g = new Date(Date.UTC(y, m0, d, hour, 0, 0)); const off = londonOffsetMin(g); return new Date(g.getTime() - off * 60000).toISOString(); }
+        let publishIso, scheduledToday = false;
+        try {
+          const d = await shopifyGraphQL(`{ articles(first:5, query:"blog_id:93572858142", sortKey:PUBLISHED_AT, reverse:true){ edges{ node{ publishedAt } } } }`);
+          const dates = (d && d.articles ? d.articles.edges : []).map(e => e.node.publishedAt).filter(Boolean).map(s => new Date(s));
+          const last = dates.length ? new Date(Math.max(...dates.map(x => x.getTime()))) : null;
+          const nowUk = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/London' }));
+          const todayMid = Date.UTC(nowUk.getFullYear(), nowUk.getMonth(), nowUk.getDate());
+          let candMid = todayMid;
+          if (last) { const lu = new Date(last.toLocaleString('en-US', { timeZone: 'Europe/London' })); const lNext = Date.UTC(lu.getFullYear(), lu.getMonth(), lu.getDate()) + 86400000; if (lNext > candMid) candMid = lNext; }
+          scheduledToday = candMid === todayMid;
+          const cd = new Date(candMid);
+          publishIso = ukIso(cd.getUTCFullYear(), cd.getUTCMonth(), cd.getUTCDate(), scheduledToday ? 19 : 10);
+        } catch (e) {
+          const nowUk = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/London' }));
+          scheduledToday = true;
+          publishIso = ukIso(nowUk.getFullYear(), nowUk.getMonth(), nowUk.getDate(), 19);
+        }
+
+        // ---- 8) Create the blog on Shopify (Hidden until its date, right template + author) ----
+        const mf = [];
+        const addMf = (ns, key, type, value) => { if (value === '' || value == null) return; mf.push({ namespace: ns, key, type, value: String(value) }); };
+        const addRef = (key, type, gids) => { if (gids && gids.length) mf.push({ namespace: 'custom', key, type, value: JSON.stringify(gids) }); };
+        addMf('global', 'title_tag', 'single_line_text_field', seoTitle);
+        addMf('global', 'description_tag', 'single_line_text_field', metaDescription);
+        addMf('custom', 'ai_related_questions', 'multi_line_text_field', boxes.relatedQuestions || '');
+        addMf('custom', 'ai_summary_block', 'multi_line_text_field', boxes.summaryBlock || '');
+        addMf('custom', 'ai_comparison_snippet', 'multi_line_text_field', boxes.comparisonSnippet || '');
+        addMf('custom', 'people_also_ask_new', 'multi_line_text_field', boxes.peopleAlsoAsk || '');
+        addMf('custom', 'ai_how_to_schema_markup', 'multi_line_text_field', howToSchema);
+        addMf('custom', 'complete_the_look', 'single_line_text_field', boxes.completeTheLook || '');
+        addMf('custom', 'home_decor_trends_title', 'single_line_text_field', boxes.homeDecorTrendsTitle || '');
+        addMf('custom', 'shoppable_gallery_new', 'number_integer', galleryId);
+        addRef('linked_collections', 'list.collection_reference', linkedCollections);
+        addRef('linked_blogs', 'list.article_reference', linkedBlogs);
+        addRef('linked_trends', 'list.page_reference', linkedTrends);
+        addRef('blog_products_list', 'list.product_reference', productGids);
+
+        const articleInput = {
+          blogId: NEWS_BLOG_GID,
+          title: pbTitle,
+          handle,
+          body,
+          summary: excerpt || undefined,
+          author: { name: 'Mae Osz' },
+          isPublished: true,
+          publishDate: publishIso,
+          templateSuffix: 'full-metafields-blog-post',
+          tags,
+          metafields: mf
+        };
+        if (featuredUrl) articleInput.image = { url: featuredUrl, altText: featuredAlt };
+
+        async function tryCreate(input) {
+          const d = await shopifyGraphQL(`mutation($article:ArticleCreateInput!){ articleCreate(article:$article){ article{ id handle } userErrors{ field message } } }`, { article: input });
+          const ac = d && d.articleCreate;
+          if (ac && ac.article) return { article: ac.article };
+          return { error: (ac && ac.userErrors && ac.userErrors[0] && ac.userErrors[0].message) || 'unknown error' };
+        }
+        let created = null, createErr = '';
+        try {
+          let r = await tryCreate(articleInput);
+          if (r.error && /handle/i.test(r.error)) { articleInput.handle = handle + '-' + Date.now().toString().slice(-4); r = await tryCreate(articleInput); }
+          if (r.article) created = r.article; else createErr = r.error;
+        } catch (e) { createErr = e.message; }
+
+        if (!created) {
+          report.unshift({ ok: false, label: 'Could not create the blog on Shopify: ' + createErr, fix: 'Nothing was published. Fix the message above, then press Publish again.' });
+          return res.status(200).json({ success: false, report, error: createErr });
+        }
+        const finalHandle = created.handle || handle;
+        const articleGid = created.id;
+        const articleUrl = ORIGIN + '/blogs/news/' + finalHandle;
+        const adminId = (articleGid || '').split('/').pop();
+        const storeHandle = (process.env.SHOPIFY_STORE_DOMAIN || '').split('.')[0] || 'aboutwallart';
+        const whenTxt = new Date(publishIso).toLocaleString('en-GB', { timeZone: 'Europe/London', dateStyle: 'medium', timeStyle: 'short' });
+
+        report.unshift({ ok: true, label: 'Blog created on Shopify — scheduled for ' + whenTxt + ' (UK), hidden until then' });
+        report.push({ ok: true, label: mf.length + ' template boxes + SEO fields filled' });
+        report.push({ ok: (tags.length > 0), label: tags.length ? ('Tags: ' + tags.join(', ')) : 'No tags set', fix: tags.length ? undefined : 'Add tags by hand in Shopify.' });
+        report.push({ ok: !!featuredUrl, label: featuredUrl ? 'Featured image + alt set' : 'No featured image set', fix: featuredUrl ? undefined : 'Set the featured image on the blog in Shopify.' });
+        report.push({ ok: !!boxes.peopleAlsoAsk, label: boxes.peopleAlsoAsk ? (faqCount + ' People-Also-Ask questions + FAQ schema') : 'People Also Ask not written', fix: boxes.peopleAlsoAsk ? undefined : 'Add People Also Ask by hand in Shopify.' });
+        report.push({ ok: true, label: howToSchema ? 'How-To step schema added — glance it renders on this first how-to' : 'Not a how-to blog — step schema skipped (correct)' });
+        report.push({ ok: !!galleryId, label: galleryId ? ('Shoppable gallery matched (#' + galleryId + ')') : 'No clear gallery match — left blank', fix: galleryId ? undefined : 'Pick a Shoppable Gallery by hand in Shopify if a good one fits.' });
+        report.push({ ok: true, label: 'Internal links — collections: ' + linkedCollections.length + ', trends: ' + linkedTrends.length + ', related blogs: ' + linkedBlogs.length });
+        report.push({ ok: true, label: 'Product list — ' + productGids.length + ' product' + (productGids.length === 1 ? '' : 's') });
+
+        // ---- 9) Register into the blog index ----
+        try {
+          const f = await getGitHubFile('data/blog-index.json');
+          const idx = JSON.parse(f.content || '{}');
+          idx.articles = Array.isArray(idx.articles) ? idx.articles : [];
+          if (!idx.articles.some(a => norm(a.handle) === norm(finalHandle))) {
+            idx.articles.unshift({ gid: articleGid, handle: finalHandle, title: pbTitle, tags, blogHandle: 'news', publishedAt: publishIso });
+            idx.count = idx.articles.length; idx.updatedAt = new Date().toISOString();
+            await updateGitHubFile('data/blog-index.json', JSON.stringify(idx, null, 2), f.sha, 'Register new blog: ' + pbTitle);
+          }
+          report.push({ ok: true, label: 'Added to your blog list (so other blogs can link to it)' });
+        } catch (e) { report.push({ ok: false, label: 'Could not add it to your blog list', fix: 'Run "Rebuild blog index" later — it will be picked up then.' }); }
+
+        // ---- 10) Auto-link rule ----
+        if (keyword) {
+          try {
+            const f = await getGitHubFile('data/autolink-rules.json');
+            const rules = JSON.parse(f.content || '[]');
+            if (!rules.some(r => norm(r.keyword) === norm(keyword))) {
+              const maxId = rules.reduce((mx, r) => Math.max(mx, parseInt(r.id) || 0), 0);
+              rules.unshift({ id: maxId + 1, keyword, url: '/blogs/news/' + finalHandle, linksAdded: 0, verified: 'ok' });
+              await updateGitHubFile('data/autolink-rules.json', JSON.stringify(rules, null, 2), f.sha, 'Auto-link rule for new blog: ' + keyword);
+              report.push({ ok: true, label: 'Auto-link rule added ("' + keyword + '" → this blog)' });
+            } else { report.push({ ok: true, label: 'Auto-link rule already existed for "' + keyword + '"' }); }
+          } catch (e) { report.push({ ok: false, label: 'Could not add the auto-link rule', fix: 'Add it by hand in Auto-Link.', copy: keyword + ' → /blogs/news/' + finalHandle }); }
+        }
+
+        // ---- 11) Reciprocal links — add THIS blog to the related older blogs' "You may also read" box ----
+        if (relatedBlogObjs.length) {
+          let done = 0;
+          for (const rb of relatedBlogObjs) {
+            try {
+              const qd = await shopifyGraphQL(`query($id:ID!){ node(id:$id){ ... on Article { metafield(namespace:"custom", key:"linked_blogs"){ value } } } }`, { id: rb.gid });
+              let cur = [];
+              try { cur = JSON.parse((qd && qd.node && qd.node.metafield && qd.node.metafield.value) || '[]'); } catch (e2) { cur = []; }
+              if (!Array.isArray(cur)) cur = [];
+              if (!cur.includes(articleGid)) {
+                cur.push(articleGid);
+                const sd = await shopifyGraphQL(`mutation($m:[MetafieldsSetInput!]!){ metafieldsSet(metafields:$m){ userErrors{ message } } }`, { m: [{ ownerId: rb.gid, namespace: 'custom', key: 'linked_blogs', type: 'list.article_reference', value: JSON.stringify(cur) }] });
+                if (!(sd && sd.metafieldsSet && sd.metafieldsSet.userErrors && sd.metafieldsSet.userErrors.length)) done++;
+              } else { done++; }
+            } catch (e) {}
+          }
+          report.push({ ok: done > 0, label: done + ' older blog' + (done === 1 ? '' : 's') + ' now link back to this one (helps it get found)', fix: done ? undefined : 'None added — not critical.' });
+        }
+
+        // ---- 12) Mark it done in your list + clear the month when it is empty ----
+        let month = '', monthCleared = false, monthLeft = 0;
+        try {
+          const f = await getGitHubFile('data/blog_ideas.csv');
+          const lines = f.content.split('\n');
+          const esc = (c) => { const s = String(c == null ? '' : c); return (s.includes(',') || s.includes('"') || s.includes('\n')) ? `"${s.replace(/"/g, '""')}"` : s; };
+          const out = lines.map(line => {
+            const trimmed = line.trim().replace(/\r/g, '');
+            if (!trimmed) return line;
+            const cols = parseCSVLine(trimmed);
+            if (norm(cols[1]) === 'blog post title') return line;
+            if (norm(cols[1]) === norm(pbTitle)) {
+              while (cols.length < 10) cols.push('');
+              month = cols[9] || '';
+              cols[5] = 'PUBLISHED';
+              cols[9] = '';
+              return cols.map(esc).join(',');
+            }
+            return line;
+          });
+          if (month) {
+            for (const line of out) { const t = line.trim().replace(/\r/g, ''); if (!t) continue; const cols = parseCSVLine(t); if (norm(cols[1]) === 'blog post title') continue; if ((cols[9] || '') === month) monthLeft++; }
+            monthCleared = monthLeft === 0;
+          }
+          await updateGitHubFile('data/blog_ideas.csv', out.join('\n'), f.sha, 'Blog published: ' + pbTitle);
+          report.push({ ok: true, label: month ? (monthCleared ? 'Marked done — that whole month is now sent 🎉' : ('Marked done in your list (' + monthLeft + ' left this month)')) : 'Marked done in your list' });
+        } catch (e) { report.push({ ok: false, label: 'Could not update your blog list', fix: 'Mark it done by hand later.' }); }
+
+        // ---- 13) Remember it is published (so it is not published twice) ----
+        try {
+          draftsMap[pbTitle.toLowerCase()] = { ...draft, published: true, publishedArticleId: articleGid, publishedHandle: finalHandle, publishedAt: publishIso };
+          await updateGitHubFile('data/blog-drafts.json', JSON.stringify(draftsMap, null, 2), draftsSha, 'Mark blog published: ' + pbTitle);
+        } catch (e) {}
+
+        // ---- 14) Google reindex link (manual click, as Money Page Doctor does) ----
+        const gscUrl = 'https://search.google.com/search-console/inspect?resource_id=' + encodeURIComponent('sc-domain:aboutwallart.com') + '&id=' + encodeURIComponent(articleUrl);
+        report.push({ ok: true, label: 'Ready for Google — use the "Request indexing" button below' });
+
+        return res.status(200).json({ success: true, report, articleUrl, adminUrl: adminId ? ('https://admin.shopify.com/store/' + storeHandle + '/content/articles/' + adminId) : '', gscUrl, month, monthCleared, monthLeft });
       }
 
       // ── ACTION: write-blog-sources ── (Stage 2 STEP 1: find real authority link + video + trend links)
