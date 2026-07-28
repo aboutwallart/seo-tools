@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.1.8 - 2026-07-28</p>
+        <p class="version">v6.1.9 - 2026-07-28</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -802,7 +802,20 @@
             }
             const sel = (filter && filter.value) || months[0];
             const list = tagged.filter(i => i.month === sel);
-            container.innerHTML = list.map(idea => buildIdeaCard(idea, 'towrite')).join('');
+            // Completion banner: a month aims for a full set (one per day). Count what's already scheduled on the
+            // store toward it, so it shows exactly how many more are needed to complete the month.
+            const parts = sel.split('-').map(Number);
+            const target = daysInMonth(parts[0], parts[1]);
+            const already = (window._publishedMonthCount && window._publishedMonthCount[sel]) || 0;
+            const remaining = Math.max(0, target - already - list.length);
+            const banner = `<div style="background:#eef6ff;border:1px solid #d6e4ff;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:14px;color:#1a1a1a;">
+                <strong>${MONTH_NAMES[parts[1] - 1]} ${parts[0]}</strong> — aiming for a full month (${target}).
+                &nbsp;<span style="color:#2e7d32;font-weight:700;">${already} already scheduled</span>
+                &nbsp;·&nbsp;<span style="font-weight:700;">${list.length} in progress</span>
+                &nbsp;·&nbsp;<span style="color:${remaining ? '#c0561d' : '#2e7d32'};font-weight:700;">${remaining ? remaining + ' more to complete' : 'month is full ✅'}</span>
+                ${remaining ? `<button onclick="topUpMonth('${sel}',${remaining})" style="margin-left:10px;background:#1565c0;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:700;font-size:13px;cursor:pointer;">➕ Top up (add ${remaining})</button>` : ''}
+            </div>`;
+            container.innerHTML = banner + list.map(idea => buildIdeaCard(idea, 'towrite')).join('');
             // Restore ticks, drafts and saved-brief notes for the visible cards.
             selectedToSend.forEach(idx => {
                 const cb = document.getElementById(`ts-cb-${idx}`);
@@ -842,18 +855,35 @@
             const pool = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !i.month && i.index !== index && !isPublishedBlog(i));
             const ordered = diversityOrder(pool);
             const repl = ordered.find(i => (bcount[bucketOf(i.currentTitle || i.title)] || 0) < 3) || ordered[0] || null;
-            const post = (body) => fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+            // Never shrink the month: if there's nothing to swap in, leave it exactly as it is.
+            if (!repl) { alert('No more spare blog ideas to swap in — so nothing was removed and the month stays complete. Add more ideas first, then try again.'); return; }
+            const rt = repl.title || repl.currentTitle || '';
             try {
-                const r1 = await post({ action: 'save-month', titles: [myTitle], month: '' });
-                if (!r1.success) throw new Error(r1.error || 'Could not remove it.');
-                idea.month = '';
-                if (repl) {
-                    const rt = repl.title || repl.currentTitle || '';
-                    const r2 = await post({ action: 'save-month', titles: [rt], month });
-                    if (r2.success) repl.month = month;
-                }
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'swap-month-blog', month, removeTitle: myTitle, addTitle: rt }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Could not swap.');
+                idea.month = ''; repl.month = month;
                 refreshAll();
             } catch (e) { alert('Could not swap: ' + e.message); }
+        }
+
+        // Top up a month to a full set — adds the next best unused topics (variety-aware, never published ones)
+        // until the month is complete.
+        async function topUpMonth(month, n) {
+            if (!n || n < 1) return;
+            const monthBlogs = allIdeas.filter(i => i.month === month && (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING'));
+            const bcount = {}; monthBlogs.forEach(i => { const b = bucketOf(i.currentTitle || i.title); bcount[b] = (bcount[b] || 0) + 1; });
+            const pool = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !i.month && !isPublishedBlog(i));
+            const ordered = diversityOrder(pool);
+            const pick = [];
+            for (const it of ordered) { if (pick.length >= n) break; const b = bucketOf(it.currentTitle || it.title); if ((bcount[b] || 0) < 3) { pick.push(it); bcount[b] = (bcount[b] || 0) + 1; } }
+            if (pick.length < n) { for (const it of ordered) { if (pick.length >= n) break; if (pick.indexOf(it) === -1) pick.push(it); } }
+            if (!pick.length) { alert('No spare blog ideas to add — add more ideas first.'); return; }
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-month', titles: pick.map(i => i.title || i.currentTitle), month }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Could not add.');
+                pick.forEach(i => { i.month = month; });
+                refreshAll();
+            } catch (e) { alert('Could not top up: ' + e.message); }
         }
 
         // If a competitor brief was already saved for this blog, show it as a COLLAPSED panel (click arrow to open).
@@ -893,8 +923,12 @@
             try {
                 const res = await fetch('https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/blog-index.json?_=' + Date.now());
                 const data = await res.json();
-                window._publishedTitles = new Set(((data && data.articles) || []).map(a => String(a.title || '').trim().toLowerCase()).filter(Boolean));
-            } catch (e) { window._publishedTitles = window._publishedTitles || new Set(); }
+                const arts = (data && data.articles) || [];
+                window._publishedTitles = new Set(arts.map(a => String(a.title || '').trim().toLowerCase()).filter(Boolean));
+                // How many blogs are already scheduled/live on the store per month (YYYY-MM) — counts toward completing that month.
+                window._publishedMonthCount = {};
+                arts.forEach(a => { const m = String(a.publishedAt || '').slice(0, 7); if (/^\d{4}-\d{2}$/.test(m)) window._publishedMonthCount[m] = (window._publishedMonthCount[m] || 0) + 1; });
+            } catch (e) { window._publishedTitles = window._publishedTitles || new Set(); window._publishedMonthCount = window._publishedMonthCount || {}; }
         }
         // True if this blog is already live/scheduled (published) — should never be offered to write.
         function isPublishedBlog(i) {
