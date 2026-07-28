@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.1.6 - 2026-07-27</p>
+        <p class="version">v6.1.7 - 2026-07-28</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -813,6 +813,41 @@
             if (note) note.textContent = `${list.length} blog${list.length === 1 ? '' : 's'} in ${sel}`;
         }
 
+        // A fully-done (published) blog: publishing already set it PUBLISHED + cleared its month on the server,
+        // so just sync locally and drop the card from view — no reset needed.
+        function hideDoneCard(index) {
+            const idea = allIdeas.find(i => i.index === index); if (!idea) return;
+            idea.status = 'PUBLISHED'; idea.month = '';
+            refreshAll();
+        }
+
+        // Remove a blog from its month (it goes back to To Write for another month) and drop in the next best
+        // unused topic to keep the month full — preferring a theme that isn't already at the 3-per-month cap.
+        async function removeAndReplace(index) {
+            const idea = allIdeas.find(i => i.index === index); if (!idea) return;
+            const month = idea.month; if (!month) return;
+            const myTitle = idea.title || idea.currentTitle || '';
+            if (!confirm(`Remove "${myTitle}" from ${month}? It goes back to To Write, and the next best topic takes its place.`)) return;
+            // themes already in this month (minus the one leaving), to keep variety when choosing the replacement
+            const monthBlogs = allIdeas.filter(i => i.month === month && i.index !== index && (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING'));
+            const bcount = {}; monthBlogs.forEach(i => { const b = bucketOf(i.currentTitle || i.title); bcount[b] = (bcount[b] || 0) + 1; });
+            const pool = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !i.month && i.index !== index);
+            const ordered = diversityOrder(pool);
+            const repl = ordered.find(i => (bcount[bucketOf(i.currentTitle || i.title)] || 0) < 3) || ordered[0] || null;
+            const post = (body) => fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+            try {
+                const r1 = await post({ action: 'save-month', titles: [myTitle], month: '' });
+                if (!r1.success) throw new Error(r1.error || 'Could not remove it.');
+                idea.month = '';
+                if (repl) {
+                    const rt = repl.title || repl.currentTitle || '';
+                    const r2 = await post({ action: 'save-month', titles: [rt], month });
+                    if (r2.success) repl.month = month;
+                }
+                refreshAll();
+            } catch (e) { alert('Could not swap: ' + e.message); }
+        }
+
         // If a competitor brief was already saved for this blog, show it as a COLLAPSED panel (click arrow to open).
         function restoreBriefNote(index) {
             const idea = allIdeas.find(i => i.index === index);
@@ -928,6 +963,7 @@
                     const hasProducts = !!((window._products && window._products[index]) || (window._productsByTitle && window._productsByTitle[t]));
                     const hasFinish = !!(window._finishDone && window._finishDone[index]);
                     const hasPublish = !!((window._publishDone && window._publishDone[index]) || (window._drafts && window._drafts[index] && window._drafts[index].published) || (window._draftsByTitle && window._draftsByTitle[t] && window._draftsByTitle[t].published));
+                    const allDone = hasBrief && hasDraft && hasProducts && hasImgp && hasFinish && hasPublish;
                     const stepStyle = (done, colour) => `display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;margin:12px 0 0;background:${done ? '#9e9e9e' : colour};color:#fff;border:none;border-radius:6px;padding:11px 16px;font-weight:700;cursor:pointer;`;
                     actionsHTML = `
                         <div style="width:100%;">
@@ -935,6 +971,8 @@
                                 <button class="btn-mark marked" disabled>✓ To Write Blog</button>
                                 <button class="btn-undo" onclick="undoWriting(${index})">↩ Undo</button>
                                 ${monthTag}
+                                ${idea.month && !allDone ? `<button onclick="removeAndReplace(${index})" title="Remove from this month (it goes back to To Write) and drop in the next best topic" style="background:#fff;color:#b3261e;border:1.5px solid #b3261e;border-radius:6px;padding:7px 12px;font-weight:700;font-size:12.5px;cursor:pointer;">✕ Remove &amp; replace</button>` : ''}
+                                ${allDone ? `<button onclick="hideDoneCard(${index})" title="This blog is fully done — hide the card" style="background:#2e7d32;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:700;font-size:12.5px;cursor:pointer;">✅ Done — hide</button>` : ''}
                             </div>
                             <button id="comp-btn-${index}" data-done="${hasBrief ? '1' : '0'}" onclick="stepClick(${index},'comp')" style="${stepStyle(hasBrief,'#6a1b9a')}"><span class="step-label">1 · 🔍 Competitor check${hasBrief ? ' ✓' : ''}</span><span class="step-caret">${hasBrief ? '▸' : ''}</span></button>
                             <div id="comp-${index}" style="font-size:14px;"></div>
@@ -1444,6 +1482,13 @@
             const b = el.nextElementSibling;
             if (b) { const t = b.textContent; b.textContent = '✅ Copied'; setTimeout(() => b.textContent = t, 1500); }
         }
+        // Copy a short bit of text (e.g. a print-files SKU) with a quick "✓ Copied" flash on the clicked chip.
+        function copySku(txt, el) {
+            navigator.clipboard.writeText(txt).then(() => {
+                if (!el) return; const o = el.innerHTML; el.innerHTML = '✓ Copied';
+                setTimeout(() => { el.innerHTML = o; }, 1200);
+            }).catch(() => {});
+        }
 
         // ============================================
         // STEP 5 — FETCH & FINISH: pull the saved images from Shopify, drop scene photos + product blocks
@@ -1555,21 +1600,12 @@
             const links = [];
             if (data.articleUrl) links.push(`<a href="${escHtml(data.articleUrl)}" target="_blank" rel="noopener" style="display:inline-block;margin:4px 8px 4px 0;padding:8px 14px;background:#1a1a1a;color:#fff;border-radius:6px;text-decoration:none;font-size:13px;">👁 View the blog</a>`);
             if (data.adminUrl) links.push(`<a href="${escHtml(data.adminUrl)}" target="_blank" rel="noopener" style="display:inline-block;margin:4px 8px 4px 0;padding:8px 14px;background:#5a3e85;color:#fff;border-radius:6px;text-decoration:none;font-size:13px;">✏️ Edit in Shopify</a>`);
-            // Request-indexing is now the dedicated Money-Page-Doctor-style block below (with the working link + a done tick).
             const linkBar = links.length ? `<div style="margin:6px 0 12px;">${links.join('')}</div>` : '';
+            // Indexing is NOT requested here — the blog is scheduled/hidden and can't be indexed until it goes live.
+            // It's picked up automatically in the weekly Monday email once it's actually published.
             const reindexBlock = data.articleUrl ? `
-                <div style="margin-top:14px;padding:12px 14px;background:#f9f9f9;border-radius:8px;">
-                    <div style="font-weight:700;font-size:13px;margin-bottom:4px;">🔍 Request Reindex in Google</div>
-                    <div style="font-size:12px;color:#555;margin-bottom:8px;">Copy the URL, open GSC URL Inspection, paste it and press Request Indexing — then tick it done.</div>
-                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                        <input id="reindex-url-${index}" type="text" value="${escHtml(data.articleUrl)}" readonly style="flex:1;min-width:200px;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:12.5px;background:#fff;">
-                        <button onclick="copyText2('reindex-url-${index}',this)" style="background:#1a1a1a;color:#fff;border:none;border-radius:6px;padding:8px 12px;font-weight:700;font-size:13px;cursor:pointer;">📋 Copy URL</button>
-                        <a href="https://search.google.com/u/3/search-console?resource_id=sc-domain%3Aaboutwallart.com" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;background:#1a73e8;color:#fff;padding:8px 12px;border-radius:6px;font-size:13px;text-decoration:none;font-weight:600;">🔍 Open GSC ↗</a>
-                    </div>
-                    <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;color:#333;cursor:pointer;">
-                        <input type="checkbox" id="reindex-done-${index}" onchange="toggleReindexDone(${index},'${escHtml(data.articleUrl)}',this)" style="width:16px;height:16px;">
-                        <span id="reindex-lbl-${index}">Mark: submitted for reindexing in Google</span>
-                    </label>
+                <div style="margin-top:14px;padding:10px 14px;background:#eef6ff;border:1px solid #d6e4ff;border-radius:8px;font-size:12.5px;color:#1565c0;">
+                    🔍 <strong>Indexing is handled for you.</strong> This blog is scheduled, so it can't be indexed yet. It will appear in your <strong>weekly Monday email</strong> once it goes live — ready to request indexing then.
                 </div>` : '';
             const addBox = (l) => {
                 if (!l.add) return '';
@@ -1842,14 +1878,19 @@
                 return `<img src="${escAttr(u)}" onclick="prodChooseImg(${index},'${escAttr(p.gid)}','${escAttr(u)}')" style="height:180px;width:auto;border-radius:8px;border:2px solid #e4e4e7;background:#faf7f2;cursor:pointer;flex-shrink:0;${sel}" title="Use this image">`;
             }).join('') || '<span style="font-size:12px;color:#999;">no images</span>';
             const priceTxt = p.price ? ('£' + p.price) : '';
-            const meta = [escHtml(p.sku || '(no SKU)'), priceTxt, escHtml(p.productType || p.vendor || '')].filter(Boolean).join(' · ');
+            const skuTxt = p.sku || '';
+            const skuChip = skuTxt
+                ? `<span onclick="copySku('${escAttr(skuTxt)}',this)" title="Click to copy the print-files SKU" style="font-weight:800;font-size:14px;color:#1a1a1a;background:#f1f1f1;border:1px solid #ddd;border-radius:6px;padding:4px 10px;cursor:pointer;font-family:monospace;white-space:nowrap;">${escHtml(skuTxt)} 📋</span>`
+                : '<span style="color:#999;font-size:12.5px;">(no SKU)</span>';
+            const meta = [priceTxt, escHtml(p.productType || p.vendor || '')].filter(Boolean).join(' · ');
             const copyBtn = chosen ? `<button onclick="copyProductImage('${escAttr(chosen)}',this)" style="background:#c0561d;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer;">📋 Copy image</button>` : '';
             return `
                 <div style="background:${on?'#f2fbf3':'#fff'};border:2px solid ${on?'#43a047':'#e4e4e7'};border-radius:12px;padding:14px 16px;margin-bottom:12px;">
                     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
                         <button onclick="prodToggle(${index},'${escAttr(p.gid)}')" style="border:none;border-radius:8px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer;background:${on?'#43a047':'#eee'};color:${on?'#fff':'#333'};">${on?'✓ Chosen':'＋ Add'}</button>
                         <span style="font-weight:700;font-size:15px;flex:1;min-width:200px;">${escHtml(p.title)}</span>
-                        <span style="color:#888;font-size:12.5px;font-weight:500;">${meta}</span>
+                        ${skuChip}
+                        ${meta ? `<span style="color:#888;font-size:12.5px;font-weight:500;">${meta}</span>` : ''}
                         ${copyBtn}
                         <a href="${escAttr(p.url)}" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:none;font-size:13px;">↗ open</a>
                     </div>
@@ -1970,7 +2011,16 @@
         // Build the About Wall Art lifestyle-image prompts for the approved AWA products (so she can start generating now).
         function awaPromptsHtml(index) {
             const s = window._products[index]; if (!s) return '';
-            const awaSel = prodAll(index).filter(p => s.selected[p.gid] && (p.vendor === AWA_VENDOR));
+            // Build the list from the prints ACTUALLY in the spots (her final choice) + any About Wall Art prints
+            // she added as extras — so it always matches the blog and refreshes when she swaps a product.
+            const seen = new Set(); const awaSel = [];
+            const pushAwa = (p) => { if (p && p.gid && s.selected[p.gid] && !seen.has(p.gid)) { seen.add(p.gid); awaSel.push(p); } };
+            if (Array.isArray(s.prints) && s.prints.length) {
+                s.prints.forEach(pushAwa);
+                (s.extra || []).filter(p => p && p.vendor === AWA_VENDOR).forEach(pushAwa);
+            } else {
+                prodAll(index).filter(p => p.vendor === AWA_VENDOR).forEach(pushAwa);
+            }
             if (!awaSel.length) return '<div style="font-size:12px;color:#999;">Approve at least one About Wall Art product to get its lifestyle-image prompt.</div>';
             const person = personForBlog(s.keyword);
             const rules = `Add ${person}. Vary their ethnicity naturally (a real mix, not always white). Do NOT depict gay, lesbian or transgender couples.`;
@@ -2462,9 +2512,15 @@
                 // else: off-season → skipped for this month
             });
             const ordered = [...diversityOrder(seasonalThis), ...diversityOrder(evergreen)];
-            const pick = ordered.slice(0, count);
+            // Cap any one theme (e.g. coastal) at 3 per month so a single topic can't take over. The 4th+ of a
+            // theme move to an overflow tail — only used if there aren't enough other topics to fill the month.
+            const THEME_CAP = 3;
+            const bcount = {}; const primary = [], overflow = [];
+            ordered.forEach(it => { const b = bucketOf(it.title); bcount[b] = (bcount[b] || 0) + 1; (bcount[b] <= THEME_CAP ? primary : overflow).push(it); });
+            const finalOrder = [...primary, ...overflow];
+            const pick = finalOrder.slice(0, count);
             selectedToSend = new Set(pick.map(i => i.index));
-            window._monthlyOrder = ordered.map(i => i.index);
+            window._monthlyOrder = finalOrder.map(i => i.index);
             displayToWrite();
             const seasonalUsed = pick.filter(i => seasonalMonths(i.title).includes(month)).length;
             document.getElementById('monthly-note').textContent = `${pick.length} picked for ${MONTH_NAMES[month - 1]} ${year} (${count} days${seasonalUsed ? `, ${seasonalUsed} seasonal` : ''}). Adjust ticks, then Save selection to month.`;
