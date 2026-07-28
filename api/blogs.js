@@ -2248,6 +2248,54 @@ Include EXACTLY 3 items.`;
         return res.status(200).json({ success: true });
       }
 
+      // ── ACTION: mark-blog-done ── (title → STATUS=PUBLISHED + clear MONTH, so it leaves the write list for good.
+      // Uses the SAME columns the publish flow uses: match on title (col 1), STATUS = col 5, MONTH = col 9.)
+      if (req.body.action === 'mark-blog-done') {
+        const title = String(req.body.title || '').trim();
+        if (!title) return res.status(400).json({ error: 'title required' });
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const nrm = (s) => String(s || '').trim().toLowerCase();
+        const esc = (c) => { const s = String(c == null ? '' : c); return (s.includes(',') || s.includes('"') || s.includes('\n')) ? `"${s.replace(/"/g, '""')}"` : s; };
+        const f = await getGitHubFile('data/blog_ideas.csv');
+        let found = false;
+        const out = f.content.split('\n').map(line => {
+          const t = line.trim().replace(/\r/g, '');
+          if (!t) return line;
+          const cols = parseCSVLine(t);
+          if (nrm(cols[1]) === 'blog post title') return line;
+          if (nrm(cols[1]) === nrm(title)) { while (cols.length < 10) cols.push(''); cols[5] = 'PUBLISHED'; cols[9] = ''; found = true; return cols.map(esc).join(','); }
+          return line;
+        });
+        if (!found) return res.status(404).json({ error: 'blog not found in the list' });
+        await updateGitHubFile('data/blog_ideas.csv', out.join('\n'), f.sha, 'Mark blog done: ' + title);
+        return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: swap-month-blog ── (ONE CSV write: clear removeTitle's month AND set addTitle's month.
+      // Atomic so a remove-and-replace can never half-apply and shrink the month. MONTH = col 9, title = col 1.)
+      if (req.body.action === 'swap-month-blog') {
+        const month = String(req.body.month || '').trim();
+        const removeTitle = String(req.body.removeTitle || '').trim();
+        const addTitle = String(req.body.addTitle || '').trim();
+        if (!month || !removeTitle) return res.status(400).json({ error: 'month and removeTitle required' });
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const nrm = (s) => String(s || '').trim().toLowerCase();
+        const esc = (c) => { const s = String(c == null ? '' : c); return (s.includes(',') || s.includes('"') || s.includes('\n')) ? `"${s.replace(/"/g, '""')}"` : s; };
+        const f = await getGitHubFile('data/blog_ideas.csv');
+        let removed = false, added = false;
+        const out = f.content.split('\n').map(line => {
+          const t = line.trim().replace(/\r/g, '');
+          if (!t) return line;
+          const cols = parseCSVLine(t);
+          if (nrm(cols[1]) === 'blog post title') return line;
+          if (nrm(cols[1]) === nrm(removeTitle)) { while (cols.length < 10) cols.push(''); cols[9] = ''; removed = true; return cols.map(esc).join(','); }
+          if (addTitle && nrm(cols[1]) === nrm(addTitle)) { while (cols.length < 10) cols.push(''); cols[9] = month; added = true; return cols.map(esc).join(','); }
+          return line;
+        });
+        await updateGitHubFile('data/blog_ideas.csv', out.join('\n'), f.sha, `Swap month ${month}: -${removeTitle} +${addTitle || '(none)'}`);
+        return res.status(200).json({ success: true, removed, added });
+      }
+
       // ── ACTION: update-blog-status ── (single keyword — updates STATUS column in blog_ideas.csv)
       if (req.body.action === 'update-blog-status') {
         const { keyword, status } = req.body;
