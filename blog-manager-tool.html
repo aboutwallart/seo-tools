@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.4.2 - 2026-08-01</p>
+        <p class="version">v6.5.0 - 2026-08-01</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1340,11 +1340,8 @@
                 setStepTodo(index, 'imgp', '#00796b');
                 if (window._finishDone) window._finishDone[index] = false;
                 setStepTodo(index, 'finish', '#0d7a6f');
-                // Save it so it survives a reload / reset (no need to re-write).
-                fetch('/api/blogs', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'save-draft', title: idea.currentTitle, draft: data })
-                }).catch(() => {});
+                // Save it so it survives a reload / reset — and CONFIRM it saved (never silent).
+                await saveBlogDraft(index);
             } catch (e) {
                 clearInterval(creep);
                 if (out) out.innerHTML = '<span style="color:#a33;">❌ ' + escHtml(e.message) + '</span>';
@@ -1367,14 +1364,39 @@
                     ${data.authority && data.authority.url ? ' · authority link found' : ' · no authority link'}
                     ${data.youtube && data.youtube.link ? ' · video found' : ' · no video'}
                 </div>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+                    <button onclick="saveBlogDraft(${index})" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:800;cursor:pointer;">💾 Save blog</button>
                     <button onclick="copyDraft(${index})" style="background:#1a1a1a;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">📋 Copy body HTML</button>
                     <button onclick="editDraft(${index})" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;border-radius:6px;padding:8px 14px;font-weight:600;cursor:pointer;">✏️ Edit</button>
                     <button onclick="writeBlog(${index})" style="${regenBtnStyle}">↻ Regenerate</button>
+                    <span id="draft-save-status-${index}" style="font-size:12.5px;font-weight:700;color:#888;">${(data && data.savedAt) ? '✅ Blog saved' : ''}</span>
                 </div>
                 <div id="draft-prev-${index}" class="blog-prev" style="background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:16px 18px;max-height:520px;overflow:auto;">${previewHtml(data.bodyHtml)}</div>`;
             out.innerHTML = stepBox(body);
             setStepDone(index, 'write', open !== false);
+        }
+
+        // Save the written blog to the server, and ALWAYS say what happened (never a silent loss).
+        async function saveBlogDraft(index) {
+            const idea = allIdeas.find(i => i.index === index);
+            const d = window._drafts[index];
+            const st = document.getElementById(`draft-save-status-${index}`);
+            if (!idea || !d) { if (st) { st.style.color = '#a33'; st.textContent = '⚠️ Nothing to save yet'; } return false; }
+            if (st) { st.style.color = '#888'; st.textContent = '💾 Saving…'; }
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-draft', title: idea.currentTitle, draft: d }) });
+                const data = await readJson(r);
+                if (!data || !data.success) throw new Error((data && data.error) || 'save failed');
+                d.savedAt = new Date().toISOString();
+                window._draftsByTitle = window._draftsByTitle || {};
+                window._draftsByTitle[(idea.currentTitle || '').toLowerCase()] = d;
+                const t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                if (st) { st.style.color = '#2e7d32'; st.textContent = '✅ Blog saved ' + t; }
+                return true;
+            } catch (e) {
+                if (st) { st.style.color = '#a33'; st.textContent = '⚠️ Not saved — press 💾 Save blog'; }
+                return false;
+            }
         }
 
         // Pull the image markers [[IMG|filename|ratio|kind|full prompt]] out of the body.
@@ -1836,10 +1858,12 @@
             const d = window._drafts[index] || (window._draftsByTitle && window._draftsByTitle[(idea.currentTitle || '').toLowerCase()]);
             const topics = d ? ((d.bodyHtml || '').match(/\[\[PRODUCT\|([^\]]*)\]\]/g) || []).map(m => m.slice(10, -2).trim()) : [];
             const needs = topics.filter(t => guessType(t) !== 'wall art / a print').map(t => ({ topic: t, type: guessType(t) || 'choose freely', keys: typeKeys(t) }));
-            if (out) { out.style.display = 'block'; out.innerHTML = stepBox('<div style="font-size:14px;color:#555;">🔄 Finding products that match this blog…</div>'); }
+            if (out) out.style.display = 'block';
+            const prog = startProdProgress(out, 'Finding products…');
             try {
                 const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'pick-products', keyword, title: idea.currentTitle, needs }) });
                 const data = await readJson(r);
+                prog.done();
                 if (!data.success) throw new Error(data.error || 'Could not find products');
                 const awa = data.awa || [], coll = data.collective || []; // coll is aligned to needs (may hold nulls)
                 const collectivePool = data.collectivePool || []; // every partner item in the collection, for the browse
@@ -1849,14 +1873,24 @@
                 // Give every product a default chosen image so its preview + Copy image work straight away.
                 [...awa, ...coll, ...collectivePool].forEach(p => { if (p && !chosen[p.gid]) chosen[p.gid] = (p.images && p.images[0]) || ''; });
                 // Put one suggested print in each print spot (unticked).
-                const printTopics = topics.filter(t => guessType(t) === 'wall art / a print');
+                const printTopics = wallArtSpots(topics);
                 const prints = printTopics.map((_, i) => awa[i] || null);
                 window._products[index] = { awa, needs, collective: coll, collectivePool, prints, extra: [], selected, chosen, keyword };
                 renderProductPicker(index, true);
                 saveProductsState(index);
             } catch (e) {
+                prog.done();
                 if (out) out.innerHTML = stepBox('<span style="color:#a33;">❌ ' + escHtml(e.message) + '</span>' + prodAddBar(index));
             }
+        }
+
+        // A moving % bar while products are fetched, so it never looks frozen. Returns { done() } to stop it.
+        function startProdProgress(out, label) {
+            let pct = 8;
+            const draw = () => { if (out) out.innerHTML = stepBox(progBar(pct, label, '🛒')); };
+            draw();
+            const timer = setInterval(() => { if (pct < 93) { pct += 2; draw(); } }, 250);
+            return { done() { clearInterval(timer); } };
         }
 
         // Pick a trend collection → refill EVERY spot (wall-art AND partner) from THAT collection,
@@ -1869,10 +1903,11 @@
             const g = GALLERIES.find(x => x.url.split('?')[0].replace(/\/$/, '').split('/').pop() === handle);
             const collName = g ? g.name : 'this collection';
             const out = document.getElementById(`prod-${index}`);
-            if (out) out.innerHTML = stepBox('<div style="font-size:14px;color:#555;">⏳ Loading ' + escHtml(collName) + '… finding its products.</div>');
+            const prog = startProdProgress(out, 'Loading ' + collName + '…');
             try {
                 const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'pick-products', keyword, title: idea ? idea.currentTitle : '', needs: s.needs || [], collectionHandle: handle }) });
                 const data = await readJson(r);
+                prog.done();
                 if (!data.success) throw new Error(data.error || 'Could not load that collection');
                 // Un-tick everything from the previous fill (prints + partner + browse pool); keep her SKU-added extras.
                 [...(s.awa || []), ...(s.prints || []), ...(s.collective || []), ...(s.collectivePool || [])].forEach(p => { if (p && p.gid) delete s.selected[p.gid]; });
@@ -1880,7 +1915,7 @@
                 // How many wall-art spots does this blog have?
                 const d = window._drafts[index] || (idea && window._draftsByTitle && window._draftsByTitle[(idea.currentTitle || '').toLowerCase()]);
                 const topics = d ? ((d.bodyHtml || '').match(/\[\[PRODUCT\|([^\]]*)\]\]/g) || []).map(m => m.slice(10, -2).trim()) : [];
-                const printTopics = topics.filter(t => guessType(t) === 'wall art / a print');
+                const printTopics = wallArtSpots(topics);
                 // Refill every spot from THIS collection (suggestions, unticked).
                 s.awa = awa;
                 s.collective = coll;                 // one option per partner spot, in order (may hold nulls)
@@ -1896,6 +1931,7 @@
                     if (note) note.insertAdjacentHTML('afterbegin', '<div style="background:#fff4f4;border:1px solid #f3caca;color:#a33;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:13px;">Nothing found in “' + escHtml(collName) + '”. Try another collection above, or add products by SKU below.</div>');
                 }
             } catch (e) {
+                prog.done();
                 if (out) renderProductPicker(index, true); // don't leave it stuck on "Loading…"
                 alert('Could not load ' + collName + ': ' + e.message);
             }
@@ -1920,6 +1956,13 @@
         ];
         function guessType(topic) { const s = (topic || '').toLowerCase(); for (const t of TYPE_MAP) if (t.re.test(s)) return t.label; return ''; }
         function typeKeys(topic) { const s = (topic || '').toLowerCase(); for (const t of TYPE_MAP) if (t.re.test(s)) return t.keys; return []; }
+        // Every blog gets AT LEAST 4 wall-art spots — pad with empty ones she can fill if the text made fewer.
+        function wallArtSpots(topics) {
+            const found = (topics || []).filter(t => guessType(t) === 'wall art / a print');
+            const MIN = 4; const out = found.slice();
+            while (out.length < MIN) out.push('wall art / a print');
+            return out;
+        }
 
         // Build the whole picker UI into prod-${index}. Shows only the chosen few (calm), each as a BIG BAR
         // with all its images side by side; "show other options" reveals the rest to swap in.
@@ -1946,8 +1989,8 @@
             // Count by PRODUCT, so one print can never count as two.
             const count = new Set(prodAll(index).filter(p => s.selected[p.gid]).map(p => p.gid)).size;
 
-            // 🖼️ Wall art prints — one per print spot (same idea as the collective needs).
-            const printTopics = topics.filter(t => guessType(t) === 'wall art / a print');
+            // 🖼️ Wall art prints — one per print spot (same idea as the collective needs). Always at least 4.
+            const printTopics = wallArtSpots(topics);
             let printBlocks;
             if (printTopics.length) {
                 if (!Array.isArray(s.prints) || s.prints.length !== printTopics.length) {
@@ -1968,7 +2011,8 @@
                 <div style="font-size:12px;color:#888;margin-bottom:8px;">One print per spot. Add as many extra prints as you like from the collection below, or by SKU.</div>
                 ${printBlocks}
                 ${extraAwaHtml}
-                ${collectionBrowseHtml(index, 'p')}`;
+                ${collectionBrowseHtml(index, 'p')}
+                ${wallArtSearchHtml(index)}`;
 
             // 🪴 Collective — each NEED shown with its one matched option right beneath it (matched by type on the server).
             let collBlocks;
@@ -2195,6 +2239,83 @@
                 if (!s.chosen[p.gid]) s.chosen[p.gid] = (p.images && p.images[0]) || '';
             });
             window._browseOpen = window._browseOpen || {}; window._browseOpen[index + '-' + kind] = true; // keep it open after adding
+            renderProductPicker(index, true); saveProductsState(index);
+        }
+
+        // 🔎 Search the WHOLE wall-art range (pick freely) — for when the chosen collection has no more prints.
+        function wallArtSearchHtml(index) {
+            const s = window._products[index]; if (!s) return '';
+            const results = s.wallArtSearch || [];
+            const taken = new Set();
+            (s.prints || []).forEach(p => { if (p && p.gid) taken.add(p.gid); });
+            Object.keys(s.selected || {}).forEach(g => { if (s.selected[g]) taken.add(g); });
+            const avail = results.filter(p => p && !taken.has(p.gid));
+            const cls = 'wasearch-' + index;
+            let resultsHtml = '';
+            if (s._waSearching) {
+                resultsHtml = '<div style="font-size:12.5px;color:#888;padding:8px 0;">🔎 Searching all wall art…</div>';
+            } else if (results.length) {
+                if (!avail.length) resultsHtml = '<div style="font-size:12.5px;color:#888;padding:8px 0;">All matches already added. Try another word.</div>';
+                else {
+                    const cards = avail.map(p => {
+                        const img = (p.images && p.images[0]) || '';
+                        const thumb = img
+                            ? `<img src="${escAttr(img)}" style="height:120px;width:auto;border-radius:8px;border:1px solid #e4e4e7;background:#faf7f2;display:block;margin:0 auto;">`
+                            : '<div style="height:120px;width:120px;background:#f3f3f3;border-radius:8px;margin:0 auto;"></div>';
+                        const sku = p.sku ? `<div style="font-family:monospace;font-size:11px;color:#555;margin-top:2px;">${escHtml(p.sku)}</div>` : '';
+                        return `<label style="flex-shrink:0;width:150px;text-align:center;cursor:pointer;display:block;">
+                            <input type="checkbox" class="${cls}" value="${escAttr(p.gid)}" style="width:18px;height:18px;margin:0 0 6px;cursor:pointer;">
+                            ${thumb}
+                            <div style="font-size:11.5px;color:#333;margin-top:4px;line-height:1.25;height:30px;overflow:hidden;">${escHtml(p.title)}</div>
+                            ${sku}
+                        </label>`;
+                    }).join('');
+                    resultsHtml = `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0;">
+                        <button onclick="addTickedWallArt(${index})" style="background:#c0561d;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-weight:800;font-size:13px;cursor:pointer;">➕ Add ticked</button>
+                        <span style="font-size:11.5px;color:#999;">Tick the prints you want, then press Add ticked.</span>
+                    </div>
+                    <div style="display:flex;gap:12px;overflow-x:auto;padding:6px 2px 8px;">${cards}</div>`;
+                }
+            }
+            return `<div style="background:#fff7ef;border:1px solid #f2d9c2;border-radius:8px;padding:10px 12px;margin:12px 0;">
+                <div style="font-weight:700;font-size:13px;color:#c0561d;margin-bottom:4px;">🔎 Search all wall art</div>
+                <div style="font-size:12px;color:#888;margin-bottom:6px;">Collection run out of prints? Type a word (e.g. “coastal”, “abstract”, “botanical”) to pick any print from the whole range.</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                    <input type="text" id="wa-search-${index}" value="${escAttr(s._waTerm || '')}" oninput="setWaTerm(${index}, this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();searchWallArt(${index});}" placeholder="e.g. coastal" style="flex:1;min-width:160px;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;">
+                    <button onclick="searchWallArt(${index})" style="background:#c0561d;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">🔎 Search</button>
+                </div>
+                ${resultsHtml}
+            </div>`;
+        }
+        function setWaTerm(index, v) { const s = window._products[index]; if (s) s._waTerm = v; }
+        async function searchWallArt(index) {
+            const s = window._products[index]; if (!s) return;
+            const inp = document.getElementById(`wa-search-${index}`);
+            const term = ((inp && inp.value) || s._waTerm || '').trim();
+            s._waTerm = term;
+            if (!term) return;
+            s._waSearching = true; renderProductPicker(index, true);
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'search-wall-art', term }) });
+                const data = await readJson(r);
+                s.wallArtSearch = (data && data.success && Array.isArray(data.products)) ? data.products : [];
+                s.wallArtSearch.forEach(p => { if (p && !s.chosen[p.gid]) s.chosen[p.gid] = (p.images && p.images[0]) || ''; });
+            } catch (e) { s.wallArtSearch = []; }
+            s._waSearching = false; renderProductPicker(index, true);
+        }
+        function addTickedWallArt(index) {
+            const s = window._products[index]; if (!s) return;
+            const boxes = document.querySelectorAll('.wasearch-' + index + ':checked');
+            if (!boxes.length) return;
+            const pool = s.wallArtSearch || [];
+            s.extra = s.extra || [];
+            boxes.forEach(b => {
+                const p = pool.find(x => x && x.gid === b.value);
+                if (!p) return;
+                if (!s.extra.find(x => x.gid === p.gid)) s.extra.push(p);
+                s.selected[p.gid] = true;
+                if (!s.chosen[p.gid]) s.chosen[p.gid] = (p.images && p.images[0]) || '';
+            });
             renderProductPicker(index, true); saveProductsState(index);
         }
 
