@@ -2802,9 +2802,10 @@ Return ONLY a JSON array, one object per title in order, exactly:
             if (h && !handles.includes(h)) handles.push(h);
           }
         } catch (e) { /* fall back below */ }
-        // If she picked a trend collection for this blog, use it FIRST so its wall-art prints fill the spots.
+        // If she picked a trend collection for this blog, use ONLY that collection so EVERY spot
+        // (wall-art AND partner) fills from the one collection she chose — no topic guessing mixed in.
         const chosenColl = String(req.body.collectionHandle || '').trim();
-        if (chosenColl) handles = [chosenColl, ...handles.filter(h => h !== chosenColl)];
+        if (chosenColl) handles = [chosenColl];
         if (!handles.length) handles = ['framed-wall-pictures-for-living-room'];
 
         const seen = new Set();
@@ -2870,7 +2871,9 @@ Return ONLY a JSON array, one object per title in order, exactly:
           for (const p of coll) { const t = p.productType || 'Other'; if (!byType[t] || p.price > byType[t].price) byType[t] = p; }
           collectiveByNeed = Object.values(byType).sort((a, b) => b.price - a.price).slice(0, 4);
         }
-        return res.status(200).json({ success: true, awa: awa.slice(0, 8), collective: collectiveByNeed });
+        // collectivePool = every partner (non-wall-art) product in the collection, so the tool page can
+        // show a "choose from this collection" browse under each partner spot (with pictures).
+        return res.status(200).json({ success: true, awa: awa.slice(0, 40), collective: collectiveByNeed, collectivePool: coll.slice(0, 60) });
       }
 
       // ── ACTION: lookup-product ── (Add a product by its print-files SKU, or by product name)
