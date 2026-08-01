@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.1.9 - 2026-07-28</p>
+        <p class="version">v6.2.0 - 2026-07-28</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -452,8 +452,8 @@
         function updateTabCounts() {
             const isToWrite = (i) => i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING';
             document.getElementById('count-ideas').textContent    = allIdeas.filter(i => i.status === '').length;
-            document.getElementById('count-towrite').textContent  = allIdeas.filter(i => isToWrite(i) && !i.month).length;
-            document.getElementById('count-monthprog').textContent= allIdeas.filter(i => isToWrite(i) && i.month).length;
+            document.getElementById('count-towrite').textContent  = allIdeas.filter(i => isToWrite(i) && !i.month && !isPublishedBlog(i)).length;
+            document.getElementById('count-monthprog').textContent= allIdeas.filter(i => isToWrite(i) && i.month && !isPublishedBlog(i)).length;
             document.getElementById('count-kwchange').textContent = allIdeas.filter(i => i.status === 'KEYWORD_CHANGE').length;
             document.getElementById('count-ignored').textContent  = allIdeas.filter(i => i.status === 'IGNORED').length;
         }
@@ -685,7 +685,7 @@
         function displayToWrite() {
             const container = document.getElementById('towrite-container');
             // Month-tagged blogs move to the "Month in progress" tab, so To Write shows only untagged ones.
-            const all = allIdeas.filter(i => ['TO_WRITE','TO_WRITE_PENDING','TO_WRITE_SENT'].includes(i.status) && !i.month);
+            const all = allIdeas.filter(i => ['TO_WRITE','TO_WRITE_PENDING','TO_WRITE_SENT'].includes(i.status) && !i.month && !isPublishedBlog(i));
             if (all.length === 0) {
                 container.innerHTML = `<div class="empty-state">No blogs marked for writing yet.</div>`;
                 updateBulkSendBar();
@@ -787,7 +787,7 @@
             const container = document.getElementById('monthprog-container');
             const filter = document.getElementById('mp-month-filter');
             if (!container) return;
-            const tagged = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && i.month);
+            const tagged = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && i.month && !isPublishedBlog(i));
             const months = [...new Set(tagged.map(i => i.month))].sort();
             if (filter) {
                 const cur = filter.value;
@@ -1791,7 +1791,7 @@
 
         // Make sure a saved/loaded state has all the maps we rely on.
         function normaliseProducts(s) {
-            return { awa: s.awa || [], needs: s.needs || [], collective: s.collective || [], extra: s.extra || [], selected: s.selected || {}, chosen: s.chosen || {}, keyword: s.keyword || '' };
+            return { awa: s.awa || [], needs: s.needs || [], collective: s.collective || [], prints: s.prints || [], extra: s.extra || [], selected: s.selected || {}, chosen: s.chosen || {}, keyword: s.keyword || '' };
         }
 
         function prodAll(index) {
