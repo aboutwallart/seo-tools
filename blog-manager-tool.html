@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.3.1 - 2026-07-28</p>
+        <p class="version">v6.4.0 - 2026-08-01</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1815,7 +1815,7 @@
 
         // Make sure a saved/loaded state has all the maps we rely on.
         function normaliseProducts(s) {
-            return { awa: s.awa || [], needs: s.needs || [], collective: s.collective || [], prints: s.prints || [], extra: s.extra || [], selected: s.selected || {}, chosen: s.chosen || {}, keyword: s.keyword || '', trendHandle: s.trendHandle || '' };
+            return { awa: s.awa || [], needs: s.needs || [], collective: s.collective || [], collectivePool: s.collectivePool || [], prints: s.prints || [], extra: s.extra || [], selected: s.selected || {}, chosen: s.chosen || {}, keyword: s.keyword || '', trendHandle: s.trendHandle || '' };
         }
 
         function prodAll(index) {
@@ -1842,13 +1842,16 @@
                 const data = await readJson(r);
                 if (!data.success) throw new Error(data.error || 'Could not find products');
                 const awa = data.awa || [], coll = data.collective || []; // coll is aligned to needs (may hold nulls)
+                const collectivePool = data.collectivePool || []; // every partner item in the collection, for the browse
                 if (!awa.length && !coll.filter(Boolean).length) throw new Error('No matching products found — add them by print-files SKU below.');
                 const selected = {}, chosen = {};
-                awa.slice(0, 3).forEach(p => { if (p) { selected[p.gid] = true; chosen[p.gid] = (p.images && p.images[0]) || ''; } });
-                coll.forEach(p => { if (p) { selected[p.gid] = true; chosen[p.gid] = (p.images && p.images[0]) || ''; } });
-                // default a chosen image for every product so Copy image always works
-                [...awa, ...coll].forEach(p => { if (p && !chosen[p.gid]) chosen[p.gid] = (p.images && p.images[0]) || ''; });
-                window._products[index] = { awa, needs, collective: coll, extra: [], selected, chosen, keyword };
+                // Prefill the guess as SUGGESTIONS ONLY — nothing is ticked until she confirms each one.
+                // Give every product a default chosen image so its preview + Copy image work straight away.
+                [...awa, ...coll, ...collectivePool].forEach(p => { if (p && !chosen[p.gid]) chosen[p.gid] = (p.images && p.images[0]) || ''; });
+                // Put one suggested print in each print spot (unticked).
+                const printTopics = topics.filter(t => guessType(t) === 'wall art / a print');
+                const prints = printTopics.map((_, i) => awa[i] || null);
+                window._products[index] = { awa, needs, collective: coll, collectivePool, prints, extra: [], selected, chosen, keyword };
                 renderProductPicker(index, true);
                 saveProductsState(index);
             } catch (e) {
@@ -1856,7 +1859,8 @@
             }
         }
 
-        // Pick a trend collection → refill the wall-art print spots from THAT collection (keeps Collective + extras).
+        // Pick a trend collection → refill EVERY spot (wall-art AND partner) from THAT collection,
+        // as suggestions (nothing ticked until she confirms). Her SKU-added extras are kept.
         async function setTrendCollection(index, handle) {
             const s = window._products[index]; if (!s || !handle) return;
             const idea = allIdeas.find(i => i.index === index);
@@ -1865,12 +1869,20 @@
                 const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'pick-products', keyword, title: idea ? idea.currentTitle : '', needs: s.needs || [], collectionHandle: handle }) });
                 const data = await readJson(r);
                 if (!data.success) throw new Error(data.error || 'Could not load that collection');
-                // clear the previous wall-art print selections (awa + spots); keep Collective + extras
-                (s.awa || []).forEach(p => { if (p && p.gid) delete s.selected[p.gid]; });
-                (s.prints || []).forEach(p => { if (p && p.gid) delete s.selected[p.gid]; });
-                const awa = data.awa || [];
-                s.awa = awa; s.trendHandle = handle; s.prints = null; // rebuilt from the new prints in renderProductPicker
-                awa.slice(0, 3).forEach(p => { if (p) { s.selected[p.gid] = true; s.chosen[p.gid] = (p.images && p.images[0]) || ''; } });
+                // Un-tick everything from the previous fill (prints + partner + browse pool); keep her SKU-added extras.
+                [...(s.awa || []), ...(s.prints || []), ...(s.collective || []), ...(s.collectivePool || [])].forEach(p => { if (p && p.gid) delete s.selected[p.gid]; });
+                const awa = data.awa || [], coll = data.collective || [], collectivePool = data.collectivePool || [];
+                // How many wall-art spots does this blog have?
+                const d = window._drafts[index] || (idea && window._draftsByTitle && window._draftsByTitle[(idea.currentTitle || '').toLowerCase()]);
+                const topics = d ? ((d.bodyHtml || '').match(/\[\[PRODUCT\|([^\]]*)\]\]/g) || []).map(m => m.slice(10, -2).trim()) : [];
+                const printTopics = topics.filter(t => guessType(t) === 'wall art / a print');
+                // Refill every spot from THIS collection (suggestions, unticked).
+                s.awa = awa;
+                s.collective = coll;                 // one option per partner spot, in order (may hold nulls)
+                s.collectivePool = collectivePool;   // the whole partner list, for the "choose from this collection" browse
+                s.prints = printTopics.map((_, i) => awa[i] || null);
+                s.trendHandle = handle;
+                [...awa, ...coll, ...collectivePool].forEach(p => { if (p && !s.chosen[p.gid]) s.chosen[p.gid] = (p.images && p.images[0]) || ''; });
                 renderProductPicker(index, true);
                 saveProductsState(index);
             } catch (e) { alert('Could not load that collection: ' + e.message); }
@@ -1916,12 +1928,15 @@
             const printTopics = topics.filter(t => guessType(t) === 'wall art / a print');
             let printBlocks;
             if (printTopics.length) {
-                if (!Array.isArray(s.prints)) s.prints = printTopics.map((_, i) => chosenPrints[i] || null);
+                if (!Array.isArray(s.prints) || s.prints.length !== printTopics.length) {
+                    const prev = Array.isArray(s.prints) ? s.prints : [];
+                    s.prints = printTopics.map((_, i) => prev[i] || chosenPrints[i] || null);
+                }
                 printBlocks = printTopics.map((topic, i) => {
                     const p = s.prints[i];
                     const label = `<div style="font-weight:700;font-size:13px;color:#c0561d;margin:14px 0 4px;">Print spot ${i + 1} <span style="color:#999;font-weight:500;">— ${escHtml(topic)}</span></div>`;
-                    const body = (p && s.selected[p.gid]) ? productRowHtml(index, p) : `<div style="color:#999;font-size:13px;margin-bottom:6px;">No print yet — use the box below to add one for this spot.</div>`;
-                    return label + body + prodSlotAddBar(index, 'p' + i, 'wall art / a print');
+                    const body = p ? productRowHtml(index, p) : `<div style="color:#999;font-size:13px;margin-bottom:6px;">No print yet — pick one from the collection below, or add by SKU.</div>`;
+                    return label + body + collectionBrowseHtml(index, 'p', i) + prodSlotAddBar(index, 'p' + i, 'wall art / a print');
                 }).join('');
             } else {
                 printBlocks = chosenPrints.length ? rows(chosenPrints) : '<div style="color:#999;font-size:13px;margin-bottom:8px;">No prints chosen — add one by SKU below.</div>';
@@ -1938,8 +1953,8 @@
                     const ty = nd.type || 'choose freely';
                     const p = collAligned[i];
                     const label = `<div style="font-weight:700;font-size:13px;color:#1565c0;margin:14px 0 4px;">Needed: ${escHtml(ty)} <span style="color:#999;font-weight:500;">— ${escHtml(nd.topic)}</span></div>`;
-                    const body = (p && s.selected[p.gid]) ? productRowHtml(index, p) : `<div style="color:#999;font-size:13px;margin-bottom:6px;">No option yet — use the box below to add one for this spot (${escHtml(ty)}).</div>`;
-                    return label + body + prodSlotAddBar(index, i, ty);
+                    const body = p ? productRowHtml(index, p) : `<div style="color:#999;font-size:13px;margin-bottom:6px;">No option yet — pick one from the collection below, or add by SKU (${escHtml(ty)}).</div>`;
+                    return label + body + collectionBrowseHtml(index, 'c', i) + prodSlotAddBar(index, i, ty);
                 }).join('');
             } else {
                 const cc = collAligned.filter(p => p && s.selected[p.gid]);
@@ -1960,7 +1975,7 @@
             const trendBar = `
                 <div style="background:#fff7ef;border:1px solid #f2d9c2;border-radius:8px;padding:10px 12px;margin:0 0 14px;">
                     <div style="font-weight:700;font-size:13px;color:#c0561d;margin-bottom:4px;">🎨 Trend collection for this blog</div>
-                    <div style="font-size:12px;color:#888;margin-bottom:6px;">Pick the trend — the wall-art spots fill from it. Change any spot below if you like.</div>
+                    <div style="font-size:12px;color:#888;margin-bottom:6px;">Pick the trend — every spot fills with suggestions from it. Tick the ones you want, or swap any below.</div>
                     <select onchange="setTrendCollection(${index}, this.value)" style="width:100%;max-width:440px;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;">${trendOpts}</select>
                 </div>`;
 
@@ -2096,6 +2111,54 @@
                 s.chosen[p.gid] = (p.images && p.images[0]) || '';
                 renderProductPicker(index, true); saveProductsState(index);
             } catch (e) { if (msg) { msg.style.color = '#a33'; msg.textContent = e.message; } }
+        }
+
+        // A closed "🎨 Choose from this collection ▾" strip under a spot — the collection's products she
+        // hasn't used yet, each shown WITH its picture. kind 'p' = wall-art spot, 'c' = partner spot.
+        function collectionBrowseHtml(index, kind, slot) {
+            const s = window._products[index]; if (!s) return '';
+            const pool = (kind === 'p') ? (s.awa || []) : (s.collectivePool || []);
+            if (!pool.length) return '';
+            const placed = new Set();
+            (s.prints || []).forEach(p => { if (p && p.gid) placed.add(p.gid); });
+            (s.collective || []).forEach(p => { if (p && p.gid) placed.add(p.gid); });
+            (s.extra || []).forEach(p => { if (p && p.gid) placed.add(p.gid); });
+            Object.keys(s.selected || {}).forEach(g => { if (s.selected[g]) placed.add(g); });
+            const avail = pool.filter(p => p && !placed.has(p.gid));
+            if (!avail.length) return '';
+            const cards = avail.map(p => {
+                const img = (p.images && p.images[0]) || '';
+                const thumb = img
+                    ? `<img src="${escAttr(img)}" style="height:120px;width:auto;border-radius:8px;border:1px solid #e4e4e7;background:#faf7f2;display:block;margin:0 auto;">`
+                    : '<div style="height:120px;width:120px;background:#f3f3f3;border-radius:8px;margin:0 auto;"></div>';
+                const sku = p.sku ? `<div style="font-family:monospace;font-size:11px;color:#555;margin-top:2px;">${escHtml(p.sku)}</div>` : '';
+                return `<div style="flex-shrink:0;width:150px;text-align:center;">
+                    ${thumb}
+                    <div style="font-size:11.5px;color:#333;margin-top:4px;line-height:1.25;height:30px;overflow:hidden;">${escHtml(p.title)}</div>
+                    ${sku}
+                    <button onclick="useCollectionPrint(${index},'${kind}',${slot},'${escAttr(p.gid)}')" style="margin-top:5px;background:#c0561d;color:#fff;border:none;border-radius:6px;padding:5px 12px;font-weight:700;font-size:12px;cursor:pointer;">Use here</button>
+                </div>`;
+            }).join('');
+            return `<details style="margin:0 0 10px;">
+                <summary style="cursor:pointer;font-size:12.5px;color:#c0561d;font-weight:700;padding:2px 0;">🎨 Choose from this collection (${avail.length}) ▾</summary>
+                <div style="display:flex;gap:12px;overflow-x:auto;padding:10px 2px 8px;">${cards}</div>
+            </details>`;
+        }
+
+        // "Use here" in the browse → drop that collection product into this spot and tick it (she chose it).
+        function useCollectionPrint(index, kind, slot, gid) {
+            const s = window._products[index]; if (!s) return;
+            const pool = (kind === 'p') ? (s.awa || []) : (s.collectivePool || []);
+            const p = pool.find(x => x && x.gid === gid);
+            if (!p) return;
+            const arr = (kind === 'p') ? (s.prints = s.prints || []) : (s.collective = s.collective || []);
+            const old = arr[slot];
+            if (old && old.gid && old.gid !== p.gid) delete s.selected[old.gid];
+            s.extra = (s.extra || []).filter(x => x.gid !== p.gid);
+            arr[slot] = p;
+            s.selected[p.gid] = true;
+            if (!s.chosen[p.gid]) s.chosen[p.gid] = (p.images && p.images[0]) || '';
+            renderProductPicker(index, true); saveProductsState(index);
         }
 
         // Copy the chosen image to the clipboard (via a small proxy so the browser can read it).
