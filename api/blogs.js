@@ -2815,7 +2815,7 @@ Return ONLY a JSON array, one object per title in order, exactly:
           const price = parseFloat((n.variants && n.variants.edges[0] && n.variants.edges[0].node.price) || '0') || 0;
           return { gid: n.id, title: n.title || '', vendor: n.vendor || '', handle: n.handle || '', productType: n.productType || '', price, url: n.onlineStoreUrl || ('https://aboutwallart.com/products/' + (n.handle || '')), sku: (n.sku && n.sku.value) || '', images };
         };
-        const PFIELDS = 'id title vendor handle productType onlineStoreUrl sku:metafield(namespace:"custom",key:"sku_for_print_files"){ value } variants(first:1){ edges{ node{ price } } } media(first:15){ edges{ node{ ... on MediaImage { image{ url } } } } }';
+        const PFIELDS = 'id title vendor handle productType status onlineStoreUrl sku:metafield(namespace:"custom",key:"sku_for_print_files"){ value } variants(first:1){ edges{ node{ price } } } media(first:15){ edges{ node{ ... on MediaImage { image{ url } } } } }';
         for (const handle of handles) {
           let data;
           try {
@@ -2828,6 +2828,7 @@ Return ONLY a JSON array, one object per title in order, exactly:
           if (!c || !c.products) continue;
           for (const e of c.products.edges) {
             const n = e.node;
+            if (n.status && n.status !== 'ACTIVE') continue; // only ACTIVE products may be picked
             if (seen.has(n.id)) continue;
             seen.add(n.id);
             const p = toProd(n);
@@ -2844,7 +2845,7 @@ Return ONLY a JSON array, one object per title in order, exactly:
               { handle: 'framed-wall-pictures-for-living-room' }
             );
             const fc = fb && fb.collectionByHandle;
-            const prints = (fc && fc.products ? fc.products.edges : []).map(e => e.node).filter(n => n.vendor === AWA_VENDOR);
+            const prints = (fc && fc.products ? fc.products.edges : []).map(e => e.node).filter(n => n.vendor === AWA_VENDOR && (!n.status || n.status === 'ACTIVE'));
             const matched = term ? prints.filter(n => (n.title || '').toLowerCase().includes(term)) : [];
             const use = (matched.length ? matched : prints).slice(0, 8);
             for (const n of use) { if (seen.has(n.id)) continue; seen.add(n.id); awa.push(toProd(n)); }
