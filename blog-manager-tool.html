@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.3.0 - 2026-07-28</p>
+        <p class="version">v6.3.1 - 2026-07-28</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -810,7 +810,7 @@
             const slotsLeft = target - already;                          // how many more the month needs beyond what's scheduled
             const remaining = Math.max(0, slotsLeft - list.length);      // still to plan
             const over = Math.max(0, (already + list.length) - target);  // planned too many
-            const statusTxt = over ? (over + ' over — trim ' + over + ' if you like') : (remaining ? (remaining + ' more to complete') : 'month is full ✅');
+            const statusTxt = over ? (over + ' over — use "✕ Remove from month" on ' + over + ' card' + (over === 1 ? '' : 's')) : (remaining ? (remaining + ' more to complete') : 'month is full ✅');
             const statusColor = (over || remaining) ? '#c0561d' : '#2e7d32';
             const banner = `<div style="background:#eef6ff;border:1px solid #d6e4ff;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:14px;color:#1a1a1a;">
                 <strong>${MONTH_NAMES[parts[1] - 1]} ${parts[0]}</strong> — aiming for a full month (${target}).
@@ -844,6 +844,19 @@
                 if (window._publishedTitles) window._publishedTitles.add(String(title).trim().toLowerCase());
                 refreshAll();
             } catch (e) { alert('Could not mark it done: ' + e.message); }
+        }
+
+        // TRIM: remove a blog from its month → back to To Write (for another month), lowering the month count.
+        // Use when the month is over target. Does NOT bring in a replacement.
+        async function removeFromMonth(index) {
+            const idea = allIdeas.find(i => i.index === index); if (!idea || !idea.month) return;
+            const title = idea.title || idea.currentTitle || '';
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-month', titles: [title], month: '' }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Could not remove it');
+                idea.month = '';
+                refreshAll();
+            } catch (e) { alert('Could not remove from month: ' + e.message); }
         }
 
         // Remove a blog from its month (it goes back to To Write for another month) and drop in the next best
@@ -1037,7 +1050,8 @@
                                 <button class="btn-mark marked" disabled>✓ To Write Blog</button>
                                 <button class="btn-undo" onclick="undoWriting(${index})">↩ Undo</button>
                                 ${monthTag}
-                                ${idea.month && !allDone ? `<button onclick="removeAndReplace(${index})" title="Remove from this month (it goes back to To Write) and drop in the next best topic" style="background:#fff;color:#b3261e;border:1.5px solid #b3261e;border-radius:6px;padding:7px 12px;font-weight:700;font-size:12.5px;cursor:pointer;">✕ Remove &amp; replace</button>` : ''}
+                                ${idea.month && !allDone ? `<button onclick="removeFromMonth(${index})" title="Remove from this month (goes back to To Write) — lowers the count. Use this to trim when the month is over." style="background:#fff;color:#b3261e;border:1.5px solid #b3261e;border-radius:6px;padding:7px 12px;font-weight:700;font-size:12.5px;cursor:pointer;">✕ Remove from month</button>` : ''}
+                                ${idea.month && !allDone ? `<button onclick="removeAndReplace(${index})" title="Swap this topic for the next best one — keeps the count the same" style="background:#fff;color:#1565c0;border:1.5px solid #1565c0;border-radius:6px;padding:7px 12px;font-weight:700;font-size:12.5px;cursor:pointer;">⇄ Replace</button>` : ''}
                                 <button onclick="markBlogDone(${index})" title="Mark this blog as done — it leaves the write list for good and is never offered again" style="background:#2e7d32;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:700;font-size:12.5px;cursor:pointer;">✅ Mark as done</button>
                             </div>
                             <button id="comp-btn-${index}" data-done="${hasBrief ? '1' : '0'}" onclick="stepClick(${index},'comp')" style="${stepStyle(hasBrief,'#6a1b9a')}"><span class="step-label">1 · 🔍 Competitor check${hasBrief ? ' ✓' : ''}</span><span class="step-caret">${hasBrief ? '▸' : ''}</span></button>
@@ -1648,6 +1662,12 @@
                 const d = window._drafts[index] || (window._draftsByTitle && window._draftsByTitle[(idea.currentTitle || '').toLowerCase()]);
                 if (d) { d.published = true; }
                 renderPublishReport(index, data);
+                // The blog is now scheduled on the store → move it out of "in progress" and into the scheduled count,
+                // WITHOUT wiping the report you're reading. Re-syncs the real counts from the blog list.
+                if (window._publishedTitles) window._publishedTitles.add(String(idea.currentTitle || '').trim().toLowerCase());
+                idea.status = 'PUBLISHED'; idea.month = '';
+                await loadPublishedTitles();
+                updateTabCounts(); updatePlanLock();
                 if (data.monthCleared && data.month) { setTimeout(() => alert('🎉 Every blog for ' + data.month + ' is now published — that month is cleared from “Month in progress”.'), 400); }
             } catch (e) {
                 clearInterval(creep);
