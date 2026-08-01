@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.4.1 - 2026-08-01</p>
+        <p class="version">v6.4.2 - 2026-08-01</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1865,6 +1865,11 @@
             const s = window._products[index]; if (!s || !handle) return;
             const idea = allIdeas.find(i => i.index === index);
             const keyword = s.keyword || (idea && (idea.keyword || idea.currentKeyword || idea.currentTitle)) || '';
+            // Name of the collection she picked, for the loading message.
+            const g = GALLERIES.find(x => x.url.split('?')[0].replace(/\/$/, '').split('/').pop() === handle);
+            const collName = g ? g.name : 'this collection';
+            const out = document.getElementById(`prod-${index}`);
+            if (out) out.innerHTML = stepBox('<div style="font-size:14px;color:#555;">⏳ Loading ' + escHtml(collName) + '… finding its products.</div>');
             try {
                 const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'pick-products', keyword, title: idea ? idea.currentTitle : '', needs: s.needs || [], collectionHandle: handle }) });
                 const data = await readJson(r);
@@ -1885,7 +1890,15 @@
                 [...awa, ...coll, ...collectivePool].forEach(p => { if (p && !s.chosen[p.gid]) s.chosen[p.gid] = (p.images && p.images[0]) || ''; });
                 renderProductPicker(index, true);
                 saveProductsState(index);
-            } catch (e) { alert('Could not load that collection: ' + e.message); }
+                // Nothing came back — tell her clearly instead of leaving empty spots.
+                if (!awa.length && !coll.length && !collectivePool.length) {
+                    const note = document.getElementById(`prod-${index}`);
+                    if (note) note.insertAdjacentHTML('afterbegin', '<div style="background:#fff4f4;border:1px solid #f3caca;color:#a33;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:13px;">Nothing found in “' + escHtml(collName) + '”. Try another collection above, or add products by SKU below.</div>');
+                }
+            } catch (e) {
+                if (out) renderProductPicker(index, true); // don't leave it stuck on "Loading…"
+                alert('Could not load ' + collName + ': ' + e.message);
+            }
         }
 
         // What TYPE a product spot is asking for (a plant, a chair, a lamp…) + the words we match products on.
@@ -1920,13 +1933,18 @@
             const topics = d ? ((d.bodyHtml || '').match(/\[\[PRODUCT\|([^\]]*)\]\]/g) || []).map(m => m.slice(10, -2).trim()) : [];
             const needs = s.needs || [];
             const collAligned = s.collective || [];              // one option per need, aligned in order (may hold nulls)
-            const chosenPrints = (s.awa || []).filter(p => p && s.selected[p.gid]);
+            // Anything already sitting in a spot (print or partner) is shown there — never also in "Added by you".
+            const spotGids = new Set([...(s.prints || []), ...collAligned].filter(Boolean).map(p => p.gid));
+            const extraGids = new Set((s.extra || []).map(p => p && p.gid).filter(Boolean));
+            // A print she ADDED (it lives in "extra") must not also be pulled back into a spot — that caused the double.
+            const chosenPrints = (s.awa || []).filter(p => p && s.selected[p.gid] && !extraGids.has(p.gid));
             // Products she added from the browse (or by SKU) — wall-art prints show in the wall-art part, the rest in the partner part.
-            const extraAwa = (s.extra || []).filter(p => s.selected[p.gid] && p.vendor === AWA_VENDOR);
-            const extraOther = (s.extra || []).filter(p => s.selected[p.gid] && p.vendor !== AWA_VENDOR);
+            const extraAwa = (s.extra || []).filter(p => s.selected[p.gid] && p.vendor === AWA_VENDOR && !spotGids.has(p.gid));
+            const extraOther = (s.extra || []).filter(p => s.selected[p.gid] && p.vendor !== AWA_VENDOR && !spotGids.has(p.gid));
             const extraAwaHtml = extraAwa.length ? `<div style="font-weight:700;font-size:13px;color:#2e7d32;margin:14px 0 4px;">Added by you</div>${rows(extraAwa)}` : '';
             const extraOtherHtml = extraOther.length ? `<div style="font-weight:700;font-size:13px;color:#2e7d32;margin:14px 0 4px;">Added by you</div>${rows(extraOther)}` : '';
-            const count = prodAll(index).filter(p => s.selected[p.gid]).length;
+            // Count by PRODUCT, so one print can never count as two.
+            const count = new Set(prodAll(index).filter(p => s.selected[p.gid]).map(p => p.gid)).size;
 
             // 🖼️ Wall art prints — one per print spot (same idea as the collective needs).
             const printTopics = topics.filter(t => guessType(t) === 'wall art / a print');
@@ -2119,9 +2137,10 @@
             } catch (e) { if (msg) { msg.style.color = '#a33'; msg.textContent = e.message; } }
         }
 
-        // A closed "🎨 Choose from this collection ▾" strip for a section — the collection's products she
-        // hasn't picked yet, each shown WITH its picture. kind 'p' = wall-art prints, 'c' = partner items.
-        // Tap "＋ Add" to add a product; you can add as MANY as you like (nothing gets replaced).
+        // A "🎨 Choose from this collection ▾" strip for a section — the collection's products she hasn't
+        // picked yet, each with a CHECKBOX and its picture. kind 'p' = wall-art prints, 'c' = partner items.
+        // Tick as many as you like, then press "➕ Add ticked" — they all get added at once and the strip
+        // stays open, so you never have to reopen it for each one.
         function collectionBrowseHtml(index, kind) {
             const s = window._products[index]; if (!s) return '';
             const pool = (kind === 'p') ? (s.awa || []) : (s.collectivePool || []);
@@ -2129,40 +2148,53 @@
             const taken = new Set();
             (s.prints || []).forEach(p => { if (p && p.gid) taken.add(p.gid); });        // a spot suggestion — already shown above
             (s.collective || []).forEach(p => { if (p && p.gid) taken.add(p.gid); });     // a spot suggestion — already shown above
-            (s.extra || []).forEach(p => { if (p && p.gid && s.selected[p.gid]) taken.add(p.gid); }); // already added by her
+            Object.keys(s.selected || {}).forEach(g => { if (s.selected[g]) taken.add(g); }); // already chosen — shown above
             const avail = pool.filter(p => p && !taken.has(p.gid));
             if (!avail.length) return '';
+            const cls = 'browsepick-' + index + '-' + kind;
+            const openKey = index + '-' + kind;
+            const isOpen = window._browseOpen && window._browseOpen[openKey];
             const cards = avail.map(p => {
                 const img = (p.images && p.images[0]) || '';
                 const thumb = img
                     ? `<img src="${escAttr(img)}" style="height:120px;width:auto;border-radius:8px;border:1px solid #e4e4e7;background:#faf7f2;display:block;margin:0 auto;">`
                     : '<div style="height:120px;width:120px;background:#f3f3f3;border-radius:8px;margin:0 auto;"></div>';
                 const sku = p.sku ? `<div style="font-family:monospace;font-size:11px;color:#555;margin-top:2px;">${escHtml(p.sku)}</div>` : '';
-                return `<div style="flex-shrink:0;width:150px;text-align:center;">
+                return `<label style="flex-shrink:0;width:150px;text-align:center;cursor:pointer;display:block;">
+                    <input type="checkbox" class="${cls}" value="${escAttr(p.gid)}" style="width:18px;height:18px;margin:0 0 6px;cursor:pointer;">
                     ${thumb}
                     <div style="font-size:11.5px;color:#333;margin-top:4px;line-height:1.25;height:30px;overflow:hidden;">${escHtml(p.title)}</div>
                     ${sku}
-                    <button onclick="addFromCollection(${index},'${kind}','${escAttr(p.gid)}')" style="margin-top:5px;background:#c0561d;color:#fff;border:none;border-radius:6px;padding:5px 12px;font-weight:700;font-size:12px;cursor:pointer;">＋ Add</button>
-                </div>`;
+                </label>`;
             }).join('');
-            return `<details style="margin:0 0 10px;">
+            return `<details ${isOpen ? 'open' : ''} ontoggle="browseToggle('${openKey}', this.open)" style="margin:0 0 10px;">
                 <summary style="cursor:pointer;font-size:12.5px;color:#c0561d;font-weight:700;padding:2px 0;">🎨 Choose from this collection (${avail.length}) ▾</summary>
-                <div style="font-size:11.5px;color:#999;margin:2px 0 0;">Add as many as you like — each one stays. To drop one, untick it above.</div>
-                <div style="display:flex;gap:12px;overflow-x:auto;padding:10px 2px 8px;">${cards}</div>
+                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:6px 0;">
+                    <button onclick="addTickedFromCollection(${index},'${kind}')" style="background:#c0561d;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-weight:800;font-size:13px;cursor:pointer;">➕ Add ticked</button>
+                    <span style="font-size:11.5px;color:#999;">Tick the ones you want, then press Add ticked. To drop one, untick it above.</span>
+                </div>
+                <div style="display:flex;gap:12px;overflow-x:auto;padding:6px 2px 8px;">${cards}</div>
             </details>`;
         }
 
-        // "＋ Add" in the browse → add that collection product to this blog (ticked). Adds as many as she wants;
-        // never replaces an earlier pick. To remove one she unticks it on its row.
-        function addFromCollection(index, kind, gid) {
+        // Remember whether a browse strip is open, so it stays open after the picker redraws.
+        function browseToggle(key, open) { window._browseOpen = window._browseOpen || {}; window._browseOpen[key] = !!open; }
+
+        // "➕ Add ticked" → add EVERY ticked product from this collection strip at once (all kept, none replaced).
+        function addTickedFromCollection(index, kind) {
             const s = window._products[index]; if (!s) return;
+            const boxes = document.querySelectorAll('.browsepick-' + index + '-' + kind + ':checked');
+            if (!boxes.length) return;
             const pool = (kind === 'p') ? (s.awa || []) : (s.collectivePool || []);
-            const p = pool.find(x => x && x.gid === gid);
-            if (!p) return;
             s.extra = s.extra || [];
-            if (!s.extra.find(x => x.gid === p.gid)) s.extra.push(p);
-            s.selected[p.gid] = true;
-            if (!s.chosen[p.gid]) s.chosen[p.gid] = (p.images && p.images[0]) || '';
+            boxes.forEach(b => {
+                const p = pool.find(x => x && x.gid === b.value);
+                if (!p) return;
+                if (!s.extra.find(x => x.gid === p.gid)) s.extra.push(p);
+                s.selected[p.gid] = true;
+                if (!s.chosen[p.gid]) s.chosen[p.gid] = (p.images && p.images[0]) || '';
+            });
+            window._browseOpen = window._browseOpen || {}; window._browseOpen[index + '-' + kind] = true; // keep it open after adding
             renderProductPicker(index, true); saveProductsState(index);
         }
 
