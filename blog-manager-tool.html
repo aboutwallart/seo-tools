@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.4.0 - 2026-08-01</p>
+        <p class="version">v6.4.1 - 2026-08-01</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1921,7 +1921,11 @@
             const needs = s.needs || [];
             const collAligned = s.collective || [];              // one option per need, aligned in order (may hold nulls)
             const chosenPrints = (s.awa || []).filter(p => p && s.selected[p.gid]);
-            const extraChosen = (s.extra || []).filter(p => s.selected[p.gid]);
+            // Products she added from the browse (or by SKU) — wall-art prints show in the wall-art part, the rest in the partner part.
+            const extraAwa = (s.extra || []).filter(p => s.selected[p.gid] && p.vendor === AWA_VENDOR);
+            const extraOther = (s.extra || []).filter(p => s.selected[p.gid] && p.vendor !== AWA_VENDOR);
+            const extraAwaHtml = extraAwa.length ? `<div style="font-weight:700;font-size:13px;color:#2e7d32;margin:14px 0 4px;">Added by you</div>${rows(extraAwa)}` : '';
+            const extraOtherHtml = extraOther.length ? `<div style="font-weight:700;font-size:13px;color:#2e7d32;margin:14px 0 4px;">Added by you</div>${rows(extraOther)}` : '';
             const count = prodAll(index).filter(p => s.selected[p.gid]).length;
 
             // 🖼️ Wall art prints — one per print spot (same idea as the collective needs).
@@ -1936,15 +1940,17 @@
                     const p = s.prints[i];
                     const label = `<div style="font-weight:700;font-size:13px;color:#c0561d;margin:14px 0 4px;">Print spot ${i + 1} <span style="color:#999;font-weight:500;">— ${escHtml(topic)}</span></div>`;
                     const body = p ? productRowHtml(index, p) : `<div style="color:#999;font-size:13px;margin-bottom:6px;">No print yet — pick one from the collection below, or add by SKU.</div>`;
-                    return label + body + collectionBrowseHtml(index, 'p', i) + prodSlotAddBar(index, 'p' + i, 'wall art / a print');
+                    return label + body + prodSlotAddBar(index, 'p' + i, 'wall art / a print');
                 }).join('');
             } else {
                 printBlocks = chosenPrints.length ? rows(chosenPrints) : '<div style="color:#999;font-size:13px;margin-bottom:8px;">No prints chosen — add one by SKU below.</div>';
             }
             const printsSection = `
                 <div style="font-weight:800;font-size:15px;color:#c0561d;margin:16px 0 6px;">🖼️ Wall art prints</div>
-                <div style="font-size:12px;color:#888;margin-bottom:8px;">One print per spot. Don't like one? Add a specific print by SKU under that spot.</div>
-                ${printBlocks}`;
+                <div style="font-size:12px;color:#888;margin-bottom:8px;">One print per spot. Add as many extra prints as you like from the collection below, or by SKU.</div>
+                ${printBlocks}
+                ${extraAwaHtml}
+                ${collectionBrowseHtml(index, 'p')}`;
 
             // 🪴 Collective — each NEED shown with its one matched option right beneath it (matched by type on the server).
             let collBlocks;
@@ -1954,17 +1960,17 @@
                     const p = collAligned[i];
                     const label = `<div style="font-weight:700;font-size:13px;color:#1565c0;margin:14px 0 4px;">Needed: ${escHtml(ty)} <span style="color:#999;font-weight:500;">— ${escHtml(nd.topic)}</span></div>`;
                     const body = p ? productRowHtml(index, p) : `<div style="color:#999;font-size:13px;margin-bottom:6px;">No option yet — pick one from the collection below, or add by SKU (${escHtml(ty)}).</div>`;
-                    return label + body + collectionBrowseHtml(index, 'c', i) + prodSlotAddBar(index, i, ty);
+                    return label + body + prodSlotAddBar(index, i, ty);
                 }).join('');
             } else {
                 const cc = collAligned.filter(p => p && s.selected[p.gid]);
                 collBlocks = cc.length ? rows(cc) : '<div style="color:#999;font-size:13px;">None chosen — add by SKU below.</div>';
             }
-            const extraHtml = extraChosen.length ? `<div style="font-weight:700;font-size:13px;color:#2e7d32;margin:14px 0 4px;">Added by you</div>${rows(extraChosen)}` : '';
             const collSection = `
                 <div style="font-weight:800;font-size:15px;color:#1565c0;margin:20px 0 4px;">🪴 Collective — partner items</div>
-                <div style="font-size:12px;color:#888;margin-bottom:2px;">Don't like one? The type is shown next to it — search that yourself by SKU below.</div>
-                ${collBlocks}${extraHtml}`;
+                <div style="font-size:12px;color:#888;margin-bottom:2px;">Add as many as you like from the collection below, or search by SKU.</div>
+                ${collBlocks}${extraOtherHtml}
+                ${collectionBrowseHtml(index, 'c')}`;
 
             // 🎨 Trend collection picker — choose the trend and the wall-art spots fill from that collection.
             const trendOpts = ['<option value="">— pick the trend collection for this blog —</option>']
@@ -2113,18 +2119,18 @@
             } catch (e) { if (msg) { msg.style.color = '#a33'; msg.textContent = e.message; } }
         }
 
-        // A closed "🎨 Choose from this collection ▾" strip under a spot — the collection's products she
-        // hasn't used yet, each shown WITH its picture. kind 'p' = wall-art spot, 'c' = partner spot.
-        function collectionBrowseHtml(index, kind, slot) {
+        // A closed "🎨 Choose from this collection ▾" strip for a section — the collection's products she
+        // hasn't picked yet, each shown WITH its picture. kind 'p' = wall-art prints, 'c' = partner items.
+        // Tap "＋ Add" to add a product; you can add as MANY as you like (nothing gets replaced).
+        function collectionBrowseHtml(index, kind) {
             const s = window._products[index]; if (!s) return '';
             const pool = (kind === 'p') ? (s.awa || []) : (s.collectivePool || []);
             if (!pool.length) return '';
-            const placed = new Set();
-            (s.prints || []).forEach(p => { if (p && p.gid) placed.add(p.gid); });
-            (s.collective || []).forEach(p => { if (p && p.gid) placed.add(p.gid); });
-            (s.extra || []).forEach(p => { if (p && p.gid) placed.add(p.gid); });
-            Object.keys(s.selected || {}).forEach(g => { if (s.selected[g]) placed.add(g); });
-            const avail = pool.filter(p => p && !placed.has(p.gid));
+            const taken = new Set();
+            (s.prints || []).forEach(p => { if (p && p.gid) taken.add(p.gid); });        // a spot suggestion — already shown above
+            (s.collective || []).forEach(p => { if (p && p.gid) taken.add(p.gid); });     // a spot suggestion — already shown above
+            (s.extra || []).forEach(p => { if (p && p.gid && s.selected[p.gid]) taken.add(p.gid); }); // already added by her
+            const avail = pool.filter(p => p && !taken.has(p.gid));
             if (!avail.length) return '';
             const cards = avail.map(p => {
                 const img = (p.images && p.images[0]) || '';
@@ -2136,26 +2142,25 @@
                     ${thumb}
                     <div style="font-size:11.5px;color:#333;margin-top:4px;line-height:1.25;height:30px;overflow:hidden;">${escHtml(p.title)}</div>
                     ${sku}
-                    <button onclick="useCollectionPrint(${index},'${kind}',${slot},'${escAttr(p.gid)}')" style="margin-top:5px;background:#c0561d;color:#fff;border:none;border-radius:6px;padding:5px 12px;font-weight:700;font-size:12px;cursor:pointer;">Use here</button>
+                    <button onclick="addFromCollection(${index},'${kind}','${escAttr(p.gid)}')" style="margin-top:5px;background:#c0561d;color:#fff;border:none;border-radius:6px;padding:5px 12px;font-weight:700;font-size:12px;cursor:pointer;">＋ Add</button>
                 </div>`;
             }).join('');
             return `<details style="margin:0 0 10px;">
                 <summary style="cursor:pointer;font-size:12.5px;color:#c0561d;font-weight:700;padding:2px 0;">🎨 Choose from this collection (${avail.length}) ▾</summary>
+                <div style="font-size:11.5px;color:#999;margin:2px 0 0;">Add as many as you like — each one stays. To drop one, untick it above.</div>
                 <div style="display:flex;gap:12px;overflow-x:auto;padding:10px 2px 8px;">${cards}</div>
             </details>`;
         }
 
-        // "Use here" in the browse → drop that collection product into this spot and tick it (she chose it).
-        function useCollectionPrint(index, kind, slot, gid) {
+        // "＋ Add" in the browse → add that collection product to this blog (ticked). Adds as many as she wants;
+        // never replaces an earlier pick. To remove one she unticks it on its row.
+        function addFromCollection(index, kind, gid) {
             const s = window._products[index]; if (!s) return;
             const pool = (kind === 'p') ? (s.awa || []) : (s.collectivePool || []);
             const p = pool.find(x => x && x.gid === gid);
             if (!p) return;
-            const arr = (kind === 'p') ? (s.prints = s.prints || []) : (s.collective = s.collective || []);
-            const old = arr[slot];
-            if (old && old.gid && old.gid !== p.gid) delete s.selected[old.gid];
-            s.extra = (s.extra || []).filter(x => x.gid !== p.gid);
-            arr[slot] = p;
+            s.extra = s.extra || [];
+            if (!s.extra.find(x => x.gid === p.gid)) s.extra.push(p);
             s.selected[p.gid] = true;
             if (!s.chosen[p.gid]) s.chosen[p.gid] = (p.images && p.images[0]) || '';
             renderProductPicker(index, true); saveProductsState(index);
