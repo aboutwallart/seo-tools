@@ -2877,6 +2877,32 @@ Return ONLY a JSON array, one object per title in order, exactly:
         return res.status(200).json({ success: true, awa: awa.slice(0, 40), collective: collectiveByNeed, collectivePool: coll.slice(0, 60) });
       }
 
+      // ── ACTION: search-wall-art ── (Pick freely: search the WHOLE About Wall Art print range by a word)
+      // Input: { term }. Output: { success, products:[{gid,title,vendor,handle,url,sku,images:[url]}] }
+      if (req.body.action === 'search-wall-art') {
+        const term = String(req.body.term || '').trim().replace(/["\\]/g, '');
+        const AWA_VENDOR = 'About Wall Art';
+        const PFIELDS = 'id title vendor handle productType status onlineStoreUrl sku:metafield(namespace:"custom",key:"sku_for_print_files"){ value } variants(first:1){ edges{ node{ price } } } media(first:15){ edges{ node{ ... on MediaImage { image{ url } } } } }';
+        const q = "status:active vendor:'About Wall Art'" + (term ? ' ' + term : '');
+        const out = [];
+        try {
+          const data = await shopifyGraphQL(
+            `query($q:String!){ products(first:40, query:$q){ edges{ node{ ${PFIELDS} } } } }`,
+            { q }
+          );
+          const edges = (data && data.products && data.products.edges) || [];
+          for (const e of edges) {
+            const n = e.node;
+            if (n.vendor !== AWA_VENDOR) continue;
+            if (n.status && n.status !== 'ACTIVE') continue;
+            const images = (n.media && n.media.edges ? n.media.edges : []).map(m => m.node && m.node.image && m.node.image.url).filter(Boolean);
+            const price = parseFloat((n.variants && n.variants.edges[0] && n.variants.edges[0].node.price) || '0') || 0;
+            out.push({ gid: n.id, title: n.title || '', vendor: n.vendor || '', handle: n.handle || '', productType: n.productType || '', price, url: n.onlineStoreUrl || ('https://aboutwallart.com/products/' + (n.handle || '')), sku: (n.sku && n.sku.value) || '', images });
+          }
+        } catch (e) { return res.status(200).json({ success: false, error: 'Search failed — try another word.' }); }
+        return res.status(200).json({ success: true, products: out });
+      }
+
       // ── ACTION: lookup-product ── (Add a product by its print-files SKU, or by product name)
       // Input: { sku }. Output: { success, product:{gid,title,vendor,handle,url,sku,images:[url]} }
       if (req.body.action === 'lookup-product') {
@@ -3776,7 +3802,7 @@ EXACT ORDER (follow precisely):
    d. Either an <h3> + a <ul> of practical bullets, OR a comparison <table>.
    e. In several sections (not all), a short personal anecdote paragraph (invented but realistic — a client, a room, a fix).
    f. A callout in EXACTLY this grey box (no border, no rounded corners): <div style="background:#ededed;padding:16px 20px;margin:24px 0;"><strong>Pro Tip:</strong> ...</div> or the same box with <strong>Real Example:</strong>.
-8. Product markers — place EXACTLY 6 markers total across the whole blog, in the 6 most product-relevant sections (NOT one in every section). Each on its own line: [[PRODUCT|the specific thing this section is about]]
+8. Product markers — place AT LEAST 7 markers total across the whole blog, in the most product-relevant sections (NOT one in every section). Each on its own line: [[PRODUCT|the specific thing this section is about]]. AT LEAST 4 of these MUST be WALL ART markers — word each of those with "wall art", "prints", "wall pictures" or "artwork" so it is clearly wall art (e.g. [[PRODUCT|coastal wall art prints for the living room]]). The other markers are for non-art decor items (a lamp, a rug, a plant, etc.).
 9. Visual-Inspiration section — an <h2> with an SEO-usable heading (about styles/looks, NOT just "Visual Inspiration"), a short intro line, then the marker [[TRENDS]] on its own line.
 10. More-About section — an <h2> with an SEO-usable heading (NOT just "More About"), a bold lead sentence, then the supporting paragraph. ${authorityLine}
 11. WATCH section. ${watchLine}
@@ -3787,7 +3813,7 @@ HARD RULES:
 - Do NOT write a "Key Takeaways" section.
 - The WATCH / video section is the LAST visual piece of the blog: do NOT place any image markers [[IMG|...]] or product markers [[PRODUCT|...]] in it or anywhere after it. Only the short closing text comes after the video.
 - EVERY H2 body section gets its own [[IMG|...]] marker (see IMAGE RULES). Include at least ONE <table>.
-- Place EXACTLY 6 [[PRODUCT|...]] markers total (3 will be About Wall Art products, 3 Collective — chosen later).
+- Place AT LEAST 7 [[PRODUCT|...]] markers total: AT LEAST 4 must be WALL ART (worded with "wall art"/"prints"/"artwork" so they are recognised as wall art), plus at least 3 for other decor items (Collective) — the actual products are chosen later.
 - Keep every paragraph to 2-4 sentences.
 - Use ONLY the exact links given above. Never invent a URL, product, price or fact (anecdotes are the only thing you may invent).
 - Output ONLY the blog body HTML (start at the first <p>). No <html>, <head>, <body>, no markdown fences, no commentary.
