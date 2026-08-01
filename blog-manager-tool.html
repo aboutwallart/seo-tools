@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.2.0 - 2026-07-28</p>
+        <p class="version">v6.3.0 - 2026-07-28</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -807,12 +807,16 @@
             const parts = sel.split('-').map(Number);
             const target = daysInMonth(parts[0], parts[1]);
             const already = (window._publishedMonthCount && window._publishedMonthCount[sel]) || 0;
-            const remaining = Math.max(0, target - already - list.length);
+            const slotsLeft = target - already;                          // how many more the month needs beyond what's scheduled
+            const remaining = Math.max(0, slotsLeft - list.length);      // still to plan
+            const over = Math.max(0, (already + list.length) - target);  // planned too many
+            const statusTxt = over ? (over + ' over — trim ' + over + ' if you like') : (remaining ? (remaining + ' more to complete') : 'month is full ✅');
+            const statusColor = (over || remaining) ? '#c0561d' : '#2e7d32';
             const banner = `<div style="background:#eef6ff;border:1px solid #d6e4ff;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:14px;color:#1a1a1a;">
                 <strong>${MONTH_NAMES[parts[1] - 1]} ${parts[0]}</strong> — aiming for a full month (${target}).
                 &nbsp;<span style="color:#2e7d32;font-weight:700;">${already} already scheduled</span>
                 &nbsp;·&nbsp;<span style="font-weight:700;">${list.length} in progress</span>
-                &nbsp;·&nbsp;<span style="color:${remaining ? '#c0561d' : '#2e7d32'};font-weight:700;">${remaining ? remaining + ' more to complete' : 'month is full ✅'}</span>
+                &nbsp;·&nbsp;<span style="color:${statusColor};font-weight:700;">${statusTxt}</span>
                 ${remaining ? `<button onclick="topUpMonth('${sel}',${remaining})" style="margin-left:10px;background:#1565c0;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-weight:700;font-size:13px;cursor:pointer;">➕ Top up (add ${remaining})</button>` : ''}
             </div>`;
             container.innerHTML = banner + list.map(idea => buildIdeaCard(idea, 'towrite')).join('');
@@ -1791,7 +1795,7 @@
 
         // Make sure a saved/loaded state has all the maps we rely on.
         function normaliseProducts(s) {
-            return { awa: s.awa || [], needs: s.needs || [], collective: s.collective || [], prints: s.prints || [], extra: s.extra || [], selected: s.selected || {}, chosen: s.chosen || {}, keyword: s.keyword || '' };
+            return { awa: s.awa || [], needs: s.needs || [], collective: s.collective || [], prints: s.prints || [], extra: s.extra || [], selected: s.selected || {}, chosen: s.chosen || {}, keyword: s.keyword || '', trendHandle: s.trendHandle || '' };
         }
 
         function prodAll(index) {
@@ -1830,6 +1834,26 @@
             } catch (e) {
                 if (out) out.innerHTML = stepBox('<span style="color:#a33;">❌ ' + escHtml(e.message) + '</span>' + prodAddBar(index));
             }
+        }
+
+        // Pick a trend collection → refill the wall-art print spots from THAT collection (keeps Collective + extras).
+        async function setTrendCollection(index, handle) {
+            const s = window._products[index]; if (!s || !handle) return;
+            const idea = allIdeas.find(i => i.index === index);
+            const keyword = s.keyword || (idea && (idea.keyword || idea.currentKeyword || idea.currentTitle)) || '';
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'pick-products', keyword, title: idea ? idea.currentTitle : '', needs: s.needs || [], collectionHandle: handle }) });
+                const data = await readJson(r);
+                if (!data.success) throw new Error(data.error || 'Could not load that collection');
+                // clear the previous wall-art print selections (awa + spots); keep Collective + extras
+                (s.awa || []).forEach(p => { if (p && p.gid) delete s.selected[p.gid]; });
+                (s.prints || []).forEach(p => { if (p && p.gid) delete s.selected[p.gid]; });
+                const awa = data.awa || [];
+                s.awa = awa; s.trendHandle = handle; s.prints = null; // rebuilt from the new prints in renderProductPicker
+                awa.slice(0, 3).forEach(p => { if (p) { s.selected[p.gid] = true; s.chosen[p.gid] = (p.images && p.images[0]) || ''; } });
+                renderProductPicker(index, true);
+                saveProductsState(index);
+            } catch (e) { alert('Could not load that collection: ' + e.message); }
         }
 
         // What TYPE a product spot is asking for (a plant, a chair, a lamp…) + the words we match products on.
@@ -1907,11 +1931,25 @@
                 <div style="font-size:12px;color:#888;margin-bottom:2px;">Don't like one? The type is shown next to it — search that yourself by SKU below.</div>
                 ${collBlocks}${extraHtml}`;
 
+            // 🎨 Trend collection picker — choose the trend and the wall-art spots fill from that collection.
+            const trendOpts = ['<option value="">— pick the trend collection for this blog —</option>']
+                .concat(GALLERIES.slice().sort((a, b) => a.name.localeCompare(b.name)).map(g => {
+                    const h = g.url.split('?')[0].replace(/\/$/, '').split('/').pop();
+                    return `<option value="${escAttr(h)}" ${s.trendHandle === h ? 'selected' : ''}>${escHtml(g.name)}</option>`;
+                })).join('');
+            const trendBar = `
+                <div style="background:#fff7ef;border:1px solid #f2d9c2;border-radius:8px;padding:10px 12px;margin:0 0 14px;">
+                    <div style="font-weight:700;font-size:13px;color:#c0561d;margin-bottom:4px;">🎨 Trend collection for this blog</div>
+                    <div style="font-size:12px;color:#888;margin-bottom:6px;">Pick the trend — the wall-art spots fill from it. Change any spot below if you like.</div>
+                    <select onchange="setTrendCollection(${index}, this.value)" style="width:100%;max-width:440px;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;">${trendOpts}</select>
+                </div>`;
+
             const html = `
                 <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:4px;">
                     <div style="font-size:13px;color:#555;"><strong>${count}</strong> chosen · click a picture to choose it; ✓ Chosen to keep or drop.</div>
                     <button onclick="regenProducts(${index})" style="${regenBtnStyle}">↻ Find again</button>
                 </div>
+                ${trendBar}
                 ${printsSection}
                 ${collSection}
                 <div style="font-weight:700;font-size:13px;color:#2e7d32;margin:16px 0 4px;">➕ Extra products (not tied to a spot)</div>
@@ -2562,7 +2600,9 @@
             const month = parseInt(document.getElementById('plan-month').value, 10);
             const year = parseInt(document.getElementById('plan-year').value, 10);
             const monthStr = `${year}-${String(month).padStart(2, '0')}`;
-            const count = daysInMonth(year, month);
+            // Only plan what the month still needs: full month minus what's already scheduled on the store.
+            const alreadySched = (window._publishedMonthCount && window._publishedMonthCount[monthStr]) || 0;
+            const count = Math.max(0, daysInMonth(year, month) - alreadySched);
             // Eligible = To Write, not already tagged to a DIFFERENT month.
             const pool = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && (!i.month || i.month === monthStr) && !isPublishedBlog(i));
             if (!pool.length) { alert('No available To Write blogs to plan.'); return; }
