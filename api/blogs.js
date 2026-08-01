@@ -2802,6 +2802,9 @@ Return ONLY a JSON array, one object per title in order, exactly:
             if (h && !handles.includes(h)) handles.push(h);
           }
         } catch (e) { /* fall back below */ }
+        // If she picked a trend collection for this blog, use it FIRST so its wall-art prints fill the spots.
+        const chosenColl = String(req.body.collectionHandle || '').trim();
+        if (chosenColl) handles = [chosenColl, ...handles.filter(h => h !== chosenColl)];
         if (!handles.length) handles = ['framed-wall-pictures-for-living-room'];
 
         const seen = new Set();
