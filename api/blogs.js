@@ -582,6 +582,46 @@ Return ONLY a JSON object, no commentary, exactly:
     return text.trim();
   }
 
+  // Same as callClaudeText but with ONE image (for reading a style photo). imageBase64 = the raw
+  // base64 (no "data:" prefix); mediaType = e.g. "image/jpeg" / "image/png" / "image/webp".
+  async function callClaudeVision(prompt, imageBase64, mediaType, maxTokens) {
+    const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+    if (!ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not configured');
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': ANTHROPIC_API_KEY,
+        'content-type': 'application/json',
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: maxTokens || 1500,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 } },
+            { type: 'text', text: prompt }
+          ]
+        }]
+      })
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      const low = (errText || '').toLowerCase();
+      const outOfCredits = response.status === 402 || response.status === 429 || low.includes('credit') || low.includes('billing') || low.includes('quota') || low.includes('insufficient');
+      throw new Error(outOfCredits
+        ? 'Claude is out of credits or rate-limited — top up your Anthropic account, then press again.'
+        : `Claude API error: ${response.status} ${errText.slice(0, 150)}`);
+    }
+    const data = await response.json();
+    let text = '';
+    if (data.content && Array.isArray(data.content)) {
+      text = data.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
+    }
+    return text.trim();
+  }
+
   // Column P — 3 "People Also Ask" Q&A pairs, plain text
   async function generatePeopleAlsoAsk(keyword, title) {
     const prompt = `You are a professional home decor expert writing in a calm, authoritative, and helpful tone.
@@ -2963,6 +3003,130 @@ Return ONLY a JSON array, one object per title in order, exactly:
         return res.status(200).json({ success: true });
       }
 
+      // ── ACTION: style-bible ── reads Mae's uploaded style photo + her short quiz and writes the rich
+      // STYLE BIBLE that leads every image prompt for this blog. Vision call. Nothing is saved server-side
+      // here — the tool keeps the bible on the draft and the photo in the browser.
+      // Input: { image (base64, no data: prefix), mediaType, quiz:{busy,arch,light,white,extra}, collectiveTitles:[], avoid:[] }
+      // Output: { success, bible }
+      if (req.body.action === 'style-bible') {
+        const imageB64 = String(req.body.image || '').replace(/^data:[^;]+;base64,/, '').trim();
+        const mediaType = String(req.body.mediaType || 'image/jpeg');
+        const quiz = (req.body.quiz && typeof req.body.quiz === 'object') ? req.body.quiz : {};
+        const collectiveTitles = Array.isArray(req.body.collectiveTitles) ? req.body.collectiveTitles.filter(Boolean) : [];
+        const avoid = Array.isArray(req.body.avoid) ? req.body.avoid.filter(Boolean) : [];
+        if (!imageB64) return res.status(400).json({ error: 'A style photo is required.' });
+
+        const pick = (v) => (v && String(v).trim() && !/^skip$/i.test(v)) ? String(v).trim() : '';
+        const overrideLines = [];
+        if (pick(quiz.busy))  overrideLines.push(`How busy the decor should be: ${pick(quiz.busy)}`);
+        if (pick(quiz.arch))  overrideLines.push(`Building / architecture style: ${pick(quiz.arch)}`);
+        if (pick(quiz.light)) overrideLines.push(`Lighting mood: ${pick(quiz.light)}`);
+        if (pick(quiz.white)) overrideLines.push(`Light colour / white balance: ${pick(quiz.white)}`);
+        if (pick(quiz.extra)) overrideLines.push(`Extra style notes from me: ${pick(quiz.extra)}`);
+        const overrides = overrideLines.length ? overrideLines.join('\n') : '(none — take everything from the photo)';
+        const avoidExtra = avoid.length ? avoid.join(', ') : '';
+
+        const biblePrompt = `You are an interior-design art director. Look at the attached room photo and write a STYLE BIBLE that will guide AI-generated lifestyle images for a home-decor blog. The bible describes the STYLE ONLY — it must apply to ANY room (bedroom, hallway, dining, nursery…), never just the room in the photo.
+
+Write it in EXACTLY this shape, each line starting with the label and a dash, plain text (no markdown, no ** **):
+
+Style name: <2-4 word name for this look>
+- Palette: <wall colours, wood tones, main and accent colours — be specific about warmth/coolness>
+- Furniture: <general direction + materials/finishes; do NOT lock to exact pieces — say "vary the actual pieces from image to image">
+- Lighting: <fixture styles + the light quality>
+- Plants: <the greenery direction, or "none" if the look has none>
+- Wall decor: <what goes on walls — shelves, mirrors, sconces, woven panels — and always include "NO framed prints as default (the shop's wall art is added separately as product photos)">
+- Ceramics/objects: <vases, vessels, decorative objects>
+- Textiles: <rugs, cushions, throws, linens and their textures>
+- Mood: <2-4 words of overall feeling>
+- White balance: <one plain sentence, e.g. "Neutral white balance — clean true whites, no yellow or warm cast">
+- No: <comma-separated avoid list: things that would break this style${avoidExtra ? `; ALWAYS include these personal dislikes: ${avoidExtra}` : ''}>
+
+RULES:
+- Describe the LOOK, not exact furniture pieces — being too specific makes every image rebuild the same room. Set palette + materials + finishes + a general furniture direction, and say to vary the actual pieces per image.
+- Room-agnostic: never tie it to the room in the photo; add "vary the pieces to suit each room".
+- Keep each line to one rich sentence or a tight comma list.
+
+MY QUIZ ANSWERS (these OVERRIDE the photo where given; where blank, read it from the photo):
+${overrides}
+
+After the bible lines, add these two blocks exactly:
+
+Quiz notes: ${overrideLines.length ? overrideLines.map(l => l.replace(/^.*?: /, '')).join(' · ') : 'none'}
+${collectiveTitles.length ? `Featured products on this blog:\n${collectiveTitles.map(t => '- ' + t).join('\n')}` : 'Featured products on this blog: (none listed)'}
+
+Output ONLY the bible text, nothing before or after.`;
+
+        try {
+          const bible = await callClaudeVision(biblePrompt, imageB64, mediaType, 1600);
+          if (!bible) return res.status(200).json({ success: false, error: 'Could not read the photo — try a clearer room photo.' });
+          return res.status(200).json({ success: true, bible });
+        } catch (e) {
+          return res.status(200).json({ success: false, error: e.message });
+        }
+      }
+
+      // ── ACTION: section-shows ── reads the finished blog body and returns, per H2 image, a short SHOW
+      // (what the image must illustrate — NO scene description) + a style flag, so the tool can wrap each
+      // with the style bible + people rules. The blog-writer is NOT touched; this only reads its output.
+      // Input: { title }  Output: { success, shows:[{filename, section, kind, ratio, show, flag}] }
+      if (req.body.action === 'section-shows') {
+        const ssT = String(req.body.title || '').trim();
+        if (!ssT) return res.status(400).json({ error: 'title required' });
+        // Prefer the blog body the tool just sent (it has any un-saved edits); fall back to the saved draft.
+        let draft = (req.body.draft && typeof req.body.draft === 'object' && req.body.draft.bodyHtml) ? req.body.draft : null;
+        if (!draft) {
+          let draftsMap = {};
+          try { const f = await getGitHubFile('data/blog-drafts.json'); draftsMap = JSON.parse(f.content || '{}'); } catch (e) { draftsMap = {}; }
+          draft = draftsMap[ssT.toLowerCase()] || null;
+        }
+        if (!draft || !draft.bodyHtml) return res.status(200).json({ success: false, error: 'Write and save the blog first.' });
+
+        // Pull each [[IMG|slug|ratio|kind|prompt]] with the H2 it sits under.
+        const body = String(draft.bodyHtml);
+        const re = /<h2[^>]*>([\s\S]*?)<\/h2>|\[\[IMG\|([^|]*)\|([^|]*)\|([^|]*)\|([\s\S]*?)\]\]/g;
+        let m, sec = ''; const markers = [];
+        while ((m = re.exec(body)) !== null) {
+          if (m[1] !== undefined) sec = m[1].replace(/<[^>]+>/g, '').trim();
+          else markers.push({ filename: (m[2] || '').trim(), ratio: (m[3] || '').trim() || '3:2', kind: (m[4] || '').trim() || 'photo', section: sec, prompt: (m[5] || '').trim() });
+        }
+        if (!markers.length) return res.status(200).json({ success: true, shows: [] });
+
+        const listTxt = markers.map((im, i) => `${i + 1}. SECTION: "${im.section}" [${im.kind}] — original note: ${im.prompt.replace(/\s+/g, ' ').slice(0, 300)}`).join('\n');
+        const showPrompt = `You are planning images for a home-decor blog on aboutwallart.com. For each numbered section below, write a short SHOW line — ONE or TWO sentences describing WHAT the image must illustrate to prove that section's point (the action / subject / what the reader should understand). Do NOT describe the room, colours, furniture, or styling — a separate style bible handles all of that. Just say what to SHOW.
+
+Also set a FLAG for each, deciding how the style bible applies:
+- FOLLOW  → a normal styled room photo (default for almost everything).
+- BREAK   → the image must deliberately show a decorating MISTAKE or a plain/contrasting look that goes AGAINST the style (only when the section is literally about what NOT to do).
+- USE:<style name>  → the section is about a SPECIFIC different named interior style (e.g. a "styles you can try" section with Coastal / Industrial / Japandi): put that style's name here so the image uses that style instead of the bible.
+- WALLART  → the section's main subject IS wall art / prints / artwork: the image should be built around a specific piece of the shop's wall art.
+- INFOGRAPHIC → keep for genuine comparisons/steps/stats only (white background, black text, no people).
+
+Sections:
+${listTxt}
+
+Return ONLY a JSON array, one object per section IN ORDER, each: {"show":"...","flag":"FOLLOW|BREAK|USE:<style>|WALLART|INFOGRAPHIC"}. Nothing else.`;
+
+        try {
+          const raw = await callClaudeText(showPrompt, 2000);
+          const jsonStr = (raw.match(/\[[\s\S]*\]/) || [raw])[0];
+          let arr = [];
+          try { arr = JSON.parse(jsonStr); } catch (e) { arr = []; }
+          const shows = markers.map((im, i) => {
+            const a = arr[i] || {};
+            let flag = String(a.flag || '').trim() || (im.kind === 'infographic' ? 'INFOGRAPHIC' : 'FOLLOW');
+            // never override a genuine infographic marker back to a photo
+            if (im.kind === 'infographic' && !/^INFOGRAPHIC/i.test(flag)) flag = 'INFOGRAPHIC';
+            return { filename: im.filename, section: im.section, kind: im.kind, ratio: im.ratio, show: String(a.show || im.section || '').trim(), flag };
+          });
+          return res.status(200).json({ success: true, shows });
+        } catch (e) {
+          // Fallback: no AI — hand back the sections with their own notes as the SHOW so the tool still works.
+          const shows = markers.map(im => ({ filename: im.filename, section: im.section, kind: im.kind, ratio: im.ratio, show: im.section, flag: im.kind === 'infographic' ? 'INFOGRAPHIC' : 'FOLLOW' }));
+          return res.status(200).json({ success: true, shows });
+        }
+      }
+
       // ── ACTION: finish-blog ── (Batch B: fetch the saved images from Shopify Files, drop the scene photos + the 6
       // product blocks into the blog body, and save the finished body so the Publish step can use it.)
       // Input: { title, keyword }. Output: { success, report:[{ok,label,fix}], finishedBody, featuredUrl }.
@@ -2977,6 +3141,10 @@ Return ONLY a JSON array, one object per title in order, exactly:
         try { const f = await getGitHubFile('data/blog-drafts.json'); draftsMap = JSON.parse(f.content || '{}'); draftsSha = f.sha; } catch (e) { draftsMap = {}; }
         const draft = draftsMap[fbT.toLowerCase()];
         if (!draft || !draft.bodyHtml) return res.status(200).json({ success: false, error: 'No written blog found for "' + fbT + '". Write the blog first (step 2).' });
+        // Unique per-blog tag so a reused image name never grabs an OLD blog's image. Empty for older blogs
+        // (their images were saved with plain names), so those keep working exactly as before.
+        const blogCode = String(draft.blogCode || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        const codeSuf = blogCode ? '-' + blogCode : '';
         let prodMap = {};
         try { const f = await getGitHubFile('data/blog-products.json'); prodMap = JSON.parse(f.content || '{}'); } catch (e) { prodMap = {}; }
         const prods = prodMap[fbT.toLowerCase()] || { awa: [], needs: [], collective: [], extra: [], selected: {}, chosen: {} };
@@ -3031,7 +3199,7 @@ Return ONLY a JSON array, one object per title in order, exactly:
           const isAwa = (p.vendor === 'About Wall Art');
           let imgUrl = '';
           if (isAwa) {
-            const name = slugSku(p) + '-lifestyle';
+            const name = slugSku(p) + codeSuf + '-lifestyle';
             imgUrl = await findImage(name, false);
             if (!imgUrl) return { ok: false, label: 'Wall art photo not found: ' + name, fix: 'Make the lifestyle photo for "' + p.title + '" and save it in Shopify named "' + name + '", then press again.' };
           } else {
@@ -3074,8 +3242,8 @@ Return ONLY a JSON array, one object per title in order, exactly:
         const featuredBase = draft.featuredBase || '';
         let featuredUrl = '';
         if (featuredBase) {
-          featuredUrl = await findImage(featuredBase + '-featured', true);
-          if (!featuredUrl) report.push({ ok: false, label: 'Featured image not found', fix: 'Save your favourite featured photo in Shopify with a name starting "' + featuredBase + '-featured-option", then press again.' });
+          featuredUrl = await findImage(featuredBase + codeSuf + '-featured', true);
+          if (!featuredUrl) report.push({ ok: false, label: 'Featured image not found', fix: 'Save your favourite featured photo in Shopify with a name starting "' + featuredBase + codeSuf + '-featured-option", then press again.' });
         } else {
           report.push({ ok: false, label: 'This blog has no featured name yet', fix: 'Re-write the blog (step 2) so it has a featured name, then press again.' });
         }
@@ -3133,12 +3301,13 @@ Return ONLY a JSON object mapping each id to its alt line, and nothing else.`;
         let sceneOk = 0;
         for (const im of sceneMarkers) {
           const alt = altMap['scene:' + im.filename] || readableAlt(im.filename);
-          const url = await findImage(im.filename, false);
+          const lookup = im.filename + codeSuf;
+          const url = await findImage(lookup, false);
           if (url) {
             body = body.split(im.full).join('<div style="text-align: center; margin: 20px 0;"><img style="max-width: 1024px; width: 100%; height: auto;" alt="' + escF(alt) + '" src="' + escF(url) + '"></div>');
             sceneOk++;
           } else {
-            report.push({ ok: false, label: 'Photo not saved yet: ' + im.filename, fix: 'Save that image in Shopify with the exact name "' + im.filename + '", then press again.' });
+            report.push({ ok: false, label: 'Photo not saved yet: ' + lookup, fix: 'Save that image in Shopify with the exact name "' + lookup + '", then press again.' });
           }
         }
         if (sceneOk) report.push({ ok: true, label: sceneOk + ' scene photo' + (sceneOk === 1 ? '' : 's') + ' placed with alt text' });
