@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.6.0 - 2026-08-02</p>
+        <p class="version">v6.7.1 - 2026-08-02</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -866,14 +866,27 @@
             const idea = allIdeas.find(i => i.index === index); if (!idea) return;
             const month = idea.month; if (!month) return;
             const myTitle = idea.title || idea.currentTitle || '';
+            // Remember every blog already tried/rejected for THIS month this session, so Replace never re-offers
+            // the same ones (this is what caused the 2-blog loop). The blog leaving now is one of them.
+            window._replaceTried = window._replaceTried || {};
+            const tried = window._replaceTried[month] || (window._replaceTried[month] = new Set());
+            tried.add(myTitle.toLowerCase());
+            const isTried = (i) => tried.has(((i.title || i.currentTitle || '')).toLowerCase());
             // themes already in this month (minus the one leaving), to keep variety when choosing the replacement
             const monthBlogs = allIdeas.filter(i => i.month === month && i.index !== index && (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING'));
             const bcount = {}; monthBlogs.forEach(i => { const b = bucketOf(i.currentTitle || i.title); bcount[b] = (bcount[b] || 0) + 1; });
-            const pool = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !i.month && i.index !== index && !isPublishedBlog(i));
+            const spare = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && !i.month && i.index !== index && !isPublishedBlog(i));
+            const pool = spare.filter(i => !isTried(i)); // fresh options only — nothing already rejected this session
             const ordered = diversityOrder(pool);
             const repl = ordered.find(i => (bcount[bucketOf(i.currentTitle || i.title)] || 0) < 3) || ordered[0] || null;
-            // Never shrink the month: if there's nothing to swap in, leave it exactly as it is.
-            if (!repl) { alert('No more spare blog ideas to swap in — so nothing was removed and the month stays complete. Add more ideas first, then try again.'); return; }
+            // Never shrink the month: if there's nothing fresh to swap in, leave it exactly as it is.
+            if (!repl) {
+                tried.delete(myTitle.toLowerCase()); // undo — we're not removing this blog after all
+                const msg = spare.length
+                    ? 'You have already gone through all the other spare blog ideas for this month — there are no new ones left to offer. (Reload the page to start fresh, or add more ideas.)'
+                    : 'No more spare blog ideas to swap in — so nothing was removed and the month stays complete. Add more ideas first, then try again.';
+                alert(msg); return;
+            }
             const rt = repl.title || repl.currentTitle || '';
             try {
                 const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'swap-month-blog', month, removeTitle: myTitle, addTitle: rt }) }).then(x => x.json());
@@ -1514,6 +1527,10 @@
         // (wall-art products → featured → section images). Everything lives in this one place.
         // ============================================
         const STYLE_ALWAYS_AVOID = ['high-gloss or shiny lacquered furniture'];
+        // L5 — goes in EVERY prompt box so Shopify stops ignoring the names/alt text.
+        const SACRED_LINE = 'The filename and alt text in the prompt are sacred. I copy them character-for-character, every time, on every image, including regenerations. I never modify, shorten, suffix or alter them for any reason.';
+        // L4 — goes in the featured + section prompts so images come back richly styled, not bland.
+        const EDITORIAL_LINE = 'Editorial means richly styled, layered, magazine-quality — every surface dressed, every corner considered.';
         const EXTENSION_PREAMBLE = 'This is an IMAGE EXTENSION task — NOT a room redesign. I will paste the product photo. Preserve every element of the pasted photo EXACTLY (wall colour, furniture, lighting, decor and the framed artwork). Your only jobs: (1) extend the scene naturally to fill a 3:2 frame by continuing the EXISTING walls, floor and furnishings — never add blank bars or empty space, and do NOT invent a different room; (2) add people as specified. Do NOT restyle or replace any part of the room. Do NOT apply the style bible here — it does not apply to these wall-art photos.';
 
         // Make (once) a short unique tag for this blog so a reused image name never grabs an old blog's image.
@@ -1613,6 +1630,23 @@
             });
             return out;
         }
+        // L2 — the "Featured products on this blog" list, built LIVE from the current picks so it's never stale.
+        function liveProductBlock(index) {
+            const titles = collectiveTitlesFor(index);
+            if (!titles.length) return '';
+            return 'Featured products on this blog:\n' + titles.map(t => '- ' + t).join('\n');
+        }
+        // Remove any "Featured products on this blog" list the AI put in the bible — the tool keeps that list live instead.
+        function stripProductList(text) {
+            return String(text || '').replace(/\n*Featured products on this blog:[\s\S]*$/i, '').trim();
+        }
+        // The full style bible to copy/paste = the style text + the LIVE product list.
+        function fullBibleText(index) {
+            const d = window._drafts[index];
+            const base = stripProductList(d.styleBible || '');
+            const prod = liveProductBlock(index);
+            return prod ? (base + '\n\n' + prod) : base;
+        }
         function styleBibleUI(index) {
             const d = window._drafts[index];
             const st = window._imgp[index] || {};
@@ -1625,10 +1659,12 @@
                     <div style="font-weight:800;font-size:15px;color:#00695c;margin-bottom:4px;">🎨 Style bible</div>
                     <div style="font-size:12px;color:#666;margin-bottom:6px;">This leads every photo prompt below. Edit it if you like — it saves on its own.</div>
                     ${thumb}${dlBtn}
-                    <textarea id="bible-${index}" oninput="onBibleEdit(${index})" style="width:100%;height:230px;font-family:monospace;font-size:12px;padding:8px;border:1px solid #bcdad4;border-radius:6px;box-sizing:border-box;">${escHtml(d.styleBible)}</textarea>
+                    <textarea id="bible-${index}" oninput="onBibleEdit(${index})" style="width:100%;height:230px;font-family:monospace;font-size:12px;padding:8px;border:1px solid #bcdad4;border-radius:6px;box-sizing:border-box;">${escHtml(stripProductList(d.styleBible))}</textarea>
+                    ${liveProductBlock(index) ? `<div style="margin-top:8px;"><div style="font-size:12px;font-weight:700;color:#00695c;margin-bottom:3px;">Featured products on this blog (added automatically — always current)</div><textarea readonly style="width:100%;height:70px;font-family:monospace;font-size:12px;padding:8px;border:1px solid #bcdad4;border-radius:6px;box-sizing:border-box;background:#fbfefd;">${escHtml(liveProductBlock(index))}</textarea></div>` : `<div style="font-size:12px;color:#999;margin-top:6px;">No Collective products picked yet — the “Featured products on this blog” list will appear here once you pick some.</div>`}
                     <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+                        <button onclick="copyBible(${index},this)" style="background:#00796b;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">📋 Copy style bible</button>
                         <button onclick="toggleStyleQuiz(${index})" style="${regenBtnStyle}">✏️ Change photo / quiz</button>
-                        <button onclick="generateStyleBible(${index})" style="background:#00796b;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">↻ Rewrite bible</button>
+                        <button onclick="generateStyleBible(${index})" style="${regenBtnStyle}">↻ Rewrite bible</button>
                     </div>
                     <div id="stylequiz-${index}" style="display:none;margin-top:12px;">${drop}${styleQuizUI(index)}</div>
                     <div id="biblestatus-${index}" style="font-size:12px;margin-top:8px;color:#00695c;"></div>
@@ -1643,6 +1679,7 @@
                 <div id="biblestatus-${index}" style="font-size:12px;margin-top:8px;color:#00695c;"></div>
             </div>`;
         }
+        function copyBible(index, btn) { navigator.clipboard.writeText(fullBibleText(index)); const o = btn.textContent; btn.textContent = '✅ Copied'; setTimeout(() => btn.textContent = o, 1500); }
         function toggleStyleQuiz(index) { const el = document.getElementById(`stylequiz-${index}`); if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none'; }
         function onBibleEdit(index) { const ta = document.getElementById(`bible-${index}`); const d = window._drafts[index]; if (ta && d) { d.styleBible = ta.value; clearTimeout(window._bibleSaveT); window._bibleSaveT = setTimeout(() => persistDraft(index, d), 900); } }
         function fileStylePhoto(input, index) { const f = input.files && input.files[0]; if (f) loadStylePhoto(f, index); }
@@ -1679,7 +1716,7 @@
                 const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'style-bible', image: b64, mediaType: st.mediaType || 'image/jpeg', quiz, collectiveTitles, avoid: STYLE_ALWAYS_AVOID }) });
                 const data = await readJson(r);
                 if (!data.success) throw new Error(data.error || 'Could not build the style bible');
-                d.styleBible = data.bible; persistDraft(index, d); renderImgpPanel(index);
+                d.styleBible = stripProductList(data.bible); persistDraft(index, d); renderImgpPanel(index);
             } catch (e) { if (status) { status.style.color = '#a33'; status.textContent = '❌ ' + e.message; } }
         }
 
@@ -1727,7 +1764,7 @@
             }
             if (!awaSel.length) return `<div style="border-top:1px solid #eee;padding-top:12px;margin-top:12px;"><div style="font-weight:800;font-size:14px;">1 · 🖼️ Wall-art product photos</div><div style="font-size:12px;color:#999;margin-top:4px;">Pick your wall-art products in “Pick products” first — then their prompts appear here.</div></div>`;
             const person = personRulesText(kw);
-            const header = `SHOPIFY AI — WALL-ART LIFESTYLE PHOTOS. Do each numbered line as its own image, size 3:2. For each one I will paste the product's own photo.`;
+            const header = `SHOPIFY AI — WALL-ART LIFESTYLE PHOTOS. Do each numbered line as its own image, size 3:2. For each one I will paste the product's own photo.\n${SACRED_LINE}`;
             const lines = awaSel.map((p, i) => {
                 const base = String(p.sku || p.handle || ('product' + (i + 1))).toLowerCase().replace(/[^a-z0-9\-]/g, '-').replace(/-+/g, '-');
                 const alt = `${kw ? kw + ' — ' : ''}${p.title} styled in a room`;
@@ -1748,7 +1785,7 @@
                 : 'Do NOT put framed prints on the walls (other wall decor is welcome).';
             const person = personRulesText(kw);
             const alt = `${kw ? kw + ' — ' : ''}${title}`.trim();
-            const header = `SHOPIFY AI — FEATURED IMAGE. Blog: "${title}". Make 3 options, each a square 1:1 image, each a genuinely DIFFERENT space/situation so I can pick one.\nEach option's #1 job is to ILLUSTRATE THE BLOG'S TOPIC (not just show a nice room). ${artLine}\nLighting: bright, neutral white balance, no yellow cast. ${person}`;
+            const header = `SHOPIFY AI — FEATURED IMAGE. Blog: "${title}". Make 3 options, each a square 1:1 image, each a genuinely DIFFERENT space/situation so I can pick one.\nEach option's #1 job is to ILLUSTRATE THE BLOG'S TOPIC (not just show a nice room). ${artLine}\nLighting: bright, neutral white balance, no yellow cast. ${EDITORIAL_LINE} ${person}\n${SACRED_LINE}`;
             const lines = [1, 2, 3].map(i =>
                 `0${i}. [1:1] FEATURED option ${i} — SHOW: illustrate the topic of "${title}" in a different space/situation from the other options (e.g. a person browsing, comparing, arranging or enjoying, as the topic suggests). SAVE this image named "${base}-${code}-featured-option${i}". Set the ALT TEXT to: "${alt}" — use this as the image's alt text, do NOT use the file name as the alt.`
             );
@@ -1771,7 +1808,8 @@
             const code = d.blogCode; const kw = kwFor(index);
             const bible = (d.styleBible || '').trim();
             const person = personRulesText(kw);
-            const header = `SHOPIFY AI — SECTION IMAGES. Do each numbered line as its own image, size 3:2. Save each EXACTLY as the name in quotes, and set the ALT TEXT given (do NOT use the file name as the alt).\n\nSTYLE BIBLE — every PHOTO below must follow this look (infographics are the only exception):\n${bible}\n\n${person}\n\nEach line has a FLAG telling you how the style bible applies. Follow it.`;
+            const header = `SHOPIFY AI — SECTION IMAGES. Do each numbered line as its own image, size 3:2. Save each EXACTLY as the name in quotes, and set the ALT TEXT given (do NOT use the file name as the alt).\n${SACRED_LINE}\n\nSTYLE BIBLE — every PHOTO below must follow this look (infographics are the only exception):\n${bible}\n\n${person}\n\n${EDITORIAL_LINE}\n\nEach line has a FLAG telling you how the style bible applies. Follow it.`;
+            let infoCount = 0; // L6 — only the FIRST infographic is plain vector/text; the rest are photo-based.
             const lines = shows.map((im, k) => {
                 const n = String(k + 1).padStart(2, '0');
                 const nm = `${im.filename}-${code}`;
@@ -1779,7 +1817,12 @@
                 const flag = String(im.flag || 'FOLLOW');
                 let flagText;
                 if (/^INFOGRAPHIC/i.test(flag) || im.kind === 'infographic') {
-                    flagText = 'INFOGRAPHIC — ignore the style bible and the people rules. Plain WHITE background, all text solid BLACK, no people. A short centred title, then a clear simple visual (labelled comparison / steps / icons), lots of white space.';
+                    infoCount++;
+                    if (infoCount === 1) {
+                        flagText = 'INFOGRAPHIC (vector) — ignore the style bible and the people rules. Plain WHITE background, all text solid BLACK, no people. A short centred title, then a clear simple visual (labelled comparison / steps / icons), lots of white space.';
+                    } else {
+                        flagText = 'INFOGRAPHIC (photo-based) — build this from REAL PHOTOS, not a plain white vector diagram. Follow the style bible for the room and objects, then overlay a few short, clear text labels (e.g. labelled photos side by side, or one photo with call-out labels). ' + EDITORIAL_LINE;
+                    }
                 } else if (/^WALLART/i.test(flag)) {
                     flagText = 'WALL ART SECTION — follow the style bible. Request from the seller which wall art product image to use in this image, and build the scene around that art. ' + person;
                 } else if (/^BREAK/i.test(flag)) {
