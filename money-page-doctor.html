@@ -5123,6 +5123,7 @@
                 const optimisedUrls = new Set();  // normalized URLs already OPTIMIZED (M1 belt — URL match)
                 const removedUrls = new Set();    // normalized URLs marked REMOVED (Removed tab)
                 const optimisedDateIndex = headers.indexOf('OPTIMIZED DATE');
+                const sourceIndex = headers.indexOf('Source'); // to skip Blog-Manager "Blog published" rows
 
                 // First pass: collect OPTIMIZED keywords + OPTIMIZED/REMOVED URLs so nothing leaks back
                 for (let i = headerLineIndex + 1; i < lines.length; i++) {
@@ -5156,6 +5157,10 @@
                         const locked = cols[lockedIndex]?.trim().toUpperCase();
                         const status = cols[statusIndex]?.trim().toUpperCase();
                         const action = cols[actionIndex]?.trim().toUpperCase();
+                        const rowSource = sourceIndex >= 0 ? (cols[sourceIndex]?.trim() || '') : '';
+                        // Blogs published by the Blog Manager are logged as OPTIMIZED only to lock the
+                        // keyword — they are NOT money-page optimisations. Never show them in this tool.
+                        if (/blog published/i.test(rowSource)) continue;
                         
                         // Load TO_OPTIMIZE pages for My Pages tab
                         if (locked === 'LOCKED' && status === 'DONE' && action === 'TO_OPTIMIZE') {
