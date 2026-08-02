@@ -1,4 +1,7 @@
-// blogs.js — v4.0
+// blogs.js — v4.1
+// v4.1 (Aug 2, 2026): Money Page Doctor Removed tab — mark-removed (bulk) sets registry rows to
+//                     action REMOVED (page shows ONLY in the Removed tab, never back in Start Here/
+//                     Optimized/Winners); restore-removed sends a page back to TO_OPTIMIZE.
 // v4.0 (June 30, 2026): Money Page Doctor Winner-Hold — get-mpd-hold / save-mpd-hold actions
 //                       (data/mpd-hold.json, array of URLs flagged "winner — don't optimise yet").
 // v3.0: Blog Manager Batch 1 — send-to-sheet now auto-generates content sources (colG–colK):
@@ -1752,6 +1755,63 @@ Include EXACTLY 3 items.`;
         }
         if (!found) return res.status(404).json({ error: 'Page not found in registry' });
         await updateGitHubFile('data/keyword-locker-registry.csv', updatedLines.join('\n') + '\n', registry.sha, `Unmark optimized: ${keyword}`);
+        return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: mark-removed ── (Money Page Doctor — move page(s) to the Removed tab; bulk)
+      // Sets the registry row action to REMOVED so the page shows ONLY in the Removed tab and never
+      // returns to Start Here / Optimized / Winners. Accepts a single {keyword,url} OR {pages:[...]}.
+      if (req.body.action === 'mark-removed') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        let pages = Array.isArray(req.body.pages) ? req.body.pages : [];
+        if (!pages.length && req.body.keyword && req.body.url) pages = [{ keyword: req.body.keyword, url: req.body.url }];
+        pages = pages.filter(p => p && p.keyword && p.url);
+        if (!pages.length) return res.status(400).json({ error: 'pages (or keyword+url) required' });
+        const wanted = new Map(pages.map(p => [`${String(p.keyword).trim().toLowerCase()}|${String(p.url).trim().toLowerCase()}`, p]));
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const lines = registry.content.split('\n').map(l => l.replace(/\r/g, ''));
+        const { titleLines, header, startIdx } = findRegistryHeader(lines);
+        const updatedLines = [...titleLines, header];
+        const seen = new Set();
+        const today = new Date().toISOString().split('T')[0];
+        for (let i = startIdx; i < lines.length; i++) {
+          if (!lines[i].trim()) continue;
+          const cols = parseCSVLine(lines[i]);
+          while (cols.length < 12) cols.push('');
+          const key = `${(cols[0]||'').trim().toLowerCase()}|${(cols[1]||'').trim().toLowerCase()}`;
+          if (wanted.has(key)) { cols[2] = 'LOCKED'; cols[3] = 'DONE'; cols[4] = 'REMOVED'; seen.add(key); }
+          updatedLines.push(sanitizeRow(cols));
+        }
+        // Any requested page not already in the registry → add it as a REMOVED row.
+        for (const [key, p] of wanted) {
+          if (seen.has(key)) continue;
+          updatedLines.push(sanitizeRow([p.keyword, p.url, 'LOCKED', 'DONE', 'REMOVED', '', '', '', '', 'User Resolved', detectIntent(p.url), today]));
+        }
+        await updateGitHubFile('data/keyword-locker-registry.csv', updatedLines.join('\n') + '\n', registry.sha, `MPD remove: ${pages.length} page(s)`);
+        return res.status(200).json({ success: true, removed: pages.length });
+      }
+
+      // ── ACTION: restore-removed ── (Money Page Doctor — bring a Removed page back to the queue)
+      if (req.body.action === 'restore-removed') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { keyword, url } = req.body;
+        if (!keyword || !url) return res.status(400).json({ error: 'keyword and url required' });
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const lines = registry.content.split('\n').map(l => l.replace(/\r/g, ''));
+        const { titleLines, header, startIdx } = findRegistryHeader(lines);
+        let found = false;
+        const updatedLines = [...titleLines, header];
+        for (let i = startIdx; i < lines.length; i++) {
+          if (!lines[i].trim()) continue;
+          const cols = parseCSVLine(lines[i]);
+          while (cols.length < 12) cols.push('');
+          if ((cols[1]||'').trim().toLowerCase() === url.toLowerCase() && (cols[0]||'').trim().toLowerCase() === keyword.toLowerCase()) {
+            cols[4] = 'TO_OPTIMIZE'; cols[11] = ''; found = true;
+          }
+          updatedLines.push(sanitizeRow(cols));
+        }
+        if (!found) return res.status(404).json({ error: 'Page not found in registry' });
+        await updateGitHubFile('data/keyword-locker-registry.csv', updatedLines.join('\n') + '\n', registry.sha, `MPD restore: ${keyword}`);
         return res.status(200).json({ success: true });
       }
 

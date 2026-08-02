@@ -1,7 +1,15 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v51.4
+// analyze-money-page.js — v51.5
+// v51.5 (Aug 2, 2026): M4 — (1) How-To schema fix. A contradictory rule ("NEVER return HowTo
+//                        schema for a blog") meant custom.ai_how_to_schema_markup was NEVER written
+//                        on any blog. Removed the ban; the "How-To Schema" aiItem is now generated
+//                        ONLY when the blog TITLE contains "how to" (prompt-gated + server-side strip
+//                        as a safety net), and pushed to its own metafield. (2) Template metafields
+//                        (More About text/url, Home decor trends title, Complete the look title, +
+//                        AI snippets) are now generated on EVERY blog template — the templateChecks
+//                        block was gated to ne-blog-posts/guest-post only, so other templates got none.
 // v51.4 (June 29, 2026): MANUAL COMPETITORS fallback. If the request includes manualCompetitors[]
 //                        (URLs), SerpAPI is skipped and the analysis runs on those. If SerpAPI is
 //                        called and returns 0 competitors, respond { needsManual:true } (200) so the
@@ -493,6 +501,15 @@ module.exports = async function handler(req, res) {
           if (_toc.length && _changed) analysis.structured.updatedTableOfContents = _toc;
         }
       } catch (e) { /* non-fatal — ToC is a nicety */ }
+    }
+
+    // M4: How-To schema belongs ONLY on blogs whose TITLE contains "how to". Belt-and-braces —
+    // strip any How-To Schema aiItem the AI returned for a blog whose title is not a "how to".
+    if (yourPageData.shopifyType === 'article' && analysis?.structured && Array.isArray(analysis.structured.aiItems)) {
+      const _blogTitle = ((shopifyContent && shopifyContent.shopifyTitle) || yourPageData.title || '').toLowerCase();
+      if (!/how\s*to/.test(_blogTitle)) {
+        analysis.structured.aiItems = analysis.structured.aiItems.filter(it => !/how.?to/i.test((it && it.element) || ''));
+      }
     }
 
     // Products: the keyword over-use check only makes sense when the body is KEPT. If a full
@@ -1864,7 +1881,7 @@ Return this exact JSON structure with real content (no placeholders):
       "placementWhere": "ONLY the position within that section, e.g. 'after paragraph 2'",
       "findAnchor": "the EXACT existing line in that source blog to SEARCH FOR — for mode=replace it is the line being replaced (same as existingText); for mode=new it is the existing sentence the new text is pasted AFTER. Copy it verbatim from that blog's OUTLINE so the merchant can paste it into their editor's find box and land on the exact spot. Keep it to ONE sentence."
     }
-  ]` : ''}${isOldTemplate ? `,
+  ]` : ''},
   "templateChecks": [
     {
       "type": "more_about_text",
@@ -1896,7 +1913,7 @@ Return this exact JSON structure with real content (no placeholders):
       "instruction": "Whether a relevant video exists / should be embedded and where.",
       "content": "the EXACT full-width YouTube embed HTML — or empty string if no suitable video"
     }
-  ]` : ''}
+  ]
 }
 ${loserPages.length > 0 ? `
 LOSER PAGES THAT SHOULD LINK TO THIS PAGE:
@@ -1912,7 +1929,7 @@ ${b.outline || '(no outline available)'}`).join('\n')}
 RULES:
 - COMPETITOR-DRIVEN ANALYSIS (the backbone of this whole audit): your goal is to make THIS page OUTRANK positions 1-3. Compare the full page against the competitor data above and silently answer: (1) what topics/questions/sections do they cover that this page is missing? (2) what would a customer want answered BEFORE buying that this page doesn't answer? (3) what makes their pages feel more complete or trustworthy? Then let those answers DRIVE your recommendations — what to ADD, REPLACE and REMOVE. Do NOT add a separate "how to outrank" section; instead fold the competitive reasoning into the normal outputs (h2Sections, aiItems, internalLinksToAdd, keywordOveruse, etc.). Still cover ALL standard SEO so nothing needed to rank is missed. Work ONLY from the competitor data provided above — NEVER invent competitor content you cannot see.
 - competitorDriven flag: on EVERY h2Sections item, aiItem and internalLinksToAdd item, include a boolean "competitorDriven" — true if the recommendation comes from the competitor comparison (e.g. a gap they cover that you don't, or a move that beats them), false if it is general SEO best practice. When true, the "reason"/"exactAction" must name the competitive rationale (e.g. "all 3 competitors cover X; this page doesn't").
-- This is a BLOG. The theme already renders Page Schema, FAQ Schema and the Brand Block. NEVER suggest, mention, or return any schema (FAQPage, Article, Product, Review, Breadcrumb, HowTo) or a brand/about block. Do not include pageSchema, faqSchema or brandBlock fields at all.
+- This is a BLOG. The theme already renders Page Schema, FAQ Schema and the Brand Block. NEVER suggest, mention, or return Page/FAQ/Article/Product/Review/Breadcrumb schema or a brand/about block, and do not include pageSchema, faqSchema or brandBlock fields at all. The ONE exception is the "How-To Schema" aiItem: it is written to its OWN separate metafield (custom.ai_how_to_schema_markup), not to the body, so it IS allowed — but ONLY when this blog's title contains the words "how to" (see the aiItems rules below).
 - KEYWORD USAGE (no stuffing): use the EXACT main keyword "${keyword}" only where it matters most — the title, the first paragraph, and at most one or two headings. Everywhere else (meta, excerpt, body paragraphs, FAQ answers, snippets) write naturally for the reader using secondary keywords, natural variations and related terms. NEVER repeat the exact keyword over and over — Google does not reward exact-match repetition and treats stuffing as spam.
 - keywordOveruse: examine ALL of "EXISTING PAGE CONTENT" above (every heading, the full body text, and every metafield) and decide whether "${keyword}" is over-used. Over-use = the EXACT keyword repeated where a related/secondary term would read better, near-duplicate keyword-stuffed headings, or sentences that add no value beyond repeating the keyword. For EACH over-used spot return: where it lives (so the merchant can find it), the EXACT current text, recommendation "reword" (with the rewritten suggestedText using a related/secondary term) OR "remove" (suggestedText empty) when deleting it is the better SEO move. Give the precise replacement words — never a vague instruction.
   - EXCLUDE GLOBAL/SHARED SECTIONS: NEVER report anything from site-wide navigation, menus, breadcrumbs, footer, cookie/consent notices, search, account, newsletter sign-up, "related posts", "recently viewed", or any section that is identical across every page and cannot be edited on this single page. The merchant only wants spots they can actually change on THIS page (its body, its metafields, its own page-specific sections). If a heading looks like shared theme chrome, leave it out entirely.
@@ -1936,7 +1953,7 @@ RULES:
   - "Related Questions" — ALWAYS generate. 4-6 real questions.
   - "Summary Block" — ALWAYS generate. The key takeaways.
   - "Comparison Snippet" — ONLY if the topic has a genuine comparison (e.g. X vs Y, odd vs even). If there is nothing real to compare, OMIT it entirely.
-  - "How-To Schema" — ONLY if this blog is genuinely a step-by-step / procedural how-to. If the post is definitional, a listicle, or otherwise NOT procedural, OMIT it entirely (HowTo schema on non-how-to content breaks Google's structured-data rules). Use the EXACT element name "How-To Schema".
+  - "How-To Schema" — generate ONLY if this blog's TITLE contains the words "how to" (e.g. "How to Hang Wall Art"). The current blog title is: "${yourPage.title || ''}". If that title does NOT contain "how to", OMIT this item entirely — never add HowTo schema to a non-how-to blog (it breaks Google's structured-data rules). When the title IS a "how to", ALWAYS generate it. Use the EXACT element name "How-To Schema".
 - SNIPPET METAFIELD HTML (the HTML aiItems — Related Questions, Summary Block, Comparison Snippet): each "content" is pasted directly into its Shopify metafield. Format: <h2> for the section title only (never <strong> or <h3> as the title); a <p> starts immediately after the <h2> with NO blank line; every item of content in its own <p>; <strong> only for bold labels INSIDE a <p>; for Related Questions each <p> is <strong>Question?</strong> followed by " — " and the answer; for Summary Block each <p> starts with <strong>Label:</strong>; NEVER use <ul>, <li>, <br>, <div> or wrapper tags; NO blank lines between tags; NO inline styles or classes.
 - HOW-TO SCHEMA (the "How-To Schema" aiItem ONLY): its "content" is NOT HTML — it is a single line of valid JSON-LD wrapped in <script type="application/ld+json"> ... </script>, a schema.org HowTo object with "name", "description" and a "step" array of HowToStep objects ("name" + "text"). No markdown, no code fences, no extra text — just the <script> tag with the JSON inside.
 - urlAnalysis: title changes are always safe (no redirect). Only recommend a slug change if the page has very few or zero clicks; if so, set slugChangeWarning.
@@ -1945,15 +1962,15 @@ RULES:
 - WORD COUNT: never say "reduce word count to X" or "increase keyword density to X%" generically. If specific bloated content must go, name the EXACT paragraph opening words and why; otherwise do not mention word count or density at all.
 - loserPageLinks: ONLY include if loser pages are provided above. Unique natural sentence per loser page with a real HTML anchor to this page, plus a specific placement. If none provided, omit this field entirely.
 - relatedBlogLinks: for EACH blog in "RELATED OLDER BLOGS TO LINK FROM", produce one link FROM that blog INTO this page. The anchor text MUST be this page's exact main keyword "${keyword}" (NEVER a variation). If "keyword present: YES", use mode "replace" and wrap the keyword in that blog's given sentence as the link. If not present, use mode "new" with a short natural sentence/CTA that uses "${keyword}" as the anchor. The link URL is always ${yourPage.url}. One item per related blog. If no related blogs are listed above, omit this field entirely.
-- PLACEMENT MUST BE CONCRETE (relatedBlogLinks AND internalLinksToAdd): never say "after the first major section" or other vague guidance. Use the blog's OUTLINE to name the EXACT spot — the section heading plus the exact position, e.g. "In the section 'How To Find Your Perfect Home Decor Styles', between paragraph 1 and paragraph 2" or "Immediately after the paragraph that starts 'When choosing…'". The merchant must be able to find the spot without thinking. ALSO fill the two structured fields on every such item: placementSection = the exact section heading ALONE (no other words), placementWhere = the position within it ALONE (e.g. "after paragraph 2"). These are shown as their own scannable lines, so keep each to just the heading / just the position. For relatedBlogLinks ALSO fill findAnchor = the EXACT existing line (verbatim from that blog's outline) to search for — the line being replaced (mode=replace) or the line the new text goes AFTER (mode=new) — so the merchant can find/replace it instantly.${isOldTemplate ? `
-- OLD-TEMPLATE CHECKS (this blog uses the ne-blog-posts / guest-post template — these sections are built from METAFIELDS, not the body, so the templateChecks field IS required and the items below must NOT be duplicated in h2Sections):
+- PLACEMENT MUST BE CONCRETE (relatedBlogLinks AND internalLinksToAdd): never say "after the first major section" or other vague guidance. Use the blog's OUTLINE to name the EXACT spot — the section heading plus the exact position, e.g. "In the section 'How To Find Your Perfect Home Decor Styles', between paragraph 1 and paragraph 2" or "Immediately after the paragraph that starts 'When choosing…'". The merchant must be able to find the spot without thinking. ALSO fill the two structured fields on every such item: placementSection = the exact section heading ALONE (no other words), placementWhere = the position within it ALONE (e.g. "after paragraph 2"). These are shown as their own scannable lines, so keep each to just the heading / just the position. For relatedBlogLinks ALSO fill findAnchor = the EXACT existing line (verbatim from that blog's outline) to search for — the line being replaced (mode=replace) or the line the new text goes AFTER (mode=new) — so the merchant can find/replace it instantly.
+- TEMPLATE METAFIELD FIELDS (these sections are built from METAFIELDS on EVERY blog, whatever template it uses — the templateChecks field IS required, and the items below must NOT be duplicated in h2Sections):
   - more_about_text + more_about_url: the "More About" section is rendered from metafields. Provide the intro sentence (more_about_text, ≤30 words) AND the authority URL (more_about_url). Do NOT also add an inline authority link in the body, and do NOT put "More about" in h2Sections — it is handled here.
   - home_decor_trends_title: only the NEW heading text for the "Home decor trends" section (its title is a metafield). The rest of that block is general — do not touch it, and do not put it in h2Sections.
   - complete_the_look_title: only the NEW heading text for the "Complete the look" section (its title is a metafield). The rest stays; do not put it in h2Sections.
   - shop_here: if the body has plain "Click here"/"Shop Now"/"Buy now" product links, replace them with this EXACT button (fill [PRODUCT URL] and [PRODUCT TITLE]); also wrap the product image in the product URL. content MUST be exactly: <p style="text-align: center;"><a href="[PRODUCT URL]" title="[PRODUCT TITLE]" rel="noopener" target="_blank" style="display: inline-block; background-color: #000000; color: #ffffff; padding: 12px 28px; text-decoration: none; font-weight: bold; letter-spacing: 1px;">SHOP HERE</a></p>
   - youtube: if a relevant video should be embedded, content MUST be exactly (fill [YOUTUBE URL], [VIDEO TITLE], [EMBED URL]): <p>WATCH: <a href="[YOUTUBE URL]" title="[VIDEO TITLE]" rel="noopener" target="_blank">[VIDEO TITLE]</a></p><iframe width="100%" height="415" src="[EMBED URL]" title="[VIDEO TITLE]" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>. If no suitable video, content is "".
   - "Feeling inspired" is a shared general section linking to the main money pages — NEVER flag it (not in h2Sections, not in keywordOveruse, no changes).
-  - The "People Also Ask" / FAQ section is built from the people_also_ask_new metafield (handled above) — NEVER put it in h2Sections and NEVER suggest renaming a "People Also Ask…" body H2. Do not flag more_about_, people_also_ask_new, home_decor_trends_title or complete_the_look in keywordOveruse either — they are managed by templateChecks.` : ''}
+  - The "People Also Ask" / FAQ section is built from the people_also_ask_new metafield (handled above) — NEVER put it in h2Sections and NEVER suggest renaming a "People Also Ask…" body H2. Do not flag more_about_, people_also_ask_new, home_decor_trends_title or complete_the_look in keywordOveruse either — they are managed by templateChecks.
 - Return ONLY the JSON object — no other text`;
 }
 
