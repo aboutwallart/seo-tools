@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.5.0 - 2026-08-01</p>
+        <p class="version">v6.5.1 - 2026-08-01</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -2001,7 +2001,8 @@
                     const p = s.prints[i];
                     const label = `<div style="font-weight:700;font-size:13px;color:#c0561d;margin:14px 0 4px;">Print spot ${i + 1} <span style="color:#999;font-weight:500;">— ${escHtml(topic)}</span></div>`;
                     const body = p ? productRowHtml(index, p) : `<div style="color:#999;font-size:13px;margin-bottom:6px;">No print yet — pick one from the collection below, or add by SKU.</div>`;
-                    return label + body + prodSlotAddBar(index, 'p' + i, 'wall art / a print');
+                    const removeBtn = p ? `<div style="margin:-4px 0 8px;"><button onclick="clearSpot(${index},'p',${i})" style="background:#fff;color:#a33;border:1px solid #e3b7b7;border-radius:6px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;">✕ Remove this suggestion</button></div>` : '';
+                    return label + body + removeBtn + prodSlotAddBar(index, 'p' + i, 'wall art / a print');
                 }).join('');
             } else {
                 printBlocks = chosenPrints.length ? rows(chosenPrints) : '<div style="color:#999;font-size:13px;margin-bottom:8px;">No prints chosen — add one by SKU below.</div>';
@@ -2022,7 +2023,8 @@
                     const p = collAligned[i];
                     const label = `<div style="font-weight:700;font-size:13px;color:#1565c0;margin:14px 0 4px;">Needed: ${escHtml(ty)} <span style="color:#999;font-weight:500;">— ${escHtml(nd.topic)}</span></div>`;
                     const body = p ? productRowHtml(index, p) : `<div style="color:#999;font-size:13px;margin-bottom:6px;">No option yet — pick one from the collection below, or add by SKU (${escHtml(ty)}).</div>`;
-                    return label + body + prodSlotAddBar(index, i, ty);
+                    const removeBtn = p ? `<div style="margin:-4px 0 8px;"><button onclick="clearSpot(${index},'c',${i})" style="background:#fff;color:#a33;border:1px solid #e3b7b7;border-radius:6px;padding:5px 10px;font-size:12px;font-weight:600;cursor:pointer;">✕ Remove this suggestion</button></div>` : '';
+                    return label + body + removeBtn + prodSlotAddBar(index, i, ty);
                 }).join('');
             } else {
                 const cc = collAligned.filter(p => p && s.selected[p.gid]);
@@ -2219,6 +2221,16 @@
                 </div>
                 <div style="display:flex;gap:12px;overflow-x:auto;padding:6px 2px 8px;">${cards}</div>
             </details>`;
+        }
+
+        // ✕ Remove a suggested product from a spot → the spot goes empty, ready for her own pick.
+        function clearSpot(index, kind, slot) {
+            const s = window._products[index]; if (!s) return;
+            const arr = (kind === 'p') ? (s.prints = s.prints || []) : (s.collective = s.collective || []);
+            const old = arr[slot];
+            if (old && old.gid) delete s.selected[old.gid];
+            arr[slot] = null;
+            renderProductPicker(index, true); saveProductsState(index);
         }
 
         // Remember whether a browse strip is open, so it stays open after the picker redraws.
