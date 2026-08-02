@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 66.2</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 67.0</p>
                 </div>
             </div>
         </header>
@@ -339,15 +339,26 @@
             </div>
         </div>
 
-        <div class="tabs">
-            <button class="tab" onclick="switchTab('startHere')">🎯 Start Here (<span id="startHereCount">0</span>)</button>
-            <button class="tab active" onclick="switchTab('pages')">📋 To Optimise (<span id="pageCount">0</span>)</button>
-            <button class="tab" onclick="switchTab('winners')">🏆 Winners &amp; Hold (<span id="winnersCount">0</span>)</button>
-            <button class="tab" onclick="switchTab('optimized')">✅ Optimized (<span id="optimizedCount">0</span>)</button>
+        <!-- GLOBAL SEARCH (M2) — find any page across every tab -->
+        <div style="margin-bottom:15px;background:#f5f5f5;padding:12px 15px;border-radius:8px;">
+            <div style="display:flex;gap:10px;align-items:center;">
+                <input type="text" id="globalSearch" placeholder="🔍 Find any page across all tabs (URL or keyword)…" style="flex:1;" oninput="globalSearchRun()">
+                <button class="btn-secondary" onclick="globalSearchClear()" style="white-space:nowrap;">✖ Clear</button>
+            </div>
+            <div id="globalSearchResults" style="margin-top:10px;font-size:0.9rem;"></div>
         </div>
 
-        <!-- MY PAGES TAB -->
-        <div class="tab-content active" id="pagesTab">
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('startHere')">🎯 Start Here (<span id="startHereCount">0</span>)</button>
+            <button class="tab" onclick="switchTab('winners')">🏆 Winners &amp; Hold (<span id="winnersCount">0</span>)</button>
+            <button class="tab" onclick="switchTab('optimized')">✅ Optimized (<span id="optimizedCount">0</span>)</button>
+            <button class="tab" onclick="switchTab('removed')">🗑️ Removed (<span id="removedCount">0</span>)</button>
+        </div>
+        <!-- Hidden: To Optimise count target kept for legacy updatePageCount() -->
+        <span id="pageCount" style="display:none;">0</span>
+
+        <!-- MY PAGES TAB (To Optimise) — tab button removed; panel kept hidden so its helpers don't break -->
+        <div class="tab-content" id="pagesTab">
             <!-- GSC Loading Status -->
             <div id="gscLoadingStatus" style="display:none; padding:10px 15px; background:#e3f2fd; border-radius:6px; margin-bottom:15px; color:#1976d2; font-size:0.9rem;">
                 📡 Loading live GSC data — urgency badges will appear shortly...
@@ -388,11 +399,21 @@
             <div id="urlList"></div>
         </div>
 
-        <!-- START HERE TAB -->
-        <div class="tab-content" id="startHereTab">
+        <!-- START HERE TAB — the single working list -->
+        <div class="tab-content active" id="startHereTab">
             <h3>🎯 Start Here — your optimisation order</h3>
             <p style="color:#666;margin-bottom:8px;">Work down this list, top to bottom — it's ordered for safe, high-impact gains. Start slow (a few a day), then speed up once you see things holding/growing on the Optimized tab.</p>
-            <p style="color:#888;font-size:0.85rem;margin-bottom:15px;">Order: 🔥 Quick Wins → 🖱 Fix CTR → 🚨 Danger (careful) → 📋 The rest → 🏆 Winners last (light touch). Done pages drop off automatically.</p>
+            <p style="color:#888;font-size:0.85rem;margin-bottom:15px;">Order: 🔥 Quick Wins → 🖱 Fix CTR → 🚨 Danger (careful) → 📋 The rest. Optimised, winner and removed pages drop off automatically.</p>
+            <div style="margin-bottom:15px;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;">
+                <button class="btn-secondary" onclick="refreshBlogIndex(this)" title="Re-scan all blogs into the index. Run this whenever you add or retag blogs.">🔄 Refresh Blog Index</button>
+                <button onclick="openAddUrlModal()" style="background:#2e7d32;">➕ Add Page</button>
+                <button class="btn-secondary" onclick="clearAllPages()">🗑️ Clear All Pages</button>
+                <button class="btn-secondary" onclick="removeDuplicates()">🧹 Remove Duplicates</button>
+            </div>
+            <div style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <button class="btn-secondary" style="background:#c62828;color:#fff;border-color:#c62828;" onclick="removeSelected('startHere', this)">🗑️ Remove selected</button>
+                <span style="font-size:0.82rem;color:#888;">Tick any page you won't optimise, then Remove selected — it moves to the Removed tab.</span>
+            </div>
             <div id="startHereList"></div>
         </div>
 
@@ -407,12 +428,23 @@
         <div class="tab-content" id="optimizedTab">
             <h3>✅ Optimized Pages</h3>
             <p style="color: #666; margin-bottom: 15px;">Pages that have been analyzed and optimized. Keywords are locked in the master registry.</p>
-            <div style="margin-bottom: 15px; display: flex; justify-content: flex-end; gap: 10px;">
+            <div style="margin-bottom: 15px; display: flex; justify-content: flex-end; gap: 10px; flex-wrap:wrap;">
                 <button onclick="downloadRegistry()" style="background: #2196f3;">📥 Download Registry</button>
                 <button class="btn-secondary" onclick="reBaselineSnapshots(this)" title="Re-capture each page's 'before' as the 15 days right before it was optimised, so the since-optimised numbers are a fair 15-vs-15">🔄 Refresh baselines (15-day)</button>
                 <button class="btn-secondary" onclick="clearAllOptimized()">🗑️ Clear All Optimized</button>
             </div>
+            <div style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <button class="btn-secondary" style="background:#c62828;color:#fff;border-color:#c62828;" onclick="removeSelected('optimized', this)">🗑️ Remove selected</button>
+                <span style="font-size:0.82rem;color:#888;">Tick any blog wrongly added here, then Remove selected — it moves to the Removed tab.</span>
+            </div>
             <div id="optimizedList"></div>
+        </div>
+
+        <!-- REMOVED TAB -->
+        <div class="tab-content" id="removedTab">
+            <h3>🗑️ Removed Pages</h3>
+            <p style="color:#666;margin-bottom:15px;">Pages you've decided NOT to optimise. They're kept out of every other tab. Use ↩️ Restore to bring one back into Start Here.</p>
+            <div id="removedList"></div>
         </div>
 
     </div>
@@ -528,6 +560,7 @@
 
         let urls = []; // Loaded from GitHub registry on startup
         let optimizedPages = []; // Loaded from GitHub registry on startup
+        let removedPages = [];   // Pages moved to the Removed tab (action REMOVED in the registry)
         let currentUrl = null;
         let currentResults = null;
         // Linked References — manual picks added via the search box (per-analysis, reset on render)
@@ -601,6 +634,8 @@
             document.querySelector(`[onclick="switchTab('${tab}')"]`).classList.add('active');
             if (tab === 'startHere') renderStartHere();
             if (tab === 'winners') renderWinners();
+            if (tab === 'optimized') renderOptimized();
+            if (tab === 'removed') renderRemoved();
         }
 
         // ── 🎯 Start Here — single ordered work-queue across all categories ──────────
@@ -631,10 +666,14 @@
                 winner:   { icon:'🏆', label:'Winner',     color:'#2e7d32', note:'Top 3 already — light touch, don\'t rush.' },
                 hold:     { icon:'🏆', label:'Winner — Hold', color:'#2e7d32', note:'You flagged this to leave for now (already ranking).' }
             };
-            // Exclude pages already optimised or with a completed checklist.
-            const optimisedSet = new Set((optimizedPages || []).map(p => (p.url || '').toLowerCase()));
+            // Exclude pages already optimised, removed, or with a completed checklist — matched the
+            // smart way (ignores trailing "/", "www", http/https) so a card can never leak back in.
+            const optimisedSet = new Set((optimizedPages || []).map(p => normalizeUrlPath(p.url || '')));
+            const removedSet   = new Set((removedPages   || []).map(p => normalizeUrlPath(p.url || '')));
             const candidates = deduplicateUrls(urls).filter(item => {
-                if (optimisedSet.has((item.url || '').toLowerCase())) return false;
+                const _np = normalizeUrlPath(item.url || '');
+                if (optimisedSet.has(_np)) return false;
+                if (removedSet.has(_np)) return false;
                 const cl = mpdChecklist[item.url] || {};
                 const total = cl._total || 0;
                 if (total > 0) { const done = Object.entries(cl).filter(([k,v]) => k !== '_total' && v).length; if (done >= total) return false; }
@@ -667,6 +706,7 @@
                     </div>` : '';
                 return `
                 <div class="url-item" style="border-left:4px solid ${m.color};background:#fff;">
+                    <input type="checkbox" class="mpd-remove-cb" data-url="${(item.url||'').replace(/"/g,'&quot;')}" data-keyword="${(displayKeyword||'').replace(/"/g,'&quot;')}" title="Tick to remove this page" style="margin-right:10px;transform:scale(1.3);flex-shrink:0;align-self:flex-start;margin-top:4px;">
                     <div style="flex:1;">
                         <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap;">
                             <span style="background:#1a1a1a;color:#fff;width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:700;flex-shrink:0;">${i + 1}</span>
@@ -692,10 +732,13 @@
         function renderWinners() {
             const list = document.getElementById('winnersList');
             if (!list) return;
-            const optimisedSet = new Set((optimizedPages || []).map(p => (p.url || '').toLowerCase()));
+            const optimisedSet = new Set((optimizedPages || []).map(p => normalizeUrlPath(p.url || '')));
+            const removedSet   = new Set((removedPages   || []).map(p => normalizeUrlPath(p.url || '')));
             const items = deduplicateUrls(urls)
                 .filter(item => {
-                    if (optimisedSet.has((item.url || '').toLowerCase())) return false;
+                    const _np = normalizeUrlPath(item.url || '');
+                    if (optimisedSet.has(_np)) return false;
+                    if (removedSet.has(_np)) return false;
                     const cat = startHereCategory(item.url);
                     return cat === 'winner' || cat === 'hold';
                 })
@@ -991,7 +1034,8 @@
                 return;
             }
 
-            const sorted = [...optimizedPages].sort((a, b) => b.optimizedAt - a.optimizedAt);
+            const _removedSet = new Set((removedPages || []).map(p => normalizeUrlPath(p.url || '')));
+            const sorted = [...optimizedPages].filter(p => !_removedSet.has(normalizeUrlPath(p.url || ''))).sort((a, b) => b.optimizedAt - a.optimizedAt);
             const now = Date.now();
             const DAY = 86400000;
 
@@ -1067,6 +1111,7 @@
 
                 return `
                 <div class="url-item" style="background:${health.bg};border-left:4px solid ${health.color};">
+                    <input type="checkbox" class="mpd-remove-cb" data-url="${(item.url||'').replace(/"/g,'&quot;')}" data-keyword="${(item.keyword||'').replace(/"/g,'&quot;')}" title="Tick to remove this page" style="margin-right:10px;transform:scale(1.3);flex-shrink:0;align-self:flex-start;margin-top:4px;">
                     <div style="flex:1;">
                         <span style="display:inline-block;background:#fff;color:${health.color};border:1px solid ${health.color};border-radius:20px;padding:2px 10px;font-size:0.78rem;font-weight:600;margin-bottom:6px;">${health.icon} ${health.label}</span>
                         ${(current && current.position && current.position <= 3) ? `<span style="display:inline-block;background:#2e7d32;color:#fff;border-radius:20px;padding:2px 10px;font-size:0.78rem;font-weight:600;margin-bottom:6px;margin-left:6px;">🏆 Winner · #${current.position.toFixed(1)}</span>` : ''}
@@ -1098,6 +1143,116 @@
                 updateOptimizedCount();
                 renderOptimized();
             }
+        }
+
+        // ── 🗑️ Removed tab — pages she decided NOT to optimise (out of every other tab) ──────────
+        function updateRemovedCount() {
+            const c = document.getElementById('removedCount'); if (c) c.textContent = removedPages.length;
+        }
+
+        function renderRemoved() {
+            const list = document.getElementById('removedList');
+            if (!list) return;
+            updateRemovedCount();
+            if (!removedPages.length) {
+                list.innerHTML = '<p style="text-align:center;color:#666;padding:40px;">Nothing removed. Tick pages on Start Here or Optimized and hit "Remove selected" to park them here.</p>';
+                return;
+            }
+            list.innerHTML = removedPages.map(item => `
+                <div class="url-item" style="background:#fafafa;border-left:4px solid #9e9e9e;">
+                    <div style="flex:1;">
+                        <div style="font-weight:500;margin-bottom:4px;word-break:break-all;">🗑️ ${item.url}</div>
+                        ${item.keyword ? `<div style="font-size:0.85rem;color:#1976d2;">🎯 Keyword: "${item.keyword}"</div>` : ''}
+                        <div style="font-size:0.78rem;color:#999;margin-top:4px;">You chose not to optimise this page.</div>
+                    </div>
+                    <div style="display:flex;gap:10px;align-items:flex-start;">
+                        <button class="btn-secondary" onclick="restoreRemoved('${(item.url||'').replace(/'/g,"\\'")}', this)">↩️ Restore</button>
+                    </div>
+                </div>`).join('');
+        }
+
+        // Collect the ticked pages in a tab, mark them REMOVED in the registry (bulk), and move them
+        // to the Removed tab. They leave Start Here / Optimized immediately (one card, one tab).
+        async function removeSelected(which, btn) {
+            const containerId = which === 'optimized' ? 'optimizedList' : 'startHereList';
+            const container = document.getElementById(containerId);
+            const boxes = container ? [...container.querySelectorAll('.mpd-remove-cb:checked')] : [];
+            if (!boxes.length) { alert('Tick the pages you want to remove first.'); return; }
+            const picks = boxes.map(b => ({ url: b.getAttribute('data-url'), keyword: b.getAttribute('data-keyword') || '' }))
+                               .filter(p => p.url);
+            if (!picks.length) { alert('Tick the pages you want to remove first.'); return; }
+            if (!confirm(`Remove ${picks.length} page(s)?\n\nThey move to the Removed tab and leave every other tab. You can Restore them later.`)) return;
+            const orig = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Removing…';
+            try {
+                const res = await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'mark-removed', pages: picks }) });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Failed');
+                const pickSet = new Set(picks.map(p => normalizeUrlPath(p.url)));
+                picks.forEach(p => {
+                    if (!removedPages.some(r => normalizeUrlPath(r.url) === normalizeUrlPath(p.url))) {
+                        removedPages.unshift({ id: Date.now() + Math.random(), url: p.url, keyword: p.keyword, fromRegistry: true });
+                    }
+                });
+                urls = urls.filter(u => !pickSet.has(normalizeUrlPath(u.url)));
+                optimizedPages = optimizedPages.filter(o => !pickSet.has(normalizeUrlPath(o.url)));
+                btn.disabled = false; btn.textContent = orig;
+                updatePageCount(); updateOptimizedCount(); updateRemovedCount();
+                renderStartHere(); renderOptimized(); renderRemoved();
+                showToast(`🗑️ Removed ${picks.length} page(s) → Removed tab.`);
+            } catch (e) { btn.disabled = false; btn.textContent = orig; alert('Remove failed: ' + e.message); }
+        }
+
+        async function restoreRemoved(url, btn) {
+            const item = removedPages.find(p => p.url === url);
+            if (!item) return;
+            if (!item.keyword) { alert('This page has no keyword saved, so it can\'t be restored automatically. Add it again from Start Here → Add Page.'); return; }
+            if (!confirm(`Restore this page to Start Here?\n\n${url}`)) return;
+            if (btn) { btn.textContent = '⏳…'; btn.disabled = true; }
+            try {
+                const res = await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'restore-removed', keyword: item.keyword, url }) });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Failed');
+                removedPages = removedPages.filter(p => p.url !== url);
+                if (!urls.some(u => normalizeUrlPath(u.url) === normalizeUrlPath(url))) {
+                    urls.unshift({ id: Date.now(), url: item.url, keyword: item.keyword, analyzed: false, results: null, fromRegistry: true });
+                }
+                updatePageCount(); updateRemovedCount();
+                renderRemoved(); renderStartHere();
+                showToast('↩️ Restored to Start Here.');
+            } catch (e) { if (btn) { btn.disabled = false; btn.textContent = '↩️ Restore'; } alert('Restore failed: ' + e.message); }
+        }
+
+        // ── 🔍 Global search (M2) — find any page and see which tab it lives in ──────────
+        function globalSearchRun() {
+            const q = (document.getElementById('globalSearch')?.value || '').trim().toLowerCase();
+            const box = document.getElementById('globalSearchResults');
+            if (!box) return;
+            if (!q) { box.innerHTML = ''; return; }
+            const optN = new Set((optimizedPages || []).map(p => normalizeUrlPath(p.url || '')));
+            const remN = new Set((removedPages   || []).map(p => normalizeUrlPath(p.url || '')));
+            const rows = [];
+            (optimizedPages || []).forEach(p => rows.push({ url: p.url, keyword: p.keyword || '', tab: 'Optimized', tabId: 'optimized', color: '#2e7d32' }));
+            (removedPages   || []).forEach(p => rows.push({ url: p.url, keyword: p.keyword || '', tab: 'Removed', tabId: 'removed', color: '#9e9e9e' }));
+            deduplicateUrls(urls).forEach(item => {
+                const np = normalizeUrlPath(item.url || '');
+                if (optN.has(np) || remN.has(np)) return;
+                const g = gscEnrichment[np] || {};
+                const cat = startHereCategory(item.url);
+                const isWin = (cat === 'winner' || cat === 'hold');
+                rows.push({ url: item.url, keyword: item.keyword || g.keyword || '', tab: isWin ? 'Winners' : 'Start Here', tabId: isWin ? 'winners' : 'startHere', color: isWin ? '#2e7d32' : '#f97316' });
+            });
+            const hits = rows.filter(r => (r.url || '').toLowerCase().includes(q) || (r.keyword || '').toLowerCase().includes(q));
+            if (!hits.length) { box.innerHTML = '<span style="color:#999;">No matches.</span>'; return; }
+            box.innerHTML = hits.slice(0, 40).map(r => `
+                <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:#fff;border-radius:6px;margin-bottom:6px;border-left:4px solid ${r.color};">
+                    <span style="background:${r.color};color:#fff;padding:2px 9px;border-radius:4px;font-size:0.72rem;font-weight:600;white-space:nowrap;">${r.tab}</span>
+                    <span style="flex:1;word-break:break-all;font-size:0.85rem;">${r.url}${r.keyword ? ` <span style="color:#1976d2;">· "${r.keyword}"</span>` : ''}</span>
+                    <button class="btn-secondary" style="white-space:nowrap;" onclick="switchTab('${r.tabId}')">Open ${r.tab}</button>
+                </div>`).join('') + (hits.length > 40 ? `<div style="color:#999;font-size:0.8rem;margin-top:4px;">Showing first 40 of ${hits.length}.</div>` : '');
+        }
+        function globalSearchClear() {
+            const i = document.getElementById('globalSearch'); if (i) i.value = '';
+            const b = document.getElementById('globalSearchResults'); if (b) b.innerHTML = '';
         }
 
 
@@ -2597,8 +2752,8 @@
             const tmplSingleKey = { home_decor_trends_title: 'home_decor_trends_title', complete_the_look_title: 'complete_the_look' };
             const internalAddBlockTmpl = (s.templateChecks && s.templateChecks.length > 0) ? `
                 <div class="action-block" style="border-color:#f9a825;">
-                    <h3>🧩 Older-Template Fields</h3>
-                    <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">This blog uses the ne-blog-posts template — these sections are built from metafields. Push each to Shopify (or copy where it's body HTML).</p>
+                    <h3>🧩 Template Metafield Fields</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">These sections are built from metafields (generated for every blog, whatever template it uses). Push each to Shopify (or copy where it's body HTML).</p>
                     ${s.templateChecks.map((t, i) => {
                         const key = `tmpl_${i}`;
                         const it  = allItems.find(x => x.key === key);
@@ -4963,23 +5118,27 @@
 
                 const toOptimizePages = [];
                 const optimizedPagesList = [];
+                const removedPagesList = [];
                 const lockedKeywords = new Set(); // Track keywords that are already OPTIMIZED
+                const optimisedUrls = new Set();  // normalized URLs already OPTIMIZED (M1 belt — URL match)
+                const removedUrls = new Set();    // normalized URLs marked REMOVED (Removed tab)
                 const optimisedDateIndex = headers.indexOf('OPTIMIZED DATE');
 
-                // First pass: collect all OPTIMIZED keywords
+                // First pass: collect OPTIMIZED keywords + OPTIMIZED/REMOVED URLs so nothing leaks back
                 for (let i = headerLineIndex + 1; i < lines.length; i++) {
                     const cols = lines[i].split(',');
                     if (cols.length > Math.max(keywordIndex, urlIndex, lockedIndex, statusIndex, actionIndex)) {
                         const keyword = cols[keywordIndex]?.trim().toLowerCase() || '';
+                        const rowUrl = cols[urlIndex]?.trim() || '';
                         const locked = cols[lockedIndex]?.trim().toUpperCase();
                         const status = cols[statusIndex]?.trim().toUpperCase();
                         const action = cols[actionIndex]?.trim().toUpperCase();
-                        
+
                         if (locked === 'LOCKED' && status === 'DONE' && action === 'OPTIMIZED') {
-                            if (keyword) {
-                                lockedKeywords.add(keyword);
-                            }
+                            if (keyword) lockedKeywords.add(keyword);
+                            if (rowUrl) optimisedUrls.add(normalizeUrlPath(rowUrl));
                         }
+                        if (action === 'REMOVED' && rowUrl) removedUrls.add(normalizeUrlPath(rowUrl));
                     }
                 }
                 
@@ -5001,13 +5160,15 @@
                         // Load TO_OPTIMIZE pages for My Pages tab
                         if (locked === 'LOCKED' && status === 'DONE' && action === 'TO_OPTIMIZE') {
                             if (pageUrl && pageUrl.startsWith('http')) {
-                                // CHECK: Skip if keyword is already locked to an OPTIMIZED page
-                                if (lockedKeywords.has(keywordLower)) {
-                                    console.log(`[Load Registry] ⚠️ Skipping TO_OPTIMIZE page - keyword already optimized: "${keyword}" on ${pageUrl}`);
+                                const npUrl = normalizeUrlPath(pageUrl);
+                                // Skip if this page is already optimised or removed — by keyword OR by URL
+                                // (URL match ignores trailing "/"/www so a card can never leak back in).
+                                if (lockedKeywords.has(keywordLower) || optimisedUrls.has(npUrl) || removedUrls.has(npUrl)) {
+                                    console.log(`[Load Registry] ⚠️ Skipping TO_OPTIMIZE (already optimised/removed): "${keyword}" on ${pageUrl}`);
                                     skippedConflicts++;
                                     continue; // Skip this page
                                 }
-                                
+
                                 toOptimizePages.push({
                                     id: Date.now() + toOptimizePages.length,
                                     url: pageUrl,
@@ -5019,9 +5180,9 @@
                             }
                         }
                         
-                        // Load OPTIMIZED pages for Optimized tab
+                        // Load OPTIMIZED pages for Optimized tab (unless later REMOVED — removed wins)
                         if (locked === 'LOCKED' && status === 'DONE' && action === 'OPTIMIZED') {
-                            if (pageUrl && pageUrl.startsWith('http')) {
+                            if (pageUrl && pageUrl.startsWith('http') && !removedUrls.has(normalizeUrlPath(pageUrl))) {
                                 const optimisedDateStr = optimisedDateIndex >= 0 ? (cols[optimisedDateIndex]?.trim() || '') : '';
                                 const optimizedAt = optimisedDateStr ? new Date(optimisedDateStr).getTime() : Date.now();
                                 optimizedPagesList.push({
@@ -5033,6 +5194,16 @@
                                     fromRegistry: true
                                 });
                             }
+                        }
+
+                        // Load REMOVED pages for the Removed tab
+                        if (action === 'REMOVED' && pageUrl && pageUrl.startsWith('http')) {
+                            removedPagesList.push({
+                                id: Date.now() + removedPagesList.length,
+                                url: pageUrl,
+                                keyword: keyword || null,
+                                fromRegistry: true
+                            });
                         }
                     }
                 }
@@ -5046,6 +5217,7 @@
                 // Update global arrays
                 urls = toOptimizePages;
                 optimizedPages = filteredOptimized;
+                removedPages = removedPagesList;
 
                 // Restore analyzed state from IndexedDB
                 const db = await openIDB().catch(() => null);
@@ -5062,7 +5234,9 @@
                     console.log(`[IDB] Restored analyzed state for ${allKeys.length} cached pages`);
                 }
 
-                console.log(`[Load Registry] Loaded ${urls.length} TO_OPTIMIZE pages and ${optimizedPages.length} OPTIMIZED pages`);
+                console.log(`[Load Registry] Loaded ${urls.length} TO_OPTIMIZE, ${optimizedPages.length} OPTIMIZED, ${removedPages.length} REMOVED pages`);
+                updateRemovedCount();
+                renderRemoved();
                 if (hiddenCount > 0) {
                     console.log(`[Load Registry] Hidden ${hiddenCount} optimized pages (via Clear All)`);
                 }
@@ -5212,9 +5386,9 @@
                 });
 
                 currentUrgencyTab = 'other';
-                updatePageCount(); updateOptimizedCount(); renderUrls(); renderOptimized();
-                switchTab('pages');
-                showToast('Page moved back to To Optimise.');
+                updatePageCount(); updateOptimizedCount(); renderUrls(); renderOptimized(); renderStartHere();
+                switchTab('startHere');
+                showToast('Page moved back to Start Here.');
             } catch (err) {
                 if (btn) { btn.textContent = '↩️ Unmark'; btn.disabled = false; }
                 alert(`❌ Failed: ${err.message}`);
