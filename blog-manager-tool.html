@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.5.1 - 2026-08-01</p>
+        <p class="version">v6.6.0 - 2026-08-02</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1510,71 +1510,306 @@
         }
 
         // ============================================
-        // GET IMAGE PROMPTS — copyable Shopify-AI instruction from the draft's image spots
+        // GET IMAGE PROMPTS — Batch 3: build a STYLE BIBLE (photo + quiz), then 3 copyable prompt boxes
+        // (wall-art products → featured → section images). Everything lives in this one place.
         // ============================================
+        const STYLE_ALWAYS_AVOID = ['high-gloss or shiny lacquered furniture'];
+        const EXTENSION_PREAMBLE = 'This is an IMAGE EXTENSION task — NOT a room redesign. I will paste the product photo. Preserve every element of the pasted photo EXACTLY (wall colour, furniture, lighting, decor and the framed artwork). Your only jobs: (1) extend the scene naturally to fill a 3:2 frame by continuing the EXISTING walls, floor and furnishings — never add blank bars or empty space, and do NOT invent a different room; (2) add people as specified. Do NOT restyle or replace any part of the room. Do NOT apply the style bible here — it does not apply to these wall-art photos.';
+
+        // Make (once) a short unique tag for this blog so a reused image name never grabs an old blog's image.
+        function ensureBlogCode(index, d) {
+            if (d.blogCode && /[a-z0-9]/.test(d.blogCode)) return d.blogCode;
+            d.blogCode = (Date.now().toString(36).slice(-4) + Math.random().toString(36).slice(2, 4)).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 6);
+            persistDraft(index, d);
+            return d.blogCode;
+        }
+        // Save the draft (with its style bible / code / section shows) so it survives + the finish step can read it.
+        function persistDraft(index, d) {
+            const idea = allIdeas.find(i => i.index === index);
+            window._drafts[index] = d;
+            window._draftsByTitle = window._draftsByTitle || {};
+            if (idea) window._draftsByTitle[(idea.currentTitle || '').toLowerCase()] = d;
+            try { fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-draft', title: idea ? idea.currentTitle : '', draft: d }) }); } catch (e) {}
+        }
+
         function getImagePrompts(index) {
             const idea = allIdeas.find(i => i.index === index);
             const d = window._drafts[index] || (window._draftsByTitle && window._draftsByTitle[(idea && idea.currentTitle || '').toLowerCase()]);
             const out = document.getElementById(`imgp-${index}`);
             if (!d) { if (out) out.innerHTML = '<span style="color:#a33;">Write the blog first, then get the image prompts.</span>'; return; }
-            const featuredBase = d.featuredBase || 'blog';
-            const stored = (typeof briefFor === 'function' && idea) ? briefFor(idea) : {};
-            const kw = ((stored && stored.keyword) || (idea && (idea.keyword || idea.currentKeyword || idea.currentTitle)) || '').trim();
-            const imgs = imagesWithSection(d.bodyHtml);
-            const hero = (d.heroPrompt || '').trim() || `Photoreal editorial interior photography, full bleed, calm muted palette, one person in a natural pose, plain uncluttered walls. Hero image for a blog titled "${idea.currentTitle}".`;
-
-            // Featured = 5 square options — 5 genuinely DIFFERENT shots of the same hero topic (real choice).
-            const COMPS = [
-                'a wide editorial establishing shot of the whole room',
-                'a closer, cosy composition focused on one corner of the space',
-                'shot from a different, lower and more intimate angle',
-                'a bright, airy composition seen from across the room',
-                'a lifestyle moment — the person mid-action, enjoying the space'
-            ];
-            // Hero has no person, so each option adds a DIFFERENT person (real mix of gender/ethnicity).
-            const CAST = [
-                'a woman in her 30s, East Asian',
-                'a man in his 40s, Black',
-                'a couple — a man and a woman, White',
-                'a young woman, South Asian',
-                'a person in their 50s, Middle Eastern'
-            ];
-            const featuredPrompts = [];
-            for (let i = 1; i <= 5; i++) {
-                const fAlt = `${kw ? kw + ' — ' : ''}${idea ? idea.currentTitle : ''}`.trim();
-                featuredPrompts.push(`${String(i).padStart(2,'0')}. [1:1] FEATURED (hero) — ${hero} For this option make it ${COMPS[i-1]}. Feature ${CAST[i-1]} in a natural candid pose. Keep the same blog topic/room but a genuinely different shot. SAVE this image named "${featuredBase}-featured-option${i}". ALT TEXT (SEO — use this, NOT the file name): "${fAlt}".`);
+            window._drafts[index] = d;
+            ensureBlogCode(index, d);
+            // Bring back a saved style photo from this browser, if there is one for this blog.
+            window._imgp = window._imgp || {}; window._imgp[index] = window._imgp[index] || {};
+            if (!window._imgp[index].photo) {
+                try { const s = localStorage.getItem('awa_style_photo_' + d.blogCode); if (s) { const o = JSON.parse(s); window._imgp[index].photo = o.data; window._imgp[index].mediaType = o.mediaType; } } catch (e) {}
             }
-            // Body images continue the numbering — each shows its section title, the AI's full prompt, then the SEO alt text.
-            const bodyPrompts = imgs.map((im, k) => {
-                const n = String(k + 6).padStart(2, '0');
-                const sec = im.section ? `SECTION: "${im.section}" — ` : '';
-                const alt = `${kw ? kw + ' — ' : ''}${im.section || (idea ? idea.currentTitle : '')}`.replace(/\s+/g, ' ').trim();
-                return `${n}. [${im.ratio || '3:2'}] ${sec}${im.prompt} SAVE this image named "${im.filename}". ALT TEXT (SEO — use this, NOT the file name): "${alt}".`;
-            });
-
-            // Batch everything under 9,500 characters per block.
-            const header = `INSTRUCTIONS FOR SHOPIFY AI IMAGE GENERATOR:\n- Generate each numbered line as its own image at the aspect ratio in [brackets].\n- IMPORTANT: name/save each image EXACTLY as the name in quotes (this is how the tool finds them).\n- Each line also gives an ALT TEXT — that is the SEO text for the image; the tool sets it on the image in the blog (never use the file name as alt).\n- Do them in order. Featured options 01-05 first, then the body images.\n\n`;
-            const all = [...featuredPrompts, ...bodyPrompts];
-            const batches = [];
-            let cur = header;
-            all.forEach(line => {
-                if ((cur + line + '\n').length > 9500) { batches.push(cur.trim()); cur = header; }
-                cur += line + '\n';
-            });
-            if (cur.trim()) batches.push(cur.trim());
-
-            const boxes = batches.map((b, bi) => `
-                <div style="margin-bottom:10px;">
-                    <div style="font-size:13px;font-weight:700;margin-bottom:4px;">Batch ${bi + 1} of ${batches.length}</div>
-                    <textarea readonly style="width:100%;height:140px;font-family:monospace;font-size:12px;padding:8px;border:1px solid #ccc;border-radius:6px;">${escHtml(b)}</textarea>
-                    <button onclick="copyText(this.previousElementSibling)" style="margin-top:4px;background:#00796b;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">📋 Copy batch ${bi + 1}</button>
-                </div>`).join('');
-
-            const inner = `<div style="font-size:12px;color:#666;margin-bottom:8px;">Featured picture has 5 looks — make them, then save <strong>only your favourite one</strong> (any of the “option” names is fine; the tool ignores the number). Save every body image with the exact name shown so the tool can fetch them.</div>${boxes}`;
-            const regen = `<div style="margin-bottom:8px;"><button onclick="getImagePrompts(${index})" style="${regenBtnStyle}">↻ Regenerate</button></div>`;
-            if (out) out.innerHTML = stepBox(regen + inner);
+            renderImgpPanel(index);
             window._imgpDone = window._imgpDone || {}; window._imgpDone[index] = true;
             setStepDone(index, 'imgp', true);
+        }
+
+        function renderImgpPanel(index) {
+            const out = document.getElementById(`imgp-${index}`); if (!out) return;
+            const d = window._drafts[index]; if (!d) return;
+            const regen = `<div style="margin-bottom:8px;"><button onclick="getImagePrompts(${index})" style="${regenBtnStyle}">↻ Refresh</button></div>`;
+            const bibleUI = styleBibleUI(index);
+            const boxes = d.styleBible
+                ? promptBoxesUI(index)
+                : `<div style="font-size:13px;color:#8a6d00;background:#fff8e1;border:1px solid #ffe6a1;border-radius:8px;padding:12px;">Build the style bible above first — then your three prompt boxes appear here.</div>`;
+            out.innerHTML = stepBox(regen + bibleUI + boxes);
+        }
+
+        // ---------- STYLE BIBLE (photo + quiz) ----------
+        const STYLE_QUIZ = [
+            { key: 'busy',  label: 'How busy the decor',   opts: ['Minimalist', 'Medium', 'Maximalist'] },
+            { key: 'arch',  label: 'Building / architecture', opts: ['Modern new-build', 'Period (Victorian/Georgian)', 'Rustic cottage', 'City apartment', 'Industrial loft', 'Coastal'] },
+            { key: 'light', label: 'Lighting mood',         opts: ['Bright & airy', 'Soft & warm', 'Moody & dark'] },
+            { key: 'white', label: 'Light colour (white balance)', opts: ['Warm', 'Neutral', 'Cool'] }
+        ];
+        function styleQuizUI(index) {
+            const rows = STYLE_QUIZ.map(q => {
+                const name = `q-${q.key}-${index}`;
+                const chips = ['(from photo)', ...q.opts].map((o, i) => {
+                    const id = `${name}-${i}`;
+                    return `<label for="${id}" style="display:inline-flex;align-items:center;gap:4px;background:#fff;border:1px solid #cfe8e3;border-radius:20px;padding:4px 10px;font-size:12px;cursor:pointer;">
+                        <input type="radio" id="${id}" name="${name}" value="${escHtml(o)}"${i === 0 ? ' checked' : ''} style="margin:0;"> ${escHtml(o)}</label>`;
+                }).join(' ');
+                const otherId = `${name}-other`;
+                return `<div style="margin-bottom:8px;">
+                    <div style="font-size:12px;font-weight:700;color:#00695c;margin-bottom:3px;">${escHtml(q.label)}</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:5px;align-items:center;">${chips}
+                        <label style="display:inline-flex;align-items:center;gap:4px;background:#fff;border:1px solid #cfe8e3;border-radius:20px;padding:4px 10px;font-size:12px;cursor:pointer;">
+                            <input type="radio" name="${name}" value="__other__" style="margin:0;"> Other:</label>
+                        <input type="text" id="${otherId}" oninput="document.querySelector('input[name=&quot;${name}&quot;][value=&quot;__other__&quot;]').checked=true" placeholder="write your own" style="font-size:12px;padding:3px 8px;border:1px solid #cfe8e3;border-radius:14px;width:150px;">
+                    </div>
+                </div>`;
+            }).join('');
+            return `<div style="margin-top:10px;">${rows}
+                <div style="margin-top:6px;">
+                    <div style="font-size:12px;font-weight:700;color:#00695c;margin-bottom:3px;">Anything else about the style</div>
+                    <input type="text" id="qextra-${index}" placeholder="e.g. add warm brass touches, keep it uncluttered…" style="font-size:12px;padding:5px 10px;border:1px solid #cfe8e3;border-radius:8px;width:100%;box-sizing:border-box;">
+                </div>
+            </div>`;
+        }
+        function readQuiz(index) {
+            const out = {};
+            STYLE_QUIZ.forEach(q => {
+                const name = `q-${q.key}-${index}`;
+                const sel = document.querySelector(`input[name="${name}"]:checked`);
+                let v = sel ? sel.value : '';
+                if (v === '__other__') v = (document.getElementById(`${name}-other`) || {}).value || '';
+                if (v === '(from photo)') v = '';
+                out[q.key] = (v || '').trim();
+            });
+            const ex = document.getElementById(`qextra-${index}`); out.extra = ex ? (ex.value || '').trim() : '';
+            return out;
+        }
+        function collectiveTitlesFor(index) {
+            const s = window._products && window._products[index]; if (!s) return [];
+            const seen = new Set(); const out = [];
+            [...(s.collective || []), ...(s.extra || [])].forEach(p => {
+                if (p && p.gid && s.selected && s.selected[p.gid] && p.vendor !== AWA_VENDOR && !seen.has(p.gid)) { seen.add(p.gid); out.push(p.title); }
+            });
+            return out;
+        }
+        function styleBibleUI(index) {
+            const d = window._drafts[index];
+            const st = window._imgp[index] || {};
+            const hasPhoto = !!st.photo;
+            const thumb = hasPhoto ? `<img src="${st.photo}" style="max-width:150px;max-height:150px;border-radius:8px;border:1px solid #ddd;display:block;margin:8px 0;">` : '';
+            const dlBtn = hasPhoto ? `<button onclick="downloadStylePhoto(${index})" style="${regenBtnStyle}">⬇ Download photo</button>` : '';
+            const drop = `<div id="styledrop-${index}" ondragover="event.preventDefault();this.style.background='#eaf5f2'" ondragleave="this.style.background='#f7fbfa'" ondrop="dropStylePhoto(event,${index})" onclick="document.getElementById('stylefile-${index}').click()" style="border:2px dashed #00796b;border-radius:10px;padding:16px;text-align:center;cursor:pointer;color:#00796b;background:#f7fbfa;font-size:13px;font-weight:600;">${hasPhoto ? '✅ Photo loaded — click to change it' : '📷 Drag your style photo here, or click to choose one'}</div><input id="stylefile-${index}" type="file" accept="image/*" style="display:none" onchange="fileStylePhoto(this,${index})">`;
+            if (d.styleBible) {
+                return `<div style="border:1px solid #cfe8e3;background:#f3faf8;border-radius:10px;padding:14px;margin-bottom:14px;">
+                    <div style="font-weight:800;font-size:15px;color:#00695c;margin-bottom:4px;">🎨 Style bible</div>
+                    <div style="font-size:12px;color:#666;margin-bottom:6px;">This leads every photo prompt below. Edit it if you like — it saves on its own.</div>
+                    ${thumb}${dlBtn}
+                    <textarea id="bible-${index}" oninput="onBibleEdit(${index})" style="width:100%;height:230px;font-family:monospace;font-size:12px;padding:8px;border:1px solid #bcdad4;border-radius:6px;box-sizing:border-box;">${escHtml(d.styleBible)}</textarea>
+                    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+                        <button onclick="toggleStyleQuiz(${index})" style="${regenBtnStyle}">✏️ Change photo / quiz</button>
+                        <button onclick="generateStyleBible(${index})" style="background:#00796b;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">↻ Rewrite bible</button>
+                    </div>
+                    <div id="stylequiz-${index}" style="display:none;margin-top:12px;">${drop}${styleQuizUI(index)}</div>
+                    <div id="biblestatus-${index}" style="font-size:12px;margin-top:8px;color:#00695c;"></div>
+                </div>`;
+            }
+            return `<div style="border:1px solid #cfe8e3;background:#f3faf8;border-radius:10px;padding:14px;margin-bottom:14px;">
+                <div style="font-weight:800;font-size:15px;color:#00695c;margin-bottom:6px;">🎨 Step 1 — Build your style bible</div>
+                <div style="font-size:12px;color:#666;margin-bottom:8px;">Drop a photo of the look you want. I'll read it and write the style. Fill any quick picks to steer it — leave blank to take it from the photo.</div>
+                ${drop}${thumb}${dlBtn}
+                ${styleQuizUI(index)}
+                <button onclick="generateStyleBible(${index})" style="background:#00796b;color:#fff;border:none;border-radius:8px;padding:10px 16px;font-weight:800;cursor:pointer;margin-top:12px;">✨ Generate style bible</button>
+                <div id="biblestatus-${index}" style="font-size:12px;margin-top:8px;color:#00695c;"></div>
+            </div>`;
+        }
+        function toggleStyleQuiz(index) { const el = document.getElementById(`stylequiz-${index}`); if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none'; }
+        function onBibleEdit(index) { const ta = document.getElementById(`bible-${index}`); const d = window._drafts[index]; if (ta && d) { d.styleBible = ta.value; clearTimeout(window._bibleSaveT); window._bibleSaveT = setTimeout(() => persistDraft(index, d), 900); } }
+        function fileStylePhoto(input, index) { const f = input.files && input.files[0]; if (f) loadStylePhoto(f, index); }
+        function dropStylePhoto(e, index) { e.preventDefault(); const dz = document.getElementById(`styledrop-${index}`); if (dz) dz.style.background = '#f7fbfa'; const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (f) loadStylePhoto(f, index); }
+        function loadStylePhoto(file, index) {
+            if (!/^image\//.test(file.type)) { alert('Please choose an image file.'); return; }
+            const reader = new FileReader();
+            reader.onload = () => {
+                const dataUrl = reader.result;
+                window._imgp = window._imgp || {}; window._imgp[index] = window._imgp[index] || {};
+                window._imgp[index].photo = dataUrl; window._imgp[index].mediaType = file.type;
+                const d = window._drafts[index];
+                try { localStorage.setItem('awa_style_photo_' + d.blogCode, JSON.stringify({ data: dataUrl, mediaType: file.type })); } catch (e) { /* too big to keep — the Download button is the safety net */ }
+                renderImgpPanel(index);
+            };
+            reader.readAsDataURL(file);
+        }
+        function downloadStylePhoto(index) {
+            const st = window._imgp[index] || {}; if (!st.photo) return;
+            const d = window._drafts[index]; const ext = ((st.mediaType || 'image/jpeg').split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+            const a = document.createElement('a'); a.href = st.photo; a.download = 'style-' + (d.blogCode || 'photo') + '.' + ext;
+            document.body.appendChild(a); a.click(); a.remove();
+        }
+        async function generateStyleBible(index) {
+            const st = window._imgp[index] || {};
+            const status = document.getElementById(`biblestatus-${index}`);
+            if (!st.photo) { if (status) { status.style.color = '#a33'; status.textContent = 'Add a style photo first.'; } return; }
+            const d = window._drafts[index];
+            const quiz = readQuiz(index);
+            const collectiveTitles = collectiveTitlesFor(index);
+            if (status) { status.style.color = '#00695c'; status.textContent = '🔄 Reading your photo and writing the style bible…'; }
+            try {
+                const b64 = String(st.photo).replace(/^data:[^;]+;base64,/, '');
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'style-bible', image: b64, mediaType: st.mediaType || 'image/jpeg', quiz, collectiveTitles, avoid: STYLE_ALWAYS_AVOID }) });
+                const data = await readJson(r);
+                if (!data.success) throw new Error(data.error || 'Could not build the style bible');
+                d.styleBible = data.bible; persistDraft(index, d); renderImgpPanel(index);
+            } catch (e) { if (status) { status.style.color = '#a33'; status.textContent = '❌ ' + e.message; } }
+        }
+
+        // ---------- The 3 copyable prompt boxes ----------
+        function kwFor(index) {
+            const idea = allIdeas.find(i => i.index === index);
+            const stored = (typeof briefFor === 'function' && idea) ? briefFor(idea) : {};
+            return ((stored && stored.keyword) || (idea && (idea.keyword || idea.currentKeyword || idea.currentTitle)) || '').trim();
+        }
+        function personRulesText(kw) {
+            return `PEOPLE: choose whoever suits each image — a man-and-woman couple for bedroom/romantic; a parent with a young child or baby for nursery/kids; a couple or a few friends for dining/living/hallway/entertaining; a family including an older relative for festive; a person holding and comparing swatches for a colour or material topic; otherwise one person. Vary ethnicity genuinely (a real mix, not always white). NEVER a dark-skinned person against a dark wall. People must be stylish and well-dressed in NEUTRAL tones — never casual, scruffy or mismatched; never dark clothing against a dark wall. Do NOT depict gay, lesbian or transgender couples. Poses natural and candid, never covering the wall art.`;
+        }
+        // Split a header + a list of lines into copy blocks that each stay under the paste limit and each repeat the header.
+        function splitCopyBlocks(header, lines, limit) {
+            limit = limit || 9500;
+            const blocks = []; let cur = header;
+            lines.forEach(line => { if ((cur + '\n' + line).length > limit && cur !== header) { blocks.push(cur); cur = header; } cur += '\n' + line; });
+            if (cur !== header) blocks.push(cur);
+            return blocks.length ? blocks : [header];
+        }
+        function copyBoxHtml(title, subtitle, blocks, colour) {
+            const boxes = blocks.map((b, i) => `
+                <div style="margin-bottom:10px;">
+                    ${blocks.length > 1 ? `<div style="font-size:12px;font-weight:700;margin-bottom:4px;color:#555;">Paste ${i + 1} of ${blocks.length}</div>` : ''}
+                    <textarea readonly style="width:100%;height:150px;font-family:monospace;font-size:12px;padding:8px;border:1px solid #ccc;border-radius:6px;box-sizing:border-box;">${escHtml(b)}</textarea>
+                    <button onclick="copyText(this.previousElementSibling)" style="margin-top:4px;background:${colour};color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">📋 Copy${blocks.length > 1 ? ' paste ' + (i + 1) : ''}</button>
+                </div>`).join('');
+            return `<div style="border-top:1px solid #eee;padding-top:12px;margin-top:12px;">
+                <div style="font-weight:800;font-size:14px;margin-bottom:2px;">${title}</div>
+                <div style="font-size:12px;color:#888;margin-bottom:8px;">${subtitle}</div>${boxes}</div>`;
+        }
+        function promptBoxesUI(index) {
+            return wallArtBoxUI(index) + featuredBoxUI(index) + sectionBoxUI(index);
+        }
+        // 1 — WALL ART product lifestyle photos (image extension, you paste the product photo).
+        function wallArtBoxUI(index) {
+            const d = window._drafts[index]; const code = d.blogCode; const kw = kwFor(index);
+            const s = window._products && window._products[index];
+            const awaSel = [];
+            if (s) {
+                const seen = new Set();
+                const push = (p) => { if (p && p.gid && s.selected && s.selected[p.gid] && !seen.has(p.gid)) { seen.add(p.gid); awaSel.push(p); } };
+                if (Array.isArray(s.prints) && s.prints.length) { s.prints.forEach(push); (s.extra || []).filter(p => p && p.vendor === AWA_VENDOR).forEach(push); }
+                else { [...(s.awa || []), ...(s.prints || []), ...(s.extra || [])].filter(p => p && p.vendor === AWA_VENDOR).forEach(push); }
+            }
+            if (!awaSel.length) return `<div style="border-top:1px solid #eee;padding-top:12px;margin-top:12px;"><div style="font-weight:800;font-size:14px;">1 · 🖼️ Wall-art product photos</div><div style="font-size:12px;color:#999;margin-top:4px;">Pick your wall-art products in “Pick products” first — then their prompts appear here.</div></div>`;
+            const person = personRulesText(kw);
+            const header = `SHOPIFY AI — WALL-ART LIFESTYLE PHOTOS. Do each numbered line as its own image, size 3:2. For each one I will paste the product's own photo.`;
+            const lines = awaSel.map((p, i) => {
+                const base = String(p.sku || p.handle || ('product' + (i + 1))).toLowerCase().replace(/[^a-z0-9\-]/g, '-').replace(/-+/g, '-');
+                const alt = `${kw ? kw + ' — ' : ''}${p.title} styled in a room`;
+                return `${String(i + 1).padStart(2, '0')}. [3:2] WALL ART: "${p.title}" (SKU ${p.sku || '—'}). ${EXTENSION_PREAMBLE} ${person} SAVE this image named "${base}-${code}-lifestyle". Set the ALT TEXT to: "${alt}" — use this as the image's alt text, do NOT use the file name as the alt.`;
+            });
+            const blocks = splitCopyBlocks(header, lines);
+            return copyBoxHtml('1 · 🖼️ Wall-art product photos (' + awaSel.length + ')', 'Paste the product photo when Shopify asks, then save each with the exact name shown.', blocks, '#c0561d');
+        }
+        // 2 — FEATURED image, 3 different options (square), illustrate the blog topic.
+        function featuredBoxUI(index) {
+            const idea = allIdeas.find(i => i.index === index);
+            const d = window._drafts[index]; const code = d.blogCode; const kw = kwFor(index);
+            const base = d.featuredBase || 'blog';
+            const title = idea ? idea.currentTitle : '';
+            const isWallArtBlog = /wall art|\bprint|artwork|poster|wall pictures/i.test((kw + ' ' + title));
+            const artLine = isWallArtBlog
+                ? 'This blog IS about wall art — I will paste a wall art image into each option; build the scene around that art.'
+                : 'Do NOT put framed prints on the walls (other wall decor is welcome).';
+            const person = personRulesText(kw);
+            const alt = `${kw ? kw + ' — ' : ''}${title}`.trim();
+            const header = `SHOPIFY AI — FEATURED IMAGE. Blog: "${title}". Make 3 options, each a square 1:1 image, each a genuinely DIFFERENT space/situation so I can pick one.\nEach option's #1 job is to ILLUSTRATE THE BLOG'S TOPIC (not just show a nice room). ${artLine}\nLighting: bright, neutral white balance, no yellow cast. ${person}`;
+            const lines = [1, 2, 3].map(i =>
+                `0${i}. [1:1] FEATURED option ${i} — SHOW: illustrate the topic of "${title}" in a different space/situation from the other options (e.g. a person browsing, comparing, arranging or enjoying, as the topic suggests). SAVE this image named "${base}-${code}-featured-option${i}". Set the ALT TEXT to: "${alt}" — use this as the image's alt text, do NOT use the file name as the alt.`
+            );
+            const blocks = splitCopyBlocks(header, lines);
+            return copyBoxHtml('2 · ⭐ Featured image (3 options — pick one)', 'Make all 3, then save only your favourite (any “option” name is fine — the tool ignores the number).', blocks, '#00796b');
+        }
+        // 3 — SECTION images. Needs the per-section SHOW list (one small read of the blog). Style bible leads every photo.
+        function sectionBoxUI(index) {
+            const d = window._drafts[index];
+            if (!Array.isArray(d.sectionShows)) {
+                return `<div style="border-top:1px solid #eee;padding-top:12px;margin-top:12px;">
+                    <div style="font-weight:800;font-size:14px;">3 · 🏠 Section images</div>
+                    <div style="font-size:12px;color:#888;margin:4px 0 8px;">One quick read of your blog writes a short “show this” for each section, then wraps it with your style bible.</div>
+                    <button onclick="loadSectionShows(${index})" style="background:#00796b;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-weight:800;cursor:pointer;">🪄 Write the section prompts</button>
+                    <div id="secshow-status-${index}" style="font-size:12px;margin-top:6px;color:#00695c;"></div>
+                </div>`;
+            }
+            const shows = d.sectionShows;
+            if (!shows.length) return `<div style="border-top:1px solid #eee;padding-top:12px;margin-top:12px;"><div style="font-weight:800;font-size:14px;">3 · 🏠 Section images</div><div style="font-size:12px;color:#999;margin-top:4px;">This blog has no section image spots.</div></div>`;
+            const code = d.blogCode; const kw = kwFor(index);
+            const bible = (d.styleBible || '').trim();
+            const person = personRulesText(kw);
+            const header = `SHOPIFY AI — SECTION IMAGES. Do each numbered line as its own image, size 3:2. Save each EXACTLY as the name in quotes, and set the ALT TEXT given (do NOT use the file name as the alt).\n\nSTYLE BIBLE — every PHOTO below must follow this look (infographics are the only exception):\n${bible}\n\n${person}\n\nEach line has a FLAG telling you how the style bible applies. Follow it.`;
+            const lines = shows.map((im, k) => {
+                const n = String(k + 1).padStart(2, '0');
+                const nm = `${im.filename}-${code}`;
+                const alt = `${kw ? kw + ' — ' : ''}${im.section || ''}`.replace(/\s+/g, ' ').trim();
+                const flag = String(im.flag || 'FOLLOW');
+                let flagText;
+                if (/^INFOGRAPHIC/i.test(flag) || im.kind === 'infographic') {
+                    flagText = 'INFOGRAPHIC — ignore the style bible and the people rules. Plain WHITE background, all text solid BLACK, no people. A short centred title, then a clear simple visual (labelled comparison / steps / icons), lots of white space.';
+                } else if (/^WALLART/i.test(flag)) {
+                    flagText = 'WALL ART SECTION — follow the style bible. Request from the seller which wall art product image to use in this image, and build the scene around that art. ' + person;
+                } else if (/^BREAK/i.test(flag)) {
+                    flagText = 'DO NOT APPLY the style bible here — this image must deliberately show the mistake / plain or contrasting look the section is about. ' + person;
+                } else if (/^USE:/i.test(flag)) {
+                    const st = flag.slice(4).trim();
+                    flagText = `USE the "${st}" interior style for THIS image INSTEAD OF THE STYLE BIBLE. Show that style clearly. ` + person;
+                } else {
+                    flagText = 'FOLLOW the style bible above.';
+                    if (/blend|mix|combin|pair|fusion/i.test((im.section || '') + ' ' + (im.show || ''))) {
+                        flagText += ' STYLE BLEND: name BOTH styles and make both clearly visible; layer 3–4 substantial elements of the second style (not token props); suspend any conflicting “No” rule for the second style’s main material; medium-high, richly layered decor with real depth (styled foreground, furnished midground, detailed background) — inhabited, curated and visually ABUNDANT, editorial like a high-end interiors magazine, never sparse or a showroom.';
+                    }
+                }
+                return `${n}. [3:2] SECTION "${im.section || ''}" — FLAG: ${flagText}\nSHOW: ${im.show || im.section || ''}\nSAVE AS "${nm}". ALT: "${alt}".`;
+            });
+            const blocks = splitCopyBlocks(header, lines);
+            const refresh = `<div style="margin-bottom:8px;"><button onclick="loadSectionShows(${index})" style="${regenBtnStyle}">↻ Rewrite section prompts</button></div>`;
+            return `<div style="border-top:1px solid #eee;padding-top:12px;margin-top:12px;"><div style="font-weight:800;font-size:14px;margin-bottom:6px;">3 · 🏠 Section images (${shows.length})</div>${refresh}` +
+                copyBoxHtml('', 'Style bible + people rules sit at the top of every paste. Save each image with the exact name shown.', blocks, '#00796b').replace('<div style="border-top:1px solid #eee;padding-top:12px;margin-top:12px;">', '<div>') + '</div>';
+        }
+        async function loadSectionShows(index) {
+            const idea = allIdeas.find(i => i.index === index); const d = window._drafts[index];
+            const status = document.getElementById(`secshow-status-${index}`);
+            if (status) { status.style.color = '#00695c'; status.textContent = '🔄 Reading your blog and writing the section prompts…'; }
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'section-shows', title: idea.currentTitle, draft: { bodyHtml: d.bodyHtml } }) });
+                const data = await readJson(r);
+                if (!data.success) throw new Error(data.error || 'Could not read the blog');
+                d.sectionShows = data.shows; persistDraft(index, d); renderImgpPanel(index);
+            } catch (e) { if (status) { status.style.color = '#a33'; status.textContent = '❌ ' + e.message; } }
         }
 
         function copyText(el) {
@@ -1837,7 +2072,7 @@
 
         // Make sure a saved/loaded state has all the maps we rely on.
         function normaliseProducts(s) {
-            return { awa: s.awa || [], needs: s.needs || [], collective: s.collective || [], collectivePool: s.collectivePool || [], prints: s.prints || [], extra: s.extra || [], selected: s.selected || {}, chosen: s.chosen || {}, keyword: s.keyword || '', trendHandle: s.trendHandle || '' };
+            return { awa: s.awa || [], needs: s.needs || [], collective: s.collective || [], collectivePool: s.collectivePool || [], prints: s.prints || [], extra: s.extra || [], selected: s.selected || {}, chosen: s.chosen || {}, keyword: s.keyword || '', trendHandle: s.trendHandle || '', confirmed: !!s.confirmed, confirmedAt: s.confirmedAt || '' };
         }
 
         function prodAll(index) {
@@ -2059,8 +2294,11 @@
                 ${collSection}
                 <div style="font-weight:700;font-size:13px;color:#2e7d32;margin:16px 0 4px;">➕ Extra products (not tied to a spot)</div>
                 ${prodAddBar(index)}
-                <div style="margin-top:14px;"><button onclick="saveSelection(${index},this)" style="background:#43a047;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-weight:800;font-size:14px;cursor:pointer;">💾 Save selection</button></div>
-                <div id="awaprompts-${index}" style="margin-top:16px;">${awaPromptsHtml(index)}</div>`;
+                <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+                    <button onclick="saveSelection(${index},this)" style="background:#43a047;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-weight:800;font-size:14px;cursor:pointer;">✓ Confirm my product picks</button>
+                    <div id="confirm-banner-${index}">${confirmBannerHtml(index)}</div>
+                </div>
+                <div style="margin-top:16px;font-size:12px;color:#00695c;background:#f3faf8;border:1px solid #cfe8e3;border-radius:8px;padding:10px 12px;">🖼️ Wall-art image prompts now live in <strong>Step 4 · Get image prompts</strong>, alongside the style bible, featured and section prompts.</div>`;
             out.innerHTML = stepBox(html);
             setStepDone(index, 'prod', open !== false);
         }
@@ -2410,16 +2648,32 @@
         }
 
         // Explicit "Save selection" button — same save, but with a clear ✅ so Mae knows it saved.
+        // A persistent green ✓ so she can SEE her picks are locked in (clears itself if she changes a pick).
+        function confirmBannerHtml(index) {
+            const s = window._products && window._products[index];
+            if (!s || !s.confirmed) return '';
+            const n = countConfirmed(index);
+            const when = s.confirmedAt ? new Date(s.confirmedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '';
+            return `<span style="display:inline-flex;align-items:center;gap:6px;background:#e8f5e9;border:1px solid #a5d6a7;color:#2e7d32;border-radius:20px;padding:6px 12px;font-size:13px;font-weight:700;">✓ ${n} product${n === 1 ? '' : 's'} confirmed &amp; locked in${when ? ' · ' + when : ''}</span>`;
+        }
+        function countConfirmed(index) {
+            const s = window._products && window._products[index]; if (!s) return 0;
+            const seen = new Set();
+            [...(s.prints || []), ...(s.collective || []), ...(s.extra || [])].forEach(p => { if (p && p.gid && s.selected && s.selected[p.gid]) seen.add(p.gid); });
+            return seen.size;
+        }
+        function refreshConfirmBanner(index) { const el = document.getElementById(`confirm-banner-${index}`); if (el) el.innerHTML = confirmBannerHtml(index); }
         function saveSelection(index, btn) {
             const idea = allIdeas.find(i => i.index === index);
             const s = window._products[index];
             if (!idea || !s) return;
             const orig = btn.textContent; btn.disabled = true; btn.textContent = '💾 Saving…';
+            s.confirmed = true; s.confirmedAt = new Date().toISOString();
             window._productsByTitle = window._productsByTitle || {};
             window._productsByTitle[(idea.currentTitle || '').toLowerCase()] = s;
             fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-products', title: idea.currentTitle, data: s }) })
                 .then(r => r.json())
-                .then(d => { btn.disabled = false; btn.textContent = (d && d.success) ? '✅ Saved' : '❌ Save failed'; setTimeout(() => btn.textContent = orig, 2200); })
+                .then(d => { btn.disabled = false; btn.textContent = (d && d.success) ? '✅ Confirmed' : '❌ Save failed'; refreshConfirmBanner(index); setTimeout(() => btn.textContent = orig, 2200); })
                 .catch(() => { btn.disabled = false; btn.textContent = '❌ Save failed'; setTimeout(() => btn.textContent = orig, 2200); });
         }
 
@@ -2428,6 +2682,7 @@
             const idea = allIdeas.find(i => i.index === index);
             const s = window._products[index];
             if (!idea || !s) return;
+            if (s.confirmed) { s.confirmed = false; refreshConfirmBanner(index); } // a pick changed — no longer locked in
             window._productsByTitle = window._productsByTitle || {};
             window._productsByTitle[(idea.currentTitle || '').toLowerCase()] = s;
             fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-products', title: idea.currentTitle, data: s }) }).catch(() => {});
