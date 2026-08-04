@@ -43,13 +43,17 @@ img.ph{width:100%;aspect-ratio:1/1;object-fit:contain;background:#f6f6f8;border-
 <script>
 let DATA = { store: [], supplier: [] };
 let matches = {};          // storeId -> {supplierId,supplierName} | {none:true}
-const termById = {};
+const termById = {};       // the word shown in each search box (default hint or your saved word)
+const userTerms = {};      // ONLY the words you typed yourself — these are what get saved
 const CACHE = 'dc-picker-cache-v2';
 
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
-function firstWord(s){return (s||'').toLowerCase().split('\n')[0].replace(/[^a-z0-9 ]/g,' ').trim().split(/\s+/)[0]||'';}
+function firstWord(s){const fill=new Set(['a','an','the','of','pair','set','and','with','for','in','on','classic','modern','new','my']);
+  const words=(s||'').toLowerCase().split('\n')[0].replace(/[^a-z0-9 ]/g,' ').trim().split(/\s+/).filter(Boolean);
+  for(const w of words){if(w.length>2 && !fill.has(w))return w;}
+  return words[0]||'';}
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600);}
-function cache(){localStorage.setItem(CACHE,JSON.stringify(matches));}
+function cache(){localStorage.setItem(CACHE,JSON.stringify({matches,userTerms}));}
 
 function stockSub(sp){const inS=sp.vars.filter(v=>v.s>0).length,tot=sp.vars.length;return inS+' / '+tot+' options in stock';}
 function candidates(term){term=(term||'').toLowerCase().trim();const a=term?DATA.supplier.filter(p=>p.name.toLowerCase().includes(term)):DATA.supplier;return a.slice(0,60);}
@@ -90,10 +94,10 @@ list.addEventListener('change',e=>{
   else if(e.target.classList.contains('cbnone')){const id=e.target.dataset.sid;
     if(e.target.checked)matches[id]={none:true};else delete matches[id];refresh(id);}
 });
-list.addEventListener('input',e=>{if(e.target.classList.contains('search')){const id=e.target.dataset.sid;termById[id]=e.target.value;
+list.addEventListener('input',e=>{if(e.target.classList.contains('search')){const id=e.target.dataset.sid;termById[id]=e.target.value;userTerms[id]=e.target.value;cache();
   document.querySelector('[data-cands="'+id+'"]').innerHTML=candsHTML(DATA.store.find(x=>x.id===id));}});
 
-function exportArray(){return DATA.store.map(st=>{const m=matches[st.id];return{storeId:st.id,storeTitle:st.title,supplierId:m&&!m.none?m.supplierId:null,supplierName:m&&!m.none?m.supplierName:null,notFromSupplier:!!(m&&m.none)};});}
+function exportArray(){return DATA.store.map(st=>{const m=matches[st.id];return{storeId:st.id,storeTitle:st.title,supplierId:m&&!m.none?m.supplierId:null,supplierName:m&&!m.none?m.supplierName:null,notFromSupplier:!!(m&&m.none),term:userTerms[st.id]!==undefined?userTerms[st.id]:null};});}
 document.getElementById('bDl').onclick=()=>{const b=new Blob([JSON.stringify(exportArray(),null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='dc-concepts-matches.json';a.click();};
 document.getElementById('bSave').onclick=async()=>{
   const btn=document.getElementById('bSave');btn.disabled=true;btn.textContent='Saving…';
@@ -109,7 +113,12 @@ document.getElementById('bSave').onclick=async()=>{
     if(j.error)throw new Error(j.error);
     DATA.store=j.store||[];DATA.supplier=j.supplier||[];
     matches={};
-    (j.matches||[]).forEach(m=>{if(m.notFromSupplier)matches[m.storeId]={none:true};else if(m.supplierId)matches[m.storeId]={supplierId:m.supplierId,supplierName:m.supplierName};});
+    (j.matches||[]).forEach(m=>{
+      if(m.notFromSupplier)matches[m.storeId]={none:true};else if(m.supplierId)matches[m.storeId]={supplierId:m.supplierId,supplierName:m.supplierName};
+      if(m.term)userTerms[m.storeId]=m.term;
+    });
+    try{const c=JSON.parse(localStorage.getItem(CACHE)||'null');if(c){Object.assign(matches,c.matches||{});Object.assign(userTerms,c.userTerms||{});}}catch(e){}
+    Object.keys(userTerms).forEach(id=>{termById[id]=userTerms[id];});
     render();
     if(j.templateMoved)toast(j.templateMoved+' new product(s) set to the DC template.');
   }catch(e){
