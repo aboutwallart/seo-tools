@@ -3,8 +3,12 @@
     "api/social.js": { "maxDuration": 300 },
     "api/shopify-video.js": { "maxDuration": 300 },
     "api/edu-video.py": { "maxDuration": 300 },
-    "api/blogs.js": { "maxDuration": 300 }
+    "api/blogs.js": { "maxDuration": 300 },
+    "api/dc-stock-sync.js": { "maxDuration": 60 }
   },
+  "crons": [
+    { "path": "/api/dc-stock-sync", "schedule": "0 6 * * *" }
+  ],
   "redirects": [
     {
       "source": "/:path*",
