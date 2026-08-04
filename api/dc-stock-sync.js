@@ -77,6 +77,18 @@ async function setMetafields(entries) {
   return errors;
 }
 
+// Shopify won't "set" a blank value — to revert to the made-to-order default we DELETE the metafield.
+async function deleteMetafields(entries) {
+  const errors = [];
+  for (let i = 0; i < entries.length; i += 25) {
+    const chunk = entries.slice(i, i + 25);
+    const q = `mutation { metafieldsDelete(metafields: [${chunk.map(e => `{ownerId:"${e.ownerId}", namespace:"custom", key:"${e.key}"}`).join(',')}]) { userErrors { field message } } }`;
+    const data = await shopifyGraphQL(q);
+    (data.metafieldsDelete.userErrors || []).forEach(e => errors.push(e));
+  }
+  return errors;
+}
+
 module.exports = async (req, res) => {
   try {
     const dry = req.query && (req.query.dry === '1' || req.query.dry === 'true');
@@ -103,7 +115,11 @@ module.exports = async (req, res) => {
     const summary = { feedProducts: Object.keys(feed).length, matched: preview.length, inStock, dispatch, madeToOrder: mto, supplierItemMissing: missing };
     if (dry) return res.status(200).json({ dryRun: true, summary, preview });
 
-    const errors = entries.length ? await setMetafields(entries) : [];
+    const toSet = entries.filter(e => e.value !== '');
+    const toDelete = entries.filter(e => e.value === '');
+    const errors = [];
+    if (toSet.length) errors.push(...await setMetafields(toSet));
+    if (toDelete.length) errors.push(...await deleteMetafields(toDelete));
     return res.status(200).json({ ok: errors.length === 0, updated: preview.length, summary, errors });
   } catch (e) {
     return res.status(500).json({ error: String(e && e.message || e) });
