@@ -2203,8 +2203,8 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true });
     }
 
-    // ===== LinkedIn Newsletter tab (v9.6) — additive, self-contained =====
-    if (action === 'linkedin-blogs' || action === 'linkedin-used' || action === 'linkedin-mark-sent' || action === 'linkedin-cover' || action === 'linkedin-generate') {
+    // ===== LinkedIn Newsletter tab (v9.7) — month-based, additive, self-contained =====
+    if (action === 'linkedin-plan' || action === 'linkedin-blogs' || action === 'linkedin-used' || action === 'linkedin-mark-sent' || action === 'linkedin-cover' || action === 'linkedin-generate') {
       const LI_USED = 'data/used-linkedin-blogs.json';
       const LI_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN, LI_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
       const liBody = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
@@ -2224,37 +2224,76 @@ module.exports = async (req, res) => {
         const j = await r.json();
         return (j.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('\n');
       }
-
-      // --- list published blogs (variety pick of 4, never a draft/scheduled, never a used one) ---
-      if (action === 'linkedin-blogs') {
+      const LI_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      function liYM(s) { return (s || '').slice(0, 7); }
+      function liTuesdays(ym) {
+        const p = ym.split('-'); const y = +p[0], m = +p[1]; const out = [];
+        const d = new Date(Date.UTC(y, m - 1, 1));
+        while (d.getUTCMonth() === m - 1) { if (d.getUTCDay() === 2) out.push(d.toISOString().slice(0, 10)); d.setUTCDate(d.getUTCDate() + 1); }
+        return out;
+      }
+      async function liAvailBlogs() {
         const usedH = new Set((await liUsedList()).map(function (u) { return u.handle; }));
-        const gq = 'query($q:String!,$n:Int!){ articles(first:$n, sortKey:PUBLISHED_AT, reverse:true, query:$q){ edges{ node{ title handle publishedAt isPublished image{url altText} tags } } } }';
-        const j = await liShopify(gq, { q: 'blog_id:93572858142 published_status:published', n: 50 });
+        const gq = 'query($q:String!,$n:Int!){ articles(first:$n, sortKey:PUBLISHED_AT, reverse:true, query:$q){ edges{ node{ title handle isPublished image{url} tags } } } }';
+        const j = await liShopify(gq, { q: 'blog_id:93572858142 published_status:published', n: 60 });
         const edges = ((((j || {}).data || {}).articles || {}).edges) || [];
-        const list = edges.map(function (e) { return e.node; }).filter(function (n) { return n && n.isPublished !== false; }).map(function (n) {
-          return { handle: n.handle, title: n.title, publishedAt: n.publishedAt, image: (n.image && n.image.url) || '', tags: n.tags || [], used: usedH.has(n.handle) };
-        });
-        const avail = list.filter(function (x) { return !x.used; });
-        const picked = []; const seen = new Set();
-        for (const b of avail) { const t = (b.tags[0] || 'misc'); if (!seen.has(t)) { seen.add(t); picked.push(b); } if (picked.length >= 4) break; }
-        if (picked.length < 4) { for (const b of avail) { if (picked.indexOf(b) < 0) picked.push(b); if (picked.length >= 4) break; } }
-        return res.status(200).json({ ok: true, picked: picked, all: list });
+        return edges.map(function (e) { return e.node; }).filter(function (n) { return n && n.isPublished !== false && !usedH.has(n.handle); }).map(function (n) { return { handle: n.handle, title: n.title, image: (n.image && n.image.url) || '', tags: n.tags || [] }; });
+      }
+      function liVarietyPick(avail, need) {
+        const picks = []; const seen = new Set();
+        for (const b of avail) { const t = (b.tags[0] || 'misc'); if (!seen.has(t)) { seen.add(t); picks.push(b); } if (picks.length >= need) break; }
+        if (picks.length < need) { for (const b of avail) { if (picks.indexOf(b) < 0) picks.push(b); if (picks.length >= need) break; } }
+        return picks;
+      }
+
+      // --- month plan: upcoming months with how many newsletters each still needs + complete flag ---
+      if (action === 'linkedin-plan') {
+        const used = await liUsedList();
+        const now = new Date(); const todayStr = now.toISOString().slice(0, 10);
+        const cy = now.getUTCFullYear(), cm = now.getUTCMonth();
+        const months = [];
+        for (let i = 0; i < 8; i++) {
+          const dt = new Date(Date.UTC(cy, cm + i, 1));
+          const ym = dt.toISOString().slice(0, 7);
+          const tues = liTuesdays(ym);
+          const doneEntries = used.filter(function (u) { return liYM(u.date) === ym; });
+          const doneDates = doneEntries.map(function (u) { return u.date; });
+          const openTues = tues.filter(function (t) { return doneDates.indexOf(t) < 0 && t >= todayStr; });
+          months.push({ month: ym, label: LI_MONTHS[dt.getUTCMonth()] + ' ' + dt.getUTCFullYear(), need: openTues.length, complete: openTues.length === 0, used: doneEntries.sort(function (a, b) { return (a.date || '').localeCompare(b.date || ''); }) });
+        }
+        return res.status(200).json({ ok: true, months: months });
+      }
+
+      // --- blogs needed for one month, each paired with the next open Tuesday date ---
+      if (action === 'linkedin-blogs') {
+        const ym = liBody.month || new Date().toISOString().slice(0, 7);
+        const used = await liUsedList();
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const doneDates = used.filter(function (u) { return liYM(u.date) === ym; }).map(function (u) { return u.date; });
+        const openTues = liTuesdays(ym).filter(function (t) { return doneDates.indexOf(t) < 0 && t >= todayStr; });
+        const avail = await liAvailBlogs();
+        const need = openTues.length;
+        const picks = liVarietyPick(avail, need).map(function (b, i) { return Object.assign({}, b, { slotDate: openTues[i] }); });
+        const takenH = new Set(picks.map(function (p) { return p.handle; }));
+        const alts = avail.filter(function (b) { return !takenH.has(b.handle); }).slice(0, 8);
+        return res.status(200).json({ ok: true, month: ym, need: need, slots: openTues, picks: picks, alts: alts });
       }
 
       if (action === 'linkedin-used') {
         return res.status(200).json({ ok: true, used: await liUsedList() });
       }
 
-      // --- mark a blog as sent so it is never reused ---
+      // --- record a blog as scheduled for its date, so it is never reused ---
       if (action === 'linkedin-mark-sent') {
-        const h = liBody.handle, ti = liBody.title || '';
+        const h = liBody.handle, ti = liBody.title || '', dat = liBody.date || new Date().toISOString().slice(0, 10);
         if (!h) return res.status(200).json({ ok: false, error: 'Missing handle' });
         await ghSave(LI_USED, function (content) {
           let d = { used: [] };
           if (content) { try { d = JSON.parse(content); if (!Array.isArray(d.used)) d.used = []; } catch (e) { d = { used: [] }; } }
-          if (!d.used.some(function (u) { return u.handle === h; })) d.used.push({ handle: h, title: ti, sentDate: new Date().toISOString().slice(0, 10) });
+          d.used = d.used.filter(function (u) { return u.handle !== h; });
+          d.used.push({ handle: h, title: ti, date: dat });
           return JSON.stringify(d, null, 2);
-        }, 'LinkedIn newsletter sent: ' + h);
+        }, 'LinkedIn newsletter scheduled: ' + h + ' @ ' + dat);
         return res.status(200).json({ ok: true });
       }
 
@@ -2282,33 +2321,32 @@ module.exports = async (req, res) => {
         if (node.isPublished === false) return res.status(200).json({ ok: false, error: 'That blog is not published — only published blogs are used.' });
         const srcBody = node.body || '';
         const coverUrl = (node.image && node.image.url) || '';
+        const topic = (node.title || '').replace(/["<>]/g, '');
         const prompt = '<blog>\n' + srcBody + '\n</blog>\n\n' +
-          'You are Mae, an interior-design consultant writing About Wall Art\'s LinkedIn NEWSLETTER "The Modern Sanctuary" for an audience of INTERIOR DESIGNERS. Rewrite the blog above into a ~1200-1400 word LinkedIn newsletter.\n' +
+          'You are Mae, an interior-design consultant writing About Wall Art\'s LinkedIn NEWSLETTER "The Modern Sanctuary" for an audience of INTERIOR DESIGNERS. Rewrite the blog above into a ~1200-1400 word LinkedIn newsletter. The blog topic is: "' + topic + '".\n' +
           'RULES:\n' +
           '- Warm, first-person, plain UK-English advisor voice, designer-to-designer. Genuinely rewrite it (do NOT reuse the blog sentences). Never use the words: elevate, delve, showcase, dive, seamless, curated, tapestry, "in conclusion", boasts, nestled.\n' +
           '- Keep EVERY image and EVERY product from the blog, IN THE SAME ORDER, reusing the EXACT same src and href values. Never invent or change a URL.\n' +
-          '- Each PRODUCT in the source is an <a href="...aboutwallart.com/products/..."> wrapping an <img>, followed by a SHOP HERE link. Reproduce each as: the <img> wrapped in its product <a target="_blank" rel="noopener">, then on its own line <p style="margin:8px 0 30px;font-weight:700;text-align:center;"><a href="PRODUCT_URL" target="_blank" rel="noopener">SHOP HERE &#8594;</a></p>.\n' +
-          '- Each SECTION (non-product) image: keep its <img> unchanged.\n' +
+          '- On EVERY <img> you output, add a data-cap="..." attribute holding a short caption for THAT SPECIFIC image. SECTION image: describe what is actually shown and the point of its section, staying strictly within this blog\'s topic ("' + topic + '") — NEVER name a different design style than the blog is about. PRODUCT image: the product\'s name only.\n' +
+          '- Each PRODUCT in the source is an <a href="...aboutwallart.com/products/..."> wrapping an <img>, followed by a SHOP HERE link. Reproduce each as: the <img> (keeping its data-cap) wrapped in its product <a target="_blank" rel="noopener">, then on its own line <p style="margin:8px 0 30px;font-weight:700;text-align:center;"><a href="PRODUCT_URL" target="_blank" rel="noopener">SHOP HERE &#8594;</a></p>.\n' +
           '- Use <h2> for section headings, <p> for paragraphs, <ul><li> for lists. No inline styles except the SHOP HERE line above. No <html>/<head>/<body> tags.\n' +
           '- Summarise heavy tables and room-by-room detail briefly and push the full detail to the blog link.\n' +
           '- End the body with <p><a href="https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/' + h + '" target="_blank" rel="noopener">read the full guide on our site &#8594;</a></p> then one short question to the designers.\n\n' +
           'OUTPUT EXACTLY in this format, using these exact markers and NOTHING else:\n' +
           '###TITLE###\n(a NEW SEO title, clearly different wording from the blog title so it does not compete with the blog on Google)\n' +
-          '###COVERCAPTION###\n(one engaging line for the cover image)\n' +
+          '###COVERCAPTION###\n(one engaging line for the cover image, about this blog\'s topic)\n' +
           '###ANNOUNCEMENT###\n(2 to 3 short sentences that go out as the newsletter email/announcement)\n' +
           '###HASHTAGS###\n(5 relevant hashtags separated by spaces, each starting with #)\n' +
-          '###CAPTIONS###\n(one line per image IN ORDER — a short caption describing that image or its section point)\n' +
-          '###BODY###\n(the full newsletter body HTML)\n###END###';
+          '###BODY###\n(the full newsletter body HTML, every <img> carrying its own data-cap)\n###END###';
         let raw = await liCallAI(prompt, 6000);
         function seg(a, b) { const i = raw.indexOf(a); if (i < 0) return ''; const s = i + a.length; let e = b ? raw.indexOf(b, s) : raw.length; if (e < 0) e = raw.length; return raw.slice(s, e).trim(); }
         const data = {
           seoTitle: seg('###TITLE###', '###COVERCAPTION###'),
           coverCaption: seg('###COVERCAPTION###', '###ANNOUNCEMENT###'),
           announcement: seg('###ANNOUNCEMENT###', '###HASHTAGS###'),
-          hashtags: seg('###HASHTAGS###', '###CAPTIONS###'),
-          captions: seg('###CAPTIONS###', '###BODY###').split('\n').map(function (s) { return s.replace(/^[\-*\d.\)\s]+/, '').trim(); }).filter(Boolean),
+          hashtags: seg('###HASHTAGS###', '###BODY###'),
           bodyHtml: seg('###BODY###', '###END###'),
-          coverUrl: coverUrl, handle: h, blogTitle: node.title || ''
+          coverUrl: coverUrl, handle: h, blogTitle: node.title || '', scheduleDate: liBody.date || ''
         };
         if (!data.bodyHtml) return res.status(200).json({ ok: false, error: 'Generation came back empty — please try again.' });
         return res.status(200).json({ ok: true, data: data });
