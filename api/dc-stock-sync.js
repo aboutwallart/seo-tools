@@ -89,6 +89,27 @@ async function deleteMetafields(entries) {
   return errors;
 }
 
+// Make sure every DC Concept product sits on the dc-concepts template (catches newly added ones).
+async function ensureTemplates(dry) {
+  let after = null, checked = 0;
+  const toMove = [];
+  while (true) {
+    const q = `query { products(first: 100, after: ${after ? `"${after}"` : 'null'}, query: "vendor:'DC Concept'") { pageInfo { hasNextPage endCursor } edges { node { id templateSuffix } } } }`;
+    const c = (await shopifyGraphQL(q)).products;
+    c.edges.forEach(e => { checked++; if (e.node.templateSuffix !== 'dc-concepts') toMove.push(e.node.id); });
+    if (!c.pageInfo.hasNextPage) break;
+    after = c.pageInfo.endCursor;
+  }
+  if (!dry) {
+    for (let i = 0; i < toMove.length; i += 25) {
+      const chunk = toMove.slice(i, i + 25);
+      const m = `mutation { ${chunk.map((id, j) => `m${j}: productUpdate(input:{id:"${id}", templateSuffix:"dc-concepts"}){ userErrors { message } }`).join(' ')} }`;
+      await shopifyGraphQL(m);
+    }
+  }
+  return { checked, moved: toMove.length };
+}
+
 module.exports = async (req, res) => {
   try {
     const dry = req.query && (req.query.dry === '1' || req.query.dry === 'true');
@@ -112,7 +133,9 @@ module.exports = async (req, res) => {
       preview.push({ product: m.storeTitle, status: f.dc_status || 'made-to-order', production: f.dc_production, delivery: f.dc_delivery_time });
     }
 
-    const summary = { feedProducts: Object.keys(feed).length, matched: preview.length, inStock, dispatch, madeToOrder: mto, supplierItemMissing: missing };
+    const templates = await ensureTemplates(dry);
+
+    const summary = { feedProducts: Object.keys(feed).length, matched: preview.length, inStock, dispatch, madeToOrder: mto, supplierItemMissing: missing, dcProducts: templates.checked, templateMoved: templates.moved };
     if (dry) return res.status(200).json({ dryRun: true, summary, preview });
 
     const toSet = entries.filter(e => e.value !== '');
