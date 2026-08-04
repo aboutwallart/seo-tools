@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.5 · 21 Jul 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.6 · 4 Aug 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -221,7 +221,35 @@
   <button class="tabbtn" type="button" data-tab="video"><i class="ti ti-movie"></i> 2 · Video Creation</button>
   <button class="tabbtn" type="button" data-tab="edu"><i class="ti ti-school"></i> 3 · Educational Video</button>
   <button class="tabbtn" type="button" data-tab="schedule"><i class="ti ti-calendar"></i> 4 · Schedule</button>
+  <button class="tabbtn" type="button" data-tab="linkedin"><i class="ti ti-brand-linkedin"></i> 5 · LinkedIn Newsletter</button>
 </nav>
+<section class="tabpanel" id="tab-linkedin">
+  <style>
+    #tab-linkedin .libtn{display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:600;border:1px solid var(--line,#ddd);background:#0a66c2;color:#fff;border-radius:8px;padding:9px 16px;cursor:pointer;}
+    #tab-linkedin .libtn.ghost{background:#fff;color:#0a66c2;}
+    #tab-linkedin .libtn:disabled{opacity:.5;cursor:default;}
+    #tab-linkedin .lipick{display:flex;gap:14px;align-items:center;border:1px solid var(--line,#e6e6e6);border-radius:12px;padding:12px;margin:10px 0;background:#fff;}
+    #tab-linkedin .lipick img{width:120px;height:80px;object-fit:cover;border-radius:8px;flex:none;}
+    #tab-linkedin .listep{border:1px solid var(--line,#e6e6e6);border-radius:12px;padding:14px 16px;margin:14px 0;background:#fff;}
+    #tab-linkedin .listep h4{margin:0 0 8px;font-size:15px;}
+    #tab-linkedin .libox{width:100%;box-sizing:border-box;border:1px solid var(--line,#ddd);border-radius:8px;padding:10px;font:14px/1.5 inherit;background:#fafafa;}
+    #tab-linkedin .licopy{font-size:12px;font-weight:600;border:1px solid var(--line,#ddd);background:#fff;color:#0a66c2;border-radius:6px;padding:5px 12px;cursor:pointer;margin-top:8px;}
+    #tab-linkedin .licopy.done{background:#E9F7F1;color:#0F6E56;border-color:#bbf7d0;}
+    #tab-linkedin .licap{display:flex;gap:12px;align-items:center;border-top:1px solid #f0f0f0;padding:10px 0;}
+    #tab-linkedin .licap img{width:74px;height:52px;object-fit:cover;border-radius:6px;flex:none;}
+    #tab-linkedin .libody{border:1px solid #eee;border-radius:8px;padding:14px;max-height:340px;overflow:auto;background:#fff;}
+    #tab-linkedin .libody img{max-width:100%;height:auto;}
+    #tab-linkedin .lismall{color:#666;font-size:13px;}
+  </style>
+  <h2>LinkedIn Newsletter — “The Modern Sanctuary”</h2>
+  <p class="lismall">Turns published blogs into LinkedIn newsletters for your interior-designer subscribers. Variety first (never the same topic twice), never a draft or scheduled blog, never one already used. One a week — Tuesday 09:00 UK.</p>
+  <div style="margin:16px 0;">
+    <button class="libtn" id="liFind" type="button"><i class="ti ti-refresh"></i> Find blogs to turn into newsletters</button>
+    <span id="liMsg" class="lismall" style="margin-left:12px;"></span>
+  </div>
+  <div id="liPicks"></div>
+  <div id="liOut"></div>
+</section>
 <section class="tabpanel" id="tab-video">
 <h2 id="cardsHeading">Your video cards — tick each when made</h2>
 <div class="vcard gen" id="genBATHBOT47" data-sku="BATHBOT47" data-title="Bathroom wall art framed | set of 3 wall art" data-room="Bathroom" data-start=""><div class="chead"><img class="thumb" src="https://cdn.shopify.com/s/files/1/0710/7693/8014/products/watercolour-greenery-prints-for-bathroom-uk-set-of-3-wall-art-314774.jpg?v=1749590893" alt="Bathroom wall art framed | set of 3 wall art" loading="lazy"><div class="hmeta"><div class="hrow"><span class="day sku-big">BATHBOT47</span><span class="chip">9:16</span><span class="badge new"><i class="ti ti-wand"></i> Generate prompt</span></div><div class="ptitle">Bathroom wall art framed | set of 3 wall art</div><div class="plink"><i class="ti ti-link"></i> <a href="https://aboutwallart.com/products/watercolour-greenery-prints-for-bathroom-uk-set-of-3-wall-art" target="_blank">https://aboutwallart.com/products/watercolour-greenery-prints-for-bathroom-uk-set-of-3-wall-art</a><button class="copy" type="button" data-copy="https://aboutwallart.com/products/watercolour-greenery-prints-for-bathroom-uk-set-of-3-wall-art" onclick="cc(this)"><i class="ti ti-copy"></i> Copy</button></div></div></div><div class="cbody"><div class="genrow"><div class="upbox"><div class="uplabel">Start — upload your frame</div><label class="upframe updrop"><input type="file" accept="image/*" class="startfile" hidden><span class="uphint starthint"><i class="ti ti-upload"></i><br>Click or drop<br>start frame</span><img class="startprev" style="display:none" alt="start frame"></label></div><div class="upbox"><div class="uplabel">End — upload your frame</div><label class="upframe updrop"><input type="file" accept="image/*" class="endfile" hidden><span class="uphint endhint"><i class="ti ti-upload"></i><br>Click or drop<br>end frame</span><img class="endprev" style="display:none" alt="end frame"></label></div></div><button class="genbtn" type="button"><i class="ti ti-wand"></i> Generate Kling prompt</button><div class="genstatus"></div><div class="zone" style="border-left:4px solid #534AB7;background:#F3F2FE;"><div class="zlabel" style="color:#3C3489;"><i class="ti ti-movie"></i> Kling prompt — image to video · 8s</div><p class="ptext genptext"><span class="genempty">Upload a start + end frame, then press Generate.</span></p><button class="copy genpcopy" type="button" data-copy="" onclick="cc(this)" style="display:none"><i class="ti ti-copy"></i> Copy</button></div><div class="zone" style="border-left:4px solid #1D9E75;background:#E9F7F1;"><div class="zlabel" style="color:#0F6E56;"><i class="ti ti-text-caption"></i> On-screen text — pick one · feeling only, no product name</div><div class="optgrid genopts"><span class="genempty">Generated together with the prompt.</span></div></div></div></div>
@@ -703,7 +731,7 @@
   // month dropdown: this month + next 5
   (function(){
     var now = new Date(), sel = $('mpMonth');
-    for(var i=0;i<15;i++){
+    for(var i=1;i<=15;i++){
       var d = new Date(now.getFullYear(), now.getMonth()+i, 1);
       var val = d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2);
       var o = document.createElement('option');
@@ -721,7 +749,7 @@
     // rebuild the month list, hiding months already planned (view/edit those in "Your saved months"); restores them if she Undoes
     var sel=$('mpMonth'); var cur=sel.value; var now=new Date();
     sel.innerHTML='';
-    for(var i=0;i<15;i++){
+    for(var i=1;i<=15;i++){
       var d=new Date(now.getFullYear(), now.getMonth()+i, 1);
       var val=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2);
       if(SAVED_MONTHS[val]) continue;
@@ -1134,7 +1162,7 @@
   }
 })();
 </script>
-<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v9.5 — built 21 Jul 2026.</p>
+<p class="small" style="margin-top:30px;">About Wall Art — Social Content Tool v9.6 — built 4 Aug 2026 (added the LinkedIn Newsletter tab).</p>
 </div>
 <script>
 function cc(btn){
@@ -1187,6 +1215,101 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       window.scrollTo({top:0, behavior:'smooth'});
     });
   });
+})();
+
+/* ===== LinkedIn Newsletter tab (v9.6) — self-contained ===== */
+(function(){
+  var findBtn=document.getElementById('liFind'); if(!findBtn) return;
+  var msg=document.getElementById('liMsg'), picksEl=document.getElementById('liPicks'), outEl=document.getElementById('liOut');
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  function post(p){ return fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)}).then(function(r){return r.json();}); }
+  function flash(btn,txt){ var o=btn.textContent; btn.textContent=txt||'Copied ✓'; btn.classList.add('done'); setTimeout(function(){btn.textContent=o;btn.classList.remove('done');},1300); }
+  function copyText(t,btn){ navigator.clipboard.writeText(t).then(function(){flash(btn);}); }
+  function box(label,text){
+    var w=document.createElement('div'); w.className='listep';
+    var h=document.createElement('h4'); h.textContent=label; w.appendChild(h);
+    var d=document.createElement('div'); d.className='libox'; d.style.whiteSpace='pre-wrap'; d.textContent=text; w.appendChild(d);
+    var b=document.createElement('button'); b.className='licopy'; b.type='button'; b.textContent='Copy'; b.addEventListener('click',function(){copyText(text,b);}); w.appendChild(b);
+    return w;
+  }
+  function pageTemplate(body){
+    return '<!doctype html><html><head><meta charset="utf-8"><title>LinkedIn Newsletter — copy from here</title>'+
+      '<style>body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:760px;margin:0 auto;padding:28px 22px;color:#111;line-height:1.6;font-size:18px;}h2{font-size:26px;margin:34px 0 10px;}h3{font-size:21px;margin:24px 0 8px;}img{max-width:100%;height:auto;display:block;margin:22px auto;}a{color:#0a66c2;}</style>'+
+      '</head><body>'+body+'</body></html>';
+  }
+  function copyRich(html,btn){
+    try{
+      var bH=new Blob([html],{type:'text/html'}), bT=new Blob([html.replace(/<[^>]+>/g,'')],{type:'text/plain'});
+      if(window.ClipboardItem && navigator.clipboard && navigator.clipboard.write){
+        navigator.clipboard.write([new ClipboardItem({'text/html':bH,'text/plain':bT})]).then(function(){flash(btn,'Copied ✓');},function(){fallbackRich(btn);});
+      } else { fallbackRich(btn); }
+    }catch(e){ fallbackRich(btn); }
+  }
+  function fallbackRich(btn){
+    var prev=btn.parentNode.querySelector('.libody'); if(!prev){ flash(btn,'Use Download'); return; }
+    var rng=document.createRange(); rng.selectNodeContents(prev); var sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(rng);
+    try{ document.execCommand('copy'); flash(btn,'Copied ✓'); }catch(e){ flash(btn,'Select & copy'); } sel.removeAllRanges();
+  }
+  findBtn.addEventListener('click',function(){
+    msg.textContent='Finding published blogs…'; picksEl.innerHTML=''; outEl.innerHTML=''; findBtn.disabled=true;
+    post({action:'linkedin-blogs'}).then(function(d){
+      findBtn.disabled=false;
+      if(!d||!d.ok){ msg.textContent='Could not load blogs'+((d&&d.error)?(': '+d.error):'.'); return; }
+      var picked=d.picked||[];
+      if(!picked.length){ msg.textContent='No new published blogs — all recent ones are already used.'; return; }
+      msg.textContent=picked.length+' picked (variety first). Choose one:';
+      picked.forEach(function(b){
+        var row=document.createElement('div'); row.className='lipick';
+        var img=document.createElement('img'); img.src=b.image; img.alt=''; row.appendChild(img);
+        var mid=document.createElement('div'); mid.style.flex='1'; mid.innerHTML='<div style="font-weight:600;">'+esc(b.title)+'</div><div class="lismall">'+esc((b.tags||[]).slice(0,3).join(' · '))+'</div>'; row.appendChild(mid);
+        var go=document.createElement('button'); go.className='libtn'; go.type='button'; go.textContent='Make newsletter'; go.addEventListener('click',function(){generate(b,go);}); row.appendChild(go);
+        picksEl.appendChild(row);
+      });
+    }).catch(function(){ findBtn.disabled=false; msg.textContent='Network error.'; });
+  });
+  function generate(blog,btn){
+    btn.disabled=true; var o=btn.textContent; btn.textContent='Writing…';
+    outEl.innerHTML='<p class="lismall">Writing the newsletter — this takes a moment…</p>';
+    post({action:'linkedin-generate',handle:blog.handle}).then(function(d){
+      btn.disabled=false; btn.textContent=o;
+      if(!d||!d.ok){ outEl.innerHTML='<p class="lismall">Could not write it'+((d&&d.error)?(': '+esc(d.error)):'.')+'</p>'; return; }
+      render(d.data,blog);
+    }).catch(function(){ btn.disabled=false; btn.textContent=o; outEl.innerHTML='<p class="lismall">Network error — try again.</p>'; });
+  }
+  function render(data,blog){
+    outEl.innerHTML='';
+    var head=document.createElement('div'); head.className='listep'; head.innerHTML='<h4>Newsletter ready — follow the steps in order</h4><div class="lismall">From blog: '+esc(data.blogTitle||blog.title)+'</div>'; outEl.appendChild(head);
+    var s1=document.createElement('div'); s1.className='listep'; s1.innerHTML='<h4>1 · Cover image</h4>';
+    if(data.coverUrl){ var cim=document.createElement('img'); cim.src=data.coverUrl; cim.style.cssText='max-width:320px;border-radius:8px;display:block;margin:6px 0 10px;'; s1.appendChild(cim); }
+    var dlc=document.createElement('button'); dlc.className='libtn ghost'; dlc.type='button'; dlc.textContent='Download cover (16:9, SEO-named)';
+    dlc.addEventListener('click',function(){
+      dlc.disabled=true; var oo=dlc.textContent; dlc.textContent='Preparing…';
+      post({action:'linkedin-cover',url:data.coverUrl}).then(function(r){
+        dlc.disabled=false; dlc.textContent=oo;
+        if(!r||!r.ok){ alert('Could not prepare the cover'+((r&&r.error)?(': '+r.error):'.')); return; }
+        var a=document.createElement('a'); a.href=r.dataUrl; a.download=data.handle+'.png'; document.body.appendChild(a); a.click(); a.remove();
+      }).catch(function(){ dlc.disabled=false; dlc.textContent=oo; alert('Network error.'); });
+    });
+    s1.appendChild(dlc); outEl.appendChild(s1);
+    outEl.appendChild(box('2 · Cover caption',data.coverCaption));
+    outEl.appendChild(box('3 · Title',data.seoTitle));
+    var s4=document.createElement('div'); s4.className='listep'; s4.innerHTML='<h4>4 · Body</h4><div class="lismall">Copy the formatted body, then paste into the LinkedIn newsletter body — images and formatting come across.</div>';
+    var prev=document.createElement('div'); prev.className='libody'; prev.innerHTML=data.bodyHtml; s4.appendChild(prev);
+    var cb=document.createElement('button'); cb.className='licopy'; cb.type='button'; cb.textContent='Copy body (formatted)'; cb.addEventListener('click',function(){copyRich(data.bodyHtml,cb);}); s4.appendChild(cb);
+    var dp=document.createElement('button'); dp.className='licopy'; dp.type='button'; dp.style.marginLeft='8px'; dp.textContent='Download page to copy from';
+    dp.addEventListener('click',function(){ var blob=new Blob([pageTemplate(data.bodyHtml)],{type:'text/html'}); var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='linkedin-'+data.handle+'.html'; document.body.appendChild(a); a.click(); a.remove(); });
+    s4.appendChild(dp); outEl.appendChild(s4);
+    var s5=document.createElement('div'); s5.className='listep'; s5.innerHTML='<h4>5 · Image captions <span class="lismall">(in image order — click each image in LinkedIn and paste)</span></h4>';
+    var tmp=document.createElement('div'); tmp.innerHTML=data.bodyHtml; var imgs=Array.prototype.slice.call(tmp.querySelectorAll('img')); var caps=data.captions||[];
+    imgs.forEach(function(im,i){ var cap=caps[i]||''; var row=document.createElement('div'); row.className='licap'; var t=document.createElement('img'); t.src=im.src; row.appendChild(t); var mid=document.createElement('div'); mid.style.flex='1'; mid.className='libox'; mid.style.whiteSpace='pre-wrap'; mid.textContent=cap; row.appendChild(mid); var b=document.createElement('button'); b.className='licopy'; b.type='button'; b.textContent='Copy'; b.addEventListener('click',function(){copyText(cap,b);}); row.appendChild(b); s5.appendChild(row); });
+    outEl.appendChild(s5);
+    outEl.appendChild(box('6 · Announcement text (the newsletter email) — paste this with the hashtags', data.announcement+'\n\n'+data.hashtags));
+    var s7=document.createElement('div'); s7.className='listep'; s7.innerHTML='<h4>7 · Schedule &amp; record</h4><div class="lismall">Schedule it for <b>Tuesday, 09:00 UK</b> (one a week). Then mark it sent so this blog is never reused.</div>';
+    var ms=document.createElement('button'); ms.className='libtn'; ms.type='button'; ms.textContent='Mark as sent';
+    ms.addEventListener('click',function(){ ms.disabled=true; ms.textContent='Saving…'; post({action:'linkedin-mark-sent',handle:data.handle,title:data.seoTitle||blog.title}).then(function(r){ if(r&&r.ok){ ms.textContent='Recorded ✓'; } else { ms.disabled=false; ms.textContent='Mark as sent'; alert('Could not record'+((r&&r.error)?(': '+r.error):'.')); } }).catch(function(){ ms.disabled=false; ms.textContent='Mark as sent'; alert('Network error.'); }); });
+    s7.appendChild(ms); outEl.appendChild(s7);
+    outEl.scrollIntoView({behavior:'smooth'});
+  }
 })();
 
 /* ---- video cards: ticks (saved to GitHub) + grey/sink when both ticked ---- */
