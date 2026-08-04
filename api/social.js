@@ -2203,6 +2203,118 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true });
     }
 
+    // ===== LinkedIn Newsletter tab (v9.6) — additive, self-contained =====
+    if (action === 'linkedin-blogs' || action === 'linkedin-used' || action === 'linkedin-mark-sent' || action === 'linkedin-cover' || action === 'linkedin-generate') {
+      const LI_USED = 'data/used-linkedin-blogs.json';
+      const LI_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN, LI_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
+      const liBody = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+
+      async function liUsedList() {
+        const gh = await ghGet(LI_USED);
+        if (gh.content) { try { const d = JSON.parse(gh.content); return Array.isArray(d.used) ? d.used : []; } catch (e) {} }
+        return [];
+      }
+      async function liShopify(gq, vars) {
+        const r = await fetch('https://' + LI_DOMAIN + '/admin/api/2025-01/graphql.json', { method: 'POST', headers: { 'X-Shopify-Access-Token': LI_TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ query: gq, variables: vars }) });
+        return r.json();
+      }
+      async function liCallAI(prompt, maxTok) {
+        const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: maxTok, messages: [{ role: 'user', content: prompt }] }) });
+        if (!r.ok) throw new Error('AI ' + r.status);
+        const j = await r.json();
+        return (j.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('\n');
+      }
+
+      // --- list published blogs (variety pick of 4, never a draft/scheduled, never a used one) ---
+      if (action === 'linkedin-blogs') {
+        const usedH = new Set((await liUsedList()).map(function (u) { return u.handle; }));
+        const gq = 'query($q:String!,$n:Int!){ articles(first:$n, sortKey:PUBLISHED_AT, reverse:true, query:$q){ edges{ node{ title handle publishedAt isPublished image{url altText} tags } } } }';
+        const j = await liShopify(gq, { q: 'blog_id:93572858142 published_status:published', n: 50 });
+        const edges = ((((j || {}).data || {}).articles || {}).edges) || [];
+        const list = edges.map(function (e) { return e.node; }).filter(function (n) { return n && n.isPublished !== false; }).map(function (n) {
+          return { handle: n.handle, title: n.title, publishedAt: n.publishedAt, image: (n.image && n.image.url) || '', tags: n.tags || [], used: usedH.has(n.handle) };
+        });
+        const avail = list.filter(function (x) { return !x.used; });
+        const picked = []; const seen = new Set();
+        for (const b of avail) { const t = (b.tags[0] || 'misc'); if (!seen.has(t)) { seen.add(t); picked.push(b); } if (picked.length >= 4) break; }
+        if (picked.length < 4) { for (const b of avail) { if (picked.indexOf(b) < 0) picked.push(b); if (picked.length >= 4) break; } }
+        return res.status(200).json({ ok: true, picked: picked, all: list });
+      }
+
+      if (action === 'linkedin-used') {
+        return res.status(200).json({ ok: true, used: await liUsedList() });
+      }
+
+      // --- mark a blog as sent so it is never reused ---
+      if (action === 'linkedin-mark-sent') {
+        const h = liBody.handle, ti = liBody.title || '';
+        if (!h) return res.status(200).json({ ok: false, error: 'Missing handle' });
+        await ghSave(LI_USED, function (content) {
+          let d = { used: [] };
+          if (content) { try { d = JSON.parse(content); if (!Array.isArray(d.used)) d.used = []; } catch (e) { d = { used: [] }; } }
+          if (!d.used.some(function (u) { return u.handle === h; })) d.used.push({ handle: h, title: ti, sentDate: new Date().toISOString().slice(0, 10) });
+          return JSON.stringify(d, null, 2);
+        }, 'LinkedIn newsletter sent: ' + h);
+        return res.status(200).json({ ok: true });
+      }
+
+      // --- cover image: 16:9 centre-crop via Shopify's own CDN transform, returned as base64 for a clean SEO-named download ---
+      if (action === 'linkedin-cover') {
+        let u = liBody.url || '';
+        if (!u) return res.status(200).json({ ok: false, error: 'Missing url' });
+        u = u.replace(/([?&])(width|height|crop)=[^&]*/g, '$1').replace(/[?&]+$/, '').replace(/([?&])&+/g, '$1');
+        u += (u.indexOf('?') >= 0 ? '&' : '?') + 'width=1200&height=675&crop=center';
+        const r = await fetch(u);
+        if (!r.ok) return res.status(200).json({ ok: false, error: 'Image fetch ' + r.status });
+        const buf = Buffer.from(await r.arrayBuffer());
+        const ct = r.headers.get('content-type') || 'image/png';
+        return res.status(200).json({ ok: true, dataUrl: 'data:' + ct + ';base64,' + buf.toString('base64') });
+      }
+
+      // --- generate the full newsletter from one published blog ---
+      if (action === 'linkedin-generate') {
+        const h = liBody.handle;
+        if (!h) return res.status(200).json({ ok: false, error: 'Missing handle' });
+        const gq = 'query($q:String!){ articles(first:1, query:$q){ edges{ node{ title handle isPublished image{url altText} body } } } }';
+        const j = await liShopify(gq, { q: 'blog_id:93572858142 handle:' + h });
+        const node = ((((((j || {}).data || {}).articles || {}).edges) || [])[0] || {}).node;
+        if (!node) return res.status(200).json({ ok: false, error: 'Blog not found' });
+        if (node.isPublished === false) return res.status(200).json({ ok: false, error: 'That blog is not published — only published blogs are used.' });
+        const srcBody = node.body || '';
+        const coverUrl = (node.image && node.image.url) || '';
+        const prompt = '<blog>\n' + srcBody + '\n</blog>\n\n' +
+          'You are Mae, an interior-design consultant writing About Wall Art\'s LinkedIn NEWSLETTER "The Modern Sanctuary" for an audience of INTERIOR DESIGNERS. Rewrite the blog above into a ~1200-1400 word LinkedIn newsletter.\n' +
+          'RULES:\n' +
+          '- Warm, first-person, plain UK-English advisor voice, designer-to-designer. Genuinely rewrite it (do NOT reuse the blog sentences). Never use the words: elevate, delve, showcase, dive, seamless, curated, tapestry, "in conclusion", boasts, nestled.\n' +
+          '- Keep EVERY image and EVERY product from the blog, IN THE SAME ORDER, reusing the EXACT same src and href values. Never invent or change a URL.\n' +
+          '- Each PRODUCT in the source is an <a href="...aboutwallart.com/products/..."> wrapping an <img>, followed by a SHOP HERE link. Reproduce each as: the <img> wrapped in its product <a target="_blank" rel="noopener">, then on its own line <p style="margin:8px 0 30px;font-weight:700;text-align:center;"><a href="PRODUCT_URL" target="_blank" rel="noopener">SHOP HERE &#8594;</a></p>.\n' +
+          '- Each SECTION (non-product) image: keep its <img> unchanged.\n' +
+          '- Use <h2> for section headings, <p> for paragraphs, <ul><li> for lists. No inline styles except the SHOP HERE line above. No <html>/<head>/<body> tags.\n' +
+          '- Summarise heavy tables and room-by-room detail briefly and push the full detail to the blog link.\n' +
+          '- End the body with <p><a href="https://aboutwallart.com/blogs/news-articles-home-decor-inspiration/' + h + '" target="_blank" rel="noopener">read the full guide on our site &#8594;</a></p> then one short question to the designers.\n\n' +
+          'OUTPUT EXACTLY in this format, using these exact markers and NOTHING else:\n' +
+          '###TITLE###\n(a NEW SEO title, clearly different wording from the blog title so it does not compete with the blog on Google)\n' +
+          '###COVERCAPTION###\n(one engaging line for the cover image)\n' +
+          '###ANNOUNCEMENT###\n(2 to 3 short sentences that go out as the newsletter email/announcement)\n' +
+          '###HASHTAGS###\n(5 relevant hashtags separated by spaces, each starting with #)\n' +
+          '###CAPTIONS###\n(one line per image IN ORDER — a short caption describing that image or its section point)\n' +
+          '###BODY###\n(the full newsletter body HTML)\n###END###';
+        let raw = await liCallAI(prompt, 6000);
+        function seg(a, b) { const i = raw.indexOf(a); if (i < 0) return ''; const s = i + a.length; let e = b ? raw.indexOf(b, s) : raw.length; if (e < 0) e = raw.length; return raw.slice(s, e).trim(); }
+        const data = {
+          seoTitle: seg('###TITLE###', '###COVERCAPTION###'),
+          coverCaption: seg('###COVERCAPTION###', '###ANNOUNCEMENT###'),
+          announcement: seg('###ANNOUNCEMENT###', '###HASHTAGS###'),
+          hashtags: seg('###HASHTAGS###', '###CAPTIONS###'),
+          captions: seg('###CAPTIONS###', '###BODY###').split('\n').map(function (s) { return s.replace(/^[\-*\d.\)\s]+/, '').trim(); }).filter(Boolean),
+          bodyHtml: seg('###BODY###', '###END###'),
+          coverUrl: coverUrl, handle: h, blogTitle: node.title || ''
+        };
+        if (!data.bodyHtml) return res.status(200).json({ ok: false, error: 'Generation came back empty — please try again.' });
+        return res.status(200).json({ ok: true, data: data });
+      }
+    }
+
     return res.status(400).json({ ok: false, error: 'Unknown action: ' + action });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
