@@ -2357,8 +2357,8 @@ module.exports = async (req, res) => {
     if (action === 'board-summary' || action === 'board-manual-get' || action === 'board-manual-set') {
       const B_PLAN = 'data/social-plan.json', B_VSTATE = 'data/social-video-state.json',
             B_UBLOG = 'data/used-blogs.json', B_EDU = 'data/edu-publish-queue.json',
-            B_LI = 'data/used-linkedin-blogs.json', B_MANUAL = 'data/content-board-manual.json',
-            B_BLOGIDX = 'data/blog-index.json', B_SQVID = 'data/sq-video-log.json';
+            B_LI = 'data/used-linkedin-blogs.json', B_MANUAL = 'data/content-board-manual.json';
+      const B_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN, B_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
       const bBody = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
       async function bJson(fp) { const g = await ghGet(fp); if (g.content) { try { return JSON.parse(g.content); } catch (e) {} } return null; }
 
@@ -2387,11 +2387,27 @@ module.exports = async (req, res) => {
       const eduV = (((await bJson(B_EDU)) || {}).videos) || [];
       const liUsed = (((await bJson(B_LI)) || {}).used) || [];
       const manual = (((await bJson(B_MANUAL)) || {}).months) || {};
-      const blogIdx = (((await bJson(B_BLOGIDX)) || {}).articles) || [];
-      const sqLogRaw = await bJson(B_SQVID); const sqLog = Array.isArray(sqLogRaw) ? sqLogRaw : [];
+      // Publish product videos reads the uploader's own record (written automatically on every push).
+      const sqLogRaw = await bJson('data/sq-video-log.json'); const sqLog = Array.isArray(sqLogRaw) ? sqLogRaw : [];
+      // Blog creation reads LIVE from Shopify (published_status:any so future-SCHEDULED blogs count too).
+      async function bBlogCounts() {
+        const map = {};
+        if (!B_DOMAIN || !B_TOKEN) return map;
+        const gq = 'query{ articles(first:250, sortKey:PUBLISHED_AT, reverse:true, query:"blog_id:93572858142 published_status:any"){ edges{ node{ publishedAt } } } }';
+        try {
+          const r = await fetch('https://' + B_DOMAIN + '/admin/api/2025-01/graphql.json', { method: 'POST', headers: { 'X-Shopify-Access-Token': B_TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ query: gq }) });
+          if (!r.ok) return map;
+          const d = await r.json();
+          const edges = ((((d || {}).data || {}).articles || {}).edges) || [];
+          edges.forEach(function (e) { const pm = (((e.node || {}).publishedAt) || '').slice(0, 7); if (pm) map[pm] = (map[pm] || 0) + 1; });
+        } catch (e) {}
+        return map;
+      }
+      const blogCounts = await bBlogCounts();
 
       function bYM(s) { return (s || '').slice(0, 7); }
       function bWeekdayCount(y, m, dow) { let c = 0; const d = new Date(Date.UTC(y, m - 1, 1)); while (d.getUTCMonth() === m - 1) { if (d.getUTCDay() === dow) c++; d.setUTCDate(d.getUTCDate() + 1); } return c; }
+      function bDaysInMonth(y, m) { return new Date(Date.UTC(y, m, 0)).getUTCDate(); }
 
       const now = new Date();
       const curYM = now.toISOString().slice(0, 7);
@@ -2412,7 +2428,8 @@ module.exports = async (req, res) => {
         const eduN = bWeekdayCount(Y, Mo, 3) || bWeekdayCount(Y, Mo, 1);
         const liDone = liUsed.filter(function (u) { return bYM(u.date) === M; }).length;
         const liN = bWeekdayCount(Y, Mo, 2);
-        let blogMadeDone = blogIdx.filter(function (a) { return bYM(a.publishedAt) === M; }).length; if (planN && blogMadeDone > planN) blogMadeDone = planN;
+        const blogTotal = bDaysInMonth(Y, Mo);
+        let blogMadeDone = blogCounts[M] || 0; if (blogMadeDone > blogTotal) blogMadeDone = blogTotal;
         let pubVidDone = sqLog.filter(function (x) { return bYM(x.sentAt) === M; }).length; if (planN && pubVidDone > planN) pubVidDone = planN;
         const man = manual[M] || {};
         return {
@@ -2425,7 +2442,7 @@ module.exports = async (req, res) => {
             tiktokPost: { manual: true, done: man['tiktok-posttag'] ? 1 : 0, total: 1 },
             edu: { done: eduDone, total: eduN },
             linkedin: { done: liDone, total: liN },
-            blogCreation: { done: blogMadeDone, total: planN },
+            blogCreation: { done: blogMadeDone, total: blogTotal },
             publishVideos: { done: pubVidDone, total: planN }
           }
         };
