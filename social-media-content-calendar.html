@@ -210,19 +210,49 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.7 · 4 Aug 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.8 · 5 Aug 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
 
 
 <nav class="tabnav">
-  <button class="tabbtn active" type="button" data-tab="monthly"><i class="ti ti-layout-grid"></i> 1 · Content Monthly Plan</button>
-  <button class="tabbtn" type="button" data-tab="video"><i class="ti ti-movie"></i> 2 · Video Creation</button>
-  <button class="tabbtn" type="button" data-tab="edu"><i class="ti ti-school"></i> 3 · Educational Video</button>
-  <button class="tabbtn" type="button" data-tab="schedule"><i class="ti ti-calendar"></i> 4 · Schedule</button>
-  <button class="tabbtn" type="button" data-tab="linkedin"><i class="ti ti-brand-linkedin"></i> 5 · LinkedIn Newsletter</button>
+  <button class="tabbtn active" type="button" data-tab="board"><i class="ti ti-checkbox"></i> 1 · Content Board</button>
+  <button class="tabbtn" type="button" data-tab="monthly"><i class="ti ti-layout-grid"></i> 2 · Content Monthly Plan</button>
+  <button class="tabbtn" type="button" data-tab="video"><i class="ti ti-movie"></i> 3 · Video Creation</button>
+  <button class="tabbtn" type="button" data-tab="edu"><i class="ti ti-school"></i> 4 · Educational Video</button>
+  <button class="tabbtn" type="button" data-tab="schedule"><i class="ti ti-calendar"></i> 5 · Schedule</button>
+  <button class="tabbtn" type="button" data-tab="linkedin"><i class="ti ti-brand-linkedin"></i> 6 · LinkedIn Newsletter</button>
 </nav>
+<section class="tabpanel active" id="tab-board">
+  <style>
+   #tab-board .cbwrap{display:flex;flex-direction:column;gap:14px;margin-top:14px;}
+   #tab-board .cbcard{background:#fff;border:1px solid var(--line,#e6e6e6);border-radius:12px;padding:12px 14px;overflow-x:auto;}
+   #tab-board .cbhead{font-size:15px;font-weight:700;margin:0 0 10px;}
+   #tab-board .cbgrid{display:grid;grid-template-columns:160px repeat(10,minmax(40px,1fr));gap:4px;min-width:640px;align-items:center;}
+   #tab-board .cbcol{font-size:11px;color:#667;text-align:center;font-weight:600;}
+   #tab-board .cbrow{font-size:12px;color:#222;padding-right:8px;line-height:1.25;}
+   #tab-board .cell{height:34px;display:flex;align-items:center;justify-content:center;border-radius:5px;font-size:11px;box-sizing:border-box;}
+   #tab-board .c-set{background:#E9F7F1;border:1px solid #bfe9d6;}
+   #tab-board .c-done{background:#E9F7F1;border:1px solid #bfe9d6;color:#0F6E56;}
+   #tab-board .c-part{background:#FCEFD6;border:1px solid #f0cf8a;color:#8a5a06;font-weight:700;cursor:pointer;}
+   #tab-board .c-blank{background:#fafafa;border:1px solid #e3e3e3;color:#b0b0b0;cursor:pointer;}
+   #tab-board .c-ext{background:#fafafa;border:1px solid #e3e3e3;color:#667;cursor:pointer;}
+   #tab-board .cbbar{background:#E9F7F1;border:1px solid #bbf7d0;border-radius:12px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;color:#0F6E56;font-size:15px;font-weight:700;}
+   #tab-board .cbleg{display:flex;gap:16px;align-items:center;flex-wrap:wrap;font-size:12px;color:#667;margin:6px 0 2px;}
+   #tab-board .cbleg span{display:inline-flex;align-items:center;gap:6px;}
+   #tab-board .cbsw{width:15px;height:15px;border-radius:4px;display:inline-block;}
+  </style>
+  <h2>Content Board</h2>
+  <p class="cbrow" style="color:#667;font-size:13px;">One glance per month across every social. Green = done or not needed, yellow = part done (click to finish), blank = not started (click to start).</p>
+  <div class="cbleg">
+    <span><i class="cbsw" style="background:#E9F7F1;border:1px solid #bfe9d6;"></i>done / not needed</span>
+    <span><i class="cbsw" style="background:#FCEFD6;border:1px solid #f0cf8a;"></i>part done</span>
+    <span><i class="cbsw" style="background:#fafafa;border:1px solid #e3e3e3;"></i>not started</span>
+  </div>
+  <div id="cbMsg" class="cbleg"></div>
+  <div id="cbWrap" class="cbwrap"></div>
+</section>
 <section class="tabpanel" id="tab-linkedin">
   <style>
     #tab-linkedin .libtn{display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:600;border:1px solid var(--line,#ddd);background:#0a66c2;color:#fff;border-radius:8px;padding:9px 16px;cursor:pointer;}
@@ -361,7 +391,7 @@
   <div id="schedBody"></div>
 </section>
 
-<section class="tabpanel active" id="tab-monthly">
+<section class="tabpanel" id="tab-monthly">
   <h2>Content Monthly Plan</h2>
   <div class="box gray"><strong>Plan a whole month.</strong> Pick the month, tick the marketing occasions you want, then build the plan. Occasion days suggest matching products (you pick one); the empty days are auto-filled with unused products, rotating rooms so it stays varied. Nothing you've already made can ever repeat.</div>
 
@@ -1220,9 +1250,122 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       btns.forEach(function(x){ x.classList.toggle('active', x===b); });
       panels.forEach(function(p){ p.classList.toggle('active', p.id==='tab-'+t); });
       if(t==='schedule' && window.__reloadSchedule){ window.__reloadSchedule(); }
+      if(t==='board' && window.__reloadBoard){ window.__reloadBoard(); }
       window.scrollTo({top:0, behavior:'smooth'});
     });
   });
+})();
+
+/* ===== Content Board tab (v9.8) — monthly follow-up dashboard, self-contained ===== */
+(function(){
+  var wrap=document.getElementById('cbWrap'); if(!wrap) return;
+  var msg=document.getElementById('cbMsg');
+  var COLS=['FB','IG','X','Pin','Thr','YT','GMB','LI','TT','Shop'];
+  var ROWS=[
+    {key:'createVideos',  label:'Create videos'},
+    {key:'reels',         label:'Reels scheduled on Metricool'},
+    {key:'blogs',         label:'Blogs scheduled on Metricool'},
+    {key:'igTag',         label:'Tag products (Instagram)'},
+    {key:'tiktokPost',    label:'Post & tag in TikTok Studio'},
+    {key:'edu',           label:'Educational video'},
+    {key:'linkedin',      label:'LinkedIn newsletter'},
+    {key:'blogCreation',  label:'Blog creation'},
+    {key:'publishVideos', label:'Publish product videos'}
+  ];
+  // per row, one code per column (FB IG X Pin Thr YT GMB LI TT Shop): T=tracked, N=not needed, E=external tool
+  var MAP={
+    createVideos: ['T','T','T','T','T','T','N','N','T','E'],
+    reels:        ['T','T','T','T','T','T','N','N','N','N'],
+    blogs:        ['T','T','N','T','T','N','T','T','N','N'],
+    igTag:        ['N','T','N','N','N','N','N','N','N','N'],
+    tiktokPost:   ['N','N','N','N','N','N','N','N','T','N'],
+    edu:          ['N','N','N','N','N','T','N','N','N','N'],
+    linkedin:     ['N','N','N','N','N','N','N','T','N','N'],
+    blogCreation: ['N','N','N','N','N','N','N','N','N','E'],
+    publishVideos:['N','N','N','N','N','N','N','N','N','E']
+  };
+  var JUMP={createVideos:'video',reels:'schedule',blogs:'schedule',edu:'edu',linkedin:'linkedin'};
+  var MANUALKEY={igTag:'ig-tag',tiktokPost:'tiktok-posttag'};
+  var EXTURL={blogCreation:'blog-manager-tool.html',publishVideos:'shopify-video-uploader.html',createVideos:'shopify-video-uploader.html'};
+  var CBMON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function cbPost(p){ return fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)}).then(function(r){return r.json();}); }
+  function monthLabel(ym){ var p=ym.split('-'); return CBMON[(+p[1])-1]+' '+p[0]; }
+  function jumpTab(t){ var b=document.querySelector('.tabbtn[data-tab="'+t+'"]'); if(b) b.click(); }
+
+  function rowComplete(key,rowData){
+    if(key==='igTag'||key==='tiktokPost') return !!(rowData && rowData.done>=1);
+    if(key==='blogCreation'||key==='publishVideos') return true;
+    return !!(rowData && rowData.total>0 && rowData.done>=rowData.total);
+  }
+  function monthComplete(m){
+    if(!(m.planN>0)) return false;
+    for(var i=0;i<ROWS.length;i++){ if(!rowComplete(ROWS[i].key, m.rows[ROWS[i].key])) return false; }
+    return true;
+  }
+  function onAction(rowKey, month){
+    if(MANUALKEY[rowKey]){ msg.textContent='Marking done…'; cbPost({action:'board-manual-set', month:month, key:MANUALKEY[rowKey], value:true}).then(function(){ msg.textContent=''; load(); }); return; }
+    if(JUMP[rowKey]){ jumpTab(JUMP[rowKey]); return; }
+    if(EXTURL[rowKey]){ window.open(EXTURL[rowKey],'_blank'); }
+  }
+  function trackedState(rowKey, rowData){
+    if(MANUALKEY[rowKey]) return (rowData && rowData.done>=1)?'done':'blank';
+    if(!rowData || !(rowData.total>0)) return 'blank';
+    if(rowData.done<=0) return 'blank';
+    if(rowData.done>=rowData.total) return 'done';
+    return {part:rowData.done+'/'+rowData.total};
+  }
+  function makeCell(state, rowKey, month){
+    var d=document.createElement('div'); d.className='cell';
+    if(state==='set'){ d.className='cell c-set'; return d; }
+    if(state==='done'){ d.className='cell c-done'; d.innerHTML='<i class="ti ti-check"></i>'; return d; }
+    if(state==='ext'){ d.className='cell c-ext'; d.innerHTML='<i class="ti ti-external-link"></i>'; d.title='Open the other tool'; d.addEventListener('click',function(){ window.open(EXTURL[rowKey],'_blank'); }); return d; }
+    if(state==='blank'){ d.className='cell c-blank'; d.innerHTML='<i class="ti ti-plus"></i>'; d.addEventListener('click',function(){ onAction(rowKey,month); }); return d; }
+    return d;
+  }
+  function makePart(txt, rowKey, month){ var d=document.createElement('div'); d.className='cell c-part'; d.textContent=txt; d.addEventListener('click',function(){ onAction(rowKey,month); }); return d; }
+  function buildGrid(m){
+    var card=document.createElement('div'); card.className='cbcard';
+    var h=document.createElement('div'); h.className='cbhead'; h.textContent=monthLabel(m.month); card.appendChild(h);
+    var g=document.createElement('div'); g.className='cbgrid';
+    g.appendChild(document.createElement('div'));
+    COLS.forEach(function(c){ var hc=document.createElement('div'); hc.className='cbcol'; hc.textContent=c; g.appendChild(hc); });
+    ROWS.forEach(function(r){
+      var rl=document.createElement('div'); rl.className='cbrow'; rl.textContent=r.label; g.appendChild(rl);
+      var applic=MAP[r.key], rowData=m.rows[r.key];
+      for(var ci=0; ci<10; ci++){
+        var ap=applic[ci];
+        if(ap==='N'){ g.appendChild(makeCell('set')); continue; }
+        if(ap==='E'){ g.appendChild(makeCell('ext', r.key, m.month)); continue; }
+        var st=trackedState(r.key, rowData);
+        if(st && st.part){ g.appendChild(makePart(st.part, r.key, m.month)); }
+        else { g.appendChild(makeCell(st, r.key, m.month)); }
+      }
+    });
+    card.appendChild(g); return card;
+  }
+  function buildBar(m){
+    var b=document.createElement('div'); b.className='cbbar';
+    b.innerHTML='<span><i class="ti ti-check" style="margin-right:8px"></i>'+monthLabel(m.month)+' — all done</span><i class="ti ti-chevron-down"></i>';
+    var open=false, grid=null;
+    b.addEventListener('click',function(){ if(open){ if(grid){grid.remove();grid=null;} open=false; } else { grid=buildGrid(m); b.parentNode.insertBefore(grid,b.nextSibling); open=true; } });
+    return b;
+  }
+  function render(months){
+    wrap.innerHTML='';
+    months.sort(function(a,b){ return a.month.localeCompare(b.month); });
+    if(!months.length){ wrap.innerHTML='<p class="cbrow">No months to show yet.</p>'; return; }
+    months.forEach(function(m){ wrap.appendChild(monthComplete(m)?buildBar(m):buildGrid(m)); });
+  }
+  function load(){
+    msg.textContent='Loading…';
+    cbPost({action:'board-summary'}).then(function(j){
+      msg.textContent='';
+      if(!j || !j.ok){ msg.textContent=(j&&j.error)||'Could not load the board.'; return; }
+      render(j.months||[]);
+    }).catch(function(){ msg.textContent='Could not load the board.'; });
+  }
+  window.__reloadBoard=load;
+  load();
 })();
 
 /* ===== LinkedIn Newsletter tab (v9.7) — month-based, self-contained ===== */
