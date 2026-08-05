@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.7.1 - 2026-08-02</p>
+        <p class="version">v6.7.2 - 2026-08-02</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1684,15 +1684,37 @@
         function onBibleEdit(index) { const ta = document.getElementById(`bible-${index}`); const d = window._drafts[index]; if (ta && d) { d.styleBible = ta.value; clearTimeout(window._bibleSaveT); window._bibleSaveT = setTimeout(() => persistDraft(index, d), 900); } }
         function fileStylePhoto(input, index) { const f = input.files && input.files[0]; if (f) loadStylePhoto(f, index); }
         function dropStylePhoto(e, index) { e.preventDefault(); const dz = document.getElementById(`styledrop-${index}`); if (dz) dz.style.background = '#f7fbfa'; const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (f) loadStylePhoto(f, index); }
+        // Shrink a photo in the browser BEFORE sending — a big photo (over ~3MB) is too heavy for one request
+        // and the server rejects it. Scale the long edge down to 1500px and re-save as a light JPEG (also what
+        // the AI wants + faster). Falls back to the original if the browser can't process it (e.g. HEIC).
+        function shrinkImage(dataUrl, maxEdge, quality) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    try {
+                        const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
+                        const w = Math.max(1, Math.round(img.width * scale)), h = Math.max(1, Math.round(img.height * scale));
+                        const canvas = document.createElement('canvas');
+                        canvas.width = w; canvas.height = h;
+                        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                        resolve({ dataUrl: canvas.toDataURL('image/jpeg', quality), mediaType: 'image/jpeg' });
+                    } catch (e) { resolve({ dataUrl, mediaType: null }); }
+                };
+                img.onerror = () => resolve({ dataUrl, mediaType: null });
+                img.src = dataUrl;
+            });
+        }
         function loadStylePhoto(file, index) {
             if (!/^image\//.test(file.type)) { alert('Please choose an image file.'); return; }
             const reader = new FileReader();
-            reader.onload = () => {
-                const dataUrl = reader.result;
+            reader.onload = async () => {
+                const shrunk = await shrinkImage(reader.result, 1500, 0.82);
+                const dataUrl = shrunk.dataUrl;
+                const mediaType = shrunk.mediaType || file.type;
                 window._imgp = window._imgp || {}; window._imgp[index] = window._imgp[index] || {};
-                window._imgp[index].photo = dataUrl; window._imgp[index].mediaType = file.type;
+                window._imgp[index].photo = dataUrl; window._imgp[index].mediaType = mediaType;
                 const d = window._drafts[index];
-                try { localStorage.setItem('awa_style_photo_' + d.blogCode, JSON.stringify({ data: dataUrl, mediaType: file.type })); } catch (e) { /* too big to keep — the Download button is the safety net */ }
+                try { localStorage.setItem('awa_style_photo_' + d.blogCode, JSON.stringify({ data: dataUrl, mediaType })); } catch (e) { /* too big to keep — the Download button is the safety net */ }
                 renderImgpPanel(index);
             };
             reader.readAsDataURL(file);
