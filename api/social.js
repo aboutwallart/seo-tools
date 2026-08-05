@@ -2357,7 +2357,8 @@ module.exports = async (req, res) => {
     if (action === 'board-summary' || action === 'board-manual-get' || action === 'board-manual-set') {
       const B_PLAN = 'data/social-plan.json', B_VSTATE = 'data/social-video-state.json',
             B_UBLOG = 'data/used-blogs.json', B_EDU = 'data/edu-publish-queue.json',
-            B_LI = 'data/used-linkedin-blogs.json', B_MANUAL = 'data/content-board-manual.json';
+            B_LI = 'data/used-linkedin-blogs.json', B_MANUAL = 'data/content-board-manual.json',
+            B_BLOGIDX = 'data/blog-index.json', B_SQVID = 'data/sq-video-log.json';
       const bBody = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
       async function bJson(fp) { const g = await ghGet(fp); if (g.content) { try { return JSON.parse(g.content); } catch (e) {} } return null; }
 
@@ -2386,6 +2387,8 @@ module.exports = async (req, res) => {
       const eduV = (((await bJson(B_EDU)) || {}).videos) || [];
       const liUsed = (((await bJson(B_LI)) || {}).used) || [];
       const manual = (((await bJson(B_MANUAL)) || {}).months) || {};
+      const blogIdx = (((await bJson(B_BLOGIDX)) || {}).articles) || [];
+      const sqLogRaw = await bJson(B_SQVID); const sqLog = Array.isArray(sqLogRaw) ? sqLogRaw : [];
 
       function bYM(s) { return (s || '').slice(0, 7); }
       function bWeekdayCount(y, m, dow) { let c = 0; const d = new Date(Date.UTC(y, m - 1, 1)); while (d.getUTCMonth() === m - 1) { if (d.getUTCDay() === dow) c++; d.setUTCDate(d.getUTCDate() + 1); } return c; }
@@ -2409,6 +2412,8 @@ module.exports = async (req, res) => {
         const eduN = bWeekdayCount(Y, Mo, 3) || bWeekdayCount(Y, Mo, 1);
         const liDone = liUsed.filter(function (u) { return bYM(u.date) === M; }).length;
         const liN = bWeekdayCount(Y, Mo, 2);
+        let blogMadeDone = blogIdx.filter(function (a) { return bYM(a.publishedAt) === M; }).length; if (planN && blogMadeDone > planN) blogMadeDone = planN;
+        let pubVidDone = sqLog.filter(function (x) { return bYM(x.sentAt) === M; }).length; if (planN && pubVidDone > planN) pubVidDone = planN;
         const man = manual[M] || {};
         return {
           month: M, planN: planN,
@@ -2419,7 +2424,9 @@ module.exports = async (req, res) => {
             igTag: { manual: true, done: man['ig-tag'] ? 1 : 0, total: 1 },
             tiktokPost: { manual: true, done: man['tiktok-posttag'] ? 1 : 0, total: 1 },
             edu: { done: eduDone, total: eduN },
-            linkedin: { done: liDone, total: liN }
+            linkedin: { done: liDone, total: liN },
+            blogCreation: { done: blogMadeDone, total: planN },
+            publishVideos: { done: pubVidDone, total: planN }
           }
         };
       });
