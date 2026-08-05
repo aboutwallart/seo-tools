@@ -2353,6 +2353,79 @@ module.exports = async (req, res) => {
       }
     }
 
+    /* ===== CONTENT BOARD tab (v9.8) — monthly follow-up board, self-contained ===== */
+    if (action === 'board-summary' || action === 'board-manual-get' || action === 'board-manual-set') {
+      const B_PLAN = 'data/social-plan.json', B_VSTATE = 'data/social-video-state.json',
+            B_UBLOG = 'data/used-blogs.json', B_EDU = 'data/edu-publish-queue.json',
+            B_LI = 'data/used-linkedin-blogs.json', B_MANUAL = 'data/content-board-manual.json';
+      const bBody = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      async function bJson(fp) { const g = await ghGet(fp); if (g.content) { try { return JSON.parse(g.content); } catch (e) {} } return null; }
+
+      if (action === 'board-manual-get') {
+        const m = await bJson(B_MANUAL);
+        return res.status(200).json({ ok: true, manual: (m && m.months) || {} });
+      }
+
+      if (action === 'board-manual-set') {
+        const month = (bBody.month || '').toString(), key = (bBody.key || '').toString(), value = !!bBody.value;
+        if (!month || !key) return res.status(200).json({ ok: false, error: 'Missing month/key' });
+        await ghSave(B_MANUAL, function (content) {
+          let d = { months: {} };
+          if (content) { try { d = JSON.parse(content); if (!d.months) d.months = {}; } catch (e) { d = { months: {} }; } }
+          if (!d.months[month]) d.months[month] = {};
+          d.months[month][key] = value;
+          return JSON.stringify(d, null, 2);
+        }, 'Board manual ' + key + ' ' + month + '=' + value);
+        return res.status(200).json({ ok: true });
+      }
+
+      // board-summary — per month, each task row's {done,total} from the real records
+      const plan = (await bJson(B_PLAN)) || { months: {} };
+      const vstate = (await bJson(B_VSTATE)) || {};
+      const ublog = (((await bJson(B_UBLOG)) || {}).used) || [];
+      const eduV = (((await bJson(B_EDU)) || {}).videos) || [];
+      const liUsed = (((await bJson(B_LI)) || {}).used) || [];
+      const manual = (((await bJson(B_MANUAL)) || {}).months) || {};
+
+      function bYM(s) { return (s || '').slice(0, 7); }
+      function bWeekdayCount(y, m, dow) { let c = 0; const d = new Date(Date.UTC(y, m - 1, 1)); while (d.getUTCMonth() === m - 1) { if (d.getUTCDay() === dow) c++; d.setUTCDate(d.getUTCDate() + 1); } return c; }
+
+      const now = new Date();
+      const curYM = now.toISOString().slice(0, 7);
+      const nextYM = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString().slice(0, 7);
+      const monthSet = {};
+      Object.keys(plan.months || {}).forEach(function (k) { monthSet[k] = 1; });
+      monthSet[curYM] = 1; monthSet[nextYM] = 1;
+      const months = Object.keys(monthSet).sort();
+
+      const result = months.map(function (M) {
+        const parts = M.split('-'); const Y = +parts[0], Mo = +parts[1];
+        const days = ((plan.months[M] || {}).days) || [];
+        const planN = days.length;
+        let cvDone = 0; days.forEach(function (d) { const s = (d.sku || '').toString(); if (s && vstate['gen' + s + '_prompt']) cvDone++; });
+        let reelDone = 0; days.forEach(function (d) { if (d.sent) reelDone++; });
+        let blogDone = ublog.filter(function (x) { return bYM(x.usedDate) === M; }).length; if (planN && blogDone > planN) blogDone = planN;
+        const eduDone = eduV.filter(function (v) { return bYM(v.liveAt) === M; }).length;
+        const eduN = bWeekdayCount(Y, Mo, 3) || bWeekdayCount(Y, Mo, 1);
+        const liDone = liUsed.filter(function (u) { return bYM(u.date) === M; }).length;
+        const liN = bWeekdayCount(Y, Mo, 2);
+        const man = manual[M] || {};
+        return {
+          month: M, planN: planN,
+          rows: {
+            createVideos: { done: cvDone, total: planN },
+            reels: { done: reelDone, total: planN },
+            blogs: { done: blogDone, total: planN },
+            igTag: { manual: true, done: man['ig-tag'] ? 1 : 0, total: 1 },
+            tiktokPost: { manual: true, done: man['tiktok-posttag'] ? 1 : 0, total: 1 },
+            edu: { done: eduDone, total: eduN },
+            linkedin: { done: liDone, total: liN }
+          }
+        };
+      });
+      return res.status(200).json({ ok: true, months: result });
+    }
+
     return res.status(400).json({ ok: false, error: 'Unknown action: ' + action });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err.message });
