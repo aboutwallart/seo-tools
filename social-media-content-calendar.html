@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.8 · 5 Aug 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.9 · 5 Aug 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -1261,6 +1261,12 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   var wrap=document.getElementById('cbWrap'); if(!wrap) return;
   var msg=document.getElementById('cbMsg');
   var COLS=['FB','IG','X','Pin','Thr','YT','GMB','LI','TT','Shop'];
+  var COLDEF=[
+    {ic:'ti-brand-facebook',t:'Facebook'},{ic:'ti-brand-instagram',t:'Instagram'},{ic:'ti-brand-x',t:'X'},
+    {ic:'ti-brand-pinterest',t:'Pinterest'},{ic:'ti-brand-threads',t:'Threads'},{ic:'ti-brand-youtube',t:'YouTube'},
+    {ic:'ti-brand-google',t:'Google Business'},{ic:'ti-brand-linkedin',t:'LinkedIn'},{ic:'ti-brand-tiktok',t:'TikTok'},
+    {ic:'ti-building-store',t:'Shopify'}
+  ];
   var ROWS=[
     {key:'createVideos',  label:'Create videos'},
     {key:'reels',         label:'Reels scheduled on Metricool'},
@@ -1274,19 +1280,19 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   ];
   // per row, one code per column (FB IG X Pin Thr YT GMB LI TT Shop): T=tracked, N=not needed, E=external tool
   var MAP={
-    createVideos: ['T','T','T','T','T','T','N','N','T','E'],
+    createVideos: ['T','T','T','T','T','T','N','N','T','T'],
     reels:        ['T','T','T','T','T','T','N','N','N','N'],
     blogs:        ['T','T','N','T','T','N','T','T','N','N'],
     igTag:        ['N','T','N','N','N','N','N','N','N','N'],
     tiktokPost:   ['N','N','N','N','N','N','N','N','T','N'],
     edu:          ['N','N','N','N','N','T','N','N','N','N'],
     linkedin:     ['N','N','N','N','N','N','N','T','N','N'],
-    blogCreation: ['N','N','N','N','N','N','N','N','N','E'],
-    publishVideos:['N','N','N','N','N','N','N','N','N','E']
+    blogCreation: ['N','N','N','N','N','N','N','N','N','T'],
+    publishVideos:['N','N','N','N','N','N','N','N','N','T']
   };
   var JUMP={createVideos:'video',reels:'schedule',blogs:'schedule',edu:'edu',linkedin:'linkedin'};
   var MANUALKEY={igTag:'ig-tag',tiktokPost:'tiktok-posttag'};
-  var EXTURL={blogCreation:'blog-manager-tool.html',publishVideos:'shopify-video-uploader.html',createVideos:'shopify-video-uploader.html'};
+  var EXTURL={blogCreation:'blog-manager-tool.html',publishVideos:'shopify-video-uploader.html'};
   var CBMON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   function cbPost(p){ return fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)}).then(function(r){return r.json();}); }
   function monthLabel(ym){ var p=ym.split('-'); return CBMON[(+p[1])-1]+' '+p[0]; }
@@ -1294,7 +1300,6 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
 
   function rowComplete(key,rowData){
     if(key==='igTag'||key==='tiktokPost') return !!(rowData && rowData.done>=1);
-    if(key==='blogCreation'||key==='publishVideos') return true;
     return !!(rowData && rowData.total>0 && rowData.done>=rowData.total);
   }
   function monthComplete(m){
@@ -1328,7 +1333,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     var h=document.createElement('div'); h.className='cbhead'; h.textContent=monthLabel(m.month); card.appendChild(h);
     var g=document.createElement('div'); g.className='cbgrid';
     g.appendChild(document.createElement('div'));
-    COLS.forEach(function(c){ var hc=document.createElement('div'); hc.className='cbcol'; hc.textContent=c; g.appendChild(hc); });
+    COLDEF.forEach(function(c){ var hc=document.createElement('div'); hc.className='cbcol'; hc.innerHTML='<i class="ti '+c.ic+'" title="'+c.t+'" aria-label="'+c.t+'" style="font-size:18px;color:#111"></i>'; g.appendChild(hc); });
     ROWS.forEach(function(r){
       var rl=document.createElement('div'); rl.className='cbrow'; rl.textContent=r.label; g.appendChild(rl);
       var applic=MAP[r.key], rowData=m.rows[r.key];
