@@ -364,7 +364,7 @@ If you genuinely cannot find one of the two, leave its two fields as empty strin
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 2000,
         messages: [{ role: 'user', content: prompt }],
         tools: [{ type: 'web_search_20250305', name: 'web_search' }]
@@ -553,7 +553,7 @@ Return ONLY a JSON object, no commentary, exactly:
   }
 
   // Helper: plain Claude text call (no web search) — used by Batch 2 writers
-  async function callClaudeText(prompt, maxTokens) {
+  async function callClaudeText(prompt, maxTokens, model) {
     const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
     if (!ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not configured');
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -564,7 +564,7 @@ Return ONLY a JSON object, no commentary, exactly:
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: model || 'claude-sonnet-4-6',
         max_tokens: maxTokens || 2000,
         messages: [{ role: 'user', content: prompt }]
       })
@@ -2709,7 +2709,7 @@ ${titlesBlock}
 
 Return ONLY a JSON array, one object per title in order, exactly:
 [{"t":1,"keyword":""}]`;
-        const raw = await callClaudeText(prompt, 2000);
+        const raw = await callClaudeText(prompt, 2000, 'claude-haiku-4-5-20251001');
         const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '');
         const m = cleaned.match(/\[[\s\S]*\]/);
         if (!m) throw new Error('Could not read the keyword result');
@@ -3345,7 +3345,7 @@ Images (id :: what it shows):
 ${listTxt}
 
 Return ONLY a JSON object mapping each id to its alt line, and nothing else.`;
-            const raw = await callClaudeText(prompt, 2000);
+            const raw = await callClaudeText(prompt, 2000, 'claude-haiku-4-5-20251001');
             const jsonStr = (raw.match(/\{[\s\S]*\}/) || [raw])[0];
             const map = JSON.parse(jsonStr);
             const clean = {};
