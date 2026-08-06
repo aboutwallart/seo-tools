@@ -274,7 +274,7 @@ module.exports = async (req, res) => {
       var ar = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 700, messages: [{ role: 'user', content: instr }] })
+        body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 700, messages: [{ role: 'user', content: instr }] })
       });
       if (!ar.ok) return res.status(ar.status).json({ ok: false, error: 'Claude error: ' + (await ar.text()) });
       var ad = await ar.json();
@@ -674,7 +674,7 @@ module.exports = async (req, res) => {
 
       // one Anthropic call -> parsed JSON (throws on http/parse error)
       async function callAI(prompt, maxTok) {
-        var r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: maxTok, messages: [{ role: 'user', content: prompt }] }) });
+        var r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: maxTok, messages: [{ role: 'user', content: prompt }] }) });
         if (!r.ok) throw new Error('AI ' + r.status);
         var d = await r.json();
         var t = (d.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('\n');
@@ -949,7 +949,7 @@ module.exports = async (req, res) => {
       function fbTrimTo(text, limit) { text = String(text == null ? '' : text); if (text.length <= limit) return text; var cut = text.slice(0, limit); var sp = cut.lastIndexOf(' '); if (sp > limit * 0.6) cut = cut.slice(0, sp); return cut.replace(/\s+$/, ''); }
       function fbTrimLink(caption, suffix, limit) { caption = String(caption == null ? '' : caption); suffix = String(suffix == null ? '' : suffix); var room = limit - suffix.length; if (room < 0) room = 0; return fbTrimTo(caption, room) + suffix; }
       async function fbCallAI(prompt, maxTok) {
-        var r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: maxTok, messages: [{ role: 'user', content: prompt }] }) });
+        var r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: maxTok, messages: [{ role: 'user', content: prompt }] }) });
         if (!r.ok) throw new Error('AI ' + r.status);
         var d = await r.json();
         var t = (d.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('\n');
@@ -1939,7 +1939,7 @@ module.exports = async (req, res) => {
           '- tiktok: one short warm hook line about the tip. ABSOLUTELY NO link and NO call-to-action (no "shop", no "link in bio", no "watch on…"). Just the hook, then 3 lowercase hashtags.\n' +
           'Return ONLY the JSON object.';
         try {
-          var r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 2000, messages: [{ role: 'user', content: prompt }] }) });
+          var r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 2000, messages: [{ role: 'user', content: prompt }] }) });
           if (!r.ok) { var et = await r.text(); if (r.status === 401 || r.status === 402 || r.status === 429 || /credit|quota|insufficient|billing|balance/i.test(et)) throw new Error('CREDITS'); throw new Error('AI ' + r.status); }
           var d = await r.json(); var t = (d.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('\n');
           var mm = t.match(/\{[\s\S]*\}/); return JSON.parse(mm ? mm[0] : t);
@@ -2127,7 +2127,7 @@ module.exports = async (req, res) => {
         '- tags: 8 to 12 comma-separated topic keywords.\n' +
         '- hashtags: 3 to 5 lowercase hashtags.';
       var ai = {};
-      var ar = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 900, messages: [{ role: 'user', content: aiPrompt }] }) });
+      var ar = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 900, messages: [{ role: 'user', content: aiPrompt }] }) });
       if (!ar.ok) {
         var yerr = await ar.text();
         // if Claude ran out of credits, show a clear error instead of a flat, non-AI pack
