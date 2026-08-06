@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 67.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 67.2</p>
                 </div>
             </div>
         </header>
@@ -2754,6 +2754,7 @@
                 <div class="action-block" style="border-color:#f9a825;">
                     <h3>🧩 Template Metafield Fields</h3>
                     <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">These sections are built from metafields (generated for every blog, whatever template it uses). Push each to Shopify (or copy where it's body HTML).</p>
+                    <button class="copy-btn" type="button" style="background:#1565c0;color:#fff;font-weight:700;margin-bottom:14px;" onclick="pushAllTemplateFields(this)">📤 Push all + mark done</button>
                     ${s.templateChecks.map((t, i) => {
                         const key = `tmpl_${i}`;
                         const it  = allItems.find(x => x.key === key);
@@ -2790,6 +2791,7 @@
                 <div class="action-block" style="border-color:#5e35b1;">
                     <h3>🕸️ Links From Related Older Blogs</h3>
                     <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">Add a link into this page from each related older blog (already crawled → faster indexing). Anchor text is this page's main keyword. Open each blog, paste where shown.</p>
+                    <button class="copy-btn" type="button" style="background:#5e35b1;color:#fff;font-weight:700;margin-bottom:14px;" onclick="pushAllRelatedBlogs(this)">📤 Push all + mark done</button>
                     ${s.relatedBlogLinks.map((l, i) => {
                         const key = `relblog_${i}`;
                         const it  = allItems.find(x => x.key === key);
@@ -3310,6 +3312,30 @@
         }
 
         // Push one or more metafields to Shopify (write directly).
+        // "Push all 4" for the Template Metafield Fields — clicks each field's push button, then ticks every row done.
+        async function pushAllTemplateFields(btn) {
+            const block = btn.closest('.action-block');
+            if (!block) return;
+            const orig = btn.textContent; btn.disabled = true;
+            const pushBtns = Array.from(block.querySelectorAll('button')).filter(b => b !== btn && /Push/.test(b.textContent));
+            let done = 0;
+            for (const pb of pushBtns) { try { pb.click(); done++; } catch (e) {} await new Promise(r => setTimeout(r, 1000)); }
+            block.querySelectorAll('input[type="checkbox"]').forEach(c => { if (!c.checked) c.click(); });
+            btn.disabled = false; btn.textContent = '✅ Pushed ' + done + ' + marked done';
+            setTimeout(() => { btn.textContent = orig; }, 3000);
+        }
+        // "Push all" for the related-older-blog links — fires each blog's own push button (each ticks itself done).
+        async function pushAllRelatedBlogs(btn) {
+            const block = btn.closest('.action-block');
+            if (!block) return;
+            const orig = btn.textContent; btn.disabled = true;
+            const btns = Array.from(block.querySelectorAll('button')).filter(b => b !== btn && /Add it on that blog/.test(b.textContent));
+            if (!btns.length) { btn.disabled = false; btn.textContent = 'Nothing to add'; setTimeout(() => btn.textContent = orig, 2500); return; }
+            let done = 0;
+            for (const b of btns) { try { b.click(); done++; } catch (e) {} await new Promise(r => setTimeout(r, 1500)); }
+            btn.disabled = false; btn.textContent = '✅ Added ' + done;
+            setTimeout(() => { btn.textContent = orig; }, 3000);
+        }
         async function pushMetafields(items, btn) {
             const sd = currentResults?.shopify;
             if (!sd?.id) { alert('Shopify data not available for this page.'); return; }

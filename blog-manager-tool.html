@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.8.0 - 2026-08-06</p>
+        <p class="version">v6.8.1 - 2026-08-06</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1382,7 +1382,7 @@
                     <button onclick="saveBlogDraft(${index})" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:800;cursor:pointer;">💾 Save blog</button>
                     <button onclick="copyDraft(${index})" style="background:#1a1a1a;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">📋 Copy body HTML</button>
                     <button onclick="editDraft(${index})" style="background:#fff;color:#1a1a1a;border:1px solid #ccc;border-radius:6px;padding:8px 14px;font-weight:600;cursor:pointer;">✏️ Edit</button>
-                    <button onclick="writeBlog(${index})" style="${regenBtnStyle}">↻ Regenerate</button>
+                    <button onclick="if(confirm('Regenerate the whole blog? This writes it again from scratch — a fresh AI charge, and your current version will be replaced.')) writeBlog(${index})" style="${regenBtnStyle}">↻ Regenerate</button>
                     <span id="draft-save-status-${index}" style="font-size:12.5px;font-weight:700;color:#888;">${(data && data.savedAt) ? '✅ Blog saved' : ''}</span>
                 </div>
                 <div id="draft-prev-${index}" class="blog-prev" style="background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:16px 18px;max-height:520px;overflow:auto;">${previewHtml(data.bodyHtml)}</div>`;
@@ -2719,10 +2719,10 @@
         // Download every TICKED product's chosen image as its own file, named by SKU (no zip).
         async function downloadAllImages(index, btn) {
             const s = window._products[index]; if (!s) return;
-            const all = [...(s.awa || []), ...(s.prints || []), ...(s.collective || []), ...(s.collectivePool || []), ...(s.extra || [])];
+            const all = [...(s.awa || []), ...(s.prints || []), ...(s.extra || [])];
             const seen = new Set(); const picks = [];
-            all.forEach(p => { if (p && p.gid && s.selected[p.gid] && !seen.has(p.gid)) { seen.add(p.gid); picks.push(p); } });
-            if (!picks.length) { alert('Tick the products you want first, then press Download all images.'); return; }
+            all.forEach(p => { if (p && p.gid && s.selected[p.gid] && p.vendor === AWA_VENDOR && !seen.has(p.gid)) { seen.add(p.gid); picks.push(p); } });
+            if (!picks.length) { alert('Tick some About Wall Art products first, then press Download all images.'); return; }
             const orig = btn ? btn.textContent : ''; if (btn) btn.disabled = true;
             let ok = 0;
             for (let i = 0; i < picks.length; i++) {
