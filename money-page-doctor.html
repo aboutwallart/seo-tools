@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 67.2</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 67.3</p>
                 </div>
             </div>
         </header>
@@ -2319,6 +2319,12 @@
                         const sug    = (f.suggestedText||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                         const reason = (f.reason||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                         const isRemove = (f.recommendation||'').toLowerCase().includes('remove');
+                        const _md = (!isRemove) ? minReplace(f.currentText || '', f.suggestedText || '') : null;
+                        const findBit = _md ? (_md.oldMid || cur).replace(/</g,'&lt;').replace(/>/g,'&gt;') : cur;
+                        const replBit = _md ? (_md.newMid || sug).replace(/</g,'&lt;').replace(/>/g,'&gt;') : sug;
+                        const curLabel = isRemove ? 'Current text:' : '🔎 Find this exact bit in the blog:';
+                        const curShow  = isRemove ? cur : findBit;
+                        const curBtn   = isRemove ? '📋 Copy current' : '📋 Copy find-text';
                         const mfKey = (f.metafieldKey||'').trim();
                         const oKey = `overuse_${i}`;
                         const oItem = allItems.find(it => it.key === oKey);
@@ -2329,18 +2335,19 @@
                                 ${oItem ? cb(oItem) : ''}
                                 <div style="font-size:0.78rem;color:#e67e22;font-weight:600;${state[oKey]?'text-decoration:line-through;':''}">📍 ${loc}</div>
                             </div>
-                            <div style="font-size:0.8rem;color:#999;margin-bottom:4px;">Current text:</div>
-                            <div style="background:#fafafa;border:1px solid #eee;border-radius:4px;padding:8px;font-size:0.88rem;margin-bottom:6px;">${cur}</div>
-                            <textarea id="overuseCurrent${i}" style="display:none;">${cur}</textarea>
-                            <button class="copy-btn" type="button" style="margin-bottom:8px;" onclick="copyToClipboard(document.getElementById('overuseCurrent${i}').value,this)">📋 Copy current</button>
+                            <div style="font-size:0.8rem;color:#999;margin-bottom:4px;">${curLabel}</div>
+                            <div style="background:#fafafa;border:1px solid #eee;border-radius:4px;padding:8px;font-size:0.88rem;margin-bottom:6px;">${curShow}</div>
+                            <textarea id="overuseCurrent${i}" style="display:none;">${isRemove ? cur : findBit}</textarea>
+                            <button class="copy-btn" type="button" style="margin-bottom:8px;" onclick="copyToClipboard(document.getElementById('overuseCurrent${i}').value,this)">${curBtn}</button>
                             ${reason ? `<div style="font-size:0.82rem;color:#555;margin-bottom:8px;">${reason}</div>` : ''}
                             ${isRemove
                                 ? `<div style="display:inline-block;background:#fdecea;color:#c0392b;font-weight:600;font-size:0.82rem;padding:6px 12px;border-radius:4px;margin-bottom:8px;">🗑️ Better to remove this entirely</div><br>
                                    ${mfKey ? '' : `<button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushEditsFromAttr('${oEdit}',null,{title:'Remove over-used text',doneMsg:'Removed from your blog',tickKey:'${oKey}'},this)">📤 Remove from blog</button>`}`
-                                : `<div style="font-size:0.8rem;color:#999;margin-bottom:4px;">Change it to:</div>
-                                   <div style="background:#eafaf1;border:1px solid #d4efdf;border-radius:4px;padding:8px;font-size:0.88rem;margin-bottom:8px;">${sug}</div>
+                                : `<div style="font-size:0.8rem;color:#999;margin-bottom:4px;">✏️ Replace it with:</div>
+                                   <div style="background:#eafaf1;border:1px solid #d4efdf;border-radius:4px;padding:8px;font-size:0.88rem;margin-bottom:8px;">${replBit}</div>
                                    <textarea id="overuseSuggest${i}" style="display:none;">${sug}</textarea>
-                                   <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('overuseSuggest${i}').value,this)">📋 Copy replacement</button>
+                                   <textarea id="overuseReplMin${i}" style="display:none;">${replBit}</textarea>
+                                   <button class="copy-btn" type="button" onclick="copyToClipboard(document.getElementById('overuseReplMin${i}').value,this)">📋 Copy replacement</button>
                                    ${mfKey
                                         ? `<button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushOveruse('${mfKey}','overuseSuggest${i}',this)">📤 Push to Shopify</button>`
                                         : `<button class="copy-btn" type="button" style="background:#1976d2;color:#fff;" onclick="pushEditsFromAttr('${oEdit}',null,{title:'Keyword over-use fix',doneMsg:'Fixed in your blog',tickKey:'${oKey}'},this)">📤 Push to blog</button>`}`
@@ -3312,6 +3319,22 @@
         }
 
         // Push one or more metafields to Shopify (write directly).
+        // Find the smallest changed bit between old and new text (word-aligned), so we can show just that part.
+        function minReplace(oldT, newT) {
+            oldT = String(oldT || ''); newT = String(newT || '');
+            if (!oldT || !newT || oldT === newT) return { oldMid: oldT, newMid: newT };
+            let a = 0; const m = Math.min(oldT.length, newT.length);
+            while (a < m && oldT[a] === newT[a]) a++;
+            let eo = oldT.length, en = newT.length;
+            while (eo > a && en > a && oldT[eo - 1] === newT[en - 1]) { eo--; en--; }
+            while (a > 0 && /\S/.test(oldT[a - 1])) a--;
+            while (eo < oldT.length && /\S/.test(oldT[eo])) eo++;
+            while (en < newT.length && /\S/.test(newT[en])) en++;
+            const oldMid = oldT.slice(a, eo).trim();
+            const newMid = newT.slice(a, en).trim();
+            if (!oldMid && !newMid) return { oldMid: oldT, newMid: newT };
+            return { oldMid: oldMid || '(nothing)', newMid: newMid || '(remove this bit)' };
+        }
         // "Push all 4" for the Template Metafield Fields — clicks each field's push button, then ticks every row done.
         async function pushAllTemplateFields(btn) {
             const block = btn.closest('.action-block');
