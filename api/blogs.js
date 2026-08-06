@@ -3522,15 +3522,17 @@ Return ONE valid JSON object, no code fences, exactly these keys:
 "howToSteps": "if isHowTo an array of 3 to 6 real steps from the blog as {\\"name\\":\\"...\\",\\"text\\":\\"...\\"}, else an empty array"
 }
 Return only the JSON.`;
-          let raw = await callClaudeText(seoPrompt, 2600);
+          let raw = await callClaudeText(seoPrompt, 2600, 'claude-haiku-4-5-20251001');
           raw = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '');
           const m = raw.match(/\{[\s\S]*\}/);
           boxes = m ? JSON.parse(m[0]) : {};
         } catch (e) { boxes = {}; report.push({ ok: false, label: 'Could not auto-write the SEO boxes', fix: 'Press Publish again. The blog still gets created either way — you can add the boxes by hand.' }); }
 
-        const seoTitle = String(boxes.seoTitle || pbTitle).slice(0, 70);
-        const metaDescription = String(boxes.metaDescription || '').slice(0, 160);
-        const excerpt = String(boxes.excerpt || '');
+        // Clean any HTML entities (e.g. a cheaper engine may write "&amp;" instead of "&") in these plain-text fields.
+        const deEnt = s => String(s || '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'");
+        const seoTitle = deEnt(boxes.seoTitle || pbTitle).slice(0, 70);
+        const metaDescription = deEnt(boxes.metaDescription || '').slice(0, 160);
+        const excerpt = deEnt(boxes.excerpt || '');
         // How-To schema — Money Page Doctor's exact format (JSON-LD in a script tag), only for real how-tos
         let howToSchema = '';
         if (boxes.isHowTo && Array.isArray(boxes.howToSteps) && boxes.howToSteps.length) {

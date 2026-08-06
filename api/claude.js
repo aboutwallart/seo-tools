@@ -34,12 +34,6 @@ export default async function handler(req, res) {
         max_tokens: 8000,
         messages: [
           { role: "user", content: prompt }
-        ],
-        tools: [
-          {
-            type: "web_search_20250305",
-            name: "web_search"
-          }
         ]
       })
     });
