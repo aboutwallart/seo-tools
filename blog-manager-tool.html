@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.7.2 - 2026-08-02</p>
+        <p class="version">v6.8.0 - 2026-08-06</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -1377,6 +1377,7 @@
                     ${data.authority && data.authority.url ? ' · authority link found' : ' · no authority link'}
                     ${data.youtube && data.youtube.link ? ' · video found' : ' · no video'}
                 </div>
+                ${missingSourceBox(index, data)}
                 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
                     <button onclick="saveBlogDraft(${index})" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:800;cursor:pointer;">💾 Save blog</button>
                     <button onclick="copyDraft(${index})" style="background:#1a1a1a;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;">📋 Copy body HTML</button>
@@ -1387,6 +1388,61 @@
                 <div id="draft-prev-${index}" class="blog-prev" style="background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:16px 18px;max-height:520px;overflow:auto;">${previewHtml(data.bodyHtml)}</div>`;
             out.innerHTML = stepBox(body);
             setStepDone(index, 'write', open !== false);
+        }
+
+        // When the writer couldn't find a video / authority source, let her paste her own so the blog is complete.
+        function missingSourceBox(index, data) {
+            const noVid = !(data.youtube && data.youtube.link);
+            const noAuth = !(data.authority && data.authority.url);
+            if (!noVid && !noAuth) return '';
+            const inp = 'width:100%;max-width:520px;font-size:13px;padding:7px 10px;border:1px solid #e0c56a;border-radius:6px;box-sizing:border-box;margin-bottom:5px;';
+            const btn = 'background:#f0ad00;color:#1a1a1a;border:none;border-radius:6px;padding:7px 14px;font-weight:800;cursor:pointer;';
+            let rows = '';
+            if (noVid) {
+                rows += `<div style="margin-bottom:12px;">
+                    <div style="font-size:13px;font-weight:700;color:#8a6d00;margin-bottom:4px;">🎥 No video found — paste a YouTube link to complete the blog</div>
+                    <input id="mvid-link-${index}" type="text" placeholder="https://www.youtube.com/watch?v=…" style="${inp}">
+                    <input id="mvid-title-${index}" type="text" placeholder="Video title (optional)" style="${inp}">
+                    <div><button onclick="setManualSource(${index},'youtube')" style="${btn}">＋ Add this video</button></div>
+                </div>`;
+            }
+            if (noAuth) {
+                rows += `<div>
+                    <div style="font-size:13px;font-weight:700;color:#8a6d00;margin-bottom:4px;">🔗 No authority source found — paste an article link (optional)</div>
+                    <input id="mauth-url-${index}" type="text" placeholder="https://…" style="${inp}">
+                    <input id="mauth-title-${index}" type="text" placeholder="Article title (optional)" style="${inp}">
+                    <div><button onclick="setManualSource(${index},'authority')" style="${btn}">＋ Add this source</button></div>
+                </div>`;
+            }
+            return `<div style="background:#fff8e1;border:1px solid #ffe6a1;border-radius:8px;padding:12px;margin-bottom:10px;">${rows}</div>`;
+        }
+        function ytId(link) { const m = String(link || '').match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([A-Za-z0-9_-]{11})/); return m ? m[1] : ''; }
+        function setManualSource(index, kind) {
+            const d = window._drafts[index]; if (!d) return;
+            if (kind === 'youtube') {
+                const link = ((document.getElementById('mvid-link-' + index) || {}).value || '').trim();
+                const title = ((document.getElementById('mvid-title-' + index) || {}).value || '').trim() || 'Watch the video';
+                const id = ytId(link);
+                if (!id) { alert('That doesn\'t look like a YouTube link. Paste a full watch link, e.g. https://www.youtube.com/watch?v=XXXXXXXXXXX'); return; }
+                d.youtube = { link: link, title: title };
+                // Put the WATCH section + embed into the body so the finished blog actually shows it.
+                if ((d.bodyHtml || '').indexOf(id) === -1) {
+                    d.bodyHtml = (d.bodyHtml || '') + `\n<p><strong>WATCH:</strong> <a href="${link}" target="_blank" rel="noopener">${escHtml(title)}</a></p>\n<div style="position:relative;width:100%;padding-bottom:56.25%;margin:16px 0;"><iframe src="https://www.youtube.com/embed/${id}" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;" allowfullscreen loading="lazy"></iframe></div>\n`;
+                }
+            } else {
+                const url = ((document.getElementById('mauth-url-' + index) || {}).value || '').trim();
+                const title = ((document.getElementById('mauth-title-' + index) || {}).value || '').trim() || url;
+                if (!/^https?:\/\//i.test(url)) { alert('Paste a full link starting with http.'); return; }
+                d.authority = { url: url, title: title };
+                if ((d.bodyHtml || '').indexOf(url) === -1) {
+                    d.bodyHtml = (d.bodyHtml || '') + `\n<p>More about this: <a href="${url}" target="_blank" rel="noopener">${escHtml(title)}</a></p>\n`;
+                }
+            }
+            window._drafts[index] = d;
+            const idea = allIdeas.find(i => i.index === index);
+            if (idea) { window._draftsByTitle = window._draftsByTitle || {}; window._draftsByTitle[(idea.currentTitle || '').toLowerCase()] = d; }
+            renderDraft(index, d, true);
+            saveBlogDraft(index);
         }
 
         // Save the written blog to the server, and ALWAYS say what happened (never a silent loss).
@@ -1759,6 +1815,14 @@
             if (cur !== header) blocks.push(cur);
             return blocks.length ? blocks : [header];
         }
+        // Like splitCopyBlocks but the header goes on the FIRST batch only; later batches are just the lines.
+        function splitCopyBlocksHeaderFirst(header, lines, limit) {
+            limit = limit || 9500;
+            const blocks = []; let cur = header;
+            lines.forEach(line => { if ((cur + '\n' + line).length > limit && cur.trim() !== '') { blocks.push(cur); cur = ''; } cur = cur ? (cur + '\n' + line) : line; });
+            if (cur.trim() !== '') blocks.push(cur);
+            return blocks.length ? blocks : [header];
+        }
         function copyBoxHtml(title, subtitle, blocks, colour) {
             const boxes = blocks.map((b, i) => `
                 <div style="margin-bottom:10px;">
@@ -1828,9 +1892,8 @@
             const shows = d.sectionShows;
             if (!shows.length) return `<div style="border-top:1px solid #eee;padding-top:12px;margin-top:12px;"><div style="font-weight:800;font-size:14px;">3 · 🏠 Section images</div><div style="font-size:12px;color:#999;margin-top:4px;">This blog has no section image spots.</div></div>`;
             const code = d.blogCode; const kw = kwFor(index);
-            const bible = (d.styleBible || '').trim();
             const person = personRulesText(kw);
-            const header = `SHOPIFY AI — SECTION IMAGES. Do each numbered line as its own image, size 3:2. Save each EXACTLY as the name in quotes, and set the ALT TEXT given (do NOT use the file name as the alt).\n${SACRED_LINE}\n\nSTYLE BIBLE — every PHOTO below must follow this look (infographics are the only exception):\n${bible}\n\n${person}\n\n${EDITORIAL_LINE}\n\nEach line has a FLAG telling you how the style bible applies. Follow it.`;
+            const header = `SHOPIFY AI — SECTION IMAGES. Do each numbered line as its own image, size 3:2. Save each EXACTLY as the name in quotes, and set the ALT TEXT given (do NOT use the file name as the alt).\n${SACRED_LINE}\n\n${person}\n\n${EDITORIAL_LINE}\n\nEach line has a FLAG telling you how the style bible applies. Follow it.`;
             let infoCount = 0; // L6 — only the FIRST infographic is plain vector/text; the rest are photo-based.
             const lines = shows.map((im, k) => {
                 const n = String(k + 1).padStart(2, '0');
@@ -1860,10 +1923,10 @@
                 }
                 return `${n}. [3:2] SECTION "${im.section || ''}" — FLAG: ${flagText}\nSHOW: ${im.show || im.section || ''}\nSAVE AS "${nm}". ALT: "${alt}".`;
             });
-            const blocks = splitCopyBlocks(header, lines);
+            const blocks = splitCopyBlocksHeaderFirst(header, lines);
             const refresh = `<div style="margin-bottom:8px;"><button onclick="loadSectionShows(${index})" style="${regenBtnStyle}">↻ Rewrite section prompts</button></div>`;
             return `<div style="border-top:1px solid #eee;padding-top:12px;margin-top:12px;"><div style="font-weight:800;font-size:14px;margin-bottom:6px;">3 · 🏠 Section images (${shows.length})</div>${refresh}` +
-                copyBoxHtml('', 'Style bible + people rules sit at the top of every paste. Save each image with the exact name shown.', blocks, '#00796b').replace('<div style="border-top:1px solid #eee;padding-top:12px;margin-top:12px;">', '<div>') + '</div>';
+                copyBoxHtml('', 'Paste your style bible into Shopify first — it applies to all of these. The instructions are on the first paste only; later pastes are just the images. Save each with the exact name shown.', blocks, '#00796b').replace('<div style="border-top:1px solid #eee;padding-top:12px;margin-top:12px;">', '<div>') + '</div>';
         }
         async function loadSectionShows(index) {
             const idea = allIdeas.find(i => i.index === index); const d = window._drafts[index];
@@ -2361,6 +2424,7 @@
                 ${prodAddBar(index)}
                 <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
                     <button onclick="saveSelection(${index},this)" style="background:#43a047;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-weight:800;font-size:14px;cursor:pointer;">✓ Confirm my product picks</button>
+                    <button onclick="downloadAllImages(${index},this)" style="background:#c0561d;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-weight:800;font-size:14px;cursor:pointer;">⬇ Download all images</button>
                     <div id="confirm-banner-${index}">${confirmBannerHtml(index)}</div>
                 </div>
                 <div style="margin-top:16px;font-size:12px;color:#00695c;background:#f3faf8;border:1px solid #cfe8e3;border-radius:8px;padding:10px 12px;">🖼️ Wall-art image prompts now live in <strong>Step 4 · Get image prompts</strong>, alongside the style bible, featured and section prompts.</div>`;
@@ -2651,6 +2715,35 @@
                 .then(blob => { if (navigator.clipboard && window.ClipboardItem) return navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); throw new Error('this browser can\'t copy images — use the "open" link instead'); })
                 .then(() => { btn.disabled = false; btn.textContent = 'Copied ✓'; setTimeout(() => btn.textContent = orig, 1600); })
                 .catch(e => { btn.disabled = false; btn.textContent = orig; alert('Could not copy the image: ' + e.message + '. Use the "open" link, then right-click → Copy Image.'); });
+        }
+        // Download every TICKED product's chosen image as its own file, named by SKU (no zip).
+        async function downloadAllImages(index, btn) {
+            const s = window._products[index]; if (!s) return;
+            const all = [...(s.awa || []), ...(s.prints || []), ...(s.collective || []), ...(s.collectivePool || []), ...(s.extra || [])];
+            const seen = new Set(); const picks = [];
+            all.forEach(p => { if (p && p.gid && s.selected[p.gid] && !seen.has(p.gid)) { seen.add(p.gid); picks.push(p); } });
+            if (!picks.length) { alert('Tick the products you want first, then press Download all images.'); return; }
+            const orig = btn ? btn.textContent : ''; if (btn) btn.disabled = true;
+            let ok = 0;
+            for (let i = 0; i < picks.length; i++) {
+                const p = picks[i];
+                const url = s.chosen[p.gid] || (p.images && p.images[0]);
+                if (!url) continue;
+                if (btn) btn.textContent = '⬇ ' + (i + 1) + ' of ' + picks.length + '…';
+                const nameBase = String(p.sku || p.handle || p.title || ('image' + (i + 1))).trim().replace(/[^a-zA-Z0-9\-_]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || ('image' + (i + 1));
+                try {
+                    const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'product-image', url }) });
+                    const d = await r.json();
+                    if (!d || !d.ok || !d.dataBase64) throw new Error('load failed');
+                    const mime = d.mime || 'image/png';
+                    const ext = (mime.split('/')[1] || 'png').replace('jpeg', 'jpg').split('+')[0];
+                    const a = document.createElement('a'); a.href = 'data:' + mime + ';base64,' + d.dataBase64; a.download = nameBase + '.' + ext;
+                    document.body.appendChild(a); a.click(); a.remove();
+                    ok++;
+                    await new Promise(res => setTimeout(res, 500)); // stagger so the browser allows several downloads
+                } catch (e) { /* skip this one, keep going */ }
+            }
+            if (btn) { btn.disabled = false; btn.textContent = ok + ' downloaded ✓'; setTimeout(() => btn.textContent = orig, 2500); }
         }
 
         // Work out which people to add, based on the blog's topic (mirrors the social/edu tool rules).
