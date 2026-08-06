@@ -556,7 +556,7 @@ Return ONLY a JSON object, no commentary, exactly:
   async function callClaudeText(prompt, maxTokens, model) {
     const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
     if (!ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not configured');
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const _mkCall = (mdl) => fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'x-api-key': ANTHROPIC_API_KEY,
@@ -564,11 +564,17 @@ Return ONLY a JSON object, no commentary, exactly:
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: model || 'claude-sonnet-4-6',
+        model: mdl,
         max_tokens: maxTokens || 2000,
         messages: [{ role: 'user', content: prompt }]
       })
     });
+    const _wanted = model || 'claude-sonnet-4-6';
+    let response = await _mkCall(_wanted);
+    // Safety net: if a cheaper engine was requested and it's unavailable (model error), fall back to the good engine so nothing breaks.
+    if (!response.ok && _wanted !== 'claude-sonnet-4-6' && (response.status === 404 || response.status === 400)) {
+      response = await _mkCall('claude-sonnet-4-6');
+    }
     if (!response.ok) {
       const errText = await response.text();
       const low = (errText || '').toLowerCase();
