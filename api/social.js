@@ -2393,14 +2393,19 @@ module.exports = async (req, res) => {
       async function bBlogCounts() {
         const map = {};
         if (!B_DOMAIN || !B_TOKEN) return map;
-        const gq = 'query{ articles(first:250, sortKey:PUBLISHED_AT, reverse:true, query:"blog_id:93572858142 published_status:any"){ edges{ node{ publishedAt } } } }';
-        try {
-          const r = await fetch('https://' + B_DOMAIN + '/admin/api/2025-01/graphql.json', { method: 'POST', headers: { 'X-Shopify-Access-Token': B_TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ query: gq }) });
-          if (!r.ok) return map;
-          const d = await r.json();
-          const edges = ((((d || {}).data || {}).articles || {}).edges) || [];
-          edges.forEach(function (e) { const pm = (((e.node || {}).publishedAt) || '').slice(0, 7); if (pm) map[pm] = (map[pm] || 0) + 1; });
-        } catch (e) {}
+        // Shopify keeps live and scheduled blogs in separate buckets — count BOTH and add them.
+        async function addStatus(status) {
+          const gq = 'query{ articles(first:250, sortKey:PUBLISHED_AT, reverse:true, query:"blog_id:93572858142 published_status:' + status + '"){ edges{ node{ publishedAt } } } }';
+          try {
+            const r = await fetch('https://' + B_DOMAIN + '/admin/api/2025-01/graphql.json', { method: 'POST', headers: { 'X-Shopify-Access-Token': B_TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ query: gq }) });
+            if (!r.ok) return;
+            const d = await r.json();
+            const edges = ((((d || {}).data || {}).articles || {}).edges) || [];
+            edges.forEach(function (e) { const pm = (((e.node || {}).publishedAt) || '').slice(0, 7); if (pm) map[pm] = (map[pm] || 0) + 1; });
+          } catch (e) {}
+        }
+        await addStatus('published');
+        await addStatus('unpublished');
         return map;
       }
       const blogCounts = await bBlogCounts();
@@ -2412,16 +2417,24 @@ module.exports = async (req, res) => {
       const now = new Date();
       const curYM = now.toISOString().slice(0, 7);
       const nextYM = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString().slice(0, 7);
+      // Build the month list from ALL content sources (not just the social plan), from this month forward,
+      // so a month with only educational/blog/LinkedIn content (e.g. October YouTube) still shows.
       const monthSet = {};
-      Object.keys(plan.months || {}).forEach(function (k) { monthSet[k] = 1; });
       monthSet[curYM] = 1; monthSet[nextYM] = 1;
+      function addM(m) { if (m && m >= curYM) monthSet[m] = 1; }
+      Object.keys(plan.months || {}).forEach(addM);
+      eduV.forEach(function (v) { addM(bYM(v.liveAt)); });
+      liUsed.forEach(function (u) { addM(bYM(u.date)); });
+      ublog.forEach(function (x) { addM(bYM(x.usedDate)); });
+      sqLog.forEach(function (x) { addM(bYM(x.sentAt)); });
+      Object.keys(blogCounts).forEach(addM);
       const months = Object.keys(monthSet).sort();
 
       const result = months.map(function (M) {
         const parts = M.split('-'); const Y = +parts[0], Mo = +parts[1];
         const days = ((plan.months[M] || {}).days) || [];
         const planN = days.length;
-        let cvDone = 0; days.forEach(function (d) { const s = (d.sku || '').toString(); if (s && vstate['gen' + s + '_prompt']) cvDone++; });
+        let cvDone = 0; days.forEach(function (d) { const s = (d.sku || '').toString(); if (d.sent || (s && vstate['gen' + s + '_made'])) cvDone++; });
         let reelDone = 0; days.forEach(function (d) { if (d.sent) reelDone++; });
         let blogDone = ublog.filter(function (x) { return bYM(x.usedDate) === M; }).length; if (planN && blogDone > planN) blogDone = planN;
         const eduDone = eduV.filter(function (v) { return bYM(v.liveAt) === M; }).length;
