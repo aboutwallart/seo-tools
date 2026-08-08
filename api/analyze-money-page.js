@@ -1783,9 +1783,9 @@ Return this exact JSON structure with real content (no placeholders):
       {
         "location": "H2 | H3 | paragraph | metafield: <key> — say where it lives so the merchant can find it",
         "metafieldKey": "if this finding is IN a metafield, the exact key in namespace.key form (e.g. custom.more_about_) copied from the METAFIELD CONTENT list above; otherwise empty string",
-        "currentText": "the EXACT current heading or sentence as it appears on the page",
+        "currentText": "the ONE shortest exact sentence (or heading) that contains the over-use, copied verbatim — NEVER a whole paragraph, only the single sentence with the repeated keyword",
         "recommendation": "reword OR remove",
-        "suggestedText": "if reword: the rewritten text using a related/secondary term instead of repeating \\"${keyword}\\". If remove: empty string.",
+        "suggestedText": "if reword: that SAME single sentence rewritten — keep the identical wording, same start and same end, changing ONLY the few over-used words to a related/secondary term (so a diff shows just the changed words). It must be the same sentence as currentText, not a shorter fragment. If remove: empty string.",
         "reason": "one short sentence on why this is over-use"
       }
     ]
@@ -2251,9 +2251,9 @@ Return this exact JSON structure with real content (no placeholders):
       {
         "location": "H2 | H3 | paragraph | metafield: <key> — where it lives",
         "metafieldKey": "",
-        "currentText": "the EXACT current heading or sentence",
+        "currentText": "the ONE shortest exact sentence (or heading) that contains the over-use, copied verbatim — NEVER a whole paragraph",
         "recommendation": "reword OR remove",
-        "suggestedText": "if reword: the rewritten text using a related/secondary term. If remove: empty string.",
+        "suggestedText": "if reword: that SAME single sentence rewritten — same start and end, changing ONLY the few over-used words to a related/secondary term (so a diff shows just the changed words), not a shorter fragment. If remove: empty string.",
         "reason": "one short sentence on why this is over-use"
       }
     ]
@@ -2456,9 +2456,9 @@ Return this exact JSON structure with real content (no placeholders):
       {
         "location": "H2 | H3 | paragraph | metafield: <key> — where it lives",
         "metafieldKey": "",
-        "currentText": "the EXACT current heading or sentence",
+        "currentText": "the ONE shortest exact sentence (or heading) that contains the over-use, copied verbatim — NEVER a whole paragraph",
         "recommendation": "reword OR remove",
-        "suggestedText": "if reword: the rewritten text using a related/secondary term. If remove: empty string.",
+        "suggestedText": "if reword: that SAME single sentence rewritten — same start and end, changing ONLY the few over-used words to a related/secondary term (so a diff shows just the changed words), not a shorter fragment. If remove: empty string.",
         "reason": "one short sentence on why this is over-use"
       }
     ]
@@ -2623,7 +2623,7 @@ Return this exact JSON structure with real content (no placeholders):
     "isOverstuffed": true,
     "summary": "One plain-English sentence about over-use of \\"${keyword}\\".",
     "findings": [
-      { "location": "where it lives", "metafieldKey": "", "currentText": "exact current text", "recommendation": "reword OR remove", "suggestedText": "rewrite or empty", "reason": "one short sentence" }
+      { "location": "where it lives", "metafieldKey": "", "currentText": "the ONE shortest exact sentence containing the over-use, verbatim — never a whole paragraph", "recommendation": "reword OR remove", "suggestedText": "the SAME sentence reworded — same start and end, only the few over-used words changed (not a fragment); empty if remove", "reason": "one short sentence" }
     ]
   },
   "aiItems": [
