@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 67.3</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 67.4</p>
                 </div>
             </div>
         </header>
@@ -2322,8 +2322,10 @@
                         const _md = (!isRemove) ? minReplace(f.currentText || '', f.suggestedText || '') : null;
                         const findBit = _md ? (_md.oldMid || cur).replace(/</g,'&lt;').replace(/>/g,'&gt;') : cur;
                         const replBit = _md ? (_md.newMid || sug).replace(/</g,'&lt;').replace(/>/g,'&gt;') : sug;
-                        const curLabel = isRemove ? 'Current text:' : '🔎 Find this exact bit in the blog:';
-                        const curShow  = isRemove ? cur : findBit;
+                        const curLabel = isRemove ? 'Current text:' : '🔎 Find this exact bit in the blog (the bold part is what to replace):';
+                        const _oldMidEsc = (_md && _md.oldMid && _md.oldMid !== '(nothing)') ? _md.oldMid.replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
+                        const curBold = (_oldMidEsc && cur.indexOf(_oldMidEsc) >= 0) ? cur.replace(_oldMidEsc, '<strong style="background:#fff3cd;padding:0 2px;">' + _oldMidEsc + '</strong>') : cur;
+                        const curShow  = isRemove ? cur : curBold;
                         const curBtn   = isRemove ? '📋 Copy current' : '📋 Copy find-text';
                         const mfKey = (f.metafieldKey||'').trim();
                         const oKey = `overuse_${i}`;
@@ -2537,7 +2539,8 @@
             // ── 4. Manual actions block ───────────────────────────────────────
             // Collections route "add" sections to the SEO Text (with links) field, not the body —
             // so keep them out of the body Manual Actions block.
-            const manualItems = allItems.filter(it => it.group === 'manual' && it.key !== 'toc_update' && !(_isCollection && it.action === 'add'));
+            const _noAction = (it) => /no action (required|needed)|leave (it )?as[- ]?is|cannot be customi[sz]ed|theme[- ]rendered|left as a widget|remain as[- ]?is/i.test((it.label || '') + ' ' + (it.detail || ''));
+            const manualItems = allItems.filter(it => it.group === 'manual' && it.key !== 'toc_update' && !(_isCollection && it.action === 'add') && !_noAction(it));
             // Pushable H2 changes (blogs): rename / remove / add — single + "Do all".
             const _h2Items = _isBlog ? manualItems.filter(it => it.action) : [];
             const _h2BulkEdits = _editsAttr(_h2Items.map(it => it.action === 'remove' ? { kind: 'h2-remove', find: it.findText || '' } : (it.action === 'add' ? { kind: 'h2-add', content: it.detail || '' } : { kind: 'h2-rename', find: it.findText || '', replace: it.replacementText || '' })));
