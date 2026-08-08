@@ -2783,13 +2783,20 @@ Return ONLY a JSON array, one object per title in order, exactly:
           } catch (e) {
             return res.status(200).json({ success: false, error: 'Could not reach SerpAPI: ' + e.message });
           }
-          // SerpAPI signals problems in data.error — detect the "out of searches/credits" case explicitly.
-          if (data.error) {
+          // SerpAPI signals problems in data.error (out of searches/credits). Before dead-ending, try Scrappa.
+          let organic = data.error ? [] : (data.organic_results || []);
+          if (!organic.length && process.env.SCRAPPA_KEY) {
+            try {
+              const sr = await fetch(`https://scrappa.co/api/search?query=${encodeURIComponent(keyword)}&gl=uk&hl=en`, { headers: { 'x-api-key': process.env.SCRAPPA_KEY } });
+              const sd = await sr.json();
+              if (Array.isArray(sd.organic_results) && sd.organic_results.length) { organic = sd.organic_results; console.log('[Blog competitor] Scrappa fallback used — ' + organic.length + ' results'); }
+            } catch (e) { console.error('[Scrappa] Error:', e); }
+          }
+          if (!organic.length && data.error) {
             const e = String(data.error).toLowerCase();
             const outOfCredits = e.includes('run out') || e.includes('ran out') || e.includes('exceeded') || e.includes('no searches') || e.includes('out of searches') || e.includes('plan') || e.includes('limit');
             return res.status(200).json({ success: false, outOfCredits, error: data.error });
           }
-          const organic = data.organic_results || [];
           const isMine = (u) => /aboutwallart\.com/i.test(u || '');
           competitors = organic.filter(o => o.link && !isMine(o.link)).slice(0, 3).map((o, i) => ({ position: i + 1, title: o.title || '', url: o.link }));
           if (!competitors.length) {
