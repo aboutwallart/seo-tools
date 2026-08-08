@@ -2787,7 +2787,7 @@ Return ONLY a JSON array, one object per title in order, exactly:
           let organic = data.error ? [] : (data.organic_results || []);
           if (!organic.length && process.env.SCRAPPA_KEY) {
             try {
-              const sr = await fetch(`https://scrappa.co/api/search?query=${encodeURIComponent(keyword)}&gl=uk&hl=en`, { headers: { 'x-api-key': process.env.SCRAPPA_KEY } });
+              const sr = await fetch(`https://scrappa.co/api/search?query=${encodeURIComponent(keyword)}&gl=gb&hl=en`, { headers: { 'x-api-key': process.env.SCRAPPA_KEY } });
               const sd = await sr.json();
               if (Array.isArray(sd.organic_results) && sd.organic_results.length) { organic = sd.organic_results; console.log('[Blog competitor] Scrappa fallback used — ' + organic.length + ' results'); }
             } catch (e) { console.error('[Scrappa] Error:', e); }

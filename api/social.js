@@ -2388,7 +2388,15 @@ module.exports = async (req, res) => {
       const liUsed = (((await bJson(B_LI)) || {}).used) || [];
       const manual = (((await bJson(B_MANUAL)) || {}).months) || {};
       // Publish product videos reads the uploader's own record (written automatically on every push).
+      // Match a plan SKU to a pushed video: the NUMBER must be identical (strict), the LETTERS may differ
+      // slightly (loose) — so a filename typo like SKYCRAPPERS02 still matches the product SKYSCRAPERS02,
+      // but BOHOWOMEN04 never matches BOHOWOMEN08 (different number).
       const sqLogRaw = await bJson('data/sq-video-log.json'); const sqLog = Array.isArray(sqLogRaw) ? sqLogRaw : [];
+      function bDig(s) { return String(s || '').replace(/[^0-9]/g, ''); }
+      function bLet(s) { return String(s || '').toUpperCase().replace(/[^A-Z]/g, ''); }
+      function bLev(a, b) { if (a === b) return 0; if (!a || !b) return (a || b).length; var dp = []; for (var j = 0; j <= b.length; j++) dp[j] = j; for (var i = 1; i <= a.length; i++) { var prev = dp[0]; dp[0] = i; for (var k = 1; k <= b.length; k++) { var cur = dp[k]; dp[k] = Math.min(dp[k] + 1, dp[k - 1] + 1, prev + (a[i - 1] === b[k - 1] ? 0 : 1)); prev = cur; } } return dp[b.length]; }
+      const sqVids = sqLog.map(function (x) { return { dig: bDig((x && x.sku) || ''), lt: bLet((x && x.sku) || '') }; }).filter(function (v) { return v.dig || v.lt; });
+      function bVideoPushed(sku) { var dg = bDig(sku), lt = bLet(sku); if (!dg && !lt) return false; for (var i = 0; i < sqVids.length; i++) { var v = sqVids[i]; if (v.dig === dg && (dg ? bLev(v.lt, lt) <= 2 : v.lt === lt)) return true; } return false; }
       // Blog creation reads LIVE from Shopify (published_status:any so future-SCHEDULED blogs count too).
       async function bBlogCounts() {
         const map = {};
@@ -2443,7 +2451,7 @@ module.exports = async (req, res) => {
         const liN = bWeekdayCount(Y, Mo, 2);
         const blogTotal = bDaysInMonth(Y, Mo);
         let blogMadeDone = blogCounts[M] || 0; if (blogMadeDone > blogTotal) blogMadeDone = blogTotal;
-        let pubVidDone = sqLog.filter(function (x) { return bYM(x.sentAt) === M; }).length; if (planN && pubVidDone > planN) pubVidDone = planN;
+        let pubVidDone = 0; days.forEach(function (d) { if (bVideoPushed(d.sku)) pubVidDone++; });
         const man = manual[M] || {};
         return {
           month: M, planN: planN,

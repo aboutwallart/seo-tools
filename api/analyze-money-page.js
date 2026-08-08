@@ -738,7 +738,7 @@ async function findCompetitors(keyword, userUrl) {
     // Fallback: if SerpAPI is out of credits / returns nothing, try Scrappa (same organic_results shape).
     if (!organicResults.length && process.env.SCRAPPA_KEY) {
       try {
-        const sr = await fetch(`https://scrappa.co/api/search?query=${encodeURIComponent(keyword)}&gl=uk&hl=en`, { headers: { 'x-api-key': process.env.SCRAPPA_KEY } });
+        const sr = await fetch(`https://scrappa.co/api/search?query=${encodeURIComponent(keyword)}&gl=gb&hl=en`, { headers: { 'x-api-key': process.env.SCRAPPA_KEY } });
         const sd = await sr.json();
         if (Array.isArray(sd.organic_results) && sd.organic_results.length) {
           organicResults = sd.organic_results;
