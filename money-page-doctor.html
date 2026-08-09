@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 67.8</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 67.9</p>
                 </div>
             </div>
         </header>
@@ -1084,9 +1084,6 @@
                 return { np, kw, beforeKw, curKw, useKw, slip, daysAgo };
             };
 
-            // Fix D — headline "is the SEO working?" signal on the LOCKED keyword, across 15 / 30 / 90 days.
-            renderOptimizedHealthSummary(sorted, kwPair);
-
             // ONE traffic light per card, judged on the LOCKED keyword: green = working, grey = wait, red = reoptimise.
             const cardState = (kp) => {
                 const C = {
@@ -1103,6 +1100,10 @@
                 if (posDelta <= -5) return C.red;                              // real regression — worth acting on
                 return C.grey;                                                  // small drop (2–5), give it more time
             };
+
+            // "Is it working?" trend + the ONE number to act on (pages that need reoptimising).
+            const _redCount = sorted.filter(p => cardState(kwPair(p)).key === 'red').length;
+            renderOptimizedHealthSummary(sorted, kwPair, _redCount);
 
             // Colour filter across the tab: all / green (working) / grey (wait) / red (reoptimise).
             const rows = (optColorFilter === 'all') ? sorted : sorted.filter(p => cardState(kwPair(p)).key === optColorFilter);
@@ -1156,7 +1157,7 @@
         }
 
         // Fix D — average improvement of the LOCKED keyword across all optimised pages, for 15 / 30 / 90 days.
-        function renderOptimizedHealthSummary(pages, kwPair) {
+        function renderOptimizedHealthSummary(pages, kwPair, redCount) {
             const box = document.getElementById('optimizedHealthSummary');
             if (!box) return;
             const DAY = 86400000, now = Date.now();
@@ -1201,8 +1202,7 @@
                     const col = up ? '#2e7d32' : (down ? '#c62828' : '#888');
                     const arrow = up ? '▲' : (down ? '▼' : '—');
                     inner = `<div style="font-size:1.25rem;font-weight:800;color:${col};">${arrow} ${Math.abs(avg).toFixed(1)}</div>
-                             <div style="font-size:0.72rem;color:#666;">avg position change</div>
-                             <div style="font-size:0.72rem;color:#666;"><span style="color:#2e7d32;font-weight:600;">${improved} improved</span> · <span style="color:#c62828;font-weight:600;">${dropped} dropped</span> · of ${n}</div>`;
+                             <div style="font-size:0.72rem;color:#666;">avg position change · ${n} page${n===1?'':'s'}</div>`;
                 }
                 return `<div style="flex:1;min-width:140px;text-align:center;background:white;border:1px solid #e0e0e0;border-radius:8px;padding:10px 8px;">
                             <div style="font-size:0.75rem;color:#888;font-weight:600;margin-bottom:4px;">${w.label}</div>
@@ -1213,7 +1213,10 @@
             box.innerHTML = `<div style="background:#f4f9f4;border:1px solid #cfe6cf;border-radius:10px;padding:12px 14px;">
                 <div style="font-size:0.9rem;font-weight:700;color:#2e7d32;margin-bottom:10px;">📊 Is my SEO working? — locked-keyword ranking, all optimised pages</div>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;">${tiles}</div>
-                <div style="font-size:0.72rem;color:#999;margin-top:8px;">A higher position number is worse, so “▲” means the keyword climbed. Pages counted only once they're 14+ days optimised and have keyword data in that window.</div>
+                ${redCount > 0
+                    ? `<div style="margin-top:12px;font-size:0.95rem;font-weight:700;color:#A32D2D;">🔴 ${redCount} page${redCount===1?'':'s'} need a look — use the “Reoptimise” filter below.</div>`
+                    : `<div style="margin-top:12px;font-size:0.95rem;font-weight:600;color:#3B6D11;">🟢 Nothing needs action right now.</div>`}
+                <div style="font-size:0.72rem;color:#999;margin-top:8px;">A higher position number is worse, so “▲” means the keyword climbed. The number to act on is the red one above.</div>
             </div>`;
         }
 
@@ -2391,7 +2394,7 @@
             const ko = s.keywordOveruse;
             // Body-only over-use findings (metafield ones push via pushOveruse) → bulk "Fix all".
             const _koBody = (ko && Array.isArray(ko.findings)) ? ko.findings.map((f, i) => ({ f, i })).filter(x => !((x.f.metafieldKey || '').trim())) : [];
-            const _koBulkEdits = _editsAttr(_koBody.map(x => { const _rm = (x.f.recommendation || '').toLowerCase().includes('remove'); if (_rm) return { kind: 'overuse', find: x.f.currentText || '', replace: '' }; const _p = (x.f.currentText && x.f.suggestedText) ? pinpoint(x.f.currentText, x.f.suggestedText) : null; return { kind: 'overuse', find: _p ? _p.findExact : (x.f.currentText || ''), replace: x.f.suggestedText || '' }; }));
+            const _koBulkEdits = _editsAttr(_koBody.map(x => { const _rm = (x.f.recommendation || '').toLowerCase().includes('remove'); if (_rm) return { kind: 'overuse', find: x.f.currentText || '', replace: '' }; const _b = (x.f.currentText && x.f.suggestedText) ? boldReplacedSentence(x.f.currentText, x.f.suggestedText) : null; return { kind: 'overuse', find: _b ? _b.boldSentence : (x.f.currentText || ''), replace: x.f.suggestedText || '' }; }));
             const _koBulkKeys = JSON.stringify(_koBody.map(x => `overuse_${x.i}`)).replace(/"/g, "'");
             const overuseBlock = ko ? `
                 <div class="action-block" style="border-color:#e67e22;">
@@ -2407,13 +2410,13 @@
                         const isRemove = (f.recommendation||'').toLowerCase().includes('remove');
                         const _esc = (t) => String(t==null?'':t).replace(/</g,'&lt;').replace(/>/g,'&gt;');
                         const _bold = (t) => '<strong style="background:#fff3cd;padding:0 2px;">' + _esc(t) + '</strong>';
-                        const _pp = (!isRemove && f.currentText && f.suggestedText) ? pinpoint(f.currentText, f.suggestedText) : null;
-                        const findExact = _pp ? _pp.findExact : (f.currentText || '');
+                        // Bold the WHOLE sentence being replaced; "Copy find-text" = that exact sentence; replacement = the full new sentence.
+                        const _br = (!isRemove && f.currentText && f.suggestedText) ? boldReplacedSentence(f.currentText, f.suggestedText) : null;
+                        const findExact = _br ? _br.boldSentence : (f.currentText || '');
                         const findEsc = _esc(findExact);
                         const replBit = sug;
-                        const curLabel = isRemove ? 'Current text:' : '🔎 Find this exact bit in the blog (the bold part is what to replace):';
-                        const curShow  = isRemove ? cur
-                            : (_pp ? ((_pp.before.trim() ? _bold(_pp.before) : _esc(_pp.before)) + _esc(_pp.anchor) + (_pp.after.trim() ? _bold(_pp.after) : _esc(_pp.after))) : cur);
+                        const curLabel = isRemove ? 'Current text:' : '🔎 Find this exact sentence in the blog (bold = what to replace):';
+                        const curShow  = isRemove ? cur : (_br ? _br.html : _bold(f.currentText || ''));
                         const curBtn   = isRemove ? '📋 Copy current' : '📋 Copy find-text';
                         const mfKey = (f.metafieldKey||'').trim();
                         const oKey = `overuse_${i}`;
@@ -3447,6 +3450,27 @@
             if (best.ri + best.len < rw.length) { while (endP < toks.length && !ends(toks[endP - 1].w)) endP++; }
             var aS = best.pi, aE = best.pi + best.len - 1;
             return { findExact: paragraph.slice(toks[startP].s, toks[endP - 1].e), before: paragraph.slice(toks[startP].s, toks[aS].s), anchor: paragraph.slice(toks[aS].s, toks[aE].e), after: paragraph.slice(toks[aE].e, toks[endP - 1].e) };
+        }
+        // For the over-use card: bold the WHOLE sentence being replaced (never sparse words).
+        // If `cur` is one sentence → bold all of it. If it's a longer block → bold only the sentence
+        // that `sug` rewrites. Returns { html: block with that sentence bold, boldSentence: the exact sentence to find+replace }.
+        function boldReplacedSentence(cur, sug) {
+            cur = String(cur || ''); sug = String(sug || '');
+            const esc = (t) => String(t == null ? '' : t).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const bold = (t) => '<strong style="background:#fff3cd;padding:0 2px;">' + esc(t) + '</strong>';
+            const parts = cur.match(/[^.?!]+[.?!]*\s*/g) || [cur];
+            if (parts.length <= 1) return { html: bold(cur.trim()), boldSentence: cur.trim() };
+            const norm = (s) => s.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean);
+            const sugSet = new Set(norm(sug));
+            let bestI = 0, bestScore = -1;
+            parts.forEach((p, i) => {
+                const ws = norm(p); if (!ws.length) return;
+                let hit = 0; ws.forEach(w => { if (sugSet.has(w)) hit++; });
+                const score = hit / ws.length;
+                if (score > bestScore) { bestScore = score; bestI = i; }
+            });
+            const html = parts.map((p, i) => i === bestI ? bold(p.trim()) + (p.match(/\s+$/) ? ' ' : '') : esc(p)).join('');
+            return { html, boldSentence: parts[bestI].trim() };
         }
         // "Push all 4" for the Template Metafield Fields — clicks each field's push button, then ticks every row done.
         async function pushAllTemplateFields(btn) {
