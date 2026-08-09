@@ -1,4 +1,9 @@
-// shopify-files.js — v2.7
+// shopify-files.js — v2.8
+// v2.8 (June 29, 2026): BATCH 3 fixes. (1) NEW push-edits kind 'word-swap' — whole-word, case-aware
+//                       find→replace across the body (British English bulk/per-item push). (2) Each
+//                       edit in a push-edits batch is now isolated in try/catch → a bad edit is
+//                       reported as "failed", never 500s the whole push. (markInline added for
+//                       inline word-swap preview highlighting.)
 // v2.7 (June 29, 2026): BATCH 3 push engine. NEW body-edit op 'push-edits' — applies one OR many
 //                       edits to a single body read + single write (single Undo reverts the lot) and
 //                       reports any not found. Kinds: 'overuse' (reword/remove), 'h2-rename',
@@ -919,6 +924,8 @@ module.exports = async function handler(req, res) {
     const markWrap = (html) => '<div data-bodyedit-preview="1" style="outline:3px solid #ff9800;outline-offset:4px;">' + html + '</div>';
     // Centred variant — for promo rebuilds, so the preview shows the button centred (matching live).
     const markWrapC = (html) => '<div data-bodyedit-preview="1" style="outline:3px solid #ff9800;outline-offset:4px;text-align:center;">' + html + '</div>';
+    // Inline variant — for word-level swaps (British English) so the highlight stays inside the sentence.
+    const markInline = (t) => '<span data-bodyedit-preview="1" style="background:#fff3cd;outline:2px solid #ff9800;">' + t + '</span>';
     // Find an in-body "People Also Ask" / FAQ section: from its H2/H3 heading to the next
     // same-or-higher heading (or end of body). Returns { start, end } or null.
     function findPaaSection(body) {
@@ -1023,6 +1030,47 @@ module.exports = async function handler(req, res) {
     // Apply ONE edit to the clean body (b) and the marked-preview body (mk). Returns {b,mk,ok}.
     function applyOneEdit(b, mk, e) {
       const kind = e.kind, content = e.content || '';
+      // ── word-swap: whole-word, case-aware find→replace across the whole body (British English) ──
+      if (kind === 'word-swap') {
+        const find = e.find || ''; if (!find) return { b, mk, ok: false };
+        const esc = find.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const reTest = new RegExp('\\b' + esc + '\\b', 'i');
+        if (!reTest.test(b)) return { b, mk, ok: false };
+        const cased = (m) => /^[A-Z]/.test(m) ? ((e.replace || '').charAt(0).toUpperCase() + (e.replace || '').slice(1)) : (e.replace || '');
+        b = b.replace(new RegExp('\\b' + esc + '\\b', 'gi'), cased);          // case-aware swap
+        mk = mk.replace(new RegExp('\\b' + esc + '\\b', 'gi'), (m) => markInline(cased(m)));
+        return { b, mk, ok: true };
+      }
+      // ── link-wrap: wrap the Nth occurrence of an anchor phrase that is NOT already inside a link.
+      //    Never touches text inside an existing <a>…</a> or inside a tag. (Branded body links.)
+      if (kind === 'link-wrap') {
+        const anchor = e.anchor || ''; if (!anchor) return { b, mk, ok: false };
+        const href = e.href || '';
+        const title = e.title || '';
+        const want = Math.max(1, parseInt(e.occurrence || 1, 10));
+        const escA = anchor.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const wrapped = `<a href="${href}"${title ? ` title="${title}"` : ''} target="_blank" rel="noopener">${anchor}</a>`;
+        const skipPre = String(e.skipIfPrecededBy || '').toLowerCase();   // e.g. "unique " so plain "wall art" never lands inside "unique wall art"
+        const findNth = (str) => {
+          const ranges = []; const aRe = /<a\b[^>]*>[\s\S]*?<\/a>|<[^>]+>/gi; let am;
+          while ((am = aRe.exec(str))) ranges.push([am.index, am.index + am[0].length]);   // skip inside links AND tags
+          const inSkip = (i) => ranges.some(r => i >= r[0] && i < r[1]);
+          const re = new RegExp('(^|[^A-Za-z])(' + escA + ')(?![A-Za-z])', 'gi');
+          let m, count = 0;
+          while ((m = re.exec(str))) {
+            const ws = m.index + m[1].length;
+            if (inSkip(ws)) continue;
+            if (skipPre && str.slice(Math.max(0, ws - skipPre.length), ws).toLowerCase() === skipPre) continue;
+            if (++count === want) return { start: ws, end: ws + m[2].length };
+          }
+          return null;
+        };
+        const t = findNth(b); if (!t) return { b, mk, ok: false };
+        b = b.slice(0, t.start) + wrapped + b.slice(t.end);
+        const tk = findNth(mk);
+        if (tk) mk = mk.slice(0, tk.start) + markWrap(wrapped) + mk.slice(tk.end);
+        return { b, mk, ok: true };
+      }
       // ── insertion kinds: h2-add, toc, link(mode=new) ──
       if (kind === 'toc') {
         const tocRe = /<h[23]\b[^>]*>\s*(list of contents|table of contents|contents|index)\s*<\/h[23]>\s*(<ul\b[\s\S]*?<\/ul>)?/i;
@@ -1047,6 +1095,23 @@ module.exports = async function handler(req, res) {
         const loc = locateBlock(b, e.find), lk = locateBlock(mk, e.find);
         const i = loc ? loc.end : b.length, ik = lk ? lk.end : mk.length;
         b = b.slice(0, i) + '\n' + ins + '\n' + b.slice(i); mk = mk.slice(0, ik) + '\n' + markWrap(ins) + '\n' + mk.slice(ik);
+        return { b, mk, ok: true };
+      }
+      // ── prepend-para: add content as the VERY FIRST paragraph of the body. (Page description, in bold.) ──
+      if (kind === 'prepend-para') {
+        const ins = String(content).trim().startsWith('<') ? content : ('<p><strong>' + content + '</strong></p>');
+        b = ins + '\n' + b;
+        mk = markWrap(ins) + '\n' + mk;
+        return { b, mk, ok: true };
+      }
+      // ── after-first-para: insert content right after the first paragraph (the page-description line). (Author bio.) ──
+      if (kind === 'after-first-para') {
+        const ins = String(content).trim().startsWith('<') ? content : ('<p>' + content + '</p>');
+        const pRe = /<p\b[^>]*>[\s\S]*?<\/p>/i;
+        const iOf = (str) => { const m = pRe.exec(str); return m ? m.index + m[0].length : 0; };
+        const i = iOf(b), ik = iOf(mk);
+        b = b.slice(0, i) + '\n' + ins + '\n' + b.slice(i);
+        mk = mk.slice(0, ik) + '\n' + markWrap(ins) + '\n' + mk.slice(ik);
         return { b, mk, ok: true };
       }
       // ── find-based kinds: h2-remove, overuse(remove/reword), h2-rename, link(replace) ──
@@ -1166,7 +1231,11 @@ module.exports = async function handler(req, res) {
         const edits = Array.isArray(req.body.edits) ? req.body.edits : [];
         if (!edits.length) return res.status(400).json({ error: 'No edits supplied' });
         let b = oldBody, mk = oldBody; const applied = [], failed = [];
-        edits.forEach((e, i) => { const r = applyOneEdit(b, mk, e); if (r.ok) { b = r.b; mk = r.mk; applied.push(i); } else failed.push(i); });
+        // Each edit is isolated: a bad one is reported as "failed", never crashes the whole push.
+        edits.forEach((e, i) => {
+          try { const r = applyOneEdit(b, mk, e); if (r && r.ok) { b = r.b; mk = r.mk; applied.push(i); } else failed.push(i); }
+          catch (_) { failed.push(i); }
+        });
         newBody = b; markedAfter = mk; editReport = { applied, failed };
         if (!applied.length) return res.status(200).json({ success: false, notFound: true, failed, error: 'Could not find any of those items in the page any more — it may have been edited.' });
       }

@@ -1215,16 +1215,31 @@ function scanBlogQuality(yourPage) {
   }
 
   // 3. Branded links — offer a ready <a> snippet only if the body lacks that URL.
+  //    For "wall art" / "unique wall art" ALSO compute a safe auto-wrap target (Fix 4): wrap the first
+  //    UNLINKED occurrence. "unique wall art" → its own first occurrence, or the 2nd "wall art" if absent.
+  //    Plain "wall art" never lands inside "unique wall art". "unique home decor" goes in the author bio.
+  const bodyLowerText = htmlToText(bodyHtml).toLowerCase();
+  const hasUniqueWallArt = bodyLowerText.includes('unique wall art');
   const brandedLinks = [];
   for (const l of BRANDED_LINKS) {
     if (bodyHtml.includes(l.url)) continue;
     const snippet = `<a href="${l.url}" title="${l.title}" target="_blank" rel="noopener">${l.anchor}</a>`;
-    brandedLinks.push({ anchor: l.anchor, url: l.url, snippet });
+    let wrap = null;
+    if (l.anchor === 'wall art') {
+      wrap = { anchor: 'wall art', href: l.url, title: l.title, occurrence: 1, skipIfPrecededBy: 'unique ' };
+    } else if (l.anchor === 'unique wall art') {
+      wrap = hasUniqueWallArt
+        ? { anchor: 'unique wall art', href: l.url, title: l.title, occurrence: 1 }
+        : { anchor: 'wall art', href: l.url, title: l.title, occurrence: 2, skipIfPrecededBy: 'unique ' };
+    }
+    brandedLinks.push({ anchor: l.anchor, url: l.url, snippet, wrap });
   }
 
-  // 4. Author bio — offer the snippet only if the body lacks the byline.
+  // 4. Author bio — offer the snippet only if the body lacks the byline. bodyHtml = the italic line that
+  //    goes right below the first (page-description) paragraph, with "Home Decor" linked to the home-decor page.
   const hasBio = /mae\s+osz/i.test(text) || /interior\s+design\s+consultant/i.test(text);
-  const authorBio = hasBio ? null : { snippet: AUTHOR_BIO_SNIPPET };
+  const bioHtml = `<p><em>By Mae Osz | Interior Design Consultant &amp; <a href="https://aboutwallart.com/pages/home-decor-items" title="Unique Home Decor" target="_blank" rel="noopener">Home Decor</a> Expert with 12+ years of experience.</em></p>`;
+  const authorBio = hasBio ? null : { snippet: AUTHOR_BIO_SNIPPET, bodyHtml: bioHtml };
 
   return { britishEnglish, buzzwords, brandedLinks, authorBio };
 }
