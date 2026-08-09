@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 67.9</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 68.0</p>
                 </div>
             </div>
         </header>
@@ -2300,7 +2300,12 @@
                         <textarea id="shopifyPageDescField" rows="4">${s.firstParagraph||''}</textarea>
                         <button class="copy-btn" type="button" style="margin-top:6px;" onclick="copyToClipboard(document.getElementById('shopifyPageDescField').value,this)">📋 Copy</button>
                     </div>` : ''}
-                    <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:10px 12px;font-size:0.82rem;color:#8a6d00;margin-bottom:10px;">📋 Copy each field above and paste it into Shopify by hand. (Direct push was removed — it could overwrite live content.)</div>
+                    ${_isBlog ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+                        <button class="copy-btn" type="button" style="background:#1565c0;color:#fff;font-weight:600;" onclick="seoFieldsPreview(this)">📤 Preview &amp; push Title, Meta, Excerpt</button>
+                        <button class="copy-btn" type="button" style="background:#1976d2;color:#fff;font-weight:600;" onclick="pushPageDescription(this)">📤 Add page description as bold 1st paragraph (preview)</button>
+                    </div>
+                    <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:8px 12px;font-size:0.8rem;color:#8a6d00;margin-bottom:10px;">Both show a preview first — nothing saves until you confirm. Title / Meta / Excerpt never touch the blog body.</div>`
+                    : `<div style="background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:10px 12px;font-size:0.82rem;color:#8a6d00;margin-bottom:10px;">📋 Copy each field above and paste it into Shopify by hand. (Direct push was removed — it could overwrite live content.)</div>`}
                     ${adminUrl ? `<div style="margin-bottom:10px;"><a href="${adminUrl}" target="_blank" style="color:#1976d2;font-size:0.85rem;">🔗 Open in Shopify Admin ↗</a></div>` : ''}
                     <div style="font-size:0.8rem;color:#999;margin-bottom:8px;word-break:break-all;">📄 ${pageUrl}</div>
                 </div>`;
@@ -3197,6 +3202,7 @@
 
                     ${(_bq.brandedLinks||[]).length ? `
                     <h4 style="margin:14px 0 8px;font-size:0.9rem;">🔗 Branded links (${_bq.brandedLinks.length})</h4>
+                    ${_isBlog && _bq.brandedLinks.some(l => l.wrap) ? `<button class="copy-btn" type="button" style="background:#1565c0;color:#fff;font-weight:600;margin-bottom:8px;" onclick="pushEditsFromAttr('${_editsAttr(_bq.brandedLinks.filter(l => l.wrap).map(l => ({ kind:'link-wrap', anchor:l.wrap.anchor, href:l.wrap.href, title:l.wrap.title, occurrence:l.wrap.occurrence, skipIfPrecededBy:l.wrap.skipIfPrecededBy||'' })))}',null,{title:'Add branded links',doneMsg:'Branded links added to your blog',tickKeys:${JSON.stringify(_bq.brandedLinks.map((l,i)=>l.wrap?('bq_link_'+i):null).filter(Boolean)).replace(/"/g,"'")}},this)">📤 Add all branded links (preview)</button>` : ''}
                     ${_bq.brandedLinks.map((l, i) => bqRow(`bq_link_${i}`, `
                         <span id="lbl_bq_link_${i}" style="font-size:0.9rem;${state['bq_link_'+i]?'text-decoration:line-through;':''}">Add a link on <strong>${l.anchor}</strong> (not yet in the body)</span>
                         <div style="font-size:0.72rem;color:#888;font-weight:600;margin-top:8px;">ANCHOR TEXT</div>
@@ -3208,14 +3214,16 @@
                         <div style="display:flex;gap:6px;align-items:center;">
                             <input id="bqUrl${i}" type="text" readonly value="${(l.url||'').replace(/"/g,'&quot;')}" style="flex:1;min-width:0;padding:7px 9px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.78rem;font-family:monospace;background:white;">
                             <button class="copy-btn" type="button" style="padding:4px 10px;font-size:0.72rem;white-space:nowrap;" onclick="copyToClipboard(document.getElementById('bqUrl${i}').value,this)">📋 URL</button>
-                        </div>`)).join('')}` : ''}
+                        </div>
+                        ${_isBlog && l.wrap ? `<button class="copy-btn" type="button" style="margin-top:8px;background:#1976d2;color:#fff;" onclick="pushEditsFromAttr('${_editsAttr([{ kind:'link-wrap', anchor:l.wrap.anchor, href:l.wrap.href, title:l.wrap.title, occurrence:l.wrap.occurrence, skipIfPrecededBy:l.wrap.skipIfPrecededBy||'' }])}',null,{title:'Add branded link',doneMsg:'Link added to your blog',tickKey:'bq_link_${i}'},this)">📤 Add it for me (preview)</button>` : ''}`)).join('')}` : ''}
 
                     ${_bq.authorBio ? `
                     <h4 style="margin:14px 0 8px;font-size:0.9rem;">✍️ Author bio</h4>
                     ${bqRow('bq_bio', `
                         <span id="lbl_bq_bio" style="font-size:0.9rem;${state['bq_bio']?'text-decoration:line-through;':''}">No author byline found — add this below the bold summary at the top.</span>
                         <textarea id="bqBio" readonly style="width:100%;margin-top:6px;padding:8px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.8rem;font-family:'Poppins',sans-serif;min-height:42px;background:white;">${_bq.authorBio.snippet}</textarea>
-                        <button class="copy-btn" type="button" style="margin-top:4px;padding:2px 8px;font-size:0.72rem;" onclick="copyToClipboard(document.getElementById('bqBio').value,this)">📋 Copy bio</button>`)}` : ''}
+                        <button class="copy-btn" type="button" style="margin-top:4px;padding:2px 8px;font-size:0.72rem;" onclick="copyToClipboard(document.getElementById('bqBio').value,this)">📋 Copy bio</button>
+                        ${_isBlog && _bq.authorBio.bodyHtml ? `<button class="copy-btn" type="button" style="margin-top:4px;margin-left:6px;padding:2px 8px;font-size:0.72rem;background:#1976d2;color:#fff;" onclick="pushEditsFromAttr('${_editsAttr([{ kind:'after-first-para', content:_bq.authorBio.bodyHtml }])}',null,{title:'Add author bio',doneMsg:'Author bio added below the first paragraph',tickKey:'bq_bio'},this)">📤 Add it for me (preview)</button>` : ''}`)}` : ''}
                 </div>` : '';
 
             // ── Image SEO block (blogs with body images) ─────────────────────
@@ -3826,6 +3834,50 @@
         }
         function pushEditsFromAttr(enc, target, opts, btn) {
             pushEdits(JSON.parse(decodeURIComponent(enc)), target, opts, btn);
+        }
+        // Fix 2 — SEO fields (blogs): preview the 3 values, then push. These write metafields + the EXCERPT
+        // (summary_html) only — never the blog body — so the old body-wipe bug cannot happen here.
+        function seoFieldsPreview(btn) {
+            const sd = currentResults && currentResults.shopify;
+            if (!sd || !sd.id) { alert('Blog data not available — re-run the analysis first.'); return; }
+            const esc = t => String(t == null ? '' : t).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const title   = (document.getElementById('shopifyTitleField') || {}).value || '';
+            const meta    = (document.getElementById('shopifyMetaField')  || {}).value || '';
+            const excerpt = (document.getElementById('shopifyDescField')  || {}).value || '';
+            const field = (lbl, v) => `<div style="margin-bottom:12px;"><div style="font-size:0.72rem;color:#888;font-weight:600;">${lbl}</div><div style="background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:8px;">${esc(v) || '<span style=\"color:#bbb;\">(empty — will be skipped)</span>'}</div></div>`;
+            bodyEditModal(`
+                <div style="padding:16px 20px;border-bottom:1px solid #eee;"><h3 style="margin:0;font-size:1.05rem;">Preview — push SEO fields</h3><p style="margin:6px 0 0;font-size:0.82rem;color:#666;">These overwrite the live Title, Meta and Excerpt. <strong>Nothing is saved yet.</strong> The blog body is not touched.</p></div>
+                <div style="padding:18px 20px;overflow:auto;flex:1;background:#fafafa;font-size:0.9rem;">
+                    ${field('SEO TITLE', title)}${field('META DESCRIPTION', meta)}${field('EXCERPT', excerpt)}
+                </div>
+                <div style="padding:14px 20px;border-top:1px solid #eee;display:flex;gap:10px;justify-content:flex-end;">
+                    <button onclick="bodyEditClose()" style="padding:9px 16px;border:1px solid #ccc;background:#fff;color:#333;border-radius:8px;cursor:pointer;">Cancel</button>
+                    <button id="seoPushConfirmBtn" style="padding:9px 18px;border:none;background:#4caf50;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;">✅ Confirm &amp; push</button>
+                </div>`);
+            const c = document.getElementById('seoPushConfirmBtn');
+            c.onclick = function () { seoFieldsApply(sd, title, meta, excerpt, this); };
+        }
+        async function seoFieldsApply(sd, title, meta, excerpt, btn) {
+            btn.disabled = true; btn.textContent = '⏳ Pushing…';
+            try {
+                const res = await fetch('/api/shopify-files?action=seo-update', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shopifyId: sd.id, shopifyType: sd.type, shopifyBlogId: sd.blogId || null, seoTitle: title, seoMeta: meta, description: excerpt })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || (data.errors && data.errors.length)) throw new Error((data.errors && data.errors.join('; ')) || data.error || 'Push failed');
+                tickPushItem('push_title'); tickPushItem('push_meta'); tickPushItem('push_desc');
+                bodyEditModal(`<div style="padding:24px;text-align:center;"><div style="font-size:2rem;">✅</div><h3 style="margin:6px 0;">SEO fields pushed</h3><p style="font-size:0.85rem;color:#666;margin:0 0 16px;">Title, Meta and Excerpt updated live. The blog body was not touched.</p><button onclick="bodyEditClose()" style="padding:9px 18px;border:none;background:#4caf50;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;">Close</button></div>`);
+            } catch (e) { btn.disabled = false; btn.textContent = '✅ Confirm & push'; alert('Could not push: ' + e.message); }
+        }
+        // Fix 2 — page description → the bold FIRST paragraph of the body (a body change → preview + approve + undo).
+        function pushPageDescription(btn) {
+            const v = ((document.getElementById('shopifyPageDescField') || {}).value || '').trim();
+            if (!v) { alert('No page description text to add.'); return; }
+            const sd = currentResults && currentResults.shopify;
+            if (!sd || !sd.id) { alert('Blog data not available — re-run the analysis first.'); return; }
+            pushEdits([{ kind: 'prepend-para', content: v }], { id: sd.id, type: sd.type, blogId: sd.blogId || '' },
+                { title: 'Add page description as the bold first paragraph', doneMsg: 'Added as the bold first paragraph' }, btn);
         }
         // Programmatically tick a pushable item's checkbox (updates master counter + greys the row).
         function tickPushItem(key) {
