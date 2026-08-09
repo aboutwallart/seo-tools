@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 68.0</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 68.1</p>
                 </div>
             </div>
         </header>
@@ -3463,7 +3463,8 @@
         // If `cur` is one sentence → bold all of it. If it's a longer block → bold only the sentence
         // that `sug` rewrites. Returns { html: block with that sentence bold, boldSentence: the exact sentence to find+replace }.
         function boldReplacedSentence(cur, sug) {
-            cur = String(cur || ''); sug = String(sug || '');
+            cur = String(cur || '').replace(/\s+([.,;:!?])/g, '$1').replace(/\s{2,}/g, ' ').trim();   // drop stray space before a full stop so her in-blog search works
+            sug = String(sug || '');
             const esc = (t) => String(t == null ? '' : t).replace(/</g, '&lt;').replace(/>/g, '&gt;');
             const bold = (t) => '<strong style="background:#fff3cd;padding:0 2px;">' + esc(t) + '</strong>';
             const parts = cur.match(/[^.?!]+[.?!]*\s*/g) || [cur];
@@ -3768,7 +3769,10 @@
                 const data = await res.json();
                 btn.disabled = false; btn.textContent = orig;
                 if (!data.success) { alert(data.error || 'Nothing to do here.'); return; }
-                const fn = (data.failed && data.failed.length) ? `<p style="margin:6px 0 0;font-size:0.8rem;color:#c62828;">${data.failed.length} item(s) couldn't be matched on the page and will be skipped.</p>` : '';
+                const guardedN = (data.guarded && data.guarded.length) || 0;
+                const otherFailed = ((data.failed && data.failed.length) || 0) - guardedN;
+                const fn = (guardedN ? `<p style="margin:6px 0 0;font-size:0.8rem;color:#c62828;">🔒 ${guardedN} item(s) skipped so an existing link in that text isn't wiped — keep your link and reword it by hand.</p>` : '')
+                        + (otherFailed > 0 ? `<p style="margin:6px 0 0;font-size:0.8rem;color:#c62828;">${otherFailed} item(s) couldn't be matched on the page and will be skipped.</p>` : '');
                 bodyEditModal(`
                     <div style="padding:16px 20px;border-bottom:1px solid #eee;">
                         <h3 style="margin:0;font-size:1.05rem;">Preview — ${opts.title || 'Change'} <span style="color:#ff9800;">(highlighted)</span></h3>
