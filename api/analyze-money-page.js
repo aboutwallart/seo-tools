@@ -1238,7 +1238,7 @@ function scanBlogQuality(yourPage) {
   // 4. Author bio — offer the snippet only if the body lacks the byline. bodyHtml = the italic line that
   //    goes right below the first (page-description) paragraph, with "Home Decor" linked to the home-decor page.
   const hasBio = /mae\s+osz/i.test(text) || /interior\s+design\s+consultant/i.test(text);
-  const bioHtml = `<p><em>By Mae Osz | Interior Design Consultant &amp; <a href="https://aboutwallart.com/pages/home-decor-items" title="Unique Home Decor" target="_blank" rel="noopener">Home Decor</a> Expert with 12+ years of experience.</em></p>`;
+  const bioHtml = `<p>&nbsp;</p>\n<p><em>By Mae Osz | Interior Design Consultant &amp; <a href="https://aboutwallart.com/pages/home-decor-items" title="Unique Home Decor" target="_blank" rel="noopener">Home Decor</a> Expert with 12+ years of experience.</em></p>`;
   const authorBio = hasBio ? null : { snippet: AUTHOR_BIO_SNIPPET, bodyHtml: bioHtml };
 
   return { britishEnglish, buzzwords, brandedLinks, authorBio };
@@ -1601,7 +1601,7 @@ function buildPageHaystack(yp) {
   [...(lh.h1 || []), ...(lh.h2 || []), ...(lh.h3 || [])].forEach(h => { if (h) lines.push(String(h)); });
   if (yp && yp.shopifyBodyHtml) {
     (yp.shopifyBodyHtml.match(/<(h2|h3|h4|p|li)[^>]*>[\s\S]*?<\/\1>/gi) || []).forEach(t => {
-      const x = t.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+      const x = t.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').replace(/\s+([.,;:!?])/g, '$1').trim();
       if (x) lines.push(x);
     });
   }
@@ -1659,7 +1659,7 @@ async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = 
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 20000,   // raised from 12000 — long blogs (6k+ words) were truncating → invalid JSON
+        max_tokens: 32000,   // raised 12000→20000→32000 — long blogs (5k+ words) were truncating → invalid JSON
         messages: [{ role: 'user', content: prompt }]
       })
     });

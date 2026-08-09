@@ -1130,6 +1130,14 @@ module.exports = async function handler(req, res) {
         mk = lk ? mk.slice(0, lk.start) + strikeWrap(mk.slice(lk.start, lk.end)) + mk.slice(lk.end) : mk;
         return { b, mk, ok: true };
       }
+      // NEVER wipe an existing link: if the text being replaced already contains a link and the new
+      // text does not, skip this edit (flag it) so the merchant keeps the link and edits it by hand.
+      if (kind !== 'link') {
+        const origBlock = b.slice(loc.start, loc.end);
+        if (/<a\b[^>]*>/i.test(origBlock) && !/<a\b[^>]*>/i.test(String(e.replace || ''))) {
+          return { b, mk, ok: false, linkGuarded: true };
+        }
+      }
       const repl = (kind === 'link')
         ? (String(content).trim().startsWith('<') ? content : (loc.openTag + content + loc.closeTag))
         : (loc.openTag + (e.replace || '') + loc.closeTag);                    // over-use reword & H2 rename
@@ -1230,13 +1238,13 @@ module.exports = async function handler(req, res) {
         // ONE body read + ONE write, so a single Undo reverts the whole push. Reports any not found.
         const edits = Array.isArray(req.body.edits) ? req.body.edits : [];
         if (!edits.length) return res.status(400).json({ error: 'No edits supplied' });
-        let b = oldBody, mk = oldBody; const applied = [], failed = [];
+        let b = oldBody, mk = oldBody; const applied = [], failed = [], guarded = [];
         // Each edit is isolated: a bad one is reported as "failed", never crashes the whole push.
         edits.forEach((e, i) => {
-          try { const r = applyOneEdit(b, mk, e); if (r && r.ok) { b = r.b; mk = r.mk; applied.push(i); } else failed.push(i); }
+          try { const r = applyOneEdit(b, mk, e); if (r && r.ok) { b = r.b; mk = r.mk; applied.push(i); } else { if (r && r.linkGuarded) guarded.push(i); failed.push(i); } }
           catch (_) { failed.push(i); }
         });
-        newBody = b; markedAfter = mk; editReport = { applied, failed };
+        newBody = b; markedAfter = mk; editReport = { applied, failed, guarded };
         if (!applied.length) return res.status(200).json({ success: false, notFound: true, failed, error: 'Could not find any of those items in the page any more — it may have been edited.' });
       }
       else {
