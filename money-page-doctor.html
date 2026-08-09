@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 67.7</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 67.8</p>
                 </div>
             </div>
         </header>
@@ -433,16 +433,17 @@
             <div style="margin-bottom: 15px; display: flex; justify-content: flex-end; gap: 10px; flex-wrap:wrap;">
                 <button onclick="downloadRegistry()" style="background: #2196f3;">📥 Download Registry</button>
                 <button class="btn-secondary" onclick="reBaselineSnapshots(this)" title="Re-capture each page's 'before' as the 15 days right before it was optimised — both the page total AND the locked keyword — so the since-optimised numbers are a fair 15-vs-15 on the target keyword">🔄 Refresh baselines (keyword)</button>
-                <button class="btn-secondary" onclick="clearAllOptimized()">🗑️ Clear All Optimized</button>
             </div>
             <div style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
                 <button class="btn-secondary" style="background:#c62828;color:#fff;border-color:#c62828;" onclick="removeSelected('optimized', this)">🗑️ Remove selected</button>
                 <span style="font-size:0.82rem;color:#888;">Tick any blog wrongly added here, then Remove selected — it moves to the Removed tab.</span>
             </div>
-            <div style="margin-bottom:12px;">
-                <label style="font-size:0.85rem;color:#444;display:inline-flex;align-items:center;gap:6px;cursor:pointer;">
-                    <input type="checkbox" id="optSlipOnly" onchange="renderOptimized()" style="transform:scale(1.2);"> Show only pages slipping on their locked keyword
-                </label>
+            <div id="optColorChips" style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <span style="font-size:0.85rem;color:#444;margin-right:2px;">Show:</span>
+                <button class="btn-secondary" style="outline:2px solid #333;" onclick="setOptColorFilter('all', this)">All</button>
+                <button class="btn-secondary" style="background:#EDF6E6;color:#3B6D11;border-color:#CFE6C0;" onclick="setOptColorFilter('green', this)">🟢 Working</button>
+                <button class="btn-secondary" style="background:#F3F2EE;color:#5F5E5A;border-color:#DDD9CF;" onclick="setOptColorFilter('grey', this)">⚪ Wait</button>
+                <button class="btn-secondary" style="background:#FBEBEA;color:#A32D2D;border-color:#F3CFCC;" onclick="setOptColorFilter('red', this)">🔴 Reoptimise</button>
             </div>
             <div id="optimizedList"></div>
         </div>
@@ -580,6 +581,13 @@
         let gscKw15 = {};  // current last-15-day, per locked keyword
         let gscKw30 = {};  // current last-30-day, per locked keyword
         let gscKw90 = {};  // current last-90-day, per locked keyword
+        let optColorFilter = 'all';  // Optimized tab colour filter: all | green | grey | red
+        function setOptColorFilter(f, btn) {
+            optColorFilter = f;
+            document.querySelectorAll('#optColorChips button').forEach(b => b.style.outline = 'none');
+            if (btn) btn.style.outline = '2px solid #333';
+            renderOptimized();
+        }
 
         // Title conflict check state
         let pageTitlesCache = null;
@@ -1079,109 +1087,67 @@
             // Fix D — headline "is the SEO working?" signal on the LOCKED keyword, across 15 / 30 / 90 days.
             renderOptimizedHealthSummary(sorted, kwPair);
 
-            // Fix B — optionally show only the pages whose LOCKED keyword is slipping.
-            const slipOnly = (document.getElementById('optSlipOnly') || {}).checked;
-            const rows = slipOnly ? sorted.filter(p => kwPair(p).slip) : sorted;
-            if (slipOnly && rows.length === 0) {
-                list.innerHTML = '<p style="text-align:center; color:#2e7d32; padding:40px;">✅ No optimised page is slipping on its locked keyword right now.</p>';
+            // ONE traffic light per card, judged on the LOCKED keyword: green = working, grey = wait, red = reoptimise.
+            const cardState = (kp) => {
+                const C = {
+                    green: { key:'green', bg:'#EDF6E6', border:'#CFE6C0', accent:'#639922', text:'#3B6D11', icon:'🟢', label:'Working — leave it' },
+                    grey:  { key:'grey',  bg:'#F3F2EE', border:'#DDD9CF', accent:'#888780', text:'#5F5E5A', icon:'⚪', label:'Wait and see' },
+                    red:   { key:'red',   bg:'#FBEBEA', border:'#F3CFCC', accent:'#E24B4A', text:'#A32D2D', icon:'🔴', label:'Look — reoptimise' }
+                };
+                if (!kp.useKw) return Object.assign({}, C.grey, { label:'Wait — no keyword data yet' });
+                const posDelta = kp.beforeKw.position - kp.curKw.position;      // + = climbed
+                const impRising = (kp.curKw.impressions - kp.beforeKw.impressions) >= 10 && kp.curKw.impressions >= kp.beforeKw.impressions * 1.2;
+                if (kp.daysAgo < 28) return Object.assign({}, C.grey, { label:'Wait and see (under 4 weeks)' });
+                if (posDelta >= -2) return C.green;                              // moved up, or held within ~2 places
+                if (impRising)      return C.green;                             // dropped a little but Google shows it to more people
+                if (posDelta <= -5) return C.red;                              // real regression — worth acting on
+                return C.grey;                                                  // small drop (2–5), give it more time
+            };
+
+            // Colour filter across the tab: all / green (working) / grey (wait) / red (reoptimise).
+            const rows = (optColorFilter === 'all') ? sorted : sorted.filter(p => cardState(kwPair(p)).key === optColorFilter);
+            if (rows.length === 0) {
+                const nm = { green:'Working', grey:'Wait', red:'Reoptimise' }[optColorFilter] || '';
+                list.innerHTML = `<p style="text-align:center; color:#666; padding:40px;">No pages in "${nm}" right now.</p>`;
                 return;
             }
 
             list.innerHTML = rows.map(item => {
-                const before = mpdSnapshots[item.url] || null;
-                const optimizedAt = before?.optimizedAt || item.optimizedAt || 0;
-                const daysAgo = Math.floor((now - optimizedAt) / DAY);
-                const daysLeft = 90 - daysAgo;
-                const current = gscEnrichment[normalizeUrlPath(item.url)] || null;
-                // Fix A: headline results compare the LOCKED keyword when we have its baseline; else fall back to page total.
-                const _kp = kwPair(item);
-                const cmpBefore = _kp.useKw ? _kp.beforeKw : before;
-                const cmpCurrent = _kp.useKw ? _kp.curKw : current;
-                const basisLabel = _kp.useKw ? 'locked keyword' : 'page total';
+                const kp = kwPair(item);
+                const st = cardState(kp);
+                const optimizedAt = (mpdSnapshots[item.url] && mpdSnapshots[item.url].optimizedAt) || item.optimizedAt || 0;
+                const dateStr = new Date(optimizedAt || item.optimizedAt).toLocaleDateString();
 
-                // Live health light: 🔵 settling / 🟡 holding / 🟢 improving / 🔴 slipping / ⚪ no data.
-                // Red is CONSERVATIVE on purpose — only a real drop trips it, so no false alarms.
-                let health = { color:'#1565c0', bg:'#e3f2fd', icon:'🔵', label:'Settling (too early to judge)' };
-                if (daysAgo >= 14) {
-                    if (cmpBefore && cmpCurrent) {
-                        const posDelta = cmpBefore.position - cmpCurrent.position;          // + = moved up the rankings
-                        const baseClicks = cmpBefore.clicks || 0;
-                        const clkPct = baseClicks > 0 ? ((cmpCurrent.clicks - baseClicks) / baseClicks) * 100
-                                                       : (cmpCurrent.clicks > 0 ? 100 : 0);
-                        if (posDelta <= -3 || clkPct <= -40) {
-                            health = { color:'#c62828', bg:'#fdecec', icon:'🔴', label:'Slipping — worth a look' };
-                        } else if (posDelta >= 1 || clkPct >= 20) {
-                            health = { color:'#2e7d32', bg:'#e8f5e9', icon:'🟢', label:'Improving' };
-                        } else {
-                            health = { color:'#f9a825', bg:'#fffdf2', icon:'🟡', label:'Holding steady' };
-                        }
-                    } else {
-                        health = { color:'#9e9e9e', bg:'#f7f7f7', icon:'⚪', label:'No data yet' };
-                    }
-                }
-
-                // Results show AS SOON AS there's data (no 90-day wait). Each cell is PAINTED
-                // green (improved) / red (slipped) / grey (no change). Meaningful early; firmer over time.
-                let comparisonHTML = '';
-                if (cmpBefore && cmpCurrent) {
-                    const posChange = +(cmpBefore.position - cmpCurrent.position).toFixed(1);   // + = climbed
-                    const impChange = cmpCurrent.impressions - cmpBefore.impressions;
-                    const clkChange = cmpCurrent.clicks - cmpBefore.clicks;
-                    const cell = (delta, label, beforeV, afterV, fmt, rawBefore) => {
-                        // RED-BUFFER: only turn RED when the move is worth acting on.
-                        // Position: any climb is good news → GREEN; only a full ±1.0 slip → red; small slip → grey.
-                        // Impressions/Clicks: needs a ≥25% swing AND a big-enough base (impr ≥50, clicks ≥10) either way.
-                        let up, down;
-                        if (label === 'Position') {
-                            up = delta > 0;
-                            down = delta <= -1.0;
-                        } else {
-                            const floor = (label === 'Impressions') ? 50 : 10;
-                            const significant = rawBefore >= floor && Math.abs(delta) >= 0.25 * rawBefore;
-                            up = significant && delta > 0;
-                            down = significant && delta < 0;
-                        }
-                        const bg = up ? '#e8f5e9' : (down ? '#fdecec' : '#f7f7f7');
-                        const col = up ? '#2e7d32' : (down ? '#c62828' : '#999');
-                        const arrow = up ? '▲' : (down ? '▼' : '—');
-                        return `<div style="text-align:center;padding:7px 6px;border-radius:6px;background:${bg};">
-                                    <div style="color:#666;">${label}</div>
-                                    <div style="font-weight:700;">${beforeV} → ${afterV}</div>
-                                    <div style="color:${col};font-weight:700;">${arrow} ${fmt(Math.abs(delta))}</div>
-                                </div>`;
-                    };
-                    comparisonHTML = `
-                        <div style="margin-top:10px;background:white;border-radius:6px;padding:12px;border:1px solid #e0e0e0;">
-                            <div style="font-size:0.8rem;font-weight:600;color:#2e7d32;margin-bottom:8px;">📈 Results so far — ${basisLabel} (15-day GSC)</div>
-                            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:0.82rem;">
-                                ${cell(posChange, 'Position', cmpBefore.position.toFixed(1), cmpCurrent.position.toFixed(1), v => v.toFixed(1), cmpBefore.position)}
-                                ${cell(impChange, 'Impressions', cmpBefore.impressions.toLocaleString(), cmpCurrent.impressions.toLocaleString(), v => v.toLocaleString(), cmpBefore.impressions)}
-                                ${cell(clkChange, 'Clicks', cmpBefore.clicks, cmpCurrent.clicks, v => v, cmpBefore.clicks)}
-                            </div>
-                            <div style="font-size:0.75rem;color:#999;margin-top:6px;">Optimised ${daysAgo} day${daysAgo===1?'':'s'} ago · ${daysAgo < 14 ? 'still early — give it time to settle' : 'GSC 15-day window'}</div>
-                        </div>`;
+                // ONE rank line — the locked keyword before → after, with impressions in grey (not competing colour).
+                let rankLine;
+                if (kp.useKw) {
+                    const b = kp.beforeKw.position, a = kp.curKw.position;
+                    const posDelta = +(b - a).toFixed(1);                        // + = climbed
+                    const up = posDelta > 0, down = posDelta < 0;
+                    const chgCol = up ? '#3B6D11' : (down ? '#A32D2D' : '#888780');
+                    const chgTxt = up ? `▲ up ${Math.abs(posDelta).toFixed(1)}` : (down ? `▼ down ${Math.abs(posDelta).toFixed(1)}` : '— no change');
+                    rankLine = `<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-top:8px;">
+                        <span style="font-size:0.82rem;color:#5F5E5A;">Keyword rank</span>
+                        <span style="font-size:1.1rem;font-weight:700;color:#2C2C2A;">${b.toFixed(1)} → ${a.toFixed(1)}</span>
+                        <span style="font-size:0.82rem;font-weight:700;color:${chgCol};">${chgTxt}</span>
+                        <span style="font-size:0.82rem;color:#888780;">· impressions ${(kp.beforeKw.impressions||0).toLocaleString()} → ${(kp.curKw.impressions||0).toLocaleString()}</span>
+                    </div>`;
+                } else {
+                    rankLine = `<div style="font-size:0.82rem;color:#888780;margin-top:8px;">No Search Console data for this keyword yet — click 🔄 Refresh baselines (keyword), or give it time.</div>`;
                 }
 
                 return `
-                <div class="url-item" style="background:${health.bg};border-left:4px solid ${health.color};">
+                <div class="url-item" style="background:${st.bg};border:0.5px solid ${st.border};border-left:5px solid ${st.accent};">
                     <input type="checkbox" class="mpd-remove-cb" data-url="${(item.url||'').replace(/"/g,'&quot;')}" data-keyword="${(item.keyword||'').replace(/"/g,'&quot;')}" title="Tick to remove this page" style="margin-right:10px;transform:scale(1.3);flex-shrink:0;align-self:flex-start;margin-top:4px;">
                     <div style="flex:1;">
-                        <span style="display:inline-block;background:#fff;color:${health.color};border:1px solid ${health.color};border-radius:20px;padding:2px 10px;font-size:0.78rem;font-weight:600;margin-bottom:6px;">${health.icon} ${health.label}</span>
-                        ${(current && current.position && current.position <= 3) ? `<span style="display:inline-block;background:#2e7d32;color:#fff;border-radius:20px;padding:2px 10px;font-size:0.78rem;font-weight:600;margin-bottom:6px;margin-left:6px;">🏆 Winner · #${current.position.toFixed(1)}</span>` : ''}
-                        <div style="font-weight:500;margin-bottom:5px;word-break:break-all;">✅ ${item.url}</div>
-                        <div style="font-size:0.85rem;color:#1976d2;margin-bottom:3px;">🎯 Keyword: "${item.keyword}"</div>
-                        <div style="font-size:0.85rem;color:#2e7d32;">Optimised: ${new Date(optimizedAt||item.optimizedAt).toLocaleDateString()}</div>
-                        ${current ? `<div style="font-size:0.82rem;color:#444;margin-top:5px;display:flex;gap:16px;flex-wrap:wrap;font-weight:600;">
-                            <span>📍 Pos <strong>${current.position ? current.position.toFixed(1) : '—'}</strong></span>
-                            <span>👁 ${(current.impressions||0).toLocaleString()} impr</span>
-                            <span>🖱 ${(current.clicks||0).toLocaleString()} clicks</span>
-                            <span style="color:#999;font-weight:400;">(page total, 15-day)</span>
-                            ${(current.prevPosition && current.position) ? (() => { const d = current.prevPosition - current.position; const up = d > 0, down = d <= -1.0; return `<span title="Latest 15 days vs the previous 15 days" style="color:${up?'#2e7d32':(down?'#c62828':'#999')};font-weight:700;">${up?'▲ climbing':(down?'▼ slipping':'— flat')}</span>`; })() : ''}
-                        </div>` : `<div style="font-size:0.8rem;color:#999;margin-top:5px;">No Search Console data in the last 15 days yet.</div>`}
-                        ${comparisonHTML}
+                        <span style="display:inline-block;background:#fff;color:${st.text};border:1px solid ${st.border};border-radius:20px;padding:2px 10px;font-size:0.78rem;font-weight:600;margin-bottom:6px;">${st.icon} ${st.label}</span>
+                        <div style="font-weight:500;margin-bottom:5px;word-break:break-all;color:#2C2C2A;">✅ ${item.url}</div>
+                        <div style="font-size:0.85rem;color:#5F5E5A;margin-bottom:3px;">🎯 Keyword: "${item.keyword}"</div>
+                        <div style="font-size:0.85rem;color:#5F5E5A;">Optimised: ${dateStr} · ${kp.daysAgo} day${kp.daysAgo===1?'':'s'} ago</div>
+                        ${rankLine}
                     </div>
                     <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;">
-                        ${health.icon === '🔴' ? `<button class="btn-secondary" style="background:#c62828;color:#fff;border-color:#c62828;" onclick="window.open('/easy-seo-report.html?view=kwtracker&q=${encodeURIComponent(item.keyword||'')}','_blank')">📊 Keyword Tracker</button>` : ''}
+                        ${st.key === 'red' ? `<button class="btn-secondary" style="background:#c62828;color:#fff;border-color:#c62828;" onclick="window.open('/easy-seo-report.html?view=kwtracker&q=${encodeURIComponent(item.keyword||'')}','_blank')">📊 Keyword Tracker</button>` : ''}
                         ${item.results ? `<button class="btn-secondary" onclick="viewOptimizedResults('${item.url}')">📊 View</button>` : ''}
                         <button class="btn-secondary" onclick="unmarkAsOptimized('${item.url}', this)">↩️ Unmark</button>
                     </div>
@@ -1210,7 +1176,7 @@
             }
 
             const tiles = windows.map(w => {
-                let sumPos = 0, improved = 0, n = 0;
+                let sumPos = 0, improved = 0, dropped = 0, n = 0;
                 const loading = (!w.map || Object.keys(w.map).length === 0);
                 pages.forEach(p => {
                     const s = mpdSnapshots[p.url];
@@ -1222,7 +1188,7 @@
                     const cur = kw && w.map ? w.map[normalizeUrlPath(p.url) + '|||' + kw] : null;
                     if (!cur) return;
                     const posDelta = s.kwPosition - cur.position;    // + = climbed (position number went down)
-                    sumPos += posDelta; if (posDelta > 0) improved++; n++;
+                    sumPos += posDelta; if (posDelta > 0) improved++; else if (posDelta < 0) dropped++; n++;
                 });
                 let inner;
                 if (loading && n === 0) {
@@ -1235,7 +1201,8 @@
                     const col = up ? '#2e7d32' : (down ? '#c62828' : '#888');
                     const arrow = up ? '▲' : (down ? '▼' : '—');
                     inner = `<div style="font-size:1.25rem;font-weight:800;color:${col};">${arrow} ${Math.abs(avg).toFixed(1)}</div>
-                             <div style="font-size:0.72rem;color:#666;">avg position change · ${improved}/${n} improved</div>`;
+                             <div style="font-size:0.72rem;color:#666;">avg position change</div>
+                             <div style="font-size:0.72rem;color:#666;"><span style="color:#2e7d32;font-weight:600;">${improved} improved</span> · <span style="color:#c62828;font-weight:600;">${dropped} dropped</span> · of ${n}</div>`;
                 }
                 return `<div style="flex:1;min-width:140px;text-align:center;background:white;border:1px solid #e0e0e0;border-radius:8px;padding:10px 8px;">
                             <div style="font-size:0.75rem;color:#888;font-weight:600;margin-bottom:4px;">${w.label}</div>
@@ -1747,6 +1714,9 @@
                 const gscInfo = gscEnrichment[normalizeUrlPath(item.url)] || {};
                 const today = new Date().toISOString().split('T')[0];
                 const snapshot = { optimizedAt: Date.now(), position: gscInfo.position || null, impressions: gscInfo.impressions || 0, clicks: gscInfo.clicks || 0, keyword: item.keyword };
+                // Auto-capture the LOCKED keyword's current numbers as the "before" — so new pages never need a manual refresh.
+                const _kwCur = gscKw15[normalizeUrlPath(item.url) + '|||' + (item.keyword || '').toLowerCase()];
+                if (_kwCur) { snapshot.kwPosition = _kwCur.position; snapshot.kwImpressions = _kwCur.impressions; snapshot.kwClicks = _kwCur.clicks; snapshot.kwBaseline15 = true; }
                 mpdSnapshots[item.url] = snapshot;
                 fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-mpd-snapshot', url: item.url, snapshot }) }).catch(e => console.warn('[Snapshot] Save failed:', e));
                 await deleteAnalysisResult(item.url);
@@ -1832,6 +1802,8 @@
                         keyword: page.keyword,
                         seeded: true
                     };
+                    const _kwCur = gscKw15[normalizeUrlPath(page.url) + '|||' + (page.keyword || '').toLowerCase()];
+                    if (_kwCur) { snapshot.kwPosition = _kwCur.position; snapshot.kwImpressions = _kwCur.impressions; snapshot.kwClicks = _kwCur.clicks; snapshot.kwBaseline15 = true; }
                     mpdSnapshots[page.url] = snapshot;
                     fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-mpd-snapshot', url: page.url, snapshot }) }).catch(e => console.warn('[Snapshot] Seed save failed:', e));
                     seeded++;
