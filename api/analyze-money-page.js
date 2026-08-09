@@ -1604,22 +1604,27 @@ function matchRealLine(claim, lines) {
   const c = _normTxt(claim);
   if (!c) return null;
   const cn = lines.map(l => ({ raw: l, n: _normTxt(l) })).filter(l => l.n);
+  // Prefer the FULLEST related line, so a short claim (e.g. just "minimalism") expands to the whole
+  // sentence/paragraph it lives in, and a sentence claim never collapses onto a one-word heading.
+  let best = null, bestWords = -1;
   for (const l of cn) {
-    if (l.n === c) return l.raw;
-    if (l.n.includes(c) && c.length >= 6) return l.raw;
-    if (c.includes(l.n) && l.n.length >= 10) return l.raw;
+    const lw = l.n.split(' ').length;
+    // related if: identical, the line contains the claim, OR the claim contains a SUBSTANTIAL line (≥4 words)
+    const related = (l.n === c) || (l.n.includes(c) && c.length >= 6) || (c.includes(l.n) && lw >= 4);
+    if (related && lw > bestWords) { best = l.raw; bestWords = lw; }
   }
+  if (best) return best;
   const cw = new Set(c.split(' ').filter(w => w.length > 2));
   if (!cw.size) return null;
-  let best = null, bestScore = 0;
+  let fb = null, fbScore = 0;
   for (const l of cn) {
     const ls = new Set(l.n.split(' ').filter(w => w.length > 2));
     if (!ls.size) continue;
     let hit = 0; cw.forEach(w => { if (ls.has(w)) hit++; });
     const score = hit / cw.size;
-    if (score > bestScore) { bestScore = score; best = l.raw; }
+    if (score > fbScore) { fbScore = score; fb = l.raw; }
   }
-  return bestScore >= 0.7 ? best : null;
+  return fbScore >= 0.7 ? fb : null;
 }
 
 // Get Claude analysis
