@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.12 · 8 Aug 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.13 · 10 Aug 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -394,6 +394,18 @@
 <section class="tabpanel" id="tab-monthly">
   <h2>Content Monthly Plan</h2>
   <div class="box gray"><strong>Plan a whole month.</strong> Pick the month, tick the marketing occasions you want, then build the plan. Occasion days suggest matching products (you pick one); the empty days are auto-filled with unused products, rotating rooms so it stays varied. Nothing you've already made can ever repeat.</div>
+
+  <!-- FIX BROKEN BLOG IMAGES -->
+  <div class="box" id="fbiPanel" style="border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:14px 0;background:#fff;">
+    <strong>🖼️ Fix broken blog images</strong>
+    <p class="small mp-muted" style="margin:6px 0 10px;">If you changed a blog's main picture after its posts were scheduled, Facebook and LinkedIn can't show the old picture and the post fails. This finds those posts and downloads a file that puts them back with a fresh picture saved to your Drive. Then in Metricool: delete those posts and import the file.</p>
+    <div class="mp-row" style="margin:0;">
+      <select id="fbiMonth" class="mp-sel"></select>
+      <button type="button" id="fbiRun" class="mp-btn">Find &amp; fix broken images</button>
+      <span id="fbiMsg" class="small mp-muted"></span>
+    </div>
+    <div id="fbiResult" style="display:none;margin-top:12px;"></div>
+  </div>
 
   <!-- BEST-POST TIMES BRIDGE -->
   <div class="bt-panel" id="btPanel">
@@ -3177,6 +3189,47 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     if(!videos.length){ $('evmBuildMsg').style.color='#b91c1c'; $('evmBuildMsg').textContent='Pick at least one video with a date.'; return; }
     if(!nets.length){ $('evmBuildMsg').style.color='#b91c1c'; $('evmBuildMsg').textContent='Tick at least one network.'; return; }
     buildEduFile(videos, nets, false);
+  });
+})();
+</script>
+<script>
+/* ---- Fix broken blog images (self-contained) ---- */
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  var sel = $('fbiMonth'); if(!sel) return;
+  var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var now = new Date();
+  for(var i=-3;i<=2;i++){
+    var d = new Date(now.getFullYear(), now.getMonth()+i, 1);
+    var val = d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2);
+    var o = document.createElement('option');
+    o.value = val; o.textContent = MON[d.getMonth()]+' '+d.getFullYear();
+    if(i===0) o.selected = true;
+    sel.appendChild(o);
+  }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  $('fbiRun').addEventListener('click', function(){
+    var btn = this, month = sel.value, msg = $('fbiMsg'), out = $('fbiResult');
+    out.style.display='none'; out.innerHTML='';
+    btn.disabled=true; var orig=btn.textContent; btn.textContent='Checking…';
+    msg.style.color=''; msg.textContent='Checking your '+month+' blog posts… this can take a minute.';
+    fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'fix-blog-images',month:month})})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        btn.disabled=false; btn.textContent=orig;
+        if(!d || d.ok===false){ msg.style.color='#b91c1c'; msg.textContent=(d&&d.error)?d.error:'Something went wrong — try again.'; return; }
+        if(!d.count){ msg.style.color='#0F6E56'; msg.textContent=(d.message||('No broken images found for '+month+'.')); return; }
+        var blob=new Blob([d.csv],{type:'text/csv;charset=utf-8;'});
+        var u=URL.createObjectURL(blob); var a=document.createElement('a'); a.href=u; a.download='fix-broken-images-'+month+'.csv'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){ URL.revokeObjectURL(u); },5000);
+        msg.style.color='#0F6E56'; msg.textContent='Fixed file downloaded.';
+        var html = '<div class="box" style="background:#fff8ec;border:1px solid #f0d9a8;border-radius:10px;padding:12px 14px;">'
+          + '<strong>Found '+d.count+' post'+(d.count>1?'s':'')+' with a broken picture:</strong>'
+          + '<ul style="margin:8px 0 10px;padding-left:18px;font-size:13px;">';
+        (d.fixed||[]).forEach(function(f){ html += '<li>'+esc(f.title||f.handle)+' <span class="mp-muted">('+esc(f.date||'')+')</span></li>'; });
+        html += '</ul><p class="small" style="margin:0;"><strong>Next, in Metricool:</strong> delete these posts, then import the file that just downloaded (<strong>fix-broken-images-'+esc(month)+'.csv</strong>). It puts them back with a fresh picture saved to your Drive.</p></div>';
+        out.innerHTML=html; out.style.display='';
+      })
+      .catch(function(){ btn.disabled=false; btn.textContent=orig; msg.style.color='#b91c1c'; msg.textContent='Network error — try again.'; });
   });
 })();
 </script>
