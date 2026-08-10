@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 68.1</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 68.2</p>
                 </div>
             </div>
         </header>
@@ -3215,7 +3215,8 @@
                             <input id="bqUrl${i}" type="text" readonly value="${(l.url||'').replace(/"/g,'&quot;')}" style="flex:1;min-width:0;padding:7px 9px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.78rem;font-family:monospace;background:white;">
                             <button class="copy-btn" type="button" style="padding:4px 10px;font-size:0.72rem;white-space:nowrap;" onclick="copyToClipboard(document.getElementById('bqUrl${i}').value,this)">📋 URL</button>
                         </div>
-                        ${_isBlog && l.wrap ? `<button class="copy-btn" type="button" style="margin-top:8px;background:#1976d2;color:#fff;" onclick="pushEditsFromAttr('${_editsAttr([{ kind:'link-wrap', anchor:l.wrap.anchor, href:l.wrap.href, title:l.wrap.title, occurrence:l.wrap.occurrence, skipIfPrecededBy:l.wrap.skipIfPrecededBy||'' }])}',null,{title:'Add branded link',doneMsg:'Link added to your blog',tickKey:'bq_link_${i}'},this)">📤 Add it for me (preview)</button>` : ''}`)).join('')}` : ''}
+                        ${_isBlog && l.wrap ? `<button class="copy-btn" type="button" style="margin-top:8px;background:#1976d2;color:#fff;" onclick="pushEditsFromAttr('${_editsAttr([{ kind:'link-wrap', anchor:l.wrap.anchor, href:l.wrap.href, title:l.wrap.title, occurrence:l.wrap.occurrence, skipIfPrecededBy:l.wrap.skipIfPrecededBy||'' }])}',null,{title:'Add branded link',doneMsg:'Link added to your blog',tickKey:'bq_link_${i}'},this)">📤 Wrap it in the blog (preview)</button>
+                        <button class="copy-btn" type="button" style="margin-top:8px;margin-left:6px;background:#6a1b9a;color:#fff;" onclick="aiBrandedLine('${(l.wrap.anchor||'').replace(/'/g,"\\\\'")}','${(l.wrap.href||'').replace(/'/g,"\\\\'")}','${(l.wrap.title||'').replace(/'/g,"\\\\'")}','bq_link_${i}',this)" title="Use this when the words aren't in the blog — the AI writes a natural line with the link">✍️ AI write a line (preview)</button>` : ''}`)).join('')}` : ''}
 
                     ${_bq.authorBio ? `
                     <h4 style="margin:14px 0 8px;font-size:0.9rem;">✍️ Author bio</h4>
@@ -3769,10 +3770,9 @@
                 const data = await res.json();
                 btn.disabled = false; btn.textContent = orig;
                 if (!data.success) { alert(data.error || 'Nothing to do here.'); return; }
-                const guardedN = (data.guarded && data.guarded.length) || 0;
+                const guardedN = (data.guarded && data.guarded.length) || 0;   // link-protected skips — silent, no burden on Mae
                 const otherFailed = ((data.failed && data.failed.length) || 0) - guardedN;
-                const fn = (guardedN ? `<p style="margin:6px 0 0;font-size:0.8rem;color:#c62828;">🔒 ${guardedN} item(s) skipped so an existing link in that text isn't wiped — keep your link and reword it by hand.</p>` : '')
-                        + (otherFailed > 0 ? `<p style="margin:6px 0 0;font-size:0.8rem;color:#c62828;">${otherFailed} item(s) couldn't be matched on the page and will be skipped.</p>` : '');
+                const fn = (otherFailed > 0 ? `<p style="margin:6px 0 0;font-size:0.8rem;color:#c62828;">${otherFailed} item(s) couldn't be matched on the page and will be skipped.</p>` : '');
                 bodyEditModal(`
                     <div style="padding:16px 20px;border-bottom:1px solid #eee;">
                         <h3 style="margin:0;font-size:1.05rem;">Preview — ${opts.title || 'Change'} <span style="color:#ff9800;">(highlighted)</span></h3>
@@ -3882,6 +3882,32 @@
             if (!sd || !sd.id) { alert('Blog data not available — re-run the analysis first.'); return; }
             pushEdits([{ kind: 'prepend-para', content: v }], { id: sd.id, type: sd.type, blogId: sd.blogId || '' },
                 { title: 'Add page description as the bold first paragraph', doneMsg: 'Added as the bold first paragraph' }, btn);
+        }
+        // Item 4 — when a branded word ("wall art" / "unique wall art") isn't in the blog, the AI writes ONE
+        // natural sentence containing it, hyperlinks the word (new tab), and inserts it after the first paragraph.
+        async function aiBrandedLine(anchor, url, title, key, btn) {
+            const sd = currentResults && currentResults.shopify;
+            if (!sd || !sd.id) { alert('Blog data not available — re-run the analysis first.'); return; }
+            const orig = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Writing…';
+            try {
+                const kw = (typeof currentKeyword !== 'undefined' && currentKeyword) ? currentKeyword : '';
+                const prompt = `Write ONE natural sentence for a UK wall art and home decor blog${kw ? ' about "' + kw + '"' : ''}. The sentence MUST contain the exact phrase "${anchor}" verbatim (same words, so it can be hyperlinked). First-person friendly home-decor advisor tone, UK spelling, not salesy, no buzzwords, no emoji. Return ONLY JSON: {"sentence":"the sentence"}`;
+                const res = await fetch('/api/claude', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }) });
+                const data = await res.json();
+                let sentence = '';
+                try { sentence = (JSON.parse(data.response) || {}).sentence || ''; }
+                catch (e) { sentence = String(data.response || '').replace(/^[\s"']+|[\s"']+$/g, ''); }
+                const at = sentence.toLowerCase().indexOf(String(anchor).toLowerCase());
+                if (!sentence || at < 0) { btn.disabled = false; btn.textContent = orig; alert('The AI line didn\'t include the exact words — please click again.'); return; }
+                const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                const linked = esc(sentence.slice(0, at))
+                    + `<a href="${url}" title="${title}" target="_blank" rel="noopener">${esc(sentence.substr(at, anchor.length))}</a>`
+                    + esc(sentence.slice(at + anchor.length));
+                btn.disabled = false; btn.textContent = orig;
+                pushEdits([{ kind: 'after-first-para', content: '<p>' + linked + '</p>' }],
+                    { id: sd.id, type: sd.type, blogId: sd.blogId || '' },
+                    { title: 'Add a line with the "' + anchor + '" link', doneMsg: 'Line added to your blog', tickKey: key }, btn);
+            } catch (e) { btn.disabled = false; btn.textContent = orig; alert('Could not write the line: ' + e.message); }
         }
         // Programmatically tick a pushable item's checkbox (updates master counter + greys the row).
         function tickPushItem(key) {
