@@ -1130,12 +1130,20 @@ module.exports = async function handler(req, res) {
         mk = lk ? mk.slice(0, lk.start) + strikeWrap(mk.slice(lk.start, lk.end)) + mk.slice(lk.end) : mk;
         return { b, mk, ok: true };
       }
-      // NEVER wipe an existing link: if the text being replaced already contains a link and the new
-      // text does not, skip this edit (flag it) so the merchant keeps the link and edits it by hand.
-      if (kind !== 'link') {
+      // NEVER wipe an existing link. If the text being replaced has a link and the new text doesn't:
+      //  • if the linked words still appear in the new text → put the SAME link back on them (preserve it);
+      //  • otherwise → skip this one silently (leave the original with its link untouched).
+      if (kind !== 'link' && e.replace && !/<a\b/i.test(String(e.replace))) {
         const origBlock = b.slice(loc.start, loc.end);
-        if (/<a\b[^>]*>/i.test(origBlock) && !/<a\b[^>]*>/i.test(String(e.replace || ''))) {
-          return { b, mk, ok: false, linkGuarded: true };
+        const linkM = origBlock.match(/<a\b[^>]*>[\s\S]*?<\/a>/i);
+        if (linkM) {
+          const anchorTxt = linkM[0].replace(/<[^>]+>/g, '').trim();
+          const idx = anchorTxt ? String(e.replace).toLowerCase().indexOf(anchorTxt.toLowerCase()) : -1;
+          if (idx >= 0) {
+            e.replace = e.replace.slice(0, idx) + linkM[0] + e.replace.slice(idx + anchorTxt.length);
+          } else {
+            return { b, mk, ok: false, linkGuarded: true };   // nowhere to keep the link → skip silently
+          }
         }
       }
       const repl = (kind === 'link')
