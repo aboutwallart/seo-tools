@@ -875,6 +875,9 @@ module.exports = async (req, res) => {
       var fbBody = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
       var fbMonth = (fbBody.month || '').toString();
       if (!/^\d{4}-\d{2}$/.test(fbMonth)) return res.status(400).json({ ok: false, error: 'Pick a month first.' });
+      // the caller's own wall-clock (their timezone), so we can drop any slot already passed — a passed slot errors on Metricool import
+      var fbNowRaw = (fbBody.nowLocal || '').toString();
+      var fbNowLocal = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(fbNowRaw) ? fbNowRaw : '';
 
       // 1 — the tool's own record of every scheduled blog + its scheduled date, for this month
       var ubGh = await ghGet(USEDBLOG_FILE);
@@ -1002,14 +1005,14 @@ module.exports = async (req, res) => {
         var gmbText = (bc.gmb || bTitle).slice(0, 1400).replace(/\s+$/, '') + '\n\nRead more → ' + blink('gmb');
         if (gmbText.length > 1500) gmbText = gmbText.slice(0, 1500);
         var mkb = function (net, img) { var o = { Date: date, Draft: false, Shortener: true, 'Picture Url 1': img || bImg, 'Alt text picture 1': balt }; o[net] = true; return o; };
-        var bFb = mkb('Facebook'); bFb.Time = '12:00:00'; bFb['Facebook Post Type'] = 'POST'; bFb.Text = fbTrimLink(bc.facebook || bTitle, '\n\nRead more → ' + blink('facebook'), 2000); rows.push(fbRow(bFb));
-        var bIg = mkb('Instagram'); bIg.Time = '13:00:00'; bIg['Instagram Post Type'] = 'POST'; bIg.Text = fbTrimTo(bc.instagram || bTitle, 2200); rows.push(fbRow(bIg));
-        var bTh = mkb('Threads'); bTh.Time = '13:00:00'; bTh['Threads Reply Control'] = 'EVERYONE'; bTh['Threads Post Type'] = 'POST'; bTh.Text = fbTrimLink(bc.threads || bTitle, '\n\nRead more → ' + blink('threads'), 500); rows.push(fbRow(bTh));
+        var bFb = mkb('Facebook'); bFb.Time = '12:00:00'; bFb['Facebook Post Type'] = 'POST'; bFb.Text = fbTrimLink(bc.facebook || bTitle, '\n\nRead more → ' + blink('facebook'), 2000); rows.push({ net: 'Facebook', o: bFb });
+        var bIg = mkb('Instagram'); bIg.Time = '13:00:00'; bIg['Instagram Post Type'] = 'POST'; bIg.Text = fbTrimTo(bc.instagram || bTitle, 2200); rows.push({ net: 'Instagram', o: bIg });
+        var bTh = mkb('Threads'); bTh.Time = '13:00:00'; bTh['Threads Reply Control'] = 'EVERYONE'; bTh['Threads Post Type'] = 'POST'; bTh.Text = fbTrimLink(bc.threads || bTitle, '\n\nRead more → ' + blink('threads'), 500); rows.push({ net: 'Threads', o: bTh });
         var pboard1 = topicBoard || FB_EDU_BOARD;
-        var bP1 = mkb('Pinterest'); bP1.Time = '13:00:00'; bP1['Pinterest Board'] = pboard1; bP1['Pinterest Pin Title'] = bc.pinterestTitle || bTitle; bP1['Pinterest Pin Link'] = blink('pinterest'); bP1.Text = fbTrimTo(bc.pinterestA || bTitle, 500); rows.push(fbRow(bP1));
-        if (pboard1 !== FB_EDU_BOARD) { var bP2 = mkb('Pinterest'); bP2.Time = '13:05:00'; bP2['Pinterest Board'] = FB_EDU_BOARD; bP2['Pinterest Pin Title'] = bc.pinterestTitle || bTitle; bP2['Pinterest Pin Link'] = blink('pinterest'); bP2.Text = fbTrimTo(bc.pinterestB || bc.pinterestA || bTitle, 500); rows.push(fbRow(bP2)); }
-        var bLi = mkb('LinkedIn'); bLi.Time = '17:00:00'; bLi['LinkedIn Type'] = 'POST'; bLi.Text = fbTrimLink(bc.linkedin || bTitle, '\n\nRead more → ' + blink('linkedin'), 3000); rows.push(fbRow(bLi));
-        var bGb = mkb('GBP', gmbImg); bGb.Time = '17:00:00'; bGb['GBP Post Type'] = 'publication'; bGb.Text = gmbText; rows.push(fbRow(bGb));
+        var bP1 = mkb('Pinterest'); bP1.Time = '13:00:00'; bP1['Pinterest Board'] = pboard1; bP1['Pinterest Pin Title'] = bc.pinterestTitle || bTitle; bP1['Pinterest Pin Link'] = blink('pinterest'); bP1.Text = fbTrimTo(bc.pinterestA || bTitle, 500); rows.push({ net: 'Pinterest', o: bP1 });
+        if (pboard1 !== FB_EDU_BOARD) { var bP2 = mkb('Pinterest'); bP2.Time = '13:05:00'; bP2['Pinterest Board'] = FB_EDU_BOARD; bP2['Pinterest Pin Title'] = bc.pinterestTitle || bTitle; bP2['Pinterest Pin Link'] = blink('pinterest'); bP2.Text = fbTrimTo(bc.pinterestB || bc.pinterestA || bTitle, 500); rows.push({ net: 'Pinterest', o: bP2 }); }
+        var bLi = mkb('LinkedIn'); bLi.Time = '17:00:00'; bLi['LinkedIn Type'] = 'POST'; bLi.Text = fbTrimLink(bc.linkedin || bTitle, '\n\nRead more → ' + blink('linkedin'), 3000); rows.push({ net: 'LinkedIn', o: bLi });
+        var bGb = mkb('GBP', gmbImg); bGb.Time = '17:00:00'; bGb['GBP Post Type'] = 'publication'; bGb.Text = gmbText; rows.push({ net: 'Google Business', o: bGb });
         return rows;
       }
 
@@ -1026,14 +1029,23 @@ module.exports = async (req, res) => {
       catch (e) { return res.status(200).json({ ok: false, error: 'Caption builder error — ' + (e && e.message ? e.message : 'try again') }); }
 
       var fbOut = [FBH.join(',')];
-      var fixed = [];
+      var posts = [];
+      var anyBuilt = false;
       for (var bi2 = 0; bi2 < brokenList.length; bi2++) {
         var rws = fbBuilt[bi2] || [];
-        if (rws.length) { rws.forEach(function (r) { fbOut.push(r); }); fixed.push({ handle: brokenList[bi2].handle, title: brokenList[bi2].title, date: brokenList[bi2].date }); }
+        if (rws.length) anyBuilt = true;
+        for (var ri = 0; ri < rws.length; ri++) {
+          var ro = rws[ri].o, rnet = rws[ri].net;
+          var slotKey = (ro.Date || '') + 'T' + (ro.Time || '00:00:00');
+          if (fbNowLocal && slotKey < fbNowLocal) continue; // slot already passed -> would error on Metricool import, so leave it out
+          fbOut.push(fbRow(ro));
+          posts.push({ platform: rnet, title: brokenList[bi2].title, date: ro.Date, time: (ro.Time || '').slice(0, 5), text: String(ro.Text || '').replace(/\s+/g, ' ').trim().slice(0, 90) });
+        }
       }
-      if (!fixed.length) return res.status(200).json({ ok: false, error: 'Found broken images but the caption builder failed — try again.' });
+      if (!anyBuilt) return res.status(200).json({ ok: false, error: 'Found broken images but the caption builder failed — try again.' });
+      if (!posts.length) return res.status(200).json({ ok: true, count: 0, posts: [], csv: '', message: 'The broken posts for ' + fbMonth + ' are all in the past now — nothing left to re-import.' });
       var fbCsv = '﻿' + fbOut.join('\r\n') + '\r\n';
-      return res.status(200).json({ ok: true, count: fixed.length, fixed: fixed, csv: fbCsv });
+      return res.status(200).json({ ok: true, count: posts.length, posts: posts, csv: fbCsv });
     }
 
     if (action === 'reel-links') {
