@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.14 · 11 Aug 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.15 · 11 Aug 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -1106,12 +1106,22 @@
       var sent = !!d.sent;
       return '<div class="mp-vrow" data-i="'+i+'"'+(sent?' data-sent="1" style="background:#E9F7F1;border:1px solid #B8E6D5;border-radius:8px;padding:6px 8px;"':'')+'>'
         + '<input type="checkbox" class="mpk-cb" style="margin-top:4px;">'
-        + '<img src="'+esc2(d.image)+'" alt="">'
-        + '<div style="flex:1;min-width:0;"><strong>'+esc2(d.title)+'</strong> <button class="copy" type="button" onclick="ct(this)" data-copy-title="'+esc2(d.title)+'" title="Copy title"><i class="ti ti-copy"></i></button><br><span class="sku">'+esc2(d.sku)+'</span>'+(d.occasionName?' &middot; '+esc2(d.occasionName):'')+(sent?' &middot; <span style="color:#0F6E56;font-weight:700;">Sent</span>':'')
+        + '<img class="mpk-thumb" src="'+esc2(d.image)+'" alt="">'
+        + '<div style="flex:1;min-width:0;"><strong class="mpk-title">'+esc2(d.title)+'</strong> <button class="copy" type="button" onclick="ct(this)" data-copy-title="'+esc2(d.title)+'" title="Copy title"><i class="ti ti-copy"></i></button><br><span class="sku">'+esc2(d.sku)+'</span>'+(d.occasionName?' &middot; '+esc2(d.occasionName):'')+(sent?' &middot; <span style="color:#0F6E56;font-weight:700;">Sent</span>':'')
         + '<div style="display:flex;gap:6px;margin-top:5px;flex-wrap:wrap;">'
         + '<input type="date" class="mpk-date mp-in" value="'+esc2(d.date||'')+'" style="font-size:12px;padding:4px 6px;">'
         + '<input type="text" class="mpk-video mp-in" placeholder="paste video Drive link" value="'+esc2(d.videoLink||'')+'" style="font-size:12px;padding:4px 6px;flex:1;min-width:150px;">'
-        + '</div></div></div>';
+        + '</div>'
+        + '<div class="mpk-switch" style="margin-top:6px;">'
+        +   '<button type="button" class="mpk-switch-btn mp-btn-sm" style="font-size:12px;">Switch product</button>'
+        +   '<div class="mpk-switch-box" style="display:none;margin-top:6px;gap:6px;flex-wrap:wrap;align-items:center;">'
+        +     '<input type="text" class="mpk-switch-sku mp-in" placeholder="paste sku for print files" style="font-size:12px;padding:4px 6px;min-width:170px;">'
+        +     '<button type="button" class="mpk-switch-look mp-btn-sm" style="font-size:12px;">Look up</button>'
+        +     '<span class="mpk-switch-msg small mp-muted"></span>'
+        +     '<div class="mpk-switch-preview" style="display:none;width:100%;margin-top:6px;"></div>'
+        +   '</div>'
+        + '</div>'
+        + '</div></div>';
     }).join('');
     openModal('<h3>'+esc2(monthLabel(k))+'</h3>'
       + '<p class="mp-muted" style="margin:0 0 8px;">'+days.length+' posts. Tick the ones to send, paste each video&#39;s Drive link, then send. Already-sent posts can be re-sent (you&#39;ll be asked to confirm).</p>'
@@ -1196,6 +1206,52 @@
         fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'set-plan-date',month:k,index:di,date:nd})})
         .then(function(r){return r.json();}).then(function(res){ if(stat) stat.textContent=(res&&res.ok)?'Date saved.':'Could not save the date — try again.'; })
         .catch(function(){ if(stat) stat.textContent='Offline — date not saved.'; });
+      });
+    });
+    // ---- Switch a card's product (before its video is made) → updates every place at once ----
+    [].slice.call(document.querySelectorAll('#mpModalBg .mp-vrow')).forEach(function(row){
+      var di = parseInt(row.getAttribute('data-i'),10);
+      var sw = row.querySelector('.mpk-switch-btn'), box = row.querySelector('.mpk-switch-box');
+      var look = row.querySelector('.mpk-switch-look'), skuIn = row.querySelector('.mpk-switch-sku');
+      var swMsg = row.querySelector('.mpk-switch-msg'), prev = row.querySelector('.mpk-switch-preview');
+      if(!sw || !box) return;
+      sw.addEventListener('click', function(){ box.style.display = (box.style.display==='none' || !box.style.display) ? 'flex' : 'none'; });
+      look.addEventListener('click', function(){
+        var s=(skuIn.value||'').trim();
+        if(!s){ swMsg.style.color=''; swMsg.textContent='Paste a sku for print files.'; return; }
+        look.disabled=true; swMsg.style.color=''; swMsg.textContent='Looking up…'; prev.style.display='none'; prev.innerHTML='';
+        fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'lookup-sku',sku:s})})
+          .then(function(r){return r.json();}).then(function(res){
+            look.disabled=false;
+            if(!res||!res.ok){ swMsg.style.color='#b91c1c'; swMsg.textContent=(res&&res.error)||'No product found.'; return; }
+            swMsg.textContent='';
+            var p=res.product;
+            prev.innerHTML='<div style="display:flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:6px;background:#fff;">'
+              + '<img src="'+esc2(p.image)+'" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:6px;">'
+              + '<div style="flex:1;min-width:0;font-size:12.5px;"><strong>'+esc2(p.title)+'</strong><br><span class="mp-muted">'+esc2(p.sku)+(p.room?(' &middot; '+esc2(p.room)):'')+'</span>'
+              + (res.used?'<br><span style="color:#b45309;font-weight:700;">⚠ Already used/planned — switching will still use it here.</span>':'')
+              + '</div>'
+              + '<button type="button" class="mpk-switch-go mp-btn mp-btn-go" style="font-size:12px;">Confirm switch</button></div>';
+            prev.style.display='';
+            prev.querySelector('.mpk-switch-go').addEventListener('click', function(){
+              var go=this; go.disabled=true; swMsg.style.color=''; swMsg.textContent='Switching everywhere…';
+              fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'switch-plan-sku',month:k,index:di,newSku:p.sku})})
+                .then(function(r){return r.json();}).then(function(rr){
+                  if(!rr||!rr.ok){ go.disabled=false; swMsg.style.color='#b91c1c'; swMsg.textContent=(rr&&rr.error)||'Could not switch.'; return; }
+                  var d=days[di]; var oldSku=rr.oldSku||d.sku;
+                  d.sku=rr.card.sku; d.title=rr.card.title; d.handle=rr.card.handle; d.url=rr.card.url; d.image=rr.card.image; d.room=rr.card.room; d.videoLink=''; d.sent=false;
+                  var img=row.querySelector('.mpk-thumb'); if(img) img.src=d.image;
+                  var tEl=row.querySelector('.mpk-title'); if(tEl) tEl.textContent=d.title;
+                  var skEl=row.querySelector('.sku'); if(skEl) skEl.textContent=d.sku;
+                  var vbox=row.querySelector('.mpk-video'); if(vbox) vbox.value='';
+                  try{ delete USEDSET[(oldSku||'').toUpperCase()]; USEDSET[(d.sku||'').toUpperCase()]=1; }catch(e){}
+                  if(window.SMCC){ if(window.SMCC.undoCardBySku) window.SMCC.undoCardBySku(oldSku); if(window.SMCC.addProductCard) window.SMCC.addProductCard({sku:d.sku,title:d.title,handle:d.handle,url:d.url,image:d.image,room:d.room,date:d.date}, k); }
+                  swMsg.style.color='#0F6E56'; swMsg.textContent='Switched. "'+(oldSku||'')+'" freed for a future month.';
+                  box.style.display='none'; prev.style.display='none'; skuIn.value='';
+                  if(vbox){ fetch('/api/social?action=reel-links').then(function(r){return r.json();}).then(function(rl){ if(rl&&rl.ok&&rl.links){ var lk=rl.links[(d.sku||'').toUpperCase()]; if(lk) vbox.value=lk; } }).catch(function(){}); }
+                }).catch(function(){ go.disabled=false; swMsg.style.color='#b91c1c'; swMsg.textContent='Offline — not switched.'; });
+            });
+          }).catch(function(){ look.disabled=false; swMsg.style.color='#b91c1c'; swMsg.textContent='Offline — try again.'; });
       });
     });
   }
