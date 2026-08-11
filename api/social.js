@@ -513,6 +513,14 @@ module.exports = async (req, res) => {
       const newCard = nodeToCard(swEdges[0].node, newSkuRaw);
       var oldU = oldSku.toUpperCase(), newU = (newCard.sku || '').toUpperCase();
       if (newU === oldU) return res.status(200).json({ ok: false, error: 'That is already the product on this card.' });
+      // block: don't switch to a product already planned in another month/day — it would post twice across months
+      var clashMonth = '';
+      Object.keys(planDoc.months || {}).forEach(function (mk2) {
+        (planDoc.months[mk2].days || []).forEach(function (d2, i2) {
+          if ((d2.sku || '').toUpperCase() === newU && !(mk2 === month && i2 === index)) clashMonth = mk2;
+        });
+      });
+      if (clashMonth) return res.status(200).json({ ok: false, error: 'That product is already planned in ' + clashMonth + ' — pick one that is not planned yet, so it never posts twice.' });
 
       // 3 — plan: replace this day's product (keep its date + occasion; clear video link + Sent — it is a new product)
       await ghSave(PLAN_FILE, function (content) {
@@ -924,7 +932,17 @@ module.exports = async (req, res) => {
         if (content) { try { plan = JSON.parse(content); if (!plan.months) plan.months = {}; } catch (e) { plan = { months: {} }; } }
         posts.forEach(function (p) {
           var sku = (p.sku || '').toString(); var newDate = (p.date || '').toString(); var newMonth = newDate.slice(0, 7);
+          // 1) prefer the post's OWN month — mark that day sent and NEVER touch a same-sku post in another month
+          var tgt = newMonth && plan.months[newMonth];
+          if (tgt && Array.isArray(tgt.days)) {
+            for (var ti = 0; ti < tgt.days.length; ti++) {
+              if ((tgt.days[ti].sku || '') === sku) { tgt.days[ti].sent = true; tgt.days[ti].videoLink = (p.videoLink || ''); if (newDate) tgt.days[ti].date = newDate; return; }
+            }
+          }
+          // 2) not found in its target month — find it ONCE elsewhere and move it in (a genuine cross-month date change)
+          var moved = false;
           Object.keys(plan.months).forEach(function (mkk) {
+            if (moved) return;
             var days = plan.months[mkk].days || [];
             for (var i = 0; i < days.length; i++) {
               if ((days[i].sku || '') === sku) {
@@ -934,7 +952,7 @@ module.exports = async (req, res) => {
                   if (!plan.months[newMonth]) plan.months[newMonth] = { updated: new Date().toISOString(), days: [] };
                   plan.months[newMonth].days.push(day);
                 }
-                break;
+                moved = true; break;
               }
             }
           });
