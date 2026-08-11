@@ -590,31 +590,27 @@ module.exports = async (req, res) => {
 
     if (action === 'suggest-products') {
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
-      var collections = Array.isArray(body.collections) ? body.collections.filter(Boolean) : [];
       var limit = Math.min(parseInt(body.limit, 10) || 8, 100);
-      if (!collections.length) collections = ['framed-wall-pictures-for-living-room']; // clean framed-art fallback pool
       const domain = process.env.SHOPIFY_STORE_DOMAIN, stoken = process.env.SHOPIFY_ACCESS_TOKEN;
       if (!domain || !stoken) return res.status(500).json({ ok: false, error: 'Shopify not configured' });
-      var cq = collections.map(function (h) { return 'handle:' + h; }).join(' OR ');
-      const gq = 'query($q:String!,$n:Int!){ collections(first:8, query:$q){ nodes{ handle products(first:$n){ nodes{ title handle vendor onlineStoreUrl featuredImage{url} room:metafield(namespace:"custom",key:"room_type"){value} skumf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } } } }';
+      // pool = every active About Wall Art product (the Discountable Products smart collection is all AWA products) — 1000+, never runs low
+      const gq = 'query($q:String!,$n:Int!){ products(first:$n, query:$q){ nodes{ title handle vendor onlineStoreUrl featuredImage{url} room:metafield(namespace:"custom",key:"room_type"){value} skumf:metafield(namespace:"custom",key:"sku_for_print_files"){value} } } }';
       const sr = await fetch('https://' + domain + '/admin/api/2025-01/graphql.json', {
         method: 'POST', headers: { 'X-Shopify-Access-Token': stoken, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: gq, variables: { q: cq, n: 100 } })
+        body: JSON.stringify({ query: gq, variables: { q: "vendor:'About Wall Art' status:active", n: 250 } })
       });
       if (!sr.ok) return res.status(sr.status).json({ ok: false, error: 'Shopify error ' + sr.status });
       const sd = await sr.json();
-      const cols = (sd && sd.data && sd.data.collections && sd.data.collections.nodes) || [];
+      const nodes = (sd && sd.data && sd.data.products && sd.data.products.nodes) || [];
       const used = await usedSetLower();
       var seen = {}, out = [];
-      cols.forEach(function (col) {
-        ((col.products && col.products.nodes) || []).forEach(function (n) {
-          if (!isAWA(n.vendor)) return;
-          var sku = (n.skumf && n.skumf.value) || '';
-          if (!sku || seen[sku.toUpperCase()] || used[sku.toUpperCase()]) return;
-          seen[sku.toUpperCase()] = 1;
-          var room = ''; try { var arr = JSON.parse((n.room && n.room.value) || '[]'); room = (arr[0] || '').toString().split(',')[0].trim(); } catch (e) { room = (n.room && n.room.value) || ''; }
-          out.push({ sku: sku, title: n.title || '', handle: n.handle || '', url: n.onlineStoreUrl || ('https://aboutwallart.com/products/' + (n.handle || '')), image: (n.featuredImage && n.featuredImage.url) || '', room: room });
-        });
+      nodes.forEach(function (n) {
+        if (!isAWA(n.vendor)) return;
+        var sku = (n.skumf && n.skumf.value) || '';
+        if (!sku || seen[sku.toUpperCase()] || used[sku.toUpperCase()]) return;
+        seen[sku.toUpperCase()] = 1;
+        var room = ''; try { var arr = JSON.parse((n.room && n.room.value) || '[]'); room = (arr[0] || '').toString().split(',')[0].trim(); } catch (e) { room = (n.room && n.room.value) || ''; }
+        out.push({ sku: sku, title: n.title || '', handle: n.handle || '', url: n.onlineStoreUrl || ('https://aboutwallart.com/products/' + (n.handle || '')), image: (n.featuredImage && n.featuredImage.url) || '', room: room });
       });
       for (var i = out.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = out[i]; out[i] = out[j]; out[j] = t; }
       return res.status(200).json({ ok: true, products: out.slice(0, limit) });
