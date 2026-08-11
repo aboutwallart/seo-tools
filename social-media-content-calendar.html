@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.13 · 10 Aug 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.14 · 11 Aug 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -3208,25 +3208,39 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     sel.appendChild(o);
   }
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  function pad2(n){ return ('0'+n).slice(-2); }
+  function t12(t){ var q=(t||'').split(':'); var h=+q[0]||0, m=q[1]||'00'; var ap=h<12?'AM':'PM'; var hh=h%12; if(hh===0)hh=12; return hh+':'+m+' '+ap; }
+  function dlabel(dt){ var q=(dt||'').split('-'); if(q.length<3) return dt||''; return MON[(+q[1])-1]+' '+(+q[2]); }
   $('fbiRun').addEventListener('click', function(){
     var btn = this, month = sel.value, msg = $('fbiMsg'), out = $('fbiResult');
     out.style.display='none'; out.innerHTML='';
     btn.disabled=true; var orig=btn.textContent; btn.textContent='Checking…';
     msg.style.color=''; msg.textContent='Checking your '+month+' blog posts… this can take a minute.';
-    fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'fix-blog-images',month:month})})
+    var dt=new Date();
+    var nowLocal=dt.getFullYear()+'-'+pad2(dt.getMonth()+1)+'-'+pad2(dt.getDate())+'T'+pad2(dt.getHours())+':'+pad2(dt.getMinutes())+':'+pad2(dt.getSeconds());
+    fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'fix-blog-images',month:month,nowLocal:nowLocal})})
       .then(function(r){ return r.json(); })
       .then(function(d){
         btn.disabled=false; btn.textContent=orig;
         if(!d || d.ok===false){ msg.style.color='#b91c1c'; msg.textContent=(d&&d.error)?d.error:'Something went wrong — try again.'; return; }
-        if(!d.count){ msg.style.color='#0F6E56'; msg.textContent=(d.message||('No broken images found for '+month+'.')); return; }
+        if(!d.count){ msg.style.color='#0F6E56'; msg.textContent=(d.message||('No broken pictures found for '+month+'.')); return; }
         var blob=new Blob([d.csv],{type:'text/csv;charset=utf-8;'});
         var u=URL.createObjectURL(blob); var a=document.createElement('a'); a.href=u; a.download='fix-broken-images-'+month+'.csv'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function(){ URL.revokeObjectURL(u); },5000);
         msg.style.color='#0F6E56'; msg.textContent='Fixed file downloaded.';
-        var html = '<div class="box" style="background:#fff8ec;border:1px solid #f0d9a8;border-radius:10px;padding:12px 14px;">'
-          + '<strong>Found '+d.count+' post'+(d.count>1?'s':'')+' with a broken picture:</strong>'
-          + '<ul style="margin:8px 0 10px;padding-left:18px;font-size:13px;">';
-        (d.fixed||[]).forEach(function(f){ html += '<li>'+esc(f.title||f.handle)+' <span class="mp-muted">('+esc(f.date||'')+')</span></li>'; });
-        html += '</ul><p class="small" style="margin:0;"><strong>Next, in Metricool:</strong> delete these posts, then import the file that just downloaded (<strong>fix-broken-images-'+esc(month)+'.csv</strong>). It puts them back with a fresh picture saved to your Drive.</p></div>';
+        var posts=d.posts||[];
+        var order=['Facebook','LinkedIn','Instagram','Threads','Pinterest','Google Business'];
+        var groups={}; posts.forEach(function(p){ (groups[p.platform]=groups[p.platform]||[]).push(p); });
+        var plats=order.filter(function(x){return groups[x];}).concat(Object.keys(groups).filter(function(x){return order.indexOf(x)<0;}));
+        var html='<div class="box" style="background:#fff8ec;border:1px solid #f0d9a8;border-radius:10px;padding:12px 14px;">'
+          + '<strong>'+d.count+' post'+(d.count>1?'s':'')+' still to come have a broken picture. Delete exactly these in Metricool, then import the file:</strong>';
+        plats.forEach(function(pl){
+          var arr=groups[pl].slice().sort(function(a,b){ return (a.date+a.time).localeCompare(b.date+b.time); });
+          html+='<div style="margin:12px 0 4px;font-weight:800;">'+esc(pl)+' <span class="mp-muted">('+arr.length+')</span></div>';
+          html+='<ul style="margin:0 0 6px;padding-left:18px;font-size:13px;line-height:1.5;">';
+          arr.forEach(function(p){ html+='<li><span class="mp-muted">'+esc(dlabel(p.date))+' · '+esc(t12(p.time))+'</span> — '+esc(p.text)+'…</li>'; });
+          html+='</ul>';
+        });
+        html += '<p class="small" style="margin:10px 0 0;"><strong>Then import</strong> the file that just downloaded (<strong>fix-broken-images-'+esc(month)+'.csv</strong>) into Metricool. It re-adds them with a fresh picture — permanent, so this won\'t happen again.</p></div>';
         out.innerHTML=html; out.style.display='';
       })
       .catch(function(){ btn.disabled=false; btn.textContent=orig; msg.style.color='#b91c1c'; msg.textContent='Network error — try again.'; });
