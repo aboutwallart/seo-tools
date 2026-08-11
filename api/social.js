@@ -56,7 +56,8 @@ module.exports = async (req, res) => {
       const newContent = build(cur.content);
       const r = await ghPut(filePath, newContent, cur.sha, message);
       if (r.ok) return;
-      if (r.status === 409 || r.status === 422) { await new Promise(function (res) { setTimeout(res, 200 * (attempt + 1)); }); continue; }
+      // retry on a conflict (409/422) OR a transient GitHub server error (500/502/503/504) — these are temporary, not a real failure
+      if (r.status === 409 || r.status === 422 || r.status === 500 || r.status === 502 || r.status === 503 || r.status === 504) { await new Promise(function (res) { setTimeout(res, 400 * (attempt + 1)); }); continue; }
       throw new Error('GitHub put failed: ' + r.status + ' ' + await r.text());
     }
     throw new Error('Save could not complete — please save again.');
