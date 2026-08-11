@@ -488,6 +488,85 @@ module.exports = async (req, res) => {
       return res.status(200).json({ ok: true, removedSkus: removedSkus });
     }
 
+    if (action === 'switch-plan-sku') {
+      // Swap the product on ONE planned day to a different product (by its sku_for_print_files metafield),
+      // updating EVERY place the card lives so nothing is left broken: the month plan, the Video Creation card,
+      // the "used" list, and the Schedule tab if it is there. The OLD product is freed so a future month can use it.
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      const month = (body.month || '').toString();
+      const index = parseInt(body.index, 10);
+      const newSkuRaw = (body.newSku || '').toString().trim();
+      if (!month || isNaN(index) || !newSkuRaw) return res.status(400).json({ ok: false, error: 'Missing month/index/sku' });
+
+      // 1 — find the current (old) product on that planned day
+      const planGh = await ghGet(PLAN_FILE);
+      var planDoc = { months: {} };
+      if (planGh.content) { try { planDoc = JSON.parse(planGh.content); if (!planDoc.months) planDoc.months = {}; } catch (e) { planDoc = { months: {} }; } }
+      var mm = planDoc.months[month];
+      if (!mm || !Array.isArray(mm.days) || !mm.days[index]) return res.status(200).json({ ok: false, error: 'That planned post was not found — reopen the month and try again.' });
+      var oldDay = mm.days[index];
+      var oldSku = (oldDay.sku || '').toString();
+
+      // 2 — look up the NEW product by its print-files SKU (same lookup the rest of the tool uses)
+      const swEdges = await shopifyByTagOrSku('metafield:custom.sku_for_print_files:' + newSkuRaw, 1);
+      if (!swEdges.length) return res.status(200).json({ ok: false, error: 'No product found for "' + newSkuRaw + '"' });
+      const newCard = nodeToCard(swEdges[0].node, newSkuRaw);
+      var oldU = oldSku.toUpperCase(), newU = (newCard.sku || '').toUpperCase();
+      if (newU === oldU) return res.status(200).json({ ok: false, error: 'That is already the product on this card.' });
+
+      // 3 — plan: replace this day's product (keep its date + occasion; clear video link + Sent — it is a new product)
+      await ghSave(PLAN_FILE, function (content) {
+        var plan = { months: {} };
+        if (content) { try { plan = JSON.parse(content); if (!plan.months) plan.months = {}; } catch (e) { plan = { months: {} }; } }
+        var m2 = plan.months[month];
+        if (m2 && Array.isArray(m2.days) && m2.days[index]) {
+          var d = m2.days[index];
+          d.sku = newCard.sku; d.title = newCard.title; d.handle = newCard.handle; d.url = newCard.url; d.image = newCard.image; d.room = newCard.room;
+          d.videoLink = ''; d.sent = false;
+          m2.updated = new Date().toISOString();
+        }
+        return JSON.stringify(plan, null, 2);
+      }, 'Switch plan product ' + month + ' #' + index + ' ' + oldSku + '->' + newCard.sku);
+
+      // 4 — used list: free the OLD product (available for a future month), mark the NEW one used for this month
+      await ghSave(USED_FILE, function (content) {
+        var doc = { used: [] };
+        if (content) { try { doc = JSON.parse(content); if (!Array.isArray(doc.used)) doc.used = []; } catch (e) { doc = { used: [] }; } }
+        doc.used = doc.used.filter(function (x) { return (x.sku || '').toUpperCase() !== oldU; });
+        if (!doc.used.some(function (x) { return (x.sku || '').toUpperCase() === newU; })) {
+          doc.used.push({ sku: newCard.sku, name: newCard.title, room: newCard.room, usedMonth: month });
+        }
+        return JSON.stringify(doc, null, 2);
+      }, 'Switch used ' + oldSku + '->' + newCard.sku);
+
+      // 5 — Video Creation cards: drop the old plan card (its video is not made yet), add/refresh the new one tagged to this month
+      await ghSave(CARDS_FILE, function (content) {
+        var data = parseCards(content);
+        var oldRec = data.custom[oldSku];
+        if (oldRec && oldRec.planMonth === month) { delete data.custom[oldSku]; }
+        var ri = data.removed.indexOf(newCard.sku); if (ri !== -1) data.removed.splice(ri, 1);
+        var rec = data.custom[newCard.sku] || {};
+        rec.sku = newCard.sku; rec.title = newCard.title; rec.handle = newCard.handle; rec.url = newCard.url; rec.image = newCard.image; rec.room = newCard.room;
+        rec.planMonth = month; rec.planDate = oldDay.date || rec.planDate || '';
+        data.custom[newCard.sku] = rec;
+        return JSON.stringify(data, null, 2);
+      }, 'Switch card ' + oldSku + '->' + newCard.sku);
+
+      // 6 — Schedule tab (TikTok): if the old product was sent there, point it at the new product too (no broken tie)
+      await ghSave(SCHEDULE_FILE, function (content) {
+        var sched = { videos: [], state: {}, savedCaptions: {} };
+        if (content) { try { var p = JSON.parse(content); sched.videos = p.videos || []; sched.state = p.state || {}; sched.savedCaptions = p.savedCaptions || {}; } catch (e) {} }
+        (sched.videos || []).forEach(function (v) {
+          if ((v.sku || '').toUpperCase() === oldU) { v.sku = newCard.sku; v.title = newCard.title; v.handle = newCard.handle; v.url = newCard.url; v.image = newCard.image; v.room = newCard.room; }
+        });
+        if (sched.savedCaptions && sched.savedCaptions[oldSku] && !sched.savedCaptions[newCard.sku]) { sched.savedCaptions[newCard.sku] = sched.savedCaptions[oldSku]; delete sched.savedCaptions[oldSku]; }
+        if (sched.state && sched.state[oldSku] && !sched.state[newCard.sku]) { sched.state[newCard.sku] = sched.state[oldSku]; delete sched.state[oldSku]; }
+        return JSON.stringify(sched, null, 2);
+      }, 'Switch schedule ' + oldSku + '->' + newCard.sku);
+
+      return res.status(200).json({ ok: true, oldSku: oldSku, card: newCard, date: oldDay.date || '' });
+    }
+
     if (action === 'lookup-sku') {
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
       const sku = (body.sku || '').toString().trim();
