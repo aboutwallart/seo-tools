@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.16 · 11 Aug 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.17 · 11 Aug 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -906,7 +906,7 @@
     renderDays();
     // filler pools: Tab 1 UNUSED cards first (read straight from the page), then a general art fallback
     TAB1SET = {}; TAB1POOL = readTab1Pool();
-    fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'suggest-products',collections:['framed-wall-pictures-for-living-room'],limit:80})}).then(function(r){return r.json();}).catch(function(){return {};})
+    fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'suggest-products',limit:80})}).then(function(r){return r.json();}).catch(function(){return {};})
     .then(function(res){
       POOL = (res&&res.ok&&res.products)?res.products:[];
       autoFillFillers();
@@ -1037,8 +1037,9 @@
 
   $('mpSave').addEventListener('click', function(){
     var month = $('mpMonth').value;
-    var days = DAYS.filter(function(d){ return d.product; }).map(function(d){
-      return { date:d.date, occasionId:d.occ?d.occ.id:'', occasionName:d.occ?d.occ.name:'', promo:d.occ?!!d.occ.promoSuggested:false, sku:d.product.sku, title:d.product.title, handle:d.product.handle, url:d.product.url, image:d.product.image, room:d.product.room };
+    var days = DAYS.map(function(d){
+      var p = d.product || {};
+      return { date:d.date, occasionId:d.occ?d.occ.id:'', occasionName:d.occ?d.occ.name:'', promo:d.occ?!!d.occ.promoSuggested:false, sku:p.sku||'', title:p.title||'', handle:p.handle||'', url:p.url||'', image:p.image||'', room:p.room||'' };
     });
     $('mpSaveMsg').textContent='Saving…';
     fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'save-plan',month:month,days:days})})
@@ -1047,7 +1048,7 @@
         $('mpSaveMsg').textContent='';
         // push each picked product onto Tab 1, at the top, tagged with this month
         if(window.SMCC && window.SMCC.addProductCard){
-          days.forEach(function(d){ window.SMCC.addProductCard({ sku:d.sku, title:d.title, handle:d.handle, url:d.url, image:d.image, room:d.room, date:d.date }, month); });
+          days.forEach(function(d){ if(!d.sku) return; window.SMCC.addProductCard({ sku:d.sku, title:d.title, handle:d.handle, url:d.url, image:d.image, room:d.room, date:d.date }, month); });
         }
         loadSavedMonths();
         showSaveModal(days.length, month);
@@ -1104,17 +1105,21 @@
     var days = m.days||[];
     var rows = days.map(function(d, i){
       var sent = !!d.sent;
-      return '<div class="mp-vrow" data-i="'+i+'"'+(sent?' data-sent="1" style="background:#E9F7F1;border:1px solid #B8E6D5;border-radius:8px;padding:6px 8px;"':'')+'>'
+      var empty = !(d.sku);
+      return '<div class="mp-vrow" data-i="'+i+'"'+(sent?' data-sent="1" style="background:#E9F7F1;border:1px solid #B8E6D5;border-radius:8px;padding:6px 8px;"':(empty?' style="background:#FFF8EC;border:1px solid #F0D9A8;border-radius:8px;padding:6px 8px;"':''))+'>'
         + '<input type="checkbox" class="mpk-cb" style="margin-top:4px;">'
-        + '<img class="mpk-thumb" src="'+esc2(d.image)+'" alt="">'
-        + '<div style="flex:1;min-width:0;"><strong class="mpk-title">'+esc2(d.title)+'</strong> <button class="copy" type="button" onclick="ct(this)" data-copy-title="'+esc2(d.title)+'" title="Copy title"><i class="ti ti-copy"></i></button><br><span class="sku">'+esc2(d.sku)+'</span>'+(d.occasionName?' &middot; '+esc2(d.occasionName):'')+(sent?' &middot; <span style="color:#0F6E56;font-weight:700;">Sent</span>':'')
+        + '<img class="mpk-thumb" src="'+esc2(d.image||'')+'" alt="" style="width:54px;height:54px;object-fit:cover;border-radius:6px;background:#f3f3f3;">'
+        + '<div style="flex:1;min-width:0;">'
+        + (empty
+            ? '<strong class="mpk-title" style="color:#b45309;">Empty day'+(d.occasionName?' · '+esc2(d.occasionName):'')+' — add a product</strong><br><span class="sku"></span>'
+            : '<strong class="mpk-title">'+esc2(d.title)+'</strong> <button class="copy" type="button" onclick="ct(this)" data-copy-title="'+esc2(d.title)+'" title="Copy title"><i class="ti ti-copy"></i></button><br><span class="sku">'+esc2(d.sku)+'</span>'+(d.occasionName?' &middot; '+esc2(d.occasionName):'')+(sent?' &middot; <span style="color:#0F6E56;font-weight:700;">Sent</span>':''))
         + '<div style="display:flex;gap:6px;margin-top:5px;flex-wrap:wrap;">'
         + '<input type="date" class="mpk-date mp-in" value="'+esc2(d.date||'')+'" style="font-size:12px;padding:4px 6px;">'
-        + '<input type="text" class="mpk-video mp-in" placeholder="paste video Drive link" value="'+esc2(d.videoLink||'')+'" style="font-size:12px;padding:4px 6px;flex:1;min-width:150px;">'
+        + (empty ? '' : '<input type="text" class="mpk-video mp-in" placeholder="paste video Drive link" value="'+esc2(d.videoLink||'')+'" style="font-size:12px;padding:4px 6px;flex:1;min-width:150px;">')
         + '</div>'
         + '<div class="mpk-switch" style="margin-top:6px;">'
-        +   '<button type="button" class="mpk-switch-btn mp-btn-sm" style="font-size:12px;">Switch product</button>'
-        +   '<div class="mpk-switch-box" style="display:none;margin-top:6px;gap:6px;flex-wrap:wrap;align-items:center;">'
+        +   '<button type="button" class="mpk-switch-btn mp-btn-sm" style="font-size:12px;">'+(empty?'Add product':'Switch product')+'</button>'
+        +   '<div class="mpk-switch-box" style="display:'+(empty?'flex':'none')+';margin-top:6px;gap:6px;flex-wrap:wrap;align-items:center;">'
         +     '<input type="text" class="mpk-switch-sku mp-in" placeholder="paste sku for print files" style="font-size:12px;padding:4px 6px;min-width:170px;">'
         +     '<button type="button" class="mpk-switch-look mp-btn-sm" style="font-size:12px;">Look up</button>'
         +     '<span class="mpk-switch-msg small mp-muted"></span>'
@@ -1246,7 +1251,7 @@
                   var vbox=row.querySelector('.mpk-video'); if(vbox) vbox.value='';
                   try{ delete USEDSET[(oldSku||'').toUpperCase()]; USEDSET[(d.sku||'').toUpperCase()]=1; }catch(e){}
                   if(window.SMCC){ if(window.SMCC.undoCardBySku) window.SMCC.undoCardBySku(oldSku); if(window.SMCC.addProductCard) window.SMCC.addProductCard({sku:d.sku,title:d.title,handle:d.handle,url:d.url,image:d.image,room:d.room,date:d.date}, k); }
-                  swMsg.style.color='#0F6E56'; swMsg.textContent='Switched. "'+(oldSku||'')+'" freed for a future month.';
+                  swMsg.style.color='#0F6E56'; swMsg.textContent=oldSku?('Switched. "'+oldSku+'" freed for a future month.'):'Product added.';
                   box.style.display='none'; prev.style.display='none'; skuIn.value='';
                   if(vbox){ fetch('/api/social?action=reel-links').then(function(r){return r.json();}).then(function(rl){ if(rl&&rl.ok&&rl.links){ var lk=rl.links[(d.sku||'').toUpperCase()]; if(lk) vbox.value=lk; } }).catch(function(){}); }
                 }).catch(function(){ go.disabled=false; swMsg.style.color='#b91c1c'; swMsg.textContent='Offline — not switched.'; });
