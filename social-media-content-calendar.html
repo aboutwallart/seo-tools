@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.18 · 11 Aug 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.19 · 13 Aug 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -1103,7 +1103,9 @@
   }
   function viewMonth(k, m){
     var days = m.days||[];
-    var rows = days.map(function(d, i){
+    function shuffle(a){ for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
+    // build ONE row's HTML (empty = amber "add a product"; full = normal card)
+    function buildRow(d, i){
       var sent = !!d.sent;
       var empty = !(d.sku);
       return '<div class="mp-vrow" data-i="'+i+'"'+(sent?' data-sent="1" style="background:#E9F7F1;border:1px solid #B8E6D5;border-radius:8px;padding:6px 8px;"':(empty?' style="background:#FFF8EC;border:1px solid #F0D9A8;border-radius:8px;padding:6px 8px;"':''))+'>'
@@ -1127,11 +1129,142 @@
         +   '</div>'
         + '</div>'
         + '</div></div>';
-    }).join('');
+    }
+    // fill one row's video box from Google Drive by SKU (empty, editable box only)
+    function fillReelRow(row){
+      var di = parseInt(row.getAttribute('data-i'),10);
+      var box = row.querySelector('.mpk-video');
+      if(!box || box.disabled || (box.value||'').trim()) return;
+      fetch('/api/social?action=reel-links').then(function(r){return r.json();}).then(function(res){
+        if(!res||!res.ok||!res.links) return;
+        var link = res.links[(days[di].sku||'').toUpperCase()];
+        if(link && !(box.value||'').trim()) box.value = link;
+      }).catch(function(){});
+    }
+    // rebuild ONE row in place so an added/switched day becomes a normal card straight away
+    function rebuildRow(di){
+      var oldRow = document.querySelector('#mpModalBg .mp-vrow[data-i="'+di+'"]');
+      if(!oldRow || !oldRow.parentNode) return;
+      var tmp = document.createElement('div');
+      tmp.innerHTML = buildRow(days[di], di);
+      var newRow = tmp.firstChild;
+      oldRow.parentNode.replaceChild(newRow, oldRow);
+      wireRow(newRow);
+      fillReelRow(newRow);
+    }
+    // switch/add a product on one day → updates plan, cards, used, schedule everywhere
+    function doSwitch(di, newSku, cb){
+      fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'switch-plan-sku',month:k,index:di,newSku:newSku})})
+        .then(function(r){return r.json();}).then(function(rr){
+          if(!rr||!rr.ok||!rr.card){ cb(false,(rr&&rr.error)||'Could not switch.',null); return; }
+          var d=days[di]; var oldSku=rr.oldSku||d.sku;
+          d.sku=rr.card.sku; d.title=rr.card.title; d.handle=rr.card.handle; d.url=rr.card.url; d.image=rr.card.image; d.room=rr.card.room; d.videoLink=''; d.sent=false;
+          try{ if(oldSku) delete USEDSET[(oldSku||'').toUpperCase()]; USEDSET[(d.sku||'').toUpperCase()]=1; }catch(e){}
+          if(window.SMCC){ if(oldSku && window.SMCC.undoCardBySku) window.SMCC.undoCardBySku(oldSku); if(window.SMCC.addProductCard) window.SMCC.addProductCard({sku:d.sku,title:d.title,handle:d.handle,url:d.url,image:d.image,room:d.room,date:d.date}, k); }
+          cb(true,null,{oldSku:oldSku});
+        }).catch(function(){ cb(false,'Offline — not switched.',null); });
+    }
+    // wire the date + switch/add controls for one row
+    function wireRow(row){
+      var di = parseInt(row.getAttribute('data-i'),10);
+      var dinp = row.querySelector('.mpk-date');
+      if(dinp){
+        dinp.addEventListener('change', function(){
+          var nd = dinp.value; if(!nd) return;
+          days[di].date = nd;
+          var stat = document.getElementById('mpkStat'); if(stat) stat.textContent='Saving date…';
+          fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'set-plan-date',month:k,index:di,date:nd})})
+          .then(function(r){return r.json();}).then(function(res){ if(stat) stat.textContent=(res&&res.ok)?'Date saved.':'Could not save the date — try again.'; })
+          .catch(function(){ if(stat) stat.textContent='Offline — date not saved.'; });
+        });
+      }
+      var sw = row.querySelector('.mpk-switch-btn'), box = row.querySelector('.mpk-switch-box');
+      var look = row.querySelector('.mpk-switch-look'), skuIn = row.querySelector('.mpk-switch-sku');
+      var swMsg = row.querySelector('.mpk-switch-msg'), prev = row.querySelector('.mpk-switch-preview');
+      if(!sw || !box) return;
+      sw.addEventListener('click', function(){ box.style.display = (box.style.display==='none' || !box.style.display) ? 'flex' : 'none'; });
+      look.addEventListener('click', function(){
+        var s=(skuIn.value||'').trim();
+        if(!s){ swMsg.style.color=''; swMsg.textContent='Paste a sku for print files.'; return; }
+        look.disabled=true; swMsg.style.color=''; swMsg.textContent='Looking up…'; prev.style.display='none'; prev.innerHTML='';
+        fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'lookup-sku',sku:s})})
+          .then(function(r){return r.json();}).then(function(res){
+            look.disabled=false;
+            if(!res||!res.ok){ swMsg.style.color='#b91c1c'; swMsg.textContent=(res&&res.error)||'No product found.'; return; }
+            swMsg.textContent='';
+            var p=res.product;
+            prev.innerHTML='<div style="display:flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:6px;background:#fff;">'
+              + '<img src="'+esc2(p.image)+'" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:6px;">'
+              + '<div style="flex:1;min-width:0;font-size:12.5px;"><strong>'+esc2(p.title)+'</strong><br><span class="mp-muted">'+esc2(p.sku)+(p.room?(' &middot; '+esc2(p.room)):'')+'</span>'
+              + (res.used?'<br><span style="color:#b45309;font-weight:700;">⚠ Already used/planned — switching will still use it here.</span>':'')
+              + '</div>'
+              + '<button type="button" class="mpk-switch-go mp-btn mp-btn-go" style="font-size:12px;">Confirm switch</button></div>';
+            prev.style.display='';
+            prev.querySelector('.mpk-switch-go').addEventListener('click', function(){
+              var go=this; go.disabled=true; swMsg.style.color=''; swMsg.textContent='Switching everywhere…';
+              doSwitch(di, p.sku, function(ok, err, info){
+                if(!ok){ go.disabled=false; swMsg.style.color='#b91c1c'; swMsg.textContent=err||'Could not switch.'; return; }
+                var stat=document.getElementById('mpkStat'); if(stat) stat.textContent = (info&&info.oldSku)?('Switched. "'+info.oldSku+'" freed for a future month.'):'Product added.';
+                rebuildRow(di);
+              });
+            });
+          }).catch(function(){ look.disabled=false; swMsg.style.color='#b91c1c'; swMsg.textContent='Offline — try again.'; });
+      });
+    }
+    // ---- Fill empty days automatically: unused MADE cards first, then other unused cards, then the pool ----
+    function fillEmptyDays(){
+      var stat = document.getElementById('mpkStat');
+      var fillBtn = document.getElementById('mpkFill');
+      var emptyIdx = []; days.forEach(function(d,i){ if(!d.sku) emptyIdx.push(i); });
+      if(!emptyIdx.length){ if(stat) stat.textContent='No empty days to fill.'; if(fillBtn) fillBtn.style.display='none'; return; }
+      if(fillBtn) fillBtn.disabled = true;
+      var planElse = {}; Object.keys(SAVED_MONTHS||{}).forEach(function(mk){ if(mk===k) return; (SAVED_MONTHS[mk].days||[]).forEach(function(dd){ if(dd&&dd.sku) planElse[(dd.sku||'').toUpperCase()]=1; }); });
+      var inMonth = {}; days.forEach(function(dd){ if(dd&&dd.sku) inMonth[(dd.sku||'').toUpperCase()]=1; });
+      var picked = {};
+      function eligible(sku){ sku=(sku||'').toUpperCase(); if(!sku) return false; return !USEDSET[sku] && !planElse[sku] && !inMonth[sku] && !picked[sku]; }
+      var tier1=[], tier2=[]; // tier1 = made (images ready), tier2 = other unused cards on the Create Videos tab
+      [].slice.call(document.querySelectorAll('#tab-video .vcard[data-sku]')).forEach(function(c){
+        var sku=(c.getAttribute('data-sku')||'').trim(); if(!eligible(sku)) return;
+        picked[sku.toUpperCase()]=1;
+        if(c.classList.contains('done')) tier1.push(sku); else tier2.push(sku);
+      });
+      shuffle(tier1); shuffle(tier2);
+      if(stat) stat.textContent='Filling empty days… getting your product pool…';
+      fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'suggest-products',limit:80})})
+        .then(function(r){return r.json();}).catch(function(){return {};})
+        .then(function(res){
+          var pool=(res&&res.ok&&res.products)?res.products:[];
+          var tier3=[]; pool.forEach(function(p){ var sku=(p.sku||'').trim(); if(eligible(sku)){ picked[sku.toUpperCase()]=1; tier3.push(sku); } });
+          shuffle(tier3);
+          var queue = tier1.concat(tier2).concat(tier3);
+          var total = emptyIdx.length, doneN = 0, qpos = 0;
+          function finish(){
+            var remaining = days.filter(function(d){return !d.sku;}).length;
+            if(fillBtn){ if(remaining>0){ fillBtn.disabled=false; } else { fillBtn.style.display='none'; } }
+            if(stat) stat.textContent = remaining>0 ? ('Filled '+doneN+'. '+remaining+' day'+(remaining===1?'':'s')+' still empty — no unused products left.') : ('Done — filled all '+doneN+' empty day'+(doneN===1?'':'s')+'.');
+          }
+          function step(){
+            if(!emptyIdx.length){ finish(); return; }
+            if(qpos >= queue.length){ finish(); return; }
+            var di = emptyIdx[0];
+            var sku = queue[qpos++];
+            if(stat) stat.textContent='Filling day '+(doneN+1)+' of '+total+'…';
+            doSwitch(di, sku, function(ok){
+              if(!ok){ step(); return; } // server rejected this product → try the next one
+              rebuildRow(di);
+              emptyIdx.shift(); doneN++;
+              step();
+            });
+          }
+          step();
+        });
+    }
+    var rows = days.map(buildRow).join('');
+    var hasEmpty = days.some(function(d){ return !d.sku; });
     openModal('<h3>'+esc2(monthLabel(k))+'</h3>'
       + '<p class="mp-muted" style="margin:0 0 8px;">'+days.length+' posts. Tick the ones to send, paste each video&#39;s Drive link, then send. Already-sent posts can be re-sent (you&#39;ll be asked to confirm).</p>'
       + '<div>'+rows+'</div>'
-      + '<div style="display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap;"><button type="button" id="mpkSend" style="appearance:none;border:none;border-radius:9px;background:#534AB7;color:#fff;font-weight:700;font-size:14px;padding:10px 18px;cursor:pointer;">Send selected to Metricool file</button><button type="button" id="mpkSched" style="appearance:none;border:none;border-radius:9px;background:#0F6E56;color:#fff;font-weight:700;font-size:14px;padding:10px 18px;cursor:pointer;">Send selected to Schedule (TikTok)</button><button type="button" class="mp-close">Close</button><span class="small mp-muted" id="mpkStat"></span></div>');
+      + '<div style="display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap;"><button type="button" id="mpkSend" style="appearance:none;border:none;border-radius:9px;background:#534AB7;color:#fff;font-weight:700;font-size:14px;padding:10px 18px;cursor:pointer;">Send selected to Metricool file</button><button type="button" id="mpkSched" style="appearance:none;border:none;border-radius:9px;background:#0F6E56;color:#fff;font-weight:700;font-size:14px;padding:10px 18px;cursor:pointer;">Send selected to Schedule (TikTok)</button>'+(hasEmpty?'<button type="button" id="mpkFill" style="appearance:none;border:none;border-radius:9px;background:#b45309;color:#fff;font-weight:700;font-size:14px;padding:10px 18px;cursor:pointer;">Fill empty days</button>':'')+'<button type="button" class="mp-close">Close</button><span class="small mp-muted" id="mpkStat"></span></div>');
     var schedBtn = document.getElementById('mpkSched');
     if(schedBtn){
       schedBtn.addEventListener('click', function(){
@@ -1188,6 +1321,8 @@
         }).catch(function(){ clearInterval(timer); sendBtn.disabled=false; stat.textContent='Offline — not sent.'; });
       });
     }
+    var fillBtn0 = document.getElementById('mpkFill');
+    if(fillBtn0) fillBtn0.addEventListener('click', fillEmptyDays);
     // Auto-fill each post's video link from Google Drive by SKU (empty, unsent boxes only; stays editable).
     fetch('/api/social?action=reel-links').then(function(r){return r.json();}).then(function(res){
       if(!res||!res.ok||!res.links) return;
@@ -1200,65 +1335,8 @@
         if(link) box.value = link;
       });
     }).catch(function(){});
-    // save a manual date change straight away so it sticks (keeps Sent + video link)
-    [].slice.call(document.querySelectorAll('#mpModalBg .mpk-date')).forEach(function(inp){
-      inp.addEventListener('change', function(){
-        var row = inp.closest('.mp-vrow'); if(!row) return;
-        var di = parseInt(row.getAttribute('data-i'),10);
-        var nd = inp.value; if(!nd) return;
-        days[di].date = nd;
-        var stat = document.getElementById('mpkStat'); if(stat) stat.textContent='Saving date…';
-        fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'set-plan-date',month:k,index:di,date:nd})})
-        .then(function(r){return r.json();}).then(function(res){ if(stat) stat.textContent=(res&&res.ok)?'Date saved.':'Could not save the date — try again.'; })
-        .catch(function(){ if(stat) stat.textContent='Offline — date not saved.'; });
-      });
-    });
-    // ---- Switch a card's product (before its video is made) → updates every place at once ----
-    [].slice.call(document.querySelectorAll('#mpModalBg .mp-vrow')).forEach(function(row){
-      var di = parseInt(row.getAttribute('data-i'),10);
-      var sw = row.querySelector('.mpk-switch-btn'), box = row.querySelector('.mpk-switch-box');
-      var look = row.querySelector('.mpk-switch-look'), skuIn = row.querySelector('.mpk-switch-sku');
-      var swMsg = row.querySelector('.mpk-switch-msg'), prev = row.querySelector('.mpk-switch-preview');
-      if(!sw || !box) return;
-      sw.addEventListener('click', function(){ box.style.display = (box.style.display==='none' || !box.style.display) ? 'flex' : 'none'; });
-      look.addEventListener('click', function(){
-        var s=(skuIn.value||'').trim();
-        if(!s){ swMsg.style.color=''; swMsg.textContent='Paste a sku for print files.'; return; }
-        look.disabled=true; swMsg.style.color=''; swMsg.textContent='Looking up…'; prev.style.display='none'; prev.innerHTML='';
-        fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'lookup-sku',sku:s})})
-          .then(function(r){return r.json();}).then(function(res){
-            look.disabled=false;
-            if(!res||!res.ok){ swMsg.style.color='#b91c1c'; swMsg.textContent=(res&&res.error)||'No product found.'; return; }
-            swMsg.textContent='';
-            var p=res.product;
-            prev.innerHTML='<div style="display:flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:6px;background:#fff;">'
-              + '<img src="'+esc2(p.image)+'" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:6px;">'
-              + '<div style="flex:1;min-width:0;font-size:12.5px;"><strong>'+esc2(p.title)+'</strong><br><span class="mp-muted">'+esc2(p.sku)+(p.room?(' &middot; '+esc2(p.room)):'')+'</span>'
-              + (res.used?'<br><span style="color:#b45309;font-weight:700;">⚠ Already used/planned — switching will still use it here.</span>':'')
-              + '</div>'
-              + '<button type="button" class="mpk-switch-go mp-btn mp-btn-go" style="font-size:12px;">Confirm switch</button></div>';
-            prev.style.display='';
-            prev.querySelector('.mpk-switch-go').addEventListener('click', function(){
-              var go=this; go.disabled=true; swMsg.style.color=''; swMsg.textContent='Switching everywhere…';
-              fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'switch-plan-sku',month:k,index:di,newSku:p.sku})})
-                .then(function(r){return r.json();}).then(function(rr){
-                  if(!rr||!rr.ok){ go.disabled=false; swMsg.style.color='#b91c1c'; swMsg.textContent=(rr&&rr.error)||'Could not switch.'; return; }
-                  var d=days[di]; var oldSku=rr.oldSku||d.sku;
-                  d.sku=rr.card.sku; d.title=rr.card.title; d.handle=rr.card.handle; d.url=rr.card.url; d.image=rr.card.image; d.room=rr.card.room; d.videoLink=''; d.sent=false;
-                  var img=row.querySelector('.mpk-thumb'); if(img) img.src=d.image;
-                  var tEl=row.querySelector('.mpk-title'); if(tEl) tEl.textContent=d.title;
-                  var skEl=row.querySelector('.sku'); if(skEl) skEl.textContent=d.sku;
-                  var vbox=row.querySelector('.mpk-video'); if(vbox) vbox.value='';
-                  try{ delete USEDSET[(oldSku||'').toUpperCase()]; USEDSET[(d.sku||'').toUpperCase()]=1; }catch(e){}
-                  if(window.SMCC){ if(window.SMCC.undoCardBySku) window.SMCC.undoCardBySku(oldSku); if(window.SMCC.addProductCard) window.SMCC.addProductCard({sku:d.sku,title:d.title,handle:d.handle,url:d.url,image:d.image,room:d.room,date:d.date}, k); }
-                  swMsg.style.color='#0F6E56'; swMsg.textContent=oldSku?('Switched. "'+oldSku+'" freed for a future month.'):'Product added.';
-                  box.style.display='none'; prev.style.display='none'; skuIn.value='';
-                  if(vbox){ fetch('/api/social?action=reel-links').then(function(r){return r.json();}).then(function(rl){ if(rl&&rl.ok&&rl.links){ var lk=rl.links[(d.sku||'').toUpperCase()]; if(lk) vbox.value=lk; } }).catch(function(){}); }
-                }).catch(function(){ go.disabled=false; swMsg.style.color='#b91c1c'; swMsg.textContent='Offline — not switched.'; });
-            });
-          }).catch(function(){ look.disabled=false; swMsg.style.color='#b91c1c'; swMsg.textContent='Offline — try again.'; });
-      });
-    });
+    // wire every row's date + switch/add controls (rebuilt rows are re-wired individually)
+    [].slice.call(document.querySelectorAll('#mpModalBg .mp-vrow')).forEach(wireRow);
   }
   function undoMonth(k){
     if(!confirm('Undo '+monthLabel(k)+'? This removes the products it added to your Video Creation tab (videos you have already made are kept).')) return;
