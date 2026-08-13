@@ -1,4 +1,7 @@
-// shopify-video.js — v1.6 (13 Aug 2026)
+// shopify-video.js — v1.7 (13 Aug 2026)
+// v1.7: manual "Mark as done" (action 'mark-done') + "Unmark done" (action 'unmark-done').
+//       Lets the user clear videos already sent before the retry fix existed (never logged).
+//       A manual log entry is flagged {manual:true} and always counts as "sent".
 // v1.6: (1) metafield lookup now scans up to 50 matches and picks the EXACT code, so a short
 //       code that is the prefix of longer ones (e.g. LIVLND2 vs LIVLND20..29) is found.
 //       (2) backup matcher: the manual "Match" box also accepts a pasted product URL — matched
@@ -258,8 +261,10 @@ module.exports = async function handler(req, res) {
           else match = await matchSku(sku);
         } catch (e) { matchError = e.message; }
         const logEntry = logBySku[sku] || null;
-        // "Sent" = pushed via THIS tool (github log) AND that exact video still exists on the product.
-        const sentViaTool = !!(logEntry && logEntry.videoId && match && match.videoIds.includes(logEntry.videoId));
+        // "Sent" = pushed via THIS tool (github log) AND that exact video still exists on the product,
+        // OR manually marked done by the user.
+        const sentViaTool = !!(logEntry && match && (logEntry.manual || (logEntry.videoId && match.videoIds.includes(logEntry.videoId))));
+        const manualDone = !!(sentViaTool && logEntry && logEntry.manual);
         videos.push({
           fileId: f.id,
           fileName: f.name,
@@ -271,6 +276,7 @@ module.exports = async function handler(req, res) {
           videoId: logEntry ? logEntry.videoId : null,       // OUR pushed video (for undo)
           productHasVideo: match ? match.hasVideo : false,   // any pre-existing video (info only)
           sentAt: sentViaTool ? logEntry.sentAt : null,
+          manual: manualDone,                                // marked done by hand (not auto-pushed)
           matchError
         });
       }
@@ -284,7 +290,7 @@ module.exports = async function handler(req, res) {
       const match = await matchSku(sku);
       const { entries } = await logGet();
       const logEntry = entries.find(e => e.sku === sku) || null;
-      const sentViaTool = !!(logEntry && logEntry.videoId && match && match.videoIds.includes(logEntry.videoId));
+      const sentViaTool = !!(logEntry && match && (logEntry.manual || (logEntry.videoId && match.videoIds.includes(logEntry.videoId))));
       return res.status(200).json({
         ok: true, sku, matched: !!match,
         product: match ? { id: match.productId, title: match.title, handle: match.handle, url: match.url } : null,
@@ -324,12 +330,39 @@ module.exports = async function handler(req, res) {
 
       const { entries } = await logGet();
       const logEntry = entries.find(e => e.sku === saveSku) || null;
-      const sentViaTool = !!(logEntry && logEntry.videoId && match.videoIds.includes(logEntry.videoId));
+      const sentViaTool = !!(logEntry && (logEntry.manual || (logEntry.videoId && match.videoIds.includes(logEntry.videoId))));
       return res.status(200).json({
         ok: true, matched: true, sku: saveSku,
         product: { id: match.productId, title: match.title, handle: match.handle, url: match.url },
         sentViaTool, videoId: logEntry ? logEntry.videoId : null, productHasVideo: match.hasVideo
       });
+    }
+
+    // -------------------------------------------------- MARK DONE (manual "already sent")
+    if (action === 'mark-done') {
+      const { fileId, fileName, productId } = req.body || {};
+      const skuKey = String((req.body && req.body.sku) || '').trim().toUpperCase() || skuFromName(fileName);
+      if (!skuKey) return res.status(400).json({ ok: false, error: 'Missing sku' });
+      // record the product's current video (if any) so an Undo can still remove it later
+      let videoId = null;
+      if (productId) { try { const vids = await getVideos(productId); if (vids.length) videoId = vids[vids.length - 1].id; } catch (e) {} }
+      const sentAt = new Date().toISOString();
+      const entry = { sku: skuKey, fileId: fileId || null, fileName: fileName || '', productId: productId || null, videoId, sentAt, manual: true };
+      try {
+        await logSave(entries => entries.filter(e => e.sku !== skuKey).concat([entry]), `SQ mark done: ${skuKey}`);
+      } catch (e) { return res.status(200).json({ ok: false, error: e.message }); }
+      return res.status(200).json({ ok: true, videoId, sentAt, manual: true });
+    }
+
+    // -------------------------------------------------- UNMARK DONE (removes the log entry only)
+    if (action === 'unmark-done') {
+      const { fileId } = req.body || {};
+      const skuKey = String((req.body && req.body.sku) || '').trim().toUpperCase();
+      if (!skuKey && !fileId) return res.status(400).json({ ok: false, error: 'Missing sku or fileId' });
+      try {
+        await logSave(entries => entries.filter(e => !((skuKey && e.sku === skuKey) || (fileId && e.fileId === fileId))), `SQ unmark done: ${skuKey || fileId}`);
+      } catch (e) { return res.status(200).json({ ok: false, error: e.message }); }
+      return res.status(200).json({ ok: true });
     }
 
     // -------------------------------------------------- PUSH
