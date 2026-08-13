@@ -1,4 +1,8 @@
-// shopify-video.js — v1.2 (14 Jul 2026)
+// shopify-video.js — v1.4 (13 Aug 2026)
+// v1.4: match the product DIRECTLY by the custom.sku_for_print_files metafield
+//       (query "metafield:custom.sku_for_print_files:CODE"). Fixes "No product found"
+//       when a product's variant SKU is doubled/odd (e.g. LIVLND86LIVLND86-...), because
+//       the print-file metafield is still clean (LIVLND86) and now drives the lookup.
 // v1.2: (1) manual SKU fixes are saved to data/sq-video-overrides.json and re-applied on
 //       every load (action 'manual-match'). (2) push accepts a `replace` flag that first
 //       removes any existing video(s) on the product, then pushes the new one.
@@ -15,8 +19,9 @@
 //   POST { action:'undo', productId, videoId }          -> remove that video from the product (resend later)
 //
 // Matching: video filename -> SKU (everything before the first space, UPPERCASED) ->
-//           product whose variant-SKU prefix matches, verified by the custom.sku_for_print_files metafield.
-//           (Shopify silently ignores a direct metafield search, so we match on the variant SKU prefix.)
+//           product found DIRECTLY by its custom.sku_for_print_files metafield
+//           (query "metafield:custom.sku_for_print_files:CODE"), then verified by reading that
+//           same metafield back. This is the real print-file code, so odd variant SKUs don't matter.
 //
 // Drive access: a Google Apps Script web app over the "SHOPIFY SQ VIDEOS" folder (runs as mae).
 //   >>> After you deploy the script, paste its /exec URL into SQ_VIDEOS_URL below
@@ -105,7 +110,7 @@ module.exports = async function handler(req, res) {
     return String(name || '').split(' ')[0].replace(/\.[^.]+$/, '').trim().toUpperCase();
   }
 
-  // Match a SKU -> product via variant-SKU prefix, verified by the print-SKU metafield.
+  // Match a SKU -> product DIRECTLY by the print-file metafield (the real code), verified by reading it back.
   async function matchSku(sku) {
     const data = await shopify(`
       query($q: String!) {
@@ -116,7 +121,7 @@ module.exports = async function handler(req, res) {
             media(first: 50) { edges { node { mediaContentType ... on Video { id status } } } }
           } }
         }
-      }`, { q: `sku:${sku}` });
+      }`, { q: `metafield:custom.sku_for_print_files:${sku}` });
     const nodes = ((data.products && data.products.edges) || []).map(e => e.node);
     let node = nodes.find(n => n.metafield && String(n.metafield.value).trim().toUpperCase() === sku);
     if (!node && nodes.length === 1) node = nodes[0]; // single unambiguous hit
