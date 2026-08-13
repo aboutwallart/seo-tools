@@ -112,7 +112,7 @@
         <div class="header">
             <h1>🎬 Shopify Video Uploader</h1>
             <p>Push square videos from your Drive folder to the right product — placed as image&nbsp;2.</p>
-            <div class="subtitle">v1.5 · reads folder "SHOPIFY SQ VIDEOS" · matches by SKU for print files · "sent" = pushed by this tool only · manual fixes saved · Send/Replace individually or in bulk · click a SKU to copy</div>
+            <div class="subtitle">v1.6 · reads folder "SHOPIFY SQ VIDEOS" · matches by SKU for print files · "sent" = pushed by this tool only · manual fixes saved · Send/Replace individually or in bulk · click a SKU to copy</div>
         </div>
 
         <div class="toolbar">
@@ -212,7 +212,7 @@ function cardHTML(v){
         info = skuBadge(v.sku) +
                '<div class="warn">⚠ No product found for this SKU</div>' +
                '<div class="manual">' +
-               '<input type="text" id="mf-' + v.fileId + '" placeholder="Type SKU for print files" value="' + esc(v.sku||'') + '">' +
+               '<input type="text" id="mf-' + v.fileId + '" placeholder="SKU, or paste the product URL" value="' + esc(v.sku||'') + '">' +
                '<button class="btn btn-light" onclick="manualMatch(\'' + v.fileId + '\')">Match</button></div>';
     }
     let actions = '';
@@ -319,15 +319,16 @@ async function sendSelected(replace){
 async function manualMatch(fileId){
     const v = find(fileId); if (!v) return;
     const input = document.getElementById('mf-' + fileId);
-    const sku = (input.value||'').trim().toUpperCase();
-    if (!sku){ setMsg(fileId, 'Type a SKU first.', 'err'); return; }
+    const raw = (input.value||'').trim();
+    if (!raw){ setMsg(fileId, 'Type a SKU or paste the product URL first.', 'err'); return; }
     setMsg(fileId, '<span class="spinner" style="border-top-color:#333"></span> Looking up & saving…', '');
     try {
         const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ action:'manual-match', fileId: v.fileId, fileName: v.fileName, sku }) });
+            body: JSON.stringify({ action:'manual-match', fileId: v.fileId, fileName: v.fileName, sku: raw }) });
         const d = await r.json();
-        if (!d.ok || !d.matched){ setMsg(fileId, '⚠️ No product found for "' + esc(sku) + '"', 'err'); return; }
-        v.sku = sku; v.matched = true; v.product = d.product; v.sentViaTool = d.sentViaTool; v.videoId = d.videoId; v.productHasVideo = d.productHasVideo;
+        if (!d.ok || !d.matched){ setMsg(fileId, '⚠️ No product found for "' + esc(raw) + '"', 'err'); return; }
+        v.sku = d.sku || v.sku;
+        v.matched = true; v.product = d.product; v.sentViaTool = d.sentViaTool; v.videoId = d.videoId; v.productHasVideo = d.productHasVideo;
         render();
     } catch(e){ setMsg(fileId, '⚠️ ' + esc(e.message), 'err'); }
 }
