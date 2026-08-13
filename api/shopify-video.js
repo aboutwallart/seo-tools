@@ -1,4 +1,8 @@
-// shopify-video.js — v1.5 (13 Aug 2026)
+// shopify-video.js — v1.6 (13 Aug 2026)
+// v1.6: (1) metafield lookup now scans up to 50 matches and picks the EXACT code, so a short
+//       code that is the prefix of longer ones (e.g. LIVLND2 vs LIVLND20..29) is found.
+//       (2) backup matcher: the manual "Match" box also accepts a pasted product URL — matched
+//       by handle (exact) and remembered across reloads (overrides now store an optional handle).
 // v1.5: the GitHub "sent" log + manual-fix saves now RETRY on GitHub hiccups
 //       (409/422/500/502/503/504), re-reading each attempt. Fixes videos you Sent/Replaced
 //       not staying marked "sent" (a single failed save used to be swallowed silently).
@@ -98,20 +102,26 @@ module.exports = async function handler(req, res) {
     throw new Error('Log save could not complete — please try again.');
   }
 
-  // ---- Saved manual SKU fixes (survive reloads): [{fileId, fileName, sku}] ----
+  // ---- Saved manual fixes (survive reloads): [{fileId, fileName, sku, handle}] ----
+  //      handle (optional) = matched via the product's live URL, so reload re-finds it exactly.
   async function overridesGet() {
-    if (!GITHUB_TOKEN) return { arr: [], map: {}, sha: null };
+    if (!GITHUB_TOKEN) return { arr: [], map: {}, byId: {}, sha: null };
     const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${OVERRIDES_FILE}`, {
       headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
     });
-    if (!r.ok) return { arr: [], map: {}, sha: null };
+    if (!r.ok) return { arr: [], map: {}, byId: {}, sha: null };
     const d = await r.json();
     let arr = [];
     try { arr = JSON.parse(Buffer.from(d.content, 'base64').toString('utf-8')); } catch (e) { arr = []; }
     if (!Array.isArray(arr)) arr = [];
-    const map = {};
-    arr.forEach(o => { if (o && o.fileId && o.sku) map[o.fileId] = String(o.sku).toUpperCase(); });
-    return { arr, map, sha: d.sha };
+    const map = {}, byId = {};
+    arr.forEach(o => {
+      if (o && o.fileId) {
+        byId[o.fileId] = { sku: o.sku ? String(o.sku).toUpperCase() : '', handle: o.handle || '' };
+        if (o.sku) map[o.fileId] = String(o.sku).toUpperCase();
+      }
+    });
+    return { arr, map, byId, sha: d.sha };
   }
   async function overridesSave(mutate, message) {
     if (!GITHUB_TOKEN) return;
@@ -136,21 +146,7 @@ module.exports = async function handler(req, res) {
     return String(name || '').split(' ')[0].replace(/\.[^.]+$/, '').trim().toUpperCase();
   }
 
-  // Match a SKU -> product DIRECTLY by the print-file metafield (the real code), verified by reading it back.
-  async function matchSku(sku) {
-    const data = await shopify(`
-      query($q: String!) {
-        products(first: 10, query: $q) {
-          edges { node {
-            id title handle onlineStoreUrl
-            metafield(namespace: "custom", key: "sku_for_print_files") { value }
-            media(first: 50) { edges { node { mediaContentType ... on Video { id status } } } }
-          } }
-        }
-      }`, { q: `metafield:custom.sku_for_print_files:${sku}` });
-    const nodes = ((data.products && data.products.edges) || []).map(e => e.node);
-    let node = nodes.find(n => n.metafield && String(n.metafield.value).trim().toUpperCase() === sku);
-    if (!node && nodes.length === 1) node = nodes[0]; // single unambiguous hit
+  function nodeToMatch(node) {
     if (!node) return null;
     const videos = node.media.edges.map(e => e.node).filter(n => n.mediaContentType === 'VIDEO');
     return {
@@ -162,6 +158,48 @@ module.exports = async function handler(req, res) {
       hasVideo: videos.length > 0,      // product has ANY video (informational)
       videoIds: videos.map(v => v.id)   // all video ids currently on the product
     };
+  }
+
+  // Match a SKU -> product DIRECTLY by the print-file metafield (the real code), verified by reading it back.
+  // We ask for up to 50 because a short code (e.g. LIVLND2) is the PREFIX of longer ones
+  // (LIVLND20..29), so the exact one can sit well past the first 10 results.
+  async function matchSku(sku) {
+    const data = await shopify(`
+      query($q: String!) {
+        products(first: 50, query: $q) {
+          edges { node {
+            id title handle onlineStoreUrl
+            metafield(namespace: "custom", key: "sku_for_print_files") { value }
+            media(first: 50) { edges { node { mediaContentType ... on Video { id status } } } }
+          } }
+        }
+      }`, { q: `metafield:custom.sku_for_print_files:${sku}` });
+    const nodes = ((data.products && data.products.edges) || []).map(e => e.node);
+    let node = nodes.find(n => n.metafield && String(n.metafield.value).trim().toUpperCase() === sku);
+    if (!node && nodes.length === 1) node = nodes[0]; // single unambiguous hit
+    return nodeToMatch(node);
+  }
+
+  // Backup matcher: find a product straight from its live URL / handle (exact, never ambiguous).
+  async function matchByHandle(handle) {
+    const data = await shopify(`
+      query($q: String!) {
+        products(first: 1, query: $q) {
+          edges { node {
+            id title handle onlineStoreUrl
+            metafield(namespace: "custom", key: "sku_for_print_files") { value }
+            media(first: 50) { edges { node { mediaContentType ... on Video { id status } } } }
+          } }
+        }
+      }`, { q: `handle:${handle}` });
+    const node = (((data.products && data.products.edges) || []).map(e => e.node))[0];
+    return nodeToMatch(node);
+  }
+
+  // Pull the product handle out of a pasted aboutwallart product URL. Returns null if it isn't a product URL.
+  function handleFromUrl(raw) {
+    const m = String(raw || '').trim().match(/\/products\/([^/?#\s]+)/i);
+    return m ? m[1].toLowerCase() : null;
   }
 
   async function driveDownload(fileId) {
@@ -208,13 +246,17 @@ module.exports = async function handler(req, res) {
       const { entries } = await logGet();
       const logBySku = {};
       entries.forEach(e => { logBySku[e.sku] = e; });
-      const { map: overrides } = await overridesGet();
+      const { byId: overridesById } = await overridesGet();
 
       const videos = [];
       for (const f of files) {
-        const sku = overrides[f.id] || skuFromName(f.name); // saved manual fix wins
+        const ov = overridesById[f.id] || null;                 // saved manual fix wins
+        const sku = (ov && ov.sku) || skuFromName(f.name);
         let match = null, matchError = null;
-        try { match = await matchSku(sku); } catch (e) { matchError = e.message; }
+        try {
+          if (ov && ov.handle) match = await matchByHandle(ov.handle); // matched by live URL
+          else match = await matchSku(sku);
+        } catch (e) { matchError = e.message; }
         const logEntry = logBySku[sku] || null;
         // "Sent" = pushed via THIS tool (github log) AND that exact video still exists on the product.
         const sentViaTool = !!(logEntry && logEntry.videoId && match && match.videoIds.includes(logEntry.videoId));
@@ -253,21 +295,38 @@ module.exports = async function handler(req, res) {
     }
 
     // -------------------------------------------------- MANUAL MATCH (saved)
+    // Accepts EITHER a print-file code OR a pasted product URL. A URL is matched by handle
+    // (exact), which also solves ambiguous short codes.
     if (action === 'manual-match') {
       const { fileId, fileName } = req.body || {};
-      const sku = String((req.body && req.body.sku) || '').trim().toUpperCase();
-      if (!fileId || !sku) return res.status(400).json({ ok: false, error: 'Missing fileId or sku' });
-      const match = await matchSku(sku);
-      if (!match) return res.status(200).json({ ok: true, matched: false, sku });
-      // Persist the fix so it survives reloads (keyed by the Drive file id).
+      const raw = String((req.body && req.body.sku) || '').trim();
+      if (!fileId || !raw) return res.status(400).json({ ok: false, error: 'Missing fileId or sku/url' });
+
+      const handle = handleFromUrl(raw);
+      let match = null, saveSku = '', saveHandle = '';
+      if (handle) {
+        match = await matchByHandle(handle);
+        if (match) { saveHandle = match.handle; saveSku = match.metafieldSku ? String(match.metafieldSku).trim().toUpperCase() : ''; }
+      } else {
+        saveSku = raw.toUpperCase();
+        match = await matchSku(saveSku);
+      }
+      if (!match) return res.status(200).json({ ok: true, matched: false, sku: raw });
+
+      // Persist the fix so it survives reloads (keyed by the Drive file id). Store the handle
+      // when matched by URL so reload re-finds the exact product.
       try {
-        await overridesSave(arr => arr.filter(o => o.fileId !== fileId).concat([{ fileId, fileName: fileName || '', sku }]), `SQ sku fix: ${sku}`);
+        await overridesSave(
+          arr => arr.filter(o => o.fileId !== fileId).concat([{ fileId, fileName: fileName || '', sku: saveSku, handle: saveHandle }]),
+          `SQ manual match: ${saveHandle || saveSku}`
+        );
       } catch (e) { /* best-effort */ }
+
       const { entries } = await logGet();
-      const logEntry = entries.find(e => e.sku === sku) || null;
+      const logEntry = entries.find(e => e.sku === saveSku) || null;
       const sentViaTool = !!(logEntry && logEntry.videoId && match.videoIds.includes(logEntry.videoId));
       return res.status(200).json({
-        ok: true, matched: true, sku,
+        ok: true, matched: true, sku: saveSku,
         product: { id: match.productId, title: match.title, handle: match.handle, url: match.url },
         sentViaTool, videoId: logEntry ? logEntry.videoId : null, productHasVideo: match.hasVideo
       });
