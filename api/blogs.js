@@ -1840,6 +1840,50 @@ Include EXACTLY 3 items.`;
         return res.status(200).json({ success: true });
       }
 
+      // ── ACTION: mpd-change-keyword ── (Money Page Doctor — swap a page's target keyword and FREE the old one)
+      // Rewrites the page's existing registry row to the NEW keyword as TO_OPTIMIZE, so the old weak keyword
+      // is released (no leftover row) and the page shows once in Start Here on the new keyword.
+      if (req.body.action === 'mpd-change-keyword') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { url, oldKeyword, newKeyword } = req.body;
+        if (!url || !oldKeyword || !newKeyword) return res.status(400).json({ error: 'url, oldKeyword and newKeyword required' });
+        const urlLower = String(url).trim().toLowerCase();
+        const oldLower = String(oldKeyword).trim().toLowerCase();
+        const nkLower  = String(newKeyword).trim().toLowerCase();
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const lines = registry.content.split('\n').map(l => l.replace(/\r/g, ''));
+        const { titleLines, header, startIdx } = findRegistryHeader(lines);
+        // Guard: refuse if the new keyword is already locked/queued to a DIFFERENT page.
+        for (let i = startIdx; i < lines.length; i++) {
+          if (!lines[i].trim()) continue;
+          const c = parseCSVLine(lines[i]);
+          const kw = (c[0] || '').trim().toLowerCase();
+          const ru = (c[1] || '').trim().toLowerCase();
+          const act = (c[4] || '').trim().toUpperCase();
+          if (kw === nkLower && ru !== urlLower && (act === 'OPTIMIZED' || act === 'TO_OPTIMIZE')) {
+            return res.status(200).json({ success: false, locked: true, error: 'That keyword is already locked to another page.' });
+          }
+        }
+        let found = false;
+        const updatedLines = [...titleLines, header];
+        for (let i = startIdx; i < lines.length; i++) {
+          if (!lines[i].trim()) continue;
+          const cols = parseCSVLine(lines[i]);
+          while (cols.length < 12) cols.push('');
+          if (!found && (cols[1] || '').trim().toLowerCase() === urlLower && (cols[0] || '').trim().toLowerCase() === oldLower) {
+            cols[0] = newKeyword; cols[2] = 'LOCKED'; cols[3] = 'DONE'; cols[4] = 'TO_OPTIMIZE'; cols[11] = '';
+            updatedLines.push(sanitizeRow(cols));
+            found = true;
+          } else { updatedLines.push(sanitizeRow(cols)); }
+        }
+        if (!found) {
+          // Old row not in the registry (e.g. a seeded page) → just add a fresh TO_OPTIMIZE row for the new keyword.
+          updatedLines.push(sanitizeRow([newKeyword, url, 'LOCKED', 'DONE', 'TO_OPTIMIZE', 'N/A', 'N/A', 'N/A', 'N/A', 'User Resolved', detectIntent(url), '']));
+        }
+        await updateGitHubFile('data/keyword-locker-registry.csv', updatedLines.join('\n') + '\n', registry.sha, `MPD change keyword: ${oldKeyword} → ${newKeyword} on ${url}`);
+        return res.status(200).json({ success: true });
+      }
+
       // ── ACTION: repurpose-page ── (saves a URL as REPURPOSE — no keyword assigned yet)
       if (req.body.action === 'repurpose-page') {
         if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });

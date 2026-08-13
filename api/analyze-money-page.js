@@ -302,6 +302,9 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: 'Missing pageUrl or keyword' });
     }
 
+    // Money Page Doctor "Re-analyse & fix": a short note that this page was optimised before and has slipped.
+    const reoptimizeNote = typeof req.body.reoptimizeNote === 'string' ? req.body.reoptimizeNote.trim().slice(0, 600) : '';
+
     const startTime = Date.now();
     console.log(`[Money Page] Analyzing: ${pageUrl} for keyword: "${keyword}"`);
 
@@ -439,7 +442,7 @@ module.exports = async function handler(req, res) {
 
     // Step 5: Get Claude analysis
     console.log('[Money Page] Step 5: Getting AI recommendations... (~20 sec)');
-    const analysis = await getClaudeAnalysis(yourPageData, competitorData, keyword, searchResults.userPosition, contentGaps, loserPages, relatedBlogs);
+    const analysis = await getClaudeAnalysis(yourPageData, competitorData, keyword, searchResults.userPosition, contentGaps, loserPages, relatedBlogs, reoptimizeNote);
     console.log(`[Money Page] ✓ AI analysis complete! Total time: ${Math.round((Date.now() - startTime) / 1000)}s`);
 
     // Append the standard shipping CTA to the meta description — PRODUCTS ONLY. Kept out of the
@@ -1642,12 +1645,22 @@ function matchRealLine(claim, lines) {
   return fbScore >= 0.7 ? fb : null;
 }
 
+// Money Page Doctor "Re-analyse & fix": the page was optimised before and has since slipped. Tell the model
+// to DIAGNOSE the drop and correct it, instead of repeating advice that already failed. One clean insertion
+// point so all page-type prompts (blog/collection/page/product) get it without touching each builder.
+function injectReoptimiseContext(prompt, note) {
+  const block = `\n\n⚠️ REOPTIMISE MODE — this page was ALREADY optimised once and has since LOST ranking for its target keyword. ${note}\nBefore you recommend anything, work out the MOST LIKELY reason it slipped: over-optimisation (the exact keyword stuffed too hard in the title, headings or body), a competitor overtaking it, the search intent shifting, thin or duplicated content, or lost internal links. Then make every recommendation CORRECT that specific cause. Do NOT just repeat generic "use the keyword more" advice — the keyword may already be over-used, so prefer natural variations, a stronger match to what searchers want, and better content depth. Keep the exact JSON format described below.\n`;
+  if (/^You are [^\n]*\n/.test(prompt)) return prompt.replace(/^(You are [^\n]*\n)/, `$1${block}`);
+  return block + prompt;
+}
+
 // Get Claude analysis
-async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = null, contentGaps = null, loserPages = [], relatedBlogs = []) {
+async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = null, contentGaps = null, loserPages = [], relatedBlogs = [], reoptimizeNote = '') {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not found');
 
-  const prompt = buildAnalysisPrompt(yourPage, competitors, keyword, userPosition, contentGaps, loserPages, relatedBlogs);
+  let prompt = buildAnalysisPrompt(yourPage, competitors, keyword, userPosition, contentGaps, loserPages, relatedBlogs);
+  if (reoptimizeNote) prompt = injectReoptimiseContext(prompt, reoptimizeNote);
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
