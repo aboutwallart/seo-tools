@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 68.2</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 68.3</p>
                 </div>
             </div>
         </header>
@@ -440,10 +440,11 @@
             </div>
             <div id="optColorChips" style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                 <span style="font-size:0.85rem;color:#444;margin-right:2px;">Show:</span>
-                <button class="btn-secondary" style="outline:2px solid #333;" onclick="setOptColorFilter('all', this)">All</button>
-                <button class="btn-secondary" style="background:#EDF6E6;color:#3B6D11;border-color:#CFE6C0;" onclick="setOptColorFilter('green', this)">🟢 Working</button>
-                <button class="btn-secondary" style="background:#F3F2EE;color:#5F5E5A;border-color:#DDD9CF;" onclick="setOptColorFilter('grey', this)">⚪ Wait</button>
-                <button class="btn-secondary" style="background:#FBEBEA;color:#A32D2D;border-color:#F3CFCC;" onclick="setOptColorFilter('red', this)">🔴 Reoptimise</button>
+                <button class="btn-secondary" style="outline:2px solid #333;" onclick="setOptColorFilter('all', this)">All <span id="optCntAll"></span></button>
+                <button class="btn-secondary" style="background:#EDF6E6;color:#3B6D11;border-color:#CFE6C0;" onclick="setOptColorFilter('green', this)">🟢 Working <span id="optCntGreen"></span></button>
+                <button class="btn-secondary" style="background:#F3F2EE;color:#5F5E5A;border-color:#DDD9CF;" onclick="setOptColorFilter('grey', this)">⚪ Wait <span id="optCntGrey"></span></button>
+                <button class="btn-secondary" style="background:#FFF6DF;color:#8a6d00;border-color:#F0DFA6;" onclick="setOptColorFilter('yellow', this)">🟡 Better change keyword <span id="optCntYellow"></span></button>
+                <button class="btn-secondary" style="background:#FBEBEA;color:#A32D2D;border-color:#F3CFCC;" onclick="setOptColorFilter('red', this)">🔴 Needs a look <span id="optCntRed"></span></button>
             </div>
             <div id="optimizedList"></div>
         </div>
@@ -570,6 +571,7 @@
         let optimizedPages = []; // Loaded from GitHub registry on startup
         let removedPages = [];   // Pages moved to the Removed tab (action REMOVED in the registry)
         let currentUrl = null;
+        let mpdReoptimizeNote = '';   // set by the 🔴 "Re-analyse & fix" button so the analysis diagnoses the drop
         let currentResults = null;
         // Linked References — manual picks added via the search box (per-analysis, reset on render)
         let manualLinkedRefs = { blogs: [], collections: [], trends: [] };
@@ -581,7 +583,9 @@
         let gscKw15 = {};  // current last-15-day, per locked keyword
         let gscKw30 = {};  // current last-30-day, per locked keyword
         let gscKw90 = {};  // current last-90-day, per locked keyword
-        let optColorFilter = 'all';  // Optimized tab colour filter: all | green | grey | red
+        let optColorFilter = 'all';  // Optimized tab colour filter: all | green | grey | yellow | red
+        const MPD_IMP_FLOOR = 10;    // fewer "times shown" than this = a weak keyword (tunable)
+        const MPD_POS_GOOD  = 10;    // ranking this high (page 1) or better = well-ranked (tunable)
         function setOptColorFilter(f, btn) {
             optColorFilter = f;
             document.querySelectorAll('#optColorChips button').forEach(b => b.style.outline = 'none');
@@ -1084,38 +1088,71 @@
                 return { np, kw, beforeKw, curKw, useKw, slip, daysAgo };
             };
 
-            // ONE traffic light per card, judged on the LOCKED keyword: green = working, grey = wait, red = reoptimise.
+            // ONE traffic light per card, judged on the LOCKED keyword.
+            // green = working · grey = wait · yellow = weak keyword (change it) · red = dropped, needs a look.
             const cardState = (kp) => {
                 const C = {
-                    green: { key:'green', bg:'#EDF6E6', border:'#CFE6C0', accent:'#639922', text:'#3B6D11', icon:'🟢', label:'Working — leave it' },
-                    grey:  { key:'grey',  bg:'#F3F2EE', border:'#DDD9CF', accent:'#888780', text:'#5F5E5A', icon:'⚪', label:'Wait and see' },
-                    red:   { key:'red',   bg:'#FBEBEA', border:'#F3CFCC', accent:'#E24B4A', text:'#A32D2D', icon:'🔴', label:'Look — reoptimise' }
+                    green:  { key:'green',  bg:'#EDF6E6', border:'#CFE6C0', accent:'#639922', text:'#3B6D11', icon:'🟢', label:'Working — leave it' },
+                    grey:   { key:'grey',   bg:'#F3F2EE', border:'#DDD9CF', accent:'#888780', text:'#5F5E5A', icon:'⚪', label:'Wait and see' },
+                    yellow: { key:'yellow', bg:'#FFF6DF', border:'#F0DFA6', accent:'#E0A100', text:'#8a6d00', icon:'🟡', label:'Better change keyword' },
+                    red:    { key:'red',    bg:'#FBEBEA', border:'#F3CFCC', accent:'#E24B4A', text:'#A32D2D', icon:'🔴', label:'Needs a look' }
                 };
                 if (!kp.useKw) return Object.assign({}, C.grey, { label:'Wait — no keyword data yet' });
-                const posDelta = kp.beforeKw.position - kp.curKw.position;      // + = climbed
-                const impRising = (kp.curKw.impressions - kp.beforeKw.impressions) >= 10 && kp.curKw.impressions >= kp.beforeKw.impressions * 1.2;
                 if (kp.daysAgo < 28) return Object.assign({}, C.grey, { label:'Wait and see (under 4 weeks)' });
-                if (posDelta >= -2) return C.green;                              // moved up, or held within ~2 places
-                if (impRising)      return C.green;                             // dropped a little but Google shows it to more people
-                if (posDelta <= -5) return C.red;                              // real regression — worth acting on
-                return C.grey;                                                  // small drop (2–5), give it more time
+                const posDelta = kp.beforeKw.position - kp.curKw.position;      // + = climbed
+                const nowImp = kp.curKw.impressions || 0;
+                const nowPos = kp.curKw.position || 99;
+                const realDemand = nowImp >= MPD_IMP_FLOOR;                     // people actually search this
+                const ranksWell  = nowPos <= MPD_POS_GOOD;                      // already on page 1
+                // 🟡 Weak keyword: ranks well yet barely searched → the KEYWORD is the poor target, not the page.
+                if (ranksWell && !realDemand) return C.yellow;
+                const impRising = (nowImp - kp.beforeKw.impressions) >= 10 && nowImp >= kp.beforeKw.impressions * 1.2;
+                if (posDelta >= -2) return C.green;                             // moved up, or held within ~2 places
+                if (impRising)      return C.green;                            // dropped a little but shown to more people
+                if (posDelta <= -5 && realDemand) return C.red;               // real drop on a keyword people DO search
+                return C.grey;                                                 // small drop, or low demand but not clearly weak
             };
 
-            // "Is it working?" trend + the ONE number to act on (pages that need reoptimising).
-            const _redCount = sorted.filter(p => cardState(kwPair(p)).key === 'red').length;
-            renderOptimizedHealthSummary(sorted, kwPair, _redCount);
+            // Count each colour once, then show the numbers on the filter chips.
+            const _counts = { green:0, grey:0, yellow:0, red:0 };
+            sorted.forEach(p => { const k = cardState(kwPair(p)).key; if (_counts[k] != null) _counts[k]++; });
+            const _setCnt = (id, n) => { const e = document.getElementById(id); if (e) e.textContent = `(${n})`; };
+            _setCnt('optCntAll', sorted.length); _setCnt('optCntGreen', _counts.green); _setCnt('optCntGrey', _counts.grey);
+            _setCnt('optCntYellow', _counts.yellow); _setCnt('optCntRed', _counts.red);
 
-            // Colour filter across the tab: all / green (working) / grey (wait) / red (reoptimise).
+            // "Is it working?" trend + the two numbers to act on (drops to look at, weak keywords to change).
+            renderOptimizedHealthSummary(sorted, kwPair, _counts.red, _counts.yellow);
+
+            // Keywords already targeted by ANOTHER page — never suggest or accept one that's taken.
+            const lockedElsewhere = new Set();
+            optimizedPages.forEach(p => { if (p.keyword) lockedElsewhere.add(p.keyword.toLowerCase()); });
+            urls.forEach(p => { if (p.keyword) lockedElsewhere.add(p.keyword.toLowerCase()); });
+            // Other keywords a page already ranks for (from Search Console), most-searched first, free ones flagged.
+            const otherKeywordsForPage = (np, lockedKw) => {
+                const out = []; const prefix = np + '|||';
+                Object.keys(gscKw15).forEach(k => {
+                    if (k.slice(0, prefix.length) !== prefix) return;
+                    const q = k.slice(prefix.length);
+                    if (!q || q === lockedKw) return;
+                    const d = gscKw15[k];
+                    out.push({ q, position: d.position || 0, impressions: d.impressions || 0, taken: lockedElsewhere.has(q) });
+                });
+                out.sort((a, b) => b.impressions - a.impressions);
+                return out;
+            };
+
+            // Colour filter across the tab: all / green / grey / yellow / red.
             const rows = (optColorFilter === 'all') ? sorted : sorted.filter(p => cardState(kwPair(p)).key === optColorFilter);
             if (rows.length === 0) {
-                const nm = { green:'Working', grey:'Wait', red:'Reoptimise' }[optColorFilter] || '';
+                const nm = { green:'Working', grey:'Wait', yellow:'Better change keyword', red:'Needs a look' }[optColorFilter] || '';
                 list.innerHTML = `<p style="text-align:center; color:#666; padding:40px;">No pages in "${nm}" right now.</p>`;
                 return;
             }
 
-            list.innerHTML = rows.map(item => {
+            list.innerHTML = rows.map((item, idx) => {
                 const kp = kwPair(item);
                 const st = cardState(kp);
+                const encUrl = encodeURIComponent(item.url || ''), encKw = encodeURIComponent(item.keyword || '');
                 const optimizedAt = (mpdSnapshots[item.url] && mpdSnapshots[item.url].optimizedAt) || item.optimizedAt || 0;
                 const dateStr = new Date(optimizedAt || item.optimizedAt).toLocaleDateString();
 
@@ -1137,6 +1174,40 @@
                     rankLine = `<div style="font-size:0.82rem;color:#888780;margin-top:8px;">No Search Console data for this keyword yet — click 🔄 Refresh baselines (keyword), or give it time.</div>`;
                 }
 
+                // 🟡 Better change keyword — verdict + this page's other keywords + Ubersuggest prompt + manual box.
+                let extraBlock = '';
+                if (st.key === 'yellow') {
+                    const others = otherKeywordsForPage(kp.np, kp.kw);
+                    const free = others.filter(o => !o.taken);
+                    const best = free.find(o => o.impressions >= MPD_IMP_FLOOR && o.position <= 20);
+                    const verdict = best
+                        ? `<div style="font-size:0.85rem;color:#3B6D11;font-weight:600;margin-bottom:8px;">✅ Worth optimising for <strong>"${best.q}"</strong> — searches ${best.impressions.toLocaleString()}, position ${best.position.toFixed(1)}. Click "Use this" below.</div>`
+                        : `<div style="font-size:0.85rem;color:#8a6d00;font-weight:600;margin-bottom:8px;">🔎 None of this page's other keywords are strong enough — search Ubersuggest for a better one.</div>`;
+                    const listRows = free.length
+                        ? free.slice(0, 8).map(o => `<div style="display:flex;align-items:center;gap:8px;margin:3px 0;flex-wrap:wrap;">
+                                <button class="btn-secondary" style="padding:3px 10px;font-size:0.78rem;" onclick="mpdChangeKeyword('${encUrl}','${encKw}','${encodeURIComponent(o.q)}', this)">Use this</button>
+                                <span style="font-size:0.82rem;color:#2C2C2A;">"${o.q}"</span>
+                                <span style="font-size:0.78rem;color:#888;">searches ${o.impressions.toLocaleString()} · position ${o.position.toFixed(1)}</span>
+                            </div>`).join('')
+                        : `<div style="font-size:0.8rem;color:#888;margin:3px 0;">No other free keywords found for this page.</div>`;
+                    const uber = buildUberPromptText(item.url, item.keyword || '', free);
+                    const mkId = `optMk_${idx}`, uberId = `uber_${idx}`;
+                    extraBlock = `<div style="margin-top:10px;padding:10px 12px;background:#fffdf5;border:1px solid #F0DFA6;border-radius:8px;">
+                        ${verdict}
+                        <div style="font-size:0.78rem;color:#8a6d00;font-weight:700;margin:6px 0 4px;">Its other keywords (most searched first):</div>
+                        ${listRows}
+                        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                            <button class="btn-secondary" style="padding:4px 12px;font-size:0.8rem;" onclick="mpdCopyUberPrompt('${uberId}', this)">📋 Copy Ubersuggest prompt</button>
+                            <span style="font-size:0.76rem;color:#999;">paste it into a new chat to find a better keyword</span>
+                        </div>
+                        <textarea id="${uberId}" readonly aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;">${uber.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+                        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                            <input id="${mkId}" type="text" placeholder="Or type a new keyword" style="flex:1;min-width:180px;padding:6px 9px;border:1px solid #F0DFA6;border-radius:6px;font-size:0.82rem;font-family:'Poppins',sans-serif;">
+                            <button class="btn-secondary" style="padding:6px 14px;font-size:0.8rem;" onclick="mpdChangeKeywordManual('${encUrl}','${encKw}','${mkId}', this)">Move to Start Here →</button>
+                        </div>
+                    </div>`;
+                }
+
                 return `
                 <div class="url-item" style="background:${st.bg};border:0.5px solid ${st.border};border-left:5px solid ${st.accent};">
                     <input type="checkbox" class="mpd-remove-cb" data-url="${(item.url||'').replace(/"/g,'&quot;')}" data-keyword="${(item.keyword||'').replace(/"/g,'&quot;')}" title="Tick to remove this page" style="margin-right:10px;transform:scale(1.3);flex-shrink:0;align-self:flex-start;margin-top:4px;">
@@ -1146,8 +1217,10 @@
                         <div style="font-size:0.85rem;color:#5F5E5A;margin-bottom:3px;">🎯 Keyword: "${item.keyword}"</div>
                         <div style="font-size:0.85rem;color:#5F5E5A;">Optimised: ${dateStr} · ${kp.daysAgo} day${kp.daysAgo===1?'':'s'} ago</div>
                         ${rankLine}
+                        ${extraBlock}
                     </div>
                     <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;">
+                        ${st.key === 'red' ? `<button class="btn-secondary" style="background:#c62828;color:#fff;border-color:#c62828;" onclick="reanalyzeDroppedPage('${encUrl}','${encKw}', this)">🔁 Re-analyse &amp; fix</button>` : ''}
                         ${st.key === 'red' ? `<button class="btn-secondary" style="background:#c62828;color:#fff;border-color:#c62828;" onclick="window.open('/easy-seo-report.html?view=kwtracker&q=${encodeURIComponent(item.keyword||'')}','_blank')">📊 Keyword Tracker</button>` : ''}
                         ${item.results ? `<button class="btn-secondary" onclick="viewOptimizedResults('${item.url}')">📊 View</button>` : ''}
                         <button class="btn-secondary" onclick="unmarkAsOptimized('${item.url}', this)">↩️ Unmark</button>
@@ -1157,7 +1230,7 @@
         }
 
         // Fix D — average improvement of the LOCKED keyword across all optimised pages, for 15 / 30 / 90 days.
-        function renderOptimizedHealthSummary(pages, kwPair, redCount) {
+        function renderOptimizedHealthSummary(pages, kwPair, redCount, yellowCount) {
             const box = document.getElementById('optimizedHealthSummary');
             if (!box) return;
             const DAY = 86400000, now = Date.now();
@@ -1188,6 +1261,7 @@
                     const kw = (p.keyword || '').toLowerCase();
                     const cur = kw && w.map ? w.map[normalizeUrlPath(p.url) + '|||' + kw] : null;
                     if (!cur) return;
+                    if ((cur.position || 99) <= MPD_POS_GOOD && (cur.impressions || 0) < MPD_IMP_FLOOR) return;  // weak keyword — leave it out of the score
                     const posDelta = s.kwPosition - cur.position;    // + = climbed (position number went down)
                     sumPos += posDelta; if (posDelta > 0) improved++; else if (posDelta < 0) dropped++; n++;
                 });
@@ -1214,10 +1288,95 @@
                 <div style="font-size:0.9rem;font-weight:700;color:#2e7d32;margin-bottom:10px;">📊 Is my SEO working? — locked-keyword ranking, all optimised pages</div>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;">${tiles}</div>
                 ${redCount > 0
-                    ? `<div style="margin-top:12px;font-size:0.95rem;font-weight:700;color:#A32D2D;">🔴 ${redCount} page${redCount===1?'':'s'} need a look — use the “Reoptimise” filter below.</div>`
-                    : `<div style="margin-top:12px;font-size:0.95rem;font-weight:600;color:#3B6D11;">🟢 Nothing needs action right now.</div>`}
+                    ? `<div style="margin-top:12px;font-size:0.95rem;font-weight:700;color:#A32D2D;">🔴 ${redCount} page${redCount===1?'':'s'} need a look — use the “Needs a look” filter below.</div>`
+                    : `<div style="margin-top:12px;font-size:0.95rem;font-weight:600;color:#3B6D11;">🟢 Nothing dropped that needs a look right now.</div>`}
+                ${yellowCount > 0
+                    ? `<div style="margin-top:6px;font-size:0.95rem;font-weight:600;color:#8a6d00;">🟡 ${yellowCount} page${yellowCount===1?'':'s'} have a weak keyword — use the “Better change keyword” filter below.</div>`
+                    : ''}
                 <div style="font-size:0.72rem;color:#999;margin-top:8px;">A higher position number is worse, so “▲” means the keyword climbed. The number to act on is the red one above.</div>
             </div>`;
+        }
+
+        // Build the copy-paste Ubersuggest prompt for a weak-keyword page (pasted into a fresh chat).
+        function buildUberPromptText(url, oldKw, free) {
+            const lines = (free || []).slice(0, 8).map(o => ` - "${o.q}" — searches ${o.impressions}, position ${Number(o.position).toFixed(1)}`);
+            return [
+`I run About Wall Art (aboutwallart.com), a UK wall art and home decor Shopify store.`,
+`This page was optimised for a keyword that barely gets searched, so I need a BETTER target keyword.`,
+``,
+`Page: ${url}`,
+`Current weak keyword: "${oldKw}"`,
+(lines.length ? `Other keywords this page already ranks for (from Search Console):\n${lines.join('\n')}` : `The page has no other keywords with search data yet.`),
+``,
+`Please:`,
+`1. Look up options on Ubersuggest: monthly search volume, SEO difficulty, and related keyword ideas.`,
+`2. Recommend 3–5 better target keywords for THIS page that (a) have real search demand, (b) are realistic for a small store to rank for, (c) match the page's buying/browsing intent, and (d) are NOT already used on my other pages.`,
+`3. For each, give the search volume, the difficulty, and one line on why it fits this page.`,
+`Put the single best recommendation first.`
+            ].join('\n');
+        }
+
+        function mpdCopyUberPrompt(id, btn) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const text = el.value;
+            const done = () => { if (btn) { const o = btn.textContent; btn.textContent = '✅ Copied'; setTimeout(() => btn.textContent = o, 1500); } };
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(done).catch(() => { el.style.left='0'; el.style.opacity='1'; el.select(); document.execCommand('copy'); el.style.left='-9999px'; el.style.opacity='0'; done(); });
+            } else { el.style.left='0'; el.style.opacity='1'; el.select(); document.execCommand('copy'); el.style.left='-9999px'; el.style.opacity='0'; done(); }
+        }
+
+        // Swap a weak-keyword page onto a NEW keyword: frees the old one and moves the page to Start Here.
+        async function _mpdDoChangeKeyword(url, oldKw, newKw, btn) {
+            newKw = (newKw || '').trim();
+            if (!newKw) { alert('Type a new keyword first.'); return; }
+            if (newKw.toLowerCase() === (oldKw || '').toLowerCase()) { alert('That is the same keyword. Pick a different one.'); return; }
+            // Block a keyword already locked to another page (client-side guard; the server checks too).
+            const nkLower = newKw.toLowerCase(), thisUrl = normalizeUrlPath(url);
+            const taken = [...optimizedPages, ...urls].some(p => p.keyword && p.keyword.toLowerCase() === nkLower && normalizeUrlPath(p.url) !== thisUrl);
+            if (taken) { alert(`"${newKw}" is already used on another page. Pick a different keyword.`); return; }
+            const orig = btn ? btn.textContent : ''; if (btn) { btn.disabled = true; btn.textContent = '⏳…'; }
+            try {
+                const res = await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'mpd-change-keyword', url, oldKeyword: oldKw, newKeyword: newKw }) });
+                const data = await res.json();
+                if (data && data.locked) { if (btn) { btn.disabled = false; btn.textContent = orig; } alert(`"${newKw}" is already locked to another page. Pick a different keyword.`); return; }
+                if (!data || !data.success) throw new Error((data && data.error) || 'Failed');
+                // Update memory: page leaves Optimized, joins Start Here on the new keyword.
+                optimizedPages = optimizedPages.filter(o => normalizeUrlPath(o.url) !== thisUrl);
+                if (!urls.some(u => normalizeUrlPath(u.url) === thisUrl)) {
+                    urls.unshift({ id: Date.now(), url, keyword: newKw, analyzed: false, results: null, fromRegistry: true });
+                } else {
+                    urls.forEach(u => { if (normalizeUrlPath(u.url) === thisUrl) u.keyword = newKw; });
+                }
+                delete mpdSnapshots[url];   // old baseline was for the old keyword
+                updatePageCount(); updateOptimizedCount(); renderOptimized(); renderUrls();
+                showToast(`✅ Keyword changed to "${newKw}" — page moved to Start Here.`);
+                switchTab('startHere');
+            } catch (e) { if (btn) { btn.disabled = false; btn.textContent = orig; } alert('Could not change the keyword: ' + e.message); }
+        }
+        function mpdChangeKeyword(encUrl, encOld, encNew, btn) {
+            _mpdDoChangeKeyword(decodeURIComponent(encUrl), decodeURIComponent(encOld), decodeURIComponent(encNew), btn);
+        }
+        function mpdChangeKeywordManual(encUrl, encOld, inputId, btn) {
+            const el = document.getElementById(inputId);
+            _mpdDoChangeKeyword(decodeURIComponent(encUrl), decodeURIComponent(encOld), el ? el.value : '', btn);
+        }
+
+        // 🔴 "Re-analyse & fix" — run the same analysis as the first time, but tell it the page dropped so it
+        // diagnoses the cause and gives corrected steps instead of repeating advice that failed.
+        function reanalyzeDroppedPage(encUrl, encKw, btn) {
+            const url = decodeURIComponent(encUrl), keyword = decodeURIComponent(encKw);
+            if (!keyword) { alert('This page has no keyword saved, so it cannot be re-analysed.'); return; }
+            const np = normalizeUrlPath(url);
+            const snap = mpdSnapshots[url] || {};
+            const cur = gscKw15[np + '|||' + keyword.toLowerCase()] || null;
+            mpdReoptimizeNote = (snap.kwPosition != null && cur)
+                ? `It was optimised for "${keyword}"; since then its position for that keyword went from ${snap.kwPosition.toFixed(1)} to ${cur.position.toFixed(1)} and the times it was shown went from ${snap.kwImpressions || 0} to ${cur.impressions || 0} (last 15 days).`
+                : `It was optimised for "${keyword}" and has since slipped in Google.`;
+            currentUrl = { id: Date.now(), url, keyword };
+            currentAnalysisUrl = url;
+            const mk = document.getElementById('mainKeyword'); if (mk) mk.value = keyword;
+            startAnalysis();
         }
 
         function clearAllOptimized() {
@@ -1380,6 +1539,7 @@
                 return;
             }
             const manual = Array.isArray(manualCompetitors) ? manualCompetitors : [];   // only arrays count
+            const _reoptNote = mpdReoptimizeNote;   // carried through the manual-competitor retry too
 
             closeModal();
             document.getElementById('loadingModal').classList.add('active');
@@ -1400,7 +1560,7 @@
                 const response = await fetch('/api/analyze-money-page', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ pageUrl: currentUrl.url, keyword, ...(manual.length ? { manualCompetitors: manual } : {}) })
+                    body: JSON.stringify({ pageUrl: currentUrl.url, keyword, ...(manual.length ? { manualCompetitors: manual } : {}), ...(_reoptNote ? { reoptimizeNote: _reoptNote } : {}) })
                 });
 
                 if (!response.ok) {
@@ -1420,6 +1580,7 @@
                 currentUrl.analyzed = true;
                 currentUrl.keyword = keyword;
                 currentUrl.results = data;
+                mpdReoptimizeNote = '';   // analysis completed — clear the re-analyse note
                 renderUrls();
 
                 // Save to IndexedDB for persistence
@@ -1430,6 +1591,7 @@
 
             } catch (error) {
                 console.error('[Frontend] Analysis error:', error);
+                mpdReoptimizeNote = '';   // clear so a later normal analysis isn't treated as a re-analyse
                 document.getElementById('loadingModal').classList.remove('active');
                 alert(`Analysis failed: ${error.message}\n\nCheck browser console (F12) for details.`);
             }
