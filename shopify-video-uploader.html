@@ -112,7 +112,7 @@
         <div class="header">
             <h1>🎬 Shopify Video Uploader</h1>
             <p>Push square videos from your Drive folder to the right product — placed as image&nbsp;2.</p>
-            <div class="subtitle">v1.6 · reads folder "SHOPIFY SQ VIDEOS" · matches by SKU for print files · "sent" = pushed by this tool only · manual fixes saved · Send/Replace individually or in bulk · click a SKU to copy</div>
+            <div class="subtitle">v1.7 · reads folder "SHOPIFY SQ VIDEOS" · matches by SKU for print files · "sent" = pushed by this tool only · manual fixes saved · Send/Replace individually or in bulk · click a SKU to copy</div>
         </div>
 
         <div class="toolbar">
@@ -217,17 +217,26 @@ function cardHTML(v){
     }
     let actions = '';
     if (isSent(v)){
-        const stamp = v.sentAt ? '<div class="sent-stamp">✓ sent with this tool · ' + new Date(v.sentAt).toLocaleString() + '</div>'
-                               : '<div class="sent-stamp">✓ sent with this tool</div>';
-        actions = stamp + '<div class="card-actions"><button class="btn btn-undo" onclick="undo(\'' + v.fileId + '\')">↺ Undo (remove &amp; resend)</button></div>';
+        const label = v.manual ? '✓ marked done' : '✓ sent with this tool';
+        const stamp = v.sentAt ? '<div class="sent-stamp">' + label + ' · ' + new Date(v.sentAt).toLocaleString() + '</div>'
+                               : '<div class="sent-stamp">' + label + '</div>';
+        const clearBtn = v.manual
+            ? '<button class="btn btn-undo" onclick="unmarkDone(\'' + v.fileId + '\')">Unmark done</button>'
+            : '<button class="btn btn-undo" onclick="undo(\'' + v.fileId + '\')">↺ Undo (remove &amp; resend)</button>';
+        actions = stamp + '<div class="card-actions">' + clearBtn + '</div>';
     } else if (isReady(v)){
+        const markBtn = '<button class="btn btn-light" onclick="markDone(\'' + v.fileId + '\')">✓ Mark as done</button>';
         if (v.productHasVideo){
             actions = '<div class="card-actions">' +
                 '<button class="btn btn-green" onclick="sendOne(\'' + v.fileId + '\', false)">Add as 2nd</button>' +
                 '<button class="btn btn-undo" onclick="sendOne(\'' + v.fileId + '\', true)">↺ Replace</button>' +
+                markBtn +
                 '</div>';
         } else {
-            actions = '<div class="card-actions"><button class="btn btn-green" onclick="sendOne(\'' + v.fileId + '\', false)">Send to Shopify</button></div>';
+            actions = '<div class="card-actions">' +
+                '<button class="btn btn-green" onclick="sendOne(\'' + v.fileId + '\', false)">Send to Shopify</button>' +
+                markBtn +
+                '</div>';
         }
     }
     return '<div class="card ' + cls + '" id="card-' + v.fileId + '">' +
@@ -347,6 +356,33 @@ async function undo(fileId){
         v.sentViaTool = false; v.videoId = null; v.sentAt = null;
         render();
     } catch(e){ setMsg(fileId, '⚠️ ' + esc(e.message), 'err'); if (card) card.classList.remove('busy'); }
+}
+
+async function markDone(fileId){
+    const v = find(fileId); if (!v || !v.product) return;
+    setMsg(fileId, '<span class="spinner" style="border-top-color:#333"></span> Marking as done…', '');
+    try {
+        const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ action:'mark-done', fileId: v.fileId, fileName: v.fileName, sku: v.sku, productId: v.product.id }) });
+        const d = await r.json();
+        if (!d.ok){ setMsg(fileId, '⚠️ ' + esc(d.error || 'Could not mark as done'), 'err'); return; }
+        v.sentViaTool = true; v.manual = true; v.videoId = d.videoId || null; v.sentAt = d.sentAt || new Date().toISOString();
+        render();
+    } catch(e){ setMsg(fileId, '⚠️ ' + esc(e.message), 'err'); }
+}
+
+async function unmarkDone(fileId){
+    const v = find(fileId); if (!v) return;
+    if (!confirm('Unmark this as done? Nothing is removed from Shopify — it just goes back to the ready list.')) return;
+    setMsg(fileId, '<span class="spinner" style="border-top-color:#333"></span> Unmarking…', '');
+    try {
+        const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ action:'unmark-done', fileId: v.fileId, sku: v.sku }) });
+        const d = await r.json();
+        if (!d.ok){ setMsg(fileId, '⚠️ ' + esc(d.error || 'Could not unmark'), 'err'); return; }
+        v.sentViaTool = false; v.manual = false; v.videoId = null; v.sentAt = null;
+        render();
+    } catch(e){ setMsg(fileId, '⚠️ ' + esc(e.message), 'err'); }
 }
 </script>
 </body>
