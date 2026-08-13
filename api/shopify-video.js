@@ -1,4 +1,7 @@
-// shopify-video.js — v1.4 (13 Aug 2026)
+// shopify-video.js — v1.5 (13 Aug 2026)
+// v1.5: the GitHub "sent" log + manual-fix saves now RETRY on GitHub hiccups
+//       (409/422/500/502/503/504), re-reading each attempt. Fixes videos you Sent/Replaced
+//       not staying marked "sent" (a single failed save used to be swallowed silently).
 // v1.4: match the product DIRECTLY by the custom.sku_for_print_files metafield
 //       (query "metafield:custom.sku_for_print_files:CODE"). Fixes "No product found"
 //       when a product's variant SKU is doubled/odd (e.g. LIVLND86LIVLND86-...), because
@@ -73,13 +76,26 @@ module.exports = async function handler(req, res) {
     if (!Array.isArray(entries)) entries = [];
     return { entries, sha: d.sha };
   }
-  async function logPut(entries, sha, message) {
+  // Re-read + mutate + write, retrying on GitHub conflicts (409/422) and transient
+  // server errors (500/502/503/504). Re-reading the sha each attempt avoids losing a
+  // sibling's entry when several videos are sent at once. (Same fix as api/social.js.)
+  async function logSave(mutate, message) {
     if (!GITHUB_TOKEN) return;
-    await fetch(`https://api.github.com/repos/${REPO}/contents/${LOG_FILE}`, {
-      method: 'PUT',
-      headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, content: Buffer.from(JSON.stringify(entries, null, 2)).toString('base64'), ...(sha ? { sha } : {}) })
-    });
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const { entries, sha } = await logGet();
+      const next = mutate(entries.slice());
+      const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${LOG_FILE}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, content: Buffer.from(JSON.stringify(next, null, 2)).toString('base64'), ...(sha ? { sha } : {}) })
+      });
+      if (r.ok) return;
+      if (r.status === 409 || r.status === 422 || r.status === 500 || r.status === 502 || r.status === 503 || r.status === 504) {
+        await new Promise(function (res) { setTimeout(res, 400 * (attempt + 1)); }); continue;
+      }
+      throw new Error('GitHub log save failed: ' + r.status + ' ' + await r.text());
+    }
+    throw new Error('Log save could not complete — please try again.');
   }
 
   // ---- Saved manual SKU fixes (survive reloads): [{fileId, fileName, sku}] ----
@@ -97,13 +113,23 @@ module.exports = async function handler(req, res) {
     arr.forEach(o => { if (o && o.fileId && o.sku) map[o.fileId] = String(o.sku).toUpperCase(); });
     return { arr, map, sha: d.sha };
   }
-  async function overridesPut(arr, sha, message) {
+  async function overridesSave(mutate, message) {
     if (!GITHUB_TOKEN) return;
-    await fetch(`https://api.github.com/repos/${REPO}/contents/${OVERRIDES_FILE}`, {
-      method: 'PUT',
-      headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, content: Buffer.from(JSON.stringify(arr, null, 2)).toString('base64'), ...(sha ? { sha } : {}) })
-    });
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const { arr, sha } = await overridesGet();
+      const next = mutate(arr.slice());
+      const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${OVERRIDES_FILE}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, content: Buffer.from(JSON.stringify(next, null, 2)).toString('base64'), ...(sha ? { sha } : {}) })
+      });
+      if (r.ok) return;
+      if (r.status === 409 || r.status === 422 || r.status === 500 || r.status === 502 || r.status === 503 || r.status === 504) {
+        await new Promise(function (res) { setTimeout(res, 400 * (attempt + 1)); }); continue;
+      }
+      throw new Error('GitHub overrides save failed: ' + r.status + ' ' + await r.text());
+    }
+    throw new Error('Overrides save could not complete — please try again.');
   }
 
   function skuFromName(name) {
@@ -235,10 +261,7 @@ module.exports = async function handler(req, res) {
       if (!match) return res.status(200).json({ ok: true, matched: false, sku });
       // Persist the fix so it survives reloads (keyed by the Drive file id).
       try {
-        const { arr, sha } = await overridesGet();
-        const filtered = arr.filter(o => o.fileId !== fileId);
-        filtered.push({ fileId, fileName: fileName || '', sku });
-        await overridesPut(filtered, sha, `SQ sku fix: ${sku}`);
+        await overridesSave(arr => arr.filter(o => o.fileId !== fileId).concat([{ fileId, fileName: fileName || '', sku }]), `SQ sku fix: ${sku}`);
       } catch (e) { /* best-effort */ }
       const { entries } = await logGet();
       const logEntry = entries.find(e => e.sku === sku) || null;
@@ -309,16 +332,16 @@ module.exports = async function handler(req, res) {
       // 6) verify it is really on the product in Shopify
       const present = (await getVideos(productId)).some(v => v.id === videoId);
 
-      // 7) record it (undo record)
+      // 7) record it (undo record + "sent" state) — retries on GitHub hiccups so the mark sticks
+      const sku = skuFromName(fileName);
+      const entry = { sku, fileId, fileName, productId, videoId, sentAt: new Date().toISOString() };
+      let logged = false;
       try {
-        const { entries, sha } = await logGet();
-        const sku = skuFromName(fileName);
-        const filtered = entries.filter(e => e.sku !== sku);
-        filtered.push({ sku, fileId, fileName, productId, videoId, sentAt: new Date().toISOString() });
-        await logPut(filtered, sha, `SQ video sent: ${sku}`);
-      } catch (e) { /* log is best-effort */ }
+        await logSave(entries => entries.filter(e => e.sku !== sku).concat([entry]), `SQ video sent: ${sku}`);
+        logged = true;
+      } catch (e) { /* video is on the product; only the log write failed */ }
 
-      return res.status(200).json({ ok: true, videoId, ready, verified: present });
+      return res.status(200).json({ ok: true, videoId, ready, verified: present, logged });
     }
 
     // -------------------------------------------------- UNDO
@@ -332,9 +355,7 @@ module.exports = async function handler(req, res) {
       const dErr = del.productDeleteMedia.mediaUserErrors;
       if (dErr && dErr.length) return res.status(200).json({ ok: false, error: dErr[0].message });
       try {
-        const { entries, sha } = await logGet();
-        const filtered = entries.filter(e => e.videoId !== videoId);
-        await logPut(filtered, sha, `SQ video undo: ${productId}`);
+        await logSave(entries => entries.filter(e => e.videoId !== videoId), `SQ video undo: ${productId}`);
       } catch (e) { /* best-effort */ }
       return res.status(200).json({ ok: true, deleted: del.productDeleteMedia.deletedMediaIds });
     }
