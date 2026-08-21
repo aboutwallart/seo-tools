@@ -2555,7 +2555,7 @@ module.exports = async (req, res) => {
         const eduN = bWeekdayCount(Y, Mo, 3) || bWeekdayCount(Y, Mo, 1);
         const liDone = liUsed.filter(function (u) { return bYM(u.date) === M; }).length;
         const liN = bWeekdayCount(Y, Mo, 2);
-        const blogTotal = bDaysInMonth(Y, Mo);
+        const blogTotal = 15; // monthly blog target — green once 15 are made (16 also shows green)
         let blogMadeDone = blogCounts[M] || 0; if (blogMadeDone > blogTotal) blogMadeDone = blogTotal;
         let pubVidDone = 0; days.forEach(function (d) { if (bVideoPushed(d.sku)) pubVidDone++; });
         const man = manual[M] || {};
