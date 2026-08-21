@@ -1,4 +1,7 @@
-// blogs.js — v4.1
+// blogs.js — v4.2
+// v4.2 (Aug 21, 2026): Blog scheduling now spaces new blogs EVERY OTHER DAY (1 day on, 1 day off)
+//                      instead of one per day — the next free slot is now 2 days after the last
+//                      scheduled blog, not 1. (publish-blog: gap 86400000 → 2 * 86400000.)
 // v4.1 (Aug 2, 2026): Money Page Doctor Removed tab — mark-removed (bulk) sets registry rows to
 //                     action REMOVED (page shows ONLY in the Removed tab, never back in Start Here/
 //                     Optimized/Winners); restore-removed sends a page back to TO_OPTIMIZE.
@@ -3693,7 +3696,7 @@ Return only the JSON.`;
         const galleryGids = bestGallery ? galleryProductGids(bestGallery, awaGids) : [];
         const productGids = [...awaGids, ...galleryGids].slice(0, 4);
 
-        // ---- 7) Schedule — the first free day; today → 19:00 UK, any future day → 10:00 UK, one per day ----
+        // ---- 7) Schedule — the first free day; today → 19:00 UK, any future day → 10:00 UK, EVERY OTHER DAY (1 on, 1 off) ----
         function londonOffsetMin(date) { const u = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' })); const l = new Date(date.toLocaleString('en-US', { timeZone: 'Europe/London' })); return Math.round((l - u) / 60000); }
         function ukIso(y, m0, d, hour) { const g = new Date(Date.UTC(y, m0, d, hour, 0, 0)); const off = londonOffsetMin(g); return new Date(g.getTime() - off * 60000).toISOString(); }
         let publishIso, scheduledToday = false;
@@ -3711,7 +3714,7 @@ Return only the JSON.`;
           const nowUk = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/London' }));
           const todayMid = Date.UTC(nowUk.getFullYear(), nowUk.getMonth(), nowUk.getDate());
           let candMid = todayMid;
-          if (last) { const lu = new Date(last.toLocaleString('en-US', { timeZone: 'Europe/London' })); const lNext = Date.UTC(lu.getFullYear(), lu.getMonth(), lu.getDate()) + 86400000; if (lNext > candMid) candMid = lNext; }
+          if (last) { const lu = new Date(last.toLocaleString('en-US', { timeZone: 'Europe/London' })); const lNext = Date.UTC(lu.getFullYear(), lu.getMonth(), lu.getDate()) + 2 * 86400000; if (lNext > candMid) candMid = lNext; }  // +2 days = every other day (1 on, 1 off)
           scheduledToday = candMid === todayMid;
           const cd = new Date(candMid);
           publishIso = ukIso(cd.getUTCFullYear(), cd.getUTCMonth(), cd.getUTCDate(), scheduledToday ? 19 : 10);
