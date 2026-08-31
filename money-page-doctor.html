@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 68.3</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 68.4</p>
                 </div>
             </div>
         </header>
@@ -578,7 +578,10 @@
         let lrLastResults    = { blogs: [], collections: [], trends: [] };
         let currentPageTypeFilter = 'all'; // Current filter in My Pages tab
         let currentUrgencyTab = 'other'; // 'danger' | 'quickwin' | 'other'
-        let gscEnrichment = {}; // normalizedPath → { position, impressions, clicks, urgency, clickDrop, keyword }
+        let gscEnrichment = {}; // normalizedPath → { position, impressions, clicks, urgency, clickDrop, keyword } — 15-day (drives logic/sorting)
+        let gscEnrichment90 = {}; // normalizedPath → { position, impressions, clicks } — 90-day, for DISPLAY only (side-by-side on Start Here cards)
+        let mpdSavedForLater = []; // Saved-for-Later keywords (from registry) for the yellow "Better change keyword" picker
+        let mpdKwMetrics = {};     // keyword-metrics.json → { keyword: {volume, seo_difficulty} } for the picker
         // Optimized tab — LOCKED-KEYWORD numbers (not page average). Key: "normalizedPath|||keyword" → { position, impressions, clicks }
         let gscKw15 = {};  // current last-15-day, per locked keyword
         let gscKw30 = {};  // current last-30-day, per locked keyword
@@ -720,12 +723,13 @@
                 const item = row.item;
                 const m = META[row.cat];
                 const g = gscEnrichment[normalizeUrlPath(item.url)] || {};
+                const g90 = gscEnrichment90[normalizeUrlPath(item.url)] || {};
                 const pageType = getPageType(item.url);
                 const displayKeyword = item.keyword || g.keyword;
-                const metrics = g.position ? `<div style="font-size:0.8rem;color:#666;margin-top:4px;display:flex;gap:14px;flex-wrap:wrap;">
-                        <span>📍 Pos <strong>${g.position.toFixed(1)}</strong></span>
-                        <span>👁 ${(g.impressions||0).toLocaleString()} imp/mo</span>
-                        <span>🖱 ${(g.clicks||0).toLocaleString()} clicks/mo</span>
+                const fmtWin = (d) => `Pos <strong>${d.position ? d.position.toFixed(1) : '—'}</strong> · ${(d.impressions||0).toLocaleString()} imp · ${(d.clicks||0).toLocaleString()} clicks`;
+                const metrics = (g.position || g90.position) ? `<div style="font-size:0.8rem;color:#555;margin-top:6px;display:flex;gap:10px;flex-wrap:wrap;">
+                        <span style="background:#eef4ff;border:1px solid #d6e2ff;border-radius:6px;padding:3px 9px;">📊 90 days: ${fmtWin(g90)}</span>
+                        <span style="background:#f4f4f4;border:1px solid #e2e2e2;border-radius:6px;padding:3px 9px;">⚡ 15 days: ${fmtWin(g)}</span>
                     </div>` : '';
                 return `
                 <div class="url-item" style="border-left:4px solid ${m.color};background:#fff;">
@@ -745,9 +749,28 @@
                         ${mpdHold.has(item.url) ? `<button class="btn-secondary" title="Bring it back into the queue" onclick="toggleWinnerHold('${item.url.replace(/'/g, "\\'")}', false)">↩️ Un-hold</button>` : ''}
                         ${item.analyzed ? `<button class="btn-secondary" onclick="viewResults(${item.id})">📊 View</button>` : ''}
                         <button onclick="openAnalyzeModal(${item.id})">${item.analyzed ? '🔄 Re-analyze' : '🔍 Analyze'}</button>
+                        <button class="btn-secondary" title="Wrong keyword for this page? Free it and send the page back to the Keyword Locker" style="border-color:#c62828;color:#c62828;" onclick="mpdLiberate(${item.id})">🔓 Liberate</button>
                     </div>
                 </div>`;
             }).join('');
+        }
+
+        // Free a keyword+URL and send the page back to the Keyword Locker (wrong/irrelevant keyword)
+        async function mpdLiberate(id) {
+            const item = urls.find(u => u.id === id);
+            if (!item) return;
+            const kw = item.keyword || (gscEnrichment[normalizeUrlPath(item.url)] || {}).keyword || '';
+            if (!kw) { alert('This page has no keyword saved, so there is nothing to liberate.'); return; }
+            if (!confirm(`Liberate "${kw}" from this page?\n\nThis frees the keyword and the URL and sends the page back to the Keyword Locker. It leaves this list.`)) return;
+            try {
+                const res = await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({ action:'mpd-liberate', keyword: kw, url: item.url }) });
+                const data = await res.json();
+                if (!data || !data.success) throw new Error((data && data.error) || 'Failed');
+                urls = urls.filter(u => u.id !== id);
+                updatePageCount(); renderUrls(); renderStartHere();
+                showToast(`🔓 Liberated — "${kw}" is free again and back in the Keyword Locker.`);
+            } catch (e) { alert('Could not liberate: ' + e.message); }
         }
 
 
@@ -1181,17 +1204,17 @@
                     const free = others.filter(o => !o.taken);
                     const best = free.find(o => o.impressions >= MPD_IMP_FLOOR && o.position <= 20);
                     const verdict = best
-                        ? `<div style="font-size:0.85rem;color:#3B6D11;font-weight:600;margin-bottom:8px;">✅ Worth optimising for <strong>"${best.q}"</strong> — searches ${best.impressions.toLocaleString()}, position ${best.position.toFixed(1)}. Click "Use this" below.</div>`
+                        ? `<div style="font-size:0.85rem;color:#3B6D11;font-weight:600;margin-bottom:8px;">✅ Worth optimising for <strong>"${best.q}"</strong> — impressions ${best.impressions.toLocaleString()}, position ${best.position.toFixed(1)}. Click "Use this" below.</div>`
                         : `<div style="font-size:0.85rem;color:#8a6d00;font-weight:600;margin-bottom:8px;">🔎 None of this page's other keywords are strong enough — search Ubersuggest for a better one.</div>`;
                     const listRows = free.length
                         ? free.slice(0, 8).map(o => `<div style="display:flex;align-items:center;gap:8px;margin:3px 0;flex-wrap:wrap;">
                                 <button class="btn-secondary" style="padding:3px 10px;font-size:0.78rem;" onclick="mpdChangeKeyword('${encUrl}','${encKw}','${encodeURIComponent(o.q)}', this)">Use this</button>
                                 <span style="font-size:0.82rem;color:#2C2C2A;">"${o.q}"</span>
-                                <span style="font-size:0.78rem;color:#888;">searches ${o.impressions.toLocaleString()} · position ${o.position.toFixed(1)}</span>
+                                <span style="font-size:0.78rem;color:#888;">impressions ${o.impressions.toLocaleString()} · position ${o.position.toFixed(1)}</span>
                             </div>`).join('')
                         : `<div style="font-size:0.8rem;color:#888;margin:3px 0;">No other free keywords found for this page.</div>`;
                     const uber = buildUberPromptText(item.url, item.keyword || '', free);
-                    const mkId = `optMk_${idx}`, uberId = `uber_${idx}`;
+                    const mkId = `optMk_${idx}`, uberId = `uber_${idx}`, sflId = `optSfl_${idx}`, sflResId = `optSflRes_${idx}`;
                     extraBlock = `<div style="margin-top:10px;padding:10px 12px;background:#fffdf5;border:1px solid #F0DFA6;border-radius:8px;">
                         ${verdict}
                         <div style="font-size:0.78rem;color:#8a6d00;font-weight:700;margin:6px 0 4px;">Its other keywords (most searched first):</div>
@@ -1201,6 +1224,11 @@
                             <span style="font-size:0.76rem;color:#999;">paste it into a new chat to find a better keyword</span>
                         </div>
                         <textarea id="${uberId}" readonly aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;">${uber.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+                        <div style="margin-top:10px;">
+                            <div style="font-size:0.78rem;color:#8a6d00;font-weight:700;margin-bottom:4px;">Or pick a Saved-for-Later keyword:</div>
+                            <input id="${sflId}" type="text" placeholder="Type to search Saved-for-Later…" oninput="mpdSflSearch('${sflId}','${sflResId}','${encUrl}','${encKw}')" style="width:100%;padding:6px 9px;border:1px solid #F0DFA6;border-radius:6px;font-size:0.82rem;font-family:'Poppins',sans-serif;box-sizing:border-box;">
+                            <div id="${sflResId}" style="margin-top:6px;"></div>
+                        </div>
                         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                             <input id="${mkId}" type="text" placeholder="Or type a new keyword" style="flex:1;min-width:180px;padding:6px 9px;border:1px solid #F0DFA6;border-radius:6px;font-size:0.82rem;font-family:'Poppins',sans-serif;">
                             <button class="btn-secondary" style="padding:6px 14px;font-size:0.8rem;" onclick="mpdChangeKeywordManual('${encUrl}','${encKw}','${mkId}', this)">Move to Start Here →</button>
@@ -1299,7 +1327,7 @@
 
         // Build the copy-paste Ubersuggest prompt for a weak-keyword page (pasted into a fresh chat).
         function buildUberPromptText(url, oldKw, free) {
-            const lines = (free || []).slice(0, 8).map(o => ` - "${o.q}" — searches ${o.impressions}, position ${Number(o.position).toFixed(1)}`);
+            const lines = (free || []).slice(0, 8).map(o => ` - "${o.q}" — impressions ${o.impressions}, position ${Number(o.position).toFixed(1)}`);
             return [
 `I run About Wall Art (aboutwallart.com), a UK wall art and home decor Shopify store.`,
 `This page was optimised for a keyword that barely gets searched, so I need a BETTER target keyword.`,
@@ -1360,6 +1388,26 @@
         function mpdChangeKeywordManual(encUrl, encOld, inputId, btn) {
             const el = document.getElementById(inputId);
             _mpdDoChangeKeyword(decodeURIComponent(encUrl), decodeURIComponent(encOld), el ? el.value : '', btn);
+        }
+
+        // Saved-for-Later keyword picker (yellow "Better change keyword" card)
+        function mpdSflSearch(pickId, resId, encUrl, encKw) {
+            const inp = document.getElementById(pickId), res = document.getElementById(resId);
+            if (!inp || !res) return;
+            const q = (inp.value || '').toLowerCase().trim();
+            if (!q) { res.innerHTML = ''; return; }
+            const matches = mpdSavedForLater.filter(k => k.toLowerCase().includes(q)).slice(0, 15);
+            if (!matches.length) { res.innerHTML = '<div style="font-size:0.78rem;color:#888;padding:3px;">No Saved-for-Later keyword matches.</div>'; return; }
+            res.innerHTML = matches.map(k => {
+                const m = mpdKwMetrics[k] || mpdKwMetrics[k.toLowerCase()] || null;
+                const vol = m && m.volume != null ? m.volume : '—';
+                const diff = m && m.seo_difficulty != null ? m.seo_difficulty : '—';
+                return `<div style="display:flex;align-items:center;gap:8px;margin:3px 0;flex-wrap:wrap;">
+                    <button class="btn-secondary" style="padding:3px 10px;font-size:0.76rem;" data-kw="${k.replace(/"/g,'&quot;')}" onclick="mpdChangeKeyword('${encUrl}','${encKw}',encodeURIComponent(this.dataset.kw), this)">Use this</button>
+                    <span style="font-size:0.8rem;color:#2C2C2A;">"${k}"</span>
+                    <span style="font-size:0.76rem;color:#888;">volume ${vol} · difficulty ${diff}</span>
+                </div>`;
+            }).join('');
         }
 
         // 🔴 "Re-analyse & fix" — run the same analysis as the first time, but tell it the page dropped so it
@@ -5289,12 +5337,24 @@
             if (loadingEl) loadingEl.style.display = 'block';
             try {
                 const end = getDateStr(0), start = getDateStr(15), startPrev = getDateStr(30);   // 15-day window (was 90) — fresher position so recent winners surface
-                const [rPages, rPrev, rPQ] = await Promise.all([
+                const start90 = getDateStr(90);   // 90-day window — DISPLAY only, side-by-side on Start Here cards
+                const [rPages, rPrev, rPQ, rPages90] = await Promise.all([
                     fetch(`/api/gsc?action=pages&startDate=${start}&endDate=${end}`),
                     fetch(`/api/gsc?action=pages&startDate=${startPrev}&endDate=${start}`),
-                    fetch(`/api/gsc?action=page-query&startDate=${start}&endDate=${end}`)
+                    fetch(`/api/gsc?action=page-query&startDate=${start}&endDate=${end}`),
+                    fetch(`/api/gsc?action=pages&startDate=${start90}&endDate=${end}`)
                 ]);
-                const [jPages, jPrev, jPQ] = await Promise.all([rPages.json(), rPrev.json(), rPQ.json()]);
+                const [jPages, jPrev, jPQ, jPages90] = await Promise.all([rPages.json(), rPrev.json(), rPQ.json(), rPages90.json()]);
+                // 90-day per-page numbers for the side-by-side display
+                gscEnrichment90 = {};
+                if (jPages90.success) {
+                    (jPages90.data.rows || []).forEach(r => {
+                        const page = normalizeUrlPath(r.keys?.[0] || '');
+                        const imp = r.impressions || 0;
+                        if (gscEnrichment90[page] && imp <= gscEnrichment90[page].impressions) return;
+                        gscEnrichment90[page] = { position: r.position || 0, impressions: imp, clicks: r.clicks || 0 };
+                    });
+                }
 
                 // Top keyword per page from page-query
                 const topKw = {};
@@ -5580,6 +5640,7 @@
                 const toOptimizePages = [];
                 const optimizedPagesList = [];
                 const removedPagesList = [];
+                mpdSavedForLater = [];
                 const lockedKeywords = new Set(); // Track keywords that are already OPTIMIZED
                 const optimisedUrls = new Set();  // normalized URLs already OPTIMIZED (M1 belt — URL match)
                 const removedUrls = new Set();    // normalized URLs marked REMOVED (Removed tab)
@@ -5622,7 +5683,10 @@
                         // Blogs published by the Blog Manager are logged as OPTIMIZED only to lock the
                         // keyword — they are NOT money-page optimisations. Never show them in this tool.
                         if (/blog published/i.test(rowSource)) continue;
-                        
+
+                        // Collect Saved-for-Later keywords for the "Better change keyword" picker
+                        if (action === 'SAVED_FOR_FUTURE' && keyword) mpdSavedForLater.push(keyword.trim());
+
                         // Load TO_OPTIMIZE pages for My Pages tab
                         if (locked === 'LOCKED' && status === 'DONE' && action === 'TO_OPTIMIZE') {
                             if (pageUrl && pageUrl.startsWith('http')) {
@@ -5684,6 +5748,9 @@
                 urls = toOptimizePages;
                 optimizedPages = filteredOptimized;
                 removedPages = removedPagesList;
+                mpdSavedForLater = [...new Set(mpdSavedForLater)];
+                // Keyword volume/difficulty for the Saved-for-Later picker (best-effort)
+                try { const mr = await fetch('https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keyword-metrics.json'); if (mr.ok) mpdKwMetrics = await mr.json(); } catch (e) { mpdKwMetrics = {}; }
 
                 // Restore analyzed state from IndexedDB
                 const db = await openIDB().catch(() => null);
