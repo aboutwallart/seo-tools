@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 68.4</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 68.6</p>
                 </div>
             </div>
         </header>
@@ -572,6 +572,8 @@
         let removedPages = [];   // Pages moved to the Removed tab (action REMOVED in the registry)
         let currentUrl = null;
         let mpdReoptimizeNote = '';   // set by the 🔴 "Re-analyse & fix" button so the analysis diagnoses the drop
+        let mpdCannibal = null;       // { siblings:[{page,position,impressions}], altKeywords:[...] } — cannibalisation data for a dropped page
+        let mpdRetargetFallback = '';  // best alt keyword (data-driven) — fallback for the "Re-analyse for X" button if the AI didn't name one
         let currentResults = null;
         // Linked References — manual picks added via the search box (per-analysis, reset on render)
         let manualLinkedRefs = { blogs: [], collections: [], trends: [] };
@@ -771,6 +773,40 @@
                 updatePageCount(); renderUrls(); renderStartHere();
                 showToast(`🔓 Liberated — "${kw}" is free again and back in the Keyword Locker.`);
             } catch (e) { alert('Could not liberate: ' + e.message); }
+        }
+
+        // Redirect URL → point the money page at the current (destination) URL, then re-analyse it
+        async function mpdSwitchUrl(btn) {
+            const oldUrl = btn.dataset.old, newUrl = btn.dataset.new, kw = btn.dataset.kw;
+            if (!oldUrl || !newUrl) return;
+            if (!confirm(`Switch this money page to the current URL?\n\nFrom (old/redirect):\n${oldUrl}\n\nTo (current page):\n${newUrl}\n\nYour registry will track the current page, and it will re-analyse.`)) return;
+            btn.disabled = true; btn.textContent = 'Switching…';
+            try {
+                const res = await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({ action:'mpd-switch-url', keyword: kw, oldUrl, newUrl }) });
+                const data = await res.json();
+                if (!data || !data.success) throw new Error((data && data.error) || 'Failed');
+                urls.forEach(u => { if (normalizeUrlPath(u.url) === normalizeUrlPath(oldUrl)) u.url = newUrl; });
+                currentUrl = { id: Date.now(), url: newUrl, keyword: kw };
+                currentAnalysisUrl = newUrl;
+                const mk = document.getElementById('mainKeyword'); if (mk) mk.value = kw;
+                renderUrls();
+                showToast('🔁 Switched to the current URL — re-analysing…');
+                startAnalysis();
+            } catch (e) { btn.disabled = false; btn.textContent = '🔁 Switch to the current URL'; alert('Could not switch: ' + e.message); }
+        }
+
+        // Cannibalisation retarget → run a FULL fresh analysis for the new target keyword (title + meta + body + headings)
+        function mpdRetargetAndAnalyse(newKw) {
+            newKw = (newKw || '').trim();
+            if (!newKw) return;
+            const pageUrl = (currentUrl && currentUrl.url) || currentAnalysisUrl;
+            if (!pageUrl) { alert('No page to re-analyse.'); return; }
+            mpdReoptimizeNote = ''; mpdCannibal = null; mpdRetargetFallback = '';   // fresh normal analysis for the new keyword
+            currentUrl = { id: Date.now(), url: pageUrl, keyword: newKw };
+            currentAnalysisUrl = pageUrl;
+            const mk = document.getElementById('mainKeyword'); if (mk) mk.value = newKw;
+            startAnalysis();
         }
 
 
@@ -1421,6 +1457,20 @@
             mpdReoptimizeNote = (snap.kwPosition != null && cur)
                 ? `It was optimised for "${keyword}"; since then its position for that keyword went from ${snap.kwPosition.toFixed(1)} to ${cur.position.toFixed(1)} and the times it was shown went from ${snap.kwImpressions || 0} to ${cur.impressions || 0} (last 15 days).`
                 : `It was optimised for "${keyword}" and has since slipped in Google.`;
+            // Cannibalisation check (90-day): other pages of ours ranking for this keyword + this page's own other keywords.
+            const kwLower = keyword.toLowerCase();
+            const siblings = [], altKeywords = [];
+            Object.keys(gscKw90).forEach(k => {
+                const sep = k.lastIndexOf('|||'); if (sep < 0) return;
+                const pagePart = k.slice(0, sep), kwPart = k.slice(sep + 3);
+                const d = gscKw90[k] || {};
+                if (kwPart === kwLower && pagePart !== np) siblings.push({ page: pagePart, position: d.position || 0, impressions: d.impressions || 0 });
+                if (pagePart === np && kwPart !== kwLower && (d.impressions || 0) > 0) altKeywords.push({ keyword: kwPart, position: d.position || 0, impressions: d.impressions || 0 });
+            });
+            siblings.sort((a, b) => a.position - b.position);
+            altKeywords.sort((a, b) => b.impressions - a.impressions);
+            mpdCannibal = siblings.length ? { siblings: siblings.slice(0, 6), altKeywords: altKeywords.slice(0, 10) } : null;
+            mpdRetargetFallback = (mpdCannibal && altKeywords.length) ? altKeywords[0].keyword : '';
             currentUrl = { id: Date.now(), url, keyword };
             currentAnalysisUrl = url;
             const mk = document.getElementById('mainKeyword'); if (mk) mk.value = keyword;
@@ -1588,6 +1638,7 @@
             }
             const manual = Array.isArray(manualCompetitors) ? manualCompetitors : [];   // only arrays count
             const _reoptNote = mpdReoptimizeNote;   // carried through the manual-competitor retry too
+            const _cannibal = mpdCannibal;          // cannibalisation data for a dropped page
 
             closeModal();
             document.getElementById('loadingModal').classList.add('active');
@@ -1608,7 +1659,7 @@
                 const response = await fetch('/api/analyze-money-page', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ pageUrl: currentUrl.url, keyword, ...(manual.length ? { manualCompetitors: manual } : {}), ...(_reoptNote ? { reoptimizeNote: _reoptNote } : {}) })
+                    body: JSON.stringify({ pageUrl: currentUrl.url, keyword, ...(manual.length ? { manualCompetitors: manual } : {}), ...(_reoptNote ? { reoptimizeNote: _reoptNote } : {}), ...(_cannibal ? { cannibalisation: _cannibal } : {}) })
                 });
 
                 if (!response.ok) {
@@ -1629,6 +1680,7 @@
                 currentUrl.keyword = keyword;
                 currentUrl.results = data;
                 mpdReoptimizeNote = '';   // analysis completed — clear the re-analyse note
+                mpdCannibal = null;
                 renderUrls();
 
                 // Save to IndexedDB for persistence
@@ -1639,7 +1691,7 @@
 
             } catch (error) {
                 console.error('[Frontend] Analysis error:', error);
-                mpdReoptimizeNote = '';   // clear so a later normal analysis isn't treated as a re-analyse
+                mpdReoptimizeNote = ''; mpdCannibal = null;   // clear so a later normal analysis isn't treated as a re-analyse
                 document.getElementById('loadingModal').classList.remove('active');
                 alert(`Analysis failed: ${error.message}\n\nCheck browser console (F12) for details.`);
             }
@@ -2158,15 +2210,25 @@
             const _idx = data.yourPage.indexability || { ok: true };
             const indexabilityBanner = _idx.noindex
                 ? `<div style="background:#c62828;color:#fff;padding:14px 16px;border-radius:8px;margin-bottom:20px;"><strong>⛔ This page is set to NOINDEX</strong><br><span style="font-size:0.86rem;">Google will not list this page in search, so optimising it won't help until the noindex is removed. (Ask for help if you're not sure where it's set.)</span></div>`
+                : _idx.isRedirect
+                    ? `<div style="background:#0277bd;color:#fff;padding:14px 16px;border-radius:8px;margin-bottom:20px;"><strong>⏭️ This URL redirects to the current page</strong><br><span style="font-size:0.86rem;word-break:break-all;">This is an old address — Google already ranks the current page. Nothing is broken; don't delete the redirect. Optimise the current page instead:<br><strong>${_idx.redirectedTo}</strong></span><br><button data-old="${(data.yourPage.url||'').replace(/"/g,'&quot;')}" data-new="${(_idx.redirectedTo||'').replace(/"/g,'&quot;')}" data-kw="${(keyword||'').replace(/"/g,'&quot;')}" onclick="mpdSwitchUrl(this)" style="margin-top:10px;background:#fff;color:#0277bd;border:none;padding:8px 14px;border-radius:6px;font-weight:600;cursor:pointer;">🔁 Switch to the current URL</button></div>`
                 : _idx.canonicalMismatch
                     ? `<div style="background:#ef6c00;color:#fff;padding:14px 16px;border-radius:8px;margin-bottom:20px;"><strong>⚠️ Canonical points to another page</strong><br><span style="font-size:0.86rem;word-break:break-all;">Google is told to rank this instead: ${_idx.canonical}. This page may not rank on its own until that's corrected.</span></div>`
                     : `<div style="background:#e8f5e9;color:#1b5e20;border:1px solid #a5d6a7;padding:12px 16px;border-radius:8px;margin-bottom:20px;"><strong>✅ Indexable</strong> — Google can list and rank this page.</div>`;
+
+            // Cannibalisation retarget: offer a one-click FULL re-analysis for the new target keyword (body + headings).
+            const _retargetKw = ((structured && structured.retargetKeyword) || mpdRetargetFallback || '').toString().trim();
+            const retargetBanner = (_retargetKw && _retargetKw.toLowerCase() !== (keyword||'').toLowerCase())
+                ? `<div style="background:#ede9fe;border:1px solid #c4b5fd;color:#5b21b6;padding:14px 16px;border-radius:8px;margin-bottom:20px;"><strong>🔻 Cannibalisation — retarget this page</strong><br><span style="font-size:0.86rem;">Another of your pages is winning "${keyword}". The changes above cover the title/meta/intro — but to get the FULL rewrite (body + headings) for the new target, re-analyse this page for it:</span><br><button onclick="mpdRetargetAndAnalyse('${_retargetKw.replace(/'/g,"\\'")}')" style="margin-top:10px;background:#7c3aed;color:#fff;border:none;padding:9px 16px;border-radius:6px;font-weight:600;cursor:pointer;">🎯 Re-analyse this page for "${_retargetKw}"</button></div>`
+                : '';
+            mpdRetargetFallback = '';   // consume once
 
             const html = `
                 <h3 style="margin-bottom:6px;">Results for: ${keyword}</h3>
                 <div style="margin-bottom:15px;"><a href="${data.yourPage.url}" target="_blank" style="color:#1976d2;font-size:0.85rem;word-break:break-all;">${data.yourPage.url} ↗</a></div>
                 ${templateBadge}
                 ${indexabilityBanner}
+                ${retargetBanner}
                 ${positionBadge}
                 ${(() => { const u = data.yourPage.url; const held = mpdHold.has(u);
                     return `<div style="text-align:center;margin:-8px 0 20px;">
