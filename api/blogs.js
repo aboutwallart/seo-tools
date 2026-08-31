@@ -1132,6 +1132,34 @@ Include EXACTLY 3 items.`;
         return res.status(200).json({ success: true, registry });
       }
 
+      // ── ACTION: awa-collection-handles ── (product handles in the "Discountable Products" collection = About Wall Art's own products)
+      if (req.query.action === 'awa-collection-handles') {
+        const shopifyDomain = process.env.SHOPIFY_STORE_DOMAIN;
+        const shopifyToken  = process.env.SHOPIFY_ACCESS_TOKEN;
+        if (!shopifyDomain || !shopifyToken) return res.status(500).json({ error: 'Shopify credentials not configured' });
+        const COLLECTION_HANDLE = 'products-with-applicable-discounts';
+        const handles = [];
+        let cursor = null, hasNext = true, guard = 0;
+        while (hasNext && guard < 30) {
+          guard++;
+          const q = `query($cursor:String){ collectionByHandle(handle:"${COLLECTION_HANDLE}"){ products(first:250, after:$cursor){ pageInfo{ hasNextPage endCursor } edges{ node{ handle } } } } }`;
+          const r = await fetch(`https://${shopifyDomain}/admin/api/2025-01/graphql.json`, {
+            method: 'POST',
+            headers: { 'X-Shopify-Access-Token': shopifyToken, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: q, variables: { cursor } })
+          });
+          if (!r.ok) return res.status(500).json({ error: `Shopify error: ${r.status}` });
+          const d = await r.json();
+          if (d.errors) return res.status(500).json({ error: d.errors[0].message });
+          const coll = d.data && d.data.collectionByHandle;
+          if (!coll) return res.status(404).json({ error: 'Collection not found' });
+          coll.products.edges.forEach(e => { if (e.node.handle) handles.push(e.node.handle); });
+          hasNext = coll.products.pageInfo.hasNextPage;
+          cursor = coll.products.pageInfo.endCursor;
+        }
+        return res.status(200).json({ success: true, handles });
+      }
+
       // ── ACTION: get-revenue-by-month ──
       if (req.query.action === 'get-revenue-by-month') {
         const shopifyDomain = process.env.SHOPIFY_STORE_DOMAIN;
@@ -1671,6 +1699,7 @@ Include EXACTLY 3 items.`;
           cols.push(cur.trim());
           return cols;
         }
+        const resolvedIntent = detectIntent(url);
         const lines = registry.content.split('\n').map(l => l.replace(/\r/g, ''));
         for (const line of lines) {
           if (!line.trim()) continue;
@@ -1680,12 +1709,14 @@ Include EXACTLY 3 items.`;
           const rowStatus = (cols[3]||'').toUpperCase();
           const rowAction = (cols[4]||'').toUpperCase();
           const rowUrl    = cols[1]||'';
+          const rowIntent = (cols[10]||'').toUpperCase();
           const isRealLock = rowLocked === 'LOCKED' && rowStatus === 'DONE' && ['TO_OPTIMIZE','OPTIMIZED'].includes(rowAction);
-          if (isRealLock && rowKw === keyword.toLowerCase()) {
+          // Per-intent lock: only block when the SAME keyword is locked under the SAME intent.
+          // A keyword CAN be locked to different pages under different intents.
+          if (isRealLock && rowKw === keyword.toLowerCase() && rowIntent === (resolvedIntent||'').toUpperCase()) {
             return res.status(409).json({ duplicate: true, error: `DUPLICATE_KEYWORD`, lockedTo: rowUrl });
           }
         }
-        const resolvedIntent = detectIntent(url);
         // Remove any existing SAVED_FOR_FUTURE row for this keyword before adding the locked row
         const cleanedLines = lines.filter(line => {
           if (!line.trim()) return true;
@@ -1926,6 +1957,25 @@ Include EXACTLY 3 items.`;
         const updated = registry.content.trimEnd() + '\n' + newRow + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Save for later: ${keyword}`);
         return res.status(200).json({ success: true, keyword });
+      }
+
+      // ── ACTION: skw-ignore ── (ban a keyword FOR A SPECIFIC PAGE from the "Ranking, Not Locked" tab; keyword stays usable on other pages)
+      if (req.body.action === 'skw-ignore') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { keyword, url, intent } = req.body;
+        if (!keyword || !url) return res.status(400).json({ error: 'keyword and url required' });
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const kwLower = keyword.toLowerCase(), urlLower = url.toLowerCase();
+        // Skip if this exact keyword+url is already marked IGNORED
+        const already = registry.content.split('\n').some(line => {
+          const cols = parseCSVLine(line.trim());
+          return (cols[0]||'').toLowerCase() === kwLower && (cols[1]||'').toLowerCase() === urlLower && (cols[4]||'').toUpperCase() === 'IGNORED';
+        });
+        if (already) return res.status(200).json({ success: true, keyword, url, skipped: true });
+        const newRow = `${csvField(keyword)},${csvField(url)},,DONE,IGNORED,N/A,N/A,N/A,N/A,User Action,${csvField(intent||'')},`;
+        const updated = registry.content.trimEnd() + '\n' + newRow + '\n';
+        await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Ignore keyword for page: ${keyword} on ${url}`);
+        return res.status(200).json({ success: true, keyword, url });
       }
 
       // ── ACTION: delete-keyword ──
