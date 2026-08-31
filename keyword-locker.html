@@ -484,7 +484,7 @@
             <h1>Keyword Locker</h1>
             <p>Lock each keyword to its best URL — resolve cannibalization by choosing winners</p>
             <p class="subtitle">One keyword = One winner URL. Intent-aware conflict detection.</p>
-            <div class="version">v7.1</div>
+            <div class="version">v7.2</div>
         </div>
 
         <div class="load-section">
@@ -533,6 +533,10 @@
                 <h3 id="internalLinksCount" style="color:#f97316;">0</h3>
                 <p>Internal Links to Add</p>
             </div>
+            <div class="stat-card" onclick="toggleView('singlekw')">
+                <h3 id="singleKwCount" style="color:#0ea5e9;">0</h3>
+                <p>Ranking · Not Locked</p>
+            </div>
         </div>
 
         <!-- Registry Views -->
@@ -560,6 +564,16 @@
         <div id="viewPrelockedSection" class="view-section hidden">
             <h2 style="color:#8b5cf6;">Pre-locked Keywords</h2>
             <div id="prelockedList"></div>
+        </div>
+
+        <div id="viewSingleKwSection" class="view-section hidden">
+            <h2 style="color:#0ea5e9;">Ranking, Not Locked</h2>
+            <p style="color:#666;font-size:14px;margin-bottom:20px;">Pages ranking for a single keyword (no conflict) that isn't locked yet. Most urgent to optimise on top. <strong>Approve</strong> one to lock it and send it to the Money Page Doctor. If the keyword is already taken, pick a Saved-for-Later keyword or ask Claude for a better one.</p>
+            <div class="search-bar">
+                <input type="text" id="skwSearch" placeholder="Search keywords or URLs..." oninput="renderSingleKw()">
+                <button class="search-clear" onclick="document.getElementById('skwSearch').value='';renderSingleKw()">✕</button>
+            </div>
+            <div id="singleKwList"></div>
         </div>
 
         <!-- Conflicts -->
@@ -604,6 +618,12 @@
         let registry = [];
         let conflictsData = [];
         let lockedUrlsRuntime = new Set(); // updated in real-time as conflicts are resolved
+
+        // ── "Ranking, Not Locked" tab ──
+        let singleKwData = [];      // pages ranking for one keyword (no conflict), not locked
+        let kwMetrics = {};         // keyword-metrics.json → { keyword: {volume, seo_difficulty} } for the picker
+        let savedForLaterKws = [];  // Saved-for-Later keywords (from registry) for the picker
+        const SKW_IMP_FLOOR = 1;    // ignore keywords with no impressions at all
 
         // Stats counters (updated in real-time)
         let statsResolved = 0;
@@ -1373,9 +1393,166 @@
             document.getElementById('internalLinksCount').textContent = statsInternalLinks;
         }
 
+        // ══ "Ranking, Not Locked" tab ═══════════════════════════════════════
+        // Pages ranking for a SINGLE keyword (no conflict) that isn't locked yet.
+        function buildSingleKwPages(gscData, registry) {
+            const { lockedUrls, handledKeywords } = buildRegistryData(registry);
+            const byKw = {}; // "keyword|||intent" → { url → metrics }
+            gscData.forEach(row => {
+                const url = normalizeUrl(row.keys[0]);
+                const keyword = row.keys[1].toLowerCase().trim();
+                if (shouldExclude(url)) return;
+                if (keyword.length > 80) return;
+                const intent = detectIntent(url);
+                if (intent === 'UNKNOWN') return;
+                const key = keyword + '|||' + intent;
+                if (!byKw[key]) byKw[key] = {};
+                if (!byKw[key][url]) byKw[key][url] = { url, keyword, intent, clicks:0, impressions:0, posSum:0, count:0 };
+                const p = byKw[key][url];
+                p.clicks += row.clicks; p.impressions += row.impressions; p.posSum += row.position; p.count++;
+            });
+            const raw = [];
+            Object.values(byKw).forEach(pages => {
+                const list = Object.values(pages);
+                if (list.length !== 1) return;                 // only single-page (non-conflict) keywords
+                const p = list[0];
+                if (lockedUrls.has(p.url)) return;             // page already assigned to a keyword
+                if ((p.impressions || 0) < SKW_IMP_FLOOR && (p.clicks || 0) === 0) return; // no real data
+                const handled = handledKeywords[p.keyword];
+                const taken = !!(handled && (handled.has('ALL') || handled.has(p.intent)));
+                const position = p.count > 0 ? p.posSum / p.count : 0;
+                raw.push({ url:p.url, keyword:p.keyword, intent:p.intent, clicks:p.clicks, impressions:p.impressions, position, pageType:getPageType(p.url), taken });
+            });
+            // One card per URL — prefer a FREE keyword over a taken one, then most impressions
+            const bestByUrl = {};
+            raw.forEach(o => {
+                const ex = bestByUrl[o.url];
+                if (!ex) { bestByUrl[o.url] = o; return; }
+                const better = (o.taken === ex.taken) ? (o.impressions > ex.impressions) : (!o.taken);
+                if (better) bestByUrl[o.url] = o;
+            });
+            let arr = Object.values(bestByUrl);
+            // Urgency: striking distance (pos 4–20) first, then impressions; free before taken on ties
+            const strike = o => (o.position >= 4 && o.position <= 20) ? 1 : 0;
+            arr.sort((a, b) => {
+                const ua = (strike(a) ? 1e9 : 0) + a.impressions;
+                const ub = (strike(b) ? 1e9 : 0) + b.impressions;
+                if (ub !== ua) return ub - ua;
+                return (a.taken === b.taken) ? 0 : (a.taken ? 1 : -1);
+            });
+            arr.forEach((o, i) => o.id = i);
+            singleKwData = arr;
+            return arr;
+        }
+
+        function skwMetric(kw) { return kwMetrics[kw] || kwMetrics[(kw||'').toLowerCase()] || null; }
+
+        function renderSingleKw() {
+            const container = document.getElementById('singleKwList');
+            if (!container) return;
+            const q = (document.getElementById('skwSearch')?.value || '').toLowerCase().trim();
+            let items = singleKwData;
+            if (q) items = items.filter(o => o.keyword.toLowerCase().includes(q) || o.url.toLowerCase().includes(q));
+            if (!items.length) { container.innerHTML = '<p class="empty-msg">Nothing here right now.</p>'; return; }
+            container.innerHTML = items.map(o => {
+                const path = o.url.replace('https://aboutwallart.com','');
+                const posTxt = o.position ? o.position.toFixed(1) : '—';
+                const strikeBadge = (o.position >= 4 && o.position <= 20) ? '<span style="background:#0ea5e9;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:8px;">quick win</span>' : '';
+                const metaLine = `<div style="font-size:13px;color:#666;margin-top:4px;display:flex;gap:14px;flex-wrap:wrap;"><span>📍 Pos <strong>${posTxt}</strong></span><span>👁 ${(o.impressions||0).toLocaleString()} imp</span><span>🖱 ${(o.clicks||0).toLocaleString()} clicks</span><span style="text-transform:uppercase;font-size:11px;color:#999;">${o.pageType}</span></div>`;
+                let action;
+                if (!o.taken) {
+                    action = `<button class="btn-resolve" onclick="approveSingleKw(${o.id}, this)">✓ Approve — Lock &amp; send to Money Page</button>`;
+                } else {
+                    action = `<div style="background:#FFF6DF;border:1px solid #F0DFA6;border-radius:8px;padding:12px;margin-top:8px;">
+                        <div style="font-size:13px;font-weight:600;color:#8a6d00;margin-bottom:8px;">🔒 "${o.keyword}" is already locked to another page. Pick a Saved-for-Later keyword instead:</div>
+                        <input type="text" id="skwPick_${o.id}" placeholder="Type to search Saved-for-Later keywords…" oninput="skwRenderPicker(${o.id})" style="width:100%;padding:8px;border:2px solid #e0e0e0;border-radius:6px;font-size:13px;box-sizing:border-box;">
+                        <div id="skwPickRes_${o.id}" style="margin-top:6px;"></div>
+                        <button class="btn-save-later" style="margin-top:8px;" onclick="skwCopyUber(${o.id}, this)">📋 Copy Ubersuggest prompt for Claude</button>
+                    </div>`;
+                }
+                return `<div class="conflict-item" style="border-left:4px solid #0ea5e9;">
+                    <div style="flex:1;min-width:260px;">
+                        <div style="font-weight:700;color:#0369a1;">🎯 "${o.keyword}" <span class="intent-badge intent-${o.intent}">${o.intent}</span>${strikeBadge}</div>
+                        <div style="font-size:13px;color:#333;margin-top:4px;word-break:break-all;">${path}</div>
+                        ${metaLine}
+                    </div>
+                    <div style="margin-top:10px;">${action}</div>
+                </div>`;
+            }).join('');
+        }
+
+        function skwRenderPicker(id) {
+            const inp = document.getElementById('skwPick_' + id);
+            const res = document.getElementById('skwPickRes_' + id);
+            if (!inp || !res) return;
+            const q = (inp.value || '').toLowerCase().trim();
+            if (!q) { res.innerHTML = ''; return; }
+            const matches = savedForLaterKws.filter(k => k.toLowerCase().includes(q)).slice(0, 15);
+            if (!matches.length) { res.innerHTML = '<div style="font-size:13px;color:#888;padding:4px;">No Saved-for-Later keyword matches.</div>'; return; }
+            res.innerHTML = matches.map(k => {
+                const m = skwMetric(k);
+                const vol = m && m.volume != null ? m.volume : '—';
+                const diff = m && m.seo_difficulty != null ? m.seo_difficulty : '—';
+                return `<div style="display:flex;align-items:center;gap:8px;margin:3px 0;flex-wrap:wrap;">
+                    <button class="btn-resolve" style="padding:3px 10px;font-size:12px;" data-kw="${k.replace(/"/g,'&quot;')}" onclick="skwUseSaved(${id}, this)">Use this</button>
+                    <span style="font-size:13px;">"${k}"</span>
+                    <span style="font-size:12px;color:#888;">volume ${vol} · difficulty ${diff}</span>
+                </div>`;
+            }).join('');
+        }
+
+        // Lock a keyword to a single-keyword page → it appears in the Money Page Doctor.
+        async function skwLock(item, keyword, btn) {
+            const orig = btn ? btn.textContent : '';
+            if (btn) { btn.disabled = true; btn.textContent = 'Locking…'; }
+            try {
+                const res = await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({ action:'lock-keyword', keyword, url: item.url, intent: item.intent, losers: [] }) });
+                const data = await res.json();
+                if (data && data.duplicate) { if (btn){ btn.disabled=false; btn.textContent=orig; } showModal('Already locked', `"${keyword}" is already locked to another page.`); return; }
+                if (!data || !data.success) throw new Error((data && data.error) || 'Failed');
+                lockedUrlsRuntime.add(item.url);
+                registry.push({ keyword, url:item.url, locked:true, status:'DONE', action:'TO_OPTIMIZE', winnerUrl:'', source:'User Resolved', intent:item.intent });
+                statsResolved++;
+                singleKwData = singleKwData.filter(x => x.id !== item.id);
+                document.getElementById('singleKwCount').textContent = singleKwData.length;
+                updateStats();
+                renderSingleKw();
+                showModal('Done ✅', `Locked "${keyword}" to this page. It will now appear in the Money Page Doctor "To Optimise" list.`);
+            } catch (e) { if (btn){ btn.disabled=false; btn.textContent=orig; } showModal('Error', 'Could not lock: ' + e.message); }
+        }
+
+        function approveSingleKw(id, btn) {
+            const item = singleKwData.find(x => x.id === id);
+            if (item) skwLock(item, item.keyword, btn);
+        }
+        function skwUseSaved(id, btn) {
+            const item = singleKwData.find(x => x.id === id);
+            const kw = btn && btn.dataset ? btn.dataset.kw : '';
+            if (item && kw) skwLock(item, kw, btn);
+        }
+        function skwCopyUber(id, btn) {
+            const item = singleKwData.find(x => x.id === id);
+            if (!item) return;
+            const text = [
+`I run About Wall Art (aboutwallart.com), a UK wall art and home decor Shopify store.`,
+`This page ranks for "${item.keyword}", but that keyword is already locked to another page, so I need a DIFFERENT target keyword for THIS page.`,
+``,
+`Page: ${item.url}`,
+``,
+`Please use Ubersuggest (via MCP) to:`,
+`1. Find keywords relevant to this page with real monthly search volume and realistic SEO difficulty for a small store.`,
+`2. Recommend 3–5 target keywords that are NOT already used on my other pages, each with its volume, difficulty, and one line on why it fits this page.`,
+`Put the single best recommendation first.`
+            ].join('\n');
+            const done = () => { const o = btn.textContent; btn.textContent = '✅ Copied'; setTimeout(() => btn.textContent = o, 1500); };
+            if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done).catch(done);
+            else { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); done(); }
+        }
+
         // ── Toggle view sections ──
         function toggleView(section) {
-            const allViews = ['viewResolvedSection', 'viewSavedSection', 'viewDeletedSection', 'viewInternalLinksSection', 'viewPrelockedSection', 'conflictsSection'];
+            const allViews = ['viewResolvedSection', 'viewSavedSection', 'viewDeletedSection', 'viewInternalLinksSection', 'viewPrelockedSection', 'viewSingleKwSection', 'conflictsSection'];
 
             if (section === 'conflicts') {
                 const el = document.getElementById('conflictsSection');
@@ -1390,7 +1567,8 @@
                 saved: 'viewSavedSection',
                 deleted: 'viewDeletedSection',
                 internallinks: 'viewInternalLinksSection',
-                prelocked: 'viewPrelockedSection'
+                prelocked: 'viewPrelockedSection',
+                singlekw: 'viewSingleKwSection'
             };
 
             const targetId = sectionMap[section];
@@ -1406,6 +1584,7 @@
                 if (section === 'deleted') renderDeleted();
                 if (section === 'internallinks') renderInternalLinks();
                 if (section === 'prelocked') renderPrelocked();
+                if (section === 'singlekw') renderSingleKw();
                 el.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
         }
@@ -1596,6 +1775,19 @@
                 const { conflicts } = findConflicts(gscData, registry);
                 conflictsData = conflicts;
 
+                // Keyword volume/difficulty for the Saved-for-Later picker (best-effort — don't block if missing)
+                try {
+                    const mRes = await fetch('https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/keyword-metrics.json');
+                    if (mRes.ok) kwMetrics = await mRes.json();
+                } catch (e) { kwMetrics = {}; }
+                // Saved-for-Later pool for the picker
+                savedForLaterKws = registry
+                    .filter(e => e.action === 'SAVED_FOR_FUTURE' && e.keyword)
+                    .map(e => e.keyword.trim())
+                    .filter((v, i, a) => a.indexOf(v) === i);
+                // Pages ranking for a single (non-conflict) keyword, not locked
+                buildSingleKwPages(gscData, registry);
+
                 showLoading(false);
                 document.getElementById('loadBtn').disabled = false;
 
@@ -1608,6 +1800,7 @@
                 document.getElementById('dataSummary').classList.remove('hidden');
 
                 document.getElementById('conflictsCount').textContent = conflictsData.length;
+                document.getElementById('singleKwCount').textContent = singleKwData.length;
                 updateStats();
                 document.getElementById('statsSection').classList.remove('hidden');
 
