@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 68.7</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 68.8</p>
                 </div>
             </div>
         </header>
@@ -1464,29 +1464,35 @@
             mpdReoptimizeNote = (snap.kwPosition != null && cur)
                 ? `It was optimised for "${keyword}"; since then its position for that keyword went from ${snap.kwPosition.toFixed(1)} to ${cur.position.toFixed(1)} and the times it was shown went from ${snap.kwImpressions || 0} to ${cur.impressions || 0} (last 15 days).`
                 : `It was optimised for "${keyword}" and has since slipped in Google.`;
-            // Cannibalisation diagnosis (90-day): keywords where THIS page AND another of our pages both rank.
+            // Cannibalisation diagnosis — uses CURRENT (15-day) positions, not 90-day averages.
+            // Only what's true RIGHT NOW matters: which of our pages is outranking this one today.
             const kwLower = keyword.toLowerCase();
             const pagesByKw = {};
-            Object.keys(gscKw90).forEach(k => {
+            Object.keys(gscKw15).forEach(k => {
                 const sep = k.lastIndexOf('|||'); if (sep < 0) return;
                 const pagePart = k.slice(0, sep), kwPart = k.slice(sep + 3);
                 if (!pagesByKw[kwPart]) pagesByKw[kwPart] = {};
-                pagesByKw[kwPart][pagePart] = (gscKw90[k] || {}).position || 0;
+                pagesByKw[kwPart][pagePart] = (gscKw15[k] || {}).position || 0;
             });
+            // Keep only REAL clashes: skip operator/brand/junk queries, and only where BOTH this page
+            // and a competitor actually rank (position ≤ 20). This drops the "site:", foreign, and pos-70+ noise.
+            const cleanKw = s => s && !s.includes('site:') && !s.includes('aboutwallart') && !s.startsWith('http') && /[a-z]/i.test(s);
             const diagKeywords = [];
             Object.keys(pagesByKw).forEach(kwPart => {
+                if (!cleanKw(kwPart)) return;
                 const pages = pagesByKw[kwPart];
-                if (pages[np] == null) return;                        // this page must rank for it
-                const competitors = Object.keys(pages).filter(p => p !== np).map(p => ({ page: p, position: pages[p] }));
-                if (!competitors.length) return;                      // no clash on this keyword
+                if (pages[np] == null || pages[np] > 20) return;      // this page must actually rank for it
+                const competitors = Object.keys(pages).filter(p => p !== np && pages[p] <= 20).map(p => ({ page: p, position: pages[p] }));
+                if (!competitors.length) return;                      // a competitor must actually rank too
                 competitors.sort((a, b) => a.position - b.position);
-                diagKeywords.push({ keyword: kwPart, thisPos: pages[np], competitors });
+                if (competitors[0].position > pages[np]) return;      // only when a competitor is actually AHEAD of this page now
+                diagKeywords.push({ keyword: kwPart, thisPos: pages[np], competitors: [competitors[0]] });  // just the ONE best-ranking page
             });
-            diagKeywords.sort((a, b) => {                              // locked keyword first, then biggest gap
+            diagKeywords.sort((a, b) => {                              // locked keyword first, then where a competitor most beats us
                 if (a.keyword === kwLower) return -1; if (b.keyword === kwLower) return 1;
                 return (a.competitors[0].position - a.thisPos) - (b.competitors[0].position - b.thisPos);
             });
-            mpdCannibalDiag = diagKeywords.length ? { keywords: diagKeywords.slice(0, 8) } : null;
+            mpdCannibalDiag = diagKeywords.length ? { keywords: diagKeywords.slice(0, 3) } : null;
             currentUrl = { id: Date.now(), url, keyword };
             currentAnalysisUrl = url;
             const mk = document.getElementById('mainKeyword'); if (mk) mk.value = keyword;
@@ -2233,14 +2239,15 @@
             // Dropped-page investigation: cannibalisation (data-proven) OR the AI's "why it dropped" verdict.
             let cannibalBanner = '', dropDiagBanner = '';
             if (mpdCannibalDiag && mpdCannibalDiag.keywords && mpdCannibalDiag.keywords.length) {
+                const slug = u => (u.split('/').filter(Boolean).pop() || u).replace(/-/g,' ');
                 const rows = mpdCannibalDiag.keywords.map(k => {
-                    const comps = k.competitors.map(c => `${c.page.replace('https://aboutwallart.com','')} (pos ${Number(c.position).toFixed(1)})`).join(', ');
-                    return `<li style="margin:4px 0;"><strong>"${k.keyword}"</strong> — this page pos ${Number(k.thisPos).toFixed(1)} vs ${comps}</li>`;
+                    const top = k.competitors[0];
+                    return `<li style="margin:6px 0;">On <strong>"${k.keyword}"</strong> this page is at position <strong>${Number(k.thisPos).toFixed(1)}</strong> — but your page “<em>${slug(top.page)}</em>” is ahead at <strong>${Number(top.position).toFixed(1)}</strong>.</li>`;
                 }).join('');
                 cannibalBanner = `<div style="background:#ede9fe;border:1px solid #c4b5fd;color:#5b21b6;padding:14px 16px;border-radius:8px;margin-bottom:20px;">
-                    <strong>🔻 Cannibalisation detected</strong> — another of your pages competes for the same keyword(s):
-                    <ul style="margin:8px 0 4px 18px;font-size:0.86rem;word-break:break-all;">${rows}</ul>
-                    <span style="font-size:0.86rem;">Optimising this page for these would fight your own page. If you'd rather target a DIFFERENT keyword for this page, move it to "Better change keyword":</span><br>
+                    <strong>🔻 Another of your pages is out-ranking this one</strong>
+                    <ul style="margin:8px 0 8px 18px;font-size:0.9rem;">${rows}</ul>
+                    <span style="font-size:0.86rem;">Optimising this page for that keyword would just fight your own page. To target a different keyword for this page instead:</span><br>
                     <button onclick="mpdMoveToBetterKeyword('${(data.yourPage.url||'').replace(/'/g,"\\'")}')" style="margin-top:10px;background:#7c3aed;color:#fff;border:none;padding:9px 16px;border-radius:6px;font-weight:600;cursor:pointer;">➡️ Move to Better change keyword</button>
                 </div>`;
             } else if (structured && structured.dropDiagnosis) {
