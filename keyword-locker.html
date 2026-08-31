@@ -484,7 +484,7 @@
             <h1>Keyword Locker</h1>
             <p>Lock each keyword to its best URL — resolve cannibalization by choosing winners</p>
             <p class="subtitle">One keyword = One winner URL. Intent-aware conflict detection.</p>
-            <div class="version">v7.2</div>
+            <div class="version">v7.4</div>
         </div>
 
         <div class="load-section">
@@ -623,6 +623,8 @@
         let singleKwData = [];      // pages ranking for one keyword (no conflict), not locked
         let kwMetrics = {};         // keyword-metrics.json → { keyword: {volume, seo_difficulty} } for the picker
         let savedForLaterKws = [];  // Saved-for-Later keywords (from registry) for the picker
+        let awaHandles = new Set(); // product handles in the "Discountable Products" collection = our own products
+        let skwIgnored = new Set(); // "keyword|||url" pairs banned per-page (registry action IGNORED)
         const SKW_IMP_FLOOR = 1;    // ignore keywords with no impressions at all
 
         // Stats counters (updated in real-time)
@@ -642,10 +644,18 @@
             return url.split('?')[0].split('#')[0].replace(/\/$/, '').replace('https://www.aboutwallart.com', 'https://aboutwallart.com');
         }
 
+        function productHandle(url) {
+            const m = url.match(/\/products\/([^\/?#]+)/);
+            return m ? m[1].toLowerCase() : null;
+        }
         function shouldExclude(url) {
             if (FOREIGN_PATTERNS.some(p => url.includes(p))) return true;
             if (url.includes('/cdn/')) return true;
+            if (url.includes('%')) return true; // encoded / emoji junk handles
             if (JUNK_SLUGS.some(j => url.includes(j))) return true;
+            // Products: only allow OUR own (in the Discountable Products collection). Fail open if the list didn't load.
+            const h = productHandle(url);
+            if (h && awaHandles.size > 0 && !awaHandles.has(h)) return true;
             return false;
         }
 
@@ -1411,6 +1421,14 @@
                 const p = byKw[key][url];
                 p.clicks += row.clicks; p.impressions += row.impressions; p.posSum += row.position; p.count++;
             });
+            // Where each locked keyword is currently locked (for the "used under another intent" note)
+            const lockedInfoByKw = {};
+            registry.forEach(e => {
+                if (e.locked && e.status === 'DONE' && (e.action === 'TO_OPTIMIZE' || e.action === 'OPTIMIZED') && e.keyword && e.url) {
+                    const k = e.keyword.toLowerCase().trim();
+                    if (!lockedInfoByKw[k]) lockedInfoByKw[k] = { intent: e.intent || '', url: normalizeUrl(e.url) };
+                }
+            });
             const raw = [];
             Object.values(byKw).forEach(pages => {
                 const list = Object.values(pages);
@@ -1418,17 +1436,20 @@
                 const p = list[0];
                 if (lockedUrls.has(p.url)) return;             // page already assigned to a keyword
                 if ((p.impressions || 0) < SKW_IMP_FLOOR && (p.clicks || 0) === 0) return; // no real data
+                if (skwIgnored.has(p.keyword.toLowerCase() + '|||' + p.url)) return; // banned for this page
                 const handled = handledKeywords[p.keyword];
-                const taken = !!(handled && (handled.has('ALL') || handled.has(p.intent)));
+                let status = 'free';
+                if (handled) status = (handled.has('ALL') || handled.has(p.intent)) ? 'taken' : 'other-intent';
                 const position = p.count > 0 ? p.posSum / p.count : 0;
-                raw.push({ url:p.url, keyword:p.keyword, intent:p.intent, clicks:p.clicks, impressions:p.impressions, position, pageType:getPageType(p.url), taken });
+                raw.push({ url:p.url, keyword:p.keyword, intent:p.intent, clicks:p.clicks, impressions:p.impressions, position, pageType:getPageType(p.url), status, lockedInfo: lockedInfoByKw[p.keyword.toLowerCase().trim()] || null });
             });
-            // One card per URL — prefer a FREE keyword over a taken one, then most impressions
+            // One card per URL — prefer free > other-intent > taken, then most impressions
+            const rank = s => s === 'free' ? 0 : (s === 'other-intent' ? 1 : 2);
             const bestByUrl = {};
             raw.forEach(o => {
                 const ex = bestByUrl[o.url];
                 if (!ex) { bestByUrl[o.url] = o; return; }
-                const better = (o.taken === ex.taken) ? (o.impressions > ex.impressions) : (!o.taken);
+                const better = (rank(o.status) === rank(ex.status)) ? (o.impressions > ex.impressions) : (rank(o.status) < rank(ex.status));
                 if (better) bestByUrl[o.url] = o;
             });
             let arr = Object.values(bestByUrl);
@@ -1438,7 +1459,7 @@
                 const ua = (strike(a) ? 1e9 : 0) + a.impressions;
                 const ub = (strike(b) ? 1e9 : 0) + b.impressions;
                 if (ub !== ua) return ub - ua;
-                return (a.taken === b.taken) ? 0 : (a.taken ? 1 : -1);
+                return rank(a.status) - rank(b.status);
             });
             arr.forEach((o, i) => o.id = i);
             singleKwData = arr;
@@ -1460,25 +1481,52 @@
                 const strikeBadge = (o.position >= 4 && o.position <= 20) ? '<span style="background:#0ea5e9;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:8px;">quick win</span>' : '';
                 const metaLine = `<div style="font-size:13px;color:#666;margin-top:4px;display:flex;gap:14px;flex-wrap:wrap;"><span>📍 Pos <strong>${posTxt}</strong></span><span>👁 ${(o.impressions||0).toLocaleString()} imp</span><span>🖱 ${(o.clicks||0).toLocaleString()} clicks</span><span style="text-transform:uppercase;font-size:11px;color:#999;">${o.pageType}</span></div>`;
                 let action;
-                if (!o.taken) {
+                if (o.status === 'free') {
                     action = `<button class="btn-resolve" onclick="approveSingleKw(${o.id}, this)">✓ Approve — Lock &amp; send to Money Page</button>`;
+                } else if (o.status === 'other-intent') {
+                    const li = o.lockedInfo || {};
+                    const otherPath = (li.url || '').replace('https://aboutwallart.com','');
+                    action = `<div style="background:#f3e8ff;border:1px solid #d8b4fe;border-radius:8px;padding:12px;margin-top:8px;">
+                        <div style="font-size:13px;font-weight:600;color:#6b21a8;margin-bottom:8px;">🟣 "${o.keyword}" is used under <strong>${li.intent||'another intent'}</strong>${otherPath ? ' on <span style="word-break:break-all;">'+otherPath+'</span>' : ''} — but it's FREE for <strong>${o.intent}</strong> here. They can coexist under different intents.</div>
+                        <button class="btn-resolve" onclick="approveSingleKw(${o.id}, this)">✓ Approve for ${o.intent} anyway</button>
+                    </div>`;
                 } else {
                     action = `<div style="background:#FFF6DF;border:1px solid #F0DFA6;border-radius:8px;padding:12px;margin-top:8px;">
-                        <div style="font-size:13px;font-weight:600;color:#8a6d00;margin-bottom:8px;">🔒 "${o.keyword}" is already locked to another page. Pick a Saved-for-Later keyword instead:</div>
+                        <div style="font-size:13px;font-weight:600;color:#8a6d00;margin-bottom:8px;">🔒 "${o.keyword}" is already locked under ${o.intent} to another page. Pick a Saved-for-Later keyword instead:</div>
                         <input type="text" id="skwPick_${o.id}" placeholder="Type to search Saved-for-Later keywords…" oninput="skwRenderPicker(${o.id})" style="width:100%;padding:8px;border:2px solid #e0e0e0;border-radius:6px;font-size:13px;box-sizing:border-box;">
                         <div id="skwPickRes_${o.id}" style="margin-top:6px;"></div>
                         <button class="btn-save-later" style="margin-top:8px;" onclick="skwCopyUber(${o.id}, this)">📋 Copy Ubersuggest prompt for Claude</button>
                     </div>`;
                 }
-                return `<div class="conflict-item" style="border-left:4px solid #0ea5e9;">
-                    <div style="flex:1;min-width:260px;">
-                        <div style="font-weight:700;color:#0369a1;">🎯 "${o.keyword}" <span class="intent-badge intent-${o.intent}">${o.intent}</span>${strikeBadge}</div>
-                        <div style="font-size:13px;color:#333;margin-top:4px;word-break:break-all;">${path}</div>
-                        ${metaLine}
+                const borderCol = { free:'#0ea5e9', 'other-intent':'#7c3aed', taken:'#E0A100' }[o.status] || '#0ea5e9';
+                return `<div class="conflict-item" style="border-left:4px solid ${borderCol};">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+                        <div style="flex:1;min-width:260px;">
+                            <div style="font-weight:700;color:#0369a1;">🎯 "${o.keyword}" <span class="intent-badge intent-${o.intent}">${o.intent}</span>${strikeBadge}</div>
+                            <div style="font-size:13px;color:#333;margin-top:4px;word-break:break-all;">${path}</div>
+                            ${metaLine}
+                        </div>
+                        <button title="Ignore this keyword for this page — it won't come back" onclick="skwIgnore(${o.id}, this)" style="background:none;border:none;color:#999;font-size:18px;cursor:pointer;line-height:1;padding:4px;">✕</button>
                     </div>
                     <div style="margin-top:10px;">${action}</div>
                 </div>`;
             }).join('');
+        }
+
+        async function skwIgnore(id, btn) {
+            const item = singleKwData.find(x => x.id === id);
+            if (!item) return;
+            if (btn) { btn.disabled = true; btn.textContent = '…'; }
+            try {
+                const res = await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({ action:'skw-ignore', keyword:item.keyword, url:item.url, intent:item.intent }) });
+                const data = await res.json();
+                if (!data || !data.success) throw new Error((data && data.error) || 'Failed');
+                skwIgnored.add(item.keyword.toLowerCase() + '|||' + item.url);
+                singleKwData = singleKwData.filter(x => x.id !== item.id);
+                document.getElementById('singleKwCount').textContent = singleKwData.length;
+                renderSingleKw();
+            } catch (e) { if (btn){ btn.disabled=false; btn.textContent='✕'; } showModal('Error', 'Could not ignore: ' + e.message); }
         }
 
         function skwRenderPicker(id) {
@@ -1518,7 +1566,7 @@
                 document.getElementById('singleKwCount').textContent = singleKwData.length;
                 updateStats();
                 renderSingleKw();
-                showModal('Done ✅', `Locked "${keyword}" to this page. It will now appear in the Money Page Doctor "To Optimise" list.`);
+                // No pop-up — the card quietly disappears (that's the confirmation). It's now in the Money Page Doctor.
             } catch (e) { if (btn){ btn.disabled=false; btn.textContent=orig; } showModal('Error', 'Could not lock: ' + e.message); }
         }
 
@@ -1770,6 +1818,16 @@
                 if (!regRes.ok) throw new Error(`Registry API error: ${regRes.status}`);
                 const regJson = await regRes.json();
                 registry = regJson.registry || [];
+
+                // Our own products (Discountable Products collection) — filters non-AWA products out of BOTH tabs.
+                showLoading(true, 'Loading About Wall Art product list...');
+                try {
+                    const hRes = await fetch('/api/blogs?action=awa-collection-handles');
+                    if (hRes.ok) { const hJson = await hRes.json(); if (hJson.success && Array.isArray(hJson.handles)) awaHandles = new Set(hJson.handles.map(h => h.toLowerCase())); }
+                } catch (e) { awaHandles = new Set(); }
+                // Per-page banned keywords (IGNORED rows)
+                skwIgnored = new Set(registry.filter(e => e.action === 'IGNORED' && e.keyword && e.url)
+                    .map(e => e.keyword.toLowerCase().trim() + '|||' + normalizeUrl(e.url)));
 
                 showLoading(true, 'Detecting conflicts...');
                 const { conflicts } = findConflicts(gscData, registry);
