@@ -484,7 +484,7 @@
             <h1>Keyword Locker</h1>
             <p>Lock each keyword to its best URL — resolve cannibalization by choosing winners</p>
             <p class="subtitle">One keyword = One winner URL. Intent-aware conflict detection.</p>
-            <div class="version">v7.0</div>
+            <div class="version">v7.1</div>
         </div>
 
         <div class="load-section">
@@ -680,17 +680,22 @@
                 const status = entry.status || '';
                 const url = entry.url && entry.url !== 'N/A' ? normalizeUrl(entry.url) : null;
 
+                // A locked winner passes through two optimisation stages, BOTH still locked:
+                //   TO_OPTIMIZE ("to optimise") and OPTIMIZED ("optimised").
+                // Treat both the same — the keyword/URL is taken in either stage.
+                const isLockStage = (action === 'TO_OPTIMIZE' || action === 'OPTIMIZED');
+
                 if (source === 'Pre-Optimized Page') {
                     if (url) lockedUrls.add(url);
                     if (!handledKeywords[kw]) handledKeywords[kw] = new Set();
                     handledKeywords[kw].add('ALL');
                     prelocked++;
-                } else if (locked && status === 'DONE' && action === 'TO_OPTIMIZE' && source === 'User Resolved') {
+                } else if (locked && status === 'DONE' && isLockStage && source === 'User Resolved') {
                     if (url) lockedUrls.add(url);
                     if (!handledKeywords[kw]) handledKeywords[kw] = new Set();
                     if (intent) handledKeywords[kw].add(intent);
-                    resolved++; // only User Resolved counted
-                } else if (action === 'TO_OPTIMIZE' && source !== 'User Resolved') {
+                    resolved++; // User Resolved locks — both stages count as resolved/done
+                } else if (isLockStage && source !== 'User Resolved') {
                     // Published Blog or other pre-locked — lock URL and handle keyword but don't count as resolved
                     if (url) lockedUrls.add(url);
                     if (!handledKeywords[kw]) handledKeywords[kw] = new Set();
