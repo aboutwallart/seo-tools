@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 68.6</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 68.7</p>
                 </div>
             </div>
         </header>
@@ -572,8 +572,9 @@
         let removedPages = [];   // Pages moved to the Removed tab (action REMOVED in the registry)
         let currentUrl = null;
         let mpdReoptimizeNote = '';   // set by the 🔴 "Re-analyse & fix" button so the analysis diagnoses the drop
-        let mpdCannibal = null;       // { siblings:[{page,position,impressions}], altKeywords:[...] } — cannibalisation data for a dropped page
-        let mpdRetargetFallback = '';  // best alt keyword (data-driven) — fallback for the "Re-analyse for X" button if the AI didn't name one
+        let mpdCannibalDiag = null;   // { keywords:[{keyword, thisPos, competitors:[{page,position}]}] } — cannibalisation diagnosis for a dropped page
+        let mpdForceYellow = new Set();// normalized paths the user moved to "Better change keyword" (cannibalisation decision)
+        let mpdPinnedTop = new Set();  // normalized paths pinned to the TOP of Start Here (freshly retargeted, highest priority)
         let currentResults = null;
         // Linked References — manual picks added via the search box (per-analysis, reset on render)
         let manualLinkedRefs = { blogs: [], collections: [], trends: [] };
@@ -715,6 +716,10 @@
             const ranked = candidates.map(item => ({ item, cat: startHereCategory(item.url) }))
                 .filter(r => r.cat !== 'winner' && r.cat !== 'hold')   // winners + held live in their own tab
                 .sort((a, b) => {
+                    // Freshly retargeted pages are pinned to the very top (highest priority, even if metrics are low).
+                    const ap = mpdPinnedTop.has(normalizeUrlPath(a.item.url)) ? 0 : 1;
+                    const bp = mpdPinnedTop.has(normalizeUrlPath(b.item.url)) ? 0 : 1;
+                    if (ap !== bp) return ap - bp;
                     if (RANK[a.cat] !== RANK[b.cat]) return RANK[a.cat] - RANK[b.cat];
                     const ag = gscEnrichment[normalizeUrlPath(a.item.url)] || {};
                     const bg = gscEnrichment[normalizeUrlPath(b.item.url)] || {};
@@ -796,17 +801,15 @@
             } catch (e) { btn.disabled = false; btn.textContent = '🔁 Switch to the current URL'; alert('Could not switch: ' + e.message); }
         }
 
-        // Cannibalisation retarget → run a FULL fresh analysis for the new target keyword (title + meta + body + headings)
-        function mpdRetargetAndAnalyse(newKw) {
-            newKw = (newKw || '').trim();
-            if (!newKw) return;
-            const pageUrl = (currentUrl && currentUrl.url) || currentAnalysisUrl;
-            if (!pageUrl) { alert('No page to re-analyse.'); return; }
-            mpdReoptimizeNote = ''; mpdCannibal = null; mpdRetargetFallback = '';   // fresh normal analysis for the new keyword
-            currentUrl = { id: Date.now(), url: pageUrl, keyword: newKw };
-            currentAnalysisUrl = pageUrl;
-            const mk = document.getElementById('mainKeyword'); if (mk) mk.value = newKw;
-            startAnalysis();
+        // Cannibalisation → user chose to change the keyword: move this page into the yellow "Better change keyword" workflow.
+        function mpdMoveToBetterKeyword(url) {
+            if (!url) return;
+            mpdForceYellow.add(normalizeUrlPath(url));
+            optColorFilter = 'yellow';
+            switchTab('optimized');
+            if (typeof setOptColorFilter === 'function') { try { setOptColorFilter('yellow'); } catch(e){} }
+            renderOptimized();
+            showToast('Moved to "Better change keyword" — pick a new keyword below.');
         }
 
 
@@ -1156,6 +1159,8 @@
                     yellow: { key:'yellow', bg:'#FFF6DF', border:'#F0DFA6', accent:'#E0A100', text:'#8a6d00', icon:'🟡', label:'Better change keyword' },
                     red:    { key:'red',    bg:'#FBEBEA', border:'#F3CFCC', accent:'#E24B4A', text:'#A32D2D', icon:'🔴', label:'Needs a look' }
                 };
+                // User moved this page here from a cannibalisation diagnosis → show the change-keyword workflow.
+                if (mpdForceYellow.has(kp.np)) return Object.assign({}, C.yellow, { label:'Better change keyword' });
                 if (!kp.useKw) return Object.assign({}, C.grey, { label:'Wait — no keyword data yet' });
                 if (kp.daysAgo < 28) return Object.assign({}, C.grey, { label:'Wait and see (under 4 weeks)' });
                 const posDelta = kp.beforeKw.position - kp.curKw.position;      // + = climbed
@@ -1405,7 +1410,9 @@
                 const data = await res.json();
                 if (data && data.locked) { if (btn) { btn.disabled = false; btn.textContent = orig; } alert(`"${newKw}" is already locked to another page. Pick a different keyword.`); return; }
                 if (!data || !data.success) throw new Error((data && data.error) || 'Failed');
-                // Update memory: page leaves Optimized, joins Start Here on the new keyword.
+                // Update memory: page leaves Optimized, joins Start Here on the new keyword — pinned to the TOP.
+                mpdForceYellow.delete(thisUrl);
+                mpdPinnedTop.add(thisUrl);
                 optimizedPages = optimizedPages.filter(o => normalizeUrlPath(o.url) !== thisUrl);
                 if (!urls.some(u => normalizeUrlPath(u.url) === thisUrl)) {
                     urls.unshift({ id: Date.now(), url, keyword: newKw, analyzed: false, results: null, fromRegistry: true });
@@ -1457,20 +1464,29 @@
             mpdReoptimizeNote = (snap.kwPosition != null && cur)
                 ? `It was optimised for "${keyword}"; since then its position for that keyword went from ${snap.kwPosition.toFixed(1)} to ${cur.position.toFixed(1)} and the times it was shown went from ${snap.kwImpressions || 0} to ${cur.impressions || 0} (last 15 days).`
                 : `It was optimised for "${keyword}" and has since slipped in Google.`;
-            // Cannibalisation check (90-day): other pages of ours ranking for this keyword + this page's own other keywords.
+            // Cannibalisation diagnosis (90-day): keywords where THIS page AND another of our pages both rank.
             const kwLower = keyword.toLowerCase();
-            const siblings = [], altKeywords = [];
+            const pagesByKw = {};
             Object.keys(gscKw90).forEach(k => {
                 const sep = k.lastIndexOf('|||'); if (sep < 0) return;
                 const pagePart = k.slice(0, sep), kwPart = k.slice(sep + 3);
-                const d = gscKw90[k] || {};
-                if (kwPart === kwLower && pagePart !== np) siblings.push({ page: pagePart, position: d.position || 0, impressions: d.impressions || 0 });
-                if (pagePart === np && kwPart !== kwLower && (d.impressions || 0) > 0) altKeywords.push({ keyword: kwPart, position: d.position || 0, impressions: d.impressions || 0 });
+                if (!pagesByKw[kwPart]) pagesByKw[kwPart] = {};
+                pagesByKw[kwPart][pagePart] = (gscKw90[k] || {}).position || 0;
             });
-            siblings.sort((a, b) => a.position - b.position);
-            altKeywords.sort((a, b) => b.impressions - a.impressions);
-            mpdCannibal = siblings.length ? { siblings: siblings.slice(0, 6), altKeywords: altKeywords.slice(0, 10) } : null;
-            mpdRetargetFallback = (mpdCannibal && altKeywords.length) ? altKeywords[0].keyword : '';
+            const diagKeywords = [];
+            Object.keys(pagesByKw).forEach(kwPart => {
+                const pages = pagesByKw[kwPart];
+                if (pages[np] == null) return;                        // this page must rank for it
+                const competitors = Object.keys(pages).filter(p => p !== np).map(p => ({ page: p, position: pages[p] }));
+                if (!competitors.length) return;                      // no clash on this keyword
+                competitors.sort((a, b) => a.position - b.position);
+                diagKeywords.push({ keyword: kwPart, thisPos: pages[np], competitors });
+            });
+            diagKeywords.sort((a, b) => {                              // locked keyword first, then biggest gap
+                if (a.keyword === kwLower) return -1; if (b.keyword === kwLower) return 1;
+                return (a.competitors[0].position - a.thisPos) - (b.competitors[0].position - b.thisPos);
+            });
+            mpdCannibalDiag = diagKeywords.length ? { keywords: diagKeywords.slice(0, 8) } : null;
             currentUrl = { id: Date.now(), url, keyword };
             currentAnalysisUrl = url;
             const mk = document.getElementById('mainKeyword'); if (mk) mk.value = keyword;
@@ -1638,7 +1654,6 @@
             }
             const manual = Array.isArray(manualCompetitors) ? manualCompetitors : [];   // only arrays count
             const _reoptNote = mpdReoptimizeNote;   // carried through the manual-competitor retry too
-            const _cannibal = mpdCannibal;          // cannibalisation data for a dropped page
 
             closeModal();
             document.getElementById('loadingModal').classList.add('active');
@@ -1659,7 +1674,7 @@
                 const response = await fetch('/api/analyze-money-page', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ pageUrl: currentUrl.url, keyword, ...(manual.length ? { manualCompetitors: manual } : {}), ...(_reoptNote ? { reoptimizeNote: _reoptNote } : {}), ...(_cannibal ? { cannibalisation: _cannibal } : {}) })
+                    body: JSON.stringify({ pageUrl: currentUrl.url, keyword, ...(manual.length ? { manualCompetitors: manual } : {}), ...(_reoptNote ? { reoptimizeNote: _reoptNote } : {}) })
                 });
 
                 if (!response.ok) {
@@ -1680,7 +1695,6 @@
                 currentUrl.keyword = keyword;
                 currentUrl.results = data;
                 mpdReoptimizeNote = '';   // analysis completed — clear the re-analyse note
-                mpdCannibal = null;
                 renderUrls();
 
                 // Save to IndexedDB for persistence
@@ -1691,7 +1705,7 @@
 
             } catch (error) {
                 console.error('[Frontend] Analysis error:', error);
-                mpdReoptimizeNote = ''; mpdCannibal = null;   // clear so a later normal analysis isn't treated as a re-analyse
+                mpdReoptimizeNote = ''; mpdCannibalDiag = null;   // clear so a later normal analysis isn't treated as a re-analyse
                 document.getElementById('loadingModal').classList.remove('active');
                 alert(`Analysis failed: ${error.message}\n\nCheck browser console (F12) for details.`);
             }
@@ -2216,19 +2230,31 @@
                     ? `<div style="background:#ef6c00;color:#fff;padding:14px 16px;border-radius:8px;margin-bottom:20px;"><strong>⚠️ Canonical points to another page</strong><br><span style="font-size:0.86rem;word-break:break-all;">Google is told to rank this instead: ${_idx.canonical}. This page may not rank on its own until that's corrected.</span></div>`
                     : `<div style="background:#e8f5e9;color:#1b5e20;border:1px solid #a5d6a7;padding:12px 16px;border-radius:8px;margin-bottom:20px;"><strong>✅ Indexable</strong> — Google can list and rank this page.</div>`;
 
-            // Cannibalisation retarget: offer a one-click FULL re-analysis for the new target keyword (body + headings).
-            const _retargetKw = ((structured && structured.retargetKeyword) || mpdRetargetFallback || '').toString().trim();
-            const retargetBanner = (_retargetKw && _retargetKw.toLowerCase() !== (keyword||'').toLowerCase())
-                ? `<div style="background:#ede9fe;border:1px solid #c4b5fd;color:#5b21b6;padding:14px 16px;border-radius:8px;margin-bottom:20px;"><strong>🔻 Cannibalisation — retarget this page</strong><br><span style="font-size:0.86rem;">Another of your pages is winning "${keyword}". The changes above cover the title/meta/intro — but to get the FULL rewrite (body + headings) for the new target, re-analyse this page for it:</span><br><button onclick="mpdRetargetAndAnalyse('${_retargetKw.replace(/'/g,"\\'")}')" style="margin-top:10px;background:#7c3aed;color:#fff;border:none;padding:9px 16px;border-radius:6px;font-weight:600;cursor:pointer;">🎯 Re-analyse this page for "${_retargetKw}"</button></div>`
-                : '';
-            mpdRetargetFallback = '';   // consume once
+            // Dropped-page investigation: cannibalisation (data-proven) OR the AI's "why it dropped" verdict.
+            let cannibalBanner = '', dropDiagBanner = '';
+            if (mpdCannibalDiag && mpdCannibalDiag.keywords && mpdCannibalDiag.keywords.length) {
+                const rows = mpdCannibalDiag.keywords.map(k => {
+                    const comps = k.competitors.map(c => `${c.page.replace('https://aboutwallart.com','')} (pos ${Number(c.position).toFixed(1)})`).join(', ');
+                    return `<li style="margin:4px 0;"><strong>"${k.keyword}"</strong> — this page pos ${Number(k.thisPos).toFixed(1)} vs ${comps}</li>`;
+                }).join('');
+                cannibalBanner = `<div style="background:#ede9fe;border:1px solid #c4b5fd;color:#5b21b6;padding:14px 16px;border-radius:8px;margin-bottom:20px;">
+                    <strong>🔻 Cannibalisation detected</strong> — another of your pages competes for the same keyword(s):
+                    <ul style="margin:8px 0 4px 18px;font-size:0.86rem;word-break:break-all;">${rows}</ul>
+                    <span style="font-size:0.86rem;">Optimising this page for these would fight your own page. If you'd rather target a DIFFERENT keyword for this page, move it to "Better change keyword":</span><br>
+                    <button onclick="mpdMoveToBetterKeyword('${(data.yourPage.url||'').replace(/'/g,"\\'")}')" style="margin-top:10px;background:#7c3aed;color:#fff;border:none;padding:9px 16px;border-radius:6px;font-weight:600;cursor:pointer;">➡️ Move to Better change keyword</button>
+                </div>`;
+            } else if (structured && structured.dropDiagnosis) {
+                dropDiagBanner = `<div style="background:#fff3e0;border:1px solid #ffcc80;color:#7a4f01;padding:14px 16px;border-radius:8px;margin-bottom:20px;"><strong>🔍 Why it dropped</strong><br><span style="font-size:0.9rem;">${String(structured.dropDiagnosis).replace(/</g,'&lt;').replace(/>/g,'&gt;')}</span></div>`;
+            }
+            mpdCannibalDiag = null;   // consume once
 
             const html = `
                 <h3 style="margin-bottom:6px;">Results for: ${keyword}</h3>
                 <div style="margin-bottom:15px;"><a href="${data.yourPage.url}" target="_blank" style="color:#1976d2;font-size:0.85rem;word-break:break-all;">${data.yourPage.url} ↗</a></div>
                 ${templateBadge}
                 ${indexabilityBanner}
-                ${retargetBanner}
+                ${cannibalBanner}
+                ${dropDiagBanner}
                 ${positionBadge}
                 ${(() => { const u = data.yourPage.url; const held = mpdHold.has(u);
                     return `<div style="text-align:center;margin:-8px 0 20px;">
