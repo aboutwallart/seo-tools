@@ -2004,6 +2004,33 @@ Include EXACTLY 3 items.`;
         return res.status(200).json({ success: true, keyword, url, removed });
       }
 
+      // ── ACTION: mpd-switch-url ── (Money Page Doctor: point a lock at the current URL when the old one 301-redirects)
+      if (req.body.action === 'mpd-switch-url') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { keyword, oldUrl, newUrl } = req.body;
+        if (!keyword || !oldUrl || !newUrl) return res.status(400).json({ error: 'keyword, oldUrl and newUrl required' });
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const kwLower = keyword.toLowerCase(), oldLower = oldUrl.toLowerCase();
+        let changed = 0;
+        const out = registry.content.split('\n').map(line => {
+          if (!line.trim()) return line;
+          const cols = parseCSVLine(line);
+          const rowKw = (cols[0]||'').toLowerCase();
+          const rowUrl = (cols[1]||'').toLowerCase();
+          const rowAction = (cols[4]||'').toUpperCase();
+          const rowWinner = (cols[5]||'').toLowerCase();
+          // the lock row for keyword+oldUrl → change its page URL to the current one
+          if (rowKw === kwLower && rowUrl === oldLower && ['TO_OPTIMIZE','OPTIMIZED'].includes(rowAction)) { cols[1] = newUrl; changed++; return cols.map(csvField).join(','); }
+          // loser internal-link rows pointing at the old URL → repoint to the current one
+          if (rowKw === kwLower && rowAction === 'INTERNAL_LINK' && rowWinner === oldLower) { cols[5] = newUrl; changed++; return cols.map(csvField).join(','); }
+          return line;
+        });
+        if (!changed) return res.status(404).json({ error: 'No matching lock row found for that keyword + URL' });
+        const updated = out.join('\n').replace(/\n+$/, '') + '\n';
+        await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Switch URL: ${keyword} ${oldUrl} → ${newUrl}`);
+        return res.status(200).json({ success: true, keyword, oldUrl, newUrl, changed });
+      }
+
       // ── ACTION: delete-keyword ──
       if (req.body.action === 'delete-keyword') {
         if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });

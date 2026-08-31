@@ -304,6 +304,8 @@ module.exports = async function handler(req, res) {
 
     // Money Page Doctor "Re-analyse & fix": a short note that this page was optimised before and has slipped.
     const reoptimizeNote = typeof req.body.reoptimizeNote === 'string' ? req.body.reoptimizeNote.trim().slice(0, 600) : '';
+    // Cannibalisation data (other pages of the same site ranking for this keyword, 90-day) + this page's own other keywords.
+    const cannibalisation = (req.body.cannibalisation && typeof req.body.cannibalisation === 'object') ? req.body.cannibalisation : null;
 
     const startTime = Date.now();
     console.log(`[Money Page] Analyzing: ${pageUrl} for keyword: "${keyword}"`);
@@ -442,7 +444,7 @@ module.exports = async function handler(req, res) {
 
     // Step 5: Get Claude analysis
     console.log('[Money Page] Step 5: Getting AI recommendations... (~20 sec)');
-    const analysis = await getClaudeAnalysis(yourPageData, competitorData, keyword, searchResults.userPosition, contentGaps, loserPages, relatedBlogs, reoptimizeNote);
+    const analysis = await getClaudeAnalysis(yourPageData, competitorData, keyword, searchResults.userPosition, contentGaps, loserPages, relatedBlogs, reoptimizeNote, cannibalisation);
     console.log(`[Money Page] ✓ AI analysis complete! Total time: ${Math.round((Date.now() - startTime) / 1000)}s`);
 
     // Append the standard shipping CTA to the meta description — PRODUCTS ONLY. Kept out of the
@@ -822,9 +824,10 @@ async function analyzePage(url, keyword, fetchPageSpeed = false) {
     });
 
     const html = await response.text();
+    const finalUrl = response.url || url;   // where we landed after any 301 redirect
 
     // Extract SEO data
-    const seoData = extractSEOData(html, url, keyword);
+    const seoData = extractSEOData(html, url, keyword, finalUrl);
 
     // Get PageSpeed scores if requested (only for user's page)
     if (fetchPageSpeed) {
@@ -855,7 +858,7 @@ async function analyzePage(url, keyword, fetchPageSpeed = false) {
 }
 
 // Extract SEO data from HTML
-function extractSEOData(html, url, keyword) {
+function extractSEOData(html, url, keyword, finalUrl = '') {
   // Extract title
   const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
   const title = titleMatch ? titleMatch[1].trim() : '';
@@ -1014,8 +1017,12 @@ function extractSEOData(html, url, keyword) {
     || html.match(/<link[^>]+href=["']([^"']+)["'][^>]*rel=["']canonical["']/i);
   const canonical = canonMatch ? canonMatch[1].trim() : '';
   const normalise = u => (u || '').split('#')[0].split('?')[0].replace(/\/$/, '').toLowerCase();
-  const canonicalMismatch = !!canonical && normalise(canonical) !== normalise(url);
-  const indexability = { noindex, canonical, canonicalMismatch, ok: !noindex && !canonicalMismatch };
+  // A 301 redirect (old handle → current page) shows up as a canonical "mismatch" only because we
+  // followed the redirect. Treat it as a redirect, not a canonical problem.
+  const isRedirect = !!finalUrl && normalise(finalUrl) !== normalise(url);
+  const redirectedTo = isRedirect ? finalUrl : '';
+  const canonicalMismatch = !isRedirect && !!canonical && normalise(canonical) !== normalise(url);
+  const indexability = { noindex, canonical, canonicalMismatch, isRedirect, redirectedTo, ok: !noindex && !canonicalMismatch && !isRedirect };
 
   return {
     url,
@@ -1648,6 +1655,16 @@ function matchRealLine(claim, lines) {
 // Money Page Doctor "Re-analyse & fix": the page was optimised before and has since slipped. Tell the model
 // to DIAGNOSE the drop and correct it, instead of repeating advice that already failed. One clean insertion
 // point so all page-type prompts (blog/collection/page/product) get it without touching each builder.
+function injectCannibalContext(prompt, cannibal, keyword) {
+  const sibs = (cannibal.siblings || []).slice(0, 6)
+    .map(s => ` - ${s.page} (position ${Number(s.position||0).toFixed(1)}, ${s.impressions||0} impressions)`).join('\n');
+  const alts = (cannibal.altKeywords || []).slice(0, 10)
+    .map(a => ` - "${a.keyword}" (position ${Number(a.position||0).toFixed(1)}, ${a.impressions||0} impressions)`).join('\n');
+  const block = `\n\n🔻 CANNIBALISATION DETECTED — this is the MOST LIKELY reason this page slipped, and no on-page tweak to THIS page can fix it. Other pages on the SAME site also rank for "${keyword}" in Google (last 90 days):\n${sibs}\nGoogle is splitting relevance between these pages and favouring another one. So do NOT recommend the usual "use the keyword more / add sections" for "${keyword}".\nInstead, RE-TARGET this page to a DIFFERENT keyword it can actually own. This page ALREADY ranks for these other keywords (last 90 days) that the competing page does not own:\n${alts || ' (none strong — recommend a close, more specific variation the page can win)'}\nYour recommendations MUST: (1) name the single best NEW target keyword for THIS page from the list above (prefer good position + real impressions); (2) give the exact SEO Title, Meta Description and H1/first-paragraph rewritten for that NEW keyword; (3) add ONE otherActions line telling the user to leave the OTHER page as the winner for "${keyword}" (optionally add an internal link from this page to it). ALSO add a top-level JSON field "retargetKeyword" whose value is EXACTLY that single best new target keyword (lowercase, no quotes inside). Keep the exact JSON format described below and just add that one extra field.\n`;
+  if (/^You are [^\n]*\n/.test(prompt)) return prompt.replace(/^(You are [^\n]*\n)/, `$1${block}`);
+  return block + prompt;
+}
+
 function injectReoptimiseContext(prompt, note) {
   const block = `\n\n⚠️ REOPTIMISE MODE — this page was ALREADY optimised once and has since LOST ranking for its target keyword. ${note}\nBefore you recommend anything, work out the MOST LIKELY reason it slipped: over-optimisation (the exact keyword stuffed too hard in the title, headings or body), a competitor overtaking it, the search intent shifting, thin or duplicated content, or lost internal links. Then make every recommendation CORRECT that specific cause. Do NOT just repeat generic "use the keyword more" advice — the keyword may already be over-used, so prefer natural variations, a stronger match to what searchers want, and better content depth. Keep the exact JSON format described below.\n`;
   if (/^You are [^\n]*\n/.test(prompt)) return prompt.replace(/^(You are [^\n]*\n)/, `$1${block}`);
@@ -1655,12 +1672,13 @@ function injectReoptimiseContext(prompt, note) {
 }
 
 // Get Claude analysis
-async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = null, contentGaps = null, loserPages = [], relatedBlogs = [], reoptimizeNote = '') {
+async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = null, contentGaps = null, loserPages = [], relatedBlogs = [], reoptimizeNote = '', cannibalisation = null) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not found');
 
   let prompt = buildAnalysisPrompt(yourPage, competitors, keyword, userPosition, contentGaps, loserPages, relatedBlogs);
   if (reoptimizeNote) prompt = injectReoptimiseContext(prompt, reoptimizeNote);
+  if (cannibalisation && Array.isArray(cannibalisation.siblings) && cannibalisation.siblings.length) prompt = injectCannibalContext(prompt, cannibalisation, keyword);
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
