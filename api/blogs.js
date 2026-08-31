@@ -1978,6 +1978,32 @@ Include EXACTLY 3 items.`;
         return res.status(200).json({ success: true, keyword, url });
       }
 
+      // ── ACTION: mpd-liberate ── (Money Page Doctor: free a keyword+URL so the page goes back to the Keyword Locker)
+      if (req.body.action === 'mpd-liberate') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { keyword, url } = req.body;
+        if (!keyword || !url) return res.status(400).json({ error: 'keyword and url required' });
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const kwLower = keyword.toLowerCase(), urlLower = url.toLowerCase();
+        let removed = 0;
+        const kept = registry.content.split('\n').filter(line => {
+          if (!line.trim()) return true;
+          const cols = parseCSVLine(line);
+          const rowKw = (cols[0]||'').toLowerCase();
+          const rowUrl = (cols[1]||'').toLowerCase();
+          const rowAction = (cols[4]||'').toUpperCase();
+          const rowWinner = (cols[5]||'').toLowerCase();
+          // remove this page's lock row for this keyword
+          if (rowKw === kwLower && rowUrl === urlLower && ['TO_OPTIMIZE','OPTIMIZED'].includes(rowAction)) { removed++; return false; }
+          // remove its loser internal-link rows (same keyword, winner = this page)
+          if (rowKw === kwLower && rowAction === 'INTERNAL_LINK' && rowWinner === urlLower) { removed++; return false; }
+          return true;
+        });
+        const updated = kept.join('\n').replace(/\n+$/, '') + '\n';
+        await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Liberate (back to Locker): ${keyword} on ${url}`);
+        return res.status(200).json({ success: true, keyword, url, removed });
+      }
+
       // ── ACTION: delete-keyword ──
       if (req.body.action === 'delete-keyword') {
         if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
