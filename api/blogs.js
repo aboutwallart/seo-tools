@@ -1905,14 +1905,14 @@ Include EXACTLY 3 items.`;
           const cols = parseCSVLine(lines[i]);
           while (cols.length < 12) cols.push('');
           if (!found && (cols[1] || '').trim().toLowerCase() === urlLower && (cols[0] || '').trim().toLowerCase() === oldLower) {
-            cols[0] = newKeyword; cols[2] = 'LOCKED'; cols[3] = 'DONE'; cols[4] = 'TO_OPTIMIZE'; cols[11] = '';
+            cols[0] = newKeyword; cols[2] = 'LOCKED'; cols[3] = 'DONE'; cols[4] = 'TO_OPTIMIZE'; cols[9] = 'Retargeted'; cols[11] = '';
             updatedLines.push(sanitizeRow(cols));
             found = true;
           } else { updatedLines.push(sanitizeRow(cols)); }
         }
         if (!found) {
           // Old row not in the registry (e.g. a seeded page) → just add a fresh TO_OPTIMIZE row for the new keyword.
-          updatedLines.push(sanitizeRow([newKeyword, url, 'LOCKED', 'DONE', 'TO_OPTIMIZE', 'N/A', 'N/A', 'N/A', 'N/A', 'User Resolved', detectIntent(url), '']));
+          updatedLines.push(sanitizeRow([newKeyword, url, 'LOCKED', 'DONE', 'TO_OPTIMIZE', 'N/A', 'N/A', 'N/A', 'N/A', 'Retargeted', detectIntent(url), '']));
         }
         await updateGitHubFile('data/keyword-locker-registry.csv', updatedLines.join('\n') + '\n', registry.sha, `MPD change keyword: ${oldKeyword} → ${newKeyword} on ${url}`);
         return res.status(200).json({ success: true });
