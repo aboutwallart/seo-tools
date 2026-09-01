@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 68.8</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 68.9</p>
                 </div>
             </div>
         </header>
@@ -701,8 +701,9 @@
             const removedSet   = new Set((removedPages   || []).map(p => normalizeUrlPath(p.url || '')));
             const candidates = deduplicateUrls(urls).filter(item => {
                 const _np = normalizeUrlPath(item.url || '');
-                if (optimisedSet.has(_np)) return false;
                 if (removedSet.has(_np)) return false;
+                if (mpdPinnedTop.has(_np)) return true;   // freshly retargeted — always show (ignore old checklist / winner status)
+                if (optimisedSet.has(_np)) return false;
                 const cl = mpdChecklist[item.url] || {};
                 const total = cl._total || 0;
                 if (total > 0) { const done = Object.entries(cl).filter(([k,v]) => k !== '_total' && v).length; if (done >= total) return false; }
@@ -714,7 +715,7 @@
                 return;
             }
             const ranked = candidates.map(item => ({ item, cat: startHereCategory(item.url) }))
-                .filter(r => r.cat !== 'winner' && r.cat !== 'hold')   // winners + held live in their own tab
+                .filter(r => mpdPinnedTop.has(normalizeUrlPath(r.item.url)) || (r.cat !== 'winner' && r.cat !== 'hold'))   // pinned (retargeted) pages always show, regardless of metrics
                 .sort((a, b) => {
                     // Freshly retargeted pages are pinned to the very top (highest priority, even if metrics are low).
                     const ap = mpdPinnedTop.has(normalizeUrlPath(a.item.url)) ? 0 : 1;
@@ -1420,6 +1421,7 @@
                     urls.forEach(u => { if (normalizeUrlPath(u.url) === thisUrl) u.keyword = newKw; });
                 }
                 delete mpdSnapshots[url];   // old baseline was for the old keyword
+                delete mpdChecklist[url];   // old checklist was for the old keyword — a fresh start for the new one
                 updatePageCount(); updateOptimizedCount(); renderOptimized(); renderUrls();
                 showToast(`✅ Keyword changed to "${newKw}" — page moved to Start Here.`);
                 switchTab('startHere');
