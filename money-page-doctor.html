@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 69.3</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 69.4</p>
                 </div>
             </div>
         </header>
@@ -817,6 +817,28 @@
                 showToast('🔁 Switched to the current URL — re-analysing…');
                 startAnalysis();
             } catch (e) { btn.disabled = false; btn.textContent = '🔁 Switch to the current URL'; alert('Could not switch: ' + e.message); }
+        }
+
+        // Canonical/404 case: user types the CORRECT live URL → update the registry and re-analyse that URL.
+        async function mpdManualSwitchUrl(oldUrl, kw) {
+            const inp = document.getElementById('canonFixUrl');
+            const newUrl = ((inp && inp.value) || '').trim();
+            if (!/^https?:\/\//i.test(newUrl)) { alert('Enter the full correct URL, starting with https://'); return; }
+            if (normalizeUrlPath(newUrl) === normalizeUrlPath(oldUrl)) { alert('That is the same URL — edit it to the correct one first.'); return; }
+            if (!confirm(`Change this money page's URL?\n\nFrom:\n${oldUrl}\n\nTo:\n${newUrl}\n\nThe registry will track the new URL and re-analyse it.`)) return;
+            try {
+                const res = await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({ action:'mpd-switch-url', keyword: kw, oldUrl, newUrl }) });
+                const data = await res.json();
+                if (!data || !data.success) throw new Error((data && data.error) || 'Failed');
+                urls.forEach(u => { if (normalizeUrlPath(u.url) === normalizeUrlPath(oldUrl)) u.url = newUrl; });
+                currentUrl = { id: Date.now(), url: newUrl, keyword: kw };
+                currentAnalysisUrl = newUrl;
+                const mk = document.getElementById('mainKeyword'); if (mk) mk.value = kw;
+                renderUrls();
+                showToast('🔁 URL changed — re-analysing the correct page…');
+                startAnalysis();
+            } catch (e) { alert('Could not change the URL: ' + e.message); }
         }
 
         // Cannibalisation → user chose to change the keyword: move this page into the yellow "Better change keyword" workflow.
@@ -2264,7 +2286,11 @@
                 : _idx.isRedirect
                     ? `<div style="background:#0277bd;color:#fff;padding:14px 16px;border-radius:8px;margin-bottom:20px;"><strong>⏭️ This URL redirects to the current page</strong><br><span style="font-size:0.86rem;word-break:break-all;">This is an old address — Google already ranks the current page. Nothing is broken; don't delete the redirect. Optimise the current page instead:<br><strong>${_idx.redirectedTo}</strong></span><br><button data-old="${(data.yourPage.url||'').replace(/"/g,'&quot;')}" data-new="${(_idx.redirectedTo||'').replace(/"/g,'&quot;')}" data-kw="${(keyword||'').replace(/"/g,'&quot;')}" onclick="mpdSwitchUrl(this)" style="margin-top:10px;background:#fff;color:#0277bd;border:none;padding:8px 14px;border-radius:6px;font-weight:600;cursor:pointer;">🔁 Switch to the current URL</button></div>`
                 : _idx.canonicalMismatch
-                    ? `<div style="background:#ef6c00;color:#fff;padding:14px 16px;border-radius:8px;margin-bottom:20px;"><strong>⚠️ Canonical points to another page</strong><br><span style="font-size:0.86rem;word-break:break-all;">Google is told to rank this instead: ${_idx.canonical}. This page may not rank on its own until that's corrected.</span></div>`
+                    ? `<div style="background:#ef6c00;color:#fff;padding:14px 16px;border-radius:8px;margin-bottom:20px;"><strong>⚠️ Canonical points to another page</strong><br><span style="font-size:0.86rem;word-break:break-all;">Google is told to rank this instead: ${_idx.canonical}. Often this means the URL analysed is wrong (truncated, or a 404). Enter the correct live URL and re-analyse that instead:</span>
+                        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+                            <input type="text" id="canonFixUrl" value="${(data.yourPage.url||'').replace(/"/g,'&quot;')}" style="flex:1;min-width:240px;padding:7px 10px;border:none;border-radius:6px;font-size:0.82rem;font-family:'Poppins',sans-serif;">
+                            <button onclick="mpdManualSwitchUrl('${(data.yourPage.url||'').replace(/'/g,"\\'")}','${(keyword||'').replace(/'/g,"\\'")}')" style="background:#fff;color:#ef6c00;border:none;padding:7px 14px;border-radius:6px;font-weight:600;cursor:pointer;white-space:nowrap;">🔁 Change URL &amp; re-analyse</button>
+                        </div></div>`
                     : `<div style="background:#e8f5e9;color:#1b5e20;border:1px solid #a5d6a7;padding:12px 16px;border-radius:8px;margin-bottom:20px;"><strong>✅ Indexable</strong> — Google can list and rank this page.</div>`;
 
             // Dropped-page investigation: cannibalisation (data-proven) OR the AI's "why it dropped" verdict.
