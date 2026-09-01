@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 68.9</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 69.3</p>
                 </div>
             </div>
         </header>
@@ -414,6 +414,9 @@
                 <button class="btn-secondary" style="background:#c62828;color:#fff;border-color:#c62828;" onclick="removeSelected('startHere', this)">🗑️ Remove selected</button>
                 <span style="font-size:0.82rem;color:#888;">Tick any page you won't optimise, then Remove selected — it moves to the Removed tab.</span>
             </div>
+            <div style="margin-bottom:14px;">
+                <input type="text" id="startHereSearch" placeholder="🔍 Search this list by keyword or URL (type any words, any order)…" oninput="renderStartHere()" style="width:100%;padding:9px 12px;border:2px solid #e0e0e0;border-radius:8px;font-size:0.9rem;box-sizing:border-box;font-family:'Poppins',sans-serif;">
+            </div>
             <div id="startHereList"></div>
         </div>
 
@@ -421,6 +424,9 @@
         <div class="tab-content" id="winnersTab">
             <h3>🏆 Winners &amp; Hold</h3>
             <p style="color:#666;margin-bottom:15px;">Pages already ranking #1–3 (auto), or ones you've put on hold. Kept out of the Start Here queue — light touch only, don't rush these.</p>
+            <div style="margin-bottom:14px;">
+                <input type="text" id="winnersSearch" placeholder="🔍 Search this list by keyword or URL (type any words, any order)…" oninput="renderWinners()" style="width:100%;padding:9px 12px;border:2px solid #e0e0e0;border-radius:8px;font-size:0.9rem;box-sizing:border-box;font-family:'Poppins',sans-serif;">
+            </div>
             <div id="winnersList"></div>
         </div>
 
@@ -727,7 +733,18 @@
                     return (bg.impressions || 0) - (ag.impressions || 0);
                 });
             const c = document.getElementById('startHereCount'); if (c) c.textContent = ranked.length;
-            list.innerHTML = ranked.map((row, i) => {
+            // Flexible search: type any words (any order) — all must appear somewhere in the URL or keyword.
+            const _sq = (document.getElementById('startHereSearch')?.value || '').toLowerCase().trim();
+            let display = ranked;
+            if (_sq) {
+                const _words = _sq.split(/\s+/).filter(Boolean);
+                display = ranked.filter(r => {
+                    const hay = ((r.item.url || '') + ' ' + (r.item.keyword || (gscEnrichment[normalizeUrlPath(r.item.url)] || {}).keyword || '')).toLowerCase();
+                    return _words.every(w => hay.includes(w));
+                });
+            }
+            if (_sq && display.length === 0) { list.innerHTML = '<p style="text-align:center;color:#666;padding:30px;">No page in this list matches “' + _sq.replace(/</g,'&lt;') + '”. (It may be optimised, a winner, or removed — not in this queue.)</p>'; return; }
+            list.innerHTML = display.map((row, i) => {
                 const item = row.item;
                 const m = META[row.cat];
                 const g = gscEnrichment[normalizeUrlPath(item.url)] || {};
@@ -832,7 +849,18 @@
                 .sort((a, b) => ((gscEnrichment[normalizeUrlPath(a.item.url)] || {}).position || 99) - ((gscEnrichment[normalizeUrlPath(b.item.url)] || {}).position || 99));
             const c = document.getElementById('winnersCount'); if (c) c.textContent = items.length;
             if (!items.length) { list.innerHTML = '<p style="text-align:center;color:#666;padding:40px;">No winners or held pages yet. Pages at #1–3 and ones you put on hold will show here.</p>'; return; }
-            list.innerHTML = items.map(row => {
+            // Flexible search: type any words (any order) — all must appear in the URL or keyword.
+            const _wq = (document.getElementById('winnersSearch')?.value || '').toLowerCase().trim();
+            let _display = items;
+            if (_wq) {
+                const _w = _wq.split(/\s+/).filter(Boolean);
+                _display = items.filter(r => {
+                    const hay = ((r.item.url || '') + ' ' + (r.item.keyword || (gscEnrichment[normalizeUrlPath(r.item.url)] || {}).keyword || '')).toLowerCase();
+                    return _w.every(x => hay.includes(x));
+                });
+                if (!_display.length) { list.innerHTML = '<p style="text-align:center;color:#666;padding:30px;">No winner matches “' + _wq.replace(/</g,'&lt;') + '”.</p>'; return; }
+            }
+            list.innerHTML = _display.map(row => {
                 const item = row.item, g = gscEnrichment[normalizeUrlPath(item.url)] || {};
                 const isHold = row.cat === 'hold';
                 const note = isHold ? 'You flagged this to leave for now.' : 'Top 3 already — light touch, don\'t rush.';
@@ -1422,6 +1450,7 @@
                 }
                 delete mpdSnapshots[url];   // old baseline was for the old keyword
                 delete mpdChecklist[url];   // old checklist was for the old keyword — a fresh start for the new one
+                try { await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'save-mpd-checklist', checklist: mpdChecklist }) }); } catch(e){}  // persist the clear so it doesn't hide the page after reload
                 updatePageCount(); updateOptimizedCount(); renderOptimized(); renderUrls();
                 showToast(`✅ Keyword changed to "${newKw}" — page moved to Start Here.`);
                 switchTab('startHere');
@@ -5738,6 +5767,7 @@
                 const optimizedPagesList = [];
                 const removedPagesList = [];
                 mpdSavedForLater = [];
+                mpdPinnedTop = new Set();   // rebuilt from the registry each load (Source = "Retargeted")
                 const lockedKeywords = new Set(); // Track keywords that are already OPTIMIZED
                 const optimisedUrls = new Set();  // normalized URLs already OPTIMIZED (M1 belt — URL match)
                 const removedUrls = new Set();    // normalized URLs marked REMOVED (Removed tab)
@@ -5804,6 +5834,8 @@
                                     results: null,
                                     fromRegistry: true
                                 });
+                                // Freshly retargeted pages stay pinned to the TOP of Start Here until optimised.
+                                if (/retargeted/i.test(rowSource)) mpdPinnedTop.add(npUrl);
                             }
                         }
                         
