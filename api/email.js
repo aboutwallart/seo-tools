@@ -49,11 +49,11 @@ module.exports = async (req, res) => {
     return d.data;
   }
 
-  async function anthropic(prompt, maxTok) {
+  async function anthropic(prompt, maxTok, model) {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'x-api-key': ANTHROPIC_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: maxTok || 2000, messages: [{ role: 'user', content: prompt }] })
+      body: JSON.stringify({ model: model || 'claude-sonnet-4-6', max_tokens: maxTok || 2000, messages: [{ role: 'user', content: prompt }] })
     });
     if (!r.ok) throw new Error('AI error: ' + r.status);
     const d = await r.json();
@@ -240,6 +240,50 @@ module.exports = async (req, res) => {
       return;
     }
 
+    // ---------- 1c) write ONE warm intro line for the chosen tool/guide ----------
+    if (action === 'newsletter-tool-intro') {
+      var tn = (body.toolName || '').toString().slice(0, 120);
+      if (!tn) { res.status(400).json({ ok: false, error: 'toolName required' }); return; }
+      var tt = body.toolType === 'guide' ? 'guide' : 'tool';
+      var bt = (body.blogTitle || '').toString().slice(0, 200);
+      var iprompt = [
+        'You are Mae of About Wall Art, warm UK first-person voice.',
+        'This month\'s newsletter is built from the blog: "' + bt + '".',
+        'Write ONE short, warm sentence that points the reader to a free on-site ' + tt + ' as a helpful next step — never pushy, never urgency, never "in a hurry".',
+        'The ' + tt + ' is: "' + tn + '".',
+        'Return ONLY the sentence — no quotes, no preamble.'
+      ].join('\n');
+      var iraw = await anthropic(iprompt, 120, 'claude-haiku-4-5-20251001');
+      res.status(200).json({ ok: true, intro: (iraw || '').trim().replace(/^["']+|["']+$/g, '') });
+      return;
+    }
+
+    // ---------- 1d) approve -> register the blog as USED on GitHub (no repeats) ----------
+    if (action === 'newsletter-approve') {
+      var handle = (body.handle || '').toString().trim();
+      if (!handle) { res.status(400).json({ ok: false, error: 'handle required' }); return; }
+      var gr = await fetch(`https://api.github.com/repos/${REPO}/contents/${USED_FILE}`, {
+        headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
+      });
+      var sha = null, arr = [];
+      if (gr.ok) {
+        var gd = await gr.json(); sha = gd.sha;
+        try { arr = JSON.parse(Buffer.from(gd.content || '', 'base64').toString('utf-8')) || []; } catch (e) { arr = []; }
+      }
+      if (!Array.isArray(arr)) arr = [];
+      var low = arr.map(function (x) { return String(x).toLowerCase(); });
+      var already = low.indexOf(handle.toLowerCase()) >= 0;
+      if (!already) arr.push(handle);
+      var pr = await fetch(`https://api.github.com/repos/${REPO}/contents/${USED_FILE}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: 'Newsletter approved: mark blog used — ' + handle, content: Buffer.from(JSON.stringify(arr, null, 2) + '\n').toString('base64'), ...(sha ? { sha: sha } : {}) })
+      });
+      if (!pr.ok && !already) { var et = await pr.text(); res.status(502).json({ ok: false, error: 'Could not save to GitHub: ' + pr.status + ' ' + et.slice(0, 150) }); return; }
+      res.status(200).json({ ok: true, used: arr, already: already });
+      return;
+    }
+
     // ---------- 2) write the newsletter for a chosen blog ----------
     if (action === 'newsletter-write' || action === 'newsletter-rewrite') {
       if (!body.articleId) { res.status(400).json({ ok: false, error: 'articleId required' }); return; }
@@ -272,6 +316,8 @@ module.exports = async (req, res) => {
       if (copy.toolBlock && copy.toolBlock.url && copy.toolBlock.url.indexOf('http') !== 0) {
         copy.toolBlock.url = SITE + (copy.toolBlock.url.charAt(0) === '/' ? '' : '/') + copy.toolBlock.url;
       }
+      // leave the tool intro BLANK — it is written/rewritten by 'newsletter-tool-intro' when the tool is chosen/changed
+      if (copy.toolBlock) copy.toolBlock.intro = '';
       copy.article = { id: article.id, title: article.title, handle: article.handle, url: article.url };
 
       res.status(200).json({ ok: true, copy: copy });
