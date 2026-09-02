@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.30 · 2 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.31 · 2 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -1817,7 +1817,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     selLab.appendChild(sel); selLab.appendChild(document.createTextNode('Select'));
     var madeLab = document.createElement('label'); madeLab.className='madelbl'; madeLab.style.cssText='display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:12px;font-weight:700;color:#0F6E56;cursor:pointer;';
     var cb = document.createElement('input'); cb.type='checkbox'; cb.className='taskcb madecb'; cb.setAttribute('data-key', id+'_made'); cb.checked=!!state[id+'_made'];
-    cb.addEventListener('change', function(){ state[id+'_made']=cb.checked; refreshAll(); scheduleSave(); });
+    cb.addEventListener('change', function(){ state[id+'_made']=cb.checked; if(cb.checked) markUsed(card); refreshAll(); scheduleSave(); });
     madeLab.appendChild(cb); madeLab.appendChild(document.createTextNode('Made — grey out'));
     hrow.appendChild(selLab); hrow.appendChild(madeLab);
   }
@@ -1861,7 +1861,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   function bulkApply(made){
     [].slice.call(document.querySelectorAll('#cardwrap .selcb:checked')).forEach(function(s){
       var card = s.closest('.vcard'); if(!card) return;
-      state[card.id + '_made'] = made; s.checked = false;
+      state[card.id + '_made'] = made; if(made) markUsed(card); s.checked = false;
     });
     updateBulkBar(); applyState(); scheduleSave();
   }
@@ -1893,7 +1893,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       c.classList.toggle('done', d);
       if(d){
         done++;
-        if(!c.__usedMarked){ if(booted) markUsed(c); c.__usedMarked = true; }
+        c.__usedMarked = true; /* mark-used only fires on an explicit user toggle (below) — never on render/load, so no auto-commit flood */
         var mk = monthKeyOf(c);
         if(!madeBy[mk]){ madeBy[mk] = []; madeOrder.push(mk); }
         madeBy[mk].push(c);
