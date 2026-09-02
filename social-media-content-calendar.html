@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.22 · 2 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.23 · 2 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -302,19 +302,15 @@
               <div class="nlsmallnote">The blog's photo, served at ≥1200px so it stays sharp on retina screens. Links to the blog.</div>
             </div>
             <div class="sbox">
-              <label>Free tool / guide (secondary button)</label>
-              <input type="text" id="nlToolName" placeholder="tool name" style="margin-bottom:6px;">
-              <input type="text" id="nlToolUrl" placeholder="https://aboutwallart.com/pages/...">
-              <div class="nlsmallnote">The AI picked the tool that best fits this blog. Change it if you'd rather link a different one.</div>
-            </div>
-            <div class="sbox">
-              <label>Tool image (above the grey button)</label>
-              <img class="nlaltprev" id="nlToolImgPrev" alt="" style="display:none;">
-              <label class="upframe updrop" style="display:block;border:1.5px dashed #C9C2F0;border-radius:8px;padding:14px;text-align:center;cursor:pointer;color:#7A7599;font-size:12.5px;">
+              <label>Secondary button — you pick the tool or guide</label>
+              <select id="nlToolPick" style="width:100%;border:1px solid #D8D3EE;border-radius:8px;padding:10px;font-size:13.5px;box-sizing:border-box;background:#fff;"></select>
+              <div id="nlToolUrl" class="nlsmallnote" style="margin-top:8px;word-break:break-all;"></div>
+              <img class="nlaltprev" id="nlToolImgPrev" alt="" style="display:none;margin-top:10px;">
+              <label class="upframe updrop" style="display:block;border:1.5px dashed #C9C2F0;border-radius:8px;padding:12px;text-align:center;cursor:pointer;color:#7A7599;font-size:12px;margin-top:8px;">
                 <input type="file" accept="image/*" id="nlToolImgFile" hidden>
-                <i class="ti ti-upload"></i> Click to upload the tool image
+                <i class="ti ti-upload"></i> Use a different image instead
               </label>
-              <div class="nlsmallnote">You upload this image. When we push the draft to Klaviyo, the tool uploads it there automatically.</div>
+              <div class="nlsmallnote">You choose which tool/guide fits this blog — its image + link fill in on their own (guides use their own photo). All images show square. The tool uploads the image to Klaviyo when we push the draft.</div>
             </div>
           </div>
         </div>
@@ -3542,7 +3538,9 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     $('nlWriteStep').scrollIntoView({behavior:'smooth',block:'start'});
     post({action:'newsletter-write', articleId:b.id}).then(function(d){
       if(!d || d.ok===false || !d.copy){ $('nlEmail').innerHTML='<div style="padding:30px;color:#b91c1c;font-size:14px;">'+esc((d&&d.error)||'The AI could not write this one — try another blog or Rewrite.')+'</div>'; return; }
-      cur=d.copy; renderEmail();
+      cur=d.copy;
+      var f=cur.toolBlock&&nlToolByUrl(cur.toolBlock.url);
+      if(f){ applyPick(f.type+':'+f.item.h); } else { renderEmail(); }
     }).catch(function(){ $('nlEmail').innerHTML='<div style="padding:30px;color:#b91c1c;font-size:14px;">Network error — try again.</div>'; });
   }
 
@@ -3556,6 +3554,52 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     ['Pinterest','https://www.pinterest.com/aboutwallartstore','pinterest_96.png'],
     ['LinkedIn','https://www.linkedin.com/company/about-wall-art/','linkedin_96.png']
   ];
+  var NL_SITE='https://aboutwallart.com';
+  // force a square centre-crop so portrait + square images all look the same
+  function nlSquare(url,size){ if(!url) return url; var s=size||800; if(url.indexOf('cdn.shopify.com')<0) return url; var b=url.split('?')[0], q=url.split('?')[1]||''; var vm=q.match(/(?:^|&)v=([^&]+)/); return b+'?width='+s+'&height='+s+'&crop=center'+(vm?('&v='+vm[1]):''); }
+  // TOOLS = interactive tools; each has a specific image Mae chose. GUIDES = use each guide's own page image (fetched).
+  var NL_TOOLS=[
+    {h:'interior-style-quiz', n:'Interior Style Quiz', img:'https://cdn.shopify.com/s/files/1/0710/7693/8014/files/option-2-confused.png?v=1777072078', btn:'TAKE THE QUIZ'},
+    {h:'room-colour-art-matcher', n:'Room Colour & Art Matcher', img:'https://cdn.shopify.com/s/files/1/0710/7693/8014/files/person-choosing-wall-art-against-dark-grey-wall.png?v=1776976292', btn:'TRY THE MATCHER'},
+    {h:'wall-art-size-calculator', n:'Wall Art Size Calculator', img:'https://cdn.shopify.com/s/files/1/0710/7693/8014/files/black-and-white-art-gallery-wall-with-person-hanging-a-frame.png?v=1776808451', btn:'CALCULATE THE SIZE'},
+    {h:'art-hanging-height-calculator', n:'Art Hanging Height Calculator', img:'https://cdn.shopify.com/s/files/1/0710/7693/8014/files/art-hanging-hero.png?v=1776905891', btn:'GET THE HEIGHT'},
+    {h:'gallery-wall-planner', n:'Gallery Wall Planner', img:'https://cdn.shopify.com/s/files/1/0710/7693/8014/files/gallery-wall-planner-hero.png?v=1776909774', btn:'PLAN MY WALL'},
+    {h:'find-their-perfect-gift-quiz', n:'Find Their Perfect Gift', img:'https://cdn.shopify.com/s/files/1/0710/7693/8014/files/young-woman-gifting-her-mother-in-bright-scandinavian-living-room.png?v=1778406428', btn:'FIND THE GIFT'}
+  ];
+  var NL_GUIDES=[
+    {h:'interior-design-styles-explained', n:'Interior Design Styles Explained'},
+    {h:'color-matching-guide-wall-art', n:'Colour Matching Guide for Wall Art'},
+    {h:'interior-design-guide-principles-and-concepts', n:'Interior Design Principles & Concepts'},
+    {h:'how-to-choose-wall-art-size', n:'How to Choose the Right Wall Art Size'},
+    {h:'gallery-wall-ideas-and-layouts', n:'Gallery Wall Ideas & Layouts'},
+    {h:'diy-interior-design-workbook', n:'Free DIY Interior Design Workbook'},
+    {h:'how-to-choose-the-perfect-celebration-gift', n:'How to Choose the Perfect Celebration Gift'}
+  ];
+  function nlToolByUrl(url){ if(!url) return null; var h=(url.split('/pages/')[1]||'').replace(/[/?#].*$/,''); var t=NL_TOOLS.filter(function(x){return x.h===h;})[0]; if(t) return {type:'tool',item:t}; var g=NL_GUIDES.filter(function(x){return x.h===h;})[0]; if(g) return {type:'guide',item:g}; return null; }
+  // build the grouped picker once
+  (function(){
+    var sel=$('nlToolPick'); if(!sel) return;
+    var h='<option value="">— choose a tool or guide —</option>';
+    h+='<optgroup label="Interactive tools">'+NL_TOOLS.map(function(t){return '<option value="tool:'+t.h+'">'+esc(t.n)+'</option>';}).join('')+'</optgroup>';
+    h+='<optgroup label="Guides">'+NL_GUIDES.map(function(g){return '<option value="guide:'+g.h+'">'+esc(g.n)+'</option>';}).join('')+'</optgroup>';
+    sel.innerHTML=h;
+    sel.addEventListener('change', function(){ applyPick(sel.value); });
+  })();
+  function applyPick(val){
+    if(!cur||!val) return;
+    if(!cur.toolBlock) cur.toolBlock={};
+    var parts=val.split(':'), type=parts[0], hnd=parts[1];
+    if(type==='tool'){
+      var t=NL_TOOLS.filter(function(x){return x.h===hnd;})[0]; if(!t) return;
+      cur.toolBlock.toolName=t.n; cur.toolBlock.url=NL_SITE+'/pages/'+t.h; cur.toolBlock.buttonLabel=t.btn;
+      cur.toolBlock.imageUrl=nlSquare(t.img); cur.toolBlock.imageData=null; renderEmail();
+    } else if(type==='guide'){
+      var g=NL_GUIDES.filter(function(x){return x.h===hnd;})[0]; if(!g) return;
+      cur.toolBlock.toolName=g.n; cur.toolBlock.url=NL_SITE+'/pages/'+g.h; cur.toolBlock.buttonLabel='READ THE GUIDE';
+      cur.toolBlock.imageUrl=''; cur.toolBlock.imageData=null; renderEmail();
+      post({action:'newsletter-page-image', url:cur.toolBlock.url}).then(function(d){ if(d&&d.ok&&d.image&&cur.toolBlock){ cur.toolBlock.imageUrl=d.image; renderEmail(); } });
+    }
+  }
 
   /* ---- render the editable email preview — matches Mae's real template ---- */
   function renderEmail(){
@@ -3564,9 +3608,10 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     var body=(cur.body||[]).map(function(p){ return '<div class="ed" contenteditable="true" data-role="body" style="margin:0 0 14px;">'+esc(p)+'</div>'; }).join('');
     var close=(cur.close||[]).map(function(p){ return '<div class="ed" contenteditable="true" data-role="close" style="margin:0 0 6px;">'+esc(p)+'</div>'; }).join('');
     var pb=cur.primaryButton||{}; var tb=cur.toolBlock||{};
-    var toolImg = tb.imageData
-      ? '<img id="nlToolImg" src="'+esc(tb.imageData)+'" alt="'+esc(tb.toolName||'')+'" style="width:70%;max-width:412px;display:block;margin:0 auto 18px;">'
-      : '<div id="nlToolImgPh" style="width:70%;max-width:412px;margin:0 auto 18px;padding:28px 10px;border:1.5px dashed #ccc;border-radius:8px;color:#aaa;font-family:'+LATO+';font-size:13px;">↑ upload the tool image on the right</div>';
+    var tImg=tb.imageData||tb.imageUrl||'';
+    var toolImg = tImg
+      ? '<img id="nlToolImg" src="'+esc(tImg)+'" alt="'+esc(tb.toolName||'')+'" style="width:70%;max-width:412px;display:block;margin:0 auto 18px;">'
+      : '<div id="nlToolImgPh" style="width:70%;max-width:412px;margin:0 auto 18px;padding:28px 10px;border:1.5px dashed #ccc;border-radius:8px;color:#aaa;font-family:'+LATO+';font-size:13px;">Pick a tool or guide on the right →</div>';
     var soc=NL_SOC.map(function(s){ return '<a href="'+s[1]+'" target="_blank" style="display:inline-block;margin:0 5px;"><img alt="'+s[0]+'" src="https://d3k81ch9hvuctc.cloudfront.net/assets/email/buttons/subtleinverse/'+s[2]+'" style="width:30px;"></a>'; }).join('');
 
     $('nlEmail').innerHTML=
@@ -3596,13 +3641,10 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     heroPrev.src=(cur.hero&&cur.hero.url)||''; heroPrev.alt=altIn.value;
     altIn.oninput=function(){ if(cur.hero){ cur.hero.alt=altIn.value; } var hi=$('nlHeroImg'); if(hi) hi.alt=altIn.value; heroPrev.alt=altIn.value; };
 
-    $('nlToolName').value=tb.toolName||'';
-    $('nlToolUrl').value=tb.url||'';
-    $('nlToolName').oninput=function(){ if(cur.toolBlock) cur.toolBlock.toolName=this.value; };
-    $('nlToolUrl').oninput=function(){ if(cur.toolBlock){ cur.toolBlock.url=this.value; var tbtn=$('nlEmail').querySelector('[data-role="toolbtn"]'); if(tbtn) tbtn.setAttribute('href',this.value); } };
-
+    var pick=$('nlToolPick'); if(pick){ var found=nlToolByUrl(tb.url); pick.value=found?(found.type+':'+found.item.h):''; }
+    $('nlToolUrl').textContent=tb.url||'';
     var tp=$('nlToolImgPrev');
-    if(tb.imageData){ tp.src=tb.imageData; tp.style.display='block'; } else { tp.style.display='none'; }
+    if(tImg){ tp.src=tImg; tp.style.display='block'; } else { tp.style.display='none'; }
   }
 
   /* ---- tool image upload (kept as a data URL until we push the draft to Klaviyo) ---- */
@@ -3625,8 +3667,6 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     if(!cur.toolBlock) cur.toolBlock={};
     cur.toolBlock.intro=txt('toolintro');
     cur.toolBlock.buttonLabel=txt('toolbtn');
-    cur.toolBlock.toolName=$('nlToolName').value;
-    cur.toolBlock.url=$('nlToolUrl').value;
     cur.close=Array.prototype.map.call(z.querySelectorAll('[data-role="close"]'), function(el){ return el.innerText.trim(); }).filter(function(x){return x;});
     if(cur.hero) cur.hero.alt=$('nlHeroAlt').value;
   }
@@ -3639,11 +3679,20 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     if(!note){ rwMsg.className='genstatus err'; rwMsg.textContent='Type what you want changed first.'; return; }
     readEmail();
     var prevImg=(cur.toolBlock&&cur.toolBlock.imageData)||null;
+    var prevImgUrl=(cur.toolBlock&&cur.toolBlock.imageUrl)||null;
+    var prevToolUrl=(cur.toolBlock&&cur.toolBlock.url)||null;
+    var prevBtn=(cur.toolBlock&&cur.toolBlock.buttonLabel)||null;
     rwBtn.disabled=true; var orig=rwBtn.innerHTML; rwBtn.innerHTML='Rewriting…'; rwMsg.className='genstatus'; rwMsg.textContent='';
     post({action:'newsletter-rewrite', articleId:selArticle.id, current:cur, note:note}).then(function(d){
       rwBtn.disabled=false; rwBtn.innerHTML=orig;
       if(!d || d.ok===false || !d.copy){ rwMsg.className='genstatus err'; rwMsg.textContent=(d&&d.error)||'Could not rewrite — try again.'; return; }
-      cur=d.copy; if(prevImg){ if(!cur.toolBlock) cur.toolBlock={}; if(!cur.toolBlock.imageData) cur.toolBlock.imageData=prevImg; } renderEmail(); rwMsg.className='genstatus ok'; rwMsg.textContent='Rewritten — check it.'; $('nlNote').value='';
+      cur=d.copy; if(!cur.toolBlock) cur.toolBlock={};
+      // keep the tool/guide YOU chose (don't let the rewrite swap it)
+      if(prevToolUrl) cur.toolBlock.url=prevToolUrl;
+      if(prevBtn) cur.toolBlock.buttonLabel=prevBtn;
+      if(prevImg && !cur.toolBlock.imageData) cur.toolBlock.imageData=prevImg;
+      if(prevImgUrl && !cur.toolBlock.imageUrl) cur.toolBlock.imageUrl=prevImgUrl;
+      renderEmail(); rwMsg.className='genstatus ok'; rwMsg.textContent='Rewritten — check it.'; $('nlNote').value='';
     }).catch(function(){ rwBtn.disabled=false; rwBtn.innerHTML=orig; rwMsg.className='genstatus err'; rwMsg.textContent='Network error — try again.'; });
   });
 })();
