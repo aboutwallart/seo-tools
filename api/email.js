@@ -283,6 +283,7 @@ module.exports = async (req, res) => {
       if (!pr.ok && !already) { var et = await pr.text(); res.status(502).json({ ok: false, error: 'Could not save to GitHub: ' + pr.status + ' ' + et.slice(0, 150) }); return; }
 
       // also save the full newsletter to the archive (month + content) — never blocks approval
+      var savedId = null;
       try {
         var month = (body.month || '').toString();
         var copy = body.copy || null;
@@ -292,8 +293,9 @@ module.exports = async (req, res) => {
         var nsha = null, list = [];
         if (nr.ok) { var nd = await nr.json(); nsha = nd.sha; try { list = JSON.parse(Buffer.from(nd.content || '', 'base64').toString('utf-8')) || []; } catch (e) { list = []; } }
         if (!Array.isArray(list)) list = [];
+        savedId = Date.now();
         list.unshift({
-          id: Date.now(), month: month, handle: handle,
+          id: savedId, month: month, handle: handle,
           title: (copy && copy.article && copy.article.title) || '',
           subject: (copy && copy.subject) || '',
           savedAt: new Date().toISOString(), copy: copy
@@ -305,7 +307,42 @@ module.exports = async (req, res) => {
         });
       } catch (e) {}
 
-      res.status(200).json({ ok: true, used: arr, already: already });
+      res.status(200).json({ ok: true, used: arr, already: already, savedId: savedId });
+      return;
+    }
+
+    // ---------- 1f-b) delete a saved newsletter + free its blog from the registry ----------
+    if (action === 'newsletter-delete') {
+      var did = body.id != null ? String(body.id) : '';
+      var dh = (body.handle || '').toString();
+      if (!did && !dh) { res.status(400).json({ ok: false, error: 'id or handle required' }); return; }
+      // remove from newsletters.json
+      try {
+        var dr = await fetch(`https://api.github.com/repos/${REPO}/contents/${NEWS_FILE}`, { headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' } });
+        if (dr.ok) {
+          var dd = await dr.json(); var dsha = dd.sha; var dlist = [];
+          try { dlist = JSON.parse(Buffer.from(dd.content || '', 'base64').toString('utf-8')) || []; } catch (e) { dlist = []; }
+          if (!Array.isArray(dlist)) dlist = [];
+          var kept = dlist.filter(function (x) { return did ? String(x.id) !== did : (String(x.handle).toLowerCase() !== dh.toLowerCase()); });
+          await fetch(`https://api.github.com/repos/${REPO}/contents/${NEWS_FILE}`, { method: 'PUT', headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' }, body: JSON.stringify({ message: 'Delete saved newsletter ' + (did || dh), content: Buffer.from(JSON.stringify(kept, null, 2) + '\n').toString('base64'), sha: dsha }) });
+          // figure the handle to free (from the deleted entry if id-based)
+          if (!dh && did) { var goneById = dlist.filter(function (x) { return String(x.id) === did; })[0]; if (goneById) dh = (goneById.handle || ''); }
+        }
+      } catch (e) {}
+      // free the blog from used-newsletter-blogs.json
+      if (dh) {
+        try {
+          var ur = await fetch(`https://api.github.com/repos/${REPO}/contents/${USED_FILE}`, { headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' } });
+          if (ur.ok) {
+            var ud = await ur.json(); var usha = ud.sha; var uarr = [];
+            try { uarr = JSON.parse(Buffer.from(ud.content || '', 'base64').toString('utf-8')) || []; } catch (e) { uarr = []; }
+            if (!Array.isArray(uarr)) uarr = [];
+            var uk = uarr.filter(function (h) { return String(h).toLowerCase() !== dh.toLowerCase(); });
+            await fetch(`https://api.github.com/repos/${REPO}/contents/${USED_FILE}`, { method: 'PUT', headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' }, body: JSON.stringify({ message: 'Free blog after newsletter delete — ' + dh, content: Buffer.from(JSON.stringify(uk, null, 2) + '\n').toString('base64'), sha: usha }) });
+          }
+        } catch (e) {}
+      }
+      res.status(200).json({ ok: true });
       return;
     }
 
@@ -346,6 +383,23 @@ module.exports = async (req, res) => {
       var MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
       var ymp = month.split('-'); var Y = +ymp[0], Mo = +ymp[1];
       var cName = 'NEWSLETTER ' + ((MONTHS[Mo - 1] || '').toUpperCase()) + ' ' + Y;
+
+      // ---- anti double-send: look up this newsletter in the archive; block if already in Klaviyo ----
+      var newsletterId = body.newsletterId != null ? String(body.newsletterId) : '';
+      var newsSha = null, newsList = [], newsIdx = -1;
+      try {
+        var ngr = await fetch(`https://api.github.com/repos/${REPO}/contents/${NEWS_FILE}`, { headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' } });
+        if (ngr.ok) { var ngd = await ngr.json(); newsSha = ngd.sha; try { newsList = JSON.parse(Buffer.from(ngd.content || '', 'base64').toString('utf-8')) || []; } catch (e) { newsList = []; } }
+      } catch (e) {}
+      if (!Array.isArray(newsList)) newsList = [];
+      for (var ni = 0; ni < newsList.length; ni++) {
+        var e0 = newsList[ni];
+        if ((newsletterId && String(e0.id) === newsletterId) || (!newsletterId && String(e0.handle || '').toLowerCase() === dhandle.toLowerCase() && String(e0.month || '') === month)) { newsIdx = ni; break; }
+      }
+      if (newsIdx >= 0 && newsList[newsIdx].klaviyo && newsList[newsIdx].klaviyo.campaignId) {
+        res.status(200).json({ ok: false, already: true, error: 'This newsletter is already in Klaviyo.', url: newsList[newsIdx].klaviyo.url });
+        return;
+      }
 
       // 3rd Friday of the month at 10:00 UK (handles BST) -> ISO
       function lastSunday(y, m0) { var d = new Date(Date.UTC(y, m0 + 1, 0)); while (d.getUTCDay() !== 0) d.setUTCDate(d.getUTCDate() - 1); return d.getUTCDate(); }
@@ -395,7 +449,16 @@ module.exports = async (req, res) => {
         await fetch(`https://api.github.com/repos/${REPO}/contents/${mf}`, { method: 'PUT', headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' }, body: JSON.stringify({ message: 'Newsletter draft created — mark board ' + month, content: Buffer.from(JSON.stringify(mobj, null, 2) + '\n').toString('base64'), ...(msha ? { sha: msha } : {}) }) });
       } catch (e) {}
 
-      res.status(200).json({ ok: true, campaignId: campaignId, url: 'https://www.klaviyo.com/campaign/' + campaignId + '/wizard' });
+      // 5) stamp the archive entry as sent so it can't be pushed twice (from flow OR archive)
+      var kvUrl = 'https://www.klaviyo.com/campaign/' + campaignId + '/wizard';
+      try {
+        if (newsIdx >= 0) {
+          newsList[newsIdx].klaviyo = { campaignId: campaignId, url: kvUrl, sentAt: new Date().toISOString() };
+          await fetch(`https://api.github.com/repos/${REPO}/contents/${NEWS_FILE}`, { method: 'PUT', headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' }, body: JSON.stringify({ message: 'Newsletter sent to Klaviyo — ' + month, content: Buffer.from(JSON.stringify(newsList, null, 2) + '\n').toString('base64'), ...(newsSha ? { sha: newsSha } : {}) }) });
+        }
+      } catch (e) {}
+
+      res.status(200).json({ ok: true, campaignId: campaignId, url: kvUrl });
       return;
     }
 
