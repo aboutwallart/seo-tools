@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.33 · 2 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.34 · 2 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -3538,17 +3538,24 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     });
   });
 
-  /* ---- Step 1: month picker (current + next 11 months) ---- */
-  (function(){
+  /* ---- Step 1: month picker — next 12 months, skipping any already sent to Klaviyo ---- */
+  var nlDone={}; // months (YYYY-MM) already sent to Klaviyo -> not offered
+  function nlBuildMonths(){
     var sel=$('nlMonth'); if(!sel) return;
-    var now=new Date(); var h='';
-    for(var i=0;i<12;i++){
+    var prev=sel.value; var now=new Date(); var h=''; var firstAvail=null; var count=0;
+    for(var i=0;i<48 && count<12;i++){
       var d=new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth()+i, 1));
       var ym=d.toISOString().slice(0,7);
+      if(nlDone[ym]) continue; // skip months already done
+      if(!firstAvail) firstAvail=ym;
       h+='<option value="'+ym+'">'+NLMON[d.getUTCMonth()]+' '+d.getUTCFullYear()+'</option>';
+      count++;
     }
     sel.innerHTML=h;
-  })();
+    if(prev && !nlDone[prev] && sel.querySelector('option[value="'+prev+'"]')) sel.value=prev;
+    else if(firstAvail) sel.value=firstAvail;
+  }
+  nlBuildMonths();
 
   /* ---- Past newsletters archive (collapsible bars, like the Content Board) ---- */
   function monthLabelYM(ym){ if(!ym) return ''; var p=ym.split('-'); return NLMON[(+p[1])-1]+' '+p[0]; }
@@ -3556,6 +3563,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     var wrap=$('nlArchive'), box=$('nlArchiveWrap'); if(!wrap) return;
     post({action:'newsletter-archive'}).then(function(d){
       var items=(d&&d.ok&&d.items)?d.items:[];
+      // hide months already sent to Klaviyo from the Step 1 picker
+      nlDone={}; items.forEach(function(it){ if(it&&it.klaviyo&&it.klaviyo.campaignId&&it.month) nlDone[it.month]=1; }); nlBuildMonths();
       if(!items.length){ box.style.display='none'; return; }
       box.style.display='';
       wrap.innerHTML='';
