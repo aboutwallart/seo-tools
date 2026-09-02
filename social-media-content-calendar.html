@@ -205,12 +205,13 @@
   .capbhead .schk{margin-left:auto;}
 </style>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.7.0/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap">
 </head>
 <body>
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.34 · 2 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.39 · 2 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -3605,7 +3606,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     pre.then(build).then(function(d){
       btn.disabled=false; btn.innerHTML=o;
       if(!d||d.ok===false){ mm.className='nlArcMsg genstatus err'; mm.innerHTML=((d&&d.error)||'Could not send.')+(d&&d.url?(' <a href="'+esc(d.url)+'" target="_blank">Open</a>'):''); if(d&&d.already) loadArchive(); return; }
-      mm.className='nlArcMsg genstatus ok'; mm.innerHTML='Sent to Klaviyo ✓ <a href="'+esc(d.url)+'" target="_blank">Open</a>';
+      mm.className='nlArcMsg genstatus ok'; var asch=d.scheduledFor?esc(d.scheduledFor):'the 3rd Friday, 10:00'; mm.innerHTML=(d.scheduled?('Scheduled for <b>'+asch+'</b> ✓'):('In Klaviyo ✓ — schedule for <b>'+asch+'</b>'))+' <a href="'+esc(d.url)+'" target="_blank">Open</a>';
       if(window.__reloadBoard) window.__reloadBoard();
       loadArchive();
     }).catch(function(){ btn.disabled=false; btn.innerHTML=o; mm.className='nlArcMsg genstatus err'; mm.textContent='Network error — try again.'; });
@@ -3674,7 +3675,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     ['LinkedIn','https://www.linkedin.com/company/about-wall-art/','linkedin_96.png']
   ];
   var NL_SITE='https://aboutwallart.com';
-  var NL_LATO="Lato,'Century Gothic',CenturyGothic,AppleGothic,Arial,sans-serif";
+  var NL_LATO="Lato, 'Helvetica Neue', Helvetica, Arial, sans-serif"; /* Lato = Mae's brand font (loaded in the preview head + the email @import); Arial only as last-resort fallback */
   // keep the EXACT text the user typed, including line breaks she added
   function nlText(s){ return esc(s).replace(/\r\n|\r|\n/g,'<br>'); }
 
@@ -3697,7 +3698,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       +'<div style="font-family:'+NL_LATO+';font-size:18px;line-height:1.5;text-align:center;color:#0f1419;padding:22px 30px;background:#fff;">'
         +'<div'+edc+ce+' data-role="greeting" style="margin:0 0 16px;">'+nlText(c.greeting||"Dear {{ first_name|default:'friend' }},")+'</div>'
         +body
-        +'<div style="margin:24px 0;"><a'+edc+ce+' data-role="btnlabel" href="'+esc(pb.url||'#')+'"'+(editable?' onclick="return false"':' target="_blank"')+' style="display:inline-block;background:#000;color:#fff;text-decoration:none;padding:15px 26px;font-size:18px;">'+nlText(pb.label||'READ THE GUIDE & FIND YOUR STYLE')+'</a></div>'
+        +'<div style="margin:24px 0;"><a'+edc+ce+' data-role="btnlabel" href="'+esc(pb.url||'#')+'"'+(editable?' onclick="return false"':' target="_blank"')+' style="display:inline-block;background:#000;color:#fff;text-decoration:none;padding:15px 26px;font-size:18px;">'+nlText(pb.label||'READ THE GUIDE')+'</a></div>'
         +'<div'+edc+ce+' data-role="toolintro" style="margin:0 0 16px;">'+nlText(tb.intro||'')+'</div>'
         +toolImgHtml
         +'<div style="margin:0 0 24px;"><a'+edc+ce+' data-role="toolbtn" href="'+esc(tb.url||'#')+'"'+(editable?' onclick="return false"':' target="_blank"')+' style="display:inline-block;background:#ccc;color:#000;text-decoration:none;padding:15px 26px;font-size:18px;">'+nlText(tb.buttonLabel||'TAKE THE QUIZ')+'</a></div>'
@@ -3714,7 +3715,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   // full email document for Klaviyo (wraps emailHTML)
   function fullEmailDoc(c){
     return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-      +'<style>@import url(https://static-forms.klaviyo.com/fonts/api/v1/RNrN7e/custom_fonts.css);body{margin:0;padding:0;background:#f4f4f4;}img{border:0;}</style>'
+      +'<style>@import url(https://static-forms.klaviyo.com/fonts/api/v1/RNrN7e/custom_fonts.css);@import url(https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap);body{margin:0;padding:0;background:#f4f4f4;font-family:Lato,\'Helvetica Neue\',Helvetica,Arial,sans-serif;}img{border:0;}</style>'
       +'</head><body style="margin:0;padding:0;background:#f4f4f4;">'+emailHTML(c,false)+'</body></html>';
   }
 
@@ -3930,7 +3931,12 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       cdBtn.disabled=true;
       cdBtn.innerHTML='<i class="ti ti-check"></i> Draft created in Klaviyo';
       cdMsg.className='genstatus ok';
-      cdMsg.innerHTML='Draft created in Klaviyo ✓ — review it there, send yourself a test, then schedule for the 3rd Friday 10:00. Marked done on the Content Board.'+(d.url?(' <a href="'+esc(d.url)+'" target="_blank" style="color:#0F6E56;text-decoration:underline;">Open in Klaviyo</a>'):'');
+      var sched=d.scheduledFor?esc(d.scheduledFor):'the 3rd Friday, 10:00';
+      cdMsg.innerHTML=(d.scheduled
+          ? 'Draft created &amp; <b>scheduled for '+sched+'</b> ✓ — review it in Klaviyo and send yourself a test.'
+          : 'Draft created ✓ — review it + send a test, then <b>schedule it for '+sched+'</b>.')
+        +' Marked done on the Content Board.'
+        +(d.url?(' <a href="'+esc(d.url)+'" target="_blank" style="color:#0F6E56;text-decoration:underline;">Open in Klaviyo</a>'):'');
       if(window.__reloadBoard) window.__reloadBoard();
       loadArchive();
     }).catch(function(){ cdBtn.disabled=false; cdBtn.innerHTML=orig; cdMsg.className='genstatus err'; cdMsg.textContent='Network error — try again.'; });
