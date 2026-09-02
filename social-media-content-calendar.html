@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.26 · 2 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.27 · 2 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -307,6 +307,8 @@
               <div id="nlCheckWrap" style="display:none;text-align:left;margin:8px 0 14px;background:#F7F6FE;border:1px solid #E4E1F0;border-radius:10px;padding:12px 14px;"></div>
               <button id="nlApprove" class="genbtn" type="button" style="background:#0F6E56;"><i class="ti ti-check"></i> Approve this newsletter</button>
               <div id="nlApproveMsg" class="genstatus"></div>
+              <button id="nlCreateDraft" class="genbtn" type="button" style="background:#111;margin-top:10px;display:none;"><i class="ti ti-send"></i> Create draft in Klaviyo</button>
+              <div id="nlDraftMsg" class="genstatus"></div>
             </div>
           </div>
           <div class="nlside">
@@ -3573,33 +3575,11 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     }).catch(function(){});
   }
 
-  // read-only render of a saved newsletter (for the archive)
+  // read-only render of a saved newsletter (for the archive) — SAME layout as the sent email
   function staticEmail(c){
     c=c||{};
-    var LATO="Lato,'Century Gothic',CenturyGothic,AppleGothic,sans-serif";
-    var tb=c.toolBlock||{}, hero=c.hero||{};
-    var body=(c.body||[]).map(function(p){return '<div style="margin:0 0 14px;">'+esc(p)+'</div>';}).join('');
-    var close=(c.close||[]).map(function(p){return '<div style="margin:0 0 6px;">'+esc(p)+'</div>';}).join('');
-    var tImg=tb.imageData||tb.imageUrl||'';
-    var soc=NL_SOC.map(function(s){return '<a href="'+s[1]+'" target="_blank" style="display:inline-block;margin:0 5px;"><img alt="'+s[0]+'" src="https://d3k81ch9hvuctc.cloudfront.net/assets/email/buttons/subtleinverse/'+s[2]+'" style="width:30px;"></a>';}).join('');
-    return ''
-      +'<div style="padding:10px 14px;font-size:12px;color:#8A85A6;background:#F7F6FE;"><b>Subject:</b> '+esc(c.subject||'')+'<br><b>Preview:</b> '+esc(c.preview||'')+'</div>'
-      +'<div style="background:#000;text-align:center;"><img src="'+NL_LOGO+'" alt="About Wall Art" style="width:356px;max-width:60%;"></div>'
-      +'<div style="text-align:center;padding:20px 0 0;"><img src="'+NL_BANNER+'" alt="Inspiration Delivered" style="width:250px;max-width:60%;"></div>'
-      +(hero.url?'<img src="'+esc(hero.url)+'" alt="'+esc(hero.alt||'')+'" style="width:100%;display:block;margin-top:14px;">':'')
-      +'<div style="font-family:'+LATO+';font-size:18px;line-height:1.5;text-align:center;color:#0f1419;padding:22px 30px;">'
-        +'<div style="margin:0 0 16px;">'+esc(c.greeting||'')+'</div>'
-        +body
-        +'<div style="margin:24px 0;"><a href="'+esc((c.primaryButton&&c.primaryButton.url)||'#')+'" style="display:inline-block;background:#000;color:#fff;text-decoration:none;padding:15px 26px;font-size:18px;">'+esc((c.primaryButton&&c.primaryButton.label)||'')+'</a></div>'
-        +'<div style="margin:0 0 16px;">'+esc(tb.intro||'')+'</div>'
-        +(tImg?'<img src="'+esc(tImg)+'" alt="'+esc(tb.toolName||'')+'" style="width:70%;max-width:412px;display:block;margin:0 auto 18px;">':'')
-        +'<div style="margin:0 0 24px;"><a href="'+esc(tb.url||'#')+'" style="display:inline-block;background:#ccc;color:#000;text-decoration:none;padding:15px 26px;font-size:18px;">'+esc(tb.buttonLabel||'')+'</a></div>'
-        +close
-      +'</div>'
-      +'<div style="background:#000;color:#fff;font-family:'+LATO+';text-align:center;padding:20px;">'
-        +'<div style="margin:14px 0;">'+soc+'</div>'
-        +'<div style="font-size:12px;color:#fff;">© About Wall Art | Hertford | United Kingdom | SG14 1AY</div>'
-      +'</div>';
+    return '<div style="padding:10px 14px;font-size:12px;color:#8A85A6;background:#F7F6FE;"><b>Subject:</b> '+esc(c.subject||'')+'<br><b>Preview:</b> '+esc(c.preview||'')+'</div>'
+      + emailHTML(c, false);
   }
 
   /* ---- Step 2: load 5 blogs ---- */
@@ -3654,6 +3634,50 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     ['LinkedIn','https://www.linkedin.com/company/about-wall-art/','linkedin_96.png']
   ];
   var NL_SITE='https://aboutwallart.com';
+  var NL_LATO="Lato,'Century Gothic',CenturyGothic,AppleGothic,Arial,sans-serif";
+  // keep the EXACT text the user typed, including line breaks she added
+  function nlText(s){ return esc(s).replace(/\r\n|\r|\n/g,'<br>'); }
+
+  // ONE email layout — used for the editable preview, the archive view, AND the email sent to Klaviyo.
+  // editable=true adds contenteditable so she can edit in place; the HTML is otherwise identical => WYSIWYG.
+  function emailHTML(c, editable){
+    c=c||{}; var tb=c.toolBlock||{}, hero=c.hero||{}, pb=c.primaryButton||{};
+    var ce=editable?' contenteditable="true"':''; var edc=editable?' class="ed"':'';
+    var tImg=tb.imageData||tb.imageUrl||'';
+    var body=(c.body||[]).map(function(p){ return '<div'+edc+ce+' data-role="body" style="margin:0 0 14px;">'+nlText(p)+'</div>'; }).join('');
+    var close=(c.close||[]).map(function(p){ return '<div'+edc+ce+' data-role="close" style="margin:0 0 6px;">'+nlText(p)+'</div>'; }).join('');
+    var soc=NL_SOC.map(function(s){ return '<a href="'+s[1]+'" target="_blank" style="display:inline-block;margin:0 5px;text-decoration:none;"><img alt="'+s[0]+'" src="https://d3k81ch9hvuctc.cloudfront.net/assets/email/buttons/subtleinverse/'+s[2]+'" width="30" style="width:30px;"></a>'; }).join('');
+    var toolImgHtml = tImg
+      ? '<img id="nlToolImg" src="'+esc(tImg)+'" alt="'+esc(tb.toolName||'')+'" width="412" style="width:70%;max-width:412px;display:block;margin:0 auto 18px;">'
+      : (editable?'<div id="nlToolImgPh" style="width:70%;max-width:412px;margin:0 auto 18px;padding:28px 10px;border:1.5px dashed #ccc;border-radius:8px;color:#aaa;font-family:'+NL_LATO+';font-size:13px;">Pick a tool or guide on the right →</div>':'');
+    return '<div style="max-width:600px;margin:0 auto;background:#ffffff;">'
+      +'<div style="background:#000;text-align:center;"><img src="'+NL_LOGO+'" alt="About Wall Art" width="356" style="width:356px;max-width:60%;"></div>'
+      +'<div style="text-align:center;padding:20px 0 0;"><img src="'+NL_BANNER+'" alt="Inspiration Delivered" width="250" style="width:250px;max-width:60%;"></div>'
+      +(hero.url?'<a href="'+esc(hero.link||'#')+'" target="_blank" style="display:block;"><img id="nlHeroImg" src="'+esc(hero.url)+'" alt="'+esc(hero.alt||'')+'" width="600" style="width:100%;display:block;margin-top:14px;"></a>':'')
+      +'<div style="font-family:'+NL_LATO+';font-size:18px;line-height:1.5;text-align:center;color:#0f1419;padding:22px 30px;background:#fff;">'
+        +'<div'+edc+ce+' data-role="greeting" style="margin:0 0 16px;">'+nlText(c.greeting||"Dear {{ first_name|default:'friend' }},")+'</div>'
+        +body
+        +'<div style="margin:24px 0;"><a'+edc+ce+' data-role="btnlabel" href="'+esc(pb.url||'#')+'"'+(editable?' onclick="return false"':' target="_blank"')+' style="display:inline-block;background:#000;color:#fff;text-decoration:none;padding:15px 26px;font-size:18px;">'+nlText(pb.label||'READ THE GUIDE & FIND YOUR STYLE')+'</a></div>'
+        +'<div'+edc+ce+' data-role="toolintro" style="margin:0 0 16px;">'+nlText(tb.intro||'')+'</div>'
+        +toolImgHtml
+        +'<div style="margin:0 0 24px;"><a'+edc+ce+' data-role="toolbtn" href="'+esc(tb.url||'#')+'"'+(editable?' onclick="return false"':' target="_blank"')+' style="display:inline-block;background:#ccc;color:#000;text-decoration:none;padding:15px 26px;font-size:18px;">'+nlText(tb.buttonLabel||'TAKE THE QUIZ')+'</a></div>'
+        +close
+      +'</div>'
+      +'<div style="background:#000;color:#fff;font-family:'+NL_LATO+';text-align:center;padding:24px 20px;">'
+        +'<div style="font-size:16px;line-height:1.5;margin-bottom:16px;">Have any questions?<br>Whether you\'re confused, curious, or need assistance<br>simply reply to this email — I\'m happy to help!<br>Mae ❤️</div>'
+        +'<div style="margin:14px 0;">'+soc+'</div>'
+        +'<div style="font-size:12px;color:#fff;">© About Wall Art | Hertford | United Kingdom | SG14 1AY</div>'
+        +'<div style="font-size:12px;color:#fff;margin-top:8px;">No longer want to receive these emails? {% unsubscribe \'Unsubscribe\' %}</div>'
+      +'</div>'
+    +'</div>';
+  }
+  // full email document for Klaviyo (wraps emailHTML)
+  function fullEmailDoc(c){
+    return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+      +'<style>@import url(https://static-forms.klaviyo.com/fonts/api/v1/RNrN7e/custom_fonts.css);body{margin:0;padding:0;background:#f4f4f4;}img{border:0;}</style>'
+      +'</head><body style="margin:0;padding:0;background:#f4f4f4;">'+emailHTML(c,false)+'</body></html>';
+  }
+
   // force a square centre-crop so portrait + square images all look the same
   function nlSquare(url,size){ if(!url) return url; var s=size||800; if(url.indexOf('cdn.shopify.com')<0) return url; var b=url.split('?')[0], q=url.split('?')[1]||''; var vm=q.match(/(?:^|&)v=([^&]+)/); return b+'?width='+s+'&height='+s+'&crop=center'+(vm?('&v='+vm[1]):''); }
   // TOOLS = interactive tools; each has a specific image Mae chose. GUIDES = use each guide's own page image (fetched).
@@ -3710,40 +3734,14 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     }).catch(function(){ if(cur&&cur.toolBlock){ cur.toolBlock.intro=''; renderEmail(); } });
   }
 
-  /* ---- render the editable email preview — matches Mae's real template ---- */
+  /* ---- render the editable email preview — SAME layout as the sent email (WYSIWYG) ---- */
   function renderEmail(){
     if(!cur) return;
-    var LATO="Lato,'Century Gothic',CenturyGothic,AppleGothic,sans-serif";
-    var body=(cur.body||[]).map(function(p){ return '<div class="ed" contenteditable="true" data-role="body" style="margin:0 0 14px;">'+esc(p)+'</div>'; }).join('');
-    var close=(cur.close||[]).map(function(p){ return '<div class="ed" contenteditable="true" data-role="close" style="margin:0 0 6px;">'+esc(p)+'</div>'; }).join('');
-    var pb=cur.primaryButton||{}; var tb=cur.toolBlock||{};
-    var tImg=tb.imageData||tb.imageUrl||'';
-    var toolImg = tImg
-      ? '<img id="nlToolImg" src="'+esc(tImg)+'" alt="'+esc(tb.toolName||'')+'" style="width:70%;max-width:412px;display:block;margin:0 auto 18px;">'
-      : '<div id="nlToolImgPh" style="width:70%;max-width:412px;margin:0 auto 18px;padding:28px 10px;border:1.5px dashed #ccc;border-radius:8px;color:#aaa;font-family:'+LATO+';font-size:13px;">Pick a tool or guide on the right →</div>';
-    var soc=NL_SOC.map(function(s){ return '<a href="'+s[1]+'" target="_blank" style="display:inline-block;margin:0 5px;"><img alt="'+s[0]+'" src="https://d3k81ch9hvuctc.cloudfront.net/assets/email/buttons/subtleinverse/'+s[2]+'" style="width:30px;"></a>'; }).join('');
-
+    var tb=cur.toolBlock||{}; var tImg=tb.imageData||tb.imageUrl||'';
     $('nlEmail').innerHTML=
       '<div class="nlsubjrow"><b>Subject:</b> <span class="ed" contenteditable="true" data-role="subject">'+esc(cur.subject||'')+'</span></div>'
       +'<div class="nlsubjrow" style="padding-bottom:10px;"><b>Preview:</b> <span class="ed" contenteditable="true" data-role="preview">'+esc(cur.preview||'')+'</span></div>'
-      +'<div style="background:#000;text-align:center;padding:0;"><img src="'+NL_LOGO+'" alt="About Wall Art" style="width:356px;max-width:60%;display:inline-block;vertical-align:middle;"></div>'
-      +'<div style="text-align:center;padding:20px 0 0;"><img src="'+NL_BANNER+'" alt="Inspiration Delivered" style="width:250px;max-width:60%;"></div>'
-      +'<a href="'+esc((cur.hero&&cur.hero.link)||'#')+'" target="_blank" style="display:block;"><img class="nlhero" id="nlHeroImg" src="'+esc((cur.hero&&cur.hero.url)||'')+'" alt="'+esc((cur.hero&&cur.hero.alt)||'')+'" style="margin-top:14px;"></a>'
-      +'<div class="nlbodyzone" style="font-family:'+LATO+';font-size:18px;line-height:1.5;text-align:center;color:#0f1419;padding:22px 30px;">'
-        +'<div class="ed" contenteditable="true" data-role="greeting" style="margin:0 0 16px;">'+esc(cur.greeting||"Dear {{ first_name|default:'friend' }},")+'</div>'
-        +body
-        +'<div style="margin:24px 0;"><a class="ed" contenteditable="true" data-role="btnlabel" href="'+esc(pb.url||'#')+'" onclick="return false" style="display:inline-block;background:#000;color:#fff;text-decoration:none;padding:15px 26px;font-size:18px;">'+esc(pb.label||'READ THE GUIDE & FIND YOUR STYLE')+'</a></div>'
-        +'<div class="ed" contenteditable="true" data-role="toolintro" style="margin:0 0 16px;">'+esc(tb.intro||'')+'</div>'
-        +toolImg
-        +'<div style="margin:0 0 24px;"><a class="ed" contenteditable="true" data-role="toolbtn" href="'+esc(tb.url||'#')+'" onclick="return false" style="display:inline-block;background:#ccc;color:#000;text-decoration:none;padding:15px 26px;font-size:18px;">'+esc(tb.buttonLabel||'TAKE THE QUIZ')+'</a></div>'
-        +close
-      +'</div>'
-      +'<div style="background:#000;color:#fff;font-family:'+LATO+';text-align:center;padding:24px 20px;">'
-        +'<div style="font-size:16px;line-height:1.5;margin-bottom:16px;">Have any questions?<br>Whether you\'re confused, curious, or need assistance<br>simply reply to this email — I\'m happy to help!<br>Mae ❤️</div>'
-        +'<div style="margin:14px 0;">'+soc+'</div>'
-        +'<div style="font-size:12px;color:#fff;">© About Wall Art | Hertford | United Kingdom | SG14 1AY</div>'
-        +'<div style="font-size:12px;color:#fff;margin-top:8px;">No longer want to receive these emails? <span style="text-decoration:underline;">Unsubscribe</span></div>'
-      +'</div>';
+      + emailHTML(cur, true);
 
     var altIn=$('nlHeroAlt'), heroPrev=$('nlHeroPrev');
     altIn.value=(cur.hero&&cur.hero.alt)||'';
@@ -3825,7 +3823,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       cur.approved=true;
       apBtn.innerHTML='<i class="ti ti-check"></i> Approved';
       apMsg.className='genstatus ok';
-      apMsg.textContent=d.already ? 'Approved. (This blog was already registered.) Saved to Past newsletters. Next: create the draft in Klaviyo.' : 'Approved ✓ — blog registered + saved to Past newsletters. Next: create the draft in Klaviyo.';
+      apMsg.textContent=d.already ? 'Approved. (This blog was already registered.) Saved to Past newsletters. Now create the draft in Klaviyo →' : 'Approved ✓ — blog registered + saved to Past newsletters. Now create the draft in Klaviyo →';
+      $('nlCreateDraft').style.display='';
       loadArchive();
     }).catch(function(){ apBtn.disabled=false; apBtn.innerHTML=orig; apMsg.className='genstatus err'; apMsg.textContent='Network error — try again.'; });
   });
@@ -3864,6 +3863,32 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         renderEmail(); ckWrap.style.display='none'; ckMsg.className='genstatus ok'; ckMsg.textContent='Fixes applied — have a look.';
       }); }
     }).catch(function(){ ckBtn.disabled=false; ckBtn.innerHTML=orig; ckMsg.className='genstatus err'; ckMsg.textContent='Network error — try again.'; });
+  });
+
+  /* ---- Create the DRAFT campaign in Klaviyo (sends the EXACT approved HTML) ---- */
+  var cdBtn=$('nlCreateDraft'), cdMsg=$('nlDraftMsg');
+  cdBtn.addEventListener('click', function(){
+    if(!cur) return;
+    if(!cur.approved){ cdMsg.className='genstatus err'; cdMsg.textContent='Approve it first.'; return; }
+    var month=($('nlMonth')&&$('nlMonth').value)||'';
+    var handle=(selArticle&&selArticle.handle)||(cur.article&&cur.article.handle)||'';
+    cdBtn.disabled=true; var orig=cdBtn.innerHTML; cdBtn.innerHTML='Creating in Klaviyo…'; cdMsg.className='genstatus'; cdMsg.textContent='';
+    function build(){
+      var htmlDoc=fullEmailDoc(cur);
+      return post({action:'newsletter-create-draft', month:month, handle:handle, subject:cur.subject||'', preview:cur.preview||'', html:htmlDoc});
+    }
+    // if the tool image is a custom upload (data URL), host it first so it loads in email
+    var pre=(cur.toolBlock&&cur.toolBlock.imageData)
+      ? post({action:'newsletter-host-image', imageData:cur.toolBlock.imageData}).then(function(d){ if(d&&d.ok&&d.url&&cur.toolBlock){ cur.toolBlock.imageUrl=d.url; cur.toolBlock.imageData=null; renderEmail(); } })
+      : Promise.resolve();
+    pre.then(build).then(function(d){
+      cdBtn.disabled=false; cdBtn.innerHTML=orig;
+      if(!d || d.ok===false){ cdMsg.className='genstatus err'; cdMsg.textContent=(d&&d.error)||'Could not create the draft — try again.'; return; }
+      cdBtn.innerHTML='<i class="ti ti-check"></i> Draft created in Klaviyo';
+      cdMsg.className='genstatus ok';
+      cdMsg.innerHTML='Draft created in Klaviyo ✓ — review it there, send yourself a test, then schedule for the 3rd Friday 10:00. Marked done on the Content Board.'+(d.url?(' <a href="'+esc(d.url)+'" target="_blank" style="color:#0F6E56;text-decoration:underline;">Open in Klaviyo</a>'):'');
+      if(window.__reloadBoard) window.__reloadBoard();
+    }).catch(function(){ cdBtn.disabled=false; cdBtn.innerHTML=orig; cdMsg.className='genstatus err'; cdMsg.textContent='Network error — try again.'; });
   });
 
   /* ---- load past newsletters on open ---- */
