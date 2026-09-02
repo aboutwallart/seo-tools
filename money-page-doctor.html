@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 69.4</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 69.5</p>
                 </div>
             </div>
         </header>
@@ -721,7 +721,7 @@
                 return;
             }
             const ranked = candidates.map(item => ({ item, cat: startHereCategory(item.url) }))
-                .filter(r => mpdPinnedTop.has(normalizeUrlPath(r.item.url)) || (r.cat !== 'winner' && r.cat !== 'hold'))   // pinned (retargeted) pages always show, regardless of metrics
+                .filter(r => r.cat !== 'winner' && r.cat !== 'hold')   // winners + held pages ALWAYS live in the Winners tab, never here (even if pinned)
                 .sort((a, b) => {
                     // Freshly retargeted pages are pinned to the very top (highest priority, even if metrics are low).
                     const ap = mpdPinnedTop.has(normalizeUrlPath(a.item.url)) ? 0 : 1;
