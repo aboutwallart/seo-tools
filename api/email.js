@@ -88,34 +88,47 @@ module.exports = async (req, res) => {
     try { return JSON.parse(text.slice(a, b + 1)); } catch (e) { return null; }
   }
 
-  // FREE on-site tools/guides the soft CTA can point to (keep-warm link)
+  // FREE on-site tools + guides the secondary CTA points to.
+  // The AI picks the ONE that best fits the chosen blog (NOT always the quiz).
+  var SITE = 'https://aboutwallart.com';
   var FREE_TOOLS = [
-    { name: 'Interior Style Quiz', url: '/pages/interior-style-quiz', note: 'find your style, 60s' },
+    // interactive tools
+    { name: 'Interior Style Quiz', url: '/pages/interior-style-quiz', note: 'find your style in 60s' },
     { name: 'Room Colour & Art Matcher', url: '/pages/room-colour-art-matcher', note: 'match art to your room colours' },
     { name: 'Wall Art Size Calculator', url: '/pages/wall-art-size-calculator', note: 'what size fits the wall' },
-    { name: 'Art Hanging Height Calculator', url: '/pages/art-hanging-height-calculator', note: 'how high to hang' },
+    { name: 'Art Hanging Height Calculator', url: '/pages/art-hanging-height-calculator', note: 'how high to hang art' },
     { name: 'Gallery Wall Planner', url: '/pages/gallery-wall-planner', note: 'plan a gallery wall' },
-    { name: 'Find Their Perfect Gift quiz', url: '/pages/find-their-perfect-gift-quiz', note: 'gift finder' }
+    { name: 'Find Their Perfect Gift quiz', url: '/pages/find-their-perfect-gift-quiz', note: 'gift finder quiz' },
+    // guides (read online + downloadable)
+    { name: 'Interior Design Styles Explained', url: '/pages/interior-design-styles-explained', note: '24+ styles explained' },
+    { name: 'Colour Matching Guide for Wall Art', url: '/pages/color-matching-guide-wall-art', note: 'colour matching guide' },
+    { name: 'Interior Design Principles & Concepts', url: '/pages/interior-design-guide-principles-and-concepts', note: 'design principles guide' },
+    { name: 'How to Choose the Right Wall Art Size', url: '/pages/how-to-choose-wall-art-size', note: 'sizing guide' },
+    { name: 'Gallery Wall Ideas & Layouts', url: '/pages/gallery-wall-ideas-and-layouts', note: 'gallery wall layouts' },
+    { name: 'Free DIY Interior Design Workbook', url: '/pages/diy-interior-design-workbook', note: 'DIY design workbook' },
+    { name: 'How to Choose the Perfect Celebration Gift', url: '/pages/how-to-choose-the-perfect-celebration-gift', note: 'gift-choosing guide' }
   ];
 
   // ---- the newsletter voice + recipe (kept identical for write & rewrite) ----
+  // Follows Mae's REAL Klaviyo template XMA3dY structure:
+  //   greeting -> body -> BLACK button (to the blog) -> tool intro + tool block (AI picks best-fit tool) -> closing (hit reply, Warmly Mae)
   function recipe(article, extraNote) {
     var bodyText = blogToText(article.bodyHtml);
-    var toolLines = FREE_TOOLS.map(function (t) { return '- ' + t.name + ' (' + t.url + ') — ' + t.note; }).join('\n');
+    var toolLines = FREE_TOOLS.map(function (t) { return '- ' + t.name + ' (' + SITE + t.url + ') — ' + t.note; }).join('\n');
     return [
       'You are Mae, founder of About Wall Art (a WALL ART shop). Write a monthly NEWSLETTER email in Mae\'s real first-person voice (UK spelling).',
       '',
       'JOB OF THE NEWSLETTER: keep customers WARM and inspire them. It is NOT a hard sell (selling is the promos\' job).',
       '',
       'HARD RULES (a newsletter that breaks these is rejected):',
-      '1. SHORT. ~130–150 words of body. Must stay well under Gmail\'s clip size.',
+      '1. SHORT. ~130–150 words total. Must stay well under Gmail\'s clip size.',
       '2. Art-first, few words. Not an article, not walls of advice.',
-      '3. ONE primary CTA only = a button to the blog guide below. No "shop now" soup.',
+      '3. Primary CTA = the BLACK button to the blog guide below. No "shop now" soup.',
       '4. WALL ART only. Never mention furniture, lamps, rugs, sideboards, etc.',
       '5. Sound like Mae — warm, honest, human. NOT a generic AI article. Vary; no "myth → reveal" formula.',
       '6. Keep-warm, not sell. Position art as the easy, low-risk FIRST step to build a style.',
-      '7. One soft text link to a FREE on-site tool (framed as HELP, never urgency, never "in a hurry").',
-      '8. End with a warm "hit reply" line, signed "Mae".',
+      '7. SECONDARY CTA = pick the ONE free on-site tool/guide below that BEST FITS THIS BLOG (NOT always the style quiz). Frame it as HELP, never urgency, never "in a hurry".',
+      '8. End with a warm "hit reply" line, then "Warmly," then "Mae ❤️".',
       'BANNED words/phrases: elevate, curated, timeless, transform your space, dive in, unlock, discover, effortless, elevate your home, in today\'s world. Avoid marketing clichés.',
       '',
       'SUBJECT formula: a punchy, relatable tension AS A QUESTION using the merge tag {{ first_name|title|default:\'Friend\' }} at the start when natural. Not flat/descriptive.',
@@ -123,24 +136,23 @@ module.exports = async (req, res) => {
       '',
       'THE BLOG (this newsletter is built from it — read it and pull the ONE simplest angle):',
       'Blog title: ' + article.title,
-      'Blog URL (primary button target): ' + article.url,
+      'Blog URL (primary black button target): ' + article.url,
       'Blog body (plain text, furniture blocks already removed):',
       bodyText,
       '',
-      'FREE tools you may pick ONE soft link from (choose the single most relevant to this blog\'s topic):',
+      'FREE tools/guides — pick the SINGLE most relevant to THIS blog for the secondary CTA (return its exact full URL):',
       toolLines,
       '',
       (extraNote ? ('MAE\'S FEEDBACK — apply this exactly. If she says the concept was misunderstood, RE-READ the blog and rewrite around what she says it is really about:\n' + extraNote + '\n') : ''),
-      'Return ONLY valid JSON, no prose, in this exact shape:',
+      'Return ONLY valid JSON, no prose, in this exact shape (matches the email template blocks in order):',
       '{',
       '  "subject": "...",',
       '  "preview": "...",',
-      '  "greeting": "Hi {{ first_name|title|default:\'Friend\' }},",',
-      '  "body": ["paragraph 1", "paragraph 2", "..."],',
-      '  "primaryButton": { "label": "Read the guide: ... →", "url": "' + article.url + '" },',
-      '  "softLink": { "text": "the full sentence with the link phrase", "url": "/pages/..." },',
-      '  "close": "warm hit-reply line",',
-      '  "signoff": "Mae"',
+      '  "greeting": "Dear {{ first_name|default:\'friend\' }},",',
+      '  "body": ["paragraph before the button", "..."],',
+      '  "primaryButton": { "label": "READ THE GUIDE & FIND YOUR STYLE", "url": "' + article.url + '" },',
+      '  "toolBlock": { "intro": "one warm sentence introducing the free tool as help", "toolName": "exact tool name from the list", "url": "' + SITE + '/pages/...", "buttonLabel": "SHORT UPPERCASE BUTTON e.g. TAKE THE QUIZ" },',
+      '  "close": ["line after the tool (e.g. once you know it, your walls are the easiest place to start)", "a personal question to prompt a reply", "Hit reply; I read every one.", "Warmly,", "Mae ❤️"]',
       '}'
     ].join('\n');
   }
@@ -221,13 +233,21 @@ module.exports = async (req, res) => {
       var copy = extractJSON(raw);
       if (!copy) { res.status(502).json({ ok: false, error: 'AI did not return usable copy', raw: raw.slice(0, 400) }); return; }
 
-      // hero = the blog's featured image, forced to a retina-safe width (600px display -> ≥1200 source)
+      // hero = the blog's featured image, forced to a retina-safe width (600px display -> ≥1200 source), links to the blog
       copy.hero = {
         url: retinaImg(article.image, 1200),
         alt: copy.heroAlt || article.alt || article.title,
+        link: article.url,
         filename: slugify(copy.heroAlt || article.alt || article.title) + '.jpg'
       };
       delete copy.heroAlt;
+      // primary button always points at the blog
+      if (!copy.primaryButton) copy.primaryButton = {};
+      copy.primaryButton.url = article.url;
+      // normalise the tool link to an absolute URL
+      if (copy.toolBlock && copy.toolBlock.url && copy.toolBlock.url.indexOf('http') !== 0) {
+        copy.toolBlock.url = SITE + (copy.toolBlock.url.charAt(0) === '/' ? '' : '/') + copy.toolBlock.url;
+      }
       copy.article = { id: article.id, title: article.title, handle: article.handle, url: article.url };
 
       res.status(200).json({ ok: true, copy: copy });
