@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.27 · 2 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.28 · 2 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -3560,19 +3560,50 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       box.style.display='';
       wrap.innerHTML='';
       items.forEach(function(it){
+        var sent=!!(it.klaviyo&&it.klaviyo.campaignId);
         var bar=document.createElement('div');
         bar.style.cssText='background:#E9F7F1;border:1px solid #Bce3D4;border-radius:10px;padding:12px 14px;margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;';
-        bar.innerHTML='<span style="font-weight:700;color:#0F6E56;">'+esc(monthLabelYM(it.month))+' · '+esc(it.subject||it.title||'Newsletter')+'</span><i class="ti ti-chevron-down" style="color:#0F6E56;"></i>';
+        bar.innerHTML='<span style="font-weight:700;color:#0F6E56;">'+esc(monthLabelYM(it.month))+' · '+esc(it.subject||it.title||'Newsletter')+(sent?' <span style="font-weight:600;font-size:12px;">✓ in Klaviyo</span>':'')+'</span><i class="ti ti-chevron-down" style="color:#0F6E56;"></i>';
         var open=false, body=null;
         bar.addEventListener('click',function(){
           if(open){ if(body){body.remove();body=null;} open=false; return; }
           body=document.createElement('div'); body.style.cssText='border:1px solid #E4E1F0;border-top:none;border-radius:0 0 10px 10px;margin:-8px 0 8px;overflow:hidden;';
-          body.innerHTML=staticEmail(it.copy||{});
+          body.innerHTML=
+            '<div style="padding:10px 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#fff;border-bottom:1px solid #eee;">'
+              +(sent
+                ? '<span style="color:#0F6E56;font-weight:700;font-size:13px;">✓ In Klaviyo</span> <a href="'+esc(it.klaviyo.url)+'" target="_blank" style="color:#0F6E56;font-size:13px;">Open</a>'
+                : '<button class="genbtn nlArcSend" type="button" style="background:#111;font-size:13px;padding:8px 14px;"><i class="ti ti-send"></i> Send to Klaviyo</button>')
+              +'<button class="genbtn nlArcDel" type="button" style="background:#b91c1c;font-size:13px;padding:8px 14px;"><i class="ti ti-trash"></i> Delete</button>'
+              +'<span class="nlArcMsg genstatus" style="margin:0;"></span>'
+            +'</div>'
+            +staticEmail(it.copy||{});
           bar.parentNode.insertBefore(body, bar.nextSibling); open=true;
+          var sb=body.querySelector('.nlArcSend'), db=body.querySelector('.nlArcDel'), mm=body.querySelector('.nlArcMsg');
+          if(sb) sb.addEventListener('click', function(ev){ ev.stopPropagation(); archiveSend(it, mm, sb); });
+          if(db) db.addEventListener('click', function(ev){ ev.stopPropagation(); archiveDelete(it); });
         });
         wrap.appendChild(bar);
       });
     }).catch(function(){});
+  }
+  function archiveSend(it, mm, btn){
+    var copy=it.copy||{};
+    btn.disabled=true; var o=btn.innerHTML; btn.innerHTML='Creating…'; mm.className='nlArcMsg genstatus'; mm.textContent='';
+    function build(){ return post({action:'newsletter-create-draft', month:it.month, handle:it.handle, subject:copy.subject||'', preview:copy.preview||'', html:fullEmailDoc(copy), newsletterId:it.id}); }
+    var pre=(copy.toolBlock&&copy.toolBlock.imageData)
+      ? post({action:'newsletter-host-image', imageData:copy.toolBlock.imageData}).then(function(d){ if(d&&d.ok&&d.url&&copy.toolBlock){ copy.toolBlock.imageUrl=d.url; copy.toolBlock.imageData=null; } })
+      : Promise.resolve();
+    pre.then(build).then(function(d){
+      btn.disabled=false; btn.innerHTML=o;
+      if(!d||d.ok===false){ mm.className='nlArcMsg genstatus err'; mm.innerHTML=((d&&d.error)||'Could not send.')+(d&&d.url?(' <a href="'+esc(d.url)+'" target="_blank">Open</a>'):''); if(d&&d.already) loadArchive(); return; }
+      mm.className='nlArcMsg genstatus ok'; mm.innerHTML='Sent to Klaviyo ✓ <a href="'+esc(d.url)+'" target="_blank">Open</a>';
+      if(window.__reloadBoard) window.__reloadBoard();
+      loadArchive();
+    }).catch(function(){ btn.disabled=false; btn.innerHTML=o; mm.className='nlArcMsg genstatus err'; mm.textContent='Network error — try again.'; });
+  }
+  function archiveDelete(it){
+    if(!confirm('Delete this newsletter and free its blog?\n\nIt is removed from Past newsletters and the blog can be used again. If it is already in Klaviyo, that draft stays in Klaviyo — delete it there too if you don\'t want it.')) return;
+    post({action:'newsletter-delete', id:it.id, handle:it.handle}).then(function(d){ loadArchive(); }).catch(function(){});
   }
 
   // read-only render of a saved newsletter (for the archive) — SAME layout as the sent email
@@ -3820,7 +3851,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     apBtn.disabled=true; var orig=apBtn.innerHTML; apBtn.innerHTML='Approving…'; apMsg.className='genstatus'; apMsg.textContent='';
     post({action:'newsletter-approve', handle:handle, month:month, copy:cur}).then(function(d){
       if(!d || d.ok===false){ apBtn.disabled=false; apBtn.innerHTML=orig; apMsg.className='genstatus err'; apMsg.textContent=(d&&d.error)||'Could not register the blog — try again.'; return; }
-      cur.approved=true;
+      cur.approved=true; cur.savedId=d.savedId||null;
       apBtn.innerHTML='<i class="ti ti-check"></i> Approved';
       apMsg.className='genstatus ok';
       apMsg.textContent=d.already ? 'Approved. (This blog was already registered.) Saved to Past newsletters. Now create the draft in Klaviyo →' : 'Approved ✓ — blog registered + saved to Past newsletters. Now create the draft in Klaviyo →';
@@ -3875,7 +3906,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     cdBtn.disabled=true; var orig=cdBtn.innerHTML; cdBtn.innerHTML='Creating in Klaviyo…'; cdMsg.className='genstatus'; cdMsg.textContent='';
     function build(){
       var htmlDoc=fullEmailDoc(cur);
-      return post({action:'newsletter-create-draft', month:month, handle:handle, subject:cur.subject||'', preview:cur.preview||'', html:htmlDoc});
+      return post({action:'newsletter-create-draft', month:month, handle:handle, subject:cur.subject||'', preview:cur.preview||'', html:htmlDoc, newsletterId:cur.savedId});
     }
     // if the tool image is a custom upload (data URL), host it first so it loads in email
     var pre=(cur.toolBlock&&cur.toolBlock.imageData)
@@ -3883,11 +3914,16 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       : Promise.resolve();
     pre.then(build).then(function(d){
       cdBtn.disabled=false; cdBtn.innerHTML=orig;
-      if(!d || d.ok===false){ cdMsg.className='genstatus err'; cdMsg.textContent=(d&&d.error)||'Could not create the draft — try again.'; return; }
+      if(!d || d.ok===false){
+        if(d&&d.already){ cdBtn.disabled=true; cdBtn.innerHTML='<i class="ti ti-check"></i> Already in Klaviyo'; cdMsg.className='genstatus'; cdMsg.innerHTML='This newsletter is already in Klaviyo.'+(d.url?(' <a href="'+esc(d.url)+'" target="_blank" style="color:#0F6E56;text-decoration:underline;">Open in Klaviyo</a>'):''); loadArchive(); return; }
+        cdMsg.className='genstatus err'; cdMsg.textContent=(d&&d.error)||'Could not create the draft — try again.'; return;
+      }
+      cdBtn.disabled=true;
       cdBtn.innerHTML='<i class="ti ti-check"></i> Draft created in Klaviyo';
       cdMsg.className='genstatus ok';
       cdMsg.innerHTML='Draft created in Klaviyo ✓ — review it there, send yourself a test, then schedule for the 3rd Friday 10:00. Marked done on the Content Board.'+(d.url?(' <a href="'+esc(d.url)+'" target="_blank" style="color:#0F6E56;text-decoration:underline;">Open in Klaviyo</a>'):'');
       if(window.__reloadBoard) window.__reloadBoard();
+      loadArchive();
     }).catch(function(){ cdBtn.disabled=false; cdBtn.innerHTML=orig; cdMsg.className='genstatus err'; cdMsg.textContent='Network error — try again.'; });
   });
 
