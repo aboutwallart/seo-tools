@@ -317,6 +317,88 @@ module.exports = async (req, res) => {
       return;
     }
 
+    // ---------- 1g) host a custom uploaded image (data URL) on Vercel Blob ----------
+    if (action === 'newsletter-host-image') {
+      var dataUrl = (body.imageData || '').toString();
+      if (dataUrl.indexOf('data:') !== 0) { res.status(400).json({ ok: false, error: 'no image data' }); return; }
+      try {
+        var put = require('@vercel/blob').put;
+        var mime = (dataUrl.match(/^data:([^;]+);/) || [])[1] || 'image/png';
+        var ext = (mime.split('/')[1] || 'png').replace('jpeg', 'jpg').replace('+xml', '');
+        var buf = Buffer.from(dataUrl.split(',')[1], 'base64');
+        var blob = await put('newsletter/tool-' + Date.now() + '.' + ext, buf, { access: 'public', contentType: mime });
+        res.status(200).json({ ok: true, url: blob.url });
+      } catch (e) { res.status(502).json({ ok: false, error: 'image host failed: ' + (e && e.message ? e.message : String(e)) }); }
+      return;
+    }
+
+    // ---------- 1h) create the DRAFT campaign in Klaviyo ----------
+    if (action === 'newsletter-create-draft') {
+      var KLAVIYO_KEY = process.env.KLAVIYO_KEY;
+      if (!KLAVIYO_KEY) { res.status(500).json({ ok: false, error: 'KLAVIYO_KEY not configured on the server' }); return; }
+      var month = (body.month || '').toString();
+      var subject = (body.subject || '').toString();
+      var preview = (body.preview || '').toString();
+      var html = (body.html || '').toString();
+      var dhandle = (body.handle || '').toString();
+      if (!month || !subject || !html) { res.status(400).json({ ok: false, error: 'month, subject and html required' }); return; }
+      var SEGMENT = 'Tg3Mqd', REV = '2024-10-15';
+      var MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+      var ymp = month.split('-'); var Y = +ymp[0], Mo = +ymp[1];
+      var cName = 'NEWSLETTER ' + ((MONTHS[Mo - 1] || '').toUpperCase()) + ' ' + Y;
+
+      // 3rd Friday of the month at 10:00 UK (handles BST) -> ISO
+      function lastSunday(y, m0) { var d = new Date(Date.UTC(y, m0 + 1, 0)); while (d.getUTCDay() !== 0) d.setUTCDate(d.getUTCDate() - 1); return d.getUTCDate(); }
+      function isBST(y, mo1, day) { if (mo1 < 3 || mo1 > 10) return false; if (mo1 > 3 && mo1 < 10) return true; if (mo1 === 3) return day >= lastSunday(y, 2); return day < lastSunday(y, 9); }
+      var firstDow = new Date(Date.UTC(Y, Mo - 1, 1)).getUTCDay();
+      var thirdFri = (1 + ((5 - firstDow + 7) % 7)) + 14;
+      var utcHour = 10 - (isBST(Y, Mo, thirdFri) ? 1 : 0);
+      function p2(n){ return (n < 10 ? '0' : '') + n; }
+      var dt = Y + '-' + p2(Mo) + '-' + p2(thirdFri) + 'T' + p2(utcHour) + ':00:00+00:00';
+
+      function kv(path, method, payload) {
+        return fetch('https://a.klaviyo.com' + path, { method: method, headers: { 'Authorization': 'Klaviyo-API-Key ' + KLAVIYO_KEY, 'revision': REV, 'accept': 'application/vnd.api+json', 'content-type': 'application/vnd.api+json' }, body: payload ? JSON.stringify(payload) : undefined });
+      }
+      async function kvJson(r) { var t = await r.text(); var j = null; try { j = JSON.parse(t); } catch (e) {} return { ok: r.ok, status: r.status, json: j, text: t }; }
+
+      // 1) create the HTML template
+      var tRes = await kvJson(await kv('/api/templates/', 'POST', { data: { type: 'template', attributes: { name: cName + ' (tool)', editor_type: 'CODE', html: html } } }));
+      if (!tRes.ok || !tRes.json || !tRes.json.data) { res.status(502).json({ ok: false, error: 'Template create failed (' + tRes.status + '): ' + (tRes.text || '').slice(0, 250) }); return; }
+      var templateId = tRes.json.data.id;
+
+      // 2) create the campaign as a DRAFT (with its email message)
+      var camp = { data: { type: 'campaign', attributes: {
+        name: cName,
+        audiences: { included: [SEGMENT] },
+        send_strategy: { method: 'static', datetime: dt, options: { is_local: false } },
+        'campaign-messages': { data: [ { type: 'campaign-message', attributes: { definition: { channel: 'email', label: cName, content: { subject: subject, preview_text: preview, from_email: 'info@aboutwallart.com', from_label: 'Mae from About Wall Art' } } } } ] }
+      } } };
+      var cRes = await kvJson(await kv('/api/campaigns/', 'POST', camp));
+      if (!cRes.ok || !cRes.json || !cRes.json.data) { res.status(502).json({ ok: false, error: 'Campaign create failed (' + cRes.status + '): ' + (cRes.text || '').slice(0, 300) }); return; }
+      var campaignId = cRes.json.data.id;
+      var msgId = null; try { msgId = cRes.json.data.relationships['campaign-messages'].data[0].id; } catch (e) {}
+      if (!msgId) { res.status(502).json({ ok: false, error: 'Campaign created but no message id returned', campaignId: campaignId }); return; }
+
+      // 3) assign the template to the campaign's message
+      var aRes = await kvJson(await kv('/api/campaign-message-assign-template/', 'POST', { data: { type: 'campaign-message', id: msgId, relationships: { template: { data: { type: 'template', id: templateId } } } } }));
+      if (!aRes.ok) { res.status(502).json({ ok: false, error: 'Assign template failed (' + aRes.status + '): ' + (aRes.text || '').slice(0, 250), campaignId: campaignId }); return; }
+
+      // 4) mark the Content Board 'email-newsletter' done for this month (never blocks)
+      try {
+        var mf = 'data/content-board-manual.json';
+        var mgr = await fetch(`https://api.github.com/repos/${REPO}/contents/${mf}`, { headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' } });
+        var msha = null, mobj = { months: {} };
+        if (mgr.ok) { var mgd = await mgr.json(); msha = mgd.sha; try { mobj = JSON.parse(Buffer.from(mgd.content || '', 'base64').toString('utf-8')) || { months: {} }; } catch (e) { mobj = { months: {} }; } }
+        if (!mobj.months) mobj.months = {};
+        if (!mobj.months[month]) mobj.months[month] = {};
+        mobj.months[month]['email-newsletter'] = true;
+        await fetch(`https://api.github.com/repos/${REPO}/contents/${mf}`, { method: 'PUT', headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' }, body: JSON.stringify({ message: 'Newsletter draft created — mark board ' + month, content: Buffer.from(JSON.stringify(mobj, null, 2) + '\n').toString('base64'), ...(msha ? { sha: msha } : {}) }) });
+      } catch (e) {}
+
+      res.status(200).json({ ok: true, campaignId: campaignId, url: 'https://www.klaviyo.com/campaign/' + campaignId + '/wizard' });
+      return;
+    }
+
     // ---------- 1e) spelling / grammar check (tells you; you decide to apply) ----------
     if (action === 'newsletter-check') {
       var c = body.copy || {};
