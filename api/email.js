@@ -68,6 +68,17 @@ module.exports = async (req, res) => {
     return url + (url.indexOf('?') >= 0 ? '&' : '?') + 'width=' + w;
   }
 
+  // force a square crop (center) so portrait + square images all render the same in the email
+  function squareImg(url, size) {
+    if (!url) return url;
+    var s = size || 800;
+    if (url.indexOf('cdn.shopify.com') < 0) return retinaImg(url, s);
+    var base = url.split('?')[0];
+    var q = url.split('?')[1] || '';
+    var vm = q.match(/(?:^|&)v=([^&]+)/);
+    return base + '?width=' + s + '&height=' + s + '&crop=center' + (vm ? ('&v=' + vm[1]) : '');
+  }
+
   function slugify(s) {
     return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
   }
@@ -213,6 +224,19 @@ module.exports = async (req, res) => {
         });
       }
       res.status(200).json({ ok: true, blogs: out });
+      return;
+    }
+
+    // ---------- 1b) fetch a page's own image (for guides), squared ----------
+    if (action === 'newsletter-page-image') {
+      var purl = body.url || (req.query && req.query.url);
+      if (!purl) { res.status(400).json({ ok: false, error: 'url required' }); return; }
+      var pr = await fetch(purl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      var phtml = await pr.text();
+      var m = phtml.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
+           || phtml.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+      var img = m ? m[1].replace(/&amp;/g, '&') : '';
+      res.status(200).json({ ok: true, image: img ? squareImg(img, 800) : '' });
       return;
     }
 
