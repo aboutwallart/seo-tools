@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.24 · 2 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.26 · 2 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -274,7 +274,21 @@
 
     <div class="emsubpanel active" id="emsub-newsletters">
       <div class="nlstep">
-        <div class="nlhd">Step 1 · Pick a blog</div>
+        <div class="nlhd">Step 1 · Month</div>
+        <p class="nlhint">Which month is this newsletter for? Pick it before you start.</p>
+        <label style="font-size:14px;font-weight:650;color:#2A2540;">Plan month:
+          <select id="nlMonth" style="margin-left:8px;border:1px solid #D8D3EE;border-radius:8px;padding:9px 12px;font-size:14px;background:#fff;"></select>
+        </label>
+      </div>
+
+      <div id="nlArchiveWrap" class="nlstep" style="display:none">
+        <div class="nlhd">Past newsletters</div>
+        <p class="nlhint">The newsletters you've already approved. Click one to open it.</p>
+        <div id="nlArchive"></div>
+      </div>
+
+      <div class="nlstep">
+        <div class="nlhd">Step 2 · Pick a blog</div>
         <p class="nlhint">Pick the blog this month's newsletter is built from. These are your most recent blogs, minus any already used for a newsletter.</p>
         <button id="nlLoad" class="genbtn" type="button"><i class="ti ti-sparkles"></i> Suggest 5 blogs</button>
         <div id="nlMsg" class="genstatus"></div>
@@ -282,12 +296,15 @@
       </div>
 
       <div class="nlstep" id="nlWriteStep" style="display:none">
-        <div class="nlhd">Step 2 · Your newsletter</div>
+        <div class="nlhd">Step 3 · Your newsletter</div>
         <p class="nlhint">Click any text below to edit it — split lines with Enter, add emojis, fix wording. If the AI missed the point of the blog, tell it in the box on the right and press <b>Rewrite</b>.</p>
         <div class="nlcols">
           <div>
             <div class="nlemail" id="nlEmail"></div>
             <div id="nlApproveBar" style="margin-top:16px;text-align:center;">
+              <button id="nlCheck" class="genbtn" type="button" style="background:#534AB7;margin-bottom:10px;"><i class="ti ti-spellcheck"></i> Check spelling &amp; grammar</button>
+              <div id="nlCheckMsg" class="genstatus"></div>
+              <div id="nlCheckWrap" style="display:none;text-align:left;margin:8px 0 14px;background:#F7F6FE;border:1px solid #E4E1F0;border-radius:10px;padding:12px 14px;"></div>
               <button id="nlApprove" class="genbtn" type="button" style="background:#0F6E56;"><i class="ti ti-check"></i> Approve this newsletter</button>
               <div id="nlApproveMsg" class="genstatus"></div>
             </div>
@@ -1529,7 +1546,9 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     {key:'edu',           label:'Educational video'},
     {key:'linkedin',      label:'LinkedIn newsletter'},
     {key:'blogCreation',  label:'Blog creation'},
-    {key:'publishVideos', label:'Publish product videos'}
+    {key:'publishVideos', label:'Publish product videos'},
+    {key:'emailNewsletter', label:'Email newsletter', single:true},
+    {key:'emailPromos',     label:'Email promos', single:true}
   ];
   // per row, one code per column (FB IG X Pin Thr YT GMB LI TT Shop): T=tracked, N=not needed, E=external tool
   var MAP={
@@ -1544,7 +1563,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     publishVideos:['N','N','N','N','N','N','N','N','N','T']
   };
   var JUMP={createVideos:'video',reels:'schedule',blogs:'schedule',edu:'edu',linkedin:'linkedin'};
-  var MANUALKEY={igTag:'ig-tag',tiktokPost:'tiktok-posttag'};
+  var MANUALKEY={igTag:'ig-tag',tiktokPost:'tiktok-posttag',emailNewsletter:'email-newsletter',emailPromos:'email-promos'};
   var EXTURL={blogCreation:'blog-manager-tool.html',publishVideos:'shopify-video-uploader.html'};
   var CBMON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   function cbPost(p){ return fetch('/api/social',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)}).then(function(r){return r.json();}); }
@@ -1557,7 +1576,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   }
   function monthComplete(m){
     if(!(m.planN>0)) return false;
-    for(var i=0;i<ROWS.length;i++){ if(!rowComplete(ROWS[i].key, m.rows[ROWS[i].key])) return false; }
+    // email rows are tracking-only — they do NOT decide whether a month is "all done"
+    for(var i=0;i<ROWS.length;i++){ if(ROWS[i].single) continue; if(!rowComplete(ROWS[i].key, m.rows[ROWS[i].key])) return false; }
     return true;
   }
   function onAction(rowKey, month){
@@ -1589,6 +1609,13 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     COLDEF.forEach(function(c){ var hc=document.createElement('div'); hc.className='cbcol'; hc.innerHTML='<i class="ti '+c.ic+'" title="'+c.t+'" aria-label="'+c.t+'" style="font-size:18px;color:#111"></i>'; g.appendChild(hc); });
     ROWS.forEach(function(r){
       var rl=document.createElement('div'); rl.className='cbrow'; rl.textContent=r.label; g.appendChild(rl);
+      if(r.single){
+        var stS=trackedState(r.key, m.rows[r.key]);
+        var cellS=(stS && stS.part) ? makePart(stS.part, r.key, m.month) : makeCell(stS, r.key, m.month);
+        cellS.style.gridColumn='span 10';
+        g.appendChild(cellS);
+        return;
+      }
       var applic=MAP[r.key], rowData=m.rows[r.key];
       for(var ci=0; ci<10; ci++){
         var ap=applic[ci];
@@ -3498,6 +3525,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   var cur=null;        // current copy object from the AI
   var selArticle=null; // chosen blog {id,title,handle,url}
 
+  var NLMON=['January','February','March','April','May','June','July','August','September','October','November','December'];
+
   /* ---- sub-tabs (Newsletters | Monthly Promos) ---- */
   panel.querySelectorAll('.emsub').forEach(function(b){
     b.addEventListener('click', function(){
@@ -3507,7 +3536,73 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     });
   });
 
-  /* ---- Step 1: load 5 blogs ---- */
+  /* ---- Step 1: month picker (current + next 11 months) ---- */
+  (function(){
+    var sel=$('nlMonth'); if(!sel) return;
+    var now=new Date(); var h='';
+    for(var i=0;i<12;i++){
+      var d=new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth()+i, 1));
+      var ym=d.toISOString().slice(0,7);
+      h+='<option value="'+ym+'">'+NLMON[d.getUTCMonth()]+' '+d.getUTCFullYear()+'</option>';
+    }
+    sel.innerHTML=h;
+  })();
+
+  /* ---- Past newsletters archive (collapsible bars, like the Content Board) ---- */
+  function monthLabelYM(ym){ if(!ym) return ''; var p=ym.split('-'); return NLMON[(+p[1])-1]+' '+p[0]; }
+  function loadArchive(){
+    var wrap=$('nlArchive'), box=$('nlArchiveWrap'); if(!wrap) return;
+    post({action:'newsletter-archive'}).then(function(d){
+      var items=(d&&d.ok&&d.items)?d.items:[];
+      if(!items.length){ box.style.display='none'; return; }
+      box.style.display='';
+      wrap.innerHTML='';
+      items.forEach(function(it){
+        var bar=document.createElement('div');
+        bar.style.cssText='background:#E9F7F1;border:1px solid #Bce3D4;border-radius:10px;padding:12px 14px;margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;';
+        bar.innerHTML='<span style="font-weight:700;color:#0F6E56;">'+esc(monthLabelYM(it.month))+' · '+esc(it.subject||it.title||'Newsletter')+'</span><i class="ti ti-chevron-down" style="color:#0F6E56;"></i>';
+        var open=false, body=null;
+        bar.addEventListener('click',function(){
+          if(open){ if(body){body.remove();body=null;} open=false; return; }
+          body=document.createElement('div'); body.style.cssText='border:1px solid #E4E1F0;border-top:none;border-radius:0 0 10px 10px;margin:-8px 0 8px;overflow:hidden;';
+          body.innerHTML=staticEmail(it.copy||{});
+          bar.parentNode.insertBefore(body, bar.nextSibling); open=true;
+        });
+        wrap.appendChild(bar);
+      });
+    }).catch(function(){});
+  }
+
+  // read-only render of a saved newsletter (for the archive)
+  function staticEmail(c){
+    c=c||{};
+    var LATO="Lato,'Century Gothic',CenturyGothic,AppleGothic,sans-serif";
+    var tb=c.toolBlock||{}, hero=c.hero||{};
+    var body=(c.body||[]).map(function(p){return '<div style="margin:0 0 14px;">'+esc(p)+'</div>';}).join('');
+    var close=(c.close||[]).map(function(p){return '<div style="margin:0 0 6px;">'+esc(p)+'</div>';}).join('');
+    var tImg=tb.imageData||tb.imageUrl||'';
+    var soc=NL_SOC.map(function(s){return '<a href="'+s[1]+'" target="_blank" style="display:inline-block;margin:0 5px;"><img alt="'+s[0]+'" src="https://d3k81ch9hvuctc.cloudfront.net/assets/email/buttons/subtleinverse/'+s[2]+'" style="width:30px;"></a>';}).join('');
+    return ''
+      +'<div style="padding:10px 14px;font-size:12px;color:#8A85A6;background:#F7F6FE;"><b>Subject:</b> '+esc(c.subject||'')+'<br><b>Preview:</b> '+esc(c.preview||'')+'</div>'
+      +'<div style="background:#000;text-align:center;"><img src="'+NL_LOGO+'" alt="About Wall Art" style="width:356px;max-width:60%;"></div>'
+      +'<div style="text-align:center;padding:20px 0 0;"><img src="'+NL_BANNER+'" alt="Inspiration Delivered" style="width:250px;max-width:60%;"></div>'
+      +(hero.url?'<img src="'+esc(hero.url)+'" alt="'+esc(hero.alt||'')+'" style="width:100%;display:block;margin-top:14px;">':'')
+      +'<div style="font-family:'+LATO+';font-size:18px;line-height:1.5;text-align:center;color:#0f1419;padding:22px 30px;">'
+        +'<div style="margin:0 0 16px;">'+esc(c.greeting||'')+'</div>'
+        +body
+        +'<div style="margin:24px 0;"><a href="'+esc((c.primaryButton&&c.primaryButton.url)||'#')+'" style="display:inline-block;background:#000;color:#fff;text-decoration:none;padding:15px 26px;font-size:18px;">'+esc((c.primaryButton&&c.primaryButton.label)||'')+'</a></div>'
+        +'<div style="margin:0 0 16px;">'+esc(tb.intro||'')+'</div>'
+        +(tImg?'<img src="'+esc(tImg)+'" alt="'+esc(tb.toolName||'')+'" style="width:70%;max-width:412px;display:block;margin:0 auto 18px;">':'')
+        +'<div style="margin:0 0 24px;"><a href="'+esc(tb.url||'#')+'" style="display:inline-block;background:#ccc;color:#000;text-decoration:none;padding:15px 26px;font-size:18px;">'+esc(tb.buttonLabel||'')+'</a></div>'
+        +close
+      +'</div>'
+      +'<div style="background:#000;color:#fff;font-family:'+LATO+';text-align:center;padding:20px;">'
+        +'<div style="margin:14px 0;">'+soc+'</div>'
+        +'<div style="font-size:12px;color:#fff;">© About Wall Art | Hertford | United Kingdom | SG14 1AY</div>'
+      +'</div>';
+  }
+
+  /* ---- Step 2: load 5 blogs ---- */
   var loadBtn=$('nlLoad'), blogsWrap=$('nlBlogs'), msg=$('nlMsg');
   loadBtn.addEventListener('click', function(){
     loadBtn.disabled=true; var orig=loadBtn.innerHTML; loadBtn.innerHTML='Loading blogs…'; msg.className='genstatus'; msg.textContent='';
@@ -3723,15 +3818,56 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     if(need.length){ apMsg.className='genstatus err'; apMsg.textContent='Add '+need.join(', ')+' before approving.'; return; }
     var handle=(selArticle&&selArticle.handle)||(cur.article&&cur.article.handle)||'';
     if(!handle){ apMsg.className='genstatus err'; apMsg.textContent='Missing the blog — pick a blog first.'; return; }
+    var month=($('nlMonth')&&$('nlMonth').value)||'';
     apBtn.disabled=true; var orig=apBtn.innerHTML; apBtn.innerHTML='Approving…'; apMsg.className='genstatus'; apMsg.textContent='';
-    post({action:'newsletter-approve', handle:handle}).then(function(d){
+    post({action:'newsletter-approve', handle:handle, month:month, copy:cur}).then(function(d){
       if(!d || d.ok===false){ apBtn.disabled=false; apBtn.innerHTML=orig; apMsg.className='genstatus err'; apMsg.textContent=(d&&d.error)||'Could not register the blog — try again.'; return; }
       cur.approved=true;
       apBtn.innerHTML='<i class="ti ti-check"></i> Approved';
       apMsg.className='genstatus ok';
-      apMsg.textContent=d.already ? 'Approved. (This blog was already registered.) Next: create the draft in Klaviyo.' : 'Approved ✓ — blog registered so it won\'t repeat. Next: create the draft in Klaviyo.';
+      apMsg.textContent=d.already ? 'Approved. (This blog was already registered.) Saved to Past newsletters. Next: create the draft in Klaviyo.' : 'Approved ✓ — blog registered + saved to Past newsletters. Next: create the draft in Klaviyo.';
+      loadArchive();
     }).catch(function(){ apBtn.disabled=false; apBtn.innerHTML=orig; apMsg.className='genstatus err'; apMsg.textContent='Network error — try again.'; });
   });
+
+  /* ---- Spelling & grammar check — tells you the mistakes; you choose to apply ---- */
+  var ckBtn=$('nlCheck'), ckMsg=$('nlCheckMsg'), ckWrap=$('nlCheckWrap');
+  ckBtn.addEventListener('click', function(){
+    if(!cur) return;
+    readEmail();
+    ckBtn.disabled=true; var orig=ckBtn.innerHTML; ckBtn.innerHTML='Checking…'; ckMsg.className='genstatus'; ckMsg.textContent=''; ckWrap.style.display='none'; ckWrap.innerHTML='';
+    post({action:'newsletter-check', copy:cur}).then(function(d){
+      ckBtn.disabled=false; ckBtn.innerHTML=orig;
+      if(!d || d.ok===false){ ckMsg.className='genstatus err'; ckMsg.textContent=(d&&d.error)||'Could not check — try again.'; return; }
+      var issues=d.issues||[];
+      if(!issues.length){ ckMsg.className='genstatus ok'; ckMsg.textContent='No spelling or grammar mistakes found ✓'; return; }
+      ckMsg.className='genstatus'; ckMsg.textContent='';
+      var html='<div style="font-weight:700;color:#3C3489;margin-bottom:8px;">'+issues.length+' thing'+(issues.length>1?'s':'')+' to check:</div>';
+      issues.forEach(function(it){
+        html+='<div style="margin-bottom:8px;font-size:13px;line-height:1.45;">'
+          +'<span style="text-decoration:line-through;color:#b91c1c;">'+esc(it.original||'')+'</span> '
+          +'&rarr; <b style="color:#0F6E56;">'+esc(it.suggestion||'')+'</b>'
+          +(it.why?(' <span style="color:#9A95B4;">('+esc(it.why)+')</span>'):'')
+          +'</div>';
+      });
+      if(d.corrected){ html+='<button id="nlApplyFixes" class="genbtn" type="button" style="margin-top:6px;"><i class="ti ti-wand"></i> Apply these fixes</button>'; }
+      ckWrap.innerHTML=html; ckWrap.style.display='';
+      var af=$('nlApplyFixes');
+      if(af){ af.addEventListener('click', function(){
+        var cor=d.corrected||{};
+        if(cor.subject!=null) cur.subject=cor.subject;
+        if(cor.preview!=null) cur.preview=cor.preview;
+        if(cor.greeting!=null) cur.greeting=cor.greeting;
+        if(cor.body&&cor.body.length) cur.body=cor.body;
+        if(cur.toolBlock){ if(cor.toolIntro!=null) cur.toolBlock.intro=cor.toolIntro; if(cor.toolButton!=null) cur.toolBlock.buttonLabel=cor.toolButton; }
+        if(cor.close&&cor.close.length) cur.close=cor.close;
+        renderEmail(); ckWrap.style.display='none'; ckMsg.className='genstatus ok'; ckMsg.textContent='Fixes applied — have a look.';
+      }); }
+    }).catch(function(){ ckBtn.disabled=false; ckBtn.innerHTML=orig; ckMsg.className='genstatus err'; ckMsg.textContent='Network error — try again.'; });
+  });
+
+  /* ---- load past newsletters on open ---- */
+  loadArchive();
 })();
 </script>
 </body>
