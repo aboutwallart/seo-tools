@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.23 · 2 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.24 · 2 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -287,6 +287,10 @@
         <div class="nlcols">
           <div>
             <div class="nlemail" id="nlEmail"></div>
+            <div id="nlApproveBar" style="margin-top:16px;text-align:center;">
+              <button id="nlApprove" class="genbtn" type="button" style="background:#0F6E56;"><i class="ti ti-check"></i> Approve this newsletter</button>
+              <div id="nlApproveMsg" class="genstatus"></div>
+            </div>
           </div>
           <div class="nlside">
             <div class="sbox">
@@ -3592,13 +3596,23 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     if(type==='tool'){
       var t=NL_TOOLS.filter(function(x){return x.h===hnd;})[0]; if(!t) return;
       cur.toolBlock.toolName=t.n; cur.toolBlock.url=NL_SITE+'/pages/'+t.h; cur.toolBlock.buttonLabel=t.btn;
-      cur.toolBlock.imageUrl=nlSquare(t.img); cur.toolBlock.imageData=null; renderEmail();
+      cur.toolBlock.imageUrl=nlSquare(t.img); cur.toolBlock.imageData=null; renderEmail(); genToolIntro('tool', t.n);
     } else if(type==='guide'){
       var g=NL_GUIDES.filter(function(x){return x.h===hnd;})[0]; if(!g) return;
       cur.toolBlock.toolName=g.n; cur.toolBlock.url=NL_SITE+'/pages/'+g.h; cur.toolBlock.buttonLabel='READ THE GUIDE';
-      cur.toolBlock.imageUrl=''; cur.toolBlock.imageData=null; renderEmail();
+      cur.toolBlock.imageUrl=''; cur.toolBlock.imageData=null; renderEmail(); genToolIntro('guide', g.n);
       post({action:'newsletter-page-image', url:cur.toolBlock.url}).then(function(d){ if(d&&d.ok&&d.image&&cur.toolBlock){ cur.toolBlock.imageUrl=d.image; renderEmail(); } });
     }
+  }
+  // (re)write the tool-intro sentence for the chosen tool/guide — blank until one is picked
+  function genToolIntro(type, name){
+    if(!cur||!cur.toolBlock) return;
+    cur.toolBlock.intro='Writing…'; renderEmail();
+    post({action:'newsletter-tool-intro', toolName:name, toolType:type, blogTitle:(cur.article&&cur.article.title)||''}).then(function(d){
+      if(!cur||!cur.toolBlock) return;
+      cur.toolBlock.intro=(d&&d.ok&&d.intro)?d.intro:'';
+      renderEmail();
+    }).catch(function(){ if(cur&&cur.toolBlock){ cur.toolBlock.intro=''; renderEmail(); } });
   }
 
   /* ---- render the editable email preview — matches Mae's real template ---- */
@@ -3694,6 +3708,29 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       if(prevImgUrl && !cur.toolBlock.imageUrl) cur.toolBlock.imageUrl=prevImgUrl;
       renderEmail(); rwMsg.className='genstatus ok'; rwMsg.textContent='Rewritten — check it.'; $('nlNote').value='';
     }).catch(function(){ rwBtn.disabled=false; rwBtn.innerHTML=orig; rwMsg.className='genstatus err'; rwMsg.textContent='Network error — try again.'; });
+  });
+
+  /* ---- Approve: lock the email + register the blog as used on GitHub (no repeats) ---- */
+  var apBtn=$('nlApprove'), apMsg=$('nlApproveMsg');
+  apBtn.addEventListener('click', function(){
+    if(!cur){ return; }
+    readEmail();
+    var need=[];
+    if(!cur.subject) need.push('a subject');
+    if(!(cur.body&&cur.body.length)) need.push('body text');
+    if(!(cur.toolBlock&&cur.toolBlock.url)) need.push('a tool or guide');
+    if(!(cur.toolBlock&&(cur.toolBlock.imageData||cur.toolBlock.imageUrl))) need.push('the tool image');
+    if(need.length){ apMsg.className='genstatus err'; apMsg.textContent='Add '+need.join(', ')+' before approving.'; return; }
+    var handle=(selArticle&&selArticle.handle)||(cur.article&&cur.article.handle)||'';
+    if(!handle){ apMsg.className='genstatus err'; apMsg.textContent='Missing the blog — pick a blog first.'; return; }
+    apBtn.disabled=true; var orig=apBtn.innerHTML; apBtn.innerHTML='Approving…'; apMsg.className='genstatus'; apMsg.textContent='';
+    post({action:'newsletter-approve', handle:handle}).then(function(d){
+      if(!d || d.ok===false){ apBtn.disabled=false; apBtn.innerHTML=orig; apMsg.className='genstatus err'; apMsg.textContent=(d&&d.error)||'Could not register the blog — try again.'; return; }
+      cur.approved=true;
+      apBtn.innerHTML='<i class="ti ti-check"></i> Approved';
+      apMsg.className='genstatus ok';
+      apMsg.textContent=d.already ? 'Approved. (This blog was already registered.) Next: create the draft in Klaviyo.' : 'Approved ✓ — blog registered so it won\'t repeat. Next: create the draft in Klaviyo.';
+    }).catch(function(){ apBtn.disabled=false; apBtn.innerHTML=orig; apMsg.className='genstatus err'; apMsg.textContent='Network error — try again.'; });
   });
 })();
 </script>
