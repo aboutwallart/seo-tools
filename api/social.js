@@ -2570,7 +2570,9 @@ module.exports = async (req, res) => {
             edu: { done: eduDone, total: eduN },
             linkedin: { done: liDone, total: liN },
             blogCreation: { done: blogMadeDone, total: blogTotal },
-            publishVideos: { done: pubVidDone, total: planN }
+            publishVideos: { done: pubVidDone, total: planN },
+            emailNewsletter: { manual: true, done: man['email-newsletter'] ? 1 : 0, total: 1 },
+            emailPromos: { manual: true, done: man['email-promos'] ? 1 : 0, total: 1 }
           }
         };
       });

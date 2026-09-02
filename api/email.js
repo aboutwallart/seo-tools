@@ -17,6 +17,7 @@ module.exports = async (req, res) => {
   const GITHUB_TOKEN    = process.env.GITHUB_TOKEN;
   const REPO            = 'aboutwallart/seo-tools';
   const USED_FILE       = 'data/used-newsletter-blogs.json';
+  const NEWS_FILE       = 'data/newsletters.json';
   const SHOPIFY_DOMAIN  = process.env.SHOPIFY_STORE_DOMAIN;
   const SHOPIFY_TOKEN   = process.env.SHOPIFY_ACCESS_TOKEN;
   const ANTHROPIC_KEY   = process.env.ANTHROPIC_API_KEY;
@@ -280,7 +281,64 @@ module.exports = async (req, res) => {
         body: JSON.stringify({ message: 'Newsletter approved: mark blog used — ' + handle, content: Buffer.from(JSON.stringify(arr, null, 2) + '\n').toString('base64'), ...(sha ? { sha: sha } : {}) })
       });
       if (!pr.ok && !already) { var et = await pr.text(); res.status(502).json({ ok: false, error: 'Could not save to GitHub: ' + pr.status + ' ' + et.slice(0, 150) }); return; }
+
+      // also save the full newsletter to the archive (month + content) — never blocks approval
+      try {
+        var month = (body.month || '').toString();
+        var copy = body.copy || null;
+        var nr = await fetch(`https://api.github.com/repos/${REPO}/contents/${NEWS_FILE}`, {
+          headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
+        });
+        var nsha = null, list = [];
+        if (nr.ok) { var nd = await nr.json(); nsha = nd.sha; try { list = JSON.parse(Buffer.from(nd.content || '', 'base64').toString('utf-8')) || []; } catch (e) { list = []; } }
+        if (!Array.isArray(list)) list = [];
+        list.unshift({
+          id: Date.now(), month: month, handle: handle,
+          title: (copy && copy.article && copy.article.title) || '',
+          subject: (copy && copy.subject) || '',
+          savedAt: new Date().toISOString(), copy: copy
+        });
+        await fetch(`https://api.github.com/repos/${REPO}/contents/${NEWS_FILE}`, {
+          method: 'PUT',
+          headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'Newsletter approved & saved — ' + month + ' ' + handle, content: Buffer.from(JSON.stringify(list, null, 2) + '\n').toString('base64'), ...(nsha ? { sha: nsha } : {}) })
+        });
+      } catch (e) {}
+
       res.status(200).json({ ok: true, used: arr, already: already });
+      return;
+    }
+
+    // ---------- 1f) list saved newsletters (archive) ----------
+    if (action === 'newsletter-archive') {
+      var list = await ghGetJSON(NEWS_FILE);
+      if (!Array.isArray(list)) list = [];
+      res.status(200).json({ ok: true, items: list });
+      return;
+    }
+
+    // ---------- 1e) spelling / grammar check (tells you; you decide to apply) ----------
+    if (action === 'newsletter-check') {
+      var c = body.copy || {};
+      var payload = {
+        subject: c.subject || '', preview: c.preview || '', greeting: c.greeting || '',
+        body: c.body || [], toolIntro: (c.toolBlock && c.toolBlock.intro) || '',
+        toolButton: (c.toolBlock && c.toolBlock.buttonLabel) || '', close: c.close || []
+      };
+      var cprompt = [
+        'You are a careful UK-English proofreader for an email.',
+        'Check ONLY: spelling, typos, grammar, punctuation, doubled words, spacing.',
+        'Do NOT reword, do NOT change tone or meaning, do NOT touch merge tags like {{ first_name|default:\'friend\' }}, URLs, or emojis.',
+        'Email content as JSON:',
+        JSON.stringify(payload),
+        'Return ONLY JSON in this shape:',
+        '{ "issues": [ { "original": "exact text with the mistake", "suggestion": "corrected text", "why": "3-5 word reason" } ], "corrected": { "subject":"", "preview":"", "greeting":"", "body":[], "toolIntro":"", "toolButton":"", "close":[] } }',
+        'The "corrected" object must be the SAME content with only the fixes applied. If there are no mistakes, return "issues":[] and "corrected" equal to the input.'
+      ].join('\n');
+      var craw = await anthropic(cprompt, 2000);
+      var cout = extractJSON(craw);
+      if (!cout) { res.status(502).json({ ok: false, error: 'Could not check — try again.' }); return; }
+      res.status(200).json({ ok: true, issues: cout.issues || [], corrected: cout.corrected || null });
       return;
     }
 
