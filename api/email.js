@@ -424,7 +424,7 @@ module.exports = async (req, res) => {
       var camp = { data: { type: 'campaign', attributes: {
         name: cName,
         audiences: { included: [SEGMENT] },
-        send_strategy: { method: 'static', datetime: dt, options: { is_local: false } },
+        send_strategy: { method: 'static', datetime: dt },
         'campaign-messages': { data: [ { type: 'campaign-message', attributes: { channel: 'email', label: cName, content: { subject: subject, preview_text: preview, from_email: 'info@aboutwallart.com', from_label: 'Mae from About Wall Art' } } } ] }
       } } };
       var cRes = await kvJson(await kv('/api/campaigns/', 'POST', camp));
