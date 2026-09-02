@@ -210,7 +210,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.21 · 2 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.22 · 2 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -299,7 +299,22 @@
               <label>Hero image &amp; alt text</label>
               <img class="nlaltprev" id="nlHeroPrev" alt="">
               <input type="text" id="nlHeroAlt" placeholder="alt text">
-              <div class="nlsmallnote">This is the blog's photo, served at ≥1200px so it stays sharp on retina screens.</div>
+              <div class="nlsmallnote">The blog's photo, served at ≥1200px so it stays sharp on retina screens. Links to the blog.</div>
+            </div>
+            <div class="sbox">
+              <label>Free tool / guide (secondary button)</label>
+              <input type="text" id="nlToolName" placeholder="tool name" style="margin-bottom:6px;">
+              <input type="text" id="nlToolUrl" placeholder="https://aboutwallart.com/pages/...">
+              <div class="nlsmallnote">The AI picked the tool that best fits this blog. Change it if you'd rather link a different one.</div>
+            </div>
+            <div class="sbox">
+              <label>Tool image (above the grey button)</label>
+              <img class="nlaltprev" id="nlToolImgPrev" alt="" style="display:none;">
+              <label class="upframe updrop" style="display:block;border:1.5px dashed #C9C2F0;border-radius:8px;padding:14px;text-align:center;cursor:pointer;color:#7A7599;font-size:12.5px;">
+                <input type="file" accept="image/*" id="nlToolImgFile" hidden>
+                <i class="ti ti-upload"></i> Click to upload the tool image
+              </label>
+              <div class="nlsmallnote">You upload this image. When we push the draft to Klaviyo, the tool uploads it there automatically.</div>
             </div>
           </div>
         </div>
@@ -3531,32 +3546,72 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     }).catch(function(){ $('nlEmail').innerHTML='<div style="padding:30px;color:#b91c1c;font-size:14px;">Network error — try again.</div>'; });
   }
 
-  /* ---- render the editable email preview ---- */
+  /* ---- fixed brand assets from Mae's real Klaviyo template (XMA3dY) ---- */
+  var NL_LOGO='https://d3k81ch9hvuctc.cloudfront.net/company/RNrN7e/images/c0940efd-2a57-40a6-ae57-8126bc91e271.gif';
+  var NL_BANNER='https://d3k81ch9hvuctc.cloudfront.net/company/RNrN7e/images/5fe16408-8084-4aec-a3a5-da21a6651afe.png';
+  var NL_SOC=[
+    ['Instagram','https://instagram.com/aboutwallart','instagram_96.png'],
+    ['Facebook','https://facebook.com/aboutwallart','facebook_96.png'],
+    ['Tiktok','https://tiktok.com/@aboutwallart','tiktok_96.png'],
+    ['Pinterest','https://www.pinterest.com/aboutwallartstore','pinterest_96.png'],
+    ['LinkedIn','https://www.linkedin.com/company/about-wall-art/','linkedin_96.png']
+  ];
+
+  /* ---- render the editable email preview — matches Mae's real template ---- */
   function renderEmail(){
     if(!cur) return;
-    var bodyHtml=(cur.body||[]).map(function(p){ return '<p class="ed" contenteditable="true" data-role="body">'+esc(p)+'</p>'; }).join('');
-    var pb=cur.primaryButton||{label:'Read the guide →',url:(selArticle&&selArticle.url)||'#'};
-    var sl=cur.softLink||{text:'',url:'#'};
+    var LATO="Lato,'Century Gothic',CenturyGothic,AppleGothic,sans-serif";
+    var body=(cur.body||[]).map(function(p){ return '<div class="ed" contenteditable="true" data-role="body" style="margin:0 0 14px;">'+esc(p)+'</div>'; }).join('');
+    var close=(cur.close||[]).map(function(p){ return '<div class="ed" contenteditable="true" data-role="close" style="margin:0 0 6px;">'+esc(p)+'</div>'; }).join('');
+    var pb=cur.primaryButton||{}; var tb=cur.toolBlock||{};
+    var toolImg = tb.imageData
+      ? '<img id="nlToolImg" src="'+esc(tb.imageData)+'" alt="'+esc(tb.toolName||'')+'" style="width:70%;max-width:412px;display:block;margin:0 auto 18px;">'
+      : '<div id="nlToolImgPh" style="width:70%;max-width:412px;margin:0 auto 18px;padding:28px 10px;border:1.5px dashed #ccc;border-radius:8px;color:#aaa;font-family:'+LATO+';font-size:13px;">↑ upload the tool image on the right</div>';
+    var soc=NL_SOC.map(function(s){ return '<a href="'+s[1]+'" target="_blank" style="display:inline-block;margin:0 5px;"><img alt="'+s[0]+'" src="https://d3k81ch9hvuctc.cloudfront.net/assets/email/buttons/subtleinverse/'+s[2]+'" style="width:30px;"></a>'; }).join('');
+
     $('nlEmail').innerHTML=
       '<div class="nlsubjrow"><b>Subject:</b> <span class="ed" contenteditable="true" data-role="subject">'+esc(cur.subject||'')+'</span></div>'
-      +'<div class="nlsubjrow"><b>Preview:</b> <span class="ed" contenteditable="true" data-role="preview">'+esc(cur.preview||'')+'</span></div>'
-      +'<div class="nlbar"><span style="color:#fff;font-family:-apple-system,system-ui,sans-serif;font-weight:800;letter-spacing:.18em;font-size:15px;">ABOUT WALL ART</span></div>'
-      +'<img class="nlhero" id="nlHeroImg" src="'+esc((cur.hero&&cur.hero.url)||'')+'" alt="'+esc((cur.hero&&cur.hero.alt)||'')+'">'
-      +'<div class="nlbodyzone">'
-        +'<p class="ed" contenteditable="true" data-role="greeting">'+esc(cur.greeting||'Hi there,')+'</p>'
-        +bodyHtml
-        +'<p style="text-align:center;margin:22px 0;"><a class="nlbtn ed" contenteditable="true" data-role="btnlabel" href="'+esc(pb.url)+'" onclick="return false">'+esc(pb.label||'Read the guide →')+'</a></p>'
-        +'<p class="nlsoft ed" contenteditable="true" data-role="soft">'+esc(sl.text||'')+'</p>'
-        +'<p class="ed" contenteditable="true" data-role="close">'+esc(cur.close||'')+'</p>'
-        +'<p class="ed" contenteditable="true" data-role="signoff">'+esc(cur.signoff||'Mae')+'</p>'
+      +'<div class="nlsubjrow" style="padding-bottom:10px;"><b>Preview:</b> <span class="ed" contenteditable="true" data-role="preview">'+esc(cur.preview||'')+'</span></div>'
+      +'<div style="background:#000;text-align:center;padding:0;"><img src="'+NL_LOGO+'" alt="About Wall Art" style="width:356px;max-width:60%;display:inline-block;vertical-align:middle;"></div>'
+      +'<div style="text-align:center;padding:20px 0 0;"><img src="'+NL_BANNER+'" alt="Inspiration Delivered" style="width:250px;max-width:60%;"></div>'
+      +'<a href="'+esc((cur.hero&&cur.hero.link)||'#')+'" target="_blank" style="display:block;"><img class="nlhero" id="nlHeroImg" src="'+esc((cur.hero&&cur.hero.url)||'')+'" alt="'+esc((cur.hero&&cur.hero.alt)||'')+'" style="margin-top:14px;"></a>'
+      +'<div class="nlbodyzone" style="font-family:'+LATO+';font-size:18px;line-height:1.5;text-align:center;color:#0f1419;padding:22px 30px;">'
+        +'<div class="ed" contenteditable="true" data-role="greeting" style="margin:0 0 16px;">'+esc(cur.greeting||"Dear {{ first_name|default:'friend' }},")+'</div>'
+        +body
+        +'<div style="margin:24px 0;"><a class="ed" contenteditable="true" data-role="btnlabel" href="'+esc(pb.url||'#')+'" onclick="return false" style="display:inline-block;background:#000;color:#fff;text-decoration:none;padding:15px 26px;font-size:18px;">'+esc(pb.label||'READ THE GUIDE & FIND YOUR STYLE')+'</a></div>'
+        +'<div class="ed" contenteditable="true" data-role="toolintro" style="margin:0 0 16px;">'+esc(tb.intro||'')+'</div>'
+        +toolImg
+        +'<div style="margin:0 0 24px;"><a class="ed" contenteditable="true" data-role="toolbtn" href="'+esc(tb.url||'#')+'" onclick="return false" style="display:inline-block;background:#ccc;color:#000;text-decoration:none;padding:15px 26px;font-size:18px;">'+esc(tb.buttonLabel||'TAKE THE QUIZ')+'</a></div>'
+        +close
       +'</div>'
-      +'<div class="nlfoot">About Wall Art · UK<br>You are receiving this because you subscribed. Unsubscribe any time.</div>';
-    // hero alt side field
+      +'<div style="background:#000;color:#fff;font-family:'+LATO+';text-align:center;padding:24px 20px;">'
+        +'<div style="font-size:16px;line-height:1.5;margin-bottom:16px;">Have any questions?<br>Whether you\'re confused, curious, or need assistance<br>simply reply to this email — I\'m happy to help!<br>Mae ❤️</div>'
+        +'<div style="margin:14px 0;">'+soc+'</div>'
+        +'<div style="font-size:12px;color:#fff;">© About Wall Art | Hertford | United Kingdom | SG14 1AY</div>'
+        +'<div style="font-size:12px;color:#fff;margin-top:8px;">No longer want to receive these emails? <span style="text-decoration:underline;">Unsubscribe</span></div>'
+      +'</div>';
+
     var altIn=$('nlHeroAlt'), heroPrev=$('nlHeroPrev');
     altIn.value=(cur.hero&&cur.hero.alt)||'';
     heroPrev.src=(cur.hero&&cur.hero.url)||''; heroPrev.alt=altIn.value;
     altIn.oninput=function(){ if(cur.hero){ cur.hero.alt=altIn.value; } var hi=$('nlHeroImg'); if(hi) hi.alt=altIn.value; heroPrev.alt=altIn.value; };
+
+    $('nlToolName').value=tb.toolName||'';
+    $('nlToolUrl').value=tb.url||'';
+    $('nlToolName').oninput=function(){ if(cur.toolBlock) cur.toolBlock.toolName=this.value; };
+    $('nlToolUrl').oninput=function(){ if(cur.toolBlock){ cur.toolBlock.url=this.value; var tbtn=$('nlEmail').querySelector('[data-role="toolbtn"]'); if(tbtn) tbtn.setAttribute('href',this.value); } };
+
+    var tp=$('nlToolImgPrev');
+    if(tb.imageData){ tp.src=tb.imageData; tp.style.display='block'; } else { tp.style.display='none'; }
   }
+
+  /* ---- tool image upload (kept as a data URL until we push the draft to Klaviyo) ---- */
+  $('nlToolImgFile').addEventListener('change', function(e){
+    var f=e.target.files&&e.target.files[0]; if(!f) return;
+    var r=new FileReader();
+    r.onload=function(){ if(!cur) return; if(!cur.toolBlock) cur.toolBlock={}; cur.toolBlock.imageData=r.result; renderEmail(); };
+    r.readAsDataURL(f);
+  });
 
   /* ---- read the (possibly edited) preview back into `cur` ---- */
   function readEmail(){
@@ -3567,9 +3622,12 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     cur.body=Array.prototype.map.call(z.querySelectorAll('[data-role="body"]'), function(el){ return el.innerText.replace(/ /g,' ').trim(); }).filter(function(x){return x;});
     if(!cur.primaryButton) cur.primaryButton={};
     cur.primaryButton.label=txt('btnlabel');
-    if(!cur.softLink) cur.softLink={};
-    cur.softLink.text=txt('soft');
-    cur.close=txt('close'); cur.signoff=txt('signoff');
+    if(!cur.toolBlock) cur.toolBlock={};
+    cur.toolBlock.intro=txt('toolintro');
+    cur.toolBlock.buttonLabel=txt('toolbtn');
+    cur.toolBlock.toolName=$('nlToolName').value;
+    cur.toolBlock.url=$('nlToolUrl').value;
+    cur.close=Array.prototype.map.call(z.querySelectorAll('[data-role="close"]'), function(el){ return el.innerText.trim(); }).filter(function(x){return x;});
     if(cur.hero) cur.hero.alt=$('nlHeroAlt').value;
   }
 
@@ -3580,11 +3638,12 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     var note=($('nlNote').value||'').trim();
     if(!note){ rwMsg.className='genstatus err'; rwMsg.textContent='Type what you want changed first.'; return; }
     readEmail();
+    var prevImg=(cur.toolBlock&&cur.toolBlock.imageData)||null;
     rwBtn.disabled=true; var orig=rwBtn.innerHTML; rwBtn.innerHTML='Rewriting…'; rwMsg.className='genstatus'; rwMsg.textContent='';
     post({action:'newsletter-rewrite', articleId:selArticle.id, current:cur, note:note}).then(function(d){
       rwBtn.disabled=false; rwBtn.innerHTML=orig;
       if(!d || d.ok===false || !d.copy){ rwMsg.className='genstatus err'; rwMsg.textContent=(d&&d.error)||'Could not rewrite — try again.'; return; }
-      cur=d.copy; renderEmail(); rwMsg.className='genstatus ok'; rwMsg.textContent='Rewritten — check it.'; $('nlNote').value='';
+      cur=d.copy; if(prevImg){ if(!cur.toolBlock) cur.toolBlock={}; if(!cur.toolBlock.imageData) cur.toolBlock.imageData=prevImg; } renderEmail(); rwMsg.className='genstatus ok'; rwMsg.textContent='Rewritten — check it.'; $('nlNote').value='';
     }).catch(function(){ rwBtn.disabled=false; rwBtn.innerHTML=orig; rwMsg.className='genstatus err'; rwMsg.textContent='Network error — try again.'; });
   });
 })();
