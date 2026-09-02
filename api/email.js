@@ -135,7 +135,7 @@ module.exports = async (req, res) => {
       'HARD RULES (a newsletter that breaks these is rejected):',
       '1. SHORT. ~130–150 words total. Must stay well under Gmail\'s clip size.',
       '2. Art-first, few words. Not an article, not walls of advice.',
-      '3. Primary CTA = the BLACK button to the blog guide below. No "shop now" soup.',
+      '3. Primary CTA = the BLACK button to the blog guide below. Its LABEL must be SHORT (3-6 words), UPPERCASE, and WARM/HUMAN in Mae\'s voice — an inviting outcome tied to THIS blog, NOT a stiff "READ THE X GUIDE". Good vibe: "SHOW ME HOW TO LAYER", "HELP ME GET THE LOOK", "READ THE GUIDE & FIND YOUR STYLE". Bad (robotic): "READ THE LAYERING GUIDE", "READ THE COLOUR GUIDE". Sound like a friend, not a filing cabinet. No "shop now" soup.',
       '4. WALL ART only. Never mention furniture, lamps, rugs, sideboards, etc.',
       '5. Sound like Mae — warm, honest, human. NOT a generic AI article. Vary; no "myth → reveal" formula.',
       '6. Keep-warm, not sell. Position art as the easy, low-risk FIRST step to build a style.',
@@ -162,7 +162,7 @@ module.exports = async (req, res) => {
       '  "preview": "...",',
       '  "greeting": "Dear {{ first_name|default:\'friend\' }},",',
       '  "body": ["paragraph before the button", "..."],',
-      '  "primaryButton": { "label": "READ THE GUIDE & FIND YOUR STYLE", "url": "' + article.url + '" },',
+      '  "primaryButton": { "label": "SHORT WARM UPPERCASE CTA in Mae\'s voice, tied to this blog (e.g. SHOW ME HOW TO LAYER)", "url": "' + article.url + '" },',
       '  "toolBlock": { "intro": "one warm sentence introducing the free tool as help", "toolName": "exact tool name from the list", "url": "' + SITE + '/pages/...", "buttonLabel": "SHORT UPPERCASE BUTTON e.g. TAKE THE QUIZ" },',
       '  "close": ["line after the tool (e.g. once you know it, your walls are the easiest place to start)", "a personal question to prompt a reply", "Hit reply; I read every one.", "Warmly,", "Mae ❤️"]',
       '}'
@@ -409,6 +409,7 @@ module.exports = async (req, res) => {
       var utcHour = 10 - (isBST(Y, Mo, thirdFri) ? 1 : 0);
       function p2(n){ return (n < 10 ? '0' : '') + n; }
       var dt = Y + '-' + p2(Mo) + '-' + p2(thirdFri) + 'T' + p2(utcHour) + ':00:00+00:00';
+      var schedLabel = 'Friday ' + thirdFri + ' ' + (MONTHS[Mo - 1] || '') + ' ' + Y + ', 10:00 UK';
 
       function kv(path, method, payload) {
         return fetch('https://a.klaviyo.com' + path, { method: method, headers: { 'Authorization': 'Klaviyo-API-Key ' + KLAVIYO_KEY, 'revision': REV, 'accept': 'application/vnd.api+json', 'content-type': 'application/vnd.api+json' }, body: payload ? JSON.stringify(payload) : undefined });
@@ -424,6 +425,7 @@ module.exports = async (req, res) => {
       var camp = { data: { type: 'campaign', attributes: {
         name: cName,
         audiences: { included: [SEGMENT] },
+        tracking_options: { add_tracking_params: true, is_tracking_opens: true, is_tracking_clicks: true },
         'campaign-messages': { data: [ { type: 'campaign-message', attributes: { channel: 'email', label: cName, content: { subject: subject, preview_text: preview, from_email: 'info@aboutwallart.com', from_label: 'Mae from About Wall Art' } } } ] }
       } } };
       var cRes = await kvJson(await kv('/api/campaigns/', 'POST', camp));
@@ -457,7 +459,15 @@ module.exports = async (req, res) => {
         }
       } catch (e) {}
 
-      res.status(200).json({ ok: true, campaignId: campaignId, url: kvUrl });
+      // 6) best-effort: schedule the campaign for the 3rd Friday 10:00 UK (leaves the date set).
+      //    If Klaviyo's send_strategy shape is rejected, the draft still stands and Mae sets the date by hand (we always return schedLabel).
+      var scheduled = false;
+      try {
+        var schedRes = await kvJson(await kv('/api/campaigns/' + campaignId + '/', 'PATCH', { data: { type: 'campaign', id: campaignId, attributes: { send_strategy: { method: 'static', datetime: dt, options: { is_local: false } } } } }));
+        scheduled = !!schedRes.ok;
+      } catch (e) { scheduled = false; }
+
+      res.status(200).json({ ok: true, campaignId: campaignId, url: kvUrl, scheduled: scheduled, scheduledFor: schedLabel });
       return;
     }
 
