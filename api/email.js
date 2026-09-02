@@ -425,7 +425,7 @@ module.exports = async (req, res) => {
         name: cName,
         audiences: { included: [SEGMENT] },
         send_strategy: { method: 'static', datetime: dt, options: { is_local: false } },
-        'campaign-messages': { data: [ { type: 'campaign-message', attributes: { channel: 'email', label: cName, definition: { channel: 'email', label: cName, content: { subject: subject, preview_text: preview, from_email: 'info@aboutwallart.com', from_label: 'Mae from About Wall Art' } } } } ] }
+        'campaign-messages': { data: [ { type: 'campaign-message', attributes: { channel: 'email', label: cName, content: { subject: subject, preview_text: preview, from_email: 'info@aboutwallart.com', from_label: 'Mae from About Wall Art' } } } ] }
       } } };
       var cRes = await kvJson(await kv('/api/campaigns/', 'POST', camp));
       if (!cRes.ok || !cRes.json || !cRes.json.data) { res.status(502).json({ ok: false, error: 'Campaign create failed (' + cRes.status + '): ' + (cRes.text || '').slice(0, 300) }); return; }
