@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.39 · 2 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.40 · 2 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -290,10 +290,18 @@
 
       <div class="nlstep">
         <div class="nlhd">Step 2 · Pick a blog</div>
-        <p class="nlhint">Pick the blog this month's newsletter is built from. These are your most recent blogs, minus any already used for a newsletter.</p>
+        <p class="nlhint">Pick the blog this month's newsletter is built from. These are your most recent blogs that suit the month's season, minus any already used.</p>
         <button id="nlLoad" class="genbtn" type="button"><i class="ti ti-sparkles"></i> Suggest 5 blogs</button>
         <div id="nlMsg" class="genstatus"></div>
         <div id="nlBlogs" class="nlgrid"></div>
+        <div style="margin-top:16px;padding-top:14px;border-top:1px dashed #E4E1F0;">
+          <label style="display:block;font-size:12px;font-weight:700;color:#534AB7;margin-bottom:6px;text-transform:uppercase;letter-spacing:.03em;">Or use your own blog</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <input type="text" id="nlCustom" placeholder="Paste a blog URL, or type its exact name" style="flex:1;min-width:220px;border:1px solid #D8D3EE;border-radius:8px;padding:10px;font-size:13.5px;box-sizing:border-box;">
+            <button id="nlCustomBtn" class="genbtn" type="button" style="background:#111;"><i class="ti ti-arrow-right"></i> Use this blog</button>
+          </div>
+          <div id="nlCustomMsg" class="genstatus"></div>
+        </div>
       </div>
 
       <div class="nlstep" id="nlWriteStep" style="display:none">
@@ -3627,7 +3635,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   var loadBtn=$('nlLoad'), blogsWrap=$('nlBlogs'), msg=$('nlMsg');
   loadBtn.addEventListener('click', function(){
     loadBtn.disabled=true; var orig=loadBtn.innerHTML; loadBtn.innerHTML='Loading blogs…'; msg.className='genstatus'; msg.textContent='';
-    post({action:'newsletter-blogs'}).then(function(d){
+    var mval=($('nlMonth')&&$('nlMonth').value)||'';
+    post({action:'newsletter-blogs', month:mval}).then(function(d){
       loadBtn.disabled=false; loadBtn.innerHTML=orig;
       if(!d || d.ok===false){ msg.className='genstatus err'; msg.textContent=(d&&d.error)?d.error:'Could not load blogs.'; return; }
       var blogs=d.blogs||[];
@@ -3648,6 +3657,21 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         });
       });
     }).catch(function(){ loadBtn.disabled=false; loadBtn.innerHTML=orig; msg.className='genstatus err'; msg.textContent='Network error — try again.'; });
+  });
+
+  /* ---- Step 2b: use your own blog (by URL or name) ---- */
+  var cbBtn=$('nlCustomBtn'), cbIn=$('nlCustom'), cbMsg=$('nlCustomMsg');
+  cbBtn.addEventListener('click', function(){
+    var q=(cbIn.value||'').trim();
+    if(!q){ cbMsg.className='genstatus err'; cbMsg.textContent='Paste a blog URL or type its exact name.'; return; }
+    cbBtn.disabled=true; var o=cbBtn.innerHTML; cbBtn.innerHTML='Finding…'; cbMsg.className='genstatus'; cbMsg.textContent='';
+    post({action:'newsletter-find-blog', query:q}).then(function(d){
+      cbBtn.disabled=false; cbBtn.innerHTML=o;
+      if(!d||d.ok===false||!d.blog){ cbMsg.className='genstatus err'; cbMsg.textContent=(d&&d.error)||'No blog found — check the URL or exact name.'; return; }
+      cbMsg.className='genstatus ok'; cbMsg.textContent='Found: '+esc(d.blog.title||'')+' — writing…';
+      if(blogsWrap) blogsWrap.querySelectorAll('.nlcard').forEach(function(c){ c.classList.remove('sel'); });
+      writeFor(d.blog);
+    }).catch(function(){ cbBtn.disabled=false; cbBtn.innerHTML=o; cbMsg.className='genstatus err'; cbMsg.textContent='Network error — try again.'; });
   });
 
   /* ---- Step 2: AI writes for the chosen blog ---- */
