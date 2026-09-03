@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Promo Title Generator · About Wall Art</title>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{ --ink:#141414; --sub:#666; --line:#e7e7e7; --bg:#faf9f7; --accent:#141414; }
+  *{ box-sizing:border-box; }
+  body{ font-family:'Lato',-apple-system,Helvetica,Arial,sans-serif; color:var(--ink); background:var(--bg); margin:0; padding:32px 16px; }
+  .wrap{ max-width:760px; margin:0 auto; }
+  h1{ font-size:26px; font-weight:700; margin:0 0 4px; }
+  .v{ color:var(--sub); font-size:13px; margin-bottom:24px; }
+  .card{ background:#fff; border:1px solid var(--line); border-radius:14px; padding:24px; margin-bottom:20px; }
+  label{ display:block; font-size:13px; font-weight:700; letter-spacing:.4px; text-transform:uppercase; color:var(--sub); margin:0 0 6px; }
+  .row{ display:flex; gap:16px; flex-wrap:wrap; }
+  .row > div{ flex:1; min-width:150px; margin-bottom:16px; }
+  input{ width:100%; padding:11px 12px; border:1px solid #d8d8d8; border-radius:9px; font:inherit; font-size:15px; background:#fff; }
+  .preview{ text-align:center; padding:18px 8px; background:#fff; border:1px dashed #e0e0e0; border-radius:10px; }
+  .preview img{ max-width:100%; height:auto; }
+  .muted{ color:var(--sub); font-size:13px; line-height:1.5; }
+  .code{ width:100%; min-height:80px; padding:12px; border:1px solid #d8d8d8; border-radius:9px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12.5px; background:#fbfbfb; resize:vertical; }
+  button{ font:inherit; font-weight:700; padding:12px 18px; border:0; border-radius:9px; background:var(--accent); color:#fff; cursor:pointer; }
+  button.sec{ background:#efece7; color:#141414; }
+  button:active{ transform:translateY(1px); }
+  .ok{ color:#1a7f37; font-weight:700; font-size:13px; margin-left:10px; }
+  .btns{ margin-top:12px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Promo Title Generator</h1>
+  <div class="v">About Wall Art · v1.1 · 3 Sep 2026</div>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>Top line (BLOCK CAPITALS)</label>
+        <input id="top" type="text" value="YOUR DREAM HOME" placeholder="e.g. CELEBRATE MUM">
+      </div>
+      <div>
+        <label>Script line (handwritten)</label>
+        <input id="script" type="text" value="starts here!" placeholder="e.g. this Mother's Day">
+      </div>
+    </div>
+    <div class="row">
+      <div style="max-width:180px">
+        <label>Caps size</label>
+        <input id="size" type="number" value="60" min="30" max="140" step="2">
+      </div>
+      <div style="max-width:180px">
+        <label>Colour</label>
+        <input id="color" type="text" value="#141414" placeholder="#141414">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Move script ↕ down / up (<span id="dyval">0</span>)</label>
+        <input id="dy" type="range" min="-60" max="180" value="0" step="2" style="width:100%">
+      </div>
+      <div>
+        <label>Move script ↔ right / left (<span id="dxval">0</span>)</label>
+        <input id="dx" type="range" min="-140" max="140" value="0" step="2" style="width:100%">
+      </div>
+    </div>
+    <p class="muted">Use the two sliders to nudge the handwritten line so it doesn't overlap the capitals. Every title overlaps differently — slide until it looks right.</p>
+    <p class="muted">Top line is auto-uppercased. Type it in the mail's language (e.g. Spanish, Italian, French). The image comes out on a transparent background, ready for the top of the promo.</p>
+  </div>
+
+  <div class="card">
+    <label>Live preview</label>
+    <div class="preview"><img id="preview" alt="title preview"></div>
+  </div>
+
+  <div class="card">
+    <label>Paste this into your email (Klaviyo image / HTML block)</label>
+    <textarea class="code" id="code" readonly></textarea>
+    <div class="btns">
+      <button id="copyCode">Copy code</button>
+      <button id="openImg" class="sec" type="button">Open image (to save / copy)</button>
+      <span class="ok" id="okmsg" style="display:none">Copied ✓</span>
+    </div>
+    <p class="muted" style="margin-top:10px">Tip: right-click the preview → “Copy image” to paste the title straight into Klaviyo, or use “Open image” then save it.</p>
+  </div>
+</div>
+
+<script>
+  var BASE = 'https://tools.aboutwallart.com';
+  var $ = function(id){ return document.getElementById(id); };
+
+  function cleanUrl(){
+    var top = encodeURIComponent($('top').value || '');
+    var script = encodeURIComponent($('script').value || '');
+    var size = encodeURIComponent($('size').value || '60');
+    var color = encodeURIComponent($('color').value || '#141414');
+    var dy = encodeURIComponent($('dy').value || '0');
+    var dx = encodeURIComponent($('dx').value || '0');
+    return BASE + '/api/promo-image?type=title&top=' + top + '&script=' + script + '&size=' + size + '&color=' + color + '&dy=' + dy + '&dx=' + dx;
+  }
+
+  function refresh(){
+    $('dyval').textContent = $('dy').value;
+    $('dxval').textContent = $('dx').value;
+    var url = cleanUrl();
+    $('preview').src = url + '&_=' + Date.now();   // cache-buster for the live preview
+    $('code').value = '<img src="' + url + '" alt="' + ($('top').value + ' ' + $('script').value).trim() + '" style="max-width:100%;height:auto;display:block;margin:0 auto;">';
+  }
+
+  ['top','script','size','color','dy','dx'].forEach(function(id){
+    $(id).addEventListener('input', refresh);
+    $(id).addEventListener('change', refresh);
+  });
+
+  $('copyCode').addEventListener('click', function(){
+    var ta = $('code'); ta.select(); ta.setSelectionRange(0, 99999);
+    var done = function(){ var m=$('okmsg'); m.style.display='inline'; setTimeout(function(){ m.style.display='none'; }, 1600); };
+    if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(ta.value).then(done, function(){ document.execCommand('copy'); done(); }); }
+    else { document.execCommand('copy'); done(); }
+  });
+  $('openImg').addEventListener('click', function(){ window.open(cleanUrl(), '_blank'); });
+
+  refresh();
+</script>
+</body>
+</html>
