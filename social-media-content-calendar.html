@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.41 · 2 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.42 · 3 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -350,7 +350,18 @@
     </div>
 
     <div class="emsubpanel" id="emsub-promos">
-      <div class="nlstep"><div class="nlhd">Monthly Promos</div><p class="nlhint">Coming in the next step.</p></div>
+      <div class="nlstep">
+        <div class="nlhd">Step 1 · Pick the month</div>
+        <p class="nlhint">Choose the month, then tick the promos you want to make. (November &amp; December are done in the Q4 tab.)</p>
+        <select id="mpEmMonth" style="border:1px solid #D8D3EE;border-radius:8px;padding:9px 12px;font-size:14px;background:#fff;min-width:160px;"></select>
+      </div>
+      <div class="nlstep" id="mpEmOccStep" style="display:none;">
+        <div class="nlhd">Step 2 · Tick the promos to make</div>
+        <p class="nlhint" id="mpEmOccHint">Pick the occasions you want a promo for this month.</p>
+        <div id="mpEmOccList"></div>
+        <button id="mpEmStart" class="nlbtn" type="button" style="margin-top:14px;" disabled>Create these promos →</button>
+      </div>
+      <div id="mpEmBuild"></div>
     </div>
   </div>
 </section>
@@ -3968,6 +3979,75 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
 
   /* ---- load past newsletters on open ---- */
   loadArchive();
+})();
+</script>
+<script>
+/* ===== Monthly Promos — Step 1 (month picker + occasion checkboxes) ===== */
+(function(){
+  var MON=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var mSel=document.getElementById('mpEmMonth');
+  if(!mSel) return;
+  var occs=[];
+
+  function esc(s){ return String(s||'').replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  function monthOf(o){ var md=o.date2026 || (o.window&&o.window.start) || ''; return md?parseInt(String(md).split('-')[0],10):0; }
+  function dayOf(o){ var md=o.date2026 || (o.window&&o.window.start) || ''; return md?parseInt(String(md).split('-')[1],10):0; }
+
+  // months Jan–Oct only (Nov/Dec -> Q4 tab)
+  var html=''; for(var m=1;m<=10;m++){ html+='<option value="'+m+'">'+MON[m-1]+'</option>'; }
+  mSel.innerHTML=html;
+  var nxt=new Date().getMonth()+2; if(nxt<1||nxt>10) nxt=10; // default to next month, clamped into Jan–Oct
+  mSel.value=String(nxt);
+
+  fetch('/api/social?action=get-occasions').then(function(r){return r.json();}).then(function(d){
+    if(d&&d.ok){ occs=d.occasions||[]; renderOcc(); }
+  }).catch(function(){});
+
+  mSel.addEventListener('change', renderOcc);
+
+  function renderOcc(){
+    var m=parseInt(mSel.value,10);
+    var list=occs.filter(function(o){ return monthOf(o)===m; });
+    list.sort(function(a,b){ return dayOf(a)-dayOf(b); });
+    var box=document.getElementById('mpEmOccList');
+    var step=document.getElementById('mpEmOccStep');
+    document.getElementById('mpEmBuild').innerHTML='';
+    if(!list.length){
+      box.innerHTML='<div class="nlhint">No marketing occasions in '+MON[m-1]+'.</div>';
+    } else {
+      box.innerHTML=list.map(function(o){
+        var dt = o.date2026 ? (dayOf(o)+' '+MON[m-1].slice(0,3)) : 'all '+MON[m-1].slice(0,3);
+        var promo = o.promoSuggested ? ' <span style="background:#d6f0dd;color:#1a7f37;font-size:10.5px;font-weight:800;letter-spacing:.4px;padding:1px 6px;border-radius:6px;vertical-align:middle;">PROMO</span>' : '';
+        var ctry = o.country ? ' <span style="background:#eee;color:#555;font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:6px;vertical-align:middle;">'+esc(o.country)+'</span>' : '';
+        return '<label style="display:flex;gap:10px;align-items:flex-start;padding:9px 2px;border-bottom:1px solid #eee;cursor:pointer;">'
+          +'<input type="checkbox" class="mpEmChk" data-oid="'+esc(o.id)+'" style="margin-top:4px;">'
+          +'<span><span style="font-weight:800;">'+esc(dt)+'</span> · '+esc(o.name)+promo+ctry
+          +'<br><span style="color:#8a8a8a;font-size:12.5px;">'+esc(o.relevance||'')+'</span></span>'
+          +'</label>';
+      }).join('');
+      Array.prototype.forEach.call(box.querySelectorAll('.mpEmChk'), function(c){ c.addEventListener('change', updateStart); });
+    }
+    step.style.display='';
+    updateStart();
+  }
+
+  function updateStart(){
+    var n=document.querySelectorAll('#mpEmOccList .mpEmChk:checked').length;
+    var b=document.getElementById('mpEmStart');
+    if(!b) return;
+    b.disabled = !n;
+    b.textContent = n ? ('Create these '+n+' promo'+(n>1?'s':'')+' →') : 'Create these promos →';
+  }
+
+  var startBtn=document.getElementById('mpEmStart');
+  if(startBtn) startBtn.addEventListener('click', function(){
+    var picked=[].slice.call(document.querySelectorAll('#mpEmOccList .mpEmChk:checked')).map(function(c){ return c.getAttribute('data-oid'); });
+    var chosen=occs.filter(function(o){ return picked.indexOf(o.id)>=0; });
+    document.getElementById('mpEmBuild').innerHTML =
+      '<div class="nlstep"><div class="nlhd">Selected — '+chosen.length+' promo'+(chosen.length>1?'s':'')+'</div>'
+      +'<p class="nlhint">'+chosen.map(function(o){ return esc(o.name); }).join(' &nbsp;·&nbsp; ')+'</p>'
+      +'<p class="nlhint" style="color:#8a6d00;">Next step (building each promo — collection, products, hero, title, copy, countdown) coming in the next session.</p></div>';
+  });
 })();
 </script>
 </body>
