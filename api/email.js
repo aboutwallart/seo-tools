@@ -197,34 +197,101 @@ module.exports = async (req, res) => {
     body = body || {};
     var action = body.action || (req.query && req.query.action);
 
-    // ---------- 1) list 5 recent blogs (minus used) ----------
+    // ---------- 1) list 5 recent blogs (minus used), SEASON-AWARE for the chosen month ----------
     if (action === 'newsletter-blogs') {
       var used = await ghGetJSON(USED_FILE); // array of handles
       var usedSet = {};
       (Array.isArray(used) ? used : []).forEach(function (h) { usedSet[String(h).toLowerCase()] = 1; });
 
       var data = await shopifyGraphQL(
-        'query{ articles(first:25, sortKey:PUBLISHED_AT, reverse:true){ edges{ node{ id title handle publishedAt image{ url altText } blog{ handle } } } } }',
+        'query{ articles(first:40, sortKey:PUBLISHED_AT, reverse:true){ edges{ node{ id title handle publishedAt image{ url altText } blog{ handle } } } } }',
         {}
       );
       var edges = (data.articles && data.articles.edges) ? data.articles.edges : [];
-      var out = [];
-      for (var i = 0; i < edges.length && out.length < 5; i++) {
+      // build the candidate pool (all not-yet-used, newest first, up to 20)
+      var cand = [];
+      for (var i = 0; i < edges.length && cand.length < 20; i++) {
         var n = edges[i].node;
         if (!n || !n.handle) continue;
         if (usedSet[n.handle.toLowerCase()]) continue;
-        var blogHandle = (n.blog && n.blog.handle) || 'news-articles-home-decor-inspiration';
-        out.push({
-          id: n.id,
-          title: n.title,
-          handle: n.handle,
-          publishedAt: n.publishedAt,
+        var bh = (n.blog && n.blog.handle) || 'news-articles-home-decor-inspiration';
+        cand.push({
+          id: n.id, title: n.title, handle: n.handle, publishedAt: n.publishedAt,
           image: retinaImg((n.image && n.image.url) || '', 600),
           alt: (n.image && n.image.altText) || n.title,
-          url: 'https://aboutwallart.com/blogs/' + blogHandle + '/' + n.handle
+          url: 'https://aboutwallart.com/blogs/' + bh + '/' + n.handle
         });
       }
+
+      // if a month is given, let the AI keep only season-appropriate / evergreen ones (drop out-of-season)
+      var month = (body.month || (req.query && req.query.month) || '').toString();
+      var out = cand.slice(0, 5);
+      if (month && cand.length) {
+        var MONTHS_S = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+        var mi = (+month.split('-')[1]) - 1;
+        var SEASONS = ['winter','winter','spring','spring','spring','summer','summer','summer','autumn','autumn','autumn','winter'];
+        var mName = MONTHS_S[mi] || '', season = SEASONS[mi] || '';
+        var listStr = cand.map(function (c, idx) { return idx + ': ' + c.title; }).join('\n');
+        var sprompt = [
+          'This is a UK home-decor / wall-art newsletter for the month of ' + mName + ' (' + season + ' in the UK).',
+          'From the numbered blog list, choose up to 5 that FIT this season OR are season-neutral / evergreen.',
+          'EXCLUDE clearly out-of-season topics — e.g. for a winter month drop summer/beach/coastal/tropical; for a summer month drop snow/festive/Christmas/cosy-winter. Neutral topics (colour, sizing, gallery walls, styles, layering, gifting when near the occasion) are always fine.',
+          'Prefer the most recent. Return ONLY a JSON array of the chosen indices, best first, e.g. [3,0,7].',
+          '',
+          'Blogs:',
+          listStr
+        ].join('\n');
+        try {
+          var sraw = await anthropic(sprompt, 200, 'claude-haiku-4-5-20251001');
+          var m = sraw.match(/\[[^\]]*\]/);
+          var picks = m ? JSON.parse(m[0]) : null;
+          if (picks && picks.length) {
+            var chosen = [];
+            picks.forEach(function (ix) { if (cand[ix] && chosen.length < 5) chosen.push(cand[ix]); });
+            if (chosen.length) out = chosen;
+          }
+        } catch (e) { /* fall back to the plain recent 5 */ }
+      }
+
       res.status(200).json({ ok: true, blogs: out });
+      return;
+    }
+
+    // ---------- 1a) resolve a blog Mae adds herself (by URL or by name) ----------
+    if (action === 'newsletter-find-blog') {
+      var q = (body.query || '').toString().trim();
+      if (!q) { res.status(400).json({ ok: false, error: 'Paste a blog URL or type its name.' }); return; }
+      var art = null;
+      // URL -> take the last path segment as the handle
+      if (/https?:\/\//i.test(q) || q.indexOf('/blogs/') >= 0) {
+        var handle = q.split('?')[0].split('#')[0].replace(/\/+$/, '').split('/').pop();
+        if (handle) {
+          var hd = await shopifyGraphQL(
+            'query($q:String!){ articles(first:5, query:$q){ edges{ node{ id title handle image{ url altText } blog{ handle } } } } }',
+            { q: 'handle:' + handle }
+          );
+          var he = (hd.articles && hd.articles.edges) ? hd.articles.edges : [];
+          var exact = he.map(function (e) { return e.node; }).filter(function (x) { return x && x.handle === handle; })[0];
+          art = exact || (he[0] && he[0].node) || null;
+        }
+      }
+      // otherwise treat as a title search
+      if (!art) {
+        var nd = await shopifyGraphQL(
+          'query($q:String!){ articles(first:5, query:$q, sortKey:PUBLISHED_AT, reverse:true){ edges{ node{ id title handle image{ url altText } blog{ handle } } } } }',
+          { q: 'title:*' + q.replace(/["\\]/g, '') + '*' }
+        );
+        var ne = (nd.articles && nd.articles.edges) ? nd.articles.edges : [];
+        art = (ne[0] && ne[0].node) || null;
+      }
+      if (!art) { res.status(200).json({ ok: false, error: 'No blog found for that. Check the URL or try the exact title.' }); return; }
+      var abh = (art.blog && art.blog.handle) || 'news-articles-home-decor-inspiration';
+      res.status(200).json({ ok: true, blog: {
+        id: art.id, title: art.title, handle: art.handle,
+        image: retinaImg((art.image && art.image.url) || '', 600),
+        alt: (art.image && art.image.altText) || art.title,
+        url: 'https://aboutwallart.com/blogs/' + abh + '/' + art.handle
+      } });
       return;
     }
 
