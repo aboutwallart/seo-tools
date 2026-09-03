@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Countdown Timer Generator · About Wall Art</title>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{ --ink:#141414; --sub:#666; --line:#e7e7e7; --bg:#faf9f7; --accent:#141414; }
+  *{ box-sizing:border-box; }
+  body{ font-family:'Lato',-apple-system,Helvetica,Arial,sans-serif; color:var(--ink); background:var(--bg); margin:0; padding:32px 16px; }
+  .wrap{ max-width:760px; margin:0 auto; }
+  h1{ font-size:26px; font-weight:700; margin:0 0 4px; }
+  .v{ color:var(--sub); font-size:13px; margin-bottom:24px; }
+  .card{ background:#fff; border:1px solid var(--line); border-radius:14px; padding:24px; margin-bottom:20px; }
+  label{ display:block; font-size:13px; font-weight:700; letter-spacing:.4px; text-transform:uppercase; color:var(--sub); margin:0 0 6px; }
+  .row{ display:flex; gap:16px; flex-wrap:wrap; }
+  .row > div{ flex:1; min-width:150px; margin-bottom:16px; }
+  input,select{ width:100%; padding:11px 12px; border:1px solid #d8d8d8; border-radius:9px; font:inherit; font-size:15px; background:#fff; }
+  .preview{ text-align:center; padding:10px 0 4px; }
+  .preview img{ max-width:100%; height:auto; border:1px solid var(--line); border-radius:10px; background:#fff; }
+  .muted{ color:var(--sub); font-size:13px; line-height:1.5; }
+  .code{ width:100%; min-height:96px; padding:12px; border:1px solid #d8d8d8; border-radius:9px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12.5px; background:#fbfbfb; resize:vertical; }
+  button{ font:inherit; font-weight:700; padding:12px 18px; border:0; border-radius:9px; background:var(--accent); color:#fff; cursor:pointer; }
+  button:active{ transform:translateY(1px); }
+  .ok{ color:#1a7f37; font-weight:700; font-size:13px; margin-left:10px; }
+  .note{ background:#fff8e6; border:1px solid #f2e2b0; border-radius:10px; padding:12px 14px; font-size:13px; color:#6b5a20; line-height:1.5; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Countdown Timer Generator</h1>
+  <div class="v">About Wall Art · v1.0 · 3 Sep 2026</div>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>End date</label>
+        <input type="date" id="date">
+      </div>
+      <div>
+        <label>End time</label>
+        <input type="time" id="time" value="23:59">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Timezone (of the end time above)</label>
+        <select id="tz">
+          <option value="Europe/London">UK — London</option>
+          <option value="Europe/Madrid">Spain — Madrid</option>
+          <option value="Europe/Rome">Italy — Rome</option>
+          <option value="Europe/Paris">France — Paris</option>
+          <option value="America/New_York">US — New York (East)</option>
+          <option value="America/Los_Angeles">US — Los Angeles (West)</option>
+          <option value="Australia/Sydney">Australia — Sydney</option>
+        </select>
+      </div>
+      <div>
+        <label>Language (timer labels)</label>
+        <select id="lang">
+          <option value="en">English (UK / US) — DAYS HOURS…</option>
+          <option value="es">Español — DÍAS HORAS…</option>
+          <option value="it">Italiano — GIORNI ORE…</option>
+          <option value="fr">Français — JOURS HEURES…</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <label>Live preview</label>
+    <div class="preview"><img id="preview" alt="countdown preview"></div>
+    <p class="muted" id="resolved"></p>
+  </div>
+
+  <div class="card">
+    <label>Paste this into your email (Klaviyo image / HTML block)</label>
+    <textarea class="code" id="code" readonly></textarea>
+    <div style="margin-top:12px">
+      <button id="copy">Copy code</button>
+      <span class="ok" id="okmsg" style="display:none">Copied ✓</span>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>Good to know:</b> the timer ticks on the first open (the seconds are baked into the GIF), exactly like the timers you used before.
+    If someone re-opens the email hours later, some email apps (e.g. Gmail) may show a cached image with the old time — that happens with every countdown tool, not just this one.
+  </div>
+</div>
+
+<script>
+  var BASE = 'https://tools.aboutwallart.com'; // where /api/countdown lives
+  var $ = function(id){ return document.getElementById(id); };
+
+  // default the date to 10 days from now
+  (function(){
+    var d = new Date(Date.now() + 10*86400000);
+    $('date').value = d.toISOString().slice(0,10);
+  })();
+
+  function buildUrl(bust){
+    var date = $('date').value;
+    var time = $('time').value || '23:59';
+    var tz   = $('tz').value;
+    var lang = $('lang').value;
+    if(!date) return null;
+    var to = date + 'T' + time;
+    var url = BASE + '/api/countdown?to=' + encodeURIComponent(to) + '&tz=' + encodeURIComponent(tz) + '&lang=' + lang;
+    return bust ? url + '&_=' + Date.now() : url;
+  }
+
+  function refresh(){
+    var cleanUrl = buildUrl(false);
+    if(!cleanUrl){ return; }
+    // preview uses a cache-buster so it reloads as you change inputs
+    $('preview').src = buildUrl(true);
+    // the code to paste uses the clean URL (no cache-buster)
+    $('code').value = '<img src="' + cleanUrl + '" width="680" alt="Countdown" style="max-width:100%;height:auto;display:block;margin:0 auto;">';
+    // human-readable resolved end
+    try{
+      var d = $('date').value, t = $('time').value || '23:59', tz = $('tz').value;
+      $('resolved').textContent = 'Ends: ' + d + ' at ' + t + ' (' + tz + ')';
+    }catch(e){}
+  }
+
+  ['date','time','tz','lang'].forEach(function(id){
+    $(id).addEventListener('input', refresh);
+    $(id).addEventListener('change', refresh);
+  });
+
+  $('copy').addEventListener('click', function(){
+    var ta = $('code'); ta.select(); ta.setSelectionRange(0, 99999);
+    var done = function(){ var m=$('okmsg'); m.style.display='inline'; setTimeout(function(){ m.style.display='none'; }, 1600); };
+    if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(ta.value).then(done, function(){ document.execCommand('copy'); done(); }); }
+    else { document.execCommand('copy'); done(); }
+  });
+
+  refresh();
+</script>
+</body>
+</html>
