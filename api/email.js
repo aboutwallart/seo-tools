@@ -223,20 +223,76 @@ module.exports = async (req, res) => {
         });
       }
 
-      // if a month is given, let the AI keep only season-appropriate / evergreen ones (drop out-of-season)
       var month = (body.month || (req.query && req.query.month) || '').toString();
       var out = cand.slice(0, 5);
+
       if (month && cand.length) {
         var MONTHS_S = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-        var mi = (+month.split('-')[1]) - 1;
+        var Mnum = (+month.split('-')[1]); var mi = Mnum - 1;
         var SEASONS = ['winter','winter','spring','spring','spring','summer','summer','summer','autumn','autumn','autumn','winter'];
+        var SEASON_TERMS = [
+          ['winter','cosy','new year'], ['winter','cosy','valentine','love'], ['spring','floral','easter','fresh'],
+          ['spring','floral','easter','pastel'], ['spring','summer','bright','floral'], ['summer','coastal','bright','garden'],
+          ['summer','coastal','tropical','beach'], ['summer','coastal','tropical','beach'], ['autumn','cosy','warm','earthy'],
+          ['autumn','halloween','cosy','warm'], ['autumn','cosy','winter','festive'], ['christmas','festive','winter','cosy']
+        ];
         var mName = MONTHS_S[mi] || '', season = SEASONS[mi] || '';
-        var listStr = cand.map(function (c, idx) { return idx + ': ' + c.title; }).join('\n');
+
+        function toBlog(nn){
+          var bh2 = (nn.blog && nn.blog.handle) || 'news-articles-home-decor-inspiration';
+          return { id: nn.id, title: nn.title, handle: nn.handle, publishedAt: nn.publishedAt,
+            image: retinaImg((nn.image && nn.image.url) || '', 600),
+            alt: (nn.image && nn.image.altText) || nn.title,
+            url: 'https://aboutwallart.com/blogs/' + bh2 + '/' + nn.handle };
+        }
+        async function searchBlogs(terms, lim){
+          var clean = (terms || []).map(function(t){ return String(t).replace(/[^a-zA-Z0-9 ]/g,'').trim(); }).filter(function(t){ return t.length >= 3; });
+          if (!clean.length) return [];
+          var q = clean.map(function(t){ return 'title:*' + t + '*'; }).join(' OR ');
+          try {
+            var d = await shopifyGraphQL('query($q:String!){ articles(first:' + (lim||10) + ', query:$q, sortKey:PUBLISHED_AT, reverse:true){ edges{ node{ id title handle publishedAt image{ url altText } blog{ handle } } } } }', { q: q });
+            var e = (d.articles && d.articles.edges) ? d.articles.edges : [];
+            return e.map(function(x){ return x.node; }).filter(function(nn){ return nn && nn.handle && !usedSet[nn.handle.toLowerCase()]; }).map(toBlog);
+          } catch (e) { return []; }
+        }
+
+        // marketing occasions active this month -> occasion search terms
+        var occNames = [], occTerms = [];
+        try {
+          var moc = await ghGetJSON('data/marketing-occasions.json');
+          var occs = (moc && moc.occasions) ? moc.occasions : (Array.isArray(moc) ? moc : []);
+          function occMonth(o, M){
+            function mm(s){ return s ? (+String(s).split('-')[0]) : 0; }
+            if (o.date2026 && mm(o.date2026) === M) return true;
+            var w = o.window;
+            if (w && w.start && w.end){ var s = mm(w.start), en = mm(w.end); return (s <= en) ? (M >= s && M <= en) : (M >= s || M <= en); }
+            return false;
+          }
+          var STOP = {'home':1,'week':1,'weekend':1,'bank':1,'holiday':1,'holidays':1,'sale':1,'sales':1,'shopping':1,'entertaining':1,'refresh':1,'ideas':1,'decor':1,'season':1,'saturday':1,'sunday':1,'monday':1,'small':1,'business':1,'day':1,'the':1,'and':1,'for':1,'your':1};
+          occs.filter(function(o){ return occMonth(o, Mnum); }).forEach(function(o){
+            if (o.name) occNames.push(o.name);
+            String(o.name || '').toLowerCase().replace(/[^a-z ]/g,' ').split(/\s+/).forEach(function(w){ if (w.length >= 4 && !STOP[w] && occTerms.indexOf(w) < 0) occTerms.push(w); });
+          });
+        } catch (e) {}
+
+        // gather candidate pools: occasion blogs (priority), season-of-year blogs, then recent
+        var occBlogs = occTerms.length ? await searchBlogs(occTerms, 12) : [];
+        var seasonBlogs = await searchBlogs(SEASON_TERMS[mi] || [season], 10);
+        var seen = {}, pool = [];
+        occBlogs.concat(seasonBlogs).concat(cand).forEach(function(c){ var k = c.handle.toLowerCase(); if (seen[k]) return; seen[k] = 1; pool.push(c); });
+
+        var listStr = pool.map(function (c, idx) { return idx + ': ' + c.title; }).join('\n');
         var sprompt = [
-          'This is a UK home-decor / wall-art newsletter for the month of ' + mName + ' (' + season + ' in the UK).',
-          'From the numbered blog list, choose up to 5 that FIT this season OR are season-neutral / evergreen.',
-          'EXCLUDE clearly out-of-season topics — e.g. for a winter month drop summer/beach/coastal/tropical; for a summer month drop snow/festive/Christmas/cosy-winter. Neutral topics (colour, sizing, gallery walls, styles, layering, gifting when near the occasion) are always fine.',
-          'Prefer the most recent. Return ONLY a JSON array of the chosen indices, best first, e.g. [3,0,7].',
+          'This is a UK home-decor / wall-art newsletter for ' + mName + ' (' + season + ' in the UK).',
+          'Marketing occasions active this month: ' + (occNames.join('; ') || 'none') + '.',
+          'Choose EXACTLY 5 blogs from the numbered list, IN THIS ORDER and mix (this mix matters):',
+          '• Slots 1-2: up to TWO blogs that match the marketing occasions above (e.g. Christmas / festive / gifting for December).',
+          '• Slot 3: ONE blog that fits the season of the year (' + season + ') in a general way.',
+          '• Slots 4-5: TWO general / evergreen blogs (colour, sizing, gallery walls, styles, layering) NOT tied to a season.',
+          'SEASONALITY OUTWEIGHS RECENCY: prefer a fitting older blog over a recent off-season one.',
+          'EXCLUDE anything clearly out-of-season (e.g. coastal / tropical / summer in winter).',
+          'If a category has no good option, fill that slot from another category so you still return exactly 5.',
+          'Return ONLY a JSON array of exactly 5 indices, in the order above, e.g. [4,1,9,0,7].',
           '',
           'Blogs:',
           listStr
@@ -246,8 +302,10 @@ module.exports = async (req, res) => {
           var m = sraw.match(/\[[^\]]*\]/);
           var picks = m ? JSON.parse(m[0]) : null;
           if (picks && picks.length) {
-            var chosen = [];
-            picks.forEach(function (ix) { if (cand[ix] && chosen.length < 5) chosen.push(cand[ix]); });
+            var chosen = [], usedIx = {};
+            picks.forEach(function (ix) { if (pool[ix] && !usedIx[ix] && chosen.length < 5) { usedIx[ix] = 1; chosen.push(pool[ix]); } });
+            // top up to 5 from the pool if the AI returned fewer
+            for (var pj = 0; pj < pool.length && chosen.length < 5; pj++) { if (!usedIx[pj]) { usedIx[pj] = 1; chosen.push(pool[pj]); } }
             if (chosen.length) out = chosen;
           }
         } catch (e) { /* fall back to the plain recent 5 */ }
