@@ -1,7 +1,13 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v51.5
+// analyze-money-page.js — v51.6
+// v51.6 (Sep 4, 2026): SCRAPPA FALLBACK FIX. When SerpAPI is out of credits, the Scrappa fallback
+//                        was parsed with the wrong shape — it read each row's link as `link`, but
+//                        Scrappa returns `url`, so the results were discarded and the tool dropped to
+//                        manual competitors. Now reads `url` OR `link`, accepts the array as
+//                        `organic_results` OR `results`, and logs the response keys if empty. Same fix
+//                        in blogs.js. (Requires SCRAPPA_KEY set in Vercel — confirmed active.)
 // v51.5 (Aug 2, 2026): M4 — (1) How-To schema fix. A contradictory rule ("NEVER return HowTo
 //                        schema for a blog") meant custom.ai_how_to_schema_markup was NEVER written
 //                        on any blog. Removed the ban; the "How-To Schema" aiItem is now generated
@@ -740,14 +746,19 @@ async function findCompetitors(keyword, userUrl) {
     const data = await response.json();
 
     let organicResults = data.organic_results || [];
-    // Fallback: if SerpAPI is out of credits / returns nothing, try Scrappa (same organic_results shape).
+    // Fallback: if SerpAPI is out of credits / returns nothing, try Scrappa.
+    // Scrappa returns each row's link as `url` (SerpAPI uses `link`), and the array
+    // may be `organic_results` OR `results` — accept both and normalise to `link`.
     if (!organicResults.length && process.env.SCRAPPA_KEY) {
       try {
         const sr = await fetch(`https://scrappa.co/api/search?query=${encodeURIComponent(keyword)}&gl=gb&hl=en`, { headers: { 'x-api-key': process.env.SCRAPPA_KEY } });
         const sd = await sr.json();
-        if (Array.isArray(sd.organic_results) && sd.organic_results.length) {
-          organicResults = sd.organic_results;
+        const rows = sd.organic_results || sd.results || [];
+        if (Array.isArray(rows) && rows.length) {
+          organicResults = rows.map(r => ({ link: r.link || r.url, title: r.title || '' }));
           console.log(`[Scrappa] fallback used — ${organicResults.length} results`);
+        } else {
+          console.error('[Scrappa] no rows returned. Response keys:', Object.keys(sd || {}).join(','));
         }
       } catch (e) { console.error('[Scrappa] Error:', e); }
     }

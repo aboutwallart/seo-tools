@@ -2939,7 +2939,10 @@ Return ONLY a JSON array, one object per title in order, exactly:
             try {
               const sr = await fetch(`https://scrappa.co/api/search?query=${encodeURIComponent(keyword)}&gl=gb&hl=en`, { headers: { 'x-api-key': process.env.SCRAPPA_KEY } });
               const sd = await sr.json();
-              if (Array.isArray(sd.organic_results) && sd.organic_results.length) { organic = sd.organic_results; console.log('[Blog competitor] Scrappa fallback used — ' + organic.length + ' results'); }
+              // Scrappa returns rows as `url` (not `link`) and array `organic_results` OR `results` — normalise.
+              const rows = sd.organic_results || sd.results || [];
+              if (Array.isArray(rows) && rows.length) { organic = rows.map(r => ({ link: r.link || r.url, title: r.title || '' })); console.log('[Blog competitor] Scrappa fallback used — ' + organic.length + ' results'); }
+              else { console.error('[Scrappa] no rows returned. Response keys:', Object.keys(sd || {}).join(',')); }
             } catch (e) { console.error('[Scrappa] Error:', e); }
           }
           if (!organic.length && data.error) {
