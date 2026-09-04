@@ -1,7 +1,10 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v51.6
+// analyze-money-page.js — v51.7
+// v51.7 (Sep 4, 2026): DIAGNOSTIC. Scrappa returns {error} not rows on the live site — log the exact
+//                        HTTP status + response body so we can see WHY (verified endpoint/param/header
+//                        all match Scrappa's docs; the field is `link` and array `organic_results`).
 // v51.6 (Sep 4, 2026): SCRAPPA FALLBACK FIX. When SerpAPI is out of credits, the Scrappa fallback
 //                        was parsed with the wrong shape — it read each row's link as `link`, but
 //                        Scrappa returns `url`, so the results were discarded and the tool dropped to
@@ -758,7 +761,7 @@ async function findCompetitors(keyword, userUrl) {
           organicResults = rows.map(r => ({ link: r.link || r.url, title: r.title || '' }));
           console.log(`[Scrappa] fallback used — ${organicResults.length} results`);
         } else {
-          console.error('[Scrappa] no rows returned. Response keys:', Object.keys(sd || {}).join(','));
+          console.error('[Scrappa] no rows. HTTP', sr.status, '— body:', JSON.stringify(sd).slice(0, 400));
         }
       } catch (e) { console.error('[Scrappa] Error:', e); }
     }

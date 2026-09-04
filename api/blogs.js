@@ -2942,7 +2942,7 @@ Return ONLY a JSON array, one object per title in order, exactly:
               // Scrappa returns rows as `url` (not `link`) and array `organic_results` OR `results` — normalise.
               const rows = sd.organic_results || sd.results || [];
               if (Array.isArray(rows) && rows.length) { organic = rows.map(r => ({ link: r.link || r.url, title: r.title || '' })); console.log('[Blog competitor] Scrappa fallback used — ' + organic.length + ' results'); }
-              else { console.error('[Scrappa] no rows returned. Response keys:', Object.keys(sd || {}).join(',')); }
+              else { console.error('[Scrappa] no rows. HTTP', sr.status, '— body:', JSON.stringify(sd).slice(0, 400)); }
             } catch (e) { console.error('[Scrappa] Error:', e); }
           }
           if (!organic.length && data.error) {
