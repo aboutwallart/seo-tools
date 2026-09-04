@@ -5,6 +5,12 @@
 //   POST { action:'newsletter-rewrite', articleId, current, note } -> AI rewrites using Mae's note (incl. "you misunderstood the blog")
 //
 // The Klaviyo DRAFT push is a LATER step (not in this file yet).
+//
+// PART 2 (Monthly Promos — Step 2, added 4 Sep 2026):
+//   POST { action:'promo-products', collections[], count }        -> 4 best-selling AWA products from the occasion's collections
+//   POST { action:'promo-write' | 'promo-rewrite', occasion, discount, code, expiry, lang, note, current }
+//                                                                 -> AI writes SHORT promo copy in the market's language (offer once, 1 CTA)
+//   POST { action:'promo-create-draft', name, subject, preview, html, market } -> creates a Klaviyo DRAFT (audience by market UK/US/ALL)
 
 module.exports = async (req, res) => {
   // CORS
@@ -658,6 +664,94 @@ module.exports = async (req, res) => {
       copy.article = { id: article.id, title: article.title, handle: article.handle, url: article.url };
 
       res.status(200).json({ ok: true, copy: copy });
+      return;
+    }
+
+    // ================= MONTHLY PROMOS (Step 2) =================
+    var PROMO_SITE = 'https://aboutwallart.com';
+
+    // ---- 4 best-selling products from an occasion's collections (About Wall Art only) ----
+    if (action === 'promo-products') {
+      var handles = Array.isArray(body.collections) ? body.collections.filter(Boolean) : [];
+      var want = Math.min(parseInt(body.count, 10) || 4, 8);
+      var out = [];
+      for (var ci = 0; ci < handles.length && out.length < want; ci++) {
+        try {
+          var pd = await shopifyGraphQL(
+            'query($h:String!,$n:Int!){ collectionByHandle(handle:$h){ products(first:$n, sortKey:BEST_SELLING){ edges{ node{ title handle onlineStoreUrl vendor featuredImage{ url altText } priceRangeV2{ minVariantPrice{ amount currencyCode } } } } } } }',
+            { h: handles[ci], n: want + 4 }
+          );
+          var edges = (pd && pd.collectionByHandle && pd.collectionByHandle.products && pd.collectionByHandle.products.edges) || [];
+          for (var ei = 0; ei < edges.length && out.length < want; ei++) {
+            var p = edges[ei].node; if (!p) continue;
+            if (p.vendor && p.vendor.toLowerCase().indexOf('about wall art') < 0) continue; // AWA only
+            if (out.some(function (x) { return x.handle === p.handle; })) continue;
+            var cur = p.priceRangeV2 && p.priceRangeV2.minVariantPrice;
+            out.push({
+              title: p.title, handle: p.handle,
+              url: p.onlineStoreUrl || (PROMO_SITE + '/products/' + p.handle),
+              image: p.featuredImage ? retinaImg(p.featuredImage.url, 600) : '',
+              alt: (p.featuredImage && p.featuredImage.altText) || p.title,
+              price: cur ? ((cur.currencyCode === 'GBP' ? '£' : '') + Number(cur.amount).toFixed(0)) : ''
+            });
+          }
+        } catch (e) {}
+      }
+      res.status(200).json({ ok: true, products: out.slice(0, want) });
+      return;
+    }
+
+    // ---- AI writes the SHORT promo copy (market language, offer once, one CTA) ----
+    if (action === 'promo-write' || action === 'promo-rewrite') {
+      var occ = body.occasion || {};
+      var lang = (occ.lang || body.lang || 'en-GB');
+      var pct = (body.discount || '').toString();
+      var code = (body.code || '').toString();
+      var expiry = (body.expiry || '').toString();
+      var spelling = (lang === 'en-US') ? 'US English (US spelling)' : (lang === 'es' ? 'Spanish' : lang === 'it' ? 'Italian' : lang === 'fr' ? 'French' : 'UK English (UK spelling)');
+      var note = '';
+      if (action === 'promo-rewrite') { note = '\nMY FEEDBACK (apply it): ' + (body.note || '').toString().slice(0, 800); if (body.current) { try { note = '\nCURRENT DRAFT: ' + JSON.stringify(body.current).slice(0, 1500) + note; } catch (e) {} } }
+      var pr = [
+        'You write SHORT promotional emails for About Wall Art, a UK wall-art brand. Voice: calm, warm, human, spoken — NEVER poetic or "AI". Brand belief: "a calm home is a powerful thing"; art supports wellbeing. One brand voice speaking to "you".',
+        'Occasion: "' + (occ.name || '') + '". Why it sells art: ' + (occ.relevance || '') + '.',
+        'Write EVERYTHING in ' + spelling + '. (The footer stays English — not your job.)',
+        'The offer: ' + (pct ? pct + '% off' : 'a special offer') + (code ? ', code ' + code : '') + (expiry ? ', valid until ' + expiry : '') + '. State the offer ONCE, near the top. Exactly ONE call to action.',
+        'SHORT and light (Gmail clips long emails). 2-3 short human intro lines, then the offer. No buzzwords, no repetition.',
+        note,
+        'Return ONLY JSON: { "subject":"", "preview":"", "titleTop":"2-4 WORD CAPS HEADLINE", "titleScript":"short script tagline", "greeting":"Dear {{ first_name|default:\'friend\' }},", "intro":["line 1","line 2"], "offerLine":"the offer, human, said once", "ctaLabel":"2-3 words" }'
+      ].join('\n');
+      var raw = await anthropic(pr, 1200);
+      var copy = extractJSON(raw);
+      if (!copy) { res.status(502).json({ ok: false, error: 'AI did not return usable copy', raw: (raw || '').slice(0, 300) }); return; }
+      res.status(200).json({ ok: true, copy: copy });
+      return;
+    }
+
+    // ---- create the promo as a Klaviyo DRAFT (audience by market) ----
+    if (action === 'promo-create-draft') {
+      var KLAVIYO_KEY = process.env.KLAVIYO_KEY;
+      if (!KLAVIYO_KEY) { res.status(500).json({ ok: false, error: 'KLAVIYO_KEY not configured on the server' }); return; }
+      var subject = (body.subject || '').toString();
+      var html = (body.html || '').toString();
+      var preview = (body.preview || '').toString();
+      var name = (body.name || subject || 'PROMO').toString().slice(0, 120);
+      if (!subject || !html) { res.status(400).json({ ok: false, error: 'subject and html required' }); return; }
+      var SEG = { UK: 'WGvbF3', US: 'Y3x3by', ALL: 'VeaNX2', GENERAL: 'VeaNX2' };
+      var seg = SEG[(body.market || 'ALL').toString().toUpperCase()] || 'VeaNX2';
+      var REVP = '2024-10-15';
+      function kvp(path, method, payload) { return fetch('https://a.klaviyo.com' + path, { method: method, headers: { 'Authorization': 'Klaviyo-API-Key ' + KLAVIYO_KEY, 'revision': REVP, 'accept': 'application/vnd.api+json', 'content-type': 'application/vnd.api+json' }, body: payload ? JSON.stringify(payload) : undefined }); }
+      async function kvpJson(r) { var t = await r.text(); var j = null; try { j = JSON.parse(t); } catch (e) {} return { ok: r.ok, status: r.status, json: j, text: t }; }
+      var tR = await kvpJson(await kvp('/api/templates/', 'POST', { data: { type: 'template', attributes: { name: name + ' (tool)', editor_type: 'CODE', html: html } } }));
+      if (!tR.ok || !tR.json || !tR.json.data) { res.status(502).json({ ok: false, error: 'Template create failed (' + tR.status + '): ' + (tR.text || '').slice(0, 250) }); return; }
+      var tId = tR.json.data.id;
+      var campP = { data: { type: 'campaign', attributes: { name: name, audiences: { included: [seg] }, tracking_options: { add_tracking_params: true, is_tracking_opens: true, is_tracking_clicks: true }, 'campaign-messages': { data: [ { type: 'campaign-message', attributes: { channel: 'email', label: name, content: { subject: subject, preview_text: preview, from_email: 'info@aboutwallart.com', from_label: 'Mae from About Wall Art' } } } ] } } } };
+      var cR = await kvpJson(await kvp('/api/campaigns/', 'POST', campP));
+      if (!cR.ok || !cR.json || !cR.json.data) { res.status(502).json({ ok: false, error: 'Campaign create failed (' + cR.status + '): ' + (cR.text || '').slice(0, 300) }); return; }
+      var campId = cR.json.data.id, mId = null; try { mId = cR.json.data.relationships['campaign-messages'].data[0].id; } catch (e) {}
+      if (!mId) { res.status(502).json({ ok: false, error: 'Campaign created but no message id', campaignId: campId }); return; }
+      var aR = await kvpJson(await kvp('/api/campaign-message-assign-template/', 'POST', { data: { type: 'campaign-message', id: mId, relationships: { template: { data: { type: 'template', id: tId } } } } }));
+      if (!aR.ok) { res.status(502).json({ ok: false, error: 'Assign template failed (' + aR.status + '): ' + (aR.text || '').slice(0, 250), campaignId: campId }); return; }
+      res.status(200).json({ ok: true, campaignId: campId, url: 'https://www.klaviyo.com/campaign/' + campId + '/wizard' });
       return;
     }
 
