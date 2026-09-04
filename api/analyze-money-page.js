@@ -1,7 +1,11 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v51.7
+// analyze-money-page.js — v51.8
+// v51.8 (Sep 4, 2026): SCRAPPA RETRIES. Scrappa's Google search returns a transient HTTP 503
+//                        ("temporarily unable to return a valid SERP") — confirmed via runtime logs.
+//                        Now retries 503/429 up to 3× with a short backoff (honours Retry-After)
+//                        before falling back to the manual-competitors prompt.
 // v51.7 (Sep 4, 2026): DIAGNOSTIC. Scrappa returns {error} not rows on the live site — log the exact
 //                        HTTP status + response body so we can see WHY (verified endpoint/param/header
 //                        all match Scrappa's docs; the field is `link` and array `organic_results`).
@@ -753,17 +757,29 @@ async function findCompetitors(keyword, userUrl) {
     // Scrappa returns each row's link as `url` (SerpAPI uses `link`), and the array
     // may be `organic_results` OR `results` — accept both and normalise to `link`.
     if (!organicResults.length && process.env.SCRAPPA_KEY) {
-      try {
-        const sr = await fetch(`https://scrappa.co/api/search?query=${encodeURIComponent(keyword)}&gl=gb&hl=en`, { headers: { 'x-api-key': process.env.SCRAPPA_KEY } });
-        const sd = await sr.json();
-        const rows = sd.organic_results || sd.results || [];
-        if (Array.isArray(rows) && rows.length) {
-          organicResults = rows.map(r => ({ link: r.link || r.url, title: r.title || '' }));
-          console.log(`[Scrappa] fallback used — ${organicResults.length} results`);
-        } else {
-          console.error('[Scrappa] no rows. HTTP', sr.status, '— body:', JSON.stringify(sd).slice(0, 400));
-        }
-      } catch (e) { console.error('[Scrappa] Error:', e); }
+      // Scrappa's Google search can return a transient 503 ("temporarily unable to return a valid
+      // SERP") or 429 — retry a few times with a short backoff (honouring Retry-After) before giving up.
+      for (let attempt = 1; attempt <= 3 && !organicResults.length; attempt++) {
+        try {
+          const sr = await fetch(`https://scrappa.co/api/search?query=${encodeURIComponent(keyword)}&gl=gb&hl=en`, { headers: { 'x-api-key': process.env.SCRAPPA_KEY } });
+          if (sr.status === 503 || sr.status === 429) {
+            const ra = parseInt(sr.headers.get('retry-after') || '0', 10);
+            const waitMs = Math.min((ra ? ra * 1000 : 1500) * attempt, 5000);
+            console.warn(`[Scrappa] HTTP ${sr.status} (transient) — retry ${attempt}/3 in ${waitMs}ms`);
+            if (attempt < 3) await new Promise(r => setTimeout(r, waitMs));
+            continue;
+          }
+          const sd = await sr.json();
+          const rows = sd.organic_results || sd.results || [];
+          if (Array.isArray(rows) && rows.length) {
+            organicResults = rows.map(r => ({ link: r.link || r.url, title: r.title || '' }));
+            console.log(`[Scrappa] fallback used — ${organicResults.length} results (attempt ${attempt})`);
+          } else {
+            console.error('[Scrappa] no rows. HTTP', sr.status, '— body:', JSON.stringify(sd).slice(0, 300));
+            break;
+          }
+        } catch (e) { console.error('[Scrappa] Error:', e); break; }
+      }
     }
     
     // Normalize URLs for comparison

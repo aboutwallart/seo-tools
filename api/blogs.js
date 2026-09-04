@@ -1,4 +1,6 @@
-// blogs.js — v4.2
+// blogs.js — v4.3
+// v4.3 (Sep 4, 2026): Scrappa competitor fallback now retries transient HTTP 503/429 (up to 3×,
+//                     short backoff) before dead-ending — matches api/analyze-money-page.js v51.8.
 // v4.2 (Aug 21, 2026): Blog scheduling now spaces new blogs EVERY OTHER DAY (1 day on, 1 day off)
 //                      instead of one per day — the next free slot is now 2 days after the last
 //                      scheduled blog, not 1. (publish-blog: gap 86400000 → 2 * 86400000.)
@@ -2936,14 +2938,24 @@ Return ONLY a JSON array, one object per title in order, exactly:
           // SerpAPI signals problems in data.error (out of searches/credits). Before dead-ending, try Scrappa.
           let organic = data.error ? [] : (data.organic_results || []);
           if (!organic.length && process.env.SCRAPPA_KEY) {
-            try {
-              const sr = await fetch(`https://scrappa.co/api/search?query=${encodeURIComponent(keyword)}&gl=gb&hl=en`, { headers: { 'x-api-key': process.env.SCRAPPA_KEY } });
-              const sd = await sr.json();
-              // Scrappa returns rows as `url` (not `link`) and array `organic_results` OR `results` — normalise.
-              const rows = sd.organic_results || sd.results || [];
-              if (Array.isArray(rows) && rows.length) { organic = rows.map(r => ({ link: r.link || r.url, title: r.title || '' })); console.log('[Blog competitor] Scrappa fallback used — ' + organic.length + ' results'); }
-              else { console.error('[Scrappa] no rows. HTTP', sr.status, '— body:', JSON.stringify(sd).slice(0, 400)); }
-            } catch (e) { console.error('[Scrappa] Error:', e); }
+            // Scrappa's Google search can return a transient 503/429 — retry a few times before giving up.
+            for (let attempt = 1; attempt <= 3 && !organic.length; attempt++) {
+              try {
+                const sr = await fetch(`https://scrappa.co/api/search?query=${encodeURIComponent(keyword)}&gl=gb&hl=en`, { headers: { 'x-api-key': process.env.SCRAPPA_KEY } });
+                if (sr.status === 503 || sr.status === 429) {
+                  const ra = parseInt(sr.headers.get('retry-after') || '0', 10);
+                  const waitMs = Math.min((ra ? ra * 1000 : 1500) * attempt, 5000);
+                  console.warn('[Blog competitor] Scrappa HTTP ' + sr.status + ' (transient) — retry ' + attempt + '/3 in ' + waitMs + 'ms');
+                  if (attempt < 3) await new Promise(r => setTimeout(r, waitMs));
+                  continue;
+                }
+                const sd = await sr.json();
+                // Scrappa returns rows as `url` (not `link`) and array `organic_results` OR `results` — normalise.
+                const rows = sd.organic_results || sd.results || [];
+                if (Array.isArray(rows) && rows.length) { organic = rows.map(r => ({ link: r.link || r.url, title: r.title || '' })); console.log('[Blog competitor] Scrappa fallback used — ' + organic.length + ' results (attempt ' + attempt + ')'); }
+                else { console.error('[Scrappa] no rows. HTTP', sr.status, '— body:', JSON.stringify(sd).slice(0, 300)); break; }
+              } catch (e) { console.error('[Scrappa] Error:', e); break; }
+            }
           }
           if (!organic.length && data.error) {
             const e = String(data.error).toLowerCase();
