@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.42 · 3 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.45 · 4 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -3990,14 +3990,26 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   var occs=[];
 
   function esc(s){ return String(s||'').replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
-  function monthOf(o){ var md=o.date2026 || (o.window&&o.window.start) || ''; return md?parseInt(String(md).split('-')[0],10):0; }
-  function dayOf(o){ var md=o.date2026 || (o.window&&o.window.start) || ''; return md?parseInt(String(md).split('-')[1],10):0; }
+  // Prefer promoMonth/promoWindow (promo timing) over the content-calendar date (e.g. New Baby -> June).
+  function monthOf(o){ if(o.promoMonth) return parseInt(o.promoMonth,10); var md=o.date2026 || (o.window&&o.window.start) || ''; return md?parseInt(String(md).split('-')[0],10):0; }
+  function dayOf(o){ if(o.promoWindow&&o.promoWindow.start) return parseInt(String(o.promoWindow.start).split('-')[1],10); var md=o.date2026 || (o.window&&o.window.start) || ''; return md?parseInt(String(md).split('-')[1],10):0; }
 
-  // months Jan–Oct only (Nov/Dec -> Q4 tab)
-  var html=''; for(var m=1;m<=10;m++){ html+='<option value="'+m+'">'+MON[m-1]+'</option>'; }
-  mSel.innerHTML=html;
-  var nxt=new Date().getMonth()+2; if(nxt<1||nxt>10) nxt=10; // default to next month, clamped into Jan–Oct
-  mSel.value=String(nxt);
+  // Rolling month picker — next 12 available months, year-aware, EXCLUDING Nov & Dec (those go to the Q4 tab).
+  function buildMonths(){
+    var prev=mSel.value, now=new Date(), h='', first=null, count=0;
+    for(var i=0;i<24 && count<12;i++){
+      var d=new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth()+i, 1));
+      var mo=d.getUTCMonth()+1;
+      if(mo===11||mo===12) continue; // Nov/Dec handled by the Q4 tab
+      var ym=d.toISOString().slice(0,7);
+      if(!first) first=ym;
+      h+='<option value="'+ym+'">'+MON[mo-1]+' '+d.getUTCFullYear()+'</option>';
+      count++;
+    }
+    mSel.innerHTML=h;
+    if(prev && mSel.querySelector('option[value="'+prev+'"]')) mSel.value=prev; else if(first) mSel.value=first;
+  }
+  buildMonths();
 
   fetch('/api/social?action=get-occasions').then(function(r){return r.json();}).then(function(d){
     if(d&&d.ok){ occs=d.occasions||[]; renderOcc(); }
@@ -4006,8 +4018,9 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   mSel.addEventListener('change', renderOcc);
 
   function renderOcc(){
-    var m=parseInt(mSel.value,10);
-    var list=occs.filter(function(o){ return monthOf(o)===m; });
+    var ym=mSel.value||''; var m=parseInt(ym.split('-')[1],10)||0;
+    // Only promo-worthy occasions (owner-approved) for this month.
+    var list=occs.filter(function(o){ return o.promoSuggested && monthOf(o)===m; });
     list.sort(function(a,b){ return dayOf(a)-dayOf(b); });
     var box=document.getElementById('mpEmOccList');
     var step=document.getElementById('mpEmOccStep');
@@ -4016,7 +4029,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       box.innerHTML='<div class="nlhint">No marketing occasions in '+MON[m-1]+'.</div>';
     } else {
       box.innerHTML=list.map(function(o){
-        var dt = o.date2026 ? (dayOf(o)+' '+MON[m-1].slice(0,3)) : 'all '+MON[m-1].slice(0,3);
+        var dt = o.promoWindow ? (parseInt(String(o.promoWindow.start).split('-')[1],10)+'–'+parseInt(String(o.promoWindow.end).split('-')[1],10)+' '+MON[m-1].slice(0,3)) : (o.date2026 ? (dayOf(o)+' '+MON[m-1].slice(0,3)) : 'all '+MON[m-1].slice(0,3));
         var promo = o.promoSuggested ? ' <span style="background:#d6f0dd;color:#1a7f37;font-size:10.5px;font-weight:800;letter-spacing:.4px;padding:1px 6px;border-radius:6px;vertical-align:middle;">PROMO</span>' : '';
         var ctry = o.country ? ' <span style="background:#eee;color:#555;font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:6px;vertical-align:middle;">'+esc(o.country)+'</span>' : '';
         return '<label style="display:flex;gap:10px;align-items:flex-start;padding:9px 2px;border-bottom:1px solid #eee;cursor:pointer;">'
@@ -4039,14 +4052,204 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     b.textContent = n ? ('Create these '+n+' promo'+(n>1?'s':'')+' →') : 'Create these promos →';
   }
 
+  /* ===== Step 2 — build each promo (copy + products + title + countdown + Klaviyo draft) ===== */
+  var TOOLS='https://tools.aboutwallart.com';
+  function emPost(p){ return fetch('/api/email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)}).then(function(r){return r.json();}); }
+  function langShort(o){ var l=(o&&o.lang)||'en-GB'; return l.indexOf('es')===0?'es':l.indexOf('it')===0?'it':l.indexOf('fr')===0?'fr':'en'; }
+  function marketOf(o){ return o&&o.country==='US'?'US':(o&&o.country==='UK'?'UK':'ALL'); }
+  function enc(s){ return encodeURIComponent(String(s||'')); }
+  function titleImg(top,script,lg){ return TOOLS+'/api/promo-image?type=title&top='+enc(top)+'&script='+enc(script)+'&lang='+lg; }
+  function countdownImg(expiry,lg){ return expiry?(TOOLS+'/api/countdown?to='+enc(expiry+'T23:59')+'&tz=Europe/London&lang='+lg):''; }
+
+  // Assemble the promo email HTML (the fixed mould: header · title · hero · offer · countdown · CTA · 4 products · trust · footer)
+  function buildPromoHtml(s){
+    var c=s.copy||{}, lg=s.lg, prods=(s.products||[]).slice(0,4);
+    var intro=(c.intro||[]).map(function(l){return '<p style="margin:0 0 10px;">'+esc(l)+'</p>';}).join('');
+    var prodCells=prods.map(function(p){
+      return '<td width="50%" valign="top" style="padding:8px;">'
+        +'<a href="'+esc(p.url)+'" style="text-decoration:none;color:#111;">'
+        +'<img src="'+esc(p.image)+'" width="260" alt="'+esc(p.alt)+'" style="width:100%;max-width:260px;border-radius:8px;display:block;margin:0 auto 8px;">'
+        +'<div style="font-size:14px;line-height:1.3;">'+esc(p.title)+'</div>'
+        +(p.price?'<div style="font-weight:700;margin-top:2px;">'+esc(p.price)+'</div>':'')
+        +'<div style="margin-top:6px;font-size:12px;font-weight:700;color:#111;text-transform:uppercase;letter-spacing:.5px;">Shop now →</div>'
+        +'</a></td>';
+    });
+    var prodRows='';
+    for(var i=0;i<prodCells.length;i+=2){ prodRows+='<tr>'+prodCells[i]+(prodCells[i+1]||'<td width="50%"></td>')+'</tr>'; }
+    var CDN='https://cdn.shopify.com/s/files/1/0710/7693/8014/files/';
+    var badges=[['Untitled_design_21.png','Free UK shipping'],['2_b990e8ac-43e3-4547-bc36-583f3ce53905.png','Gallery-grade 260gsm'],['Untitled_design_23.png','Safe payments'],['3.png','Personalisation']]
+      .map(function(b){ return '<td width="25%" align="center" style="padding:6px;font-size:11px;color:#555;"><img src="'+CDN+b[0]+'" width="34" style="width:34px;height:34px;display:block;margin:0 auto 4px;">'+b[1]+'</td>'; }).join('');
+    return '<div style="background:#f4f4f4;padding:0;margin:0;">'
+      +'<table width="600" align="center" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#fff;font-family:Arial,Helvetica,sans-serif;color:#222;">'
+      +'<tr><td style="background:#111;padding:18px;text-align:center;"><span style="color:#fff;letter-spacing:3px;font-size:16px;font-weight:700;">ABOUT WALL ART</span></td></tr>'
+      +'<tr><td align="center" style="padding:22px 18px 6px;"><img src="'+titleImg(c.titleTop,c.titleScript,lg)+'" alt="'+esc(c.titleTop||'')+'" style="max-width:420px;width:90%;display:block;margin:0 auto;"></td></tr>'
+      +(s.hero?'<tr><td style="padding:6px 18px;"><img src="'+esc(s.hero)+'" alt="'+esc(c.titleTop||'')+'" style="width:100%;border-radius:8px;display:block;"></td></tr>':'')
+      +'<tr><td style="padding:14px 26px 4px;font-size:15px;line-height:1.55;">'
+        +'<p style="margin:0 0 10px;">'+esc(c.greeting||'')+'</p>'+intro
+        +'<p style="margin:12px 0;font-weight:700;font-size:16px;color:#111;">'+esc(c.offerLine||'')+'</p>'
+      +'</td></tr>'
+      +(countdownImg(s.expiry,lg)?'<tr><td align="center" style="padding:6px 18px;"><img src="'+countdownImg(s.expiry,lg)+'" alt="Countdown" style="max-width:420px;width:90%;display:block;margin:0 auto;"></td></tr>':'')
+      +'<tr><td align="center" style="padding:10px 18px 18px;"><a href="'+esc(s.ctaUrl||('https://aboutwallart.com'))+'" style="background:#111;color:#fff;text-decoration:none;padding:13px 34px;border-radius:6px;font-weight:700;letter-spacing:1px;display:inline-block;">'+esc(c.ctaLabel||'SHOP NOW')+'</a></td></tr>'
+      +(prodRows?'<tr><td style="padding:4px 14px 10px;"><table width="100%" cellpadding="0" cellspacing="0">'+prodRows+'</table></td></tr>':'')
+      +'<tr><td style="padding:12px 14px;border-top:1px solid #eee;"><table width="100%" cellpadding="0" cellspacing="0"><tr>'+badges+'</tr></table></td></tr>'
+      +'<tr><td style="background:#111;color:#bbb;padding:20px;text-align:center;font-size:12px;line-height:1.6;">'
+        +'Mae ❤️ &nbsp;·&nbsp; About Wall Art<br>'
+        +'<a href="https://aboutwallart.com" style="color:#bbb;">aboutwallart.com</a><br>'
+        +'<a href="{% unsubscribe %}" style="color:#888;">Unsubscribe</a>'
+      +'</td></tr>'
+      +'</table></div>';
+  }
+
+  function refreshPreview(s){
+    var pv=document.getElementById('pv-'+s.uid); if(!pv) return;
+    pv.srcdoc=buildPromoHtml(s);
+  }
+
+  /* ---- Hero picker — reuses Blog Manager backend (search-wall-art + product-image) ---- */
+  var SACRED_LINE='The filename and alt text in the prompt are sacred. I copy them character-for-character, every time, on every image, including regenerations. I never modify, shorten, suffix or alter them for any reason.';
+  var EDITORIAL_LINE='Editorial means richly styled, layered, magazine-quality — every surface dressed, every corner considered.';
+  var EXTENSION_PREAMBLE='This is an IMAGE EXTENSION task — NOT a room redesign. I will paste the product photo. Preserve every element of the pasted photo EXACTLY (wall colour, furniture, lighting, decor and the framed artwork). Your only jobs: (1) extend the scene naturally to fill a 3:2 frame by continuing the EXISTING walls, floor and furnishings — never add blank bars or empty space, and do NOT invent a different room; (2) keep it bright and neutral. Do NOT restyle or replace any part of the room.';
+  function slugp(x){ return String(x||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60); }
+  function buildHeroPrompt(s){
+    var o=s.occ, p=s.heroSelProduct||{};
+    var alt='A '+o.name+' styled room with '+(p.title?('"'+p.title+'"'):'the wall art')+' on the wall';
+    var nm=slugp(o.id)+'-hero';
+    return 'SHOPIFY AI — HERO IMAGE (landscape 3:2). I will paste the product’s own photo.\n'+SACRED_LINE+'\n\n'
+      +'[3:2] '+EXTENSION_PREAMBLE+'\n'
+      +'Make ONE editorial lifestyle scene that ILLUSTRATES the occasion “'+o.name+'” ('+(o.relevance||'')+'): a beautifully styled room where '+(p.title?('“'+p.title+'”'):'this product’s framed art')+' hangs on the wall as the focal point. Bright, neutral white balance, no yellow cast, no people, no text or logos. '+EDITORIAL_LINE+'\n'
+      +'SAVE this image named “'+nm+'”. Set the ALT TEXT to: “'+alt+'”.';
+  }
+  function copyImg(url,btn){
+    if(!url){ alert('Pick a product image first.'); return; }
+    var orig=btn.textContent; btn.disabled=true; btn.textContent='Copying…';
+    fetch('/api/blogs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'product-image',url:url})})
+      .then(function(r){return r.json();}).then(function(d){
+        if(!d||!d.ok||!d.dataBase64) throw new Error((d&&d.error)||'could not load image');
+        return new Promise(function(resolve,reject){ var img=new Image(); img.onload=function(){ var c=document.createElement('canvas'); c.width=img.naturalWidth; c.height=img.naturalHeight; c.getContext('2d').drawImage(img,0,0); c.toBlob(function(b){ b?resolve(b):reject(new Error('convert failed')); },'image/png'); }; img.onerror=function(){reject(new Error('decode failed'));}; img.src='data:'+(d.mime||'image/png')+';base64,'+d.dataBase64; });
+      })
+      .then(function(blob){ if(navigator.clipboard&&window.ClipboardItem) return navigator.clipboard.write([new ClipboardItem({'image/png':blob})]); throw new Error('this browser can’t copy images — use the URL'); })
+      .then(function(){ btn.disabled=false; btn.textContent='Copied ✓'; setTimeout(function(){btn.textContent=orig;},1500); })
+      .catch(function(e){ btn.disabled=false; btn.textContent=orig; alert('Could not copy the image: '+e.message); });
+  }
+  function searchHero(s){
+    var term=(document.getElementById('sk-'+s.uid).value||'').trim(); if(!term) return;
+    var box=document.getElementById('hr-'+s.uid); box.innerHTML='<div class="nlhint">Searching…</div>';
+    fetch('/api/blogs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'search-wall-art',term:term})})
+      .then(function(r){return r.json();}).then(function(d){
+        var prods=(d&&d.success&&Array.isArray(d.products))?d.products:[];
+        if(!prods.length){ box.innerHTML='<div class="nlhint">No About Wall Art products for “'+esc(term)+'”.</div>'; return; }
+        box.innerHTML=prods.map(function(p){
+          var imgs=(p.images||[]).slice(0,8).map(function(u){ return '<img class="hth-'+s.uid+'" data-url="'+esc(u)+'" data-title="'+esc(p.title)+'" src="'+esc(u)+'" style="width:60px;height:60px;object-fit:cover;border:2px solid transparent;border-radius:6px;cursor:pointer;margin:2px;">'; }).join('');
+          return '<div style="padding:6px 0;border-bottom:1px solid #eee;"><div style="font-size:12px;font-weight:600;">'+esc(p.title)+'</div><div style="display:flex;flex-wrap:wrap;">'+imgs+'</div></div>';
+        }).join('');
+        Array.prototype.forEach.call(box.querySelectorAll('.hth-'+s.uid),function(t){
+          t.addEventListener('click',function(){
+            Array.prototype.forEach.call(box.querySelectorAll('.hth-'+s.uid),function(x){x.style.borderColor='transparent';});
+            t.style.borderColor='#c0561d';
+            s.heroSelUrl=t.getAttribute('data-url'); s.heroSelProduct={title:t.getAttribute('data-title')};
+            var hf=document.getElementById('hero-'+s.uid); if(hf){ hf.value=s.heroSelUrl; } s.hero=s.heroSelUrl; refreshPreview(s);
+            var cb=document.getElementById('hc-'+s.uid); if(cb) cb.style.display='';
+          });
+        });
+      }).catch(function(){ box.innerHTML='<div class="nlhint" style="color:#b00;">Search failed.</div>'; });
+  }
+
   var startBtn=document.getElementById('mpEmStart');
   if(startBtn) startBtn.addEventListener('click', function(){
     var picked=[].slice.call(document.querySelectorAll('#mpEmOccList .mpEmChk:checked')).map(function(c){ return c.getAttribute('data-oid'); });
     var chosen=occs.filter(function(o){ return picked.indexOf(o.id)>=0; });
-    document.getElementById('mpEmBuild').innerHTML =
-      '<div class="nlstep"><div class="nlhd">Selected — '+chosen.length+' promo'+(chosen.length>1?'s':'')+'</div>'
-      +'<p class="nlhint">'+chosen.map(function(o){ return esc(o.name); }).join(' &nbsp;·&nbsp; ')+'</p>'
-      +'<p class="nlhint" style="color:#8a6d00;">Next step (building each promo — collection, products, hero, title, copy, countdown) coming in the next session.</p></div>';
+    var wrap=document.getElementById('mpEmBuild'); wrap.innerHTML='';
+    chosen.forEach(function(o,idx){
+      var uid='p'+idx+'_'+Math.random().toString(36).slice(2,7);
+      var s={ uid:uid, occ:o, lg:langShort(o), market:marketOf(o), copy:null, products:[], hero:'', expiry:'', ctaUrl:'https://aboutwallart.com/collections/'+((o.collections&&o.collections[0])||'') };
+      var card=document.createElement('div'); card.className='nlstep'; card.style.marginTop='16px';
+      card.innerHTML=
+        '<div class="nlhd">'+esc(o.name)+' <span style="font-size:11px;background:#eee;color:#555;padding:1px 7px;border-radius:6px;">'+(s.market==='ALL'?'All markets':s.market)+'</span></div>'
+        +'<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin:8px 0;">'
+          +'<label style="font-size:12px;color:#555;">Discount %<br><input id="d-'+uid+'" type="number" min="0" max="90" value="15" style="width:80px;padding:7px;border:1px solid #ddd;border-radius:6px;"></label>'
+          +'<label style="font-size:12px;color:#555;">Code<br><input id="c-'+uid+'" type="text" value="" placeholder="e.g. SPRING15" style="width:140px;padding:7px;border:1px solid #ddd;border-radius:6px;"></label>'
+          +'<label style="font-size:12px;color:#555;">Valid until<br><input id="e-'+uid+'" type="date" style="padding:7px;border:1px solid #ddd;border-radius:6px;"></label>'
+          +'<button id="w-'+uid+'" class="nlbtn" type="button">✍️ Write the promo</button>'
+        +'</div>'
+        +'<div id="body-'+uid+'"></div>';
+      wrap.appendChild(card);
+
+      document.getElementById('w-'+uid).addEventListener('click', function(){
+        var btn=this; btn.disabled=true; btn.textContent='Writing…';
+        s.expiry=document.getElementById('e-'+uid).value||'';
+        var discount=document.getElementById('d-'+uid).value||'';
+        var code=document.getElementById('c-'+uid).value||'';
+        Promise.all([
+          emPost({action:'promo-write', occasion:o, lang:o.lang, discount:discount, code:code, expiry:s.expiry}),
+          emPost({action:'promo-products', collections:(o.collections||[]), count:4})
+        ]).then(function(res){
+          btn.disabled=false; btn.textContent='✍️ Re-write';
+          var w=res[0], pp=res[1];
+          if(!w||!w.ok){ document.getElementById('body-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">Could not write: '+esc((w&&w.error)||'error')+'</p>'; return; }
+          s.copy=w.copy; s.products=(pp&&pp.ok&&pp.products)||[];
+          var c=s.copy;
+          document.getElementById('body-'+uid).innerHTML=
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;">'
+            +'<div>'
+              +'<label style="font-size:12px;color:#555;">Subject line<br><input id="s-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.subject||'')+'"></label>'
+              +'<label style="font-size:12px;color:#555;">Preview text<br><input id="pr-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.preview||'')+'"></label>'
+              +'<label style="font-size:12px;color:#555;">Title (caps)<br><input id="tt-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.titleTop||'')+'"></label>'
+              +'<label style="font-size:12px;color:#555;">Title (script)<br><input id="ts-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.titleScript||'')+'"></label>'
+              +'<label style="font-size:12px;color:#555;">Offer line<br><input id="of-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.offerLine||'')+'"></label>'
+              +'<label style="font-size:12px;color:#555;">Intro (one line each)<br><textarea id="in-'+uid+'" rows="3" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;">'+esc((c.intro||[]).join('\n'))+'</textarea></label>'
+              +'<div style="margin-top:10px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
+                +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">Hero image — search a product → pick an image → Copy → paste into Shopify AI → paste the result back</div>'
+                +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'
+                  +'<input id="sk-'+uid+'" placeholder="search wall art (e.g. abstract, coastal, boho)" style="flex:1;min-width:180px;padding:7px;border:1px solid #ddd;border-radius:6px;">'
+                  +'<button id="sb-'+uid+'" type="button" class="nlbtn" style="background:#555;">🔍 Search</button>'
+                +'</div>'
+                +'<div id="hr-'+uid+'" style="max-height:220px;overflow:auto;margin-top:8px;"></div>'
+                +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">'
+                  +'<button id="hc-'+uid+'" type="button" style="display:none;background:#c0561d;color:#fff;border:none;border-radius:8px;padding:7px 12px;font-weight:700;cursor:pointer;">📋 Copy image</button>'
+                  +'<button id="hp-'+uid+'" type="button" class="nlbtn" style="background:#555;">🪄 Generate Shopify-AI prompt</button>'
+                +'</div>'
+                +'<textarea id="hpt-'+uid+'" rows="4" placeholder="the Shopify-AI hero prompt appears here — copy it into Shopify AI" style="width:100%;margin-top:8px;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;"></textarea>'
+                +'<label style="font-size:12px;color:#555;">Paste the Shopify-AI hero URL here (or a picked product image is used directly):<br><input id="hero-'+uid+'" placeholder="https://…" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;"></label>'
+              +'</div>'
+              +'<div style="margin-top:6px;font-size:12px;color:#555;">'+ (s.products.length? (s.products.length+' products loaded from <b>'+esc((o.collections&&o.collections[0])||'')+'</b>') : 'No products found — check the collection handle.') +'</div>'
+              +'<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">'
+                +'<button id="up-'+uid+'" class="nlbtn" type="button" style="background:#555;">↻ Update preview</button>'
+                +'<button id="cd-'+uid+'" class="nlbtn" type="button">📧 Create Klaviyo draft</button>'
+              +'</div>'
+              +'<div id="res-'+uid+'" style="margin-top:8px;font-size:13px;"></div>'
+            +'</div>'
+            +'<div><div style="font-size:12px;color:#555;margin-bottom:4px;">Live preview</div><iframe id="pv-'+uid+'" style="width:100%;height:640px;border:1px solid #e3e3e3;border-radius:8px;background:#fff;"></iframe></div>'
+            +'</div>';
+          function pull(){
+            s.copy.subject=document.getElementById('s-'+uid).value;
+            s.copy.preview=document.getElementById('pr-'+uid).value;
+            s.copy.titleTop=document.getElementById('tt-'+uid).value;
+            s.copy.titleScript=document.getElementById('ts-'+uid).value;
+            s.copy.offerLine=document.getElementById('of-'+uid).value;
+            s.copy.intro=document.getElementById('in-'+uid).value.split('\n').filter(function(x){return x.trim();});
+            s.hero=document.getElementById('hero-'+uid).value.trim();
+            s.expiry=document.getElementById('e-'+uid).value||s.expiry;
+          }
+          document.getElementById('up-'+uid).addEventListener('click', function(){ pull(); refreshPreview(s); });
+          document.getElementById('cd-'+uid).addEventListener('click', function(){
+            pull(); var cb=this; cb.disabled=true; cb.textContent='Creating…';
+            var html=buildPromoHtml(s);
+            emPost({action:'promo-create-draft', name:'PROMO '+o.name, subject:s.copy.subject, preview:s.copy.preview, html:html, market:s.market}).then(function(d){
+              cb.disabled=false; cb.textContent='📧 Create Klaviyo draft';
+              var r=document.getElementById('res-'+uid);
+              if(d&&d.ok){ r.innerHTML='✅ Draft created — <a href="'+esc(d.url)+'" target="_blank">open in Klaviyo</a>'; }
+              else { r.innerHTML='<span style="color:#b00;">Draft failed: '+esc((d&&d.error)||'error')+'</span>'; }
+            });
+          });
+          document.getElementById('sb-'+uid).addEventListener('click', function(){ searchHero(s); });
+          document.getElementById('sk-'+uid).addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); searchHero(s); } });
+          document.getElementById('hp-'+uid).addEventListener('click', function(){ document.getElementById('hpt-'+uid).value=buildHeroPrompt(s); });
+          document.getElementById('hc-'+uid).addEventListener('click', function(){ copyImg(s.heroSelUrl, this); });
+          document.getElementById('hero-'+uid).addEventListener('input', function(){ s.hero=this.value.trim(); refreshPreview(s); });
+          refreshPreview(s);
+        }).catch(function(e){ btn.disabled=false; btn.textContent='✍️ Write the promo'; document.getElementById('body-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">Error: '+esc(e.message)+'</p>'; });
+      });
+    });
   });
 })();
 </script>
