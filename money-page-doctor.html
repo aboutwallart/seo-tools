@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 69.5</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 69.6</p>
                 </div>
             </div>
         </header>
@@ -796,6 +796,23 @@
                 updatePageCount(); renderUrls(); renderStartHere();
                 showToast(`🔓 Liberated — "${kw}" is free again and back in the Keyword Locker.`);
             } catch (e) { alert('Could not liberate: ' + e.message); }
+        }
+
+        // Remove a bad card straight from the analysis (e.g. the URL redirects to home / is wrong).
+        // Frees the keyword back to the Keyword Locker and closes the results.
+        async function mpdRemoveFromResults(url, kw) {
+            if (!url) return;
+            if (!confirm(`Remove this card?\n\nThe URL "${url}" is wrong or dead, so this frees "${kw || 'the keyword'}" back to the Keyword Locker and closes this analysis.`)) return;
+            try {
+                const res = await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({ action:'mpd-liberate', keyword: kw, url }) });
+                const data = await res.json();
+                if (!data || !data.success) throw new Error((data && data.error) || 'Failed');
+                urls = urls.filter(u => normalizeUrlPath(u.url) !== normalizeUrlPath(url));
+                updatePageCount(); renderUrls(); renderStartHere();
+                const modal = document.getElementById('resultsModal'); if (modal) modal.classList.remove('active');
+                showToast(`🗑️ Removed — "${kw || 'keyword'}" is free again in the Keyword Locker.`);
+            } catch (e) { alert('Could not remove: ' + e.message); }
         }
 
         // Redirect URL → point the money page at the current (destination) URL, then re-analyse it
@@ -2281,10 +2298,23 @@
 
             // Indexability banner — green if Google can rank this page, red/amber if not.
             const _idx = data.yourPage.indexability || { ok: true };
+            const _redirTo = _idx.redirectedTo || '';
+            // Redirects to the site HOME/root usually mean the analysed URL is wrong (truncated / 404).
+            const _toHome = /^https?:\/\/[^\/]+\/?$/.test(_redirTo);
             const indexabilityBanner = _idx.noindex
                 ? `<div style="background:#c62828;color:#fff;padding:14px 16px;border-radius:8px;margin-bottom:20px;"><strong>⛔ This page is set to NOINDEX</strong><br><span style="font-size:0.86rem;">Google will not list this page in search, so optimising it won't help until the noindex is removed. (Ask for help if you're not sure where it's set.)</span></div>`
                 : _idx.isRedirect
-                    ? `<div style="background:#0277bd;color:#fff;padding:14px 16px;border-radius:8px;margin-bottom:20px;"><strong>⏭️ This URL redirects to the current page</strong><br><span style="font-size:0.86rem;word-break:break-all;">This is an old address — Google already ranks the current page. Nothing is broken; don't delete the redirect. Optimise the current page instead:<br><strong>${_idx.redirectedTo}</strong></span><br><button data-old="${(data.yourPage.url||'').replace(/"/g,'&quot;')}" data-new="${(_idx.redirectedTo||'').replace(/"/g,'&quot;')}" data-kw="${(keyword||'').replace(/"/g,'&quot;')}" onclick="mpdSwitchUrl(this)" style="margin-top:10px;background:#fff;color:#0277bd;border:none;padding:8px 14px;border-radius:6px;font-weight:600;cursor:pointer;">🔁 Switch to the current URL</button></div>`
+                    ? `<div style="background:${_toHome?'#c62828':'#0277bd'};color:#fff;padding:14px 16px;border-radius:8px;margin-bottom:20px;">
+                        <strong>${_toHome ? '⛔ This URL redirects to the HOME page' : '⏭️ This URL redirects to the current page'}</strong><br>
+                        <span style="font-size:0.86rem;word-break:break-all;">${_toHome
+                            ? 'That usually means this URL is wrong — truncated, or the page no longer exists. Enter the correct live URL to analyse the right page, or remove this card.'
+                            : `This is an old address — Google already ranks the current page. Nothing is broken; don't delete the redirect. Optimise the current page instead:<br><strong>${_redirTo}</strong>`}</span>
+                        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                            ${_toHome ? '' : `<button data-old="${(data.yourPage.url||'').replace(/"/g,'&quot;')}" data-new="${(_redirTo||'').replace(/"/g,'&quot;')}" data-kw="${(keyword||'').replace(/"/g,'&quot;')}" onclick="mpdSwitchUrl(this)" style="background:#fff;color:#333;border:none;padding:8px 14px;border-radius:6px;font-weight:600;cursor:pointer;white-space:nowrap;">🔁 Switch to the current URL</button>`}
+                            <input type="text" id="canonFixUrl" value="${(data.yourPage.url||'').replace(/"/g,'&quot;')}" placeholder="https://… correct URL" style="flex:1;min-width:220px;padding:7px 10px;border:none;border-radius:6px;font-size:0.82rem;font-family:'Poppins',sans-serif;">
+                            <button onclick="mpdManualSwitchUrl('${(data.yourPage.url||'').replace(/'/g,"\\'")}','${(keyword||'').replace(/'/g,"\\'")}')" style="background:#fff;color:#333;border:none;padding:7px 14px;border-radius:6px;font-weight:600;cursor:pointer;white-space:nowrap;">✏️ Use this URL &amp; re-analyse</button>
+                            <button onclick="mpdRemoveFromResults('${(data.yourPage.url||'').replace(/'/g,"\\'")}','${(keyword||'').replace(/'/g,"\\'")}')" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,0.7);padding:7px 12px;border-radius:6px;font-weight:600;cursor:pointer;white-space:nowrap;">🗑️ Remove this card</button>
+                        </div></div>`
                 : _idx.canonicalMismatch
                     ? `<div style="background:#ef6c00;color:#fff;padding:14px 16px;border-radius:8px;margin-bottom:20px;"><strong>⚠️ Canonical points to another page</strong><br><span style="font-size:0.86rem;word-break:break-all;">Google is told to rank this instead: ${_idx.canonical}. Often this means the URL analysed is wrong (truncated, or a 404). Enter the correct live URL and re-analyse that instead:</span>
                         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
