@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.53 · 5 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.54 · 5 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -4510,18 +4510,22 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           });
           document.getElementById('cd-'+uid).addEventListener('click', function(){
             var rr=document.getElementById('res-'+uid);
-            // SAFETY GATE: the Shopify discount must actually be created (and match the current code) before we can send.
-            var curCode=(document.getElementById('c-'+uid).value||'').toUpperCase();
-            if(!s.discountCreated || s.discountCode!==curCode){ rr.innerHTML='<span style="color:#b00;">Create the discount in Shopify first (button up top) — the code must exist before you can send.</span>'; return; }
             if(!s.approved){ rr.innerHTML='<span style="color:#b00;">Approve it first.</span>'; return; }
-            pull(); var cb=this; cb.disabled=true; cb.textContent='Creating…';
-            var html=buildPromoFullDoc(s); // clean HTML document — the version that gets sent
-            emPost({action:'promo-create-draft', name:'PROMO '+o.name, subject:s.copy.subject, preview:s.copy.preview, html:html, market:s.market}).then(function(d){
-              cb.disabled=false; cb.textContent='📧 Create Klaviyo draft';
-              var r=document.getElementById('res-'+uid);
-              if(d&&d.ok){ r.innerHTML='✅ Draft created — <a href="'+esc(d.url)+'" target="_blank">open in Klaviyo</a><br><b>Schedule it for '+esc(fmtNice(s.sendDate)||'the send date')+'</b> (the tool can\'t auto-schedule).'; }
-              else { r.innerHTML='<span style="color:#b00;">Draft failed: '+esc((d&&d.error)||'error')+'</span>'; }
-            });
+            var curCode=(document.getElementById('c-'+uid).value||'').toUpperCase();
+            var cb=this; cb.disabled=true; cb.textContent='Checking discount…';
+            // SAFETY GATE: verify the discount REALLY exists in Shopify (read-back) before creating the draft.
+            emPost({action:'promo-discount-check', code:curCode}).then(function(v){
+              if(!v||!v.ok){ cb.disabled=false; cb.textContent='📧 Create Klaviyo draft'; rr.innerHTML='<span style="color:#b00;">Could not check the discount in Shopify: '+esc((v&&v.error)||'error')+'</span>'; return; }
+              if(!v.exists){ cb.disabled=false; cb.textContent='📧 Create Klaviyo draft'; rr.innerHTML='<span style="color:#b00;">The code <b>'+esc(curCode)+'</b> is not in Shopify yet — press "Create discount in Shopify" first.</span>'; return; }
+              // verified → create the draft
+              cb.textContent='Creating…'; pull();
+              var html=buildPromoFullDoc(s); // clean HTML document — the version that gets sent
+              emPost({action:'promo-create-draft', name:'PROMO '+o.name, subject:s.copy.subject, preview:s.copy.preview, html:html, market:s.market}).then(function(d){
+                cb.disabled=false; cb.textContent='📧 Create Klaviyo draft';
+                if(d&&d.ok){ rr.innerHTML='✅ Discount verified in Shopify. Draft created — <a href="'+esc(d.url)+'" target="_blank">open in Klaviyo</a><br><b>Schedule it for '+esc(fmtNice(s.sendDate)||'the send date')+'</b> (the tool can\'t auto-schedule).'; }
+                else { rr.innerHTML='<span style="color:#b00;">Draft failed: '+esc((d&&d.error)||'error')+'</span>'; }
+              });
+            }).catch(function(){ cb.disabled=false; cb.textContent='📧 Create Klaviyo draft'; rr.innerHTML='<span style="color:#b00;">Could not check the discount. Try again.</span>'; });
           });
           renderTitleOpts(); refreshPreview(s);
         }).catch(function(e){ btn.disabled=false; btn.textContent='✍️ Write the promo'; document.getElementById('body-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">Error: '+esc(e.message)+'</p>'; });
