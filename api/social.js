@@ -2493,6 +2493,13 @@ module.exports = async (req, res) => {
       const eduV = (((await bJson(B_EDU)) || {}).videos) || [];
       const liUsed = (((await bJson(B_LI)) || {}).used) || [];
       const manual = (((await bJson(B_MANUAL)) || {}).months) || {};
+      // Promo emails per calendar month: total = promoSuggested occasions that month; done = those with BOTH main + follow-up in Klaviyo (data/promos.json, per year). Green only when done === total.
+      const promosArr = (await bJson('data/promos.json')) || [];
+      const promoDoneSet = {};
+      (Array.isArray(promosArr) ? promosArr : []).forEach(function (p) { if (p && p.main && p.followup) promoDoneSet[p.occasionId + '|' + p.year] = true; });
+      const bOccDoc = await bJson(OCC_FILE);
+      const bOccList = (bOccDoc && bOccDoc.occasions) || [];
+      function bOccPromoMonth(o) { if (o.promoMonth) return parseInt(o.promoMonth, 10); var md = o.date2026 || (o.window && o.window.start) || ''; return md ? parseInt(String(md).split('-')[0], 10) : 0; }
       // Publish product videos reads the uploader's own record (written automatically on every push).
       // Match a plan SKU to a pushed video: the NUMBER must be identical (strict), the LETTERS may differ
       // slightly (loose) — so a filename typo like SKYCRAPPERS02 still matches the product SKYSCRAPERS02,
@@ -2558,6 +2565,9 @@ module.exports = async (req, res) => {
         const blogTotal = 15; // monthly blog target — green once 15 are made (16 also shows green)
         let blogMadeDone = blogCounts[M] || 0; if (blogMadeDone > blogTotal) blogMadeDone = blogTotal;
         let pubVidDone = 0; days.forEach(function (d) { if (bVideoPushed(d.sku)) pubVidDone++; });
+        // promo emails this calendar month
+        let promoTotal = 0, promoDoneN = 0;
+        bOccList.forEach(function (o) { if (o.promoSuggested && bOccPromoMonth(o) === Mo) { promoTotal++; if (promoDoneSet[o.id + '|' + Y]) promoDoneN++; } });
         const man = manual[M] || {};
         return {
           month: M, planN: planN,
@@ -2572,7 +2582,7 @@ module.exports = async (req, res) => {
             blogCreation: { done: blogMadeDone, total: blogTotal },
             publishVideos: { done: pubVidDone, total: planN },
             emailNewsletter: { manual: true, done: man['email-newsletter'] ? 1 : 0, total: 1 },
-            emailPromos: { manual: true, done: man['email-promos'] ? 1 : 0, total: 1 }
+            emailPromos: (promoTotal > 0 ? { done: promoDoneN, total: promoTotal } : { manual: true, done: man['email-promos'] ? 1 : 0, total: 1 })
           }
         };
       });

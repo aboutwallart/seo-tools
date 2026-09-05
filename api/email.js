@@ -24,6 +24,8 @@ module.exports = async (req, res) => {
   const REPO            = 'aboutwallart/seo-tools';
   const USED_FILE       = 'data/used-newsletter-blogs.json';
   const NEWS_FILE       = 'data/newsletters.json';
+  const PROMOS_FILE     = 'data/promos.json';
+  const BOARD_FILE      = 'data/content-board-manual.json';
   const SHOPIFY_DOMAIN  = process.env.SHOPIFY_STORE_DOMAIN;
   const SHOPIFY_TOKEN   = process.env.SHOPIFY_ACCESS_TOKEN;
   const ANTHROPIC_KEY   = process.env.ANTHROPIC_API_KEY;
@@ -41,6 +43,25 @@ module.exports = async (req, res) => {
       if (!content) return [];
       try { return JSON.parse(content); } catch (e) { return []; }
     } catch (e) { return []; }
+  }
+
+  // read a JSON file WITH its sha (needed to update it); write it back.
+  async function ghReadFile(filePath) {
+    try {
+      const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${filePath}`, { headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' } });
+      if (!r.ok) return { json: null, sha: null };
+      const d = await r.json();
+      const c = (d.content && d.content.length) ? Buffer.from(d.content, 'base64').toString('utf-8') : '';
+      let j = null; try { j = JSON.parse(c); } catch (e) {}
+      return { json: j, sha: d.sha };
+    } catch (e) { return { json: null, sha: null }; }
+  }
+  async function ghWriteFile(filePath, obj, sha, msg) {
+    return fetch(`https://api.github.com/repos/${REPO}/contents/${filePath}`, {
+      method: 'PUT',
+      headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: msg, content: Buffer.from(JSON.stringify(obj, null, 2) + '\n').toString('base64'), ...(sha ? { sha } : {}) })
+    });
   }
 
   async function shopifyGraphQL(query, variables) {
@@ -721,7 +742,7 @@ module.exports = async (req, res) => {
         // personal line that LEADS INTO the discount (sits just above the offer)
         offerLead: '"offerLead":"ONE warm, personal, first-person line that leads into the discount so it does not feel abrupt — e.g. So, to make it a little easier this month, here is a treat from me: — NEVER a canned/generic line, vary the wording every time"',
         // offer phrase ONLY — no code, no date (the tool renders the code and the valid-until date itself)
-        offer:   '"offerLine":"the offer phrase ONLY, e.g. Take ' + (pct || '15') + '% off sitewide — do NOT include the code, and do NOT include any date"',
+        offer:   '"offerLine":"the offer phrase ONLY, framed AROUND the wall art, e.g. ' + (pct || '15') + '% off your new wall art sets — do NOT include the code, and do NOT include any date"',
         cta:     '"ctaLabel":"2-3 word button label tied to the TOPIC of the mail (e.g. Shop ' + topic + '), never generic like Shop now or Shop the collection"',
         closing: '"closingText":"a warm, offer-to-help closing that sits ABOVE the signature — kind, first-person, value-first (e.g. not sure where to start with ' + topic + '? hit reply, I read every one). It MUST feel hand-written and be DIFFERENT every time — vary the wording, never a canned line"'
       };
@@ -740,6 +761,7 @@ module.exports = async (req, res) => {
       var pr = [
         'You write promotional emails for About Wall Art, a UK wall-art brand. Voice: warm, kind, human, first-person, spoken — NEVER poetic, pushy or "AI". Value first, offer soft; emotional gift-suggestion tone (e.g. "Mother\'s Day is coming — she did so much for you…"). A few tasteful emojis are fine. One brand voice speaking to "you". Banned: buzzwords, "buy buy buy", urgency-shouting.',
         'PRODUCT WORDING RULE (critical): we do NOT sell single prints. NEVER write "a print", "a new print", "prints" or "a piece". Always say "wall art", "an art set", a "wall art set" or "a set of wall art".',
+        'DISCOUNT SCOPE RULE (critical): frame the offer AROUND the wall art — e.g. "' + (pct || '15') + '% off your new wall art sets". NEVER say "your whole order", "your entire purchase", "your total", "everything", "sitewide" or "store-wide". Keep it natural — do NOT get technical about which products qualify.',
         'Occasion: "' + topic + '". Why it sells art: ' + (occ.relevance || '') + '.',
         'Write EVERYTHING in ' + spelling + '. (The footer stays English — not your job.)',
         'The offer: ' + (pct ? pct + '% off' : 'a special offer') + (code ? ', code ' + code : '') + (expiry ? ', valid until ' + expiry : '') + '. State it ONCE. Exactly ONE call to action.',
@@ -766,6 +788,7 @@ module.exports = async (req, res) => {
       var fpr = [
         'You write the FOLLOW-UP email (the 2nd email, sent 3 days after the first) for About Wall Art, a UK wall-art brand. Voice: warm, kind, human, first-person, spoken — NEVER poetic, pushy or "AI". A few tasteful emojis are fine.',
         'PRODUCT WORDING RULE (critical): never "a print"/"prints" — always "wall art", "an art set", a "wall art set".',
+        'DISCOUNT SCOPE RULE (critical): frame the offer AROUND the wall art — e.g. "' + (fpct || '15') + '% off your new wall art sets". NEVER say "your whole order", "your entire purchase", "your total", "everything", "sitewide" or "store-wide". Keep it natural.',
         'This is a FOLLOW-UP, so it is VALUE-FIRST and NOT "last chance"/urgency. Lead with something genuinely helpful — a tip or idea tied to "' + ftopic + '" (' + (focc.relevance || '') + ') — THEN a SOFT reminder that the ' + (fpct ? fpct + '% ' : '') + 'code is still there if it helps. Gentle, no pressure.',
         'Everything in ' + fspelling + '. The offer is the SAME as the first email: ' + (fpct ? fpct + '% off' : 'the offer') + (fcode ? ', code ' + fcode : '') + (fexpiry ? ', valid until ' + fexpiry : '') + '. State it ONCE, softly. Exactly ONE call to action.',
         'It must feel DIFFERENT from the first email and hand-written — vary the wording, never a canned line. Keep it SHORT.',
@@ -889,7 +912,43 @@ module.exports = async (req, res) => {
       if (!mId) { res.status(502).json({ ok: false, error: 'Campaign created but no message id', campaignId: campId }); return; }
       var aR = await kvpJson(await kvp('/api/campaign-message-assign-template/', 'POST', { data: { type: 'campaign-message', id: mId, relationships: { template: { data: { type: 'template', id: tId } } } } }));
       if (!aR.ok) { res.status(502).json({ ok: false, error: 'Assign template failed (' + aR.status + '): ' + (aR.text || '').slice(0, 250), campaignId: campId }); return; }
-      res.status(200).json({ ok: true, campaignId: campId, url: 'https://www.klaviyo.com/campaign/' + campId + '/wizard' });
+      var campUrl = 'https://www.klaviyo.com/campaign/' + campId + '/wizard';
+
+      // ---- record this send in data/promos.json (per occasion + YEAR, so next year is a fresh promo).
+      // Board goes green ONLY when BOTH main + follow-up are in Klaviyo. Never blocks the response. ----
+      try {
+        var pKind = (body.kind || 'main').toString() === 'followup' ? 'followup' : 'main';
+        var pOid = (body.occasionId || '').toString();
+        var pYear = (body.year || '').toString();
+        var pMonth = (body.month || '').toString();
+        if (pOid && pYear) {
+          var pf = await ghReadFile(PROMOS_FILE);
+          var plist = Array.isArray(pf.json) ? pf.json : [];
+          var pidx = -1;
+          for (var pi = 0; pi < plist.length; pi++) { if (String(plist[pi].occasionId) === pOid && String(plist[pi].year) === pYear) { pidx = pi; break; } }
+          if (pidx < 0) { plist.push({ occasionId: pOid, occasionName: (body.occasionName || '').toString(), year: pYear, month: pMonth, main: null, followup: null }); pidx = plist.length - 1; }
+          plist[pidx][pKind] = { campaignId: campId, url: campUrl, sentAt: new Date().toISOString() };
+          if (pMonth && !plist[pidx].month) plist[pidx].month = pMonth;
+          await ghWriteFile(PROMOS_FILE, plist, pf.sha, 'Promo ' + pKind + ' in Klaviyo — ' + pOid + ' ' + pYear);
+          if (plist[pidx].main && plist[pidx].followup && pMonth) {
+            var bf = await ghReadFile(BOARD_FILE);
+            var bobj = (bf.json && typeof bf.json === 'object') ? bf.json : { months: {} };
+            if (!bobj.months) bobj.months = {};
+            if (!bobj.months[pMonth]) bobj.months[pMonth] = {};
+            bobj.months[pMonth]['email-promos'] = true;
+            await ghWriteFile(BOARD_FILE, bobj, bf.sha, 'Promo complete (main+follow-up) — mark board ' + pMonth);
+          }
+        }
+      } catch (e) {}
+
+      res.status(200).json({ ok: true, campaignId: campId, url: campUrl });
+      return;
+    }
+
+    // ---- list recorded promos (per occasion + year) so the tool can collapse the ones already in Klaviyo ----
+    if (action === 'promo-list') {
+      var pl = await ghGetJSON(PROMOS_FILE);
+      res.status(200).json({ ok: true, promos: Array.isArray(pl) ? pl : [] });
       return;
     }
 
@@ -904,6 +963,7 @@ module.exports = async (req, res) => {
       var cpr = [
         'Proofread this UK-English promotional email copy. Find ONLY real spelling, grammar and punctuation mistakes — do NOT rewrite style or voice.',
         'Also flag if it says "print"/"prints"/"a piece" (we sell "wall art" / "art sets", never single prints).',
+        'Also flag (and correct) any wording that says the discount is off "your whole order", "your entire purchase", "your total", "everything", "sitewide" or "store-wide" — the offer must be framed around the wall art (e.g. "off your new wall art sets"), never the whole order.',
         'COPY (JSON): ' + JSON.stringify(text).slice(0, 4000),
         'Return ONLY JSON: { "issues":[{"original":"","suggestion":"","why":""}], "corrected":{ "subject":"", "preview":"", "intro":["",""], "offerLine":"", "ctaLabel":"", "closingText":"" } }. If nothing is wrong, issues=[] and corrected repeats the input unchanged.'
       ].join('\n');
