@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.55 · 5 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.56 · 5 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -4431,6 +4431,13 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
                 +'<button id="cd-'+uid+'" class="nlbtn" type="button" style="background:#111;margin-top:10px;display:none;">📧 Create Klaviyo draft</button>'
                 +'<div id="res-'+uid+'" style="margin-top:8px;font-size:13px;"></div>'
               +'</div>'
+              // FOLLOW-UP (appears once the main draft is created) — 3 days later, value-first, excludes recent buyers
+              +'<div id="fu-'+uid+'" style="display:none;margin-top:24px;border-top:2px solid #eee;padding-top:16px;">'
+                +'<div style="font-weight:800;font-size:14px;color:#0F6E56;margin-bottom:4px;">➕ Follow-up email (3 days later)</div>'
+                +'<div style="font-size:12px;color:#555;margin-bottom:10px;">Value-first, soft reminder. Same title, hero, products &amp; countdown (shows the time left). Sends to the same market, <b>minus buyers of the last 3 days</b>.</div>'
+                +'<button id="fuw-'+uid+'" class="nlbtn" type="button" style="background:#0F6E56;">✍️ Write the follow-up</button>'
+                +'<div id="fubody-'+uid+'"></div>'
+              +'</div>'
             +'</div>';
           function renderTitleOpts(){
             var box=document.getElementById('topt-'+uid); if(!box) return;
@@ -4522,10 +4529,74 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
               var html=buildPromoFullDoc(s); // clean HTML document — the version that gets sent
               emPost({action:'promo-create-draft', name:'PROMO '+o.name, subject:s.copy.subject, preview:s.copy.preview, html:html, market:s.market}).then(function(d){
                 cb.disabled=false; cb.textContent='📧 Create Klaviyo draft';
-                if(d&&d.ok){ rr.innerHTML='✅ Discount verified in Shopify. Draft created — <a href="'+esc(d.url)+'" target="_blank">open in Klaviyo</a><br><b>Schedule it for '+esc(fmtNice(s.sendDate)||'the send date')+'</b> (the tool can\'t auto-schedule).'; }
+                if(d&&d.ok){ rr.innerHTML='✅ Discount verified in Shopify. Draft created — <a href="'+esc(d.url)+'" target="_blank">open in Klaviyo</a><br><b>Schedule it for '+esc(fmtNice(s.sendDate)||'the send date')+'</b> (the tool can\'t auto-schedule).'; var fu=document.getElementById('fu-'+uid); if(fu) fu.style.display=''; }
                 else { rr.innerHTML='<span style="color:#b00;">Draft failed: '+esc((d&&d.error)||'error')+'</span>'; }
               });
             }).catch(function(){ cb.disabled=false; cb.textContent='📧 Create Klaviyo draft'; rr.innerHTML='<span style="color:#b00;">Could not check the discount. Try again.</span>'; });
+          });
+          // ===== FOLLOW-UP: reuses the main's title/hero/products/countdown; new value-first copy; +3 days; excludes recent buyers =====
+          var s2={ uid:uid+'f', occ:o, lg:'en', market:s.market, copy:null, products:s.products, hero:s.hero, expiry:s.expiry, sendDate:isoAdd(s.sendDate||s.expiry,3), pct:s.pct, code:s.code, titleDy:s.titleDy, titleDx:s.titleDx, ctaUrl:s.ctaUrl, approved:false, checked:false };
+          document.getElementById('fuw-'+uid).addEventListener('click', function(){
+            var fb=this; fb.disabled=true; fb.textContent='Writing…';
+            readPromoEmail(s); s2.products=s.products; s2.hero=s.hero;
+            s2.expiry=document.getElementById('e-'+uid).value||s.expiry; s2.pct=document.getElementById('d-'+uid).value||s.pct; s2.code=(document.getElementById('c-'+uid).value||'').toUpperCase();
+            s2.sendDate=isoAdd((document.getElementById('sd-'+uid).value||s.sendDate),3); s2.titleDy=s.titleDy; s2.titleDx=s.titleDx;
+            emPost({action:'promo-followup-write', occasion:o, discount:s2.pct, code:s2.code, expiry:s2.expiry}).then(function(d){
+              fb.disabled=false; fb.textContent='✍️ Re-write the follow-up';
+              if(!d||!d.ok||!d.copy){ document.getElementById('fubody-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">Could not write: '+esc((d&&d.error)||'error')+'</p>'; return; }
+              s2.copy=d.copy; s2.copy.titleTop=s.copy.titleTop; s2.copy.titleScript=s.copy.titleScript; // SAME title as the main
+              var c2=s2.copy;
+              document.getElementById('fubody-'+uid).innerHTML=
+                '<div style="margin-top:10px;">'
+                +'<label style="font-size:12px;color:#555;">Subject line<br><input id="fs-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c2.subject||'')+'"></label>'
+                +'<label style="font-size:12px;color:#555;">Preview text<br><input id="fpr-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c2.preview||'')+'"></label>'
+                +'<div style="font-size:12px;color:#555;margin:12px 0 4px;">Edit the text in the preview (title, hero, products &amp; countdown are the same as the main). Sends <b>'+esc(fmtNice(s2.sendDate)||'3 days later')+'</b>.</div>'
+                +'<div style="overflow:auto;"><div id="pv-'+uid+'f" style="width:600px;margin:0 auto;border:1px solid #e3e3e3;border-radius:8px;background:#fff;"></div></div>'
+                +'<div style="margin-top:16px;text-align:center;">'
+                  +'<button id="fck-'+uid+'" class="nlbtn" type="button" style="background:#534AB7;margin-bottom:10px;">🔤 Check spelling & grammar</button>'
+                  +'<div id="fckmsg-'+uid+'" style="font-size:13px;"></div>'
+                  +'<div id="fckwrap-'+uid+'" style="display:none;text-align:left;margin:8px auto 14px;max-width:560px;background:#F7F6FE;border:1px solid #E4E1F0;border-radius:10px;padding:12px 14px;"></div>'
+                  +'<button id="fap-'+uid+'" class="nlbtn" type="button" style="background:#0F6E56;">✓ Approve the follow-up</button>'
+                  +'<div id="fapmsg-'+uid+'" style="font-size:13px;"></div>'
+                  +'<button id="fcd-'+uid+'" class="nlbtn" type="button" style="background:#111;margin-top:10px;display:none;">📧 Create follow-up draft</button>'
+                  +'<div id="fres-'+uid+'" style="margin-top:8px;font-size:13px;"></div>'
+                +'</div></div>';
+              function pullF(){ readPromoEmail(s2); s2.copy.subject=document.getElementById('fs-'+uid).value; s2.copy.preview=document.getElementById('fpr-'+uid).value; }
+              document.getElementById('fck-'+uid).addEventListener('click', function(){
+                pullF(); var cb=this; cb.disabled=true; var o2=cb.textContent; cb.textContent='Checking…';
+                var msg=document.getElementById('fckmsg-'+uid), wrap=document.getElementById('fckwrap-'+uid); msg.textContent=''; wrap.style.display='none'; wrap.innerHTML='';
+                emPost({action:'promo-check', copy:s2.copy}).then(function(v){
+                  cb.disabled=false; cb.textContent=o2; s2.checked=true;
+                  if(!v||!v.ok){ msg.style.color='#b00'; msg.textContent=(v&&v.error)||'Could not check.'; return; }
+                  var iss=v.issues||[];
+                  if(!iss.length){ msg.style.color='#0F6E56'; msg.textContent='No spelling or grammar mistakes found ✓'; return; }
+                  msg.textContent='';
+                  var html='<div style="font-weight:700;color:#3C3489;margin-bottom:8px;">'+iss.length+' thing'+(iss.length>1?'s':'')+' to check:</div>';
+                  iss.forEach(function(it){ html+='<div style="margin-bottom:8px;font-size:13px;"><span style="text-decoration:line-through;color:#b91c1c;">'+esc(it.original||'')+'</span> → <b style="color:#0F6E56;">'+esc(it.suggestion||'')+'</b>'+(it.why?' <span style="color:#9A95B4;">('+esc(it.why)+')</span>':'')+'</div>'; });
+                  if(v.corrected){ html+='<button id="fapf-'+uid+'" class="nlbtn" type="button" style="background:#534AB7;margin-top:6px;">✨ Apply these fixes</button>'; }
+                  wrap.innerHTML=html; wrap.style.display='';
+                  var af=document.getElementById('fapf-'+uid);
+                  if(af) af.addEventListener('click', function(){ var cor=v.corrected||{}; if(cor.subject!=null)s2.copy.subject=cor.subject; if(cor.preview!=null)s2.copy.preview=cor.preview; if(cor.intro&&cor.intro.length)s2.copy.intro=cor.intro; if(cor.offerLine!=null)s2.copy.offerLine=cor.offerLine; if(cor.ctaLabel!=null)s2.copy.ctaLabel=cor.ctaLabel; if(cor.closingText!=null)s2.copy.closingText=cor.closingText; document.getElementById('fs-'+uid).value=s2.copy.subject||''; document.getElementById('fpr-'+uid).value=s2.copy.preview||''; refreshPreview(s2); wrap.style.display='none'; msg.style.color='#0F6E56'; msg.textContent='Fixes applied — have a look.'; });
+                }).catch(function(){ cb.disabled=false; cb.textContent=o2; msg.style.color='#b00'; msg.textContent='Network error.'; });
+              });
+              document.getElementById('fap-'+uid).addEventListener('click', function(){
+                pullF(); var apm=document.getElementById('fapmsg-'+uid);
+                if(!s2.checked){ apm.style.color='#b00'; apm.textContent='Run the spelling & grammar check first.'; return; }
+                s2.approved=true; this.innerHTML='✓ Approved'; this.style.background='#0b5a46'; apm.style.color='#0F6E56'; apm.textContent='Approved ✓ — now create the follow-up draft →'; document.getElementById('fcd-'+uid).style.display='';
+              });
+              document.getElementById('fcd-'+uid).addEventListener('click', function(){
+                var rr=document.getElementById('fres-'+uid);
+                if(!s2.approved){ rr.innerHTML='<span style="color:#b00;">Approve it first.</span>'; return; }
+                pullF(); var cb=this; cb.disabled=true; cb.textContent='Creating…';
+                var html=buildPromoFullDoc(s2);
+                emPost({action:'promo-create-draft', name:'PROMO '+o.name+' — FOLLOW-UP', subject:s2.copy.subject, preview:s2.copy.preview, html:html, market:s2.market, excludeSegment:'XfgwNx'}).then(function(d){
+                  cb.disabled=false; cb.textContent='📧 Create follow-up draft';
+                  if(d&&d.ok){ rr.innerHTML='✅ Follow-up draft created — <a href="'+esc(d.url)+'" target="_blank">open in Klaviyo</a><br><b>Schedule it for '+esc(fmtNice(s2.sendDate)||'3 days after the main')+'</b> — sends to the market <b>minus buyers of the last 3 days</b>.'; }
+                  else { rr.innerHTML='<span style="color:#b00;">Draft failed: '+esc((d&&d.error)||'error')+'</span>'; }
+                });
+              });
+              refreshPreview(s2);
+            }).catch(function(e){ fb.disabled=false; fb.textContent='✍️ Write the follow-up'; document.getElementById('fubody-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">Error: '+esc(e.message)+'</p>'; });
           });
           renderTitleOpts(); refreshPreview(s);
         }).catch(function(e){ btn.disabled=false; btn.textContent='✍️ Write the promo'; document.getElementById('body-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">Error: '+esc(e.message)+'</p>'; });
