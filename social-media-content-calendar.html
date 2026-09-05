@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.46 · 5 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.47 · 5 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -4058,8 +4058,10 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   function langShort(o){ var l=(o&&o.lang)||'en-GB'; return l.indexOf('es')===0?'es':l.indexOf('it')===0?'it':l.indexOf('fr')===0?'fr':'en'; }
   function marketOf(o){ return o&&o.country==='US'?'US':(o&&o.country==='UK'?'UK':'ALL'); }
   function enc(s){ return encodeURIComponent(String(s||'')); }
-  function titleImg(top,script){ return TOOLS+'/api/promo-image?type=title&top='+enc(top)+'&script='+enc(script)+'&lang=en'; }
+  function titleImg(top,script,dy,dx){ var q=TOOLS+'/api/promo-image?type=title&top='+enc(top)+'&script='+enc(script)+'&lang=en'; if(dy)q+='&dy='+enc(dy); if(dx)q+='&dx='+enc(dx); return q; }
   function countdownImg(expiry){ return expiry?(TOOLS+'/api/countdown?to='+enc(expiry+'T23:59')+'&tz=Europe/London&lang=en'):''; }
+  function fmtLong(iso){ if(!iso) return ''; var d=new Date(iso+'T12:00:00Z'); return d.getUTCDate()+' '+MON[d.getUTCMonth()]+' '+d.getUTCFullYear(); }
+  function edAttr(role,editable){ return editable?(' contenteditable="true" data-role="'+role+'" style="outline:none;"'):''; }
 
   // Fixed mould assets (from Mae's real template XTkyWp — reproduce exactly)
   var CF='https://d3k81ch9hvuctc.cloudfront.net';
@@ -4074,16 +4076,17 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     [SHCDN+'3.png?v=1675608366','PERSONALISATION','We offer personalisation on every product, size, added quotes & colour changes.']
   ];
 
-  // Assemble the promo email HTML — reproduces XTkyWp: logo GIF · title · hero · greeting · intro · CTA(topic) · countdown · 4 square products · badges · closing+signature · social footer + unsubscribe. Body Lato 18px, CENTERED.
-  function buildPromoHtml(s){
+  // Assemble the promo email HTML — reproduces XTkyWp. editable=true makes the body text editable in place (like newsletters).
+  function buildPromoHtml(s, editable){
     var c=s.copy||{}, prods=(s.products||[]).slice(0,4);
     var FONT="'Lato',Arial,Helvetica,sans-serif";
-    var intro=(c.intro||[]).map(function(l){return '<p style="margin:0 0 12px;">'+esc(l)+'</p>';}).join('');
-    // 4 products: square (1:1) image + title + price + SHOP NOW, all centered
+    var validTxt=fmtLong(s.expiry);
+    var intro=(c.intro||[]).map(function(l){return '<p style="margin:0 0 12px;"'+edAttr('introline',editable)+'>'+esc(l)+'</p>';}).join('');
+    // 4 products: square (1:1) image, NO rounded corners, centered
     var prodCells=prods.map(function(p){
       return '<td width="50%" valign="top" align="center" style="padding:10px;text-align:center;">'
         +'<a href="'+esc(p.url)+'" style="text-decoration:none;color:#111;">'
-        +'<img src="'+esc(p.image)+'" width="250" height="250" alt="'+esc(p.alt||p.title||'')+'" style="width:100%;max-width:250px;aspect-ratio:1/1;object-fit:cover;border-radius:8px;display:block;margin:0 auto 10px;">'
+        +'<img src="'+esc(p.image)+'" width="250" height="250" alt="'+esc(p.alt||p.title||'')+'" style="width:100%;max-width:250px;aspect-ratio:1/1;object-fit:cover;border-radius:0;display:block;margin:0 auto 10px;">'
         +'<div style="font-size:15px;line-height:1.3;color:#111;">'+esc(p.title)+'</div>'
         +(p.price?'<div style="font-weight:700;margin-top:3px;color:#111;">'+esc(p.price)+'</div>':'')
         +'<div style="margin-top:8px;font-size:12px;font-weight:700;color:#111;text-transform:uppercase;letter-spacing:1px;">SHOP NOW</div>'
@@ -4098,47 +4101,65 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         +'<div style="font-size:10.5px;line-height:1.4;">'+esc(b[2])+'</div></td>';
     }).join('');
     var social=[['instagram_96.png','https://instagram.com/aboutwallart'],['facebook_96.png','https://facebook.com/aboutwallart'],['tiktok_96.png','https://tiktok.com/@aboutwallart'],['pinterest_96.png','https://pinterest.com/aboutwallart'],['linkedin_96.png','https://linkedin.com/company/aboutwallart']]
-      .map(function(x){ return '<a href="'+x[1]+'" style="text-decoration:none;display:inline-block;margin:0 5px;"><img src="'+SOC+x[0]+'" width="32" height="32" style="width:32px;height:32px;display:inline-block;"></a>'; }).join('');
-    var cta='<tr><td align="center" style="padding:8px 18px 20px;"><a href="'+esc(s.ctaUrl||'https://aboutwallart.com')+'" style="background:#111;color:#fff;text-decoration:none;padding:14px 36px;border-radius:6px;font-weight:700;letter-spacing:1px;display:inline-block;font-family:'+FONT+';">'+esc(c.ctaLabel||('Shop '+((s.occ&&s.occ.name)||'now')))+'</a></td></tr>';
+      .map(function(x){ return '<a href="'+x[1]+'" style="text-decoration:none;display:inline-block;margin:0 4px;"><img src="'+SOC+x[0]+'" width="32" height="32" style="width:32px;height:32px;display:inline-block;"></a>'; }).join('');
+    // C: offer phrase (row 1) · code below (row 2) · valid-until below, smaller + not bold (row 3). No dash.
+    var offerBlock='<tr><td align="center" style="padding:16px 34px 6px;text-align:center;">'
+      +'<div style="font-weight:700;font-size:19px;color:#111;"'+edAttr('offer',editable)+'>'+esc(c.offerLine||('Take '+(s.pct||'15')+'% off'))+'</div>'
+      +(s.code?'<div style="font-weight:700;font-size:17px;color:#111;margin-top:4px;">Use code '+esc(s.code)+'</div>':'')
+      +(validTxt?'<div style="font-weight:400;font-size:13px;color:#666;margin-top:6px;">Valid until '+esc(validTxt)+'</div>':'')
+      +'</td></tr>';
+    // C: button rectangular (no radius), UPPERCASE, not bold
+    var cta='<tr><td align="center" style="padding:8px 18px 18px;"><a href="'+esc(s.ctaUrl||'https://aboutwallart.com')+'"'+(editable?' onclick="return false"':'')+' style="background:#111;color:#fff;text-decoration:none;padding:14px 40px;border-radius:0;font-weight:400;letter-spacing:1px;text-transform:uppercase;display:inline-block;font-family:'+FONT+';"'+edAttr('cta',editable)+'>'+esc(c.ctaLabel||('Shop '+((s.occ&&s.occ.name)||'now')))+'</a></td></tr>';
 
     return '<div style="background:#f2f2f2;padding:0;margin:0;">'
       +'<style>@import url(https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap);</style>'
       +'<table width="600" align="center" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#fff;font-family:'+FONT+';color:#222;">'
       // 1. header — black band + logo GIF
-      +'<tr><td align="center" style="background:#111;padding:16px;"><img src="'+LOGO_GIF+'" width="356" alt="About Wall Art" style="width:356px;max-width:80%;display:block;margin:0 auto;"></td></tr>'
-      // 2. title image (per occasion)
-      +'<tr><td align="center" style="padding:24px 18px 8px;"><img src="'+titleImg(c.titleTop,c.titleScript)+'" alt="'+esc(c.titleTop||'')+'" width="250" style="width:250px;max-width:70%;display:block;margin:0 auto;"></td></tr>'
+      +'<tr><td align="center" style="background:#000;padding:16px;"><img src="'+LOGO_GIF+'" width="356" alt="About Wall Art" style="width:356px;max-width:80%;display:block;margin:0 auto;"></td></tr>'
+      // 2. title image (per occasion) — short, script nudged by dy/dx
+      +'<tr><td align="center" style="padding:24px 18px 8px;"><img src="'+titleImg(c.titleTop,c.titleScript,s.titleDy,s.titleDx)+'" alt="'+esc(c.titleTop||'')+'" width="250" style="width:250px;max-width:70%;display:block;margin:0 auto;"></td></tr>'
       // 3. hero image
       +(s.hero?'<tr><td style="padding:8px 0;"><img src="'+esc(s.hero)+'" width="600" alt="'+esc(c.titleTop||'')+'" style="width:100%;display:block;"></td></tr>':'')
-      // 5-6. greeting + intro + offer (centered, Lato 18px)
+      // 5. greeting + intro (centered, Lato 18px, editable)
       +'<tr><td align="center" style="padding:18px 34px 4px;font-size:18px;line-height:1.55;text-align:center;color:#222;">'
         +'<p style="margin:0 0 14px;">'+esc(c.greeting||"Dear {{ first_name|default:'friend' }},")+'</p>'+intro
-        +(c.offerLine?'<p style="margin:14px 0 4px;font-weight:700;font-size:19px;color:#111;">'+esc(c.offerLine)+'</p>':'')
       +'</td></tr>'
-      // 6. ONE CTA (topic label)
+      // 6. offer block + ONE CTA
+      +offerBlock
       +cta
       // 4. countdown (auto — ends at valid-until)
       +(countdownImg(s.expiry)?'<tr><td align="center" style="padding:2px 18px 14px;"><img src="'+countdownImg(s.expiry)+'" alt="Offer ends soon" width="440" style="width:440px;max-width:92%;display:block;margin:0 auto;"></td></tr>':'')
-      // 7. 4 products (square, centered)
+      // 7. 4 products (square, no radius, centered)
       +(prodRows?'<tr><td style="padding:4px 12px 12px;"><table width="100%" cellpadding="0" cellspacing="0">'+prodRows+'</table></td></tr>':'')
       // 8. trust badges (exact)
       +'<tr><td style="padding:14px 12px;border-top:1px solid #eee;border-bottom:1px solid #eee;"><table width="100%" cellpadding="0" cellspacing="0"><tr>'+badges+'</tr></table></td></tr>'
-      // 9. closing text + signature image
-      +'<tr><td align="center" style="padding:22px 34px 6px;font-size:18px;line-height:1.55;text-align:center;color:#222;">'
-        +(c.closingText?'<p style="margin:0 0 14px;">'+esc(c.closingText)+'</p>':'')
-        +'<img src="'+SIGN_IMG+'" width="97" alt="Mae" style="width:97px;display:block;margin:6px auto 0;"></td></tr>'
-      // 10. footer — address + social + unsubscribe (always English)
-      +'<tr><td align="center" style="background:#111;color:#bbb;padding:22px 20px;text-align:center;font-size:12px;line-height:1.7;font-family:'+FONT+';">'
-        +'<div style="margin-bottom:10px;">'+social+'</div>'
+      // 9. closing text (editable) + smaller signature + spacer below
+      +'<tr><td align="center" style="padding:24px 34px 30px;font-size:18px;line-height:1.55;text-align:center;color:#222;">'
+        +'<p style="margin:0 0 16px;"'+edAttr('closing',editable)+'>'+esc(c.closingText||'')+'</p>'
+        +'<img src="'+SIGN_IMG+'" width="72" alt="Mae" style="width:72px;display:block;margin:6px auto 0;"></td></tr>'
+      // 10. footer — EXACT from XTkyWp: social · Have any questions? · address · No longer want… Unsubscribe
+      +'<tr><td align="center" style="background:#000;color:#cfcfcf;padding:24px 22px 26px;text-align:center;font-size:12.5px;line-height:1.7;font-family:'+FONT+';">'
+        +'<div style="margin-bottom:14px;">'+social+'</div>'
+        +'<div style="font-size:13px;margin-bottom:12px;"><b>Have any questions?</b> Whether you\'re confused, curious, or need assistance simply reply to this email—I\'m happy to assist!</div>'
         +'© About Wall Art | Hertford | United Kingdom | SG141AY<br>'
-        +'<a href="{% unsubscribe \'Unsubscribe\' %}" style="color:#888;">Unsubscribe</a>'
+        +'<span style="color:#9a9a9a;">No longer want to receive these emails? <a href="{% unsubscribe \'Unsubscribe\' %}" style="color:#9a9a9a;">Unsubscribe</a></span>'
       +'</td></tr>'
       +'</table></div>';
   }
 
   function refreshPreview(s){
     var pv=document.getElementById('pv-'+s.uid); if(!pv) return;
-    pv.srcdoc=buildPromoHtml(s);
+    pv.innerHTML=buildPromoHtml(s, true); // editable in place (like newsletters)
+  }
+  // read the (possibly edited) preview text back into s.copy
+  function readPromoEmail(s){
+    var z=document.getElementById('pv-'+s.uid); if(!z||!s.copy) return;
+    function t(role){ var el=z.querySelector('[data-role="'+role+'"]'); return el?el.innerText.replace(/ /g,' ').trim():null; }
+    var intro=Array.prototype.map.call(z.querySelectorAll('[data-role="introline"]'),function(el){return el.innerText.replace(/ /g,' ').trim();}).filter(Boolean);
+    if(intro.length) s.copy.intro=intro;
+    var of=t('offer'); if(of!=null) s.copy.offerLine=of;
+    var cl=t('closing'); if(cl!=null) s.copy.closingText=cl;
+    var cta=t('cta'); if(cta!=null) s.copy.ctaLabel=cta;
   }
 
   /* ---- Hero picker — reuses Blog Manager backend (search-wall-art + product-image) ---- */
@@ -4147,7 +4168,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   var EXTENSION_PREAMBLE='This is an IMAGE EXTENSION task — NOT a room redesign. I will paste the product photo. Preserve every element of the pasted photo EXACTLY (wall colour, furniture, lighting, decor and the framed artwork). Your only jobs: (1) extend the scene naturally to fill a 3:2 frame by continuing the EXISTING walls, floor and furnishings — never add blank bars or empty space, and do NOT invent a different room; (2) keep it bright and neutral. Do NOT restyle or replace any part of the room.';
   function slugp(x){ return String(x||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60); }
   function buildHeroPrompt(s){
-    var o=s.occ, p=s.heroSelProduct||{};
+    var o=s.occ, p=s.heroSource||{};
     var alt='A '+o.name+' styled room with '+(p.title?('"'+p.title+'"'):'the wall art')+' on the wall';
     var nm=slugp(o.id)+'-hero';
     return 'SHOPIFY AI — HERO IMAGE (landscape 3:2). I will paste the product’s own photo.\n'+SACRED_LINE+'\n\n'
@@ -4167,27 +4188,72 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       .then(function(){ btn.disabled=false; btn.textContent='Copied ✓'; setTimeout(function(){btn.textContent=orig;},1500); })
       .catch(function(e){ btn.disabled=false; btn.textContent=orig; alert('Could not copy the image: '+e.message); });
   }
-  /* ---- Hero picker — collection → product → image (correction #4) ---- */
+  /* ---- Hero picker — SAME rows as Blog Manager: SKU · price · type · Copy image · open · all images to choose.
+         Picking an image sets it as the SOURCE for the Shopify-AI prompt (NOT the hero). The hero is the
+         lifestyle image Mae uploads afterwards (or a pasted URL). ---- */
+  function copySku(sku,btn){ try{ navigator.clipboard.writeText(sku); var o=btn.textContent; btn.textContent='Copied ✓'; setTimeout(function(){btn.textContent=o;},1200);}catch(e){} }
+  function renderHeroRows(s, prods){
+    var box=document.getElementById('hr-'+s.uid);
+    if(!prods.length){ box.innerHTML='<div class="nlhint">No About Wall Art products found. Try another collection or SKU.</div>'; return; }
+    box.innerHTML=prods.map(function(p,pi){
+      var chosen=(s.heroSource&&s.heroSource.pi===pi)?s.heroSource.url:((p.images&&p.images[0])||'');
+      var strip=(p.images||[]).map(function(u){
+        var sel=(u===chosen)?'border-color:#c0561d;box-shadow:0 0 0 3px #c0561d55;':'';
+        return '<img data-pi="'+pi+'" data-url="'+esc(u)+'" data-title="'+esc(p.title)+'" class="hth-'+s.uid+'" src="'+esc(u)+'" style="height:150px;width:auto;border-radius:0;border:2px solid #e4e4e7;background:#faf7f2;cursor:pointer;flex-shrink:0;'+sel+'" title="Use this image as the source">';
+      }).join('')||'<span style="font-size:12px;color:#999;">no images</span>';
+      var skuChip=p.sku?'<span class="sku-'+s.uid+'" data-sku="'+esc(p.sku)+'" style="font-weight:800;font-size:13px;color:#1a1a1a;background:#f1f1f1;border:1px solid #ddd;border-radius:6px;padding:3px 9px;cursor:pointer;font-family:monospace;white-space:nowrap;">'+esc(p.sku)+' 📋</span>':'';
+      var meta=[p.price?('£'+p.price):'', esc(p.productType||'')].filter(Boolean).join(' · ');
+      var copyBtn=chosen?'<button class="hcopy-'+s.uid+'" data-url="'+esc(chosen)+'" type="button" style="background:#c0561d;color:#fff;border:none;border-radius:8px;padding:7px 12px;font-weight:700;font-size:13px;cursor:pointer;">📋 Copy image</button>':'';
+      return '<div style="border:2px solid #e4e4e7;border-radius:12px;padding:12px 14px;margin-bottom:10px;">'
+        +'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">'
+          +'<span style="font-weight:700;font-size:14px;flex:1;min-width:180px;">'+esc(p.title)+'</span>'
+          +skuChip+(meta?'<span style="color:#888;font-size:12px;">'+meta+'</span>':'')+copyBtn
+          +'<a href="'+esc(p.url)+'" target="_blank" rel="noopener" style="color:#2563eb;text-decoration:none;font-size:13px;">↗ open</a>'
+        +'</div>'
+        +'<div style="display:flex;gap:8px;overflow-x:auto;padding:2px 2px 6px;">'+strip+'</div>'
+        +'<div style="font-size:11px;color:#999;">← scroll to see all images · click one to use it as the source (orange = chosen)</div>'
+      +'</div>';
+    }).join('');
+    Array.prototype.forEach.call(box.querySelectorAll('.hth-'+s.uid),function(t){
+      t.addEventListener('click',function(){
+        s.heroSource={ pi:parseInt(t.getAttribute('data-pi'),10), url:t.getAttribute('data-url'), title:t.getAttribute('data-title') };
+        renderHeroRows(s, prods);
+      });
+    });
+    Array.prototype.forEach.call(box.querySelectorAll('.sku-'+s.uid),function(t){ t.addEventListener('click',function(){ copySku(t.getAttribute('data-sku'),t); }); });
+    Array.prototype.forEach.call(box.querySelectorAll('.hcopy-'+s.uid),function(t){ t.addEventListener('click',function(){ copyImg(t.getAttribute('data-url'),t); }); });
+  }
   function loadHeroProducts(s){
     var handle=(document.getElementById('hcol-'+s.uid).value||'').trim(); if(!handle) return;
     var box=document.getElementById('hr-'+s.uid); box.innerHTML='<div class="nlhint">Loading products from “'+esc(handle)+'”…</div>';
     emPost({action:'promo-collection-products', handle:handle}).then(function(d){
       var prods=(d&&d.ok&&Array.isArray(d.products))?d.products:[];
-      if(!prods.length){ box.innerHTML='<div class="nlhint">No About Wall Art products in “'+esc(handle)+'”. Try another collection.</div>'; return; }
-      box.innerHTML=prods.map(function(p){
-        var imgs=(p.images||[]).slice(0,8).map(function(u){ return '<img class="hth-'+s.uid+'" data-url="'+esc(u)+'" data-title="'+esc(p.title)+'" data-purl="'+esc(p.url)+'" src="'+esc(u)+'" style="width:66px;height:66px;object-fit:cover;border:2px solid transparent;border-radius:6px;cursor:pointer;margin:2px;">'; }).join('');
-        return '<div style="padding:6px 0;border-bottom:1px solid #eee;"><div style="font-size:12px;font-weight:600;">'+esc(p.title)+'</div><div style="display:flex;flex-wrap:wrap;">'+imgs+'</div></div>';
-      }).join('');
-      Array.prototype.forEach.call(box.querySelectorAll('.hth-'+s.uid),function(t){
-        t.addEventListener('click',function(){
-          Array.prototype.forEach.call(box.querySelectorAll('.hth-'+s.uid),function(x){x.style.borderColor='transparent';});
-          t.style.borderColor='#c0561d';
-          s.heroSelUrl=t.getAttribute('data-url'); s.heroSelProduct={title:t.getAttribute('data-title')};
-          var hf=document.getElementById('hero-'+s.uid); if(hf){ hf.value=s.heroSelUrl; } s.hero=s.heroSelUrl; refreshPreview(s);
-          var cb=document.getElementById('hc-'+s.uid); if(cb) cb.style.display='';
-        });
-      });
+      s._heroProds=prods; renderHeroRows(s, prods);
     }).catch(function(){ box.innerHTML='<div class="nlhint" style="color:#b00;">Could not load the collection.</div>'; });
+  }
+  function searchHeroBySku(s){
+    var term=(document.getElementById('hsku-'+s.uid).value||'').trim(); if(!term) return;
+    var box=document.getElementById('hr-'+s.uid); box.innerHTML='<div class="nlhint">Searching “'+esc(term)+'”…</div>';
+    fetch('/api/blogs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'search-wall-art',term:term})})
+      .then(function(r){return r.json();}).then(function(d){
+        var raw=(d&&d.success&&Array.isArray(d.products))?d.products:[];
+        var prods=raw.map(function(p){ return {title:p.title, url:p.url||('https://aboutwallart.com/products/'+(p.handle||'')), sku:p.sku||'', price:p.price||'', productType:p.productType||p.vendor||'', images:p.images||[]}; });
+        s._heroProds=prods; renderHeroRows(s, prods);
+      }).catch(function(){ box.innerHTML='<div class="nlhint" style="color:#b00;">Search failed.</div>'; });
+  }
+  // upload the generated lifestyle image -> Shopify Files -> hero
+  function uploadHero(s, file){
+    var res=document.getElementById('hup-'+s.uid); res.textContent='Uploading…'; res.style.color='#888';
+    var rd=new FileReader();
+    rd.onload=function(){
+      var b64=String(rd.result).split(',')[1]||'';
+      fetch('/api/shopify-files?action=gallery-manager',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({subAction:'upload-image', base64:b64, filename:'promo-hero-'+Date.now()+'.jpg', mimeType:file.type||'image/jpeg'})})
+        .then(function(r){return r.json();}).then(function(d){
+          if(d&&d.success&&d.url){ readPromoEmail(s); s.hero=d.url; var hf=document.getElementById('hero-'+s.uid); if(hf) hf.value=d.url; res.style.color='#1a7f37'; res.textContent='✓ Uploaded — added as the hero.'; refreshPreview(s); }
+          else { res.style.color='#b00'; res.textContent='Upload failed: '+((d&&d.error)||'error'); }
+        }).catch(function(){ res.style.color='#b00'; res.textContent='Upload failed.'; });
+    };
+    rd.readAsDataURL(file);
   }
 
   /* ---- Auto send-timing by market (spec §4) + auto code (§6.10) ---- */
@@ -4263,79 +4329,102 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           if(!w||!w.ok){ document.getElementById('body-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">Could not write: '+esc((w&&w.error)||'error')+'</p>'; return; }
           s.copy=w.copy; s.products=(pp&&pp.ok&&pp.products)||[];
           var c=s.copy;
+          s.pct=document.getElementById('d-'+uid).value||'15';
+          s.code=(document.getElementById('c-'+uid).value||'').toUpperCase();
           var colOpts=cols.map(function(h){return '<option value="'+esc(h)+'">'+esc(h)+'</option>';}).join('');
           function regBtn(id,lbl){ return '<button id="'+id+'-'+uid+'" type="button" title="Regenerate" style="background:#eee;border:1px solid #ddd;border-radius:6px;padding:5px 9px;font-size:12px;cursor:pointer;">🔄 '+lbl+'</button>'; }
           document.getElementById('body-'+uid).innerHTML=
             '<div style="margin-top:6px;">'
-              +'<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;"><label style="flex:1;min-width:220px;font-size:12px;color:#555;">Subject line<br><input id="s-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.subject||'')+'"></label>'+regBtn('rs','subject')+'</div>'
+              +'<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;"><label style="flex:1;min-width:220px;font-size:12px;color:#555;">Subject line (with first name)<br><input id="s-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.subject||'')+'"></label>'+regBtn('rs','subject')+'</div>'
               +'<label style="font-size:12px;color:#555;">Preview text<br><input id="pr-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.preview||'')+'"></label>'
-              +'<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:4px;"><label style="flex:1;min-width:160px;font-size:12px;color:#555;">Title (caps)<br><input id="tt-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.titleTop||'')+'"></label>'
-                +'<label style="flex:1;min-width:160px;font-size:12px;color:#555;">Title (script)<br><input id="ts-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.titleScript||'')+'"></label>'+regBtn('rt','title')+'</div>'
-              +'<label style="font-size:12px;color:#555;">Offer line<br><input id="of-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.offerLine||'')+'"></label>'
-              +'<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:4px;"><label style="flex:1;min-width:220px;font-size:12px;color:#555;">Intro (one line each)<br><textarea id="in-'+uid+'" rows="3" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;">'+esc((c.intro||[]).join('\n'))+'</textarea></label>'+regBtn('ri','intro')+'</div>'
-              +'<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:4px;"><label style="flex:1;min-width:220px;font-size:12px;color:#555;">Closing text (above your signature)<br><textarea id="cl-'+uid+'" rows="2" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;">'+esc(c.closingText||'')+'</textarea></label>'+regBtn('rc','closing')+'</div>'
+              // TITLE — short, options to choose, editable words, nudge sliders
               +'<div style="margin-top:12px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
-                +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">Hero image — pick a collection → load → pick a product image → Copy → paste into Shopify AI → paste the result URL back</div>'
-                +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'
-                  +'<input id="hcol-'+uid+'" list="hcl-'+uid+'" value="'+esc(cols[0]||'')+'" placeholder="collection handle" style="flex:1;min-width:200px;padding:7px;border:1px solid #ddd;border-radius:6px;">'
-                  +'<datalist id="hcl-'+uid+'">'+colOpts+'</datalist>'
-                  +'<button id="sb-'+uid+'" type="button" class="nlbtn" style="background:#555;">📂 Load products</button>'
+                +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">Title — keep it short. Pick an option, or edit the words.</div>'
+                +'<div id="topt-'+uid+'" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"></div>'
+                +'<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;"><label style="flex:1;min-width:140px;font-size:12px;color:#555;">Caps (max 3 words)<br><input id="tt-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.titleTop||'')+'"></label>'
+                  +'<label style="flex:1;min-width:140px;font-size:12px;color:#555;">Script (max 3 words)<br><input id="ts-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.titleScript||'')+'"></label>'+regBtn('rt','more options')+'</div>'
+                +'<div style="display:flex;gap:16px;align-items:center;margin-top:10px;font-size:12px;color:#555;flex-wrap:wrap;">'
+                  +'<span>Move script ↕ <input id="tdy-'+uid+'" type="range" min="-60" max="60" value="0" style="vertical-align:middle;"></span>'
+                  +'<span>↔ <input id="tdx-'+uid+'" type="range" min="-60" max="60" value="0" style="vertical-align:middle;"></span>'
                 +'</div>'
-                +'<div id="hr-'+uid+'" style="max-height:240px;overflow:auto;margin-top:8px;"></div>'
-                +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">'
-                  +'<button id="hc-'+uid+'" type="button" style="display:none;background:#c0561d;color:#fff;border:none;border-radius:8px;padding:7px 12px;font-weight:700;cursor:pointer;">📋 Copy image</button>'
-                  +'<button id="hp-'+uid+'" type="button" class="nlbtn" style="background:#555;">🪄 Generate Shopify-AI prompt</button>'
-                +'</div>'
-                +'<textarea id="hpt-'+uid+'" rows="4" placeholder="the Shopify-AI hero prompt appears here — copy it into Shopify AI" style="width:100%;margin-top:8px;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;"></textarea>'
-                +'<label style="font-size:12px;color:#555;">Paste the Shopify-AI hero URL here (or a picked product image is used directly):<br><input id="hero-'+uid+'" placeholder="https://…" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;"></label>'
               +'</div>'
-              +'<div style="margin-top:6px;font-size:12px;color:#555;">'+ (s.products.length? (s.products.length+' best-selling products loaded from <b>'+esc((o.collections&&o.collections[0])||'')+'</b>') : 'No products found — check the collection handle.') +'</div>'
-              +'<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">'
+              // HERO — same picker as Blog Manager
+              +'<div style="margin-top:12px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
+                +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">Hero image — pick a product image as the <b>source</b> → Copy → paste into Shopify AI → <b>Upload</b> the lifestyle image it makes.</div>'
+                +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'
+                  +'<input id="hcol-'+uid+'" list="hcl-'+uid+'" value="'+esc(cols[0]||'')+'" placeholder="collection handle" style="flex:1;min-width:180px;padding:7px;border:1px solid #ddd;border-radius:6px;">'
+                  +'<datalist id="hcl-'+uid+'">'+colOpts+'</datalist>'
+                  +'<button id="sb-'+uid+'" type="button" class="nlbtn" style="background:#555;">📂 Load collection</button>'
+                +'</div>'
+                +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">'
+                  +'<input id="hsku-'+uid+'" placeholder="…or find by SKU / name" style="flex:1;min-width:180px;padding:7px;border:1px solid #ddd;border-radius:6px;">'
+                  +'<button id="ssku-'+uid+'" type="button" class="nlbtn" style="background:#555;">🔍 Find</button>'
+                +'</div>'
+                +'<div id="hr-'+uid+'" style="max-height:300px;overflow:auto;margin-top:8px;"></div>'
+                +'<div style="margin-top:8px;"><button id="hp-'+uid+'" type="button" class="nlbtn" style="background:#555;">🪄 Generate Shopify-AI prompt</button></div>'
+                +'<textarea id="hpt-'+uid+'" rows="4" placeholder="the Shopify-AI hero prompt appears here — copy it into Shopify AI" style="width:100%;margin-top:8px;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;"></textarea>'
+                +'<label style="font-size:12px;color:#555;display:block;margin-top:6px;">Upload the lifestyle image Shopify AI made:<br><input id="hfile-'+uid+'" type="file" accept="image/*" style="margin-top:4px;"></label>'
+                +'<div id="hup-'+uid+'" style="font-size:12px;margin-top:4px;"></div>'
+                +'<label style="font-size:12px;color:#555;display:block;margin-top:6px;">…or paste an image URL:<br><input id="hero-'+uid+'" placeholder="https://…" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;"></label>'
+              +'</div>'
+              +'<div style="margin-top:6px;font-size:12px;color:#555;">'+ (s.products.length? (s.products.length+' best-selling products loaded into the email from <b>'+esc((o.collections&&o.collections[0])||'')+'</b>') : 'No products found — check the collection handle.') +'</div>'
+              +'<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
+                +'<span style="font-size:12px;color:#555;">Edit the body text right in the preview below.</span>'
+                +regBtn('ri','intro')+regBtn('rc','closing')
+              +'</div>'
+              +'<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">'
                 +'<button id="up-'+uid+'" class="nlbtn" type="button" style="background:#555;">↻ Update preview</button>'
                 +'<button id="dsc-'+uid+'" class="nlbtn" type="button" style="background:#1a7f37;">🏷️ Create discount in Shopify</button>'
                 +'<button id="cd-'+uid+'" class="nlbtn" type="button">📧 Create Klaviyo draft</button>'
               +'</div>'
               +'<div id="res-'+uid+'" style="margin-top:8px;font-size:13px;"></div>'
-              +'<div style="font-size:12px;color:#555;margin:14px 0 4px;">Full preview (desktop width)</div>'
-              +'<iframe id="pv-'+uid+'" style="width:100%;height:1150px;border:1px solid #e3e3e3;border-radius:8px;background:#fff;"></iframe>'
+              +'<div style="font-size:12px;color:#555;margin:14px 0 4px;">Full preview (desktop width) — click any text to edit it</div>'
+              +'<div id="pv-'+uid+'" style="width:100%;border:1px solid #e3e3e3;border-radius:8px;background:#fff;overflow:auto;"></div>'
             +'</div>';
+          function renderTitleOpts(){
+            var box=document.getElementById('topt-'+uid); if(!box) return;
+            var opts=(s.copy.titleOptions||[]);
+            box.innerHTML=opts.map(function(op,i){ return '<button type="button" class="topt-'+uid+'" data-i="'+i+'" style="background:#fff;border:1px solid #ccc;border-radius:16px;padding:5px 11px;font-size:12px;cursor:pointer;"><b>'+esc(op.top||'')+'</b> · '+esc(op.script||'')+'</button>'; }).join('');
+            Array.prototype.forEach.call(box.querySelectorAll('.topt-'+uid),function(b){ b.addEventListener('click',function(){ readPromoEmail(s); var op=opts[parseInt(b.getAttribute('data-i'),10)]||{}; s.copy.titleTop=op.top||''; s.copy.titleScript=op.script||''; document.getElementById('tt-'+uid).value=s.copy.titleTop; document.getElementById('ts-'+uid).value=s.copy.titleScript; refreshPreview(s); }); });
+          }
           function pull(){
+            readPromoEmail(s); // body text from the editable preview
             s.copy.subject=document.getElementById('s-'+uid).value;
             s.copy.preview=document.getElementById('pr-'+uid).value;
             s.copy.titleTop=document.getElementById('tt-'+uid).value;
             s.copy.titleScript=document.getElementById('ts-'+uid).value;
-            s.copy.offerLine=document.getElementById('of-'+uid).value;
-            s.copy.intro=document.getElementById('in-'+uid).value.split('\n').filter(function(x){return x.trim();});
-            s.copy.closingText=document.getElementById('cl-'+uid).value;
-            s.hero=document.getElementById('hero-'+uid).value.trim();
+            s.pct=document.getElementById('d-'+uid).value||'15';
+            s.code=(document.getElementById('c-'+uid).value||'').toUpperCase();
+            var hv=document.getElementById('hero-'+uid).value.trim(); if(hv) s.hero=hv;
             s.expiry=document.getElementById('e-'+uid).value||s.expiry;
             s.sendDate=document.getElementById('sd-'+uid).value||s.sendDate;
-          }
-          function setFields(){
-            document.getElementById('s-'+uid).value=s.copy.subject||'';
-            document.getElementById('pr-'+uid).value=s.copy.preview||'';
-            document.getElementById('tt-'+uid).value=s.copy.titleTop||'';
-            document.getElementById('ts-'+uid).value=s.copy.titleScript||'';
-            document.getElementById('in-'+uid).value=(s.copy.intro||[]).join('\n');
-            document.getElementById('cl-'+uid).value=s.copy.closingText||'';
           }
           function regen(field,rbtn){
             pull(); var orig=rbtn.textContent; rbtn.disabled=true; rbtn.textContent='…';
             emPost({action:'promo-write', occasion:o, discount:document.getElementById('d-'+uid).value, code:document.getElementById('c-'+uid).value, expiry:s.expiry, only:field, current:s.copy}).then(function(d){
               rbtn.disabled=false; rbtn.textContent=orig;
               if(!d||!d.ok||!d.copy){ alert('Could not regenerate.'); return; }
-              var k=d.copy; if(k.subject!=null)s.copy.subject=k.subject; if(k.preview!=null)s.copy.preview=k.preview; if(k.titleTop!=null)s.copy.titleTop=k.titleTop; if(k.titleScript!=null)s.copy.titleScript=k.titleScript; if(k.intro!=null)s.copy.intro=k.intro; if(k.closingText!=null)s.copy.closingText=k.closingText;
-              setFields(); refreshPreview(s);
+              var k=d.copy;
+              if(k.subject!=null)s.copy.subject=k.subject; if(k.preview!=null)s.copy.preview=k.preview;
+              if(k.titleTop!=null)s.copy.titleTop=k.titleTop; if(k.titleScript!=null)s.copy.titleScript=k.titleScript; if(k.titleOptions!=null)s.copy.titleOptions=k.titleOptions;
+              if(k.intro!=null)s.copy.intro=k.intro; if(k.closingText!=null)s.copy.closingText=k.closingText;
+              document.getElementById('s-'+uid).value=s.copy.subject||''; document.getElementById('pr-'+uid).value=s.copy.preview||'';
+              document.getElementById('tt-'+uid).value=s.copy.titleTop||''; document.getElementById('ts-'+uid).value=s.copy.titleScript||'';
+              renderTitleOpts(); refreshPreview(s);
             }).catch(function(){ rbtn.disabled=false; rbtn.textContent=orig; alert('Could not regenerate.'); });
           }
           document.getElementById('rs-'+uid).addEventListener('click', function(){ regen('subject', this); });
           document.getElementById('rt-'+uid).addEventListener('click', function(){ regen('title', this); });
           document.getElementById('ri-'+uid).addEventListener('click', function(){ regen('intro', this); });
           document.getElementById('rc-'+uid).addEventListener('click', function(){ regen('closing', this); });
+          document.getElementById('tt-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.copy.titleTop=this.value; refreshPreview(s); });
+          document.getElementById('ts-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.copy.titleScript=this.value; refreshPreview(s); });
+          document.getElementById('tdy-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.titleDy=this.value; refreshPreview(s); });
+          document.getElementById('tdx-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.titleDx=this.value; refreshPreview(s); });
           document.getElementById('up-'+uid).addEventListener('click', function(){ pull(); refreshPreview(s); });
           document.getElementById('dsc-'+uid).addEventListener('click', function(){
             var cb=this; cb.disabled=true; cb.textContent='Creating…';
-            var code=document.getElementById('c-'+uid).value, pct=document.getElementById('d-'+uid).value, exp=document.getElementById('e-'+uid).value;
+            var code=(document.getElementById('c-'+uid).value||'').toUpperCase(), pct=document.getElementById('d-'+uid).value, exp=document.getElementById('e-'+uid).value;
             var r=document.getElementById('res-'+uid);
             emPost({action:'promo-discount', code:code, discount:pct, expiry:exp}).then(function(d){
               cb.disabled=false; cb.textContent='🏷️ Create discount in Shopify';
@@ -4345,7 +4434,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           });
           document.getElementById('cd-'+uid).addEventListener('click', function(){
             pull(); var cb=this; cb.disabled=true; cb.textContent='Creating…';
-            var html=buildPromoHtml(s);
+            var html=buildPromoHtml(s); // NOT editable — the version that gets sent
             emPost({action:'promo-create-draft', name:'PROMO '+o.name, subject:s.copy.subject, preview:s.copy.preview, html:html, market:s.market}).then(function(d){
               cb.disabled=false; cb.textContent='📧 Create Klaviyo draft';
               var r=document.getElementById('res-'+uid);
@@ -4354,10 +4443,12 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
             });
           });
           document.getElementById('sb-'+uid).addEventListener('click', function(){ loadHeroProducts(s); });
+          document.getElementById('ssku-'+uid).addEventListener('click', function(){ searchHeroBySku(s); });
+          document.getElementById('hsku-'+uid).addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); searchHeroBySku(s); } });
           document.getElementById('hp-'+uid).addEventListener('click', function(){ document.getElementById('hpt-'+uid).value=buildHeroPrompt(s); });
-          document.getElementById('hc-'+uid).addEventListener('click', function(){ copyImg(s.heroSelUrl, this); });
-          document.getElementById('hero-'+uid).addEventListener('input', function(){ s.hero=this.value.trim(); refreshPreview(s); });
-          refreshPreview(s);
+          document.getElementById('hfile-'+uid).addEventListener('change', function(e){ var f=e.target.files&&e.target.files[0]; if(f) uploadHero(s,f); });
+          document.getElementById('hero-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.hero=this.value.trim(); refreshPreview(s); });
+          renderTitleOpts(); refreshPreview(s);
         }).catch(function(e){ btn.disabled=false; btn.textContent='✍️ Write the promo'; document.getElementById('body-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">Error: '+esc(e.message)+'</p>'; });
       });
     });
