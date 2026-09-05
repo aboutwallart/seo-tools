@@ -715,9 +715,11 @@ module.exports = async (req, res) => {
 
       var fields = {
         subject: '"subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'there\' }} then a comma, then a warm human line about ' + topic + ' — no buzzwords, at most ~55 chars after the name", "preview":"one short human line (may also use the first name), teases the offer softly"',
-        title:   '"titleTop":"2-4 WORD CAPS HEADLINE tied to ' + topic + '", "titleScript":"short handwritten-script tagline (2-4 words)"',
+        // SHORT titles only — long titles look bad. Give 4 short options to choose from.
+        title:   '"titleTop":"SHORT CAPS headline, MAX 3 words, tied to ' + topic + '", "titleScript":"SHORT handwritten tagline, MAX 3 words", "titleOptions":[{"top":"MAX 3 WORDS CAPS","script":"max 3 words"}, (give 4 DISTINCT short options, each top MAX 3 words and script MAX 3 words)]',
         intro:   '"intro":["2 to 3 SHORT human lines — warm, gift/feeling led, brand voice; the offer is stated in offerLine not here"]',
-        offer:   '"offerLine":"the offer said ONCE, human (e.g. Take ' + (pct || '15') + '% off with code ' + (code || 'CODE') + ' until ' + (expiry || 'the date') + ')"',
+        // offer phrase ONLY — no code, no date (the tool renders the code and the valid-until date itself)
+        offer:   '"offerLine":"the offer phrase ONLY, e.g. Take ' + (pct || '15') + '% off sitewide — do NOT include the code, and do NOT include any date"',
         cta:     '"ctaLabel":"2-3 word button label tied to the TOPIC of the mail (e.g. Shop ' + topic + '), never generic like Shop now or Shop the collection"',
         closing: '"closingText":"a warm, offer-to-help closing that sits ABOVE the signature — kind, first-person, value-first (e.g. not sure where to start with ' + topic + '? hit reply, I read every one). It MUST feel hand-written and be DIFFERENT every time — vary the wording, never a canned line"'
       };
@@ -757,7 +759,7 @@ module.exports = async (req, res) => {
       var out2 = [];
       try {
         var cd = await shopifyGraphQL(
-          'query($h:String!){ collectionByHandle(handle:$h){ products(first:30){ edges{ node{ title handle onlineStoreUrl vendor featuredImage{ url } images(first:8){ edges{ node{ url altText } } } } } } } }',
+          'query($h:String!){ collectionByHandle(handle:$h){ products(first:30){ edges{ node{ id title handle onlineStoreUrl vendor productType featuredImage{ url } priceRangeV2{ minVariantPrice{ amount currencyCode } } variants(first:1){ edges{ node{ sku } } } images(first:10){ edges{ node{ url altText } } } } } } } }',
           { h: handle }
         );
         var ed = (cd && cd.collectionByHandle && cd.collectionByHandle.products && cd.collectionByHandle.products.edges) || [];
@@ -766,7 +768,15 @@ module.exports = async (req, res) => {
           if (pn.vendor && pn.vendor.toLowerCase().indexOf('about wall art') < 0) continue; // AWA only
           var imgs = ((pn.images && pn.images.edges) || []).map(function (x) { return retinaImg(x.node.url, 800); }).filter(Boolean);
           if (!imgs.length && pn.featuredImage) imgs = [retinaImg(pn.featuredImage.url, 800)];
-          out2.push({ title: pn.title, handle: pn.handle, url: pn.onlineStoreUrl || (PROMO_SITE + '/products/' + pn.handle), images: imgs });
+          var cur2 = pn.priceRangeV2 && pn.priceRangeV2.minVariantPrice;
+          var sku2 = ''; try { sku2 = pn.variants.edges[0].node.sku || ''; } catch (e) {}
+          out2.push({
+            gid: pn.id, title: pn.title, handle: pn.handle,
+            url: pn.onlineStoreUrl || (PROMO_SITE + '/products/' + pn.handle),
+            sku: sku2, productType: pn.productType || pn.vendor || '',
+            price: cur2 ? Number(cur2.amount).toFixed(0) : '',
+            images: imgs
+          });
         }
       } catch (e) { res.status(502).json({ ok: false, error: 'Could not load collection: ' + (e.message || e) }); return; }
       res.status(200).json({ ok: true, products: out2 });
