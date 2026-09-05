@@ -796,6 +796,8 @@ module.exports = async (req, res) => {
       var startsAt = new Date().toISOString();
       // End of the valid-until day, London time (no Z => Shopify uses the shop timezone).
       var endsAt = dexp ? (dexp + 'T23:59:59') : null;
+      // RULE: discounts apply ONLY to the "Discountable Products" collection, NEVER the whole store.
+      var DISCOUNTABLE_COLLECTION = 'gid://shopify/Collection/676983079292'; // handle: products-with-applicable-discounts
       try {
         var dm = await shopifyGraphQL(
           'mutation($b:DiscountCodeBasicInput!){ discountCodeBasicCreate(basicCodeDiscount:$b){ codeDiscountNode{ id } userErrors{ field code message } } }',
@@ -805,8 +807,8 @@ module.exports = async (req, res) => {
             startsAt: startsAt,
             endsAt: endsAt,
             customerSelection: { all: true },
-            customerGets: { value: { percentage: dpct / 100 }, items: { all: true } },
-            appliesOncePerCustomer: false
+            customerGets: { value: { percentage: dpct / 100 }, items: { collections: { add: [DISCOUNTABLE_COLLECTION] } } },
+            appliesOncePerCustomer: true
           } }
         );
         var r2 = dm && dm.discountCodeBasicCreate;
@@ -818,6 +820,23 @@ module.exports = async (req, res) => {
         }
         res.status(200).json({ ok: true, code: dcode, id: (r2 && r2.codeDiscountNode && r2.codeDiscountNode.id) || null });
       } catch (e) { res.status(502).json({ ok: false, error: 'Shopify discount failed: ' + (e.message || e) }); return; }
+      return;
+    }
+
+    // ---- verify a discount code REALLY exists in Shopify (read-back check before sending to Klaviyo) ----
+    if (action === 'promo-discount-check') {
+      var vcode = (body.code || '').toString().trim();
+      if (!vcode) { res.status(400).json({ ok: false, error: 'code required' }); return; }
+      try {
+        var vd = await shopifyGraphQL(
+          'query($c:String!){ codeDiscountNodeByCode(code:$c){ id codeDiscount{ __typename ... on DiscountCodeBasic{ status } } } }',
+          { c: vcode }
+        );
+        var node = vd && vd.codeDiscountNodeByCode;
+        var exists = !!(node && node.id);
+        var status = (node && node.codeDiscount && node.codeDiscount.status) || null;
+        res.status(200).json({ ok: true, exists: exists, status: status });
+      } catch (e) { res.status(502).json({ ok: false, error: 'Check failed: ' + (e.message || e) }); return; }
       return;
     }
 
