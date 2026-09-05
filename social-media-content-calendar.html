@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.59 · 5 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.60 · 5 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -356,6 +356,11 @@
         <div class="nlhd">Step 1 · Pick the month</div>
         <p class="nlhint">Choose the month, then tick the promos you want to make. (November &amp; December are done in the Q4 tab.)</p>
         <select id="mpEmMonth" style="border:1px solid #D8D3EE;border-radius:8px;padding:9px 12px;font-size:14px;background:#fff;min-width:160px;"></select>
+      </div>
+      <div class="nlstep" id="mpSentWrap" style="display:none;">
+        <div class="nlhd">Sent promos</div>
+        <p class="nlhint">Promos already in Klaviyo. Click one to open it, or redo it.</p>
+        <div id="mpSent"></div>
       </div>
       <div class="nlstep" id="mpEmOccStep" style="display:none;">
         <div class="nlhd">Step 2 · Tick the promos to make</div>
@@ -4006,6 +4011,9 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   // Prefer promoMonth/promoWindow (promo timing) over the content-calendar date (e.g. New Baby -> June).
   function monthOf(o){ if(o.promoMonth) return parseInt(o.promoMonth,10); var md=o.date2026 || (o.window&&o.window.start) || ''; return md?parseInt(String(md).split('-')[0],10):0; }
   function dayOf(o){ if(o.promoWindow&&o.promoWindow.start) return parseInt(String(o.promoWindow.start).split('-')[1],10); var md=o.date2026 || (o.window&&o.window.start) || ''; return md?parseInt(String(md).split('-')[1],10):0; }
+  function monthLabelYM(ym){ if(!ym) return ''; var p=String(ym).split('-'); return (MON[(+p[1])-1]||'')+' '+p[0]; }
+  // a month is fully done only when EVERY promo occasion that month is in Klaviyo (main + follow-up)
+  function monthAllDone(ym){ var m=parseInt(String(ym).split('-')[1],10)||0, yr=parseInt(String(ym).split('-')[0],10)||0; var occM=occs.filter(function(o){ return o.promoSuggested && monthOf(o)===m; }); if(!occM.length) return false; return occM.every(function(o){ return promoIsDone(o.id,yr); }); }
 
   // Rolling month picker — next 12 available months, year-aware, EXCLUDING Nov & Dec (those go to the Q4 tab).
   function buildMonths(){
@@ -4015,6 +4023,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       var mo=d.getUTCMonth()+1;
       if(mo===11||mo===12) continue; // Nov/Dec handled by the Q4 tab
       var ym=d.toISOString().slice(0,7);
+      if(monthAllDone(ym)) continue; // fully in Klaviyo -> shown in "Sent promos", not the picker
       if(!first) first=ym;
       h+='<option value="'+ym+'">'+MON[mo-1]+' '+d.getUTCFullYear()+'</option>';
       count++;
@@ -4025,28 +4034,62 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   buildMonths();
 
   fetch('/api/social?action=get-occasions').then(function(r){return r.json();}).then(function(d){
-    if(d&&d.ok){ occs=d.occasions||[]; loadPromoArchive(renderOcc); }
+    if(d&&d.ok){ occs=d.occasions||[]; loadPromoArchive(function(){ buildMonths(); renderSent(); renderOcc(); }); }
   }).catch(function(){});
 
   mSel.addEventListener('change', renderOcc);
 
+  // "Sent promos" — green collapsible cards, exactly like Past newsletters. Reopen to VIEW (Klaviyo links) or Redo.
+  function renderSent(){
+    var wrap=document.getElementById('mpSent'), box=document.getElementById('mpSentWrap'); if(!wrap) return;
+    var items=Object.keys(promoDone).map(function(k){ return promoDone[k]; }).filter(function(e){ return e&&e.main&&e.followup; });
+    items.sort(function(a,b){ return String((b.month||b.year)+'').localeCompare(String((a.month||a.year)+'')); });
+    if(!items.length){ box.style.display='none'; wrap.innerHTML=''; return; }
+    box.style.display=''; wrap.innerHTML='';
+    items.forEach(function(e){
+      var ml=monthLabelYM(e.month||((e.year||'')+'-01'));
+      var bar=document.createElement('div');
+      bar.style.cssText='background:#E9F7F1;border:1px solid #Bce3D4;border-radius:10px;padding:12px 14px;margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;';
+      bar.innerHTML='<span style="font-weight:700;color:#0F6E56;">'+esc(ml)+' · '+esc(e.occasionName||'Promo')+' <span style="font-weight:600;font-size:12px;">✓ in Klaviyo</span></span><span style="color:#0F6E56;font-size:13px;">▾</span>';
+      var open=false, body=null;
+      bar.addEventListener('click', function(){
+        if(open){ if(body){body.remove();body=null;} open=false; return; }
+        body=document.createElement('div'); body.style.cssText='border:1px solid #Bce3D4;border-top:none;border-radius:0 0 10px 10px;margin:-8px 0 8px;padding:12px 14px;background:#fff;';
+        body.innerHTML='<div style="font-size:13px;color:#555;line-height:1.8;">'
+          +'<b>Main:</b> <a href="'+esc((e.main&&e.main.url)||'#')+'" target="_blank" style="color:#0F6E56;">open in Klaviyo ↗</a><br>'
+          +'<b>Follow-up:</b> <a href="'+esc((e.followup&&e.followup.url)||'#')+'" target="_blank" style="color:#0F6E56;">open in Klaviyo ↗</a>'
+          +'</div>'
+          +'<button class="mpRedo2" type="button" style="margin-top:10px;background:#eee;border:1px solid #ccc;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;">↻ Redo this promo</button>';
+        bar.parentNode.insertBefore(body, bar.nextSibling); open=true;
+        var rb=body.querySelector('.mpRedo2');
+        if(rb) rb.addEventListener('click', function(ev){ ev.stopPropagation();
+          var o=occs.filter(function(x){return x.id===e.occasionId;})[0]; if(!o) return;
+          var yr=parseInt(e.year,10)||new Date().getUTCFullYear();
+          var w=document.getElementById('mpEmBuild'); buildPromoCard(o, Math.floor(Math.random()*100000), yr, w);
+          var last=w.lastChild; if(last&&last.scrollIntoView) last.scrollIntoView({behavior:'smooth',block:'start'});
+        });
+      });
+      wrap.appendChild(bar);
+    });
+  }
+
   function renderOcc(){
     var ym=mSel.value||''; var m=parseInt(ym.split('-')[1],10)||0;
     var year=parseInt(ym.split('-')[0],10)||new Date().getUTCFullYear();
-    // Only promo-worthy occasions (owner-approved) for this month.
+    // Only promo-worthy occasions for this month, still PENDING (done ones live in "Sent promos" above).
     var list=occs.filter(function(o){ return o.promoSuggested && monthOf(o)===m; });
     list.sort(function(a,b){ return dayOf(a)-dayOf(b); });
-    // split: pending (to do) vs already fully in Klaviyo THIS year (main + follow-up)
     var pending=list.filter(function(o){ return !promoIsDone(o.id,year); });
-    var done=list.filter(function(o){ return promoIsDone(o.id,year); });
     var box=document.getElementById('mpEmOccList');
     var step=document.getElementById('mpEmOccStep');
     document.getElementById('mpEmBuild').innerHTML='';
     function occDt(o){ return o.promoWindow ? (parseInt(String(o.promoWindow.start).split('-')[1],10)+'–'+parseInt(String(o.promoWindow.end).split('-')[1],10)+' '+MON[m-1].slice(0,3)) : (o.date2026 ? (dayOf(o)+' '+MON[m-1].slice(0,3)) : 'all '+MON[m-1].slice(0,3)); }
     if(!list.length){
       box.innerHTML='<div class="nlhint">No marketing occasions in '+MON[m-1]+'.</div>';
+    } else if(!pending.length){
+      box.innerHTML='<div class="nlhint">All promos for '+MON[m-1]+' are already in Klaviyo ✓ (see “Sent promos” above).</div>';
     } else {
-      var pendHtml = pending.length ? pending.map(function(o){
+      box.innerHTML=pending.map(function(o){
         var promo = o.promoSuggested ? ' <span style="background:#d6f0dd;color:#1a7f37;font-size:10.5px;font-weight:800;letter-spacing:.4px;padding:1px 6px;border-radius:6px;vertical-align:middle;">PROMO</span>' : '';
         var ctry = o.country ? ' <span style="background:#eee;color:#555;font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:6px;vertical-align:middle;">'+esc(o.country)+'</span>' : '';
         return '<label style="display:flex;gap:10px;align-items:flex-start;padding:9px 2px;border-bottom:1px solid #eee;cursor:pointer;">'
@@ -4054,33 +4097,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           +'<span><span style="font-weight:800;">'+esc(occDt(o))+'</span> · '+esc(o.name)+promo+ctry
           +'<br><span style="color:#8a8a8a;font-size:12.5px;">'+esc(o.relevance||'')+'</span></span>'
           +'</label>';
-      }).join('') : '<div class="nlhint">All promos for '+MON[m-1]+' are already in Klaviyo ✓</div>';
-      // collapsed "already in Klaviyo" section — reopen to VIEW (Klaviyo links) or Redo the whole block
-      var doneHtml='';
-      if(done.length){
-        doneHtml='<div style="margin-top:12px;border-top:1px solid #eee;padding-top:8px;">'
-          +'<div id="mpDoneHdr" style="cursor:pointer;font-size:12.5px;font-weight:800;color:#1a7f37;user-select:none;">▸ ✓ '+done.length+' already in Klaviyo (sent) — click to view</div>'
-          +'<div id="mpDoneBody" style="display:none;margin-top:8px;">'
-          + done.map(function(o){ var e=promoDone[o.id+'|'+year];
-              return '<div style="padding:8px 2px;border-bottom:1px solid #f2f2f2;font-size:12.5px;color:#555;">'
-                +'<b>'+esc(occDt(o))+'</b> · '+esc(o.name)
-                +' &nbsp;<a href="'+esc((e.main&&e.main.url)||'#')+'" target="_blank" style="color:#2563eb;">main ↗</a>'
-                +' · <a href="'+esc((e.followup&&e.followup.url)||'#')+'" target="_blank" style="color:#2563eb;">follow-up ↗</a>'
-                +' &nbsp;<button class="mpRedo" data-oid="'+esc(o.id)+'" type="button" style="background:#eee;border:1px solid #ccc;border-radius:6px;padding:3px 9px;font-size:11px;cursor:pointer;">↻ Redo this promo</button>'
-                +'</div>';
-            }).join('')
-          +'</div></div>';
-      }
-      box.innerHTML=pendHtml+doneHtml;
+      }).join('');
       Array.prototype.forEach.call(box.querySelectorAll('.mpEmChk'), function(c){ c.addEventListener('change', updateStart); });
-      var hdr=document.getElementById('mpDoneHdr');
-      if(hdr) hdr.addEventListener('click', function(){ var b=document.getElementById('mpDoneBody'); var open=b.style.display!=='none'; b.style.display=open?'none':''; hdr.textContent=(open?'▸':'▾')+hdr.textContent.slice(1); });
-      Array.prototype.forEach.call(box.querySelectorAll('.mpRedo'), function(b){ b.addEventListener('click', function(){
-        var oid=b.getAttribute('data-oid'); var o=occs.filter(function(x){return x.id===oid;})[0]; if(!o) return;
-        var wrap=document.getElementById('mpEmBuild');
-        buildPromoCard(o, Math.floor(Math.random()*100000), year, wrap);
-        var last=wrap.lastChild; if(last&&last.scrollIntoView) last.scrollIntoView({behavior:'smooth',block:'start'});
-      }); });
     }
     step.style.display='';
     updateStart();
@@ -4588,7 +4606,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
                   cb.disabled=false; cb.textContent=CBLABEL;
                   if(df&&df.ok){
                     // BOTH in Klaviyo → collapse the whole block
-                    promoDone[o.id+'|'+year]={occasionId:o.id, year:String(year), month:mo, main:{url:mainUrl}, followup:{url:df.url}};
+                    promoDone[o.id+'|'+year]={occasionId:o.id, occasionName:o.name, year:String(year), month:mo, main:{url:mainUrl}, followup:{url:df.url}};
+                    renderSent(); // add it to the green "Sent promos" cards up top
                     card.innerHTML='<div class="nlhd">✓ '+esc(o.name)+' — both emails in Klaviyo</div>'
                       +'<div style="font-size:12.5px;color:#555;margin-top:8px;line-height:1.6;">'
                         +'<b>Main:</b> <a href="'+esc(mainUrl)+'" target="_blank">open in Klaviyo ↗</a> — schedule for <b>'+esc(fmtNice(s.sendDate)||'the send date')+'</b><br>'
