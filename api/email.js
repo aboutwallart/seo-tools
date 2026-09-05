@@ -718,6 +718,8 @@ module.exports = async (req, res) => {
         // SHORT titles only — long titles look bad. Give 4 short options to choose from.
         title:   '"titleTop":"SHORT CAPS headline, MAX 3 words, tied to ' + topic + '", "titleScript":"SHORT handwritten tagline, MAX 3 words", "titleOptions":[{"top":"MAX 3 WORDS CAPS","script":"max 3 words"}, (give 4 DISTINCT short options, each top MAX 3 words and script MAX 3 words)]',
         intro:   '"intro":["2 to 3 SHORT human lines — warm, gift/feeling led, brand voice; the offer is stated in offerLine not here"]',
+        // personal line that LEADS INTO the discount (sits just above the offer)
+        offerLead: '"offerLead":"ONE warm, personal, first-person line that leads into the discount so it does not feel abrupt — e.g. So, to make it a little easier this month, here is a treat from me: — NEVER a canned/generic line, vary the wording every time"',
         // offer phrase ONLY — no code, no date (the tool renders the code and the valid-until date itself)
         offer:   '"offerLine":"the offer phrase ONLY, e.g. Take ' + (pct || '15') + '% off sitewide — do NOT include the code, and do NOT include any date"',
         cta:     '"ctaLabel":"2-3 word button label tied to the TOPIC of the mail (e.g. Shop ' + topic + '), never generic like Shop now or Shop the collection"',
@@ -728,7 +730,7 @@ module.exports = async (req, res) => {
       else if (only === 'title') wantKeys = [fields.title];
       else if (only === 'intro') wantKeys = [fields.intro];
       else if (only === 'closing') wantKeys = [fields.closing];
-      else wantKeys = [fields.subject, fields.title, fields.intro, fields.offer, fields.cta, fields.closing];
+      else wantKeys = [fields.subject, fields.title, fields.intro, fields.offerLead, fields.offer, fields.cta, fields.closing];
 
       var note = '';
       if (action === 'promo-rewrite' || only) {

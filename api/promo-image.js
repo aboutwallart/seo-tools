@@ -45,14 +45,15 @@ async function renderTitle({ top = '', script = '', color = '#141414', size = 60
   mc.font = `${scriptSize}px ${SCRIPT_FONT}`;
   const scriptW = script ? mc.measureText(script).width : 0;
 
-  // script overhangs (signature swashes) -> generous side padding
-  const overhang = Math.round(scriptSize * 0.12);
+  // script overhangs (signature swashes) -> GENEROUS side padding so long tails never clip
+  const overhang = Math.round(scriptSize * 0.32);
   const W = Math.ceil(Math.max(topW, scriptW) + padX * 2 + overhang * 2 + Math.abs(offX) * 2);
 
   // vertical layout: caps on top, script below (nudge with offY/offX so words don't overlap badly)
   const capsBaseline = padTop + capsSize;                 // baseline of caps
   const scriptBaseline = Math.round(capsBaseline + scriptSize * 0.78) + offY;
-  const H = Math.ceil(Math.max(scriptBaseline + scriptSize * 0.30, capsBaseline + capsSize * 0.28) + padBot);
+  // bottom allowance covers the script's long descenders/swashes (y, g, j …) so they are NEVER cut
+  const H = Math.ceil(Math.max(scriptBaseline + scriptSize * 0.62, capsBaseline + capsSize * 0.28) + padBot);
 
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext('2d');
