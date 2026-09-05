@@ -755,6 +755,30 @@ module.exports = async (req, res) => {
       return;
     }
 
+    // ---- AI writes the FOLLOW-UP copy (2nd email, 3 days later: value-first, soft reminder, NO urgency) ----
+    if (action === 'promo-followup-write') {
+      var focc = body.occasion || {};
+      var fspelling = (focc.country === 'US') ? 'US English (US spelling)' : 'UK English (UK spelling)';
+      var fpct = (body.discount || '').toString();
+      var fcode = (body.code || '').toString();
+      var fexpiry = (body.expiry || '').toString();
+      var ftopic = (focc.name || 'this occasion');
+      var fpr = [
+        'You write the FOLLOW-UP email (the 2nd email, sent 3 days after the first) for About Wall Art, a UK wall-art brand. Voice: warm, kind, human, first-person, spoken — NEVER poetic, pushy or "AI". A few tasteful emojis are fine.',
+        'PRODUCT WORDING RULE (critical): never "a print"/"prints" — always "wall art", "an art set", a "wall art set".',
+        'This is a FOLLOW-UP, so it is VALUE-FIRST and NOT "last chance"/urgency. Lead with something genuinely helpful — a tip or idea tied to "' + ftopic + '" (' + (focc.relevance || '') + ') — THEN a SOFT reminder that the ' + (fpct ? fpct + '% ' : '') + 'code is still there if it helps. Gentle, no pressure.',
+        'Everything in ' + fspelling + '. The offer is the SAME as the first email: ' + (fpct ? fpct + '% off' : 'the offer') + (fcode ? ', code ' + fcode : '') + (fexpiry ? ', valid until ' + fexpiry : '') + '. State it ONCE, softly. Exactly ONE call to action.',
+        'It must feel DIFFERENT from the first email and hand-written — vary the wording, never a canned line. Keep it SHORT.',
+        'Return ONLY JSON with EXACTLY these keys: { "subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'there\' }} then a comma, then a warm helpful line about ' + ftopic + '", "preview":"one short human line", "intro":["2 to 3 SHORT value-first lines — a helpful tip/idea, not a sell"], "offerLead":"ONE soft, personal line that gently reminds the code is still there — NOT urgency, e.g. and if it helps, your code is still waiting", "ctaLabel":"2-3 word button label tied to ' + ftopic + '", "closingText":"a warm offer-to-help closing above the signature, DIFFERENT every time" }'
+      ].join('\n');
+      var fraw = await anthropic(fpr, 1200);
+      var fcopy = extractJSON(fraw);
+      if (!fcopy) { res.status(502).json({ ok: false, error: 'AI did not return usable follow-up copy', raw: (fraw || '').slice(0, 300) }); return; }
+      fcopy.greeting = "Dear {{ first_name|default:'friend' }},";
+      res.status(200).json({ ok: true, copy: fcopy });
+      return;
+    }
+
     // ---- list a collection's products (image picker: collection -> product -> image) ----
     if (action === 'promo-collection-products') {
       var handle = (body.handle || '').toString().trim();
@@ -851,13 +875,14 @@ module.exports = async (req, res) => {
       if (!subject || !html) { res.status(400).json({ ok: false, error: 'subject and html required' }); return; }
       var SEG = { UK: 'WGvbF3', US: 'Y3x3by', ALL: 'VeaNX2', GENERAL: 'VeaNX2', ISLAMIC: 'Xypmb6' };
       var seg = SEG[(body.market || 'ALL').toString().toUpperCase()] || 'VeaNX2';
+      var excl = (body.excludeSegment || '').toString().trim(); // follow-up: "Don't send to" (recent buyers)
       var REVP = '2024-10-15';
       function kvp(path, method, payload) { return fetch('https://a.klaviyo.com' + path, { method: method, headers: { 'Authorization': 'Klaviyo-API-Key ' + KLAVIYO_KEY, 'revision': REVP, 'accept': 'application/vnd.api+json', 'content-type': 'application/vnd.api+json' }, body: payload ? JSON.stringify(payload) : undefined }); }
       async function kvpJson(r) { var t = await r.text(); var j = null; try { j = JSON.parse(t); } catch (e) {} return { ok: r.ok, status: r.status, json: j, text: t }; }
       var tR = await kvpJson(await kvp('/api/templates/', 'POST', { data: { type: 'template', attributes: { name: name + ' (tool)', editor_type: 'CODE', html: html } } }));
       if (!tR.ok || !tR.json || !tR.json.data) { res.status(502).json({ ok: false, error: 'Template create failed (' + tR.status + '): ' + (tR.text || '').slice(0, 250) }); return; }
       var tId = tR.json.data.id;
-      var campP = { data: { type: 'campaign', attributes: { name: name, audiences: { included: [seg] }, tracking_options: { add_tracking_params: true, is_tracking_opens: true, is_tracking_clicks: true }, 'campaign-messages': { data: [ { type: 'campaign-message', attributes: { channel: 'email', label: name, content: { subject: subject, preview_text: preview, from_email: 'info@aboutwallart.com', from_label: 'Mae from About Wall Art' } } } ] } } } };
+      var campP = { data: { type: 'campaign', attributes: { name: name, audiences: (excl ? { included: [seg], excluded: [excl] } : { included: [seg] }), tracking_options: { add_tracking_params: true, is_tracking_opens: true, is_tracking_clicks: true }, 'campaign-messages': { data: [ { type: 'campaign-message', attributes: { channel: 'email', label: name, content: { subject: subject, preview_text: preview, from_email: 'info@aboutwallart.com', from_label: 'Mae from About Wall Art' } } } ] } } } };
       var cR = await kvpJson(await kvp('/api/campaigns/', 'POST', campP));
       if (!cR.ok || !cR.json || !cR.json.data) { res.status(502).json({ ok: false, error: 'Campaign create failed (' + cR.status + '): ' + (cR.text || '').slice(0, 300) }); return; }
       var campId = cR.json.data.id, mId = null; try { mId = cR.json.data.relationships['campaign-messages'].data[0].id; } catch (e) {}
