@@ -2027,6 +2027,26 @@ Include EXACTLY 3 items.`;
           if (rowKw === kwLower && rowAction === 'INTERNAL_LINK' && rowWinner === oldLower) { cols[5] = newUrl; changed++; return cols.map(csvField).join(','); }
           return line;
         });
+        // Fallback: the analysed/old URL was wrong or truncated so it didn't match by URL. If this keyword has
+        // exactly ONE lock row, repoint THAT one (match by keyword, not by the broken URL). Safe: only when unique.
+        if (!changed) {
+          const locks = [];
+          registry.content.split('\n').forEach(line => {
+            if (!line.trim()) return;
+            const cols = parseCSVLine(line);
+            if ((cols[0]||'').toLowerCase() === kwLower && ['TO_OPTIMIZE','OPTIMIZED'].includes((cols[4]||'').toUpperCase())) locks.push((cols[1]||'').toLowerCase());
+          });
+          if (locks.length === 1) {
+            const target = locks[0];
+            for (let i = 0; i < out.length; i++) {
+              if (!out[i].trim()) continue;
+              const cols = parseCSVLine(out[i]);
+              const rowKw = (cols[0]||'').toLowerCase(), rowUrl = (cols[1]||'').toLowerCase(), rowAction = (cols[4]||'').toUpperCase(), rowWinner = (cols[5]||'').toLowerCase();
+              if (rowKw === kwLower && rowUrl === target && ['TO_OPTIMIZE','OPTIMIZED'].includes(rowAction)) { cols[1] = newUrl; changed++; out[i] = cols.map(csvField).join(','); }
+              else if (rowKw === kwLower && rowAction === 'INTERNAL_LINK' && rowWinner === target) { cols[5] = newUrl; changed++; out[i] = cols.map(csvField).join(','); }
+            }
+          }
+        }
         if (!changed) return res.status(404).json({ error: 'No matching lock row found for that keyword + URL' });
         const updated = out.join('\n').replace(/\n+$/, '') + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Switch URL: ${keyword} ${oldUrl} → ${newUrl}`);
