@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.56 · 5 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.59 · 5 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -3990,6 +3990,17 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   var mSel=document.getElementById('mpEmMonth');
   if(!mSel) return;
   var occs=[];
+  // promos already recorded in Klaviyo, keyed by occasionId|year (saved on GitHub, works from any computer)
+  var promoDone={};
+  function promoIsDone(oid,year){ var e=promoDone[oid+'|'+year]; return !!(e && e.main && e.followup); }
+  function loadPromoArchive(cb){
+    fetch('/api/email',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'promo-list'})})
+      .then(function(r){return r.json();}).then(function(d){
+        promoDone={};
+        if(d&&d.ok&&Array.isArray(d.promos)){ d.promos.forEach(function(e){ if(e&&e.occasionId) promoDone[e.occasionId+'|'+e.year]=e; }); }
+        if(cb) cb();
+      }).catch(function(){ if(cb) cb(); });
+  }
 
   function esc(s){ return String(s||'').replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
   // Prefer promoMonth/promoWindow (promo timing) over the content-calendar date (e.g. New Baby -> June).
@@ -4014,33 +4025,62 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   buildMonths();
 
   fetch('/api/social?action=get-occasions').then(function(r){return r.json();}).then(function(d){
-    if(d&&d.ok){ occs=d.occasions||[]; renderOcc(); }
+    if(d&&d.ok){ occs=d.occasions||[]; loadPromoArchive(renderOcc); }
   }).catch(function(){});
 
   mSel.addEventListener('change', renderOcc);
 
   function renderOcc(){
     var ym=mSel.value||''; var m=parseInt(ym.split('-')[1],10)||0;
+    var year=parseInt(ym.split('-')[0],10)||new Date().getUTCFullYear();
     // Only promo-worthy occasions (owner-approved) for this month.
     var list=occs.filter(function(o){ return o.promoSuggested && monthOf(o)===m; });
     list.sort(function(a,b){ return dayOf(a)-dayOf(b); });
+    // split: pending (to do) vs already fully in Klaviyo THIS year (main + follow-up)
+    var pending=list.filter(function(o){ return !promoIsDone(o.id,year); });
+    var done=list.filter(function(o){ return promoIsDone(o.id,year); });
     var box=document.getElementById('mpEmOccList');
     var step=document.getElementById('mpEmOccStep');
     document.getElementById('mpEmBuild').innerHTML='';
+    function occDt(o){ return o.promoWindow ? (parseInt(String(o.promoWindow.start).split('-')[1],10)+'–'+parseInt(String(o.promoWindow.end).split('-')[1],10)+' '+MON[m-1].slice(0,3)) : (o.date2026 ? (dayOf(o)+' '+MON[m-1].slice(0,3)) : 'all '+MON[m-1].slice(0,3)); }
     if(!list.length){
       box.innerHTML='<div class="nlhint">No marketing occasions in '+MON[m-1]+'.</div>';
     } else {
-      box.innerHTML=list.map(function(o){
-        var dt = o.promoWindow ? (parseInt(String(o.promoWindow.start).split('-')[1],10)+'–'+parseInt(String(o.promoWindow.end).split('-')[1],10)+' '+MON[m-1].slice(0,3)) : (o.date2026 ? (dayOf(o)+' '+MON[m-1].slice(0,3)) : 'all '+MON[m-1].slice(0,3));
+      var pendHtml = pending.length ? pending.map(function(o){
         var promo = o.promoSuggested ? ' <span style="background:#d6f0dd;color:#1a7f37;font-size:10.5px;font-weight:800;letter-spacing:.4px;padding:1px 6px;border-radius:6px;vertical-align:middle;">PROMO</span>' : '';
         var ctry = o.country ? ' <span style="background:#eee;color:#555;font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:6px;vertical-align:middle;">'+esc(o.country)+'</span>' : '';
         return '<label style="display:flex;gap:10px;align-items:flex-start;padding:9px 2px;border-bottom:1px solid #eee;cursor:pointer;">'
           +'<input type="checkbox" class="mpEmChk" data-oid="'+esc(o.id)+'" style="margin-top:4px;">'
-          +'<span><span style="font-weight:800;">'+esc(dt)+'</span> · '+esc(o.name)+promo+ctry
+          +'<span><span style="font-weight:800;">'+esc(occDt(o))+'</span> · '+esc(o.name)+promo+ctry
           +'<br><span style="color:#8a8a8a;font-size:12.5px;">'+esc(o.relevance||'')+'</span></span>'
           +'</label>';
-      }).join('');
+      }).join('') : '<div class="nlhint">All promos for '+MON[m-1]+' are already in Klaviyo ✓</div>';
+      // collapsed "already in Klaviyo" section — reopen to VIEW (Klaviyo links) or Redo the whole block
+      var doneHtml='';
+      if(done.length){
+        doneHtml='<div style="margin-top:12px;border-top:1px solid #eee;padding-top:8px;">'
+          +'<div id="mpDoneHdr" style="cursor:pointer;font-size:12.5px;font-weight:800;color:#1a7f37;user-select:none;">▸ ✓ '+done.length+' already in Klaviyo (sent) — click to view</div>'
+          +'<div id="mpDoneBody" style="display:none;margin-top:8px;">'
+          + done.map(function(o){ var e=promoDone[o.id+'|'+year];
+              return '<div style="padding:8px 2px;border-bottom:1px solid #f2f2f2;font-size:12.5px;color:#555;">'
+                +'<b>'+esc(occDt(o))+'</b> · '+esc(o.name)
+                +' &nbsp;<a href="'+esc((e.main&&e.main.url)||'#')+'" target="_blank" style="color:#2563eb;">main ↗</a>'
+                +' · <a href="'+esc((e.followup&&e.followup.url)||'#')+'" target="_blank" style="color:#2563eb;">follow-up ↗</a>'
+                +' &nbsp;<button class="mpRedo" data-oid="'+esc(o.id)+'" type="button" style="background:#eee;border:1px solid #ccc;border-radius:6px;padding:3px 9px;font-size:11px;cursor:pointer;">↻ Redo this promo</button>'
+                +'</div>';
+            }).join('')
+          +'</div></div>';
+      }
+      box.innerHTML=pendHtml+doneHtml;
       Array.prototype.forEach.call(box.querySelectorAll('.mpEmChk'), function(c){ c.addEventListener('change', updateStart); });
+      var hdr=document.getElementById('mpDoneHdr');
+      if(hdr) hdr.addEventListener('click', function(){ var b=document.getElementById('mpDoneBody'); var open=b.style.display!=='none'; b.style.display=open?'none':''; hdr.textContent=(open?'▸':'▾')+hdr.textContent.slice(1); });
+      Array.prototype.forEach.call(box.querySelectorAll('.mpRedo'), function(b){ b.addEventListener('click', function(){
+        var oid=b.getAttribute('data-oid'); var o=occs.filter(function(x){return x.id===oid;})[0]; if(!o) return;
+        var wrap=document.getElementById('mpEmBuild');
+        buildPromoCard(o, Math.floor(Math.random()*100000), year, wrap);
+        var last=wrap.lastChild; if(last&&last.scrollIntoView) last.scrollIntoView({behavior:'smooth',block:'start'});
+      }); });
     }
     step.style.display='';
     updateStart();
@@ -4316,7 +4356,10 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     var chosen=occs.filter(function(o){ return picked.indexOf(o.id)>=0; });
     var wrap=document.getElementById('mpEmBuild'); wrap.innerHTML='';
     var year=parseInt((mSel.value||'').split('-')[0],10)||new Date().getUTCFullYear();
-    chosen.forEach(function(o,idx){
+    chosen.forEach(function(o,idx){ buildPromoCard(o,idx,year,wrap); });
+  });
+
+  function buildPromoCard(o, idx, year, wrap){
       var uid='p'+idx+'_'+Math.random().toString(36).slice(2,7);
       var dts=computeDates(o,year);
       var market=marketOf2(o);
@@ -4426,10 +4469,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
                 +'<button id="ck-'+uid+'" class="nlbtn" type="button" style="background:#534AB7;margin-bottom:10px;">🔤 Check spelling & grammar</button>'
                 +'<div id="ckmsg-'+uid+'" style="font-size:13px;"></div>'
                 +'<div id="ckwrap-'+uid+'" style="display:none;text-align:left;margin:8px auto 14px;max-width:560px;background:#F7F6FE;border:1px solid #E4E1F0;border-radius:10px;padding:12px 14px;"></div>'
-                +'<button id="ap-'+uid+'" class="nlbtn" type="button" style="background:#0F6E56;">✓ Approve this promo</button>'
+                +'<button id="ap-'+uid+'" class="nlbtn" type="button" style="background:#0F6E56;">✓ Approve the main email</button>'
                 +'<div id="apmsg-'+uid+'" style="font-size:13px;"></div>'
-                +'<button id="cd-'+uid+'" class="nlbtn" type="button" style="background:#111;margin-top:10px;display:none;">📧 Create Klaviyo draft</button>'
-                +'<div id="res-'+uid+'" style="margin-top:8px;font-size:13px;"></div>'
               +'</div>'
               // FOLLOW-UP (appears once the main draft is created) — 3 days later, value-first, excludes recent buyers
               +'<div id="fu-'+uid+'" style="display:none;margin-top:24px;border-top:2px solid #eee;padding-top:16px;">'
@@ -4437,6 +4478,11 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
                 +'<div style="font-size:12px;color:#555;margin-bottom:10px;">Value-first, soft reminder. Same title, hero, products &amp; countdown (shows the time left). Sends to the same market, <b>minus buyers of the last 3 days</b>.</div>'
                 +'<button id="fuw-'+uid+'" class="nlbtn" type="button" style="background:#0F6E56;">✍️ Write the follow-up</button>'
                 +'<div id="fubody-'+uid+'"></div>'
+                +'<div id="cbwrap-'+uid+'" style="display:none;margin-top:18px;text-align:center;border-top:2px solid #eee;padding-top:16px;">'
+                  +'<div style="font-size:12px;color:#555;margin-bottom:8px;">Both emails are ready. This creates <b>the main and the follow-up</b> in Klaviyo together.</div>'
+                  +'<button id="cd-'+uid+'" class="nlbtn" type="button" style="background:#111;">📧 Create both drafts in Klaviyo</button>'
+                  +'<div id="res-'+uid+'" style="margin-top:8px;font-size:13px;"></div>'
+                +'</div>'
               +'</div>'
             +'</div>';
           function renderTitleOpts(){
@@ -4512,30 +4558,53 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
             pull(); var apm=document.getElementById('apmsg-'+uid);
             if(!s.checked){ apm.style.color='#b00'; apm.textContent='Run the spelling & grammar check first.'; return; }
             s.approved=true; this.innerHTML='✓ Approved'; this.style.background='#0b5a46';
-            apm.style.color='#0F6E56'; apm.textContent='Approved ✓ — now create the draft in Klaviyo →';
-            document.getElementById('cd-'+uid).style.display='';
+            apm.style.color='#0F6E56'; apm.textContent='Main approved ✓ — now write the follow-up below, then create both.';
+            var fux=document.getElementById('fu-'+uid); if(fux) fux.style.display='';
           });
+          var CBLABEL='📧 Create both drafts in Klaviyo';
+          // ===== CREATE BOTH: main + follow-up together, so the whole block is done at once =====
           document.getElementById('cd-'+uid).addEventListener('click', function(){
             var rr=document.getElementById('res-'+uid);
-            if(!s.approved){ rr.innerHTML='<span style="color:#b00;">Approve it first.</span>'; return; }
+            if(!s.approved){ rr.innerHTML='<span style="color:#b00;">Approve the main first.</span>'; return; }
+            if(!s2.approved){ rr.innerHTML='<span style="color:#b00;">Approve the follow-up first.</span>'; return; }
             var curCode=(document.getElementById('c-'+uid).value||'').toUpperCase();
             var cb=this; cb.disabled=true; cb.textContent='Checking discount…';
-            // SAFETY GATE: verify the discount REALLY exists in Shopify (read-back) before creating the draft.
+            // SAFETY GATE: verify the discount REALLY exists in Shopify (read-back) before creating anything.
             emPost({action:'promo-discount-check', code:curCode}).then(function(v){
-              if(!v||!v.ok){ cb.disabled=false; cb.textContent='📧 Create Klaviyo draft'; rr.innerHTML='<span style="color:#b00;">Could not check the discount in Shopify: '+esc((v&&v.error)||'error')+'</span>'; return; }
-              if(!v.exists){ cb.disabled=false; cb.textContent='📧 Create Klaviyo draft'; rr.innerHTML='<span style="color:#b00;">The code <b>'+esc(curCode)+'</b> is not in Shopify yet — press "Create discount in Shopify" first.</span>'; return; }
-              // verified → create the draft
-              cb.textContent='Creating…'; pull();
-              var html=buildPromoFullDoc(s); // clean HTML document — the version that gets sent
-              emPost({action:'promo-create-draft', name:'PROMO '+o.name, subject:s.copy.subject, preview:s.copy.preview, html:html, market:s.market}).then(function(d){
-                cb.disabled=false; cb.textContent='📧 Create Klaviyo draft';
-                if(d&&d.ok){ rr.innerHTML='✅ Discount verified in Shopify. Draft created — <a href="'+esc(d.url)+'" target="_blank">open in Klaviyo</a><br><b>Schedule it for '+esc(fmtNice(s.sendDate)||'the send date')+'</b> (the tool can\'t auto-schedule).'; var fu=document.getElementById('fu-'+uid); if(fu) fu.style.display=''; }
-                else { rr.innerHTML='<span style="color:#b00;">Draft failed: '+esc((d&&d.error)||'error')+'</span>'; }
-              });
-            }).catch(function(){ cb.disabled=false; cb.textContent='📧 Create Klaviyo draft'; rr.innerHTML='<span style="color:#b00;">Could not check the discount. Try again.</span>'; });
+              if(!v||!v.ok){ cb.disabled=false; cb.textContent=CBLABEL; rr.innerHTML='<span style="color:#b00;">Could not check the discount in Shopify: '+esc((v&&v.error)||'error')+'</span>'; return; }
+              if(!v.exists){ cb.disabled=false; cb.textContent=CBLABEL; rr.innerHTML='<span style="color:#b00;">The code <b>'+esc(curCode)+'</b> is not in Shopify yet — press "Create discount in Shopify" first.</span>'; return; }
+              // 1) create the MAIN draft
+              cb.textContent='Creating main…'; pull();
+              var mo=(s.sendDate||'').slice(0,7);
+              var mainHtml=buildPromoFullDoc(s);
+              emPost({action:'promo-create-draft', kind:'main', name:'PROMO '+o.name, subject:s.copy.subject, preview:s.copy.preview, html:mainHtml, market:s.market, occasionId:o.id, occasionName:o.name, year:String(year), month:mo}).then(function(dm){
+                if(!dm||!dm.ok){ cb.disabled=false; cb.textContent=CBLABEL; rr.innerHTML='<span style="color:#b00;">Main draft failed: '+esc((dm&&dm.error)||'error')+'.</span><br>Nothing was created — press the button to try the whole block again.'; return; }
+                var mainUrl=dm.url;
+                // 2) create the FOLLOW-UP draft
+                cb.textContent='Creating follow-up…'; pullFollowup();
+                s2.sendDate=isoAdd((document.getElementById('sd-'+uid).value||s.sendDate),3);
+                var fuHtml=buildPromoFullDoc(s2);
+                emPost({action:'promo-create-draft', kind:'followup', name:'PROMO '+o.name+' — FOLLOW-UP', subject:s2.copy.subject, preview:s2.copy.preview, html:fuHtml, market:s2.market, excludeSegment:'XfgwNx', occasionId:o.id, occasionName:o.name, year:String(year), month:mo}).then(function(df){
+                  cb.disabled=false; cb.textContent=CBLABEL;
+                  if(df&&df.ok){
+                    // BOTH in Klaviyo → collapse the whole block
+                    promoDone[o.id+'|'+year]={occasionId:o.id, year:String(year), month:mo, main:{url:mainUrl}, followup:{url:df.url}};
+                    card.innerHTML='<div class="nlhd">✓ '+esc(o.name)+' — both emails in Klaviyo</div>'
+                      +'<div style="font-size:12.5px;color:#555;margin-top:8px;line-height:1.6;">'
+                        +'<b>Main:</b> <a href="'+esc(mainUrl)+'" target="_blank">open in Klaviyo ↗</a> — schedule for <b>'+esc(fmtNice(s.sendDate)||'the send date')+'</b><br>'
+                        +'<b>Follow-up:</b> <a href="'+esc(df.url)+'" target="_blank">open in Klaviyo ↗</a> — schedule for <b>'+esc(fmtNice(s2.sendDate)||'3 days later')+'</b> (same market, <b>minus buyers of the last 3 days</b>)'
+                      +'</div>';
+                  } else {
+                    // main OK, follow-up FAILED → tell her exactly what to delete, keep the button so she can resend the whole block
+                    rr.innerHTML='<div style="color:#b00;line-height:1.6;"><b>The MAIN was created but the FOLLOW-UP failed.</b><br>Delete the main in Klaviyo first: <a href="'+esc(mainUrl)+'" target="_blank">open the main ↗</a><br>Then press the button again to send the whole block.</div><div style="font-size:12px;color:#888;">Error: '+esc((df&&df.error)||'error')+'</div>';
+                  }
+                }).catch(function(){ cb.disabled=false; cb.textContent=CBLABEL; rr.innerHTML='<div style="color:#b00;line-height:1.6;"><b>The MAIN was created but the FOLLOW-UP failed (network).</b><br>Delete the main in Klaviyo: <a href="'+esc(mainUrl)+'" target="_blank">open the main ↗</a><br>Then press the button again to send the whole block.</div>'; });
+              }).catch(function(){ cb.disabled=false; cb.textContent=CBLABEL; rr.innerHTML='<span style="color:#b00;">Main draft failed (network). Nothing created — press the button to try again.</span>'; });
+            }).catch(function(){ cb.disabled=false; cb.textContent=CBLABEL; rr.innerHTML='<span style="color:#b00;">Could not check the discount. Try again.</span>'; });
           });
           // ===== FOLLOW-UP: reuses the main's title/hero/products/countdown; new value-first copy; +3 days; excludes recent buyers =====
           var s2={ uid:uid+'f', occ:o, lg:'en', market:s.market, copy:null, products:s.products, hero:s.hero, expiry:s.expiry, sendDate:isoAdd(s.sendDate||s.expiry,3), pct:s.pct, code:s.code, titleDy:s.titleDy, titleDx:s.titleDx, ctaUrl:s.ctaUrl, approved:false, checked:false };
+          function pullFollowup(){ if(!s2.copy) return; readPromoEmail(s2); var fs=document.getElementById('fs-'+uid), fpr=document.getElementById('fpr-'+uid); if(fs) s2.copy.subject=fs.value; if(fpr) s2.copy.preview=fpr.value; }
           document.getElementById('fuw-'+uid).addEventListener('click', function(){
             var fb=this; fb.disabled=true; fb.textContent='Writing…';
             readPromoEmail(s); s2.products=s.products; s2.hero=s.hero;
@@ -4558,10 +4627,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
                   +'<div id="fckwrap-'+uid+'" style="display:none;text-align:left;margin:8px auto 14px;max-width:560px;background:#F7F6FE;border:1px solid #E4E1F0;border-radius:10px;padding:12px 14px;"></div>'
                   +'<button id="fap-'+uid+'" class="nlbtn" type="button" style="background:#0F6E56;">✓ Approve the follow-up</button>'
                   +'<div id="fapmsg-'+uid+'" style="font-size:13px;"></div>'
-                  +'<button id="fcd-'+uid+'" class="nlbtn" type="button" style="background:#111;margin-top:10px;display:none;">📧 Create follow-up draft</button>'
-                  +'<div id="fres-'+uid+'" style="margin-top:8px;font-size:13px;"></div>'
                 +'</div></div>';
-              function pullF(){ readPromoEmail(s2); s2.copy.subject=document.getElementById('fs-'+uid).value; s2.copy.preview=document.getElementById('fpr-'+uid).value; }
+              var pullF=pullFollowup;
               document.getElementById('fck-'+uid).addEventListener('click', function(){
                 pullF(); var cb=this; cb.disabled=true; var o2=cb.textContent; cb.textContent='Checking…';
                 var msg=document.getElementById('fckmsg-'+uid), wrap=document.getElementById('fckwrap-'+uid); msg.textContent=''; wrap.style.display='none'; wrap.innerHTML='';
@@ -4582,18 +4649,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
               document.getElementById('fap-'+uid).addEventListener('click', function(){
                 pullF(); var apm=document.getElementById('fapmsg-'+uid);
                 if(!s2.checked){ apm.style.color='#b00'; apm.textContent='Run the spelling & grammar check first.'; return; }
-                s2.approved=true; this.innerHTML='✓ Approved'; this.style.background='#0b5a46'; apm.style.color='#0F6E56'; apm.textContent='Approved ✓ — now create the follow-up draft →'; document.getElementById('fcd-'+uid).style.display='';
-              });
-              document.getElementById('fcd-'+uid).addEventListener('click', function(){
-                var rr=document.getElementById('fres-'+uid);
-                if(!s2.approved){ rr.innerHTML='<span style="color:#b00;">Approve it first.</span>'; return; }
-                pullF(); var cb=this; cb.disabled=true; cb.textContent='Creating…';
-                var html=buildPromoFullDoc(s2);
-                emPost({action:'promo-create-draft', name:'PROMO '+o.name+' — FOLLOW-UP', subject:s2.copy.subject, preview:s2.copy.preview, html:html, market:s2.market, excludeSegment:'XfgwNx'}).then(function(d){
-                  cb.disabled=false; cb.textContent='📧 Create follow-up draft';
-                  if(d&&d.ok){ rr.innerHTML='✅ Follow-up draft created — <a href="'+esc(d.url)+'" target="_blank">open in Klaviyo</a><br><b>Schedule it for '+esc(fmtNice(s2.sendDate)||'3 days after the main')+'</b> — sends to the market <b>minus buyers of the last 3 days</b>.'; }
-                  else { rr.innerHTML='<span style="color:#b00;">Draft failed: '+esc((d&&d.error)||'error')+'</span>'; }
-                });
+                s2.approved=true; this.innerHTML='✓ Approved'; this.style.background='#0b5a46'; apm.style.color='#0F6E56'; apm.textContent='Follow-up approved ✓ — now press "Create both drafts in Klaviyo" below.';
+                var cbw=document.getElementById('cbwrap-'+uid); if(cbw) cbw.style.display='';
               });
               refreshPreview(s2);
             }).catch(function(e){ fb.disabled=false; fb.textContent='✍️ Write the follow-up'; document.getElementById('fubody-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">Error: '+esc(e.message)+'</p>'; });
@@ -4601,8 +4658,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           renderTitleOpts(); refreshPreview(s);
         }).catch(function(e){ btn.disabled=false; btn.textContent='✍️ Write the promo'; document.getElementById('body-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">Error: '+esc(e.message)+'</p>'; });
       });
-    });
-  });
+  }
 })();
 </script>
 </body>
