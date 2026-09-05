@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.52 · 5 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.53 · 5 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -4095,20 +4095,20 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     var intro=(c.intro||[]).map(function(l){ return '<div style="margin:0 0 16px;"'+ed('introline')+'>'+esc(l)+'</div>'; }).join('');
     // 4 products (2×2) — image fills the cell, underlined title, price (single £), grey SHOP NOW button, all centred
     function pcell(p){
-      if(!p) return '<td width="50%">&nbsp;</td>';
-      return '<td width="50%" align="center" valign="top" style="padding:14px 10px;text-align:center;">'
-        +'<a href="'+esc(p.url)+'" style="text-decoration:none;"><img src="'+esc(p.image)+'" alt="'+esc(p.title||'')+'" width="260" style="width:100%;max-width:260px;height:auto;display:block;margin:0 auto 12px;"></a>'
+      if(!p) return '<td width="50%" style="border:0;">&nbsp;</td>';
+      return '<td width="50%" align="center" valign="top" style="border:0;padding:14px 10px;text-align:center;">'
+        +'<a href="'+esc(p.url)+'" style="text-decoration:none;"><img src="'+esc(p.image)+'" alt="'+esc(p.title||'')+'" width="260" style="width:100%;max-width:260px;height:auto;display:block;margin:0 auto 12px;border:0;"></a>'
         +'<div style="font-size:15px;line-height:1.35;margin-bottom:6px;"><a href="'+esc(p.url)+'" style="color:#0f1419;text-decoration:underline;">'+esc(p.title||'')+'</a></div>'
-        +(p.price?'<div style="font-size:15px;font-weight:700;color:#0f1419;margin-bottom:12px;">£'+esc(p.price)+'</div>':'')
+        +(p.price?'<div style="font-size:15px;font-weight:700;color:#0f1419;margin-bottom:12px;">'+esc(p.price)+'</div>':'')
         +'<a href="'+esc(p.url)+'" style="display:inline-block;background:#DADADA;color:#000;text-decoration:none;font-size:15px;font-family:'+PFONT+';padding:11px 26px;">SHOP NOW</a>'
         +'</td>';
     }
     var prows='';
     for(var i=0;i<prods.length;i+=2){ prows+='<tr>'+pcell(prods[i])+pcell(prods[i+1])+'</tr>'; }
-    var productsBlock = prows ? '<div style="padding:4px 14px 14px;"><table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tbody>'+prows+'</tbody></table></div>' : '';
+    var productsBlock = prows ? '<div style="padding:4px 14px 14px;"><table width="100%" cellpadding="0" cellspacing="0" style="border:none;border-collapse:collapse;margin:0;"><tbody>'+prows+'</tbody></table></div>' : '';
     var badges=BADGES.map(function(b){
-      return '<td width="25%" align="center" valign="top" style="padding:10px 6px;text-align:center;">'
-        +'<img src="'+b[0]+'" width="48" alt="" style="width:48px;height:auto;display:block;margin:0 auto 8px;">'
+      return '<td width="25%" align="center" valign="top" style="border:0;padding:10px 6px;text-align:center;">'
+        +'<img src="'+b[0]+'" width="48" alt="" style="width:48px;height:auto;display:block;margin:0 auto 8px;border:0;">'
         +'<div style="font-size:12px;font-weight:800;letter-spacing:.4px;color:#0f1419;margin-bottom:4px;">'+esc(b[1])+'</div>'
         +'<div style="font-size:11.5px;line-height:1.45;color:#555;">'+esc(b[2])+'</div></td>';
     }).join('');
@@ -4145,7 +4145,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       // products
       + productsBlock
       // badges
-      +'<div style="padding:16px 12px;"><table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tbody><tr>'+badges+'</tr></tbody></table></div>'
+      +'<div style="padding:16px 12px;"><table width="100%" cellpadding="0" cellspacing="0" style="border:none;border-collapse:collapse;margin:0;"><tbody><tr>'+badges+'</tr></tbody></table></div>'
       // closing + signature
       +'<div style="text-align:center;padding:20px 30px 30px;font-size:18px;line-height:1.55;color:#0f1419;">'
         +(c.closingText?'<div style="margin:0 0 16px;"'+ed('closing')+'>'+esc(c.closingText)+'</div>':'')
