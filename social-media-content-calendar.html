@@ -206,12 +206,13 @@
 </style>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.7.0/dist/tabler-icons.min.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap">
+<script src="promo-template-data.js"></script><!-- Mae's real Klaviyo promo template XTkyWp (base64) — the Monthly Promos tool injects data into it -->
 </head>
 <body>
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.48 · 5 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.51 · 5 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -4076,81 +4077,93 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     [SHCDN+'3.png?v=1675608366','PERSONALISATION','We offer personalisation on every product, size, added quotes & colour changes.']
   ];
 
-  // Assemble the promo email — same method as newsletters: ONE faithful layout, only the dynamic bits change.
-  // editable=true makes the body text editable in place. NO stray borders. Fixed blocks match the approved template.
-  function buildPromoHtml(s, editable){
-    var c=s.copy||{}, prods=(s.products||[]).slice(0,4);
-    var FONT="'Lato',Arial,Helvetica,sans-serif";
-    var validTxt=fmtLong(s.expiry);
-    var intro=(c.intro||[]).map(function(l){return '<p style="margin:0 0 12px;"'+edAttr('introline',editable)+'>'+esc(l)+'</p>';}).join('');
-    // Q: keep ONLY the offer phrase on the top line — cut off any code / "valid" / "until …" the AI slipped in.
-    var offerClean=(c.offerLine||('Take '+(s.pct||'15')+'% off'));
-    offerClean=offerClean.split(/\s*(?:—|-|,|\.)?\s*(?:with |use )?code\b/i)[0];
-    offerClean=offerClean.split(/\s*(?:—|-|,|\.)?\s*valid\b/i)[0];
-    offerClean=offerClean.split(/\s*(?:—|-|,|\.)?\s*until\b/i)[0];
-    offerClean=offerClean.replace(/[\s,.—-]+$/,'').trim();
-    // 4 products: SQUARE image (no radius), underlined title link, price, grey SHOP NOW button (exact template style)
-    var prodCells=prods.map(function(p){
-      return '<td width="50%" valign="top" align="center" style="padding:10px;text-align:center;">'
-        +'<a href="'+esc(p.url)+'" style="text-decoration:none;"><img src="'+esc(p.image)+'" width="250" height="250" alt="'+esc(p.alt||p.title||'')+'" style="width:100%;max-width:250px;aspect-ratio:1/1;object-fit:cover;border-radius:0;display:block;margin:0 auto 10px;"></a>'
-        +'<div style="font-size:14px;line-height:1.3;"><a href="'+esc(p.url)+'" style="color:#0f1419;text-decoration:underline;">'+esc(p.title)+'</a></div>'
-        +(p.price?'<div style="font-weight:700;margin-top:3px;color:#0f1419;font-size:14px;">'+esc(p.price)+'</div>':'')
-        +'<table align="center" cellpadding="0" cellspacing="0" style="margin:10px auto 0;"><tr><td align="center" bgcolor="#DADADA" style="background:#DADADA;"><a href="'+esc(p.url)+'" style="display:inline-block;background:#DADADA;color:#000;text-decoration:none;font-family:'+FONT+';font-size:15px;font-weight:400;line-height:1.3;padding:10px 20px;">SHOP NOW</a></td></tr></table>'
-        +'</td>';
-    });
-    var prodRows='';
-    for(var i=0;i<prodCells.length;i+=2){ prodRows+='<tr>'+prodCells[i]+(prodCells[i+1]||'<td width="50%"></td>')+'</tr>'; }
-    var badges=BADGES.map(function(b){
-      return '<td width="25%" align="center" valign="top" style="padding:8px 6px;text-align:center;color:#555;">'
-        +'<img src="'+b[0]+'" width="48" height="48" style="width:48px;height:48px;display:block;margin:0 auto 6px;">'
-        +'<div style="font-size:11px;font-weight:800;letter-spacing:.5px;color:#111;margin-bottom:3px;">'+esc(b[1])+'</div>'
-        +'<div style="font-size:10.5px;line-height:1.4;">'+esc(b[2])+'</div></td>';
-    }).join('');
-    var social=[['instagram_96.png','https://instagram.com/aboutwallart'],['facebook_96.png','https://facebook.com/aboutwallart'],['tiktok_96.png','https://tiktok.com/@aboutwallart'],['pinterest_96.png','https://pinterest.com/aboutwallart'],['linkedin_96.png','https://linkedin.com/company/aboutwallart']]
-      .map(function(x){ return '<a href="'+x[1]+'" style="text-decoration:none;display:inline-block;margin:0 5px;"><img src="'+SOC+x[0]+'" width="30" height="30" style="width:30px;height:30px;display:inline-block;"></a>'; }).join('');
-    // C: offer phrase (row 1) · code below (row 2) · valid-until below, smaller + not bold (row 3). No dash, no repeated code.
-    var offerBlock='<tr><td align="center" style="padding:16px 34px 6px;text-align:center;">'
-      +'<div style="font-weight:700;font-size:19px;color:#111;"'+edAttr('offer',editable)+'>'+esc(offerClean)+'</div>'
+  // ===== Build the promo email by INJECTING data into Mae's REAL template XTkyWp (window.PROMO_TPL_B64). =====
+  // The template markup is NEVER rewritten — we only swap the dynamic bits (title, hero, 4 products, intro, offer, CTA, closing).
+  function b64ToUtf8(b64){ try{ return decodeURIComponent(Array.prototype.map.call(atob(b64), function(ch){ return '%'+('00'+ch.charCodeAt(0).toString(16)).slice(-2); }).join('')); }catch(e){ try{ return atob(b64); }catch(e2){ return ''; } } }
+  function findWrapperByText(doc, marker){
+    var ws=[].slice.call(doc.querySelectorAll('.component-wrapper')).filter(function(w){ return w.textContent && w.textContent.indexOf(marker)>=0; });
+    if(!ws.length){ ws=[].slice.call(doc.querySelectorAll('div,td,p,span')).filter(function(e){ return e.textContent && e.textContent.indexOf(marker)>=0; }); }
+    ws.sort(function(a,b){ return a.textContent.length-b.textContent.length; });
+    return ws[0]||null;
+  }
+  function replaceTextToken(root, token, val){
+    var w=document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false), n, list=[];
+    while(n=w.nextNode()) list.push(n);
+    list.forEach(function(t){ if(t.nodeValue.indexOf(token)>=0){ t.nodeValue=t.nodeValue.split(token).join(val); } });
+  }
+  function stripFeedLiquid(root){
+    var w=document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false), n, list=[];
+    while(n=w.nextNode()) list.push(n);
+    list.forEach(function(t){ if(/{%\s*(if\s+feeds|with|endwith|endif)/.test(t.nodeValue)){ t.nodeValue=t.nodeValue.replace(/{%[^%]*%}/g,''); } });
+  }
+  function offerCleanOf(c,s){
+    var o=(c.offerLine||('Take '+(s.pct||'15')+'% off'));
+    o=o.split(/\s*(?:—|-|,|\.)?\s*(?:with |use )?code\b/i)[0];
+    o=o.split(/\s*(?:—|-|,|\.)?\s*valid\b/i)[0];
+    o=o.split(/\s*(?:—|-|,|\.)?\s*until\b/i)[0];
+    return o.replace(/[\s,.—-]+$/,'').trim();
+  }
+  function introInnerHtml(c,s,editable){
+    var lines=(c.intro||[]).map(function(l){ return '<p style="margin:0 0 12px;font-size:18px;line-height:1.55;color:#0f1419;text-align:center;"'+edAttr('introline',editable)+'>'+esc(l)+'</p>'; }).join('');
+    var oc=offerCleanOf(c,s), vt=fmtLong(s.expiry);
+    var offer='<div style="text-align:center;margin:16px 0 4px;">'
+      +'<div style="font-weight:700;font-size:19px;color:#111;"'+edAttr('offer',editable)+'>'+esc(oc)+'</div>'
       +(s.code?'<div style="font-weight:700;font-size:17px;color:#111;margin-top:6px;">Use code '+esc(s.code)+'</div>':'')
-      +(validTxt?'<div style="font-weight:400;font-size:13px;color:#666;margin-top:6px;">Valid until '+esc(validTxt)+'</div>':'')
-      +'</td></tr>';
-    // C+R: button rectangular (no radius), UPPERCASE, not bold, CENTERED
-    var cta='<tr><td align="center" style="padding:8px 18px 18px;text-align:center;"><a href="'+esc(s.ctaUrl||'https://aboutwallart.com')+'"'+(editable?' onclick="return false"':'')+' style="background:#111;color:#fff;text-decoration:none;padding:14px 40px;border-radius:0;font-weight:400;letter-spacing:1px;text-transform:uppercase;display:inline-block;font-family:'+FONT+';"'+edAttr('cta',editable)+'>'+esc(c.ctaLabel||('Shop '+((s.occ&&s.occ.name)||'now')))+'</a></td></tr>';
-
-    return '<div style="background:#f2f2f2;padding:0;margin:0;">'
-      +'<style>@import url(https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap);</style>'
-      +'<table width="100%" align="center" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;margin:0 auto;background:#fff;font-family:'+FONT+';color:#222;">'
-      // 1. header — black band + logo GIF
-      +'<tr><td align="center" style="background:#000;padding:16px;"><img src="'+LOGO_GIF+'" width="356" alt="About Wall Art" style="width:356px;max-width:80%;display:block;margin:0 auto;"></td></tr>'
-      // 2. title image (per occasion) — short, script nudged by dy/dx
-      +'<tr><td align="center" style="padding:24px 18px 8px;"><img src="'+titleImg(c.titleTop,c.titleScript,s.titleDy,s.titleDx)+'" alt="'+esc(c.titleTop||'')+'" width="250" style="width:250px;max-width:70%;display:block;margin:0 auto;"></td></tr>'
-      // 3. hero image
-      +(s.hero?'<tr><td style="padding:8px 0;"><img src="'+esc(s.hero)+'" width="600" alt="'+esc(c.titleTop||'')+'" style="width:100%;display:block;"></td></tr>':'')
-      // 5. greeting + intro (centered, Lato 18px, editable)
-      +'<tr><td align="center" style="padding:18px 34px 4px;font-size:18px;line-height:1.55;text-align:center;color:#222;">'
-        +'<p style="margin:0 0 14px;">'+esc(c.greeting||"Dear {{ first_name|default:'friend' }},")+'</p>'+intro
-      +'</td></tr>'
-      // 6. offer block + ONE CTA
-      +offerBlock
-      +cta
-      // 4. countdown (auto — ends at valid-until)
-      +(countdownImg(s.expiry)?'<tr><td align="center" style="padding:2px 18px 14px;"><img src="'+countdownImg(s.expiry)+'" alt="Offer ends soon" width="440" style="width:440px;max-width:92%;display:block;margin:0 auto;"></td></tr>':'')
-      // 7. 4 products (square, grey button, NO borders)
-      +(prodRows?'<tr><td style="padding:4px 12px 16px;"><table width="100%" cellpadding="0" cellspacing="0">'+prodRows+'</table></td></tr>':'')
-      // 8. trust badges (exact texts, NO borders)
-      +'<tr><td style="padding:16px 12px;"><table width="100%" cellpadding="0" cellspacing="0"><tr>'+badges+'</tr></table></td></tr>'
-      // 9. closing text (editable) + smaller signature + spacer below
-      +'<tr><td align="center" style="padding:24px 34px 34px;font-size:18px;line-height:1.55;text-align:center;color:#222;">'
-        +'<p style="margin:0 0 16px;"'+edAttr('closing',editable)+'>'+esc(c.closingText||'')+'</p>'
-        +'<img src="'+SIGN_IMG+'" width="72" alt="Mae" style="width:72px;display:block;margin:6px auto 0;"></td></tr>'
-      // 10. footer — approved layout (matches the newsletter): questions + Mae · social · address · unsubscribe
-      +'<tr><td align="center" style="background:#000;color:#fff;padding:24px 20px;text-align:center;font-family:'+FONT+';">'
-        +'<div style="font-size:16px;line-height:1.5;margin-bottom:16px;">Have any questions?<br>Whether you\'re confused, curious, or need assistance<br>simply reply to this email — I\'m happy to help!<br>Mae ❤️</div>'
-        +'<div style="margin:14px 0;">'+social+'</div>'
-        +'<div style="font-size:12px;color:#fff;">© About Wall Art | Hertford | United Kingdom | SG14 1AY</div>'
-        +'<div style="font-size:12px;color:#fff;margin-top:8px;">No longer want to receive these emails? <a href="{% unsubscribe \'Unsubscribe\' %}" style="color:#fff;">Unsubscribe</a></div>'
-      +'</td></tr>'
-      +'</table></div>';
+      +(vt?'<div style="font-weight:400;font-size:13px;color:#666;margin-top:6px;">Valid until '+esc(vt)+'</div>':'')
+      +'</div>';
+    return lines+offer;
+  }
+  // parse Mae's template and inject the data via the DOM
+  function injectPromo(s, editable){
+    var c=s.copy||{};
+    if(!window.PROMO_TPL_B64){ return null; }
+    var doc=new DOMParser().parseFromString(b64ToUtf8(window.PROMO_TPL_B64), 'text/html');
+    if(!doc || !doc.body){ return null; }
+    // title + hero images (found by their unique placeholder filenames)
+    var timg=doc.querySelector('img[src*="5fe16408"]'); if(timg) timg.setAttribute('src', titleImg(c.titleTop,c.titleScript,s.titleDy,s.titleDx));
+    var himg=doc.querySelector('img[src*="4609660f"]');
+    if(himg){ if(s.hero){ himg.setAttribute('src', s.hero); } else { var hw=himg.closest('.component-wrapper')||himg.parentNode; if(hw&&hw.style) hw.style.display='none'; } }
+    // 4 products — one product per feed image; operate inside that image's own product cell (cell-stack)
+    var pimgs=[].slice.call(doc.querySelectorAll('img[src*="item.image_full_url"]'));
+    var prods=(s.products||[]).slice(0,4);
+    pimgs.forEach(function(img, i){
+      var cell=img.closest('.kl-product-cell-stack')||img.closest('td')||img.parentNode;
+      var p=prods[i];
+      if(cell) stripFeedLiquid(cell);
+      if(!p){ if(cell&&cell.style) cell.style.display='none'; return; }
+      img.setAttribute('src', p.image||''); img.setAttribute('alt', p.title||''); // image as it comes from the product (template's own sizing)
+      if(cell){ [].slice.call(cell.querySelectorAll('a[href]')).forEach(function(a){ a.setAttribute('href', p.url||'#'); });
+        replaceTextToken(cell, '{{ Title }}', p.title||'');
+        replaceTextToken(cell, '{{ Price }}', p.price?('£'+p.price):''); }
+    });
+    [].slice.call(doc.querySelectorAll('img[alt*="{{"]')).forEach(function(im){ im.setAttribute('alt', (im.getAttribute('alt')||'').replace(/{{[^}]*}}/g,'').trim()); });
+    // countdown — the template's w=600 image slot with NO src attribute is where the countdown GIF goes
+    var cdurl=countdownImg(s.expiry);
+    var cimg=doc.querySelector('img[width="600"]:not([src])')||doc.querySelector('img:not([src])');
+    if(cimg){ if(cdurl){ cimg.setAttribute('src', cdurl); cimg.setAttribute('alt','Offer ends soon'); } else { var cw=cimg.closest('.component-wrapper'); if(cw&&cw.style) cw.style.display='none'; } }
+    // intro (+ offer) — replace the default intro text block
+    var introW=findWrapperByText(doc,'Ever looked around your home');
+    if(introW) introW.innerHTML=introInnerHtml(c,s,editable);
+    // closing — replace the default closing text block (keeps the signature image that follows it)
+    var closeW=findWrapperByText(doc,'Once you know it');
+    if(closeW) closeW.innerHTML='<p style="margin:0;font-size:18px;line-height:1.55;color:#0f1419;text-align:center;"'+edAttr('closing',editable)+'>'+esc(c.closingText||'')+'</p>';
+    // main CTA (the black <p> button — product buttons are <a>, so 'p' matches only the main one)
+    var pmain=null, ps=doc.querySelectorAll('p');
+    for(var k=0;k<ps.length;k++){ if(ps[k].textContent.replace(/\s+/g,' ').trim()==='SHOP NOW'){ pmain=ps[k]; break; } }
+    if(pmain) pmain.innerHTML='<a href="'+esc(s.ctaUrl||'#')+'"'+(editable?' onclick="return false" contenteditable="true" data-role="cta"':'')+' style="color:#fff;text-decoration:none;display:block;">'+esc(c.ctaLabel||('Shop '+((s.occ&&s.occ.name)||'now')))+'</a>';
+    return doc;
+  }
+  // preview (editable in place) — the injected template body + the font import
+  function buildPromoHtml(s, editable){
+    var doc=injectPromo(s, !!editable);
+    if(!doc){ return '<div style="padding:20px;color:#b00;">Template not loaded — reload the page (promo-template-data.js).</div>'; }
+    return '<style>@import url(https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap);</style>'+doc.body.innerHTML;
+  }
+  // full HTML document sent to Klaviyo (keeps the template's own <head> styles + liquid)
+  function buildPromoFullDoc(s){
+    var doc=injectPromo(s, false);
+    if(!doc) return '';
+    return '<!doctype html>\n'+doc.documentElement.outerHTML;
   }
 
   function refreshPreview(s){
@@ -4497,7 +4510,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           document.getElementById('cd-'+uid).addEventListener('click', function(){
             if(!s.approved){ document.getElementById('res-'+uid).innerHTML='<span style="color:#b00;">Approve it first.</span>'; return; }
             pull(); var cb=this; cb.disabled=true; cb.textContent='Creating…';
-            var html=buildPromoHtml(s); // NOT editable — the version that gets sent
+            var html=buildPromoFullDoc(s); // full injected template document — the version that gets sent
             emPost({action:'promo-create-draft', name:'PROMO '+o.name, subject:s.copy.subject, preview:s.copy.preview, html:html, market:s.market}).then(function(d){
               cb.disabled=false; cb.textContent='📧 Create Klaviyo draft';
               var r=document.getElementById('res-'+uid);
