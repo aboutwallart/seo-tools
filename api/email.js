@@ -737,6 +737,7 @@ module.exports = async (req, res) => {
       }
       var pr = [
         'You write promotional emails for About Wall Art, a UK wall-art brand. Voice: warm, kind, human, first-person, spoken — NEVER poetic, pushy or "AI". Value first, offer soft; emotional gift-suggestion tone (e.g. "Mother\'s Day is coming — she did so much for you…"). A few tasteful emojis are fine. One brand voice speaking to "you". Banned: buzzwords, "buy buy buy", urgency-shouting.',
+        'PRODUCT WORDING RULE (critical): we do NOT sell single prints. NEVER write "a print", "a new print", "prints" or "a piece". Always say "wall art", "an art set", a "wall art set" or "a set of wall art".',
         'Occasion: "' + topic + '". Why it sells art: ' + (occ.relevance || '') + '.',
         'Write EVERYTHING in ' + spelling + '. (The footer stays English — not your job.)',
         'The offer: ' + (pct ? pct + '% off' : 'a special offer') + (code ? ', code ' + code : '') + (expiry ? ', valid until ' + expiry : '') + '. State it ONCE. Exactly ONE call to action.',
@@ -843,6 +844,27 @@ module.exports = async (req, res) => {
       var aR = await kvpJson(await kvp('/api/campaign-message-assign-template/', 'POST', { data: { type: 'campaign-message', id: mId, relationships: { template: { data: { type: 'template', id: tId } } } } }));
       if (!aR.ok) { res.status(502).json({ ok: false, error: 'Assign template failed (' + aR.status + '): ' + (aR.text || '').slice(0, 250), campaignId: campId }); return; }
       res.status(200).json({ ok: true, campaignId: campId, url: 'https://www.klaviyo.com/campaign/' + campId + '/wizard' });
+      return;
+    }
+
+    // ---- spelling & grammar check (same idea as newsletters) ----
+    if (action === 'promo-check') {
+      var cc = body.copy || {};
+      var text = {
+        subject: cc.subject || '', preview: cc.preview || '',
+        intro: cc.intro || [], offerLine: cc.offerLine || '',
+        ctaLabel: cc.ctaLabel || '', closingText: cc.closingText || ''
+      };
+      var cpr = [
+        'Proofread this UK-English promotional email copy. Find ONLY real spelling, grammar and punctuation mistakes — do NOT rewrite style or voice.',
+        'Also flag if it says "print"/"prints"/"a piece" (we sell "wall art" / "art sets", never single prints).',
+        'COPY (JSON): ' + JSON.stringify(text).slice(0, 4000),
+        'Return ONLY JSON: { "issues":[{"original":"","suggestion":"","why":""}], "corrected":{ "subject":"", "preview":"", "intro":["",""], "offerLine":"", "ctaLabel":"", "closingText":"" } }. If nothing is wrong, issues=[] and corrected repeats the input unchanged.'
+      ].join('\n');
+      var craw = await anthropic(cpr, 1400);
+      var cres = extractJSON(craw);
+      if (!cres) { res.status(502).json({ ok: false, error: 'Check failed', raw: (craw || '').slice(0, 200) }); return; }
+      res.status(200).json({ ok: true, issues: cres.issues || [], corrected: cres.corrected || null });
       return;
     }
 
