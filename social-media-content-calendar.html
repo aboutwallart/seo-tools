@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.47 · 5 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.48 · 5 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -4076,21 +4076,27 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     [SHCDN+'3.png?v=1675608366','PERSONALISATION','We offer personalisation on every product, size, added quotes & colour changes.']
   ];
 
-  // Assemble the promo email HTML — reproduces XTkyWp. editable=true makes the body text editable in place (like newsletters).
+  // Assemble the promo email — same method as newsletters: ONE faithful layout, only the dynamic bits change.
+  // editable=true makes the body text editable in place. NO stray borders. Fixed blocks match the approved template.
   function buildPromoHtml(s, editable){
     var c=s.copy||{}, prods=(s.products||[]).slice(0,4);
     var FONT="'Lato',Arial,Helvetica,sans-serif";
     var validTxt=fmtLong(s.expiry);
     var intro=(c.intro||[]).map(function(l){return '<p style="margin:0 0 12px;"'+edAttr('introline',editable)+'>'+esc(l)+'</p>';}).join('');
-    // 4 products: square (1:1) image, NO rounded corners, centered
+    // Q: keep ONLY the offer phrase on the top line — cut off any code / "valid" / "until …" the AI slipped in.
+    var offerClean=(c.offerLine||('Take '+(s.pct||'15')+'% off'));
+    offerClean=offerClean.split(/\s*(?:—|-|,|\.)?\s*(?:with |use )?code\b/i)[0];
+    offerClean=offerClean.split(/\s*(?:—|-|,|\.)?\s*valid\b/i)[0];
+    offerClean=offerClean.split(/\s*(?:—|-|,|\.)?\s*until\b/i)[0];
+    offerClean=offerClean.replace(/[\s,.—-]+$/,'').trim();
+    // 4 products: SQUARE image (no radius), underlined title link, price, grey SHOP NOW button (exact template style)
     var prodCells=prods.map(function(p){
       return '<td width="50%" valign="top" align="center" style="padding:10px;text-align:center;">'
-        +'<a href="'+esc(p.url)+'" style="text-decoration:none;color:#111;">'
-        +'<img src="'+esc(p.image)+'" width="250" height="250" alt="'+esc(p.alt||p.title||'')+'" style="width:100%;max-width:250px;aspect-ratio:1/1;object-fit:cover;border-radius:0;display:block;margin:0 auto 10px;">'
-        +'<div style="font-size:15px;line-height:1.3;color:#111;">'+esc(p.title)+'</div>'
-        +(p.price?'<div style="font-weight:700;margin-top:3px;color:#111;">'+esc(p.price)+'</div>':'')
-        +'<div style="margin-top:8px;font-size:12px;font-weight:700;color:#111;text-transform:uppercase;letter-spacing:1px;">SHOP NOW</div>'
-        +'</a></td>';
+        +'<a href="'+esc(p.url)+'" style="text-decoration:none;"><img src="'+esc(p.image)+'" width="250" height="250" alt="'+esc(p.alt||p.title||'')+'" style="width:100%;max-width:250px;aspect-ratio:1/1;object-fit:cover;border-radius:0;display:block;margin:0 auto 10px;"></a>'
+        +'<div style="font-size:14px;line-height:1.3;"><a href="'+esc(p.url)+'" style="color:#0f1419;text-decoration:underline;">'+esc(p.title)+'</a></div>'
+        +(p.price?'<div style="font-weight:700;margin-top:3px;color:#0f1419;font-size:14px;">'+esc(p.price)+'</div>':'')
+        +'<table align="center" cellpadding="0" cellspacing="0" style="margin:10px auto 0;"><tr><td align="center" bgcolor="#DADADA" style="background:#DADADA;"><a href="'+esc(p.url)+'" style="display:inline-block;background:#DADADA;color:#000;text-decoration:none;font-family:'+FONT+';font-size:15px;font-weight:400;line-height:1.3;padding:10px 20px;">SHOP NOW</a></td></tr></table>'
+        +'</td>';
     });
     var prodRows='';
     for(var i=0;i<prodCells.length;i+=2){ prodRows+='<tr>'+prodCells[i]+(prodCells[i+1]||'<td width="50%"></td>')+'</tr>'; }
@@ -4101,19 +4107,19 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         +'<div style="font-size:10.5px;line-height:1.4;">'+esc(b[2])+'</div></td>';
     }).join('');
     var social=[['instagram_96.png','https://instagram.com/aboutwallart'],['facebook_96.png','https://facebook.com/aboutwallart'],['tiktok_96.png','https://tiktok.com/@aboutwallart'],['pinterest_96.png','https://pinterest.com/aboutwallart'],['linkedin_96.png','https://linkedin.com/company/aboutwallart']]
-      .map(function(x){ return '<a href="'+x[1]+'" style="text-decoration:none;display:inline-block;margin:0 4px;"><img src="'+SOC+x[0]+'" width="32" height="32" style="width:32px;height:32px;display:inline-block;"></a>'; }).join('');
-    // C: offer phrase (row 1) · code below (row 2) · valid-until below, smaller + not bold (row 3). No dash.
+      .map(function(x){ return '<a href="'+x[1]+'" style="text-decoration:none;display:inline-block;margin:0 5px;"><img src="'+SOC+x[0]+'" width="30" height="30" style="width:30px;height:30px;display:inline-block;"></a>'; }).join('');
+    // C: offer phrase (row 1) · code below (row 2) · valid-until below, smaller + not bold (row 3). No dash, no repeated code.
     var offerBlock='<tr><td align="center" style="padding:16px 34px 6px;text-align:center;">'
-      +'<div style="font-weight:700;font-size:19px;color:#111;"'+edAttr('offer',editable)+'>'+esc(c.offerLine||('Take '+(s.pct||'15')+'% off'))+'</div>'
-      +(s.code?'<div style="font-weight:700;font-size:17px;color:#111;margin-top:4px;">Use code '+esc(s.code)+'</div>':'')
+      +'<div style="font-weight:700;font-size:19px;color:#111;"'+edAttr('offer',editable)+'>'+esc(offerClean)+'</div>'
+      +(s.code?'<div style="font-weight:700;font-size:17px;color:#111;margin-top:6px;">Use code '+esc(s.code)+'</div>':'')
       +(validTxt?'<div style="font-weight:400;font-size:13px;color:#666;margin-top:6px;">Valid until '+esc(validTxt)+'</div>':'')
       +'</td></tr>';
-    // C: button rectangular (no radius), UPPERCASE, not bold
-    var cta='<tr><td align="center" style="padding:8px 18px 18px;"><a href="'+esc(s.ctaUrl||'https://aboutwallart.com')+'"'+(editable?' onclick="return false"':'')+' style="background:#111;color:#fff;text-decoration:none;padding:14px 40px;border-radius:0;font-weight:400;letter-spacing:1px;text-transform:uppercase;display:inline-block;font-family:'+FONT+';"'+edAttr('cta',editable)+'>'+esc(c.ctaLabel||('Shop '+((s.occ&&s.occ.name)||'now')))+'</a></td></tr>';
+    // C+R: button rectangular (no radius), UPPERCASE, not bold, CENTERED
+    var cta='<tr><td align="center" style="padding:8px 18px 18px;text-align:center;"><a href="'+esc(s.ctaUrl||'https://aboutwallart.com')+'"'+(editable?' onclick="return false"':'')+' style="background:#111;color:#fff;text-decoration:none;padding:14px 40px;border-radius:0;font-weight:400;letter-spacing:1px;text-transform:uppercase;display:inline-block;font-family:'+FONT+';"'+edAttr('cta',editable)+'>'+esc(c.ctaLabel||('Shop '+((s.occ&&s.occ.name)||'now')))+'</a></td></tr>';
 
     return '<div style="background:#f2f2f2;padding:0;margin:0;">'
       +'<style>@import url(https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap);</style>'
-      +'<table width="600" align="center" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#fff;font-family:'+FONT+';color:#222;">'
+      +'<table width="100%" align="center" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;margin:0 auto;background:#fff;font-family:'+FONT+';color:#222;">'
       // 1. header — black band + logo GIF
       +'<tr><td align="center" style="background:#000;padding:16px;"><img src="'+LOGO_GIF+'" width="356" alt="About Wall Art" style="width:356px;max-width:80%;display:block;margin:0 auto;"></td></tr>'
       // 2. title image (per occasion) — short, script nudged by dy/dx
@@ -4129,20 +4135,20 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       +cta
       // 4. countdown (auto — ends at valid-until)
       +(countdownImg(s.expiry)?'<tr><td align="center" style="padding:2px 18px 14px;"><img src="'+countdownImg(s.expiry)+'" alt="Offer ends soon" width="440" style="width:440px;max-width:92%;display:block;margin:0 auto;"></td></tr>':'')
-      // 7. 4 products (square, no radius, centered)
-      +(prodRows?'<tr><td style="padding:4px 12px 12px;"><table width="100%" cellpadding="0" cellspacing="0">'+prodRows+'</table></td></tr>':'')
-      // 8. trust badges (exact)
-      +'<tr><td style="padding:14px 12px;border-top:1px solid #eee;border-bottom:1px solid #eee;"><table width="100%" cellpadding="0" cellspacing="0"><tr>'+badges+'</tr></table></td></tr>'
+      // 7. 4 products (square, grey button, NO borders)
+      +(prodRows?'<tr><td style="padding:4px 12px 16px;"><table width="100%" cellpadding="0" cellspacing="0">'+prodRows+'</table></td></tr>':'')
+      // 8. trust badges (exact texts, NO borders)
+      +'<tr><td style="padding:16px 12px;"><table width="100%" cellpadding="0" cellspacing="0"><tr>'+badges+'</tr></table></td></tr>'
       // 9. closing text (editable) + smaller signature + spacer below
-      +'<tr><td align="center" style="padding:24px 34px 30px;font-size:18px;line-height:1.55;text-align:center;color:#222;">'
+      +'<tr><td align="center" style="padding:24px 34px 34px;font-size:18px;line-height:1.55;text-align:center;color:#222;">'
         +'<p style="margin:0 0 16px;"'+edAttr('closing',editable)+'>'+esc(c.closingText||'')+'</p>'
         +'<img src="'+SIGN_IMG+'" width="72" alt="Mae" style="width:72px;display:block;margin:6px auto 0;"></td></tr>'
-      // 10. footer — EXACT from XTkyWp: social · Have any questions? · address · No longer want… Unsubscribe
-      +'<tr><td align="center" style="background:#000;color:#cfcfcf;padding:24px 22px 26px;text-align:center;font-size:12.5px;line-height:1.7;font-family:'+FONT+';">'
-        +'<div style="margin-bottom:14px;">'+social+'</div>'
-        +'<div style="font-size:13px;margin-bottom:12px;"><b>Have any questions?</b> Whether you\'re confused, curious, or need assistance simply reply to this email—I\'m happy to assist!</div>'
-        +'© About Wall Art | Hertford | United Kingdom | SG141AY<br>'
-        +'<span style="color:#9a9a9a;">No longer want to receive these emails? <a href="{% unsubscribe \'Unsubscribe\' %}" style="color:#9a9a9a;">Unsubscribe</a></span>'
+      // 10. footer — approved layout (matches the newsletter): questions + Mae · social · address · unsubscribe
+      +'<tr><td align="center" style="background:#000;color:#fff;padding:24px 20px;text-align:center;font-family:'+FONT+';">'
+        +'<div style="font-size:16px;line-height:1.5;margin-bottom:16px;">Have any questions?<br>Whether you\'re confused, curious, or need assistance<br>simply reply to this email — I\'m happy to help!<br>Mae ❤️</div>'
+        +'<div style="margin:14px 0;">'+social+'</div>'
+        +'<div style="font-size:12px;color:#fff;">© About Wall Art | Hertford | United Kingdom | SG14 1AY</div>'
+        +'<div style="font-size:12px;color:#fff;margin-top:8px;">No longer want to receive these emails? <a href="{% unsubscribe \'Unsubscribe\' %}" style="color:#fff;">Unsubscribe</a></div>'
       +'</td></tr>'
       +'</table></div>';
   }
@@ -4167,14 +4173,27 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   var EDITORIAL_LINE='Editorial means richly styled, layered, magazine-quality — every surface dressed, every corner considered.';
   var EXTENSION_PREAMBLE='This is an IMAGE EXTENSION task — NOT a room redesign. I will paste the product photo. Preserve every element of the pasted photo EXACTLY (wall colour, furniture, lighting, decor and the framed artwork). Your only jobs: (1) extend the scene naturally to fill a 3:2 frame by continuing the EXISTING walls, floor and furnishings — never add blank bars or empty space, and do NOT invent a different room; (2) keep it bright and neutral. Do NOT restyle or replace any part of the room.';
   function slugp(x){ return String(x||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60); }
+  // People chosen by the occasion + its collections (mirrors the Blog Manager rules)
+  function personForPromo(o){
+    var s=(((o&&o.name)||'')+' '+((o&&o.id)||'')+' '+(((o&&o.collections)||[]).join(' '))+' '+((o&&o.relevance)||'')).toLowerCase();
+    if(/nursery|kids|child|baby|playroom|toddler/.test(s)) return 'a parent with a young child (or a baby)';
+    if(/valentine|romantic|bedroom|couple|love|anniversar|wedding/.test(s)) return 'a couple — a man and a woman';
+    if(/christmas|festive|thanksgiving|family|holiday|easter|mother|father|diwali|eid|ramadan/.test(s)) return 'a family together, including an older relative';
+    if(/dining|entertain|party|guest|living|lounge|hallway|refresh|new year/.test(s)) return 'a couple or a few friends together';
+    return 'one person';
+  }
+  // Hero prompt — mirrors the Blog Manager: preserve the pasted photo EXACTLY, only ADD people. 5 SQUARE options.
   function buildHeroPrompt(s){
     var o=s.occ, p=s.heroSource||{};
-    var alt='A '+o.name+' styled room with '+(p.title?('"'+p.title+'"'):'the wall art')+' on the wall';
+    var person=personForPromo(o);
     var nm=slugp(o.id)+'-hero';
-    return 'SHOPIFY AI — HERO IMAGE (landscape 3:2). I will paste the product’s own photo.\n'+SACRED_LINE+'\n\n'
-      +'[3:2] '+EXTENSION_PREAMBLE+'\n'
-      +'Make ONE editorial lifestyle scene that ILLUSTRATES the occasion “'+o.name+'” ('+(o.relevance||'')+'): a beautifully styled room where '+(p.title?('“'+p.title+'”'):'this product’s framed art')+' hangs on the wall as the focal point. Bright, neutral white balance, no yellow cast, no people, no text or logos. '+EDITORIAL_LINE+'\n'
-      +'SAVE this image named “'+nm+'”. Set the ALT TEXT to: “'+alt+'”.';
+    var alt=o.name+' — '+(p.title?p.title:'wall art')+' styled in a room';
+    return 'SHOPIFY AI — PROMO HERO. Make 5 options, each a SQUARE 1:1 image, so I can pick one. For each option I will paste the SAME product photo.\n'
+      +'The filename and alt text below are sacred — copy them character-for-character on every option; never modify, shorten or alter them.\n\n'
+      +'FOR EACH OPTION: Keep the pasted photo EXACTLY as it is — do NOT crop, zoom, stretch, distort, recolour or change ANYTHING about the wall art, the wall, the furniture, the decor or the lighting. Your ONLY job is to ADD PEOPLE into that exact scene, standing or sitting naturally and enjoying the space, NEVER covering or blocking the wall art. Photoreal and editorial, matching the existing light and style. Square 1:1.\n'
+      +'PEOPLE: add '+person+'. Vary their ethnicity naturally (a real mix, not always white). Dress them stylishly in neutral tones. Never a dark-skinned person against a dark wall. Do NOT depict gay, lesbian or transgender couples. Poses natural and candid.\n\n'
+      +'Make 5 DIFFERENT options (vary who/how many people and their poses), each SQUARE 1:1.\n'
+      +'SAVE each image named "'+nm+'-option1" … "'+nm+'-option5". Set the ALT TEXT to: "'+alt+'" — use this as the alt text, NOT the file name.';
   }
   function copyImg(url,btn){
     if(!url){ alert('Pick a product image first.'); return; }
@@ -4304,8 +4323,10 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           +'<label style="font-size:12px;color:#555;">Code<br><input id="c-'+uid+'" type="text" value="'+esc(defCode)+'" style="width:150px;padding:7px;border:1px solid #ddd;border-radius:6px;"></label>'
           +'<label style="font-size:12px;color:#555;">Send date<br><input id="sd-'+uid+'" type="date" value="'+esc(dts.send||'')+'" style="padding:7px;border:1px solid #ddd;border-radius:6px;"></label>'
           +'<label style="font-size:12px;color:#555;">Valid until<br><input id="e-'+uid+'" type="date" value="'+esc(dts.valid||'')+'" style="padding:7px;border:1px solid #ddd;border-radius:6px;"></label>'
+          +'<button id="dsc-'+uid+'" class="nlbtn" type="button" style="background:#1a7f37;">🏷️ Create discount in Shopify</button>'
           +'<button id="w-'+uid+'" class="nlbtn" type="button">✍️ Write the promo</button>'
         +'</div>'
+        +'<div id="dscmsg-'+uid+'" style="font-size:12.5px;margin:-2px 0 6px;"></div>'
         +'<div id="body-'+uid+'"></div>';
       wrap.appendChild(card);
 
@@ -4313,6 +4334,17 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       document.getElementById('d-'+uid).addEventListener('input', function(){ if(!s.codeEdited){ document.getElementById('c-'+uid).value=autoCode(o,(this.value||'15')); } });
       document.getElementById('c-'+uid).addEventListener('input', function(){ s.codeEdited=true; });
       document.getElementById('sd-'+uid).addEventListener('change', function(){ var v=this.value; if(v){ document.getElementById('e-'+uid).value=isoAdd(v,7); } });
+      // M: create the Shopify discount right here, by the coupon
+      document.getElementById('dsc-'+uid).addEventListener('click', function(){
+        var cb=this; cb.disabled=true; cb.textContent='Creating…';
+        var code=(document.getElementById('c-'+uid).value||'').toUpperCase(), pct=document.getElementById('d-'+uid).value, exp=document.getElementById('e-'+uid).value;
+        var r=document.getElementById('dscmsg-'+uid);
+        emPost({action:'promo-discount', code:code, discount:pct, expiry:exp}).then(function(d){
+          cb.disabled=false; cb.textContent='🏷️ Create discount in Shopify';
+          if(d&&d.ok){ r.style.color='#1a7f37'; r.innerHTML='✅ Discount <b>'+esc(d.code)+'</b> '+(d.existed?'already existed — reused':'created')+' ('+esc(pct)+'% off, ends '+esc(fmtNice(exp))+').'; }
+          else { r.style.color='#b00'; r.textContent='Discount failed: '+((d&&d.error)||'error'); }
+        });
+      });
 
       document.getElementById('w-'+uid).addEventListener('click', function(){
         var btn=this; btn.disabled=true; btn.textContent='Writing…';
@@ -4361,7 +4393,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
                   +'<button id="ssku-'+uid+'" type="button" class="nlbtn" style="background:#555;">🔍 Find</button>'
                 +'</div>'
                 +'<div id="hr-'+uid+'" style="max-height:300px;overflow:auto;margin-top:8px;"></div>'
-                +'<div style="margin-top:8px;"><button id="hp-'+uid+'" type="button" class="nlbtn" style="background:#555;">🪄 Generate Shopify-AI prompt</button></div>'
+                +'<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><button id="hp-'+uid+'" type="button" class="nlbtn" style="background:#555;">🪄 Generate Shopify-AI prompt</button><button id="hpc-'+uid+'" type="button" class="nlbtn" style="background:#c0561d;">📋 Copy prompt</button></div>'
                 +'<textarea id="hpt-'+uid+'" rows="4" placeholder="the Shopify-AI hero prompt appears here — copy it into Shopify AI" style="width:100%;margin-top:8px;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;"></textarea>'
                 +'<label style="font-size:12px;color:#555;display:block;margin-top:6px;">Upload the lifestyle image Shopify AI made:<br><input id="hfile-'+uid+'" type="file" accept="image/*" style="margin-top:4px;"></label>'
                 +'<div id="hup-'+uid+'" style="font-size:12px;margin-top:4px;"></div>'
@@ -4372,14 +4404,19 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
                 +'<span style="font-size:12px;color:#555;">Edit the body text right in the preview below.</span>'
                 +regBtn('ri','intro')+regBtn('rc','closing')
               +'</div>'
-              +'<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">'
-                +'<button id="up-'+uid+'" class="nlbtn" type="button" style="background:#555;">↻ Update preview</button>'
-                +'<button id="dsc-'+uid+'" class="nlbtn" type="button" style="background:#1a7f37;">🏷️ Create discount in Shopify</button>'
-                +'<button id="cd-'+uid+'" class="nlbtn" type="button">📧 Create Klaviyo draft</button>'
-              +'</div>'
-              +'<div id="res-'+uid+'" style="margin-top:8px;font-size:13px;"></div>'
+              +'<div style="margin-top:10px;"><button id="up-'+uid+'" class="nlbtn" type="button" style="background:#555;">↻ Update preview</button></div>'
               +'<div style="font-size:12px;color:#555;margin:14px 0 4px;">Full preview (desktop width) — click any text to edit it</div>'
               +'<div id="pv-'+uid+'" style="width:100%;border:1px solid #e3e3e3;border-radius:8px;background:#fff;overflow:auto;"></div>'
+              // N+O: final buttons below the preview, same as the newsletter
+              +'<div style="margin-top:16px;text-align:center;">'
+                +'<button id="ck-'+uid+'" class="nlbtn" type="button" style="background:#534AB7;margin-bottom:10px;">🔤 Check spelling & grammar</button>'
+                +'<div id="ckmsg-'+uid+'" style="font-size:13px;"></div>'
+                +'<div id="ckwrap-'+uid+'" style="display:none;text-align:left;margin:8px auto 14px;max-width:560px;background:#F7F6FE;border:1px solid #E4E1F0;border-radius:10px;padding:12px 14px;"></div>'
+                +'<button id="ap-'+uid+'" class="nlbtn" type="button" style="background:#0F6E56;">✓ Approve this promo</button>'
+                +'<div id="apmsg-'+uid+'" style="font-size:13px;"></div>'
+                +'<button id="cd-'+uid+'" class="nlbtn" type="button" style="background:#111;margin-top:10px;display:none;">📧 Create Klaviyo draft</button>'
+                +'<div id="res-'+uid+'" style="margin-top:8px;font-size:13px;"></div>'
+              +'</div>'
             +'</div>';
           function renderTitleOpts(){
             var box=document.getElementById('topt-'+uid); if(!box) return;
@@ -4422,17 +4459,43 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           document.getElementById('tdy-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.titleDy=this.value; refreshPreview(s); });
           document.getElementById('tdx-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.titleDx=this.value; refreshPreview(s); });
           document.getElementById('up-'+uid).addEventListener('click', function(){ pull(); refreshPreview(s); });
-          document.getElementById('dsc-'+uid).addEventListener('click', function(){
-            var cb=this; cb.disabled=true; cb.textContent='Creating…';
-            var code=(document.getElementById('c-'+uid).value||'').toUpperCase(), pct=document.getElementById('d-'+uid).value, exp=document.getElementById('e-'+uid).value;
-            var r=document.getElementById('res-'+uid);
-            emPost({action:'promo-discount', code:code, discount:pct, expiry:exp}).then(function(d){
-              cb.disabled=false; cb.textContent='🏷️ Create discount in Shopify';
-              if(d&&d.ok){ r.innerHTML='✅ Discount <b>'+esc(d.code)+'</b> '+(d.existed?'already existed — reused':'created')+' in Shopify ('+esc(pct)+'% off, ends '+esc(fmtNice(exp))+').'; }
-              else { r.innerHTML='<span style="color:#b00;">Discount failed: '+esc((d&&d.error)||'error')+'</span>'; }
-            });
+          // (the Create-discount button lives up top, next to the coupon)
+          document.getElementById('sb-'+uid).addEventListener('click', function(){ loadHeroProducts(s); });
+          document.getElementById('ssku-'+uid).addEventListener('click', function(){ searchHeroBySku(s); });
+          document.getElementById('hsku-'+uid).addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); searchHeroBySku(s); } });
+          document.getElementById('hp-'+uid).addEventListener('click', function(){ document.getElementById('hpt-'+uid).value=buildHeroPrompt(s); });
+          document.getElementById('hpc-'+uid).addEventListener('click', function(){ var ta=document.getElementById('hpt-'+uid); if(!ta.value){ ta.value=buildHeroPrompt(s); } var b=this, o2=b.textContent; try{ navigator.clipboard.writeText(ta.value); }catch(e){ ta.select(); try{document.execCommand('copy');}catch(e2){} } b.textContent='Copied ✓'; setTimeout(function(){b.textContent=o2;},1200); });
+          document.getElementById('hfile-'+uid).addEventListener('change', function(e){ var f=e.target.files&&e.target.files[0]; if(f) uploadHero(s,f); });
+          document.getElementById('hero-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.hero=this.value.trim(); refreshPreview(s); });
+          // O: spelling & grammar check (same as newsletters)
+          document.getElementById('ck-'+uid).addEventListener('click', function(){
+            pull(); var cb=this; cb.disabled=true; var o2=cb.textContent; cb.textContent='Checking…';
+            var msg=document.getElementById('ckmsg-'+uid), wrap=document.getElementById('ckwrap-'+uid);
+            msg.textContent=''; wrap.style.display='none'; wrap.innerHTML='';
+            emPost({action:'promo-check', copy:s.copy}).then(function(d){
+              cb.disabled=false; cb.textContent=o2; s.checked=true;
+              if(!d||!d.ok){ msg.style.color='#b00'; msg.textContent=(d&&d.error)||'Could not check.'; return; }
+              var iss=d.issues||[];
+              if(!iss.length){ msg.style.color='#0F6E56'; msg.textContent='No spelling or grammar mistakes found ✓'; return; }
+              msg.textContent='';
+              var html='<div style="font-weight:700;color:#3C3489;margin-bottom:8px;">'+iss.length+' thing'+(iss.length>1?'s':'')+' to check:</div>';
+              iss.forEach(function(it){ html+='<div style="margin-bottom:8px;font-size:13px;line-height:1.45;"><span style="text-decoration:line-through;color:#b91c1c;">'+esc(it.original||'')+'</span> → <b style="color:#0F6E56;">'+esc(it.suggestion||'')+'</b>'+(it.why?' <span style="color:#9A95B4;">('+esc(it.why)+')</span>':'')+'</div>'; });
+              if(d.corrected){ html+='<button id="apf-'+uid+'" class="nlbtn" type="button" style="background:#534AB7;margin-top:6px;">✨ Apply these fixes</button>'; }
+              wrap.innerHTML=html; wrap.style.display='';
+              var af=document.getElementById('apf-'+uid);
+              if(af) af.addEventListener('click', function(){ var cor=d.corrected||{}; if(cor.subject!=null)s.copy.subject=cor.subject; if(cor.preview!=null)s.copy.preview=cor.preview; if(cor.intro&&cor.intro.length)s.copy.intro=cor.intro; if(cor.offerLine!=null)s.copy.offerLine=cor.offerLine; if(cor.ctaLabel!=null)s.copy.ctaLabel=cor.ctaLabel; if(cor.closingText!=null)s.copy.closingText=cor.closingText; document.getElementById('s-'+uid).value=s.copy.subject||''; document.getElementById('pr-'+uid).value=s.copy.preview||''; refreshPreview(s); wrap.style.display='none'; msg.style.color='#0F6E56'; msg.textContent='Fixes applied — have a look.'; });
+            }).catch(function(){ cb.disabled=false; cb.textContent=o2; msg.style.color='#b00'; msg.textContent='Network error.'; });
+          });
+          // N: approve gate -> reveals Create draft (same as newsletters)
+          document.getElementById('ap-'+uid).addEventListener('click', function(){
+            pull(); var apm=document.getElementById('apmsg-'+uid);
+            if(!s.checked){ apm.style.color='#b00'; apm.textContent='Run the spelling & grammar check first.'; return; }
+            s.approved=true; this.innerHTML='✓ Approved'; this.style.background='#0b5a46';
+            apm.style.color='#0F6E56'; apm.textContent='Approved ✓ — now create the draft in Klaviyo →';
+            document.getElementById('cd-'+uid).style.display='';
           });
           document.getElementById('cd-'+uid).addEventListener('click', function(){
+            if(!s.approved){ document.getElementById('res-'+uid).innerHTML='<span style="color:#b00;">Approve it first.</span>'; return; }
             pull(); var cb=this; cb.disabled=true; cb.textContent='Creating…';
             var html=buildPromoHtml(s); // NOT editable — the version that gets sent
             emPost({action:'promo-create-draft', name:'PROMO '+o.name, subject:s.copy.subject, preview:s.copy.preview, html:html, market:s.market}).then(function(d){
@@ -4442,12 +4505,6 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
               else { r.innerHTML='<span style="color:#b00;">Draft failed: '+esc((d&&d.error)||'error')+'</span>'; }
             });
           });
-          document.getElementById('sb-'+uid).addEventListener('click', function(){ loadHeroProducts(s); });
-          document.getElementById('ssku-'+uid).addEventListener('click', function(){ searchHeroBySku(s); });
-          document.getElementById('hsku-'+uid).addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); searchHeroBySku(s); } });
-          document.getElementById('hp-'+uid).addEventListener('click', function(){ document.getElementById('hpt-'+uid).value=buildHeroPrompt(s); });
-          document.getElementById('hfile-'+uid).addEventListener('change', function(e){ var f=e.target.files&&e.target.files[0]; if(f) uploadHero(s,f); });
-          document.getElementById('hero-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.hero=this.value.trim(); refreshPreview(s); });
           renderTitleOpts(); refreshPreview(s);
         }).catch(function(e){ btn.disabled=false; btn.textContent='✍️ Write the promo'; document.getElementById('body-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">Error: '+esc(e.message)+'</p>'; });
       });
