@@ -206,13 +206,12 @@
 </style>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.7.0/dist/tabler-icons.min.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap">
-<script src="promo-template-data.js"></script><!-- Mae's real Klaviyo promo template XTkyWp (base64) — the Monthly Promos tool injects data into it -->
 </head>
 <body>
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.51 · 5 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.52 · 5 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -229,7 +228,9 @@
 </nav>
 <section class="tabpanel" id="tab-email">
   <style>
-    #tab-email .emwrap{max-width:1100px;margin:0 auto;}
+    /* Email Marketing tab breaks out of the 900px page column to use the FULL page width (other tabs unaffected) */
+    #tab-email{ width:100vw; position:relative; left:50%; right:50%; margin-left:-50vw; margin-right:-50vw; box-sizing:border-box; }
+    #tab-email .emwrap{max-width:1600px;margin:0 auto;padding:0 28px;box-sizing:border-box;}
     #tab-email .emsubnav{display:flex;gap:8px;margin:4px 0 18px;border-bottom:2px solid #ECEAF6;}
     #tab-email .emsub{background:none;border:none;padding:10px 16px;font-size:15px;font-weight:700;color:#7A7599;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;}
     #tab-email .emsub.active{color:#3C3489;border-bottom-color:#534AB7;}
@@ -4077,25 +4078,9 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     [SHCDN+'3.png?v=1675608366','PERSONALISATION','We offer personalisation on every product, size, added quotes & colour changes.']
   ];
 
-  // ===== Build the promo email by INJECTING data into Mae's REAL template XTkyWp (window.PROMO_TPL_B64). =====
-  // The template markup is NEVER rewritten — we only swap the dynamic bits (title, hero, 4 products, intro, offer, CTA, closing).
-  function b64ToUtf8(b64){ try{ return decodeURIComponent(Array.prototype.map.call(atob(b64), function(ch){ return '%'+('00'+ch.charCodeAt(0).toString(16)).slice(-2); }).join('')); }catch(e){ try{ return atob(b64); }catch(e2){ return ''; } } }
-  function findWrapperByText(doc, marker){
-    var ws=[].slice.call(doc.querySelectorAll('.component-wrapper')).filter(function(w){ return w.textContent && w.textContent.indexOf(marker)>=0; });
-    if(!ws.length){ ws=[].slice.call(doc.querySelectorAll('div,td,p,span')).filter(function(e){ return e.textContent && e.textContent.indexOf(marker)>=0; }); }
-    ws.sort(function(a,b){ return a.textContent.length-b.textContent.length; });
-    return ws[0]||null;
-  }
-  function replaceTextToken(root, token, val){
-    var w=document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false), n, list=[];
-    while(n=w.nextNode()) list.push(n);
-    list.forEach(function(t){ if(t.nodeValue.indexOf(token)>=0){ t.nodeValue=t.nodeValue.split(token).join(val); } });
-  }
-  function stripFeedLiquid(root){
-    var w=document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false), n, list=[];
-    while(n=w.nextNode()) list.push(n);
-    list.forEach(function(t){ if(/{%\s*(if\s+feeds|with|endwith|endif)/.test(t.nodeValue)){ t.nodeValue=t.nodeValue.replace(/{%[^%]*%}/g,''); } });
-  }
+  // ===== Build the promo email as CLEAN HTML that reproduces Mae's template (same method as the newsletter). =====
+  // All inline styles, simple divs — so the preview (a div) looks EXACTLY like the email that gets sent. No Klaviyo table soup.
+  var PFONT="Lato, 'Helvetica Neue', Helvetica, Arial, sans-serif";
   function offerCleanOf(c,s){
     var o=(c.offerLine||('Take '+(s.pct||'15')+'% off'));
     o=o.split(/\s*(?:—|-|,|\.)?\s*(?:with |use )?code\b/i)[0];
@@ -4103,67 +4088,82 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     o=o.split(/\s*(?:—|-|,|\.)?\s*until\b/i)[0];
     return o.replace(/[\s,.—-]+$/,'').trim();
   }
-  function introInnerHtml(c,s,editable){
-    var lines=(c.intro||[]).map(function(l){ return '<p style="margin:0 0 12px;font-size:18px;line-height:1.55;color:#0f1419;text-align:center;"'+edAttr('introline',editable)+'>'+esc(l)+'</p>'; }).join('');
-    var oc=offerCleanOf(c,s), vt=fmtLong(s.expiry);
-    var offer='<div style="text-align:center;margin:16px 0 4px;">'
-      +'<div style="font-weight:700;font-size:19px;color:#111;"'+edAttr('offer',editable)+'>'+esc(oc)+'</div>'
-      +(s.code?'<div style="font-weight:700;font-size:17px;color:#111;margin-top:6px;">Use code '+esc(s.code)+'</div>':'')
-      +(vt?'<div style="font-weight:400;font-size:13px;color:#666;margin-top:6px;">Valid until '+esc(vt)+'</div>':'')
-      +'</div>';
-    return lines+offer;
-  }
-  // parse Mae's template and inject the data via the DOM
-  function injectPromo(s, editable){
-    var c=s.copy||{};
-    if(!window.PROMO_TPL_B64){ return null; }
-    var doc=new DOMParser().parseFromString(b64ToUtf8(window.PROMO_TPL_B64), 'text/html');
-    if(!doc || !doc.body){ return null; }
-    // title + hero images (found by their unique placeholder filenames)
-    var timg=doc.querySelector('img[src*="5fe16408"]'); if(timg) timg.setAttribute('src', titleImg(c.titleTop,c.titleScript,s.titleDy,s.titleDx));
-    var himg=doc.querySelector('img[src*="4609660f"]');
-    if(himg){ if(s.hero){ himg.setAttribute('src', s.hero); } else { var hw=himg.closest('.component-wrapper')||himg.parentNode; if(hw&&hw.style) hw.style.display='none'; } }
-    // 4 products — one product per feed image; operate inside that image's own product cell (cell-stack)
-    var pimgs=[].slice.call(doc.querySelectorAll('img[src*="item.image_full_url"]'));
-    var prods=(s.products||[]).slice(0,4);
-    pimgs.forEach(function(img, i){
-      var cell=img.closest('.kl-product-cell-stack')||img.closest('td')||img.parentNode;
-      var p=prods[i];
-      if(cell) stripFeedLiquid(cell);
-      if(!p){ if(cell&&cell.style) cell.style.display='none'; return; }
-      img.setAttribute('src', p.image||''); img.setAttribute('alt', p.title||''); // image as it comes from the product (template's own sizing)
-      if(cell){ [].slice.call(cell.querySelectorAll('a[href]')).forEach(function(a){ a.setAttribute('href', p.url||'#'); });
-        replaceTextToken(cell, '{{ Title }}', p.title||'');
-        replaceTextToken(cell, '{{ Price }}', p.price?('£'+p.price):''); }
-    });
-    [].slice.call(doc.querySelectorAll('img[alt*="{{"]')).forEach(function(im){ im.setAttribute('alt', (im.getAttribute('alt')||'').replace(/{{[^}]*}}/g,'').trim()); });
-    // countdown — the template's w=600 image slot with NO src attribute is where the countdown GIF goes
-    var cdurl=countdownImg(s.expiry);
-    var cimg=doc.querySelector('img[width="600"]:not([src])')||doc.querySelector('img:not([src])');
-    if(cimg){ if(cdurl){ cimg.setAttribute('src', cdurl); cimg.setAttribute('alt','Offer ends soon'); } else { var cw=cimg.closest('.component-wrapper'); if(cw&&cw.style) cw.style.display='none'; } }
-    // intro (+ offer) — replace the default intro text block
-    var introW=findWrapperByText(doc,'Ever looked around your home');
-    if(introW) introW.innerHTML=introInnerHtml(c,s,editable);
-    // closing — replace the default closing text block (keeps the signature image that follows it)
-    var closeW=findWrapperByText(doc,'Once you know it');
-    if(closeW) closeW.innerHTML='<p style="margin:0;font-size:18px;line-height:1.55;color:#0f1419;text-align:center;"'+edAttr('closing',editable)+'>'+esc(c.closingText||'')+'</p>';
-    // main CTA (the black <p> button — product buttons are <a>, so 'p' matches only the main one)
-    var pmain=null, ps=doc.querySelectorAll('p');
-    for(var k=0;k<ps.length;k++){ if(ps[k].textContent.replace(/\s+/g,' ').trim()==='SHOP NOW'){ pmain=ps[k]; break; } }
-    if(pmain) pmain.innerHTML='<a href="'+esc(s.ctaUrl||'#')+'"'+(editable?' onclick="return false" contenteditable="true" data-role="cta"':'')+' style="color:#fff;text-decoration:none;display:block;">'+esc(c.ctaLabel||('Shop '+((s.occ&&s.occ.name)||'now')))+'</a>';
-    return doc;
-  }
-  // preview (editable in place) — the injected template body + the font import
   function buildPromoHtml(s, editable){
-    var doc=injectPromo(s, !!editable);
-    if(!doc){ return '<div style="padding:20px;color:#b00;">Template not loaded — reload the page (promo-template-data.js).</div>'; }
-    return '<style>@import url(https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap);</style>'+doc.body.innerHTML;
+    var c=s.copy||{}, prods=(s.products||[]).slice(0,4);
+    var vt=fmtLong(s.expiry), oc=offerCleanOf(c,s);
+    var ed=function(role){ return editable?(' contenteditable="true" data-role="'+role+'"'):''; };
+    var intro=(c.intro||[]).map(function(l){ return '<div style="margin:0 0 16px;"'+ed('introline')+'>'+esc(l)+'</div>'; }).join('');
+    // 4 products (2×2) — image fills the cell, underlined title, price (single £), grey SHOP NOW button, all centred
+    function pcell(p){
+      if(!p) return '<td width="50%">&nbsp;</td>';
+      return '<td width="50%" align="center" valign="top" style="padding:14px 10px;text-align:center;">'
+        +'<a href="'+esc(p.url)+'" style="text-decoration:none;"><img src="'+esc(p.image)+'" alt="'+esc(p.title||'')+'" width="260" style="width:100%;max-width:260px;height:auto;display:block;margin:0 auto 12px;"></a>'
+        +'<div style="font-size:15px;line-height:1.35;margin-bottom:6px;"><a href="'+esc(p.url)+'" style="color:#0f1419;text-decoration:underline;">'+esc(p.title||'')+'</a></div>'
+        +(p.price?'<div style="font-size:15px;font-weight:700;color:#0f1419;margin-bottom:12px;">£'+esc(p.price)+'</div>':'')
+        +'<a href="'+esc(p.url)+'" style="display:inline-block;background:#DADADA;color:#000;text-decoration:none;font-size:15px;font-family:'+PFONT+';padding:11px 26px;">SHOP NOW</a>'
+        +'</td>';
+    }
+    var prows='';
+    for(var i=0;i<prods.length;i+=2){ prows+='<tr>'+pcell(prods[i])+pcell(prods[i+1])+'</tr>'; }
+    var productsBlock = prows ? '<div style="padding:4px 14px 14px;"><table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tbody>'+prows+'</tbody></table></div>' : '';
+    var badges=BADGES.map(function(b){
+      return '<td width="25%" align="center" valign="top" style="padding:10px 6px;text-align:center;">'
+        +'<img src="'+b[0]+'" width="48" alt="" style="width:48px;height:auto;display:block;margin:0 auto 8px;">'
+        +'<div style="font-size:12px;font-weight:800;letter-spacing:.4px;color:#0f1419;margin-bottom:4px;">'+esc(b[1])+'</div>'
+        +'<div style="font-size:11.5px;line-height:1.45;color:#555;">'+esc(b[2])+'</div></td>';
+    }).join('');
+    var social=[['instagram_96.png','https://instagram.com/aboutwallart'],['facebook_96.png','https://facebook.com/aboutwallart'],['tiktok_96.png','https://tiktok.com/@aboutwallart'],['pinterest_96.png','https://pinterest.com/aboutwallart'],['linkedin_96.png','https://linkedin.com/company/aboutwallart']]
+      .map(function(x){ return '<a href="'+x[1]+'" style="text-decoration:none;display:inline-block;margin:0 6px;"><img src="'+SOC+x[0]+'" width="28" alt="" style="width:28px;height:auto;display:inline-block;"></a>'; }).join('');
+    // offer: personal lead-in (from the AI) + offer phrase + code + valid-until
+    var offerLead = c.offerLead ? '<div style="margin:0 0 16px;"'+ed('offerlead')+'>'+esc(c.offerLead)+'</div>' : '';
+    var offerBlock='<div style="text-align:center;margin:6px 0 2px;">'
+      + offerLead
+      +'<div style="font-weight:700;font-size:19px;color:#0f1419;"'+ed('offer')+'>'+esc(oc)+'</div>'
+      +(s.code?'<div style="font-weight:700;font-size:17px;color:#0f1419;margin-top:6px;">Use code '+esc(s.code)+'</div>':'')
+      +(vt?'<div style="font-weight:400;font-size:13px;color:#777;margin-top:6px;">Valid until '+esc(vt)+'</div>':'')
+      +'</div>';
+    // main CTA — black, UPPERCASE, centred
+    var cta='<div style="text-align:center;margin:8px 0 20px;"><a href="'+esc(s.ctaUrl||'#')+'"'+(editable?' onclick="return false"':'')+' style="display:inline-block;background:#000;color:#fff;text-decoration:none;text-transform:uppercase;letter-spacing:1px;font-size:16px;font-family:'+PFONT+';padding:15px 40px;"'+ed('cta')+'>'+esc(c.ctaLabel||('Shop '+((s.occ&&s.occ.name)||'now')))+'</a></div>';
+    var cd = countdownImg(s.expiry) ? '<div style="text-align:center;margin:6px 0 16px;"><img src="'+countdownImg(s.expiry)+'" alt="Offer ends soon" width="440" style="width:100%;max-width:440px;height:auto;display:block;margin:0 auto;"></div>' : '';
+
+    return '<div style="max-width:600px;margin:0 auto;background:#fff;font-family:'+PFONT+';color:#0f1419;">'
+      // header — black band + logo
+      +'<div style="background:#000;text-align:center;padding:16px 0;"><img src="'+LOGO_GIF+'" width="356" alt="About Wall Art" style="width:356px;max-width:70%;height:auto;display:inline-block;"></div>'
+      // title image (occasion)
+      +'<div style="text-align:center;padding:24px 18px 10px;"><img src="'+titleImg(c.titleTop,c.titleScript,s.titleDy,s.titleDx)+'" alt="'+esc(c.titleTop||'')+'" style="height:120px;width:auto;max-width:92%;display:block;margin:0 auto;"></div>'
+      // hero
+      +(s.hero?'<div style="text-align:center;"><img src="'+esc(s.hero)+'" alt="'+esc(c.titleTop||'')+'" width="600" style="width:100%;height:auto;display:block;"></div>':'')
+      // body: greeting + intro + offer
+      +'<div style="font-size:18px;line-height:1.55;text-align:center;color:#0f1419;padding:22px 30px 6px;">'
+        +'<div style="margin:0 0 16px;">'+esc(c.greeting||"Dear {{ first_name|default:'friend' }},")+'</div>'
+        + intro + offerBlock
+      +'</div>'
+      // CTA
+      + cta
+      // countdown
+      + cd
+      // products
+      + productsBlock
+      // badges
+      +'<div style="padding:16px 12px;"><table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tbody><tr>'+badges+'</tr></tbody></table></div>'
+      // closing + signature
+      +'<div style="text-align:center;padding:20px 30px 30px;font-size:18px;line-height:1.55;color:#0f1419;">'
+        +(c.closingText?'<div style="margin:0 0 16px;"'+ed('closing')+'>'+esc(c.closingText)+'</div>':'')
+        +'<img src="'+SIGN_IMG+'" width="110" alt="Mae" style="width:110px;height:auto;display:block;margin:6px auto 0;"></div>'
+      // footer — black band (matches the template / newsletter)
+      +'<div style="background:#000;color:#fff;text-align:center;padding:26px 20px;font-family:'+PFONT+';">'
+        +'<div style="font-size:16px;line-height:1.5;margin-bottom:16px;">Have any questions?<br>Whether you\'re confused, curious, or need assistance<br>simply reply to this email — I\'m happy to help!<br>Mae ❤️</div>'
+        +'<div style="margin:14px 0;">'+social+'</div>'
+        +'<div style="font-size:12px;color:#fff;">© About Wall Art | Hertford | United Kingdom | SG14 1AY</div>'
+        +'<div style="font-size:12px;color:#fff;margin-top:8px;">No longer want to receive these emails? <a href="{% unsubscribe \'Unsubscribe\' %}" style="color:#fff;">Unsubscribe</a></div>'
+      +'</div>'
+    +'</div>';
   }
-  // full HTML document sent to Klaviyo (keeps the template's own <head> styles + liquid)
+  // full HTML document sent to Klaviyo (same wrapper idea as the newsletter)
   function buildPromoFullDoc(s){
-    var doc=injectPromo(s, false);
-    if(!doc) return '';
-    return '<!doctype html>\n'+doc.documentElement.outerHTML;
+    return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+      +'<style>@import url(https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap);body{margin:0;padding:0;background:#f4f4f4;}img{border:0;}</style>'
+      +'</head><body style="margin:0;padding:0;background:#f4f4f4;">'+buildPromoHtml(s,false)+'</body></html>';
   }
 
   function refreshPreview(s){
@@ -4176,6 +4176,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     function t(role){ var el=z.querySelector('[data-role="'+role+'"]'); return el?el.innerText.replace(/ /g,' ').trim():null; }
     var intro=Array.prototype.map.call(z.querySelectorAll('[data-role="introline"]'),function(el){return el.innerText.replace(/ /g,' ').trim();}).filter(Boolean);
     if(intro.length) s.copy.intro=intro;
+    var ol=t('offerlead'); if(ol!=null) s.copy.offerLead=ol;
     var of=t('offer'); if(of!=null) s.copy.offerLine=of;
     var cl=t('closing'); if(cl!=null) s.copy.closingText=cl;
     var cta=t('cta'); if(cta!=null) s.copy.ctaLabel=cta;
@@ -4354,8 +4355,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         var r=document.getElementById('dscmsg-'+uid);
         emPost({action:'promo-discount', code:code, discount:pct, expiry:exp}).then(function(d){
           cb.disabled=false; cb.textContent='🏷️ Create discount in Shopify';
-          if(d&&d.ok){ r.style.color='#1a7f37'; r.innerHTML='✅ Discount <b>'+esc(d.code)+'</b> '+(d.existed?'already existed — reused':'created')+' ('+esc(pct)+'% off, ends '+esc(fmtNice(exp))+').'; }
-          else { r.style.color='#b00'; r.textContent='Discount failed: '+((d&&d.error)||'error'); }
+          if(d&&d.ok){ s.discountCreated=true; s.discountCode=(d.code||code||'').toUpperCase(); r.style.color='#1a7f37'; r.innerHTML='✅ Discount <b>'+esc(d.code)+'</b> '+(d.existed?'already existed — reused':'created')+' ('+esc(pct)+'% off, ends '+esc(fmtNice(exp))+'). You can create the Klaviyo draft now.'; }
+          else { s.discountCreated=false; r.style.color='#b00'; r.textContent='Discount failed: '+((d&&d.error)||'error'); }
         });
       });
 
@@ -4508,9 +4509,13 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
             document.getElementById('cd-'+uid).style.display='';
           });
           document.getElementById('cd-'+uid).addEventListener('click', function(){
-            if(!s.approved){ document.getElementById('res-'+uid).innerHTML='<span style="color:#b00;">Approve it first.</span>'; return; }
+            var rr=document.getElementById('res-'+uid);
+            // SAFETY GATE: the Shopify discount must actually be created (and match the current code) before we can send.
+            var curCode=(document.getElementById('c-'+uid).value||'').toUpperCase();
+            if(!s.discountCreated || s.discountCode!==curCode){ rr.innerHTML='<span style="color:#b00;">Create the discount in Shopify first (button up top) — the code must exist before you can send.</span>'; return; }
+            if(!s.approved){ rr.innerHTML='<span style="color:#b00;">Approve it first.</span>'; return; }
             pull(); var cb=this; cb.disabled=true; cb.textContent='Creating…';
-            var html=buildPromoFullDoc(s); // full injected template document — the version that gets sent
+            var html=buildPromoFullDoc(s); // clean HTML document — the version that gets sent
             emPost({action:'promo-create-draft', name:'PROMO '+o.name, subject:s.copy.subject, preview:s.copy.preview, html:html, market:s.market}).then(function(d){
               cb.disabled=false; cb.textContent='📧 Create Klaviyo draft';
               var r=document.getElementById('res-'+uid);
