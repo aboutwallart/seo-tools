@@ -701,29 +701,110 @@ module.exports = async (req, res) => {
       return;
     }
 
-    // ---- AI writes the SHORT promo copy (market language, offer once, one CTA) ----
+    // ---- AI writes the promo copy (brand voice, first name, offer once, ONE topic CTA, warm closing) ----
+    // Optional body.only = 'subject'|'title'|'intro'|'closing' -> regenerate just that field (per-field Regenerate).
     if (action === 'promo-write' || action === 'promo-rewrite') {
       var occ = body.occasion || {};
-      var lang = (occ.lang || body.lang || 'en-GB');
+      // Everything is UK English (spec §5). US spelling only if a mail is US-only.
+      var spelling = (occ.country === 'US') ? 'US English (US spelling)' : 'UK English (UK spelling)';
       var pct = (body.discount || '').toString();
       var code = (body.code || '').toString();
       var expiry = (body.expiry || '').toString();
-      var spelling = (lang === 'en-US') ? 'US English (US spelling)' : (lang === 'es' ? 'Spanish' : lang === 'it' ? 'Italian' : lang === 'fr' ? 'French' : 'UK English (UK spelling)');
+      var only = (body.only || '').toString();
+      var topic = (occ.name || 'this occasion');
+
+      var fields = {
+        subject: '"subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'there\' }} then a comma, then a warm human line about ' + topic + ' — no buzzwords, at most ~55 chars after the name", "preview":"one short human line (may also use the first name), teases the offer softly"',
+        title:   '"titleTop":"2-4 WORD CAPS HEADLINE tied to ' + topic + '", "titleScript":"short handwritten-script tagline (2-4 words)"',
+        intro:   '"intro":["2 to 3 SHORT human lines — warm, gift/feeling led, brand voice; the offer is stated in offerLine not here"]',
+        offer:   '"offerLine":"the offer said ONCE, human (e.g. Take ' + (pct || '15') + '% off with code ' + (code || 'CODE') + ' until ' + (expiry || 'the date') + ')"',
+        cta:     '"ctaLabel":"2-3 word button label tied to the TOPIC of the mail (e.g. Shop ' + topic + '), never generic like Shop now or Shop the collection"',
+        closing: '"closingText":"a warm, offer-to-help closing that sits ABOVE the signature — kind, first-person, value-first (e.g. not sure where to start with ' + topic + '? hit reply, I read every one). It MUST feel hand-written and be DIFFERENT every time — vary the wording, never a canned line"'
+      };
+      var wantKeys;
+      if (only === 'subject') wantKeys = [fields.subject];
+      else if (only === 'title') wantKeys = [fields.title];
+      else if (only === 'intro') wantKeys = [fields.intro];
+      else if (only === 'closing') wantKeys = [fields.closing];
+      else wantKeys = [fields.subject, fields.title, fields.intro, fields.offer, fields.cta, fields.closing];
+
       var note = '';
-      if (action === 'promo-rewrite') { note = '\nMY FEEDBACK (apply it): ' + (body.note || '').toString().slice(0, 800); if (body.current) { try { note = '\nCURRENT DRAFT: ' + JSON.stringify(body.current).slice(0, 1500) + note; } catch (e) {} } }
+      if (action === 'promo-rewrite' || only) {
+        if (body.note) note += '\nMY FEEDBACK (apply it): ' + (body.note || '').toString().slice(0, 800);
+        if (body.current) { try { note += '\nCURRENT DRAFT (keep the parts I am not regenerating consistent with this): ' + JSON.stringify(body.current).slice(0, 1500); } catch (e) {} }
+      }
       var pr = [
-        'You write SHORT promotional emails for About Wall Art, a UK wall-art brand. Voice: calm, warm, human, spoken — NEVER poetic or "AI". Brand belief: "a calm home is a powerful thing"; art supports wellbeing. One brand voice speaking to "you".',
-        'Occasion: "' + (occ.name || '') + '". Why it sells art: ' + (occ.relevance || '') + '.',
+        'You write promotional emails for About Wall Art, a UK wall-art brand. Voice: warm, kind, human, first-person, spoken — NEVER poetic, pushy or "AI". Value first, offer soft; emotional gift-suggestion tone (e.g. "Mother\'s Day is coming — she did so much for you…"). A few tasteful emojis are fine. One brand voice speaking to "you". Banned: buzzwords, "buy buy buy", urgency-shouting.',
+        'Occasion: "' + topic + '". Why it sells art: ' + (occ.relevance || '') + '.',
         'Write EVERYTHING in ' + spelling + '. (The footer stays English — not your job.)',
-        'The offer: ' + (pct ? pct + '% off' : 'a special offer') + (code ? ', code ' + code : '') + (expiry ? ', valid until ' + expiry : '') + '. State the offer ONCE, near the top. Exactly ONE call to action.',
-        'SHORT and light (Gmail clips long emails). 2-3 short human intro lines, then the offer. No buzzwords, no repetition.',
+        'The offer: ' + (pct ? pct + '% off' : 'a special offer') + (code ? ', code ' + code : '') + (expiry ? ', valid until ' + expiry : '') + '. State it ONCE. Exactly ONE call to action.',
+        'Keep it SHORT and light (Gmail clips long emails).',
         note,
-        'Return ONLY JSON: { "subject":"", "preview":"", "titleTop":"2-4 WORD CAPS HEADLINE", "titleScript":"short script tagline", "greeting":"Dear {{ first_name|default:\'friend\' }},", "intro":["line 1","line 2"], "offerLine":"the offer, human, said once", "ctaLabel":"2-3 words" }'
+        'Return ONLY JSON with EXACTLY these keys: { ' + wantKeys.join(', ') + ' }'
       ].join('\n');
       var raw = await anthropic(pr, 1200);
       var copy = extractJSON(raw);
       if (!copy) { res.status(502).json({ ok: false, error: 'AI did not return usable copy', raw: (raw || '').slice(0, 300) }); return; }
+      copy.greeting = "Dear {{ first_name|default:'friend' }},"; // fixed mould greeting
       res.status(200).json({ ok: true, copy: copy });
+      return;
+    }
+
+    // ---- list a collection's products (image picker: collection -> product -> image) ----
+    if (action === 'promo-collection-products') {
+      var handle = (body.handle || '').toString().trim();
+      if (!handle) { res.status(400).json({ ok: false, error: 'collection handle required' }); return; }
+      var out2 = [];
+      try {
+        var cd = await shopifyGraphQL(
+          'query($h:String!){ collectionByHandle(handle:$h){ products(first:30){ edges{ node{ title handle onlineStoreUrl vendor featuredImage{ url } images(first:8){ edges{ node{ url altText } } } } } } } }',
+          { h: handle }
+        );
+        var ed = (cd && cd.collectionByHandle && cd.collectionByHandle.products && cd.collectionByHandle.products.edges) || [];
+        for (var k = 0; k < ed.length; k++) {
+          var pn = ed[k].node; if (!pn) continue;
+          if (pn.vendor && pn.vendor.toLowerCase().indexOf('about wall art') < 0) continue; // AWA only
+          var imgs = ((pn.images && pn.images.edges) || []).map(function (x) { return retinaImg(x.node.url, 800); }).filter(Boolean);
+          if (!imgs.length && pn.featuredImage) imgs = [retinaImg(pn.featuredImage.url, 800)];
+          out2.push({ title: pn.title, handle: pn.handle, url: pn.onlineStoreUrl || (PROMO_SITE + '/products/' + pn.handle), images: imgs });
+        }
+      } catch (e) { res.status(502).json({ ok: false, error: 'Could not load collection: ' + (e.message || e) }); return; }
+      res.status(200).json({ ok: true, products: out2 });
+      return;
+    }
+
+    // ---- create a fixed % discount code in Shopify (same code for everyone, expires at valid-until) ----
+    if (action === 'promo-discount') {
+      var dcode = (body.code || '').toString().trim().toUpperCase();
+      var dpct = parseFloat(body.discount);
+      var dexp = (body.expiry || '').toString().trim(); // YYYY-MM-DD
+      if (!dcode) { res.status(400).json({ ok: false, error: 'code required' }); return; }
+      if (!(dpct > 0 && dpct <= 90)) { res.status(400).json({ ok: false, error: 'discount % must be 1–90' }); return; }
+      var startsAt = new Date().toISOString();
+      // End of the valid-until day, London time (no Z => Shopify uses the shop timezone).
+      var endsAt = dexp ? (dexp + 'T23:59:59') : null;
+      try {
+        var dm = await shopifyGraphQL(
+          'mutation($b:DiscountCodeBasicInput!){ discountCodeBasicCreate(basicCodeDiscount:$b){ codeDiscountNode{ id } userErrors{ field code message } } }',
+          { b: {
+            title: dcode,
+            code: dcode,
+            startsAt: startsAt,
+            endsAt: endsAt,
+            customerSelection: { all: true },
+            customerGets: { value: { percentage: dpct / 100 }, items: { all: true } },
+            appliesOncePerCustomer: false
+          } }
+        );
+        var r2 = dm && dm.discountCodeBasicCreate;
+        var errs = (r2 && r2.userErrors) || [];
+        if (errs.length) {
+          var taken = errs.some(function (e) { return /taken|exist|already/i.test((e.code || '') + ' ' + (e.message || '')); });
+          if (taken) { res.status(200).json({ ok: true, existed: true, code: dcode, message: 'A discount with this code already exists in Shopify — reusing it.' }); return; }
+          res.status(502).json({ ok: false, error: errs.map(function (e) { return e.message; }).join('; ') }); return;
+        }
+        res.status(200).json({ ok: true, code: dcode, id: (r2 && r2.codeDiscountNode && r2.codeDiscountNode.id) || null });
+      } catch (e) { res.status(502).json({ ok: false, error: 'Shopify discount failed: ' + (e.message || e) }); return; }
       return;
     }
 
@@ -736,7 +817,7 @@ module.exports = async (req, res) => {
       var preview = (body.preview || '').toString();
       var name = (body.name || subject || 'PROMO').toString().slice(0, 120);
       if (!subject || !html) { res.status(400).json({ ok: false, error: 'subject and html required' }); return; }
-      var SEG = { UK: 'WGvbF3', US: 'Y3x3by', ALL: 'VeaNX2', GENERAL: 'VeaNX2' };
+      var SEG = { UK: 'WGvbF3', US: 'Y3x3by', ALL: 'VeaNX2', GENERAL: 'VeaNX2', ISLAMIC: 'Xypmb6' };
       var seg = SEG[(body.market || 'ALL').toString().toUpperCase()] || 'VeaNX2';
       var REVP = '2024-10-15';
       function kvp(path, method, payload) { return fetch('https://a.klaviyo.com' + path, { method: method, headers: { 'Authorization': 'Klaviyo-API-Key ' + KLAVIYO_KEY, 'revision': REVP, 'accept': 'application/vnd.api+json', 'content-type': 'application/vnd.api+json' }, body: payload ? JSON.stringify(payload) : undefined }); }
