@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.61 · 6 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.62 · 6 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -1615,7 +1615,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     if(EXTURL[rowKey]){ window.open(EXTURL[rowKey],'_blank'); }
   }
   function trackedState(rowKey, rowData){
-    if(MANUALKEY[rowKey]) return (rowData && rowData.done>=1)?'done':'blank';
+    // manual single-tick rows (ig-tag, tiktok, email-newsletter, and email-promos ONLY when there are no promos that month)
+    if(MANUALKEY[rowKey] && (!rowData || rowData.manual)) return (rowData && rowData.done>=1)?'done':'blank';
     if(!rowData || !(rowData.total>0)) return 'blank';
     if(rowData.done<=0) return 'blank';
     if(rowData.done>=rowData.total) return 'done';
@@ -4157,7 +4158,9 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     var c=s.copy||{}, prods=(s.products||[]).slice(0,4);
     var vt=fmtLong(s.expiry), oc=offerCleanOf(c,s);
     var ed=function(role){ return editable?(' contenteditable="true" data-role="'+role+'"'):''; };
-    var intro=(c.intro||[]).map(function(l){ return '<div style="margin:0 0 16px;"'+ed('introline')+'>'+esc(l)+'</div>'; }).join('');
+    // keep Mae's own line breaks (e.g. an emoji she moved onto its own line) instead of collapsing them
+    var brk=function(s){ return esc(s).replace(/\r?\n/g,'<br>'); };
+    var intro=(c.intro||[]).map(function(l){ return '<div style="margin:0 0 16px;"'+ed('introline')+'>'+brk(l)+'</div>'; }).join('');
     // 4 products (2×2) — image fills the cell, underlined title, price (single £), grey SHOP NOW button, all centred
     function pcell(p){
       if(!p) return '<td width="50%" style="border:0;">&nbsp;</td>';
@@ -4180,7 +4183,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     var social=[['instagram_96.png','https://instagram.com/aboutwallart'],['facebook_96.png','https://facebook.com/aboutwallart'],['tiktok_96.png','https://tiktok.com/@aboutwallart'],['pinterest_96.png','https://pinterest.com/aboutwallart'],['linkedin_96.png','https://linkedin.com/company/aboutwallart']]
       .map(function(x){ return '<a href="'+x[1]+'" style="text-decoration:none;display:inline-block;margin:0 6px;"><img src="'+SOC+x[0]+'" width="28" alt="" style="width:28px;height:auto;display:inline-block;"></a>'; }).join('');
     // offer: personal lead-in (from the AI) + offer phrase + code + valid-until
-    var offerLead = c.offerLead ? '<div style="margin:0 0 16px;"'+ed('offerlead')+'>'+esc(c.offerLead)+'</div>' : '';
+    var offerLead = c.offerLead ? '<div style="margin:0 0 16px;"'+ed('offerlead')+'>'+brk(c.offerLead)+'</div>' : '';
     var offerBlock='<div style="text-align:center;margin:6px 0 2px;">'
       + offerLead
       +'<div style="font-weight:700;font-size:19px;color:#0f1419;"'+ed('offer')+'>'+esc(oc)+'</div>'
@@ -4213,7 +4216,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       +'<div style="padding:16px 12px;"><table width="100%" cellpadding="0" cellspacing="0" style="border:none;border-collapse:collapse;margin:0;"><tbody><tr>'+badges+'</tr></tbody></table></div>'
       // closing + signature
       +'<div style="text-align:center;padding:20px 30px 30px;font-size:18px;line-height:1.55;color:#0f1419;">'
-        +(c.closingText?'<div style="margin:0 0 16px;"'+ed('closing')+'>'+esc(c.closingText)+'</div>':'')
+        +(c.closingText?'<div style="margin:0 0 16px;"'+ed('closing')+'>'+brk(c.closingText)+'</div>':'')
         +'<img src="'+SIGN_IMG+'" width="110" alt="Mae" style="width:110px;height:auto;display:block;margin:6px auto 0;"></div>'
       // footer — black band (matches the template / newsletter)
       +'<div style="background:#000;color:#fff;text-align:center;padding:26px 20px;font-family:'+PFONT+';">'
@@ -4482,6 +4485,18 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
                 +'<label style="font-size:12px;color:#555;display:block;margin-top:6px;">…or paste an image URL:<br><input id="hero-'+uid+'" placeholder="https://…" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;"></label>'
               +'</div>'
               +'<div style="margin-top:6px;font-size:12px;color:#555;">'+ (s.products.length? (s.products.length+' best-selling products loaded into the email from <b>'+esc((o.collections&&o.collections[0])||'')+'</b>') : 'No products found — check the collection handle.') +'</div>'
+              // OPTIONAL: choose your own 4 products by SKU (any collection), instead of the collection best-sellers
+              +'<div style="margin-top:8px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
+                +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">Or pick your own 4 products by SKU (any collection)</div>'
+                +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'
+                  +'<input id="psku1-'+uid+'" placeholder="SKU 1" style="flex:1;min-width:110px;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;">'
+                  +'<input id="psku2-'+uid+'" placeholder="SKU 2" style="flex:1;min-width:110px;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;">'
+                  +'<input id="psku3-'+uid+'" placeholder="SKU 3" style="flex:1;min-width:110px;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;">'
+                  +'<input id="psku4-'+uid+'" placeholder="SKU 4" style="flex:1;min-width:110px;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;">'
+                +'</div>'
+                +'<button id="pskub-'+uid+'" type="button" class="nlbtn" style="background:#555;margin-top:8px;">🔎 Use these products</button>'
+                +'<div id="pskum-'+uid+'" style="font-size:12px;margin-top:4px;"></div>'
+              +'</div>'
               +'<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
                 +'<span style="font-size:12px;color:#555;">Edit the body text right in the preview below.</span>'
                 +regBtn('ri','intro')+regBtn('rc','closing')
@@ -4558,6 +4573,22 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           document.getElementById('tdy-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.titleDy=this.value; refreshPreview(s); });
           document.getElementById('tdx-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.titleDx=this.value; refreshPreview(s); });
           document.getElementById('up-'+uid).addEventListener('click', function(){ pull(); refreshPreview(s); });
+          // Replace the 4 email products with Mae's own SKUs (any collection)
+          document.getElementById('pskub-'+uid).addEventListener('click', function(){
+            var skus=[1,2,3,4].map(function(i){ return (document.getElementById('psku'+i+'-'+uid).value||'').trim(); }).filter(Boolean);
+            var m=document.getElementById('pskum-'+uid);
+            if(!skus.length){ m.style.color='#b00'; m.textContent='Type at least one SKU.'; return; }
+            var b=this, ot=b.textContent; b.disabled=true; b.textContent='Loading…'; m.textContent='';
+            emPost({action:'promo-products-by-sku', skus:skus}).then(function(d){
+              b.disabled=false; b.textContent=ot;
+              if(!d||!d.ok){ m.style.color='#b00'; m.textContent=(d&&d.error)||'Could not load.'; return; }
+              var found=(d.products||[]).filter(function(p){ return p && !p.notFound && p.image; });
+              var missing=(d.products||[]).filter(function(p){ return p && p.notFound; }).map(function(p){ return p.sku; });
+              if(!found.length){ m.style.color='#b00'; m.textContent='No products found for those SKUs.'; return; }
+              readPromoEmail(s); s.products=found; refreshPreview(s);
+              m.style.color='#0F6E56'; m.textContent='Loaded '+found.length+' product'+(found.length>1?'s':'')+' into the email.'+(missing.length?(' Not found: '+missing.join(', ')):'');
+            }).catch(function(){ b.disabled=false; b.textContent=ot; m.style.color='#b00'; m.textContent='Network error.'; });
+          });
           // Rewrite subject + preview + body from Mae's free-text notes (keeps the title she chose)
           document.getElementById('rw-'+uid).addEventListener('click', function(){
             var note=(document.getElementById('note-'+uid).value||'').trim();
