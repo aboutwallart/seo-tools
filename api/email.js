@@ -722,6 +722,32 @@ module.exports = async (req, res) => {
       return;
     }
 
+    // ---- fetch specific products by SKU (Mae's own 4, any collection), same shape as promo-products ----
+    if (action === 'promo-products-by-sku') {
+      var skus = Array.isArray(body.skus) ? body.skus.map(function (x) { return String(x || '').trim(); }).filter(Boolean).slice(0, 8) : [];
+      var outS = [];
+      for (var xi = 0; xi < skus.length; xi++) {
+        try {
+          var sq = await shopifyGraphQL(
+            'query($q:String!){ products(first:1, query:$q){ edges{ node{ title handle onlineStoreUrl vendor featuredImage{ url altText } priceRangeV2{ minVariantPrice{ amount currencyCode } } } } } }',
+            { q: 'sku:' + skus[xi] }
+          );
+          var sn = (sq && sq.products && sq.products.edges && sq.products.edges[0] && sq.products.edges[0].node) || null;
+          if (!sn) { outS.push({ sku: skus[xi], notFound: true }); continue; }
+          var curS = sn.priceRangeV2 && sn.priceRangeV2.minVariantPrice;
+          outS.push({
+            sku: skus[xi], title: sn.title, handle: sn.handle,
+            url: sn.onlineStoreUrl || (PROMO_SITE + '/products/' + sn.handle),
+            image: sn.featuredImage ? retinaImg(sn.featuredImage.url, 600) : '',
+            alt: (sn.featuredImage && sn.featuredImage.altText) || sn.title,
+            price: curS ? ((curS.currencyCode === 'GBP' ? '£' : '') + Number(curS.amount).toFixed(0)) : ''
+          });
+        } catch (e) { outS.push({ sku: skus[xi], notFound: true }); }
+      }
+      res.status(200).json({ ok: true, products: outS });
+      return;
+    }
+
     // ---- AI writes the promo copy (brand voice, first name, offer once, ONE topic CTA, warm closing) ----
     // Optional body.only = 'subject'|'title'|'intro'|'closing' -> regenerate just that field (per-field Regenerate).
     if (action === 'promo-write' || action === 'promo-rewrite') {
@@ -762,6 +788,7 @@ module.exports = async (req, res) => {
         'You write promotional emails for About Wall Art, a UK wall-art brand. Voice: warm, kind, human, first-person, spoken — NEVER poetic, pushy or "AI". Value first, offer soft; emotional gift-suggestion tone (e.g. "Mother\'s Day is coming — she did so much for you…"). A few tasteful emojis are fine. One brand voice speaking to "you". Banned: buzzwords, "buy buy buy", urgency-shouting.',
         'PRODUCT WORDING RULE (critical): we do NOT sell single prints. NEVER write "a print", "a new print", "prints" or "a piece". Always say "wall art", "an art set", a "wall art set" or "a set of wall art".',
         'DISCOUNT SCOPE RULE (critical): frame the offer AROUND the wall art — e.g. "' + (pct || '15') + '% off your new wall art sets". NEVER say "your whole order", "your entire purchase", "your total", "everything", "sitewide" or "store-wide". Keep it natural — do NOT get technical about which products qualify.',
+        'PUNCTUATION RULE (critical): NEVER use an em dash or en dash (the long dashes) anywhere in any field. Use a comma, a full stop, or rephrase instead. Mae dislikes those dashes.',
         'Occasion: "' + topic + '". Why it sells art: ' + (occ.relevance || '') + '.',
         'Write EVERYTHING in ' + spelling + '. (The footer stays English — not your job.)',
         'The offer: ' + (pct ? pct + '% off' : 'a special offer') + (code ? ', code ' + code : '') + (expiry ? ', valid until ' + expiry : '') + '. State it ONCE. Exactly ONE call to action.',
@@ -792,6 +819,7 @@ module.exports = async (req, res) => {
         'You write the FOLLOW-UP email (the 2nd email, sent 3 days after the first) for About Wall Art, a UK wall-art brand. Voice: warm, kind, human, first-person, spoken — NEVER poetic, pushy or "AI". A few tasteful emojis are fine.',
         'PRODUCT WORDING RULE (critical): never "a print"/"prints" — always "wall art", "an art set", a "wall art set".',
         'DISCOUNT SCOPE RULE (critical): frame the offer AROUND the wall art — e.g. "' + (fpct || '15') + '% off your new wall art sets". NEVER say "your whole order", "your entire purchase", "your total", "everything", "sitewide" or "store-wide". Keep it natural.',
+        'PUNCTUATION RULE (critical): NEVER use an em dash or en dash (the long dashes) anywhere. Use a comma, a full stop, or rephrase instead. Mae dislikes those dashes.',
         'This is a FOLLOW-UP, so it is VALUE-FIRST and NOT "last chance"/urgency. Lead with something genuinely helpful — a tip or idea tied to "' + ftopic + '" (' + (focc.relevance || '') + ') — THEN a SOFT reminder that the ' + (fpct ? fpct + '% ' : '') + 'code is still there if it helps. Gentle, no pressure.',
         'Everything in ' + fspelling + '. The offer is the SAME as the first email: ' + (fpct ? fpct + '% off' : 'the offer') + (fcode ? ', code ' + fcode : '') + (fexpiry ? ', valid until ' + fexpiry : '') + '. State it ONCE, softly. Exactly ONE call to action.',
         'It must feel DIFFERENT from the first email and hand-written — vary the wording, never a canned line. Keep it SHORT.',
@@ -968,6 +996,8 @@ module.exports = async (req, res) => {
         'Proofread this UK-English promotional email copy. Find ONLY real spelling, grammar and punctuation mistakes — do NOT rewrite style or voice.',
         'Also flag if it says "print"/"prints"/"a piece" (we sell "wall art" / "art sets", never single prints).',
         'Also flag (and correct) any wording that says the discount is off "your whole order", "your entire purchase", "your total", "everything", "sitewide" or "store-wide" — the offer must be framed around the wall art (e.g. "off your new wall art sets"), never the whole order.',
+        'Replace every em dash and en dash (the long dashes) with a comma or a full stop (Mae dislikes them). This is the ONLY punctuation you may change on that count.',
+        'CRITICAL: do NOT touch emojis and do NOT change line breaks or where anything sits on the line. Keep every emoji exactly where it is, keep every newline exactly as given, and never flag an emoji or a line break as an error. Preserve the text structure; only fix real spelling/grammar/punctuation of the words.',
         'COPY (JSON): ' + JSON.stringify(text).slice(0, 4000),
         'Return ONLY JSON: { "issues":[{"original":"","suggestion":"","why":""}], "corrected":{ "subject":"", "preview":"", "intro":["",""], "offerLine":"", "ctaLabel":"", "closingText":"" } }. If nothing is wrong, issues=[] and corrected repeats the input unchanged.'
       ].join('\n');
