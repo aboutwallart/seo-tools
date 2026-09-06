@@ -785,6 +785,9 @@ module.exports = async (req, res) => {
       var fcode = (body.code || '').toString();
       var fexpiry = (body.expiry || '').toString();
       var ftopic = (focc.name || 'this occasion');
+      var fnote = '';
+      if (body.note) fnote += '\nMY FEEDBACK — APPLY IT: ' + (body.note || '').toString().slice(0, 800);
+      if (body.current) { try { fnote += '\nCURRENT FOLLOW-UP DRAFT (keep the parts I am not changing consistent with this): ' + JSON.stringify(body.current).slice(0, 1500); } catch (e) {} }
       var fpr = [
         'You write the FOLLOW-UP email (the 2nd email, sent 3 days after the first) for About Wall Art, a UK wall-art brand. Voice: warm, kind, human, first-person, spoken — NEVER poetic, pushy or "AI". A few tasteful emojis are fine.',
         'PRODUCT WORDING RULE (critical): never "a print"/"prints" — always "wall art", "an art set", a "wall art set".',
@@ -792,6 +795,7 @@ module.exports = async (req, res) => {
         'This is a FOLLOW-UP, so it is VALUE-FIRST and NOT "last chance"/urgency. Lead with something genuinely helpful — a tip or idea tied to "' + ftopic + '" (' + (focc.relevance || '') + ') — THEN a SOFT reminder that the ' + (fpct ? fpct + '% ' : '') + 'code is still there if it helps. Gentle, no pressure.',
         'Everything in ' + fspelling + '. The offer is the SAME as the first email: ' + (fpct ? fpct + '% off' : 'the offer') + (fcode ? ', code ' + fcode : '') + (fexpiry ? ', valid until ' + fexpiry : '') + '. State it ONCE, softly. Exactly ONE call to action.',
         'It must feel DIFFERENT from the first email and hand-written — vary the wording, never a canned line. Keep it SHORT.',
+        fnote,
         'Return ONLY JSON with EXACTLY these keys: { "subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'there\' }} then a comma, then a warm helpful line about ' + ftopic + '", "preview":"one short human line", "intro":["2 to 3 SHORT value-first lines — a helpful tip/idea, not a sell"], "offerLead":"ONE soft, personal line that gently reminds the code is still there — NOT urgency, e.g. and if it helps, your code is still waiting", "ctaLabel":"2-3 word button label tied to ' + ftopic + '", "closingText":"a warm offer-to-help closing above the signature, DIFFERENT every time" }'
       ].join('\n');
       var fraw = await anthropic(fpr, 1200);
