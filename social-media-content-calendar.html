@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.65 · 6 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.67 · 6 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -4212,8 +4212,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       +(s.code?'<div style="font-weight:700;font-size:17px;color:#0f1419;margin-top:6px;">Use code '+esc(s.code)+'</div>':'')
       +(vt?'<div style="font-weight:400;font-size:13px;color:#777;margin-top:6px;">Valid until '+esc(vt)+'</div>':'')
       +'</div>');
-    // main CTA — black, UPPERCASE, centred
-    var cta='<div style="text-align:center;margin:8px 0 20px;"><a href="'+esc(s.ctaUrl||'#')+'"'+(editable?' onclick="return false"':'')+' style="display:inline-block;background:#000;color:#fff;text-decoration:none;text-transform:uppercase;letter-spacing:1px;font-size:16px;font-family:'+PFONT+';padding:15px 40px;"'+ed('cta')+'>'+esc(c.ctaLabel||('Shop '+((s.occ&&s.occ.name)||'now')))+'</a></div>';
+    // main CTA — black, UPPERCASE, centred (hidden on the no-offer teasers: no real action to take)
+    var cta=s.noCta?'':'<div style="text-align:center;margin:8px 0 20px;"><a href="'+esc(s.ctaUrl||'#')+'"'+(editable?' onclick="return false"':'')+' style="display:inline-block;background:#000;color:#fff;text-decoration:none;text-transform:uppercase;letter-spacing:1px;font-size:16px;font-family:'+PFONT+';padding:15px 40px;"'+ed('cta')+'>'+esc(c.ctaLabel||('Shop '+((s.occ&&s.occ.name)||'now')))+'</a></div>';
     var cd = (s.noOffer || !countdownImg(s.expiry)) ? '' : '<div style="text-align:center;margin:6px 0 16px;"><img src="'+countdownImg(s.expiry)+'" alt="Offer ends soon" width="440" style="width:100%;max-width:440px;height:auto;display:block;margin:0 auto;"></div>';
 
     return '<div style="max-width:600px;margin:0 auto;background:#fff;font-family:'+PFONT+';color:#0f1419;">'
@@ -4400,6 +4400,26 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     return w.slice(0,10)+(pct||'15');
   }
 
+  // Wall-art collections from the store's SHOP WALL ART mega-menu (used by the hero + products dropdowns)
+  var WALLART_COLLS=[
+    ['Best sellers',[['best-sellers','Best sellers']]],
+    ['By Room',[['above-fireplaces','Above Fireplace'],['bathroom-decor-for-walls','Bathroom'],['wall-art-for-a-bedroom','Bedroom'],['games-room-decor','Games room'],['hallways','Hallway'],['kitchen-wall-art-decor','Kitchen'],['laundry-room','Laundry room'],['framed-wall-pictures-for-living-room','Living room'],['wall-art-for-nurseries','Nursery'],['office-wall-artwork','Office'],['teens-bedroom-decor','Teens Bedroom']]],
+    ['By Style',[['abstract-art-prints','Abstract'],['bohemian-wall-art','Bohemian'],['chinoiserie-wall-decor','Chinoiserie'],['christian-wall-art','Christian'],['coastal-decor','Coastal'],['coffee-wall-art','Coffee'],['contemporary-wall-art','Contemporary'],['eclectic-maximalist-decor','Eclectic Maximalism'],['farmhouse-wall-art','Farmhouse'],['french-country-wall-art','French Country'],['wall-islamic-art','Islamic'],['japan-wall-art','Japandi'],['marble-wall-art','Marble'],['minimalist-art-prints','Minimalism'],['scandinavian-wall-art','Scandinavian'],['shabby-and-chic-home-decor','Shabby Chic'],['sun-and-moon-art','Sun & Moon'],['travel-wall-art','Travel'],['tropical-wall-art','Tropical'],['wild-life-decor','Wild Life'],['spiritual-wall-art','Zen']]],
+    ['By Colour',[['black-and-white-art-on-wall','Black & White'],['earth-tone-wall-decor','Earth Toned'],['gold-wall-art','Gold'],['pastel-art','Pastels'],['pink-wall-art','Pink'],['neutral-wall-art','Neutrals'],['teal-colour-wall-art','Teal']]],
+    ['By Occasion',[['unique-birthday-gifts','Birthdays'],['birthstone-gifts-that-arent-jewelry','Birthstones'],['christmas-wall-decor','Christmas'],['personalised-family-gifts','Family Reunion'],['prints-of-love','Prints of Love'],['zodiac-in-art','Zodiac']]],
+    ['Featured',[['new-arrivals','New arrivals'],['light-up-your-wall-art','Light Up Your Wall Art'],['picture-frames-sizes','Picture Frames']]]
+  ];
+  function wallArtCollOptions(sel){
+    sel=(sel||'').toString(); var found=false, html='';
+    WALLART_COLLS.forEach(function(g){
+      html+='<optgroup label="'+esc(g[0])+'">';
+      g[1].forEach(function(c){ var on=(c[0]===sel); if(on)found=true; html+='<option value="'+esc(c[0])+'"'+(on?' selected':'')+'>'+esc(c[1])+'</option>'; });
+      html+='</optgroup>';
+    });
+    if(sel && !found) html='<optgroup label="Current"><option value="'+esc(sel)+'" selected>'+esc(sel)+'</option></optgroup>'+html;
+    return html;
+  }
+
   var startBtn=document.getElementById('mpEmStart');
   if(startBtn) startBtn.addEventListener('click', function(){
     var picked=[].slice.call(document.querySelectorAll('#mpEmOccList .mpEmChk:checked')).map(function(c){ return c.getAttribute('data-oid'); });
@@ -4476,23 +4496,11 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
             '<div style="margin-top:6px;">'
               +'<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;"><label style="flex:1;min-width:220px;font-size:12px;color:#555;">Subject line (with first name)<br><input id="s-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.subject||'')+'"></label>'+regBtn('rs','subject')+'</div>'
               +'<label style="font-size:12px;color:#555;">Preview text<br><input id="pr-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.preview||'')+'"></label>'
-              // TITLE — short, options to choose, editable words, nudge sliders
-              +'<div style="margin-top:12px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
-                +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">Title — keep it short. Pick an option, or edit the words.</div>'
-                +'<div id="topt-'+uid+'" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"></div>'
-                +'<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;"><label style="flex:1;min-width:140px;font-size:12px;color:#555;">Caps (max 3 words)<br><input id="tt-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.titleTop||'')+'"></label>'
-                  +'<label style="flex:1;min-width:140px;font-size:12px;color:#555;">Script (max 3 words)<br><input id="ts-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.titleScript||'')+'"></label>'+regBtn('rt','more options')+'</div>'
-                +'<div style="display:flex;gap:16px;align-items:center;margin-top:10px;font-size:12px;color:#555;flex-wrap:wrap;">'
-                  +'<span>Move script ↕ <input id="tdy-'+uid+'" type="range" min="-60" max="60" value="0" style="vertical-align:middle;"></span>'
-                  +'<span>↔ <input id="tdx-'+uid+'" type="range" min="-60" max="60" value="0" style="vertical-align:middle;"></span>'
-                +'</div>'
-              +'</div>'
               // HERO — same picker as Blog Manager
               +'<div style="margin-top:12px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
                 +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">Hero image — pick a product image as the <b>source</b> → Copy → paste into Shopify AI → <b>Upload</b> the lifestyle image it makes.</div>'
                 +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'
-                  +'<input id="hcol-'+uid+'" list="hcl-'+uid+'" value="'+esc(cols[0]||'')+'" placeholder="collection handle" style="flex:1;min-width:180px;padding:7px;border:1px solid #ddd;border-radius:6px;">'
-                  +'<datalist id="hcl-'+uid+'">'+colOpts+'</datalist>'
+                  +'<select id="hcol-'+uid+'" style="flex:1;min-width:180px;padding:7px;border:1px solid #ddd;border-radius:6px;">'+wallArtCollOptions(cols[0]||'best-sellers')+'</select>'
                   +'<button id="sb-'+uid+'" type="button" class="nlbtn" style="background:#555;">📂 Load collection</button>'
                 +'</div>'
                 +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">'
@@ -4530,6 +4538,17 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
                 +'<textarea id="note-'+uid+'" rows="2" placeholder="e.g. warmer opening, make the subject punchier, mention cosy autumn evenings, cut the last line" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;"></textarea>'
                 +'<button id="rw-'+uid+'" type="button" class="nlbtn" style="background:#534AB7;margin-top:8px;">🔁 Rewrite with my notes</button>'
                 +'<div id="rwmsg-'+uid+'" style="font-size:12px;margin-top:4px;"></div>'
+              +'</div>'
+              // TITLE — kept just above the preview so it is easy to see how it looks without scrolling
+              +'<div style="margin-top:12px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
+                +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">Title — keep it short. Pick an option, or edit the words.</div>'
+                +'<div id="topt-'+uid+'" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"></div>'
+                +'<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;"><label style="flex:1;min-width:140px;font-size:12px;color:#555;">Caps (max 3 words)<br><input id="tt-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.titleTop||'')+'"></label>'
+                  +'<label style="flex:1;min-width:140px;font-size:12px;color:#555;">Script (max 3 words)<br><input id="ts-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.titleScript||'')+'"></label>'+regBtn('rt','more options')+'</div>'
+                +'<div style="display:flex;gap:16px;align-items:center;margin-top:10px;font-size:12px;color:#555;flex-wrap:wrap;">'
+                  +'<span>Move script ↕ <input id="tdy-'+uid+'" type="range" min="-60" max="60" value="0" style="vertical-align:middle;"></span>'
+                  +'<span>↔ <input id="tdx-'+uid+'" type="range" min="-60" max="60" value="0" style="vertical-align:middle;"></span>'
+                +'</div>'
               +'</div>'
               +'<div style="font-size:12px;color:#555;margin:14px 0 4px;">Full preview (desktop width) — click any text to edit it</div>'
               +'<div style="overflow:auto;"><div id="pv-'+uid+'" style="width:600px;margin:0 auto;border:1px solid #e3e3e3;border-radius:8px;background:#fff;"></div></div>'
@@ -4840,7 +4859,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       // the shared/base email uses the UK numbers; the rest-of-world version is derived by swapping the % + code
       var s={ uid:uid, occ:{ id:'q4-'+item.role, name:'Black Friday', collections:[Q4COL] }, lg:'en', market:'UK',
               copy:null, products:[], hero:'', expiry:(offer?send:''), sendDate:send, pct:(offer?ukPct:''), code:(offer?ukCode:''),
-              titleDy:0, titleDx:0, ctaUrl:Q4CTA, noOffer:!offer, noProdButtons:!offer, checked:false, approved:false };
+              titleDy:0, titleDx:0, ctaUrl:Q4CTA, noOffer:!offer, noProdButtons:!offer, noCta:!offer, checked:false, approved:false };
       var cols=[Q4COL];
       var badge = offer
         ? '<span style="font-size:11px;background:#d6f0dd;color:#1a7f37;padding:1px 7px;border-radius:6px;">UK '+ukPct+'% · Rest '+rsPct+'%</span>'
@@ -4903,7 +4922,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         if(offer){ s.pct=document.getElementById('d-'+uid).value||ukPct; s.code=(document.getElementById('c-'+uid).value||'').toUpperCase(); }
         Promise.all([
           emPost({action:'q4-write', role:item.role, discount:s.pct, code:s.code, expiry:s.expiry, vipDate:vipDate, bfDate:bfNice}),
-          emPost({action:'promo-products', collections:cols, count:4})
+          emPost({action:'promo-products', collections:['all'], count:4, skip:idx*4}) // a different set of best sellers per email
         ]).then(function(res){
           btn.disabled=false; btn.textContent='✍️ Re-write';
           var w=res[0], pp=res[1];
@@ -4923,23 +4942,11 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
             '<div style="margin-top:6px;">'
               +'<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;"><label style="flex:1;min-width:220px;font-size:12px;color:#555;">Subject line (with first name)<br><input id="s-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.subject||'')+'"></label>'+regBtn('rs','subject')+'</div>'
               +'<label style="font-size:12px;color:#555;">Preview text<br><input id="pr-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.preview||'')+'"></label>'
-              // TITLE
-              +'<div style="margin-top:12px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
-                +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">Title — keep it short. Pick an option, or edit the words.</div>'
-                +'<div id="topt-'+uid+'" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"></div>'
-                +'<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;"><label style="flex:1;min-width:140px;font-size:12px;color:#555;">Caps (max 3 words)<br><input id="tt-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.titleTop||'')+'"></label>'
-                  +'<label style="flex:1;min-width:140px;font-size:12px;color:#555;">Script (max 3 words)<br><input id="ts-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.titleScript||'')+'"></label>'+regBtn('rt','more options')+'</div>'
-                +'<div style="display:flex;gap:16px;align-items:center;margin-top:10px;font-size:12px;color:#555;flex-wrap:wrap;">'
-                  +'<span>Move script ↕ <input id="tdy-'+uid+'" type="range" min="-60" max="60" value="0" style="vertical-align:middle;"></span>'
-                  +'<span>↔ <input id="tdx-'+uid+'" type="range" min="-60" max="60" value="0" style="vertical-align:middle;"></span>'
-                +'</div>'
-              +'</div>'
               // HERO — same picker as the promos
               +'<div style="margin-top:12px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
                 +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">Hero image — pick a product image as the <b>source</b> → Copy → paste into Shopify AI → <b>Upload</b> the lifestyle image it makes.</div>'
                 +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'
-                  +'<input id="hcol-'+uid+'" list="hcl-'+uid+'" value="'+esc(cols[0]||'')+'" placeholder="collection handle" style="flex:1;min-width:180px;padding:7px;border:1px solid #ddd;border-radius:6px;">'
-                  +'<datalist id="hcl-'+uid+'">'+colOpts+'</datalist>'
+                  +'<select id="hcol-'+uid+'" style="flex:1;min-width:180px;padding:7px;border:1px solid #ddd;border-radius:6px;">'+wallArtCollOptions(cols[0]||'best-sellers')+'</select>'
                   +'<button id="sb-'+uid+'" type="button" class="nlbtn" style="background:#555;">📂 Load collection</button>'
                 +'</div>'
                 +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">'
@@ -4954,6 +4961,15 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
                 +'<label style="font-size:12px;color:#555;display:block;margin-top:6px;">…or paste an image URL:<br><input id="hero-'+uid+'" placeholder="https://…" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;"></label>'
               +'</div>'
               +'<div style="margin-top:6px;font-size:12px;color:#555;">'+ (s.products.length? (s.products.length+' best sellers loaded into the email') : (offer?'No products loaded.':'This email shows no product buttons.')) +'</div>'
+              // OPTIONAL: load the 4 products from another wall-art collection (instead of best sellers)
+              +'<div style="margin-top:8px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
+                +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">Products from another collection (instead of best sellers)</div>'
+                +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'
+                  +'<select id="pcol-'+uid+'" style="flex:1;min-width:200px;padding:7px;border:1px solid #ddd;border-radius:6px;">'+wallArtCollOptions('best-sellers')+'</select>'
+                  +'<button id="pcolb-'+uid+'" type="button" class="nlbtn" style="background:#555;">📦 Use this collection</button>'
+                +'</div>'
+                +'<div id="pcolm-'+uid+'" style="font-size:12px;margin-top:4px;"></div>'
+              +'</div>'
               // OPTIONAL: own 4 products by SKU
               +'<div style="margin-top:8px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
                 +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">Or pick your own 4 products by SKU (any collection)</div>'
@@ -4974,6 +4990,17 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
                 +'<textarea id="note-'+uid+'" rows="2" placeholder="e.g. warmer opening, make the subject punchier, cut the last line" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;"></textarea>'
                 +'<button id="rw-'+uid+'" type="button" class="nlbtn" style="background:#534AB7;margin-top:8px;">🔁 Rewrite with my notes</button>'
                 +'<div id="rwmsg-'+uid+'" style="font-size:12px;margin-top:4px;"></div>'
+              +'</div>'
+              // TITLE — kept just above the preview so it is easy to see how it looks without scrolling
+              +'<div style="margin-top:12px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
+                +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">Title — keep it short. Pick an option, or edit the words.</div>'
+                +'<div id="topt-'+uid+'" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"></div>'
+                +'<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;"><label style="flex:1;min-width:140px;font-size:12px;color:#555;">Caps (max 3 words)<br><input id="tt-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.titleTop||'')+'"></label>'
+                  +'<label style="flex:1;min-width:140px;font-size:12px;color:#555;">Script (max 3 words)<br><input id="ts-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.titleScript||'')+'"></label>'+regBtn('rt','more options')+'</div>'
+                +'<div style="display:flex;gap:16px;align-items:center;margin-top:10px;font-size:12px;color:#555;flex-wrap:wrap;">'
+                  +'<span>Move script ↕ <input id="tdy-'+uid+'" type="range" min="-60" max="60" value="0" style="vertical-align:middle;"></span>'
+                  +'<span>↔ <input id="tdx-'+uid+'" type="range" min="-60" max="60" value="0" style="vertical-align:middle;"></span>'
+                +'</div>'
               +'</div>'
               + previews
               // check + approve + create draft(s)
@@ -5032,6 +5059,17 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           document.getElementById('up-'+uid).addEventListener('click', function(){ pull(); refreshBoth(); });
           document.getElementById('s-'+uid).addEventListener('input', function(){ s.copy.subject=this.value; });
           document.getElementById('pr-'+uid).addEventListener('input', function(){ s.copy.preview=this.value; });
+          // load the 4 products from a chosen wall-art collection
+          document.getElementById('pcolb-'+uid).addEventListener('click', function(){
+            var h=document.getElementById('pcol-'+uid).value; var m=document.getElementById('pcolm-'+uid);
+            var b=this, ot=b.textContent; b.disabled=true; b.textContent='Loading…'; m.textContent='';
+            emPost({action:'promo-products', collections:[h], count:4}).then(function(d){
+              b.disabled=false; b.textContent=ot;
+              if(!d||!d.ok||!(d.products&&d.products.length)){ m.style.color='#b00'; m.textContent='No products found in that collection.'; return; }
+              readPromoEmail(s); s.products=d.products; refreshBoth();
+              m.style.color='#0F6E56'; m.textContent='Loaded '+d.products.length+' product'+(d.products.length>1?'s':'')+' from that collection.';
+            }).catch(function(){ b.disabled=false; b.textContent=ot; m.style.color='#b00'; m.textContent='Network error.'; });
+          });
           // SKU override
           document.getElementById('pskub-'+uid).addEventListener('click', function(){
             var skus=[1,2,3,4].map(function(i){ return (document.getElementById('psku'+i+'-'+uid).value||'').trim(); }).filter(Boolean);
