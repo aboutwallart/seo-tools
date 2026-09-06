@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.60 · 5 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.61 · 6 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -4039,15 +4039,22 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
 
   mSel.addEventListener('change', renderOcc);
 
+  // A promo belongs to its OCCASION's month (e.g. World Mental Health Day = October), NOT the send month
+  // (which can fall in the previous month because of the anticipation window).
+  function promoDisplayYM(e){
+    var o=occs.filter(function(x){return x.id===e.occasionId;})[0];
+    if(o){ var m=monthOf(o); if(m) return (e.year||'')+'-'+(m<10?'0':'')+m; }
+    return e.month||((e.year||'')+'-01');
+  }
   // "Sent promos" — green collapsible cards, exactly like Past newsletters. Reopen to VIEW (Klaviyo links) or Redo.
   function renderSent(){
     var wrap=document.getElementById('mpSent'), box=document.getElementById('mpSentWrap'); if(!wrap) return;
     var items=Object.keys(promoDone).map(function(k){ return promoDone[k]; }).filter(function(e){ return e&&e.main&&e.followup; });
-    items.sort(function(a,b){ return String((b.month||b.year)+'').localeCompare(String((a.month||a.year)+'')); });
+    items.sort(function(a,b){ return promoDisplayYM(b).localeCompare(promoDisplayYM(a)); });
     if(!items.length){ box.style.display='none'; wrap.innerHTML=''; return; }
     box.style.display=''; wrap.innerHTML='';
     items.forEach(function(e){
-      var ml=monthLabelYM(e.month||((e.year||'')+'-01'));
+      var ml=monthLabelYM(promoDisplayYM(e));
       var bar=document.createElement('div');
       bar.style.cssText='background:#E9F7F1;border:1px solid #Bce3D4;border-radius:10px;padding:12px 14px;margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;';
       bar.innerHTML='<span style="font-weight:700;color:#0F6E56;">'+esc(ml)+' · '+esc(e.occasionName||'Promo')+' <span style="font-weight:600;font-size:12px;">✓ in Klaviyo</span></span><span style="color:#0F6E56;font-size:13px;">▾</span>';
@@ -4480,6 +4487,13 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
                 +regBtn('ri','intro')+regBtn('rc','closing')
               +'</div>'
               +'<div style="margin-top:10px;"><button id="up-'+uid+'" class="nlbtn" type="button" style="background:#555;">↻ Update preview</button></div>'
+              // free-text guidance -> rewrite subject + preview + body (same idea as the newsletter "tell the AI")
+              +'<div style="margin-top:12px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
+                +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">If it\'s not right — tell the AI how to rewrite it</div>'
+                +'<textarea id="note-'+uid+'" rows="2" placeholder="e.g. warmer opening, make the subject punchier, mention cosy autumn evenings, cut the last line" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;"></textarea>'
+                +'<button id="rw-'+uid+'" type="button" class="nlbtn" style="background:#534AB7;margin-top:8px;">🔁 Rewrite with my notes</button>'
+                +'<div id="rwmsg-'+uid+'" style="font-size:12px;margin-top:4px;"></div>'
+              +'</div>'
               +'<div style="font-size:12px;color:#555;margin:14px 0 4px;">Full preview (desktop width) — click any text to edit it</div>'
               +'<div style="overflow:auto;"><div id="pv-'+uid+'" style="width:600px;margin:0 auto;border:1px solid #e3e3e3;border-radius:8px;background:#fff;"></div></div>'
               // N+O: final buttons below the preview, same as the newsletter
@@ -4544,6 +4558,28 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           document.getElementById('tdy-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.titleDy=this.value; refreshPreview(s); });
           document.getElementById('tdx-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.titleDx=this.value; refreshPreview(s); });
           document.getElementById('up-'+uid).addEventListener('click', function(){ pull(); refreshPreview(s); });
+          // Rewrite subject + preview + body from Mae's free-text notes (keeps the title she chose)
+          document.getElementById('rw-'+uid).addEventListener('click', function(){
+            var note=(document.getElementById('note-'+uid).value||'').trim();
+            var msg=document.getElementById('rwmsg-'+uid);
+            if(!note){ msg.style.color='#b00'; msg.textContent='Type what you want changed first.'; return; }
+            pull(); var b=this, ot=b.textContent; b.disabled=true; b.textContent='Rewriting…'; msg.textContent='';
+            emPost({action:'promo-rewrite', occasion:o, discount:document.getElementById('d-'+uid).value, code:document.getElementById('c-'+uid).value, expiry:s.expiry, note:note, current:s.copy}).then(function(d){
+              b.disabled=false; b.textContent=ot;
+              if(!d||!d.ok||!d.copy){ msg.style.color='#b00'; msg.textContent=(d&&d.error)||'Could not rewrite — try again.'; return; }
+              var k=d.copy, tt=s.copy.titleTop, ts=s.copy.titleScript; // keep the title you chose
+              if(k.subject!=null)s.copy.subject=k.subject; if(k.preview!=null)s.copy.preview=k.preview;
+              if(k.intro!=null)s.copy.intro=k.intro; if(k.offerLead!=null)s.copy.offerLead=k.offerLead; if(k.offerLine!=null)s.copy.offerLine=k.offerLine; if(k.ctaLabel!=null)s.copy.ctaLabel=k.ctaLabel; if(k.closingText!=null)s.copy.closingText=k.closingText;
+              s.copy.titleTop=tt; s.copy.titleScript=ts;
+              document.getElementById('s-'+uid).value=s.copy.subject||''; document.getElementById('pr-'+uid).value=s.copy.preview||'';
+              refreshPreview(s); s.checked=false; s.approved=false; // must re-check grammar + re-approve after a rewrite
+              var apb=document.getElementById('ap-'+uid); if(apb){ apb.innerHTML='✓ Approve the main email'; apb.style.background='#0F6E56'; }
+              var apm=document.getElementById('apmsg-'+uid); if(apm) apm.textContent='';
+              var cbw0=document.getElementById('cbwrap-'+uid); if(cbw0) cbw0.style.display='none';
+              msg.style.color='#0F6E56'; msg.textContent='Rewritten — check it, then run the grammar check again before approving.';
+              document.getElementById('note-'+uid).value='';
+            }).catch(function(){ b.disabled=false; b.textContent=ot; msg.style.color='#b00'; msg.textContent='Network error.'; });
+          });
           // (the Create-discount button lives up top, next to the coupon)
           document.getElementById('sb-'+uid).addEventListener('click', function(){ loadHeroProducts(s); });
           document.getElementById('ssku-'+uid).addEventListener('click', function(){ searchHeroBySku(s); });
@@ -4593,7 +4629,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
               if(!v.exists){ cb.disabled=false; cb.textContent=CBLABEL; rr.innerHTML='<span style="color:#b00;">The code <b>'+esc(curCode)+'</b> is not in Shopify yet — press "Create discount in Shopify" first.</span>'; return; }
               // 1) create the MAIN draft
               cb.textContent='Creating main…'; pull();
-              var mo=(s.sendDate||'').slice(0,7);
+              var omo=monthOf(o); var mo=year+'-'+(omo<10?'0':'')+omo; // the occasion's month (not the earlier send month)
               var mainHtml=buildPromoFullDoc(s);
               emPost({action:'promo-create-draft', kind:'main', name:'PROMO '+o.name, subject:s.copy.subject, preview:s.copy.preview, html:mainHtml, market:s.market, occasionId:o.id, occasionName:o.name, year:String(year), month:mo}).then(function(dm){
                 if(!dm||!dm.ok){ cb.disabled=false; cb.textContent=CBLABEL; rr.innerHTML='<span style="color:#b00;">Main draft failed: '+esc((dm&&dm.error)||'error')+'.</span><br>Nothing was created — press the button to try the whole block again.'; return; }
@@ -4608,6 +4644,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
                     // BOTH in Klaviyo → collapse the whole block
                     promoDone[o.id+'|'+year]={occasionId:o.id, occasionName:o.name, year:String(year), month:mo, main:{url:mainUrl}, followup:{url:df.url}};
                     renderSent(); // add it to the green "Sent promos" cards up top
+                    // drop this occasion from the pending list right away (no reload needed)
+                    var chk=document.querySelector('#mpEmOccList .mpEmChk[data-oid="'+o.id+'"]'); if(chk){ var lbl=chk.closest('label'); if(lbl) lbl.parentNode.removeChild(lbl); updateStart(); }
                     card.innerHTML='<div class="nlhd">✓ '+esc(o.name)+' — both emails in Klaviyo</div>'
                       +'<div style="font-size:12.5px;color:#555;margin-top:8px;line-height:1.6;">'
                         +'<b>Main:</b> <a href="'+esc(mainUrl)+'" target="_blank">open in Klaviyo ↗</a> — schedule for <b>'+esc(fmtNice(s.sendDate)||'the send date')+'</b><br>'
@@ -4640,6 +4678,12 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
                 +'<label style="font-size:12px;color:#555;">Preview text<br><input id="fpr-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c2.preview||'')+'"></label>'
                 +'<div style="font-size:12px;color:#555;margin:12px 0 4px;">Edit the text in the preview (title, hero, products &amp; countdown are the same as the main). Sends <b>'+esc(fmtNice(s2.sendDate)||'3 days later')+'</b>.</div>'
                 +'<div style="overflow:auto;"><div id="pv-'+uid+'f" style="width:600px;margin:0 auto;border:1px solid #e3e3e3;border-radius:8px;background:#fff;"></div></div>'
+                +'<div style="margin-top:12px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
+                  +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">If it\'s not right — tell the AI how to rewrite it</div>'
+                  +'<textarea id="fnote-'+uid+'" rows="2" placeholder="e.g. softer reminder, lead with a styling tip, make it shorter, warmer sign-off" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;"></textarea>'
+                  +'<button id="frw-'+uid+'" type="button" class="nlbtn" style="background:#534AB7;margin-top:8px;">🔁 Rewrite with my notes</button>'
+                  +'<div id="frwmsg-'+uid+'" style="font-size:12px;margin-top:4px;"></div>'
+                +'</div>'
                 +'<div style="margin-top:16px;text-align:center;">'
                   +'<button id="fck-'+uid+'" class="nlbtn" type="button" style="background:#534AB7;margin-bottom:10px;">🔤 Check spelling & grammar</button>'
                   +'<div id="fckmsg-'+uid+'" style="font-size:13px;"></div>'
@@ -4648,6 +4692,26 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
                   +'<div id="fapmsg-'+uid+'" style="font-size:13px;"></div>'
                 +'</div></div>';
               var pullF=pullFollowup;
+              // Rewrite the follow-up from Mae's free-text notes (keeps value-first voice + the main's title)
+              document.getElementById('frw-'+uid).addEventListener('click', function(){
+                var note=(document.getElementById('fnote-'+uid).value||'').trim();
+                var fm=document.getElementById('frwmsg-'+uid);
+                if(!note){ fm.style.color='#b00'; fm.textContent='Type what you want changed first.'; return; }
+                pullF(); var b=this, ot=b.textContent; b.disabled=true; b.textContent='Rewriting…'; fm.textContent='';
+                emPost({action:'promo-followup-write', occasion:o, discount:s2.pct, code:s2.code, expiry:s2.expiry, note:note, current:s2.copy}).then(function(d){
+                  b.disabled=false; b.textContent=ot;
+                  if(!d||!d.ok||!d.copy){ fm.style.color='#b00'; fm.textContent=(d&&d.error)||'Could not rewrite — try again.'; return; }
+                  var tt=s2.copy.titleTop, ts=s2.copy.titleScript;
+                  s2.copy=d.copy; s2.copy.titleTop=tt; s2.copy.titleScript=ts; // keep the main's title
+                  document.getElementById('fs-'+uid).value=s2.copy.subject||''; document.getElementById('fpr-'+uid).value=s2.copy.preview||'';
+                  refreshPreview(s2); s2.checked=false; s2.approved=false; // must re-check grammar + re-approve after a rewrite
+                  var fapb=document.getElementById('fap-'+uid); if(fapb){ fapb.innerHTML='✓ Approve the follow-up'; fapb.style.background='#0F6E56'; }
+                  var fapm=document.getElementById('fapmsg-'+uid); if(fapm) fapm.textContent='';
+                  var cbw1=document.getElementById('cbwrap-'+uid); if(cbw1) cbw1.style.display='none';
+                  fm.style.color='#0F6E56'; fm.textContent='Rewritten — check it, then run the grammar check again before approving.';
+                  document.getElementById('fnote-'+uid).value='';
+                }).catch(function(){ b.disabled=false; b.textContent=ot; fm.style.color='#b00'; fm.textContent='Network error.'; });
+              });
               document.getElementById('fck-'+uid).addEventListener('click', function(){
                 pullF(); var cb=this; cb.disabled=true; var o2=cb.textContent; cb.textContent='Checking…';
                 var msg=document.getElementById('fckmsg-'+uid), wrap=document.getElementById('fckwrap-'+uid); msg.textContent=''; wrap.style.display='none'; wrap.innerHTML='';
