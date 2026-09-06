@@ -861,8 +861,11 @@ module.exports = async (req, res) => {
       if (body.note) qnote += '\nMY FEEDBACK — APPLY IT: ' + (body.note || '').toString().slice(0, 800);
       if (body.current) { try { qnote += '\nCURRENT DRAFT (keep the parts I am not changing consistent with this): ' + JSON.stringify(body.current).slice(0, 1500); } catch (e) {} }
       var qbrief = R.brief.replace(/\{vipDate\}/g, qvip || 'the VIP date').replace(/\{bfDate\}/g, qbf || 'Black Friday');
+      var qdual = !!body.dual && R.hasOffer; // one body, {PCT} token -> two market versions (UK / rest of world)
       var offerKeys = R.hasOffer
-        ? '"offerLead":"ONE warm first-person line leading into the offer", "offerLine":"the offer phrase ONLY, framed around the wall art, e.g. ' + (qpct || '30') + '% off your wall art sets — no code, no date",'
+        ? (qdual
+            ? '"offerLead":"ONE warm first-person line leading into the offer", "offerLine":"the offer phrase ONLY, framed around the wall art, exactly like {PCT}% off your wall art sets, using the literal token {PCT} in place of the number, no code, no date",'
+            : '"offerLead":"ONE warm first-person line leading into the offer", "offerLine":"the offer phrase ONLY, framed around the wall art, e.g. ' + (qpct || '30') + '% off your wall art sets, no code, no date",')
         : '"offerLead":"", "offerLine":"",';
       var qpr = [
         'You write ONE email in About Wall Art\'s Black Friday / Q4 sequence. Voice: warm, kind, human, first-person (Mae), spoken — NEVER poetic, pushy or "AI". A few tasteful emojis are fine.',
@@ -874,6 +877,7 @@ module.exports = async (req, res) => {
         R.hasOffer ? ('The offer: ' + (qpct ? qpct + '% off' : 'a discount') + (qcode ? ', code ' + qcode : '') + (qexpiry ? ', valid until ' + qexpiry : '') + '. State it ONCE. Exactly ONE call to action.') : 'This email has NO discount and NO code — do not invent one.',
         'Fresh, hand-written, DIFFERENT wording every time — never a canned line. Keep it SHORT (Gmail clips long emails). UK English.',
         'The CTA button label must be punchy and FIRST-PERSON (e.g. "I want my discount!", "Show me the sale", "Count me in") — never a generic "Shop now".',
+        qdual ? 'DUAL-MARKET: two versions (UK and rest of world) are generated from this ONE copy with different percentages. Do NOT write any specific percentage number anywhere (not in the subject, intro, offer or closing). Wherever the percentage would appear, write the literal token {PCT} (for example "{PCT}% off your wall art sets"). Do not mention a code.' : '',
         qnote,
         'Return ONLY JSON with EXACTLY these keys: { "subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'friend\' }} then a comma, then a warm line fitting THIS email\'s role (about 55 chars after the name, no buzzwords)", "preview":"one short human line", "titleTop":"SHORT CAPS headline, MAX 3 words, fitting this email", "titleScript":"SHORT handwritten tagline, MAX 3 words", "intro":["2 to 3 SHORT body lines matching the role"], ' + offerKeys + ' "ctaLabel":"2-4 word punchy FIRST-PERSON button label", "closingText":"a warm closing line above the signature, DIFFERENT every time" }'
       ].join('\n');
