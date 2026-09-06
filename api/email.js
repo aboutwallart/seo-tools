@@ -835,6 +835,56 @@ module.exports = async (req, res) => {
       return;
     }
 
+    // ---- Q4 / Black Friday sequence: AI writes ONE email knowing its exact role in the sequence ----
+    if (action === 'q4-write') {
+      var Q4ROLES = {
+        sneak:        { hasOffer: false, brief: 'MYSTERY TEASER #1. Build intrigue: something big is coming for Black Friday, and our most loyal subscribers (VIPs) get first access. Tell them to stay tuned. Do NOT reveal the discount, the %, any code or specific dates. No urgency. Short and exciting; the title should feel like a secret/hint.' },
+        teaser:       { hasOffer: false, brief: 'REVEAL-THE-PLAN teaser. Tell them WHAT is coming and WHEN: VIP early access opens on {vipDate} with the best price of the year, then Black Friday on {bfDate}. Build anticipation, tell them to mark their calendar. No code yet. Do not push shopping.' },
+        countdown:    { hasOffer: false, brief: 'COUNTDOWN. It is almost here — VIP early access opens very soon ({vipDate}). Tell them to get ready / have their favourites in mind. Warm anticipation, no code yet.' },
+        vip_launch:   { hasOffer: true,  brief: 'VIP EARLY ACCESS IS NOW OPEN. Make them feel exclusive and valued ("as one of our VIPs / most loyal"). This is the BEST price of the whole event, even better than Black Friday day. Clear single offer + code. Exactly one punchy first-person CTA. Warm but exciting.' },
+        vip_deadline: { hasOffer: true,  brief: 'VIP DEADLINE. Last hours of the VIP early access, it ends TONIGHT. Gentle real urgency, exclusive. Repeat the offer + code once. Punchy CTA.' },
+        bf_am:        { hasOffer: true,  brief: 'BLACK FRIDAY IS LIVE (morning of the big day). The biggest day is here. Clear offer + code. It ends TONIGHT. Exciting but warm. Punchy CTA.' },
+        bf_pm:        { hasOffer: true,  brief: 'BLACK FRIDAY LAST HOURS (evening). Honest, warm, human urgency in Mae\'s voice: this is the last chance, now or you miss the biggest discount of the year; we went all out and honestly cannot do this again. It genuinely ends at midnight tonight. A real deadline, no generic clichés. Punchy CTA.' },
+        small_biz:    { hasOffer: true,  brief: 'SMALL BUSINESS SATURDAY. Warm gratitude + community: their support means everything, they back a real small business, real families and communities. SURPRISE: because so many showed up (and some missed the deadline), we are keeping the offer going, but it ENDS TODAY. Do NOT mention Cyber Monday or that it continues afterward. Heartfelt, warm, light. Offer + code.' },
+        last_chance:  { hasOffer: true,  brief: 'LAST-CHANCE SUNDAY. Final hours of the extended weekend, it ends TONIGHT. Do NOT mention or hint at Cyber Monday. Warm urgency. Offer + code.' },
+        cyber:        { hasOffer: true,  brief: 'CYBER MONDAY, the genuinely final one. Playful surprise: "ok, one more day... but this is REALLY the last, for real this time." It ends tonight. Offer + code. Punchy CTA.' }
+      };
+      var qrole = (body.role || '').toString();
+      var R = Q4ROLES[qrole];
+      if (!R) { res.status(400).json({ ok: false, error: 'unknown q4 role: ' + qrole }); return; }
+      var qpct = (body.discount || '').toString();
+      var qcode = (body.code || '').toString();
+      var qexpiry = (body.expiry || '').toString();
+      var qvip = (body.vipDate || '').toString();
+      var qbf = (body.bfDate || '').toString();
+      var qnote = '';
+      if (body.note) qnote += '\nMY FEEDBACK — APPLY IT: ' + (body.note || '').toString().slice(0, 800);
+      if (body.current) { try { qnote += '\nCURRENT DRAFT (keep the parts I am not changing consistent with this): ' + JSON.stringify(body.current).slice(0, 1500); } catch (e) {} }
+      var qbrief = R.brief.replace(/\{vipDate\}/g, qvip || 'the VIP date').replace(/\{bfDate\}/g, qbf || 'Black Friday');
+      var offerKeys = R.hasOffer
+        ? '"offerLead":"ONE warm first-person line leading into the offer", "offerLine":"the offer phrase ONLY, framed around the wall art, e.g. ' + (qpct || '30') + '% off your wall art sets — no code, no date",'
+        : '"offerLead":"", "offerLine":"",';
+      var qpr = [
+        'You write ONE email in About Wall Art\'s Black Friday / Q4 sequence. Voice: warm, kind, human, first-person (Mae), spoken — NEVER poetic, pushy or "AI". A few tasteful emojis are fine.',
+        'PRODUCT WORDING (critical): never "a print"/"prints" — always "wall art", "an art set", "wall art sets".',
+        'DISCOUNT SCOPE (critical): frame any offer AROUND the wall art (e.g. "' + (qpct || '30') + '% off your wall art sets"). NEVER "your whole order / everything / sitewide / store-wide". No "up to".',
+        'PUNCTUATION (critical): NEVER use an em dash or en dash. Use commas or full stops instead.',
+        'DEADLINE RULE (critical): if there is urgency it is "ends TODAY / tonight". NEVER pre-announce that the sale will continue or extend, and NEVER mention a future day or Cyber Monday unless the role explicitly says to. Each email is its own real deadline.',
+        'THIS EMAIL\'S ROLE: ' + qbrief,
+        R.hasOffer ? ('The offer: ' + (qpct ? qpct + '% off' : 'a discount') + (qcode ? ', code ' + qcode : '') + (qexpiry ? ', valid until ' + qexpiry : '') + '. State it ONCE. Exactly ONE call to action.') : 'This email has NO discount and NO code — do not invent one.',
+        'Fresh, hand-written, DIFFERENT wording every time — never a canned line. Keep it SHORT (Gmail clips long emails). UK English.',
+        'The CTA button label must be punchy and FIRST-PERSON (e.g. "I want my discount!", "Show me the sale", "Count me in") — never a generic "Shop now".',
+        qnote,
+        'Return ONLY JSON with EXACTLY these keys: { "subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'friend\' }} then a comma, then a warm line fitting THIS email\'s role (about 55 chars after the name, no buzzwords)", "preview":"one short human line", "titleTop":"SHORT CAPS headline, MAX 3 words, fitting this email", "titleScript":"SHORT handwritten tagline, MAX 3 words", "intro":["2 to 3 SHORT body lines matching the role"], ' + offerKeys + ' "ctaLabel":"2-4 word punchy FIRST-PERSON button label", "closingText":"a warm closing line above the signature, DIFFERENT every time" }'
+      ].join('\n');
+      var qraw = await anthropic(qpr, 1300);
+      var qcopy = extractJSON(qraw);
+      if (!qcopy) { res.status(502).json({ ok: false, error: 'AI did not return usable copy', raw: (qraw || '').slice(0, 300) }); return; }
+      qcopy.greeting = "Dear {{ first_name|default:'friend' }},";
+      res.status(200).json({ ok: true, copy: qcopy });
+      return;
+    }
+
     // ---- list a collection's products (image picker: collection -> product -> image) ----
     if (action === 'promo-collection-products') {
       var handle = (body.handle || '').toString().trim();
