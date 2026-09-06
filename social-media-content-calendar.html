@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.64 · 6 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.65 · 6 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -273,7 +273,8 @@
     <div class="emsubnav">
       <button class="emsub active" type="button" data-emsub="newsletters"><i class="ti ti-news"></i> Newsletters</button>
       <button class="emsub" type="button" data-emsub="promos"><i class="ti ti-discount-2"></i> Monthly Promos</button>
-      <button class="emsub" type="button" data-emsub="q4"><i class="ti ti-shopping-cart"></i> Black Friday &amp; Holidays</button>
+      <button class="emsub" type="button" data-emsub="q4"><i class="ti ti-shopping-cart"></i> Black Friday · November</button>
+      <button class="emsub" type="button" data-emsub="dec"><i class="ti ti-gift"></i> December · Holidays</button>
     </div>
 
     <div class="emsubpanel active" id="emsub-newsletters">
@@ -374,16 +375,22 @@
 
     <div class="emsubpanel" id="emsub-q4">
       <div class="nlstep">
-        <div class="nlhd">Black Friday &amp; Holidays — Q4 sequence</div>
-        <p class="nlhint">Pick the year — the dates auto-calculate from Black Friday (4th Friday of November), so this works every year. Each email already knows its job; press <b>Write</b> and edit it in the preview.</p>
+        <div class="nlhd">Black Friday · November</div>
+        <p class="nlhint">Pick the year — the dates auto-calculate from Black Friday (4th Friday of November), so this works every year. Each email already knows its job. Same as the Monthly Promos (products load on their own, hero picker, previews) — just press <b>Write</b> and edit in the preview. Discount emails write <b>both versions at once</b>: UK and the rest of the world.</p>
         <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
           <label style="font-size:12px;color:#555;">Year<br><select id="q4Year" style="border:1px solid #D8D3EE;border-radius:8px;padding:9px 12px;font-size:14px;background:#fff;min-width:120px;"></select></label>
-          <label style="font-size:12px;color:#555;">Market<br><select id="q4Market" style="border:1px solid #D8D3EE;border-radius:8px;padding:9px 12px;font-size:14px;background:#fff;min-width:150px;"><option value="UK">UK</option><option value="REST">Rest of world</option></select></label>
           <div id="q4BfInfo" style="font-size:12.5px;color:#0F6E56;font-weight:700;"></div>
         </div>
         <div id="q4DiscNote" style="font-size:12px;color:#555;margin-top:6px;"></div>
       </div>
       <div id="q4Build"></div>
+    </div>
+
+    <div class="emsubpanel" id="emsub-dec">
+      <div class="nlstep">
+        <div class="nlhd">December · Holidays</div>
+        <p class="nlhint">This is its own sequence, kept separate from Black Friday. Building it next.</p>
+      </div>
     </div>
   </div>
 </section>
@@ -4789,101 +4796,364 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       });
   }
 
-  /* ===== Black Friday & Holidays (Q4) — fixed sequence, dates from BF, reuses the promo render/preview ===== */
+  /* ===== Black Friday · November (Q4) — reuses the Monthly Promos machine (auto products, hero picker, previews); per-email angle; NO follow-up; discount emails write UK + rest of world in one go ===== */
   var q4YSel=document.getElementById('q4Year');
   if(q4YSel){
-    var q4MSel=document.getElementById('q4Market');
     var q4Info=document.getElementById('q4BfInfo');
     var q4DiscNote=document.getElementById('q4DiscNote');
     var q4Wrap=document.getElementById('q4Build');
+    var Q4COL='best-sellers';                 // auto-load 4 best sellers (same idea as the promos)
+    var Q4CTA='https://aboutwallart.com/collections/best-sellers';
+    var Q4_UK_SEG='UK', Q4_REST_SEG='ALL', Q4_UK_SEG_ID='WGvbF3'; // rest = General (ALL) excluding UK
     var Q4SEQ=[
-      {role:'sneak',label:'Sneak Peek (mystery)',off:-14,disc:'',noOffer:true,noBtns:true},
-      {role:'teaser',label:'Teaser (reveal the plan)',off:-7,disc:'',noOffer:true,noBtns:true},
-      {role:'countdown',label:'Countdown',off:-3,disc:'',noOffer:true,noBtns:true},
-      {role:'vip_launch',label:'VIP Early Access opens',off:-2,disc:'VIP'},
-      {role:'vip_deadline',label:'VIP Deadline',off:-1,disc:'VIP'},
-      {role:'bf_am',label:'Black Friday — LIVE (AM)',off:0,disc:'BF'},
-      {role:'bf_pm',label:'Black Friday — last hours (PM)',off:0,disc:'BF',pm:true},
-      {role:'small_biz',label:'Small Business Saturday',off:1,disc:'BF'},
-      {role:'last_chance',label:'Last chance (Sunday)',off:2,disc:'BF'},
-      {role:'cyber',label:'Cyber Monday — the real last',off:3,disc:'BF'}
+      {role:'sneak',       label:'Sneak Peek (mystery)',           off:-14, offer:false},
+      {role:'teaser',      label:'Teaser (reveal the plan)',       off:-7,  offer:false},
+      {role:'countdown',   label:'Countdown',                      off:-3,  offer:false},
+      {role:'vip_launch',  label:'VIP Early Access opens',         off:-2,  offer:true, kind:'VIP'},
+      {role:'vip_deadline',label:'VIP Deadline',                   off:-1,  offer:true, kind:'VIP'},
+      {role:'bf_am',       label:'Black Friday, LIVE (morning)',   off:0,   offer:true, kind:'BF'},
+      {role:'bf_pm',       label:'Black Friday, last hours',       off:0,   offer:true, kind:'BF', pm:true},
+      {role:'small_biz',   label:'Small Business Saturday',        off:1,   offer:true, kind:'BF'},
+      {role:'last_chance', label:'Last chance (Sunday)',           off:2,   offer:true, kind:'BF'},
+      {role:'cyber',       label:'Cyber Monday (the real last)',   off:3,   offer:true, kind:'BF'}
     ];
     function q4Bf(year){ var d=new Date(Date.UTC(year,10,1)); var day=d.getUTCDay(); var firstFri=1+((5-day+7)%7); return year+'-11-'+pad2(firstFri+21); }
-    function q4DiscPct(disc,mk){ if(!disc) return 0; if(disc==='VIP') return mk==='UK'?35:30; if(disc==='BF') return mk==='UK'?30:25; return 0; }
-    function q4DefCode(role,pct,mk){ if(!pct) return ''; var sfx=(mk==='UK'?'UK':'INT'); if(role.indexOf('vip')===0) return 'VIP'+pct+sfx; if(role==='cyber') return 'CYBER'+pct+sfx; if(role==='small_biz') return 'SMALLBIZ'+pct+sfx; return 'BF'+pct+sfx; }
-    (function(){ var now=new Date().getUTCFullYear(); var h=''; for(var y=now;y<=now+3;y++){ h+='<option value="'+y+'">'+y+'</option>'; } q4YSel.innerHTML=h; })();
+    function q4Pct(kind,mk){ if(kind==='VIP') return mk==='UK'?35:30; if(kind==='BF') return mk==='UK'?30:25; return 0; }
+    function q4Code(role,pct,mk){ var sfx=(mk==='UK'?'UK':'INT'); if(role.indexOf('vip')===0) return 'VIP'+pct+sfx; if(role==='cyber') return 'CYBER'+pct+sfx; if(role==='small_biz') return 'SMALLBIZ'+pct+sfx; return 'BF'+pct+sfx; }
+    (function(){ var now=new Date().getUTCFullYear(); var start=(new Date().getUTCMonth()>10)?now+1:now; var h=''; for(var y=start;y<=start+3;y++){ h+='<option value="'+y+'">'+y+'</option>'; } q4YSel.innerHTML=h; })();
     function q4Render(){
       var year=parseInt(q4YSel.value,10)||new Date().getUTCFullYear();
-      var mk=q4MSel.value||'UK';
       var bf=q4Bf(year);
       q4Info.textContent='Black Friday '+year+': '+fmtNice(bf);
-      q4DiscNote.innerHTML='Descuento '+(mk==='UK'?'UK':'resto del mundo')+' — VIP <b>'+(mk==='UK'?'35':'30')+'%</b> · Black Friday / Cyber <b>'+(mk==='UK'?'30':'25')+'%</b>';
+      q4DiscNote.innerHTML='UK — VIP <b>35%</b> · Black Friday/Cyber <b>30%</b> &nbsp;·&nbsp; Rest of world — VIP <b>30%</b> · Black Friday/Cyber <b>25%</b>. Discount emails create <b>both versions</b> in one Write.';
       q4Wrap.innerHTML='';
-      Q4SEQ.forEach(function(item,idx){ q4Card(item,idx,year,bf,mk); });
+      Q4SEQ.forEach(function(item,idx){ q4Card(item,idx,year,bf); });
     }
-    function q4Card(item,idx,year,bf,mk){
+
+    function q4Card(item,idx,year,bf){
       var uid='q'+idx+'_'+Math.random().toString(36).slice(2,7);
       var send=isoAdd(bf,item.off);
-      var pct=q4DiscPct(item.disc,mk);
-      var code=pct?q4DefCode(item.role,pct,mk):'';
       var vipDate=fmtNice(isoAdd(bf,-2)), bfNice=fmtNice(bf);
-      var s={uid:uid, occ:{name:'Black Friday'}, lg:'en', market:mk, copy:null, products:[], hero:'', expiry:(item.noOffer?'':send), sendDate:send, pct:(pct||''), code:code, titleDy:0, titleDx:0, ctaUrl:'https://aboutwallart.com/collections/all', noOffer:!!item.noOffer, noProdButtons:!!item.noBtns };
+      var offer=!!item.offer;
+      var ukPct=offer?q4Pct(item.kind,'UK'):0, rsPct=offer?q4Pct(item.kind,'REST'):0;
+      var ukCode=offer?q4Code(item.role,ukPct,'UK'):'', rsCode=offer?q4Code(item.role,rsPct,'REST'):'';
+      // the shared/base email uses the UK numbers; the rest-of-world version is derived by swapping the % + code
+      var s={ uid:uid, occ:{ id:'q4-'+item.role, name:'Black Friday', collections:[Q4COL] }, lg:'en', market:'UK',
+              copy:null, products:[], hero:'', expiry:(offer?send:''), sendDate:send, pct:(offer?ukPct:''), code:(offer?ukCode:''),
+              titleDy:0, titleDx:0, ctaUrl:Q4CTA, noOffer:!offer, noProdButtons:!offer, checked:false, approved:false };
+      var cols=[Q4COL];
+      var badge = offer
+        ? '<span style="font-size:11px;background:#d6f0dd;color:#1a7f37;padding:1px 7px;border-radius:6px;">UK '+ukPct+'% · Rest '+rsPct+'%</span>'
+        : '<span style="font-size:11px;background:#eee;color:#888;padding:1px 7px;border-radius:6px;">no discount · everyone</span>';
       var card=document.createElement('div'); card.className='nlstep'; card.style.marginTop='16px';
       card.innerHTML=
-        '<div class="nlhd">'+esc(item.label)+' <span style="font-size:11px;background:#eee;color:#555;padding:1px 7px;border-radius:6px;">'+esc(fmtNice(send))+(item.pm?' · PM':'')+'</span>'+(pct?' <span style="font-size:11px;background:#d6f0dd;color:#1a7f37;padding:1px 7px;border-radius:6px;">'+pct+'% off</span>':' <span style="font-size:11px;background:#eee;color:#888;padding:1px 7px;border-radius:6px;">sin descuento</span>')+'</div>'
-        +(pct?'<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin:8px 0;"><label style="font-size:12px;color:#555;">Discount %<br><input id="qd-'+uid+'" type="number" value="'+pct+'" style="width:80px;padding:7px;border:1px solid #ddd;border-radius:6px;"></label><label style="font-size:12px;color:#555;">Code<br><input id="qc-'+uid+'" value="'+esc(code)+'" style="width:170px;padding:7px;border:1px solid #ddd;border-radius:6px;"></label></div>':'')
-        +'<div style="margin:8px 0;"><label style="font-size:12px;color:#555;">Hero image URL (opcional)<br><input id="qh-'+uid+'" placeholder="https://…" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;"></label></div>'
-        +'<div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;"><label style="font-size:12px;color:#555;flex:1;min-width:200px;">Productos: colección (handle)<br><input id="qcol-'+uid+'" placeholder="ej. best-sellers" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;"></label><button id="qlp-'+uid+'" class="nlbtn" type="button" style="background:#555;">📦 Cargar 4 productos</button></div>'
-        +'<button id="qw-'+uid+'" class="nlbtn" type="button">✍️ Write</button>'
-        +'<div id="qbody-'+uid+'"></div>';
+        '<div class="nlhd">'+esc(item.label)
+          +' <span style="font-size:11px;background:#eee;color:#555;padding:1px 7px;border-radius:6px;">'+esc(fmtNice(send))+(item.pm?' · PM':'')+'</span> '+badge+'</div>'
+        +'<div style="font-size:12.5px;color:#555;margin:4px 0 8px;">✉️ Sends: <b>'+esc(fmtNice(send))+'</b>'+(offer?(' &nbsp;·&nbsp; ⏳ Offer ends: <b>'+esc(fmtNice(send))+'</b>'):'')+'</div>'
+        + (offer
+            ? '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin:8px 0;">'
+                +'<label style="font-size:12px;color:#555;">UK %<br><input id="d-'+uid+'" type="number" min="1" max="90" value="'+ukPct+'" style="width:70px;padding:7px;border:1px solid #ddd;border-radius:6px;"></label>'
+                +'<label style="font-size:12px;color:#555;">UK code<br><input id="c-'+uid+'" value="'+esc(ukCode)+'" style="width:150px;padding:7px;border:1px solid #ddd;border-radius:6px;"></label>'
+                +'<label style="font-size:12px;color:#555;">Rest %<br><input id="dr-'+uid+'" type="number" min="1" max="90" value="'+rsPct+'" style="width:70px;padding:7px;border:1px solid #ddd;border-radius:6px;"></label>'
+                +'<label style="font-size:12px;color:#555;">Rest code<br><input id="cr-'+uid+'" value="'+esc(rsCode)+'" style="width:150px;padding:7px;border:1px solid #ddd;border-radius:6px;"></label>'
+                +'<button id="dsc-'+uid+'" class="nlbtn" type="button" style="background:#1a7f37;">🏷️ Create both discount codes in Shopify</button>'
+              +'</div><div id="dscmsg-'+uid+'" style="font-size:12.5px;margin:-2px 0 6px;"></div>'
+            : '')
+        +'<button id="w-'+uid+'" class="nlbtn" type="button">✍️ Write</button>'
+        +'<div id="body-'+uid+'"></div>';
       q4Wrap.appendChild(card);
-      document.getElementById('qh-'+uid).addEventListener('input',function(){ readPromoEmail(s); s.hero=this.value.trim(); refreshPreview(s); });
-      document.getElementById('qlp-'+uid).addEventListener('click',function(){ var h=(document.getElementById('qcol-'+uid).value||'').trim(); if(!h){ alert('Poné el handle de una colección.'); return; } var b=this; b.disabled=true; b.textContent='Cargando…'; emPost({action:'promo-products',collections:[h],count:4}).then(function(d){ b.disabled=false; b.textContent='📦 Cargar 4 productos'; s.products=(d&&d.ok&&d.products)||[]; refreshPreview(s); }).catch(function(){ b.disabled=false; b.textContent='📦 Cargar 4 productos'; }); });
-      if(pct){ document.getElementById('qd-'+uid).addEventListener('input',function(){ s.pct=this.value; refreshPreview(s); }); document.getElementById('qc-'+uid).addEventListener('input',function(){ s.code=this.value.toUpperCase(); refreshPreview(s); }); }
-      document.getElementById('qw-'+uid).addEventListener('click',function(){
+
+      // rest-of-world state = same body with the % + code swapped
+      function restState(){
+        var up=offer?(document.getElementById('d-'+uid).value||ukPct):0;
+        var rp=offer?(document.getElementById('dr-'+uid).value||rsPct):0;
+        var rc=offer?((document.getElementById('cr-'+uid).value||rsCode).toUpperCase()):'';
+        var c=JSON.parse(JSON.stringify(s.copy||{}));
+        var rep=function(t){ return (t==null)?t:String(t).split(up+'%').join(rp+'%'); };
+        c.subject=rep(c.subject); c.preview=rep(c.preview); c.offerLead=rep(c.offerLead); c.offerLine=rep(c.offerLine); c.closingText=rep(c.closingText);
+        if(Array.isArray(c.intro)) c.intro=c.intro.map(rep);
+        return { uid:uid+'r', occ:s.occ, lg:'en', market:'REST', copy:c, products:s.products, hero:s.hero, expiry:s.expiry, sendDate:s.sendDate, pct:rp, code:rc, titleDy:s.titleDy, titleDx:s.titleDx, ctaUrl:s.ctaUrl, noOffer:s.noOffer, noProdButtons:s.noProdButtons };
+      }
+      function refreshBoth(){ refreshPreview(s); if(offer){ var pvr=document.getElementById('pv-'+uid+'r'); if(pvr) pvr.innerHTML=buildPromoHtml(restState(), false); } }
+
+      if(offer){
+        document.getElementById('d-'+uid).addEventListener('input', function(){ if(s.copy){ s.pct=this.value; refreshBoth(); } });
+        document.getElementById('c-'+uid).addEventListener('input', function(){ s.code=(this.value||'').toUpperCase(); });
+        document.getElementById('dr-'+uid).addEventListener('input', function(){ refreshBoth(); });
+        document.getElementById('cr-'+uid).addEventListener('input', function(){ refreshBoth(); });
+        // create BOTH Shopify discount codes (UK + rest), same rule as the promos (Discountable Products only)
+        document.getElementById('dsc-'+uid).addEventListener('click', function(){
+          var cb=this; cb.disabled=true; cb.textContent='Creating…'; var r=document.getElementById('dscmsg-'+uid);
+          var upc=document.getElementById('d-'+uid).value, uc=(document.getElementById('c-'+uid).value||'').toUpperCase();
+          var rpc=document.getElementById('dr-'+uid).value, rc=(document.getElementById('cr-'+uid).value||'').toUpperCase();
+          Promise.all([
+            emPost({action:'promo-discount', code:uc, discount:upc, expiry:send}),
+            emPost({action:'promo-discount', code:rc, discount:rpc, expiry:send})
+          ]).then(function(res){
+            cb.disabled=false; cb.textContent='🏷️ Create both discount codes in Shopify';
+            var a=res[0], b=res[1];
+            if(a&&a.ok&&b&&b.ok){ s.discReady=true; r.style.color='#1a7f37'; r.innerHTML='✅ <b>'+esc(uc)+'</b> ('+esc(upc)+'% UK) and <b>'+esc(rc)+'</b> ('+esc(rpc)+'% rest) '+((a.existed||b.existed)?'ready':'created')+' in Shopify.'; }
+            else { s.discReady=false; r.style.color='#b00'; r.textContent='Discount failed: '+(((a&&a.error)||'')+' '+((b&&b.error)||'')).trim(); }
+          }).catch(function(){ cb.disabled=false; cb.textContent='🏷️ Create both discount codes in Shopify'; r.style.color='#b00'; r.textContent='Discount failed — try again.'; });
+        });
+      }
+
+      document.getElementById('w-'+uid).addEventListener('click', function(){
         var btn=this; btn.disabled=true; btn.textContent='Writing…';
-        if(pct){ s.pct=document.getElementById('qd-'+uid).value||pct; s.code=(document.getElementById('qc-'+uid).value||'').toUpperCase(); }
-        emPost({action:'q4-write', role:item.role, discount:s.pct, code:s.code, expiry:s.expiry, vipDate:vipDate, bfDate:bfNice}).then(function(d){
+        if(offer){ s.pct=document.getElementById('d-'+uid).value||ukPct; s.code=(document.getElementById('c-'+uid).value||'').toUpperCase(); }
+        Promise.all([
+          emPost({action:'q4-write', role:item.role, discount:s.pct, code:s.code, expiry:s.expiry, vipDate:vipDate, bfDate:bfNice}),
+          emPost({action:'promo-products', collections:cols, count:4})
+        ]).then(function(res){
           btn.disabled=false; btn.textContent='✍️ Re-write';
-          if(!d||!d.ok||!d.copy){ document.getElementById('qbody-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">No se pudo escribir: '+esc((d&&d.error)||'error')+'</p>'; return; }
-          s.copy=d.copy; var c=s.copy;
-          document.getElementById('qbody-'+uid).innerHTML=
-            '<div style="margin-top:10px;">'
-            +'<label style="font-size:12px;color:#555;">Subject<br><input id="qs-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.subject||'')+'"></label>'
-            +'<label style="font-size:12px;color:#555;">Preview text<br><input id="qpr-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.preview||'')+'"></label>'
-            +'<div style="font-size:12px;color:#555;margin:12px 0 4px;">Editá el texto haciendo click en el preview.</div>'
-            +'<div style="overflow:auto;"><div id="pv-'+uid+'" style="width:600px;margin:0 auto;border:1px solid #e3e3e3;border-radius:8px;background:#fff;"></div></div>'
-            +'<div style="margin-top:16px;text-align:center;">'
-              +'<button id="qck-'+uid+'" class="nlbtn" type="button" style="background:#534AB7;margin-bottom:10px;">🔤 Check spelling & grammar</button>'
-              +'<div id="qckmsg-'+uid+'" style="font-size:13px;"></div>'
-              +'<div id="qckwrap-'+uid+'" style="display:none;text-align:left;margin:8px auto 14px;max-width:560px;background:#F7F6FE;border:1px solid #E4E1F0;border-radius:10px;padding:12px 14px;"></div>'
-            +'</div></div>';
-          document.getElementById('qs-'+uid).addEventListener('input',function(){ s.copy.subject=this.value; });
-          document.getElementById('qpr-'+uid).addEventListener('input',function(){ s.copy.preview=this.value; });
-          document.getElementById('qck-'+uid).addEventListener('click',function(){
-            readPromoEmail(s); s.copy.subject=document.getElementById('qs-'+uid).value; s.copy.preview=document.getElementById('qpr-'+uid).value;
-            var cb=this; cb.disabled=true; var o2=cb.textContent; cb.textContent='Checking…';
-            var msg=document.getElementById('qckmsg-'+uid), wrap=document.getElementById('qckwrap-'+uid); msg.textContent=''; wrap.style.display='none'; wrap.innerHTML='';
-            emPost({action:'promo-check', copy:s.copy}).then(function(v){
-              cb.disabled=false; cb.textContent=o2;
-              if(!v||!v.ok){ msg.style.color='#b00'; msg.textContent=(v&&v.error)||'Could not check.'; return; }
-              var iss=v.issues||[];
+          var w=res[0], pp=res[1];
+          if(!w||!w.ok||!w.copy){ document.getElementById('body-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">Could not write: '+esc((w&&w.error)||'error')+'</p>'; return; }
+          s.copy=w.copy; s.products=(pp&&pp.ok&&pp.products)||[];
+          var c=s.copy;
+          function regBtn(id,lbl){ return '<button id="'+id+'-'+uid+'" type="button" title="Regenerate" style="background:#eee;border:1px solid #ddd;border-radius:6px;padding:5px 9px;font-size:12px;cursor:pointer;">🔄 '+lbl+'</button>'; }
+          var colOpts=cols.map(function(h){return '<option value="'+esc(h)+'">'+esc(h)+'</option>';}).join('');
+          var previews = offer
+            ? '<div style="font-size:12px;color:#555;margin:14px 0 4px;">UK version — click any text to edit (this is the one you edit)</div>'
+              +'<div style="overflow:auto;"><div id="pv-'+uid+'" style="width:600px;margin:0 auto;border:1px solid #e3e3e3;border-radius:8px;background:#fff;"></div></div>'
+              +'<div style="font-size:12px;color:#555;margin:16px 0 4px;">Rest of world — same email, only the discount changes (auto)</div>'
+              +'<div style="overflow:auto;"><div id="pv-'+uid+'r" style="width:600px;margin:0 auto;border:1px solid #e3e3e3;border-radius:8px;background:#fbfbff;"></div></div>'
+            : '<div style="font-size:12px;color:#555;margin:14px 0 4px;">Full preview — click any text to edit it</div>'
+              +'<div style="overflow:auto;"><div id="pv-'+uid+'" style="width:600px;margin:0 auto;border:1px solid #e3e3e3;border-radius:8px;background:#fff;"></div></div>';
+          document.getElementById('body-'+uid).innerHTML=
+            '<div style="margin-top:6px;">'
+              +'<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;"><label style="flex:1;min-width:220px;font-size:12px;color:#555;">Subject line (with first name)<br><input id="s-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.subject||'')+'"></label>'+regBtn('rs','subject')+'</div>'
+              +'<label style="font-size:12px;color:#555;">Preview text<br><input id="pr-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.preview||'')+'"></label>'
+              // TITLE
+              +'<div style="margin-top:12px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
+                +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">Title — keep it short. Pick an option, or edit the words.</div>'
+                +'<div id="topt-'+uid+'" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"></div>'
+                +'<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;"><label style="flex:1;min-width:140px;font-size:12px;color:#555;">Caps (max 3 words)<br><input id="tt-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.titleTop||'')+'"></label>'
+                  +'<label style="flex:1;min-width:140px;font-size:12px;color:#555;">Script (max 3 words)<br><input id="ts-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.titleScript||'')+'"></label>'+regBtn('rt','more options')+'</div>'
+                +'<div style="display:flex;gap:16px;align-items:center;margin-top:10px;font-size:12px;color:#555;flex-wrap:wrap;">'
+                  +'<span>Move script ↕ <input id="tdy-'+uid+'" type="range" min="-60" max="60" value="0" style="vertical-align:middle;"></span>'
+                  +'<span>↔ <input id="tdx-'+uid+'" type="range" min="-60" max="60" value="0" style="vertical-align:middle;"></span>'
+                +'</div>'
+              +'</div>'
+              // HERO — same picker as the promos
+              +'<div style="margin-top:12px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
+                +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">Hero image — pick a product image as the <b>source</b> → Copy → paste into Shopify AI → <b>Upload</b> the lifestyle image it makes.</div>'
+                +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'
+                  +'<input id="hcol-'+uid+'" list="hcl-'+uid+'" value="'+esc(cols[0]||'')+'" placeholder="collection handle" style="flex:1;min-width:180px;padding:7px;border:1px solid #ddd;border-radius:6px;">'
+                  +'<datalist id="hcl-'+uid+'">'+colOpts+'</datalist>'
+                  +'<button id="sb-'+uid+'" type="button" class="nlbtn" style="background:#555;">📂 Load collection</button>'
+                +'</div>'
+                +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">'
+                  +'<input id="hsku-'+uid+'" placeholder="…or find by SKU / name" style="flex:1;min-width:180px;padding:7px;border:1px solid #ddd;border-radius:6px;">'
+                  +'<button id="ssku-'+uid+'" type="button" class="nlbtn" style="background:#555;">🔍 Find</button>'
+                +'</div>'
+                +'<div id="hr-'+uid+'" style="max-height:300px;overflow:auto;margin-top:8px;"></div>'
+                +'<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><button id="hp-'+uid+'" type="button" class="nlbtn" style="background:#555;">🪄 Generate Shopify-AI prompt</button><button id="hpc-'+uid+'" type="button" class="nlbtn" style="background:#c0561d;">📋 Copy prompt</button></div>'
+                +'<textarea id="hpt-'+uid+'" rows="4" placeholder="the Shopify-AI hero prompt appears here — copy it into Shopify AI" style="width:100%;margin-top:8px;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;"></textarea>'
+                +'<label style="font-size:12px;color:#555;display:block;margin-top:6px;">Upload the lifestyle image Shopify AI made:<br><input id="hfile-'+uid+'" type="file" accept="image/*" style="margin-top:4px;"></label>'
+                +'<div id="hup-'+uid+'" style="font-size:12px;margin-top:4px;"></div>'
+                +'<label style="font-size:12px;color:#555;display:block;margin-top:6px;">…or paste an image URL:<br><input id="hero-'+uid+'" placeholder="https://…" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;"></label>'
+              +'</div>'
+              +'<div style="margin-top:6px;font-size:12px;color:#555;">'+ (s.products.length? (s.products.length+' best sellers loaded into the email') : (offer?'No products loaded.':'This email shows no product buttons.')) +'</div>'
+              // OPTIONAL: own 4 products by SKU
+              +'<div style="margin-top:8px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
+                +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">Or pick your own 4 products by SKU (any collection)</div>'
+                +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'
+                  +'<input id="psku1-'+uid+'" placeholder="SKU 1" style="flex:1;min-width:110px;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;">'
+                  +'<input id="psku2-'+uid+'" placeholder="SKU 2" style="flex:1;min-width:110px;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;">'
+                  +'<input id="psku3-'+uid+'" placeholder="SKU 3" style="flex:1;min-width:110px;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;">'
+                  +'<input id="psku4-'+uid+'" placeholder="SKU 4" style="flex:1;min-width:110px;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;">'
+                +'</div>'
+                +'<button id="pskub-'+uid+'" type="button" class="nlbtn" style="background:#555;margin-top:8px;">🔎 Use these products</button>'
+                +'<div id="pskum-'+uid+'" style="font-size:12px;margin-top:4px;"></div>'
+              +'</div>'
+              +'<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;"><span style="font-size:12px;color:#555;">Edit the body text right in the preview below.</span>'+regBtn('ri','intro')+regBtn('rc','closing')+'</div>'
+              +'<div style="margin-top:10px;"><button id="up-'+uid+'" class="nlbtn" type="button" style="background:#555;">↻ Update preview</button></div>'
+              // rewrite with notes
+              +'<div style="margin-top:12px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
+                +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">If it\'s not right — tell the AI how to rewrite it</div>'
+                +'<textarea id="note-'+uid+'" rows="2" placeholder="e.g. warmer opening, make the subject punchier, cut the last line" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;"></textarea>'
+                +'<button id="rw-'+uid+'" type="button" class="nlbtn" style="background:#534AB7;margin-top:8px;">🔁 Rewrite with my notes</button>'
+                +'<div id="rwmsg-'+uid+'" style="font-size:12px;margin-top:4px;"></div>'
+              +'</div>'
+              + previews
+              // check + approve + create draft(s)
+              +'<div style="margin-top:16px;text-align:center;">'
+                +'<button id="ck-'+uid+'" class="nlbtn" type="button" style="background:#534AB7;margin-bottom:10px;">🔤 Check spelling & grammar</button>'
+                +'<div id="ckmsg-'+uid+'" style="font-size:13px;"></div>'
+                +'<div id="ckwrap-'+uid+'" style="display:none;text-align:left;margin:8px auto 14px;max-width:560px;background:#F7F6FE;border:1px solid #E4E1F0;border-radius:10px;padding:12px 14px;"></div>'
+                +'<button id="ap-'+uid+'" class="nlbtn" type="button" style="background:#0F6E56;">✓ Approve</button>'
+                +'<div id="apmsg-'+uid+'" style="font-size:13px;"></div>'
+                +'<div id="cdwrap-'+uid+'" style="display:none;margin-top:14px;border-top:2px solid #eee;padding-top:14px;">'
+                  +'<div style="font-size:12px;color:#555;margin-bottom:8px;">'+(offer?'Creates <b>two drafts</b> in Klaviyo: UK and rest of world.':'Creates <b>one draft</b> in Klaviyo (everyone).')+'</div>'
+                  +'<button id="cd-'+uid+'" class="nlbtn" type="button" style="background:#111;">📧 '+(offer?'Create both drafts in Klaviyo':'Create draft in Klaviyo')+'</button>'
+                  +'<div id="res-'+uid+'" style="margin-top:8px;font-size:13px;"></div>'
+                +'</div>'
+              +'</div>'
+            +'</div>';
+
+          function renderTitleOpts(){
+            var box=document.getElementById('topt-'+uid); if(!box) return;
+            var opts=(s.copy.titleOptions||[]);
+            box.innerHTML=opts.map(function(op,i){ return '<button type="button" class="topt-'+uid+'" data-i="'+i+'" style="background:#fff;border:1px solid #ccc;border-radius:16px;padding:5px 11px;font-size:12px;cursor:pointer;"><b>'+esc(op.top||'')+'</b> · '+esc(op.script||'')+'</button>'; }).join('');
+            Array.prototype.forEach.call(box.querySelectorAll('.topt-'+uid),function(b){ b.addEventListener('click',function(){ readPromoEmail(s); var op=opts[parseInt(b.getAttribute('data-i'),10)]||{}; s.copy.titleTop=op.top||''; s.copy.titleScript=op.script||''; document.getElementById('tt-'+uid).value=s.copy.titleTop; document.getElementById('ts-'+uid).value=s.copy.titleScript; refreshBoth(); }); });
+          }
+          function pull(){
+            readPromoEmail(s);
+            s.copy.subject=document.getElementById('s-'+uid).value;
+            s.copy.preview=document.getElementById('pr-'+uid).value;
+            s.copy.titleTop=document.getElementById('tt-'+uid).value;
+            s.copy.titleScript=document.getElementById('ts-'+uid).value;
+            if(offer){ s.pct=document.getElementById('d-'+uid).value||ukPct; s.code=(document.getElementById('c-'+uid).value||'').toUpperCase(); }
+            var hv=document.getElementById('hero-'+uid).value.trim(); if(hv) s.hero=hv;
+          }
+          function regen(field,rbtn){
+            pull(); var orig=rbtn.textContent; rbtn.disabled=true; rbtn.textContent='…';
+            emPost({action:'q4-write', role:item.role, discount:s.pct, code:s.code, expiry:s.expiry, vipDate:vipDate, bfDate:bfNice, only:field, current:s.copy}).then(function(d){
+              rbtn.disabled=false; rbtn.textContent=orig;
+              if(!d||!d.ok||!d.copy){ alert('Could not regenerate.'); return; }
+              var k=d.copy;
+              if(field==='subject'&&k.subject!=null)s.copy.subject=k.subject;
+              if(field==='title'){ if(k.titleTop!=null)s.copy.titleTop=k.titleTop; if(k.titleScript!=null)s.copy.titleScript=k.titleScript; if(k.titleOptions!=null)s.copy.titleOptions=k.titleOptions; }
+              if(field==='intro'&&k.intro!=null)s.copy.intro=k.intro;
+              if(field==='closing'&&k.closingText!=null)s.copy.closingText=k.closingText;
+              document.getElementById('s-'+uid).value=s.copy.subject||'';
+              document.getElementById('tt-'+uid).value=s.copy.titleTop||''; document.getElementById('ts-'+uid).value=s.copy.titleScript||'';
+              renderTitleOpts(); refreshBoth();
+            }).catch(function(){ rbtn.disabled=false; rbtn.textContent=orig; alert('Could not regenerate.'); });
+          }
+          document.getElementById('rs-'+uid).addEventListener('click', function(){ regen('subject', this); });
+          document.getElementById('rt-'+uid).addEventListener('click', function(){ regen('title', this); });
+          document.getElementById('ri-'+uid).addEventListener('click', function(){ regen('intro', this); });
+          document.getElementById('rc-'+uid).addEventListener('click', function(){ regen('closing', this); });
+          document.getElementById('tt-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.copy.titleTop=this.value; refreshBoth(); });
+          document.getElementById('ts-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.copy.titleScript=this.value; refreshBoth(); });
+          document.getElementById('tdy-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.titleDy=this.value; refreshBoth(); });
+          document.getElementById('tdx-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.titleDx=this.value; refreshBoth(); });
+          document.getElementById('up-'+uid).addEventListener('click', function(){ pull(); refreshBoth(); });
+          document.getElementById('s-'+uid).addEventListener('input', function(){ s.copy.subject=this.value; });
+          document.getElementById('pr-'+uid).addEventListener('input', function(){ s.copy.preview=this.value; });
+          // SKU override
+          document.getElementById('pskub-'+uid).addEventListener('click', function(){
+            var skus=[1,2,3,4].map(function(i){ return (document.getElementById('psku'+i+'-'+uid).value||'').trim(); }).filter(Boolean);
+            var m=document.getElementById('pskum-'+uid);
+            if(!skus.length){ m.style.color='#b00'; m.textContent='Type at least one SKU.'; return; }
+            var b=this, ot=b.textContent; b.disabled=true; b.textContent='Loading…'; m.textContent='';
+            emPost({action:'promo-products-by-sku', skus:skus}).then(function(d){
+              b.disabled=false; b.textContent=ot;
+              if(!d||!d.ok){ m.style.color='#b00'; m.textContent=(d&&d.error)||'Could not load.'; return; }
+              var found=(d.products||[]).filter(function(p){ return p && !p.notFound && p.image; });
+              var missing=(d.products||[]).filter(function(p){ return p && p.notFound; }).map(function(p){ return p.sku; });
+              if(!found.length){ m.style.color='#b00'; m.textContent='No products found for those SKUs.'; return; }
+              readPromoEmail(s); s.products=found; refreshBoth();
+              m.style.color='#0F6E56'; m.textContent='Loaded '+found.length+' product'+(found.length>1?'s':'')+' into the email.'+(missing.length?(' Not found: '+missing.join(', ')):'');
+            }).catch(function(){ b.disabled=false; b.textContent=ot; m.style.color='#b00'; m.textContent='Network error.'; });
+          });
+          // rewrite with notes
+          document.getElementById('rw-'+uid).addEventListener('click', function(){
+            var note=(document.getElementById('note-'+uid).value||'').trim();
+            var msg=document.getElementById('rwmsg-'+uid);
+            if(!note){ msg.style.color='#b00'; msg.textContent='Type what you want changed first.'; return; }
+            pull(); var b=this, ot=b.textContent; b.disabled=true; b.textContent='Rewriting…'; msg.textContent='';
+            emPost({action:'q4-write', role:item.role, discount:s.pct, code:s.code, expiry:s.expiry, vipDate:vipDate, bfDate:bfNice, note:note, current:s.copy}).then(function(d){
+              b.disabled=false; b.textContent=ot;
+              if(!d||!d.ok||!d.copy){ msg.style.color='#b00'; msg.textContent=(d&&d.error)||'Could not rewrite — try again.'; return; }
+              var k=d.copy, tt=s.copy.titleTop, ts=s.copy.titleScript;
+              if(k.subject!=null)s.copy.subject=k.subject; if(k.preview!=null)s.copy.preview=k.preview;
+              if(k.intro!=null)s.copy.intro=k.intro; if(k.offerLead!=null)s.copy.offerLead=k.offerLead; if(k.offerLine!=null)s.copy.offerLine=k.offerLine; if(k.ctaLabel!=null)s.copy.ctaLabel=k.ctaLabel; if(k.closingText!=null)s.copy.closingText=k.closingText;
+              s.copy.titleTop=tt; s.copy.titleScript=ts;
+              document.getElementById('s-'+uid).value=s.copy.subject||''; document.getElementById('pr-'+uid).value=s.copy.preview||'';
+              refreshBoth(); s.checked=false; s.approved=false;
+              var apb=document.getElementById('ap-'+uid); if(apb){ apb.innerHTML='✓ Approve'; apb.style.background='#0F6E56'; }
+              var apm=document.getElementById('apmsg-'+uid); if(apm) apm.textContent='';
+              var cw=document.getElementById('cdwrap-'+uid); if(cw) cw.style.display='none';
+              msg.style.color='#0F6E56'; msg.textContent='Rewritten — check it, then run the grammar check again before approving.';
+              document.getElementById('note-'+uid).value='';
+            }).catch(function(){ b.disabled=false; b.textContent=ot; msg.style.color='#b00'; msg.textContent='Network error.'; });
+          });
+          // hero wiring (reuses the promo hero functions verbatim)
+          document.getElementById('sb-'+uid).addEventListener('click', function(){ loadHeroProducts(s); });
+          document.getElementById('ssku-'+uid).addEventListener('click', function(){ searchHeroBySku(s); });
+          document.getElementById('hsku-'+uid).addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); searchHeroBySku(s); } });
+          document.getElementById('hp-'+uid).addEventListener('click', function(){ document.getElementById('hpt-'+uid).value=buildHeroPrompt(s); });
+          document.getElementById('hpc-'+uid).addEventListener('click', function(){ var ta=document.getElementById('hpt-'+uid); if(!ta.value){ ta.value=buildHeroPrompt(s); } var b=this, o2=b.textContent; try{ navigator.clipboard.writeText(ta.value); }catch(e){ ta.select(); try{document.execCommand('copy');}catch(e2){} } b.textContent='Copied ✓'; setTimeout(function(){b.textContent=o2;},1200); });
+          document.getElementById('hfile-'+uid).addEventListener('change', function(e){ var f=e.target.files&&e.target.files[0]; if(f) uploadHero(s,f); });
+          document.getElementById('hero-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.hero=this.value.trim(); refreshBoth(); });
+          // grammar check
+          document.getElementById('ck-'+uid).addEventListener('click', function(){
+            pull(); var cb=this; cb.disabled=true; var o2=cb.textContent; cb.textContent='Checking…';
+            var msg=document.getElementById('ckmsg-'+uid), wrap=document.getElementById('ckwrap-'+uid); msg.textContent=''; wrap.style.display='none'; wrap.innerHTML='';
+            emPost({action:'promo-check', copy:s.copy}).then(function(d){
+              cb.disabled=false; cb.textContent=o2; s.checked=true;
+              if(!d||!d.ok){ msg.style.color='#b00'; msg.textContent=(d&&d.error)||'Could not check.'; return; }
+              var iss=d.issues||[];
               if(!iss.length){ msg.style.color='#0F6E56'; msg.textContent='No spelling or grammar mistakes found ✓'; return; }
               msg.textContent='';
               var html='<div style="font-weight:700;color:#3C3489;margin-bottom:8px;">'+iss.length+' thing'+(iss.length>1?'s':'')+' to check:</div>';
-              iss.forEach(function(it){ html+='<div style="margin-bottom:8px;font-size:13px;"><span style="text-decoration:line-through;color:#b91c1c;">'+esc(it.original||'')+'</span> → <b style="color:#0F6E56;">'+esc(it.suggestion||'')+'</b>'+(it.why?' <span style="color:#9A95B4;">('+esc(it.why)+')</span>':'')+'</div>'; });
-              if(v.corrected){ html+='<button id="qapf-'+uid+'" class="nlbtn" type="button" style="background:#534AB7;margin-top:6px;">✨ Apply these fixes</button>'; }
+              iss.forEach(function(it2){ html+='<div style="margin-bottom:8px;font-size:13px;line-height:1.45;"><span style="text-decoration:line-through;color:#b91c1c;">'+esc(it2.original||'')+'</span> → <b style="color:#0F6E56;">'+esc(it2.suggestion||'')+'</b>'+(it2.why?' <span style="color:#9A95B4;">('+esc(it2.why)+')</span>':'')+'</div>'; });
+              if(d.corrected){ html+='<button id="apf-'+uid+'" class="nlbtn" type="button" style="background:#534AB7;margin-top:6px;">✨ Apply these fixes</button>'; }
               wrap.innerHTML=html; wrap.style.display='';
-              var af=document.getElementById('qapf-'+uid);
-              if(af) af.addEventListener('click',function(){ var cor=v.corrected||{}; if(cor.subject!=null)s.copy.subject=cor.subject; if(cor.preview!=null)s.copy.preview=cor.preview; if(cor.intro&&cor.intro.length)s.copy.intro=cor.intro; if(cor.offerLine!=null)s.copy.offerLine=cor.offerLine; if(cor.ctaLabel!=null)s.copy.ctaLabel=cor.ctaLabel; if(cor.closingText!=null)s.copy.closingText=cor.closingText; document.getElementById('qs-'+uid).value=s.copy.subject||''; document.getElementById('qpr-'+uid).value=s.copy.preview||''; refreshPreview(s); wrap.style.display='none'; msg.style.color='#0F6E56'; msg.textContent='Fixes applied — have a look.'; });
+              var af=document.getElementById('apf-'+uid);
+              if(af) af.addEventListener('click', function(){ var cor=d.corrected||{}; if(cor.subject!=null)s.copy.subject=cor.subject; if(cor.preview!=null)s.copy.preview=cor.preview; if(cor.intro&&cor.intro.length)s.copy.intro=cor.intro; if(cor.offerLine!=null)s.copy.offerLine=cor.offerLine; if(cor.ctaLabel!=null)s.copy.ctaLabel=cor.ctaLabel; if(cor.closingText!=null)s.copy.closingText=cor.closingText; document.getElementById('s-'+uid).value=s.copy.subject||''; document.getElementById('pr-'+uid).value=s.copy.preview||''; refreshBoth(); wrap.style.display='none'; msg.style.color='#0F6E56'; msg.textContent='Fixes applied — have a look.'; });
             }).catch(function(){ cb.disabled=false; cb.textContent=o2; msg.style.color='#b00'; msg.textContent='Network error.'; });
           });
-          refreshPreview(s);
-        }).catch(function(e){ btn.disabled=false; btn.textContent='✍️ Write'; document.getElementById('qbody-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">Error: '+esc(e.message)+'</p>'; });
+          // approve gate
+          document.getElementById('ap-'+uid).addEventListener('click', function(){
+            pull(); var apm=document.getElementById('apmsg-'+uid);
+            if(!s.checked){ apm.style.color='#b00'; apm.textContent='Run the spelling & grammar check first.'; return; }
+            s.approved=true; this.innerHTML='✓ Approved'; this.style.background='#0b5a46';
+            apm.style.color='#0F6E56'; apm.textContent='Approved ✓ — you can create the draft'+(offer?'s':'')+' below.';
+            var cw=document.getElementById('cdwrap-'+uid); if(cw) cw.style.display='';
+          });
+          // create draft(s)
+          var CDLBL='📧 '+(offer?'Create both drafts in Klaviyo':'Create draft in Klaviyo');
+          document.getElementById('cd-'+uid).addEventListener('click', function(){
+            var rr=document.getElementById('res-'+uid);
+            if(!s.approved){ rr.innerHTML='<span style="color:#b00;">Approve first.</span>'; return; }
+            var cb=this; cb.disabled=true; pull();
+            function makeDraft(st, mk, excl, tag){
+              return emPost({action:'promo-create-draft', name:'Q4 '+item.label+' ('+tag+')', subject:st.copy.subject, preview:st.copy.preview, html:buildPromoFullDoc(st), market:mk, excludeSegment:(excl||'')});
+            }
+            if(!offer){
+              cb.textContent='Creating…';
+              makeDraft(s, Q4_REST_SEG, '', 'everyone').then(function(d){
+                cb.disabled=false; cb.textContent=CDLBL;
+                if(d&&d.ok){ card.innerHTML='<div class="nlhd">✓ '+esc(item.label)+' — draft in Klaviyo</div><div style="font-size:12.5px;color:#555;margin-top:8px;"><a href="'+esc(d.url)+'" target="_blank">open in Klaviyo ↗</a> — schedule for <b>'+esc(fmtNice(send))+'</b></div>'; }
+                else { rr.innerHTML='<span style="color:#b00;">Draft failed: '+esc((d&&d.error)||'error')+'</span>'; }
+              }).catch(function(){ cb.disabled=false; cb.textContent=CDLBL; rr.innerHTML='<span style="color:#b00;">Draft failed (network).</span>'; });
+              return;
+            }
+            // offer stage: verify BOTH codes exist in Shopify, then create UK + rest drafts
+            cb.textContent='Checking discounts…';
+            var uc=(document.getElementById('c-'+uid).value||'').toUpperCase(), rc=(document.getElementById('cr-'+uid).value||'').toUpperCase();
+            Promise.all([ emPost({action:'promo-discount-check', code:uc}), emPost({action:'promo-discount-check', code:rc}) ]).then(function(vs){
+              var vu=vs[0], vr=vs[1];
+              if(!vu||!vu.ok||!vr||!vr.ok||!vu.exists||!vr.exists){ cb.disabled=false; cb.textContent=CDLBL; rr.innerHTML='<span style="color:#b00;">Create both discount codes in Shopify first (press the green button up top).</span>'; return; }
+              cb.textContent='Creating UK…';
+              makeDraft(s, Q4_UK_SEG, '', 'UK').then(function(dm){
+                if(!dm||!dm.ok){ cb.disabled=false; cb.textContent=CDLBL; rr.innerHTML='<span style="color:#b00;">UK draft failed: '+esc((dm&&dm.error)||'error')+'. Nothing else created — press again.</span>'; return; }
+                var ukUrl=dm.url;
+                cb.textContent='Creating rest of world…';
+                makeDraft(restState(), Q4_REST_SEG, Q4_UK_SEG_ID, 'Rest').then(function(df){
+                  cb.disabled=false; cb.textContent=CDLBL;
+                  if(df&&df.ok){
+                    card.innerHTML='<div class="nlhd">✓ '+esc(item.label)+' — both drafts in Klaviyo</div>'
+                      +'<div style="font-size:12.5px;color:#555;margin-top:8px;line-height:1.6;">'
+                        +'<b>UK ('+esc(uc)+'):</b> <a href="'+esc(ukUrl)+'" target="_blank">open ↗</a> — schedule <b>'+esc(fmtNice(send))+'</b><br>'
+                        +'<b>Rest of world ('+esc(rc)+'):</b> <a href="'+esc(df.url)+'" target="_blank">open ↗</a> — schedule <b>'+esc(fmtNice(send))+'</b> (everyone except UK)'
+                      +'</div>';
+                  } else {
+                    rr.innerHTML='<div style="color:#b00;line-height:1.6;"><b>UK created, rest of world FAILED.</b><br>Delete the UK draft in Klaviyo: <a href="'+esc(ukUrl)+'" target="_blank">open ↗</a><br>Then press the button again.</div><div style="font-size:12px;color:#888;">Error: '+esc((df&&df.error)||'error')+'</div>';
+                  }
+                }).catch(function(){ cb.disabled=false; cb.textContent=CDLBL; rr.innerHTML='<div style="color:#b00;line-height:1.6;"><b>UK created, rest of world FAILED (network).</b><br>Delete the UK draft: <a href="'+esc(ukUrl)+'" target="_blank">open ↗</a><br>Then press again.</div>'; });
+              }).catch(function(){ cb.disabled=false; cb.textContent=CDLBL; rr.innerHTML='<span style="color:#b00;">UK draft failed (network). Nothing created — press again.</span>'; });
+            }).catch(function(){ cb.disabled=false; cb.textContent=CDLBL; rr.innerHTML='<span style="color:#b00;">Could not check the discounts. Try again.</span>'; });
+          });
+
+          renderTitleOpts(); refreshBoth();
+        }).catch(function(e){ btn.disabled=false; btn.textContent='✍️ Write'; document.getElementById('body-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">Error: '+esc(e.message)+'</p>'; });
       });
     }
     q4YSel.addEventListener('change',q4Render);
-    q4MSel.addEventListener('change',q4Render);
     q4Render();
   }
 })();
