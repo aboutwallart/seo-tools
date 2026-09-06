@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.63 · 6 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.64 · 6 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -273,6 +273,7 @@
     <div class="emsubnav">
       <button class="emsub active" type="button" data-emsub="newsletters"><i class="ti ti-news"></i> Newsletters</button>
       <button class="emsub" type="button" data-emsub="promos"><i class="ti ti-discount-2"></i> Monthly Promos</button>
+      <button class="emsub" type="button" data-emsub="q4"><i class="ti ti-shopping-cart"></i> Black Friday &amp; Holidays</button>
     </div>
 
     <div class="emsubpanel active" id="emsub-newsletters">
@@ -369,6 +370,20 @@
         <button id="mpEmStart" class="nlbtn" type="button" style="margin-top:14px;" disabled>Create these promos →</button>
       </div>
       <div id="mpEmBuild"></div>
+    </div>
+
+    <div class="emsubpanel" id="emsub-q4">
+      <div class="nlstep">
+        <div class="nlhd">Black Friday &amp; Holidays — Q4 sequence</div>
+        <p class="nlhint">Pick the year — the dates auto-calculate from Black Friday (4th Friday of November), so this works every year. Each email already knows its job; press <b>Write</b> and edit it in the preview.</p>
+        <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+          <label style="font-size:12px;color:#555;">Year<br><select id="q4Year" style="border:1px solid #D8D3EE;border-radius:8px;padding:9px 12px;font-size:14px;background:#fff;min-width:120px;"></select></label>
+          <label style="font-size:12px;color:#555;">Market<br><select id="q4Market" style="border:1px solid #D8D3EE;border-radius:8px;padding:9px 12px;font-size:14px;background:#fff;min-width:150px;"><option value="UK">UK</option><option value="REST">Rest of world</option></select></label>
+          <div id="q4BfInfo" style="font-size:12.5px;color:#0F6E56;font-weight:700;"></div>
+        </div>
+        <div id="q4DiscNote" style="font-size:12px;color:#555;margin-top:6px;"></div>
+      </div>
+      <div id="q4Build"></div>
     </div>
   </div>
 </section>
@@ -4168,7 +4183,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         +'<a href="'+esc(p.url)+'" style="text-decoration:none;"><img src="'+esc(p.image)+'" alt="'+esc(p.title||'')+'" width="260" style="width:100%;max-width:260px;height:auto;display:block;margin:0 auto 12px;border:0;"></a>'
         +'<div style="font-size:15px;line-height:1.35;margin-bottom:6px;"><a href="'+esc(p.url)+'" style="color:#0f1419;text-decoration:underline;">'+esc(p.title||'')+'</a></div>'
         +(p.price?'<div style="font-size:15px;font-weight:700;color:#0f1419;margin-bottom:12px;">'+esc(p.price)+'</div>':'')
-        +'<a href="'+esc(p.url)+'" style="display:inline-block;background:#DADADA;color:#000;text-decoration:none;font-size:15px;font-family:'+PFONT+';padding:11px 26px;">SHOP NOW</a>'
+        +(s.noProdButtons?'':'<a href="'+esc(p.url)+'" style="display:inline-block;background:#DADADA;color:#000;text-decoration:none;font-size:15px;font-family:'+PFONT+';padding:11px 26px;">SHOP NOW</a>')
         +'</td>';
     }
     var prows='';
@@ -4184,15 +4199,15 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       .map(function(x){ return '<a href="'+x[1]+'" style="text-decoration:none;display:inline-block;margin:0 6px;"><img src="'+SOC+x[0]+'" width="28" alt="" style="width:28px;height:auto;display:inline-block;"></a>'; }).join('');
     // offer: personal lead-in (from the AI) + offer phrase + code + valid-until
     var offerLead = c.offerLead ? '<div style="margin:0 0 16px;"'+ed('offerlead')+'>'+brk(c.offerLead)+'</div>' : '';
-    var offerBlock='<div style="text-align:center;margin:6px 0 2px;">'
+    var offerBlock = s.noOffer ? '' : ('<div style="text-align:center;margin:6px 0 2px;">'
       + offerLead
       +'<div style="font-weight:700;font-size:19px;color:#0f1419;"'+ed('offer')+'>'+esc(oc)+'</div>'
       +(s.code?'<div style="font-weight:700;font-size:17px;color:#0f1419;margin-top:6px;">Use code '+esc(s.code)+'</div>':'')
       +(vt?'<div style="font-weight:400;font-size:13px;color:#777;margin-top:6px;">Valid until '+esc(vt)+'</div>':'')
-      +'</div>';
+      +'</div>');
     // main CTA — black, UPPERCASE, centred
     var cta='<div style="text-align:center;margin:8px 0 20px;"><a href="'+esc(s.ctaUrl||'#')+'"'+(editable?' onclick="return false"':'')+' style="display:inline-block;background:#000;color:#fff;text-decoration:none;text-transform:uppercase;letter-spacing:1px;font-size:16px;font-family:'+PFONT+';padding:15px 40px;"'+ed('cta')+'>'+esc(c.ctaLabel||('Shop '+((s.occ&&s.occ.name)||'now')))+'</a></div>';
-    var cd = countdownImg(s.expiry) ? '<div style="text-align:center;margin:6px 0 16px;"><img src="'+countdownImg(s.expiry)+'" alt="Offer ends soon" width="440" style="width:100%;max-width:440px;height:auto;display:block;margin:0 auto;"></div>' : '';
+    var cd = (s.noOffer || !countdownImg(s.expiry)) ? '' : '<div style="text-align:center;margin:6px 0 16px;"><img src="'+countdownImg(s.expiry)+'" alt="Offer ends soon" width="440" style="width:100%;max-width:440px;height:auto;display:block;margin:0 auto;"></div>';
 
     return '<div style="max-width:600px;margin:0 auto;background:#fff;font-family:'+PFONT+';color:#0f1419;">'
       // header — black band + logo
@@ -4772,6 +4787,104 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           renderTitleOpts(); refreshPreview(s);
         }).catch(function(e){ btn.disabled=false; btn.textContent='✍️ Write the promo'; document.getElementById('body-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">Error: '+esc(e.message)+'</p>'; });
       });
+  }
+
+  /* ===== Black Friday & Holidays (Q4) — fixed sequence, dates from BF, reuses the promo render/preview ===== */
+  var q4YSel=document.getElementById('q4Year');
+  if(q4YSel){
+    var q4MSel=document.getElementById('q4Market');
+    var q4Info=document.getElementById('q4BfInfo');
+    var q4DiscNote=document.getElementById('q4DiscNote');
+    var q4Wrap=document.getElementById('q4Build');
+    var Q4SEQ=[
+      {role:'sneak',label:'Sneak Peek (mystery)',off:-14,disc:'',noOffer:true,noBtns:true},
+      {role:'teaser',label:'Teaser (reveal the plan)',off:-7,disc:'',noOffer:true,noBtns:true},
+      {role:'countdown',label:'Countdown',off:-3,disc:'',noOffer:true,noBtns:true},
+      {role:'vip_launch',label:'VIP Early Access opens',off:-2,disc:'VIP'},
+      {role:'vip_deadline',label:'VIP Deadline',off:-1,disc:'VIP'},
+      {role:'bf_am',label:'Black Friday — LIVE (AM)',off:0,disc:'BF'},
+      {role:'bf_pm',label:'Black Friday — last hours (PM)',off:0,disc:'BF',pm:true},
+      {role:'small_biz',label:'Small Business Saturday',off:1,disc:'BF'},
+      {role:'last_chance',label:'Last chance (Sunday)',off:2,disc:'BF'},
+      {role:'cyber',label:'Cyber Monday — the real last',off:3,disc:'BF'}
+    ];
+    function q4Bf(year){ var d=new Date(Date.UTC(year,10,1)); var day=d.getUTCDay(); var firstFri=1+((5-day+7)%7); return year+'-11-'+pad2(firstFri+21); }
+    function q4DiscPct(disc,mk){ if(!disc) return 0; if(disc==='VIP') return mk==='UK'?35:30; if(disc==='BF') return mk==='UK'?30:25; return 0; }
+    function q4DefCode(role,pct,mk){ if(!pct) return ''; var sfx=(mk==='UK'?'UK':'INT'); if(role.indexOf('vip')===0) return 'VIP'+pct+sfx; if(role==='cyber') return 'CYBER'+pct+sfx; if(role==='small_biz') return 'SMALLBIZ'+pct+sfx; return 'BF'+pct+sfx; }
+    (function(){ var now=new Date().getUTCFullYear(); var h=''; for(var y=now;y<=now+3;y++){ h+='<option value="'+y+'">'+y+'</option>'; } q4YSel.innerHTML=h; })();
+    function q4Render(){
+      var year=parseInt(q4YSel.value,10)||new Date().getUTCFullYear();
+      var mk=q4MSel.value||'UK';
+      var bf=q4Bf(year);
+      q4Info.textContent='Black Friday '+year+': '+fmtNice(bf);
+      q4DiscNote.innerHTML='Descuento '+(mk==='UK'?'UK':'resto del mundo')+' — VIP <b>'+(mk==='UK'?'35':'30')+'%</b> · Black Friday / Cyber <b>'+(mk==='UK'?'30':'25')+'%</b>';
+      q4Wrap.innerHTML='';
+      Q4SEQ.forEach(function(item,idx){ q4Card(item,idx,year,bf,mk); });
+    }
+    function q4Card(item,idx,year,bf,mk){
+      var uid='q'+idx+'_'+Math.random().toString(36).slice(2,7);
+      var send=isoAdd(bf,item.off);
+      var pct=q4DiscPct(item.disc,mk);
+      var code=pct?q4DefCode(item.role,pct,mk):'';
+      var vipDate=fmtNice(isoAdd(bf,-2)), bfNice=fmtNice(bf);
+      var s={uid:uid, occ:{name:'Black Friday'}, lg:'en', market:mk, copy:null, products:[], hero:'', expiry:(item.noOffer?'':send), sendDate:send, pct:(pct||''), code:code, titleDy:0, titleDx:0, ctaUrl:'https://aboutwallart.com/collections/all', noOffer:!!item.noOffer, noProdButtons:!!item.noBtns };
+      var card=document.createElement('div'); card.className='nlstep'; card.style.marginTop='16px';
+      card.innerHTML=
+        '<div class="nlhd">'+esc(item.label)+' <span style="font-size:11px;background:#eee;color:#555;padding:1px 7px;border-radius:6px;">'+esc(fmtNice(send))+(item.pm?' · PM':'')+'</span>'+(pct?' <span style="font-size:11px;background:#d6f0dd;color:#1a7f37;padding:1px 7px;border-radius:6px;">'+pct+'% off</span>':' <span style="font-size:11px;background:#eee;color:#888;padding:1px 7px;border-radius:6px;">sin descuento</span>')+'</div>'
+        +(pct?'<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin:8px 0;"><label style="font-size:12px;color:#555;">Discount %<br><input id="qd-'+uid+'" type="number" value="'+pct+'" style="width:80px;padding:7px;border:1px solid #ddd;border-radius:6px;"></label><label style="font-size:12px;color:#555;">Code<br><input id="qc-'+uid+'" value="'+esc(code)+'" style="width:170px;padding:7px;border:1px solid #ddd;border-radius:6px;"></label></div>':'')
+        +'<div style="margin:8px 0;"><label style="font-size:12px;color:#555;">Hero image URL (opcional)<br><input id="qh-'+uid+'" placeholder="https://…" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;"></label></div>'
+        +'<div style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;"><label style="font-size:12px;color:#555;flex:1;min-width:200px;">Productos: colección (handle)<br><input id="qcol-'+uid+'" placeholder="ej. best-sellers" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;"></label><button id="qlp-'+uid+'" class="nlbtn" type="button" style="background:#555;">📦 Cargar 4 productos</button></div>'
+        +'<button id="qw-'+uid+'" class="nlbtn" type="button">✍️ Write</button>'
+        +'<div id="qbody-'+uid+'"></div>';
+      q4Wrap.appendChild(card);
+      document.getElementById('qh-'+uid).addEventListener('input',function(){ readPromoEmail(s); s.hero=this.value.trim(); refreshPreview(s); });
+      document.getElementById('qlp-'+uid).addEventListener('click',function(){ var h=(document.getElementById('qcol-'+uid).value||'').trim(); if(!h){ alert('Poné el handle de una colección.'); return; } var b=this; b.disabled=true; b.textContent='Cargando…'; emPost({action:'promo-products',collections:[h],count:4}).then(function(d){ b.disabled=false; b.textContent='📦 Cargar 4 productos'; s.products=(d&&d.ok&&d.products)||[]; refreshPreview(s); }).catch(function(){ b.disabled=false; b.textContent='📦 Cargar 4 productos'; }); });
+      if(pct){ document.getElementById('qd-'+uid).addEventListener('input',function(){ s.pct=this.value; refreshPreview(s); }); document.getElementById('qc-'+uid).addEventListener('input',function(){ s.code=this.value.toUpperCase(); refreshPreview(s); }); }
+      document.getElementById('qw-'+uid).addEventListener('click',function(){
+        var btn=this; btn.disabled=true; btn.textContent='Writing…';
+        if(pct){ s.pct=document.getElementById('qd-'+uid).value||pct; s.code=(document.getElementById('qc-'+uid).value||'').toUpperCase(); }
+        emPost({action:'q4-write', role:item.role, discount:s.pct, code:s.code, expiry:s.expiry, vipDate:vipDate, bfDate:bfNice}).then(function(d){
+          btn.disabled=false; btn.textContent='✍️ Re-write';
+          if(!d||!d.ok||!d.copy){ document.getElementById('qbody-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">No se pudo escribir: '+esc((d&&d.error)||'error')+'</p>'; return; }
+          s.copy=d.copy; var c=s.copy;
+          document.getElementById('qbody-'+uid).innerHTML=
+            '<div style="margin-top:10px;">'
+            +'<label style="font-size:12px;color:#555;">Subject<br><input id="qs-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.subject||'')+'"></label>'
+            +'<label style="font-size:12px;color:#555;">Preview text<br><input id="qpr-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.preview||'')+'"></label>'
+            +'<div style="font-size:12px;color:#555;margin:12px 0 4px;">Editá el texto haciendo click en el preview.</div>'
+            +'<div style="overflow:auto;"><div id="pv-'+uid+'" style="width:600px;margin:0 auto;border:1px solid #e3e3e3;border-radius:8px;background:#fff;"></div></div>'
+            +'<div style="margin-top:16px;text-align:center;">'
+              +'<button id="qck-'+uid+'" class="nlbtn" type="button" style="background:#534AB7;margin-bottom:10px;">🔤 Check spelling & grammar</button>'
+              +'<div id="qckmsg-'+uid+'" style="font-size:13px;"></div>'
+              +'<div id="qckwrap-'+uid+'" style="display:none;text-align:left;margin:8px auto 14px;max-width:560px;background:#F7F6FE;border:1px solid #E4E1F0;border-radius:10px;padding:12px 14px;"></div>'
+            +'</div></div>';
+          document.getElementById('qs-'+uid).addEventListener('input',function(){ s.copy.subject=this.value; });
+          document.getElementById('qpr-'+uid).addEventListener('input',function(){ s.copy.preview=this.value; });
+          document.getElementById('qck-'+uid).addEventListener('click',function(){
+            readPromoEmail(s); s.copy.subject=document.getElementById('qs-'+uid).value; s.copy.preview=document.getElementById('qpr-'+uid).value;
+            var cb=this; cb.disabled=true; var o2=cb.textContent; cb.textContent='Checking…';
+            var msg=document.getElementById('qckmsg-'+uid), wrap=document.getElementById('qckwrap-'+uid); msg.textContent=''; wrap.style.display='none'; wrap.innerHTML='';
+            emPost({action:'promo-check', copy:s.copy}).then(function(v){
+              cb.disabled=false; cb.textContent=o2;
+              if(!v||!v.ok){ msg.style.color='#b00'; msg.textContent=(v&&v.error)||'Could not check.'; return; }
+              var iss=v.issues||[];
+              if(!iss.length){ msg.style.color='#0F6E56'; msg.textContent='No spelling or grammar mistakes found ✓'; return; }
+              msg.textContent='';
+              var html='<div style="font-weight:700;color:#3C3489;margin-bottom:8px;">'+iss.length+' thing'+(iss.length>1?'s':'')+' to check:</div>';
+              iss.forEach(function(it){ html+='<div style="margin-bottom:8px;font-size:13px;"><span style="text-decoration:line-through;color:#b91c1c;">'+esc(it.original||'')+'</span> → <b style="color:#0F6E56;">'+esc(it.suggestion||'')+'</b>'+(it.why?' <span style="color:#9A95B4;">('+esc(it.why)+')</span>':'')+'</div>'; });
+              if(v.corrected){ html+='<button id="qapf-'+uid+'" class="nlbtn" type="button" style="background:#534AB7;margin-top:6px;">✨ Apply these fixes</button>'; }
+              wrap.innerHTML=html; wrap.style.display='';
+              var af=document.getElementById('qapf-'+uid);
+              if(af) af.addEventListener('click',function(){ var cor=v.corrected||{}; if(cor.subject!=null)s.copy.subject=cor.subject; if(cor.preview!=null)s.copy.preview=cor.preview; if(cor.intro&&cor.intro.length)s.copy.intro=cor.intro; if(cor.offerLine!=null)s.copy.offerLine=cor.offerLine; if(cor.ctaLabel!=null)s.copy.ctaLabel=cor.ctaLabel; if(cor.closingText!=null)s.copy.closingText=cor.closingText; document.getElementById('qs-'+uid).value=s.copy.subject||''; document.getElementById('qpr-'+uid).value=s.copy.preview||''; refreshPreview(s); wrap.style.display='none'; msg.style.color='#0F6E56'; msg.textContent='Fixes applied — have a look.'; });
+            }).catch(function(){ cb.disabled=false; cb.textContent=o2; msg.style.color='#b00'; msg.textContent='Network error.'; });
+          });
+          refreshPreview(s);
+        }).catch(function(e){ btn.disabled=false; btn.textContent='✍️ Write'; document.getElementById('qbody-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">Error: '+esc(e.message)+'</p>'; });
+      });
+    }
+    q4YSel.addEventListener('change',q4Render);
+    q4MSel.addEventListener('change',q4Render);
+    q4Render();
   }
 })();
 </script>
