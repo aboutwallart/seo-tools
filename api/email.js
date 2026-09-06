@@ -695,20 +695,21 @@ module.exports = async (req, res) => {
     if (action === 'promo-products') {
       var handles = Array.isArray(body.collections) ? body.collections.filter(Boolean) : [];
       var want = Math.min(parseInt(body.count, 10) || 4, 8);
-      var out = [];
-      for (var ci = 0; ci < handles.length && out.length < want; ci++) {
+      var skip = Math.max(0, parseInt(body.skip, 10) || 0); // e.g. Q4: a different slice of best sellers per email
+      var pool = [];
+      for (var ci = 0; ci < handles.length && pool.length < want + skip; ci++) {
         try {
           var pd = await shopifyGraphQL(
             'query($h:String!,$n:Int!){ collectionByHandle(handle:$h){ products(first:$n, sortKey:BEST_SELLING){ edges{ node{ title handle onlineStoreUrl vendor featuredImage{ url altText } priceRangeV2{ minVariantPrice{ amount currencyCode } } } } } } }',
-            { h: handles[ci], n: want + 4 }
+            { h: handles[ci], n: want + skip + 8 }
           );
           var edges = (pd && pd.collectionByHandle && pd.collectionByHandle.products && pd.collectionByHandle.products.edges) || [];
-          for (var ei = 0; ei < edges.length && out.length < want; ei++) {
+          for (var ei = 0; ei < edges.length && pool.length < want + skip; ei++) {
             var p = edges[ei].node; if (!p) continue;
             if (p.vendor && p.vendor.toLowerCase().indexOf('about wall art') < 0) continue; // AWA only
-            if (out.some(function (x) { return x.handle === p.handle; })) continue;
+            if (pool.some(function (x) { return x.handle === p.handle; })) continue;
             var cur = p.priceRangeV2 && p.priceRangeV2.minVariantPrice;
-            out.push({
+            pool.push({
               title: p.title, handle: p.handle,
               url: p.onlineStoreUrl || (PROMO_SITE + '/products/' + p.handle),
               image: p.featuredImage ? retinaImg(p.featuredImage.url, 600) : '',
@@ -718,7 +719,9 @@ module.exports = async (req, res) => {
           }
         } catch (e) {}
       }
-      res.status(200).json({ ok: true, products: out.slice(0, want) });
+      var out = pool.slice(skip, skip + want);
+      if (!out.length && pool.length) out = pool.slice(0, want); // if the skip window is past the end, fall back to the top
+      res.status(200).json({ ok: true, products: out });
       return;
     }
 
@@ -879,7 +882,7 @@ module.exports = async (req, res) => {
         'The CTA button label must be punchy and FIRST-PERSON (e.g. "I want my discount!", "Show me the sale", "Count me in") — never a generic "Shop now".',
         qdual ? 'DUAL-MARKET: two versions (UK and rest of world) are generated from this ONE copy with different percentages. Do NOT write any specific percentage number anywhere (not in the subject, intro, offer or closing). Wherever the percentage would appear, write the literal token {PCT} (for example "{PCT}% off your wall art sets"). Do not mention a code.' : '',
         qnote,
-        'Return ONLY JSON with EXACTLY these keys: { "subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'friend\' }} then a comma, then a warm line fitting THIS email\'s role (about 55 chars after the name, no buzzwords)", "preview":"one short human line", "titleTop":"SHORT CAPS headline, MAX 3 words, fitting this email", "titleScript":"SHORT handwritten tagline, MAX 3 words", "intro":["2 to 3 SHORT body lines matching the role"], ' + offerKeys + ' "ctaLabel":"2-4 word punchy FIRST-PERSON button label", "closingText":"a warm closing line above the signature, DIFFERENT every time" }'
+        'Return ONLY JSON with EXACTLY these keys: { "subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'friend\' }} then a comma, then a warm line fitting THIS email\'s role (about 55 chars after the name, no buzzwords)", "preview":"one short human line", "titleTop":"SHORT CAPS headline, MAX 3 words, fitting this email", "titleScript":"SHORT handwritten tagline, MAX 3 words", "titleOptions":[{"top":"MAX 3 WORDS CAPS","script":"max 3 words"}, (give 4 DISTINCT short options for THIS email, each top MAX 3 words and script MAX 3 words)], "intro":["2 to 3 SHORT body lines matching the role"], ' + offerKeys + ' "ctaLabel":"2-4 word punchy FIRST-PERSON button label", "closingText":"a warm closing line above the signature, DIFFERENT every time" }'
       ].join('\n');
       var qraw = await anthropic(qpr, 1300);
       var qcopy = extractJSON(qraw);
