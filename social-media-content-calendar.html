@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.71 · 7 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.72 · 7 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -4850,6 +4850,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     var Q4COL='best-sellers';                 // auto-load 4 best sellers (same idea as the promos)
     var Q4CTA='https://aboutwallart.com/collections/best-sellers';
     var Q4_UK_SEG='UK', Q4_REST_SEG='ALL', Q4_UK_SEG_ID='WGvbF3'; // rest = General (ALL) excluding UK
+    var Q4_RECENT_SEG_ID='XfgwNx'; // "bought in the last 3 days" — excluded from every sale email
+    var Q4_EXEMPT_ROLES=['sneak','teaser','countdown','vip_launch']; // these still go to everyone (no recent-buyer exclusion)
     var Q4SEQ=[
       {role:'sneak',       label:'Sneak Peek (mystery)',           off:-14, offer:false},
       {role:'teaser',      label:'Teaser (reveal the plan)',       off:-7,  offer:false},
@@ -5206,12 +5208,14 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
             var rr=document.getElementById('res-'+uid);
             if(!s.approved){ rr.innerHTML='<span style="color:#b00;">Approve first.</span>'; return; }
             var cb=this; cb.disabled=true; pull();
+            // every sale email excludes buyers of the last 3 days; the teaser/mystery/VIP-launch ones go to everyone
+            var exclBuyers = (Q4_EXEMPT_ROLES.indexOf(item.role)>=0) ? '' : Q4_RECENT_SEG_ID;
             function makeDraft(st, mk, excl, tag){
               return emPost({action:'promo-create-draft', name:'Q4 '+item.label+' ('+tag+')', subject:st.copy.subject, preview:st.copy.preview, html:buildPromoFullDoc(st), market:mk, excludeSegment:(excl||'')});
             }
             if(!offer){
               cb.textContent='Creating…';
-              makeDraft(s, Q4_REST_SEG, '', 'everyone').then(function(d){
+              makeDraft(s, Q4_REST_SEG, exclBuyers, 'everyone').then(function(d){
                 cb.disabled=false; cb.textContent=CDLBL;
                 if(d&&d.ok){ s.sent={all:d.url}; q4Persist(); card.innerHTML='<div class="nlhd">✓ '+esc(item.label)+' — draft in Klaviyo</div><div style="font-size:12.5px;color:#555;margin-top:8px;"><a href="'+esc(d.url)+'" target="_blank">open in Klaviyo ↗</a> — schedule for <b>'+esc(fmtNice(send))+'</b></div>'; }
                 else { rr.innerHTML='<span style="color:#b00;">Draft failed: '+esc((d&&d.error)||'error')+'</span>'; }
@@ -5225,11 +5229,11 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
               var vu=vs[0], vr=vs[1];
               if(!vu||!vu.ok||!vr||!vr.ok||!vu.exists||!vr.exists){ cb.disabled=false; cb.textContent=CDLBL; rr.innerHTML='<span style="color:#b00;">Create both discount codes in Shopify first (press the green button up top).</span>'; return; }
               cb.textContent='Creating UK…';
-              makeDraft(s, Q4_UK_SEG, '', 'UK').then(function(dm){
+              makeDraft(s, Q4_UK_SEG, exclBuyers, 'UK').then(function(dm){
                 if(!dm||!dm.ok){ cb.disabled=false; cb.textContent=CDLBL; rr.innerHTML='<span style="color:#b00;">UK draft failed: '+esc((dm&&dm.error)||'error')+'. Nothing else created — press again.</span>'; return; }
                 var ukUrl=dm.url;
                 cb.textContent='Creating rest of world…';
-                makeDraft(restState(), Q4_REST_SEG, Q4_UK_SEG_ID, 'Rest').then(function(df){
+                makeDraft(restState(), Q4_REST_SEG, (exclBuyers ? Q4_UK_SEG_ID+','+exclBuyers : Q4_UK_SEG_ID), 'Rest').then(function(df){
                   cb.disabled=false; cb.textContent=CDLBL;
                   if(df&&df.ok){
                     s.sent={uk:ukUrl, rest:df.url}; q4Persist();
