@@ -1070,14 +1070,16 @@ module.exports = async (req, res) => {
       if (!subject || !html) { res.status(400).json({ ok: false, error: 'subject and html required' }); return; }
       var SEG = { UK: 'WGvbF3', US: 'Y3x3by', ALL: 'VeaNX2', GENERAL: 'VeaNX2', ISLAMIC: 'Xypmb6' };
       var seg = SEG[(body.market || 'ALL').toString().toUpperCase()] || 'VeaNX2';
-      var excl = (body.excludeSegment || '').toString().trim(); // follow-up: "Don't send to" (recent buyers)
+      // "Don't send to" — one OR several segments (comma-separated), e.g. UK + recent buyers. De-duped.
+      var exclSeen = {}, excluded = [];
+      (body.excludeSegment || '').toString().split(',').forEach(function (x) { var s = x.trim(); if (s && !exclSeen[s]) { exclSeen[s] = 1; excluded.push(s); } });
       var REVP = '2024-10-15';
       function kvp(path, method, payload) { return fetch('https://a.klaviyo.com' + path, { method: method, headers: { 'Authorization': 'Klaviyo-API-Key ' + KLAVIYO_KEY, 'revision': REVP, 'accept': 'application/vnd.api+json', 'content-type': 'application/vnd.api+json' }, body: payload ? JSON.stringify(payload) : undefined }); }
       async function kvpJson(r) { var t = await r.text(); var j = null; try { j = JSON.parse(t); } catch (e) {} return { ok: r.ok, status: r.status, json: j, text: t }; }
       var tR = await kvpJson(await kvp('/api/templates/', 'POST', { data: { type: 'template', attributes: { name: name + ' (tool)', editor_type: 'CODE', html: html } } }));
       if (!tR.ok || !tR.json || !tR.json.data) { res.status(502).json({ ok: false, error: 'Template create failed (' + tR.status + '): ' + (tR.text || '').slice(0, 250) }); return; }
       var tId = tR.json.data.id;
-      var campP = { data: { type: 'campaign', attributes: { name: name, audiences: (excl ? { included: [seg], excluded: [excl] } : { included: [seg] }), tracking_options: { add_tracking_params: true, is_tracking_opens: true, is_tracking_clicks: true }, 'campaign-messages': { data: [ { type: 'campaign-message', attributes: { channel: 'email', label: name, content: { subject: subject, preview_text: preview, from_email: 'info@aboutwallart.com', from_label: 'Mae from About Wall Art' } } } ] } } } };
+      var campP = { data: { type: 'campaign', attributes: { name: name, audiences: (excluded.length ? { included: [seg], excluded: excluded } : { included: [seg] }), tracking_options: { add_tracking_params: true, is_tracking_opens: true, is_tracking_clicks: true }, 'campaign-messages': { data: [ { type: 'campaign-message', attributes: { channel: 'email', label: name, content: { subject: subject, preview_text: preview, from_email: 'info@aboutwallart.com', from_label: 'Mae from About Wall Art' } } } ] } } } };
       var cR = await kvpJson(await kvp('/api/campaigns/', 'POST', campP));
       if (!cR.ok || !cR.json || !cR.json.data) { res.status(502).json({ ok: false, error: 'Campaign create failed (' + cR.status + '): ' + (cR.text || '').slice(0, 300) }); return; }
       var campId = cR.json.data.id, mId = null; try { mId = cR.json.data.relationships['campaign-messages'].data[0].id; } catch (e) {}
