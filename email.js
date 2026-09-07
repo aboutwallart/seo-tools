@@ -1,0 +1,1140 @@
+// Email Marketing — backend for the "Email Marketing" tab (Newsletters + Monthly Promos).
+// PART 1 (this file, Newsletters copy stage):
+//   POST { action:'newsletter-blogs' }                          -> 5 recent Shopify blogs (title + hero + alt), minus already-used
+//   POST { action:'newsletter-write',  articleId }              -> AI writes the newsletter in Mae's voice (structured JSON)
+//   POST { action:'newsletter-rewrite', articleId, current, note } -> AI rewrites using Mae's note (incl. "you misunderstood the blog")
+//
+// The Klaviyo DRAFT push is a LATER step (not in this file yet).
+//
+// PART 2 (Monthly Promos — Step 2, added 4 Sep 2026):
+//   POST { action:'promo-products', collections[], count }        -> 4 best-selling AWA products from the occasion's collections
+//   POST { action:'promo-write' | 'promo-rewrite', occasion, discount, code, expiry, lang, note, current }
+//                                                                 -> AI writes SHORT promo copy in the market's language (offer once, 1 CTA)
+//   POST { action:'promo-create-draft', name, subject, preview, html, market } -> creates a Klaviyo DRAFT (audience by market UK/US/ALL)
+
+module.exports = async (req, res) => {
+  // CORS
+  res.setHeader('Access-Control-Allow-Credentials', true);
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
+  if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+
+  const GITHUB_TOKEN    = process.env.GITHUB_TOKEN;
+  const REPO            = 'aboutwallart/seo-tools';
+  const USED_FILE       = 'data/used-newsletter-blogs.json';
+  const NEWS_FILE       = 'data/newsletters.json';
+  const PROMOS_FILE     = 'data/promos.json';
+  const BOARD_FILE      = 'data/content-board-manual.json';
+  const Q4_FILE         = 'data/q4-drafts.json';
+  const SHOPIFY_DOMAIN  = process.env.SHOPIFY_STORE_DOMAIN;
+  const SHOPIFY_TOKEN   = process.env.SHOPIFY_ACCESS_TOKEN;
+  const ANTHROPIC_KEY   = process.env.ANTHROPIC_API_KEY;
+
+  // ---- helpers ----
+  async function ghGetJSON(filePath) {
+    try {
+      const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${filePath}`, {
+        headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
+      });
+      if (r.status === 404) return [];
+      if (!r.ok) return [];
+      const d = await r.json();
+      const content = (d.content && d.content.length) ? Buffer.from(d.content, 'base64').toString('utf-8') : '';
+      if (!content) return [];
+      try { return JSON.parse(content); } catch (e) { return []; }
+    } catch (e) { return []; }
+  }
+
+  // read a JSON file WITH its sha (needed to update it); write it back.
+  async function ghReadFile(filePath) {
+    try {
+      const r = await fetch(`https://api.github.com/repos/${REPO}/contents/${filePath}`, { headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' } });
+      if (!r.ok) return { json: null, sha: null };
+      const d = await r.json();
+      const c = (d.content && d.content.length) ? Buffer.from(d.content, 'base64').toString('utf-8') : '';
+      let j = null; try { j = JSON.parse(c); } catch (e) {}
+      return { json: j, sha: d.sha };
+    } catch (e) { return { json: null, sha: null }; }
+  }
+  async function ghWriteFile(filePath, obj, sha, msg) {
+    return fetch(`https://api.github.com/repos/${REPO}/contents/${filePath}`, {
+      method: 'PUT',
+      headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: msg, content: Buffer.from(JSON.stringify(obj, null, 2) + '\n').toString('base64'), ...(sha ? { sha } : {}) })
+    });
+  }
+
+  async function shopifyGraphQL(query, variables) {
+    if (!SHOPIFY_DOMAIN || !SHOPIFY_TOKEN) throw new Error('Shopify credentials not configured');
+    const r = await fetch(`https://${SHOPIFY_DOMAIN}/admin/api/2025-01/graphql.json`, {
+      method: 'POST',
+      headers: { 'X-Shopify-Access-Token': SHOPIFY_TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, variables })
+    });
+    if (!r.ok) throw new Error('Shopify error: ' + r.status);
+    const d = await r.json();
+    if (d.errors) throw new Error('Shopify GraphQL error: ' + JSON.stringify(d.errors).slice(0, 200));
+    return d.data;
+  }
+
+  async function anthropic(prompt, maxTok, model) {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': ANTHROPIC_KEY, 'content-type': 'application/json', 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: model || 'claude-sonnet-4-6', max_tokens: maxTok || 2000, messages: [{ role: 'user', content: prompt }] })
+    });
+    if (!r.ok) throw new Error('AI error: ' + r.status);
+    const d = await r.json();
+    return (d.content && d.content[0] && d.content[0].text) ? d.content[0].text : '';
+  }
+
+  // make a Shopify CDN image ≥ targetW wide (retina rule: source ≥ 1.5× display width)
+  function retinaImg(url, targetW) {
+    if (!url) return url;
+    var w = targetW || 1200;
+    if (/[?&]width=/.test(url)) return url.replace(/([?&])width=\d+/, '$1width=' + w);
+    return url + (url.indexOf('?') >= 0 ? '&' : '?') + 'width=' + w;
+  }
+
+  // force a square crop (center) so portrait + square images all render the same in the email
+  function squareImg(url, size) {
+    if (!url) return url;
+    var s = size || 800;
+    if (url.indexOf('cdn.shopify.com') < 0) return retinaImg(url, s);
+    var base = url.split('?')[0];
+    var q = url.split('?')[1] || '';
+    var vm = q.match(/(?:^|&)v=([^&]+)/);
+    return base + '?width=' + s + '&height=' + s + '&crop=center' + (vm ? ('&v=' + vm[1]) : '');
+  }
+
+  function slugify(s) {
+    return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+  }
+
+  // strip HTML to plain text, drop furniture/partner blocks (wall-art-only rule)
+  function blogToText(html) {
+    if (!html) return '';
+    var t = html.replace(/<div[^>]*class=["'][^"']*awa-partner[^"']*["'][\s\S]*?<\/div>/gi, ' ');
+    t = t.replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<script[\s\S]*?<\/script>/gi, ' ');
+    t = t.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#39;|&rsquo;/g, "'").replace(/&quot;/g, '"');
+    return t.replace(/\s+/g, ' ').trim().slice(0, 6000);
+  }
+
+  function extractJSON(text) {
+    if (!text) return null;
+    var a = text.indexOf('{'), b = text.lastIndexOf('}');
+    if (a < 0 || b < 0 || b <= a) return null;
+    try { return JSON.parse(text.slice(a, b + 1)); } catch (e) { return null; }
+  }
+
+  // FREE on-site tools + guides the secondary CTA points to.
+  // The AI picks the ONE that best fits the chosen blog (NOT always the quiz).
+  var SITE = 'https://aboutwallart.com';
+  var FREE_TOOLS = [
+    // interactive tools
+    { name: 'Interior Style Quiz', url: '/pages/interior-style-quiz', note: 'find your style in 60s' },
+    { name: 'Room Colour & Art Matcher', url: '/pages/room-colour-art-matcher', note: 'match art to your room colours' },
+    { name: 'Wall Art Size Calculator', url: '/pages/wall-art-size-calculator', note: 'what size fits the wall' },
+    { name: 'Art Hanging Height Calculator', url: '/pages/art-hanging-height-calculator', note: 'how high to hang art' },
+    { name: 'Gallery Wall Planner', url: '/pages/gallery-wall-planner', note: 'plan a gallery wall' },
+    { name: 'Find Their Perfect Gift quiz', url: '/pages/find-their-perfect-gift-quiz', note: 'gift finder quiz' },
+    // guides (read online + downloadable)
+    { name: 'Interior Design Styles Explained', url: '/pages/interior-design-styles-explained', note: '24+ styles explained' },
+    { name: 'Colour Matching Guide for Wall Art', url: '/pages/color-matching-guide-wall-art', note: 'colour matching guide' },
+    { name: 'Interior Design Principles & Concepts', url: '/pages/interior-design-guide-principles-and-concepts', note: 'design principles guide' },
+    { name: 'How to Choose the Right Wall Art Size', url: '/pages/how-to-choose-wall-art-size', note: 'sizing guide' },
+    { name: 'Gallery Wall Ideas & Layouts', url: '/pages/gallery-wall-ideas-and-layouts', note: 'gallery wall layouts' },
+    { name: 'Free DIY Interior Design Workbook', url: '/pages/diy-interior-design-workbook', note: 'DIY design workbook' },
+    { name: 'How to Choose the Perfect Celebration Gift', url: '/pages/how-to-choose-the-perfect-celebration-gift', note: 'gift-choosing guide' }
+  ];
+
+  // ---- the newsletter voice + recipe (kept identical for write & rewrite) ----
+  // Follows Mae's REAL Klaviyo template XMA3dY structure:
+  //   greeting -> body -> BLACK button (to the blog) -> tool intro + tool block (AI picks best-fit tool) -> closing (hit reply, Warmly Mae)
+  function recipe(article, extraNote) {
+    var bodyText = blogToText(article.bodyHtml);
+    var toolLines = FREE_TOOLS.map(function (t) { return '- ' + t.name + ' (' + SITE + t.url + ') — ' + t.note; }).join('\n');
+    return [
+      'You are Mae, founder of About Wall Art (a WALL ART shop). Write a monthly NEWSLETTER email in Mae\'s real first-person voice (UK spelling).',
+      '',
+      'JOB OF THE NEWSLETTER: keep customers WARM and inspire them. It is NOT a hard sell (selling is the promos\' job).',
+      '',
+      'HARD RULES (a newsletter that breaks these is rejected):',
+      '1. SHORT. ~130–150 words total. Must stay well under Gmail\'s clip size.',
+      '2. Art-first, few words. Not an article, not walls of advice.',
+      '3. Primary CTA = the BLACK button to the blog guide below. Its LABEL must be SHORT (3-6 words), UPPERCASE, and WARM/HUMAN in Mae\'s voice — an inviting outcome tied to THIS blog, NOT a stiff "READ THE X GUIDE". Good vibe: "SHOW ME HOW TO LAYER", "HELP ME GET THE LOOK", "READ THE GUIDE & FIND YOUR STYLE". Bad (robotic): "READ THE LAYERING GUIDE", "READ THE COLOUR GUIDE". Sound like a friend, not a filing cabinet. No "shop now" soup.',
+      '4. WALL ART only. Never mention furniture, lamps, rugs, sideboards, etc.',
+      '5. Sound like Mae — warm, honest, human. NOT a generic AI article. Vary; no "myth → reveal" formula.',
+      '6. Keep-warm, not sell. Position art as the easy, low-risk FIRST step to build a style.',
+      '7. SECONDARY CTA = pick the ONE free on-site tool/guide below that BEST FITS THIS BLOG (NOT always the style quiz). Frame it as HELP, never urgency, never "in a hurry".',
+      '8. End with a warm "hit reply" line, then "Warmly," then "Mae ❤️".',
+      'BANNED words/phrases: elevate, curated, timeless, transform your space, dive in, unlock, discover, effortless, elevate your home, in today\'s world. Avoid marketing clichés.',
+      '',
+      'SUBJECT formula: a punchy, relatable tension AS A QUESTION using the merge tag {{ first_name|title|default:\'Friend\' }} at the start when natural. Not flat/descriptive.',
+      'PREVIEW formula: invite the open by promising the fix is inside (do NOT just restate the subject).',
+      '',
+      'THE BLOG (this newsletter is built from it — read it and pull the ONE simplest angle):',
+      'Blog title: ' + article.title,
+      'Blog URL (primary black button target): ' + article.url,
+      'Blog body (plain text, furniture blocks already removed):',
+      bodyText,
+      '',
+      'FREE tools/guides — pick the SINGLE most relevant to THIS blog for the secondary CTA (return its exact full URL):',
+      toolLines,
+      '',
+      (extraNote ? ('MAE\'S FEEDBACK — apply this exactly. If she says the concept was misunderstood, RE-READ the blog and rewrite around what she says it is really about:\n' + extraNote + '\n') : ''),
+      'Return ONLY valid JSON, no prose, in this exact shape (matches the email template blocks in order):',
+      '{',
+      '  "subject": "...",',
+      '  "preview": "...",',
+      '  "greeting": "Dear {{ first_name|default:\'friend\' }},",',
+      '  "body": ["paragraph before the button", "..."],',
+      '  "primaryButton": { "label": "SHORT WARM UPPERCASE CTA in Mae\'s voice, tied to this blog (e.g. SHOW ME HOW TO LAYER)", "url": "' + article.url + '" },',
+      '  "toolBlock": { "intro": "one warm sentence introducing the free tool as help", "toolName": "exact tool name from the list", "url": "' + SITE + '/pages/...", "buttonLabel": "SHORT UPPERCASE BUTTON e.g. TAKE THE QUIZ" },',
+      '  "close": ["line after the tool (e.g. once you know it, your walls are the easiest place to start)", "a personal question to prompt a reply", "Hit reply; I read every one.", "Warmly,", "Mae ❤️"]',
+      '}'
+    ].join('\n');
+  }
+
+  // ---- fetch a single article with body ----
+  async function getArticle(articleId) {
+    var gid = String(articleId).indexOf('gid://') === 0 ? articleId : ('gid://shopify/Article/' + String(articleId).replace(/\D/g, ''));
+    var data = await shopifyGraphQL(
+      'query($id:ID!){ article(id:$id){ id title handle summary body image{ url altText } blog{ handle } } }',
+      { id: gid }
+    );
+    var a = data.article;
+    if (!a) throw new Error('Article not found');
+    var blogHandle = (a.blog && a.blog.handle) || 'news-articles-home-decor-inspiration';
+    return {
+      id: a.id,
+      title: a.title,
+      handle: a.handle,
+      summary: a.summary || '',
+      bodyHtml: a.body || '',
+      url: 'https://aboutwallart.com/blogs/' + blogHandle + '/' + a.handle,
+      image: (a.image && a.image.url) || '',
+      alt: (a.image && a.image.altText) || ''
+    };
+  }
+
+  try {
+    var body = req.body;
+    if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = {}; } }
+    body = body || {};
+    var action = body.action || (req.query && req.query.action);
+
+    // ---------- 1) list 5 recent blogs (minus used), SEASON-AWARE for the chosen month ----------
+    if (action === 'newsletter-blogs') {
+      var used = await ghGetJSON(USED_FILE); // array of handles
+      var usedSet = {};
+      (Array.isArray(used) ? used : []).forEach(function (h) { usedSet[String(h).toLowerCase()] = 1; });
+
+      var data = await shopifyGraphQL(
+        'query{ articles(first:40, sortKey:PUBLISHED_AT, reverse:true){ edges{ node{ id title handle publishedAt image{ url altText } blog{ handle } } } } }',
+        {}
+      );
+      var edges = (data.articles && data.articles.edges) ? data.articles.edges : [];
+      // build the candidate pool (all not-yet-used, newest first, up to 20)
+      var cand = [];
+      for (var i = 0; i < edges.length && cand.length < 20; i++) {
+        var n = edges[i].node;
+        if (!n || !n.handle) continue;
+        if (usedSet[n.handle.toLowerCase()]) continue;
+        var bh = (n.blog && n.blog.handle) || 'news-articles-home-decor-inspiration';
+        cand.push({
+          id: n.id, title: n.title, handle: n.handle, publishedAt: n.publishedAt,
+          image: retinaImg((n.image && n.image.url) || '', 600),
+          alt: (n.image && n.image.altText) || n.title,
+          url: 'https://aboutwallart.com/blogs/' + bh + '/' + n.handle
+        });
+      }
+
+      var month = (body.month || (req.query && req.query.month) || '').toString();
+      var out = cand.slice(0, 5);
+
+      if (month && cand.length) {
+        var MONTHS_S = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+        var Mnum = (+month.split('-')[1]); var mi = Mnum - 1;
+        var SEASONS = ['winter','winter','spring','spring','spring','summer','summer','summer','autumn','autumn','autumn','winter'];
+        var SEASON_TERMS = [
+          ['winter','cosy','new year'], ['winter','cosy','valentine','love'], ['spring','floral','easter','fresh'],
+          ['spring','floral','easter','pastel'], ['spring','summer','bright','floral'], ['summer','coastal','bright','garden'],
+          ['summer','coastal','tropical','beach'], ['summer','coastal','tropical','beach'], ['autumn','cosy','warm','earthy'],
+          ['autumn','halloween','cosy','warm'], ['autumn','cosy','winter','festive'], ['christmas','festive','winter','cosy']
+        ];
+        var mName = MONTHS_S[mi] || '', season = SEASONS[mi] || '';
+
+        function toBlog(nn){
+          var bh2 = (nn.blog && nn.blog.handle) || 'news-articles-home-decor-inspiration';
+          return { id: nn.id, title: nn.title, handle: nn.handle, publishedAt: nn.publishedAt,
+            image: retinaImg((nn.image && nn.image.url) || '', 600),
+            alt: (nn.image && nn.image.altText) || nn.title,
+            url: 'https://aboutwallart.com/blogs/' + bh2 + '/' + nn.handle };
+        }
+        async function searchBlogs(terms, lim){
+          var clean = (terms || []).map(function(t){ return String(t).replace(/[^a-zA-Z0-9 ]/g,'').trim(); }).filter(function(t){ return t.length >= 3; });
+          if (!clean.length) return [];
+          var q = clean.map(function(t){ return 'title:*' + t + '*'; }).join(' OR ');
+          try {
+            var d = await shopifyGraphQL('query($q:String!){ articles(first:' + (lim||10) + ', query:$q, sortKey:PUBLISHED_AT, reverse:true){ edges{ node{ id title handle publishedAt image{ url altText } blog{ handle } } } } }', { q: q });
+            var e = (d.articles && d.articles.edges) ? d.articles.edges : [];
+            return e.map(function(x){ return x.node; }).filter(function(nn){ return nn && nn.handle && !usedSet[nn.handle.toLowerCase()]; }).map(toBlog);
+          } catch (e) { return []; }
+        }
+
+        // marketing occasions active this month -> occasion search terms
+        var occNames = [], occTerms = [];
+        try {
+          var moc = await ghGetJSON('data/marketing-occasions.json');
+          var occs = (moc && moc.occasions) ? moc.occasions : (Array.isArray(moc) ? moc : []);
+          function occMonth(o, M){
+            function mm(s){ return s ? (+String(s).split('-')[0]) : 0; }
+            if (o.date2026 && mm(o.date2026) === M) return true;
+            var w = o.window;
+            if (w && w.start && w.end){ var s = mm(w.start), en = mm(w.end); return (s <= en) ? (M >= s && M <= en) : (M >= s || M <= en); }
+            return false;
+          }
+          var STOP = {'home':1,'week':1,'weekend':1,'bank':1,'holiday':1,'holidays':1,'sale':1,'sales':1,'shopping':1,'entertaining':1,'refresh':1,'ideas':1,'decor':1,'season':1,'saturday':1,'sunday':1,'monday':1,'small':1,'business':1,'day':1,'the':1,'and':1,'for':1,'your':1};
+          occs.filter(function(o){ return occMonth(o, Mnum); }).forEach(function(o){
+            if (o.name) occNames.push(o.name);
+            String(o.name || '').toLowerCase().replace(/[^a-z ]/g,' ').split(/\s+/).forEach(function(w){ if (w.length >= 4 && !STOP[w] && occTerms.indexOf(w) < 0) occTerms.push(w); });
+          });
+        } catch (e) {}
+
+        // gather candidate pools: occasion blogs (priority), season-of-year blogs, then recent
+        var occBlogs = occTerms.length ? await searchBlogs(occTerms, 12) : [];
+        var seasonBlogs = await searchBlogs(SEASON_TERMS[mi] || [season], 10);
+        var seen = {}, pool = [];
+        occBlogs.concat(seasonBlogs).concat(cand).forEach(function(c){ var k = c.handle.toLowerCase(); if (seen[k]) return; seen[k] = 1; pool.push(c); });
+
+        var listStr = pool.map(function (c, idx) { return idx + ': ' + c.title; }).join('\n');
+        var sprompt = [
+          'This is a UK home-decor / wall-art newsletter for ' + mName + ' (' + season + ' in the UK).',
+          'Marketing occasions active this month: ' + (occNames.join('; ') || 'none') + '.',
+          'Choose EXACTLY 5 blogs from the numbered list, IN THIS ORDER and mix (this mix matters):',
+          '• Slots 1-2: up to TWO blogs that match the marketing occasions above (e.g. Christmas / festive / gifting for December).',
+          '• Slot 3: ONE blog that fits the season of the year (' + season + ') in a general way.',
+          '• Slots 4-5: TWO general / evergreen blogs (colour, sizing, gallery walls, styles, layering) NOT tied to a season.',
+          'SEASONALITY OUTWEIGHS RECENCY: prefer a fitting older blog over a recent off-season one.',
+          'EXCLUDE anything clearly out-of-season (e.g. coastal / tropical / summer in winter).',
+          'If a category has no good option, fill that slot from another category so you still return exactly 5.',
+          'Return ONLY a JSON array of exactly 5 indices, in the order above, e.g. [4,1,9,0,7].',
+          '',
+          'Blogs:',
+          listStr
+        ].join('\n');
+        try {
+          var sraw = await anthropic(sprompt, 200, 'claude-haiku-4-5-20251001');
+          var m = sraw.match(/\[[^\]]*\]/);
+          var picks = m ? JSON.parse(m[0]) : null;
+          if (picks && picks.length) {
+            var chosen = [], usedIx = {};
+            picks.forEach(function (ix) { if (pool[ix] && !usedIx[ix] && chosen.length < 5) { usedIx[ix] = 1; chosen.push(pool[ix]); } });
+            // top up to 5 from the pool if the AI returned fewer
+            for (var pj = 0; pj < pool.length && chosen.length < 5; pj++) { if (!usedIx[pj]) { usedIx[pj] = 1; chosen.push(pool[pj]); } }
+            if (chosen.length) out = chosen;
+          }
+        } catch (e) { /* fall back to the plain recent 5 */ }
+      }
+
+      res.status(200).json({ ok: true, blogs: out });
+      return;
+    }
+
+    // ---------- 1a) resolve a blog Mae adds herself (by URL or by name) ----------
+    if (action === 'newsletter-find-blog') {
+      var q = (body.query || '').toString().trim();
+      if (!q) { res.status(400).json({ ok: false, error: 'Paste a blog URL or type its name.' }); return; }
+      var art = null;
+      // URL -> take the last path segment as the handle
+      if (/https?:\/\//i.test(q) || q.indexOf('/blogs/') >= 0) {
+        var handle = q.split('?')[0].split('#')[0].replace(/\/+$/, '').split('/').pop();
+        if (handle) {
+          var hd = await shopifyGraphQL(
+            'query($q:String!){ articles(first:5, query:$q){ edges{ node{ id title handle image{ url altText } blog{ handle } } } } }',
+            { q: 'handle:' + handle }
+          );
+          var he = (hd.articles && hd.articles.edges) ? hd.articles.edges : [];
+          var exact = he.map(function (e) { return e.node; }).filter(function (x) { return x && x.handle === handle; })[0];
+          art = exact || (he[0] && he[0].node) || null;
+        }
+      }
+      // otherwise treat as a title search
+      if (!art) {
+        var nd = await shopifyGraphQL(
+          'query($q:String!){ articles(first:5, query:$q, sortKey:PUBLISHED_AT, reverse:true){ edges{ node{ id title handle image{ url altText } blog{ handle } } } } }',
+          { q: 'title:*' + q.replace(/["\\]/g, '') + '*' }
+        );
+        var ne = (nd.articles && nd.articles.edges) ? nd.articles.edges : [];
+        art = (ne[0] && ne[0].node) || null;
+      }
+      if (!art) { res.status(200).json({ ok: false, error: 'No blog found for that. Check the URL or try the exact title.' }); return; }
+      var abh = (art.blog && art.blog.handle) || 'news-articles-home-decor-inspiration';
+      res.status(200).json({ ok: true, blog: {
+        id: art.id, title: art.title, handle: art.handle,
+        image: retinaImg((art.image && art.image.url) || '', 600),
+        alt: (art.image && art.image.altText) || art.title,
+        url: 'https://aboutwallart.com/blogs/' + abh + '/' + art.handle
+      } });
+      return;
+    }
+
+    // ---------- 1b) fetch a page's own image (for guides), squared ----------
+    if (action === 'newsletter-page-image') {
+      var purl = body.url || (req.query && req.query.url);
+      if (!purl) { res.status(400).json({ ok: false, error: 'url required' }); return; }
+      var pr = await fetch(purl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      var phtml = await pr.text();
+      var m = phtml.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
+           || phtml.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+      var img = m ? m[1].replace(/&amp;/g, '&') : '';
+      res.status(200).json({ ok: true, image: img ? squareImg(img, 800) : '' });
+      return;
+    }
+
+    // ---------- 1c) write ONE warm intro line for the chosen tool/guide ----------
+    if (action === 'newsletter-tool-intro') {
+      var tn = (body.toolName || '').toString().slice(0, 120);
+      if (!tn) { res.status(400).json({ ok: false, error: 'toolName required' }); return; }
+      var tt = body.toolType === 'guide' ? 'guide' : 'tool';
+      var bt = (body.blogTitle || '').toString().slice(0, 200);
+      var iprompt = [
+        'You are Mae of About Wall Art, warm UK first-person voice.',
+        'This month\'s newsletter is built from the blog: "' + bt + '".',
+        'Write ONE short, warm sentence that points the reader to a free on-site ' + tt + ' as a helpful next step — never pushy, never urgency, never "in a hurry".',
+        'The ' + tt + ' is: "' + tn + '".',
+        'Return ONLY the sentence — no quotes, no preamble.'
+      ].join('\n');
+      var iraw = await anthropic(iprompt, 120, 'claude-haiku-4-5-20251001');
+      res.status(200).json({ ok: true, intro: (iraw || '').trim().replace(/^["']+|["']+$/g, '') });
+      return;
+    }
+
+    // ---------- 1d) approve -> register the blog as USED on GitHub (no repeats) ----------
+    if (action === 'newsletter-approve') {
+      var handle = (body.handle || '').toString().trim();
+      if (!handle) { res.status(400).json({ ok: false, error: 'handle required' }); return; }
+      var gr = await fetch(`https://api.github.com/repos/${REPO}/contents/${USED_FILE}`, {
+        headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
+      });
+      var sha = null, arr = [];
+      if (gr.ok) {
+        var gd = await gr.json(); sha = gd.sha;
+        try { arr = JSON.parse(Buffer.from(gd.content || '', 'base64').toString('utf-8')) || []; } catch (e) { arr = []; }
+      }
+      if (!Array.isArray(arr)) arr = [];
+      var low = arr.map(function (x) { return String(x).toLowerCase(); });
+      var already = low.indexOf(handle.toLowerCase()) >= 0;
+      if (!already) arr.push(handle);
+      var pr = await fetch(`https://api.github.com/repos/${REPO}/contents/${USED_FILE}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: 'Newsletter approved: mark blog used — ' + handle, content: Buffer.from(JSON.stringify(arr, null, 2) + '\n').toString('base64'), ...(sha ? { sha: sha } : {}) })
+      });
+      if (!pr.ok && !already) { var et = await pr.text(); res.status(502).json({ ok: false, error: 'Could not save to GitHub: ' + pr.status + ' ' + et.slice(0, 150) }); return; }
+
+      // also save the full newsletter to the archive (month + content) — never blocks approval
+      var savedId = null;
+      try {
+        var month = (body.month || '').toString();
+        var copy = body.copy || null;
+        var nr = await fetch(`https://api.github.com/repos/${REPO}/contents/${NEWS_FILE}`, {
+          headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
+        });
+        var nsha = null, list = [];
+        if (nr.ok) { var nd = await nr.json(); nsha = nd.sha; try { list = JSON.parse(Buffer.from(nd.content || '', 'base64').toString('utf-8')) || []; } catch (e) { list = []; } }
+        if (!Array.isArray(list)) list = [];
+        savedId = Date.now();
+        list.unshift({
+          id: savedId, month: month, handle: handle,
+          title: (copy && copy.article && copy.article.title) || '',
+          subject: (copy && copy.subject) || '',
+          savedAt: new Date().toISOString(), copy: copy
+        });
+        await fetch(`https://api.github.com/repos/${REPO}/contents/${NEWS_FILE}`, {
+          method: 'PUT',
+          headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'Newsletter approved & saved — ' + month + ' ' + handle, content: Buffer.from(JSON.stringify(list, null, 2) + '\n').toString('base64'), ...(nsha ? { sha: nsha } : {}) })
+        });
+      } catch (e) {}
+
+      res.status(200).json({ ok: true, used: arr, already: already, savedId: savedId });
+      return;
+    }
+
+    // ---------- 1f-b) delete a saved newsletter + free its blog from the registry ----------
+    if (action === 'newsletter-delete') {
+      var did = body.id != null ? String(body.id) : '';
+      var dh = (body.handle || '').toString();
+      if (!did && !dh) { res.status(400).json({ ok: false, error: 'id or handle required' }); return; }
+      // remove from newsletters.json
+      try {
+        var dr = await fetch(`https://api.github.com/repos/${REPO}/contents/${NEWS_FILE}`, { headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' } });
+        if (dr.ok) {
+          var dd = await dr.json(); var dsha = dd.sha; var dlist = [];
+          try { dlist = JSON.parse(Buffer.from(dd.content || '', 'base64').toString('utf-8')) || []; } catch (e) { dlist = []; }
+          if (!Array.isArray(dlist)) dlist = [];
+          var kept = dlist.filter(function (x) { return did ? String(x.id) !== did : (String(x.handle).toLowerCase() !== dh.toLowerCase()); });
+          await fetch(`https://api.github.com/repos/${REPO}/contents/${NEWS_FILE}`, { method: 'PUT', headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' }, body: JSON.stringify({ message: 'Delete saved newsletter ' + (did || dh), content: Buffer.from(JSON.stringify(kept, null, 2) + '\n').toString('base64'), sha: dsha }) });
+          // figure the handle to free (from the deleted entry if id-based)
+          if (!dh && did) { var goneById = dlist.filter(function (x) { return String(x.id) === did; })[0]; if (goneById) dh = (goneById.handle || ''); }
+        }
+      } catch (e) {}
+      // free the blog from used-newsletter-blogs.json
+      if (dh) {
+        try {
+          var ur = await fetch(`https://api.github.com/repos/${REPO}/contents/${USED_FILE}`, { headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' } });
+          if (ur.ok) {
+            var ud = await ur.json(); var usha = ud.sha; var uarr = [];
+            try { uarr = JSON.parse(Buffer.from(ud.content || '', 'base64').toString('utf-8')) || []; } catch (e) { uarr = []; }
+            if (!Array.isArray(uarr)) uarr = [];
+            var uk = uarr.filter(function (h) { return String(h).toLowerCase() !== dh.toLowerCase(); });
+            await fetch(`https://api.github.com/repos/${REPO}/contents/${USED_FILE}`, { method: 'PUT', headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' }, body: JSON.stringify({ message: 'Free blog after newsletter delete — ' + dh, content: Buffer.from(JSON.stringify(uk, null, 2) + '\n').toString('base64'), sha: usha }) });
+          }
+        } catch (e) {}
+      }
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    // ---------- 1f) list saved newsletters (archive) ----------
+    if (action === 'newsletter-archive') {
+      var list = await ghGetJSON(NEWS_FILE);
+      if (!Array.isArray(list)) list = [];
+      res.status(200).json({ ok: true, items: list });
+      return;
+    }
+
+    // ---------- 1g) host a custom uploaded image (data URL) on Vercel Blob ----------
+    if (action === 'newsletter-host-image') {
+      var dataUrl = (body.imageData || '').toString();
+      if (dataUrl.indexOf('data:') !== 0) { res.status(400).json({ ok: false, error: 'no image data' }); return; }
+      try {
+        var put = require('@vercel/blob').put;
+        var mime = (dataUrl.match(/^data:([^;]+);/) || [])[1] || 'image/png';
+        var ext = (mime.split('/')[1] || 'png').replace('jpeg', 'jpg').replace('+xml', '');
+        var buf = Buffer.from(dataUrl.split(',')[1], 'base64');
+        var blob = await put('newsletter/tool-' + Date.now() + '.' + ext, buf, { access: 'public', contentType: mime });
+        res.status(200).json({ ok: true, url: blob.url });
+      } catch (e) { res.status(502).json({ ok: false, error: 'image host failed: ' + (e && e.message ? e.message : String(e)) }); }
+      return;
+    }
+
+    // ---------- 1h) create the DRAFT campaign in Klaviyo ----------
+    if (action === 'newsletter-create-draft') {
+      var KLAVIYO_KEY = process.env.KLAVIYO_KEY;
+      if (!KLAVIYO_KEY) { res.status(500).json({ ok: false, error: 'KLAVIYO_KEY not configured on the server' }); return; }
+      var month = (body.month || '').toString();
+      var subject = (body.subject || '').toString();
+      var preview = (body.preview || '').toString();
+      var html = (body.html || '').toString();
+      var dhandle = (body.handle || '').toString();
+      if (!month || !subject || !html) { res.status(400).json({ ok: false, error: 'month, subject and html required' }); return; }
+      var SEGMENT = 'Tg3Mqd', REV = '2024-10-15';
+      var MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+      var ymp = month.split('-'); var Y = +ymp[0], Mo = +ymp[1];
+      var cName = 'NEWSLETTER ' + ((MONTHS[Mo - 1] || '').toUpperCase()) + ' ' + Y;
+
+      // ---- anti double-send: look up this newsletter in the archive; block if already in Klaviyo ----
+      var newsletterId = body.newsletterId != null ? String(body.newsletterId) : '';
+      var newsSha = null, newsList = [], newsIdx = -1;
+      try {
+        var ngr = await fetch(`https://api.github.com/repos/${REPO}/contents/${NEWS_FILE}`, { headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' } });
+        if (ngr.ok) { var ngd = await ngr.json(); newsSha = ngd.sha; try { newsList = JSON.parse(Buffer.from(ngd.content || '', 'base64').toString('utf-8')) || []; } catch (e) { newsList = []; } }
+      } catch (e) {}
+      if (!Array.isArray(newsList)) newsList = [];
+      for (var ni = 0; ni < newsList.length; ni++) {
+        var e0 = newsList[ni];
+        if ((newsletterId && String(e0.id) === newsletterId) || (!newsletterId && String(e0.handle || '').toLowerCase() === dhandle.toLowerCase() && String(e0.month || '') === month)) { newsIdx = ni; break; }
+      }
+      if (newsIdx >= 0 && newsList[newsIdx].klaviyo && newsList[newsIdx].klaviyo.campaignId) {
+        res.status(200).json({ ok: false, already: true, error: 'This newsletter is already in Klaviyo.', url: newsList[newsIdx].klaviyo.url });
+        return;
+      }
+
+      // 3rd Friday of the month at 10:00 UK (handles BST) -> ISO
+      function lastSunday(y, m0) { var d = new Date(Date.UTC(y, m0 + 1, 0)); while (d.getUTCDay() !== 0) d.setUTCDate(d.getUTCDate() - 1); return d.getUTCDate(); }
+      function isBST(y, mo1, day) { if (mo1 < 3 || mo1 > 10) return false; if (mo1 > 3 && mo1 < 10) return true; if (mo1 === 3) return day >= lastSunday(y, 2); return day < lastSunday(y, 9); }
+      var firstDow = new Date(Date.UTC(Y, Mo - 1, 1)).getUTCDay();
+      var thirdFri = (1 + ((5 - firstDow + 7) % 7)) + 14;
+      var utcHour = 10 - (isBST(Y, Mo, thirdFri) ? 1 : 0);
+      function p2(n){ return (n < 10 ? '0' : '') + n; }
+      var dt = Y + '-' + p2(Mo) + '-' + p2(thirdFri) + 'T' + p2(utcHour) + ':00:00+00:00';
+      var schedLabel = 'Friday ' + thirdFri + ' ' + (MONTHS[Mo - 1] || '') + ' ' + Y + ', 10:00 UK';
+
+      function kv(path, method, payload) {
+        return fetch('https://a.klaviyo.com' + path, { method: method, headers: { 'Authorization': 'Klaviyo-API-Key ' + KLAVIYO_KEY, 'revision': REV, 'accept': 'application/vnd.api+json', 'content-type': 'application/vnd.api+json' }, body: payload ? JSON.stringify(payload) : undefined });
+      }
+      async function kvJson(r) { var t = await r.text(); var j = null; try { j = JSON.parse(t); } catch (e) {} return { ok: r.ok, status: r.status, json: j, text: t }; }
+
+      // 1) create the HTML template
+      var tRes = await kvJson(await kv('/api/templates/', 'POST', { data: { type: 'template', attributes: { name: cName + ' (tool)', editor_type: 'CODE', html: html } } }));
+      if (!tRes.ok || !tRes.json || !tRes.json.data) { res.status(502).json({ ok: false, error: 'Template create failed (' + tRes.status + '): ' + (tRes.text || '').slice(0, 250) }); return; }
+      var templateId = tRes.json.data.id;
+
+      // 2) create the campaign as a DRAFT (with its email message)
+      var camp = { data: { type: 'campaign', attributes: {
+        name: cName,
+        audiences: { included: [SEGMENT] },
+        tracking_options: { add_tracking_params: true, is_tracking_opens: true, is_tracking_clicks: true },
+        'campaign-messages': { data: [ { type: 'campaign-message', attributes: { channel: 'email', label: cName, content: { subject: subject, preview_text: preview, from_email: 'info@aboutwallart.com', from_label: 'Mae from About Wall Art' } } } ] }
+      } } };
+      var cRes = await kvJson(await kv('/api/campaigns/', 'POST', camp));
+      if (!cRes.ok || !cRes.json || !cRes.json.data) { res.status(502).json({ ok: false, error: 'Campaign create failed (' + cRes.status + '): ' + (cRes.text || '').slice(0, 300) }); return; }
+      var campaignId = cRes.json.data.id;
+      var msgId = null; try { msgId = cRes.json.data.relationships['campaign-messages'].data[0].id; } catch (e) {}
+      if (!msgId) { res.status(502).json({ ok: false, error: 'Campaign created but no message id returned', campaignId: campaignId }); return; }
+
+      // 3) assign the template to the campaign's message
+      var aRes = await kvJson(await kv('/api/campaign-message-assign-template/', 'POST', { data: { type: 'campaign-message', id: msgId, relationships: { template: { data: { type: 'template', id: templateId } } } } }));
+      if (!aRes.ok) { res.status(502).json({ ok: false, error: 'Assign template failed (' + aRes.status + '): ' + (aRes.text || '').slice(0, 250), campaignId: campaignId }); return; }
+
+      // 4) mark the Content Board 'email-newsletter' done for this month (never blocks)
+      try {
+        var mf = 'data/content-board-manual.json';
+        var mgr = await fetch(`https://api.github.com/repos/${REPO}/contents/${mf}`, { headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' } });
+        var msha = null, mobj = { months: {} };
+        if (mgr.ok) { var mgd = await mgr.json(); msha = mgd.sha; try { mobj = JSON.parse(Buffer.from(mgd.content || '', 'base64').toString('utf-8')) || { months: {} }; } catch (e) { mobj = { months: {} }; } }
+        if (!mobj.months) mobj.months = {};
+        if (!mobj.months[month]) mobj.months[month] = {};
+        mobj.months[month]['email-newsletter'] = true;
+        await fetch(`https://api.github.com/repos/${REPO}/contents/${mf}`, { method: 'PUT', headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' }, body: JSON.stringify({ message: 'Newsletter draft created — mark board ' + month, content: Buffer.from(JSON.stringify(mobj, null, 2) + '\n').toString('base64'), ...(msha ? { sha: msha } : {}) }) });
+      } catch (e) {}
+
+      // 5) stamp the archive entry as sent so it can't be pushed twice (from flow OR archive)
+      var kvUrl = 'https://www.klaviyo.com/campaign/' + campaignId + '/wizard';
+      try {
+        if (newsIdx >= 0) {
+          newsList[newsIdx].klaviyo = { campaignId: campaignId, url: kvUrl, sentAt: new Date().toISOString() };
+          await fetch(`https://api.github.com/repos/${REPO}/contents/${NEWS_FILE}`, { method: 'PUT', headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' }, body: JSON.stringify({ message: 'Newsletter sent to Klaviyo — ' + month, content: Buffer.from(JSON.stringify(newsList, null, 2) + '\n').toString('base64'), ...(newsSha ? { sha: newsSha } : {}) }) });
+        }
+      } catch (e) {}
+
+      // 6) best-effort: schedule the campaign for the 3rd Friday 10:00 UK (leaves the date set).
+      //    If Klaviyo's send_strategy shape is rejected, the draft still stands and Mae sets the date by hand (we always return schedLabel).
+      var scheduled = false;
+      try {
+        var schedRes = await kvJson(await kv('/api/campaigns/' + campaignId + '/', 'PATCH', { data: { type: 'campaign', id: campaignId, attributes: { send_strategy: { method: 'static', datetime: dt, options: { is_local: false } } } } }));
+        scheduled = !!schedRes.ok;
+      } catch (e) { scheduled = false; }
+
+      res.status(200).json({ ok: true, campaignId: campaignId, url: kvUrl, scheduled: scheduled, scheduledFor: schedLabel });
+      return;
+    }
+
+    // ---------- 1e) spelling / grammar check (tells you; you decide to apply) ----------
+    if (action === 'newsletter-check') {
+      var c = body.copy || {};
+      var payload = {
+        subject: c.subject || '', preview: c.preview || '', greeting: c.greeting || '',
+        body: c.body || [], toolIntro: (c.toolBlock && c.toolBlock.intro) || '',
+        toolButton: (c.toolBlock && c.toolBlock.buttonLabel) || '', close: c.close || []
+      };
+      var cprompt = [
+        'You are a careful UK-English proofreader for an email.',
+        'Check ONLY: spelling, typos, grammar, punctuation, doubled words, spacing.',
+        'Do NOT reword, do NOT change tone or meaning, do NOT touch merge tags like {{ first_name|default:\'friend\' }}, URLs, or emojis.',
+        'Email content as JSON:',
+        JSON.stringify(payload),
+        'Return ONLY JSON in this shape:',
+        '{ "issues": [ { "original": "exact text with the mistake", "suggestion": "corrected text", "why": "3-5 word reason" } ], "corrected": { "subject":"", "preview":"", "greeting":"", "body":[], "toolIntro":"", "toolButton":"", "close":[] } }',
+        'The "corrected" object must be the SAME content with only the fixes applied. If there are no mistakes, return "issues":[] and "corrected" equal to the input.'
+      ].join('\n');
+      var craw = await anthropic(cprompt, 2000);
+      var cout = extractJSON(craw);
+      if (!cout) { res.status(502).json({ ok: false, error: 'Could not check — try again.' }); return; }
+      res.status(200).json({ ok: true, issues: cout.issues || [], corrected: cout.corrected || null });
+      return;
+    }
+
+    // ---------- 2) write the newsletter for a chosen blog ----------
+    if (action === 'newsletter-write' || action === 'newsletter-rewrite') {
+      if (!body.articleId) { res.status(400).json({ ok: false, error: 'articleId required' }); return; }
+      var article = await getArticle(body.articleId);
+
+      var note = '';
+      if (action === 'newsletter-rewrite') {
+        note = (body.note || '').toString().slice(0, 1500);
+        if (body.current) {
+          try { note = 'CURRENT DRAFT (change per my feedback):\n' + JSON.stringify(body.current).slice(0, 2500) + '\n\nMY FEEDBACK:\n' + note; } catch (e) {}
+        }
+      }
+
+      var raw = await anthropic(recipe(article, note), 2200);
+      var copy = extractJSON(raw);
+      if (!copy) { res.status(502).json({ ok: false, error: 'AI did not return usable copy', raw: raw.slice(0, 400) }); return; }
+
+      // hero = the blog's featured image, forced to a retina-safe width (600px display -> ≥1200 source), links to the blog
+      copy.hero = {
+        url: retinaImg(article.image, 1200),
+        alt: copy.heroAlt || article.alt || article.title,
+        link: article.url,
+        filename: slugify(copy.heroAlt || article.alt || article.title) + '.jpg'
+      };
+      delete copy.heroAlt;
+      // primary button always points at the blog
+      if (!copy.primaryButton) copy.primaryButton = {};
+      copy.primaryButton.url = article.url;
+      // normalise the tool link to an absolute URL
+      if (copy.toolBlock && copy.toolBlock.url && copy.toolBlock.url.indexOf('http') !== 0) {
+        copy.toolBlock.url = SITE + (copy.toolBlock.url.charAt(0) === '/' ? '' : '/') + copy.toolBlock.url;
+      }
+      // leave the tool intro BLANK — it is written/rewritten by 'newsletter-tool-intro' when the tool is chosen/changed
+      if (copy.toolBlock) copy.toolBlock.intro = '';
+      copy.article = { id: article.id, title: article.title, handle: article.handle, url: article.url };
+
+      res.status(200).json({ ok: true, copy: copy });
+      return;
+    }
+
+    // ================= MONTHLY PROMOS (Step 2) =================
+    var PROMO_SITE = 'https://aboutwallart.com';
+
+    // ---- 4 best-selling products from an occasion's collections (About Wall Art only) ----
+    if (action === 'promo-products') {
+      var handles = Array.isArray(body.collections) ? body.collections.filter(Boolean) : [];
+      var want = Math.min(parseInt(body.count, 10) || 4, 8);
+      var skip = Math.max(0, parseInt(body.skip, 10) || 0); // e.g. Q4: a different slice of best sellers per email
+      var pool = [];
+      for (var ci = 0; ci < handles.length && pool.length < want + skip; ci++) {
+        try {
+          var pd = await shopifyGraphQL(
+            'query($h:String!,$n:Int!){ collectionByHandle(handle:$h){ products(first:$n, sortKey:BEST_SELLING){ edges{ node{ title handle onlineStoreUrl vendor featuredImage{ url altText } priceRangeV2{ minVariantPrice{ amount currencyCode } } } } } } }',
+            { h: handles[ci], n: want + skip + 8 }
+          );
+          var edges = (pd && pd.collectionByHandle && pd.collectionByHandle.products && pd.collectionByHandle.products.edges) || [];
+          for (var ei = 0; ei < edges.length && pool.length < want + skip; ei++) {
+            var p = edges[ei].node; if (!p) continue;
+            if (p.vendor && p.vendor.toLowerCase().indexOf('about wall art') < 0) continue; // AWA only
+            if (pool.some(function (x) { return x.handle === p.handle; })) continue;
+            var cur = p.priceRangeV2 && p.priceRangeV2.minVariantPrice;
+            pool.push({
+              title: p.title, handle: p.handle,
+              url: p.onlineStoreUrl || (PROMO_SITE + '/products/' + p.handle),
+              image: p.featuredImage ? retinaImg(p.featuredImage.url, 600) : '',
+              alt: (p.featuredImage && p.featuredImage.altText) || p.title,
+              price: cur ? ((cur.currencyCode === 'GBP' ? '£' : '') + Number(cur.amount).toFixed(0)) : ''
+            });
+          }
+        } catch (e) {}
+      }
+      var out = pool.slice(skip, skip + want);
+      if (!out.length && pool.length) out = pool.slice(0, want); // if the skip window is past the end, fall back to the top
+      res.status(200).json({ ok: true, products: out });
+      return;
+    }
+
+    // ---- fetch specific products by SKU (Mae's own 4, any collection), same shape as promo-products ----
+    if (action === 'promo-products-by-sku') {
+      var skus = Array.isArray(body.skus) ? body.skus.map(function (x) { return String(x || '').trim(); }).filter(Boolean).slice(0, 8) : [];
+      var outS = [];
+      for (var xi = 0; xi < skus.length; xi++) {
+        try {
+          var sq = await shopifyGraphQL(
+            'query($q:String!){ products(first:1, query:$q){ edges{ node{ title handle onlineStoreUrl vendor featuredImage{ url altText } priceRangeV2{ minVariantPrice{ amount currencyCode } } } } } }',
+            { q: 'sku:' + skus[xi] }
+          );
+          var sn = (sq && sq.products && sq.products.edges && sq.products.edges[0] && sq.products.edges[0].node) || null;
+          if (!sn) { outS.push({ sku: skus[xi], notFound: true }); continue; }
+          var curS = sn.priceRangeV2 && sn.priceRangeV2.minVariantPrice;
+          outS.push({
+            sku: skus[xi], title: sn.title, handle: sn.handle,
+            url: sn.onlineStoreUrl || (PROMO_SITE + '/products/' + sn.handle),
+            image: sn.featuredImage ? retinaImg(sn.featuredImage.url, 600) : '',
+            alt: (sn.featuredImage && sn.featuredImage.altText) || sn.title,
+            price: curS ? ((curS.currencyCode === 'GBP' ? '£' : '') + Number(curS.amount).toFixed(0)) : ''
+          });
+        } catch (e) { outS.push({ sku: skus[xi], notFound: true }); }
+      }
+      res.status(200).json({ ok: true, products: outS });
+      return;
+    }
+
+    // ---- AI writes the promo copy (brand voice, first name, offer once, ONE topic CTA, warm closing) ----
+    // Optional body.only = 'subject'|'title'|'intro'|'closing' -> regenerate just that field (per-field Regenerate).
+    if (action === 'promo-write' || action === 'promo-rewrite') {
+      var occ = body.occasion || {};
+      // Everything is UK English (spec §5). US spelling only if a mail is US-only.
+      var spelling = (occ.country === 'US') ? 'US English (US spelling)' : 'UK English (UK spelling)';
+      var pct = (body.discount || '').toString();
+      var code = (body.code || '').toString();
+      var expiry = (body.expiry || '').toString();
+      var only = (body.only || '').toString();
+      var topic = (occ.name || 'this occasion');
+
+      var fields = {
+        subject: '"subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'there\' }} then a comma, then a warm human line about ' + topic + ' — no buzzwords, at most ~55 chars after the name", "preview":"one short human line (may also use the first name), teases the offer softly"',
+        // SHORT titles only — long titles look bad. Give 4 short options to choose from.
+        title:   '"titleTop":"SHORT CAPS headline, MAX 3 words, tied to ' + topic + '", "titleScript":"SHORT handwritten tagline, MAX 3 words", "titleOptions":[{"top":"MAX 3 WORDS CAPS","script":"max 3 words"}, (give 4 DISTINCT short options, each top MAX 3 words and script MAX 3 words)]',
+        intro:   '"intro":["2 to 3 SHORT human lines — warm, gift/feeling led, brand voice; the offer is stated in offerLine not here"]',
+        // personal line that LEADS INTO the discount (sits just above the offer)
+        offerLead: '"offerLead":"ONE warm, personal, first-person line that leads into the discount so it does not feel abrupt — e.g. So, to make it a little easier this month, here is a treat from me: — NEVER a canned/generic line, vary the wording every time"',
+        // offer phrase ONLY — no code, no date (the tool renders the code and the valid-until date itself)
+        offer:   '"offerLine":"the offer phrase ONLY, framed AROUND the wall art, e.g. ' + (pct || '15') + '% off your new wall art sets — do NOT include the code, and do NOT include any date"',
+        cta:     '"ctaLabel":"2-3 word button label tied to the TOPIC of the mail (e.g. Shop ' + topic + '), never generic like Shop now or Shop the collection"',
+        closing: '"closingText":"a warm, offer-to-help closing that sits ABOVE the signature — kind, first-person, value-first (e.g. not sure where to start with ' + topic + '? hit reply, I read every one). It MUST feel hand-written and be DIFFERENT every time — vary the wording, never a canned line"'
+      };
+      var wantKeys;
+      if (only === 'subject') wantKeys = [fields.subject];
+      else if (only === 'title') wantKeys = [fields.title];
+      else if (only === 'intro') wantKeys = [fields.intro];
+      else if (only === 'closing') wantKeys = [fields.closing];
+      else wantKeys = [fields.subject, fields.title, fields.intro, fields.offerLead, fields.offer, fields.cta, fields.closing];
+
+      var note = '';
+      if (action === 'promo-rewrite' || only) {
+        if (body.note) note += '\nMY FEEDBACK (apply it): ' + (body.note || '').toString().slice(0, 800);
+        if (body.current) { try { note += '\nCURRENT DRAFT (keep the parts I am not regenerating consistent with this): ' + JSON.stringify(body.current).slice(0, 1500); } catch (e) {} }
+      }
+      var pr = [
+        'You write promotional emails for About Wall Art, a UK wall-art brand. Voice: warm, kind, human, first-person, spoken — NEVER poetic, pushy or "AI". Value first, offer soft; emotional gift-suggestion tone (e.g. "Mother\'s Day is coming — she did so much for you…"). A few tasteful emojis are fine. One brand voice speaking to "you". Banned: buzzwords, "buy buy buy", urgency-shouting.',
+        'PRODUCT WORDING RULE (critical): we do NOT sell single prints. NEVER write "a print", "a new print", "prints" or "a piece". Always say "wall art", "an art set", a "wall art set" or "a set of wall art".',
+        'DISCOUNT SCOPE RULE (critical): frame the offer AROUND the wall art — e.g. "' + (pct || '15') + '% off your new wall art sets". NEVER say "your whole order", "your entire purchase", "your total", "everything", "sitewide" or "store-wide". Keep it natural — do NOT get technical about which products qualify.',
+        'PUNCTUATION RULE (critical): NEVER use an em dash or en dash (the long dashes) anywhere in any field. Use a comma, a full stop, or rephrase instead. Mae dislikes those dashes.',
+        'Occasion: "' + topic + '". Why it sells art: ' + (occ.relevance || '') + '.',
+        'Write EVERYTHING in ' + spelling + '. (The footer stays English — not your job.)',
+        'The offer: ' + (pct ? pct + '% off' : 'a special offer') + (code ? ', code ' + code : '') + (expiry ? ', valid until ' + expiry : '') + '. State it ONCE. Exactly ONE call to action.',
+        'Keep it SHORT and light (Gmail clips long emails).',
+        note,
+        'Return ONLY JSON with EXACTLY these keys: { ' + wantKeys.join(', ') + ' }'
+      ].join('\n');
+      var raw = await anthropic(pr, 1200);
+      var copy = extractJSON(raw);
+      if (!copy) { res.status(502).json({ ok: false, error: 'AI did not return usable copy', raw: (raw || '').slice(0, 300) }); return; }
+      copy.greeting = "Dear {{ first_name|default:'friend' }},"; // fixed mould greeting
+      res.status(200).json({ ok: true, copy: copy });
+      return;
+    }
+
+    // ---- AI writes the FOLLOW-UP copy (2nd email, 3 days later: value-first, soft reminder, NO urgency) ----
+    if (action === 'promo-followup-write') {
+      var focc = body.occasion || {};
+      var fspelling = (focc.country === 'US') ? 'US English (US spelling)' : 'UK English (UK spelling)';
+      var fpct = (body.discount || '').toString();
+      var fcode = (body.code || '').toString();
+      var fexpiry = (body.expiry || '').toString();
+      var ftopic = (focc.name || 'this occasion');
+      var fnote = '';
+      if (body.note) fnote += '\nMY FEEDBACK — APPLY IT: ' + (body.note || '').toString().slice(0, 800);
+      if (body.current) { try { fnote += '\nCURRENT FOLLOW-UP DRAFT (keep the parts I am not changing consistent with this): ' + JSON.stringify(body.current).slice(0, 1500); } catch (e) {} }
+      var fpr = [
+        'You write the FOLLOW-UP email (the 2nd email, sent 3 days after the first) for About Wall Art, a UK wall-art brand. Voice: warm, kind, human, first-person, spoken — NEVER poetic, pushy or "AI". A few tasteful emojis are fine.',
+        'PRODUCT WORDING RULE (critical): never "a print"/"prints" — always "wall art", "an art set", a "wall art set".',
+        'DISCOUNT SCOPE RULE (critical): frame the offer AROUND the wall art — e.g. "' + (fpct || '15') + '% off your new wall art sets". NEVER say "your whole order", "your entire purchase", "your total", "everything", "sitewide" or "store-wide". Keep it natural.',
+        'PUNCTUATION RULE (critical): NEVER use an em dash or en dash (the long dashes) anywhere. Use a comma, a full stop, or rephrase instead. Mae dislikes those dashes.',
+        'This is a FOLLOW-UP, so it is VALUE-FIRST and NOT "last chance"/urgency. Lead with something genuinely helpful — a tip or idea tied to "' + ftopic + '" (' + (focc.relevance || '') + ') — THEN a SOFT reminder that the ' + (fpct ? fpct + '% ' : '') + 'code is still there if it helps. Gentle, no pressure.',
+        'Everything in ' + fspelling + '. The offer is the SAME as the first email: ' + (fpct ? fpct + '% off' : 'the offer') + (fcode ? ', code ' + fcode : '') + (fexpiry ? ', valid until ' + fexpiry : '') + '. State it ONCE, softly. Exactly ONE call to action.',
+        'It must feel DIFFERENT from the first email and hand-written — vary the wording, never a canned line. Keep it SHORT.',
+        'SECOND-CHANCE TONE: this is the 2nd email, so it should gently signal "there is still time / before it ends" so anyone who already saw the first one can skip it without pressure. BUT never use the word "reminder", and never say "you missed", "in case you missed" or "my last email". Keep it warm and light, not guilt-y.',
+        fnote,
+        'Return ONLY JSON with EXACTLY these keys: { "subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'there\' }} then a comma, then a gentle second-chance line that hints the offer is still there / before it ends about ' + ftopic + ' — WITHOUT the word \'reminder\' and WITHOUT \'you missed\'/\'my last email\'. e.g. still time for a cosier wall / one more from me before ' + ftopic + ' / before it is gone", "preview":"one short human line", "intro":["FIRST line is a soft friendly acknowledgment that this is a second email with NO pressure, e.g. popping back into your inbox, no stress at all if you already saw this — WITHOUT the word reminder and WITHOUT you missed. THEN 1 to 2 SHORT value-first lines (a helpful tip/idea, not a sell)"], "offerLead":"ONE soft, personal line that gently notes the code is still there — NOT urgency, e.g. and if it helps, your code is still waiting", "ctaLabel":"2-3 word button label tied to ' + ftopic + '", "closingText":"a warm offer-to-help closing above the signature, DIFFERENT every time" }'
+      ].join('\n');
+      var fraw = await anthropic(fpr, 1200);
+      var fcopy = extractJSON(fraw);
+      if (!fcopy) { res.status(502).json({ ok: false, error: 'AI did not return usable follow-up copy', raw: (fraw || '').slice(0, 300) }); return; }
+      fcopy.greeting = "Dear {{ first_name|default:'friend' }},";
+      res.status(200).json({ ok: true, copy: fcopy });
+      return;
+    }
+
+    // ---- Q4 / Black Friday sequence: AI writes ONE email knowing its exact role in the sequence ----
+    if (action === 'q4-write') {
+      var Q4ROLES = {
+        sneak:        { hasOffer: false, brief: 'MYSTERY TEASER #1. Build intrigue: something big is coming for Black Friday, and our most loyal subscribers (VIPs) get first access. Tell them to stay tuned. Do NOT reveal the discount, the %, any code or specific dates. No urgency. Short and exciting; the title should feel like a secret/hint.' },
+        teaser:       { hasOffer: false, brief: 'REVEAL-THE-PLAN teaser. Tell them WHAT is coming and WHEN: VIP early access opens on {vipDate} with the best price of the year, then Black Friday on {bfDate}. Build anticipation, tell them to mark their calendar. No code yet. Do not push shopping.' },
+        countdown:    { hasOffer: false, brief: 'COUNTDOWN. It is almost here — VIP early access opens very soon ({vipDate}). Tell them to get ready / have their favourites in mind. Warm anticipation, no code yet.' },
+        vip_launch:   { hasOffer: true,  brief: 'VIP EARLY ACCESS IS NOW OPEN. Make them feel exclusive and valued ("as one of our VIPs / most loyal"). This is the BEST price of the whole event, even better than Black Friday day. Clear single offer + code. Exactly one punchy first-person CTA. Warm but exciting.' },
+        vip_deadline: { hasOffer: true,  brief: 'VIP DEADLINE. Last hours of the VIP early access, it ends TONIGHT. Gentle real urgency, exclusive. Repeat the offer + code once. Punchy CTA.' },
+        bf_am:        { hasOffer: true,  brief: 'BLACK FRIDAY IS LIVE (morning of the big day). The biggest day is here. Clear offer + code. It ends TONIGHT. Exciting but warm. Punchy CTA.' },
+        bf_pm:        { hasOffer: true,  brief: 'BLACK FRIDAY LAST HOURS (evening). Honest, warm, human urgency in Mae\'s voice: this is the last chance, now or you miss the biggest discount of the year; we went all out and honestly cannot do this again. It genuinely ends at midnight tonight. A real deadline, no generic clichés. Punchy CTA.' },
+        small_biz:    { hasOffer: true,  brief: 'SMALL BUSINESS SATURDAY. Warm gratitude + community: their support means everything, they back a real small business, real families and communities. SURPRISE: because so many showed up (and some missed the deadline), we are keeping the offer going, but it ENDS TODAY. Do NOT mention Cyber Monday or that it continues afterward. Heartfelt, warm, light. Offer + code.' },
+        last_chance:  { hasOffer: true,  brief: 'LAST-CHANCE SUNDAY. Final hours of the extended weekend, it ends TONIGHT. Do NOT mention or hint at Cyber Monday. Warm urgency. Offer + code.' },
+        cyber:        { hasOffer: true,  brief: 'CYBER MONDAY, the genuinely final one. Playful surprise: "ok, one more day... but this is REALLY the last, for real this time." It ends tonight. Offer + code. Punchy CTA.' }
+      };
+      var qrole = (body.role || '').toString();
+      var R = Q4ROLES[qrole];
+      if (!R) { res.status(400).json({ ok: false, error: 'unknown q4 role: ' + qrole }); return; }
+      var qpct = (body.discount || '').toString();
+      var qcode = (body.code || '').toString();
+      var qexpiry = (body.expiry || '').toString();
+      var qvip = (body.vipDate || '').toString();
+      var qbf = (body.bfDate || '').toString();
+      var qnote = '';
+      if (body.note) qnote += '\nMY FEEDBACK — APPLY IT: ' + (body.note || '').toString().slice(0, 800);
+      if (body.current) { try { qnote += '\nCURRENT DRAFT (keep the parts I am not changing consistent with this): ' + JSON.stringify(body.current).slice(0, 1500); } catch (e) {} }
+      var qbrief = R.brief.replace(/\{vipDate\}/g, qvip || 'the VIP date').replace(/\{bfDate\}/g, qbf || 'Black Friday');
+      var qdual = !!body.dual && R.hasOffer; // one body, {PCT} token -> two market versions (UK / rest of world)
+      var offerKeys = R.hasOffer
+        ? (qdual
+            ? '"offerLead":"ONE warm first-person line leading into the offer", "offerLine":"the offer phrase ONLY, framed around the wall art, exactly like {PCT}% off your wall art sets, using the literal token {PCT} in place of the number, no code, no date",'
+            : '"offerLead":"ONE warm first-person line leading into the offer", "offerLine":"the offer phrase ONLY, framed around the wall art, e.g. ' + (qpct || '30') + '% off your wall art sets, no code, no date",')
+        : '"offerLead":"", "offerLine":"",';
+      var qpr = [
+        'You write ONE email in About Wall Art\'s Black Friday / Q4 sequence. Voice: warm, kind, human, first-person (Mae), spoken — NEVER poetic, pushy or "AI". A few tasteful emojis are fine.',
+        'PRODUCT WORDING (critical): never "a print"/"prints" — always "wall art", "an art set", "wall art sets".',
+        'DISCOUNT SCOPE (critical): frame any offer AROUND the wall art (e.g. "' + (qpct || '30') + '% off your wall art sets"). NEVER "your whole order / everything / sitewide / store-wide". No "up to".',
+        'PUNCTUATION (critical): NEVER use an em dash or en dash. Use commas or full stops instead.',
+        'DEADLINE RULE (critical): if there is urgency it is "ends TODAY / tonight". NEVER pre-announce that the sale will continue or extend, and NEVER mention a future day or Cyber Monday unless the role explicitly says to. Each email is its own real deadline.',
+        'THIS EMAIL\'S ROLE: ' + qbrief,
+        R.hasOffer ? ('The offer: ' + (qpct ? qpct + '% off' : 'a discount') + (qcode ? ', code ' + qcode : '') + (qexpiry ? ', valid until ' + qexpiry : '') + '. State it ONCE. Exactly ONE call to action.') : 'This email has NO discount and NO code — do not invent one.',
+        'Fresh, hand-written, DIFFERENT wording every time — never a canned line. Keep it SHORT (Gmail clips long emails). UK English.',
+        'The CTA button label must be punchy and FIRST-PERSON (e.g. "I want my discount!", "Show me the sale", "Count me in") — never a generic "Shop now".',
+        qdual ? 'DUAL-MARKET: two versions (UK and rest of world) are generated from this ONE copy with different percentages. Do NOT write any specific percentage number anywhere (not in the subject, intro, offer or closing). Wherever the percentage would appear, write the literal token {PCT} (for example "{PCT}% off your wall art sets"). Do not mention a code.' : '',
+        qnote,
+        'Return ONLY JSON with EXACTLY these keys: { "subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'friend\' }} then a comma, then a warm line fitting THIS email\'s role (about 55 chars after the name, no buzzwords)", "preview":"one short human line", "titleTop":"SHORT CAPS headline, MAX 3 words, fitting this email", "titleScript":"SHORT handwritten tagline, MAX 3 words", "titleOptions":[{"top":"MAX 3 WORDS CAPS","script":"max 3 words"}, (give 4 DISTINCT short options for THIS email, each top MAX 3 words and script MAX 3 words)], "intro":["2 to 3 SHORT body lines matching the role"], ' + offerKeys + ' "ctaLabel":"2-4 word punchy FIRST-PERSON button label",' + (R.hasOffer ? ' "ctaNote":"ONE short line to sit UNDER the button, telling them the discount is applied automatically the moment they click, no code to type in, vary the wording every time",' : '') + ' "closingText":"a warm closing line above the signature, DIFFERENT every time" }'
+      ].join('\n');
+      var qraw = await anthropic(qpr, 1300);
+      var qcopy = extractJSON(qraw);
+      if (!qcopy) { res.status(502).json({ ok: false, error: 'AI did not return usable copy', raw: (qraw || '').slice(0, 300) }); return; }
+      qcopy.greeting = "Dear {{ first_name|default:'friend' }},";
+      res.status(200).json({ ok: true, copy: qcopy });
+      return;
+    }
+
+    // ---- December / holidays writer (single audience; per-email angle) ----
+    if (action === 'dec-write') {
+      var DECROLES = {
+        gift_guide: { hasOffer: false, brief: 'HOLIDAY SPIRIT + GIFT GUIDE. Open warm and human about the festive season (connection, the people you love), THEN gently offer help for the tricky gifts: the person who has everything, the parent or relative you never know what to buy for. Position wall art as a thoughtful, personal gift, SUBTLE not salesy, a helping hand not a pitch. Invite them to reply if they want ideas. One soft CTA to explore gift ideas.' },
+        gift_card:  { hasOffer: false, brief: 'GIFT CARD, the last-minute solution. For anyone still stuck or shopping late: an About Wall Art digital gift card arrives INSTANTLY by email, nothing to post, and they choose the art they love. Warm and reassuring, takes the pressure off. One CTA to the gift card. Do NOT promise Christmas delivery of physical items.' },
+        christmas:  { hasOffer: false, brief: 'HAPPY CHRISTMAS. A warm, heartfelt Christmas greeting from Mae. Gratitude and warmth, wishing them a lovely day with the people they love. NO hard sell. Just a genuine human message.' },
+        boxing_day: { hasOffer: true,  brief: 'BOXING DAY treat. A little post-Christmas gift to themselves, the discount off the wall art sets, ends soon. Warm and light. Boxing Day is mainly a UK/Commonwealth day, so keep it understandable to everyone. One punchy CTA.' },
+        last_sale:  { hasOffer: true,  brief: 'LAST SALE OF THE YEAR. Honest and genuine: this really is the final sale of the year, the discount off the wall art sets, ends at midnight. A warm send-off to the year, start the new one with art they love. NO false claims. One punchy CTA.' },
+        new_year:   { hasOffer: false, brief: 'WHAT A YEAR. A warm year-end / New Year message: gratitude for their support this year, a little reflection, and best wishes for the year ahead. Heartfelt and human, from Mae. NO sell.' }
+      };
+      var drole = (body.role || '').toString();
+      var DR = DECROLES[drole];
+      if (!DR) { res.status(400).json({ ok: false, error: 'unknown december role: ' + drole }); return; }
+      var dpct2 = (body.discount || '').toString();
+      var dcode2 = (body.code || '').toString();
+      var dexp2 = (body.expiry || '').toString();
+      var dNoCta = (drole === 'christmas' || drole === 'new_year'); // pure warm greetings, no button
+      var dnote = '';
+      if (body.note) dnote += '\nMY FEEDBACK — APPLY IT: ' + (body.note || '').toString().slice(0, 800);
+      if (body.current) { try { dnote += '\nCURRENT DRAFT (keep the parts I am not changing consistent with this): ' + JSON.stringify(body.current).slice(0, 1500); } catch (e) {} }
+      var dOfferKeys = DR.hasOffer
+        ? '"offerLead":"ONE warm first-person line leading into the offer", "offerLine":"the offer phrase ONLY, framed around the wall art, e.g. ' + (dpct2 || '15') + '% off your wall art sets, no code, no date",'
+        : '"offerLead":"", "offerLine":"",';
+      var dpr = [
+        'You write ONE email in About Wall Art\'s December / holiday sequence. Voice: warm, kind, human, first-person (Mae), spoken, NEVER poetic, pushy or "AI". A few tasteful emojis are fine.',
+        'PRODUCT WORDING (critical): never "a print"/"prints" — always "wall art", "an art set", "wall art sets".',
+        'DISCOUNT SCOPE (critical): frame any offer AROUND the wall art (e.g. "' + (dpct2 || '15') + '% off your wall art sets"). NEVER "your whole order / everything / sitewide / store-wide". No "up to".',
+        'PUNCTUATION (critical): NEVER use an em dash or en dash. Use commas or full stops instead.',
+        'THIS EMAIL\'S ROLE: ' + DR.brief,
+        DR.hasOffer
+          ? ('The offer: ' + (dpct2 ? dpct2 + '% off' : 'a discount') + (dcode2 ? ', code ' + dcode2 : '') + (dexp2 ? ', valid until ' + dexp2 : '') + '. State it ONCE. Exactly ONE call to action.')
+          : (dNoCta ? 'This email has NO discount and NO button. Do not invent an offer or a CTA.' : 'This email has NO discount and NO code, do not invent one. One soft, warm CTA is fine.'),
+        'Fresh, hand-written, DIFFERENT wording every time, never a canned line. Keep it SHORT (Gmail clips long emails). UK English.',
+        dnote,
+        'Return ONLY JSON with EXACTLY these keys: { "subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'friend\' }} then a comma, then a warm line fitting THIS email\'s role (about 55 chars after the name, no buzzwords)", "preview":"one short human line", "titleTop":"SHORT CAPS headline, MAX 3 words", "titleScript":"SHORT handwritten tagline, MAX 3 words", "titleOptions":[{"top":"MAX 3 WORDS CAPS","script":"max 3 words"}, (give 4 DISTINCT short options for THIS email)], "intro":["2 to 4 SHORT body lines matching the role"], ' + dOfferKeys + ' "ctaLabel":"' + (dNoCta ? '' : 'a warm 2-4 word button label (punchy first-person if there is a discount)') + '",' + (DR.hasOffer ? ' "ctaNote":"ONE short line under the button: the discount applies automatically on click, no code to type, vary the wording",' : '') + ' "closingText":"a warm closing line above the signature, DIFFERENT every time" }'
+      ].join('\n');
+      var draw = await anthropic(dpr, 1300);
+      var dcopy = extractJSON(draw);
+      if (!dcopy) { res.status(502).json({ ok: false, error: 'AI did not return usable copy', raw: (draw || '').slice(0, 300) }); return; }
+      dcopy.greeting = "Dear {{ first_name|default:'friend' }},";
+      res.status(200).json({ ok: true, copy: dcopy });
+      return;
+    }
+
+    // ---- list a collection's products (image picker: collection -> product -> image) ----
+    if (action === 'promo-collection-products') {
+      var handle = (body.handle || '').toString().trim();
+      if (!handle) { res.status(400).json({ ok: false, error: 'collection handle required' }); return; }
+      var out2 = [];
+      try {
+        var cd = await shopifyGraphQL(
+          'query($h:String!){ collectionByHandle(handle:$h){ products(first:30){ edges{ node{ id title handle onlineStoreUrl vendor productType featuredImage{ url } priceRangeV2{ minVariantPrice{ amount currencyCode } } variants(first:1){ edges{ node{ sku } } } images(first:10){ edges{ node{ url altText } } } } } } } }',
+          { h: handle }
+        );
+        var ed = (cd && cd.collectionByHandle && cd.collectionByHandle.products && cd.collectionByHandle.products.edges) || [];
+        for (var k = 0; k < ed.length; k++) {
+          var pn = ed[k].node; if (!pn) continue;
+          if (pn.vendor && pn.vendor.toLowerCase().indexOf('about wall art') < 0) continue; // AWA only
+          var imgs = ((pn.images && pn.images.edges) || []).map(function (x) { return retinaImg(x.node.url, 800); }).filter(Boolean);
+          if (!imgs.length && pn.featuredImage) imgs = [retinaImg(pn.featuredImage.url, 800)];
+          var cur2 = pn.priceRangeV2 && pn.priceRangeV2.minVariantPrice;
+          var sku2 = ''; try { sku2 = pn.variants.edges[0].node.sku || ''; } catch (e) {}
+          out2.push({
+            gid: pn.id, title: pn.title, handle: pn.handle,
+            url: pn.onlineStoreUrl || (PROMO_SITE + '/products/' + pn.handle),
+            sku: sku2, productType: pn.productType || pn.vendor || '',
+            price: cur2 ? Number(cur2.amount).toFixed(0) : '',
+            images: imgs
+          });
+        }
+      } catch (e) { res.status(502).json({ ok: false, error: 'Could not load collection: ' + (e.message || e) }); return; }
+      res.status(200).json({ ok: true, products: out2 });
+      return;
+    }
+
+    // ---- create a fixed % discount code in Shopify (same code for everyone, expires at valid-until) ----
+    if (action === 'promo-discount') {
+      var dcode = (body.code || '').toString().trim().toUpperCase();
+      var dpct = parseFloat(body.discount);
+      var dexp = (body.expiry || '').toString().trim(); // YYYY-MM-DD
+      if (!dcode) { res.status(400).json({ ok: false, error: 'code required' }); return; }
+      if (!(dpct > 0 && dpct <= 90)) { res.status(400).json({ ok: false, error: 'discount % must be 1–90' }); return; }
+      var startsAt = new Date().toISOString();
+      // End of the valid-until day, London time (no Z => Shopify uses the shop timezone).
+      var endsAt = dexp ? (dexp + 'T23:59:59') : null;
+      // RULE: discounts apply ONLY to the "Discountable Products" collection, NEVER the whole store.
+      var DISCOUNTABLE_COLLECTION = 'gid://shopify/Collection/676983079292'; // handle: products-with-applicable-discounts
+      try {
+        var dm = await shopifyGraphQL(
+          'mutation($b:DiscountCodeBasicInput!){ discountCodeBasicCreate(basicCodeDiscount:$b){ codeDiscountNode{ id } userErrors{ field code message } } }',
+          { b: {
+            title: dcode,
+            code: dcode,
+            startsAt: startsAt,
+            endsAt: endsAt,
+            customerSelection: { all: true },
+            customerGets: { value: { percentage: dpct / 100 }, items: { collections: { add: [DISCOUNTABLE_COLLECTION] } } },
+            appliesOncePerCustomer: true,
+            combinesWith: { orderDiscounts: false, productDiscounts: false, shippingDiscounts: false } // never stack with other discounts
+          } }
+        );
+        var r2 = dm && dm.discountCodeBasicCreate;
+        var errs = (r2 && r2.userErrors) || [];
+        if (errs.length) {
+          var taken = errs.some(function (e) { return /taken|exist|already/i.test((e.code || '') + ' ' + (e.message || '')); });
+          if (taken) { res.status(200).json({ ok: true, existed: true, code: dcode, message: 'A discount with this code already exists in Shopify — reusing it.' }); return; }
+          res.status(502).json({ ok: false, error: errs.map(function (e) { return e.message; }).join('; ') }); return;
+        }
+        res.status(200).json({ ok: true, code: dcode, id: (r2 && r2.codeDiscountNode && r2.codeDiscountNode.id) || null });
+      } catch (e) { res.status(502).json({ ok: false, error: 'Shopify discount failed: ' + (e.message || e) }); return; }
+      return;
+    }
+
+    // ---- verify a discount code REALLY exists in Shopify (read-back check before sending to Klaviyo) ----
+    if (action === 'promo-discount-check') {
+      var vcode = (body.code || '').toString().trim();
+      if (!vcode) { res.status(400).json({ ok: false, error: 'code required' }); return; }
+      try {
+        var vd = await shopifyGraphQL(
+          'query($c:String!){ codeDiscountNodeByCode(code:$c){ id codeDiscount{ __typename ... on DiscountCodeBasic{ status } } } }',
+          { c: vcode }
+        );
+        var node = vd && vd.codeDiscountNodeByCode;
+        var exists = !!(node && node.id);
+        var status = (node && node.codeDiscount && node.codeDiscount.status) || null;
+        res.status(200).json({ ok: true, exists: exists, status: status });
+      } catch (e) { res.status(502).json({ ok: false, error: 'Check failed: ' + (e.message || e) }); return; }
+      return;
+    }
+
+    // ---- create the promo as a Klaviyo DRAFT (audience by market) ----
+    if (action === 'promo-create-draft') {
+      var KLAVIYO_KEY = process.env.KLAVIYO_KEY;
+      if (!KLAVIYO_KEY) { res.status(500).json({ ok: false, error: 'KLAVIYO_KEY not configured on the server' }); return; }
+      var subject = (body.subject || '').toString();
+      var html = (body.html || '').toString();
+      var preview = (body.preview || '').toString();
+      var name = (body.name || subject || 'PROMO').toString().slice(0, 120);
+      if (!subject || !html) { res.status(400).json({ ok: false, error: 'subject and html required' }); return; }
+      var SEG = { UK: 'WGvbF3', US: 'Y3x3by', ALL: 'VeaNX2', GENERAL: 'VeaNX2', ISLAMIC: 'Xypmb6' };
+      var seg = SEG[(body.market || 'ALL').toString().toUpperCase()] || 'VeaNX2';
+      var excl = (body.excludeSegment || '').toString().trim(); // follow-up: "Don't send to" (recent buyers)
+      var REVP = '2024-10-15';
+      function kvp(path, method, payload) { return fetch('https://a.klaviyo.com' + path, { method: method, headers: { 'Authorization': 'Klaviyo-API-Key ' + KLAVIYO_KEY, 'revision': REVP, 'accept': 'application/vnd.api+json', 'content-type': 'application/vnd.api+json' }, body: payload ? JSON.stringify(payload) : undefined }); }
+      async function kvpJson(r) { var t = await r.text(); var j = null; try { j = JSON.parse(t); } catch (e) {} return { ok: r.ok, status: r.status, json: j, text: t }; }
+      var tR = await kvpJson(await kvp('/api/templates/', 'POST', { data: { type: 'template', attributes: { name: name + ' (tool)', editor_type: 'CODE', html: html } } }));
+      if (!tR.ok || !tR.json || !tR.json.data) { res.status(502).json({ ok: false, error: 'Template create failed (' + tR.status + '): ' + (tR.text || '').slice(0, 250) }); return; }
+      var tId = tR.json.data.id;
+      var campP = { data: { type: 'campaign', attributes: { name: name, audiences: (excl ? { included: [seg], excluded: [excl] } : { included: [seg] }), tracking_options: { add_tracking_params: true, is_tracking_opens: true, is_tracking_clicks: true }, 'campaign-messages': { data: [ { type: 'campaign-message', attributes: { channel: 'email', label: name, content: { subject: subject, preview_text: preview, from_email: 'info@aboutwallart.com', from_label: 'Mae from About Wall Art' } } } ] } } } };
+      var cR = await kvpJson(await kvp('/api/campaigns/', 'POST', campP));
+      if (!cR.ok || !cR.json || !cR.json.data) { res.status(502).json({ ok: false, error: 'Campaign create failed (' + cR.status + '): ' + (cR.text || '').slice(0, 300) }); return; }
+      var campId = cR.json.data.id, mId = null; try { mId = cR.json.data.relationships['campaign-messages'].data[0].id; } catch (e) {}
+      if (!mId) { res.status(502).json({ ok: false, error: 'Campaign created but no message id', campaignId: campId }); return; }
+      var aR = await kvpJson(await kvp('/api/campaign-message-assign-template/', 'POST', { data: { type: 'campaign-message', id: mId, relationships: { template: { data: { type: 'template', id: tId } } } } }));
+      if (!aR.ok) { res.status(502).json({ ok: false, error: 'Assign template failed (' + aR.status + '): ' + (aR.text || '').slice(0, 250), campaignId: campId }); return; }
+      var campUrl = 'https://www.klaviyo.com/campaign/' + campId + '/wizard';
+
+      // ---- record this send in data/promos.json (per occasion + YEAR, so next year is a fresh promo).
+      // Board goes green ONLY when BOTH main + follow-up are in Klaviyo. Never blocks the response. ----
+      try {
+        var pKind = (body.kind || 'main').toString() === 'followup' ? 'followup' : 'main';
+        var pOid = (body.occasionId || '').toString();
+        var pYear = (body.year || '').toString();
+        var pMonth = (body.month || '').toString();
+        if (pOid && pYear) {
+          var pf = await ghReadFile(PROMOS_FILE);
+          var plist = Array.isArray(pf.json) ? pf.json : [];
+          var pidx = -1;
+          for (var pi = 0; pi < plist.length; pi++) { if (String(plist[pi].occasionId) === pOid && String(plist[pi].year) === pYear) { pidx = pi; break; } }
+          if (pidx < 0) { plist.push({ occasionId: pOid, occasionName: (body.occasionName || '').toString(), year: pYear, month: pMonth, main: null, followup: null }); pidx = plist.length - 1; }
+          plist[pidx][pKind] = { campaignId: campId, url: campUrl, sentAt: new Date().toISOString() };
+          if (pMonth && !plist[pidx].month) plist[pidx].month = pMonth;
+          await ghWriteFile(PROMOS_FILE, plist, pf.sha, 'Promo ' + pKind + ' in Klaviyo — ' + pOid + ' ' + pYear);
+          if (plist[pidx].main && plist[pidx].followup && pMonth) {
+            var bf = await ghReadFile(BOARD_FILE);
+            var bobj = (bf.json && typeof bf.json === 'object') ? bf.json : { months: {} };
+            if (!bobj.months) bobj.months = {};
+            if (!bobj.months[pMonth]) bobj.months[pMonth] = {};
+            bobj.months[pMonth]['email-promos'] = true;
+            await ghWriteFile(BOARD_FILE, bobj, bf.sha, 'Promo complete (main+follow-up) — mark board ' + pMonth);
+          }
+        }
+      } catch (e) {}
+
+      res.status(200).json({ ok: true, campaignId: campId, url: campUrl });
+      return;
+    }
+
+    // ---- list recorded promos (per occasion + year) so the tool can collapse the ones already in Klaviyo ----
+    if (action === 'promo-list') {
+      var pl = await ghGetJSON(PROMOS_FILE);
+      res.status(200).json({ ok: true, promos: Array.isArray(pl) ? pl : [] });
+      return;
+    }
+
+    // ---- Q4 (Black Friday) autosave: keep the in-progress emails per YEAR + role, so reloading keeps the work ----
+    if (action === 'q4-load') {
+      var qy = (body.year || '').toString();
+      var qf = await ghReadFile(Q4_FILE);
+      var qall = (qf.json && typeof qf.json === 'object' && !Array.isArray(qf.json)) ? qf.json : {};
+      res.status(200).json({ ok: true, drafts: (qy && qall[qy] && typeof qall[qy] === 'object') ? qall[qy] : {} });
+      return;
+    }
+    if (action === 'q4-save') {
+      var qsy = (body.year || '').toString();
+      var qsr = (body.role || '').toString();
+      if (!qsy || !qsr) { res.status(400).json({ ok: false, error: 'year and role required' }); return; }
+      var qsf = await ghReadFile(Q4_FILE);
+      var qsall = (qsf.json && typeof qsf.json === 'object' && !Array.isArray(qsf.json)) ? qsf.json : {};
+      if (!qsall[qsy]) qsall[qsy] = {};
+      qsall[qsy][qsr] = (body.data && typeof body.data === 'object') ? body.data : {};
+      await ghWriteFile(Q4_FILE, qsall, qsf.sha, 'Q4 draft autosave — ' + qsy + ' ' + qsr);
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    // ---- spelling & grammar check (same idea as newsletters) ----
+    if (action === 'promo-check') {
+      var cc = body.copy || {};
+      var text = {
+        subject: cc.subject || '', preview: cc.preview || '',
+        intro: cc.intro || [], offerLine: cc.offerLine || '',
+        ctaLabel: cc.ctaLabel || '', closingText: cc.closingText || ''
+      };
+      var cpr = [
+        'Proofread this UK-English promotional email copy. Find ONLY real spelling, grammar and punctuation mistakes — do NOT rewrite style or voice.',
+        'Also flag if it says "print"/"prints"/"a piece" (we sell "wall art" / "art sets", never single prints).',
+        'Also flag (and correct) any wording that says the discount is off "your whole order", "your entire purchase", "your total", "everything", "sitewide" or "store-wide" — the offer must be framed around the wall art (e.g. "off your new wall art sets"), never the whole order.',
+        'Replace every em dash and en dash (the long dashes) with a comma or a full stop (Mae dislikes them). This is the ONLY punctuation you may change on that count.',
+        'CRITICAL: do NOT touch emojis and do NOT change line breaks or where anything sits on the line. Keep every emoji exactly where it is, keep every newline exactly as given, and never flag an emoji or a line break as an error. Preserve the text structure; only fix real spelling/grammar/punctuation of the words.',
+        'COPY (JSON): ' + JSON.stringify(text).slice(0, 4000),
+        'Return ONLY JSON: { "issues":[{"original":"","suggestion":"","why":""}], "corrected":{ "subject":"", "preview":"", "intro":["",""], "offerLine":"", "ctaLabel":"", "closingText":"" } }. If nothing is wrong, issues=[] and corrected repeats the input unchanged.'
+      ].join('\n');
+      var craw = await anthropic(cpr, 1400);
+      var cres = extractJSON(craw);
+      if (!cres) { res.status(502).json({ ok: false, error: 'Check failed', raw: (craw || '').slice(0, 200) }); return; }
+      res.status(200).json({ ok: true, issues: cres.issues || [], corrected: cres.corrected || null });
+      return;
+    }
+
+    res.status(400).json({ ok: false, error: 'Unknown action: ' + action });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: (e && e.message) ? e.message : String(e) });
+  }
+};
