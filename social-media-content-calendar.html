@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.70 · 7 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.71 · 7 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -275,6 +275,7 @@
       <button class="emsub" type="button" data-emsub="promos"><i class="ti ti-discount-2"></i> Monthly Promos</button>
       <button class="emsub" type="button" data-emsub="q4"><i class="ti ti-shopping-cart"></i> Black Friday · November</button>
       <button class="emsub" type="button" data-emsub="dec"><i class="ti ti-gift"></i> December · Holidays</button>
+      <button class="emsub" type="button" data-emsub="launch"><i class="ti ti-sparkles"></i> New Collection Launch</button>
     </div>
 
     <div class="emsubpanel active" id="emsub-newsletters">
@@ -384,6 +385,20 @@
         <div id="q4DiscNote" style="font-size:12px;color:#555;margin-top:6px;"></div>
       </div>
       <div id="q4Build"></div>
+    </div>
+
+    <div class="emsubpanel" id="emsub-launch">
+      <div class="nlstep">
+        <div class="nlhd">New Collection Launch</div>
+        <p class="nlhint">Two emails: a <b>teaser</b> (3 days before, with a countdown and your moodboard image) and the <b>launch</b> (your lifestyle hero + the new products). Fill the details, then press Write on each. Everyone gets these. No discount.</p>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+          <label style="font-size:12px;color:#555;flex:1;min-width:200px;">Collection name<br><input id="lchName" placeholder="e.g. Coastal Calm" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px;"></label>
+          <label style="font-size:12px;color:#555;">Launch date<br><input id="lchDate" type="date" style="padding:9px;border:1px solid #ddd;border-radius:8px;"></label>
+          <div id="lchTeaserInfo" style="font-size:12.5px;color:#0F6E56;font-weight:700;"></div>
+        </div>
+        <label style="font-size:12px;color:#555;display:block;margin-top:10px;">What inspired this collection? <span style="color:#999;">(the AI weaves this into both emails)</span><br><textarea id="lchInsp" rows="3" placeholder="e.g. a trip to the Amalfi coast, the calm of early mornings, my grandmother's garden…" style="width:100%;padding:9px;border:1px solid #ddd;border-radius:8px;font-size:13px;"></textarea></label>
+      </div>
+      <div id="launchBuild"></div>
     </div>
 
     <div class="emsubpanel" id="emsub-dec">
@@ -4906,7 +4921,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         var rc=offer?((document.getElementById('cr-'+uid).value||rsCode).toUpperCase()):'';
         var c=JSON.parse(JSON.stringify(s.copy||{}));
         var rep=function(t){ return (t==null)?t:String(t).split(up+'%').join(rp+'%'); };
-        c.subject=rep(c.subject); c.preview=rep(c.preview); c.offerLead=rep(c.offerLead); c.offerLine=rep(c.offerLine); c.closingText=rep(c.closingText); c.ctaNote=rep(c.ctaNote);
+        c.subject=rep(c.subject); c.preview=rep(c.preview); c.offerLead=rep(c.offerLead); c.offerLine=rep(c.offerLine); c.closingText=rep(c.closingText); c.ctaNote=rep(c.ctaNote); c.ctaLabel=rep(c.ctaLabel); c.titleTop=rep(c.titleTop); c.titleScript=rep(c.titleScript);
         if(Array.isArray(c.intro)) c.intro=c.intro.map(rep);
         return { uid:uid+'r', occ:s.occ, lg:'en', market:'REST', copy:c, products:s.products, hero:s.hero, expiry:s.expiry, sendDate:s.sendDate, pct:rp, code:rc, titleDy:s.titleDy, titleDx:s.titleDx, shopColl:s.shopColl, ctaUrl:q4Cta(rc, s.shopColl), noOffer:s.noOffer, noProdButtons:s.noProdButtons, noCta:s.noCta, countdownDate:s.countdownDate };
       }
@@ -5593,6 +5608,302 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     }
     decYSel.addEventListener('change',decRender);
     decRender();
+  }
+
+  /* ===== New Collection Launch — teaser (countdown, moodboard) + launch (lifestyle hero, new-arrivals gallery); no discount; everyone; autosave under year "launch" ===== */
+  var lchName=document.getElementById('lchName');
+  if(lchName){
+    var lchDate=document.getElementById('lchDate'), lchInsp=document.getElementById('lchInsp'), lchTeaserInfo=document.getElementById('lchTeaserInfo'), launchWrap=document.getElementById('launchBuild');
+    var LAUNCH_SEG='ALL', NEWARR='new-arrivals', NEWARR_URL='https://aboutwallart.com/collections/new-arrivals';
+    var LAUNCHSEQ=[
+      {role:'launch_teaser', label:'Teaser (3 days before)', teaser:true,  prods:false, cta:false},
+      {role:'launch_reveal', label:'Launch email',           teaser:false, prods:true,  cta:true}
+    ];
+    var launchCards=[];
+    function launchDatesOf(){ var ld=lchDate.value||''; return { launch:ld, teaser: ld?isoAdd(ld,-3):'' }; }
+    function launchSyncDates(){
+      var d=launchDatesOf();
+      lchTeaserInfo.textContent = d.launch ? ('Teaser: '+fmtNice(d.teaser)+'  ·  Launch: '+fmtNice(d.launch)) : 'Set a launch date';
+      launchCards.forEach(function(cd){
+        var send = cd.item.teaser ? d.teaser : d.launch;
+        cd.s.sendDate = send; cd.s.expiry = '';
+        if(cd.item.teaser) cd.s.countdownDate = d.launch||''; // teaser counts down to launch day
+        if(cd.sd) cd.sd.textContent = send ? fmtNice(send) : 'set the launch date above';
+        if(cd.s.copy && cd.refresh) cd.refresh();
+      });
+    }
+    function launchPersistConfig(){ /* config is saved inside each card's data */ launchCards.forEach(function(cd){ if(cd.s.copy) cd.persist(); }); }
+
+    function launchRender(){
+      launchWrap.innerHTML='<div style="color:#999;font-size:13px;padding:8px 0;">Loading your saved launch…</div>';
+      launchCards=[];
+      emPost({action:'q4-load', year:'launch'}).then(function(d){
+        var saved=(d&&d.ok&&d.drafts)||{};
+        // restore the shared config from whichever email saved it
+        var cfg=(saved.launch_reveal&&saved.launch_reveal.cfg)||(saved.launch_teaser&&saved.launch_teaser.cfg)||null;
+        if(cfg){ if(cfg.name!=null)lchName.value=cfg.name; if(cfg.insp!=null)lchInsp.value=cfg.insp; if(cfg.date!=null)lchDate.value=cfg.date; }
+        launchWrap.innerHTML='';
+        LAUNCHSEQ.forEach(function(item,idx){ launchCard(item,idx,saved[item.role]||null); });
+        launchSyncDates();
+      }).catch(function(){ launchWrap.innerHTML=''; LAUNCHSEQ.forEach(function(item,idx){ launchCard(item,idx,null); }); launchSyncDates(); });
+    }
+
+    function launchCard(item,idx,saved){
+      var uid='lc'+idx+'_'+Math.random().toString(36).slice(2,7);
+      var prods=!!item.prods;
+      var s={ uid:uid, occ:{ id:'launch-'+item.role, name:'the new collection', collections:[NEWARR] }, lg:'en', market:'ALL',
+              copy:null, products:[], hero:'', expiry:'', sendDate:'', pct:'', code:'',
+              titleDy:0, titleDx:0, shopColl:NEWARR, ctaUrl:(item.cta?NEWARR_URL:''), noOffer:true, noProdButtons:!prods, noCta:!item.cta, countdownDate:'', checked:false, approved:false };
+      var card=document.createElement('div'); card.className='nlstep'; card.style.marginTop='16px';
+      card.innerHTML=
+        '<div class="nlhd">'+esc(item.label)+' <span style="font-size:11px;background:#eee;color:#555;padding:1px 7px;border-radius:6px;"><span id="lsd-'+uid+'">set the launch date above</span></span>'
+          +(item.teaser?' <span style="font-size:11px;background:#EAF2FF;color:#2456c9;padding:1px 7px;border-radius:6px;">countdown + moodboard</span>':' <span style="font-size:11px;background:#F1EAFE;color:#6b3fd0;padding:1px 7px;border-radius:6px;">lifestyle + new products</span>')
+        +'</div>'
+        + (prods ? '<div style="margin:8px 0;"><label style="font-size:12px;color:#555;">Products in the gallery<br><select id="lpc-'+uid+'" style="padding:7px;border:1px solid #ddd;border-radius:6px;"><option value="4">4</option><option value="6">6</option><option value="8" selected>8</option></select></label> <span style="font-size:12px;color:#999;">loaded from new-arrivals; you can also add by SKU below</span></div>' : '')
+        +'<button id="w-'+uid+'" class="nlbtn" type="button">✍️ Write</button>'
+        +'<div id="body-'+uid+'"></div>';
+      launchWrap.appendChild(card);
+      var cardRef={ item:item, s:s, sd:document.getElementById('lsd-'+uid), refresh:null, persist:null };
+      launchCards.push(cardRef);
+
+      function launchCtaUrl(){ if(item.noCta||!item.cta) return ''; return 'https://aboutwallart.com/collections/'+(s.shopColl||NEWARR); }
+      function refreshLaunch(){ s.ctaUrl=launchCtaUrl(); refreshPreview(s); launchPersist(); }
+      cardRef.refresh=refreshLaunch;
+
+      var lTimer=null;
+      function launchPersist(){
+        if(!s.copy || s._restoring) return;
+        try{ readPromoEmail(s); }catch(e){}
+        var sEl=document.getElementById('s-'+uid), pEl=document.getElementById('pr-'+uid);
+        if(sEl) s.copy.subject=sEl.value; if(pEl) s.copy.preview=pEl.value;
+        var data={ copy:s.copy, products:s.products, hero:s.hero, shopColl:s.shopColl,
+          cfg:{ name:lchName.value, insp:lchInsp.value, date:lchDate.value },
+          checked:!!s.checked, approved:!!s.approved, sent:s.sent||null, savedAt:Date.now() };
+        clearTimeout(lTimer); lTimer=setTimeout(function(){ emPost({action:'q4-save', year:'launch', role:item.role, data:data}).catch(function(){}); }, 900);
+      }
+      cardRef.persist=launchPersist;
+
+      document.getElementById('w-'+uid).addEventListener('click', function(){
+        if(!lchName.value.trim()){ alert('Type the collection name up top first.'); return; }
+        if(!lchDate.value){ alert('Pick the launch date up top first.'); return; }
+        var btn=this; btn.disabled=true; btn.textContent='Writing…';
+        var d=launchDatesOf(); s.sendDate=item.teaser?d.teaser:d.launch; if(item.teaser) s.countdownDate=d.launch;
+        var calls=[ emPost({action:'launch-write', role:item.role, collectionName:lchName.value.trim(), inspiration:lchInsp.value.trim(), launchDate:fmtNice(d.launch)}) ];
+        var cnt=prods?(parseInt((document.getElementById('lpc-'+uid)||{}).value,10)||8):0;
+        calls.push(prods ? emPost({action:'promo-products', collections:[NEWARR], count:cnt}) : Promise.resolve({ok:true,products:[]}));
+        Promise.all(calls).then(function(res){
+          var w=res[0], pp=res[1];
+          if(!w||!w.ok||!w.copy){ btn.disabled=false; btn.textContent='✍️ Write'; document.getElementById('body-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">Could not write: '+esc((w&&w.error)||'error')+'</p>'; return; }
+          launchApply(w.copy, (pp&&pp.ok&&pp.products)||[], false);
+        }).catch(function(e){ btn.disabled=false; btn.textContent='✍️ Write'; document.getElementById('body-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">Error: '+esc(e.message)+'</p>'; });
+      });
+
+      function launchApply(savedCopy, savedProducts, restoring){
+        var btn=document.getElementById('w-'+uid); if(btn){ btn.disabled=false; btn.textContent='✍️ Re-write'; }
+        s.copy=savedCopy; s.products=savedProducts||[];
+        var c=s.copy;
+        function regBtn(id,lbl){ return '<button id="'+id+'-'+uid+'" type="button" title="Regenerate" style="background:#eee;border:1px solid #ddd;border-radius:6px;padding:5px 9px;font-size:12px;cursor:pointer;">🔄 '+lbl+'</button>'; }
+        var heroBlock='<div style="margin-top:12px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
+              +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">Hero image — '+(item.teaser?'paste your <b>moodboard</b> image URL, or use the picker':'your <b>lifestyle</b> image (with a person). Pick a product image as a source for Shopify AI, or paste a URL')+'</div>'
+              +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'
+                +'<select id="hcol-'+uid+'" style="flex:1;min-width:180px;padding:7px;border:1px solid #ddd;border-radius:6px;">'+wallArtCollOptions(NEWARR)+'</select>'
+                +'<button id="sb-'+uid+'" type="button" class="nlbtn" style="background:#555;">📂 Load collection</button>'
+              +'</div>'
+              +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">'
+                +'<input id="hsku-'+uid+'" placeholder="…or find by SKU / name" style="flex:1;min-width:180px;padding:7px;border:1px solid #ddd;border-radius:6px;">'
+                +'<button id="ssku-'+uid+'" type="button" class="nlbtn" style="background:#555;">🔍 Find</button>'
+              +'</div>'
+              +'<div id="hr-'+uid+'" style="max-height:300px;overflow:auto;margin-top:8px;"></div>'
+              +'<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"><button id="hp-'+uid+'" type="button" class="nlbtn" style="background:#555;">🪄 Generate Shopify-AI prompt</button><button id="hpc-'+uid+'" type="button" class="nlbtn" style="background:#c0561d;">📋 Copy prompt</button></div>'
+              +'<textarea id="hpt-'+uid+'" rows="4" placeholder="the Shopify-AI hero prompt appears here" style="width:100%;margin-top:8px;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;"></textarea>'
+              +'<label style="font-size:12px;color:#555;display:block;margin-top:6px;">Upload an image:<br><input id="hfile-'+uid+'" type="file" accept="image/*" style="margin-top:4px;"></label>'
+              +'<div id="hup-'+uid+'" style="font-size:12px;margin-top:4px;"></div>'
+              +'<label style="font-size:12px;color:#555;display:block;margin-top:6px;">…or paste an image URL:<br><input id="hero-'+uid+'" placeholder="https://…" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;"></label>'
+            +'</div>';
+        var prodBlock = prods
+          ? '<div style="margin-top:6px;font-size:12px;color:#555;">'+(s.products.length?(s.products.length+' products loaded from new-arrivals'):'No products loaded.')+'</div>'
+            +'<div style="margin-top:8px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
+              +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">Add specific products by SKU (any collection)</div>'
+              +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'
+                +'<input id="psku1-'+uid+'" placeholder="SKU 1" style="flex:1;min-width:90px;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;">'
+                +'<input id="psku2-'+uid+'" placeholder="SKU 2" style="flex:1;min-width:90px;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;">'
+                +'<input id="psku3-'+uid+'" placeholder="SKU 3" style="flex:1;min-width:90px;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;">'
+                +'<input id="psku4-'+uid+'" placeholder="SKU 4" style="flex:1;min-width:90px;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;">'
+                +'<input id="psku5-'+uid+'" placeholder="SKU 5" style="flex:1;min-width:90px;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;">'
+                +'<input id="psku6-'+uid+'" placeholder="SKU 6" style="flex:1;min-width:90px;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;">'
+                +'<input id="psku7-'+uid+'" placeholder="SKU 7" style="flex:1;min-width:90px;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;">'
+                +'<input id="psku8-'+uid+'" placeholder="SKU 8" style="flex:1;min-width:90px;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;">'
+                +'<button id="pskub-'+uid+'" type="button" class="nlbtn" style="background:#555;">🔎 Use these SKUs</button>'
+              +'</div>'
+              +'<div id="pcolm-'+uid+'" style="font-size:12px;margin-top:4px;"></div>'
+            +'</div>'
+          : '';
+        document.getElementById('body-'+uid).innerHTML=
+          '<div style="margin-top:6px;">'
+            +'<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;"><label style="flex:1;min-width:220px;font-size:12px;color:#555;">Subject line (with first name)<br><input id="s-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.subject||'')+'"></label>'+regBtn('rs','subject')+'</div>'
+            +'<label style="font-size:12px;color:#555;">Preview text<br><input id="pr-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.preview||'')+'"></label>'
+            + heroBlock + prodBlock
+            +'<div style="margin-top:12px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
+              +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">If it\'s not right — tell the AI how to rewrite it</div>'
+              +'<textarea id="note-'+uid+'" rows="2" placeholder="e.g. warmer, mention the inspiration more, shorter" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;font-size:12px;"></textarea>'
+              +'<button id="rw-'+uid+'" type="button" class="nlbtn" style="background:#534AB7;margin-top:8px;">🔁 Rewrite with my notes</button>'
+              +'<div id="rwmsg-'+uid+'" style="font-size:12px;margin-top:4px;"></div>'
+            +'</div>'
+            +'<div style="margin-top:12px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
+              +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">Title — keep it short. Pick an option, or edit the words.</div>'
+              +'<div id="topt-'+uid+'" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"></div>'
+              +'<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;"><label style="flex:1;min-width:140px;font-size:12px;color:#555;">Caps (max 3 words)<br><input id="tt-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.titleTop||'')+'"></label>'
+                +'<label style="flex:1;min-width:140px;font-size:12px;color:#555;">Script (max 3 words)<br><input id="ts-'+uid+'" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;" value="'+esc(c.titleScript||'')+'"></label>'+regBtn('rt','more options')+'</div>'
+              +'<div style="display:flex;gap:16px;align-items:center;margin-top:10px;font-size:12px;color:#555;flex-wrap:wrap;"><span>Move script ↕ <input id="tdy-'+uid+'" type="range" min="-60" max="60" value="0" style="vertical-align:middle;"></span><span>↔ <input id="tdx-'+uid+'" type="range" min="-60" max="60" value="0" style="vertical-align:middle;"></span></div>'
+            +'</div>'
+            +'<div style="font-size:12px;color:#555;margin:14px 0 4px;">Full preview — click any text to edit it</div>'
+            +'<div style="overflow:auto;"><div id="pv-'+uid+'" style="width:600px;margin:0 auto;border:1px solid #e3e3e3;border-radius:8px;background:#fff;"></div></div>'
+            +'<div style="margin-top:16px;text-align:center;">'
+              +'<button id="ck-'+uid+'" class="nlbtn" type="button" style="background:#534AB7;margin-bottom:10px;">🔤 Check spelling & grammar</button>'
+              +'<div id="ckmsg-'+uid+'" style="font-size:13px;"></div>'
+              +'<div id="ckwrap-'+uid+'" style="display:none;text-align:left;margin:8px auto 14px;max-width:560px;background:#F7F6FE;border:1px solid #E4E1F0;border-radius:10px;padding:12px 14px;"></div>'
+              +'<button id="ap-'+uid+'" class="nlbtn" type="button" style="background:#0F6E56;">✓ Approve</button>'
+              +'<div id="apmsg-'+uid+'" style="font-size:13px;"></div>'
+              +'<div id="cdwrap-'+uid+'" style="display:none;margin-top:14px;border-top:2px solid #eee;padding-top:14px;">'
+                +'<div style="font-size:12px;color:#555;margin-bottom:8px;">Creates <b>one draft</b> in Klaviyo (everyone).</div>'
+                +'<button id="cd-'+uid+'" class="nlbtn" type="button" style="background:#111;">📧 Create draft in Klaviyo</button>'
+                +'<div id="res-'+uid+'" style="margin-top:8px;font-size:13px;"></div>'
+              +'</div>'
+            +'</div>'
+          +'</div>';
+
+        function renderTitleOpts(){
+          var box=document.getElementById('topt-'+uid); if(!box) return;
+          var opts=(s.copy.titleOptions||[]);
+          box.innerHTML=opts.map(function(op,i){ return '<button type="button" class="topt-'+uid+'" data-i="'+i+'" style="background:#fff;border:1px solid #ccc;border-radius:16px;padding:5px 11px;font-size:12px;cursor:pointer;"><b>'+esc(op.top||'')+'</b> · '+esc(op.script||'')+'</button>'; }).join('');
+          Array.prototype.forEach.call(box.querySelectorAll('.topt-'+uid),function(b){ b.addEventListener('click',function(){ readPromoEmail(s); var op=opts[parseInt(b.getAttribute('data-i'),10)]||{}; s.copy.titleTop=op.top||''; s.copy.titleScript=op.script||''; document.getElementById('tt-'+uid).value=s.copy.titleTop; document.getElementById('ts-'+uid).value=s.copy.titleScript; refreshLaunch(); }); });
+        }
+        function pull(){
+          readPromoEmail(s);
+          s.copy.subject=document.getElementById('s-'+uid).value; s.copy.preview=document.getElementById('pr-'+uid).value;
+          s.copy.titleTop=document.getElementById('tt-'+uid).value; s.copy.titleScript=document.getElementById('ts-'+uid).value;
+          var hv=document.getElementById('hero-'+uid).value.trim(); if(hv) s.hero=hv;
+        }
+        function regen(field,rbtn){
+          pull(); var orig=rbtn.textContent; rbtn.disabled=true; rbtn.textContent='…';
+          var d=launchDatesOf();
+          emPost({action:'launch-write', role:item.role, collectionName:lchName.value.trim(), inspiration:lchInsp.value.trim(), launchDate:fmtNice(d.launch), only:field, current:s.copy}).then(function(k2){
+            rbtn.disabled=false; rbtn.textContent=orig;
+            if(!k2||!k2.ok||!k2.copy){ alert('Could not regenerate.'); return; }
+            var k=k2.copy;
+            if(field==='subject'&&k.subject!=null)s.copy.subject=k.subject;
+            if(field==='title'){ if(k.titleTop!=null)s.copy.titleTop=k.titleTop; if(k.titleScript!=null)s.copy.titleScript=k.titleScript; if(k.titleOptions!=null)s.copy.titleOptions=k.titleOptions; }
+            document.getElementById('s-'+uid).value=s.copy.subject||''; document.getElementById('tt-'+uid).value=s.copy.titleTop||''; document.getElementById('ts-'+uid).value=s.copy.titleScript||'';
+            renderTitleOpts(); refreshLaunch();
+          }).catch(function(){ rbtn.disabled=false; rbtn.textContent=orig; alert('Could not regenerate.'); });
+        }
+        document.getElementById('rs-'+uid).addEventListener('click', function(){ regen('subject', this); });
+        document.getElementById('rt-'+uid).addEventListener('click', function(){ regen('title', this); });
+        document.getElementById('tt-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.copy.titleTop=this.value; refreshLaunch(); });
+        document.getElementById('ts-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.copy.titleScript=this.value; refreshLaunch(); });
+        document.getElementById('tdy-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.titleDy=this.value; refreshLaunch(); });
+        document.getElementById('tdx-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.titleDx=this.value; refreshLaunch(); });
+        document.getElementById('s-'+uid).addEventListener('input', function(){ s.copy.subject=this.value; launchPersist(); });
+        document.getElementById('pr-'+uid).addEventListener('input', function(){ s.copy.preview=this.value; launchPersist(); });
+        document.getElementById('sb-'+uid).addEventListener('click', function(){ loadHeroProducts(s); });
+        document.getElementById('ssku-'+uid).addEventListener('click', function(){ searchHeroBySku(s); });
+        document.getElementById('hsku-'+uid).addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); searchHeroBySku(s); } });
+        document.getElementById('hp-'+uid).addEventListener('click', function(){ document.getElementById('hpt-'+uid).value=buildHeroPrompt(s); });
+        document.getElementById('hpc-'+uid).addEventListener('click', function(){ var ta=document.getElementById('hpt-'+uid); if(!ta.value){ ta.value=buildHeroPrompt(s); } var b=this, o2=b.textContent; try{ navigator.clipboard.writeText(ta.value); }catch(e){ ta.select(); try{document.execCommand('copy');}catch(e2){} } b.textContent='Copied ✓'; setTimeout(function(){b.textContent=o2;},1200); });
+        document.getElementById('hfile-'+uid).addEventListener('change', function(e){ var f=e.target.files&&e.target.files[0]; if(f) uploadHero(s,f); });
+        document.getElementById('hero-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.hero=this.value.trim(); refreshLaunch(); });
+        if(prods){
+          document.getElementById('pskub-'+uid).addEventListener('click', function(){
+            var skus=[1,2,3,4,5,6,7,8].map(function(i){ return (document.getElementById('psku'+i+'-'+uid).value||'').trim(); }).filter(Boolean);
+            var m=document.getElementById('pcolm-'+uid);
+            if(!skus.length){ m.style.color='#b00'; m.textContent='Type at least one SKU.'; return; }
+            var b=this, ot=b.textContent; b.disabled=true; b.textContent='…'; m.textContent='';
+            emPost({action:'promo-products-by-sku', skus:skus}).then(function(dd){
+              b.disabled=false; b.textContent=ot;
+              var found=((dd&&dd.products)||[]).filter(function(p){ return p && !p.notFound && p.image; });
+              if(!found.length){ m.style.color='#b00'; m.textContent='No products found for those SKUs.'; return; }
+              readPromoEmail(s); s.products=found; refreshLaunch();
+              m.style.color='#0F6E56'; m.textContent='Loaded '+found.length+' product'+(found.length>1?'s':'')+' into the gallery.';
+            }).catch(function(){ b.disabled=false; b.textContent=ot; m.style.color='#b00'; m.textContent='Network error.'; });
+          });
+        }
+        document.getElementById('rw-'+uid).addEventListener('click', function(){
+          var note=(document.getElementById('note-'+uid).value||'').trim(); var msg=document.getElementById('rwmsg-'+uid);
+          if(!note){ msg.style.color='#b00'; msg.textContent='Type what you want changed first.'; return; }
+          pull(); var b=this, ot=b.textContent; b.disabled=true; b.textContent='Rewriting…'; msg.textContent=''; var d=launchDatesOf();
+          emPost({action:'launch-write', role:item.role, collectionName:lchName.value.trim(), inspiration:lchInsp.value.trim(), launchDate:fmtNice(d.launch), note:note, current:s.copy}).then(function(k2){
+            b.disabled=false; b.textContent=ot;
+            if(!k2||!k2.ok||!k2.copy){ msg.style.color='#b00'; msg.textContent=(k2&&k2.error)||'Could not rewrite.'; return; }
+            var k=k2.copy, tt=s.copy.titleTop, ts=s.copy.titleScript;
+            if(k.subject!=null)s.copy.subject=k.subject; if(k.preview!=null)s.copy.preview=k.preview;
+            if(k.intro!=null)s.copy.intro=k.intro; if(k.ctaLabel!=null)s.copy.ctaLabel=k.ctaLabel; if(k.closingText!=null)s.copy.closingText=k.closingText;
+            s.copy.titleTop=tt; s.copy.titleScript=ts;
+            document.getElementById('s-'+uid).value=s.copy.subject||''; document.getElementById('pr-'+uid).value=s.copy.preview||'';
+            refreshLaunch(); s.checked=false; s.approved=false;
+            var apb=document.getElementById('ap-'+uid); if(apb){ apb.innerHTML='✓ Approve'; apb.style.background='#0F6E56'; }
+            var cw=document.getElementById('cdwrap-'+uid); if(cw) cw.style.display='none';
+            msg.style.color='#0F6E56'; msg.textContent='Rewritten — check it, then run grammar again before approving.';
+            document.getElementById('note-'+uid).value='';
+          }).catch(function(){ b.disabled=false; b.textContent=ot; msg.style.color='#b00'; msg.textContent='Network error.'; });
+        });
+        document.getElementById('ck-'+uid).addEventListener('click', function(){
+          pull(); var cb=this; cb.disabled=true; var o2=cb.textContent; cb.textContent='Checking…';
+          var msg=document.getElementById('ckmsg-'+uid), wrap=document.getElementById('ckwrap-'+uid); msg.textContent=''; wrap.style.display='none'; wrap.innerHTML='';
+          emPost({action:'promo-check', copy:s.copy}).then(function(d){
+            cb.disabled=false; cb.textContent=o2; s.checked=true;
+            if(!d||!d.ok){ msg.style.color='#b00'; msg.textContent=(d&&d.error)||'Could not check.'; return; }
+            var iss=d.issues||[];
+            if(!iss.length){ msg.style.color='#0F6E56'; msg.textContent='No spelling or grammar mistakes found ✓'; return; }
+            msg.textContent='';
+            var html='<div style="font-weight:700;color:#3C3489;margin-bottom:8px;">'+iss.length+' thing'+(iss.length>1?'s':'')+' to check:</div>';
+            iss.forEach(function(it2){ html+='<div style="margin-bottom:8px;font-size:13px;"><span style="text-decoration:line-through;color:#b91c1c;">'+esc(it2.original||'')+'</span> → <b style="color:#0F6E56;">'+esc(it2.suggestion||'')+'</b>'+(it2.why?' <span style="color:#9A95B4;">('+esc(it2.why)+')</span>':'')+'</div>'; });
+            if(d.corrected){ html+='<button id="apf-'+uid+'" class="nlbtn" type="button" style="background:#534AB7;margin-top:6px;">✨ Apply these fixes</button>'; }
+            wrap.innerHTML=html; wrap.style.display='';
+            var af=document.getElementById('apf-'+uid);
+            if(af) af.addEventListener('click', function(){ var cor=d.corrected||{}; if(cor.subject!=null)s.copy.subject=cor.subject; if(cor.preview!=null)s.copy.preview=cor.preview; if(cor.intro&&cor.intro.length)s.copy.intro=cor.intro; if(cor.ctaLabel!=null)s.copy.ctaLabel=cor.ctaLabel; if(cor.closingText!=null)s.copy.closingText=cor.closingText; document.getElementById('s-'+uid).value=s.copy.subject||''; document.getElementById('pr-'+uid).value=s.copy.preview||''; refreshLaunch(); wrap.style.display='none'; msg.style.color='#0F6E56'; msg.textContent='Fixes applied — have a look.'; });
+          }).catch(function(){ cb.disabled=false; cb.textContent=o2; msg.style.color='#b00'; msg.textContent='Network error.'; });
+        });
+        document.getElementById('ap-'+uid).addEventListener('click', function(){
+          pull(); var apm=document.getElementById('apmsg-'+uid);
+          if(!s.checked){ apm.style.color='#b00'; apm.textContent='Run the spelling & grammar check first.'; return; }
+          s.approved=true; this.innerHTML='✓ Approved'; this.style.background='#0b5a46';
+          apm.style.color='#0F6E56'; apm.textContent='Approved ✓ — you can create the draft below.';
+          var cw=document.getElementById('cdwrap-'+uid); if(cw) cw.style.display='';
+          launchPersist();
+        });
+        document.getElementById('cd-'+uid).addEventListener('click', function(){
+          var rr=document.getElementById('res-'+uid);
+          if(!s.approved){ rr.innerHTML='<span style="color:#b00;">Approve first.</span>'; return; }
+          var cb=this; cb.disabled=true; cb.textContent='Creating…'; pull(); s.ctaUrl=launchCtaUrl();
+          var d=launchDatesOf(); var send=item.teaser?d.teaser:d.launch;
+          emPost({action:'promo-create-draft', name:'LAUNCH '+lchName.value.trim()+' — '+(item.teaser?'Teaser':'Live'), subject:s.copy.subject, preview:s.copy.preview, html:buildPromoFullDoc(s), market:LAUNCH_SEG}).then(function(dr){
+            cb.disabled=false; cb.textContent='📧 Create draft in Klaviyo';
+            if(dr&&dr.ok){ s.sent={all:dr.url}; launchPersist(); card.innerHTML='<div class="nlhd">✓ '+esc(item.label)+' — draft in Klaviyo</div><div style="font-size:12.5px;color:#555;margin-top:8px;"><a href="'+esc(dr.url)+'" target="_blank">open in Klaviyo ↗</a> — schedule for <b>'+esc(fmtNice(send))+'</b></div>'; }
+            else { rr.innerHTML='<span style="color:#b00;">Draft failed: '+esc((dr&&dr.error)||'error')+'</span>'; }
+          }).catch(function(){ cb.disabled=false; cb.textContent='📧 Create draft in Klaviyo'; rr.innerHTML='<span style="color:#b00;">Draft failed (network).</span>'; });
+        });
+        var pvC=document.getElementById('pv-'+uid);
+        if(pvC) pvC.addEventListener('input', function(){ readPromoEmail(s); launchPersist(); });
+        renderTitleOpts(); refreshLaunch();
+      }
+      cardRef.applyFn=launchApply;
+
+      if(saved && saved.sent){
+        card.innerHTML='<div class="nlhd">✓ '+esc(item.label)+' — already in Klaviyo</div><div style="font-size:12.5px;color:#555;margin-top:8px;"><a href="'+esc((saved.sent.all)||'#')+'" target="_blank">open in Klaviyo ↗</a></div>';
+      } else if(saved && saved.copy){
+        s.hero=saved.hero||''; s.shopColl=saved.shopColl||NEWARR; s._restoring=true;
+        launchApply(saved.copy, saved.products||[], true);
+        var hf=document.getElementById('hero-'+uid); if(hf&&saved.hero) hf.value=saved.hero;
+        s.checked=!!saved.checked; s.approved=!!saved.approved; s._restoring=false;
+        if(s.approved){ var apb=document.getElementById('ap-'+uid); if(apb){ apb.innerHTML='✓ Approved'; apb.style.background='#0b5a46'; } var cw=document.getElementById('cdwrap-'+uid); if(cw) cw.style.display=''; var apm=document.getElementById('apmsg-'+uid); if(apm){ apm.style.color='#0F6E56'; apm.textContent='Approved ✓ (restored — you can create the draft).'; } }
+        var rb=document.createElement('div'); rb.style.cssText='font-size:11px;color:#0F6E56;margin-top:6px;'; rb.textContent='↩︎ Restored your saved draft'; card.insertBefore(rb, document.getElementById('body-'+uid));
+      }
+    }
+
+    lchDate.addEventListener('change', launchSyncDates);
+    lchName.addEventListener('input', function(){ launchCards.forEach(function(cd){ if(cd.s.copy) cd.persist(); }); });
+    lchInsp.addEventListener('input', function(){ launchCards.forEach(function(cd){ if(cd.s.copy) cd.persist(); }); });
+    launchRender();
   }
 })();
 </script>
