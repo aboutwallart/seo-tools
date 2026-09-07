@@ -2500,6 +2500,8 @@ module.exports = async (req, res) => {
       // Black Friday series (Q4 email tab): each email is saved in data/q4-drafts.json per year+role with its "sent" state.
       const q4All = (await bJson('data/q4-drafts.json')) || {};
       const Q4_ROLES = ['sneak', 'teaser', 'vip_launch', 'vip_deadline', 'bf_am', 'bf_pm', 'small_biz', 'cyber']; // keep in sync with Q4SEQ in the tool
+      const DEC_ROLES = ['gift_guide', 'gift_card', 'christmas', 'boxing_day', 'last_sale', 'new_year']; // December series (saved under year "dec-YYYY"); keep in sync with DECSEQ
+      function q4Sent(dd) { return !!(dd && dd.sent && (dd.sent.all || dd.sent.uk || dd.sent.rest)); }
       const bOccDoc = await bJson(OCC_FILE);
       const bOccList = (bOccDoc && bOccDoc.occasions) || [];
       function bOccPromoMonth(o) { if (o.promoMonth) return parseInt(o.promoMonth, 10); var md = o.date2026 || (o.window && o.window.start) || ''; return md ? parseInt(String(md).split('-')[0], 10) : 0; }
@@ -2552,7 +2554,10 @@ module.exports = async (req, res) => {
       ublog.forEach(function (x) { addM(bYM(x.usedDate)); });
       sqLog.forEach(function (x) { addM(bYM(x.sentAt)); });
       Object.keys(blogCounts).forEach(addM);
-      Object.keys(q4All).forEach(function (y) { if (/^\d{4}$/.test(y)) addM(y + '-11'); }); // show the Black Friday month once it has Q4 emails
+      Object.keys(q4All).forEach(function (y) { // show the Black Friday / December months once they have emails
+        if (/^\d{4}$/.test(y)) addM(y + '-11');
+        var dm = y.match(/^dec-(\d{4})$/); if (dm) addM(dm[1] + '-12');
+      });
       const months = Object.keys(monthSet).sort();
 
       const result = months.map(function (M) {
@@ -2572,10 +2577,15 @@ module.exports = async (req, res) => {
         // promo emails this calendar month
         let promoTotal = 0, promoDoneN = 0;
         bOccList.forEach(function (o) { if (o.promoSuggested && bOccPromoMonth(o) === Mo) { promoTotal++; if (promoDoneSet[o.id + '|' + Y]) promoDoneN++; } });
-        // November also counts the Black Friday series (sent / total = 8); green when all are in Klaviyo
+        // November = the Black Friday series ONLY (8); December = the Holidays series ONLY (6). Green when all are in Klaviyo.
         if (Mo === 11) {
           const q4y = q4All[String(Y)] || {};
-          Q4_ROLES.forEach(function (r) { promoTotal++; const dd = q4y[r]; if (dd && dd.sent && (dd.sent.all || dd.sent.uk || dd.sent.rest)) promoDoneN++; });
+          promoTotal = 0; promoDoneN = 0;
+          Q4_ROLES.forEach(function (r) { promoTotal++; if (q4Sent(q4y[r])) promoDoneN++; });
+        } else if (Mo === 12) {
+          const dcy = q4All['dec-' + Y] || {};
+          promoTotal = 0; promoDoneN = 0;
+          DEC_ROLES.forEach(function (r) { promoTotal++; if (q4Sent(dcy[r])) promoDoneN++; });
         }
         const man = manual[M] || {};
         return {
