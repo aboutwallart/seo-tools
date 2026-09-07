@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shopify Bulk Editor</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5; min-height: 100vh; padding: 20px; color: #333; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { background: #fff; padding: 26px 30px; border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.08); margin-bottom: 18px; text-align: center; }
+        .header h1 { font-size: 30px; margin-bottom: 6px; }
+        .header p { color: #666; font-size: 15px; }
+        .header .subtitle { color: #aaa; font-size: 12px; margin-top: 6px; }
+
+        .panel { background: #fff; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+            padding: 22px 24px; margin-bottom: 16px; }
+        .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: #999;
+            margin-bottom: 14px; font-weight: 700; }
+        .step-num { display:inline-flex; width:22px; height:22px; border-radius:50%; background:#1a1a1a; color:#fff;
+            align-items:center; justify-content:center; font-size:12px; margin-right:8px; }
+
+        .row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+        .field { display: flex; flex-direction: column; gap: 5px; }
+        .field label { font-size: 12px; color: #777; font-weight: 600; }
+        select, input[type="text"], input[type="number"] { padding: 10px 12px; border: 2px solid #eee;
+            border-radius: 10px; font-size: 15px; background: #fff; min-width: 150px; }
+        select:focus, input:focus { outline: none; border-color: #1a1a1a; }
+        .check { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #333; cursor: pointer; }
+        .check input { width: 18px; height: 18px; }
+
+        .btn { padding: 11px 18px; border: none; border-radius: 10px; font-size: 15px; font-weight: 600;
+            cursor: pointer; transition: .15s; white-space: nowrap; }
+        .btn:disabled { opacity: .45; cursor: not-allowed; }
+        .btn-primary { background: #1a1a1a; color: #fff; }
+        .btn-primary:hover:not(:disabled) { background: #000; }
+        .btn-green { background: #2e7d32; color: #fff; }
+        .btn-green:hover:not(:disabled) { background: #1b5e20; }
+        .btn-light { background: #f0f0f0; color: #333; }
+        .btn-light:hover:not(:disabled) { background: #e4e4e4; }
+        .btn-undo { background: #fff3e0; color: #e65100; border: 1px solid #ffcc80; }
+        .btn-undo:hover:not(:disabled) { background: #ffe0b2; }
+
+        .hint { font-size: 13px; color: #666; margin-top: 10px; line-height: 1.5;
+            background: #f7f9fc; border-left: 3px solid #90caf9; padding: 10px 12px; border-radius: 8px; }
+        .warn { background:#fff8e1; border-left-color:#ffb300; }
+
+        .actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+        .status { text-align: center; color: #666; font-size: 14px; margin: 8px 0 14px; min-height: 20px; }
+        .spinner { display:inline-block; width:14px; height:14px; border:2px solid #ddd; border-top-color:#333;
+            border-radius:50%; animation:spin .8s linear infinite; vertical-align:-2px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .counts { display:flex; gap:10px; flex-wrap:wrap; margin-bottom: 12px; }
+        .chip { padding: 6px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; background:#eef1f4; color:#555; }
+        .chip.change { background:#e8f5e9; color:#2e7d32; }
+        .chip.nocost { background:#fff8e1; color:#f57f17; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid #f0f0f0; }
+        th { color: #999; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
+        td.num { text-align: right; font-variant-numeric: tabular-nums; }
+        .old { color: #999; }
+        .arrow { color: #bbb; padding: 0 4px; }
+        .new { font-weight: 700; }
+        .up { color: #2e7d32; } .down { color: #c62828; }
+        .pct { font-size: 12px; color: #888; }
+        .tbl-wrap { overflow-x: auto; }
+        .muted { color:#aaa; }
+        .empty { text-align:center; color:#999; padding: 30px; }
+    </style>
+</head>
+<body>
+    <script src="/auth-check.js"></script>
+    <div class="container">
+        <div class="header">
+            <h1>🏷️ Shopify Bulk Editor</h1>
+            <p>Cambiá precios en masa — filtrá por supplier, poné <b>precio = costo + %</b>, mirá el preview y aplicá. Con deshacer.</p>
+            <div class="subtitle">v1.0 · Paso 1: precios · el costo = "Cost per item" (con IVA) · sin límite de 10 · guarda copia de seguridad antes de aplicar</div>
+        </div>
+
+        <!-- STEP 1: filters -->
+        <div class="panel">
+            <h2><span class="step-num">1</span> Elegí los productos</h2>
+            <div class="row">
+                <div class="field">
+                    <label>Supplier (vendor)</label>
+                    <select id="vendor"><option value="">— Todos —</option></select>
+                </div>
+                <div class="field">
+                    <label>Estado</label>
+                    <select id="status">
+                        <option value="">Cualquiera</option>
+                        <option value="active">Activo</option>
+                        <option value="draft">Borrador</option>
+                        <option value="archived">Archivado</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Tipo de producto</label>
+                    <input type="text" id="ptype" placeholder="(opcional)">
+                </div>
+                <div class="field">
+                    <label>Tag</label>
+                    <input type="text" id="tag" placeholder="(opcional)">
+                </div>
+                <div class="field">
+                    <label>Título contiene</label>
+                    <input type="text" id="titleContains" placeholder="(opcional)">
+                </div>
+                <button class="btn btn-light" id="vendorsBtn" onclick="loadVendors()">↻ Cargar suppliers</button>
+            </div>
+            <label class="check" style="margin-top:14px;"><input type="checkbox" id="onlyCollective"> Solo productos de <b>&nbsp;Shopify Collective</b></label>
+        </div>
+
+        <!-- STEP 2: change -->
+        <div class="panel">
+            <h2><span class="step-num">2</span> Qué cambio hacer</h2>
+            <div class="row">
+                <div class="field">
+                    <label>Tipo de cambio</label>
+                    <select id="mode" onchange="onModeChange()">
+                        <option value="floor_cost">Piso: subir a costo + % (solo si está por debajo)</option>
+                        <option value="markup_cost">Poner precio = costo + %</option>
+                        <option value="inc_pct">Subir precio por %</option>
+                        <option value="dec_pct">Bajar precio por %</option>
+                        <option value="inc_amt">Subir precio por importe (£)</option>
+                        <option value="dec_amt">Bajar precio por importe (£)</option>
+                        <option value="set">Poner un precio fijo (£)</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label id="valueLabel">Porcentaje (%)</label>
+                    <input type="number" id="value" value="25" step="0.01" style="min-width:120px;">
+                </div>
+                <div class="field">
+                    <label>Redondeo</label>
+                    <select id="rounding">
+                        <option value="none">Sin redondeo (2 decimales)</option>
+                        <option value="up_99">Terminar en .99 (redondea hacia arriba)</option>
+                        <option value="up_95">Terminar en .95 (redondea hacia arriba)</option>
+                        <option value="whole">Número entero</option>
+                    </select>
+                </div>
+            </div>
+            <div class="hint" id="modeHint"></div>
+        </div>
+
+        <!-- STEP 3: preview + apply -->
+        <div class="panel">
+            <h2><span class="step-num">3</span> Preview y aplicar</h2>
+            <div class="actions">
+                <button class="btn btn-primary" id="previewBtn" onclick="runPreview()">👁️ Ver preview</button>
+                <button class="btn btn-green" id="applyBtn" onclick="applyChanges()" disabled>✅ Aplicar cambios</button>
+                <button class="btn btn-undo" id="undoBtn" onclick="openUndo()">↺ Deshacer último cambio</button>
+            </div>
+            <div class="status" id="status">Elegí los productos y el cambio, después tocá <b>Ver preview</b>.</div>
+            <div class="counts" id="counts"></div>
+            <div class="tbl-wrap" id="tableWrap"></div>
+        </div>
+    </div>
+
+<script>
+const API = '/api/shopify-bulk';
+let previewRows = [];        // all rows loaded in the last preview
+let lastChange = null;
+let lastFilters = null;
+let lastUndoId = null;
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function setStatus(msg){ document.getElementById('status').innerHTML = msg; }
+function money(x){ return x===null||x===undefined||x==='' ? '—' : '£' + Number(x).toFixed(2); }
+function pctOverCost(price, cost){
+    if (cost===null||cost===undefined||cost===''||Number(cost)<=0) return null;
+    return (Number(price)/Number(cost) - 1) * 100;
+}
+
+function getFilters(){
+    return {
+        vendor: document.getElementById('vendor').value || '',
+        status: document.getElementById('status').value || '',
+        productType: document.getElementById('ptype').value.trim(),
+        tag: document.getElementById('tag').value.trim(),
+        titleContains: document.getElementById('titleContains').value.trim(),
+        onlyCollective: document.getElementById('onlyCollective').checked
+    };
+}
+function getChange(){
+    return {
+        mode: document.getElementById('mode').value,
+        value: parseFloat(document.getElementById('value').value),
+        rounding: document.getElementById('rounding').value
+    };
+}
+
+function onModeChange(){
+    const mode = document.getElementById('mode').value;
+    const isPct = ['floor_cost','markup_cost','inc_pct','dec_pct'].includes(mode);
+    const isAmt = ['inc_amt','dec_amt'].includes(mode);
+    const lbl = document.getElementById('valueLabel');
+    lbl.textContent = isPct ? 'Porcentaje (%)' : (mode==='set' ? 'Precio (£)' : 'Importe (£)');
+    const hints = {
+        floor_cost: 'Sube el precio a <b>costo + %</b> SOLO si hoy está por debajo. Los que ya te dan más margen quedan igual. Es tu regla: “al menos costo + 25%”.',
+        markup_cost: 'Pone el precio en <b>costo + %</b> para TODOS (aunque baje a los que hoy te dan más). El costo usado es el “Cost per item” (con IVA).',
+        inc_pct: 'Sube cada precio actual ese %.',
+        dec_pct: 'Baja cada precio actual ese %.',
+        inc_amt: 'Suma ese importe a cada precio.',
+        dec_amt: 'Resta ese importe a cada precio.',
+        set: 'Pone exactamente ese precio en todos los seleccionados.'
+    };
+    const needCost = ['floor_cost','markup_cost'].includes(mode);
+    document.getElementById('modeHint').innerHTML = hints[mode] + (needCost ? ' <span class="muted">· Los productos sin costo cargado se saltan.</span>' : '');
+}
+
+async function loadVendors(){
+    const btn = document.getElementById('vendorsBtn'); btn.disabled = true;
+    setStatus('<span class="spinner"></span> Leyendo tus suppliers…');
+    try {
+        const r = await fetch(API + '?action=vendors');
+        const d = await r.json();
+        if (!d.ok) { setStatus('⚠️ ' + esc(d.error||'Error')); btn.disabled=false; return; }
+        const sel = document.getElementById('vendor');
+        sel.innerHTML = '<option value="">— Todos —</option>' +
+            d.vendors.map(v => `<option value="${esc(v.vendor)}">${esc(v.vendor)} (${v.count})</option>`).join('');
+        setStatus('✅ ' + d.vendors.length + ' suppliers cargados. Elegí uno.');
+    } catch(e){ setStatus('⚠️ ' + esc(e.message)); }
+    btn.disabled = false;
+}
+
+async function runPreview(){
+    const btn = document.getElementById('previewBtn'); btn.disabled = true;
+    document.getElementById('applyBtn').disabled = true;
+    previewRows = []; lastChange = getChange(); lastFilters = getFilters();
+    if (isNaN(lastChange.value)) { setStatus('⚠️ Escribí un número en el paso 2.'); btn.disabled=false; return; }
+    document.getElementById('tableWrap').innerHTML = '';
+    let cursor = null, page = 0, totVar = 0, totChange = 0, totNoCost = 0;
+    try {
+        do {
+            setStatus('<span class="spinner"></span> Calculando preview… (' + totVar + ' variantes leídas)');
+            const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({ action:'preview', filters:lastFilters, change:lastChange, cursor }) });
+            const d = await r.json();
+            if (!d.ok) { setStatus('⚠️ ' + esc(d.error||'Error')); btn.disabled=false; return; }
+            previewRows = previewRows.concat(d.rows);
+            totVar += d.counts.variantCount; totChange += d.counts.changeCount; totNoCost += d.counts.noCostCount;
+            cursor = d.pageInfo.hasNextPage ? d.pageInfo.endCursor : null;
+            page++;
+            if (page > 400) break; // safety
+        } while (cursor);
+
+        renderCounts(totVar, totChange, totNoCost);
+        renderTable();
+        const applyable = totChange > 0;
+        document.getElementById('applyBtn').disabled = !applyable;
+        setStatus(applyable
+            ? '✅ Preview listo. Revisá y, si está bien, tocá <b>Aplicar cambios</b>.'
+            : 'No hay nada para cambiar con estos filtros/regla.');
+    } catch(e){ setStatus('⚠️ ' + esc(e.message)); }
+    btn.disabled = false;
+}
+
+function renderCounts(totVar, totChange, totNoCost){
+    let html = `<span class="chip">${totVar} variantes</span>`
+             + `<span class="chip change">${totChange} van a cambiar</span>`;
+    if (totNoCost) html += `<span class="chip nocost">${totNoCost} sin costo (se saltan)</span>`;
+    document.getElementById('counts').innerHTML = html;
+}
+
+function renderTable(){
+    const changed = previewRows.filter(r => r.changed);
+    if (!changed.length){ document.getElementById('tableWrap').innerHTML = '<div class="empty">Ningún producto cambia con esta regla.</div>'; return; }
+    const cap = 500;
+    const show = changed.slice(0, cap);
+    let html = '<table><thead><tr><th>Producto</th><th>Variante</th><th class="num">Costo</th>'
+             + '<th class="num">Precio actual</th><th></th><th class="num">Precio nuevo</th></tr></thead><tbody>';
+    show.forEach(r => {
+        const oldPct = pctOverCost(r.oldPrice, r.cost);
+        const newPct = pctOverCost(r.newPrice, r.cost);
+        const up = Number(r.newPrice) >= Number(r.oldPrice);
+        html += '<tr>'
+          + '<td>' + esc(r.productTitle) + '<div class="pct muted">' + esc(r.vendor||'') + '</div></td>'
+          + '<td class="muted">' + esc(r.variantTitle==='Default Title'?'—':r.variantTitle) + '</td>'
+          + '<td class="num">' + money(r.cost) + '</td>'
+          + '<td class="num old">' + money(r.oldPrice) + (oldPct!==null?'<div class="pct">+'+oldPct.toFixed(0)+'%</div>':'') + '</td>'
+          + '<td class="arrow">→</td>'
+          + '<td class="num new ' + (up?'up':'down') + '">' + money(r.newPrice) + (newPct!==null?'<div class="pct">+'+newPct.toFixed(0)+'%</div>':'') + '</td>'
+          + '</tr>';
+    });
+    html += '</tbody></table>';
+    if (changed.length > cap) html += '<div class="pct muted" style="padding:10px;">Mostrando los primeros ' + cap + ' de ' + changed.length + '. Se van a aplicar TODOS.</div>';
+    document.getElementById('tableWrap').innerHTML = html;
+}
+
+async function applyChanges(){
+    const changed = previewRows.filter(r => r.changed).length;
+    if (!changed) return;
+    if (!confirm('Vas a cambiar el precio de ' + changed + ' variantes.\n\nAntes de aplicar guardo los precios viejos (para deshacer).\n\n¿Aplicar ahora?')) return;
+    const btn = document.getElementById('applyBtn'); btn.disabled = true;
+    document.getElementById('previewBtn').disabled = true;
+    setStatus('<span class="spinner"></span> Guardando copia de seguridad y aplicando… (puede tardar un poco)');
+    try {
+        const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ action:'apply', filters:lastFilters, change:lastChange }) });
+        const d = await r.json();
+        if (!d.ok) { setStatus('⚠️ ' + esc(d.error||'Error')); document.getElementById('previewBtn').disabled=false; return; }
+        lastUndoId = d.undoId || null;
+        let msg = '✅ Listo: ' + d.updated + ' variantes actualizadas.';
+        if (d.errors && d.errors.length) msg += ' <span class="down">(' + d.errors.length + ' con error)</span>';
+        if (lastUndoId) msg += ' <button class="btn btn-undo" style="margin-left:10px;" onclick="undoNow(\'' + lastUndoId + '\')">↺ Deshacer esto</button>';
+        setStatus(msg);
+        document.getElementById('undoBtn').disabled = false;
+    } catch(e){ setStatus('⚠️ ' + esc(e.message)); }
+    document.getElementById('previewBtn').disabled = false;
+}
+
+async function openUndo(){
+    setStatus('<span class="spinner"></span> Buscando cambios que se pueden deshacer…');
+    try {
+        const r = await fetch(API + '?action=undo-list');
+        const d = await r.json();
+        if (!d.ok || !d.undos || !d.undos.length) { setStatus('No hay cambios guardados para deshacer.'); return; }
+        const list = d.undos.filter(u => !u.reverted);
+        if (!list.length) { setStatus('Todos los cambios guardados ya fueron deshechos.'); return; }
+        const u = list[0];
+        const when = new Date(u.createdAt).toLocaleString('es-GB');
+        if (confirm('Deshacer el último cambio?\n\n' + u.count + ' variantes · ' + when + '\n\nLos precios vuelven a como estaban antes.')) undoNow(u.id);
+        else setStatus('Cancelado.');
+    } catch(e){ setStatus('⚠️ ' + esc(e.message)); }
+}
+
+async function undoNow(undoId){
+    setStatus('<span class="spinner"></span> Restaurando los precios viejos…');
+    try {
+        const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ action:'undo', undoId }) });
+        const d = await r.json();
+        if (!d.ok) { setStatus('⚠️ ' + esc(d.error||'Error')); return; }
+        setStatus('✅ Deshecho: ' + d.restored + ' variantes volvieron a su precio anterior.');
+    } catch(e){ setStatus('⚠️ ' + esc(e.message)); }
+}
+
+onModeChange();
+</script>
+</body>
+</html>
