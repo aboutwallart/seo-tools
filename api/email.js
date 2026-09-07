@@ -26,6 +26,7 @@ module.exports = async (req, res) => {
   const NEWS_FILE       = 'data/newsletters.json';
   const PROMOS_FILE     = 'data/promos.json';
   const BOARD_FILE      = 'data/content-board-manual.json';
+  const Q4_FILE         = 'data/q4-drafts.json';
   const SHOPIFY_DOMAIN  = process.env.SHOPIFY_STORE_DOMAIN;
   const SHOPIFY_TOKEN   = process.env.SHOPIFY_ACCESS_TOKEN;
   const ANTHROPIC_KEY   = process.env.ANTHROPIC_API_KEY;
@@ -882,7 +883,7 @@ module.exports = async (req, res) => {
         'The CTA button label must be punchy and FIRST-PERSON (e.g. "I want my discount!", "Show me the sale", "Count me in") — never a generic "Shop now".',
         qdual ? 'DUAL-MARKET: two versions (UK and rest of world) are generated from this ONE copy with different percentages. Do NOT write any specific percentage number anywhere (not in the subject, intro, offer or closing). Wherever the percentage would appear, write the literal token {PCT} (for example "{PCT}% off your wall art sets"). Do not mention a code.' : '',
         qnote,
-        'Return ONLY JSON with EXACTLY these keys: { "subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'friend\' }} then a comma, then a warm line fitting THIS email\'s role (about 55 chars after the name, no buzzwords)", "preview":"one short human line", "titleTop":"SHORT CAPS headline, MAX 3 words, fitting this email", "titleScript":"SHORT handwritten tagline, MAX 3 words", "titleOptions":[{"top":"MAX 3 WORDS CAPS","script":"max 3 words"}, (give 4 DISTINCT short options for THIS email, each top MAX 3 words and script MAX 3 words)], "intro":["2 to 3 SHORT body lines matching the role"], ' + offerKeys + ' "ctaLabel":"2-4 word punchy FIRST-PERSON button label", "closingText":"a warm closing line above the signature, DIFFERENT every time" }'
+        'Return ONLY JSON with EXACTLY these keys: { "subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'friend\' }} then a comma, then a warm line fitting THIS email\'s role (about 55 chars after the name, no buzzwords)", "preview":"one short human line", "titleTop":"SHORT CAPS headline, MAX 3 words, fitting this email", "titleScript":"SHORT handwritten tagline, MAX 3 words", "titleOptions":[{"top":"MAX 3 WORDS CAPS","script":"max 3 words"}, (give 4 DISTINCT short options for THIS email, each top MAX 3 words and script MAX 3 words)], "intro":["2 to 3 SHORT body lines matching the role"], ' + offerKeys + ' "ctaLabel":"2-4 word punchy FIRST-PERSON button label",' + (R.hasOffer ? ' "ctaNote":"ONE short line to sit UNDER the button, telling them the discount is applied automatically the moment they click, no code to type in, vary the wording every time",' : '') + ' "closingText":"a warm closing line above the signature, DIFFERENT every time" }'
       ].join('\n');
       var qraw = await anthropic(qpr, 1300);
       var qcopy = extractJSON(qraw);
@@ -1039,6 +1040,27 @@ module.exports = async (req, res) => {
     if (action === 'promo-list') {
       var pl = await ghGetJSON(PROMOS_FILE);
       res.status(200).json({ ok: true, promos: Array.isArray(pl) ? pl : [] });
+      return;
+    }
+
+    // ---- Q4 (Black Friday) autosave: keep the in-progress emails per YEAR + role, so reloading keeps the work ----
+    if (action === 'q4-load') {
+      var qy = (body.year || '').toString();
+      var qf = await ghReadFile(Q4_FILE);
+      var qall = (qf.json && typeof qf.json === 'object' && !Array.isArray(qf.json)) ? qf.json : {};
+      res.status(200).json({ ok: true, drafts: (qy && qall[qy] && typeof qall[qy] === 'object') ? qall[qy] : {} });
+      return;
+    }
+    if (action === 'q4-save') {
+      var qsy = (body.year || '').toString();
+      var qsr = (body.role || '').toString();
+      if (!qsy || !qsr) { res.status(400).json({ ok: false, error: 'year and role required' }); return; }
+      var qsf = await ghReadFile(Q4_FILE);
+      var qsall = (qsf.json && typeof qsf.json === 'object' && !Array.isArray(qsf.json)) ? qsf.json : {};
+      if (!qsall[qsy]) qsall[qsy] = {};
+      qsall[qsy][qsr] = (body.data && typeof body.data === 'object') ? body.data : {};
+      await ghWriteFile(Q4_FILE, qsall, qsf.sha, 'Q4 draft autosave — ' + qsy + ' ' + qsr);
+      res.status(200).json({ ok: true });
       return;
     }
 
