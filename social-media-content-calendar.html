@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.67 · 6 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.68 · 6 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -4214,6 +4214,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       +'</div>');
     // main CTA — black, UPPERCASE, centred (hidden on the no-offer teasers: no real action to take)
     var cta=s.noCta?'':'<div style="text-align:center;margin:8px 0 20px;"><a href="'+esc(s.ctaUrl||'#')+'"'+(editable?' onclick="return false"':'')+' style="display:inline-block;background:#000;color:#fff;text-decoration:none;text-transform:uppercase;letter-spacing:1px;font-size:16px;font-family:'+PFONT+';padding:15px 40px;"'+ed('cta')+'>'+esc(c.ctaLabel||('Shop '+((s.occ&&s.occ.name)||'now')))+'</a></div>';
+    // small line under the button: clicking applies the discount automatically (offer emails only)
+    var ctaNote=(s.noCta||!c.ctaNote)?'':'<div style="text-align:center;font-size:13px;color:#777;margin:-10px 0 18px;"'+ed('ctanote')+'>'+brk(c.ctaNote)+'</div>';
     var cd = (s.noOffer || !countdownImg(s.expiry)) ? '' : '<div style="text-align:center;margin:6px 0 16px;"><img src="'+countdownImg(s.expiry)+'" alt="Offer ends soon" width="440" style="width:100%;max-width:440px;height:auto;display:block;margin:0 auto;"></div>';
 
     return '<div style="max-width:600px;margin:0 auto;background:#fff;font-family:'+PFONT+';color:#0f1419;">'
@@ -4230,6 +4232,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       +'</div>'
       // CTA
       + cta
+      // "click applies the discount" note
+      + ctaNote
       // countdown
       + cd
       // products
@@ -4270,6 +4274,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     var of=t('offer'); if(of!=null) s.copy.offerLine=of;
     var cl=t('closing'); if(cl!=null) s.copy.closingText=cl;
     var cta=t('cta'); if(cta!=null) s.copy.ctaLabel=cta;
+    var cn=t('ctanote'); if(cn!=null) s.copy.ctaNote=cn;
   }
 
   /* ---- Hero picker — reuses Blog Manager backend (search-wall-art + product-image) ---- */
@@ -4827,7 +4832,6 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     var Q4SEQ=[
       {role:'sneak',       label:'Sneak Peek (mystery)',           off:-14, offer:false},
       {role:'teaser',      label:'Teaser (reveal the plan)',       off:-7,  offer:false},
-      {role:'countdown',   label:'Countdown',                      off:-3,  offer:false},
       {role:'vip_launch',  label:'VIP Early Access opens',         off:-2,  offer:true, kind:'VIP'},
       {role:'vip_deadline',label:'VIP Deadline',                   off:-1,  offer:true, kind:'VIP'},
       {role:'bf_am',       label:'Black Friday, LIVE (morning)',   off:0,   offer:true, kind:'BF'},
@@ -4845,11 +4849,15 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       var bf=q4Bf(year);
       q4Info.textContent='Black Friday '+year+': '+fmtNice(bf);
       q4DiscNote.innerHTML='UK — VIP <b>35%</b> · Black Friday/Cyber <b>30%</b> &nbsp;·&nbsp; Rest of world — VIP <b>30%</b> · Black Friday/Cyber <b>25%</b>. Discount emails create <b>both versions</b> in one Write.';
-      q4Wrap.innerHTML='';
-      Q4SEQ.forEach(function(item,idx){ q4Card(item,idx,year,bf); });
+      q4Wrap.innerHTML='<div style="color:#999;font-size:13px;padding:8px 0;">Loading your saved drafts…</div>';
+      emPost({action:'q4-load', year:String(year)}).then(function(d){
+        var saved=(d&&d.ok&&d.drafts)||{};
+        q4Wrap.innerHTML='';
+        Q4SEQ.forEach(function(item,idx){ q4Card(item,idx,year,bf,saved[item.role]||null); });
+      }).catch(function(){ q4Wrap.innerHTML=''; Q4SEQ.forEach(function(item,idx){ q4Card(item,idx,year,bf,null); }); });
     }
 
-    function q4Card(item,idx,year,bf){
+    function q4Card(item,idx,year,bf,saved){
       var uid='q'+idx+'_'+Math.random().toString(36).slice(2,7);
       var send=isoAdd(bf,item.off);
       var vipDate=fmtNice(isoAdd(bf,-2)), bfNice=fmtNice(bf);
@@ -4859,8 +4867,10 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       // the shared/base email uses the UK numbers; the rest-of-world version is derived by swapping the % + code
       var s={ uid:uid, occ:{ id:'q4-'+item.role, name:'Black Friday', collections:[Q4COL] }, lg:'en', market:'UK',
               copy:null, products:[], hero:'', expiry:(offer?send:''), sendDate:send, pct:(offer?ukPct:''), code:(offer?ukCode:''),
-              titleDy:0, titleDx:0, ctaUrl:Q4CTA, noOffer:!offer, noProdButtons:!offer, noCta:!offer, checked:false, approved:false };
+              titleDy:0, titleDx:0, shopColl:'best-sellers', ctaUrl:Q4CTA, noOffer:!offer, noProdButtons:!offer, noCta:!offer, checked:false, approved:false };
       var cols=[Q4COL];
+      // button link: applies the discount code AND lands on the chosen collection (no code = plain collection link)
+      function q4Cta(code,coll){ var c=coll||'best-sellers'; return code ? ('https://aboutwallart.com/discount/'+encodeURIComponent(code)+'?redirect=/collections/'+c) : ('https://aboutwallart.com/collections/'+c); }
       var badge = offer
         ? '<span style="font-size:11px;background:#d6f0dd;color:#1a7f37;padding:1px 7px;border-radius:6px;">UK '+ukPct+'% · Rest '+rsPct+'%</span>'
         : '<span style="font-size:11px;background:#eee;color:#888;padding:1px 7px;border-radius:6px;">no discount · everyone</span>';
@@ -4889,11 +4899,30 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         var rc=offer?((document.getElementById('cr-'+uid).value||rsCode).toUpperCase()):'';
         var c=JSON.parse(JSON.stringify(s.copy||{}));
         var rep=function(t){ return (t==null)?t:String(t).split(up+'%').join(rp+'%'); };
-        c.subject=rep(c.subject); c.preview=rep(c.preview); c.offerLead=rep(c.offerLead); c.offerLine=rep(c.offerLine); c.closingText=rep(c.closingText);
+        c.subject=rep(c.subject); c.preview=rep(c.preview); c.offerLead=rep(c.offerLead); c.offerLine=rep(c.offerLine); c.closingText=rep(c.closingText); c.ctaNote=rep(c.ctaNote);
         if(Array.isArray(c.intro)) c.intro=c.intro.map(rep);
-        return { uid:uid+'r', occ:s.occ, lg:'en', market:'REST', copy:c, products:s.products, hero:s.hero, expiry:s.expiry, sendDate:s.sendDate, pct:rp, code:rc, titleDy:s.titleDy, titleDx:s.titleDx, ctaUrl:s.ctaUrl, noOffer:s.noOffer, noProdButtons:s.noProdButtons };
+        return { uid:uid+'r', occ:s.occ, lg:'en', market:'REST', copy:c, products:s.products, hero:s.hero, expiry:s.expiry, sendDate:s.sendDate, pct:rp, code:rc, titleDy:s.titleDy, titleDx:s.titleDx, shopColl:s.shopColl, ctaUrl:q4Cta(rc, s.shopColl), noOffer:s.noOffer, noProdButtons:s.noProdButtons, noCta:s.noCta };
       }
-      function refreshBoth(){ refreshPreview(s); if(offer){ var pvr=document.getElementById('pv-'+uid+'r'); if(pvr) pvr.innerHTML=buildPromoHtml(restState(), false); } }
+      function refreshBoth(){
+        if(offer){ var uc=((document.getElementById('c-'+uid)||{}).value||s.code||'').toUpperCase(); s.code=uc; s.ctaUrl=q4Cta(uc, s.shopColl); }
+        else { s.ctaUrl='https://aboutwallart.com/collections/'+(s.shopColl||'best-sellers'); }
+        refreshPreview(s);
+        if(offer){ var pvr=document.getElementById('pv-'+uid+'r'); if(pvr) pvr.innerHTML=buildPromoHtml(restState(), false); }
+        q4Persist();
+      }
+      // save this email's state to GitHub (debounced) so reloading the tool keeps the work
+      var q4Timer=null;
+      function q4Persist(){
+        if(!s.copy || s._restoring) return; // don't write while restoring (data is already saved)
+        try{ readPromoEmail(s); }catch(e){}
+        var sEl=document.getElementById('s-'+uid), pEl=document.getElementById('pr-'+uid);
+        if(sEl) s.copy.subject=sEl.value; if(pEl) s.copy.preview=pEl.value;
+        var data={ copy:s.copy, products:s.products, hero:s.hero, shopColl:s.shopColl,
+          pct:offer?(document.getElementById('d-'+uid)||{}).value:'', code:offer?((document.getElementById('c-'+uid)||{}).value||'').toUpperCase():'',
+          rsPct:offer?(document.getElementById('dr-'+uid)||{}).value:'', rsCode:offer?((document.getElementById('cr-'+uid)||{}).value||'').toUpperCase():'',
+          checked:!!s.checked, approved:!!s.approved, sent:s.sent||null, savedAt:Date.now() };
+        clearTimeout(q4Timer); q4Timer=setTimeout(function(){ emPost({action:'q4-save', year:String(year), role:item.role, data:data}).catch(function(){}); }, 900);
+      }
 
       if(offer){
         document.getElementById('d-'+uid).addEventListener('input', function(){ if(s.copy){ s.pct=this.value; refreshBoth(); } });
@@ -4924,10 +4953,16 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           emPost({action:'q4-write', role:item.role, discount:s.pct, code:s.code, expiry:s.expiry, vipDate:vipDate, bfDate:bfNice}),
           emPost({action:'promo-products', collections:['all'], count:4, skip:idx*4}) // a different set of best sellers per email
         ]).then(function(res){
-          btn.disabled=false; btn.textContent='✍️ Re-write';
           var w=res[0], pp=res[1];
-          if(!w||!w.ok||!w.copy){ document.getElementById('body-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">Could not write: '+esc((w&&w.error)||'error')+'</p>'; return; }
-          s.copy=w.copy; s.products=(pp&&pp.ok&&pp.products)||[];
+          if(!w||!w.ok||!w.copy){ btn.disabled=false; btn.textContent='✍️ Write'; document.getElementById('body-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">Could not write: '+esc((w&&w.error)||'error')+'</p>'; return; }
+          applyWritten(w.copy, (pp&&pp.ok&&pp.products)||[], false);
+        }).catch(function(e){ btn.disabled=false; btn.textContent='✍️ Write'; document.getElementById('body-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">Error: '+esc(e.message)+'</p>'; });
+      });
+
+      // render the written email (used both after Write and when RESTORING a saved draft)
+      function applyWritten(savedCopy, savedProducts, restoring){
+          var btn=document.getElementById('w-'+uid); if(btn){ btn.disabled=false; btn.textContent='✍️ Re-write'; }
+          s.copy=savedCopy; s.products=savedProducts||[];
           var c=s.copy;
           function regBtn(id,lbl){ return '<button id="'+id+'-'+uid+'" type="button" title="Regenerate" style="background:#eee;border:1px solid #ddd;border-radius:6px;padding:5px 9px;font-size:12px;cursor:pointer;">🔄 '+lbl+'</button>'; }
           var colOpts=cols.map(function(h){return '<option value="'+esc(h)+'">'+esc(h)+'</option>';}).join('');
@@ -5066,8 +5101,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
             emPost({action:'promo-products', collections:[h], count:4}).then(function(d){
               b.disabled=false; b.textContent=ot;
               if(!d||!d.ok||!(d.products&&d.products.length)){ m.style.color='#b00'; m.textContent='No products found in that collection.'; return; }
-              readPromoEmail(s); s.products=d.products; refreshBoth();
-              m.style.color='#0F6E56'; m.textContent='Loaded '+d.products.length+' product'+(d.products.length>1?'s':'')+' from that collection.';
+              readPromoEmail(s); s.products=d.products; s.shopColl=h; refreshBoth(); // button now lands on this collection
+              m.style.color='#0F6E56'; m.textContent='Loaded '+d.products.length+' product'+(d.products.length>1?'s':'')+' from that collection. The button now lands here too.';
             }).catch(function(){ b.disabled=false; b.textContent=ot; m.style.color='#b00'; m.textContent='Network error.'; });
           });
           // SKU override
@@ -5141,6 +5176,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
             s.approved=true; this.innerHTML='✓ Approved'; this.style.background='#0b5a46';
             apm.style.color='#0F6E56'; apm.textContent='Approved ✓ — you can create the draft'+(offer?'s':'')+' below.';
             var cw=document.getElementById('cdwrap-'+uid); if(cw) cw.style.display='';
+            q4Persist();
           });
           // create draft(s)
           var CDLBL='📧 '+(offer?'Create both drafts in Klaviyo':'Create draft in Klaviyo');
@@ -5155,7 +5191,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
               cb.textContent='Creating…';
               makeDraft(s, Q4_REST_SEG, '', 'everyone').then(function(d){
                 cb.disabled=false; cb.textContent=CDLBL;
-                if(d&&d.ok){ card.innerHTML='<div class="nlhd">✓ '+esc(item.label)+' — draft in Klaviyo</div><div style="font-size:12.5px;color:#555;margin-top:8px;"><a href="'+esc(d.url)+'" target="_blank">open in Klaviyo ↗</a> — schedule for <b>'+esc(fmtNice(send))+'</b></div>'; }
+                if(d&&d.ok){ s.sent={all:d.url}; q4Persist(); card.innerHTML='<div class="nlhd">✓ '+esc(item.label)+' — draft in Klaviyo</div><div style="font-size:12.5px;color:#555;margin-top:8px;"><a href="'+esc(d.url)+'" target="_blank">open in Klaviyo ↗</a> — schedule for <b>'+esc(fmtNice(send))+'</b></div>'; }
                 else { rr.innerHTML='<span style="color:#b00;">Draft failed: '+esc((d&&d.error)||'error')+'</span>'; }
               }).catch(function(){ cb.disabled=false; cb.textContent=CDLBL; rr.innerHTML='<span style="color:#b00;">Draft failed (network).</span>'; });
               return;
@@ -5174,6 +5210,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
                 makeDraft(restState(), Q4_REST_SEG, Q4_UK_SEG_ID, 'Rest').then(function(df){
                   cb.disabled=false; cb.textContent=CDLBL;
                   if(df&&df.ok){
+                    s.sent={uk:ukUrl, rest:df.url}; q4Persist();
                     card.innerHTML='<div class="nlhd">✓ '+esc(item.label)+' — both drafts in Klaviyo</div>'
                       +'<div style="font-size:12.5px;color:#555;margin-top:8px;line-height:1.6;">'
                         +'<b>UK ('+esc(uc)+'):</b> <a href="'+esc(ukUrl)+'" target="_blank">open ↗</a> — schedule <b>'+esc(fmtNice(send))+'</b><br>'
@@ -5187,9 +5224,31 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
             }).catch(function(){ cb.disabled=false; cb.textContent=CDLBL; rr.innerHTML='<span style="color:#b00;">Could not check the discounts. Try again.</span>'; });
           });
 
+          // editing a preview updates the rest-of-world preview live (offer) and persists edits
+          var pvC=document.getElementById('pv-'+uid);
+          if(pvC) pvC.addEventListener('input', function(){ readPromoEmail(s); if(offer){ var pvr=document.getElementById('pv-'+uid+'r'); if(pvr) pvr.innerHTML=buildPromoHtml(restState(), false); } q4Persist(); });
           renderTitleOpts(); refreshBoth();
-        }).catch(function(e){ btn.disabled=false; btn.textContent='✍️ Write'; document.getElementById('body-'+uid).innerHTML='<p class="nlhint" style="color:#b00;">Error: '+esc(e.message)+'</p>'; });
-      });
+      }
+
+      // restore a saved draft so reloading the tool keeps your work
+      if(saved && saved.sent){
+        var qlinks = saved.sent.uk ? ('<b>UK:</b> <a href="'+esc(saved.sent.uk)+'" target="_blank">open ↗</a><br><b>Rest of world:</b> <a href="'+esc(saved.sent.rest||'#')+'" target="_blank">open ↗</a>') : ('<a href="'+esc(saved.sent.all||'#')+'" target="_blank">open in Klaviyo ↗</a>');
+        card.innerHTML='<div class="nlhd">✓ '+esc(item.label)+' — already in Klaviyo</div><div style="font-size:12.5px;color:#555;margin-top:8px;line-height:1.6;">'+qlinks+' — schedule for <b>'+esc(fmtNice(send))+'</b></div>';
+      } else if(saved && saved.copy){
+        if(offer){
+          if(saved.pct!=null&&saved.pct!=='') document.getElementById('d-'+uid).value=saved.pct;
+          if(saved.code) document.getElementById('c-'+uid).value=saved.code;
+          if(saved.rsPct!=null&&saved.rsPct!=='') document.getElementById('dr-'+uid).value=saved.rsPct;
+          if(saved.rsCode) document.getElementById('cr-'+uid).value=saved.rsCode;
+          s.code=(saved.code||'').toUpperCase();
+        }
+        s.hero=saved.hero||''; s.shopColl=saved.shopColl||'best-sellers'; s._restoring=true;
+        applyWritten(saved.copy, saved.products||[], true);
+        var hf=document.getElementById('hero-'+uid); if(hf&&saved.hero) hf.value=saved.hero;
+        s.checked=!!saved.checked; s.approved=!!saved.approved; s._restoring=false;
+        if(s.approved){ var apb=document.getElementById('ap-'+uid); if(apb){ apb.innerHTML='✓ Approved'; apb.style.background='#0b5a46'; } var cw=document.getElementById('cdwrap-'+uid); if(cw) cw.style.display=''; var apm=document.getElementById('apmsg-'+uid); if(apm){ apm.style.color='#0F6E56'; apm.textContent='Approved ✓ (restored — you can create the draft'+(offer?'s':'')+').'; } }
+        var rb=document.createElement('div'); rb.style.cssText='font-size:11px;color:#0F6E56;margin-top:6px;'; rb.textContent='↩︎ Restored your saved draft'; card.insertBefore(rb, document.getElementById('body-'+uid));
+      }
     }
     q4YSel.addEventListener('change',q4Render);
     q4Render();
