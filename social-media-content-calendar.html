@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.68 · 6 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.69 · 7 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -4216,7 +4216,9 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     var cta=s.noCta?'':'<div style="text-align:center;margin:8px 0 20px;"><a href="'+esc(s.ctaUrl||'#')+'"'+(editable?' onclick="return false"':'')+' style="display:inline-block;background:#000;color:#fff;text-decoration:none;text-transform:uppercase;letter-spacing:1px;font-size:16px;font-family:'+PFONT+';padding:15px 40px;"'+ed('cta')+'>'+esc(c.ctaLabel||('Shop '+((s.occ&&s.occ.name)||'now')))+'</a></div>';
     // small line under the button: clicking applies the discount automatically (offer emails only)
     var ctaNote=(s.noCta||!c.ctaNote)?'':'<div style="text-align:center;font-size:13px;color:#777;margin:-10px 0 18px;"'+ed('ctanote')+'>'+brk(c.ctaNote)+'</div>';
-    var cd = (s.noOffer || !countdownImg(s.expiry)) ? '' : '<div style="text-align:center;margin:6px 0 16px;"><img src="'+countdownImg(s.expiry)+'" alt="Offer ends soon" width="440" style="width:100%;max-width:440px;height:auto;display:block;margin:0 auto;"></div>';
+    // countdown: offer emails count to the offer end (s.expiry); a teaser can count to a set date (s.countdownDate) even with no offer
+    var cdDate = s.countdownDate || (s.noOffer ? '' : s.expiry);
+    var cd = (!cdDate || !countdownImg(cdDate)) ? '' : '<div style="text-align:center;margin:6px 0 16px;"><img src="'+countdownImg(cdDate)+'" alt="Counting down" width="440" style="width:100%;max-width:440px;height:auto;display:block;margin:0 auto;"></div>';
 
     return '<div style="max-width:600px;margin:0 auto;background:#fff;font-family:'+PFONT+';color:#0f1419;">'
       // header — black band + logo
@@ -4867,7 +4869,8 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       // the shared/base email uses the UK numbers; the rest-of-world version is derived by swapping the % + code
       var s={ uid:uid, occ:{ id:'q4-'+item.role, name:'Black Friday', collections:[Q4COL] }, lg:'en', market:'UK',
               copy:null, products:[], hero:'', expiry:(offer?send:''), sendDate:send, pct:(offer?ukPct:''), code:(offer?ukCode:''),
-              titleDy:0, titleDx:0, shopColl:'best-sellers', ctaUrl:Q4CTA, noOffer:!offer, noProdButtons:!offer, noCta:!offer, checked:false, approved:false };
+              titleDy:0, titleDx:0, shopColl:'best-sellers', ctaUrl:Q4CTA, noOffer:!offer, noProdButtons:!offer, noCta:!offer,
+              countdownDate:(item.role==='teaser'?isoAdd(bf,-2):''), checked:false, approved:false };
       var cols=[Q4COL];
       // button link: applies the discount code AND lands on the chosen collection (no code = plain collection link)
       function q4Cta(code,coll){ var c=coll||'best-sellers'; return code ? ('https://aboutwallart.com/discount/'+encodeURIComponent(code)+'?redirect=/collections/'+c) : ('https://aboutwallart.com/collections/'+c); }
@@ -4901,7 +4904,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         var rep=function(t){ return (t==null)?t:String(t).split(up+'%').join(rp+'%'); };
         c.subject=rep(c.subject); c.preview=rep(c.preview); c.offerLead=rep(c.offerLead); c.offerLine=rep(c.offerLine); c.closingText=rep(c.closingText); c.ctaNote=rep(c.ctaNote);
         if(Array.isArray(c.intro)) c.intro=c.intro.map(rep);
-        return { uid:uid+'r', occ:s.occ, lg:'en', market:'REST', copy:c, products:s.products, hero:s.hero, expiry:s.expiry, sendDate:s.sendDate, pct:rp, code:rc, titleDy:s.titleDy, titleDx:s.titleDx, shopColl:s.shopColl, ctaUrl:q4Cta(rc, s.shopColl), noOffer:s.noOffer, noProdButtons:s.noProdButtons, noCta:s.noCta };
+        return { uid:uid+'r', occ:s.occ, lg:'en', market:'REST', copy:c, products:s.products, hero:s.hero, expiry:s.expiry, sendDate:s.sendDate, pct:rp, code:rc, titleDy:s.titleDy, titleDx:s.titleDx, shopColl:s.shopColl, ctaUrl:q4Cta(rc, s.shopColl), noOffer:s.noOffer, noProdButtons:s.noProdButtons, noCta:s.noCta, countdownDate:s.countdownDate };
       }
       function refreshBoth(){
         if(offer){ var uc=((document.getElementById('c-'+uid)||{}).value||s.code||'').toUpperCase(); s.code=uc; s.ctaUrl=q4Cta(uc, s.shopColl); }
