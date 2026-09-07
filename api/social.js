@@ -2497,6 +2497,9 @@ module.exports = async (req, res) => {
       const promosArr = (await bJson('data/promos.json')) || [];
       const promoDoneSet = {};
       (Array.isArray(promosArr) ? promosArr : []).forEach(function (p) { if (p && p.main && p.followup) promoDoneSet[p.occasionId + '|' + p.year] = true; });
+      // Black Friday series (Q4 email tab): each email is saved in data/q4-drafts.json per year+role with its "sent" state.
+      const q4All = (await bJson('data/q4-drafts.json')) || {};
+      const Q4_ROLES = ['sneak', 'teaser', 'vip_launch', 'vip_deadline', 'bf_am', 'bf_pm', 'small_biz', 'cyber']; // keep in sync with Q4SEQ in the tool
       const bOccDoc = await bJson(OCC_FILE);
       const bOccList = (bOccDoc && bOccDoc.occasions) || [];
       function bOccPromoMonth(o) { if (o.promoMonth) return parseInt(o.promoMonth, 10); var md = o.date2026 || (o.window && o.window.start) || ''; return md ? parseInt(String(md).split('-')[0], 10) : 0; }
@@ -2549,6 +2552,7 @@ module.exports = async (req, res) => {
       ublog.forEach(function (x) { addM(bYM(x.usedDate)); });
       sqLog.forEach(function (x) { addM(bYM(x.sentAt)); });
       Object.keys(blogCounts).forEach(addM);
+      Object.keys(q4All).forEach(function (y) { if (/^\d{4}$/.test(y)) addM(y + '-11'); }); // show the Black Friday month once it has Q4 emails
       const months = Object.keys(monthSet).sort();
 
       const result = months.map(function (M) {
@@ -2568,6 +2572,11 @@ module.exports = async (req, res) => {
         // promo emails this calendar month
         let promoTotal = 0, promoDoneN = 0;
         bOccList.forEach(function (o) { if (o.promoSuggested && bOccPromoMonth(o) === Mo) { promoTotal++; if (promoDoneSet[o.id + '|' + Y]) promoDoneN++; } });
+        // November also counts the Black Friday series (sent / total = 8); green when all are in Klaviyo
+        if (Mo === 11) {
+          const q4y = q4All[String(Y)] || {};
+          Q4_ROLES.forEach(function (r) { promoTotal++; const dd = q4y[r]; if (dd && dd.sent && (dd.sent.all || dd.sent.uk || dd.sent.rest)) promoDoneN++; });
+        }
         const man = manual[M] || {};
         return {
           month: M, planN: planN,
