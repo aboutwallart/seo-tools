@@ -773,7 +773,7 @@ module.exports = async (req, res) => {
         offerLead: '"offerLead":"ONE warm, personal, first-person line that leads into the discount so it does not feel abrupt — e.g. So, to make it a little easier this month, here is a treat from me: — NEVER a canned/generic line, vary the wording every time"',
         // offer phrase ONLY — no code, no date (the tool renders the code and the valid-until date itself)
         offer:   '"offerLine":"the offer phrase ONLY, framed AROUND the wall art, e.g. ' + (pct || '15') + '% off your new wall art sets — do NOT include the code, and do NOT include any date"',
-        cta:     '"ctaLabel":"2-3 word button label tied to the TOPIC of the mail (e.g. Shop ' + topic + '), never generic like Shop now or Shop the collection"',
+        cta:     '"ctaLabel":"2-3 word button label tied to the TOPIC of the mail (e.g. Shop ' + topic + '), never generic like Shop now or Shop the collection, and NEVER containing a number or percentage"',
         closing: '"closingText":"a warm, offer-to-help closing that sits ABOVE the signature — kind, first-person, value-first (e.g. not sure where to start with ' + topic + '? hit reply, I read every one). It MUST feel hand-written and be DIFFERENT every time — vary the wording, never a canned line"'
       };
       var wantKeys;
@@ -880,7 +880,7 @@ module.exports = async (req, res) => {
         'THIS EMAIL\'S ROLE: ' + qbrief,
         R.hasOffer ? ('The offer: ' + (qpct ? qpct + '% off' : 'a discount') + (qcode ? ', code ' + qcode : '') + (qexpiry ? ', valid until ' + qexpiry : '') + '. State it ONCE. Exactly ONE call to action.') : 'This email has NO discount and NO code — do not invent one.',
         'Fresh, hand-written, DIFFERENT wording every time — never a canned line. Keep it SHORT (Gmail clips long emails). UK English.',
-        'The CTA button label must be punchy and FIRST-PERSON (e.g. "I want my discount!", "Show me the sale", "Count me in") — never a generic "Shop now".',
+        'The CTA button label must be punchy and FIRST-PERSON (e.g. "I want my discount!", "Show me the sale", "Count me in") — never a generic "Shop now". NEVER put the discount number or a percentage in the button label; if it names the discount, keep it general like "use my discount", "claim my offer", no numbers.',
         qdual ? 'DUAL-MARKET: two versions (UK and rest of world) are generated from this ONE copy with different percentages. Do NOT write any specific percentage number anywhere (not in the subject, intro, offer or closing). Wherever the percentage would appear, write the literal token {PCT} (for example "{PCT}% off your wall art sets"). Do not mention a code.' : '',
         qnote,
         'Return ONLY JSON with EXACTLY these keys: { "subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'friend\' }} then a comma, then a warm line fitting THIS email\'s role (about 55 chars after the name, no buzzwords)", "preview":"one short human line", "titleTop":"SHORT CAPS headline, MAX 3 words, fitting this email", "titleScript":"SHORT handwritten tagline, MAX 3 words", "titleOptions":[{"top":"MAX 3 WORDS CAPS","script":"max 3 words"}, (give 4 DISTINCT short options for THIS email, each top MAX 3 words and script MAX 3 words)], "intro":["2 to 3 SHORT body lines matching the role"], ' + offerKeys + ' "ctaLabel":"2-4 word punchy FIRST-PERSON button label",' + (R.hasOffer ? ' "ctaNote":"ONE short line to sit UNDER the button, telling them the discount is applied automatically the moment they click, no code to type in, vary the wording every time",' : '') + ' "closingText":"a warm closing line above the signature, DIFFERENT every time" }'
@@ -890,6 +890,86 @@ module.exports = async (req, res) => {
       if (!qcopy) { res.status(502).json({ ok: false, error: 'AI did not return usable copy', raw: (qraw || '').slice(0, 300) }); return; }
       qcopy.greeting = "Dear {{ first_name|default:'friend' }},";
       res.status(200).json({ ok: true, copy: qcopy });
+      return;
+    }
+
+    // ---- December / holidays writer (single audience; per-email angle) ----
+    if (action === 'dec-write') {
+      var DECROLES = {
+        gift_guide: { hasOffer: false, brief: 'HOLIDAY SPIRIT + GIFT GUIDE. Open warm and human about the festive season (connection, the people you love), THEN gently offer help for the tricky gifts: the person who has everything, the parent or relative you never know what to buy for. Position wall art as a thoughtful, personal gift, SUBTLE not salesy, a helping hand not a pitch. Invite them to reply if they want ideas. One soft CTA to explore gift ideas.' },
+        gift_card:  { hasOffer: false, brief: 'GIFT CARD, the last-minute solution. For anyone still stuck or shopping late: an About Wall Art digital gift card arrives INSTANTLY by email, nothing to post, and they choose the art they love. Warm and reassuring, takes the pressure off. One CTA to the gift card. Do NOT promise Christmas delivery of physical items.' },
+        christmas:  { hasOffer: false, brief: 'HAPPY CHRISTMAS. A warm, heartfelt Christmas greeting from Mae. Gratitude and warmth, wishing them a lovely day with the people they love. NO hard sell. Just a genuine human message.' },
+        boxing_day: { hasOffer: true,  brief: 'BOXING DAY treat. A little post-Christmas gift to themselves, the discount off the wall art sets, ends soon. Warm and light. Boxing Day is mainly a UK/Commonwealth day, so keep it understandable to everyone. One punchy CTA.' },
+        last_sale:  { hasOffer: true,  brief: 'LAST SALE OF THE YEAR. Honest and genuine: this really is the final sale of the year, the discount off the wall art sets, ends at midnight. A warm send-off to the year, start the new one with art they love. NO false claims. One punchy CTA.' },
+        new_year:   { hasOffer: false, brief: 'WHAT A YEAR. A warm year-end / New Year message: gratitude for their support this year, a little reflection, and best wishes for the year ahead. Heartfelt and human, from Mae. NO sell.' }
+      };
+      var drole = (body.role || '').toString();
+      var DR = DECROLES[drole];
+      if (!DR) { res.status(400).json({ ok: false, error: 'unknown december role: ' + drole }); return; }
+      var dpct2 = (body.discount || '').toString();
+      var dcode2 = (body.code || '').toString();
+      var dexp2 = (body.expiry || '').toString();
+      var dNoCta = (drole === 'christmas' || drole === 'new_year'); // pure warm greetings, no button
+      var dnote = '';
+      if (body.note) dnote += '\nMY FEEDBACK — APPLY IT: ' + (body.note || '').toString().slice(0, 800);
+      if (body.current) { try { dnote += '\nCURRENT DRAFT (keep the parts I am not changing consistent with this): ' + JSON.stringify(body.current).slice(0, 1500); } catch (e) {} }
+      var dOfferKeys = DR.hasOffer
+        ? '"offerLead":"ONE warm first-person line leading into the offer", "offerLine":"the offer phrase ONLY, framed around the wall art, e.g. ' + (dpct2 || '15') + '% off your wall art sets, no code, no date",'
+        : '"offerLead":"", "offerLine":"",';
+      var dpr = [
+        'You write ONE email in About Wall Art\'s December / holiday sequence. Voice: warm, kind, human, first-person (Mae), spoken, NEVER poetic, pushy or "AI". A few tasteful emojis are fine.',
+        'PRODUCT WORDING (critical): never "a print"/"prints" — always "wall art", "an art set", "wall art sets".',
+        'DISCOUNT SCOPE (critical): frame any offer AROUND the wall art (e.g. "' + (dpct2 || '15') + '% off your wall art sets"). NEVER "your whole order / everything / sitewide / store-wide". No "up to".',
+        'PUNCTUATION (critical): NEVER use an em dash or en dash. Use commas or full stops instead.',
+        'THIS EMAIL\'S ROLE: ' + DR.brief,
+        DR.hasOffer
+          ? ('The offer: ' + (dpct2 ? dpct2 + '% off' : 'a discount') + (dcode2 ? ', code ' + dcode2 : '') + (dexp2 ? ', valid until ' + dexp2 : '') + '. State it ONCE. Exactly ONE call to action.')
+          : (dNoCta ? 'This email has NO discount and NO button. Do not invent an offer or a CTA.' : 'This email has NO discount and NO code, do not invent one. One soft, warm CTA is fine.'),
+        'Fresh, hand-written, DIFFERENT wording every time, never a canned line. Keep it SHORT (Gmail clips long emails). UK English.',
+        dnote,
+        'Return ONLY JSON with EXACTLY these keys: { "subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'friend\' }} then a comma, then a warm line fitting THIS email\'s role (about 55 chars after the name, no buzzwords)", "preview":"one short human line", "titleTop":"SHORT CAPS headline, MAX 3 words", "titleScript":"SHORT handwritten tagline, MAX 3 words", "titleOptions":[{"top":"MAX 3 WORDS CAPS","script":"max 3 words"}, (give 4 DISTINCT short options for THIS email)], "intro":["2 to 4 SHORT body lines matching the role"], ' + dOfferKeys + ' "ctaLabel":"' + (dNoCta ? '' : 'a warm 2-4 word button label (punchy first-person if there is a discount), NEVER containing a number or percentage') + '",' + (DR.hasOffer ? ' "ctaNote":"ONE short line under the button: the discount applies automatically on click, no code to type, vary the wording",' : '') + ' "closingText":"a warm closing line above the signature, DIFFERENT every time" }'
+      ].join('\n');
+      var draw = await anthropic(dpr, 1300);
+      var dcopy = extractJSON(draw);
+      if (!dcopy) { res.status(502).json({ ok: false, error: 'AI did not return usable copy', raw: (draw || '').slice(0, 300) }); return; }
+      dcopy.greeting = "Dear {{ first_name|default:'friend' }},";
+      res.status(200).json({ ok: true, copy: dcopy });
+      return;
+    }
+
+    // ---- New Collection Launch writer (teaser + reveal; no discount; uses Mae's inspiration note) ----
+    if (action === 'launch-write') {
+      var LROLES = {
+        launch_teaser: { hasOffer: false, cta: false, brief: 'NEW COLLECTION TEASER. A brand-new collection is coming. Build anticipation around the inspiration behind it (Mae shares what inspired her below). Tease it warmly, mention it drops on {launchDate}. A moodboard / mood-setting vibe, personal and excited. Do NOT reveal or list products, NO shop button. Short.' },
+        launch_reveal: { hasOffer: false, cta: true,  brief: 'NEW COLLECTION IS LIVE. Introduce the new collection by name and tell the personal inspiration story ("I was inspired by ..."). The new wall art sets are here, invite them to explore the collection. Warm, personal, story-led, not a hard sell. One CTA to see the collection.' }
+      };
+      var lrole = (body.role || '').toString();
+      var LR = LROLES[lrole];
+      if (!LR) { res.status(400).json({ ok: false, error: 'unknown launch role: ' + lrole }); return; }
+      var lname = (body.collectionName || 'the new collection').toString().slice(0, 120);
+      var linsp = (body.inspiration || '').toString().slice(0, 1200);
+      var ldate = (body.launchDate || '').toString();
+      var lnote = '';
+      if (body.note) lnote += '\nMY FEEDBACK — APPLY IT: ' + (body.note || '').toString().slice(0, 800);
+      if (body.current) { try { lnote += '\nCURRENT DRAFT (keep the parts I am not changing consistent with this): ' + JSON.stringify(body.current).slice(0, 1500); } catch (e) {} }
+      var lbrief = LR.brief.replace(/\{launchDate\}/g, ldate || 'launch day');
+      var lpr = [
+        'You write ONE email announcing a NEW wall-art collection for About Wall Art. Voice: warm, kind, human, first-person (Mae), spoken, NEVER poetic, pushy or "AI". A few tasteful emojis are fine.',
+        'PRODUCT WORDING (critical): never "a print"/"prints" — always "wall art", "an art set", "wall art sets".',
+        'PUNCTUATION (critical): NEVER use an em dash or en dash. Use commas or full stops instead.',
+        'THE NEW COLLECTION is called: "' + lname + '".',
+        linsp ? ('WHAT INSPIRED IT (Mae\'s own words — weave this in naturally, do NOT quote it verbatim): ' + linsp) : 'No inspiration note was given; keep the inspiration language general and warm.',
+        'THIS EMAIL\'S ROLE: ' + lbrief,
+        'This email has NO discount and NO code, do not invent one.',
+        'Fresh, hand-written, DIFFERENT wording every time. Keep it SHORT (Gmail clips long emails). UK English.',
+        lnote,
+        'Return ONLY JSON with EXACTLY these keys: { "subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'friend\' }} then a comma, then a warm line fitting THIS email\'s role (about 55 chars after the name, no buzzwords)", "preview":"one short human line", "titleTop":"SHORT CAPS headline, MAX 3 words", "titleScript":"SHORT handwritten tagline, MAX 3 words", "titleOptions":[{"top":"MAX 3 WORDS CAPS","script":"max 3 words"}, (give 4 DISTINCT short options for THIS email)], "intro":["2 to 4 SHORT body lines matching the role, weaving in the inspiration"], "offerLead":"", "offerLine":"", "ctaLabel":"' + (LR.cta ? 'a warm 2-4 word button label to see the collection' : '') + '", "closingText":"a warm closing line above the signature, DIFFERENT every time" }'
+      ].join('\n');
+      var lraw = await anthropic(lpr, 1300);
+      var lcopy = extractJSON(lraw);
+      if (!lcopy) { res.status(502).json({ ok: false, error: 'AI did not return usable copy', raw: (lraw || '').slice(0, 300) }); return; }
+      lcopy.greeting = "Dear {{ first_name|default:'friend' }},";
+      res.status(200).json({ ok: true, copy: lcopy });
       return;
     }
 
@@ -946,7 +1026,8 @@ module.exports = async (req, res) => {
             endsAt: endsAt,
             customerSelection: { all: true },
             customerGets: { value: { percentage: dpct / 100 }, items: { collections: { add: [DISCOUNTABLE_COLLECTION] } } },
-            appliesOncePerCustomer: true
+            appliesOncePerCustomer: true,
+            combinesWith: { orderDiscounts: false, productDiscounts: false, shippingDiscounts: false } // never stack with other discounts
           } }
         );
         var r2 = dm && dm.discountCodeBasicCreate;
