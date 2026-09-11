@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 69.7</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 69.8</p>
                 </div>
             </div>
         </header>
@@ -599,6 +599,8 @@
         let optColorFilter = 'all';  // Optimized tab colour filter: all | green | grey | yellow | red
         const MPD_IMP_FLOOR = 10;    // fewer "times shown" than this = a weak keyword (tunable)
         const MPD_POS_GOOD  = 10;    // ranking this high (page 1) or better = well-ranked (tunable)
+        const MPD_RED_DAYS  = 90;    // a page can only go RED after 3 months — before that it's too early to judge (tunable)
+        const MPD_BLUE_KW_DAYS = 180;// keyword still not measurable after 6 months = the keyword isn't working → BLUE "change keyword" (tunable)
         function setOptColorFilter(f, btn) {
             optColorFilter = f;
             document.querySelectorAll('#optColorChips button').forEach(b => b.style.outline = 'none');
@@ -1248,9 +1250,10 @@
                     if (!t.anyData) return (kp.daysAgo >= 84)
                         ? Object.assign({}, C.blue, { label:'Never took off — check the page' })
                         : Object.assign({}, C.grey, { label:'Wait — no data yet' });
+                    // Keyword still not measurable after 6 months → the keyword isn't working → BLUE "change keyword".
+                    if (kp.daysAgo >= MPD_BLUE_KW_DAYS) return Object.assign({}, C.blue, { label:'Keyword not working — change it' });
                     if (t.dir === 'up') return Object.assign({}, C.green, { label:'Climbing (page)' });
-                    if (t.dir === 'down' && kp.daysAgo >= 28) return Object.assign({}, C.red, { label:'Slipping (page)' });
-                    return Object.assign({}, C.grey, { label:'Holding — give it time' });
+                    return Object.assign({}, C.grey, { label:'Holding — give it time' });   // no-keyword pages never go RED (no measurable keyword to act on)
                 }
                 if (kp.daysAgo < 28) return Object.assign({}, C.grey, { label:'Wait and see (under 4 weeks)' });
                 const posDelta = kp.beforeKw.position - kp.curKw.position;      // + = climbed
@@ -1263,7 +1266,7 @@
                 const impRising = (nowImp - kp.beforeKw.impressions) >= 10 && nowImp >= kp.beforeKw.impressions * 1.2;
                 if (posDelta >= -2) return C.green;                             // moved up, or held within ~2 places
                 if (impRising)      return C.green;                            // dropped a little but shown to more people
-                if (posDelta <= -5 && realDemand) return C.red;               // real drop on a keyword people DO search
+                if (posDelta <= -5 && realDemand && kp.daysAgo >= MPD_RED_DAYS) return C.red;   // real drop on a searched keyword — only after 3 months
                 return C.grey;                                                 // small drop, or low demand but not clearly weak
             };
 
