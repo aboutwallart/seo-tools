@@ -818,8 +818,12 @@ module.exports = async (req, res) => {
           if (html.indexOf('shopify-staged-uploads') < 0 && html.indexOf('/tmp/') < 0) { report.push({ campaignId: cid, changed: 0, note: 'no temp url' }); continue; }
           var sw = await swapInHtml(html);
           if (sw.changed > 0) {
-            var pr = await kvJson(await kv('/api/templates/' + tid + '/', 'PATCH', { data: { type: 'template', id: tid, attributes: { html: sw.html } } }));
-            report.push({ campaignId: cid, changed: sw.changed, saved: pr.ok, misses: sw.misses, err: pr.ok ? undefined : (pr.text || '').slice(0, 200) });
+            // the linked template can be read but not PATCHed; create a corrected template and assign it (same as at creation)
+            var ct = await kvJson(await kv('/api/templates/', 'POST', { data: { type: 'template', attributes: { name: 'Hero fix ' + cid + ' ' + Date.now(), editor_type: 'CODE', html: sw.html } } }));
+            var newTid = ct.json && ct.json.data && ct.json.data.id;
+            if (!newTid) { report.push({ campaignId: cid, changed: sw.changed, saved: false, err: 'template create failed: ' + (ct.text || '').slice(0, 150) }); continue; }
+            var asg = await kvJson(await kv('/api/campaign-message-assign-template/', 'POST', { data: { type: 'campaign-message', id: mid, relationships: { template: { data: { type: 'template', id: newTid } } } } }));
+            report.push({ campaignId: cid, changed: sw.changed, saved: asg.ok, misses: sw.misses, err: asg.ok ? undefined : (asg.text || '').slice(0, 200) });
           } else {
             report.push({ campaignId: cid, changed: 0, misses: sw.misses });
           }
