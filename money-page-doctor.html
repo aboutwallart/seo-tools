@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 69.6</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 69.7</p>
                 </div>
             </div>
         </header>
@@ -451,6 +451,7 @@
                 <button class="btn-secondary" style="background:#F3F2EE;color:#5F5E5A;border-color:#DDD9CF;" onclick="setOptColorFilter('grey', this)">⚪ Wait <span id="optCntGrey"></span></button>
                 <button class="btn-secondary" style="background:#FFF6DF;color:#8a6d00;border-color:#F0DFA6;" onclick="setOptColorFilter('yellow', this)">🟡 Better change keyword <span id="optCntYellow"></span></button>
                 <button class="btn-secondary" style="background:#FBEBEA;color:#A32D2D;border-color:#F3CFCC;" onclick="setOptColorFilter('red', this)">🔴 Needs a look <span id="optCntRed"></span></button>
+                <button class="btn-secondary" style="background:#EAF3FB;color:#1C4E80;border-color:#C4DEF3;" onclick="setOptColorFilter('blue', this)">🔵 Never took off <span id="optCntBlue"></span></button>
             </div>
             <div id="optimizedList"></div>
         </div>
@@ -1220,16 +1221,37 @@
 
             // ONE traffic light per card, judged on the LOCKED keyword.
             // green = working · grey = wait · yellow = weak keyword (change it) · red = dropped, needs a look.
+            // PAGE-level position trend (all keywords), from what GSC already loaded: 15-day vs 90-day.
+            // Lets us judge pages that have NO locked-keyword data yet — is the page climbing, stuck, or invisible?
+            const pageTrend = (np) => {
+                const g15 = gscEnrichment[np], g90 = gscEnrichment90[np];
+                const p15 = (g15 && g15.impressions) ? g15.position : null;
+                const p90 = (g90 && g90.impressions) ? g90.position : null;
+                let dir = 'flat';
+                if (p15 != null && p90 != null) { const d = p90 - p15; dir = d > 1 ? 'up' : (d < -1 ? 'down' : 'flat'); }
+                else if (p15 != null) dir = 'up';   // showing now but not over 90 days = just emerging
+                return { p15, p90, anyData: (p15 != null || p90 != null), dir };
+            };
             const cardState = (kp) => {
                 const C = {
                     green:  { key:'green',  bg:'#EDF6E6', border:'#CFE6C0', accent:'#639922', text:'#3B6D11', icon:'🟢', label:'Working — leave it' },
                     grey:   { key:'grey',   bg:'#F3F2EE', border:'#DDD9CF', accent:'#888780', text:'#5F5E5A', icon:'⚪', label:'Wait and see' },
                     yellow: { key:'yellow', bg:'#FFF6DF', border:'#F0DFA6', accent:'#E0A100', text:'#8a6d00', icon:'🟡', label:'Better change keyword' },
-                    red:    { key:'red',    bg:'#FBEBEA', border:'#F3CFCC', accent:'#E24B4A', text:'#A32D2D', icon:'🔴', label:'Needs a look' }
+                    red:    { key:'red',    bg:'#FBEBEA', border:'#F3CFCC', accent:'#E24B4A', text:'#A32D2D', icon:'🔴', label:'Needs a look' },
+                    blue:   { key:'blue',   bg:'#EAF3FB', border:'#C4DEF3', accent:'#2F72B6', text:'#1C4E80', icon:'🔵', label:'Never took off' }
                 };
                 // User moved this page here from a cannibalisation diagnosis → show the change-keyword workflow.
                 if (mpdForceYellow.has(kp.np)) return Object.assign({}, C.yellow, { label:'Better change keyword' });
-                if (!kp.useKw) return Object.assign({}, C.grey, { label:'Wait — no keyword data yet' });
+                if (!kp.useKw) {
+                    // No locked-keyword data → judge by the PAGE's overall position trend.
+                    const t = pageTrend(kp.np);
+                    if (!t.anyData) return (kp.daysAgo >= 84)
+                        ? Object.assign({}, C.blue, { label:'Never took off — check the page' })
+                        : Object.assign({}, C.grey, { label:'Wait — no data yet' });
+                    if (t.dir === 'up') return Object.assign({}, C.green, { label:'Climbing (page)' });
+                    if (t.dir === 'down' && kp.daysAgo >= 28) return Object.assign({}, C.red, { label:'Slipping (page)' });
+                    return Object.assign({}, C.grey, { label:'Holding — give it time' });
+                }
                 if (kp.daysAgo < 28) return Object.assign({}, C.grey, { label:'Wait and see (under 4 weeks)' });
                 const posDelta = kp.beforeKw.position - kp.curKw.position;      // + = climbed
                 const nowImp = kp.curKw.impressions || 0;
@@ -1246,11 +1268,11 @@
             };
 
             // Count each colour once, then show the numbers on the filter chips.
-            const _counts = { green:0, grey:0, yellow:0, red:0 };
+            const _counts = { green:0, grey:0, yellow:0, red:0, blue:0 };
             sorted.forEach(p => { const k = cardState(kwPair(p)).key; if (_counts[k] != null) _counts[k]++; });
             const _setCnt = (id, n) => { const e = document.getElementById(id); if (e) e.textContent = `(${n})`; };
             _setCnt('optCntAll', sorted.length); _setCnt('optCntGreen', _counts.green); _setCnt('optCntGrey', _counts.grey);
-            _setCnt('optCntYellow', _counts.yellow); _setCnt('optCntRed', _counts.red);
+            _setCnt('optCntYellow', _counts.yellow); _setCnt('optCntRed', _counts.red); _setCnt('optCntBlue', _counts.blue);
 
             // "Is it working?" trend + the two numbers to act on (drops to look at, weak keywords to change).
             renderOptimizedHealthSummary(sorted, kwPair, _counts.red, _counts.yellow);
@@ -1276,7 +1298,7 @@
             // Colour filter across the tab: all / green / grey / yellow / red.
             const rows = (optColorFilter === 'all') ? sorted : sorted.filter(p => cardState(kwPair(p)).key === optColorFilter);
             if (rows.length === 0) {
-                const nm = { green:'Working', grey:'Wait', yellow:'Better change keyword', red:'Needs a look' }[optColorFilter] || '';
+                const nm = { green:'Working', grey:'Wait', yellow:'Better change keyword', red:'Needs a look', blue:'Never took off' }[optColorFilter] || '';
                 list.innerHTML = `<p style="text-align:center; color:#666; padding:40px;">No pages in "${nm}" right now.</p>`;
                 return;
             }
@@ -1303,7 +1325,17 @@
                         <span style="font-size:0.82rem;color:#888780;">· impressions ${(kp.beforeKw.impressions||0).toLocaleString()} → ${(kp.curKw.impressions||0).toLocaleString()}</span>
                     </div>`;
                 } else {
-                    rankLine = `<div style="font-size:0.82rem;color:#888780;margin-top:8px;">No Search Console data for this keyword yet — click 🔄 Refresh baselines (keyword), or give it time.</div>`;
+                    const t = pageTrend(kp.np);
+                    if (t.anyData) {
+                        const parts = [];
+                        if (t.p90 != null) parts.push(`90d: ${t.p90.toFixed(1)}`);
+                        if (t.p15 != null) parts.push(`15d: ${t.p15.toFixed(1)}`);
+                        const arrow = t.dir === 'up' ? '▲ climbing' : (t.dir === 'down' ? '▼ slipping' : '— holding');
+                        const col = t.dir === 'up' ? '#3B6D11' : (t.dir === 'down' ? '#A32D2D' : '#888780');
+                        rankLine = `<div style="font-size:0.82rem;color:#5F5E5A;margin-top:8px;">Page position (all keywords): <strong>${parts.join(' → ')}</strong> <span style="color:${col};font-weight:700;">${arrow}</span> <span style="color:#888;">· not shown for the locked keyword yet</span></div>`;
+                    } else {
+                        rankLine = `<div style="font-size:0.82rem;color:#888780;margin-top:8px;">Not showing on Google yet for this keyword. ${kp.daysAgo >= 84 ? 'Optimised 3+ months ago — worth checking the page (is it indexed? duplicate?).' : 'Give it time, or click 🔄 Refresh baselines (keyword).'}</div>`;
+                    }
                 }
 
                 // 🟡 Better change keyword — verdict + this page's other keywords + Ubersuggest prompt + manual box.
