@@ -766,6 +766,80 @@ module.exports = async (req, res) => {
       return;
     }
 
+    // ---- one-time repair: swap expired temporary hero links (shopify-staged-uploads/tmp) for the permanent Shopify CDN URL ----
+    //   body.campaignIds: [ ... ] → fixes each campaign's template HTML in Klaviyo
+    //   body.fixData: true        → also fixes data/q4-drafts.json hero URLs (run once)
+    if (action === 'fix-hero-links') {
+      var KLAVIYO_KEY = process.env.KLAVIYO_KEY;
+      if (!KLAVIYO_KEY) { res.status(500).json({ ok: false, error: 'KLAVIYO_KEY not configured' }); return; }
+      var REVF = '2024-10-15';
+      function kv(path, method, payload) { return fetch('https://a.klaviyo.com' + path, { method: method, headers: { 'Authorization': 'Klaviyo-API-Key ' + KLAVIYO_KEY, 'revision': REVF, 'accept': 'application/vnd.api+json', 'content-type': 'application/vnd.api+json' }, body: payload ? JSON.stringify(payload) : undefined }); }
+      async function kvJson(r) { var t = await r.text(); var j = null; try { j = JSON.parse(t); } catch (e) {} return { ok: r.ok, status: r.status, json: j, text: t }; }
+      var permCache = {};
+      async function permFor(base) {
+        if (permCache[base] !== undefined) return permCache[base];
+        var perm = null;
+        try {
+          var sq = await shopifyGraphQL('query($q:String!){ files(first:5, query:$q){ edges{ node{ ... on MediaImage { image { url } } } } } }', { q: 'filename:' + base });
+          var edges = (sq && sq.files && sq.files.edges) || [];
+          for (var i = 0; i < edges.length; i++) { var u = edges[i] && edges[i].node && edges[i].node.image && edges[i].node.image.url; if (u) { perm = u; break; } }
+        } catch (e) {}
+        permCache[base] = perm;
+        return perm;
+      }
+      async function swapInHtml(html) {
+        var matches = html.match(/https:\/\/shopify-staged-uploads\.storage\.googleapis\.com\/tmp\/[^\s"'<>\\]+/g) || [];
+        var changed = 0, misses = [];
+        for (var i = 0; i < matches.length; i++) {
+          var m = matches[i];
+          var b = (m.match(/promo-hero-\d+/) || [])[0];
+          if (!b) { misses.push(m); continue; }
+          var perm = await permFor(b);
+          if (!perm) { misses.push(b); continue; }
+          html = html.split(m).join(perm);
+          changed++;
+        }
+        return { html: html, changed: changed, misses: misses };
+      }
+      var report = [];
+      var ids = Array.isArray(body.campaignIds) ? body.campaignIds : [];
+      for (var ci = 0; ci < ids.length; ci++) {
+        var cid = ids[ci];
+        try {
+          var cm = await kvJson(await kv('/api/campaigns/' + cid + '/campaign-messages/', 'GET'));
+          var mid = cm.json && cm.json.data && cm.json.data[0] && cm.json.data[0].id;
+          if (!mid) { report.push({ campaignId: cid, error: 'no message' }); continue; }
+          var mm = await kvJson(await kv('/api/campaign-messages/' + mid + '/', 'GET'));
+          var tid = mm.json && mm.json.data && mm.json.data.relationships && mm.json.data.relationships.template && mm.json.data.relationships.template.data && mm.json.data.relationships.template.data.id;
+          if (!tid) { report.push({ campaignId: cid, error: 'no template' }); continue; }
+          var tr = await kvJson(await kv('/api/templates/' + tid + '/', 'GET'));
+          var html = tr.json && tr.json.data && tr.json.data.attributes && tr.json.data.attributes.html;
+          if (!html) { report.push({ campaignId: cid, error: 'no html' }); continue; }
+          if (html.indexOf('shopify-staged-uploads') < 0 && html.indexOf('/tmp/') < 0) { report.push({ campaignId: cid, changed: 0, note: 'no temp url' }); continue; }
+          var sw = await swapInHtml(html);
+          if (sw.changed > 0) {
+            var pr = await kvJson(await kv('/api/templates/' + tid + '/', 'PATCH', { data: { type: 'template', id: tid, attributes: { html: sw.html } } }));
+            report.push({ campaignId: cid, changed: sw.changed, saved: pr.ok, misses: sw.misses, err: pr.ok ? undefined : (pr.text || '').slice(0, 200) });
+          } else {
+            report.push({ campaignId: cid, changed: 0, misses: sw.misses });
+          }
+        } catch (e) { report.push({ campaignId: cid, error: (e.message || String(e)) }); }
+      }
+      var dataFixed = null;
+      if (body.fixData) {
+        try {
+          var qf = await ghReadFile(Q4_FILE);
+          var qall = (qf.json && typeof qf.json === 'object') ? qf.json : {};
+          var n = 0;
+          for (var y in qall) { var roles = qall[y] || {}; for (var role in roles) { var h = roles[role] && roles[role].hero; if (h && (h.indexOf('shopify-staged-uploads') >= 0 || h.indexOf('/tmp/') >= 0)) { var b2 = (h.match(/promo-hero-\d+/) || [])[0]; if (b2) { var p2 = await permFor(b2); if (p2) { roles[role].hero = p2; n++; } } } } }
+          if (n > 0) { await ghWriteFile(Q4_FILE, qall, qf.sha, 'Fix hero links: temp -> permanent (' + n + ')'); }
+          dataFixed = n;
+        } catch (e) { dataFixed = 'error: ' + (e.message || e); }
+      }
+      res.status(200).json({ ok: true, report: report, dataFixed: dataFixed });
+      return;
+    }
+
     // ---- AI writes the promo copy (brand voice, first name, offer once, ONE topic CTA, warm closing) ----
     // Optional body.only = 'subject'|'title'|'intro'|'closing' -> regenerate just that field (per-field Regenerate).
     if (action === 'promo-write' || action === 'promo-rewrite') {

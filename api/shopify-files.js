@@ -2253,17 +2253,27 @@ module.exports = async function handler(req, res) {
           if (ue2.length) throw new Error(ue2[0].message);
           const file = cd.data.fileCreate.files[0];
 
-          // 4. Poll for CDN URL (Shopify processes async)
+          // 4. Poll for the PERMANENT CDN URL (Shopify processes async).
+          //    NEVER return the temporary staged-upload URL — it expires within hours and the image
+          //    later shows broken in the email. Wait for the real cdn.shopify.com link; if it is not
+          //    ready in time, tell the user to retry rather than hand back a link that will die.
           let cdnUrl = file?.image?.url || null;
-          if (!cdnUrl) {
-            await new Promise(r => setTimeout(r, 3000));
-            const pollQuery = `{ files(first: 5, query: "filename:${safeFilename}") { edges { node { ... on MediaImage { id image { url } } } } } }`;
-            const pr = await fetch(gqlUrl, { method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query: pollQuery }) });
-            const pd = await pr.json();
-            cdnUrl = pd.data?.files?.edges?.[0]?.node?.image?.url || target.resourceUrl;
+          const newFileId = file?.id || null;
+          for (let attempt = 0; !cdnUrl && attempt < 6; attempt++) {
+            await new Promise(r => setTimeout(r, 2000));
+            try {
+              let pq;
+              if (newFileId) pq = `{ node(id: "${newFileId}") { ... on MediaImage { image { url } } } }`;
+              else pq = `{ files(first: 5, query: "filename:${safeFilename}") { edges { node { ... on MediaImage { image { url } } } } } }`;
+              const pr = await fetch(gqlUrl, { method: 'POST', headers: shopifyHeaders, body: JSON.stringify({ query: pq }) });
+              const pd = await pr.json();
+              cdnUrl = (newFileId ? pd.data?.node?.image?.url : pd.data?.files?.edges?.[0]?.node?.image?.url) || null;
+            } catch (e) { /* keep polling */ }
           }
-
-          return res.status(200).json({ success: true, url: cdnUrl, fileId: file?.id || null });
+          if (!cdnUrl || /shopify-staged-uploads|\/tmp\//.test(cdnUrl)) {
+            return res.status(200).json({ success: false, error: 'The image is still processing on Shopify. Please wait a few seconds and upload it again.' });
+          }
+          return res.status(200).json({ success: true, url: cdnUrl, fileId: newFileId });
         } catch (e) { return res.status(500).json({ error: e.message }); }
       }
 
