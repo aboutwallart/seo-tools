@@ -56,7 +56,7 @@ module.exports = async (req, res) => {
         startDate: start,
         endDate: end,
         dimensions: ['page'],
-        rowLimit: 500
+        rowLimit: 5000
       });
     } else if (action === 'page-query') {
       // Page + query combined — for content optimizations
