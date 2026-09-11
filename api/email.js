@@ -752,6 +752,20 @@ module.exports = async (req, res) => {
       return;
     }
 
+    // ---- gift card product image (image 1) — the automatic hero for the December Gift Card email ----
+    if (action === 'giftcard-image') {
+      try {
+        var gcq = await shopifyGraphQL(
+          'query($q:String!){ products(first:1, query:$q){ edges{ node{ title handle featuredImage{ url altText } } } } }',
+          { q: 'handle:about-wall-art-gift-card' }
+        );
+        var gcn = (gcq && gcq.products && gcq.products.edges && gcq.products.edges[0] && gcq.products.edges[0].node) || null;
+        if (!gcn || !gcn.featuredImage || !gcn.featuredImage.url) { res.status(200).json({ ok: false, error: 'gift card image not found' }); return; }
+        res.status(200).json({ ok: true, image: retinaImg(gcn.featuredImage.url, 600), alt: (gcn.featuredImage.altText || gcn.title || 'About Wall Art gift card') });
+      } catch (e) { res.status(502).json({ ok: false, error: 'gift card lookup failed: ' + (e.message || e) }); }
+      return;
+    }
+
     // ---- AI writes the promo copy (brand voice, first name, offer once, ONE topic CTA, warm closing) ----
     // Optional body.only = 'subject'|'title'|'intro'|'closing' -> regenerate just that field (per-field Regenerate).
     if (action === 'promo-write' || action === 'promo-rewrite') {
@@ -883,7 +897,7 @@ module.exports = async (req, res) => {
         'The CTA button label must be punchy and FIRST-PERSON (e.g. "I want my discount!", "Show me the sale", "Count me in") — never a generic "Shop now". NEVER put the discount number or a percentage in the button label; if it names the discount, keep it general like "use my discount", "claim my offer", no numbers.',
         qdual ? 'DUAL-MARKET: two versions (UK and rest of world) are generated from this ONE copy with different percentages. Do NOT write any specific percentage number anywhere (not in the subject, intro, offer or closing). Wherever the percentage would appear, write the literal token {PCT} (for example "{PCT}% off your wall art sets"). Do not mention a code.' : '',
         qnote,
-        'Return ONLY JSON with EXACTLY these keys: { "subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'friend\' }} then a comma, then a warm line fitting THIS email\'s role (about 55 chars after the name, no buzzwords)", "preview":"one short human line", "titleTop":"SHORT CAPS headline, MAX 3 words, fitting this email", "titleScript":"SHORT handwritten tagline, MAX 3 words", "titleOptions":[{"top":"MAX 3 WORDS CAPS","script":"max 3 words"}, (give 4 DISTINCT short options for THIS email, each top MAX 3 words and script MAX 3 words)], "intro":["2 to 3 SHORT body lines matching the role"], ' + offerKeys + ' "ctaLabel":"2-4 word punchy FIRST-PERSON button label",' + (R.hasOffer ? ' "ctaNote":"ONE short line to sit UNDER the button, telling them the discount is applied automatically the moment they click, no code to type in, vary the wording every time",' : '') + ' "closingText":"a warm closing line above the signature, DIFFERENT every time" }'
+        'Return ONLY JSON with EXACTLY these keys: { "subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'friend\' }} then a comma, then a warm line fitting THIS email\'s role (about 55 chars after the name, no buzzwords)", "preview":"one short human line", "titleTop":"SHORT CAPS headline, MAX 3 words, fitting this email", "titleScript":"SHORT handwritten tagline, MAX 3 words", "titleOptions":[{"top":"MAX 3 WORDS CAPS","script":"max 3 words"}, (give 4 DISTINCT short options for THIS email, each top MAX 3 words and script MAX 3 words)], "intro":["2 to 3 SHORT body lines matching the role"], ' + offerKeys + ' "ctaLabel":"2-4 word punchy FIRST-PERSON button label",' + (R.hasOffer ? ' "ctaNote":"ONE short line to sit UNDER the button, telling them the discount is applied automatically the moment they click, no code to type in, vary the wording every time",' : '') + ' "closingText":"a warm closing line above the signature, DIFFERENT every time. Do NOT sign off with a name (no Mae, no kisses, no xx); the signature already follows" }'
       ].join('\n');
       var qraw = await anthropic(qpr, 1300);
       var qcopy = extractJSON(qraw);
@@ -897,7 +911,7 @@ module.exports = async (req, res) => {
     if (action === 'dec-write') {
       var DECROLES = {
         gift_guide: { hasOffer: false, brief: 'HOLIDAY SPIRIT + GIFT GUIDE. Open warm and human about the festive season (connection, the people you love), THEN gently offer help for the tricky gifts: the person who has everything, the parent or relative you never know what to buy for. Position wall art as a thoughtful, personal gift, SUBTLE not salesy, a helping hand not a pitch. Invite them to reply if they want ideas. One soft CTA to explore gift ideas.' },
-        gift_card:  { hasOffer: false, brief: 'GIFT CARD, the last-minute solution. For anyone still stuck or shopping late: an About Wall Art digital gift card arrives INSTANTLY by email, nothing to post, and they choose the art they love. Warm and reassuring, takes the pressure off. One CTA to the gift card. Do NOT promise Christmas delivery of physical items.' },
+        gift_card:  { hasOffer: false, brief: 'GIFT CARD, the stress-free last-minute save. PERSPECTIVE (important, get this right): the gift card does NOT get emailed to the person receiving the gift. The BUYER gets it instantly and can print it or pop it under the tree, nothing to post, no waiting, nothing to stress about. And the person who receives it gets to choose the art they truly love, so it is never the wrong gift. Make the BUYER feel like the hero who sorted the perfect, thoughtful present at the last minute. Warm, kind, reassuring, beautifully written, never salesy. One CTA to the gift card. Do NOT promise Christmas delivery of physical items.' },
         christmas:  { hasOffer: false, brief: 'HAPPY CHRISTMAS. A warm, heartfelt Christmas greeting from Mae. Gratitude and warmth, wishing them a lovely day with the people they love. NO hard sell. Just a genuine human message.' },
         boxing_day: { hasOffer: true,  brief: 'BOXING DAY treat. A little post-Christmas gift to themselves, the discount off the wall art sets, ends soon. Warm and light. Boxing Day is mainly a UK/Commonwealth day, so keep it understandable to everyone. One punchy CTA.' },
         last_sale:  { hasOffer: true,  brief: 'LAST SALE OF THE YEAR. Honest and genuine: this really is the final sale of the year, the discount off the wall art sets, ends at midnight. A warm send-off to the year, start the new one with art they love. NO false claims. One punchy CTA.' },
@@ -927,7 +941,7 @@ module.exports = async (req, res) => {
           : (dNoCta ? 'This email has NO discount and NO button. Do not invent an offer or a CTA.' : 'This email has NO discount and NO code, do not invent one. One soft, warm CTA is fine.'),
         'Fresh, hand-written, DIFFERENT wording every time, never a canned line. Keep it SHORT (Gmail clips long emails). UK English.',
         dnote,
-        'Return ONLY JSON with EXACTLY these keys: { "subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'friend\' }} then a comma, then a warm line fitting THIS email\'s role (about 55 chars after the name, no buzzwords)", "preview":"one short human line", "titleTop":"SHORT CAPS headline, MAX 3 words", "titleScript":"SHORT handwritten tagline, MAX 3 words", "titleOptions":[{"top":"MAX 3 WORDS CAPS","script":"max 3 words"}, (give 4 DISTINCT short options for THIS email)], "intro":["2 to 4 SHORT body lines matching the role"], ' + dOfferKeys + ' "ctaLabel":"' + (dNoCta ? '' : 'a warm 2-4 word button label (punchy first-person if there is a discount), NEVER containing a number or percentage') + '",' + (DR.hasOffer ? ' "ctaNote":"ONE short line under the button: the discount applies automatically on click, no code to type, vary the wording",' : '') + ' "closingText":"a warm closing line above the signature, DIFFERENT every time" }'
+        'Return ONLY JSON with EXACTLY these keys: { "subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'friend\' }} then a comma, then a warm line fitting THIS email\'s role (about 55 chars after the name, no buzzwords)", "preview":"one short human line", "titleTop":"SHORT CAPS headline, MAX 3 words", "titleScript":"SHORT handwritten tagline, MAX 3 words", "titleOptions":[{"top":"MAX 3 WORDS CAPS","script":"max 3 words"}, (give 4 DISTINCT short options for THIS email)], "intro":["2 to 4 SHORT body lines matching the role"], ' + dOfferKeys + ' "ctaLabel":"' + (dNoCta ? '' : 'a warm 2-4 word button label (punchy first-person if there is a discount), NEVER containing a number or percentage') + '",' + (DR.hasOffer ? ' "ctaNote":"ONE short line under the button: the discount applies automatically on click, no code to type, vary the wording",' : '') + ' "closingText":"a warm closing line above the signature, DIFFERENT every time. Do NOT sign off with a name (no Mae, no kisses, no xx); the signature already follows" }'
       ].join('\n');
       var draw = await anthropic(dpr, 1300);
       var dcopy = extractJSON(draw);
@@ -963,7 +977,7 @@ module.exports = async (req, res) => {
         'This email has NO discount and NO code, do not invent one.',
         'Fresh, hand-written, DIFFERENT wording every time. Keep it SHORT (Gmail clips long emails). UK English.',
         lnote,
-        'Return ONLY JSON with EXACTLY these keys: { "subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'friend\' }} then a comma, then a warm line fitting THIS email\'s role (about 55 chars after the name, no buzzwords)", "preview":"one short human line", "titleTop":"SHORT CAPS headline, MAX 3 words", "titleScript":"SHORT handwritten tagline, MAX 3 words", "titleOptions":[{"top":"MAX 3 WORDS CAPS","script":"max 3 words"}, (give 4 DISTINCT short options for THIS email)], "intro":["2 to 4 SHORT body lines matching the role, weaving in the inspiration"], "offerLead":"", "offerLine":"", "ctaLabel":"' + (LR.cta ? 'a warm 2-4 word button label to see the collection' : '') + '", "closingText":"a warm closing line above the signature, DIFFERENT every time" }'
+        'Return ONLY JSON with EXACTLY these keys: { "subject":"MUST begin with the Klaviyo tag {{ first_name|default:\'friend\' }} then a comma, then a warm line fitting THIS email\'s role (about 55 chars after the name, no buzzwords)", "preview":"one short human line", "titleTop":"SHORT CAPS headline, MAX 3 words", "titleScript":"SHORT handwritten tagline, MAX 3 words", "titleOptions":[{"top":"MAX 3 WORDS CAPS","script":"max 3 words"}, (give 4 DISTINCT short options for THIS email)], "intro":["2 to 4 SHORT body lines matching the role, weaving in the inspiration"], "offerLead":"", "offerLine":"", "ctaLabel":"' + (LR.cta ? 'a warm 2-4 word button label to see the collection' : '') + '", "closingText":"a warm closing line above the signature, DIFFERENT every time. Do NOT sign off with a name (no Mae, no kisses, no xx); the signature already follows" }'
       ].join('\n');
       var lraw = await anthropic(lpr, 1300);
       var lcopy = extractJSON(lraw);
