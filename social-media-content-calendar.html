@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.74 · 7 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.75 · 11 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -4195,8 +4195,17 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     o=o.split(/\s*(?:—|-|,|\.)?\s*until\b/i)[0];
     return o.replace(/[\s,.—-]+$/,'').trim();
   }
+  // strip a trailing sign-off (…, Mae x / Love, Mae / Mae ❤️) so it doesn't repeat above the signature image
+  function stripSignoff(t){
+    if(!t) return '';
+    return String(t)
+      .replace(/[\s,;:._~–—-]*(?:love|lots of love|with love|warmly|thanks|thank you)?[\s,]*mae\b[\s]*x{0,3}[\s]*[❤️♥🎄!.…–—-]*\s*$/i,'')
+      .replace(/[\s,;:–—-]+$/,'')
+      .trim();
+  }
   function buildPromoHtml(s, editable){
     var c=s.copy||{}, prods=(s.products||[]).slice(0,4);
+    var closeTxt=stripSignoff(c.closingText||'');
     var vt=fmtLong(s.expiry), oc=offerCleanOf(c,s);
     var ed=function(role){ return editable?(' contenteditable="true" data-role="'+role+'"'):''; };
     // keep Mae's own line breaks (e.g. an emoji she moved onto its own line) instead of collapsing them
@@ -4260,10 +4269,10 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       // products
       + productsBlock
       // badges
-      +'<div style="padding:16px 12px;"><table width="100%" cellpadding="0" cellspacing="0" style="border:none;border-collapse:collapse;margin:0;"><tbody><tr>'+badges+'</tr></tbody></table></div>'
+      +(s.noOffer?'':'<div style="padding:16px 12px;"><table width="100%" cellpadding="0" cellspacing="0" style="border:none;border-collapse:collapse;margin:0;"><tbody><tr>'+badges+'</tr></tbody></table></div>')
       // closing + signature
       +'<div style="text-align:center;padding:20px 30px 30px;font-size:18px;line-height:1.55;color:#0f1419;">'
-        +(c.closingText?'<div style="margin:0 0 16px;"'+ed('closing')+'>'+brk(c.closingText)+'</div>':'')
+        +(closeTxt?'<div style="margin:0 0 16px;"'+ed('closing')+'>'+brk(closeTxt)+'</div>':'')
         +'<img src="'+SIGN_IMG+'" width="110" alt="Mae" style="width:110px;height:auto;display:block;margin:6px auto 0;"></div>'
       // footer — black band (matches the template / newsletter)
       +'<div style="background:#000;color:#fff;text-align:center;padding:26px 20px;font-family:'+PFONT+';">'
@@ -4313,8 +4322,21 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     return 'one person';
   }
   // Hero prompt — mirrors the Blog Manager: preserve the pasted photo EXACTLY, only ADD people. 5 SQUARE options.
+  // Christmas family hero — reframes the shot so a 3-generation family fits at true-to-life scale and the art stays realistic
+  function buildFamilyHeroPrompt(o,p){
+    var nm=slugp(o.id)+'-hero';
+    var alt=o.name+' — '+(p.title?p.title:'wall art')+' styled in a family home at Christmas';
+    return 'SHOPIFY AI — PROMO HERO (Christmas family scene). Make 5 options, each a SQUARE 1:1 image, so I can pick one. For each option I will paste the SAME product photo of the wall art.\n'
+      +'The filename and alt text below are sacred — copy them character-for-character on every option; never modify, shorten or alter them.\n\n'
+      +'THE ART: keep the artwork itself unchanged (same image and colours). BUT you MAY pull back, reframe and re-scale the shot: show the wall art hanging on a wall in a real living room at a NATURAL, realistic size — never oversized, stretched or forced. Do not distort or recolour the art.\n'
+      +'THE PEOPLE: add a warm THREE-GENERATION family enjoying the room together near the wall art — a grandmother, her adult daughter (the mother), and a young girl (the grandchild). You may add one more relative if it looks natural. Everyone at TRUE-TO-LIFE human scale relative to the room and the art (never shrunk or squeezed to fit). Natural, candid, happy poses; never covering or blocking the wall art. Cosy Christmas styling (tree, warm lights) is welcome but subtle.\n'
+      +'FAMILY REALISM (critical): the family must look GENUINELY related — a real shared family resemblance across the three generations. Do NOT mix ethnicities within one family; each option shows ONE coherent family of a single ethnicity.\n'
+      +'ACROSS THE 5 OPTIONS, VARY THE ETHNICITY so I get a real choice: option 1 a White/Caucasian family, option 2 a Black family, option 3 an East-Asian family, option 4 a South-Asian family, option 5 a Hispanic/Latin family. Dress them stylishly in neutral tones. Never place a dark-skinned person against a dark wall. Do NOT depict gay, lesbian or transgender couples. Photoreal and editorial, matching natural indoor light. Square 1:1.\n\n'
+      +'SAVE each image named "'+nm+'-option1" … "'+nm+'-option5". Set the ALT TEXT to: "'+alt+'" — use this as the alt text, NOT the file name.';
+  }
   function buildHeroPrompt(s){
-    var o=s.occ, p=s.heroSource||{};
+    var o=s.occ||{}, p=s.heroSource||{};
+    if(o.id==='dec-christmas' || o.id==='dec-gift_guide') return buildFamilyHeroPrompt(o, p);
     var person=personForPromo(o);
     var nm=slugp(o.id)+'-hero';
     var alt=o.name+' — '+(p.title?p.title:'wall art')+' styled in a room';
@@ -5384,7 +5406,13 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         s.copy=savedCopy; s.products=savedProducts||[];
         var c=s.copy;
         function regBtn(id,lbl){ return '<button id="'+id+'-'+uid+'" type="button" title="Regenerate" style="background:#eee;border:1px solid #ddd;border-radius:6px;padding:5px 9px;font-size:12px;cursor:pointer;">🔄 '+lbl+'</button>'; }
-        var heroBlock='<div style="margin-top:12px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
+        var heroBlock=item.giftcard ? ('<div style="margin-top:12px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
+              +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">Hero image — uses the <b>gift card image</b> automatically. Replace it below only if you want.</div>'
+              +'<label style="font-size:12px;color:#555;display:block;margin-top:6px;">Upload a different image:<br><input id="hfile-'+uid+'" type="file" accept="image/*" style="margin-top:4px;"></label>'
+              +'<div id="hup-'+uid+'" style="font-size:12px;margin-top:4px;"></div>'
+              +'<label style="font-size:12px;color:#555;display:block;margin-top:6px;">…or paste an image URL:<br><input id="hero-'+uid+'" placeholder="https://…" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;"></label>'
+            +'</div>')
+          : ('<div style="margin-top:12px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
               +'<div style="font-size:12px;font-weight:700;color:#555;margin-bottom:6px;">Hero image — pick a product image as the <b>source</b> → Copy → paste into Shopify AI → <b>Upload</b> the lifestyle image it makes.</div>'
               +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'
                 +'<select id="hcol-'+uid+'" style="flex:1;min-width:180px;padding:7px;border:1px solid #ddd;border-radius:6px;">'+wallArtCollOptions(cols[0]||'best-sellers')+'</select>'
@@ -5400,7 +5428,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
               +'<label style="font-size:12px;color:#555;display:block;margin-top:6px;">Upload the lifestyle image Shopify AI made:<br><input id="hfile-'+uid+'" type="file" accept="image/*" style="margin-top:4px;"></label>'
               +'<div id="hup-'+uid+'" style="font-size:12px;margin-top:4px;"></div>'
               +'<label style="font-size:12px;color:#555;display:block;margin-top:6px;">…or paste an image URL:<br><input id="hero-'+uid+'" placeholder="https://…" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;"></label>'
-            +'</div>';
+            +'</div>');
         var prodBlock = item.prods
           ? '<div style="margin-top:6px;font-size:12px;color:#555;">'+(s.products.length?(s.products.length+' products loaded'):'No products loaded.')+'</div>'
             +'<div style="margin-top:8px;padding:10px;border:1px solid #eee;border-radius:8px;background:#fafafa;">'
@@ -5487,14 +5515,20 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         document.getElementById('tdx-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.titleDx=this.value; refreshDec(); });
         document.getElementById('s-'+uid).addEventListener('input', function(){ s.copy.subject=this.value; decPersist(); });
         document.getElementById('pr-'+uid).addEventListener('input', function(){ s.copy.preview=this.value; decPersist(); });
-        // hero wiring
-        document.getElementById('sb-'+uid).addEventListener('click', function(){ loadHeroProducts(s); });
-        document.getElementById('ssku-'+uid).addEventListener('click', function(){ searchHeroBySku(s); });
-        document.getElementById('hsku-'+uid).addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); searchHeroBySku(s); } });
-        document.getElementById('hp-'+uid).addEventListener('click', function(){ document.getElementById('hpt-'+uid).value=buildHeroPrompt(s); });
-        document.getElementById('hpc-'+uid).addEventListener('click', function(){ var ta=document.getElementById('hpt-'+uid); if(!ta.value){ ta.value=buildHeroPrompt(s); } var b=this, o2=b.textContent; try{ navigator.clipboard.writeText(ta.value); }catch(e){ ta.select(); try{document.execCommand('copy');}catch(e2){} } b.textContent='Copied ✓'; setTimeout(function(){b.textContent=o2;},1200); });
-        document.getElementById('hfile-'+uid).addEventListener('change', function(e){ var f=e.target.files&&e.target.files[0]; if(f) uploadHero(s,f); });
-        document.getElementById('hero-'+uid).addEventListener('input', function(){ readPromoEmail(s); s.hero=this.value.trim(); refreshDec(); });
+        // hero wiring (gift card has no product picker, so guard each control)
+        var _sb=document.getElementById('sb-'+uid); if(_sb) _sb.addEventListener('click', function(){ loadHeroProducts(s); });
+        var _ssku=document.getElementById('ssku-'+uid); if(_ssku) _ssku.addEventListener('click', function(){ searchHeroBySku(s); });
+        var _hsku=document.getElementById('hsku-'+uid); if(_hsku) _hsku.addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); searchHeroBySku(s); } });
+        var _hp=document.getElementById('hp-'+uid); if(_hp) _hp.addEventListener('click', function(){ document.getElementById('hpt-'+uid).value=buildHeroPrompt(s); });
+        var _hpc=document.getElementById('hpc-'+uid); if(_hpc) _hpc.addEventListener('click', function(){ var ta=document.getElementById('hpt-'+uid); if(!ta.value){ ta.value=buildHeroPrompt(s); } var b=this, o2=b.textContent; try{ navigator.clipboard.writeText(ta.value); }catch(e){ ta.select(); try{document.execCommand('copy');}catch(e2){} } b.textContent='Copied ✓'; setTimeout(function(){b.textContent=o2;},1200); });
+        var _hfile=document.getElementById('hfile-'+uid); if(_hfile) _hfile.addEventListener('change', function(e){ var f=e.target.files&&e.target.files[0]; if(f) uploadHero(s,f); });
+        var _hero=document.getElementById('hero-'+uid); if(_hero) _hero.addEventListener('input', function(){ readPromoEmail(s); s.hero=this.value.trim(); refreshDec(); });
+        // gift card: fill the hero automatically with the gift card product's image 1 (only if none saved yet)
+        if(item.giftcard && !s.hero){
+          emPost({action:'giftcard-image'}).then(function(g){
+            if(g&&g.ok&&g.image){ s.hero=g.image; var hEl=document.getElementById('hero-'+uid); if(hEl) hEl.value=g.image; refreshDec(); }
+          }).catch(function(){});
+        }
         // products (only when the email shows products)
         if(item.prods){
           document.getElementById('pcolb-'+uid).addEventListener('click', function(){
