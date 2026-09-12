@@ -336,6 +336,11 @@ module.exports = async function handler(req, res) {
       console.log('[Money Page] Step 1: Finding competitors... (~10 sec)');
       searchResults = await findCompetitors(keyword, pageUrl);
       console.log(`[Money Page] ✓ User position: ${searchResults.userPosition || 'Not in top 10'} | Found ${searchResults.competitors.length} competitors (${Math.round((Date.now() - startTime) / 1000)}s elapsed)`);
+      // The whole first page is marketplaces/social (Amazon, Etsy, Pinterest…) — you can't realistically outrank
+      // those, and basing advice on them is wrong. Tell her honestly instead of running a misleading analysis.
+      if (searchResults.marketplaceDominated) {
+        return res.status(200).json({ marketplaceDominated: true, error: `The top Google results for "${keyword}" are all big marketplaces or social sites (Amazon, Etsy, Pinterest and the like) that a shop like yours can't realistically outrank. This keyword may not be worth targeting — consider changing it to an easier one.` });
+      }
       // SerpAPI returned nothing → don't dead-end. Tell the frontend to ask for manual URLs.
       if (searchResults.competitors.length === 0) {
         return res.status(200).json({ needsManual: true, error: 'SerpAPI returned no competitors (a hiccup or your monthly limit). Paste the top 3 competitor URLs to run the analysis.' });
@@ -793,48 +798,45 @@ async function findCompetitors(keyword, userUrl) {
     const normalizedUserUrl = normalizeUrl(userUrl);
     let userPosition = null;
     const competitors = [];
+    let skippedNonCompetable = 0;
+
+    // Sites you can't realistically outrank as a small Shopify shop — marketplaces, aggregators and social/UGC.
+    // Basing content advice on these (e.g. "Amazon has 50 words, trim yours") is wrong, so we SKIP them and use
+    // the real content/shop competitors below them instead.
+    const NON_COMPETABLE = ['amazon.', 'etsy.', 'ebay.', 'aliexpress.', 'temu.', 'walmart.', 'wayfair.',
+      'pinterest.', 'youtube.', 'youtu.be', 'reddit.', 'quora.', 'tiktok.', 'instagram.', 'facebook.', 'm.facebook', 'fb.com'];
+    const isNonCompetable = (u) => { const n = normalizeUrl(u || ''); return NON_COMPETABLE.some(d => n.includes(d)); };
 
     organicResults.forEach((result, index) => {
       const position = index + 1;
       const resultUrl = result.link;
+      if (!resultUrl) return;
       const normalizedResultUrl = normalizeUrl(resultUrl);
 
-      // Check if this is the user's page
+      // The user's own page — record its position, never a competitor.
       if (normalizedResultUrl === normalizedUserUrl || normalizedResultUrl.startsWith(normalizedUserUrl)) {
         userPosition = position;
         console.log(`[SerpAPI] Found user's page at position ${position}`);
+        return;
       }
 
-      // Collect top 3 that aren't the user's page
-      if (position <= 3 && normalizedResultUrl !== normalizedUserUrl) {
-        competitors.push({
-          position: position,
-          title: result.title,
-          url: resultUrl
-        });
+      // Skip marketplaces / social — not real competition you can outrank.
+      if (isNonCompetable(resultUrl)) { skippedNonCompetable++; return; }
+
+      // A real competitor — take the first 3, in position order.
+      if (competitors.length < 3) {
+        competitors.push({ position: position, title: result.title, url: resultUrl });
       }
     });
 
-    // If user is in top 3, get position 4 to have 3 competitors
-    if (userPosition && userPosition <= 3 && competitors.length < 3) {
-      for (let i = 3; i < organicResults.length && competitors.length < 3; i++) {
-        const result = organicResults[i];
-        const normalizedResultUrl = normalizeUrl(result.link);
-        if (normalizedResultUrl !== normalizedUserUrl) {
-          competitors.push({
-            position: i + 1,
-            title: result.title,
-            url: result.link
-          });
-        }
-      }
-    }
+    // True when the top results are all marketplaces/social and no real competitor was found.
+    const marketplaceDominated = competitors.length === 0 && skippedNonCompetable > 0;
+    console.log(`[SerpAPI] ${competitors.length} real competitors (skipped ${skippedNonCompetable} marketplace/social). User position: ${userPosition || 'Not in top 10'}`);
 
-    console.log(`[SerpAPI] Found ${competitors.length} competitors. User position: ${userPosition || 'Not in top 10'}`);
-    
     return {
       userPosition: userPosition,
-      competitors: competitors.slice(0, 3)
+      competitors: competitors.slice(0, 3),
+      marketplaceDominated: marketplaceDominated
     };
 
   } catch (error) {
