@@ -646,8 +646,22 @@ module.exports = async (req, res) => {
 
     if (action === 'metricool-file') {
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
-      const month = (body.month || '').toString();
-      const posts = Array.isArray(body.posts) ? body.posts : [];
+      let month = (body.month || '').toString();
+      let posts = Array.isArray(body.posts) ? body.posts : [];
+      // "Fill missing blogs" mode: build ONLY the blog posts, for the days of a month whose video was already
+      // sent but that still have no blog recorded. No video rows are built, so nothing duplicates on Metricool.
+      const blogsOnly = !!body.blogsOnly || !!body.fillMissingMonth;
+      if (body.fillMissingMonth) {
+        month = String(body.fillMissingMonth);
+        const planG = await ghGet(PLAN_FILE); let planDoc = { months: {} };
+        if (planG.content) { try { planDoc = JSON.parse(planG.content); } catch (e) {} }
+        const planDays = (((planDoc.months || {})[month]) || {}).days || [];
+        const ubG = await ghGet(USEDBLOG_FILE); const blogDates = {};
+        if (ubG.content) { try { ((JSON.parse(ubG.content).used) || []).forEach(function (x) { if (x && x.usedDate) blogDates[String(x.usedDate).slice(0, 10)] = 1; }); } catch (e) {} }
+        posts = planDays.filter(function (d) { return d && d.sent && d.date && !blogDates[String(d.date).slice(0, 10)]; })
+          .map(function (d) { return { sku: d.sku || '', title: d.title || '', url: d.url || '', handle: d.handle || '', room: d.room || '', image: d.image || '', date: d.date }; });
+        if (!posts.length) return res.status(200).json({ ok: true, count: 0, csv: '', message: 'No days missing a blog in ' + month + ' — nothing to fill.' });
+      }
       if (!posts.length) return res.status(400).json({ ok: false, error: 'No posts selected' });
 
       // Metricool import template header (94 columns)
@@ -735,13 +749,30 @@ module.exports = async (req, res) => {
             return un[0];
           }
         }
-        var all = unusedOf(await shopArticles('', 50));
-        if (!all.length) return null;
-        var alt = all.filter(function (a) { var b = boardForText(artText(a)); return b && b !== lastTopic; });
-        return (alt[0] || all[0]);
+        // Fallback: the most-recent UNUSED blogs (any age), built once for the whole batch. Skip ones already
+        // taken this batch. This never runs dry while unused blogs still exist — it was the old 50-only fetch
+        // (which could be all-used) that left days with no blog.
+        var pool = unusedPool.filter(function (a) { return !usedSet[(a.handle || '').toLowerCase()] && !batchUsed[(a.handle || '').toLowerCase()]; });
+        if (!pool.length) return null;
+        var alt = pool.filter(function (a) { var b = boardForText(artText(a)); return b && b !== lastTopic; });
+        return (alt[0] || pool[0]);
       }
 
       var usedBlogSet = await usedBlogSetLower();
+      // Pool of the most-recent UNUSED blogs (newest→oldest, skipping ones already used), fetched ONCE for the
+      // batch. The picker's fallback draws from this, so it never leaves a day without a blog while unused ones
+      // still exist — no matter how old they are.
+      async function recentArticles(n) {
+        if (!SHOP_DOMAIN || !SHOP_TOKEN) return [];
+        var gq = 'query($n:Int!){ articles(first:$n, sortKey:PUBLISHED_AT, reverse:true, query:"blog_id:93572858142"){ edges{ node{ title handle publishedAt isPublished image{url} tags } } } }';
+        var r = await fetch('https://' + SHOP_DOMAIN + '/admin/api/2025-01/graphql.json', { method: 'POST', headers: { 'X-Shopify-Access-Token': SHOP_TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ query: gq, variables: { n: n } }) });
+        if (!r.ok) return [];
+        var d = await r.json();
+        var edges = (d && d.data && d.data.articles && d.data.articles.edges) || [];
+        var now = Date.now();
+        return edges.map(function (e) { return e.node; }).filter(function (a) { return a.handle && a.isPublished && a.publishedAt && new Date(a.publishedAt).getTime() <= now; });
+      }
+      var unusedPool = (await recentArticles(250)).filter(function (a) { return !usedBlogSet[(a.handle || '').toLowerCase()]; });
       var batchBlogUsed = {};
       var lastBlogTopic = '';
 
@@ -842,18 +873,20 @@ module.exports = async (req, res) => {
             'Return ONLY: {"linkedin":"","facebook":"","threads":"","instagram":"","gmb":"","pinterestA":"","pinterestB":"","pinterestTitle":"","alt":""}';
         }
 
-        var pair = await Promise.all([callAI(instr, 2000), binstr ? callAI(binstr, 3000).catch(function () { return null; }) : Promise.resolve(null)]);
+        var pair = await Promise.all([blogsOnly ? Promise.resolve({}) : callAI(instr, 2000), binstr ? callAI(binstr, 3000).catch(function () { return null; }) : Promise.resolve(null)]);
         var caps = pair[0]; var bc = pair[1];
         var alt = caps.alt || (title + ' styled in a ' + room + ' room');
 
         // No video thumbnail — leave it empty so Metricool uses the video's own FIRST FRAME as the cover.
         var mk = function (net) { var o = { Date: date, Draft: false, Shortener: true, 'Picture Url 1': video, 'Alt text picture 1': alt, 'Video Thumbnail Url': '' }; o[net] = true; return o; };
-        var rTw = mk('Twitter/X'); rTw.Time = '10:00:00'; rTw['Twitter/X Type'] = 'POST'; rTw.Text = trimTo(caps.twitter, 280); rows.push(rowLine(rTw));
-        var rFb = mk('Facebook'); rFb.Time = '10:00:00'; rFb['Facebook Post Type'] = 'REEL'; rFb['Facebook Title'] = caps.facebookTitle || title; rFb.Text = trimTo(caps.facebook, 2000); rows.push(rowLine(rFb));
-        var rYt = mk('Youtube'); rYt.Time = '10:00:00'; rYt['Youtube Video Title'] = caps.youtubeTitle || title; rYt['Youtube Video Type'] = 'SHORT'; rYt['Youtube Video Privacy'] = 'PUBLIC'; rYt.Text = trimTo(caps.youtube, 4900); rows.push(rowLine(rYt));
-        var rTh = mk('Threads'); rTh.Time = '11:00:00'; rTh['Threads Reply Control'] = 'EVERYONE'; rTh['Threads Post Type'] = 'POST'; rTh.Text = trimTo(caps.threads, 500); rows.push(rowLine(rTh));
-        var rPi = mk('Pinterest'); rPi.Time = '11:00:00'; rPi['Pinterest Board'] = board; rPi['Pinterest Pin Title'] = caps.pinterestTitle || title; rPi['Pinterest Pin Link'] = shop('pinterest', 'video'); rPi.Text = trimTo(caps.pinterest, 500); rows.push(rowLine(rPi));
-        var rIg = mk('Instagram'); rIg.Time = '11:00:00'; rIg.Draft = true; rIg['Instagram Post Type'] = 'REEL'; rIg['Instagram Show Reel On Feed'] = true; rIg.Text = trimTo(caps.instagram, 2200); rows.push(rowLine(rIg));
+        if (!blogsOnly) {   // in fill-missing-blogs mode the video was already sent — build ONLY the blog rows below
+          var rTw = mk('Twitter/X'); rTw.Time = '10:00:00'; rTw['Twitter/X Type'] = 'POST'; rTw.Text = trimTo(caps.twitter, 280); rows.push(rowLine(rTw));
+          var rFb = mk('Facebook'); rFb.Time = '10:00:00'; rFb['Facebook Post Type'] = 'REEL'; rFb['Facebook Title'] = caps.facebookTitle || title; rFb.Text = trimTo(caps.facebook, 2000); rows.push(rowLine(rFb));
+          var rYt = mk('Youtube'); rYt.Time = '10:00:00'; rYt['Youtube Video Title'] = caps.youtubeTitle || title; rYt['Youtube Video Type'] = 'SHORT'; rYt['Youtube Video Privacy'] = 'PUBLIC'; rYt.Text = trimTo(caps.youtube, 4900); rows.push(rowLine(rYt));
+          var rTh = mk('Threads'); rTh.Time = '11:00:00'; rTh['Threads Reply Control'] = 'EVERYONE'; rTh['Threads Post Type'] = 'POST'; rTh.Text = trimTo(caps.threads, 500); rows.push(rowLine(rTh));
+          var rPi = mk('Pinterest'); rPi.Time = '11:00:00'; rPi['Pinterest Board'] = board; rPi['Pinterest Pin Title'] = caps.pinterestTitle || title; rPi['Pinterest Pin Link'] = shop('pinterest', 'video'); rPi.Text = trimTo(caps.pinterest, 500); rows.push(rowLine(rPi));
+          var rIg = mk('Instagram'); rIg.Time = '11:00:00'; rIg.Draft = true; rIg['Instagram Post Type'] = 'REEL'; rIg['Instagram Show Reel On Feed'] = true; rIg.Text = trimTo(caps.instagram, 2200); rows.push(rowLine(rIg));
+        }
 
         var usedB = null;
         if (blog && bc) {
@@ -884,7 +917,7 @@ module.exports = async (req, res) => {
           usedB = { handle: bh, title: bTitle, usedDate: date };
         }
 
-        return { rows: rows, usedV: { sku: sku, name: title, room: room, usedMonth: month }, usedB: usedB };
+        return { rows: rows, usedV: blogsOnly ? null : { sku: sku, name: title, room: room, usedMonth: month }, usedB: usedB };
       }
 
       // Phase 2 — build all posts IN PARALLEL (max 6 at once), order preserved.
@@ -900,7 +933,7 @@ module.exports = async (req, res) => {
       catch (e) { return res.status(200).json({ ok: false, error: 'Caption AI error — ' + (e && e.message ? e.message : 'try again') }); }
       built.forEach(function (b) {
         b.rows.forEach(function (rw) { out.push(rw); });
-        usedToMark.push(b.usedV);
+        if (b.usedV) usedToMark.push(b.usedV);
         if (b.usedB) blogUsedToMark.push(b.usedB);
       });
 
@@ -924,7 +957,9 @@ module.exports = async (req, res) => {
         }, 'Mark blogs used from Metricool file');
       }
 
-      await ghSave(PLAN_FILE, function (content) {
+      // In fill-missing-blogs mode the videos were already sent — do NOT touch the plan (it would wipe the
+      // existing videoLink). Only the blog records were updated above.
+      if (!blogsOnly) await ghSave(PLAN_FILE, function (content) {
         var plan = { months: {} };
         if (content) { try { plan = JSON.parse(content); if (!plan.months) plan.months = {}; } catch (e) { plan = { months: {} }; } }
         posts.forEach(function (p) {
