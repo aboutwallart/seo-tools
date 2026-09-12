@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 69.9</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.1</p>
                 </div>
             </div>
         </header>
@@ -684,8 +684,10 @@
             const imp = g.impressions || 0;
             const clk = g.clicks || 0;
             const ctr = imp > 0 ? clk / imp : 0;
-            if (mpdHold.has(url)) return 'hold';                           // she flagged it "don't optimise yet" — bottom
-            if (pos && pos <= 3) return 'winner';                          // already top — light touch, last
+            // Winner / hold zone = top 5. A winner or held page that has FALLEN below position 5 loses that
+            // status and drops through to a Start Here category, so it comes back into the queue to be optimised.
+            if (mpdHold.has(url) && (!pos || pos <= 5)) return 'hold';     // held & still ranking well (≤5) — leave it
+            if (pos && pos <= 5) return 'winner';                          // top 5 — light touch, leave it, last
             if (g.urgency === 'quickwin') return 'quickwin';               // striking distance
             if (imp >= 100 && pos && pos <= 15 && ctr < 0.01) return 'fixctr'; // seen a lot, rarely clicked
             if (g.urgency === 'danger') return 'danger';                   // slipping
@@ -1278,7 +1280,9 @@
             _setCnt('optCntYellow', _counts.yellow); _setCnt('optCntRed', _counts.red); _setCnt('optCntBlue', _counts.blue);
 
             // "Is it working?" trend + the two numbers to act on (drops to look at, weak keywords to change).
-            renderOptimizedHealthSummary(sorted, kwPair, _counts.red, _counts.yellow);
+            // Winner & Hold pages (already top 5) so the health number can include them too.
+            const _winnerPages = (typeof urls !== 'undefined' ? (urls || []) : []).filter(u => { const c = startHereCategory(u.url); return c === 'winner' || c === 'hold'; });
+            renderOptimizedHealthSummary(sorted, kwPair, _counts.red, _counts.yellow, _winnerPages);
 
             // Keywords already targeted by ANOTHER page — never suggest or accept one that's taken.
             const lockedElsewhere = new Set();
@@ -1343,13 +1347,16 @@
 
                 // 🟡 Better change keyword — verdict + this page's other keywords + Ubersuggest prompt + manual box.
                 let extraBlock = '';
-                if (st.key === 'yellow') {
+                if (st.key === 'yellow' || st.key === 'blue') {
+                    const isBlue = st.key === 'blue';
                     const others = otherKeywordsForPage(kp.np, kp.kw);
                     const free = others.filter(o => !o.taken);
                     const best = free.find(o => o.impressions >= MPD_IMP_FLOOR && o.position <= 20);
-                    const verdict = best
-                        ? `<div style="font-size:0.85rem;color:#3B6D11;font-weight:600;margin-bottom:8px;">✅ Worth optimising for <strong>"${best.q}"</strong> — impressions ${best.impressions.toLocaleString()}, position ${best.position.toFixed(1)}. Click "Use this" below.</div>`
-                        : `<div style="font-size:0.85rem;color:#8a6d00;font-weight:600;margin-bottom:8px;">🔎 None of this page's other keywords are strong enough — search Ubersuggest for a better one.</div>`;
+                    const verdict = isBlue
+                        ? `<div style="font-size:0.85rem;color:#1C4E80;font-weight:600;margin-bottom:8px;">🔵 This page never took off for "${kp.kw}" — its keyword is likely the wrong target or too hard. ${best ? `It already ranks for <strong>"${best.q}"</strong> (impressions ${best.impressions.toLocaleString()}, position ${best.position.toFixed(1)}) — try that below.` : `Pick a better keyword below or search Ubersuggest. Use 🔍 Diagnose &amp; fix first to rule out a technical block.`}</div>`
+                        : (best
+                            ? `<div style="font-size:0.85rem;color:#3B6D11;font-weight:600;margin-bottom:8px;">✅ Worth optimising for <strong>"${best.q}"</strong> — impressions ${best.impressions.toLocaleString()}, position ${best.position.toFixed(1)}. Click "Use this" below.</div>`
+                            : `<div style="font-size:0.85rem;color:#8a6d00;font-weight:600;margin-bottom:8px;">🔎 None of this page's other keywords are strong enough — search Ubersuggest for a better one.</div>`);
                     const listRows = free.length
                         ? free.slice(0, 8).map(o => `<div style="display:flex;align-items:center;gap:8px;margin:3px 0;flex-wrap:wrap;">
                                 <button class="btn-secondary" style="padding:3px 10px;font-size:0.78rem;" onclick="mpdChangeKeyword('${encUrl}','${encKw}','${encodeURIComponent(o.q)}', this)">Use this</button>
@@ -1359,7 +1366,7 @@
                         : `<div style="font-size:0.8rem;color:#888;margin:3px 0;">No other free keywords found for this page.</div>`;
                     const uber = buildUberPromptText(item.url, item.keyword || '', free);
                     const mkId = `optMk_${idx}`, uberId = `uber_${idx}`, sflId = `optSfl_${idx}`, sflResId = `optSflRes_${idx}`;
-                    extraBlock = `<div style="margin-top:10px;padding:10px 12px;background:#fffdf5;border:1px solid #F0DFA6;border-radius:8px;">
+                    extraBlock = `<div style="margin-top:10px;padding:10px 12px;background:${isBlue?'#f2f8fd':'#fffdf5'};border:1px solid ${isBlue?'#C4DEF3':'#F0DFA6'};border-radius:8px;">
                         ${verdict}
                         <div style="font-size:0.78rem;color:#8a6d00;font-weight:700;margin:6px 0 4px;">Its other keywords (most searched first):</div>
                         ${listRows}
@@ -1394,6 +1401,7 @@
                     <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;">
                         ${st.key === 'red' ? `<button class="btn-secondary" style="background:#c62828;color:#fff;border-color:#c62828;" onclick="reanalyzeDroppedPage('${encUrl}','${encKw}', this)">🔁 Re-analyse &amp; fix</button>` : ''}
                         ${st.key === 'red' ? `<button class="btn-secondary" style="background:#c62828;color:#fff;border-color:#c62828;" onclick="window.open('/easy-seo-report.html?view=kwtracker&q=${encodeURIComponent(item.keyword||'')}','_blank')">📊 Keyword Tracker</button>` : ''}
+                        ${st.key === 'blue' ? `<button class="btn-secondary" style="background:#2F72B6;color:#fff;border-color:#2F72B6;" onclick="diagnoseBluePage('${encUrl}','${encKw}', this)">🔍 Diagnose &amp; fix</button>` : ''}
                         ${item.results ? `<button class="btn-secondary" onclick="viewOptimizedResults('${item.url}')">📊 View</button>` : ''}
                         <button class="btn-secondary" onclick="unmarkAsOptimized('${item.url}', this)">↩️ Unmark</button>
                     </div>
@@ -1402,7 +1410,7 @@
         }
 
         // Fix D — average improvement of the LOCKED keyword across all optimised pages, for 15 / 30 / 90 days.
-        function renderOptimizedHealthSummary(pages, kwPair, redCount, yellowCount) {
+        function renderOptimizedHealthSummary(pages, kwPair, redCount, yellowCount, winnerPages) {
             const box = document.getElementById('optimizedHealthSummary');
             if (!box) return;
             const DAY = 86400000, now = Date.now();
@@ -1411,11 +1419,17 @@
                 { label: 'Last 30 days', map: gscKw30 },
                 { label: 'Last 90 days', map: gscKw90 }
             ];
+            // Winner & Hold pages (already top 5) — count their Google movement too (they have no stored baseline,
+            // so use the page's own position 90 days ago vs the last 15 days). Only those with real GSC data.
+            const winnersWithData = (winnerPages || []).filter(w2 => {
+                const np = normalizeUrlPath(w2.url); const g15 = gscEnrichment[np], g90 = gscEnrichment90[np];
+                return g15 && g15.position && g90 && g90.position;
+            });
             // How many optimised pages even have a locked-keyword baseline captured?
             let withBaseline = 0;
             pages.forEach(p => { const s = mpdSnapshots[p.url]; if (s && s.kwPosition != null) withBaseline++; });
 
-            if (withBaseline === 0) {
+            if (withBaseline === 0 && winnersWithData.length === 0) {
                 box.innerHTML = `<div style="background:#fffdf2;border:1px solid #f5e08a;border-radius:8px;padding:12px 14px;font-size:0.85rem;color:#7a5c00;">
                     📊 <strong>Is my SEO working?</strong> — to measure by the <strong>locked keyword</strong>, click <strong>🔄 Refresh baselines (keyword)</strong> above once. Until then the results below use the page total.</div>`;
                 return;
@@ -1435,6 +1449,13 @@
                     if (!cur) return;
                     if ((cur.position || 99) <= MPD_POS_GOOD && (cur.impressions || 0) < MPD_IMP_FLOOR) return;  // weak keyword — leave it out of the score
                     const posDelta = s.kwPosition - cur.position;    // + = climbed (position number went down)
+                    sumPos += posDelta; if (posDelta > 0) improved++; else if (posDelta < 0) dropped++; n++;
+                });
+                // Add Winner & Hold pages — their Google movement (position 90 days ago → last 15 days).
+                winnersWithData.forEach(w2 => {
+                    const np = normalizeUrlPath(w2.url);
+                    const g15 = gscEnrichment[np], g90 = gscEnrichment90[np];
+                    const posDelta = g90.position - g15.position;   // + = climbed
                     sumPos += posDelta; if (posDelta > 0) improved++; else if (posDelta < 0) dropped++; n++;
                 });
                 let inner;
@@ -1457,7 +1478,7 @@
             }).join('');
 
             box.innerHTML = `<div style="background:#f4f9f4;border:1px solid #cfe6cf;border-radius:10px;padding:12px 14px;">
-                <div style="font-size:0.9rem;font-weight:700;color:#2e7d32;margin-bottom:10px;">📊 Is my SEO working? — locked-keyword ranking, all optimised pages</div>
+                <div style="font-size:0.9rem;font-weight:700;color:#2e7d32;margin-bottom:10px;">📊 Is my SEO working? — optimised pages + your top-5 winners</div>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;">${tiles}</div>
                 ${redCount > 0
                     ? `<div style="margin-top:12px;font-size:0.95rem;font-weight:700;color:#A32D2D;">🔴 ${redCount} page${redCount===1?'':'s'} need a look — use the “Needs a look” filter below.</div>`
@@ -1465,6 +1486,7 @@
                 ${yellowCount > 0
                     ? `<div style="margin-top:6px;font-size:0.95rem;font-weight:600;color:#8a6d00;">🟡 ${yellowCount} page${yellowCount===1?'':'s'} have a weak keyword — use the “Better change keyword” filter below.</div>`
                     : ''}
+                ${winnersWithData.length ? `<div style="margin-top:6px;font-size:0.9rem;font-weight:600;color:#1f6f43;">🏆 Includes ${winnersWithData.length} winner page${winnersWithData.length===1?'':'s'} (top 5) — counted by their Google movement. Any that fall below position 5 return to Start Here automatically.</div>` : ''}
                 <div style="font-size:0.72rem;color:#999;margin-top:8px;">A higher position number is worse, so “▲” means the keyword climbed. The number to act on is the red one above.</div>
             </div>`;
         }
@@ -1556,6 +1578,20 @@
                     <span style="font-size:0.76rem;color:#888;">volume ${vol} · difficulty ${diff}</span>
                 </div>`;
             }).join('');
+        }
+
+        // 🔵 "Diagnose & fix" — for a page that NEVER took off. Runs the same analysis but tells it to work out,
+        // in order, WHY it never ranked (blocked from Google? wrong keyword for today's SERP? missing content?
+        // too competitive?) and give ONE decided fix. Reuses the reoptimise engine (dropDiagnosis + indexability).
+        function diagnoseBluePage(encUrl, encKw, btn) {
+            const url = decodeURIComponent(encUrl), keyword = decodeURIComponent(encKw);
+            if (!keyword) { alert('This page has no keyword saved, so it cannot be diagnosed.'); return; }
+            mpdReoptimizeNote = `This page was optimised over 6 months ago and has NEVER ranked for its target keyword "${keyword}" (no impressions in Search Console). Work out the SINGLE most likely reason, in this order: (1) it is blocked from Google — a noindex tag or a canonical pointing to another page; (2) the keyword no longer matches what Google shows for it today (wrong intent or page type) — then it needs a different keyword; (3) it is missing the content that the top-ranking pages have; (4) or the keyword is simply too competitive for this page's authority — then recommend an easier keyword. State that one reason plainly and give the ONE main fix.`;
+            mpdCannibalDiag = null;
+            currentUrl = { id: Date.now(), url, keyword };
+            currentAnalysisUrl = url;
+            const mk = document.getElementById('mainKeyword'); if (mk) mk.value = keyword;
+            startAnalysis();
         }
 
         // 🔴 "Re-analyse & fix" — run the same analysis as the first time, but tell it the page dropped so it
@@ -1820,6 +1856,19 @@
                 }
 
                 const data = await response.json();
+
+                // The top Google results are all marketplaces/social (Amazon/Etsy/Pinterest…) — no real competitor
+                // to compare against, and basing advice on those would be wrong. Tell her honestly.
+                if (data.marketplaceDominated) {
+                    mpdReoptimizeNote = ''; mpdCannibalDiag = null;
+                    document.getElementById('loadingModal').classList.remove('active');
+                    bodyEditModal(`<div style="padding:20px 22px;">
+                        <h3 style="margin:0 0 8px;color:#7a4f01;">🛑 Top results are all marketplaces</h3>
+                        <p style="margin:0 0 16px;font-size:0.9rem;color:#555;line-height:1.55;">${(data.error||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>
+                        <div style="display:flex;justify-content:flex-end;"><button onclick="bodyEditClose()" style="padding:9px 18px;border:none;background:#4caf50;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;">Got it</button></div>
+                    </div>`);
+                    return;
+                }
 
                 // SerpAPI returned no competitors → ask for the 3 URLs instead of failing.
                 if (data.needsManual) {
@@ -2705,7 +2754,9 @@
                         <span id="masterLabel" style="font-weight:700;color:${done===total&&total>0?'#4caf50':'#666'}">${done}/${total} done</span>
                     </div>
                     <div class="progress-bar-wrap"><div class="progress-bar-fill" id="masterBar" style="width:${donePct}%"></div></div>
-                    ${done===total&&total>0 ? '<div style="color:#4caf50;font-size:0.85rem;margin-top:8px;font-weight:600;">✅ All done — page saved as Optimized!</div>' : ''}
+                    ${done===total&&total>0 ? (dropDiagBanner
+                        ? '<div style="color:#c62828;font-size:0.9rem;margin-top:8px;font-weight:700;">⚠️ This page has a problem to fix — see “🔍 Why it dropped” at the top. Do that fix, then re-check. (The checklist below is not the issue.)</div>'
+                        : '<div style="color:#4caf50;font-size:0.85rem;margin-top:8px;font-weight:600;">✅ All done — page saved as Optimized!</div>') : ''}
                     <button id="manualMarkBtn" onclick="manualMarkAsOptimized()" style="margin-top:12px;background:#4caf50;color:white;padding:8px 20px;border-radius:6px;font-size:0.88rem;border:none;cursor:pointer;font-weight:600;">✅ Mark as Optimised</button>
                 </div>`;
 
