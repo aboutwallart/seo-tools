@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 69.8</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 69.9</p>
                 </div>
             </div>
         </header>
@@ -1763,6 +1763,32 @@
                 alert('Please enter a main keyword');
                 return;
             }
+
+            // ── 3a: manual keyword change safety ──────────────────────────────────────────
+            // If she typed a DIFFERENT keyword on a page that already has one, route the change through the
+            // SAFE path (mpd-change-keyword): check the new keyword isn't locked to another page, then update
+            // this page's EXISTING registry row IN PLACE (freeing the old) BEFORE analysing — so marking it
+            // optimised later can't add a duplicate row / double-lock a keyword. Same guard the yellow card uses.
+            const _origKw = ((currentUrl && currentUrl.keyword) || '').trim();
+            if (_origKw && keyword.toLowerCase() !== _origKw.toLowerCase()) {
+                const thisUrl = normalizeUrlPath(currentUrl.url);
+                const taken = [...optimizedPages, ...urls].some(p => p.keyword && p.keyword.toLowerCase() === keyword.toLowerCase() && normalizeUrlPath(p.url) !== thisUrl);
+                if (taken) { alert(`"${keyword}" is already used on another page. Pick a different keyword — one keyword per page.`); return; }
+                if (!confirm(`You're changing this page's keyword:\n\n"${_origKw}"  →  "${keyword}"\n\nThis retargets the page to the new keyword and frees the old one. Continue?`)) return;
+                try {
+                    const _r = await fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'mpd-change-keyword', url: currentUrl.url, oldKeyword: _origKw, newKeyword: keyword }) });
+                    const _d = await _r.json();
+                    if (_d && _d.locked) { alert(`"${keyword}" is already locked to another page. Pick a different keyword.`); return; }
+                    if (!_d || !_d.success) throw new Error((_d && _d.error) || 'Failed to save the keyword change');
+                    // Keep memory in sync with the registry so nothing later re-adds the old keyword.
+                    currentUrl.keyword = keyword;
+                    urls.forEach(u => { if (normalizeUrlPath(u.url) === thisUrl) u.keyword = keyword; });
+                    optimizedPages.forEach(o => { if (normalizeUrlPath(o.url) === thisUrl) o.keyword = keyword; });
+                    delete mpdSnapshots[currentUrl.url];   // old baseline was for the old keyword
+                } catch (_e) { alert('Could not save the keyword change: ' + _e.message); return; }
+            }
+            // ── end 3a ────────────────────────────────────────────────────────────────────
+
             const manual = Array.isArray(manualCompetitors) ? manualCompetitors : [];   // only arrays count
             const _reoptNote = mpdReoptimizeNote;   // carried through the manual-competitor retry too
 
