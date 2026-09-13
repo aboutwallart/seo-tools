@@ -1034,11 +1034,16 @@ module.exports = async (req, res) => {
       var dOfferKeys = DR.hasOffer
         ? '"offerLead":"ONE warm first-person line leading into the offer", "offerLine":"the offer phrase ONLY, framed around the wall art, e.g. ' + (dpct2 || '15') + '% off your wall art sets, no code, no date",'
         : '"offerLead":"", "offerLine":"",';
+      var dYear = parseInt((body.year || '').toString(), 10);
+      var dYearLine = dYear
+        ? ('YEAR (critical): the year now ending is ' + dYear + ' and the year ahead is ' + (dYear + 1) + '. If you mention a year, use ONLY these exact years, never any other year. It is completely fine to not name a year at all.')
+        : 'YEAR (critical): do NOT state any specific year number; write "this year" and "the year ahead" instead.';
       var dpr = [
         'You write ONE email in About Wall Art\'s December / holiday sequence. Voice: warm, kind, human, first-person (Mae), spoken, NEVER poetic, pushy or "AI". A few tasteful emojis are fine.',
         'PRODUCT WORDING (critical): never "a print"/"prints" — always "wall art", "an art set", "wall art sets".',
         'DISCOUNT SCOPE (critical): frame any offer AROUND the wall art (e.g. "' + (dpct2 || '15') + '% off your wall art sets"). NEVER "your whole order / everything / sitewide / store-wide". No "up to".',
         'PUNCTUATION (critical): NEVER use an em dash or en dash. Use commas or full stops instead.',
+        dYearLine,
         'THIS EMAIL\'S ROLE: ' + DR.brief,
         DR.hasOffer
           ? ('The offer: ' + (dpct2 ? dpct2 + '% off' : 'a discount') + (dcode2 ? ', code ' + dcode2 : '') + (dexp2 ? ', valid until ' + dexp2 : '') + '. State it ONCE. Exactly ONE call to action.')
