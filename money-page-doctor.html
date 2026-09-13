@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.4</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.5</p>
                 </div>
             </div>
         </header>
@@ -424,6 +424,11 @@
         <div class="tab-content" id="winnersTab">
             <h3>🏆 Winners &amp; Hold</h3>
             <p style="color:#666;margin-bottom:15px;">Pages whose keyword ranks #1–5 in the UK (auto), or ones you've put on hold. Kept out of the Start Here queue — light touch only, don't rush these.</p>
+            <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;background:#f4f9f4;border:1px solid #cfe6cf;border-radius:8px;padding:10px 12px;">
+                <button onclick="checkWinnersSerp(this)" style="padding:9px 16px;border:none;background:#2e7d32;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;font-size:0.88rem;">🇬🇧 Check winners in the UK (SERP)</button>
+                <span id="winnersSerpStatus" style="font-size:0.82rem;color:#555;"></span>
+                <span style="font-size:0.76rem;color:#888;flex-basis:100%;">Checks the real UK position of the winners that need it (never checked, or older than 15 days). SERP position wins over Google's. Ones already fresh are skipped, to save credits.</span>
+            </div>
             <div style="margin-bottom:14px;">
                 <input type="text" id="winnersSearch" placeholder="🔍 Search this list by keyword or URL (type any words, any order)…" oninput="renderWinners()" style="width:100%;padding:9px 12px;border:2px solid #e0e0e0;border-radius:8px;font-size:0.9rem;box-sizing:border-box;font-family:'Poppins',sans-serif;">
             </div>
@@ -620,21 +625,25 @@
         let mpdSnapshots = {};   // { url: { optimizedAt, position, impressions, clicks, keyword } }
         let mpdPushState = {};   // { url: { pushed: bool, linksPushed: bool } }
         let mpdHold = new Set(); // URLs she's flagged "Winner — hold (don't optimise yet)"
+        let mpdWinnerSerp = {};  // "normalizedPath|||keyword" → { position, checkedAt } — real SERP UK position for winners
+        const MPD_SERP_STALE_DAYS = 15;  // a stored SERP check older than this gets re-checked when she clicks the button
         let checklistSaveTimer = null;
         let hiddenOptimizedSet = new Set(); // in-memory only — resets on page reload
 
         async function loadMPDData() {
             try {
-                const [clRes, snRes, psRes, hdRes] = await Promise.all([
+                const [clRes, snRes, psRes, hdRes, spRes] = await Promise.all([
                     fetch('/api/blogs?action=get-mpd-checklist').then(r => r.json()).catch(() => ({ checklist: {} })),
                     fetch('/api/blogs?action=get-mpd-snapshots').then(r => r.json()).catch(() => ({ snapshots: {} })),
                     fetch('/api/blogs?action=get-mpd-push-state').then(r => r.json()).catch(() => ({ pushState: {} })),
-                    fetch('/api/blogs?action=get-mpd-hold').then(r => r.json()).catch(() => ({ hold: [] }))
+                    fetch('/api/blogs?action=get-mpd-hold').then(r => r.json()).catch(() => ({ hold: [] })),
+                    fetch('/api/blogs?action=get-mpd-winner-serp').then(r => r.json()).catch(() => ({ serp: {} }))
                 ]);
                 mpdChecklist = clRes.checklist || {};
                 mpdSnapshots = snRes.snapshots || {};
                 mpdPushState = psRes.pushState || {};
                 mpdHold = new Set(hdRes.hold || []);
+                mpdWinnerSerp = spRes.serp || {};
                 console.log('[MPD Data] Loaded from GitHub');
             } catch(e) { console.warn('[MPD Data] Load failed:', e); }
         }
@@ -687,6 +696,14 @@
             const d = gscKwUK15[normalizeUrlPath(url) + '|||' + keyword.toLowerCase()];
             return (d && d.position) ? d.position : null;
         }
+        function serpKey(url, keyword) { return normalizeUrlPath(url) + '|||' + (keyword || '').toLowerCase(); }
+        // Best available UK position for a winner: a stored SERP UK check wins over Google's UK number.
+        // (SERP position null = checked but not in the top 10 → treat as dropped, 99.)
+        function bestWinnerPos(url, keyword) {
+            const s = mpdWinnerSerp[serpKey(url, keyword)];
+            if (s && s.checkedAt) return (typeof s.position === 'number' && s.position > 0) ? s.position : 99;
+            return ukKwPos(url, keyword);
+        }
         function startHereCategory(url, keyword) {
             const g = gscEnrichment[normalizeUrlPath(url)] || {};
             const pos = g.position || null;
@@ -694,7 +711,8 @@
             const clk = g.clicks || 0;
             const ctr = imp > 0 ? clk / imp : 0;
             // Winner / hold zone = the LOCKED keyword ranking 1–5 in the UK (not the page average).
-            const kwUK = ukKwPos(url, keyword);
+            // SERP UK check (when you've run it) wins; otherwise Google's UK number.
+            const kwUK = bestWinnerPos(url, keyword);
             // Manual hold: stays a winner while its UK keyword is still ≤5 (or Google has no UK number yet — don't
             // wrongly demote it). Drops back to Start Here only when UK data clearly shows it fell below 5.
             if (mpdHold.has(url) && (kwUK == null || kwUK <= 5)) return 'hold';
@@ -901,7 +919,7 @@
                     return cat === 'winner' || cat === 'hold';
                 })
                 .map(item => ({ item, cat: startHereCategory(item.url, item.keyword) }))
-                .sort((a, b) => (ukKwPos(a.item.url, a.item.keyword) || 99) - (ukKwPos(b.item.url, b.item.keyword) || 99));
+                .sort((a, b) => (bestWinnerPos(a.item.url, a.item.keyword) || 99) - (bestWinnerPos(b.item.url, b.item.keyword) || 99));
             const c = document.getElementById('winnersCount'); if (c) c.textContent = items.length;
             if (!items.length) { list.innerHTML = '<p style="text-align:center;color:#666;padding:40px;">No winners or held pages yet. Pages whose keyword ranks #1–5 in the UK, and ones you put on hold, will show here.</p>'; return; }
             // Flexible search: type any words (any order) — all must appear in the URL or keyword.
@@ -920,9 +938,19 @@
                 const isHold = row.cat === 'hold';
                 const note = isHold ? 'You flagged this to leave for now.' : 'Top 5 already — light touch, don\'t rush.';
                 const ukRec = item.keyword ? (gscKwUK15[normalizeUrlPath(item.url) + '|||' + item.keyword.toLowerCase()] || null) : null;
-                const metrics = ukRec
-                    ? `<div style="font-size:0.8rem;color:#666;margin-top:4px;display:flex;gap:14px;flex-wrap:wrap;"><span>📍 UK pos <strong>${ukRec.position.toFixed(1)}</strong></span><span>👁 ${(ukRec.impressions||0).toLocaleString()} imp</span><span>🖱 ${(ukRec.clicks||0).toLocaleString()} clicks</span></div>`
-                    : (g.position ? `<div style="font-size:0.8rem;color:#666;margin-top:4px;display:flex;gap:14px;flex-wrap:wrap;"><span>📍 Pos <strong>${g.position.toFixed(1)}</strong></span><span>👁 ${(g.impressions||0).toLocaleString()} imp/mo</span><span>🖱 ${(g.clicks||0).toLocaleString()} clicks/mo</span></div>` : '');
+                const _sp = mpdWinnerSerp[serpKey(item.url, item.keyword)];
+                const _fmtD = (ts) => { try { return new Date(ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); } catch(e) { return ''; } };
+                let metrics;
+                if (_sp && _sp.checkedAt) {
+                    // Real SERP UK position (what she trusts) — with the date it was checked.
+                    metrics = (typeof _sp.position === 'number' && _sp.position > 0)
+                        ? `<div style="font-size:0.8rem;color:#1f6f43;margin-top:4px;font-weight:600;">📍 UK pos <strong>${_sp.position}</strong> <span style="color:#999;font-weight:400;">· checked ${_fmtD(_sp.checkedAt)} (SERP)</span></div>`
+                        : `<div style="font-size:0.8rem;color:#c62828;margin-top:4px;font-weight:600;">📍 Not in the UK top 10 <span style="color:#999;font-weight:400;">· checked ${_fmtD(_sp.checkedAt)} (SERP)</span></div>`;
+                } else if (ukRec) {
+                    metrics = `<div style="font-size:0.8rem;color:#666;margin-top:4px;display:flex;gap:14px;flex-wrap:wrap;"><span>📍 UK pos <strong>${ukRec.position.toFixed(1)}</strong> <span style="color:#999;">(Google)</span></span><span>👁 ${(ukRec.impressions||0).toLocaleString()} imp</span></div>`;
+                } else {
+                    metrics = `<div style="font-size:0.8rem;color:#9a6b00;margin-top:4px;">📍 Pos <strong>${g.position ? g.position.toFixed(1) : '—'}</strong> <span style="color:#b08400;">(all countries — not checked in the UK yet)</span></div>`;
+                }
                 return `<div class="url-item" style="border-left:4px solid #2e7d32;background:#fff;">
                     <div style="flex:1;">
                         <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap;">
@@ -937,10 +965,87 @@
                     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
                         ${isHold ? `<button class="btn-secondary" onclick="toggleWinnerHold('${item.url.replace(/'/g, "\\'")}', false)">↩️ Un-hold</button>` : ''}
                         ${item.analyzed ? `<button class="btn-secondary" onclick="viewResults(${item.id})">📊 View</button>` : ''}
+                        ${item.keyword ? `<button class="btn-secondary" title="Check this page's real UK position now (SERP)" onclick="recheckOneWinner('${encodeURIComponent(item.url)}','${encodeURIComponent(item.keyword)}', this)">🇬🇧 Re-check UK</button>` : ''}
                         <button onclick="openAnalyzeModal(${item.id})">${item.analyzed ? '🔄 Re-analyze' : '🔍 Analyze'}</button>
                     </div>
                 </div>`;
             }).join('');
+        }
+
+        // ── SERP UK check for winners ──────────────────────────────────────────────
+        // Which winners need a fresh SERP UK reading: none stored, or the stored one is stale.
+        function winnerNeedsSerp(url, keyword) {
+            if (!keyword) return false;
+            const s = mpdWinnerSerp[serpKey(url, keyword)];
+            if (!s || !s.checkedAt) return true;                       // never checked
+            const days = (Date.now() - new Date(s.checkedAt).getTime()) / 86400000;
+            return days >= MPD_SERP_STALE_DAYS;                        // stale
+        }
+        // Ask the backend for one page's real UK position (SERP gl=uk, Scrappa gl=gb) for its keyword.
+        async function fetchSerpPosition(url, keyword) {
+            const r = await fetch('/api/analyze-money-page', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'serp-position', pageUrl: url, keyword })
+            });
+            const d = await r.json();
+            if (!d || d.success !== true) throw new Error((d && d.error) || 'SERP check failed');
+            // found=false → SERP gave no usable result (busy / out of credits) → don't treat as a drop.
+            return { position: (typeof d.position === 'number') ? d.position : null, found: d.found !== false };
+        }
+        // Re-check ONE winner's UK position on demand.
+        async function recheckOneWinner(encUrl, encKw, btn) {
+            const url = decodeURIComponent(encUrl), keyword = decodeURIComponent(encKw);
+            const orig = btn ? btn.textContent : '';
+            if (btn) { btn.disabled = true; btn.textContent = '⏳ Checking…'; }
+            try {
+                const { position, found } = await fetchSerpPosition(url, keyword);
+                if (!found) { if (btn) { btn.disabled = false; btn.textContent = orig; } alert('SERP had no answer right now (busy or out of credits) — the page was left as is. Try again in a moment.'); return; }
+                mpdWinnerSerp[serpKey(url, keyword)] = { position, checkedAt: new Date().toISOString() };
+                await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'save-mpd-winner-serp', entries: { [serpKey(url, keyword)]: mpdWinnerSerp[serpKey(url, keyword)] } }) });
+                renderWinners(); renderStartHere();
+            } catch (e) {
+                if (btn) { btn.disabled = false; btn.textContent = orig; }
+                alert('Could not check the UK position: ' + e.message);
+            }
+        }
+        // Check every winner that needs it (missing or stale) — the minimum needed when she clicks the button.
+        async function checkWinnersSerp(btn) {
+            const status = document.getElementById('winnersSerpStatus');
+            const optimisedSet = new Set((optimizedPages || []).map(p => normalizeUrlPath(p.url || '')));
+            const removedSet   = new Set((removedPages   || []).map(p => normalizeUrlPath(p.url || '')));
+            const winners = deduplicateUrls(urls).filter(item => {
+                const _np = normalizeUrlPath(item.url || '');
+                if (optimisedSet.has(_np) || removedSet.has(_np)) return false;
+                const cat = startHereCategory(item.url, item.keyword);
+                return cat === 'winner' || cat === 'hold';
+            });
+            const todo = winners.filter(w => winnerNeedsSerp(w.url, w.keyword));
+            if (!todo.length) { if (status) status.textContent = '✅ All winners already checked recently — nothing to do.'; return; }
+            if (btn) btn.disabled = true;
+            const entries = {}; let done = 0, checked = 0, dropped = 0, skipped = 0;
+            for (const w of todo) {
+                done++;
+                if (status) status.textContent = `⏳ Checking ${done} of ${todo.length} in the UK…`;
+                try {
+                    const { position, found } = await fetchSerpPosition(w.url, w.keyword);
+                    if (!found) { skipped++; continue; }   // SERP had no answer → leave this one untouched
+                    const rec = { position, checkedAt: new Date().toISOString() };
+                    mpdWinnerSerp[serpKey(w.url, w.keyword)] = rec;
+                    entries[serpKey(w.url, w.keyword)] = rec;
+                    checked++;
+                    if (!(typeof position === 'number' && position <= 5)) dropped++;
+                } catch (e) { skipped++; console.warn('[SERP winner]', w.url, e.message); }
+            }
+            if (Object.keys(entries).length) {
+                try {
+                    await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'save-mpd-winner-serp', entries }) });
+                } catch (e) { console.warn('[SERP winner save]', e.message); }
+            }
+            if (btn) btn.disabled = false;
+            renderWinners(); renderStartHere(); renderOptimized();
+            if (status) status.textContent = `✅ Checked ${checked} · ${checked - dropped} still top-5 in the UK · ${dropped} moved to Start Here${skipped ? ` · ${skipped} skipped (SERP busy — try again)` : ''}.`;
         }
 
         function getUrgency(url) {
