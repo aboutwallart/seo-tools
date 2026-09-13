@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.78 · 13 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.79 · 13 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -4418,13 +4418,17 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   function buildHeroPrompt(s){
     var o=s.occ||{}, p=s.heroSource||{};
     if(o.id==='dec-christmas' || o.id==='dec-gift_guide') return buildFamilyHeroPrompt(o, p);
-    var person=personForPromo(o);
+    var person, sceneNote='';
+    if(o.id==='dec-boxing_day'){ person='one person, or a couple, relaxing at home in a calm post-Christmas moment'; sceneNote='SCENE: a subtle, tasteful Christmas tree may sit softly in the background — keep it understated and never the focus (this is the quiet day after Christmas).\n'; }
+    else if(o.id==='dec-new_year'){ person='a couple toasting with glasses, celebrating the New Year together'; sceneNote='SCENE: a warm, celebratory New Year mood with soft evening light; tasteful, not party-loud.\n'; }
+    else person=personForPromo(o);
     var nm=slugp(o.id)+'-hero';
     var alt=o.name+' — '+(p.title?p.title:'wall art')+' styled in a room';
     return 'SHOPIFY AI — PROMO HERO. Make 5 options, each a SQUARE 1:1 image, so I can pick one. For each option I will paste the SAME product photo.\n'
       +'The filename and alt text below are sacred — copy them character-for-character on every option; never modify, shorten or alter them.\n\n'
       +'FOR EACH OPTION: Keep the pasted photo EXACTLY as it is — do NOT crop, zoom, stretch, distort, recolour or change ANYTHING about the wall art, the wall, the furniture, the decor or the lighting. Your ONLY job is to ADD PEOPLE into that exact scene, standing or sitting naturally and enjoying the space, NEVER covering or blocking the wall art. Photoreal and editorial, matching the existing light and style. Square 1:1.\n'
-      +'PEOPLE: add '+person+'. Vary their ethnicity naturally (a real mix, not always white). Dress them stylishly in neutral tones. Never a dark-skinned person against a dark wall. Do NOT depict gay, lesbian or transgender couples. Poses natural and candid.\n\n'
+      +'PEOPLE: add '+person+'. Vary their ethnicity naturally (a real mix, not always white). Dress them stylishly in neutral tones. Never a dark-skinned person against a dark wall. Do NOT depict gay, lesbian or transgender couples. Poses natural and candid.\n'
+      +sceneNote+'\n'
       +'Make 5 DIFFERENT options (vary who/how many people and their poses), each SQUARE 1:1.\n'
       +'SAVE each image named "'+nm+'-option1" … "'+nm+'-option5". Set the ALT TEXT to: "'+alt+'" — use this as the alt text, NOT the file name.';
   }
@@ -5467,7 +5471,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       document.getElementById('w-'+uid).addEventListener('click', function(){
         var btn=this; btn.disabled=true; btn.textContent='Writing…';
         if(offer){ s.pct=document.getElementById('d-'+uid).value||pct; s.code=(document.getElementById('c-'+uid).value||'').toUpperCase(); }
-        var calls=[ emPost({action:'dec-write', role:item.role, discount:s.pct, code:s.code, expiry:s.expiry}) ];
+        var calls=[ emPost({action:'dec-write', role:item.role, discount:s.pct, code:s.code, expiry:s.expiry, year:String(year)}) ];
         calls.push(item.prods ? emPost({action:'promo-products', collections:['all'], count:4, skip:idx*4}) : Promise.resolve({ok:true,products:[]}));
         Promise.all(calls).then(function(res){
           var w=res[0], pp=res[1];
@@ -5573,7 +5577,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
         }
         function regen(field,rbtn){
           pull(); var orig=rbtn.textContent; rbtn.disabled=true; rbtn.textContent='…';
-          emPost({action:'dec-write', role:item.role, discount:s.pct, code:s.code, expiry:s.expiry, only:field, current:s.copy}).then(function(d){
+          emPost({action:'dec-write', role:item.role, discount:s.pct, code:s.code, expiry:s.expiry, only:field, current:s.copy, year:String(year)}).then(function(d){
             rbtn.disabled=false; rbtn.textContent=orig;
             if(!d||!d.ok||!d.copy){ alert('Could not regenerate.'); return; }
             var k=d.copy;
@@ -5636,7 +5640,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           var note=(document.getElementById('note-'+uid).value||'').trim(); var msg=document.getElementById('rwmsg-'+uid);
           if(!note){ msg.style.color='#b00'; msg.textContent='Type what you want changed first.'; return; }
           pull(); var b=this, ot=b.textContent; b.disabled=true; b.textContent='Rewriting…'; msg.textContent='';
-          emPost({action:'dec-write', role:item.role, discount:s.pct, code:s.code, expiry:s.expiry, note:note, current:s.copy}).then(function(d){
+          emPost({action:'dec-write', role:item.role, discount:s.pct, code:s.code, expiry:s.expiry, note:note, current:s.copy, year:String(year)}).then(function(d){
             b.disabled=false; b.textContent=ot;
             if(!d||!d.ok||!d.copy){ msg.style.color='#b00'; msg.textContent=(d&&d.error)||'Could not rewrite.'; return; }
             var k=d.copy, tt=s.copy.titleTop, ts=s.copy.titleScript;
