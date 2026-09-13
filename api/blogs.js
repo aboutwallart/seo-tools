@@ -1434,6 +1434,18 @@ Include EXACTLY 3 items.`;
         }
       }
 
+      // ── ACTION: get-mpd-winner-serp ── (Money Page Doctor — stored SERP UK positions for winners)
+      // Map of "normalizedPath|||keyword" → { position, checkedAt } (position null = checked, not in top 10).
+      if (req.query.action === 'get-mpd-winner-serp') {
+        try {
+          const file = await getGitHubFile('data/mpd-winner-serp.json');
+          const obj = JSON.parse(file.content);
+          return res.status(200).json({ success: true, serp: (obj && typeof obj === 'object') ? obj : {} });
+        } catch(e) {
+          return res.status(200).json({ success: true, serp: {} });
+        }
+      }
+
       // ── ACTION: get-briefs ── (saved competitor briefs, keyed by lowercased blog title)
       if (req.query.action === 'get-briefs') {
         try {
@@ -2321,6 +2333,21 @@ Include EXACTLY 3 items.`;
         const updated = [...set];
         await updateGitHubFile('data/mpd-hold.json', JSON.stringify(updated, null, 2), sha, `${hold ? 'Hold' : 'Unhold'} MPD winner: ${url}`);
         return res.status(200).json({ success: true, hold: updated });
+      }
+
+      // ── ACTION: save-mpd-winner-serp ── (Money Page Doctor — store SERP UK positions for winners)
+      // Body: { entries: { "normalizedPath|||keyword": { position, checkedAt } , ... } } — merged into the file.
+      if (req.body.action === 'save-mpd-winner-serp') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const entries = (req.body.entries && typeof req.body.entries === 'object') ? req.body.entries : null;
+        if (!entries) return res.status(400).json({ error: 'entries object required' });
+        let existing = {};
+        let sha = null;
+        try { const file = await getGitHubFile('data/mpd-winner-serp.json'); existing = JSON.parse(file.content); sha = file.sha; } catch(e) {}
+        if (!existing || typeof existing !== 'object') existing = {};
+        Object.assign(existing, entries);
+        await updateGitHubFile('data/mpd-winner-serp.json', JSON.stringify(existing, null, 2), sha, `MPD winner SERP UK positions (${Object.keys(entries).length} update(s))`);
+        return res.status(200).json({ success: true, serp: existing });
       }
 
       // ── ACTION: save-keyword-tabs ──

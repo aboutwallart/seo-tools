@@ -315,6 +315,18 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: 'Missing pageUrl or keyword' });
     }
 
+    // Lightweight SERP UK position check for the Winners tab — no full analysis, no Claude call.
+    // Reuses the SAME SerpAPI (gl=uk) / Scrappa (gl=gb) lookup the analysis uses, and returns just this
+    // page's real UK position for its keyword (null = not in the top 10 = it has dropped).
+    if (req.body.action === 'serp-position') {
+      const sr = await findCompetitors(keyword, pageUrl);
+      // `found` = the SERP actually returned a usable result set, so a null position really means
+      // "not in the top 10" (a genuine drop) rather than an API hiccup / out-of-credits. When found is
+      // false the frontend leaves the winner untouched instead of wrongly demoting it.
+      const found = (sr.userPosition != null) || ((sr.competitors || []).length > 0) || !!sr.marketplaceDominated;
+      return res.status(200).json({ success: true, position: sr.userPosition, found, marketplaceDominated: !!sr.marketplaceDominated });
+    }
+
     // Money Page Doctor "Re-analyse & fix": a short note that this page was optimised before and has slipped.
     const reoptimizeNote = typeof req.body.reoptimizeNote === 'string' ? req.body.reoptimizeNote.trim().slice(0, 600) : '';
     // Cannibalisation data (other pages of the same site ranking for this keyword, 90-day) + this page's own other keywords.
