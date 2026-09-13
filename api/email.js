@@ -844,6 +844,32 @@ module.exports = async (req, res) => {
       return;
     }
 
+    // ---- fetch a created email's HTML from Klaviyo (for the "View email" preview) ----
+    if (action === 'promo-email-html') {
+      var KLAVIYO_KEY = process.env.KLAVIYO_KEY;
+      if (!KLAVIYO_KEY) { res.status(500).json({ ok: false, error: 'KLAVIYO_KEY not configured' }); return; }
+      var REVE = '2024-10-15';
+      function kve(path) { return fetch('https://a.klaviyo.com' + path, { method: 'GET', headers: { 'Authorization': 'Klaviyo-API-Key ' + KLAVIYO_KEY, 'revision': REVE, 'accept': 'application/vnd.api+json' } }); }
+      async function kveJson(r) { var t = await r.text(); var j = null; try { j = JSON.parse(t); } catch (e) {} return { ok: r.ok, status: r.status, json: j, text: t }; }
+      var cid = (body.campaignId || '').toString().trim();
+      if (!cid && body.campaignUrl) { cid = (String(body.campaignUrl).match(/campaign\/([^\/?#]+)/) || [])[1] || ''; }
+      if (!cid) { res.status(400).json({ ok: false, error: 'campaignId required' }); return; }
+      try {
+        var cmE = await kveJson(await kve('/api/campaigns/' + cid + '/campaign-messages/'));
+        var midE = cmE.json && cmE.json.data && cmE.json.data[0] && cmE.json.data[0].id;
+        if (!midE) { res.status(404).json({ ok: false, error: 'No message found for this email' }); return; }
+        var mmE = await kveJson(await kve('/api/campaign-messages/' + midE + '/'));
+        var tidE = mmE.json && mmE.json.data && mmE.json.data.relationships && mmE.json.data.relationships.template && mmE.json.data.relationships.template.data && mmE.json.data.relationships.template.data.id;
+        if (!tidE) { res.status(404).json({ ok: false, error: 'No template found for this email' }); return; }
+        var trE = await kveJson(await kve('/api/templates/' + tidE + '/'));
+        var htmlE = trE.json && trE.json.data && trE.json.data.attributes && trE.json.data.attributes.html;
+        if (!htmlE) { res.status(404).json({ ok: false, error: 'No HTML found for this email' }); return; }
+        var subjE = ''; try { subjE = mmE.json.data.attributes.definition.content.subject || ''; } catch (e) {}
+        res.status(200).json({ ok: true, html: htmlE, subject: subjE });
+      } catch (e) { res.status(502).json({ ok: false, error: (e.message || String(e)) }); }
+      return;
+    }
+
     // ---- AI writes the promo copy (brand voice, first name, offer once, ONE topic CTA, warm closing) ----
     // Optional body.only = 'subject'|'title'|'intro'|'closing' -> regenerate just that field (per-field Regenerate).
     if (action === 'promo-write' || action === 'promo-rewrite') {
