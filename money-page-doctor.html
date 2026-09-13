@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.5</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.6</p>
                 </div>
             </div>
         </header>
@@ -710,13 +710,15 @@
             const imp = g.impressions || 0;
             const clk = g.clicks || 0;
             const ctr = imp > 0 ? clk / imp : 0;
-            // Winner / hold zone = the LOCKED keyword ranking 1–5 in the UK (not the page average).
-            // SERP UK check (when you've run it) wins; otherwise Google's UK number.
-            const kwUK = bestWinnerPos(url, keyword);
-            // Manual hold: stays a winner while its UK keyword is still ≤5 (or Google has no UK number yet — don't
-            // wrongly demote it). Drops back to Start Here only when UK data clearly shows it fell below 5.
-            if (mpdHold.has(url) && (kwUK == null || kwUK <= 5)) return 'hold';
-            if (kwUK && kwUK <= 5) return 'winner';                        // auto: locked keyword top 5 in the UK
+            // Winner / hold zone = the LOCKED keyword ranking 1–5 in the UK.
+            const best = bestWinnerPos(url, keyword);   // SERP UK check (when run) wins; otherwise Google's UK number
+            const gUK  = ukKwPos(url, keyword);         // Google's UK number only
+            // Manual/accepted winner ("hold"): stays while the best UK reading is ≤5 (or unknown — don't wrongly
+            // demote). Drops back to Start Here only when a reading clearly shows it fell below 5.
+            if (mpdHold.has(url) && (best == null || best <= 5)) return 'hold';
+            // Auto winner: Google says ≤5 in the UK — UNLESS a SERP check has since shown it dropped (>5). SERP wins.
+            // (A page that's ≤5 in SERP but NOT in Google waits for you to accept it via the analysis pop-up.)
+            if (gUK && gUK <= 5 && !(best != null && best > 5)) return 'winner';
             if (g.urgency === 'quickwin') return 'quickwin';               // striking distance
             if (imp >= 100 && pos && pos <= 15 && ctr < 0.01) return 'fixctr'; // seen a lot, rarely clicked
             if (g.urgency === 'danger') return 'danger';                   // slipping
@@ -992,6 +994,43 @@
             // found=false → SERP gave no usable result (busy / out of credits) → don't treat as a drop.
             return { position: (typeof d.position === 'number') ? d.position : null, found: d.found !== false };
         }
+        // Record a SERP UK check for a page, KEEPING a dated history so "Is my SEO working?" can measure
+        // movement from SERP (the good data) once there are 2+ checks. The latest entry drives classification.
+        function pushSerpCheck(url, keyword, position) {
+            const k = serpKey(url, keyword);
+            const prev = mpdWinnerSerp[k] || {};
+            const history = Array.isArray(prev.history) ? prev.history.slice() : [];
+            if (!history.length && prev.checkedAt) history.push({ position: (prev.position != null ? prev.position : null), checkedAt: prev.checkedAt });
+            const rec = { position: (typeof position === 'number' ? position : null), checkedAt: new Date().toISOString() };
+            history.push(rec);
+            while (history.length > 12) history.shift();
+            const full = { position: rec.position, checkedAt: rec.checkedAt, history };
+            mpdWinnerSerp[k] = full;
+            return full;
+        }
+        async function saveOneWinnerSerp(url, keyword) {
+            const k = serpKey(url, keyword);
+            try {
+                await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'save-mpd-winner-serp', entries: { [k]: mpdWinnerSerp[k] } }) });
+            } catch (e) { console.warn('[SERP save one]', e.message); }
+        }
+        // After an analysis shows a page ranks ≤5 in the UK, offer to move it to Winners (she accepts).
+        function showWinnerAcceptPopup(url, keyword, pos) {
+            bodyEditModal(`<div style="padding:20px 22px;">
+                <h3 style="margin:0 0 8px;color:#1f6f43;">🏆 This page is a winner</h3>
+                <p style="margin:0 0 16px;font-size:0.9rem;color:#555;line-height:1.55;">“${(keyword||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}” ranks <strong>#${pos} in the UK</strong> (live SERP). Move this page to Winners so it stays out of the optimise queue?</p>
+                <div style="display:flex;justify-content:flex-end;gap:10px;">
+                    <button onclick="bodyEditClose()" style="padding:9px 16px;border:1px solid #ccc;background:#fff;border-radius:8px;cursor:pointer;">Not now</button>
+                    <button onclick="acceptWinnerFromPopup('${encodeURIComponent(url)}','${encodeURIComponent(keyword)}')" style="padding:9px 18px;border:none;background:#2e7d32;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;">Accept — move to Winners</button>
+                </div>
+            </div>`);
+        }
+        async function acceptWinnerFromPopup(encUrl, encKw) {
+            const url = decodeURIComponent(encUrl), keyword = decodeURIComponent(encKw);
+            bodyEditClose();
+            await toggleWinnerHold(url, true);   // adds to the winner-hold list + saves + re-renders → moves to Winners
+        }
         // Re-check ONE winner's UK position on demand.
         async function recheckOneWinner(encUrl, encKw, btn) {
             const url = decodeURIComponent(encUrl), keyword = decodeURIComponent(encKw);
@@ -1000,10 +1039,9 @@
             try {
                 const { position, found } = await fetchSerpPosition(url, keyword);
                 if (!found) { if (btn) { btn.disabled = false; btn.textContent = orig; } alert('SERP had no answer right now (busy or out of credits) — the page was left as is. Try again in a moment.'); return; }
-                mpdWinnerSerp[serpKey(url, keyword)] = { position, checkedAt: new Date().toISOString() };
-                await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'save-mpd-winner-serp', entries: { [serpKey(url, keyword)]: mpdWinnerSerp[serpKey(url, keyword)] } }) });
-                renderWinners(); renderStartHere();
+                pushSerpCheck(url, keyword, position);
+                await saveOneWinnerSerp(url, keyword);
+                renderWinners(); renderStartHere(); renderOptimized();
             } catch (e) {
                 if (btn) { btn.disabled = false; btn.textContent = orig; }
                 alert('Could not check the UK position: ' + e.message);
@@ -1024,18 +1062,20 @@
             if (!todo.length) { if (status) status.textContent = '✅ All winners already checked recently — nothing to do.'; return; }
             if (btn) btn.disabled = true;
             const entries = {}; let done = 0, checked = 0, dropped = 0, skipped = 0;
-            for (const w of todo) {
-                done++;
-                if (status) status.textContent = `⏳ Checking ${done} of ${todo.length} in the UK…`;
-                try {
-                    const { position, found } = await fetchSerpPosition(w.url, w.keyword);
-                    if (!found) { skipped++; continue; }   // SERP had no answer → leave this one untouched
-                    const rec = { position, checkedAt: new Date().toISOString() };
-                    mpdWinnerSerp[serpKey(w.url, w.keyword)] = rec;
-                    entries[serpKey(w.url, w.keyword)] = rec;
-                    checked++;
-                    if (!(typeof position === 'number' && position <= 5)) dropped++;
-                } catch (e) { skipped++; console.warn('[SERP winner]', w.url, e.message); }
+            const CHUNK = 4;   // check a few at a time (faster) without hammering the SERP API
+            for (let i = 0; i < todo.length; i += CHUNK) {
+                const slice = todo.slice(i, i + CHUNK);
+                await Promise.all(slice.map(async (w) => {
+                    try {
+                        const { position, found } = await fetchSerpPosition(w.url, w.keyword);
+                        if (!found) { skipped++; return; }   // SERP had no answer → leave this one untouched
+                        const full = pushSerpCheck(w.url, w.keyword, position);
+                        entries[serpKey(w.url, w.keyword)] = full;
+                        checked++;
+                        if (!(typeof position === 'number' && position <= 5)) dropped++;
+                    } catch (e) { skipped++; console.warn('[SERP winner]', w.url, e.message); }
+                    finally { done++; if (status) status.textContent = `⏳ Checking ${done} of ${todo.length} in the UK…`; }
+                }));
             }
             if (Object.keys(entries).length) {
                 try {
@@ -1542,13 +1582,20 @@
             let withBaseline = 0;
             pages.forEach(p => { const s = mpdSnapshots[p.url]; if (s && s.kwPosition != null) withBaseline++; });
 
-            // Winner & Hold pages (locked keyword 1–5 in UK) — count their UK keyword movement too. They have no
-            // stored baseline, so use the keyword's UK position 90 days ago vs the last 15 days.
-            const winnersWithData = (winnerPages || []).filter(w2 => {
+            // Winner & Hold pages — count their UK movement too. Prefer the REAL SERP history (the good data) once
+            // there are 2+ dated checks (first vs latest); otherwise fall back to Google's UK 90-day → 15-day.
+            const winnerMoves = (winnerPages || []).map(w2 => {
+                const s = mpdWinnerSerp[serpKey(w2.url, w2.keyword)];
+                if (s && Array.isArray(s.history) && s.history.length >= 2) {
+                    const f = s.history[0], l = s.history[s.history.length - 1];
+                    if (typeof f.position === 'number' && typeof l.position === 'number') return { delta: f.position - l.position };
+                }
                 const kw = (w2.keyword || '').toLowerCase(), np = normalizeUrlPath(w2.url);
                 const u15 = gscKwUK15[np + '|||' + kw], u90 = gscKwUK90[np + '|||' + kw];
-                return kw && u15 && u15.position && u90 && u90.position;
-            });
+                if (kw && u15 && u15.position && u90 && u90.position) return { delta: u90.position - u15.position };
+                return null;
+            }).filter(Boolean);
+            const winnersWithData = winnerMoves;   // measurable winners (count + guard)
 
             if (withBaseline === 0 && winnersWithData.length === 0) {
                 box.innerHTML = `<div style="background:#fffdf2;border:1px solid #f5e08a;border-radius:8px;padding:12px 14px;font-size:0.85rem;color:#7a5c00;">
@@ -1572,11 +1619,9 @@
                     const posDelta = s.kwPosition - cur.position;    // + = climbed (position number went down)
                     sumPos += posDelta; if (posDelta > 0) improved++; else if (posDelta < 0) dropped++; n++;
                 });
-                // Winner & Hold pages — their UK keyword movement (position 90 days ago → last 15 days).
-                winnersWithData.forEach(w2 => {
-                    const kw = (w2.keyword || '').toLowerCase(), np = normalizeUrlPath(w2.url);
-                    const u15 = gscKwUK15[np + '|||' + kw], u90 = gscKwUK90[np + '|||' + kw];
-                    const posDelta = u90.position - u15.position;   // + = climbed
+                // Winner & Hold pages — their UK movement (SERP history if available, else Google 90→15).
+                winnerMoves.forEach(mv => {
+                    const posDelta = mv.delta;   // + = climbed
                     sumPos += posDelta; if (posDelta > 0) improved++; else if (posDelta < 0) dropped++; n++;
                 });
                 let inner;
@@ -2009,6 +2054,20 @@
 
                 document.getElementById('loadingModal').classList.remove('active');
                 showResults(data, keyword);
+
+                // Record this page's real UK position (SERP, which the analysis already fetched) — fixes the hold
+                // move and feeds the health number. If it now qualifies as a winner (≤5) and isn't one yet, offer it.
+                if (typeof data.userPosition === 'number' && data.userPosition > 0) {
+                    pushSerpCheck(currentUrl.url, keyword, data.userPosition);
+                    saveOneWinnerSerp(currentUrl.url, keyword);
+                    const _np2 = normalizeUrlPath(currentUrl.url);
+                    const _isOpt2 = (optimizedPages || []).some(p => normalizeUrlPath(p.url) === _np2);
+                    const _cat2 = startHereCategory(currentUrl.url, keyword);
+                    renderStartHere(); renderWinners(); renderOptimized();
+                    if (data.userPosition <= 5 && !mpdHold.has(currentUrl.url) && _cat2 !== 'winner' && _cat2 !== 'hold' && !_isOpt2) {
+                        showWinnerAcceptPopup(currentUrl.url, keyword, data.userPosition);
+                    }
+                }
 
             } catch (error) {
                 console.error('[Frontend] Analysis error:', error);
@@ -2653,10 +2712,10 @@
             // Winner-Page Guard: if this page already ranks #1–3, the risky (identity-changing) actions
             // are painted RED so she doesn't break a ranking. Live rank first, GSC 15-day as fallback.
             const _wpGsc = gscEnrichment[normalizeUrlPath(pageUrl)] || {};
-            const _isWinner = (data.userPosition && data.userPosition <= 3) || (_wpGsc.position && _wpGsc.position <= 3);
-            const _wpRank = data.userPosition || (_wpGsc.position ? _wpGsc.position.toFixed(1) : '1–3');
+            const _isWinner = (data.userPosition && data.userPosition <= 5) || (_wpGsc.position && _wpGsc.position <= 5);
+            const _wpRank = data.userPosition || (_wpGsc.position ? _wpGsc.position.toFixed(1) : '1–5');
             const _riskBox = _isWinner ? 'border:2px solid #e53935;background:#fff5f5;' : '';
-            const _riskLabel = _isWinner ? '<div style="display:inline-block;background:#fdecea;color:#c62828;font-weight:700;font-size:0.76rem;padding:4px 10px;border-radius:4px;margin-bottom:8px;">⚠️ Risky on a #1–3 ranking page — change with care</div>' : '';
+            const _riskLabel = _isWinner ? '<div style="display:inline-block;background:#fdecea;color:#c62828;font-weight:700;font-size:0.76rem;padding:4px 10px;border-radius:4px;margin-bottom:8px;">⚠️ Risky on a #1–5 ranking page — change with care</div>' : '';
             // The old manual "SHOP HERE button" check is replaced by Missing Buttons, and the
             // "YouTube embed" check is replaced by the 🎬 Add a Video block — drop both so they no
             // longer show (and aren't counted).
