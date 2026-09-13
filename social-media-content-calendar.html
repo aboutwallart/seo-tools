@@ -211,7 +211,7 @@
 <div class="wrap">
 
 <header class="top">
-  <div class="v">About Wall Art · Social Media · v9.77 · 12 Sep 2026</div>
+  <div class="v">About Wall Art · Social Media · v9.78 · 13 Sep 2026</div>
   <h1>Social Content Tool</h1>
   <p>Create videos, schedule them, plan the month. Ticks save to GitHub, so they show on every computer.</p>
 </header>
@@ -1675,16 +1675,16 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
   // Generate ONLY the blogs that are missing for a month (days whose video was sent but that have no blog yet)
   // and download a blog-only Metricool file. The video is never re-sent, so nothing duplicates.
   function cbFillBlogs(month, btn){
-    if(!confirm('Voy a generar los blogs que faltan de '+month+' y bajar un archivo SOLO con esos blogs (sin re-mandar los videos). Después lo importás a Metricool. ¿Seguir?')) return;
+    if(!confirm('This will generate the missing blogs for '+month+' and download a file with ONLY those blogs (the videos are not re-sent). Then import it into Metricool. Continue?')) return;
     var o=btn.textContent; btn.disabled=true; btn.textContent='Generando… (puede tardar)';
     cbPost({action:'metricool-file', fillMissingMonth:month, blogsOnly:true}).then(function(res){
       btn.disabled=false; btn.textContent=o;
       if(!res || !res.ok){ alert((res&&res.error)||'No se pudo generar.'); return; }
-      if(!res.csv || !res.count){ alert(res.message||('No hay blogs que completar en '+month+'.')); return; }
+      if(!res.csv || !res.count){ alert(res.message||('No blogs to complete in '+month+'.')); return; }
       var blob=new Blob([res.csv],{type:'text/csv;charset=utf-8;'});
       var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='metricool-blogs-'+month+'.csv'; document.body.appendChild(a); a.click(); a.remove();
       setTimeout(function(){ URL.revokeObjectURL(a.href); },5000);
-      alert('Listo: '+res.count+' blog(s) generados y bajados. Importalos a Metricool (Date = YYYY-MM-DD). Ya quedaron marcados como hechos.');
+      alert('Done: '+res.count+' blog(s) generated and downloaded. Import them into Metricool (Date = YYYY-MM-DD). They are now marked as done.');
       if(window.__reloadBoard) window.__reloadBoard();
     }).catch(function(){ btn.disabled=false; btn.textContent=o; alert('Error al generar.'); });
   }
@@ -4113,6 +4113,61 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
     if(o){ var m=monthOf(o); if(m) return (e.year||'')+'-'+(m<10?'0':'')+m; }
     return e.month||((e.year||'')+'-01');
   }
+  // ── Email records: fetch a created email's HTML from Klaviyo + show it in a modal ("View email") ──
+  var EMVIEWBTN='style="margin-left:8px;background:#eee;border:1px solid #ccc;border-radius:6px;padding:3px 9px;font-size:12px;cursor:pointer;"';
+  function emShowModal(node){
+    var ov=document.getElementById('emModal'); if(ov) ov.remove();
+    ov=document.createElement('div'); ov.id='emModal';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;';
+    var box=document.createElement('div');
+    box.style.cssText='background:#fff;border-radius:12px;width:min(680px,96vw);height:min(86vh,900px);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.3);';
+    var head=document.createElement('div');
+    head.style.cssText='display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid #eee;';
+    head.innerHTML='<b style="color:#333;font-size:13px;">Email preview</b>';
+    var x=document.createElement('button'); x.type='button'; x.textContent='✕ Close';
+    x.style.cssText='border:none;background:#eee;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:13px;';
+    x.addEventListener('click',function(){ ov.remove(); });
+    head.appendChild(x);
+    var bodyWrap=document.createElement('div'); bodyWrap.style.cssText='flex:1;overflow:auto;background:#fff;';
+    bodyWrap.appendChild(node);
+    box.appendChild(head); box.appendChild(bodyWrap); ov.appendChild(box);
+    ov.addEventListener('click',function(e){ if(e.target===ov) ov.remove(); });
+    document.body.appendChild(ov);
+  }
+  function emViewEmail(url,label){
+    var id=(String(url||'').match(/campaign\/([^\/?#]+)/)||[])[1];
+    if(!id){ alert('Could not read this email link.'); return; }
+    var msg=document.createElement('div'); msg.style.cssText='padding:30px;text-align:center;color:#555;font-size:13px;';
+    msg.textContent='Loading “'+(label||'email')+'” from Klaviyo…'; emShowModal(msg);
+    emPost({action:'promo-email-html', campaignId:id}).then(function(d){
+      if(d&&d.ok&&d.html){ var f=document.createElement('iframe'); f.style.cssText='width:100%;height:100%;border:0;background:#fff;'; f.srcdoc=d.html; emShowModal(f); }
+      else { var e2=document.createElement('div'); e2.style.cssText='padding:30px;color:#b00;font-size:13px;'; e2.textContent='Could not load the email'+((d&&d.error)?(': '+d.error):'.'); emShowModal(e2); }
+    }).catch(function(){ var e3=document.createElement('div'); e3.style.cssText='padding:30px;color:#b00;font-size:13px;'; e3.textContent='Network error loading the email.'; emShowModal(e3); });
+  }
+  // record body (Klaviyo links + View-email buttons) built from a created email's saved.sent object
+  function emSentBody(sent,send){
+    var rows='';
+    if(sent && sent.uk){
+      rows+='<b>UK:</b> <a href="'+esc(sent.uk)+'" target="_blank">open in Klaviyo ↗</a> <button type="button" class="emViewBtn" data-url="'+esc(sent.uk)+'" data-label="UK email" '+EMVIEWBTN+'>👁 View email</button><br>'
+          +'<b>Rest of world:</b> <a href="'+esc(sent.rest||'#')+'" target="_blank">open in Klaviyo ↗</a> <button type="button" class="emViewBtn" data-url="'+esc(sent.rest||'')+'" data-label="Rest of world email" '+EMVIEWBTN+'>👁 View email</button>';
+    } else {
+      rows+='<a href="'+esc((sent&&sent.all)||'#')+'" target="_blank">open in Klaviyo ↗</a> <button type="button" class="emViewBtn" data-url="'+esc((sent&&sent.all)||'')+'" data-label="email" '+EMVIEWBTN+'>👁 View email</button>';
+    }
+    if(send) rows+='<div style="margin-top:6px;">— schedule for <b>'+esc(fmtNice(send))+'</b></div>';
+    return '<div style="font-size:12.5px;color:#555;line-height:1.7;">'+rows+'</div>';
+  }
+  // turn a created-email card into a collapsible record bar (folded by default), wiring its View buttons
+  function emCollapseRecord(cardEl,label,bodyHtml){
+    cardEl.className='nlstep'; cardEl.style.marginTop='12px';
+    cardEl.innerHTML='<div class="emrecBar" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;">'
+      +'<span style="font-weight:700;color:#0F6E56;">✓ '+esc(label)+' — already in Klaviyo</span>'
+      +'<span class="emrecChev" style="color:#0F6E56;font-size:13px;">▾</span></div>'
+      +'<div class="emrecBody" style="display:none;margin-top:10px;">'+bodyHtml+'</div>';
+    var bar=cardEl.querySelector('.emrecBar'), bd=cardEl.querySelector('.emrecBody'), ch=cardEl.querySelector('.emrecChev');
+    bar.addEventListener('click',function(){ var open=bd.style.display!=='none'; bd.style.display=open?'none':''; ch.textContent=open?'▾':'▴'; });
+    cardEl.querySelectorAll('.emViewBtn').forEach(function(b){ b.addEventListener('click',function(ev){ ev.stopPropagation(); emViewEmail(b.getAttribute('data-url'), b.getAttribute('data-label')||label); }); });
+  }
+
   // "Sent promos" — green collapsible cards, exactly like Past newsletters. Reopen to VIEW (Klaviyo links) or Redo.
   function renderSent(){
     var wrap=document.getElementById('mpSent'), box=document.getElementById('mpSentWrap'); if(!wrap) return;
@@ -4129,12 +4184,13 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
       bar.addEventListener('click', function(){
         if(open){ if(body){body.remove();body=null;} open=false; return; }
         body=document.createElement('div'); body.style.cssText='border:1px solid #Bce3D4;border-top:none;border-radius:0 0 10px 10px;margin:-8px 0 8px;padding:12px 14px;background:#fff;';
-        body.innerHTML='<div style="font-size:13px;color:#555;line-height:1.8;">'
-          +'<b>Main:</b> <a href="'+esc((e.main&&e.main.url)||'#')+'" target="_blank" style="color:#0F6E56;">open in Klaviyo ↗</a><br>'
-          +'<b>Follow-up:</b> <a href="'+esc((e.followup&&e.followup.url)||'#')+'" target="_blank" style="color:#0F6E56;">open in Klaviyo ↗</a>'
+        body.innerHTML='<div style="font-size:13px;color:#555;line-height:1.9;">'
+          +'<b>Main:</b> <a href="'+esc((e.main&&e.main.url)||'#')+'" target="_blank" style="color:#0F6E56;">open in Klaviyo ↗</a> <button type="button" class="emViewBtn" data-url="'+esc((e.main&&e.main.url)||'')+'" data-label="Main email" '+EMVIEWBTN+'>👁 View email</button><br>'
+          +'<b>Follow-up:</b> <a href="'+esc((e.followup&&e.followup.url)||'#')+'" target="_blank" style="color:#0F6E56;">open in Klaviyo ↗</a> <button type="button" class="emViewBtn" data-url="'+esc((e.followup&&e.followup.url)||'')+'" data-label="Follow-up email" '+EMVIEWBTN+'>👁 View email</button>'
           +'</div>'
           +'<button class="mpRedo2" type="button" style="margin-top:10px;background:#eee;border:1px solid #ccc;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;">↻ Redo this promo</button>';
         bar.parentNode.insertBefore(body, bar.nextSibling); open=true;
+        body.querySelectorAll('.emViewBtn').forEach(function(b){ b.addEventListener('click',function(ev){ ev.stopPropagation(); emViewEmail(b.getAttribute('data-url'), b.getAttribute('data-label')); }); });
         var rb=body.querySelector('.mpRedo2');
         if(rb) rb.addEventListener('click', function(ev){ ev.stopPropagation();
           var o=occs.filter(function(x){return x.id===e.occasionId;})[0]; if(!o) return;
@@ -5263,7 +5319,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
               cb.textContent='Creating…';
               makeDraft(s, Q4_REST_SEG, exclBuyers, 'everyone').then(function(d){
                 cb.disabled=false; cb.textContent=CDLBL;
-                if(d&&d.ok){ s.sent={all:d.url}; q4Persist(); card.innerHTML='<div class="nlhd">✓ '+esc(item.label)+' — draft in Klaviyo</div><div style="font-size:12.5px;color:#555;margin-top:8px;"><a href="'+esc(d.url)+'" target="_blank">open in Klaviyo ↗</a> — schedule for <b>'+esc(fmtNice(send))+'</b></div>'; }
+                if(d&&d.ok){ s.sent={all:d.url}; q4Persist(); emCollapseRecord(card, item.label, emSentBody(s.sent, send)); }
                 else { rr.innerHTML='<span style="color:#b00;">Draft failed: '+esc((d&&d.error)||'error')+'</span>'; }
               }).catch(function(){ cb.disabled=false; cb.textContent=CDLBL; rr.innerHTML='<span style="color:#b00;">Draft failed (network).</span>'; });
               return;
@@ -5283,11 +5339,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
                   cb.disabled=false; cb.textContent=CDLBL;
                   if(df&&df.ok){
                     s.sent={uk:ukUrl, rest:df.url}; q4Persist();
-                    card.innerHTML='<div class="nlhd">✓ '+esc(item.label)+' — both drafts in Klaviyo</div>'
-                      +'<div style="font-size:12.5px;color:#555;margin-top:8px;line-height:1.6;">'
-                        +'<b>UK ('+esc(uc)+'):</b> <a href="'+esc(ukUrl)+'" target="_blank">open ↗</a> — schedule <b>'+esc(fmtNice(send))+'</b><br>'
-                        +'<b>Rest of world ('+esc(rc)+'):</b> <a href="'+esc(df.url)+'" target="_blank">open ↗</a> — schedule <b>'+esc(fmtNice(send))+'</b> (everyone except UK)'
-                      +'</div>';
+                    emCollapseRecord(card, item.label, emSentBody(s.sent, send));
                   } else {
                     rr.innerHTML='<div style="color:#b00;line-height:1.6;"><b>UK created, rest of world FAILED.</b><br>Delete the UK draft in Klaviyo: <a href="'+esc(ukUrl)+'" target="_blank">open ↗</a><br>Then press the button again.</div><div style="font-size:12px;color:#888;">Error: '+esc((df&&df.error)||'error')+'</div>';
                   }
@@ -5304,8 +5356,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
 
       // restore a saved draft so reloading the tool keeps your work
       if(saved && saved.sent){
-        var qlinks = saved.sent.uk ? ('<b>UK:</b> <a href="'+esc(saved.sent.uk)+'" target="_blank">open ↗</a><br><b>Rest of world:</b> <a href="'+esc(saved.sent.rest||'#')+'" target="_blank">open ↗</a>') : ('<a href="'+esc(saved.sent.all||'#')+'" target="_blank">open in Klaviyo ↗</a>');
-        card.innerHTML='<div class="nlhd">✓ '+esc(item.label)+' — already in Klaviyo</div><div style="font-size:12.5px;color:#555;margin-top:8px;line-height:1.6;">'+qlinks+' — schedule for <b>'+esc(fmtNice(send))+'</b></div>';
+        emCollapseRecord(card, item.label, emSentBody(saved.sent, send));
       } else if(saved && saved.copy){
         if(offer){
           if(saved.pct!=null&&saved.pct!=='') document.getElementById('d-'+uid).value=saved.pct;
@@ -5634,9 +5685,9 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
           var cb=this; cb.disabled=true; pull(); s.ctaUrl=decCtaUrl();
           function go(){
             cb.textContent='Creating…';
-            emPost({action:'promo-create-draft', name:'DEC '+item.label, subject:s.copy.subject, preview:s.copy.preview, html:buildPromoFullDoc(s), market:DEC_SEG}).then(function(d){
+            emPost({action:'promo-create-draft', name:'DEC '+item.label, subject:s.copy.subject, preview:s.copy.preview, html:buildPromoFullDoc(s), market:(item.role==='boxing_day'?'UK':DEC_SEG)}).then(function(d){
               cb.disabled=false; cb.textContent='📧 Create draft in Klaviyo';
-              if(d&&d.ok){ s.sent={all:d.url}; decPersist(); card.innerHTML='<div class="nlhd">✓ '+esc(item.label)+' — draft in Klaviyo</div><div style="font-size:12.5px;color:#555;margin-top:8px;"><a href="'+esc(d.url)+'" target="_blank">open in Klaviyo ↗</a> — schedule for <b>'+esc(fmtNice(send))+'</b></div>'; }
+              if(d&&d.ok){ s.sent={all:d.url}; decPersist(); emCollapseRecord(card, item.label, emSentBody(s.sent, send)); }
               else { rr.innerHTML='<span style="color:#b00;">Draft failed: '+esc((d&&d.error)||'error')+'</span>'; }
             }).catch(function(){ cb.disabled=false; cb.textContent='📧 Create draft in Klaviyo'; rr.innerHTML='<span style="color:#b00;">Draft failed (network).</span>'; });
           }
@@ -5657,7 +5708,7 @@ try { injectTitleCopies(); _tcObs = new MutationObserver(function(){ injectTitle
 
       // restore a saved December draft
       if(saved && saved.sent){
-        card.innerHTML='<div class="nlhd">✓ '+esc(item.label)+' — already in Klaviyo</div><div style="font-size:12.5px;color:#555;margin-top:8px;"><a href="'+esc((saved.sent.all)||'#')+'" target="_blank">open in Klaviyo ↗</a> — schedule for <b>'+esc(fmtNice(send))+'</b></div>';
+        emCollapseRecord(card, item.label, emSentBody(saved.sent, send));
       } else if(saved && saved.copy){
         if(offer){ if(saved.pct!=null&&saved.pct!=='') document.getElementById('d-'+uid).value=saved.pct; if(saved.code) document.getElementById('c-'+uid).value=saved.code; s.code=(saved.code||'').toUpperCase(); }
         s.hero=saved.hero||''; s.shopColl=saved.shopColl||'best-sellers'; s._restoring=true;
