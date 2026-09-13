@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.2</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.3</p>
                 </div>
             </div>
         </header>
@@ -685,7 +685,7 @@
             const clk = g.clicks || 0;
             const ctr = imp > 0 ? clk / imp : 0;
             if (mpdHold.has(url)) return 'hold';                           // she flagged it "don't optimise yet" — bottom
-            if (pos && pos <= 3) return 'winner';                          // already top — light touch, last
+            if (pos && pos <= 5) return 'winner';                          // top 5 — light touch, last
             if (g.urgency === 'quickwin') return 'quickwin';               // striking distance
             if (imp >= 100 && pos && pos <= 15 && ctr < 0.01) return 'fixctr'; // seen a lot, rarely clicked
             if (g.urgency === 'danger') return 'danger';                   // slipping
@@ -1839,6 +1839,19 @@
 
                 const data = await response.json();
 
+                // The top Google results are all marketplaces/social (Amazon/Etsy/Pinterest…) — no real competitor
+                // to compare against, and basing advice on those would be wrong. Tell her honestly.
+                if (data.marketplaceDominated) {
+                    mpdReoptimizeNote = ''; mpdCannibalDiag = null;
+                    document.getElementById('loadingModal').classList.remove('active');
+                    bodyEditModal(`<div style="padding:20px 22px;">
+                        <h3 style="margin:0 0 8px;color:#7a4f01;">🛑 Top results are all marketplaces</h3>
+                        <p style="margin:0 0 16px;font-size:0.9rem;color:#555;line-height:1.55;">${(data.error||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p>
+                        <div style="display:flex;justify-content:flex-end;"><button onclick="bodyEditClose()" style="padding:9px 18px;border:none;background:#4caf50;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;">Got it</button></div>
+                    </div>`);
+                    return;
+                }
+
                 // SerpAPI returned no competitors → ask for the 3 URLs instead of failing.
                 if (data.needsManual) {
                     document.getElementById('loadingModal').classList.remove('active');
@@ -2723,7 +2736,9 @@
                         <span id="masterLabel" style="font-weight:700;color:${done===total&&total>0?'#4caf50':'#666'}">${done}/${total} done</span>
                     </div>
                     <div class="progress-bar-wrap"><div class="progress-bar-fill" id="masterBar" style="width:${donePct}%"></div></div>
-                    ${done===total&&total>0 ? '<div style="color:#4caf50;font-size:0.85rem;margin-top:8px;font-weight:600;">✅ All done — page saved as Optimized!</div>' : ''}
+                    ${done===total&&total>0 ? (dropDiagBanner
+                        ? '<div style="color:#c62828;font-size:0.9rem;margin-top:8px;font-weight:700;">⚠️ This page has a problem to fix — see “🔍 Why it dropped” at the top. Do that fix, then re-check. (The checklist below is not the issue.)</div>'
+                        : '<div style="color:#4caf50;font-size:0.85rem;margin-top:8px;font-weight:600;">✅ All done — page saved as Optimized!</div>') : ''}
                     <button id="manualMarkBtn" onclick="manualMarkAsOptimized()" style="margin-top:12px;background:#4caf50;color:white;padding:8px 20px;border-radius:6px;font-size:0.88rem;border:none;cursor:pointer;font-weight:600;">✅ Mark as Optimised</button>
                 </div>`;
 
