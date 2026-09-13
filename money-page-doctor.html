@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.3</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.4</p>
                 </div>
             </div>
         </header>
@@ -423,7 +423,7 @@
         <!-- WINNERS & HOLD TAB -->
         <div class="tab-content" id="winnersTab">
             <h3>🏆 Winners &amp; Hold</h3>
-            <p style="color:#666;margin-bottom:15px;">Pages already ranking #1–3 (auto), or ones you've put on hold. Kept out of the Start Here queue — light touch only, don't rush these.</p>
+            <p style="color:#666;margin-bottom:15px;">Pages whose keyword ranks #1–5 in the UK (auto), or ones you've put on hold. Kept out of the Start Here queue — light touch only, don't rush these.</p>
             <div style="margin-bottom:14px;">
                 <input type="text" id="winnersSearch" placeholder="🔍 Search this list by keyword or URL (type any words, any order)…" oninput="renderWinners()" style="width:100%;padding:9px 12px;border:2px solid #e0e0e0;border-radius:8px;font-size:0.9rem;box-sizing:border-box;font-family:'Poppins',sans-serif;">
             </div>
@@ -596,6 +596,9 @@
         let gscKw15 = {};  // current last-15-day, per locked keyword
         let gscKw30 = {};  // current last-30-day, per locked keyword
         let gscKw90 = {};  // current last-90-day, per locked keyword
+        // UK-only locked-keyword numbers (Google, country=gbr) — the real market position for winner logic.
+        let gscKwUK15 = {}; // UK, last-15-day, per locked keyword
+        let gscKwUK90 = {}; // UK, last-90-day, per locked keyword
         let optColorFilter = 'all';  // Optimized tab colour filter: all | green | grey | yellow | red
         const MPD_IMP_FLOOR = 10;    // fewer "times shown" than this = a weak keyword (tunable)
         const MPD_POS_GOOD  = 10;    // ranking this high (page 1) or better = well-ranked (tunable)
@@ -678,14 +681,24 @@
 
         // ── 🎯 Start Here — single ordered work-queue across all categories ──────────
         // Order: Quick Wins → Fix CTR → Danger → the rest → Winners last. Done pages drop off.
-        function startHereCategory(url) {
+        // UK position of a page's LOCKED keyword (Google, country=gbr). Returns null if Google has no UK data for it.
+        function ukKwPos(url, keyword) {
+            if (!keyword) return null;
+            const d = gscKwUK15[normalizeUrlPath(url) + '|||' + keyword.toLowerCase()];
+            return (d && d.position) ? d.position : null;
+        }
+        function startHereCategory(url, keyword) {
             const g = gscEnrichment[normalizeUrlPath(url)] || {};
             const pos = g.position || null;
             const imp = g.impressions || 0;
             const clk = g.clicks || 0;
             const ctr = imp > 0 ? clk / imp : 0;
-            if (mpdHold.has(url)) return 'hold';                           // she flagged it "don't optimise yet" — bottom
-            if (pos && pos <= 5) return 'winner';                          // top 5 — light touch, last
+            // Winner / hold zone = the LOCKED keyword ranking 1–5 in the UK (not the page average).
+            const kwUK = ukKwPos(url, keyword);
+            // Manual hold: stays a winner while its UK keyword is still ≤5 (or Google has no UK number yet — don't
+            // wrongly demote it). Drops back to Start Here only when UK data clearly shows it fell below 5.
+            if (mpdHold.has(url) && (kwUK == null || kwUK <= 5)) return 'hold';
+            if (kwUK && kwUK <= 5) return 'winner';                        // auto: locked keyword top 5 in the UK
             if (g.urgency === 'quickwin') return 'quickwin';               // striking distance
             if (imp >= 100 && pos && pos <= 15 && ctr < 0.01) return 'fixctr'; // seen a lot, rarely clicked
             if (g.urgency === 'danger') return 'danger';                   // slipping
@@ -723,7 +736,7 @@
                 const c = document.getElementById('startHereCount'); if (c) c.textContent = '0';
                 return;
             }
-            const ranked = candidates.map(item => ({ item, cat: startHereCategory(item.url) }))
+            const ranked = candidates.map(item => ({ item, cat: startHereCategory(item.url, item.keyword) }))
                 .filter(r => r.cat !== 'winner' && r.cat !== 'hold')   // winners + held pages ALWAYS live in the Winners tab, never here (even if pinned)
                 .sort((a, b) => {
                     // Freshly retargeted pages are pinned to the very top (highest priority, even if metrics are low).
@@ -884,13 +897,13 @@
                     const _np = normalizeUrlPath(item.url || '');
                     if (optimisedSet.has(_np)) return false;
                     if (removedSet.has(_np)) return false;
-                    const cat = startHereCategory(item.url);
+                    const cat = startHereCategory(item.url, item.keyword);
                     return cat === 'winner' || cat === 'hold';
                 })
-                .map(item => ({ item, cat: startHereCategory(item.url) }))
-                .sort((a, b) => ((gscEnrichment[normalizeUrlPath(a.item.url)] || {}).position || 99) - ((gscEnrichment[normalizeUrlPath(b.item.url)] || {}).position || 99));
+                .map(item => ({ item, cat: startHereCategory(item.url, item.keyword) }))
+                .sort((a, b) => (ukKwPos(a.item.url, a.item.keyword) || 99) - (ukKwPos(b.item.url, b.item.keyword) || 99));
             const c = document.getElementById('winnersCount'); if (c) c.textContent = items.length;
-            if (!items.length) { list.innerHTML = '<p style="text-align:center;color:#666;padding:40px;">No winners or held pages yet. Pages at #1–3 and ones you put on hold will show here.</p>'; return; }
+            if (!items.length) { list.innerHTML = '<p style="text-align:center;color:#666;padding:40px;">No winners or held pages yet. Pages whose keyword ranks #1–5 in the UK, and ones you put on hold, will show here.</p>'; return; }
             // Flexible search: type any words (any order) — all must appear in the URL or keyword.
             const _wq = (document.getElementById('winnersSearch')?.value || '').toLowerCase().trim();
             let _display = items;
@@ -905,8 +918,11 @@
             list.innerHTML = _display.map(row => {
                 const item = row.item, g = gscEnrichment[normalizeUrlPath(item.url)] || {};
                 const isHold = row.cat === 'hold';
-                const note = isHold ? 'You flagged this to leave for now.' : 'Top 3 already — light touch, don\'t rush.';
-                const metrics = g.position ? `<div style="font-size:0.8rem;color:#666;margin-top:4px;display:flex;gap:14px;flex-wrap:wrap;"><span>📍 Pos <strong>${g.position.toFixed(1)}</strong></span><span>👁 ${(g.impressions||0).toLocaleString()} imp/mo</span><span>🖱 ${(g.clicks||0).toLocaleString()} clicks/mo</span></div>` : '';
+                const note = isHold ? 'You flagged this to leave for now.' : 'Top 5 already — light touch, don\'t rush.';
+                const ukRec = item.keyword ? (gscKwUK15[normalizeUrlPath(item.url) + '|||' + item.keyword.toLowerCase()] || null) : null;
+                const metrics = ukRec
+                    ? `<div style="font-size:0.8rem;color:#666;margin-top:4px;display:flex;gap:14px;flex-wrap:wrap;"><span>📍 UK pos <strong>${ukRec.position.toFixed(1)}</strong></span><span>👁 ${(ukRec.impressions||0).toLocaleString()} imp</span><span>🖱 ${(ukRec.clicks||0).toLocaleString()} clicks</span></div>`
+                    : (g.position ? `<div style="font-size:0.8rem;color:#666;margin-top:4px;display:flex;gap:14px;flex-wrap:wrap;"><span>📍 Pos <strong>${g.position.toFixed(1)}</strong></span><span>👁 ${(g.impressions||0).toLocaleString()} imp/mo</span><span>🖱 ${(g.clicks||0).toLocaleString()} clicks/mo</span></div>` : '');
                 return `<div class="url-item" style="border-left:4px solid #2e7d32;background:#fff;">
                     <div style="flex:1;">
                         <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap;">
@@ -1278,7 +1294,9 @@
             _setCnt('optCntYellow', _counts.yellow); _setCnt('optCntRed', _counts.red); _setCnt('optCntBlue', _counts.blue);
 
             // "Is it working?" trend + the two numbers to act on (drops to look at, weak keywords to change).
-            renderOptimizedHealthSummary(sorted, kwPair, _counts.red, _counts.yellow);
+            // Winner & Hold pages (locked keyword 1–5 in the UK) are counted in the number too.
+            const _winnerPages = (typeof urls !== 'undefined' ? (urls || []) : []).filter(u => { const c = startHereCategory(u.url, u.keyword); return c === 'winner' || c === 'hold'; });
+            renderOptimizedHealthSummary(sorted, kwPair, _counts.red, _counts.yellow, _winnerPages);
 
             // Keywords already targeted by ANOTHER page — never suggest or accept one that's taken.
             const lockedElsewhere = new Set();
@@ -1406,7 +1424,7 @@
         }
 
         // Fix D — average improvement of the LOCKED keyword across all optimised pages, for 15 / 30 / 90 days.
-        function renderOptimizedHealthSummary(pages, kwPair, redCount, yellowCount) {
+        function renderOptimizedHealthSummary(pages, kwPair, redCount, yellowCount, winnerPages) {
             const box = document.getElementById('optimizedHealthSummary');
             if (!box) return;
             const DAY = 86400000, now = Date.now();
@@ -1419,7 +1437,15 @@
             let withBaseline = 0;
             pages.forEach(p => { const s = mpdSnapshots[p.url]; if (s && s.kwPosition != null) withBaseline++; });
 
-            if (withBaseline === 0) {
+            // Winner & Hold pages (locked keyword 1–5 in UK) — count their UK keyword movement too. They have no
+            // stored baseline, so use the keyword's UK position 90 days ago vs the last 15 days.
+            const winnersWithData = (winnerPages || []).filter(w2 => {
+                const kw = (w2.keyword || '').toLowerCase(), np = normalizeUrlPath(w2.url);
+                const u15 = gscKwUK15[np + '|||' + kw], u90 = gscKwUK90[np + '|||' + kw];
+                return kw && u15 && u15.position && u90 && u90.position;
+            });
+
+            if (withBaseline === 0 && winnersWithData.length === 0) {
                 box.innerHTML = `<div style="background:#fffdf2;border:1px solid #f5e08a;border-radius:8px;padding:12px 14px;font-size:0.85rem;color:#7a5c00;">
                     📊 <strong>Is my SEO working?</strong> — to measure by the <strong>locked keyword</strong>, click <strong>🔄 Refresh baselines (keyword)</strong> above once. Until then the results below use the page total.</div>`;
                 return;
@@ -1439,6 +1465,13 @@
                     if (!cur) return;
                     if ((cur.position || 99) <= MPD_POS_GOOD && (cur.impressions || 0) < MPD_IMP_FLOOR) return;  // weak keyword — leave it out of the score
                     const posDelta = s.kwPosition - cur.position;    // + = climbed (position number went down)
+                    sumPos += posDelta; if (posDelta > 0) improved++; else if (posDelta < 0) dropped++; n++;
+                });
+                // Winner & Hold pages — their UK keyword movement (position 90 days ago → last 15 days).
+                winnersWithData.forEach(w2 => {
+                    const kw = (w2.keyword || '').toLowerCase(), np = normalizeUrlPath(w2.url);
+                    const u15 = gscKwUK15[np + '|||' + kw], u90 = gscKwUK90[np + '|||' + kw];
+                    const posDelta = u90.position - u15.position;   // + = climbed
                     sumPos += posDelta; if (posDelta > 0) improved++; else if (posDelta < 0) dropped++; n++;
                 });
                 let inner;
@@ -1461,7 +1494,7 @@
             }).join('');
 
             box.innerHTML = `<div style="background:#f4f9f4;border:1px solid #cfe6cf;border-radius:10px;padding:12px 14px;">
-                <div style="font-size:0.9rem;font-weight:700;color:#2e7d32;margin-bottom:10px;">📊 Is my SEO working? — locked-keyword ranking, all optimised pages</div>
+                <div style="font-size:0.9rem;font-weight:700;color:#2e7d32;margin-bottom:10px;">📊 Is my SEO working? — optimised pages + your top-5 UK winners</div>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;">${tiles}</div>
                 ${redCount > 0
                     ? `<div style="margin-top:12px;font-size:0.95rem;font-weight:700;color:#A32D2D;">🔴 ${redCount} page${redCount===1?'':'s'} need a look — use the “Needs a look” filter below.</div>`
@@ -1469,6 +1502,7 @@
                 ${yellowCount > 0
                     ? `<div style="margin-top:6px;font-size:0.95rem;font-weight:600;color:#8a6d00;">🟡 ${yellowCount} page${yellowCount===1?'':'s'} have a weak keyword — use the “Better change keyword” filter below.</div>`
                     : ''}
+                ${winnersWithData.length ? `<div style="margin-top:6px;font-size:0.9rem;font-weight:600;color:#1f6f43;">🏆 Includes ${winnersWithData.length} winner page${winnersWithData.length===1?'':'s'} (top 5 in the UK) — counted by their Google movement.</div>` : ''}
                 <div style="font-size:0.72rem;color:#999;margin-top:8px;">A higher position number is worse, so “▲” means the keyword climbed. The number to act on is the red one above.</div>
             </div>`;
         }
@@ -1723,7 +1757,7 @@
                 const np = normalizeUrlPath(item.url || '');
                 if (optN.has(np) || remN.has(np)) return;
                 const g = gscEnrichment[np] || {};
-                const cat = startHereCategory(item.url);
+                const cat = startHereCategory(item.url, item.keyword);
                 const isWin = (cat === 'winner' || cat === 'hold');
                 rows.push({ url: item.url, keyword: item.keyword || g.keyword || '', tab: isWin ? 'Winners' : 'Start Here', tabId: isWin ? 'winners' : 'startHere', color: isWin ? '#2e7d32' : '#f97316' });
             });
@@ -5614,13 +5648,18 @@
             try {
                 const end = getDateStr(0), start = getDateStr(15), startPrev = getDateStr(30);   // 15-day window (was 90) — fresher position so recent winners surface
                 const start90 = getDateStr(90);   // 90-day window — DISPLAY only, side-by-side on Start Here cards
-                const [rPages, rPrev, rPQ, rPages90] = await Promise.all([
+                const [rPages, rPrev, rPQ, rPages90, rPQuk, rPQuk90] = await Promise.all([
                     fetch(`/api/gsc?action=pages&startDate=${start}&endDate=${end}`),
                     fetch(`/api/gsc?action=pages&startDate=${startPrev}&endDate=${start}`),
                     fetch(`/api/gsc?action=page-query&startDate=${start}&endDate=${end}`),
-                    fetch(`/api/gsc?action=pages&startDate=${start90}&endDate=${end}`)
+                    fetch(`/api/gsc?action=pages&startDate=${start90}&endDate=${end}`),
+                    fetch(`/api/gsc?action=page-query&country=gbr&startDate=${start}&endDate=${end}`),
+                    fetch(`/api/gsc?action=page-query&country=gbr&startDate=${start90}&endDate=${end}`)
                 ]);
-                const [jPages, jPrev, jPQ, jPages90] = await Promise.all([rPages.json(), rPrev.json(), rPQ.json(), rPages90.json()]);
+                const [jPages, jPrev, jPQ, jPages90, jPQuk, jPQuk90] = await Promise.all([rPages.json(), rPrev.json(), rPQ.json(), rPages90.json(), rPQuk.json(), rPQuk90.json()]);
+                // UK-only locked-keyword positions (Google) — used by the Winners logic + winners in the health number.
+                gscKwUK15 = buildKwMap(jPQuk);
+                gscKwUK90 = buildKwMap(jPQuk90);
                 // 90-day per-page numbers for the side-by-side display
                 gscEnrichment90 = {};
                 if (jPages90.success) {
