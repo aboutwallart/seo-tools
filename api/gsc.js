@@ -59,13 +59,21 @@ module.exports = async (req, res) => {
         rowLimit: 5000
       });
     } else if (action === 'page-query') {
-      // Page + query combined — for content optimizations
-      data = await gscQuery(accessToken, siteUrl, {
+      // Page + query combined — for content optimizations.
+      // Optional country filter (e.g. country=gbr) → UK-only positions for the winner / locked-keyword logic.
+      const pqCountry = (req.method === 'POST' ? req.body : req.query).country;
+      const pqParams = {
         startDate: start,
         endDate: end,
         dimensions: ['page', 'query'],
         rowLimit: 25000
-      });
+      };
+      if (pqCountry) {
+        pqParams.dimensionFilterGroups = [{
+          filters: [{ dimension: 'country', operator: 'equals', expression: String(pqCountry).toLowerCase() }]
+        }];
+      }
+      data = await gscQuery(accessToken, siteUrl, pqParams);
     } else if (action === 'page-keywords') {
       // All queries for a specific page URL — bypasses 25k global limit
       const pageUrl = req.query.pageUrl || '';
