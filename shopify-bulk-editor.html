@@ -120,7 +120,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Cambiá precios en masa — filtrá por supplier, poné <b>precio = costo + %</b>, mirá el preview y aplicá. Con deshacer.</p>
-            <div class="subtitle">v1.3 · Paso 1: precios · el costo = "Cost per item" (con IVA) · sin límite de 10 · guarda copia de seguridad antes de aplicar</div>
+            <div class="subtitle">v1.4 · Paso 1: precios · el costo = "Cost per item" (con IVA) · sin límite de 10 · guarda copia de seguridad antes de aplicar</div>
         </div>
 
         <!-- SAFETY: full-store price backup (GATE) -->
@@ -420,24 +420,22 @@ function updateApplyBtn(){
     b.textContent = '✅ Aplicar cambios' + (n ? ' (' + n + ')' : '');
 }
 
-// last-change pill / red-row helper
+// "Mínimo" cell: green ✓ OK when the row already meets cost+% (nothing to do);
+// red row when it was set to the minimum before but the cost went up (fell below → urgent).
 function lastChangeCell(r){
-    const lc = lastChangeMap[r.variantId];
-    if (!lc) return { html: '<span class="muted">—</span>', red: false };
-    const isMin = (lc.mode === 'floor_cost' || lc.mode === 'markup_cost');
-    if (isMin) {
-        const red = r.changed && Number(r.newPrice) > Number(r.oldPrice); // was set to min, cost rose → below now
-        return { html: '<span class="pill green">Collective mínimo +' + esc(lc.value) + '%</span>', red };
+    const costMode = lastChange && (lastChange.mode === 'floor_cost' || lastChange.mode === 'markup_cost');
+    const hasCost = r.cost != null && Number(r.cost) > 0;
+    // already at/above the minimum → nothing to do
+    if (costMode && hasCost && !r.changed && !r.noCost) {
+        return { html: '<span class="pill green">✓ OK</span>', red: false };
     }
-    const d = new Date(lc.date).toLocaleDateString('es-GB', { day:'2-digit', month:'short' });
-    let txt;
-    if (lc.mode === 'inc_pct') txt = d + ' · +' + lc.value + '%';
-    else if (lc.mode === 'dec_pct') txt = d + ' · -' + lc.value + '%';
-    else if (lc.mode === 'inc_amt') txt = d + ' · +£' + lc.value;
-    else if (lc.mode === 'dec_amt') txt = d + ' · -£' + lc.value;
-    else if (lc.mode === 'set') txt = d + ' · precio fijo £' + lc.value;
-    else txt = d;
-    return { html: '<span class="muted">' + esc(txt) + '</span>', red: false };
+    // below the minimum now AND was previously set by the min rule → urgent (supplier raised the cost)
+    const lc = lastChangeMap[r.variantId];
+    const wasMin = lc && (lc.mode === 'floor_cost' || lc.mode === 'markup_cost');
+    if (costMode && r.changed && wasMin) {
+        return { html: '<span class="muted">—</span>', red: true };
+    }
+    return { html: '<span class="muted">—</span>', red: false };
 }
 
 function renderTable(){
@@ -452,7 +450,7 @@ function renderTable(){
     html += '<table><thead><tr>'
         + '<th class="pick"><input type="checkbox" id="headChk" onchange="toggleHead(this)"></th>'
         + '<th>Producto</th><th>Variante</th><th class="num">Costo</th>'
-        + '<th class="num">Precio actual</th><th></th><th class="num">Precio nuevo</th><th>Último cambio</th>'
+        + '<th class="num">Precio actual</th><th></th><th class="num">Precio nuevo</th><th>Mínimo</th>'
         + '</tr></thead><tbody>';
     show.forEach(r => {
         const oldPct = pctOverCost(r.oldPrice, r.cost);
