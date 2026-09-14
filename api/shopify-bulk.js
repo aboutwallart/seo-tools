@@ -1,4 +1,6 @@
-// shopify-bulk.js — v1.0 (7 Sep 2026)
+// shopify-bulk.js — v1.1 (14 Sep 2026)
+// v1.1: added action 'backup-all' — saves EVERY product's current prices to GitHub
+//       (data/price-backups/price-backup-<timestamp>.json) as a full-store restore point.
 // Backend for the "Shopify Bulk Editor" tool (Step 1: bulk PRICE editing).
 // Reuses the Shopify token + GitHub token already in Vercel. No local storage.
 //
@@ -157,6 +159,35 @@ module.exports = async function handler(req, res) {
   const action = q.action || body.action;
 
   try {
+    // ---------------- full-store price backup (safety restore point) ----------------
+    if (action === 'backup-all') {
+      const rows = [];
+      let cursor = null, pages = 0;
+      while (pages < 400) {
+        const data = await shopify(
+          `query($cursor:String){
+             products(first:100, after:$cursor){
+               pageInfo{ hasNextPage endCursor }
+               nodes{ id title variants(first:100){ nodes{ id title price compareAtPrice } } } }
+           }`,
+          { cursor }
+        );
+        const conn = data.products;
+        conn.nodes.forEach(pr => pr.variants.nodes.forEach(v => rows.push({
+          productId: pr.id, productTitle: pr.title,
+          variantId: v.id, variantTitle: v.title,
+          price: v.price, compareAtPrice: v.compareAtPrice
+        })));
+        pages++;
+        if (!conn.pageInfo.hasNextPage) break;
+        cursor = conn.pageInfo.endCursor;
+      }
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const path = `data/price-backups/price-backup-${stamp}.json`;
+      await ghPut(path, { createdAt: new Date().toISOString(), count: rows.length, rows }, `full price backup (${rows.length} variants)`);
+      return res.status(200).json({ ok: true, count: rows.length, path });
+    }
+
     // ---------------- vendors (for the supplier dropdown) ----------------
     if (action === 'vendors') {
       const counts = {};
