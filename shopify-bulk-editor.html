@@ -120,7 +120,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Cambiá precios en masa — filtrá por supplier, poné <b>precio = costo + %</b>, mirá el preview y aplicá. Con deshacer.</p>
-            <div class="subtitle">v1.4 · Paso 1: precios · el costo = "Cost per item" (con IVA) · sin límite de 10 · guarda copia de seguridad antes de aplicar</div>
+            <div class="subtitle">v1.5 · Paso 1: precios · el costo = "Cost per item" (con IVA) · sin límite de 10 · guarda copia de seguridad antes de aplicar</div>
         </div>
 
         <!-- SAFETY: full-store price backup (GATE) -->
@@ -208,7 +208,7 @@
             <div class="actions">
                 <button class="btn btn-primary" id="previewBtn" onclick="runPreview()">👁️ Ver preview</button>
                 <button class="btn btn-green" id="applyBtn" onclick="applyChanges()" disabled>✅ Aplicar cambios</button>
-                <button class="btn btn-undo" id="undoBtn" onclick="openUndo()">↺ Deshacer último cambio</button>
+                <button class="btn btn-undo" id="undoBtn" onclick="openUndo()">↺ Deshacer último cambio del supplier</button>
             </div>
             <div class="status" id="status">Elegí los productos y el cambio, después tocá <b>Ver preview</b>.</div>
             <div class="counts" id="counts"></div>
@@ -510,16 +510,17 @@ async function applyChanges(){
 }
 
 async function openUndo(){
-    setStatus('<span class="spinner"></span> Buscando cambios que se pueden deshacer…');
+    const vendor = document.getElementById('vendor').value;
+    if (!vendor){ setStatus('⚠️ Para deshacer, primero elegí un <b>supplier</b> en el Paso 1. El botón deshace el último cambio de ESE supplier.'); return; }
+    setStatus('<span class="spinner"></span> Buscando el último cambio de ' + esc(vendor) + '…');
     try {
         const r = await fetch(API + '?action=undo-list');
         const d = await r.json();
         if (!d.ok || !d.undos || !d.undos.length) { setStatus('No hay cambios guardados para deshacer.'); return; }
-        const list = d.undos.filter(u => !u.reverted);
-        if (!list.length) { setStatus('Todos los cambios guardados ya fueron deshechos.'); return; }
-        const u = list[0];
-        const when = new Date(u.createdAt).toLocaleString('es-GB');
-        if (confirm('Deshacer el último cambio?\n\n' + u.count + ' variantes · ' + when + '\n\nLos precios vuelven a como estaban antes.')) undoNow(u.id);
+        const hit = d.undos.find(u => !u.reverted && Array.isArray(u.vendors) && u.vendors.indexOf(vendor) !== -1);
+        if (!hit) { setStatus('No hay ningún cambio (hecho con esta herramienta) para deshacer de <b>' + esc(vendor) + '</b>.'); return; }
+        const when = new Date(hit.createdAt).toLocaleString('es-GB');
+        if (confirm('Deshacer el último cambio de ' + vendor + '?\n\n' + hit.count + ' variantes · ' + when + '\n\nEsos precios vuelven a como estaban antes.')) undoNow(hit.id);
         else setStatus('Cancelado.');
     } catch(e){ setStatus('⚠️ ' + esc(e.message)); }
 }
