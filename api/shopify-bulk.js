@@ -1,4 +1,6 @@
-// shopify-bulk.js — v1.1 (14 Sep 2026)
+// shopify-bulk.js — v1.2 (14 Sep 2026)
+// v1.2: backup-all also writes data/price-backup-latest.json (pointer); new action
+//       'last-backup' returns it so the tool can lock everything until today's backup exists.
 // v1.1: added action 'backup-all' — saves EVERY product's current prices to GitHub
 //       (data/price-backups/price-backup-<timestamp>.json) as a full-store restore point.
 // Backend for the "Shopify Bulk Editor" tool (Step 1: bulk PRICE editing).
@@ -182,10 +184,19 @@ module.exports = async function handler(req, res) {
         if (!conn.pageInfo.hasNextPage) break;
         cursor = conn.pageInfo.endCursor;
       }
-      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const createdAt = new Date().toISOString();
+      const stamp = createdAt.replace(/[:.]/g, '-');
       const path = `data/price-backups/price-backup-${stamp}.json`;
-      await ghPut(path, { createdAt: new Date().toISOString(), count: rows.length, rows }, `full price backup (${rows.length} variants)`);
-      return res.status(200).json({ ok: true, count: rows.length, path });
+      await ghPut(path, { createdAt, count: rows.length, rows }, `full price backup (${rows.length} variants)`);
+      // pointer to the most recent backup, so the tool can require "today's backup"
+      try { await ghPut('data/price-backup-latest.json', { createdAt, count: rows.length, path }, 'latest backup pointer'); } catch (e) {}
+      return res.status(200).json({ ok: true, count: rows.length, path, createdAt });
+    }
+
+    // ---------------- last-backup (pointer to the most recent full backup) ----------------
+    if (action === 'last-backup') {
+      const latest = (await ghGet('data/price-backup-latest.json')).json;
+      return res.status(200).json({ ok: true, latest: latest || null });
     }
 
     // ---------------- vendors (for the supplier dropdown) ----------------
