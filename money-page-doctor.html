@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.8</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.10</p>
                     <button onclick="resetAllChecklists()" title="Wipe all saved checklists so every page starts fresh" style="margin-top:6px;background:#fff;color:#c62828;border:1px solid #ef9a9a;padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;">🧹 Reset all checklists (start clean)</button>
                 </div>
             </div>
@@ -749,7 +749,7 @@
                 if (optimisedSet.has(_np)) return false;
                 const cl = mpdChecklist[item.url] || {};
                 const total = cl._total || 0;
-                if (total > 0) { const done = Object.entries(cl).filter(([k,v]) => k !== '_total' && v).length; if (done >= total) return false; }
+                if (total > 0) { const done = Object.entries(cl).filter(([k,v]) => !k.startsWith('_') && v).length; if (done >= total) return false; }
                 return true;
             });
             if (candidates.length === 0) {
@@ -784,6 +784,7 @@
             list.innerHTML = display.map((row, i) => {
                 const item = row.item;
                 const m = META[row.cat];
+                const tooLong = !!(mpdChecklist[item.url] && mpdChecklist[item.url]._toolong);
                 const g = gscEnrichment[normalizeUrlPath(item.url)] || {};
                 const g90 = gscEnrichment90[normalizeUrlPath(item.url)] || {};
                 const pageType = getPageType(item.url);
@@ -794,13 +795,14 @@
                         <span style="background:#f4f4f4;border:1px solid #e2e2e2;border-radius:6px;padding:3px 9px;">⚡ 15 days: ${fmtWin(g)}</span>
                     </div>` : '';
                 return `
-                <div class="url-item" style="border-left:4px solid ${m.color};background:#fff;">
+                <div class="url-item" style="border-left:4px solid ${tooLong?'#c62828':m.color};background:${tooLong?'#fff0f0':'#fff'};${tooLong?'box-shadow:0 0 0 2px #c62828 inset;':''}">
                     <input type="checkbox" class="mpd-remove-cb" data-url="${(item.url||'').replace(/"/g,'&quot;')}" data-keyword="${(displayKeyword||'').replace(/"/g,'&quot;')}" title="Tick to remove this page" style="margin-right:10px;transform:scale(1.3);flex-shrink:0;align-self:flex-start;margin-top:4px;">
                     <div style="flex:1;">
                         <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap;">
                             <span style="background:#1a1a1a;color:#fff;width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:700;flex-shrink:0;">${i + 1}</span>
                             <span style="background:${m.color};color:#fff;padding:2px 9px;border-radius:4px;font-size:0.75rem;font-weight:600;">${m.icon} ${m.label}</span>
                             <span style="font-size:0.72rem;color:#999;text-transform:uppercase;">${pageType}</span>
+                            ${tooLong?'<span style="background:#c62828;color:#fff;padding:2px 9px;border-radius:4px;font-size:0.72rem;font-weight:700;">⚠ Too long — shorten it</span>':''}
                         </div>
                         <div style="font-weight:500;margin-bottom:3px;word-break:break-all;">${item.url}</div>
                         ${displayKeyword ? `<div style="font-size:0.85rem;color:#1976d2;margin-bottom:3px;">🎯 Keyword: "${displayKeyword}"</div>` : ''}
@@ -2277,18 +2279,18 @@
             location.reload();
         }
 
-        // Reset just the page currently open in the analysis (untick everything, no reload).
+        // Reset just the page currently open — brings it back as if it had never been opened
+        // (every checkbox unticked, nothing greyed) by clearing its state and re-drawing the analysis.
         async function resetThisPage() {
             const url = currentAnalysisUrl;
             if (!url) return;
-            if (!confirm('¿Resetear el checklist de ESTA página?\n\nTodos sus checkboxes vuelven a destildados. No toca ninguna otra página.')) return;
+            if (!confirm('¿Resetear el checklist de ESTA página?\n\nVuelve a como si nunca se hubiera abierto (todo destildado, nada gris). No toca ninguna otra página.')) return;
             delete mpdChecklist[url];
             try { await saveChecklistToGitHub(); } catch (e) {}
-            const boxes = document.querySelectorAll('#resultsContent input[type=checkbox][data-key]');
-            boxes.forEach(b => { b.checked = false; });
-            document.querySelectorAll('#resultsContent .action-block').forEach(el => { el.style.opacity = '1'; });
-            const bar = document.getElementById('masterBar'); if (bar) bar.style.width = '0%';
-            const lable = document.getElementById('masterLabel'); if (lable) { lable.textContent = '0/' + boxes.length + ' done'; lable.style.color = '#666'; }
+            renderStartHere();
+            // Re-render the analysis from scratch so EVERY checkbox, greyed block and label resets.
+            const item = (currentUrl && currentUrl.id != null) ? urls.find(u => u.id === currentUrl.id) : urls.find(u => u.url === url);
+            if (item) { viewResults(item.id); }
         }
 
         // Grey out an action-block once every checkbox inside it is ticked (else restore).
@@ -2554,6 +2556,12 @@
             currentAnalysisUrl = data.yourPage.url;
 
             if (structured) {
+                // Analysed OK — clear any "too long" red flag from a previous attempt.
+                if (mpdChecklist[data.yourPage.url] && mpdChecklist[data.yourPage.url]._toolong) {
+                    delete mpdChecklist[data.yourPage.url]._toolong;
+                    saveChecklistToGitHub();
+                    renderStartHere();
+                }
                 analysisHTML = renderStructuredResults(structured, keyword, data);
                 if (structured.loserPageLinks?.length > 0) {
                     setTimeout(() => upgradeAdminLinks(structured.loserPageLinks), 100);
@@ -2564,9 +2572,15 @@
                 const mdText = data.analysis?.markdown || '';
                 const looksJson = /^\s*`{0,3}\s*json/i.test(mdText) || /^\s*\{[\s\S]*"suggested/i.test(mdText);
                 if (looksJson) {
-                    analysisHTML = `<div class="action-block" style="border-color:#e57373;">
-                        <h3>⚠️ This blog was too long to analyse in one go</h3>
-                        <p style="font-size:0.9rem;color:#555;line-height:1.6;">The AI's answer got cut off, so the formatted report couldn't be built — this happens on very long blogs. Please click <strong>Analyse</strong> again. If it keeps happening on this same blog, tell me and I'll raise the limit further.</p>
+                    // Flag this blog as TOO LONG so its card turns red in the list (shorten it, then re-analyse).
+                    const _tlUrl = data.yourPage.url;
+                    if (!mpdChecklist[_tlUrl]) mpdChecklist[_tlUrl] = {};
+                    mpdChecklist[_tlUrl]._toolong = true;
+                    saveChecklistToGitHub();
+                    renderStartHere();
+                    analysisHTML = `<div class="action-block" style="border:2px solid #c62828;background:#fff0f0;">
+                        <h3 style="color:#c62828;">⚠️ This blog is too long to analyse</h3>
+                        <p style="font-size:0.9rem;color:#555;line-height:1.6;">The blog is too long for the AI to analyse in one go, so the report couldn't be built. It's now marked <strong style="color:#c62828;">red in the list</strong> — shorten the blog, then click <strong>Analyse</strong> again and the red clears on its own.</p>
                     </div>`;
                 } else {
                     analysisHTML = `<div class="action-block" style="white-space:pre-wrap;line-height:1.7;">${formatMarkdown(mdText)}</div>`;
