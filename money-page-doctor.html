@@ -287,7 +287,8 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.6</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.8</p>
+                    <button onclick="resetAllChecklists()" title="Wipe all saved checklists so every page starts fresh" style="margin-top:6px;background:#fff;color:#c62828;border:1px solid #ef9a9a;padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;">🧹 Reset all checklists (start clean)</button>
                 </div>
             </div>
         </header>
@@ -2266,6 +2267,30 @@
             return mpdChecklist[url] || {};
         }
 
+        // One-time "start clean": wipe every saved checklist so all pages begin fresh (unticked).
+        // From then on, progress persists normally between sessions.
+        async function resetAllChecklists() {
+            if (!confirm('¿Resetear TODOS los checklists?\n\nTodas las páginas arrancan limpias (checkboxes destildados). El progreso guardado se borra.\n\nUsalo una vez para empezar limpio.')) return;
+            mpdChecklist = {};
+            try { await saveChecklistToGitHub(); } catch (e) {}
+            alert('✅ Listo — todos los checklists reseteados. La página se recarga.');
+            location.reload();
+        }
+
+        // Reset just the page currently open in the analysis (untick everything, no reload).
+        async function resetThisPage() {
+            const url = currentAnalysisUrl;
+            if (!url) return;
+            if (!confirm('¿Resetear el checklist de ESTA página?\n\nTodos sus checkboxes vuelven a destildados. No toca ninguna otra página.')) return;
+            delete mpdChecklist[url];
+            try { await saveChecklistToGitHub(); } catch (e) {}
+            const boxes = document.querySelectorAll('#resultsContent input[type=checkbox][data-key]');
+            boxes.forEach(b => { b.checked = false; });
+            document.querySelectorAll('#resultsContent .action-block').forEach(el => { el.style.opacity = '1'; });
+            const bar = document.getElementById('masterBar'); if (bar) bar.style.width = '0%';
+            const lable = document.getElementById('masterLabel'); if (lable) { lable.textContent = '0/' + boxes.length + ' done'; lable.style.color = '#666'; }
+        }
+
         // Grey out an action-block once every checkbox inside it is ticked (else restore).
         function greyBlockIfComplete(blockEl) {
             if (!blockEl) return;
@@ -2307,18 +2332,20 @@
             // Generic: grey out whichever block this checkbox lives in once all its boxes are ticked.
             greyBlockIfComplete(checkbox.closest('.action-block'));
 
-            // Update master counter
-            const state = loadChecklistState(currentAnalysisUrl);
-            const done = Object.entries(state).filter(([k, v]) => k !== '_total' && v).length;
-            const total = currentAnalysisTotal;
+            // Update master counter — count the REAL checkboxes on screen (not the saved state,
+            // which could carry stale keys from a previous keyword). Auto-optimise ONLY when every
+            // visible checkbox is ticked; if even one is unticked, the page is not finished.
+            const _boxes = document.querySelectorAll('#resultsContent input[type=checkbox][data-key]');
+            const total = _boxes.length;
+            const done = Array.from(_boxes).filter(b => b.checked).length;
             const pct = total > 0 ? Math.round((done / total) * 100) : 0;
             const bar = document.getElementById('masterBar');
             const lable = document.getElementById('masterLabel');
             if (bar) bar.style.width = pct + '%';
             if (lable) { lable.textContent = `${done}/${total} done`; lable.style.color = done === total ? '#4caf50' : '#666'; }
 
-            // Auto-mark as optimized when all done
-            if (done === total && total > 0) autoMarkAsOptimized();
+            // Auto-mark as optimized ONLY when EVERY visible checkbox is ticked
+            if (total > 0 && done === total) autoMarkAsOptimized();
         }
 
         function showToast(message) {
@@ -2934,10 +2961,11 @@
                         <span id="masterLabel" style="font-weight:700;color:${done===total&&total>0?'#4caf50':'#666'}">${done}/${total} done</span>
                     </div>
                     <div class="progress-bar-wrap"><div class="progress-bar-fill" id="masterBar" style="width:${donePct}%"></div></div>
-                    ${done===total&&total>0 ? (dropDiagBanner
+                    ${done===total&&total>0 ? ((s && s.dropDiagnosis)
                         ? '<div style="color:#c62828;font-size:0.9rem;margin-top:8px;font-weight:700;">⚠️ This page has a problem to fix — see “🔍 Why it dropped” at the top. Do that fix, then re-check. (The checklist below is not the issue.)</div>'
                         : '<div style="color:#4caf50;font-size:0.85rem;margin-top:8px;font-weight:600;">✅ All done — page saved as Optimized!</div>') : ''}
                     <button id="manualMarkBtn" onclick="manualMarkAsOptimized()" style="margin-top:12px;background:#4caf50;color:white;padding:8px 20px;border-radius:6px;font-size:0.88rem;border:none;cursor:pointer;font-weight:600;">✅ Mark as Optimised</button>
+                    <button onclick="resetThisPage()" title="Untick everything on this page only" style="margin-top:12px;margin-left:8px;background:#fff;color:#e65100;border:1px solid #ffcc80;padding:8px 16px;border-radius:6px;font-size:0.85rem;cursor:pointer;">↺ Reset esta página</button>
                 </div>`;
 
             // ── 1. Push to Shopify block ──────────────────────────────────────
@@ -3061,7 +3089,7 @@
             // ── Add a Video block (blogs) — paste a YouTube link, tool drops it at the end ─────
             const videoBlock = _isBlog ? `
                 <div class="action-block" id="videoBlockCard" style="border-color:#c0392b;">
-                    <h3 style="display:flex;align-items:center;gap:10px;"><input type="checkbox" onclick="toggleBlockGrey('videoBlockCard',this)" style="width:18px;height:18px;cursor:pointer;flex-shrink:0;" title="Tick when done — greys this block out">🎬 Add a Video</h3>
+                    <h3 style="display:flex;align-items:center;gap:10px;"><input type="checkbox" data-key="add_video" ${state['add_video']?'checked':''} onchange="onTaskChange(this)" style="width:18px;height:18px;cursor:pointer;flex-shrink:0;" title="Tick when done — greys this block out">🎬 Add a Video</h3>
                     <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">Paste a YouTube link and the tool adds a bold <strong>WATCH: (video title)</strong> line plus the video at the <strong>end</strong> of your blog (same look your blogs already use). You'll see a preview before anything is saved.</p>
                     <div class="copy-block" id="videoActions">
                         <input type="text" id="videoUrlInput" placeholder="https://www.youtube.com/watch?v=…" style="flex:1;min-width:240px;padding:9px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.85rem;">
@@ -3072,7 +3100,7 @@
             // ── Duplicate People Also Ask block (blogs) — remove the in-body copy safely ──────
             const paaRemoveBlock = _isBlog ? `
                 <div class="action-block" id="paaRemoveCard" style="border-color:#8e24aa;">
-                    <h3 style="display:flex;align-items:center;gap:10px;"><input type="checkbox" onclick="toggleBlockGrey('paaRemoveCard',this)" style="width:18px;height:18px;cursor:pointer;flex-shrink:0;" title="Tick when done — greys this block out">❓ Duplicate People Also Ask</h3>
+                    <h3 style="display:flex;align-items:center;gap:10px;"><input type="checkbox" data-key="paa_duplicate" ${state['paa_duplicate']?'checked':''} onchange="onTaskChange(this)" style="width:18px;height:18px;cursor:pointer;flex-shrink:0;" title="Tick when done — greys this block out">❓ Duplicate People Also Ask</h3>
                     <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">If this blog shows the same Q&amp;A twice — once in the body and once in your saved field — remove the body copy. The tool only removes it when your saved copy still has the content, so nothing is ever lost. You'll see a preview first.</p>
                     <div class="copy-block" id="paaRemoveActions">
                         <button class="copy-btn" style="background:#8e24aa;color:#fff;border-color:#8e24aa;" onclick="bodyEditPreview('remove-paa',this)">🧹 Find &amp; remove the duplicate</button>
