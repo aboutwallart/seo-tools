@@ -78,7 +78,16 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Cambiá precios en masa — filtrá por supplier, poné <b>precio = costo + %</b>, mirá el preview y aplicá. Con deshacer.</p>
-            <div class="subtitle">v1.0 · Paso 1: precios · el costo = "Cost per item" (con IVA) · sin límite de 10 · guarda copia de seguridad antes de aplicar</div>
+            <div class="subtitle">v1.1 · Paso 1: precios · el costo = "Cost per item" (con IVA) · sin límite de 10 · guarda copia de seguridad antes de aplicar</div>
+        </div>
+
+        <!-- SAFETY: full-store price backup -->
+        <div class="panel" style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:240px;">
+                <b>🛟 Copia de seguridad</b>
+                <div class="pct muted" style="margin-top:2px;">Guardá los precios actuales de TODA la tienda antes de tocar nada. Se guarda en GitHub y sirve para revertir.</div>
+            </div>
+            <button class="btn btn-light" id="backupBtn" onclick="backupAll()">↓ Backup de todos los precios</button>
         </div>
 
         <!-- STEP 1: filters -->
@@ -212,6 +221,18 @@ function onModeChange(){
     };
     const needCost = ['floor_cost','markup_cost'].includes(mode);
     document.getElementById('modeHint').innerHTML = hints[mode] + (needCost ? ' <span class="muted">· Los productos sin costo cargado se saltan.</span>' : '');
+}
+
+async function backupAll(){
+    const btn = document.getElementById('backupBtn'); btn.disabled = true;
+    setStatus('<span class="spinner"></span> Guardando copia de todos los precios… (puede tardar hasta un minuto)');
+    try {
+        const r = await fetch(API + '?action=backup-all');
+        const d = await r.json();
+        if (!d.ok) { setStatus('⚠️ ' + esc(d.error||'Error')); btn.disabled=false; return; }
+        setStatus('✅ Backup guardado en GitHub: <b>' + esc(d.path) + '</b> — ' + d.count + ' variantes.');
+    } catch(e){ setStatus('⚠️ ' + esc(e.message)); }
+    btn.disabled = false;
 }
 
 async function loadVendors(){
