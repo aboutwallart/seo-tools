@@ -1,4 +1,6 @@
-// shopify-bulk.js — v1.3 (14 Sep 2026)
+// shopify-bulk.js — v1.4 (14 Sep 2026)
+// v1.4: apply records the supplier(s) on each undo entry (vendors[]) so the tool can undo the
+//       last change OF THE SELECTED SUPPLIER (not the global last change).
 // v1.3 (Entrega A): status filter accepts MANY statuses; new action 'lastchange' returns the
 //       per-variant last-change map; apply now takes an explicit list of ticked items (not a
 //       filter re-scan) and records each variant's last change to data/bulk-price-lastchange.json.
@@ -286,17 +288,18 @@ module.exports = async function handler(req, res) {
       for (let i = 0; i < vids.length; i += 100) {
         const chunk = vids.slice(i, i + 100);
         const qy = 'query { ' + chunk.map((vid, j) =>
-          `v${j}: productVariant(id:"${vid}"){ id price compareAtPrice product{ id } }`).join(' ') + ' }';
+          `v${j}: productVariant(id:"${vid}"){ id price compareAtPrice product{ id vendor } }`).join(' ') + ' }';
         const data = await shopify(qy);
         chunk.forEach((vid, j) => {
           const n = data[`v${j}`];
-          if (n) cur[vid] = { price: n.price, compareAt: n.compareAtPrice, productId: n.product ? n.product.id : null };
+          if (n) cur[vid] = { price: n.price, compareAt: n.compareAtPrice, productId: n.product ? n.product.id : null, vendor: n.product ? n.product.vendor : null };
         });
       }
 
       const now = new Date().toISOString();
       const snapshot = [];               // {variantId, oldPrice, oldCompareAt}
       const byProduct = {};              // productId -> [{variantId, newPrice}]
+      const vendorsSet = new Set();      // which suppliers this batch touched (for per-supplier undo)
       const lc = (await ghGet('data/bulk-price-lastchange.json')).json || {};
       items.forEach(it => {
         const c = cur[it.variantId]; if (!c) return;
@@ -305,6 +308,7 @@ module.exports = async function handler(req, res) {
         if (Math.abs(newPrice - parseFloat(c.price)) < 1e-9) return; // already there, skip
         snapshot.push({ variantId: it.variantId, oldPrice: c.price, oldCompareAt: c.compareAt });
         (byProduct[pid] = byProduct[pid] || []).push({ variantId: it.variantId, newPrice });
+        if (c.vendor) vendorsSet.add(c.vendor);
         lc[it.variantId] = { mode: change.mode, value: change.value, date: now, from: c.price, to: newPrice };
       });
       if (!snapshot.length) return res.status(200).json({ ok: true, updated: 0, message: 'Nothing to change.' });
@@ -316,7 +320,7 @@ module.exports = async function handler(req, res) {
       }, `bulk price undo ${undoId} (${snapshot.length})`);
       try {
         const idx = (await ghGet(UNDO_INDEX)).json || [];
-        idx.unshift({ id: undoId, createdAt: now, count: snapshot.length, change, reverted: false });
+        idx.unshift({ id: undoId, createdAt: now, count: snapshot.length, change, vendors: Array.from(vendorsSet), reverted: false });
         await ghPut(UNDO_INDEX, idx.slice(0, 100), `index ${undoId}`);
       } catch (e) {}
       // record each variant's last change (for the "Último cambio" column)
