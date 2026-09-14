@@ -1,4 +1,7 @@
-// shopify-bulk.js — v1.2 (14 Sep 2026)
+// shopify-bulk.js — v1.3 (14 Sep 2026)
+// v1.3 (Entrega A): status filter accepts MANY statuses; new action 'lastchange' returns the
+//       per-variant last-change map; apply now takes an explicit list of ticked items (not a
+//       filter re-scan) and records each variant's last change to data/bulk-price-lastchange.json.
 // v1.2: backup-all also writes data/price-backup-latest.json (pointer); new action
 //       'last-backup' returns it so the tool can lock everything until today's backup exists.
 // v1.1: added action 'backup-all' — saves EVERY product's current prices to GitHub
@@ -146,7 +149,10 @@ module.exports = async function handler(req, res) {
     const parts = [];
     const esc = s => `'${String(s).replace(/'/g, "\\'")}'`;
     if (filters.vendor) parts.push(`vendor:${esc(filters.vendor)}`);
-    if (filters.status) parts.push(`status:${filters.status}`);            // active|draft|archived
+    const statuses = Array.isArray(filters.statuses) ? filters.statuses.filter(Boolean)
+                     : (filters.status ? [filters.status] : []);          // active|draft|archived
+    if (statuses.length === 1) parts.push(`status:${statuses[0]}`);
+    else if (statuses.length > 1) parts.push('(' + statuses.map(s => `status:${s}`).join(' OR ') + ')');
     if (filters.productType) parts.push(`product_type:${esc(filters.productType)}`);
     if (filters.tag) parts.push(`tag:${esc(filters.tag)}`);
     if (filters.onlyCollective) parts.push(`tag:'Shopify Collective'`);
@@ -197,6 +203,12 @@ module.exports = async function handler(req, res) {
     if (action === 'last-backup') {
       const latest = (await ghGet('data/price-backup-latest.json')).json;
       return res.status(200).json({ ok: true, latest: latest || null });
+    }
+
+    // ---------------- lastchange (per-variant last change, for the preview column) ----------------
+    if (action === 'lastchange') {
+      const map = (await ghGet('data/bulk-price-lastchange.json')).json || {};
+      return res.status(200).json({ ok: true, map });
     }
 
     // ---------------- vendors (for the supplier dropdown) ----------------
@@ -260,75 +272,74 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // ---------------- apply ----------------
+    // ---------------- apply (only the ticked rows the tool sends) ----------------
     if (action === 'apply') {
       const change = body.change || {};
-      const searchQ = buildQuery(body.filters);
+      const items = Array.isArray(body.items)
+        ? body.items.filter(it => it && it.variantId && it.newPrice != null)
+        : [];
+      if (!items.length) return res.status(200).json({ ok: true, updated: 0, message: 'Nothing selected.' });
 
-      // 1) scan everything that matches and compute the updates
-      const updatesByProduct = {};   // productId -> [{variantId, newPrice}]
-      const snapshot = [];           // {variantId, oldPrice, oldCompareAt}
-      let cursor = null, pages = 0, changeCount = 0;
-      while (pages < 400) {
-        const data = await shopify(
-          `query($q:String,$cursor:String){
-             products(first:60, query:$q, after:$cursor){
-               pageInfo{ hasNextPage endCursor }
-               nodes{ id variants(first:100){ nodes{ id price compareAtPrice inventoryItem{ unitCost{ amount } } } } }
-             }
-           }`,
-          { q: searchQ || null, cursor }
-        );
-        const conn = data.products;
-        conn.nodes.forEach(pr => {
-          pr.variants.nodes.forEach(v => {
-            const cost = v.inventoryItem && v.inventoryItem.unitCost ? v.inventoryItem.unitCost.amount : null;
-            const r = computeNew(v.price, cost, change);
-            if (r.changed) {
-              (updatesByProduct[pr.id] = updatesByProduct[pr.id] || []).push({ variantId: v.id, newPrice: r.newPrice });
-              snapshot.push({ variantId: v.id, oldPrice: v.price, oldCompareAt: v.compareAtPrice });
-              changeCount++;
-            }
-          });
+      // 1) read the CURRENT price of each ticked variant (authoritative undo baseline + productId)
+      const vids = items.map(it => it.variantId);
+      const cur = {}; // vid -> { price, compareAt, productId }
+      for (let i = 0; i < vids.length; i += 100) {
+        const chunk = vids.slice(i, i + 100);
+        const qy = 'query { ' + chunk.map((vid, j) =>
+          `v${j}: productVariant(id:"${vid}"){ id price compareAtPrice product{ id } }`).join(' ') + ' }';
+        const data = await shopify(qy);
+        chunk.forEach((vid, j) => {
+          const n = data[`v${j}`];
+          if (n) cur[vid] = { price: n.price, compareAt: n.compareAtPrice, productId: n.product ? n.product.id : null };
         });
-        pages++;
-        if (!conn.pageInfo.hasNextPage) break;
-        cursor = conn.pageInfo.endCursor;
       }
 
-      if (changeCount === 0) return res.status(200).json({ ok: true, updated: 0, message: 'Nothing to change.' });
+      const now = new Date().toISOString();
+      const snapshot = [];               // {variantId, oldPrice, oldCompareAt}
+      const byProduct = {};              // productId -> [{variantId, newPrice}]
+      const lc = (await ghGet('data/bulk-price-lastchange.json')).json || {};
+      items.forEach(it => {
+        const c = cur[it.variantId]; if (!c) return;
+        const pid = it.productId || c.productId; if (!pid) return;
+        const newPrice = Number(it.newPrice);
+        if (Math.abs(newPrice - parseFloat(c.price)) < 1e-9) return; // already there, skip
+        snapshot.push({ variantId: it.variantId, oldPrice: c.price, oldCompareAt: c.compareAt });
+        (byProduct[pid] = byProduct[pid] || []).push({ variantId: it.variantId, newPrice });
+        lc[it.variantId] = { mode: change.mode, value: change.value, date: now, from: c.price, to: newPrice };
+      });
+      if (!snapshot.length) return res.status(200).json({ ok: true, updated: 0, message: 'Nothing to change.' });
 
-      // 2) save the undo snapshot BEFORE writing anything
-      const undoId = 'undo-' + new Date().toISOString().replace(/[:.]/g, '-');
+      // 2) undo snapshot BEFORE writing
+      const undoId = 'undo-' + now.replace(/[:.]/g, '-');
       await ghPut(`${UNDO_DIR}/${undoId}.json`, {
-        id: undoId, createdAt: new Date().toISOString(),
-        filters: body.filters || {}, change, count: snapshot.length, snapshot
-      }, `bulk price undo snapshot ${undoId} (${snapshot.length})`);
-      // index (best-effort)
+        id: undoId, createdAt: now, change, count: snapshot.length, snapshot
+      }, `bulk price undo ${undoId} (${snapshot.length})`);
       try {
         const idx = (await ghGet(UNDO_INDEX)).json || [];
-        idx.unshift({ id: undoId, createdAt: new Date().toISOString(), count: snapshot.length, change, filters: body.filters || {}, reverted: false });
+        idx.unshift({ id: undoId, createdAt: now, count: snapshot.length, change, reverted: false });
         await ghPut(UNDO_INDEX, idx.slice(0, 100), `index ${undoId}`);
-      } catch (e) { /* index is convenience only */ }
+      } catch (e) {}
+      // record each variant's last change (for the "Último cambio" column)
+      try { await ghPut('data/bulk-price-lastchange.json', lc, `lastchange (+${snapshot.length})`); } catch (e) {}
 
-      // 3) write the new prices, batched (one productVariantsBulkUpdate per product, ~20 per request)
-      const productIds = Object.keys(updatesByProduct);
+      // 3) write the new prices, batched
+      const productIds = Object.keys(byProduct);
       const errors = [];
       let updated = 0;
       for (let i = 0; i < productIds.length; i += 20) {
         const chunk = productIds.slice(i, i + 20);
         const m = 'mutation {\n' + chunk.map((pid, j) => {
-          const vars = updatesByProduct[pid].map(u => `{id:"${u.variantId}", price:"${u.newPrice.toFixed(2)}"}`).join(',');
+          const vars = byProduct[pid].map(u => `{id:"${u.variantId}", price:"${u.newPrice.toFixed(2)}"}`).join(',');
           return `  m${j}: productVariantsBulkUpdate(productId:"${pid}", variants:[${vars}]){ userErrors{ field message } }`;
         }).join('\n') + '\n}';
         const data = await shopify(m);
         chunk.forEach((pid, j) => {
           const ue = data[`m${j}`] && data[`m${j}`].userErrors ? data[`m${j}`].userErrors : [];
           if (ue.length) ue.forEach(e => errors.push(`${pid}: ${e.message}`));
-          else updated += updatesByProduct[pid].length;
+          else updated += byProduct[pid].length;
         });
       }
-      return res.status(200).json({ ok: true, updated, changeCount, undoId, errors: errors.slice(0, 20) });
+      return res.status(200).json({ ok: true, updated, undoId, errors: errors.slice(0, 20) });
     }
 
     // ---------------- undo list ----------------
