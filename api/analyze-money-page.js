@@ -1734,7 +1734,7 @@ async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = 
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 32000,   // raised 12000→20000→32000 — long blogs (5k+ words) were truncating → invalid JSON
+        max_tokens: 48000,   // raised 12000→20000→32000→48000 — long blogs (8k+ words) were truncating → invalid JSON (sonnet-4-6 caps at 128K)
         messages: [{ role: 'user', content: prompt }]
       })
     });
