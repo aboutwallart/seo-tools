@@ -91,6 +91,27 @@
         .modal-box .big { font-size:40px; margin-bottom:6px; }
         .modal-box h3 { font-size:20px; margin-bottom:6px; }
         .modal-box p { color:#666; font-size:14px; margin-bottom:18px; }
+
+        /* ---- multi-select (Estado) ---- */
+        .ms { position:relative; }
+        .ms-btn { padding:10px 12px; border:2px solid #eee; border-radius:10px; font-size:15px;
+            background:#fff; min-width:170px; text-align:left; cursor:pointer; }
+        .ms-btn:hover { border-color:#ccc; }
+        .ms-menu { position:absolute; top:100%; left:0; margin-top:4px; background:#fff; border:1px solid #e0e0e0;
+            border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.12); padding:8px; z-index:50; min-width:180px; }
+        .ms-menu label { display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:8px; cursor:pointer; font-size:14px; }
+        .ms-menu label:hover { background:#f5f5f5; }
+        .ms-menu input { width:17px; height:17px; }
+
+        /* ---- preview extras ---- */
+        .pill { display:inline-block; padding:3px 9px; border-radius:20px; font-size:12px; font-weight:700; white-space:nowrap; }
+        .pill.green { background:#e8f5e9; color:#2e7d32; }
+        tr.row-red td { background:#fff0f0 !important; }
+        .row-red-tag { display:inline-block; margin-left:6px; font-size:11px; font-weight:700; color:#c62828; }
+        td.pick { text-align:center; width:34px; }
+        td.pick input, th.pick input { width:17px; height:17px; cursor:pointer; }
+        .sel-toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
+        .sel-toolbar .btn { padding:8px 12px; font-size:13px; }
     </style>
 </head>
 <body>
@@ -99,7 +120,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Cambiá precios en masa — filtrá por supplier, poné <b>precio = costo + %</b>, mirá el preview y aplicá. Con deshacer.</p>
-            <div class="subtitle">v1.2 · Paso 1: precios · el costo = "Cost per item" (con IVA) · sin límite de 10 · guarda copia de seguridad antes de aplicar</div>
+            <div class="subtitle">v1.3 · Paso 1: precios · el costo = "Cost per item" (con IVA) · sin límite de 10 · guarda copia de seguridad antes de aplicar</div>
         </div>
 
         <!-- SAFETY: full-store price backup (GATE) -->
@@ -122,14 +143,14 @@
                     <label>Supplier (vendor)</label>
                     <select id="vendor"><option value="">— Todos —</option></select>
                 </div>
-                <div class="field">
-                    <label>Estado</label>
-                    <select id="status">
-                        <option value="">Cualquiera</option>
-                        <option value="active">Activo</option>
-                        <option value="draft">Borrador</option>
-                        <option value="archived">Archivado</option>
-                    </select>
+                <div class="field ms">
+                    <label>Estado (podés elegir varios)</label>
+                    <button type="button" class="ms-btn" id="statusBtn" onclick="toggleStatusMenu(event)">Cualquiera ▾</button>
+                    <div class="ms-menu" id="statusMenu" hidden>
+                        <label><input type="checkbox" class="st" value="active" onchange="updateStatusBtn()"> Activo</label>
+                        <label><input type="checkbox" class="st" value="draft" onchange="updateStatusBtn()"> Borrador</label>
+                        <label><input type="checkbox" class="st" value="archived" onchange="updateStatusBtn()"> Archivado</label>
+                    </div>
                 </div>
                 <div class="field">
                     <label>Tipo de producto</label>
@@ -213,6 +234,8 @@ let previewRows = [];        // all rows loaded in the last preview
 let lastChange = null;
 let lastFilters = null;
 let lastUndoId = null;
+let lastChangeMap = {};      // variantId -> {mode,value,date,from,to} (last change per variant)
+let selected = new Set();    // variantIds ticked for apply
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function setStatus(msg){ document.getElementById('status').innerHTML = msg; }
@@ -223,15 +246,30 @@ function pctOverCost(price, cost){
 }
 
 function getFilters(){
+    const statuses = Array.from(document.querySelectorAll('.st:checked')).map(c => c.value);
     return {
         vendor: document.getElementById('vendor').value || '',
-        status: document.getElementById('status').value || '',
+        statuses: statuses,
         productType: document.getElementById('ptype').value.trim(),
         tag: document.getElementById('tag').value.trim(),
         titleContains: document.getElementById('titleContains').value.trim(),
         onlyCollective: document.getElementById('onlyCollective').checked
     };
 }
+
+// ---- Estado multi-select ----
+function toggleStatusMenu(e){ if(e) e.stopPropagation(); const m=document.getElementById('statusMenu'); m.hidden = !m.hidden; }
+function updateStatusBtn(){
+    const chk = Array.from(document.querySelectorAll('.st:checked'));
+    const names = { active:'Activo', draft:'Borrador', archived:'Archivado' };
+    document.getElementById('statusBtn').textContent =
+        (chk.length ? chk.map(c => names[c.value]).join(', ') : 'Cualquiera') + ' ▾';
+}
+document.addEventListener('click', function(e){
+    const menu = document.getElementById('statusMenu');
+    if (!menu || menu.hidden) return;
+    if (!e.target.closest('.ms')) menu.hidden = true;
+});
 function getChange(){
     return {
         mode: document.getElementById('mode').value,
@@ -333,11 +371,15 @@ async function loadVendors(){
 async function runPreview(){
     const btn = document.getElementById('previewBtn'); btn.disabled = true;
     document.getElementById('applyBtn').disabled = true;
-    previewRows = []; lastChange = getChange(); lastFilters = getFilters();
+    previewRows = []; selected = new Set(); lastChange = getChange(); lastFilters = getFilters();
     if (isNaN(lastChange.value)) { setStatus('⚠️ Escribí un número en el paso 2.'); btn.disabled=false; return; }
     document.getElementById('tableWrap').innerHTML = '';
     let cursor = null, page = 0, totVar = 0, totChange = 0, totNoCost = 0;
     try {
+        // last-change map (for the "Último cambio" column) — once
+        try { const lm = await (await fetch(API + '?action=lastchange')).json(); lastChangeMap = (lm && lm.map) || {}; }
+        catch(e){ lastChangeMap = {}; }
+
         do {
             setStatus('<span class="spinner"></span> Calculando preview… (' + totVar + ' variantes leídas)');
             const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'},
@@ -351,12 +393,13 @@ async function runPreview(){
             if (page > 400) break; // safety
         } while (cursor);
 
+        // default selection = the ones that will change ("las que faltan")
+        previewRows.forEach(r => { if (r.changed) selected.add(r.variantId); });
+
         renderCounts(totVar, totChange, totNoCost);
         renderTable();
-        const applyable = totChange > 0;
-        document.getElementById('applyBtn').disabled = !applyable;
-        setStatus(applyable
-            ? '✅ Preview listo. Revisá y, si está bien, tocá <b>Aplicar cambios</b>.'
+        setStatus(totChange > 0
+            ? '✅ Preview listo. Tildá las que quieras y tocá <b>Aplicar cambios</b>.'
             : 'No hay nada para cambiar con estos filtros/regla.');
     } catch(e){ setStatus('⚠️ ' + esc(e.message)); }
     btn.disabled = false;
@@ -364,52 +407,104 @@ async function runPreview(){
 
 function renderCounts(totVar, totChange, totNoCost){
     let html = `<span class="chip">${totVar} variantes</span>`
-             + `<span class="chip change">${totChange} van a cambiar</span>`;
+             + `<span class="chip change">${totChange} van a cambiar</span>`
+             + `<span class="chip" id="selChip">${selected.size} seleccionadas</span>`;
     if (totNoCost) html += `<span class="chip nocost">${totNoCost} sin costo (se saltan)</span>`;
     document.getElementById('counts').innerHTML = html;
 }
+function refreshSelCount(){ const c = document.getElementById('selChip'); if (c) c.textContent = selected.size + ' seleccionadas'; updateApplyBtn(); }
+function updateApplyBtn(){
+    const n = previewRows.filter(r => selected.has(r.variantId) && r.changed).length;
+    const b = document.getElementById('applyBtn');
+    b.disabled = n === 0;
+    b.textContent = '✅ Aplicar cambios' + (n ? ' (' + n + ')' : '');
+}
+
+// last-change pill / red-row helper
+function lastChangeCell(r){
+    const lc = lastChangeMap[r.variantId];
+    if (!lc) return { html: '<span class="muted">—</span>', red: false };
+    const isMin = (lc.mode === 'floor_cost' || lc.mode === 'markup_cost');
+    if (isMin) {
+        const red = r.changed && Number(r.newPrice) > Number(r.oldPrice); // was set to min, cost rose → below now
+        return { html: '<span class="pill green">Collective mínimo +' + esc(lc.value) + '%</span>', red };
+    }
+    const d = new Date(lc.date).toLocaleDateString('es-GB', { day:'2-digit', month:'short' });
+    let txt;
+    if (lc.mode === 'inc_pct') txt = d + ' · +' + lc.value + '%';
+    else if (lc.mode === 'dec_pct') txt = d + ' · -' + lc.value + '%';
+    else if (lc.mode === 'inc_amt') txt = d + ' · +£' + lc.value;
+    else if (lc.mode === 'dec_amt') txt = d + ' · -£' + lc.value;
+    else if (lc.mode === 'set') txt = d + ' · precio fijo £' + lc.value;
+    else txt = d;
+    return { html: '<span class="muted">' + esc(txt) + '</span>', red: false };
+}
 
 function renderTable(){
-    const changed = previewRows.filter(r => r.changed);
-    if (!changed.length){ document.getElementById('tableWrap').innerHTML = '<div class="empty">Ningún producto cambia con esta regla.</div>'; return; }
+    if (!previewRows.length){ document.getElementById('tableWrap').innerHTML = '<div class="empty">No hay productos con esos filtros.</div>'; return; }
     const cap = 500;
-    const show = changed.slice(0, cap);
-    let html = '<table><thead><tr><th>Producto</th><th>Variante</th><th class="num">Costo</th>'
-             + '<th class="num">Precio actual</th><th></th><th class="num">Precio nuevo</th></tr></thead><tbody>';
+    const show = previewRows.slice(0, cap);
+    let html = '<div class="sel-toolbar">'
+        + '<button class="btn btn-light" onclick="selectFaltan()">Seleccionar solo las que faltan</button>'
+        + '<button class="btn btn-light" onclick="selectAllRows()">Seleccionar todas</button>'
+        + '<button class="btn btn-light" onclick="selectNone()">Ninguna</button>'
+        + '</div>';
+    html += '<table><thead><tr>'
+        + '<th class="pick"><input type="checkbox" id="headChk" onchange="toggleHead(this)"></th>'
+        + '<th>Producto</th><th>Variante</th><th class="num">Costo</th>'
+        + '<th class="num">Precio actual</th><th></th><th class="num">Precio nuevo</th><th>Último cambio</th>'
+        + '</tr></thead><tbody>';
     show.forEach(r => {
         const oldPct = pctOverCost(r.oldPrice, r.cost);
         const newPct = pctOverCost(r.newPrice, r.cost);
         const up = Number(r.newPrice) >= Number(r.oldPrice);
-        html += '<tr>'
-          + '<td>' + esc(r.productTitle) + '<div class="pct muted">' + esc(r.vendor||'') + '</div></td>'
+        const lc = lastChangeCell(r);
+        const checked = selected.has(r.variantId) ? 'checked' : '';
+        const newCell = r.changed
+            ? '<span class="new ' + (up?'up':'down') + '">' + money(r.newPrice) + (newPct!==null?'<div class="pct">+'+newPct.toFixed(0)+'%</div>':'') + '</span>'
+            : '<span class="muted">sin cambio</span>';
+        html += '<tr class="' + (lc.red ? 'row-red' : '') + '">'
+          + '<td class="pick"><input type="checkbox" ' + checked + ' onchange="toggleRow(\'' + esc(r.variantId) + '\', this.checked)"></td>'
+          + '<td>' + esc(r.productTitle) + (lc.red ? '<span class="row-red-tag">⚠ URGENTE: cayó por debajo</span>' : '') + '<div class="pct muted">' + esc(r.vendor||'') + '</div></td>'
           + '<td class="muted">' + esc(r.variantTitle==='Default Title'?'—':r.variantTitle) + '</td>'
           + '<td class="num">' + money(r.cost) + '</td>'
           + '<td class="num old">' + money(r.oldPrice) + (oldPct!==null?'<div class="pct">+'+oldPct.toFixed(0)+'%</div>':'') + '</td>'
-          + '<td class="arrow">→</td>'
-          + '<td class="num new ' + (up?'up':'down') + '">' + money(r.newPrice) + (newPct!==null?'<div class="pct">+'+newPct.toFixed(0)+'%</div>':'') + '</td>'
+          + '<td class="arrow">' + (r.changed ? '→' : '') + '</td>'
+          + '<td class="num">' + newCell + '</td>'
+          + '<td>' + lc.html + '</td>'
           + '</tr>';
     });
     html += '</tbody></table>';
-    if (changed.length > cap) html += '<div class="pct muted" style="padding:10px;">Mostrando los primeros ' + cap + ' de ' + changed.length + '. Se van a aplicar TODOS.</div>';
+    if (previewRows.length > cap) html += '<div class="pct muted" style="padding:10px;">Mostrando las primeras ' + cap + ' de ' + previewRows.length + '. La selección (todas / las que faltan) igual cuenta TODAS.</div>';
     document.getElementById('tableWrap').innerHTML = html;
+    updateApplyBtn();
 }
 
+function toggleRow(vid, on){ if (on) selected.add(vid); else selected.delete(vid); refreshSelCount(); }
+function selectFaltan(){ selected = new Set(); previewRows.forEach(r => { if (r.changed) selected.add(r.variantId); }); renderTable(); }
+function selectAllRows(){ selected = new Set(); previewRows.forEach(r => selected.add(r.variantId)); renderTable(); }
+function selectNone(){ selected = new Set(); renderTable(); }
+function toggleHead(chk){ if (chk.checked) selectAllRows(); else selectNone(); }
+
 async function applyChanges(){
-    const changed = previewRows.filter(r => r.changed).length;
-    if (!changed) return;
-    if (!confirm('Vas a cambiar el precio de ' + changed + ' variantes.\n\nAntes de aplicar guardo los precios viejos (para deshacer).\n\n¿Aplicar ahora?')) return;
+    const items = previewRows
+        .filter(r => selected.has(r.variantId) && r.changed)
+        .map(r => ({ productId: r.productId, variantId: r.variantId, newPrice: r.newPrice }));
+    if (!items.length) return;
+    if (!confirm('Vas a cambiar el precio de ' + items.length + ' variantes (las tildadas).\n\nAntes de aplicar guardo los precios viejos (para deshacer).\n\n¿Aplicar ahora?')) return;
     const btn = document.getElementById('applyBtn'); btn.disabled = true;
     document.getElementById('previewBtn').disabled = true;
     setStatus('<span class="spinner"></span> Guardando copia de seguridad y aplicando… (puede tardar un poco)');
     try {
         const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ action:'apply', filters:lastFilters, change:lastChange }) });
+            body: JSON.stringify({ action:'apply', items: items, change: lastChange }) });
         const d = await r.json();
         if (!d.ok) { setStatus('⚠️ ' + esc(d.error||'Error')); document.getElementById('previewBtn').disabled=false; return; }
         lastUndoId = d.undoId || null;
         let msg = '✅ Listo: ' + d.updated + ' variantes actualizadas.';
         if (d.errors && d.errors.length) msg += ' <span class="down">(' + d.errors.length + ' con error)</span>';
         if (lastUndoId) msg += ' <button class="btn btn-undo" style="margin-left:10px;" onclick="undoNow(\'' + lastUndoId + '\')">↺ Deshacer esto</button>';
+        msg += ' <span class="muted">· Volvé a "Ver preview" para ver la lista actualizada.</span>';
         setStatus(msg);
         document.getElementById('undoBtn').disabled = false;
     } catch(e){ setStatus('⚠️ ' + esc(e.message)); }
