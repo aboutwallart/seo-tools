@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v2.2 · prices backup per tab · other fields: back up one field, then edit it freely · backup + undo before applying</div>
+            <div class="subtitle">v2.3 · lists auto-load from Shopify when you open Other fields · Weight = pick a Set + grid, no supplier · backup + undo before applying</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -283,7 +283,7 @@
 
             <div id="tab2Body" class="locked-wrap locked">
 
-            <div class="panel">
+            <div class="panel" id="t2step2">
                 <h2><span class="step-num">2</span> Choose products</h2>
                 <div class="row">
                     <div class="field">
@@ -309,7 +309,7 @@
                     </div>
                     <button class="btn btn-light" id="t2vendorsBtn" onclick="loadT2Vendors()">↻ Load suppliers</button>
                 </div>
-                <div class="hint" id="t2filterHint" style="margin-top:12px;">Load the data first (once): <button class="btn btn-light" style="padding:6px 10px;font-size:13px;" onclick="loadFieldMeta()">↻ Load tags, types &amp; collections</button> <span id="t2metaState"></span></div>
+                <div class="hint" id="t2filterHint" style="margin-top:12px;"><span id="t2metaState">Loading lists…</span></div>
             </div>
 
             <div class="panel">
@@ -517,6 +517,7 @@ function switchTab(n){
     document.getElementById('tab2').hidden = n!==2;
     document.getElementById('tabBtn1').classList.toggle('active', n===1);
     document.getElementById('tabBtn2').classList.toggle('active', n===2);
+    if (n===2) loadFieldMeta(); // fresh from Shopify every time you open this tab
 }
 
 /* ===================== BACKUP GATES (one per tab) ===================== */
@@ -833,29 +834,29 @@ function getFilters2(){
         titleContains: document.getElementById('t2titleContains').value.trim()
     };
 }
+let metaLoading = false;
 async function loadFieldMeta(){
-    const st = document.getElementById('t2metaState'); st.innerHTML = '<span class="spinner"></span> loading…';
+    if (metaLoading) return; metaLoading = true;
+    const st = document.getElementById('t2metaState'); if (st) st.innerHTML = '<span class="spinner"></span> loading lists from Shopify…';
     try {
         const d = await (await fetch(API + '?action=field-meta')).json();
-        if (!d.ok) { st.textContent = '⚠️ ' + (d.error||'Error'); return; }
+        if (!d.ok) { if (st) st.innerHTML = '⚠️ ' + esc(d.error||'Error') + ' — <a href="#" onclick="loadFieldMeta();return false;">retry</a>'; return; }
         META = d;
         const allTags = [].concat(META.collectionTags || []);
         Object.keys(META.clusterGroups||{}).forEach(g => (META.clusterGroups[g]||[]).forEach(t => allTags.push(t)));
         document.getElementById('allTagsList').innerHTML = allTags.map(t => `<option value="${esc(t)}">`).join('');
         document.getElementById('ptypesList').innerHTML = (META.productTypes||[]).map(t => `<option value="${esc(t)}">`).join('');
-        const sel = document.getElementById('weightSet');
-        sel.innerHTML = '<option value="">(all that match the filter)</option>' + ['Set of 1','Set of 2','Set of 3'].map(s => `<option value="${s}">${s}</option>`).join('');
-        renderTagPicker(); renderCollPicker(); buildWeightGrid();
-        st.innerHTML = '✅ ' + (META.collectionTags||[]).length + ' collection tags · ' + Object.keys(META.clusterGroups||{}).length + ' tag groups · ' + (META.manualCollections||[]).length + ' manual collections · ' + (META.productTypes||[]).length + ' types.';
-    } catch(e){ st.textContent = '⚠️ ' + e.message; }
+        renderTagPicker(); renderCollPicker();
+        if (st) st.innerHTML = '✅ lists ready · ' + (META.collectionTags||[]).length + ' collection tags · ' + (META.manualCollections||[]).length + ' manual collections · ' + (META.productTypes||[]).length + ' types.';
+    } catch(e){ if (st) st.innerHTML = '⚠️ ' + esc(e.message) + ' — <a href="#" onclick="loadFieldMeta();return false;">retry</a>'; }
+    finally { metaLoading = false; }
 }
 function onFieldChange(){
     const f = document.getElementById('t2field').value;
     ['tags','ptype','weight','unitprice','collections','category'].forEach(k => { document.getElementById('fp-'+k).hidden = (k !== f); });
-    if (f === 'weight') {
-        const v = document.getElementById('t2vendor');
-        for (const o of v.options) { if (/about wall art/i.test(o.value)) { v.value = o.value; break; } }
-    }
+    // Weight applies only to About Wall Art and is chosen by Set — no supplier step needed
+    document.getElementById('t2step2').hidden = (f === 'weight');
+    if (f === 'weight') buildWeightGrid();
     checkFieldGate(); // each field has its own backup gate
 }
 function onTagsAction(){
@@ -912,6 +913,8 @@ const WEIGHT_GROUPS = [
     { label:'Canvas wrapped', frame:'canvas', sizes:['12x16','16x22','20x30'] }
 ];
 function buildWeightGrid(){
+    const setSel = document.getElementById('weightSet');
+    if (setSel && setSel.options.length <= 1) setSel.innerHTML = '<option value="">(all that match the Set filter)</option>' + ['Set of 1','Set of 2','Set of 3'].map(s => `<option value="${s}">${s}</option>`).join('');
     let html = '<div class="whead"></div>';
     ['A4','A3','A2','20x30'].forEach(s => html += '<div class="whead">' + s + '</div>');
     WEIGHT_GROUPS.forEach(g => {
@@ -1099,6 +1102,7 @@ async function fieldUndoNow(undoId){
 /* ---- init ---- */
 onModeChange();
 onTagsAction();
+buildWeightGrid();
 onFieldChange();   // shows the right panel + checks that field's backup gate
 checkPriceBackup();
 </script>
