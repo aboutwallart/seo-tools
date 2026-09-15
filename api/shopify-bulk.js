@@ -1,4 +1,8 @@
-// shopify-bulk.js — v2.4 (15 Sep 2026)
+// shopify-bulk.js — v2.5 (15 Sep 2026)
+// v2.5: NEW field 'awaprice' — About Wall Art price grid by Set + Paper, priced per Frame×Size
+//       (frame colours share one price). Compare-at is kept as a % of the price (a % you type, or
+//       each variant's existing % preserved). Its own AWA-only backup. Lives in its own "AWA Prices"
+//       tab; replaces the old Able Bulk 'unitprice' editor. Apply/undo reuse the price path.
 // v2.4: Apply & Undo run in BATCHES (general mechanism, both tabs). The frontend sends items in
 //       chunks so a big job never times out. All batches of one Apply share ONE undo entry
 //       (apply/apply-field accept an undoId to append to). Undo (undo/field-undo) accepts
@@ -267,6 +271,17 @@ module.exports = async function handler(req, res) {
     if (!f || !s) return null;
     return f + '|' + s;
   }
+  // ---------- AWA price grouping (Tab "AWA Prices"): frame×size within a paper ----------
+  function optVal(selectedOptions, name) { let out = ''; (selectedOptions || []).forEach(o => { if (o.name === name) out = o.value; }); return out; }
+  function frameGroupOf(selOpts) { return frameKey(optVal(selOpts, 'Frame')); }   // unframed | framed | canvas
+  function sizeCodeOf(selOpts) { return sizeKey(optVal(selOpts, 'Size')); }        // A4 | A3 | A2 | 20x30 | 12x16 | 16x22
+  function paperKeyOf(selOpts) {
+    const v = optVal(selOpts, 'Paper');
+    if (/matte/i.test(v)) return 'Matte';
+    if (/canvas|polyester/i.test(v)) return 'Canvas';
+    if (/satin/i.test(v)) return 'Satin';
+    return '';
+  }
 
   // ---------- product search query (Tab 1 + Tab 2) ----------
   function buildQuery(filters) {
@@ -293,6 +308,7 @@ module.exports = async function handler(req, res) {
     if (field === 'collections') return 'id title vendor status collections(first:100){ nodes { id title } }';
     if (field === 'weight')   return 'id title vendor status variants(first:100){ nodes { id title selectedOptions{ name value } inventoryItem{ id measurement{ weight{ value unit } } } } }';
     if (field === 'unitprice')return 'id title vendor status variants(first:100){ nodes { id title price compareAtPrice inventoryItem{ unitCost{ amount } } } } ';
+    if (field === 'awaprice') return 'id title vendor status variants(first:100){ nodes { id title price compareAtPrice selectedOptions{ name value } } }';
     return 'id title vendor status';
   }
 
@@ -342,18 +358,18 @@ module.exports = async function handler(req, res) {
     // ---------------- per-FIELD backup (Tab 2: one field across the whole store) ----------------
     if (action === 'backup-field') {
       const field = q.field || body.field;
-      const allowed = ['tags', 'ptype', 'category', 'collections', 'weight', 'unitprice'];
+      const allowed = ['tags', 'ptype', 'category', 'collections', 'weight', 'unitprice', 'awaprice'];
       if (!field || allowed.indexOf(field) === -1) return res.status(400).json({ ok: false, error: 'valid field required' });
-      // weight only exists for About Wall Art products, so back up just those (keeps it small & fast)
-      const vendorFilter = (field === 'weight') ? `vendor:'About Wall Art'` : null;
-      const pageSize = (field === 'weight') ? 40 : (field === 'collections' || field === 'unitprice') ? 60 : 200;
+      // weight & AWA prices only exist for About Wall Art products, so back up just those (small & fast)
+      const vendorFilter = (field === 'weight' || field === 'awaprice') ? `vendor:'About Wall Art'` : null;
+      const pageSize = (field === 'weight') ? 40 : (field === 'collections' || field === 'unitprice' || field === 'awaprice') ? 60 : 200;
       function sel() {
         if (field === 'tags') return 'id tags';
         if (field === 'ptype') return 'id productType';
         if (field === 'category') return 'id category{ id }';
         if (field === 'collections') return 'id collections(first:50){ nodes{ id } }';
         if (field === 'weight') return 'id variants(first:100){ nodes{ id inventoryItem{ id measurement{ weight{ value unit } } } } }';
-        if (field === 'unitprice') return 'id variants(first:100){ nodes{ id price compareAtPrice } }';
+        if (field === 'unitprice' || field === 'awaprice') return 'id variants(first:100){ nodes{ id price compareAtPrice } }';
         return 'id';
       }
       const rows = [];
@@ -370,7 +386,7 @@ module.exports = async function handler(req, res) {
           else if (field === 'category') rows.push({ productId: pr.id, categoryId: pr.category ? pr.category.id : null });
           else if (field === 'collections') rows.push({ productId: pr.id, collectionIds: (pr.collections && pr.collections.nodes ? pr.collections.nodes.map(c => c.id) : []) });
           else if (field === 'weight') rows.push({ productId: pr.id, weights: (pr.variants && pr.variants.nodes ? pr.variants.nodes : []).map(v => { const w = v.inventoryItem && v.inventoryItem.measurement && v.inventoryItem.measurement.weight ? v.inventoryItem.measurement.weight : null; return { variantId: v.id, inventoryItemId: v.inventoryItem ? v.inventoryItem.id : null, value: w ? w.value : null, unit: w ? w.unit : null }; }) });
-          else if (field === 'unitprice') rows.push({ productId: pr.id, variants: (pr.variants && pr.variants.nodes ? pr.variants.nodes : []).map(v => ({ variantId: v.id, price: v.price, compareAtPrice: v.compareAtPrice })) });
+          else if (field === 'unitprice' || field === 'awaprice') rows.push({ productId: pr.id, variants: (pr.variants && pr.variants.nodes ? pr.variants.nodes : []).map(v => ({ variantId: v.id, price: v.price, compareAtPrice: v.compareAtPrice })) });
         });
         pages++;
         if (!conn.pageInfo.hasNextPage) break;
@@ -621,7 +637,7 @@ module.exports = async function handler(req, res) {
       const field = body.field;
       const cfg = body.config || {};
       let filters = body.filters || {};
-      if (field === 'weight') filters = Object.assign({}, filters, { vendor: AWA_VENDOR }); // safety: AWA only
+      if (field === 'weight' || field === 'awaprice') filters = Object.assign({}, filters, { vendor: AWA_VENDOR }); // safety: AWA only
       const searchQ = buildQuery(filters);
       const data = await shopify(
         `query($q:String,$cursor:String){ products(first:60, query:$q, after:$cursor){
@@ -764,6 +780,39 @@ module.exports = async function handler(req, res) {
               payload: { price: priceChanged ? Number(newPrice).toFixed(2) : null, compareAtPrice: compChanged ? (newCompare == null ? null : Number(newCompare).toFixed(2)) : undefined } });
           });
         }
+
+        else if (field === 'awaprice') {
+          const groups = cfg.groups || {};
+          const paper = cfg.paper; // 'Satin' | 'Matte' | 'Canvas'
+          const pctRaw = (cfg.compareAtPct == null ? '' : String(cfg.compareAtPct)).trim();
+          const hasPct = pctRaw !== '' && !isNaN(parseFloat(pctRaw));
+          const pct = hasPct ? parseFloat(pctRaw) : null;
+          (pr.variants ? pr.variants.nodes : []).forEach(v => {
+            unitCount++;
+            if (paperKeyOf(v.selectedOptions) !== paper) return;           // only the chosen paper
+            const fg = frameGroupOf(v.selectedOptions), sc = sizeCodeOf(v.selectedOptions);
+            const gk = (fg && sc) ? fg + '|' + sc : null;
+            const target = (gk && groups[gk] !== undefined && groups[gk] !== '' && groups[gk] !== null) ? parseFloat(groups[gk]) : null;
+            if (target == null || isNaN(target)) return;                   // no price typed for this cell
+            const curPrice = parseFloat(v.price);
+            const curCompare = (v.compareAtPrice != null && v.compareAtPrice !== '') ? parseFloat(v.compareAtPrice) : 0;
+            const newPrice = round2(target);
+            let newCompare;
+            if (hasPct) newCompare = round2(newPrice * (1 + pct / 100));
+            else if (curCompare > 0 && curPrice > 0) newCompare = round2(newPrice * (curCompare / curPrice)); // keep its %
+            else newCompare = curCompare;                                   // no compare-at → stays
+            const priceChanged = Math.abs(newPrice - curPrice) > 1e-9;
+            const compChanged = Math.abs((newCompare || 0) - (curCompare || 0)) > 1e-9;
+            const changed = priceChanged || compChanged;
+            if (changed) changeCount++;
+            rows.push({ productId: pr.id, productTitle: pr.title, vendor: pr.vendor,
+              variantId: v.id, variantTitle: v.title, group: (gk || '') + ' · ' + paper,
+              oldVal: '£' + curPrice.toFixed(2) + (curCompare > 0 ? ' (was £' + curCompare.toFixed(2) + ')' : ''),
+              newVal: '£' + newPrice.toFixed(2) + (newCompare > 0 ? ' (was £' + newCompare.toFixed(2) + ')' : ''),
+              changed, blocked: false, note: '',
+              payload: { price: priceChanged ? newPrice.toFixed(2) : null, compareAtPrice: compChanged ? (newCompare > 0 ? newCompare.toFixed(2) : '0.00') : undefined } });
+          });
+        }
       });
 
       return res.status(200).json({
@@ -861,8 +910,8 @@ module.exports = async function handler(req, res) {
         }
       }
 
-      // ---------- UNIT PRICE via productVariantsBulkUpdate ----------
-      else if (field === 'unitprice') {
+      // ---------- UNIT PRICE / AWA PRICE via productVariantsBulkUpdate ----------
+      else if (field === 'unitprice' || field === 'awaprice') {
         const its = items.filter(it => it.variantId && it.payload);
         const vids = its.map(it => it.variantId);
         const cur = {};
@@ -959,7 +1008,7 @@ module.exports = async function handler(req, res) {
             if (ue.length) ue.forEach(e => errors.push(e.message)); else restored++;
           });
         }
-      } else if (field === 'unitprice') {
+      } else if (field === 'unitprice' || field === 'awaprice') {
         const byProduct = {};
         const vids = work.map(s => s.variantId);
         const idToProduct = {};
