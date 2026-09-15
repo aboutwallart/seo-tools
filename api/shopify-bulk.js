@@ -1,4 +1,7 @@
-// shopify-bulk.js — v2.0 (15 Sep 2026)
+// shopify-bulk.js — v2.1 (15 Sep 2026)
+// v2.1: backup is now PER TAB. Prices keep 'backup-all' (Tab 1). New 'backup-fields' /
+//       'last-field-backup' save & check a full-store snapshot of the OTHER fields (tags,
+//       productType, category, collections, per-variant weight) that gates Tab 2 on its own.
 // v2.0: NEW FIELDS beyond price (Tab 2 "Other fields"). Everything from v1.x (prices +
 //       backup gate + per-supplier undo) is UNCHANGED. Added, each with a full snapshot +
 //       one-click undo saved to GitHub before writing:
@@ -261,6 +264,52 @@ module.exports = async function handler(req, res) {
 
     if (action === 'last-backup') {
       const latest = (await ghGet('data/price-backup-latest.json')).json;
+      return res.status(200).json({ ok: true, latest: latest || null });
+    }
+
+    // ---------------- full-store OTHER-FIELDS backup (Tab 2 restore point) ----------------
+    if (action === 'backup-fields') {
+      const rows = [];
+      let cursor = null, pages = 0;
+      while (pages < 800) {
+        const data = await shopify(
+          `query($cursor:String){
+             products(first:25, after:$cursor){
+               pageInfo{ hasNextPage endCursor }
+               nodes{ id title tags productType category{ id }
+                 collections(first:50){ nodes{ id } }
+                 variants(first:100){ nodes{ id inventoryItem{ id measurement{ weight{ value unit } } } } } } }
+           }`,
+          { cursor }
+        );
+        const conn = data.products;
+        conn.nodes.forEach(pr => {
+          const weights = (pr.variants && pr.variants.nodes ? pr.variants.nodes : []).map(v => {
+            const w = v.inventoryItem && v.inventoryItem.measurement && v.inventoryItem.measurement.weight ? v.inventoryItem.measurement.weight : null;
+            return { variantId: v.id, inventoryItemId: v.inventoryItem ? v.inventoryItem.id : null, value: w ? w.value : null, unit: w ? w.unit : null };
+          });
+          rows.push({
+            productId: pr.id, title: pr.title,
+            tags: pr.tags || [], productType: pr.productType || '',
+            categoryId: pr.category ? pr.category.id : null,
+            collectionIds: (pr.collections && pr.collections.nodes ? pr.collections.nodes.map(c => c.id) : []),
+            weights
+          });
+        });
+        pages++;
+        if (!conn.pageInfo.hasNextPage) break;
+        cursor = conn.pageInfo.endCursor;
+      }
+      const createdAt = new Date().toISOString();
+      const stamp = createdAt.replace(/[:.]/g, '-');
+      const path = `data/field-backups/field-backup-${stamp}.json`;
+      await ghPut(path, { createdAt, count: rows.length, rows }, `full other-fields backup (${rows.length} products)`);
+      try { await ghPut('data/field-backup-latest.json', { createdAt, count: rows.length, path }, 'latest fields backup pointer'); } catch (e) {}
+      return res.status(200).json({ ok: true, count: rows.length, path, createdAt });
+    }
+
+    if (action === 'last-field-backup') {
+      const latest = (await ghGet('data/field-backup-latest.json')).json;
       return res.status(200).json({ ok: true, latest: latest || null });
     }
 
