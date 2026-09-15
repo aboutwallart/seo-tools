@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v2.1 · each tab has its own backup · saves a backup + undo before applying</div>
+            <div class="subtitle">v2.2 · prices backup per tab · other fields: back up one field, then edit it freely · backup + undo before applying</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -254,19 +254,37 @@
         <!-- ============ TAB 2: OTHER FIELDS ============ -->
         <div class="tabpanel" id="tab2" hidden>
 
-            <!-- other-fields backup gate (Tab 2 only) -->
+            <!-- Step 1: pick the field -->
+            <div class="panel">
+                <h2><span class="step-num">1</span> Pick the field to edit</h2>
+                <div class="row">
+                    <div class="field">
+                        <label>Field</label>
+                        <select id="t2field" onchange="onFieldChange()">
+                            <option value="tags">Tags</option>
+                            <option value="ptype">Product type</option>
+                            <option value="weight">Weight (About Wall Art only)</option>
+                            <option value="unitprice">Unit price</option>
+                            <option value="collections">Collections</option>
+                            <option value="category">Category</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- per-field backup gate -->
             <div class="panel backup-panel red" id="fieldBackupPanel" style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
                 <div style="flex:1; min-width:240px;">
-                    <div class="backup-title" id="fieldBackupTitle">🛟 First, back up these fields</div>
-                    <div class="backup-note" id="fieldBackupNote">This tab is locked until you save today's other fields (tags, type, weight, collections, category). Saved to GitHub, used to restore.</div>
+                    <div class="backup-title" id="fieldBackupTitle">🛟 First, back up all Tags</div>
+                    <div class="backup-note" id="fieldBackupNote">This field is locked until you back up today's data across the store.</div>
                 </div>
-                <button class="btn btn-light" id="fieldBackupBtn" onclick="backupFields()">↓ Back up all other fields</button>
+                <button class="btn btn-light" id="fieldBackupBtn" onclick="backupField()">↓ Back up all Tags</button>
             </div>
 
             <div id="tab2Body" class="locked-wrap locked">
 
             <div class="panel">
-                <h2><span class="step-num">1</span> Choose products</h2>
+                <h2><span class="step-num">2</span> Choose products</h2>
                 <div class="row">
                     <div class="field">
                         <label>Supplier (vendor)</label>
@@ -295,20 +313,7 @@
             </div>
 
             <div class="panel">
-                <h2><span class="step-num">2</span> Which field to edit</h2>
-                <div class="row">
-                    <div class="field">
-                        <label>Field</label>
-                        <select id="t2field" onchange="onFieldChange()">
-                            <option value="tags">Tags</option>
-                            <option value="ptype">Product type</option>
-                            <option value="weight">Weight (About Wall Art only)</option>
-                            <option value="unitprice">Unit price</option>
-                            <option value="collections">Collections</option>
-                            <option value="category">Category</option>
-                        </select>
-                    </div>
-                </div>
+                <h2><span class="step-num">3</span> What to change</h2>
 
                 <!-- TAGS -->
                 <div class="fieldpanel" id="fp-tags" style="margin-top:16px;">
@@ -460,7 +465,7 @@
             </div>
 
             <div class="panel">
-                <h2><span class="step-num">3</span> Preview &amp; apply</h2>
+                <h2><span class="step-num">4</span> Preview &amp; apply</h2>
                 <div class="actions">
                     <button class="btn btn-primary" id="previewBtn2" onclick="runPreview2()">👁️ Preview</button>
                     <button class="btn btn-green" id="applyBtn2" onclick="applyChanges2()" disabled>✅ Apply changes</button>
@@ -485,6 +490,16 @@
             <h3>Backup saved</h3>
             <p id="readyModalText">You can start making changes now.</p>
             <button class="btn btn-green" onclick="closeReadyModal()">Start</button>
+        </div>
+    </div>
+
+    <!-- pop-up: working, please wait (live counter) -->
+    <div class="modal-overlay" id="waitModal" hidden>
+        <div class="modal-box">
+            <div class="big"><span class="spinner" style="width:34px;height:34px;border-width:3px;"></span></div>
+            <h3 id="waitTitle">Working…</h3>
+            <p id="waitText">Please don't close this.</p>
+            <div style="font-size:30px; font-weight:800;" id="waitCounter">0s</div>
         </div>
     </div>
 
@@ -544,36 +559,61 @@ async function backupAll(){
     btn.disabled = false;
 }
 
-/* ---- Tab 2: other fields ---- */
-async function checkFieldBackup(){
-    paintGate('fieldBackupPanel','fieldBackupTitle','red','🛟 First, back up these fields','✅ Today\'s fields backup done');
-    lockBody('tab2Body');
+/* ---- Tab 2: per-field backup gate ---- */
+function fieldLabel(f){ return ({tags:'Tags', ptype:'Product type', weight:'Weight', unitprice:'Unit price', collections:'Collections', category:'Category'})[f] || f; }
+function paintFieldGate(state){
+    const f = document.getElementById('t2field').value;
+    const p = document.getElementById('fieldBackupPanel');
+    p.classList.remove('red','green'); p.classList.add(state);
+    document.getElementById('fieldBackupTitle').innerHTML = state==='green'
+        ? ('✅ Today\'s ' + esc(fieldLabel(f)) + ' backup done')
+        : ('🛟 First, back up all ' + esc(fieldLabel(f)));
+    document.getElementById('fieldBackupBtn').innerHTML = '↓ Back up all ' + esc(fieldLabel(f));
+}
+async function checkFieldGate(){
+    const f = document.getElementById('t2field').value;
+    paintFieldGate('red'); lockBody('tab2Body');
+    const scope = (f === 'weight') ? ' (About Wall Art only)' : '';
     document.getElementById('fieldBackupNote').innerHTML = 'Checking for today\'s backup…';
     try {
-        const d = await (await fetch(API + '?action=last-field-backup')).json();
+        const d = await (await fetch(API + '?action=last-field-backup&field=' + encodeURIComponent(f))).json();
         const latest = d && d.latest;
         if (latest && isToday(latest.createdAt)) {
-            paintGate('fieldBackupPanel','fieldBackupTitle','green','','✅ Today\'s fields backup done'); unlockBody('tab2Body');
-            document.getElementById('fieldBackupNote').innerHTML = 'Today\'s backup is done ('+ latest.count +' products). Tab enabled.';
+            paintFieldGate('green'); unlockBody('tab2Body');
+            document.getElementById('fieldBackupNote').innerHTML = 'Today\'s ' + esc(fieldLabel(f)) + ' backup is done (' + latest.count + ' products). You can edit this field.';
         } else {
             const last = latest ? ('Last backup: ' + new Date(latest.createdAt).toLocaleString('en-GB') + '. ') : 'No backup yet. ';
-            document.getElementById('fieldBackupNote').innerHTML = last + '<b>This tab is locked until you back up today\'s other fields.</b>';
+            document.getElementById('fieldBackupNote').innerHTML = last + '<b>Locked until you back up today\'s ' + esc(fieldLabel(f)) + esc(scope) + ' across the store.</b>';
         }
     } catch(e){ document.getElementById('fieldBackupNote').innerHTML = '⚠️ Could not check the backup. Back up to start.'; }
 }
-async function backupFields(){
+async function backupField(){
+    const f = document.getElementById('t2field').value;
     const btn = document.getElementById('fieldBackupBtn'); btn.disabled = true;
-    paintGate('fieldBackupPanel','fieldBackupTitle','red','🛟 First, back up these fields','✅ Today\'s fields backup done'); lockBody('tab2Body');
-    document.getElementById('fieldBackupNote').innerHTML = '<span class="spinner"></span> Saving a copy of tags, type, weight, collections & category for every product… please wait, don\'t close.';
+    const scope = (f === 'weight') ? ' (About Wall Art)' : '';
+    startWait('Backing up all ' + fieldLabel(f) + scope + '…', 'Please don\'t close this. This can take a minute or two.');
     try {
-        const d = await (await fetch(API + '?action=backup-fields')).json();
-        if (!d.ok) { document.getElementById('fieldBackupNote').innerHTML = '⚠️ ' + esc(d.error||'Error') + ' — try again.'; btn.disabled=false; return; }
-        paintGate('fieldBackupPanel','fieldBackupTitle','green','','✅ Today\'s fields backup done'); unlockBody('tab2Body');
-        document.getElementById('fieldBackupNote').innerHTML = 'Saved to GitHub: <b>' + esc(d.path) + '</b> — ' + d.count + ' products. Tab enabled.';
-        showReady(d.count + ' products backed up (tags, type, weight, collections, category). You can start now.');
-    } catch(e){ document.getElementById('fieldBackupNote').innerHTML = '⚠️ ' + esc(e.message) + ' — try again.'; }
-    btn.disabled = false;
+        const d = await (await fetch(API + '?action=backup-field&field=' + encodeURIComponent(f))).json();
+        stopWait(); btn.disabled = false;
+        if (!d.ok) { document.getElementById('fieldBackupNote').innerHTML = '⚠️ ' + esc(d.error||'Error') + ' — try again.'; return; }
+        paintFieldGate('green'); unlockBody('tab2Body');
+        document.getElementById('fieldBackupNote').innerHTML = 'Saved to GitHub — ' + d.count + ' products. You can edit this field.';
+        showReady('✅ Backed up ' + d.count + ' products for ' + fieldLabel(f) + '. You can edit now.');
+    } catch(e){ stopWait(); btn.disabled = false; document.getElementById('fieldBackupNote').innerHTML = '⚠️ ' + esc(e.message) + ' — try again.'; }
 }
+
+/* ---- wait modal with a live seconds counter ---- */
+let waitTimer = null, waitStart = 0;
+function startWait(title, text){
+    document.getElementById('waitTitle').textContent = title;
+    document.getElementById('waitText').textContent = text || '';
+    document.getElementById('waitCounter').textContent = '0s';
+    document.getElementById('waitModal').hidden = false;
+    waitStart = Date.now();
+    if (waitTimer) clearInterval(waitTimer);
+    waitTimer = setInterval(() => { const s = Math.floor((Date.now()-waitStart)/1000); document.getElementById('waitCounter').textContent = s + 's'; }, 1000);
+}
+function stopWait(){ if (waitTimer) { clearInterval(waitTimer); waitTimer = null; } document.getElementById('waitModal').hidden = true; }
 
 /* ===================== TAB 1: PRICES ===================== */
 let previewRows = [];
@@ -816,6 +856,7 @@ function onFieldChange(){
         const v = document.getElementById('t2vendor');
         for (const o of v.options) { if (/about wall art/i.test(o.value)) { v.value = o.value; break; } }
     }
+    checkFieldGate(); // each field has its own backup gate
 }
 function onTagsAction(){
     const a = document.getElementById('tagsAction').value;
@@ -1057,10 +1098,9 @@ async function fieldUndoNow(undoId){
 
 /* ---- init ---- */
 onModeChange();
-onFieldChange();
 onTagsAction();
+onFieldChange();   // shows the right panel + checks that field's backup gate
 checkPriceBackup();
-checkFieldBackup();
 </script>
 </body>
 </html>
