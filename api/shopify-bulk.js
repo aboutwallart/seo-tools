@@ -1,7 +1,10 @@
-// shopify-bulk.js — v2.1 (15 Sep 2026)
-// v2.1: backup is now PER TAB. Prices keep 'backup-all' (Tab 1). New 'backup-fields' /
-//       'last-field-backup' save & check a full-store snapshot of the OTHER fields (tags,
-//       productType, category, collections, per-variant weight) that gates Tab 2 on its own.
+// shopify-bulk.js — v2.2 (15 Sep 2026)
+// v2.2: (1) shopify() now respects Shopify's rate limit — on THROTTLED / 429 it waits and
+//       retries, and it paces itself when the cost budget runs low. (2) Tab 2 backup is now
+//       PER FIELD: 'backup-field?field=X' snapshots just that one field across the whole store
+//       (weight = About Wall Art only), 'last-field-backup?field=X' checks it. You back up a
+//       field once, then edit it as many times as you like.
+// v2.1: backup was per tab (a single combined 'backup-fields' — replaced by per-field in v2.2).
 // v2.0: NEW FIELDS beyond price (Tab 2 "Other fields"). Everything from v1.x (prices +
 //       backup gate + per-supplier undo) is UNCHANGED. Added, each with a full snapshot +
 //       one-click undo saved to GitHub before writing:
@@ -47,15 +50,34 @@ module.exports = async function handler(req, res) {
 
   const gqlUrl = `https://${shopifyDomain}/admin/api/${API_VERSION}/graphql.json`;
 
+  const sleep = ms => new Promise(s => setTimeout(s, ms));
   async function shopify(query, variables) {
-    const r = await fetch(gqlUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken },
-      body: JSON.stringify({ query, variables })
-    });
-    const d = await r.json();
-    if (d.errors) throw new Error(typeof d.errors === 'string' ? d.errors : JSON.stringify(d.errors));
-    return d.data;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      let r, d;
+      try {
+        r = await fetch(gqlUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': accessToken },
+          body: JSON.stringify({ query, variables })
+        });
+        d = await r.json();
+      } catch (e) {
+        if (attempt < 7) { await sleep(1500 * (attempt + 1)); continue; }
+        throw e;
+      }
+      const throttled = (r.status === 429) ||
+        (d && Array.isArray(d.errors) && d.errors.some(e =>
+          (e.extensions && e.extensions.code === 'THROTTLED') || /throttl/i.test(e.message || '')));
+      if (throttled && attempt < 7) { await sleep(2500 * (attempt + 1)); continue; }
+      if (d.errors) throw new Error(typeof d.errors === 'string' ? d.errors : JSON.stringify(d.errors));
+      // pace: if the cost bucket is running low, wait a beat so the next call doesn't get throttled
+      const cost = d.extensions && d.extensions.cost;
+      if (cost && cost.throttleStatus && cost.throttleStatus.currentlyAvailable != null && cost.throttleStatus.currentlyAvailable < 300) {
+        await sleep(1200);
+      }
+      return d.data;
+    }
+    throw new Error('Shopify request failed after retries (throttled)');
   }
 
   // ---------- GitHub helpers (missing file = empty; write retries on hiccups) ----------
@@ -267,34 +289,38 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ ok: true, latest: latest || null });
     }
 
-    // ---------------- full-store OTHER-FIELDS backup (Tab 2 restore point) ----------------
-    if (action === 'backup-fields') {
+    // ---------------- per-FIELD backup (Tab 2: one field across the whole store) ----------------
+    if (action === 'backup-field') {
+      const field = q.field || body.field;
+      const allowed = ['tags', 'ptype', 'category', 'collections', 'weight', 'unitprice'];
+      if (!field || allowed.indexOf(field) === -1) return res.status(400).json({ ok: false, error: 'valid field required' });
+      // weight only exists for About Wall Art products, so back up just those (keeps it small & fast)
+      const vendorFilter = (field === 'weight') ? `vendor:'About Wall Art'` : null;
+      const pageSize = (field === 'weight') ? 40 : (field === 'collections' || field === 'unitprice') ? 60 : 200;
+      function sel() {
+        if (field === 'tags') return 'id tags';
+        if (field === 'ptype') return 'id productType';
+        if (field === 'category') return 'id category{ id }';
+        if (field === 'collections') return 'id collections(first:50){ nodes{ id } }';
+        if (field === 'weight') return 'id variants(first:100){ nodes{ id inventoryItem{ id measurement{ weight{ value unit } } } } }';
+        if (field === 'unitprice') return 'id variants(first:100){ nodes{ id price compareAtPrice } }';
+        return 'id';
+      }
       const rows = [];
       let cursor = null, pages = 0;
-      while (pages < 800) {
+      while (pages < 1500) {
         const data = await shopify(
-          `query($cursor:String){
-             products(first:25, after:$cursor){
-               pageInfo{ hasNextPage endCursor }
-               nodes{ id title tags productType category{ id }
-                 collections(first:50){ nodes{ id } }
-                 variants(first:100){ nodes{ id inventoryItem{ id measurement{ weight{ value unit } } } } } } }
-           }`,
-          { cursor }
+          `query($q:String,$cursor:String){ products(first:${pageSize}, query:$q, after:$cursor){ pageInfo{ hasNextPage endCursor } nodes{ ${sel()} } } }`,
+          { q: vendorFilter, cursor }
         );
         const conn = data.products;
         conn.nodes.forEach(pr => {
-          const weights = (pr.variants && pr.variants.nodes ? pr.variants.nodes : []).map(v => {
-            const w = v.inventoryItem && v.inventoryItem.measurement && v.inventoryItem.measurement.weight ? v.inventoryItem.measurement.weight : null;
-            return { variantId: v.id, inventoryItemId: v.inventoryItem ? v.inventoryItem.id : null, value: w ? w.value : null, unit: w ? w.unit : null };
-          });
-          rows.push({
-            productId: pr.id, title: pr.title,
-            tags: pr.tags || [], productType: pr.productType || '',
-            categoryId: pr.category ? pr.category.id : null,
-            collectionIds: (pr.collections && pr.collections.nodes ? pr.collections.nodes.map(c => c.id) : []),
-            weights
-          });
+          if (field === 'tags') rows.push({ productId: pr.id, tags: pr.tags || [] });
+          else if (field === 'ptype') rows.push({ productId: pr.id, productType: pr.productType || '' });
+          else if (field === 'category') rows.push({ productId: pr.id, categoryId: pr.category ? pr.category.id : null });
+          else if (field === 'collections') rows.push({ productId: pr.id, collectionIds: (pr.collections && pr.collections.nodes ? pr.collections.nodes.map(c => c.id) : []) });
+          else if (field === 'weight') rows.push({ productId: pr.id, weights: (pr.variants && pr.variants.nodes ? pr.variants.nodes : []).map(v => { const w = v.inventoryItem && v.inventoryItem.measurement && v.inventoryItem.measurement.weight ? v.inventoryItem.measurement.weight : null; return { variantId: v.id, inventoryItemId: v.inventoryItem ? v.inventoryItem.id : null, value: w ? w.value : null, unit: w ? w.unit : null }; }) });
+          else if (field === 'unitprice') rows.push({ productId: pr.id, variants: (pr.variants && pr.variants.nodes ? pr.variants.nodes : []).map(v => ({ variantId: v.id, price: v.price, compareAtPrice: v.compareAtPrice })) });
         });
         pages++;
         if (!conn.pageInfo.hasNextPage) break;
@@ -302,15 +328,17 @@ module.exports = async function handler(req, res) {
       }
       const createdAt = new Date().toISOString();
       const stamp = createdAt.replace(/[:.]/g, '-');
-      const path = `data/field-backups/field-backup-${stamp}.json`;
-      await ghPut(path, { createdAt, count: rows.length, rows }, `full other-fields backup (${rows.length} products)`);
-      try { await ghPut('data/field-backup-latest.json', { createdAt, count: rows.length, path }, 'latest fields backup pointer'); } catch (e) {}
-      return res.status(200).json({ ok: true, count: rows.length, path, createdAt });
+      const path = `data/field-backups/${field}-backup-${stamp}.json`;
+      await ghPut(path, { createdAt, field, count: rows.length, rows }, `field backup ${field} (${rows.length})`);
+      try { await ghPut(`data/field-backup-latest-${field}.json`, { createdAt, field, count: rows.length, path }, `latest ${field} backup pointer`); } catch (e) {}
+      return res.status(200).json({ ok: true, field, count: rows.length, path, createdAt });
     }
 
     if (action === 'last-field-backup') {
-      const latest = (await ghGet('data/field-backup-latest.json')).json;
-      return res.status(200).json({ ok: true, latest: latest || null });
+      const field = q.field || body.field;
+      if (!field) return res.status(400).json({ ok: false, error: 'field required' });
+      const latest = (await ghGet(`data/field-backup-latest-${field}.json`)).json;
+      return res.status(200).json({ ok: true, field, latest: latest || null });
     }
 
     if (action === 'lastchange') {
