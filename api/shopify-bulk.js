@@ -1,4 +1,9 @@
-// shopify-bulk.js — v2.2 (15 Sep 2026)
+// shopify-bulk.js — v2.4 (15 Sep 2026)
+// v2.4: Apply & Undo run in BATCHES (general mechanism, both tabs). The frontend sends items in
+//       chunks so a big job never times out. All batches of one Apply share ONE undo entry
+//       (apply/apply-field accept an undoId to append to). Undo (undo/field-undo) accepts
+//       offset+limit and returns { total, nextOffset, hasMore } so the frontend can loop it too.
+// v2.3: (frontend only — lists auto-load; Weight has no supplier step)
 // v2.2: (1) shopify() now respects Shopify's rate limit — on THROTTLED / 429 it waits and
 //       retries, and it paces itself when the cost budget runs low. (2) Tab 2 backup is now
 //       PER FIELD: 'backup-field?field=X' snapshots just that one field across the whole store
@@ -113,6 +118,51 @@ module.exports = async function handler(req, res) {
       await new Promise(s => setTimeout(s, 400 * (attempt + 1)));
     }
     throw new Error('GitHub save failed after retries');
+  }
+
+  // ---- incremental undo snapshots (Apply runs in batches; all batches share ONE undo entry) ----
+  async function saveFieldUndoSnapshot(undoId, field, snapshotChunk, isFirst) {
+    const now = new Date().toISOString();
+    if (isFirst) {
+      await ghPut(`${FIELD_UNDO_DIR}/${undoId}.json`, { id: undoId, createdAt: now, field, count: snapshotChunk.length, snapshot: snapshotChunk }, `field undo ${undoId} (${field})`);
+      try {
+        const idx = (await ghGet(FIELD_UNDO_INDEX)).json || [];
+        idx.unshift({ id: undoId, createdAt: now, field, count: snapshotChunk.length, reverted: false });
+        await ghPut(FIELD_UNDO_INDEX, idx.slice(0, 100), `field index ${undoId}`);
+      } catch (e) {}
+    } else {
+      const existing = (await ghGet(`${FIELD_UNDO_DIR}/${undoId}.json`)).json || { id: undoId, createdAt: now, field, snapshot: [] };
+      existing.snapshot = (existing.snapshot || []).concat(snapshotChunk);
+      existing.count = existing.snapshot.length;
+      await ghPut(`${FIELD_UNDO_DIR}/${undoId}.json`, existing, `field undo append ${undoId} (+${snapshotChunk.length})`);
+      try {
+        const idx = (await ghGet(FIELD_UNDO_INDEX)).json || [];
+        const hit = idx.find(x => x.id === undoId); if (hit) hit.count = existing.count;
+        await ghPut(FIELD_UNDO_INDEX, idx, `field index count ${undoId}`);
+      } catch (e) {}
+    }
+  }
+  async function savePriceUndoSnapshot(undoId, change, snapshotChunk, vendorsArr, isFirst) {
+    const now = new Date().toISOString();
+    if (isFirst) {
+      await ghPut(`${UNDO_DIR}/${undoId}.json`, { id: undoId, createdAt: now, change, count: snapshotChunk.length, snapshot: snapshotChunk }, `bulk price undo ${undoId} (${snapshotChunk.length})`);
+      try {
+        const idx = (await ghGet(UNDO_INDEX)).json || [];
+        idx.unshift({ id: undoId, createdAt: now, count: snapshotChunk.length, change, vendors: vendorsArr, reverted: false });
+        await ghPut(UNDO_INDEX, idx.slice(0, 100), `index ${undoId}`);
+      } catch (e) {}
+    } else {
+      const existing = (await ghGet(`${UNDO_DIR}/${undoId}.json`)).json || { id: undoId, createdAt: now, change, snapshot: [] };
+      existing.snapshot = (existing.snapshot || []).concat(snapshotChunk);
+      existing.count = existing.snapshot.length;
+      await ghPut(`${UNDO_DIR}/${undoId}.json`, existing, `bulk price undo append ${undoId} (+${snapshotChunk.length})`);
+      try {
+        const idx = (await ghGet(UNDO_INDEX)).json || [];
+        const hit = idx.find(x => x.id === undoId);
+        if (hit) { hit.count = existing.count; const vs = new Set(hit.vendors || []); vendorsArr.forEach(v => vs.add(v)); hit.vendors = Array.from(vs); }
+        await ghPut(UNDO_INDEX, idx, `index count ${undoId}`);
+      } catch (e) {}
+    }
   }
 
   // ---------- price maths (Tab 1) ----------
@@ -418,6 +468,8 @@ module.exports = async function handler(req, res) {
         });
       }
       const now = new Date().toISOString();
+      const isFirst = !body.undoId;                                    // first batch creates the undo; later batches append
+      const undoId = body.undoId || ('undo-' + now.replace(/[:.]/g, '-'));
       const snapshot = [];
       const byProduct = {};
       const vendorsSet = new Set();
@@ -432,14 +484,8 @@ module.exports = async function handler(req, res) {
         if (c.vendor) vendorsSet.add(c.vendor);
         lc[it.variantId] = { mode: change.mode, value: change.value, date: now, from: c.price, to: newPrice };
       });
-      if (!snapshot.length) return res.status(200).json({ ok: true, updated: 0, message: 'Nothing to change.' });
-      const undoId = 'undo-' + now.replace(/[:.]/g, '-');
-      await ghPut(`${UNDO_DIR}/${undoId}.json`, { id: undoId, createdAt: now, change, count: snapshot.length, snapshot }, `bulk price undo ${undoId} (${snapshot.length})`);
-      try {
-        const idx = (await ghGet(UNDO_INDEX)).json || [];
-        idx.unshift({ id: undoId, createdAt: now, count: snapshot.length, change, vendors: Array.from(vendorsSet), reverted: false });
-        await ghPut(UNDO_INDEX, idx.slice(0, 100), `index ${undoId}`);
-      } catch (e) {}
+      if (!snapshot.length) return res.status(200).json({ ok: true, updated: 0, undoId: body.undoId || null, message: 'Nothing to change.' });
+      await savePriceUndoSnapshot(undoId, change, snapshot, Array.from(vendorsSet), isFirst);
       try { await ghPut('data/bulk-price-lastchange.json', lc, `lastchange (+${snapshot.length})`); } catch (e) {}
       const productIds = Object.keys(byProduct);
       const errors = [];
@@ -470,8 +516,11 @@ module.exports = async function handler(req, res) {
       if (!undoId) return res.status(400).json({ ok: false, error: 'undoId required' });
       const snap = (await ghGet(`${UNDO_DIR}/${undoId}.json`)).json;
       if (!snap || !Array.isArray(snap.snapshot)) return res.status(404).json({ ok: false, error: 'Snapshot not found' });
+      const offset = Number(body.offset) || 0;                          // Undo also runs in batches
+      const limit = Number(body.limit) || snap.snapshot.length;
+      const work = snap.snapshot.slice(offset, offset + limit);
       const byProduct = {};
-      const vids = snap.snapshot.map(s => s.variantId);
+      const vids = work.map(s => s.variantId);
       const idToProduct = {};
       for (let i = 0; i < vids.length; i += 100) {
         const chunk = vids.slice(i, i + 100);
@@ -479,7 +528,7 @@ module.exports = async function handler(req, res) {
         const data = await shopify(qy);
         chunk.forEach((vid, j) => { const n = data[`v${j}`]; if (n && n.product) idToProduct[vid] = n.product.id; });
       }
-      snap.snapshot.forEach(s => { const pid = idToProduct[s.variantId]; if (!pid) return; (byProduct[pid] = byProduct[pid] || []).push(s); });
+      work.forEach(s => { const pid = idToProduct[s.variantId]; if (!pid) return; (byProduct[pid] = byProduct[pid] || []).push(s); });
       const productIds = Object.keys(byProduct);
       const errors = [];
       let restored = 0;
@@ -496,12 +545,17 @@ module.exports = async function handler(req, res) {
           else restored += byProduct[pid].length;
         });
       }
-      try {
-        const idx = (await ghGet(UNDO_INDEX)).json || [];
-        const hit = idx.find(x => x.id === undoId); if (hit) hit.reverted = true;
-        await ghPut(UNDO_INDEX, idx, `mark reverted ${undoId}`);
-      } catch (e) {}
-      return res.status(200).json({ ok: true, restored, errors: errors.slice(0, 20) });
+      const total = snap.snapshot.length;
+      const nextOffset = offset + work.length;
+      const hasMore = nextOffset < total;
+      if (!hasMore) {
+        try {
+          const idx = (await ghGet(UNDO_INDEX)).json || [];
+          const hit = idx.find(x => x.id === undoId); if (hit) hit.reverted = true;
+          await ghPut(UNDO_INDEX, idx, `mark reverted ${undoId}`);
+        } catch (e) {}
+      }
+      return res.status(200).json({ ok: true, restored, total, nextOffset, hasMore, errors: errors.slice(0, 20) });
     }
 
     // ======================= TAB 2 — OTHER FIELDS =======================
@@ -725,7 +779,8 @@ module.exports = async function handler(req, res) {
       const items = Array.isArray(body.items) ? body.items : [];
       if (!items.length) return res.status(200).json({ ok: true, updated: 0, message: 'Nothing selected.' });
       const now = new Date().toISOString();
-      const undoId = 'fundo-' + now.replace(/[:.]/g, '-');
+      const isFirst = !body.undoId;                                    // first batch creates the undo; later batches append
+      const undoId = body.undoId || ('fundo-' + now.replace(/[:.]/g, '-'));
       const snapshot = [];
       const errors = [];
       let updated = 0;
@@ -749,13 +804,7 @@ module.exports = async function handler(req, res) {
           else if (field === 'category') snapshot.push({ productId: it.productId, oldCategoryId: c.category ? c.category.id : null });
           else if (field === 'collections') snapshot.push({ productId: it.productId, added: it.payload.join || [], removed: it.payload.leave || [] });
         });
-        // save undo BEFORE writing
-        await ghPut(`${FIELD_UNDO_DIR}/${undoId}.json`, { id: undoId, createdAt: now, field, count: snapshot.length, snapshot }, `field undo ${undoId} (${field})`);
-        try {
-          const idx = (await ghGet(FIELD_UNDO_INDEX)).json || [];
-          idx.unshift({ id: undoId, createdAt: now, field, count: snapshot.length, reverted: false });
-          await ghPut(FIELD_UNDO_INDEX, idx.slice(0, 100), `field index ${undoId}`);
-        } catch (e) {}
+        await saveFieldUndoSnapshot(undoId, field, snapshot, isFirst); // save undo BEFORE writing
         // write, one productUpdate per product, batched
         for (let i = 0; i < items.length; i += 20) {
           const chunk = items.slice(i, i + 20);
@@ -797,12 +846,7 @@ module.exports = async function handler(req, res) {
           const w = cur[it.payload.inventoryItemId];
           snapshot.push({ inventoryItemId: it.payload.inventoryItemId, oldValue: w ? w.value : null, oldUnit: w ? w.unit : (it.payload.weight.unit || 'KILOGRAMS') });
         });
-        await ghPut(`${FIELD_UNDO_DIR}/${undoId}.json`, { id: undoId, createdAt: now, field, count: snapshot.length, snapshot }, `field undo ${undoId} (weight)`);
-        try {
-          const idx = (await ghGet(FIELD_UNDO_INDEX)).json || [];
-          idx.unshift({ id: undoId, createdAt: now, field, count: snapshot.length, reverted: false });
-          await ghPut(FIELD_UNDO_INDEX, idx.slice(0, 100), `field index ${undoId}`);
-        } catch (e) {}
+        await saveFieldUndoSnapshot(undoId, field, snapshot, isFirst);
         for (let i = 0; i < its.length; i += 20) {
           const chunk = its.slice(i, i + 20);
           const m = 'mutation {\n' + chunk.map((it, j) =>
@@ -837,12 +881,7 @@ module.exports = async function handler(req, res) {
           if (it.payload.compareAtPrice !== undefined) v.compareAtPrice = it.payload.compareAtPrice; // null clears
           (byProduct[c.productId] = byProduct[c.productId] || []).push(v);
         });
-        await ghPut(`${FIELD_UNDO_DIR}/${undoId}.json`, { id: undoId, createdAt: now, field, count: snapshot.length, snapshot }, `field undo ${undoId} (unitprice)`);
-        try {
-          const idx = (await ghGet(FIELD_UNDO_INDEX)).json || [];
-          idx.unshift({ id: undoId, createdAt: now, field, count: snapshot.length, reverted: false });
-          await ghPut(FIELD_UNDO_INDEX, idx.slice(0, 100), `field index ${undoId}`);
-        } catch (e) {}
+        await saveFieldUndoSnapshot(undoId, field, snapshot, isFirst);
         const productIds = Object.keys(byProduct);
         for (let i = 0; i < productIds.length; i += 20) {
           const chunk = productIds.slice(i, i + 20);
@@ -882,10 +921,13 @@ module.exports = async function handler(req, res) {
       const field = snap.field;
       const errors = [];
       let restored = 0;
+      const offset = Number(body.offset) || 0;                          // Undo also runs in batches
+      const limit = Number(body.limit) || snap.snapshot.length;
+      const work = snap.snapshot.slice(offset, offset + limit);
 
       if (field === 'tags' || field === 'ptype' || field === 'category' || field === 'collections') {
-        for (let i = 0; i < snap.snapshot.length; i += 20) {
-          const chunk = snap.snapshot.slice(i, i + 20);
+        for (let i = 0; i < work.length; i += 20) {
+          const chunk = work.slice(i, i + 20);
           const m = 'mutation {\n' + chunk.map((s, j) => {
             let input = `id:"${s.productId}"`;
             if (field === 'tags') input += `, tags:[${(s.oldTags || []).map(t => JSON.stringify(t)).join(',')}]`;
@@ -905,7 +947,7 @@ module.exports = async function handler(req, res) {
           });
         }
       } else if (field === 'weight') {
-        const items = snap.snapshot.filter(s => s.oldValue != null);
+        const items = work.filter(s => s.oldValue != null);
         for (let i = 0; i < items.length; i += 20) {
           const chunk = items.slice(i, i + 20);
           const m = 'mutation {\n' + chunk.map((s, j) =>
@@ -919,7 +961,7 @@ module.exports = async function handler(req, res) {
         }
       } else if (field === 'unitprice') {
         const byProduct = {};
-        const vids = snap.snapshot.map(s => s.variantId);
+        const vids = work.map(s => s.variantId);
         const idToProduct = {};
         for (let i = 0; i < vids.length; i += 100) {
           const chunk = vids.slice(i, i + 100);
@@ -927,7 +969,7 @@ module.exports = async function handler(req, res) {
           const data = await shopify(qy);
           chunk.forEach((vid, j) => { const n = data[`v${j}`]; if (n && n.product) idToProduct[vid] = n.product.id; });
         }
-        snap.snapshot.forEach(s => { const pid = idToProduct[s.variantId]; if (!pid) return; (byProduct[pid] = byProduct[pid] || []).push(s); });
+        work.forEach(s => { const pid = idToProduct[s.variantId]; if (!pid) return; (byProduct[pid] = byProduct[pid] || []).push(s); });
         const productIds = Object.keys(byProduct);
         for (let i = 0; i < productIds.length; i += 20) {
           const chunk = productIds.slice(i, i + 20);
@@ -947,12 +989,17 @@ module.exports = async function handler(req, res) {
         }
       }
 
-      try {
-        const idx = (await ghGet(FIELD_UNDO_INDEX)).json || [];
-        const hit = idx.find(x => x.id === undoId); if (hit) hit.reverted = true;
-        await ghPut(FIELD_UNDO_INDEX, idx, `mark reverted ${undoId}`);
-      } catch (e) {}
-      return res.status(200).json({ ok: true, restored, errors: errors.slice(0, 20) });
+      const total = snap.snapshot.length;
+      const nextOffset = offset + work.length;
+      const hasMore = nextOffset < total;
+      if (!hasMore) {
+        try {
+          const idx = (await ghGet(FIELD_UNDO_INDEX)).json || [];
+          const hit = idx.find(x => x.id === undoId); if (hit) hit.reverted = true;
+          await ghPut(FIELD_UNDO_INDEX, idx, `mark reverted ${undoId}`);
+        } catch (e) {}
+      }
+      return res.status(200).json({ ok: true, restored, total, nextOffset, hasMore, errors: errors.slice(0, 20) });
     }
 
     return res.status(400).json({ ok: false, error: 'Unknown action' });
