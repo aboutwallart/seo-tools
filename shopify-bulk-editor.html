@@ -148,12 +148,13 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v2.4 · Apply &amp; Undo run in batches with a live counter (big jobs won't time out) · lists auto-load · backup + undo before applying</div>
+            <div class="subtitle">v2.5 · 3 tabs: Collective Prices · AWA Prices (grid by Set + paper) · Other fields · batches + backup + undo</div>
         </div>
 
         <!-- TABS (always visible) -->
         <div class="tabbar">
             <button class="tab active" id="tabBtn1" onclick="switchTab(1)">💷 Collective Prices</button>
+            <button class="tab" id="tabBtnAwa" onclick="switchTab('awa')">🖼️ AWA Prices</button>
             <button class="tab" id="tabBtn2" onclick="switchTab(2)">✨ Other fields</button>
         </div>
 
@@ -251,6 +252,56 @@
             </div><!-- /tab1Body -->
         </div><!-- /tab1 -->
 
+        <!-- ============ AWA PRICES (position 2) ============ -->
+        <div class="tabpanel" id="tabAwa" hidden>
+
+            <div class="panel backup-panel red" id="awaBackupPanel" style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+                <div style="flex:1; min-width:240px;">
+                    <div class="backup-title" id="awaBackupTitle">🛟 First, back up all AWA prices</div>
+                    <div class="backup-note" id="awaBackupNote">This tab is locked until you back up today's About Wall Art prices.</div>
+                </div>
+                <button class="btn btn-light" id="awaBackupBtn" onclick="backupAwa()">↓ Back up all AWA prices</button>
+            </div>
+
+            <div id="awaBody" class="locked-wrap locked">
+
+            <div class="panel">
+                <h2><span class="step-num">1</span> Set &amp; paper</h2>
+                <div class="hint">Only <b>About Wall Art</b> products. Frame colours (black / white / oak) share one price. Price depends on <b>frame + size + paper</b>.</div>
+                <div class="row" style="margin-top:12px;">
+                    <div class="field"><label>Set</label>
+                        <select id="awaSet"><option value="Set of 1">Set of 1</option><option value="Set of 2">Set of 2</option><option value="Set of 3">Set of 3</option></select>
+                    </div>
+                    <div class="field"><label>Paper</label>
+                        <select id="awaPaper" onchange="buildAwaGrid()"><option value="Satin">Satin Photo paper</option><option value="Matte">Matte Museum paper</option><option value="Canvas">Canvas</option></select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2><span class="step-num">2</span> Prices by size</h2>
+                <div class="wgrid" id="awaGrid"></div>
+                <div class="row" style="margin-top:16px;">
+                    <div class="field"><label>Compare-at (strikethrough) %</label><input type="number" id="awaCmpPct" step="0.01" placeholder="empty = keep each variant's %" style="min-width:280px;"></div>
+                </div>
+                <div class="hint">Compare-at is always kept as a % over the price. Leave it empty to keep each variant's current % (recalculated on the new price), or type a % to set it for all.</div>
+            </div>
+
+            <div class="panel">
+                <h2><span class="step-num">3</span> Preview &amp; apply</h2>
+                <div class="actions">
+                    <button class="btn btn-primary" id="awaPreviewBtn" onclick="runAwaPreview()">👁️ Preview</button>
+                    <button class="btn btn-green" id="awaApplyBtn" onclick="applyAwa()" disabled>✅ Apply changes</button>
+                    <button class="btn btn-undo" id="awaUndoBtn" onclick="openAwaUndo()">↺ Undo last change</button>
+                </div>
+                <div class="status" id="awaStatus">Pick Set + paper, fill prices, then hit <b>Preview</b>.</div>
+                <div class="counts" id="awaCounts"></div>
+                <div class="tbl-wrap" id="awaTableWrap"></div>
+            </div>
+
+            </div><!-- /awaBody -->
+        </div><!-- /tabAwa -->
+
         <!-- ============ TAB 2: OTHER FIELDS ============ -->
         <div class="tabpanel" id="tab2" hidden>
 
@@ -264,7 +315,6 @@
                             <option value="tags">Tags</option>
                             <option value="ptype">Product type</option>
                             <option value="weight">Weight (About Wall Art only)</option>
-                            <option value="unitprice">Unit price</option>
                             <option value="collections">Collections</option>
                             <option value="category">Category</option>
                         </select>
@@ -375,49 +425,6 @@
                     <div class="wgrid" id="weightGrid"></div>
                 </div>
 
-                <!-- UNIT PRICE -->
-                <div class="fieldpanel" id="fp-unitprice" hidden style="margin-top:16px;">
-                    <div class="row">
-                        <div class="field">
-                            <label>How to edit</label>
-                            <select id="upHow">
-                                <option value="dec_pct">Decrease current price by %</option>
-                                <option value="inc_pct">Increase current price by %</option>
-                                <option value="set_pct_compare">Set to % of the Compare-at price</option>
-                                <option value="change_amt">Change by fixed amount</option>
-                                <option value="set_fixed">Set to fixed value</option>
-                                <option value="set_pct_price">Set to % of the Price</option>
-                                <option value="set_pct_cost">Set to % of the Cost</option>
-                                <option value="cost_plus_amt">Set as Cost plus amount</option>
-                                <option value="change_pct">Change by percentage</option>
-                            </select>
-                        </div>
-                        <div class="field"><label>Value</label><input type="number" id="upValue" value="0" step="0.01" style="min-width:120px;"></div>
-                        <div class="field">
-                            <label>Rounding</label>
-                            <select id="upRounding">
-                                <option value="none">Don't round the value</option>
-                                <option value="p50">Round to 0.50</option>
-                                <option value="p00">Round to 0.00</option>
-                            </select>
-                        </div>
-                    </div>
-                    <label class="check" style="margin-top:14px;"><input type="checkbox" id="upCmpEnable" onchange="document.getElementById('upCmpWrap').hidden=!this.checked">&nbsp;Also modify Compare-at price</label>
-                    <div id="upCmpWrap" hidden class="row" style="margin-top:10px;">
-                        <div class="field">
-                            <label>Compare-at: how</label>
-                            <select id="upCmpHow">
-                                <option value="inc_pct">Increase by %</option>
-                                <option value="dec_pct">Decrease by %</option>
-                                <option value="set_fixed">Set to fixed value</option>
-                                <option value="set_pct_price">Set to % of the new Price</option>
-                                <option value="clear">Remove compare-at</option>
-                            </select>
-                        </div>
-                        <div class="field"><label>Compare-at: value</label><input type="number" id="upCmpValue" value="0" step="0.01" style="min-width:120px;"></div>
-                    </div>
-                </div>
-
                 <!-- COLLECTIONS -->
                 <div class="fieldpanel" id="fp-collections" hidden style="margin-top:16px;">
                     <div class="row">
@@ -438,7 +445,7 @@
                         </div>
                         <div class="picked-tags" id="collPicked"></div>
                     </div>
-                    <div class="hint">Only <b>manual</b> collections show. Automatic ones (by tag) fill themselves and can't be edited by hand.</div>
+                    <div class="hint warn">💡 <b>Reminder:</b> most collections (bathroom, styles, colours, etc.) are <b>automatic</b> — they fill by <b>tag</b>. To put a product in one of those, add its <b>tag</b> in the <b>Tags</b> field and Shopify adds it on its own. Only <b>manual</b> collections appear in this box.</div>
                 </div>
 
                 <!-- CATEGORY -->
@@ -512,12 +519,14 @@ function closeReadyModal(){ document.getElementById('readyModal').hidden = true;
 function showReady(text){ document.getElementById('readyModalText').innerHTML = text; document.getElementById('readyModal').hidden = false; }
 
 /* ===================== TABS ===================== */
-function switchTab(n){
-    document.getElementById('tab1').hidden = n!==1;
-    document.getElementById('tab2').hidden = n!==2;
-    document.getElementById('tabBtn1').classList.toggle('active', n===1);
-    document.getElementById('tabBtn2').classList.toggle('active', n===2);
-    if (n===2) loadFieldMeta(); // fresh from Shopify every time you open this tab
+function switchTab(w){
+    document.getElementById('tab1').hidden = w!==1;
+    document.getElementById('tabAwa').hidden = w!=='awa';
+    document.getElementById('tab2').hidden = w!==2;
+    document.getElementById('tabBtn1').classList.toggle('active', w===1);
+    document.getElementById('tabBtnAwa').classList.toggle('active', w==='awa');
+    document.getElementById('tabBtn2').classList.toggle('active', w===2);
+    if (w===2) loadFieldMeta(); // fresh from Shopify every time you open Other fields
 }
 
 /* ===================== BACKUP GATES (one per tab) ===================== */
@@ -883,7 +892,7 @@ async function loadFieldMeta(){
 }
 function onFieldChange(){
     const f = document.getElementById('t2field').value;
-    ['tags','ptype','weight','unitprice','collections','category'].forEach(k => { document.getElementById('fp-'+k).hidden = (k !== f); });
+    ['tags','ptype','weight','collections','category'].forEach(k => { document.getElementById('fp-'+k).hidden = (k !== f); });
     // Weight applies only to About Wall Art and is chosen by Set — no supplier step needed
     document.getElementById('t2step2').hidden = (f === 'weight');
     if (f === 'weight') buildWeightGrid();
@@ -1127,12 +1136,166 @@ async function fieldUndoNow(undoId){
     } catch(e){ stopWait(); setStatus2('⚠️ ' + esc(e.message)); }
 }
 
+/* ===================== AWA PRICES TAB ===================== */
+const AWA_PAPERS = {
+    'Satin': { frames:[['Unframed','unframed'],['Framed (any colour)','framed']], sizes:['A4','A3','A2','20x30'] },
+    'Matte': { frames:[['Unframed','unframed'],['Framed (any colour)','framed']], sizes:['A2','20x30'] },
+    'Canvas': { frames:[['Canvas wrapped','canvas']], sizes:['12x16','16x22','20x30'] }
+};
+let awaRows = [], awaSelected = new Set(), awaUndoId = null;
+function setAwaStatus(m){ document.getElementById('awaStatus').innerHTML = m; }
+function buildAwaGrid(){
+    const paper = document.getElementById('awaPaper').value;
+    const spec = AWA_PAPERS[paper]; const sizes = spec.sizes;
+    let html = '<div class="whead"></div>';
+    sizes.forEach(s => html += '<div class="whead">' + s + '</div>');
+    spec.frames.forEach(fr => {
+        html += '<div class="wlabel">' + fr[0] + '</div>';
+        sizes.forEach(s => { html += '<input type="number" step="0.01" min="0" id="aw_' + fr[1] + '_' + s + '" title="' + fr[0] + ' ' + s + '">'; });
+    });
+    document.getElementById('awaGrid').innerHTML = html;
+}
+function collectAwaGroups(){
+    const paper = document.getElementById('awaPaper').value;
+    const spec = AWA_PAPERS[paper]; const groups = {};
+    spec.frames.forEach(fr => spec.sizes.forEach(s => {
+        const el = document.getElementById('aw_' + fr[1] + '_' + s);
+        if (el && el.value !== '') groups[fr[1] + '|' + s] = parseFloat(el.value);
+    }));
+    return groups;
+}
+function buildAwaConfig(){
+    return { field:'awaprice', config:{
+        set: document.getElementById('awaSet').value,
+        paper: document.getElementById('awaPaper').value,
+        groups: collectAwaGroups(),
+        compareAtPct: document.getElementById('awaCmpPct').value.trim()
+    }};
+}
+function paintAwaGate(state){
+    const p = document.getElementById('awaBackupPanel');
+    p.classList.remove('red','green'); p.classList.add(state);
+    document.getElementById('awaBackupTitle').innerHTML = state==='green' ? '✅ Today\'s AWA prices backup done' : '🛟 First, back up all AWA prices';
+}
+async function checkAwaGate(){
+    paintAwaGate('red'); lockBody('awaBody');
+    document.getElementById('awaBackupNote').innerHTML = 'Checking for today\'s backup…';
+    try {
+        const d = await (await fetch(API + '?action=last-field-backup&field=awaprice')).json();
+        const latest = d && d.latest;
+        if (latest && isToday(latest.createdAt)) { paintAwaGate('green'); unlockBody('awaBody'); document.getElementById('awaBackupNote').innerHTML = 'Today\'s backup is done (' + latest.count + ' products). Tab enabled.'; }
+        else { const last = latest ? ('Last backup: ' + new Date(latest.createdAt).toLocaleString('en-GB') + '. ') : 'No backup yet. '; document.getElementById('awaBackupNote').innerHTML = last + '<b>This tab is locked until you back up today\'s AWA prices.</b>'; }
+    } catch(e){ document.getElementById('awaBackupNote').innerHTML = '⚠️ Could not check the backup. Back up to start.'; }
+}
+async function backupAwa(){
+    const btn = document.getElementById('awaBackupBtn'); btn.disabled = true;
+    startWait('Backing up all AWA prices (About Wall Art)…', 'Please don\'t close this.');
+    try {
+        const d = await (await fetch(API + '?action=backup-field&field=awaprice')).json();
+        stopWait(); btn.disabled = false;
+        if (!d.ok) { document.getElementById('awaBackupNote').innerHTML = '⚠️ ' + esc(d.error||'Error') + ' — try again.'; return; }
+        paintAwaGate('green'); unlockBody('awaBody');
+        document.getElementById('awaBackupNote').innerHTML = 'Saved to GitHub — ' + d.count + ' products. Tab enabled.';
+        showReady('✅ Backed up ' + d.count + ' products (AWA prices). You can edit now.');
+    } catch(e){ stopWait(); btn.disabled = false; document.getElementById('awaBackupNote').innerHTML = '⚠️ ' + esc(e.message) + ' — try again.'; }
+}
+async function runAwaPreview(){
+    const fc = buildAwaConfig();
+    if (Object.keys(fc.config.groups).length === 0){ setAwaStatus('⚠️ Type at least one price in the grid.'); return; }
+    const filters = { vendor:'About Wall Art', tag: fc.config.set };
+    const btn = document.getElementById('awaPreviewBtn'); btn.disabled = true; document.getElementById('awaApplyBtn').disabled = true;
+    awaRows = []; awaSelected = new Set();
+    document.getElementById('awaTableWrap').innerHTML = '';
+    let cursor = null, page = 0, totUnit = 0, totChange = 0;
+    try {
+        do {
+            setAwaStatus('<span class="spinner"></span> Building preview… (' + totUnit + ' read)');
+            const d = await (await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'preview-field', field:'awaprice', config: fc.config, filters, cursor }) })).json();
+            if (!d.ok){ setAwaStatus('⚠️ ' + esc(d.error||'Error')); btn.disabled=false; return; }
+            awaRows = awaRows.concat(d.rows);
+            totUnit += d.counts.unitCount; totChange += d.counts.changeCount;
+            cursor = d.pageInfo.hasNextPage ? d.pageInfo.endCursor : null; page++;
+            if (page > 400) break;
+        } while (cursor);
+        awaRows.forEach(r => { if (r.changed) awaSelected.add(r.variantId); });
+        document.getElementById('awaCounts').innerHTML = `<span class="chip">${totUnit} variants</span><span class="chip change">${totChange} will change</span><span class="chip" id="awaSelChip">${awaSelected.size} selected</span>`;
+        renderAwaTable();
+        setAwaStatus(totChange>0 ? '✅ Preview ready. Tick and hit <b>Apply changes</b>.' : 'Nothing to change with these prices.');
+    } catch(e){ setAwaStatus('⚠️ ' + esc(e.message)); }
+    btn.disabled = false;
+}
+function refreshAwaSel(){ const c=document.getElementById('awaSelChip'); if(c) c.textContent=awaSelected.size+' selected'; awaUpdateApply(); }
+function awaUpdateApply(){ const n = awaRows.filter(r=>awaSelected.has(r.variantId)&&r.changed).length; const b=document.getElementById('awaApplyBtn'); b.disabled=n===0; b.textContent='✅ Apply changes'+(n?' ('+n+')':''); }
+function renderAwaTable(){
+    if (!awaRows.length){ document.getElementById('awaTableWrap').innerHTML='<div class="empty">No products with that Set.</div>'; return; }
+    const cap=500, show=awaRows.slice(0,cap);
+    let html='<div class="sel-toolbar"><button class="btn btn-light" onclick="awaSelChanged()">Select the ones that change</button><button class="btn btn-light" onclick="awaSelAll()">Select all</button><button class="btn btn-light" onclick="awaSelNone()">None</button></div>';
+    html+='<table><thead><tr><th class="pick"><input type="checkbox" onchange="awaToggleHead(this)"></th><th>Product</th><th>Variant</th><th>Now</th><th></th><th>New</th></tr></thead><tbody>';
+    show.forEach(r=>{
+        const checked=awaSelected.has(r.variantId)?'checked':'';
+        const note=r.changed?'':'<span class="muted">no change</span>';
+        html+='<tr><td class="pick"><input type="checkbox" '+checked+' onchange="awaToggleRow(\''+esc(r.variantId)+'\',this.checked)"></td>'
+          +'<td>'+esc(r.productTitle)+'<div class="pct muted">'+esc(r.vendor||'')+'</div></td>'
+          +'<td class="muted">'+esc((r.variantTitle||'').replace('Default Title','—'))+(r.group?'<div class="pct muted">'+esc(r.group)+'</div>':'')+'</td>'
+          +'<td class="old">'+esc(r.oldVal)+'</td><td class="arrow">'+(r.changed?'→':'')+'</td>'
+          +'<td class="new">'+(r.changed?esc(r.newVal):note)+'</td></tr>';
+    });
+    html+='</tbody></table>';
+    if (awaRows.length>cap) html+='<div class="pct muted" style="padding:10px;">Showing first '+cap+' of '+awaRows.length+'.</div>';
+    document.getElementById('awaTableWrap').innerHTML=html; awaUpdateApply();
+}
+function awaToggleRow(v,on){ if(on)awaSelected.add(v); else awaSelected.delete(v); refreshAwaSel(); }
+function awaSelChanged(){ awaSelected=new Set(); awaRows.forEach(r=>{if(r.changed)awaSelected.add(r.variantId);}); renderAwaTable(); }
+function awaSelAll(){ awaSelected=new Set(); awaRows.forEach(r=>awaSelected.add(r.variantId)); renderAwaTable(); }
+function awaSelNone(){ awaSelected=new Set(); renderAwaTable(); }
+function awaToggleHead(chk){ if(chk.checked)awaSelAll(); else awaSelNone(); }
+async function applyAwa(){
+    const items = awaRows.filter(r=>awaSelected.has(r.variantId)&&r.changed).map(r=>({ productId:r.productId, variantId:r.variantId, payload:r.payload }));
+    if (!items.length) return;
+    if (!confirm('You are about to change prices on ' + items.length + ' variants.\n\nBefore applying, the previous prices are saved (for undo).\n\nApply now?')) return;
+    document.getElementById('awaApplyBtn').disabled=true; document.getElementById('awaPreviewBtn').disabled=true;
+    startWait('Applying AWA prices…','Please don\'t close this.');
+    try {
+        const r = await runBatchedApply('apply-field', { field:'awaprice' }, items);
+        stopWait();
+        awaUndoId = r.undoId || null;
+        let msg = '✅ Done: ' + r.updated + ' variants updated.';
+        if (r.errors.length) msg += ' <span class="down">(' + r.errors.length + ' errors: ' + esc(r.errors[0]) + ')</span>';
+        if (awaUndoId) msg += ' <button class="btn btn-undo" style="margin-left:10px;" onclick="awaUndoNow(\''+awaUndoId+'\')">↺ Undo this</button>';
+        setAwaStatus(msg + ' <span class="muted">· Preview again to refresh.</span>');
+        document.getElementById('awaUndoBtn').disabled=false;
+    } catch(e){ stopWait(); setAwaStatus('⚠️ ' + esc(e.message)); }
+    document.getElementById('awaPreviewBtn').disabled=false; document.getElementById('awaApplyBtn').disabled=false;
+}
+async function openAwaUndo(){
+    setAwaStatus('<span class="spinner"></span> Looking for the last AWA price change…');
+    try {
+        const d = await (await fetch(API + '?action=field-undo-list')).json();
+        if (!d.ok || !d.undos || !d.undos.length){ setAwaStatus('No changes to undo.'); return; }
+        const hit = d.undos.find(u => !u.reverted && u.field === 'awaprice');
+        if (!hit){ setAwaStatus('No AWA price change to undo.'); return; }
+        const when = new Date(hit.createdAt).toLocaleString('en-GB');
+        if (confirm('Undo the last AWA price change?\n\n' + hit.count + ' variants · ' + when + '\n\nPrices go back to how they were.')) awaUndoNow(hit.id);
+        else setAwaStatus('Cancelled.');
+    } catch(e){ setAwaStatus('⚠️ ' + esc(e.message)); }
+}
+async function awaUndoNow(undoId){
+    startWait('Restoring the previous prices…','Please don\'t close this.');
+    try {
+        const r = await runBatchedUndo('field-undo', undoId);
+        stopWait();
+        setAwaStatus('✅ Undone: ' + r.restored + ' variants went back.' + (r.errors.length?(' <span class="down">('+r.errors.length+' errors)</span>'):''));
+    } catch(e){ stopWait(); setAwaStatus('⚠️ ' + esc(e.message)); }
+}
+
 /* ---- init ---- */
 onModeChange();
 onTagsAction();
 buildWeightGrid();
+buildAwaGrid();
 onFieldChange();   // shows the right panel + checks that field's backup gate
 checkPriceBackup();
+checkAwaGate();
 </script>
 </body>
 </html>
