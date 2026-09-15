@@ -57,6 +57,7 @@
         .chip { padding: 6px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; background:#eef1f4; color:#555; }
         .chip.change { background:#e8f5e9; color:#2e7d32; }
         .chip.nocost { background:#fff8e1; color:#f57f17; }
+        .chip.blocked { background:#fdecea; color:#c62828; }
 
         table { width: 100%; border-collapse: collapse; font-size: 14px; }
         th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid #f0f0f0; }
@@ -106,12 +107,40 @@
         /* ---- preview extras ---- */
         .pill { display:inline-block; padding:3px 9px; border-radius:20px; font-size:12px; font-weight:700; white-space:nowrap; }
         .pill.green { background:#e8f5e9; color:#2e7d32; }
+        .pill.red { background:#fdecea; color:#c62828; }
         tr.row-red td { background:#fff0f0 !important; }
         .row-red-tag { display:inline-block; margin-left:6px; font-size:11px; font-weight:700; color:#c62828; }
         td.pick { text-align:center; width:34px; }
         td.pick input, th.pick input { width:17px; height:17px; cursor:pointer; }
         .sel-toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
         .sel-toolbar .btn { padding:8px 12px; font-size:13px; }
+
+        /* ---- tabs ---- */
+        .tabbar { display:flex; gap:8px; margin-bottom:16px; }
+        .tab { padding:12px 22px; border-radius:12px 12px 0 0; background:#e9ecef; color:#555; font-weight:700;
+            cursor:pointer; font-size:15px; border:none; }
+        .tab.active { background:#fff; color:#1a1a1a; box-shadow:0 -2px 10px rgba(0,0,0,.05); }
+        .tabpanel[hidden] { display:none; }
+
+        /* ---- tag / collection checklist picker ---- */
+        .picker { border:2px solid #eee; border-radius:12px; padding:10px; max-width:520px; }
+        .picker input.search { width:100%; min-width:0; margin-bottom:8px; }
+        .picker-list { max-height:230px; overflow-y:auto; }
+        .picker-group { font-size:11px; text-transform:uppercase; letter-spacing:.4px; color:#aaa; font-weight:700; margin:8px 4px 4px; }
+        .picker-list label { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:8px; cursor:pointer; font-size:14px; }
+        .picker-list label:hover { background:#f5f5f5; }
+        .picker-list input { width:16px; height:16px; }
+        .picked-tags { margin-top:8px; display:flex; flex-wrap:wrap; gap:6px; }
+        .picked-tags .tagchip { background:#eef1f4; border-radius:16px; padding:4px 10px; font-size:13px; }
+
+        /* ---- weight grid ---- */
+        .wgrid { display:grid; grid-template-columns: 150px repeat(4, 1fr); gap:8px; align-items:center; max-width:640px; }
+        .wgrid .wlabel { font-weight:600; font-size:14px; }
+        .wgrid .whead { font-size:11px; text-transform:uppercase; color:#999; text-align:center; }
+        .wgrid input { min-width:0; width:100%; text-align:center; padding:8px; }
+        .wgrid .wempty { }
+
+        .fieldpanel[hidden] { display:none; }
     </style>
 </head>
 <body>
@@ -119,15 +148,15 @@
     <div class="container">
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
-            <p>Cambiá precios en masa — filtrá por supplier, poné <b>precio = costo + %</b>, mirá el preview y aplicá. Con deshacer.</p>
-            <div class="subtitle">v1.5 · Paso 1: precios · el costo = "Cost per item" (con IVA) · sin límite de 10 · guarda copia de seguridad antes de aplicar</div>
+            <p>Editá en masa: <b>precios de Collective</b> en una pestaña, y <b>otros campos</b> (tags, tipo, peso, unit price, colecciones, categoría) en la otra. Con preview y deshacer.</p>
+            <div class="subtitle">v2.0 · una sola copia de seguridad para las dos pestañas · guarda backup + undo de todo antes de aplicar</div>
         </div>
 
-        <!-- SAFETY: full-store price backup (GATE) -->
+        <!-- SAFETY: full-store price backup (GATE) — applies to BOTH tabs -->
         <div class="panel backup-panel red" id="backupPanel" style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
             <div style="flex:1; min-width:240px;">
                 <div class="backup-title" id="backupTitle">🛟 Primero hacé la copia de seguridad</div>
-                <div class="backup-note" id="backupNote">Todo lo demás está bloqueado hasta que guardes los precios de hoy. Se guarda en GitHub y sirve para revertir.</div>
+                <div class="backup-note" id="backupNote">Las dos pestañas están bloqueadas hasta que guardes los precios de hoy. Se guarda en GitHub y sirve para revertir.</div>
             </div>
             <button class="btn btn-light" id="backupBtn" onclick="backupAll()">↓ Backup de todos los precios</button>
         </div>
@@ -135,7 +164,15 @@
         <!-- Everything below is LOCKED until today's backup is done -->
         <div id="toolBody" class="locked-wrap locked">
 
-        <!-- STEP 1: filters -->
+        <!-- TABS -->
+        <div class="tabbar">
+            <button class="tab active" id="tabBtn1" onclick="switchTab(1)">💷 Collective Prices</button>
+            <button class="tab" id="tabBtn2" onclick="switchTab(2)">✨ Otros campos</button>
+        </div>
+
+        <!-- ============ TAB 1: PRICES (unchanged tool) ============ -->
+        <div class="tabpanel" id="tab1">
+
         <div class="panel">
             <h2><span class="step-num">1</span> Elegí los productos</h2>
             <div class="row">
@@ -169,7 +206,6 @@
             <label class="check" style="margin-top:14px;"><input type="checkbox" id="onlyCollective"> Solo productos de <b>&nbsp;Shopify Collective</b></label>
         </div>
 
-        <!-- STEP 2: change -->
         <div class="panel">
             <h2><span class="step-num">2</span> Qué cambio hacer</h2>
             <div class="row">
@@ -202,7 +238,6 @@
             <div class="hint" id="modeHint"></div>
         </div>
 
-        <!-- STEP 3: preview + apply -->
         <div class="panel">
             <h2><span class="step-num">3</span> Preview y aplicar</h2>
             <div class="actions">
@@ -215,8 +250,224 @@
             <div class="tbl-wrap" id="tableWrap"></div>
         </div>
 
+        </div><!-- /tab1 -->
+
+        <!-- ============ TAB 2: OTHER FIELDS ============ -->
+        <div class="tabpanel" id="tab2" hidden>
+
+        <div class="panel">
+            <h2><span class="step-num">1</span> Elegí los productos</h2>
+            <div class="row">
+                <div class="field">
+                    <label>Supplier (vendor)</label>
+                    <select id="t2vendor"><option value="">— Todos —</option></select>
+                </div>
+                <div class="field ms">
+                    <label>Estado (podés elegir varios)</label>
+                    <button type="button" class="ms-btn" id="t2statusBtn" onclick="toggleT2StatusMenu(event)">Cualquiera ▾</button>
+                    <div class="ms-menu" id="t2statusMenu" hidden>
+                        <label><input type="checkbox" class="t2st" value="active" onchange="updateT2StatusBtn()"> Activo</label>
+                        <label><input type="checkbox" class="t2st" value="draft" onchange="updateT2StatusBtn()"> Borrador</label>
+                        <label><input type="checkbox" class="t2st" value="archived" onchange="updateT2StatusBtn()"> Archivado</label>
+                    </div>
+                </div>
+                <div class="field">
+                    <label>Tag (filtro)</label>
+                    <input type="text" id="t2tag" placeholder="(opcional)">
+                </div>
+                <div class="field">
+                    <label>Título contiene</label>
+                    <input type="text" id="t2titleContains" placeholder="(opcional)">
+                </div>
+                <button class="btn btn-light" id="t2vendorsBtn" onclick="loadT2Vendors()">↻ Cargar suppliers</button>
+            </div>
+            <div class="hint" id="t2filterHint" style="margin-top:12px;">Cargá los datos primero (una vez): <button class="btn btn-light" style="padding:6px 10px;font-size:13px;" onclick="loadFieldMeta()">↻ Cargar tags, tipos y colecciones</button> <span id="t2metaState"></span></div>
+        </div>
+
+        <div class="panel">
+            <h2><span class="step-num">2</span> Qué campo editar</h2>
+            <div class="row">
+                <div class="field">
+                    <label>Campo</label>
+                    <select id="t2field" onchange="onFieldChange()">
+                        <option value="tags">Tags</option>
+                        <option value="ptype">Tipo de producto</option>
+                        <option value="weight">Peso (solo About Wall Art)</option>
+                        <option value="unitprice">Unit price</option>
+                        <option value="collections">Colecciones</option>
+                        <option value="category">Categoría</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- TAGS -->
+            <div class="fieldpanel" id="fp-tags" style="margin-top:16px;">
+                <div class="row">
+                    <div class="field">
+                        <label>Acción</label>
+                        <select id="tagsAction" onchange="onTagsAction()">
+                            <option value="add">Add — agregar tags</option>
+                            <option value="remove">Remove — quitar tags</option>
+                            <option value="replace">Replace — cambiar una tag por otra</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="tagsMultiWrap" style="margin-top:12px;">
+                    <label class="field" style="margin-bottom:6px;"><span>Tickeá las tags (podés buscar)</span></label>
+                    <div class="picker">
+                        <input type="text" class="search" id="tagsSearch" placeholder="Escribí una palabra…" oninput="renderTagPicker()">
+                        <div class="picker-list" id="tagsPickerList"></div>
+                    </div>
+                    <div class="picked-tags" id="tagsPicked"></div>
+                </div>
+                <div id="tagsReplaceWrap" hidden style="margin-top:12px;">
+                    <div class="row">
+                        <div class="field"><label>Sacar esta tag</label><input type="text" id="tagFrom" list="allTagsList" placeholder="tag actual"></div>
+                        <div class="field"><label>Poner esta tag</label><input type="text" id="tagTo" list="allTagsList" placeholder="tag nueva"></div>
+                    </div>
+                </div>
+                <div class="hint warn">Regla: ningún producto puede quedar sin al menos <b>1 tag de colección</b>. Si un cambio dejaría a un producto sin ninguna, la fila aparece <b>bloqueada</b> y no se aplica.</div>
+            </div>
+
+            <!-- PRODUCT TYPE -->
+            <div class="fieldpanel" id="fp-ptype" hidden style="margin-top:16px;">
+                <div class="row">
+                    <div class="field">
+                        <label>Acción</label>
+                        <select id="ptypeAction">
+                            <option value="assign">Assign — solo a productos SIN tipo</option>
+                            <option value="replace">Replace — solo a productos que YA tienen tipo</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label>Tipo de producto (elegí uno)</label>
+                        <input type="text" id="ptypeValue" list="ptypesList" placeholder="buscá un tipo…">
+                    </div>
+                </div>
+            </div>
+
+            <!-- WEIGHT -->
+            <div class="fieldpanel" id="fp-weight" hidden style="margin-top:16px;">
+                <div class="hint">Solo se aplica a productos del vendor <b>About Wall Art</b>. El peso depende de <b>marco + tamaño</b> (el papel no cambia el peso). Dejá vacío un casillero para no tocar ese grupo.</div>
+                <div class="row" style="margin:12px 0;">
+                    <div class="field"><label>Set</label>
+                        <select id="weightSet"><option value="">(elegí el filtro Tag arriba: set of 1 / 2 / 3)</option></select>
+                    </div>
+                    <div class="field"><label>Unidad</label>
+                        <select id="weightUnit"><option value="KILOGRAMS">kg</option><option value="GRAMS">g</option><option value="POUNDS">lb</option><option value="OUNCES">oz</option></select>
+                    </div>
+                </div>
+                <div class="wgrid" id="weightGrid"></div>
+            </div>
+
+            <!-- UNIT PRICE -->
+            <div class="fieldpanel" id="fp-unitprice" hidden style="margin-top:16px;">
+                <div class="row">
+                    <div class="field">
+                        <label>How to edit</label>
+                        <select id="upHow">
+                            <option value="dec_pct">Decrease current price by %</option>
+                            <option value="inc_pct">Increase current price by %</option>
+                            <option value="set_pct_compare">Set to % of the Compare-at price</option>
+                            <option value="change_amt">Change by fixed amount</option>
+                            <option value="set_fixed">Set to fixed value</option>
+                            <option value="set_pct_price">Set to % of the Price</option>
+                            <option value="set_pct_cost">Set to % of the Cost</option>
+                            <option value="cost_plus_amt">Set as Cost plus amount</option>
+                            <option value="change_pct">Change by percentage</option>
+                        </select>
+                    </div>
+                    <div class="field"><label>Value</label><input type="number" id="upValue" value="0" step="0.01" style="min-width:120px;"></div>
+                    <div class="field">
+                        <label>Rounding</label>
+                        <select id="upRounding">
+                            <option value="none">Don't round the value</option>
+                            <option value="p50">Round to 0.50</option>
+                            <option value="p00">Round to 0.00</option>
+                        </select>
+                    </div>
+                </div>
+                <label class="check" style="margin-top:14px;"><input type="checkbox" id="upCmpEnable" onchange="document.getElementById('upCmpWrap').hidden=!this.checked">&nbsp;Also modify Compare-at price</label>
+                <div id="upCmpWrap" hidden class="row" style="margin-top:10px;">
+                    <div class="field">
+                        <label>Compare-at: how</label>
+                        <select id="upCmpHow">
+                            <option value="inc_pct">Increase by %</option>
+                            <option value="dec_pct">Decrease by %</option>
+                            <option value="set_fixed">Set to fixed value</option>
+                            <option value="set_pct_price">Set to % of the new Price</option>
+                            <option value="clear">Remove compare-at</option>
+                        </select>
+                    </div>
+                    <div class="field"><label>Compare-at: value</label><input type="number" id="upCmpValue" value="0" step="0.01" style="min-width:120px;"></div>
+                </div>
+            </div>
+
+            <!-- COLLECTIONS -->
+            <div class="fieldpanel" id="fp-collections" hidden style="margin-top:16px;">
+                <div class="row">
+                    <div class="field">
+                        <label>Acción</label>
+                        <select id="collAction">
+                            <option value="add">Add — agregar a colecciones</option>
+                            <option value="remove">Remove — quitar de colecciones</option>
+                            <option value="replace">Replace — dejar solo las tickeadas</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="margin-top:12px;">
+                    <label class="field" style="margin-bottom:6px;"><span>Colecciones manuales (podés buscar y tickear varias)</span></label>
+                    <div class="picker">
+                        <input type="text" class="search" id="collSearch" placeholder="Escribí una palabra…" oninput="renderCollPicker()">
+                        <div class="picker-list" id="collPickerList"></div>
+                    </div>
+                    <div class="picked-tags" id="collPicked"></div>
+                </div>
+                <div class="hint">Solo aparecen las colecciones <b>manuales</b>. Las automáticas (por tag) se llenan solas y no se editan a mano.</div>
+            </div>
+
+            <!-- CATEGORY -->
+            <div class="fieldpanel" id="fp-category" hidden style="margin-top:16px;">
+                <div class="row">
+                    <div class="field">
+                        <label>Acción</label>
+                        <select id="catAction">
+                            <option value="assign">Assign — solo a productos SIN categoría</option>
+                            <option value="replace">Replace — solo a productos que YA tienen categoría</option>
+                        </select>
+                    </div>
+                    <div class="field" style="flex:1; min-width:260px;">
+                        <label>Buscar categoría de Shopify</label>
+                        <div style="display:flex; gap:8px;">
+                            <input type="text" id="catSearch" placeholder="ej: wall art, poster…" style="flex:1;" onkeydown="if(event.key==='Enter'){searchCategory();return false;}">
+                            <button class="btn btn-light" onclick="searchCategory()">Buscar</button>
+                        </div>
+                        <div class="picker-list" id="catResults" style="max-height:220px; margin-top:8px; border:2px solid #eee; border-radius:12px; padding:6px;"></div>
+                        <div id="catPicked" class="muted" style="margin-top:6px;">Ninguna elegida.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2><span class="step-num">3</span> Preview y aplicar</h2>
+            <div class="actions">
+                <button class="btn btn-primary" id="previewBtn2" onclick="runPreview2()">👁️ Ver preview</button>
+                <button class="btn btn-green" id="applyBtn2" onclick="applyChanges2()" disabled>✅ Aplicar cambios</button>
+                <button class="btn btn-undo" id="undoBtn2" onclick="openFieldUndo()">↺ Deshacer último cambio</button>
+            </div>
+            <div class="status" id="status2">Cargá los datos, elegí productos y el campo, después tocá <b>Ver preview</b>.</div>
+            <div class="counts" id="counts2"></div>
+            <div class="tbl-wrap" id="tableWrap2"></div>
+        </div>
+
+        </div><!-- /tab2 -->
+
         </div><!-- /toolBody -->
     </div>
+
+    <datalist id="allTagsList"></datalist>
+    <datalist id="ptypesList"></datalist>
 
     <!-- pop-up: backup ready -->
     <div class="modal-overlay" id="readyModal" hidden>
@@ -230,21 +481,28 @@
 
 <script>
 const API = '/api/shopify-bulk';
-let previewRows = [];        // all rows loaded in the last preview
-let lastChange = null;
-let lastFilters = null;
-let lastUndoId = null;
-let lastChangeMap = {};      // variantId -> {mode,value,date,from,to} (last change per variant)
-let selected = new Set();    // variantIds ticked for apply
-
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function setStatus(msg){ document.getElementById('status').innerHTML = msg; }
 function money(x){ return x===null||x===undefined||x==='' ? '—' : '£' + Number(x).toFixed(2); }
+
+/* ===================== TABS ===================== */
+function switchTab(n){
+    document.getElementById('tab1').hidden = n!==1;
+    document.getElementById('tab2').hidden = n!==2;
+    document.getElementById('tabBtn1').classList.toggle('active', n===1);
+    document.getElementById('tabBtn2').classList.toggle('active', n===2);
+}
+
+/* ===================== TAB 1: PRICES (unchanged) ===================== */
+let previewRows = [];
+let lastChange = null, lastFilters = null, lastUndoId = null;
+let lastChangeMap = {};
+let selected = new Set();
+
+function setStatus(msg){ document.getElementById('status').innerHTML = msg; }
 function pctOverCost(price, cost){
     if (cost===null||cost===undefined||cost===''||Number(cost)<=0) return null;
     return (Number(price)/Number(cost) - 1) * 100;
 }
-
 function getFilters(){
     const statuses = Array.from(document.querySelectorAll('.st:checked')).map(c => c.value);
     return {
@@ -256,94 +514,63 @@ function getFilters(){
         onlyCollective: document.getElementById('onlyCollective').checked
     };
 }
-
-// ---- Estado multi-select ----
 function toggleStatusMenu(e){ if(e) e.stopPropagation(); const m=document.getElementById('statusMenu'); m.hidden = !m.hidden; }
 function updateStatusBtn(){
     const chk = Array.from(document.querySelectorAll('.st:checked'));
     const names = { active:'Activo', draft:'Borrador', archived:'Archivado' };
-    document.getElementById('statusBtn').textContent =
-        (chk.length ? chk.map(c => names[c.value]).join(', ') : 'Cualquiera') + ' ▾';
+    document.getElementById('statusBtn').textContent = (chk.length ? chk.map(c => names[c.value]).join(', ') : 'Cualquiera') + ' ▾';
 }
 document.addEventListener('click', function(e){
-    const menu = document.getElementById('statusMenu');
-    if (!menu || menu.hidden) return;
-    if (!e.target.closest('.ms')) menu.hidden = true;
+    ['statusMenu','t2statusMenu'].forEach(id => {
+        const menu = document.getElementById(id);
+        if (!menu || menu.hidden) return;
+        if (!e.target.closest('.ms')) menu.hidden = true;
+    });
 });
 function getChange(){
-    return {
-        mode: document.getElementById('mode').value,
-        value: parseFloat(document.getElementById('value').value),
-        rounding: document.getElementById('rounding').value
-    };
+    return { mode: document.getElementById('mode').value, value: parseFloat(document.getElementById('value').value), rounding: document.getElementById('rounding').value };
 }
-
 function onModeChange(){
     const mode = document.getElementById('mode').value;
     const isPct = ['floor_cost','markup_cost','inc_pct','dec_pct'].includes(mode);
-    const isAmt = ['inc_amt','dec_amt'].includes(mode);
     const lbl = document.getElementById('valueLabel');
     lbl.textContent = isPct ? 'Porcentaje (%)' : (mode==='set' ? 'Precio (£)' : 'Importe (£)');
     const hints = {
-        floor_cost: 'Sube el precio a <b>costo + %</b> SOLO si hoy está por debajo. Los que ya te dan más margen quedan igual. Es tu regla: “al menos costo + 25%”.',
-        markup_cost: 'Pone el precio en <b>costo + %</b> para TODOS (aunque baje a los que hoy te dan más). El costo usado es el “Cost per item” (con IVA).',
-        inc_pct: 'Sube cada precio actual ese %.',
-        dec_pct: 'Baja cada precio actual ese %.',
-        inc_amt: 'Suma ese importe a cada precio.',
-        dec_amt: 'Resta ese importe a cada precio.',
+        floor_cost: 'Sube el precio a <b>costo + %</b> SOLO si hoy está por debajo. Los que ya te dan más margen quedan igual. Es tu regla: "al menos costo + 25%".',
+        markup_cost: 'Pone el precio en <b>costo + %</b> para TODOS (aunque baje a los que hoy te dan más). El costo usado es el "Cost per item" (con IVA).',
+        inc_pct: 'Sube cada precio actual ese %.', dec_pct: 'Baja cada precio actual ese %.',
+        inc_amt: 'Suma ese importe a cada precio.', dec_amt: 'Resta ese importe a cada precio.',
         set: 'Pone exactamente ese precio en todos los seleccionados.'
     };
     const needCost = ['floor_cost','markup_cost'].includes(mode);
     document.getElementById('modeHint').innerHTML = hints[mode] + (needCost ? ' <span class="muted">· Los productos sin costo cargado se saltan.</span>' : '');
 }
 
-// ---- backup gate ----
-function isToday(iso){
-    if (!iso) return false;
-    const d = new Date(iso), n = new Date();
-    return d.toDateString() === n.toDateString();
-}
+/* ---- backup gate (shared by both tabs) ---- */
+function isToday(iso){ if (!iso) return false; const d = new Date(iso), n = new Date(); return d.toDateString() === n.toDateString(); }
 function setBackupNote(html){ document.getElementById('backupNote').innerHTML = html; }
 function lockTool(){ document.getElementById('toolBody').classList.add('locked'); }
 function unlockTool(){ document.getElementById('toolBody').classList.remove('locked'); }
-function paintBackup(state){ // 'red' (falta) | 'green' (hecho hoy)
+function paintBackup(state){
     const p = document.getElementById('backupPanel');
     p.classList.remove('red','green'); p.classList.add(state);
-    document.getElementById('backupTitle').innerHTML = state==='green'
-        ? '✅ Copia de seguridad de hoy hecha'
-        : '🛟 Primero hacé la copia de seguridad';
+    document.getElementById('backupTitle').innerHTML = state==='green' ? '✅ Copia de seguridad de hoy hecha' : '🛟 Primero hacé la copia de seguridad';
 }
 function closeReadyModal(){ document.getElementById('readyModal').hidden = true; }
-
 async function checkBackup(){
-    // On load: locked + red until we confirm today's backup exists.
-    paintBackup('red'); lockTool();
-    setBackupNote('Revisando si hay backup de hoy…');
+    paintBackup('red'); lockTool(); setBackupNote('Revisando si hay backup de hoy…');
     try {
-        const r = await fetch(API + '?action=last-backup');
-        const d = await r.json();
+        const r = await fetch(API + '?action=last-backup'); const d = await r.json();
         const latest = d && d.latest;
-        if (latest && isToday(latest.createdAt)) {
-            paintBackup('green'); unlockTool();
-            setBackupNote('Backup de hoy ya hecho ('+ latest.count +' variantes). Herramienta habilitada.');
-        } else {
-            paintBackup('red'); lockTool();
-            const last = latest ? ('Último backup: ' + new Date(latest.createdAt).toLocaleString('es-GB') + '. ') : 'Nunca se hizo un backup. ';
-            setBackupNote(last + '<b>Todo está bloqueado hasta que hagas el backup de hoy.</b>');
-        }
-    } catch(e){
-        paintBackup('red'); lockTool();
-        setBackupNote('⚠️ No pude verificar el backup. Hacé el backup para empezar.');
-    }
+        if (latest && isToday(latest.createdAt)) { paintBackup('green'); unlockTool(); setBackupNote('Backup de hoy ya hecho ('+ latest.count +' variantes). Herramienta habilitada.'); }
+        else { paintBackup('red'); lockTool(); const last = latest ? ('Último backup: ' + new Date(latest.createdAt).toLocaleString('es-GB') + '. ') : 'Nunca se hizo un backup. '; setBackupNote(last + '<b>Todo está bloqueado hasta que hagas el backup de hoy.</b>'); }
+    } catch(e){ paintBackup('red'); lockTool(); setBackupNote('⚠️ No pude verificar el backup. Hacé el backup para empezar.'); }
 }
-
 async function backupAll(){
     const btn = document.getElementById('backupBtn'); btn.disabled = true;
-    paintBackup('red'); lockTool();
-    setBackupNote('<span class="spinner"></span> Guardando copia de todos los precios… esperá, no cierres (puede tardar hasta un minuto).');
+    paintBackup('red'); lockTool(); setBackupNote('<span class="spinner"></span> Guardando copia de todos los precios… esperá, no cierres (puede tardar hasta un minuto).');
     try {
-        const r = await fetch(API + '?action=backup-all');
-        const d = await r.json();
+        const r = await fetch(API + '?action=backup-all'); const d = await r.json();
         if (!d.ok) { setBackupNote('⚠️ ' + esc(d.error||'Error') + ' — probá de nuevo.'); btn.disabled=false; return; }
         paintBackup('green'); unlockTool();
         setBackupNote('Guardado en GitHub: <b>' + esc(d.path) + '</b> — ' + d.count + ' variantes. Herramienta habilitada.');
@@ -352,22 +579,22 @@ async function backupAll(){
     } catch(e){ setBackupNote('⚠️ ' + esc(e.message) + ' — probá de nuevo.'); }
     btn.disabled = false;
 }
-
-async function loadVendors(){
-    const btn = document.getElementById('vendorsBtn'); btn.disabled = true;
-    setStatus('<span class="spinner"></span> Leyendo tus suppliers…');
+async function loadVendorsInto(selId, btnId){
+    const btn = document.getElementById(btnId); if(btn) btn.disabled = true;
     try {
-        const r = await fetch(API + '?action=vendors');
-        const d = await r.json();
-        if (!d.ok) { setStatus('⚠️ ' + esc(d.error||'Error')); btn.disabled=false; return; }
-        const sel = document.getElementById('vendor');
-        sel.innerHTML = '<option value="">— Todos —</option>' +
-            d.vendors.map(v => `<option value="${esc(v.vendor)}">${esc(v.vendor)} (${v.count})</option>`).join('');
-        setStatus('✅ ' + d.vendors.length + ' suppliers cargados. Elegí uno.');
-    } catch(e){ setStatus('⚠️ ' + esc(e.message)); }
-    btn.disabled = false;
+        const r = await fetch(API + '?action=vendors'); const d = await r.json();
+        if (!d.ok) { if(btn) btn.disabled=false; return d; }
+        const sel = document.getElementById(selId);
+        sel.innerHTML = '<option value="">— Todos —</option>' + d.vendors.map(v => `<option value="${esc(v.vendor)}">${esc(v.vendor)} (${v.count})</option>`).join('');
+        if(btn) btn.disabled = false;
+        return d;
+    } catch(e){ if(btn) btn.disabled=false; return { ok:false, error:e.message }; }
 }
-
+async function loadVendors(){
+    setStatus('<span class="spinner"></span> Leyendo tus suppliers…');
+    const d = await loadVendorsInto('vendor','vendorsBtn');
+    setStatus(d.ok ? ('✅ ' + d.vendors.length + ' suppliers cargados. Elegí uno.') : ('⚠️ ' + esc(d.error||'Error')));
+}
 async function runPreview(){
     const btn = document.getElementById('previewBtn'); btn.disabled = true;
     document.getElementById('applyBtn').disabled = true;
@@ -376,91 +603,56 @@ async function runPreview(){
     document.getElementById('tableWrap').innerHTML = '';
     let cursor = null, page = 0, totVar = 0, totChange = 0, totNoCost = 0;
     try {
-        // last-change map (for the "Último cambio" column) — once
-        try { const lm = await (await fetch(API + '?action=lastchange')).json(); lastChangeMap = (lm && lm.map) || {}; }
-        catch(e){ lastChangeMap = {}; }
-
+        try { const lm = await (await fetch(API + '?action=lastchange')).json(); lastChangeMap = (lm && lm.map) || {}; } catch(e){ lastChangeMap = {}; }
         do {
             setStatus('<span class="spinner"></span> Calculando preview… (' + totVar + ' variantes leídas)');
-            const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'},
-                body: JSON.stringify({ action:'preview', filters:lastFilters, change:lastChange, cursor }) });
+            const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'preview', filters:lastFilters, change:lastChange, cursor }) });
             const d = await r.json();
             if (!d.ok) { setStatus('⚠️ ' + esc(d.error||'Error')); btn.disabled=false; return; }
             previewRows = previewRows.concat(d.rows);
             totVar += d.counts.variantCount; totChange += d.counts.changeCount; totNoCost += d.counts.noCostCount;
-            cursor = d.pageInfo.hasNextPage ? d.pageInfo.endCursor : null;
-            page++;
-            if (page > 400) break; // safety
+            cursor = d.pageInfo.hasNextPage ? d.pageInfo.endCursor : null; page++;
+            if (page > 400) break;
         } while (cursor);
-
-        // default selection = the ones that will change ("las que faltan")
         previewRows.forEach(r => { if (r.changed) selected.add(r.variantId); });
-
-        renderCounts(totVar, totChange, totNoCost);
-        renderTable();
-        setStatus(totChange > 0
-            ? '✅ Preview listo. Tildá las que quieras y tocá <b>Aplicar cambios</b>.'
-            : 'No hay nada para cambiar con estos filtros/regla.');
+        renderCounts(totVar, totChange, totNoCost); renderTable();
+        setStatus(totChange > 0 ? '✅ Preview listo. Tildá las que quieras y tocá <b>Aplicar cambios</b>.' : 'No hay nada para cambiar con estos filtros/regla.');
     } catch(e){ setStatus('⚠️ ' + esc(e.message)); }
     btn.disabled = false;
 }
-
 function renderCounts(totVar, totChange, totNoCost){
-    let html = `<span class="chip">${totVar} variantes</span>`
-             + `<span class="chip change">${totChange} van a cambiar</span>`
-             + `<span class="chip" id="selChip">${selected.size} seleccionadas</span>`;
+    let html = `<span class="chip">${totVar} variantes</span><span class="chip change">${totChange} van a cambiar</span><span class="chip" id="selChip">${selected.size} seleccionadas</span>`;
     if (totNoCost) html += `<span class="chip nocost">${totNoCost} sin costo (se saltan)</span>`;
     document.getElementById('counts').innerHTML = html;
 }
 function refreshSelCount(){ const c = document.getElementById('selChip'); if (c) c.textContent = selected.size + ' seleccionadas'; updateApplyBtn(); }
 function updateApplyBtn(){
     const n = previewRows.filter(r => selected.has(r.variantId) && r.changed).length;
-    const b = document.getElementById('applyBtn');
-    b.disabled = n === 0;
-    b.textContent = '✅ Aplicar cambios' + (n ? ' (' + n + ')' : '');
+    const b = document.getElementById('applyBtn'); b.disabled = n === 0; b.textContent = '✅ Aplicar cambios' + (n ? ' (' + n + ')' : '');
 }
-
-// "Mínimo" cell: green ✓ OK when the row already meets cost+% (nothing to do);
-// red row when it was set to the minimum before but the cost went up (fell below → urgent).
 function lastChangeCell(r){
     const costMode = lastChange && (lastChange.mode === 'floor_cost' || lastChange.mode === 'markup_cost');
     const hasCost = r.cost != null && Number(r.cost) > 0;
-    // already at/above the minimum → nothing to do
-    if (costMode && hasCost && !r.changed && !r.noCost) {
-        return { html: '<span class="pill green">✓ OK</span>', red: false };
-    }
-    // below the minimum now AND was previously set by the min rule → urgent (supplier raised the cost)
+    if (costMode && hasCost && !r.changed && !r.noCost) return { html: '<span class="pill green">✓ OK</span>', red: false };
     const lc = lastChangeMap[r.variantId];
     const wasMin = lc && (lc.mode === 'floor_cost' || lc.mode === 'markup_cost');
-    if (costMode && r.changed && wasMin) {
-        return { html: '<span class="muted">—</span>', red: true };
-    }
+    if (costMode && r.changed && wasMin) return { html: '<span class="muted">—</span>', red: true };
     return { html: '<span class="muted">—</span>', red: false };
 }
-
 function renderTable(){
     if (!previewRows.length){ document.getElementById('tableWrap').innerHTML = '<div class="empty">No hay productos con esos filtros.</div>'; return; }
-    const cap = 500;
-    const show = previewRows.slice(0, cap);
+    const cap = 500; const show = previewRows.slice(0, cap);
     let html = '<div class="sel-toolbar">'
         + '<button class="btn btn-light" onclick="selectFaltan()">Seleccionar solo las que faltan</button>'
         + '<button class="btn btn-light" onclick="selectAllRows()">Seleccionar todas</button>'
-        + '<button class="btn btn-light" onclick="selectNone()">Ninguna</button>'
-        + '</div>';
-    html += '<table><thead><tr>'
-        + '<th class="pick"><input type="checkbox" id="headChk" onchange="toggleHead(this)"></th>'
-        + '<th>Producto</th><th>Variante</th><th class="num">Costo</th>'
-        + '<th class="num">Precio actual</th><th></th><th class="num">Precio nuevo</th><th>Mínimo</th>'
-        + '</tr></thead><tbody>';
+        + '<button class="btn btn-light" onclick="selectNone()">Ninguna</button></div>';
+    html += '<table><thead><tr><th class="pick"><input type="checkbox" id="headChk" onchange="toggleHead(this)"></th>'
+        + '<th>Producto</th><th>Variante</th><th class="num">Costo</th><th class="num">Precio actual</th><th></th><th class="num">Precio nuevo</th><th>Mínimo</th></tr></thead><tbody>';
     show.forEach(r => {
-        const oldPct = pctOverCost(r.oldPrice, r.cost);
-        const newPct = pctOverCost(r.newPrice, r.cost);
-        const up = Number(r.newPrice) >= Number(r.oldPrice);
-        const lc = lastChangeCell(r);
+        const oldPct = pctOverCost(r.oldPrice, r.cost); const newPct = pctOverCost(r.newPrice, r.cost);
+        const up = Number(r.newPrice) >= Number(r.oldPrice); const lc = lastChangeCell(r);
         const checked = selected.has(r.variantId) ? 'checked' : '';
-        const newCell = r.changed
-            ? '<span class="new ' + (up?'up':'down') + '">' + money(r.newPrice) + (newPct!==null?'<div class="pct">+'+newPct.toFixed(0)+'%</div>':'') + '</span>'
-            : '<span class="muted">sin cambio</span>';
+        const newCell = r.changed ? '<span class="new ' + (up?'up':'down') + '">' + money(r.newPrice) + (newPct!==null?'<div class="pct">+'+newPct.toFixed(0)+'%</div>':'') + '</span>' : '<span class="muted">sin cambio</span>';
         html += '<tr class="' + (lc.red ? 'row-red' : '') + '">'
           + '<td class="pick"><input type="checkbox" ' + checked + ' onchange="toggleRow(\'' + esc(r.variantId) + '\', this.checked)"></td>'
           + '<td>' + esc(r.productTitle) + (lc.red ? '<span class="row-red-tag">⚠ URGENTE: cayó por debajo</span>' : '') + '<div class="pct muted">' + esc(r.vendor||'') + '</div></td>'
@@ -468,34 +660,25 @@ function renderTable(){
           + '<td class="num">' + money(r.cost) + '</td>'
           + '<td class="num old">' + money(r.oldPrice) + (oldPct!==null?'<div class="pct">+'+oldPct.toFixed(0)+'%</div>':'') + '</td>'
           + '<td class="arrow">' + (r.changed ? '→' : '') + '</td>'
-          + '<td class="num">' + newCell + '</td>'
-          + '<td>' + lc.html + '</td>'
-          + '</tr>';
+          + '<td class="num">' + newCell + '</td><td>' + lc.html + '</td></tr>';
     });
     html += '</tbody></table>';
-    if (previewRows.length > cap) html += '<div class="pct muted" style="padding:10px;">Mostrando las primeras ' + cap + ' de ' + previewRows.length + '. La selección (todas / las que faltan) igual cuenta TODAS.</div>';
-    document.getElementById('tableWrap').innerHTML = html;
-    updateApplyBtn();
+    if (previewRows.length > cap) html += '<div class="pct muted" style="padding:10px;">Mostrando las primeras ' + cap + ' de ' + previewRows.length + '. La selección igual cuenta TODAS.</div>';
+    document.getElementById('tableWrap').innerHTML = html; updateApplyBtn();
 }
-
 function toggleRow(vid, on){ if (on) selected.add(vid); else selected.delete(vid); refreshSelCount(); }
 function selectFaltan(){ selected = new Set(); previewRows.forEach(r => { if (r.changed) selected.add(r.variantId); }); renderTable(); }
 function selectAllRows(){ selected = new Set(); previewRows.forEach(r => selected.add(r.variantId)); renderTable(); }
 function selectNone(){ selected = new Set(); renderTable(); }
 function toggleHead(chk){ if (chk.checked) selectAllRows(); else selectNone(); }
-
 async function applyChanges(){
-    const items = previewRows
-        .filter(r => selected.has(r.variantId) && r.changed)
-        .map(r => ({ productId: r.productId, variantId: r.variantId, newPrice: r.newPrice }));
+    const items = previewRows.filter(r => selected.has(r.variantId) && r.changed).map(r => ({ productId: r.productId, variantId: r.variantId, newPrice: r.newPrice }));
     if (!items.length) return;
     if (!confirm('Vas a cambiar el precio de ' + items.length + ' variantes (las tildadas).\n\nAntes de aplicar guardo los precios viejos (para deshacer).\n\n¿Aplicar ahora?')) return;
-    const btn = document.getElementById('applyBtn'); btn.disabled = true;
-    document.getElementById('previewBtn').disabled = true;
+    const btn = document.getElementById('applyBtn'); btn.disabled = true; document.getElementById('previewBtn').disabled = true;
     setStatus('<span class="spinner"></span> Guardando copia de seguridad y aplicando… (puede tardar un poco)');
     try {
-        const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ action:'apply', items: items, change: lastChange }) });
+        const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'apply', items: items, change: lastChange }) });
         const d = await r.json();
         if (!d.ok) { setStatus('⚠️ ' + esc(d.error||'Error')); document.getElementById('previewBtn').disabled=false; return; }
         lastUndoId = d.undoId || null;
@@ -503,19 +686,16 @@ async function applyChanges(){
         if (d.errors && d.errors.length) msg += ' <span class="down">(' + d.errors.length + ' con error)</span>';
         if (lastUndoId) msg += ' <button class="btn btn-undo" style="margin-left:10px;" onclick="undoNow(\'' + lastUndoId + '\')">↺ Deshacer esto</button>';
         msg += ' <span class="muted">· Volvé a "Ver preview" para ver la lista actualizada.</span>';
-        setStatus(msg);
-        document.getElementById('undoBtn').disabled = false;
+        setStatus(msg); document.getElementById('undoBtn').disabled = false;
     } catch(e){ setStatus('⚠️ ' + esc(e.message)); }
     document.getElementById('previewBtn').disabled = false;
 }
-
 async function openUndo(){
     const vendor = document.getElementById('vendor').value;
     if (!vendor){ setStatus('⚠️ Para deshacer, primero elegí un <b>supplier</b> en el Paso 1. El botón deshace el último cambio de ESE supplier.'); return; }
     setStatus('<span class="spinner"></span> Buscando el último cambio de ' + esc(vendor) + '…');
     try {
-        const r = await fetch(API + '?action=undo-list');
-        const d = await r.json();
+        const r = await fetch(API + '?action=undo-list'); const d = await r.json();
         if (!d.ok || !d.undos || !d.undos.length) { setStatus('No hay cambios guardados para deshacer.'); return; }
         const hit = d.undos.find(u => !u.reverted && Array.isArray(u.vendors) && u.vendors.indexOf(vendor) !== -1);
         if (!hit) { setStatus('No hay ningún cambio (hecho con esta herramienta) para deshacer de <b>' + esc(vendor) + '</b>.'); return; }
@@ -524,19 +704,325 @@ async function openUndo(){
         else setStatus('Cancelado.');
     } catch(e){ setStatus('⚠️ ' + esc(e.message)); }
 }
-
 async function undoNow(undoId){
     setStatus('<span class="spinner"></span> Restaurando los precios viejos…');
     try {
-        const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ action:'undo', undoId }) });
+        const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'undo', undoId }) });
         const d = await r.json();
         if (!d.ok) { setStatus('⚠️ ' + esc(d.error||'Error')); return; }
         setStatus('✅ Deshecho: ' + d.restored + ' variantes volvieron a su precio anterior.');
     } catch(e){ setStatus('⚠️ ' + esc(e.message)); }
 }
 
+/* ===================== TAB 2: OTHER FIELDS ===================== */
+let META = { productTypes: [], collectionTags: [], manualCollections: [], clusterGroups: {} };
+let tagsPicked = new Set();      // tags ticked (add/remove)
+let collPicked = new Set();      // manual collection ids ticked
+let catPickedObj = null;         // {id, fullName}
+let catResultsData = [];         // last category search results
+let previewRows2 = [];
+let selected2 = new Set();
+let lastField = null, lastUndoId2 = null;
+
+function setStatus2(msg){ document.getElementById('status2').innerHTML = msg; }
+function toggleT2StatusMenu(e){ if(e) e.stopPropagation(); const m=document.getElementById('t2statusMenu'); m.hidden = !m.hidden; }
+function updateT2StatusBtn(){
+    const chk = Array.from(document.querySelectorAll('.t2st:checked'));
+    const names = { active:'Activo', draft:'Borrador', archived:'Archivado' };
+    document.getElementById('t2statusBtn').textContent = (chk.length ? chk.map(c => names[c.value]).join(', ') : 'Cualquiera') + ' ▾';
+}
+async function loadT2Vendors(){
+    document.getElementById('t2metaState').textContent = '';
+    const btn = document.getElementById('t2vendorsBtn'); btn.disabled = true;
+    await loadVendorsInto('t2vendor','t2vendorsBtn'); btn.disabled = false;
+}
+function getFilters2(){
+    const statuses = Array.from(document.querySelectorAll('.t2st:checked')).map(c => c.value);
+    return {
+        vendor: document.getElementById('t2vendor').value || '',
+        statuses: statuses,
+        tag: document.getElementById('t2tag').value.trim(),
+        titleContains: document.getElementById('t2titleContains').value.trim()
+    };
+}
+
+async function loadFieldMeta(){
+    const st = document.getElementById('t2metaState'); st.innerHTML = '<span class="spinner"></span> cargando…';
+    try {
+        const r = await fetch(API + '?action=field-meta'); const d = await r.json();
+        if (!d.ok) { st.textContent = '⚠️ ' + (d.error||'Error'); return; }
+        META = d;
+        // datalists
+        const allTags = [].concat(META.collectionTags || []);
+        Object.keys(META.clusterGroups||{}).forEach(g => (META.clusterGroups[g]||[]).forEach(t => allTags.push(t)));
+        document.getElementById('allTagsList').innerHTML = allTags.map(t => `<option value="${esc(t)}">`).join('');
+        document.getElementById('ptypesList').innerHTML = (META.productTypes||[]).map(t => `<option value="${esc(t)}">`).join('');
+        // weight set dropdown (from collection tags that look like set-of)
+        const sel = document.getElementById('weightSet');
+        sel.innerHTML = '<option value="">(todos los que matcheen el filtro)</option>' + ['Set of 1','Set of 2','Set of 3'].map(s => `<option value="${s}">${s}</option>`).join('');
+        renderTagPicker(); renderCollPicker(); buildWeightGrid();
+        st.innerHTML = '✅ ' + (META.collectionTags||[]).length + ' tags de colección · ' + Object.keys(META.clusterGroups||{}).length + ' grupos de tags · ' + (META.manualCollections||[]).length + ' colecciones manuales · ' + (META.productTypes||[]).length + ' tipos.';
+    } catch(e){ st.textContent = '⚠️ ' + e.message; }
+}
+
+function onFieldChange(){
+    const f = document.getElementById('t2field').value;
+    ['tags','ptype','weight','unitprice','collections','category'].forEach(k => {
+        document.getElementById('fp-'+k).hidden = (k !== f);
+    });
+    // weight forces About Wall Art vendor
+    if (f === 'weight') {
+        const v = document.getElementById('t2vendor');
+        // try to select AWA if present
+        for (const o of v.options) { if (/about wall art/i.test(o.value)) { v.value = o.value; break; } }
+    }
+}
+function onTagsAction(){
+    const a = document.getElementById('tagsAction').value;
+    document.getElementById('tagsMultiWrap').hidden = (a === 'replace');
+    document.getElementById('tagsReplaceWrap').hidden = (a !== 'replace');
+}
+
+/* ---- tag picker (add/remove) ---- */
+function renderTagPicker(){
+    const term = (document.getElementById('tagsSearch').value||'').toLowerCase();
+    const box = document.getElementById('tagsPickerList');
+    let html = '';
+    const groups = [['Collection tags (arman colecciones)', META.collectionTags||[]]].concat(Object.keys(META.clusterGroups||{}).map(g => [g, META.clusterGroups[g]]));
+    groups.forEach(([name, list]) => {
+        const filtered = (list||[]).filter(t => t.toLowerCase().includes(term));
+        if (!filtered.length) return;
+        html += '<div class="picker-group">' + esc(name) + '</div>';
+        filtered.forEach(t => {
+            const on = tagsPicked.has(t) ? 'checked' : '';
+            html += '<label><input type="checkbox" ' + on + ' data-v="' + esc(t) + '" onchange="toggleTagPick(this)"> ' + esc(t) + '</label>';
+        });
+    });
+    box.innerHTML = html || '<div class="muted" style="padding:8px;">Sin coincidencias.</div>';
+    renderPickedTags();
+}
+function toggleTagPick(el){ const t = el.getAttribute('data-v'); if (el.checked) tagsPicked.add(t); else tagsPicked.delete(t); renderPickedTags(); }
+function removeTagChip(a){ tagsPicked.delete(a.getAttribute('data-v')); renderTagPicker(); }
+function renderPickedTags(){
+    document.getElementById('tagsPicked').innerHTML = Array.from(tagsPicked).map(t => '<span class="tagchip">' + esc(t) + ' <a href="#" data-v="' + esc(t) + '" onclick="removeTagChip(this);return false;">✕</a></span>').join('');
+}
+
+/* ---- collection picker ---- */
+function renderCollPicker(){
+    const term = (document.getElementById('collSearch').value||'').toLowerCase();
+    const box = document.getElementById('collPickerList');
+    const list = (META.manualCollections||[]).filter(c => c.title.toLowerCase().includes(term));
+    box.innerHTML = list.length ? list.map(c => {
+        const on = collPicked.has(c.id) ? 'checked' : '';
+        return '<label><input type="checkbox" ' + on + ' onchange="toggleCollPick(this,\'' + c.id + '\')"> ' + esc(c.title) + '</label>';
+    }).join('') : '<div class="muted" style="padding:8px;">Sin coincidencias.</div>';
+    renderPickedColl();
+}
+function toggleCollPick(el, id){ if (el.checked) collPicked.add(id); else collPicked.delete(id); renderPickedColl(); }
+function renderPickedColl(){
+    const byId = {}; (META.manualCollections||[]).forEach(c => byId[c.id] = c.title);
+    document.getElementById('collPicked').innerHTML = Array.from(collPicked).map(id => '<span class="tagchip">' + esc(byId[id]||id) + ' <a href="#" onclick="collPicked.delete(\'' + id + '\');renderCollPicker();return false;">✕</a></span>').join('');
+}
+
+/* ---- weight grid ---- */
+const WEIGHT_GROUPS = [
+    { label:'Unframed', frame:'unframed', sizes:['A4','A3','A2','20x30'] },
+    { label:'Framed (any colour)', frame:'framed', sizes:['A4','A3','A2','20x30'] },
+    { label:'Canvas wrapped', frame:'canvas', sizes:['12x16','16x22','20x30'] }
+];
+function buildWeightGrid(){
+    // header row shows the union of sizes used (A4/A3/A2/20x30/12x16/16x22)
+    let html = '<div class="whead"></div>';
+    ['A4','A3','A2','20x30'].forEach(s => html += '<div class="whead">' + s + '</div>');
+    WEIGHT_GROUPS.forEach(g => {
+        html += '<div class="wlabel">' + g.label + '</div>';
+        ['A4','A3','A2','20x30'].forEach(col => {
+            const size = (g.frame==='canvas') ? ({ 'A4':'12x16','A3':'16x22','A2':'20x30','20x30':'' })[col] : col;
+            if (!size) { html += '<div class="wempty"></div>'; return; }
+            html += '<input type="number" step="0.01" min="0" placeholder="' + (g.frame==='canvas'?size:'') + '" id="w_' + g.frame + '_' + size + '" title="' + g.label + ' ' + size + '">';
+        });
+    });
+    // canvas has 12x16/16x22/20x30 — show them mapped under the 4 columns with the placeholder telling the real size
+    document.getElementById('weightGrid').innerHTML = html;
+}
+function collectWeightGroups(){
+    const groups = {};
+    WEIGHT_GROUPS.forEach(g => g.sizes.forEach(size => {
+        const el = document.getElementById('w_' + g.frame + '_' + size);
+        if (el && el.value !== '') groups[g.frame + '|' + size] = parseFloat(el.value);
+    }));
+    return groups;
+}
+
+/* ---- category search ---- */
+async function searchCategory(){
+    const term = document.getElementById('catSearch').value.trim();
+    const box = document.getElementById('catResults');
+    if (!term) { box.innerHTML = '<div class="muted" style="padding:8px;">Escribí algo y tocá Buscar.</div>'; return; }
+    box.innerHTML = '<div class="muted" style="padding:8px;"><span class="spinner"></span> buscando…</div>';
+    try {
+        const r = await fetch(API + '?action=category-search&q=' + encodeURIComponent(term)); const d = await r.json();
+        if (!d.ok) { box.innerHTML = '⚠️ ' + esc(d.error||'Error'); return; }
+        if (!d.categories.length) { box.innerHTML = '<div class="muted" style="padding:8px;">Sin resultados.</div>'; return; }
+        catResultsData = d.categories;
+        box.innerHTML = d.categories.map((c,i) => '<label><input type="radio" name="catpick" onchange="pickCategory(' + i + ')"> ' + esc(c.fullName) + (c.isLeaf?'':' <span class="muted">(grupo)</span>') + '</label>').join('');
+    } catch(e){ box.innerHTML = '⚠️ ' + esc(e.message); }
+}
+function pickCategory(i){ const c = catResultsData[i]; if (!c) return; catPickedObj = { id: c.id, fullName: c.fullName }; document.getElementById('catPicked').innerHTML = '✅ ' + esc(c.fullName); }
+
+/* ---- build config for the active field ---- */
+function buildConfig2(){
+    const f = document.getElementById('t2field').value;
+    if (f === 'tags') {
+        const action = document.getElementById('tagsAction').value;
+        if (action === 'replace') return { field:f, config:{ action, fromTag: document.getElementById('tagFrom').value.trim(), toTag: document.getElementById('tagTo').value.trim(), collectionTags: META.collectionTags||[] } };
+        return { field:f, config:{ action, tags: Array.from(tagsPicked), collectionTags: META.collectionTags||[] } };
+    }
+    if (f === 'ptype') return { field:f, config:{ action: document.getElementById('ptypeAction').value, value: document.getElementById('ptypeValue').value.trim() } };
+    if (f === 'category') return { field:f, config:{ action: document.getElementById('catAction').value, categoryId: catPickedObj?catPickedObj.id:'', categoryName: catPickedObj?catPickedObj.fullName:'' } };
+    if (f === 'collections') return { field:f, config:{ action: document.getElementById('collAction').value, collectionIds: Array.from(collPicked), manualIds: (META.manualCollections||[]).map(c=>c.id), collectionTitles: META.manualCollections||[] } };
+    if (f === 'weight') return { field:f, config:{ unit: document.getElementById('weightUnit').value, groups: collectWeightGroups() } };
+    if (f === 'unitprice') {
+        const cmpOn = document.getElementById('upCmpEnable').checked;
+        return { field:f, config:{ how: document.getElementById('upHow').value, value: parseFloat(document.getElementById('upValue').value), rounding: document.getElementById('upRounding').value,
+            compareAt: { enabled: cmpOn, how: document.getElementById('upCmpHow').value, value: parseFloat(document.getElementById('upCmpValue').value) } } };
+    }
+    return { field:f, config:{} };
+}
+function validConfig2(fc){
+    const f = fc.field, c = fc.config;
+    if (f==='tags'){ if (c.action==='replace') return !!c.toTag || !!c.fromTag; return (c.tags||[]).length>0; }
+    if (f==='ptype') return !!c.value;
+    if (f==='category') return !!c.categoryId;
+    if (f==='collections') return (c.collectionIds||[]).length>0;
+    if (f==='weight') return Object.keys(c.groups||{}).length>0;
+    if (f==='unitprice') return !isNaN(c.value);
+    return true;
+}
+
+function rowKey2(r){ return r.variantId || r.productId; }
+async function runPreview2(){
+    const fc = buildConfig2();
+    if (!validConfig2(fc)) { setStatus2('⚠️ Completá las opciones del campo antes de ver el preview.'); return; }
+    const filters = getFilters2();
+    if (fc.field === 'weight') {
+        if (!/about wall art/i.test(filters.vendor||'')) filters.vendor = 'About Wall Art';
+        const ws = document.getElementById('weightSet').value;
+        if (ws) filters.tag = ws; // apply the grid to this set only
+    }
+    const btn = document.getElementById('previewBtn2'); btn.disabled = true; document.getElementById('applyBtn2').disabled = true;
+    previewRows2 = []; selected2 = new Set(); lastField = fc.field;
+    document.getElementById('tableWrap2').innerHTML = '';
+    let cursor = null, page = 0, totUnit = 0, totChange = 0, totBlocked = 0;
+    try {
+        do {
+            setStatus2('<span class="spinner"></span> Calculando preview… (' + totUnit + ' leídos)');
+            const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'preview-field', field:fc.field, config:fc.config, filters, cursor }) });
+            const d = await r.json();
+            if (!d.ok) { setStatus2('⚠️ ' + esc(d.error||'Error')); btn.disabled=false; return; }
+            previewRows2 = previewRows2.concat(d.rows);
+            totUnit += d.counts.unitCount; totChange += d.counts.changeCount; totBlocked += d.counts.blockedCount;
+            cursor = d.pageInfo.hasNextPage ? d.pageInfo.endCursor : null; page++;
+            if (page > 400) break;
+        } while (cursor);
+        previewRows2.forEach(r => { if (r.changed && !r.blocked) selected2.add(rowKey2(r)); });
+        renderCounts2(totUnit, totChange, totBlocked); renderTable2();
+        setStatus2(totChange > 0 ? '✅ Preview listo. Tildá y tocá <b>Aplicar cambios</b>.' : 'No hay nada para cambiar con estas opciones.');
+    } catch(e){ setStatus2('⚠️ ' + esc(e.message)); }
+    btn.disabled = false;
+}
+function renderCounts2(totUnit, totChange, totBlocked){
+    let html = `<span class="chip">${totUnit} items</span><span class="chip change">${totChange} van a cambiar</span><span class="chip" id="selChip2">${selected2.size} seleccionados</span>`;
+    if (totBlocked) html += `<span class="chip blocked">${totBlocked} bloqueados (sin tag de colección)</span>`;
+    document.getElementById('counts2').innerHTML = html;
+}
+function refreshSelCount2(){ const c = document.getElementById('selChip2'); if (c) c.textContent = selected2.size + ' seleccionados'; updateApplyBtn2(); }
+function updateApplyBtn2(){
+    const n = previewRows2.filter(r => selected2.has(rowKey2(r)) && r.changed && !r.blocked).length;
+    const b = document.getElementById('applyBtn2'); b.disabled = n === 0; b.textContent = '✅ Aplicar cambios' + (n ? ' (' + n + ')' : '');
+}
+function renderTable2(){
+    if (!previewRows2.length){ document.getElementById('tableWrap2').innerHTML = '<div class="empty">No hay productos con esos filtros.</div>'; return; }
+    const perVariant = (lastField === 'weight' || lastField === 'unitprice');
+    const cap = 500; const show = previewRows2.slice(0, cap);
+    let html = '<div class="sel-toolbar">'
+        + '<button class="btn btn-light" onclick="select2Changed()">Seleccionar las que cambian</button>'
+        + '<button class="btn btn-light" onclick="select2All()">Seleccionar todas</button>'
+        + '<button class="btn btn-light" onclick="select2None()">Ninguna</button></div>';
+    html += '<table><thead><tr><th class="pick"><input type="checkbox" onchange="toggleHead2(this)"></th>'
+        + '<th>Producto</th>' + (perVariant ? '<th>Variante</th>' : '') + '<th>Ahora</th><th></th><th>Nuevo</th><th></th></tr></thead><tbody>';
+    show.forEach(r => {
+        const key = rowKey2(r);
+        const checked = selected2.has(key) ? 'checked' : '';
+        const dis = r.blocked ? 'disabled' : '';
+        let note = '';
+        if (r.blocked) note = '<span class="pill red">Bloqueado</span>';
+        else if (!r.changed) note = '<span class="muted">sin cambio</span>';
+        html += '<tr class="' + (r.blocked?'row-red':'') + '">'
+          + '<td class="pick"><input type="checkbox" ' + checked + ' ' + dis + ' onchange="toggleRow2(\'' + esc(key) + '\', this.checked)"></td>'
+          + '<td>' + esc(r.productTitle) + '<div class="pct muted">' + esc(r.vendor||'') + '</div></td>'
+          + (perVariant ? '<td class="muted">' + esc((r.variantTitle||'').replace('Default Title','—')) + (r.group?'<div class="pct muted">'+esc(r.group)+'</div>':'') + '</td>' : '')
+          + '<td class="old">' + esc(r.oldVal) + '</td>'
+          + '<td class="arrow">' + (r.changed && !r.blocked ? '→' : '') + '</td>'
+          + '<td class="new">' + (r.changed && !r.blocked ? esc(r.newVal) : '<span class="muted">—</span>') + '</td>'
+          + '<td>' + note + (r.note && !r.blocked && !r.changed ? '<div class="pct muted">'+esc(r.note)+'</div>' : (r.blocked?'<div class="pct" style="color:#c62828">'+esc(r.note)+'</div>':'')) + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    if (previewRows2.length > cap) html += '<div class="pct muted" style="padding:10px;">Mostrando los primeros ' + cap + ' de ' + previewRows2.length + '.</div>';
+    document.getElementById('tableWrap2').innerHTML = html; updateApplyBtn2();
+}
+function toggleRow2(key, on){ if (on) selected2.add(key); else selected2.delete(key); refreshSelCount2(); }
+function select2Changed(){ selected2 = new Set(); previewRows2.forEach(r => { if (r.changed && !r.blocked) selected2.add(rowKey2(r)); }); renderTable2(); }
+function select2All(){ selected2 = new Set(); previewRows2.forEach(r => { if (!r.blocked) selected2.add(rowKey2(r)); }); renderTable2(); }
+function select2None(){ selected2 = new Set(); renderTable2(); }
+function toggleHead2(chk){ if (chk.checked) select2All(); else select2None(); }
+
+async function applyChanges2(){
+    const items = previewRows2.filter(r => selected2.has(rowKey2(r)) && r.changed && !r.blocked)
+        .map(r => ({ productId: r.productId, variantId: r.variantId, payload: r.payload }));
+    if (!items.length) return;
+    if (!confirm('Vas a cambiar ' + items.length + ' items (' + lastField + ').\n\nAntes de aplicar guardo el estado anterior (para deshacer).\n\n¿Aplicar ahora?')) return;
+    const btn = document.getElementById('applyBtn2'); btn.disabled = true; document.getElementById('previewBtn2').disabled = true;
+    setStatus2('<span class="spinner"></span> Guardando copia de seguridad y aplicando…');
+    try {
+        const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'apply-field', field: lastField, items }) });
+        const d = await r.json();
+        if (!d.ok) { setStatus2('⚠️ ' + esc(d.error||'Error')); document.getElementById('previewBtn2').disabled=false; return; }
+        lastUndoId2 = d.undoId || null;
+        let msg = '✅ Listo: ' + d.updated + ' items actualizados.';
+        if (d.errors && d.errors.length) msg += ' <span class="down">(' + d.errors.length + ' con error: ' + esc(d.errors[0]) + ')</span>';
+        if (lastUndoId2) msg += ' <button class="btn btn-undo" style="margin-left:10px;" onclick="fieldUndoNow(\'' + lastUndoId2 + '\')">↺ Deshacer esto</button>';
+        msg += ' <span class="muted">· Volvé a "Ver preview" para ver la lista actualizada.</span>';
+        setStatus2(msg); document.getElementById('undoBtn2').disabled = false;
+    } catch(e){ setStatus2('⚠️ ' + esc(e.message)); }
+    document.getElementById('previewBtn2').disabled = false;
+}
+async function openFieldUndo(){
+    setStatus2('<span class="spinner"></span> Buscando el último cambio de campos…');
+    try {
+        const r = await fetch(API + '?action=field-undo-list'); const d = await r.json();
+        if (!d.ok || !d.undos || !d.undos.length) { setStatus2('No hay cambios de campos para deshacer.'); return; }
+        const hit = d.undos.find(u => !u.reverted);
+        if (!hit) { setStatus2('No hay cambios para deshacer.'); return; }
+        const when = new Date(hit.createdAt).toLocaleString('es-GB');
+        if (confirm('Deshacer el último cambio?\n\nCampo: ' + hit.field + ' · ' + hit.count + ' items · ' + when + '\n\nVuelve a como estaba antes.')) fieldUndoNow(hit.id);
+        else setStatus2('Cancelado.');
+    } catch(e){ setStatus2('⚠️ ' + esc(e.message)); }
+}
+async function fieldUndoNow(undoId){
+    setStatus2('<span class="spinner"></span> Restaurando el estado anterior…');
+    try {
+        const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'field-undo', undoId }) });
+        const d = await r.json();
+        if (!d.ok) { setStatus2('⚠️ ' + esc(d.error||'Error')); return; }
+        setStatus2('✅ Deshecho: ' + d.restored + ' items volvieron a su estado anterior.');
+    } catch(e){ setStatus2('⚠️ ' + esc(e.message)); }
+}
+
+/* ---- init ---- */
 onModeChange();
+onFieldChange();
+onTagsAction();
 checkBackup();
 </script>
 </body>
