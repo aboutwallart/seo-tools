@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v2.3 · lists auto-load from Shopify when you open Other fields · Weight = pick a Set + grid, no supplier · backup + undo before applying</div>
+            <div class="subtitle">v2.4 · Apply &amp; Undo run in batches with a live counter (big jobs won't time out) · lists auto-load · backup + undo before applying</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -615,6 +615,38 @@ function startWait(title, text){
     waitTimer = setInterval(() => { const s = Math.floor((Date.now()-waitStart)/1000); document.getElementById('waitCounter').textContent = s + 's'; }, 1000);
 }
 function stopWait(){ if (waitTimer) { clearInterval(waitTimer); waitTimer = null; } document.getElementById('waitModal').hidden = true; }
+function setWaitText(t){ const el = document.getElementById('waitText'); if (el) el.textContent = t; }
+
+/* ---- batched Apply / Undo (so a big job never times out) ---- */
+const BATCH = 200;
+async function runBatchedApply(action, baseBody, items){
+    let undoId = null, updated = 0, errors = [];
+    for (let i = 0; i < items.length; i += BATCH){
+        const chunk = items.slice(i, i + BATCH);
+        setWaitText('Applied ' + i + ' of ' + items.length + '…');
+        const body = Object.assign({ action, items: chunk }, baseBody);
+        if (undoId) body.undoId = undoId;
+        const d = await (await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })).json();
+        if (!d.ok) throw new Error(d.error || 'Error');
+        if (d.undoId) undoId = d.undoId;
+        updated += (d.updated || 0);
+        if (d.errors && d.errors.length) errors = errors.concat(d.errors);
+    }
+    setWaitText('Applied ' + items.length + ' of ' + items.length + '.');
+    return { undoId, updated, errors };
+}
+async function runBatchedUndo(action, undoId){
+    let offset = 0, restored = 0, total = null, errors = [];
+    while (true){
+        const d = await (await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action, undoId, offset, limit: BATCH }) })).json();
+        if (!d.ok) throw new Error(d.error || 'Error');
+        total = d.total; restored += (d.restored || 0); offset = d.nextOffset;
+        if (d.errors && d.errors.length) errors = errors.concat(d.errors);
+        setWaitText('Restored ' + restored + (total ? (' of ' + total) : '') + '…');
+        if (!d.hasMore) break;
+    }
+    return { restored, total, errors };
+}
 
 /* ===================== TAB 1: PRICES ===================== */
 let previewRows = [];
@@ -765,20 +797,19 @@ async function applyChanges(){
     const items = previewRows.filter(r => selected.has(r.variantId) && r.changed).map(r => ({ productId: r.productId, variantId: r.variantId, newPrice: r.newPrice }));
     if (!items.length) return;
     if (!confirm('You are about to change the price of ' + items.length + ' variants (the ticked ones).\n\nBefore applying, the old prices are saved (for undo).\n\nApply now?')) return;
-    const btn = document.getElementById('applyBtn'); btn.disabled = true; document.getElementById('previewBtn').disabled = true;
-    setStatus('<span class="spinner"></span> Saving backup and applying… (may take a moment)');
+    document.getElementById('applyBtn').disabled = true; document.getElementById('previewBtn').disabled = true;
+    startWait('Applying price changes…', 'Please don\'t close this.');
     try {
-        const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'apply', items: items, change: lastChange }) });
-        const d = await r.json();
-        if (!d.ok) { setStatus('⚠️ ' + esc(d.error||'Error')); document.getElementById('previewBtn').disabled=false; return; }
-        lastUndoId = d.undoId || null;
-        let msg = '✅ Done: ' + d.updated + ' variants updated.';
-        if (d.errors && d.errors.length) msg += ' <span class="down">(' + d.errors.length + ' with errors)</span>';
+        const { undoId, updated, errors } = await runBatchedApply('apply', { change: lastChange }, items);
+        stopWait();
+        lastUndoId = undoId || null;
+        let msg = '✅ Done: ' + updated + ' variants updated.';
+        if (errors.length) msg += ' <span class="down">(' + errors.length + ' with errors)</span>';
         if (lastUndoId) msg += ' <button class="btn btn-undo" style="margin-left:10px;" onclick="undoNow(\'' + lastUndoId + '\')">↺ Undo this</button>';
         msg += ' <span class="muted">· Hit "Preview" again to see the updated list.</span>';
         setStatus(msg); document.getElementById('undoBtn').disabled = false;
-    } catch(e){ setStatus('⚠️ ' + esc(e.message)); }
-    document.getElementById('previewBtn').disabled = false;
+    } catch(e){ stopWait(); setStatus('⚠️ ' + esc(e.message)); }
+    document.getElementById('previewBtn').disabled = false; document.getElementById('applyBtn').disabled = false;
 }
 async function openUndo(){
     const vendor = document.getElementById('vendor').value;
@@ -795,13 +826,12 @@ async function openUndo(){
     } catch(e){ setStatus('⚠️ ' + esc(e.message)); }
 }
 async function undoNow(undoId){
-    setStatus('<span class="spinner"></span> Restoring the old prices…');
+    startWait('Restoring the old prices…', 'Please don\'t close this.');
     try {
-        const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'undo', undoId }) });
-        const d = await r.json();
-        if (!d.ok) { setStatus('⚠️ ' + esc(d.error||'Error')); return; }
-        setStatus('✅ Undone: ' + d.restored + ' variants went back to their previous price.');
-    } catch(e){ setStatus('⚠️ ' + esc(e.message)); }
+        const { restored, errors } = await runBatchedUndo('undo', undoId);
+        stopWait();
+        setStatus('✅ Undone: ' + restored + ' variants went back to their previous price.' + (errors.length ? (' <span class="down">(' + errors.length + ' errors)</span>') : ''));
+    } catch(e){ stopWait(); setStatus('⚠️ ' + esc(e.message)); }
 }
 
 /* ===================== TAB 2: OTHER FIELDS ===================== */
@@ -1062,20 +1092,19 @@ async function applyChanges2(){
         .map(r => ({ productId: r.productId, variantId: r.variantId, payload: r.payload }));
     if (!items.length) return;
     if (!confirm('You are about to change ' + items.length + ' items (' + lastField + ').\n\nBefore applying, the previous state is saved (for undo).\n\nApply now?')) return;
-    const btn = document.getElementById('applyBtn2'); btn.disabled = true; document.getElementById('previewBtn2').disabled = true;
-    setStatus2('<span class="spinner"></span> Saving backup and applying…');
+    document.getElementById('applyBtn2').disabled = true; document.getElementById('previewBtn2').disabled = true;
+    startWait('Applying ' + fieldLabel(lastField) + '…', 'Please don\'t close this.');
     try {
-        const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'apply-field', field: lastField, items }) });
-        const d = await r.json();
-        if (!d.ok) { setStatus2('⚠️ ' + esc(d.error||'Error')); document.getElementById('previewBtn2').disabled=false; return; }
-        lastUndoId2 = d.undoId || null;
-        let msg = '✅ Done: ' + d.updated + ' items updated.';
-        if (d.errors && d.errors.length) msg += ' <span class="down">(' + d.errors.length + ' with errors: ' + esc(d.errors[0]) + ')</span>';
+        const { undoId, updated, errors } = await runBatchedApply('apply-field', { field: lastField }, items);
+        stopWait();
+        lastUndoId2 = undoId || null;
+        let msg = '✅ Done: ' + updated + ' items updated.';
+        if (errors.length) msg += ' <span class="down">(' + errors.length + ' with errors: ' + esc(errors[0]) + ')</span>';
         if (lastUndoId2) msg += ' <button class="btn btn-undo" style="margin-left:10px;" onclick="fieldUndoNow(\'' + lastUndoId2 + '\')">↺ Undo this</button>';
         msg += ' <span class="muted">· Hit "Preview" again to see the updated list.</span>';
         setStatus2(msg); document.getElementById('undoBtn2').disabled = false;
-    } catch(e){ setStatus2('⚠️ ' + esc(e.message)); }
-    document.getElementById('previewBtn2').disabled = false;
+    } catch(e){ stopWait(); setStatus2('⚠️ ' + esc(e.message)); }
+    document.getElementById('previewBtn2').disabled = false; document.getElementById('applyBtn2').disabled = false;
 }
 async function openFieldUndo(){
     setStatus2('<span class="spinner"></span> Looking for the last field change…');
@@ -1090,13 +1119,12 @@ async function openFieldUndo(){
     } catch(e){ setStatus2('⚠️ ' + esc(e.message)); }
 }
 async function fieldUndoNow(undoId){
-    setStatus2('<span class="spinner"></span> Restoring the previous state…');
+    startWait('Undoing…', 'Please don\'t close this.');
     try {
-        const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'field-undo', undoId }) });
-        const d = await r.json();
-        if (!d.ok) { setStatus2('⚠️ ' + esc(d.error||'Error')); return; }
-        setStatus2('✅ Undone: ' + d.restored + ' items went back to their previous state.');
-    } catch(e){ setStatus2('⚠️ ' + esc(e.message)); }
+        const { restored, errors } = await runBatchedUndo('field-undo', undoId);
+        stopWait();
+        setStatus2('✅ Undone: ' + restored + ' items went back to their previous state.' + (errors.length ? (' <span class="down">(' + errors.length + ' errors)</span>') : ''));
+    } catch(e){ stopWait(); setStatus2('⚠️ ' + esc(e.message)); }
 }
 
 /* ---- init ---- */
