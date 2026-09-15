@@ -1,4 +1,6 @@
-// shopify-bulk.js — v2.5 (15 Sep 2026)
+// shopify-bulk.js — v2.6 (15 Sep 2026)
+// v2.6: 'awa-current' action returns the common current price per Frame×Size group + the common
+//       compare-at % for a Set+Paper, so the AWA Prices grid pre-fills with today's values.
 // v2.5: NEW field 'awaprice' — About Wall Art price grid by Set + Paper, priced per Frame×Size
 //       (frame colours share one price). Compare-at is kept as a % of the price (a % you type, or
 //       each variant's existing % preserved). Its own AWA-only backup. Lives in its own "AWA Prices"
@@ -630,6 +632,46 @@ module.exports = async function handler(req, res) {
       );
       const nodes = (d.taxonomy && d.taxonomy.categories && d.taxonomy.categories.nodes) || [];
       return res.status(200).json({ ok: true, categories: nodes });
+    }
+
+    // ---- awa-current: current price per Frame×Size group + current compare-at %, for pre-filling the AWA grid ----
+    if (action === 'awa-current') {
+      const set = q.set || body.set;
+      const paper = q.paper || body.paper;
+      if (!set || !paper) return res.status(400).json({ ok: false, error: 'set and paper required' });
+      const searchQ = buildQuery({ vendor: AWA_VENDOR, tag: set });
+      const priceFreq = {}; // groupKey -> { "12.34": count }
+      const pctFreq = {};    // pct -> count
+      let cursor = null, pages = 0;
+      while (pages < 2) { // a sample (~30 products) is enough to find the common price
+        const data = await shopify(
+          `query($q:String,$cursor:String){ products(first:15, query:$q, after:$cursor){ pageInfo{ hasNextPage endCursor } nodes{ variants(first:100){ nodes{ price compareAtPrice selectedOptions{ name value } } } } } }`,
+          { q: searchQ || null, cursor }
+        );
+        const conn = data.products;
+        conn.nodes.forEach(pr => (pr.variants ? pr.variants.nodes : []).forEach(v => {
+          if (paperKeyOf(v.selectedOptions) !== paper) return;
+          const fg = frameGroupOf(v.selectedOptions), sc = sizeCodeOf(v.selectedOptions);
+          if (!fg || !sc) return;
+          const gk = fg + '|' + sc;
+          const price = parseFloat(v.price);
+          if (!isNaN(price)) { priceFreq[gk] = priceFreq[gk] || {}; const k = price.toFixed(2); priceFreq[gk][k] = (priceFreq[gk][k] || 0) + 1; }
+          const cmp = (v.compareAtPrice != null && v.compareAtPrice !== '') ? parseFloat(v.compareAtPrice) : 0;
+          if (cmp > 0 && price > 0) { const pct = Math.round((cmp / price - 1) * 100); pctFreq[pct] = (pctFreq[pct] || 0) + 1; }
+        }));
+        pages++;
+        if (!conn.pageInfo.hasNextPage) break;
+        cursor = conn.pageInfo.endCursor;
+      }
+      const groups = {};
+      Object.keys(priceFreq).forEach(gk => {
+        let best = null, bestC = -1;
+        Object.keys(priceFreq[gk]).forEach(p => { if (priceFreq[gk][p] > bestC) { bestC = priceFreq[gk][p]; best = p; } });
+        if (best != null) groups[gk] = parseFloat(best);
+      });
+      let compareAtPct = '';
+      { let best = null, bestC = -1; Object.keys(pctFreq).forEach(p => { if (pctFreq[p] > bestC) { bestC = pctFreq[p]; best = p; } }); if (best != null) compareAtPct = Number(best); }
+      return res.status(200).json({ ok: true, groups, compareAtPct });
     }
 
     // ---- preview-field: one page of rows for a Tab 2 field ----
