@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -93,7 +93,7 @@
         .modal-box h3 { font-size:20px; margin-bottom:6px; }
         .modal-box p { color:#666; font-size:14px; margin-bottom:18px; }
 
-        /* ---- multi-select (Estado) ---- */
+        /* ---- multi-select (Status) ---- */
         .ms { position:relative; }
         .ms-btn { padding:10px 12px; border:2px solid #eee; border-radius:10px; font-size:15px;
             background:#fff; min-width:170px; text-align:left; cursor:pointer; }
@@ -138,7 +138,6 @@
         .wgrid .wlabel { font-weight:600; font-size:14px; }
         .wgrid .whead { font-size:11px; text-transform:uppercase; color:#999; text-align:center; }
         .wgrid input { min-width:0; width:100%; text-align:center; padding:8px; }
-        .wgrid .wempty { }
 
         .fieldpanel[hidden] { display:none; }
     </style>
@@ -148,322 +147,332 @@
     <div class="container">
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
-            <p>Editá en masa: <b>precios de Collective</b> en una pestaña, y <b>otros campos</b> (tags, tipo, peso, unit price, colecciones, categoría) en la otra. Con preview y deshacer.</p>
-            <div class="subtitle">v2.0 · una sola copia de seguridad para las dos pestañas · guarda backup + undo de todo antes de aplicar</div>
+            <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
+            <div class="subtitle">v2.1 · each tab has its own backup · saves a backup + undo before applying</div>
         </div>
 
-        <!-- SAFETY: full-store price backup (GATE) — applies to BOTH tabs -->
-        <div class="panel backup-panel red" id="backupPanel" style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
-            <div style="flex:1; min-width:240px;">
-                <div class="backup-title" id="backupTitle">🛟 Primero hacé la copia de seguridad</div>
-                <div class="backup-note" id="backupNote">Las dos pestañas están bloqueadas hasta que guardes los precios de hoy. Se guarda en GitHub y sirve para revertir.</div>
-            </div>
-            <button class="btn btn-light" id="backupBtn" onclick="backupAll()">↓ Backup de todos los precios</button>
-        </div>
-
-        <!-- Everything below is LOCKED until today's backup is done -->
-        <div id="toolBody" class="locked-wrap locked">
-
-        <!-- TABS -->
+        <!-- TABS (always visible) -->
         <div class="tabbar">
             <button class="tab active" id="tabBtn1" onclick="switchTab(1)">💷 Collective Prices</button>
-            <button class="tab" id="tabBtn2" onclick="switchTab(2)">✨ Otros campos</button>
+            <button class="tab" id="tabBtn2" onclick="switchTab(2)">✨ Other fields</button>
         </div>
 
-        <!-- ============ TAB 1: PRICES (unchanged tool) ============ -->
+        <!-- ============ TAB 1: PRICES ============ -->
         <div class="tabpanel" id="tab1">
 
-        <div class="panel">
-            <h2><span class="step-num">1</span> Elegí los productos</h2>
-            <div class="row">
-                <div class="field">
-                    <label>Supplier (vendor)</label>
-                    <select id="vendor"><option value="">— Todos —</option></select>
+            <!-- price backup gate (Tab 1 only) -->
+            <div class="panel backup-panel red" id="priceBackupPanel" style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+                <div style="flex:1; min-width:240px;">
+                    <div class="backup-title" id="priceBackupTitle">🛟 First, back up your prices</div>
+                    <div class="backup-note" id="priceBackupNote">This tab is locked until you save today's prices. Saved to GitHub, used to restore.</div>
                 </div>
-                <div class="field ms">
-                    <label>Estado (podés elegir varios)</label>
-                    <button type="button" class="ms-btn" id="statusBtn" onclick="toggleStatusMenu(event)">Cualquiera ▾</button>
-                    <div class="ms-menu" id="statusMenu" hidden>
-                        <label><input type="checkbox" class="st" value="active" onchange="updateStatusBtn()"> Activo</label>
-                        <label><input type="checkbox" class="st" value="draft" onchange="updateStatusBtn()"> Borrador</label>
-                        <label><input type="checkbox" class="st" value="archived" onchange="updateStatusBtn()"> Archivado</label>
+                <button class="btn btn-light" id="priceBackupBtn" onclick="backupAll()">↓ Back up all prices</button>
+            </div>
+
+            <div id="tab1Body" class="locked-wrap locked">
+
+            <div class="panel">
+                <h2><span class="step-num">1</span> Choose products</h2>
+                <div class="row">
+                    <div class="field">
+                        <label>Supplier (vendor)</label>
+                        <select id="vendor"><option value="">— All —</option></select>
+                    </div>
+                    <div class="field ms">
+                        <label>Status (pick several)</label>
+                        <button type="button" class="ms-btn" id="statusBtn" onclick="toggleStatusMenu(event)">Any ▾</button>
+                        <div class="ms-menu" id="statusMenu" hidden>
+                            <label><input type="checkbox" class="st" value="active" onchange="updateStatusBtn()"> Active</label>
+                            <label><input type="checkbox" class="st" value="draft" onchange="updateStatusBtn()"> Draft</label>
+                            <label><input type="checkbox" class="st" value="archived" onchange="updateStatusBtn()"> Archived</label>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label>Product type</label>
+                        <input type="text" id="ptype" placeholder="(optional)">
+                    </div>
+                    <div class="field">
+                        <label>Tag</label>
+                        <input type="text" id="tag" placeholder="(optional)">
+                    </div>
+                    <div class="field">
+                        <label>Title contains</label>
+                        <input type="text" id="titleContains" placeholder="(optional)">
+                    </div>
+                    <button class="btn btn-light" id="vendorsBtn" onclick="loadVendors()">↻ Load suppliers</button>
+                </div>
+                <label class="check" style="margin-top:14px;"><input type="checkbox" id="onlyCollective"> Only <b>&nbsp;Shopify Collective</b>&nbsp; products</label>
+            </div>
+
+            <div class="panel">
+                <h2><span class="step-num">2</span> What change to make</h2>
+                <div class="row">
+                    <div class="field">
+                        <label>Change type</label>
+                        <select id="mode" onchange="onModeChange()">
+                            <option value="floor_cost">Floor: raise to cost + % (only if below)</option>
+                            <option value="markup_cost">Set price = cost + %</option>
+                            <option value="inc_pct">Increase price by %</option>
+                            <option value="dec_pct">Decrease price by %</option>
+                            <option value="inc_amt">Increase price by amount (£)</option>
+                            <option value="dec_amt">Decrease price by amount (£)</option>
+                            <option value="set">Set a fixed price (£)</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label id="valueLabel">Percentage (%)</label>
+                        <input type="number" id="value" value="25" step="0.01" style="min-width:120px;">
+                    </div>
+                    <div class="field">
+                        <label>Rounding</label>
+                        <select id="rounding">
+                            <option value="none">No rounding (2 decimals)</option>
+                            <option value="up_99">End in .99 (rounds up)</option>
+                            <option value="up_95">End in .95 (rounds up)</option>
+                            <option value="whole">Whole number</option>
+                        </select>
                     </div>
                 </div>
-                <div class="field">
-                    <label>Tipo de producto</label>
-                    <input type="text" id="ptype" placeholder="(opcional)">
-                </div>
-                <div class="field">
-                    <label>Tag</label>
-                    <input type="text" id="tag" placeholder="(opcional)">
-                </div>
-                <div class="field">
-                    <label>Título contiene</label>
-                    <input type="text" id="titleContains" placeholder="(opcional)">
-                </div>
-                <button class="btn btn-light" id="vendorsBtn" onclick="loadVendors()">↻ Cargar suppliers</button>
+                <div class="hint" id="modeHint"></div>
             </div>
-            <label class="check" style="margin-top:14px;"><input type="checkbox" id="onlyCollective"> Solo productos de <b>&nbsp;Shopify Collective</b></label>
-        </div>
 
-        <div class="panel">
-            <h2><span class="step-num">2</span> Qué cambio hacer</h2>
-            <div class="row">
-                <div class="field">
-                    <label>Tipo de cambio</label>
-                    <select id="mode" onchange="onModeChange()">
-                        <option value="floor_cost">Piso: subir a costo + % (solo si está por debajo)</option>
-                        <option value="markup_cost">Poner precio = costo + %</option>
-                        <option value="inc_pct">Subir precio por %</option>
-                        <option value="dec_pct">Bajar precio por %</option>
-                        <option value="inc_amt">Subir precio por importe (£)</option>
-                        <option value="dec_amt">Bajar precio por importe (£)</option>
-                        <option value="set">Poner un precio fijo (£)</option>
-                    </select>
+            <div class="panel">
+                <h2><span class="step-num">3</span> Preview &amp; apply</h2>
+                <div class="actions">
+                    <button class="btn btn-primary" id="previewBtn" onclick="runPreview()">👁️ Preview</button>
+                    <button class="btn btn-green" id="applyBtn" onclick="applyChanges()" disabled>✅ Apply changes</button>
+                    <button class="btn btn-undo" id="undoBtn" onclick="openUndo()">↺ Undo last change for this supplier</button>
                 </div>
-                <div class="field">
-                    <label id="valueLabel">Porcentaje (%)</label>
-                    <input type="number" id="value" value="25" step="0.01" style="min-width:120px;">
-                </div>
-                <div class="field">
-                    <label>Redondeo</label>
-                    <select id="rounding">
-                        <option value="none">Sin redondeo (2 decimales)</option>
-                        <option value="up_99">Terminar en .99 (redondea hacia arriba)</option>
-                        <option value="up_95">Terminar en .95 (redondea hacia arriba)</option>
-                        <option value="whole">Número entero</option>
-                    </select>
-                </div>
+                <div class="status" id="status">Choose products and the change, then hit <b>Preview</b>.</div>
+                <div class="counts" id="counts"></div>
+                <div class="tbl-wrap" id="tableWrap"></div>
             </div>
-            <div class="hint" id="modeHint"></div>
-        </div>
 
-        <div class="panel">
-            <h2><span class="step-num">3</span> Preview y aplicar</h2>
-            <div class="actions">
-                <button class="btn btn-primary" id="previewBtn" onclick="runPreview()">👁️ Ver preview</button>
-                <button class="btn btn-green" id="applyBtn" onclick="applyChanges()" disabled>✅ Aplicar cambios</button>
-                <button class="btn btn-undo" id="undoBtn" onclick="openUndo()">↺ Deshacer último cambio del supplier</button>
-            </div>
-            <div class="status" id="status">Elegí los productos y el cambio, después tocá <b>Ver preview</b>.</div>
-            <div class="counts" id="counts"></div>
-            <div class="tbl-wrap" id="tableWrap"></div>
-        </div>
-
+            </div><!-- /tab1Body -->
         </div><!-- /tab1 -->
 
         <!-- ============ TAB 2: OTHER FIELDS ============ -->
         <div class="tabpanel" id="tab2" hidden>
 
-        <div class="panel">
-            <h2><span class="step-num">1</span> Elegí los productos</h2>
-            <div class="row">
-                <div class="field">
-                    <label>Supplier (vendor)</label>
-                    <select id="t2vendor"><option value="">— Todos —</option></select>
+            <!-- other-fields backup gate (Tab 2 only) -->
+            <div class="panel backup-panel red" id="fieldBackupPanel" style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+                <div style="flex:1; min-width:240px;">
+                    <div class="backup-title" id="fieldBackupTitle">🛟 First, back up these fields</div>
+                    <div class="backup-note" id="fieldBackupNote">This tab is locked until you save today's other fields (tags, type, weight, collections, category). Saved to GitHub, used to restore.</div>
                 </div>
-                <div class="field ms">
-                    <label>Estado (podés elegir varios)</label>
-                    <button type="button" class="ms-btn" id="t2statusBtn" onclick="toggleT2StatusMenu(event)">Cualquiera ▾</button>
-                    <div class="ms-menu" id="t2statusMenu" hidden>
-                        <label><input type="checkbox" class="t2st" value="active" onchange="updateT2StatusBtn()"> Activo</label>
-                        <label><input type="checkbox" class="t2st" value="draft" onchange="updateT2StatusBtn()"> Borrador</label>
-                        <label><input type="checkbox" class="t2st" value="archived" onchange="updateT2StatusBtn()"> Archivado</label>
-                    </div>
-                </div>
-                <div class="field">
-                    <label>Tag (filtro)</label>
-                    <input type="text" id="t2tag" placeholder="(opcional)">
-                </div>
-                <div class="field">
-                    <label>Título contiene</label>
-                    <input type="text" id="t2titleContains" placeholder="(opcional)">
-                </div>
-                <button class="btn btn-light" id="t2vendorsBtn" onclick="loadT2Vendors()">↻ Cargar suppliers</button>
-            </div>
-            <div class="hint" id="t2filterHint" style="margin-top:12px;">Cargá los datos primero (una vez): <button class="btn btn-light" style="padding:6px 10px;font-size:13px;" onclick="loadFieldMeta()">↻ Cargar tags, tipos y colecciones</button> <span id="t2metaState"></span></div>
-        </div>
-
-        <div class="panel">
-            <h2><span class="step-num">2</span> Qué campo editar</h2>
-            <div class="row">
-                <div class="field">
-                    <label>Campo</label>
-                    <select id="t2field" onchange="onFieldChange()">
-                        <option value="tags">Tags</option>
-                        <option value="ptype">Tipo de producto</option>
-                        <option value="weight">Peso (solo About Wall Art)</option>
-                        <option value="unitprice">Unit price</option>
-                        <option value="collections">Colecciones</option>
-                        <option value="category">Categoría</option>
-                    </select>
-                </div>
+                <button class="btn btn-light" id="fieldBackupBtn" onclick="backupFields()">↓ Back up all other fields</button>
             </div>
 
-            <!-- TAGS -->
-            <div class="fieldpanel" id="fp-tags" style="margin-top:16px;">
+            <div id="tab2Body" class="locked-wrap locked">
+
+            <div class="panel">
+                <h2><span class="step-num">1</span> Choose products</h2>
                 <div class="row">
                     <div class="field">
-                        <label>Acción</label>
-                        <select id="tagsAction" onchange="onTagsAction()">
-                            <option value="add">Add — agregar tags</option>
-                            <option value="remove">Remove — quitar tags</option>
-                            <option value="replace">Replace — cambiar una tag por otra</option>
-                        </select>
+                        <label>Supplier (vendor)</label>
+                        <select id="t2vendor"><option value="">— All —</option></select>
                     </div>
-                </div>
-                <div id="tagsMultiWrap" style="margin-top:12px;">
-                    <label class="field" style="margin-bottom:6px;"><span>Tickeá las tags (podés buscar)</span></label>
-                    <div class="picker">
-                        <input type="text" class="search" id="tagsSearch" placeholder="Escribí una palabra…" oninput="renderTagPicker()">
-                        <div class="picker-list" id="tagsPickerList"></div>
-                    </div>
-                    <div class="picked-tags" id="tagsPicked"></div>
-                </div>
-                <div id="tagsReplaceWrap" hidden style="margin-top:12px;">
-                    <div class="row">
-                        <div class="field"><label>Sacar esta tag</label><input type="text" id="tagFrom" list="allTagsList" placeholder="tag actual"></div>
-                        <div class="field"><label>Poner esta tag</label><input type="text" id="tagTo" list="allTagsList" placeholder="tag nueva"></div>
-                    </div>
-                </div>
-                <div class="hint warn">Regla: ningún producto puede quedar sin al menos <b>1 tag de colección</b>. Si un cambio dejaría a un producto sin ninguna, la fila aparece <b>bloqueada</b> y no se aplica.</div>
-            </div>
-
-            <!-- PRODUCT TYPE -->
-            <div class="fieldpanel" id="fp-ptype" hidden style="margin-top:16px;">
-                <div class="row">
-                    <div class="field">
-                        <label>Acción</label>
-                        <select id="ptypeAction">
-                            <option value="assign">Assign — solo a productos SIN tipo</option>
-                            <option value="replace">Replace — solo a productos que YA tienen tipo</option>
-                        </select>
-                    </div>
-                    <div class="field">
-                        <label>Tipo de producto (elegí uno)</label>
-                        <input type="text" id="ptypeValue" list="ptypesList" placeholder="buscá un tipo…">
-                    </div>
-                </div>
-            </div>
-
-            <!-- WEIGHT -->
-            <div class="fieldpanel" id="fp-weight" hidden style="margin-top:16px;">
-                <div class="hint">Solo se aplica a productos del vendor <b>About Wall Art</b>. El peso depende de <b>marco + tamaño</b> (el papel no cambia el peso). Dejá vacío un casillero para no tocar ese grupo.</div>
-                <div class="row" style="margin:12px 0;">
-                    <div class="field"><label>Set</label>
-                        <select id="weightSet"><option value="">(elegí el filtro Tag arriba: set of 1 / 2 / 3)</option></select>
-                    </div>
-                    <div class="field"><label>Unidad</label>
-                        <select id="weightUnit"><option value="KILOGRAMS">kg</option><option value="GRAMS">g</option><option value="POUNDS">lb</option><option value="OUNCES">oz</option></select>
-                    </div>
-                </div>
-                <div class="wgrid" id="weightGrid"></div>
-            </div>
-
-            <!-- UNIT PRICE -->
-            <div class="fieldpanel" id="fp-unitprice" hidden style="margin-top:16px;">
-                <div class="row">
-                    <div class="field">
-                        <label>How to edit</label>
-                        <select id="upHow">
-                            <option value="dec_pct">Decrease current price by %</option>
-                            <option value="inc_pct">Increase current price by %</option>
-                            <option value="set_pct_compare">Set to % of the Compare-at price</option>
-                            <option value="change_amt">Change by fixed amount</option>
-                            <option value="set_fixed">Set to fixed value</option>
-                            <option value="set_pct_price">Set to % of the Price</option>
-                            <option value="set_pct_cost">Set to % of the Cost</option>
-                            <option value="cost_plus_amt">Set as Cost plus amount</option>
-                            <option value="change_pct">Change by percentage</option>
-                        </select>
-                    </div>
-                    <div class="field"><label>Value</label><input type="number" id="upValue" value="0" step="0.01" style="min-width:120px;"></div>
-                    <div class="field">
-                        <label>Rounding</label>
-                        <select id="upRounding">
-                            <option value="none">Don't round the value</option>
-                            <option value="p50">Round to 0.50</option>
-                            <option value="p00">Round to 0.00</option>
-                        </select>
-                    </div>
-                </div>
-                <label class="check" style="margin-top:14px;"><input type="checkbox" id="upCmpEnable" onchange="document.getElementById('upCmpWrap').hidden=!this.checked">&nbsp;Also modify Compare-at price</label>
-                <div id="upCmpWrap" hidden class="row" style="margin-top:10px;">
-                    <div class="field">
-                        <label>Compare-at: how</label>
-                        <select id="upCmpHow">
-                            <option value="inc_pct">Increase by %</option>
-                            <option value="dec_pct">Decrease by %</option>
-                            <option value="set_fixed">Set to fixed value</option>
-                            <option value="set_pct_price">Set to % of the new Price</option>
-                            <option value="clear">Remove compare-at</option>
-                        </select>
-                    </div>
-                    <div class="field"><label>Compare-at: value</label><input type="number" id="upCmpValue" value="0" step="0.01" style="min-width:120px;"></div>
-                </div>
-            </div>
-
-            <!-- COLLECTIONS -->
-            <div class="fieldpanel" id="fp-collections" hidden style="margin-top:16px;">
-                <div class="row">
-                    <div class="field">
-                        <label>Acción</label>
-                        <select id="collAction">
-                            <option value="add">Add — agregar a colecciones</option>
-                            <option value="remove">Remove — quitar de colecciones</option>
-                            <option value="replace">Replace — dejar solo las tickeadas</option>
-                        </select>
-                    </div>
-                </div>
-                <div style="margin-top:12px;">
-                    <label class="field" style="margin-bottom:6px;"><span>Colecciones manuales (podés buscar y tickear varias)</span></label>
-                    <div class="picker">
-                        <input type="text" class="search" id="collSearch" placeholder="Escribí una palabra…" oninput="renderCollPicker()">
-                        <div class="picker-list" id="collPickerList"></div>
-                    </div>
-                    <div class="picked-tags" id="collPicked"></div>
-                </div>
-                <div class="hint">Solo aparecen las colecciones <b>manuales</b>. Las automáticas (por tag) se llenan solas y no se editan a mano.</div>
-            </div>
-
-            <!-- CATEGORY -->
-            <div class="fieldpanel" id="fp-category" hidden style="margin-top:16px;">
-                <div class="row">
-                    <div class="field">
-                        <label>Acción</label>
-                        <select id="catAction">
-                            <option value="assign">Assign — solo a productos SIN categoría</option>
-                            <option value="replace">Replace — solo a productos que YA tienen categoría</option>
-                        </select>
-                    </div>
-                    <div class="field" style="flex:1; min-width:260px;">
-                        <label>Buscar categoría de Shopify</label>
-                        <div style="display:flex; gap:8px;">
-                            <input type="text" id="catSearch" placeholder="ej: wall art, poster…" style="flex:1;" onkeydown="if(event.key==='Enter'){searchCategory();return false;}">
-                            <button class="btn btn-light" onclick="searchCategory()">Buscar</button>
+                    <div class="field ms">
+                        <label>Status (pick several)</label>
+                        <button type="button" class="ms-btn" id="t2statusBtn" onclick="toggleT2StatusMenu(event)">Any ▾</button>
+                        <div class="ms-menu" id="t2statusMenu" hidden>
+                            <label><input type="checkbox" class="t2st" value="active" onchange="updateT2StatusBtn()"> Active</label>
+                            <label><input type="checkbox" class="t2st" value="draft" onchange="updateT2StatusBtn()"> Draft</label>
+                            <label><input type="checkbox" class="t2st" value="archived" onchange="updateT2StatusBtn()"> Archived</label>
                         </div>
-                        <div class="picker-list" id="catResults" style="max-height:220px; margin-top:8px; border:2px solid #eee; border-radius:12px; padding:6px;"></div>
-                        <div id="catPicked" class="muted" style="margin-top:6px;">Ninguna elegida.</div>
+                    </div>
+                    <div class="field">
+                        <label>Tag (filter)</label>
+                        <input type="text" id="t2tag" placeholder="(optional)">
+                    </div>
+                    <div class="field">
+                        <label>Title contains</label>
+                        <input type="text" id="t2titleContains" placeholder="(optional)">
+                    </div>
+                    <button class="btn btn-light" id="t2vendorsBtn" onclick="loadT2Vendors()">↻ Load suppliers</button>
+                </div>
+                <div class="hint" id="t2filterHint" style="margin-top:12px;">Load the data first (once): <button class="btn btn-light" style="padding:6px 10px;font-size:13px;" onclick="loadFieldMeta()">↻ Load tags, types &amp; collections</button> <span id="t2metaState"></span></div>
+            </div>
+
+            <div class="panel">
+                <h2><span class="step-num">2</span> Which field to edit</h2>
+                <div class="row">
+                    <div class="field">
+                        <label>Field</label>
+                        <select id="t2field" onchange="onFieldChange()">
+                            <option value="tags">Tags</option>
+                            <option value="ptype">Product type</option>
+                            <option value="weight">Weight (About Wall Art only)</option>
+                            <option value="unitprice">Unit price</option>
+                            <option value="collections">Collections</option>
+                            <option value="category">Category</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- TAGS -->
+                <div class="fieldpanel" id="fp-tags" style="margin-top:16px;">
+                    <div class="row">
+                        <div class="field">
+                            <label>Action</label>
+                            <select id="tagsAction" onchange="onTagsAction()">
+                                <option value="add">Add tags</option>
+                                <option value="remove">Remove tags</option>
+                                <option value="replace">Replace one tag with another</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="tagsMultiWrap" style="margin-top:12px;">
+                        <label class="field" style="margin-bottom:6px;"><span>Tick the tags (you can search)</span></label>
+                        <div class="picker">
+                            <input type="text" class="search" id="tagsSearch" placeholder="Type a word…" oninput="renderTagPicker()">
+                            <div class="picker-list" id="tagsPickerList"></div>
+                        </div>
+                        <div class="picked-tags" id="tagsPicked"></div>
+                    </div>
+                    <div id="tagsReplaceWrap" hidden style="margin-top:12px;">
+                        <div class="row">
+                            <div class="field"><label>Remove this tag</label><input type="text" id="tagFrom" list="allTagsList" placeholder="current tag"></div>
+                            <div class="field"><label>Add this tag</label><input type="text" id="tagTo" list="allTagsList" placeholder="new tag"></div>
+                        </div>
+                    </div>
+                    <div class="hint warn">Rule: no product can be left without at least <b>1 collection tag</b>. If a change would leave a product with none, the row shows as <b>blocked</b> and won't apply.</div>
+                </div>
+
+                <!-- PRODUCT TYPE -->
+                <div class="fieldpanel" id="fp-ptype" hidden style="margin-top:16px;">
+                    <div class="row">
+                        <div class="field">
+                            <label>Action</label>
+                            <select id="ptypeAction">
+                                <option value="assign">Assign — only to products with NO type</option>
+                                <option value="replace">Replace — only to products that already have a type</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label>Product type (pick one)</label>
+                            <input type="text" id="ptypeValue" list="ptypesList" placeholder="search a type…">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- WEIGHT -->
+                <div class="fieldpanel" id="fp-weight" hidden style="margin-top:16px;">
+                    <div class="hint">Only applies to <b>About Wall Art</b> vendor products. Weight depends on <b>frame + size</b> (paper doesn't change it). Leave a box empty to skip that group.</div>
+                    <div class="row" style="margin:12px 0;">
+                        <div class="field"><label>Set</label>
+                            <select id="weightSet"><option value="">(all that match the filter)</option></select>
+                        </div>
+                        <div class="field"><label>Unit</label>
+                            <select id="weightUnit"><option value="KILOGRAMS">kg</option><option value="GRAMS">g</option><option value="POUNDS">lb</option><option value="OUNCES">oz</option></select>
+                        </div>
+                    </div>
+                    <div class="wgrid" id="weightGrid"></div>
+                </div>
+
+                <!-- UNIT PRICE -->
+                <div class="fieldpanel" id="fp-unitprice" hidden style="margin-top:16px;">
+                    <div class="row">
+                        <div class="field">
+                            <label>How to edit</label>
+                            <select id="upHow">
+                                <option value="dec_pct">Decrease current price by %</option>
+                                <option value="inc_pct">Increase current price by %</option>
+                                <option value="set_pct_compare">Set to % of the Compare-at price</option>
+                                <option value="change_amt">Change by fixed amount</option>
+                                <option value="set_fixed">Set to fixed value</option>
+                                <option value="set_pct_price">Set to % of the Price</option>
+                                <option value="set_pct_cost">Set to % of the Cost</option>
+                                <option value="cost_plus_amt">Set as Cost plus amount</option>
+                                <option value="change_pct">Change by percentage</option>
+                            </select>
+                        </div>
+                        <div class="field"><label>Value</label><input type="number" id="upValue" value="0" step="0.01" style="min-width:120px;"></div>
+                        <div class="field">
+                            <label>Rounding</label>
+                            <select id="upRounding">
+                                <option value="none">Don't round the value</option>
+                                <option value="p50">Round to 0.50</option>
+                                <option value="p00">Round to 0.00</option>
+                            </select>
+                        </div>
+                    </div>
+                    <label class="check" style="margin-top:14px;"><input type="checkbox" id="upCmpEnable" onchange="document.getElementById('upCmpWrap').hidden=!this.checked">&nbsp;Also modify Compare-at price</label>
+                    <div id="upCmpWrap" hidden class="row" style="margin-top:10px;">
+                        <div class="field">
+                            <label>Compare-at: how</label>
+                            <select id="upCmpHow">
+                                <option value="inc_pct">Increase by %</option>
+                                <option value="dec_pct">Decrease by %</option>
+                                <option value="set_fixed">Set to fixed value</option>
+                                <option value="set_pct_price">Set to % of the new Price</option>
+                                <option value="clear">Remove compare-at</option>
+                            </select>
+                        </div>
+                        <div class="field"><label>Compare-at: value</label><input type="number" id="upCmpValue" value="0" step="0.01" style="min-width:120px;"></div>
+                    </div>
+                </div>
+
+                <!-- COLLECTIONS -->
+                <div class="fieldpanel" id="fp-collections" hidden style="margin-top:16px;">
+                    <div class="row">
+                        <div class="field">
+                            <label>Action</label>
+                            <select id="collAction">
+                                <option value="add">Add to collections</option>
+                                <option value="remove">Remove from collections</option>
+                                <option value="replace">Replace — keep only the ticked ones</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="margin-top:12px;">
+                        <label class="field" style="margin-bottom:6px;"><span>Manual collections (search and tick several)</span></label>
+                        <div class="picker">
+                            <input type="text" class="search" id="collSearch" placeholder="Type a word…" oninput="renderCollPicker()">
+                            <div class="picker-list" id="collPickerList"></div>
+                        </div>
+                        <div class="picked-tags" id="collPicked"></div>
+                    </div>
+                    <div class="hint">Only <b>manual</b> collections show. Automatic ones (by tag) fill themselves and can't be edited by hand.</div>
+                </div>
+
+                <!-- CATEGORY -->
+                <div class="fieldpanel" id="fp-category" hidden style="margin-top:16px;">
+                    <div class="row">
+                        <div class="field">
+                            <label>Action</label>
+                            <select id="catAction">
+                                <option value="assign">Assign — only to products with NO category</option>
+                                <option value="replace">Replace — only to products that already have a category</option>
+                            </select>
+                        </div>
+                        <div class="field" style="flex:1; min-width:260px;">
+                            <label>Search a Shopify category</label>
+                            <div style="display:flex; gap:8px;">
+                                <input type="text" id="catSearch" placeholder="e.g. wall art, poster…" style="flex:1;" onkeydown="if(event.key==='Enter'){searchCategory();return false;}">
+                                <button class="btn btn-light" onclick="searchCategory()">Search</button>
+                            </div>
+                            <div class="picker-list" id="catResults" style="max-height:220px; margin-top:8px; border:2px solid #eee; border-radius:12px; padding:6px;"></div>
+                            <div id="catPicked" class="muted" style="margin-top:6px;">None picked.</div>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <div class="panel">
-            <h2><span class="step-num">3</span> Preview y aplicar</h2>
-            <div class="actions">
-                <button class="btn btn-primary" id="previewBtn2" onclick="runPreview2()">👁️ Ver preview</button>
-                <button class="btn btn-green" id="applyBtn2" onclick="applyChanges2()" disabled>✅ Aplicar cambios</button>
-                <button class="btn btn-undo" id="undoBtn2" onclick="openFieldUndo()">↺ Deshacer último cambio</button>
+            <div class="panel">
+                <h2><span class="step-num">3</span> Preview &amp; apply</h2>
+                <div class="actions">
+                    <button class="btn btn-primary" id="previewBtn2" onclick="runPreview2()">👁️ Preview</button>
+                    <button class="btn btn-green" id="applyBtn2" onclick="applyChanges2()" disabled>✅ Apply changes</button>
+                    <button class="btn btn-undo" id="undoBtn2" onclick="openFieldUndo()">↺ Undo last change</button>
+                </div>
+                <div class="status" id="status2">Load the data, choose products and the field, then hit <b>Preview</b>.</div>
+                <div class="counts" id="counts2"></div>
+                <div class="tbl-wrap" id="tableWrap2"></div>
             </div>
-            <div class="status" id="status2">Cargá los datos, elegí productos y el campo, después tocá <b>Ver preview</b>.</div>
-            <div class="counts" id="counts2"></div>
-            <div class="tbl-wrap" id="tableWrap2"></div>
-        </div>
 
+            </div><!-- /tab2Body -->
         </div><!-- /tab2 -->
-
-        </div><!-- /toolBody -->
     </div>
 
     <datalist id="allTagsList"></datalist>
@@ -473,9 +482,9 @@
     <div class="modal-overlay" id="readyModal" hidden>
         <div class="modal-box">
             <div class="big">✅</div>
-            <h3>Backup guardado</h3>
-            <p id="readyModalText">Ya podés empezar a hacer cambios.</p>
-            <button class="btn btn-green" onclick="closeReadyModal()">Empezar</button>
+            <h3>Backup saved</h3>
+            <p id="readyModalText">You can start making changes now.</p>
+            <button class="btn btn-green" onclick="closeReadyModal()">Start</button>
         </div>
     </div>
 
@@ -483,6 +492,9 @@
 const API = '/api/shopify-bulk';
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function money(x){ return x===null||x===undefined||x==='' ? '—' : '£' + Number(x).toFixed(2); }
+function isToday(iso){ if (!iso) return false; const d = new Date(iso), n = new Date(); return d.toDateString() === n.toDateString(); }
+function closeReadyModal(){ document.getElementById('readyModal').hidden = true; }
+function showReady(text){ document.getElementById('readyModalText').innerHTML = text; document.getElementById('readyModal').hidden = false; }
 
 /* ===================== TABS ===================== */
 function switchTab(n){
@@ -492,7 +504,78 @@ function switchTab(n){
     document.getElementById('tabBtn2').classList.toggle('active', n===2);
 }
 
-/* ===================== TAB 1: PRICES (unchanged) ===================== */
+/* ===================== BACKUP GATES (one per tab) ===================== */
+function paintGate(panelId, titleId, state, redTitle, greenTitle){
+    const p = document.getElementById(panelId);
+    p.classList.remove('red','green'); p.classList.add(state);
+    document.getElementById(titleId).innerHTML = state==='green' ? greenTitle : redTitle;
+}
+function lockBody(id){ document.getElementById(id).classList.add('locked'); }
+function unlockBody(id){ document.getElementById(id).classList.remove('locked'); }
+
+/* ---- Tab 1: prices ---- */
+async function checkPriceBackup(){
+    paintGate('priceBackupPanel','priceBackupTitle','red','🛟 First, back up your prices','✅ Today\'s price backup done');
+    lockBody('tab1Body');
+    document.getElementById('priceBackupNote').innerHTML = 'Checking for today\'s backup…';
+    try {
+        const d = await (await fetch(API + '?action=last-backup')).json();
+        const latest = d && d.latest;
+        if (latest && isToday(latest.createdAt)) {
+            paintGate('priceBackupPanel','priceBackupTitle','green','','✅ Today\'s price backup done'); unlockBody('tab1Body');
+            document.getElementById('priceBackupNote').innerHTML = 'Today\'s backup is done ('+ latest.count +' variants). Tab enabled.';
+        } else {
+            const last = latest ? ('Last backup: ' + new Date(latest.createdAt).toLocaleString('en-GB') + '. ') : 'No backup yet. ';
+            document.getElementById('priceBackupNote').innerHTML = last + '<b>This tab is locked until you back up today\'s prices.</b>';
+        }
+    } catch(e){ document.getElementById('priceBackupNote').innerHTML = '⚠️ Could not check the backup. Back up to start.'; }
+}
+async function backupAll(){
+    const btn = document.getElementById('priceBackupBtn'); btn.disabled = true;
+    paintGate('priceBackupPanel','priceBackupTitle','red','🛟 First, back up your prices','✅ Today\'s price backup done'); lockBody('tab1Body');
+    document.getElementById('priceBackupNote').innerHTML = '<span class="spinner"></span> Saving a copy of every price… please wait, don\'t close (can take up to a minute).';
+    try {
+        const d = await (await fetch(API + '?action=backup-all')).json();
+        if (!d.ok) { document.getElementById('priceBackupNote').innerHTML = '⚠️ ' + esc(d.error||'Error') + ' — try again.'; btn.disabled=false; return; }
+        paintGate('priceBackupPanel','priceBackupTitle','green','','✅ Today\'s price backup done'); unlockBody('tab1Body');
+        document.getElementById('priceBackupNote').innerHTML = 'Saved to GitHub: <b>' + esc(d.path) + '</b> — ' + d.count + ' variants. Tab enabled.';
+        showReady(d.count + ' prices saved. You can start making changes now.');
+    } catch(e){ document.getElementById('priceBackupNote').innerHTML = '⚠️ ' + esc(e.message) + ' — try again.'; }
+    btn.disabled = false;
+}
+
+/* ---- Tab 2: other fields ---- */
+async function checkFieldBackup(){
+    paintGate('fieldBackupPanel','fieldBackupTitle','red','🛟 First, back up these fields','✅ Today\'s fields backup done');
+    lockBody('tab2Body');
+    document.getElementById('fieldBackupNote').innerHTML = 'Checking for today\'s backup…';
+    try {
+        const d = await (await fetch(API + '?action=last-field-backup')).json();
+        const latest = d && d.latest;
+        if (latest && isToday(latest.createdAt)) {
+            paintGate('fieldBackupPanel','fieldBackupTitle','green','','✅ Today\'s fields backup done'); unlockBody('tab2Body');
+            document.getElementById('fieldBackupNote').innerHTML = 'Today\'s backup is done ('+ latest.count +' products). Tab enabled.';
+        } else {
+            const last = latest ? ('Last backup: ' + new Date(latest.createdAt).toLocaleString('en-GB') + '. ') : 'No backup yet. ';
+            document.getElementById('fieldBackupNote').innerHTML = last + '<b>This tab is locked until you back up today\'s other fields.</b>';
+        }
+    } catch(e){ document.getElementById('fieldBackupNote').innerHTML = '⚠️ Could not check the backup. Back up to start.'; }
+}
+async function backupFields(){
+    const btn = document.getElementById('fieldBackupBtn'); btn.disabled = true;
+    paintGate('fieldBackupPanel','fieldBackupTitle','red','🛟 First, back up these fields','✅ Today\'s fields backup done'); lockBody('tab2Body');
+    document.getElementById('fieldBackupNote').innerHTML = '<span class="spinner"></span> Saving a copy of tags, type, weight, collections & category for every product… please wait, don\'t close.';
+    try {
+        const d = await (await fetch(API + '?action=backup-fields')).json();
+        if (!d.ok) { document.getElementById('fieldBackupNote').innerHTML = '⚠️ ' + esc(d.error||'Error') + ' — try again.'; btn.disabled=false; return; }
+        paintGate('fieldBackupPanel','fieldBackupTitle','green','','✅ Today\'s fields backup done'); unlockBody('tab2Body');
+        document.getElementById('fieldBackupNote').innerHTML = 'Saved to GitHub: <b>' + esc(d.path) + '</b> — ' + d.count + ' products. Tab enabled.';
+        showReady(d.count + ' products backed up (tags, type, weight, collections, category). You can start now.');
+    } catch(e){ document.getElementById('fieldBackupNote').innerHTML = '⚠️ ' + esc(e.message) + ' — try again.'; }
+    btn.disabled = false;
+}
+
+/* ===================== TAB 1: PRICES ===================== */
 let previewRows = [];
 let lastChange = null, lastFilters = null, lastUndoId = null;
 let lastChangeMap = {};
@@ -517,8 +600,8 @@ function getFilters(){
 function toggleStatusMenu(e){ if(e) e.stopPropagation(); const m=document.getElementById('statusMenu'); m.hidden = !m.hidden; }
 function updateStatusBtn(){
     const chk = Array.from(document.querySelectorAll('.st:checked'));
-    const names = { active:'Activo', draft:'Borrador', archived:'Archivado' };
-    document.getElementById('statusBtn').textContent = (chk.length ? chk.map(c => names[c.value]).join(', ') : 'Cualquiera') + ' ▾';
+    const names = { active:'Active', draft:'Draft', archived:'Archived' };
+    document.getElementById('statusBtn').textContent = (chk.length ? chk.map(c => names[c.value]).join(', ') : 'Any') + ' ▾';
 }
 document.addEventListener('click', function(e){
     ['statusMenu','t2statusMenu'].forEach(id => {
@@ -534,78 +617,44 @@ function onModeChange(){
     const mode = document.getElementById('mode').value;
     const isPct = ['floor_cost','markup_cost','inc_pct','dec_pct'].includes(mode);
     const lbl = document.getElementById('valueLabel');
-    lbl.textContent = isPct ? 'Porcentaje (%)' : (mode==='set' ? 'Precio (£)' : 'Importe (£)');
+    lbl.textContent = isPct ? 'Percentage (%)' : (mode==='set' ? 'Price (£)' : 'Amount (£)');
     const hints = {
-        floor_cost: 'Sube el precio a <b>costo + %</b> SOLO si hoy está por debajo. Los que ya te dan más margen quedan igual. Es tu regla: "al menos costo + 25%".',
-        markup_cost: 'Pone el precio en <b>costo + %</b> para TODOS (aunque baje a los que hoy te dan más). El costo usado es el "Cost per item" (con IVA).',
-        inc_pct: 'Sube cada precio actual ese %.', dec_pct: 'Baja cada precio actual ese %.',
-        inc_amt: 'Suma ese importe a cada precio.', dec_amt: 'Resta ese importe a cada precio.',
-        set: 'Pone exactamente ese precio en todos los seleccionados.'
+        floor_cost: 'Raises the price to <b>cost + %</b> ONLY if it\'s below today. Ones already giving more margin stay the same. Your rule: at least cost + 25%.',
+        markup_cost: 'Sets the price to <b>cost + %</b> for ALL (even lowering ones that give you more today). Cost used is "Cost per item" (incl. VAT).',
+        inc_pct: 'Raises each current price by that %.', dec_pct: 'Lowers each current price by that %.',
+        inc_amt: 'Adds that amount to each price.', dec_amt: 'Subtracts that amount from each price.',
+        set: 'Sets exactly that price on all selected.'
     };
     const needCost = ['floor_cost','markup_cost'].includes(mode);
-    document.getElementById('modeHint').innerHTML = hints[mode] + (needCost ? ' <span class="muted">· Los productos sin costo cargado se saltan.</span>' : '');
-}
-
-/* ---- backup gate (shared by both tabs) ---- */
-function isToday(iso){ if (!iso) return false; const d = new Date(iso), n = new Date(); return d.toDateString() === n.toDateString(); }
-function setBackupNote(html){ document.getElementById('backupNote').innerHTML = html; }
-function lockTool(){ document.getElementById('toolBody').classList.add('locked'); }
-function unlockTool(){ document.getElementById('toolBody').classList.remove('locked'); }
-function paintBackup(state){
-    const p = document.getElementById('backupPanel');
-    p.classList.remove('red','green'); p.classList.add(state);
-    document.getElementById('backupTitle').innerHTML = state==='green' ? '✅ Copia de seguridad de hoy hecha' : '🛟 Primero hacé la copia de seguridad';
-}
-function closeReadyModal(){ document.getElementById('readyModal').hidden = true; }
-async function checkBackup(){
-    paintBackup('red'); lockTool(); setBackupNote('Revisando si hay backup de hoy…');
-    try {
-        const r = await fetch(API + '?action=last-backup'); const d = await r.json();
-        const latest = d && d.latest;
-        if (latest && isToday(latest.createdAt)) { paintBackup('green'); unlockTool(); setBackupNote('Backup de hoy ya hecho ('+ latest.count +' variantes). Herramienta habilitada.'); }
-        else { paintBackup('red'); lockTool(); const last = latest ? ('Último backup: ' + new Date(latest.createdAt).toLocaleString('es-GB') + '. ') : 'Nunca se hizo un backup. '; setBackupNote(last + '<b>Todo está bloqueado hasta que hagas el backup de hoy.</b>'); }
-    } catch(e){ paintBackup('red'); lockTool(); setBackupNote('⚠️ No pude verificar el backup. Hacé el backup para empezar.'); }
-}
-async function backupAll(){
-    const btn = document.getElementById('backupBtn'); btn.disabled = true;
-    paintBackup('red'); lockTool(); setBackupNote('<span class="spinner"></span> Guardando copia de todos los precios… esperá, no cierres (puede tardar hasta un minuto).');
-    try {
-        const r = await fetch(API + '?action=backup-all'); const d = await r.json();
-        if (!d.ok) { setBackupNote('⚠️ ' + esc(d.error||'Error') + ' — probá de nuevo.'); btn.disabled=false; return; }
-        paintBackup('green'); unlockTool();
-        setBackupNote('Guardado en GitHub: <b>' + esc(d.path) + '</b> — ' + d.count + ' variantes. Herramienta habilitada.');
-        document.getElementById('readyModalText').innerHTML = 'Se guardaron ' + d.count + ' precios. Ya podés empezar a hacer cambios.';
-        document.getElementById('readyModal').hidden = false;
-    } catch(e){ setBackupNote('⚠️ ' + esc(e.message) + ' — probá de nuevo.'); }
-    btn.disabled = false;
+    document.getElementById('modeHint').innerHTML = hints[mode] + (needCost ? ' <span class="muted">· Products with no cost are skipped.</span>' : '');
 }
 async function loadVendorsInto(selId, btnId){
     const btn = document.getElementById(btnId); if(btn) btn.disabled = true;
     try {
-        const r = await fetch(API + '?action=vendors'); const d = await r.json();
+        const d = await (await fetch(API + '?action=vendors')).json();
         if (!d.ok) { if(btn) btn.disabled=false; return d; }
         const sel = document.getElementById(selId);
-        sel.innerHTML = '<option value="">— Todos —</option>' + d.vendors.map(v => `<option value="${esc(v.vendor)}">${esc(v.vendor)} (${v.count})</option>`).join('');
+        sel.innerHTML = '<option value="">— All —</option>' + d.vendors.map(v => `<option value="${esc(v.vendor)}">${esc(v.vendor)} (${v.count})</option>`).join('');
         if(btn) btn.disabled = false;
         return d;
     } catch(e){ if(btn) btn.disabled=false; return { ok:false, error:e.message }; }
 }
 async function loadVendors(){
-    setStatus('<span class="spinner"></span> Leyendo tus suppliers…');
+    setStatus('<span class="spinner"></span> Loading your suppliers…');
     const d = await loadVendorsInto('vendor','vendorsBtn');
-    setStatus(d.ok ? ('✅ ' + d.vendors.length + ' suppliers cargados. Elegí uno.') : ('⚠️ ' + esc(d.error||'Error')));
+    setStatus(d.ok ? ('✅ ' + d.vendors.length + ' suppliers loaded. Pick one.') : ('⚠️ ' + esc(d.error||'Error')));
 }
 async function runPreview(){
     const btn = document.getElementById('previewBtn'); btn.disabled = true;
     document.getElementById('applyBtn').disabled = true;
     previewRows = []; selected = new Set(); lastChange = getChange(); lastFilters = getFilters();
-    if (isNaN(lastChange.value)) { setStatus('⚠️ Escribí un número en el paso 2.'); btn.disabled=false; return; }
+    if (isNaN(lastChange.value)) { setStatus('⚠️ Enter a number in step 2.'); btn.disabled=false; return; }
     document.getElementById('tableWrap').innerHTML = '';
     let cursor = null, page = 0, totVar = 0, totChange = 0, totNoCost = 0;
     try {
         try { const lm = await (await fetch(API + '?action=lastchange')).json(); lastChangeMap = (lm && lm.map) || {}; } catch(e){ lastChangeMap = {}; }
         do {
-            setStatus('<span class="spinner"></span> Calculando preview… (' + totVar + ' variantes leídas)');
+            setStatus('<span class="spinner"></span> Building preview… (' + totVar + ' variants read)');
             const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'preview', filters:lastFilters, change:lastChange, cursor }) });
             const d = await r.json();
             if (!d.ok) { setStatus('⚠️ ' + esc(d.error||'Error')); btn.disabled=false; return; }
@@ -616,19 +665,19 @@ async function runPreview(){
         } while (cursor);
         previewRows.forEach(r => { if (r.changed) selected.add(r.variantId); });
         renderCounts(totVar, totChange, totNoCost); renderTable();
-        setStatus(totChange > 0 ? '✅ Preview listo. Tildá las que quieras y tocá <b>Aplicar cambios</b>.' : 'No hay nada para cambiar con estos filtros/regla.');
+        setStatus(totChange > 0 ? '✅ Preview ready. Tick the ones you want and hit <b>Apply changes</b>.' : 'Nothing to change with these filters/rule.');
     } catch(e){ setStatus('⚠️ ' + esc(e.message)); }
     btn.disabled = false;
 }
 function renderCounts(totVar, totChange, totNoCost){
-    let html = `<span class="chip">${totVar} variantes</span><span class="chip change">${totChange} van a cambiar</span><span class="chip" id="selChip">${selected.size} seleccionadas</span>`;
-    if (totNoCost) html += `<span class="chip nocost">${totNoCost} sin costo (se saltan)</span>`;
+    let html = `<span class="chip">${totVar} variants</span><span class="chip change">${totChange} will change</span><span class="chip" id="selChip">${selected.size} selected</span>`;
+    if (totNoCost) html += `<span class="chip nocost">${totNoCost} no cost (skipped)</span>`;
     document.getElementById('counts').innerHTML = html;
 }
-function refreshSelCount(){ const c = document.getElementById('selChip'); if (c) c.textContent = selected.size + ' seleccionadas'; updateApplyBtn(); }
+function refreshSelCount(){ const c = document.getElementById('selChip'); if (c) c.textContent = selected.size + ' selected'; updateApplyBtn(); }
 function updateApplyBtn(){
     const n = previewRows.filter(r => selected.has(r.variantId) && r.changed).length;
-    const b = document.getElementById('applyBtn'); b.disabled = n === 0; b.textContent = '✅ Aplicar cambios' + (n ? ' (' + n + ')' : '');
+    const b = document.getElementById('applyBtn'); b.disabled = n === 0; b.textContent = '✅ Apply changes' + (n ? ' (' + n + ')' : '');
 }
 function lastChangeCell(r){
     const costMode = lastChange && (lastChange.mode === 'floor_cost' || lastChange.mode === 'markup_cost');
@@ -640,22 +689,22 @@ function lastChangeCell(r){
     return { html: '<span class="muted">—</span>', red: false };
 }
 function renderTable(){
-    if (!previewRows.length){ document.getElementById('tableWrap').innerHTML = '<div class="empty">No hay productos con esos filtros.</div>'; return; }
+    if (!previewRows.length){ document.getElementById('tableWrap').innerHTML = '<div class="empty">No products with those filters.</div>'; return; }
     const cap = 500; const show = previewRows.slice(0, cap);
     let html = '<div class="sel-toolbar">'
-        + '<button class="btn btn-light" onclick="selectFaltan()">Seleccionar solo las que faltan</button>'
-        + '<button class="btn btn-light" onclick="selectAllRows()">Seleccionar todas</button>'
-        + '<button class="btn btn-light" onclick="selectNone()">Ninguna</button></div>';
+        + '<button class="btn btn-light" onclick="selectFaltan()">Select only the ones that need it</button>'
+        + '<button class="btn btn-light" onclick="selectAllRows()">Select all</button>'
+        + '<button class="btn btn-light" onclick="selectNone()">None</button></div>';
     html += '<table><thead><tr><th class="pick"><input type="checkbox" id="headChk" onchange="toggleHead(this)"></th>'
-        + '<th>Producto</th><th>Variante</th><th class="num">Costo</th><th class="num">Precio actual</th><th></th><th class="num">Precio nuevo</th><th>Mínimo</th></tr></thead><tbody>';
+        + '<th>Product</th><th>Variant</th><th class="num">Cost</th><th class="num">Current price</th><th></th><th class="num">New price</th><th>Minimum</th></tr></thead><tbody>';
     show.forEach(r => {
         const oldPct = pctOverCost(r.oldPrice, r.cost); const newPct = pctOverCost(r.newPrice, r.cost);
         const up = Number(r.newPrice) >= Number(r.oldPrice); const lc = lastChangeCell(r);
         const checked = selected.has(r.variantId) ? 'checked' : '';
-        const newCell = r.changed ? '<span class="new ' + (up?'up':'down') + '">' + money(r.newPrice) + (newPct!==null?'<div class="pct">+'+newPct.toFixed(0)+'%</div>':'') + '</span>' : '<span class="muted">sin cambio</span>';
+        const newCell = r.changed ? '<span class="new ' + (up?'up':'down') + '">' + money(r.newPrice) + (newPct!==null?'<div class="pct">+'+newPct.toFixed(0)+'%</div>':'') + '</span>' : '<span class="muted">no change</span>';
         html += '<tr class="' + (lc.red ? 'row-red' : '') + '">'
           + '<td class="pick"><input type="checkbox" ' + checked + ' onchange="toggleRow(\'' + esc(r.variantId) + '\', this.checked)"></td>'
-          + '<td>' + esc(r.productTitle) + (lc.red ? '<span class="row-red-tag">⚠ URGENTE: cayó por debajo</span>' : '') + '<div class="pct muted">' + esc(r.vendor||'') + '</div></td>'
+          + '<td>' + esc(r.productTitle) + (lc.red ? '<span class="row-red-tag">⚠ URGENT: fell below</span>' : '') + '<div class="pct muted">' + esc(r.vendor||'') + '</div></td>'
           + '<td class="muted">' + esc(r.variantTitle==='Default Title'?'—':r.variantTitle) + '</td>'
           + '<td class="num">' + money(r.cost) + '</td>'
           + '<td class="num old">' + money(r.oldPrice) + (oldPct!==null?'<div class="pct">+'+oldPct.toFixed(0)+'%</div>':'') + '</td>'
@@ -663,7 +712,7 @@ function renderTable(){
           + '<td class="num">' + newCell + '</td><td>' + lc.html + '</td></tr>';
     });
     html += '</tbody></table>';
-    if (previewRows.length > cap) html += '<div class="pct muted" style="padding:10px;">Mostrando las primeras ' + cap + ' de ' + previewRows.length + '. La selección igual cuenta TODAS.</div>';
+    if (previewRows.length > cap) html += '<div class="pct muted" style="padding:10px;">Showing the first ' + cap + ' of ' + previewRows.length + '. Selection still counts ALL.</div>';
     document.getElementById('tableWrap').innerHTML = html; updateApplyBtn();
 }
 function toggleRow(vid, on){ if (on) selected.add(vid); else selected.delete(vid); refreshSelCount(); }
@@ -674,52 +723,52 @@ function toggleHead(chk){ if (chk.checked) selectAllRows(); else selectNone(); }
 async function applyChanges(){
     const items = previewRows.filter(r => selected.has(r.variantId) && r.changed).map(r => ({ productId: r.productId, variantId: r.variantId, newPrice: r.newPrice }));
     if (!items.length) return;
-    if (!confirm('Vas a cambiar el precio de ' + items.length + ' variantes (las tildadas).\n\nAntes de aplicar guardo los precios viejos (para deshacer).\n\n¿Aplicar ahora?')) return;
+    if (!confirm('You are about to change the price of ' + items.length + ' variants (the ticked ones).\n\nBefore applying, the old prices are saved (for undo).\n\nApply now?')) return;
     const btn = document.getElementById('applyBtn'); btn.disabled = true; document.getElementById('previewBtn').disabled = true;
-    setStatus('<span class="spinner"></span> Guardando copia de seguridad y aplicando… (puede tardar un poco)');
+    setStatus('<span class="spinner"></span> Saving backup and applying… (may take a moment)');
     try {
         const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'apply', items: items, change: lastChange }) });
         const d = await r.json();
         if (!d.ok) { setStatus('⚠️ ' + esc(d.error||'Error')); document.getElementById('previewBtn').disabled=false; return; }
         lastUndoId = d.undoId || null;
-        let msg = '✅ Listo: ' + d.updated + ' variantes actualizadas.';
-        if (d.errors && d.errors.length) msg += ' <span class="down">(' + d.errors.length + ' con error)</span>';
-        if (lastUndoId) msg += ' <button class="btn btn-undo" style="margin-left:10px;" onclick="undoNow(\'' + lastUndoId + '\')">↺ Deshacer esto</button>';
-        msg += ' <span class="muted">· Volvé a "Ver preview" para ver la lista actualizada.</span>';
+        let msg = '✅ Done: ' + d.updated + ' variants updated.';
+        if (d.errors && d.errors.length) msg += ' <span class="down">(' + d.errors.length + ' with errors)</span>';
+        if (lastUndoId) msg += ' <button class="btn btn-undo" style="margin-left:10px;" onclick="undoNow(\'' + lastUndoId + '\')">↺ Undo this</button>';
+        msg += ' <span class="muted">· Hit "Preview" again to see the updated list.</span>';
         setStatus(msg); document.getElementById('undoBtn').disabled = false;
     } catch(e){ setStatus('⚠️ ' + esc(e.message)); }
     document.getElementById('previewBtn').disabled = false;
 }
 async function openUndo(){
     const vendor = document.getElementById('vendor').value;
-    if (!vendor){ setStatus('⚠️ Para deshacer, primero elegí un <b>supplier</b> en el Paso 1. El botón deshace el último cambio de ESE supplier.'); return; }
-    setStatus('<span class="spinner"></span> Buscando el último cambio de ' + esc(vendor) + '…');
+    if (!vendor){ setStatus('⚠️ To undo, first pick a <b>supplier</b> in Step 1. The button undoes the last change for THAT supplier.'); return; }
+    setStatus('<span class="spinner"></span> Looking for the last change for ' + esc(vendor) + '…');
     try {
-        const r = await fetch(API + '?action=undo-list'); const d = await r.json();
-        if (!d.ok || !d.undos || !d.undos.length) { setStatus('No hay cambios guardados para deshacer.'); return; }
+        const d = await (await fetch(API + '?action=undo-list')).json();
+        if (!d.ok || !d.undos || !d.undos.length) { setStatus('No saved changes to undo.'); return; }
         const hit = d.undos.find(u => !u.reverted && Array.isArray(u.vendors) && u.vendors.indexOf(vendor) !== -1);
-        if (!hit) { setStatus('No hay ningún cambio (hecho con esta herramienta) para deshacer de <b>' + esc(vendor) + '</b>.'); return; }
-        const when = new Date(hit.createdAt).toLocaleString('es-GB');
-        if (confirm('Deshacer el último cambio de ' + vendor + '?\n\n' + hit.count + ' variantes · ' + when + '\n\nEsos precios vuelven a como estaban antes.')) undoNow(hit.id);
-        else setStatus('Cancelado.');
+        if (!hit) { setStatus('No change (made with this tool) to undo for <b>' + esc(vendor) + '</b>.'); return; }
+        const when = new Date(hit.createdAt).toLocaleString('en-GB');
+        if (confirm('Undo the last change for ' + vendor + '?\n\n' + hit.count + ' variants · ' + when + '\n\nThose prices go back to how they were.')) undoNow(hit.id);
+        else setStatus('Cancelled.');
     } catch(e){ setStatus('⚠️ ' + esc(e.message)); }
 }
 async function undoNow(undoId){
-    setStatus('<span class="spinner"></span> Restaurando los precios viejos…');
+    setStatus('<span class="spinner"></span> Restoring the old prices…');
     try {
         const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'undo', undoId }) });
         const d = await r.json();
         if (!d.ok) { setStatus('⚠️ ' + esc(d.error||'Error')); return; }
-        setStatus('✅ Deshecho: ' + d.restored + ' variantes volvieron a su precio anterior.');
+        setStatus('✅ Undone: ' + d.restored + ' variants went back to their previous price.');
     } catch(e){ setStatus('⚠️ ' + esc(e.message)); }
 }
 
 /* ===================== TAB 2: OTHER FIELDS ===================== */
 let META = { productTypes: [], collectionTags: [], manualCollections: [], clusterGroups: {} };
-let tagsPicked = new Set();      // tags ticked (add/remove)
-let collPicked = new Set();      // manual collection ids ticked
-let catPickedObj = null;         // {id, fullName}
-let catResultsData = [];         // last category search results
+let tagsPicked = new Set();
+let collPicked = new Set();
+let catPickedObj = null;
+let catResultsData = [];
 let previewRows2 = [];
 let selected2 = new Set();
 let lastField = null, lastUndoId2 = null;
@@ -728,11 +777,10 @@ function setStatus2(msg){ document.getElementById('status2').innerHTML = msg; }
 function toggleT2StatusMenu(e){ if(e) e.stopPropagation(); const m=document.getElementById('t2statusMenu'); m.hidden = !m.hidden; }
 function updateT2StatusBtn(){
     const chk = Array.from(document.querySelectorAll('.t2st:checked'));
-    const names = { active:'Activo', draft:'Borrador', archived:'Archivado' };
-    document.getElementById('t2statusBtn').textContent = (chk.length ? chk.map(c => names[c.value]).join(', ') : 'Cualquiera') + ' ▾';
+    const names = { active:'Active', draft:'Draft', archived:'Archived' };
+    document.getElementById('t2statusBtn').textContent = (chk.length ? chk.map(c => names[c.value]).join(', ') : 'Any') + ' ▾';
 }
 async function loadT2Vendors(){
-    document.getElementById('t2metaState').textContent = '';
     const btn = document.getElementById('t2vendorsBtn'); btn.disabled = true;
     await loadVendorsInto('t2vendor','t2vendorsBtn'); btn.disabled = false;
 }
@@ -745,35 +793,27 @@ function getFilters2(){
         titleContains: document.getElementById('t2titleContains').value.trim()
     };
 }
-
 async function loadFieldMeta(){
-    const st = document.getElementById('t2metaState'); st.innerHTML = '<span class="spinner"></span> cargando…';
+    const st = document.getElementById('t2metaState'); st.innerHTML = '<span class="spinner"></span> loading…';
     try {
-        const r = await fetch(API + '?action=field-meta'); const d = await r.json();
+        const d = await (await fetch(API + '?action=field-meta')).json();
         if (!d.ok) { st.textContent = '⚠️ ' + (d.error||'Error'); return; }
         META = d;
-        // datalists
         const allTags = [].concat(META.collectionTags || []);
         Object.keys(META.clusterGroups||{}).forEach(g => (META.clusterGroups[g]||[]).forEach(t => allTags.push(t)));
         document.getElementById('allTagsList').innerHTML = allTags.map(t => `<option value="${esc(t)}">`).join('');
         document.getElementById('ptypesList').innerHTML = (META.productTypes||[]).map(t => `<option value="${esc(t)}">`).join('');
-        // weight set dropdown (from collection tags that look like set-of)
         const sel = document.getElementById('weightSet');
-        sel.innerHTML = '<option value="">(todos los que matcheen el filtro)</option>' + ['Set of 1','Set of 2','Set of 3'].map(s => `<option value="${s}">${s}</option>`).join('');
+        sel.innerHTML = '<option value="">(all that match the filter)</option>' + ['Set of 1','Set of 2','Set of 3'].map(s => `<option value="${s}">${s}</option>`).join('');
         renderTagPicker(); renderCollPicker(); buildWeightGrid();
-        st.innerHTML = '✅ ' + (META.collectionTags||[]).length + ' tags de colección · ' + Object.keys(META.clusterGroups||{}).length + ' grupos de tags · ' + (META.manualCollections||[]).length + ' colecciones manuales · ' + (META.productTypes||[]).length + ' tipos.';
+        st.innerHTML = '✅ ' + (META.collectionTags||[]).length + ' collection tags · ' + Object.keys(META.clusterGroups||{}).length + ' tag groups · ' + (META.manualCollections||[]).length + ' manual collections · ' + (META.productTypes||[]).length + ' types.';
     } catch(e){ st.textContent = '⚠️ ' + e.message; }
 }
-
 function onFieldChange(){
     const f = document.getElementById('t2field').value;
-    ['tags','ptype','weight','unitprice','collections','category'].forEach(k => {
-        document.getElementById('fp-'+k).hidden = (k !== f);
-    });
-    // weight forces About Wall Art vendor
+    ['tags','ptype','weight','unitprice','collections','category'].forEach(k => { document.getElementById('fp-'+k).hidden = (k !== f); });
     if (f === 'weight') {
         const v = document.getElementById('t2vendor');
-        // try to select AWA if present
         for (const o of v.options) { if (/about wall art/i.test(o.value)) { v.value = o.value; break; } }
     }
 }
@@ -788,7 +828,7 @@ function renderTagPicker(){
     const term = (document.getElementById('tagsSearch').value||'').toLowerCase();
     const box = document.getElementById('tagsPickerList');
     let html = '';
-    const groups = [['Collection tags (arman colecciones)', META.collectionTags||[]]].concat(Object.keys(META.clusterGroups||{}).map(g => [g, META.clusterGroups[g]]));
+    const groups = [['Collection tags (build collections)', META.collectionTags||[]]].concat(Object.keys(META.clusterGroups||{}).map(g => [g, META.clusterGroups[g]]));
     groups.forEach(([name, list]) => {
         const filtered = (list||[]).filter(t => t.toLowerCase().includes(term));
         if (!filtered.length) return;
@@ -798,7 +838,7 @@ function renderTagPicker(){
             html += '<label><input type="checkbox" ' + on + ' data-v="' + esc(t) + '" onchange="toggleTagPick(this)"> ' + esc(t) + '</label>';
         });
     });
-    box.innerHTML = html || '<div class="muted" style="padding:8px;">Sin coincidencias.</div>';
+    box.innerHTML = html || '<div class="muted" style="padding:8px;">No matches.</div>';
     renderPickedTags();
 }
 function toggleTagPick(el){ const t = el.getAttribute('data-v'); if (el.checked) tagsPicked.add(t); else tagsPicked.delete(t); renderPickedTags(); }
@@ -815,7 +855,7 @@ function renderCollPicker(){
     box.innerHTML = list.length ? list.map(c => {
         const on = collPicked.has(c.id) ? 'checked' : '';
         return '<label><input type="checkbox" ' + on + ' onchange="toggleCollPick(this,\'' + c.id + '\')"> ' + esc(c.title) + '</label>';
-    }).join('') : '<div class="muted" style="padding:8px;">Sin coincidencias.</div>';
+    }).join('') : '<div class="muted" style="padding:8px;">No matches.</div>';
     renderPickedColl();
 }
 function toggleCollPick(el, id){ if (el.checked) collPicked.add(id); else collPicked.delete(id); renderPickedColl(); }
@@ -831,18 +871,16 @@ const WEIGHT_GROUPS = [
     { label:'Canvas wrapped', frame:'canvas', sizes:['12x16','16x22','20x30'] }
 ];
 function buildWeightGrid(){
-    // header row shows the union of sizes used (A4/A3/A2/20x30/12x16/16x22)
     let html = '<div class="whead"></div>';
     ['A4','A3','A2','20x30'].forEach(s => html += '<div class="whead">' + s + '</div>');
     WEIGHT_GROUPS.forEach(g => {
         html += '<div class="wlabel">' + g.label + '</div>';
         ['A4','A3','A2','20x30'].forEach(col => {
             const size = (g.frame==='canvas') ? ({ 'A4':'12x16','A3':'16x22','A2':'20x30','20x30':'' })[col] : col;
-            if (!size) { html += '<div class="wempty"></div>'; return; }
+            if (!size) { html += '<div></div>'; return; }
             html += '<input type="number" step="0.01" min="0" placeholder="' + (g.frame==='canvas'?size:'') + '" id="w_' + g.frame + '_' + size + '" title="' + g.label + ' ' + size + '">';
         });
     });
-    // canvas has 12x16/16x22/20x30 — show them mapped under the 4 columns with the placeholder telling the real size
     document.getElementById('weightGrid').innerHTML = html;
 }
 function collectWeightGroups(){
@@ -858,14 +896,14 @@ function collectWeightGroups(){
 async function searchCategory(){
     const term = document.getElementById('catSearch').value.trim();
     const box = document.getElementById('catResults');
-    if (!term) { box.innerHTML = '<div class="muted" style="padding:8px;">Escribí algo y tocá Buscar.</div>'; return; }
-    box.innerHTML = '<div class="muted" style="padding:8px;"><span class="spinner"></span> buscando…</div>';
+    if (!term) { box.innerHTML = '<div class="muted" style="padding:8px;">Type something and hit Search.</div>'; return; }
+    box.innerHTML = '<div class="muted" style="padding:8px;"><span class="spinner"></span> searching…</div>';
     try {
-        const r = await fetch(API + '?action=category-search&q=' + encodeURIComponent(term)); const d = await r.json();
+        const d = await (await fetch(API + '?action=category-search&q=' + encodeURIComponent(term))).json();
         if (!d.ok) { box.innerHTML = '⚠️ ' + esc(d.error||'Error'); return; }
-        if (!d.categories.length) { box.innerHTML = '<div class="muted" style="padding:8px;">Sin resultados.</div>'; return; }
+        if (!d.categories.length) { box.innerHTML = '<div class="muted" style="padding:8px;">No results.</div>'; return; }
         catResultsData = d.categories;
-        box.innerHTML = d.categories.map((c,i) => '<label><input type="radio" name="catpick" onchange="pickCategory(' + i + ')"> ' + esc(c.fullName) + (c.isLeaf?'':' <span class="muted">(grupo)</span>') + '</label>').join('');
+        box.innerHTML = d.categories.map((c,i) => '<label><input type="radio" name="catpick" onchange="pickCategory(' + i + ')"> ' + esc(c.fullName) + (c.isLeaf?'':' <span class="muted">(group)</span>') + '</label>').join('');
     } catch(e){ box.innerHTML = '⚠️ ' + esc(e.message); }
 }
 function pickCategory(i){ const c = catResultsData[i]; if (!c) return; catPickedObj = { id: c.id, fullName: c.fullName }; document.getElementById('catPicked').innerHTML = '✅ ' + esc(c.fullName); }
@@ -899,16 +937,15 @@ function validConfig2(fc){
     if (f==='unitprice') return !isNaN(c.value);
     return true;
 }
-
 function rowKey2(r){ return r.variantId || r.productId; }
 async function runPreview2(){
     const fc = buildConfig2();
-    if (!validConfig2(fc)) { setStatus2('⚠️ Completá las opciones del campo antes de ver el preview.'); return; }
+    if (!validConfig2(fc)) { setStatus2('⚠️ Fill in the field options before previewing.'); return; }
     const filters = getFilters2();
     if (fc.field === 'weight') {
         if (!/about wall art/i.test(filters.vendor||'')) filters.vendor = 'About Wall Art';
         const ws = document.getElementById('weightSet').value;
-        if (ws) filters.tag = ws; // apply the grid to this set only
+        if (ws) filters.tag = ws;
     }
     const btn = document.getElementById('previewBtn2'); btn.disabled = true; document.getElementById('applyBtn2').disabled = true;
     previewRows2 = []; selected2 = new Set(); lastField = fc.field;
@@ -916,7 +953,7 @@ async function runPreview2(){
     let cursor = null, page = 0, totUnit = 0, totChange = 0, totBlocked = 0;
     try {
         do {
-            setStatus2('<span class="spinner"></span> Calculando preview… (' + totUnit + ' leídos)');
+            setStatus2('<span class="spinner"></span> Building preview… (' + totUnit + ' read)');
             const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'preview-field', field:fc.field, config:fc.config, filters, cursor }) });
             const d = await r.json();
             if (!d.ok) { setStatus2('⚠️ ' + esc(d.error||'Error')); btn.disabled=false; return; }
@@ -927,37 +964,37 @@ async function runPreview2(){
         } while (cursor);
         previewRows2.forEach(r => { if (r.changed && !r.blocked) selected2.add(rowKey2(r)); });
         renderCounts2(totUnit, totChange, totBlocked); renderTable2();
-        setStatus2(totChange > 0 ? '✅ Preview listo. Tildá y tocá <b>Aplicar cambios</b>.' : 'No hay nada para cambiar con estas opciones.');
+        setStatus2(totChange > 0 ? '✅ Preview ready. Tick and hit <b>Apply changes</b>.' : 'Nothing to change with these options.');
     } catch(e){ setStatus2('⚠️ ' + esc(e.message)); }
     btn.disabled = false;
 }
 function renderCounts2(totUnit, totChange, totBlocked){
-    let html = `<span class="chip">${totUnit} items</span><span class="chip change">${totChange} van a cambiar</span><span class="chip" id="selChip2">${selected2.size} seleccionados</span>`;
-    if (totBlocked) html += `<span class="chip blocked">${totBlocked} bloqueados (sin tag de colección)</span>`;
+    let html = `<span class="chip">${totUnit} items</span><span class="chip change">${totChange} will change</span><span class="chip" id="selChip2">${selected2.size} selected</span>`;
+    if (totBlocked) html += `<span class="chip blocked">${totBlocked} blocked (no collection tag)</span>`;
     document.getElementById('counts2').innerHTML = html;
 }
-function refreshSelCount2(){ const c = document.getElementById('selChip2'); if (c) c.textContent = selected2.size + ' seleccionados'; updateApplyBtn2(); }
+function refreshSelCount2(){ const c = document.getElementById('selChip2'); if (c) c.textContent = selected2.size + ' selected'; updateApplyBtn2(); }
 function updateApplyBtn2(){
     const n = previewRows2.filter(r => selected2.has(rowKey2(r)) && r.changed && !r.blocked).length;
-    const b = document.getElementById('applyBtn2'); b.disabled = n === 0; b.textContent = '✅ Aplicar cambios' + (n ? ' (' + n + ')' : '');
+    const b = document.getElementById('applyBtn2'); b.disabled = n === 0; b.textContent = '✅ Apply changes' + (n ? ' (' + n + ')' : '');
 }
 function renderTable2(){
-    if (!previewRows2.length){ document.getElementById('tableWrap2').innerHTML = '<div class="empty">No hay productos con esos filtros.</div>'; return; }
+    if (!previewRows2.length){ document.getElementById('tableWrap2').innerHTML = '<div class="empty">No products with those filters.</div>'; return; }
     const perVariant = (lastField === 'weight' || lastField === 'unitprice');
     const cap = 500; const show = previewRows2.slice(0, cap);
     let html = '<div class="sel-toolbar">'
-        + '<button class="btn btn-light" onclick="select2Changed()">Seleccionar las que cambian</button>'
-        + '<button class="btn btn-light" onclick="select2All()">Seleccionar todas</button>'
-        + '<button class="btn btn-light" onclick="select2None()">Ninguna</button></div>';
+        + '<button class="btn btn-light" onclick="select2Changed()">Select the ones that change</button>'
+        + '<button class="btn btn-light" onclick="select2All()">Select all</button>'
+        + '<button class="btn btn-light" onclick="select2None()">None</button></div>';
     html += '<table><thead><tr><th class="pick"><input type="checkbox" onchange="toggleHead2(this)"></th>'
-        + '<th>Producto</th>' + (perVariant ? '<th>Variante</th>' : '') + '<th>Ahora</th><th></th><th>Nuevo</th><th></th></tr></thead><tbody>';
+        + '<th>Product</th>' + (perVariant ? '<th>Variant</th>' : '') + '<th>Now</th><th></th><th>New</th><th></th></tr></thead><tbody>';
     show.forEach(r => {
         const key = rowKey2(r);
         const checked = selected2.has(key) ? 'checked' : '';
         const dis = r.blocked ? 'disabled' : '';
         let note = '';
-        if (r.blocked) note = '<span class="pill red">Bloqueado</span>';
-        else if (!r.changed) note = '<span class="muted">sin cambio</span>';
+        if (r.blocked) note = '<span class="pill red">Blocked</span>';
+        else if (!r.changed) note = '<span class="muted">no change</span>';
         html += '<tr class="' + (r.blocked?'row-red':'') + '">'
           + '<td class="pick"><input type="checkbox" ' + checked + ' ' + dis + ' onchange="toggleRow2(\'' + esc(key) + '\', this.checked)"></td>'
           + '<td>' + esc(r.productTitle) + '<div class="pct muted">' + esc(r.vendor||'') + '</div></td>'
@@ -968,7 +1005,7 @@ function renderTable2(){
           + '<td>' + note + (r.note && !r.blocked && !r.changed ? '<div class="pct muted">'+esc(r.note)+'</div>' : (r.blocked?'<div class="pct" style="color:#c62828">'+esc(r.note)+'</div>':'')) + '</td></tr>';
     });
     html += '</tbody></table>';
-    if (previewRows2.length > cap) html += '<div class="pct muted" style="padding:10px;">Mostrando los primeros ' + cap + ' de ' + previewRows2.length + '.</div>';
+    if (previewRows2.length > cap) html += '<div class="pct muted" style="padding:10px;">Showing the first ' + cap + ' of ' + previewRows2.length + '.</div>';
     document.getElementById('tableWrap2').innerHTML = html; updateApplyBtn2();
 }
 function toggleRow2(key, on){ if (on) selected2.add(key); else selected2.delete(key); refreshSelCount2(); }
@@ -976,46 +1013,45 @@ function select2Changed(){ selected2 = new Set(); previewRows2.forEach(r => { if
 function select2All(){ selected2 = new Set(); previewRows2.forEach(r => { if (!r.blocked) selected2.add(rowKey2(r)); }); renderTable2(); }
 function select2None(){ selected2 = new Set(); renderTable2(); }
 function toggleHead2(chk){ if (chk.checked) select2All(); else select2None(); }
-
 async function applyChanges2(){
     const items = previewRows2.filter(r => selected2.has(rowKey2(r)) && r.changed && !r.blocked)
         .map(r => ({ productId: r.productId, variantId: r.variantId, payload: r.payload }));
     if (!items.length) return;
-    if (!confirm('Vas a cambiar ' + items.length + ' items (' + lastField + ').\n\nAntes de aplicar guardo el estado anterior (para deshacer).\n\n¿Aplicar ahora?')) return;
+    if (!confirm('You are about to change ' + items.length + ' items (' + lastField + ').\n\nBefore applying, the previous state is saved (for undo).\n\nApply now?')) return;
     const btn = document.getElementById('applyBtn2'); btn.disabled = true; document.getElementById('previewBtn2').disabled = true;
-    setStatus2('<span class="spinner"></span> Guardando copia de seguridad y aplicando…');
+    setStatus2('<span class="spinner"></span> Saving backup and applying…');
     try {
         const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'apply-field', field: lastField, items }) });
         const d = await r.json();
         if (!d.ok) { setStatus2('⚠️ ' + esc(d.error||'Error')); document.getElementById('previewBtn2').disabled=false; return; }
         lastUndoId2 = d.undoId || null;
-        let msg = '✅ Listo: ' + d.updated + ' items actualizados.';
-        if (d.errors && d.errors.length) msg += ' <span class="down">(' + d.errors.length + ' con error: ' + esc(d.errors[0]) + ')</span>';
-        if (lastUndoId2) msg += ' <button class="btn btn-undo" style="margin-left:10px;" onclick="fieldUndoNow(\'' + lastUndoId2 + '\')">↺ Deshacer esto</button>';
-        msg += ' <span class="muted">· Volvé a "Ver preview" para ver la lista actualizada.</span>';
+        let msg = '✅ Done: ' + d.updated + ' items updated.';
+        if (d.errors && d.errors.length) msg += ' <span class="down">(' + d.errors.length + ' with errors: ' + esc(d.errors[0]) + ')</span>';
+        if (lastUndoId2) msg += ' <button class="btn btn-undo" style="margin-left:10px;" onclick="fieldUndoNow(\'' + lastUndoId2 + '\')">↺ Undo this</button>';
+        msg += ' <span class="muted">· Hit "Preview" again to see the updated list.</span>';
         setStatus2(msg); document.getElementById('undoBtn2').disabled = false;
     } catch(e){ setStatus2('⚠️ ' + esc(e.message)); }
     document.getElementById('previewBtn2').disabled = false;
 }
 async function openFieldUndo(){
-    setStatus2('<span class="spinner"></span> Buscando el último cambio de campos…');
+    setStatus2('<span class="spinner"></span> Looking for the last field change…');
     try {
-        const r = await fetch(API + '?action=field-undo-list'); const d = await r.json();
-        if (!d.ok || !d.undos || !d.undos.length) { setStatus2('No hay cambios de campos para deshacer.'); return; }
+        const d = await (await fetch(API + '?action=field-undo-list')).json();
+        if (!d.ok || !d.undos || !d.undos.length) { setStatus2('No field changes to undo.'); return; }
         const hit = d.undos.find(u => !u.reverted);
-        if (!hit) { setStatus2('No hay cambios para deshacer.'); return; }
-        const when = new Date(hit.createdAt).toLocaleString('es-GB');
-        if (confirm('Deshacer el último cambio?\n\nCampo: ' + hit.field + ' · ' + hit.count + ' items · ' + when + '\n\nVuelve a como estaba antes.')) fieldUndoNow(hit.id);
-        else setStatus2('Cancelado.');
+        if (!hit) { setStatus2('No changes to undo.'); return; }
+        const when = new Date(hit.createdAt).toLocaleString('en-GB');
+        if (confirm('Undo the last change?\n\nField: ' + hit.field + ' · ' + hit.count + ' items · ' + when + '\n\nGoes back to how it was.')) fieldUndoNow(hit.id);
+        else setStatus2('Cancelled.');
     } catch(e){ setStatus2('⚠️ ' + esc(e.message)); }
 }
 async function fieldUndoNow(undoId){
-    setStatus2('<span class="spinner"></span> Restaurando el estado anterior…');
+    setStatus2('<span class="spinner"></span> Restoring the previous state…');
     try {
         const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'field-undo', undoId }) });
         const d = await r.json();
         if (!d.ok) { setStatus2('⚠️ ' + esc(d.error||'Error')); return; }
-        setStatus2('✅ Deshecho: ' + d.restored + ' items volvieron a su estado anterior.');
+        setStatus2('✅ Undone: ' + d.restored + ' items went back to their previous state.');
     } catch(e){ setStatus2('⚠️ ' + esc(e.message)); }
 }
 
@@ -1023,7 +1059,8 @@ async function fieldUndoNow(undoId){
 onModeChange();
 onFieldChange();
 onTagsAction();
-checkBackup();
+checkPriceBackup();
+checkFieldBackup();
 </script>
 </body>
 </html>
