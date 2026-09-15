@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v2.5 · 3 tabs: Collective Prices · AWA Prices (grid by Set + paper) · Other fields · batches + backup + undo</div>
+            <div class="subtitle">v2.6 · AWA Prices grid pre-fills with today's prices &amp; compare-at % · 3 tabs · batches + backup + undo</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -270,10 +270,10 @@
                 <div class="hint">Only <b>About Wall Art</b> products. Frame colours (black / white / oak) share one price. Price depends on <b>frame + size + paper</b>.</div>
                 <div class="row" style="margin-top:12px;">
                     <div class="field"><label>Set</label>
-                        <select id="awaSet"><option value="Set of 1">Set of 1</option><option value="Set of 2">Set of 2</option><option value="Set of 3">Set of 3</option></select>
+                        <select id="awaSet" onchange="loadAwaCurrent()"><option value="Set of 1">Set of 1</option><option value="Set of 2">Set of 2</option><option value="Set of 3">Set of 3</option></select>
                     </div>
                     <div class="field"><label>Paper</label>
-                        <select id="awaPaper" onchange="buildAwaGrid()"><option value="Satin">Satin Photo paper</option><option value="Matte">Matte Museum paper</option><option value="Canvas">Canvas</option></select>
+                        <select id="awaPaper" onchange="buildAwaGrid(); loadAwaCurrent()"><option value="Satin">Satin Photo paper</option><option value="Matte">Matte Museum paper</option><option value="Canvas">Canvas</option></select>
                     </div>
                 </div>
             </div>
@@ -284,7 +284,7 @@
                 <div class="row" style="margin-top:16px;">
                     <div class="field"><label>Compare-at (strikethrough) %</label><input type="number" id="awaCmpPct" step="0.01" placeholder="empty = keep each variant's %" style="min-width:280px;"></div>
                 </div>
-                <div class="hint">Compare-at is always kept as a % over the price. Leave it empty to keep each variant's current % (recalculated on the new price), or type a % to set it for all.</div>
+                <div class="hint">This is your <b>current %</b> (pre-filled). <b>Change it</b> to set a new strikethrough %, or <b>clear it</b> to keep each product's own %.</div>
             </div>
 
             <div class="panel">
@@ -1172,6 +1172,24 @@ function buildAwaConfig(){
         compareAtPct: document.getElementById('awaCmpPct').value.trim()
     }};
 }
+async function loadAwaCurrent(){
+    if (document.getElementById('awaBody').classList.contains('locked')) return; // only once the tab is unlocked
+    const set = document.getElementById('awaSet').value;
+    const paper = document.getElementById('awaPaper').value;
+    setAwaStatus('<span class="spinner"></span> Loading current prices…');
+    try {
+        const d = await (await fetch(API + '?action=awa-current&set=' + encodeURIComponent(set) + '&paper=' + encodeURIComponent(paper))).json();
+        if (!d.ok){ setAwaStatus('⚠️ ' + esc(d.error||'Error')); return; }
+        const spec = AWA_PAPERS[paper];
+        spec.frames.forEach(fr => spec.sizes.forEach(s => {
+            const el = document.getElementById('aw_' + fr[1] + '_' + s);
+            if (el) el.value = (d.groups && d.groups[fr[1]+'|'+s] != null) ? d.groups[fr[1]+'|'+s] : '';
+        }));
+        const pctEl = document.getElementById('awaCmpPct');
+        if (pctEl) pctEl.value = (d.compareAtPct === '' || d.compareAtPct == null) ? '' : d.compareAtPct;
+        setAwaStatus('✅ Current prices loaded. Edit what you want, then hit <b>Preview</b>.');
+    } catch(e){ setAwaStatus('⚠️ ' + esc(e.message)); }
+}
 function paintAwaGate(state){
     const p = document.getElementById('awaBackupPanel');
     p.classList.remove('red','green'); p.classList.add(state);
@@ -1183,7 +1201,7 @@ async function checkAwaGate(){
     try {
         const d = await (await fetch(API + '?action=last-field-backup&field=awaprice')).json();
         const latest = d && d.latest;
-        if (latest && isToday(latest.createdAt)) { paintAwaGate('green'); unlockBody('awaBody'); document.getElementById('awaBackupNote').innerHTML = 'Today\'s backup is done (' + latest.count + ' products). Tab enabled.'; }
+        if (latest && isToday(latest.createdAt)) { paintAwaGate('green'); unlockBody('awaBody'); document.getElementById('awaBackupNote').innerHTML = 'Today\'s backup is done (' + latest.count + ' products). Tab enabled.'; loadAwaCurrent(); }
         else { const last = latest ? ('Last backup: ' + new Date(latest.createdAt).toLocaleString('en-GB') + '. ') : 'No backup yet. '; document.getElementById('awaBackupNote').innerHTML = last + '<b>This tab is locked until you back up today\'s AWA prices.</b>'; }
     } catch(e){ document.getElementById('awaBackupNote').innerHTML = '⚠️ Could not check the backup. Back up to start.'; }
 }
@@ -1197,6 +1215,7 @@ async function backupAwa(){
         paintAwaGate('green'); unlockBody('awaBody');
         document.getElementById('awaBackupNote').innerHTML = 'Saved to GitHub — ' + d.count + ' products. Tab enabled.';
         showReady('✅ Backed up ' + d.count + ' products (AWA prices). You can edit now.');
+        loadAwaCurrent();
     } catch(e){ stopWait(); btn.disabled = false; document.getElementById('awaBackupNote').innerHTML = '⚠️ ' + esc(e.message) + ' — try again.'; }
 }
 async function runAwaPreview(){
