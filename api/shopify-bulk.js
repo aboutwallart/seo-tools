@@ -1,4 +1,8 @@
-// shopify-bulk.js — v2.6 (15 Sep 2026)
+// shopify-bulk.js — v2.8 (16 Sep 2026)
+// v2.8: NEW field 'soldout' — mark a Frame colour + Size as Sold out (inventoryPolicy DENY +
+//       available 0, so it shows "Sold out" and blocks orders) across all About Wall Art products,
+//       or restore (CONTINUE + available 100). AWA-only. Own backup + per-apply undo (restores the
+//       exact prior inventoryPolicy + available). Applies to every paper of that frame + size.
 // v2.6: 'awa-current' action returns the common current price per Frame×Size group + the common
 //       compare-at % for a Set+Paper, so the AWA Prices grid pre-fills with today's values.
 // v2.5: NEW field 'awaprice' — About Wall Art price grid by Set + Paper, priced per Frame×Size
@@ -275,6 +279,14 @@ module.exports = async function handler(req, res) {
   }
   // ---------- AWA price grouping (Tab "AWA Prices"): frame×size within a paper ----------
   function optVal(selectedOptions, name) { let out = ''; (selectedOptions || []).forEach(o => { if (o.name === name) out = o.value; }); return out; }
+  const SOLDOUT_RESTORE_QTY = 100;                                  // "show again" puts stock back to this (store norm)
+  function firstLevelOf(v) {                                        // one location: read available + locationId
+    const lv = v.inventoryItem && v.inventoryItem.inventoryLevels && v.inventoryItem.inventoryLevels.nodes ? v.inventoryItem.inventoryLevels.nodes[0] : null;
+    if (!lv) return { locationId: null, available: null };
+    const qn = (lv.quantities || []).find(x => x.name === 'available');
+    return { locationId: lv.location ? lv.location.id : null, available: qn ? qn.quantity : null };
+  }
+  function isSoldOut(policy, available) { return String(policy).toUpperCase() === 'DENY' && Number(available) <= 0; }
   function frameGroupOf(selOpts) { return frameKey(optVal(selOpts, 'Frame')); }   // unframed | framed | canvas
   function sizeCodeOf(selOpts) { return sizeKey(optVal(selOpts, 'Size')); }        // A4 | A3 | A2 | 20x30 | 12x16 | 16x22
   function paperKeyOf(selOpts) {
@@ -311,6 +323,7 @@ module.exports = async function handler(req, res) {
     if (field === 'weight')   return 'id title vendor status variants(first:100){ nodes { id title selectedOptions{ name value } inventoryItem{ id measurement{ weight{ value unit } } } } }';
     if (field === 'unitprice')return 'id title vendor status variants(first:100){ nodes { id title price compareAtPrice inventoryItem{ unitCost{ amount } } } } ';
     if (field === 'awaprice') return 'id title vendor status variants(first:100){ nodes { id title price compareAtPrice selectedOptions{ name value } } }';
+    if (field === 'soldout') return 'id title vendor status variants(first:100){ nodes { id title inventoryPolicy selectedOptions{ name value } inventoryItem{ id inventoryLevels(first:5){ nodes{ location{ id } quantities(names:["available"]){ name quantity } } } } } }';
     return 'id title vendor status';
   }
 
@@ -360,11 +373,11 @@ module.exports = async function handler(req, res) {
     // ---------------- per-FIELD backup (Tab 2: one field across the whole store) ----------------
     if (action === 'backup-field') {
       const field = q.field || body.field;
-      const allowed = ['tags', 'ptype', 'category', 'collections', 'weight', 'unitprice', 'awaprice'];
+      const allowed = ['tags', 'ptype', 'category', 'collections', 'weight', 'unitprice', 'awaprice', 'soldout'];
       if (!field || allowed.indexOf(field) === -1) return res.status(400).json({ ok: false, error: 'valid field required' });
-      // weight & AWA prices only exist for About Wall Art products, so back up just those (small & fast)
-      const vendorFilter = (field === 'weight' || field === 'awaprice') ? `vendor:'About Wall Art'` : null;
-      const pageSize = (field === 'weight') ? 40 : (field === 'collections' || field === 'unitprice' || field === 'awaprice') ? 60 : 200;
+      // weight, AWA prices & sold-out only exist for About Wall Art products, so back up just those (small & fast)
+      const vendorFilter = (field === 'weight' || field === 'awaprice' || field === 'soldout') ? `vendor:'About Wall Art'` : null;
+      const pageSize = (field === 'weight' || field === 'soldout') ? 40 : (field === 'collections' || field === 'unitprice' || field === 'awaprice') ? 60 : 200;
       function sel() {
         if (field === 'tags') return 'id tags';
         if (field === 'ptype') return 'id productType';
@@ -372,6 +385,7 @@ module.exports = async function handler(req, res) {
         if (field === 'collections') return 'id collections(first:50){ nodes{ id } }';
         if (field === 'weight') return 'id variants(first:100){ nodes{ id inventoryItem{ id measurement{ weight{ value unit } } } } }';
         if (field === 'unitprice' || field === 'awaprice') return 'id variants(first:100){ nodes{ id price compareAtPrice } }';
+        if (field === 'soldout') return 'id variants(first:100){ nodes{ id inventoryPolicy inventoryItem{ id inventoryLevels(first:5){ nodes{ location{ id } quantities(names:["available"]){ name quantity } } } } } }';
         return 'id';
       }
       const rows = [];
@@ -389,6 +403,7 @@ module.exports = async function handler(req, res) {
           else if (field === 'collections') rows.push({ productId: pr.id, collectionIds: (pr.collections && pr.collections.nodes ? pr.collections.nodes.map(c => c.id) : []) });
           else if (field === 'weight') rows.push({ productId: pr.id, weights: (pr.variants && pr.variants.nodes ? pr.variants.nodes : []).map(v => { const w = v.inventoryItem && v.inventoryItem.measurement && v.inventoryItem.measurement.weight ? v.inventoryItem.measurement.weight : null; return { variantId: v.id, inventoryItemId: v.inventoryItem ? v.inventoryItem.id : null, value: w ? w.value : null, unit: w ? w.unit : null }; }) });
           else if (field === 'unitprice' || field === 'awaprice') rows.push({ productId: pr.id, variants: (pr.variants && pr.variants.nodes ? pr.variants.nodes : []).map(v => ({ variantId: v.id, price: v.price, compareAtPrice: v.compareAtPrice })) });
+          else if (field === 'soldout') rows.push({ productId: pr.id, variants: (pr.variants && pr.variants.nodes ? pr.variants.nodes : []).map(v => { const lv = firstLevelOf(v); return { variantId: v.id, inventoryItemId: v.inventoryItem ? v.inventoryItem.id : null, locationId: lv.locationId, policy: v.inventoryPolicy, available: lv.available }; }) });
         });
         pages++;
         if (!conn.pageInfo.hasNextPage) break;
@@ -679,7 +694,7 @@ module.exports = async function handler(req, res) {
       const field = body.field;
       const cfg = body.config || {};
       let filters = body.filters || {};
-      if (field === 'weight' || field === 'awaprice') filters = Object.assign({}, filters, { vendor: AWA_VENDOR }); // safety: AWA only
+      if (field === 'weight' || field === 'awaprice' || field === 'soldout') filters = Object.assign({}, filters, { vendor: AWA_VENDOR }); // safety: AWA only
       const searchQ = buildQuery(filters);
       const data = await shopify(
         `query($q:String,$cursor:String){ products(first:60, query:$q, after:$cursor){
@@ -855,6 +870,29 @@ module.exports = async function handler(req, res) {
               payload: { price: priceChanged ? newPrice.toFixed(2) : null, compareAtPrice: compChanged ? (newCompare > 0 ? newCompare.toFixed(2) : '0.00') : undefined } });
           });
         }
+
+        else if (field === 'soldout') {
+          const wantSoldout = cfg.action === 'soldout';                 // 'soldout' (mark) | 'restore' (show again)
+          const frame = cfg.frame || '';                                // exact Frame value, e.g. 'Oak Frame'
+          const size = cfg.size || '';                                  // size code, e.g. 'A3'
+          (pr.variants ? pr.variants.nodes : []).forEach(v => {
+            unitCount++;
+            if (optVal(v.selectedOptions, 'Frame') !== frame) return;    // only the chosen frame colour
+            if (sizeCodeOf(v.selectedOptions) !== size) return;          // only the chosen size
+            const lv = firstLevelOf(v);
+            const currentlySold = isSoldOut(v.inventoryPolicy, lv.available);
+            const eligible = wantSoldout ? !currentlySold : currentlySold; // mark→only available; restore→only sold out
+            const changed = eligible && !!lv.locationId && !!(v.inventoryItem && v.inventoryItem.id);
+            if (changed) changeCount++;
+            rows.push({ productId: pr.id, productTitle: pr.title, vendor: pr.vendor,
+              variantId: v.id, variantTitle: v.title, group: frame + ' · ' + size,
+              oldVal: currentlySold ? 'Sold out' : 'Available',
+              newVal: wantSoldout ? 'Sold out (no orders)' : 'Available',
+              changed, blocked: false,
+              note: changed ? '' : (wantSoldout ? 'already sold out' : 'already available'),
+              payload: { variantId: v.id, inventoryItemId: v.inventoryItem ? v.inventoryItem.id : null, locationId: lv.locationId, want: wantSoldout ? 'soldout' : 'restore' } });
+          });
+        }
       });
 
       return res.status(200).json({
@@ -994,6 +1032,64 @@ module.exports = async function handler(req, res) {
         }
       }
 
+      // ---------- SOLD OUT / RESTORE via inventoryPolicy + available quantity ----------
+      else if (field === 'soldout') {
+        const its = items.filter(it => it.payload && it.payload.variantId && it.payload.inventoryItemId && it.payload.locationId && it.payload.want);
+        const vids = its.map(it => it.payload.variantId);
+        // read current policy + available (for undo) and productId (to group the policy write)
+        const cur = {};
+        for (let i = 0; i < vids.length; i += 50) {
+          const chunk = vids.slice(i, i + 50);
+          const qy = 'query { ' + chunk.map((vid, j) => `v${j}: productVariant(id:"${vid}"){ id inventoryPolicy product{ id } inventoryItem{ id inventoryLevels(first:5){ nodes{ location{ id } quantities(names:["available"]){ name quantity } } } } }`).join(' ') + ' }';
+          const data = await shopify(qy);
+          chunk.forEach((vid, j) => {
+            const n = data[`v${j}`]; if (!n) return;
+            const lv = firstLevelOf(n);
+            cur[vid] = { productId: n.product ? n.product.id : null, policy: n.inventoryPolicy, available: lv.available, locationId: lv.locationId };
+          });
+        }
+        its.forEach(it => {
+          const c = cur[it.payload.variantId]; if (!c) return;
+          snapshot.push({ variantId: it.payload.variantId, inventoryItemId: it.payload.inventoryItemId, locationId: c.locationId || it.payload.locationId, oldPolicy: c.policy, oldAvailable: c.available });
+        });
+        await saveFieldUndoSnapshot(undoId, field, snapshot, isFirst); // save undo BEFORE writing
+        const failed = new Set();
+        // 1) inventory policy, grouped per product
+        const byProduct = {};
+        its.forEach(it => {
+          const c = cur[it.payload.variantId]; if (!c || !c.productId) { failed.add(it.payload.variantId); return; }
+          const policy = it.payload.want === 'soldout' ? 'DENY' : 'CONTINUE';
+          (byProduct[c.productId] = byProduct[c.productId] || []).push({ id: it.payload.variantId, policy });
+        });
+        const pids = Object.keys(byProduct);
+        for (let i = 0; i < pids.length; i += 20) {
+          const chunk = pids.slice(i, i + 20);
+          const m = 'mutation {\n' + chunk.map((pid, j) => {
+            const vars = byProduct[pid].map(v => `{id:"${v.id}", inventoryPolicy:${v.policy}}`).join(',');
+            return `  m${j}: productVariantsBulkUpdate(productId:"${pid}", variants:[${vars}]){ userErrors{ field message } }`;
+          }).join('\n') + '\n}';
+          const data = await shopify(m);
+          chunk.forEach((pid, j) => {
+            const ue = data[`m${j}`] && data[`m${j}`].userErrors ? data[`m${j}`].userErrors : [];
+            if (ue.length) { ue.forEach(e => errors.push(`${pid}: ${e.message}`)); byProduct[pid].forEach(v => failed.add(v.id)); }
+          });
+        }
+        // 2) available quantity (0 to sell out, restore qty to show again)
+        const qItems = its.map(it => {
+          const c = cur[it.payload.variantId] || {};
+          return { variantId: it.payload.variantId, inventoryItemId: it.payload.inventoryItemId, locationId: c.locationId || it.payload.locationId, quantity: it.payload.want === 'soldout' ? 0 : SOLDOUT_RESTORE_QTY };
+        }).filter(x => x.locationId);
+        for (let i = 0; i < qItems.length; i += 100) {
+          const chunk = qItems.slice(i, i + 100);
+          const quantities = chunk.map(x => `{inventoryItemId:"${x.inventoryItemId}", locationId:"${x.locationId}", quantity:${x.quantity}}`).join(',');
+          const m = `mutation { inventorySetQuantities(input:{ reason:"correction", name:"available", quantities:[${quantities}] }){ userErrors{ field message } } }`;
+          const data = await shopify(m);
+          const ue = data.inventorySetQuantities && data.inventorySetQuantities.userErrors ? data.inventorySetQuantities.userErrors : [];
+          if (ue.length) { ue.forEach(e => errors.push(e.message)); chunk.forEach(x => failed.add(x.variantId)); }
+        }
+        updated = its.length - failed.size;
+      }
+
       return res.status(200).json({ ok: true, updated, undoId, field, errors: errors.slice(0, 20) });
     }
 
@@ -1077,6 +1173,42 @@ module.exports = async function handler(req, res) {
             const ue = data[`m${j}`] && data[`m${j}`].userErrors ? data[`m${j}`].userErrors : [];
             if (ue.length) ue.forEach(e => errors.push(e.message)); else restored += byProduct[pid].length;
           });
+        }
+      } else if (field === 'soldout') {
+        // find each variant's product (to group the policy write)
+        const vids = work.map(s => s.variantId);
+        const idToProduct = {};
+        for (let i = 0; i < vids.length; i += 100) {
+          const chunk = vids.slice(i, i + 100);
+          const qy = 'query { ' + chunk.map((vid, j) => `v${j}: productVariant(id:"${vid}"){ id product{ id } }`).join(' ') + ' }';
+          const data = await shopify(qy);
+          chunk.forEach((vid, j) => { const n = data[`v${j}`]; if (n && n.product) idToProduct[vid] = n.product.id; });
+        }
+        // 1) restore inventory policy, grouped per product
+        const byProduct = {};
+        work.forEach(s => { const pid = idToProduct[s.variantId]; if (!pid) return; (byProduct[pid] = byProduct[pid] || []).push(s); });
+        const productIds = Object.keys(byProduct);
+        for (let i = 0; i < productIds.length; i += 20) {
+          const chunk = productIds.slice(i, i + 20);
+          const m = 'mutation {\n' + chunk.map((pid, j) => {
+            const vars = byProduct[pid].map(s => `{id:"${s.variantId}", inventoryPolicy:${String(s.oldPolicy).toUpperCase() === 'DENY' ? 'DENY' : 'CONTINUE'}}`).join(',');
+            return `  m${j}: productVariantsBulkUpdate(productId:"${pid}", variants:[${vars}]){ userErrors{ message } }`;
+          }).join('\n') + '\n}';
+          const data = await shopify(m);
+          chunk.forEach((pid, j) => {
+            const ue = data[`m${j}`] && data[`m${j}`].userErrors ? data[`m${j}`].userErrors : [];
+            if (ue.length) ue.forEach(e => errors.push(e.message)); else restored += byProduct[pid].length;
+          });
+        }
+        // 2) restore available quantity where we captured it
+        const qItems = work.filter(s => s.inventoryItemId && s.locationId && s.oldAvailable != null);
+        for (let i = 0; i < qItems.length; i += 100) {
+          const chunk = qItems.slice(i, i + 100);
+          const quantities = chunk.map(s => `{inventoryItemId:"${s.inventoryItemId}", locationId:"${s.locationId}", quantity:${Number(s.oldAvailable)}}`).join(',');
+          const m = `mutation { inventorySetQuantities(input:{ reason:"correction", name:"available", quantities:[${quantities}] }){ userErrors{ message } } }`;
+          const data = await shopify(m);
+          const ue = data.inventorySetQuantities && data.inventorySetQuantities.userErrors ? data.inventorySetQuantities.userErrors : [];
+          if (ue.length) ue.forEach(e => errors.push(e.message));
         }
       }
 
