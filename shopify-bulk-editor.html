@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v2.6 · AWA Prices grid pre-fills with today's prices &amp; compare-at % · 3 tabs · batches + backup + undo</div>
+            <div class="subtitle">v2.7 · AWA Prices applies only the cells you edit · 3 tabs · batches + backup + undo</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -1151,7 +1151,7 @@ function buildAwaGrid(){
     sizes.forEach(s => html += '<div class="whead">' + s + '</div>');
     spec.frames.forEach(fr => {
         html += '<div class="wlabel">' + fr[0] + '</div>';
-        sizes.forEach(s => { html += '<input type="number" step="0.01" min="0" id="aw_' + fr[1] + '_' + s + '" title="' + fr[0] + ' ' + s + '">'; });
+        sizes.forEach(s => { html += '<input type="number" step="0.01" min="0" id="aw_' + fr[1] + '_' + s + '" title="' + fr[0] + ' ' + s + '" oninput="this.dataset.dirty=\'1\'">'; });
     });
     document.getElementById('awaGrid').innerHTML = html;
 }
@@ -1160,7 +1160,7 @@ function collectAwaGroups(){
     const spec = AWA_PAPERS[paper]; const groups = {};
     spec.frames.forEach(fr => spec.sizes.forEach(s => {
         const el = document.getElementById('aw_' + fr[1] + '_' + s);
-        if (el && el.value !== '') groups[fr[1] + '|' + s] = parseFloat(el.value);
+        if (el && el.dataset.dirty === '1' && el.value !== '') groups[fr[1] + '|' + s] = parseFloat(el.value);
     }));
     return groups;
 }
@@ -1183,7 +1183,7 @@ async function loadAwaCurrent(){
         const spec = AWA_PAPERS[paper];
         spec.frames.forEach(fr => spec.sizes.forEach(s => {
             const el = document.getElementById('aw_' + fr[1] + '_' + s);
-            if (el) el.value = (d.groups && d.groups[fr[1]+'|'+s] != null) ? d.groups[fr[1]+'|'+s] : '';
+            if (el) { el.value = (d.groups && d.groups[fr[1]+'|'+s] != null) ? d.groups[fr[1]+'|'+s] : ''; el.dataset.dirty = ''; }
         }));
         const pctEl = document.getElementById('awaCmpPct');
         if (pctEl) pctEl.value = (d.compareAtPct === '' || d.compareAtPct == null) ? '' : d.compareAtPct;
