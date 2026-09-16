@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v2.7 · AWA Prices applies only the cells you edit · 3 tabs · batches + backup + undo</div>
+            <div class="subtitle">v2.8 · Sold out / restore variants by frame + size (no orders, reversible) · 3 tabs · batches + backup + undo</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -317,6 +317,7 @@
                             <option value="weight">Weight (About Wall Art only)</option>
                             <option value="collections">Collections</option>
                             <option value="category">Category</option>
+                            <option value="soldout">Sold out / restore (About Wall Art only)</option>
                         </select>
                     </div>
                 </div>
@@ -469,6 +470,31 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- SOLD OUT / RESTORE -->
+                <div class="fieldpanel" id="fp-soldout" hidden style="margin-top:16px;">
+                    <div class="hint">Only <b>About Wall Art</b>. Mark a <b>frame colour + size</b> as <b>Sold out</b> (shows "Sold out", no orders can be placed) across every About Wall Art product, or show it again. Applies to <b>every paper</b> of that frame + size.</div>
+                    <div class="row" style="margin-top:12px;">
+                        <div class="field"><label>What to do</label>
+                            <select id="soldoutAction">
+                                <option value="soldout">Mark as Sold out — block orders</option>
+                                <option value="restore">Show again — available</option>
+                            </select>
+                        </div>
+                        <div class="field"><label>Frame colour</label>
+                            <select id="soldoutFrame" onchange="onSoldoutFrame()">
+                                <option value="Black Frame">Black Frame</option>
+                                <option value="White Frame">White Frame</option>
+                                <option value="Oak Frame">Oak Frame</option>
+                                <option value="Unframed">Unframed</option>
+                                <option value="Canvas wrapped">Canvas wrapped</option>
+                            </select>
+                        </div>
+                        <div class="field"><label>Size</label>
+                            <select id="soldoutSize"></select>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div class="panel">
@@ -570,7 +596,7 @@ async function backupAll(){
 }
 
 /* ---- Tab 2: per-field backup gate ---- */
-function fieldLabel(f){ return ({tags:'Tags', ptype:'Product type', weight:'Weight', unitprice:'Unit price', collections:'Collections', category:'Category'})[f] || f; }
+function fieldLabel(f){ return ({tags:'Tags', ptype:'Product type', weight:'Weight', unitprice:'Unit price', collections:'Collections', category:'Category', soldout:'Sold out / restore'})[f] || f; }
 function paintFieldGate(state){
     const f = document.getElementById('t2field').value;
     const p = document.getElementById('fieldBackupPanel');
@@ -583,7 +609,7 @@ function paintFieldGate(state){
 async function checkFieldGate(){
     const f = document.getElementById('t2field').value;
     paintFieldGate('red'); lockBody('tab2Body');
-    const scope = (f === 'weight') ? ' (About Wall Art only)' : '';
+    const scope = (f === 'weight' || f === 'soldout') ? ' (About Wall Art only)' : '';
     document.getElementById('fieldBackupNote').innerHTML = 'Checking for today\'s backup…';
     try {
         const d = await (await fetch(API + '?action=last-field-backup&field=' + encodeURIComponent(f))).json();
@@ -892,11 +918,21 @@ async function loadFieldMeta(){
 }
 function onFieldChange(){
     const f = document.getElementById('t2field').value;
-    ['tags','ptype','weight','collections','category'].forEach(k => { document.getElementById('fp-'+k).hidden = (k !== f); });
-    // Weight applies only to About Wall Art and is chosen by Set — no supplier step needed
-    document.getElementById('t2step2').hidden = (f === 'weight');
+    ['tags','ptype','weight','collections','category','soldout'].forEach(k => { document.getElementById('fp-'+k).hidden = (k !== f); });
+    // Weight & Sold-out apply only to About Wall Art and are chosen by frame/size — no supplier step needed
+    document.getElementById('t2step2').hidden = (f === 'weight' || f === 'soldout');
     if (f === 'weight') buildWeightGrid();
+    if (f === 'soldout') onSoldoutFrame();
     checkFieldGate(); // each field has its own backup gate
+}
+const SOLDOUT_SIZES = {
+    'Canvas wrapped': ['12x16','16x22','20x30'],
+    '_default': ['A4','A3','A2','20x30']
+};
+function onSoldoutFrame(){
+    const frame = document.getElementById('soldoutFrame').value;
+    const sizes = SOLDOUT_SIZES[frame] || SOLDOUT_SIZES._default;
+    document.getElementById('soldoutSize').innerHTML = sizes.map(s => '<option value="' + s + '">' + s + '</option>').join('');
 }
 function onTagsAction(){
     const a = document.getElementById('tagsAction').value;
@@ -1003,6 +1039,7 @@ function buildConfig2(){
     if (f === 'category') return { field:f, config:{ action: document.getElementById('catAction').value, categoryId: catPickedObj?catPickedObj.id:'', categoryName: catPickedObj?catPickedObj.fullName:'' } };
     if (f === 'collections') return { field:f, config:{ action: document.getElementById('collAction').value, collectionIds: Array.from(collPicked), manualIds: (META.manualCollections||[]).map(c=>c.id), collectionTitles: META.manualCollections||[] } };
     if (f === 'weight') return { field:f, config:{ unit: document.getElementById('weightUnit').value, groups: collectWeightGroups() } };
+    if (f === 'soldout') return { field:f, config:{ action: document.getElementById('soldoutAction').value, frame: document.getElementById('soldoutFrame').value, size: document.getElementById('soldoutSize').value } };
     if (f === 'unitprice') {
         const cmpOn = document.getElementById('upCmpEnable').checked;
         return { field:f, config:{ how: document.getElementById('upHow').value, value: parseFloat(document.getElementById('upValue').value), rounding: document.getElementById('upRounding').value,
@@ -1018,6 +1055,7 @@ function validConfig2(fc){
     if (f==='collections') return (c.collectionIds||[]).length>0;
     if (f==='weight') return Object.keys(c.groups||{}).length>0;
     if (f==='unitprice') return !isNaN(c.value);
+    if (f==='soldout') return !!c.frame && !!c.size && !!c.action;
     return true;
 }
 function rowKey2(r){ return r.variantId || r.productId; }
@@ -1029,6 +1067,9 @@ async function runPreview2(){
         if (!/about wall art/i.test(filters.vendor||'')) filters.vendor = 'About Wall Art';
         const ws = document.getElementById('weightSet').value;
         if (ws) filters.tag = ws;
+    }
+    if (fc.field === 'soldout') {
+        if (!/about wall art/i.test(filters.vendor||'')) filters.vendor = 'About Wall Art';
     }
     const btn = document.getElementById('previewBtn2'); btn.disabled = true; document.getElementById('applyBtn2').disabled = true;
     previewRows2 = []; selected2 = new Set(); lastField = fc.field;
@@ -1063,7 +1104,7 @@ function updateApplyBtn2(){
 }
 function renderTable2(){
     if (!previewRows2.length){ document.getElementById('tableWrap2').innerHTML = '<div class="empty">No products with those filters.</div>'; return; }
-    const perVariant = (lastField === 'weight' || lastField === 'unitprice');
+    const perVariant = (lastField === 'weight' || lastField === 'unitprice' || lastField === 'soldout');
     const cap = 500; const show = previewRows2.slice(0, cap);
     let html = '<div class="sel-toolbar">'
         + '<button class="btn btn-light" onclick="select2Changed()">Select the ones that change</button>'
