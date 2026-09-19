@@ -1,4 +1,8 @@
-// shopify-bulk.js — v2.9 (19 Sep 2026)
+// shopify-bulk.js — v2.9.1 (19 Sep 2026)
+// v2.9.1: FIX — sold-out now sets on_hand=0 (Shopify won't let you set 'available' directly), so items
+//         actually show "Sold out". Undo/Show again restores on_hand (oldOnHand; falls back to oldAvailable
+//         for pre-fix entries). Frontend: sold-out no longer needs the full-store backup (each apply is
+//         individually revertible), and the list heading is "Frames you've hidden".
 // v2.9: 'soldout' preview is now light (no per-location read → fixes MAX_COST_EXCEEDED) and marks
 //       ALL variants of the chosen frame+size. Each apply is tagged with frame+size on its undo
 //       entry, so the UI shows a "Currently sold out" list where each row is reverted (Show again)
@@ -284,11 +288,13 @@ module.exports = async function handler(req, res) {
   // ---------- AWA price grouping (Tab "AWA Prices"): frame×size within a paper ----------
   function optVal(selectedOptions, name) { let out = ''; (selectedOptions || []).forEach(o => { if (o.name === name) out = o.value; }); return out; }
   const SOLDOUT_RESTORE_QTY = 100;                                  // "show again" puts stock back to this (store norm)
-  function firstLevelOf(v) {                                        // one location: read available + locationId
+  function firstLevelOf(v) {                                        // one location: read available + on_hand + locationId
     const lv = v.inventoryItem && v.inventoryItem.inventoryLevels && v.inventoryItem.inventoryLevels.nodes ? v.inventoryItem.inventoryLevels.nodes[0] : null;
-    if (!lv) return { locationId: null, available: null };
-    const qn = (lv.quantities || []).find(x => x.name === 'available');
-    return { locationId: lv.location ? lv.location.id : null, available: qn ? qn.quantity : null };
+    if (!lv) return { locationId: null, available: null, onHand: null };
+    const qs = lv.quantities || [];
+    const av = qs.find(x => x.name === 'available');
+    const oh = qs.find(x => x.name === 'on_hand');
+    return { locationId: lv.location ? lv.location.id : null, available: av ? av.quantity : null, onHand: oh ? oh.quantity : null };
   }
   function isSoldOut(policy, available) { return String(policy).toUpperCase() === 'DENY' && Number(available) <= 0; }
   function frameGroupOf(selOpts) { return frameKey(optVal(selOpts, 'Frame')); }   // unframed | framed | canvas
@@ -1039,17 +1045,17 @@ module.exports = async function handler(req, res) {
         const cur = {};
         for (let i = 0; i < vids.length; i += 50) {
           const chunk = vids.slice(i, i + 50);
-          const qy = 'query { ' + chunk.map((vid, j) => `v${j}: productVariant(id:"${vid}"){ id inventoryPolicy product{ id } inventoryItem{ id inventoryLevels(first:1){ nodes{ location{ id } quantities(names:["available"]){ name quantity } } } } }`).join(' ') + ' }';
+          const qy = 'query { ' + chunk.map((vid, j) => `v${j}: productVariant(id:"${vid}"){ id inventoryPolicy product{ id } inventoryItem{ id inventoryLevels(first:1){ nodes{ location{ id } quantities(names:["available","on_hand"]){ name quantity } } } } }`).join(' ') + ' }';
           const data = await shopify(qy);
           chunk.forEach((vid, j) => {
             const n = data[`v${j}`]; if (!n) return;
             const lv = firstLevelOf(n);
-            cur[vid] = { productId: n.product ? n.product.id : null, policy: n.inventoryPolicy, available: lv.available, locationId: lv.locationId };
+            cur[vid] = { productId: n.product ? n.product.id : null, policy: n.inventoryPolicy, available: lv.available, onHand: lv.onHand, locationId: lv.locationId };
           });
         }
         its.forEach(it => {
           const c = cur[it.payload.variantId]; if (!c) return;
-          snapshot.push({ variantId: it.payload.variantId, inventoryItemId: it.payload.inventoryItemId, locationId: c.locationId || it.payload.locationId, oldPolicy: c.policy, oldAvailable: c.available });
+          snapshot.push({ variantId: it.payload.variantId, inventoryItemId: it.payload.inventoryItemId, locationId: c.locationId || it.payload.locationId, oldPolicy: c.policy, oldAvailable: c.available, oldOnHand: c.onHand });
         });
         // save undo BEFORE writing, tagging the entry with the frame + size so the "Currently sold out" list can show & revert it
         await saveFieldUndoSnapshot(undoId, field, snapshot, isFirst, { frame: body.frame || '', size: body.size || '', label: ((body.frame || '') + ' · ' + (body.size || '')).trim() });
@@ -1074,7 +1080,8 @@ module.exports = async function handler(req, res) {
             if (ue.length) { ue.forEach(e => errors.push(`${pid}: ${e.message}`)); byProduct[pid].forEach(v => failed.add(v.id)); }
           });
         }
-        // 2) available quantity (0 to sell out, restore qty to show again)
+        // 2) on-hand quantity (0 to sell out, restore qty to show again). Shopify only lets you SET on_hand,
+        //    not available; setting on_hand 0 (with committed 0) makes available 0 → shows "Sold out".
         const qItems = its.map(it => {
           const c = cur[it.payload.variantId] || {};
           return { variantId: it.payload.variantId, inventoryItemId: it.payload.inventoryItemId, locationId: c.locationId || it.payload.locationId, quantity: it.payload.want === 'soldout' ? 0 : SOLDOUT_RESTORE_QTY };
@@ -1082,7 +1089,7 @@ module.exports = async function handler(req, res) {
         for (let i = 0; i < qItems.length; i += 100) {
           const chunk = qItems.slice(i, i + 100);
           const quantities = chunk.map(x => `{inventoryItemId:"${x.inventoryItemId}", locationId:"${x.locationId}", quantity:${x.quantity}}`).join(',');
-          const m = `mutation { inventorySetQuantities(input:{ reason:"correction", name:"available", quantities:[${quantities}] }){ userErrors{ field message } } }`;
+          const m = `mutation { inventorySetQuantities(input:{ reason:"correction", name:"on_hand", quantities:[${quantities}] }){ userErrors{ field message } } }`;
           const data = await shopify(m);
           const ue = data.inventorySetQuantities && data.inventorySetQuantities.userErrors ? data.inventorySetQuantities.userErrors : [];
           if (ue.length) { ue.forEach(e => errors.push(e.message)); chunk.forEach(x => failed.add(x.variantId)); }
@@ -1200,12 +1207,13 @@ module.exports = async function handler(req, res) {
             if (ue.length) ue.forEach(e => errors.push(e.message)); else restored += byProduct[pid].length;
           });
         }
-        // 2) restore available quantity where we captured it
-        const qItems = work.filter(s => s.inventoryItemId && s.locationId && s.oldAvailable != null);
+        // 2) restore on-hand quantity where we captured it (oldOnHand; fall back to oldAvailable for pre-fix entries)
+        const qItems = work.map(s => Object.assign({}, s, { restoreQty: (s.oldOnHand != null ? s.oldOnHand : s.oldAvailable) }))
+                           .filter(s => s.inventoryItemId && s.locationId && s.restoreQty != null);
         for (let i = 0; i < qItems.length; i += 100) {
           const chunk = qItems.slice(i, i + 100);
-          const quantities = chunk.map(s => `{inventoryItemId:"${s.inventoryItemId}", locationId:"${s.locationId}", quantity:${Number(s.oldAvailable)}}`).join(',');
-          const m = `mutation { inventorySetQuantities(input:{ reason:"correction", name:"available", quantities:[${quantities}] }){ userErrors{ message } } }`;
+          const quantities = chunk.map(s => `{inventoryItemId:"${s.inventoryItemId}", locationId:"${s.locationId}", quantity:${Number(s.restoreQty)}}`).join(',');
+          const m = `mutation { inventorySetQuantities(input:{ reason:"correction", name:"on_hand", quantities:[${quantities}] }){ userErrors{ message } } }`;
           const data = await shopify(m);
           const ue = data.inventorySetQuantities && data.inventorySetQuantities.userErrors ? data.inventorySetQuantities.userErrors : [];
           if (ue.length) ue.forEach(e => errors.push(e.message));
