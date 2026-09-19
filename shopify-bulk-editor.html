@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v2.9 · Sold out by frame + size (no orders) with a "Currently sold out" list to Show again · 3 tabs · batches + backup + undo</div>
+            <div class="subtitle">v2.9.1 · Sold out by frame + size (sets on-hand to 0, no orders) with a "Frames you've hidden" list to Show again · 3 tabs · batches + backup + undo</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -490,7 +490,7 @@
                     </div>
                     <div style="margin-top:20px; border-top:2px solid #eee; padding-top:16px;">
                         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
-                            <b>Currently sold out</b>
+                            <b>Frames you've hidden</b>
                             <span class="muted">tap "Show again" to bring one back</span>
                             <button class="btn btn-light" style="margin-left:auto;" onclick="loadSoldoutActive()">↻ Refresh</button>
                         </div>
@@ -610,8 +610,17 @@ function paintFieldGate(state){
 }
 async function checkFieldGate(){
     const f = document.getElementById('t2field').value;
+    // Sold-out needs no full-store backup: every change is saved with its own exact undo ("Frames you've hidden").
+    if (f === 'soldout') {
+        paintFieldGate('green'); unlockBody('tab2Body');
+        document.getElementById('fieldBackupTitle').innerHTML = '✅ Ready — no backup needed';
+        document.getElementById('fieldBackupBtn').style.display = 'none';
+        document.getElementById('fieldBackupNote').innerHTML = 'Every change here is saved on its own and can be reverted below with <b>Show again</b> — no backup step needed.';
+        return;
+    }
+    document.getElementById('fieldBackupBtn').style.display = '';
     paintFieldGate('red'); lockBody('tab2Body');
-    const scope = (f === 'weight' || f === 'soldout') ? ' (About Wall Art only)' : '';
+    const scope = (f === 'weight') ? ' (About Wall Art only)' : '';
     document.getElementById('fieldBackupNote').innerHTML = 'Checking for today\'s backup…';
     try {
         const d = await (await fetch(API + '?action=last-field-backup&field=' + encodeURIComponent(f))).json();
