@@ -1,4 +1,8 @@
-// shopify-bulk.js — v3.0.1 (19 Sep 2026)
+// shopify-bulk.js — v3.1 (19 Sep 2026)
+// v3.1: NEW Excel export/import — 'xlsx-data' (one row per variant, all fields), 'xlsx-apply' (dryRun
+//       returns the diffs vs live Shopify; else applies price/compareAt/cost/weight/sku/barcode/soldout +
+//       productType/tags/vendor/status/SEO, and saves undo), 'xlsx-undo-list', 'xlsx-undo'.
+// v3.0.1 (rolled into v3.1 delivery)
 // v3.0.1: addvarPlan skips any product not built on Frame/Size/Paper (e.g. the Gift Card) so it's never
 //         given these variants. (Add-variants UI moved to its own 4th tab in the HTML.)
 // v3.0: NEW 'addvar' — bulk-create variants (paper / frame colour / size) by group (Unframed-Framed /
@@ -1474,6 +1478,221 @@ module.exports = async function handler(req, res) {
       if (!hasMore) {
         try { const idx = (await ghGet('data/addvar-undos.json')).json || []; const hit = idx.find(x => x.id === undoId); if (hit) hit.reverted = true; await ghPut('data/addvar-undos.json', idx, `addvar reverted ${undoId}`); } catch (e) {}
       }
+      return res.status(200).json({ ok: true, restored, total, nextOffset, hasMore, errors: errors.slice(0, 20) });
+    }
+
+    // ======================= EXCEL EXPORT / IMPORT (About Wall Art) =======================
+    // Editable columns the importer will apply (everything else in the file is reference only).
+    const XLSX_VAR_COLS = ['sku', 'barcode', 'price', 'compareAt', 'cost', 'weight', 'soldout'];
+    const XLSX_PROD_COLS = ['productType', 'tags', 'seoTitle', 'seoDescription', 'status', 'vendor'];
+
+    // ---- xlsx-data: one page of rows (one row per variant) for the download ----
+    if (action === 'xlsx-data') {
+      const sel = 'id title handle vendor status productType tags category{ fullName } seo{ title description } collections(first:20){ nodes{ title } } variants(first:100){ nodes{ id sku barcode price compareAtPrice inventoryPolicy inventoryQuantity selectedOptions{ name value } inventoryItem{ id unitCost{ amount } measurement{ weight{ value unit } } } } }';
+      const d = await shopify(
+        `query($q:String,$cursor:String){ products(first:15, query:$q, after:$cursor){ pageInfo{ hasNextPage endCursor } nodes{ ${sel} } } }`,
+        { q: `vendor:'${AWA_VENDOR}'`, cursor: body.cursor || null }
+      );
+      const rows = [];
+      (d.products.nodes || []).forEach(pr => {
+        const colls = (pr.collections && pr.collections.nodes ? pr.collections.nodes.map(c => c.title) : []).join(' | ');
+        (pr.variants ? pr.variants.nodes : []).forEach(v => {
+          const w = v.inventoryItem && v.inventoryItem.measurement && v.inventoryItem.measurement.weight ? v.inventoryItem.measurement.weight : null;
+          rows.push({
+            productId: pr.id, variantId: v.id, title: pr.title, handle: pr.handle, vendor: pr.vendor, status: pr.status,
+            collections: colls, category: pr.category ? pr.category.fullName : '',
+            frame: optVal(v.selectedOptions, 'Frame'), size: optVal(v.selectedOptions, 'Size'), paper: optVal(v.selectedOptions, 'Paper'),
+            sku: v.sku || '', barcode: v.barcode || '', price: v.price, compareAt: (v.compareAtPrice && v.compareAtPrice !== '0.00') ? v.compareAtPrice : '',
+            cost: v.inventoryItem && v.inventoryItem.unitCost ? v.inventoryItem.unitCost.amount : '', weight: w ? w.value : '',
+            soldout: isSoldOut(v.inventoryPolicy, v.inventoryQuantity) ? 'yes' : 'no',
+            productType: pr.productType || '', tags: (pr.tags || []).join(', '), seoTitle: pr.seo ? (pr.seo.title || '') : '', seoDescription: pr.seo ? (pr.seo.description || '') : ''
+          });
+        });
+      });
+      return res.status(200).json({ ok: true, rows, pageInfo: d.products.pageInfo });
+    }
+
+    // ---- xlsx-apply: compare uploaded rows to live Shopify; dryRun returns the diffs, else applies + saves undo ----
+    if (action === 'xlsx-apply') {
+      const rows = Array.isArray(body.rows) ? body.rows : [];
+      const cols = Array.isArray(body.columns) ? body.columns : [];   // editable columns present in the file
+      const dryRun = !!body.dryRun;
+      const varCols = XLSX_VAR_COLS.filter(c => cols.indexOf(c) !== -1);
+      const prodCols = XLSX_PROD_COLS.filter(c => cols.indexOf(c) !== -1);
+      const s = x => (x == null ? '' : String(x)).trim();
+      const money = x => { const n = parseFloat(x); return isNaN(n) ? null : n.toFixed(2); };
+      // read live variants
+      const vids = rows.map(r => r.variantId).filter(Boolean);
+      const curV = {};
+      for (let i = 0; i < vids.length; i += 40) {
+        const chunk = vids.slice(i, i + 40);
+        const qy = 'query { ' + chunk.map((vid, j) => `v${j}: productVariant(id:"${vid}"){ id sku barcode price compareAtPrice inventoryPolicy inventoryQuantity product{ id } inventoryItem{ id unitCost{ amount } inventoryLevels(first:1){ nodes{ location{ id } quantities(names:["on_hand"]){ name quantity } } } measurement{ weight{ value unit } } } }`).join(' ') + ' }';
+        const data = await shopify(qy);
+        chunk.forEach((vid, j) => { const n = data[`v${j}`]; if (n) curV[vid] = n; });
+      }
+      // read live products (for product-level columns)
+      let curP = {};
+      if (prodCols.length) {
+        const pids = Array.from(new Set(rows.map(r => r.productId).filter(Boolean)));
+        for (let i = 0; i < pids.length; i += 40) {
+          const chunk = pids.slice(i, i + 40);
+          const qy = 'query { ' + chunk.map((pid, j) => `p${j}: product(id:"${pid}"){ id productType tags status vendor seo{ title description } }`).join(' ') + ' }';
+          const data = await shopify(qy);
+          chunk.forEach((pid, j) => { const n = data[`p${j}`]; if (n) curP[pid] = n; });
+        }
+      }
+      const diffs = [];                                               // {kind, id, productId, field, old, new, ...}
+      const seenProdField = new Set();
+      rows.forEach(r => {
+        const cv = curV[r.variantId]; if (!cv) return;
+        const pid = cv.product ? cv.product.id : r.productId;
+        // variant-level
+        varCols.forEach(c => {
+          const up = s(r[c]); if (up === '' && c !== 'sku' && c !== 'barcode') return; // blank money/weight = skip (no wipe)
+          if (c === 'price') { const nv = money(up), ov = money(cv.price); if (nv && nv !== ov) diffs.push({ kind: 'v', field: 'price', id: r.variantId, productId: pid, old: ov, new: nv }); }
+          else if (c === 'compareAt') { const nv = money(up); const ov = (cv.compareAtPrice && cv.compareAtPrice !== '0.00') ? money(cv.compareAtPrice) : ''; if (nv && nv !== ov) diffs.push({ kind: 'v', field: 'compareAt', id: r.variantId, productId: pid, old: ov, new: nv }); }
+          else if (c === 'cost') { const nv = money(up), ov = cv.inventoryItem && cv.inventoryItem.unitCost ? money(cv.inventoryItem.unitCost.amount) : ''; if (nv && nv !== ov) diffs.push({ kind: 'v', field: 'cost', id: r.variantId, productId: pid, invItem: cv.inventoryItem ? cv.inventoryItem.id : null, old: ov, new: nv }); }
+          else if (c === 'weight') { const nv = parseFloat(up), w = cv.inventoryItem && cv.inventoryItem.measurement && cv.inventoryItem.measurement.weight ? cv.inventoryItem.measurement.weight : null; const ov = w ? Number(w.value) : null; if (!isNaN(nv) && (ov == null || Math.abs(nv - ov) > 1e-9)) diffs.push({ kind: 'v', field: 'weight', id: r.variantId, productId: pid, old: ov, new: nv, unit: w ? w.unit : 'KILOGRAMS' }); }
+          else if (c === 'barcode') { if (up !== s(cv.barcode)) diffs.push({ kind: 'v', field: 'barcode', id: r.variantId, productId: pid, old: cv.barcode || '', new: up }); }
+          else if (c === 'sku') { if (up !== s(cv.sku)) diffs.push({ kind: 'v', field: 'sku', id: r.variantId, productId: pid, invItem: cv.inventoryItem ? cv.inventoryItem.id : null, old: cv.sku || '', new: up }); }
+          else if (c === 'soldout') { const want = up.toLowerCase() === 'yes'; const isNow = isSoldOut(cv.inventoryPolicy, cv.inventoryQuantity); if (want !== isNow) { const lv = firstLevelOf(cv); diffs.push({ kind: 'soldout', id: r.variantId, productId: pid, want: want ? 'soldout' : 'restore', inventoryItemId: cv.inventoryItem ? cv.inventoryItem.id : null, locationId: lv.locationId, oldPolicy: cv.inventoryPolicy, oldOnHand: lv.onHand, old: isNow ? 'yes' : 'no', new: want ? 'yes' : 'no', field: 'soldout' }); } }
+        });
+        // product-level (dedupe per product+field)
+        const cp = curP[pid];
+        if (cp) prodCols.forEach(c => {
+          const key = pid + '|' + c; if (seenProdField.has(key)) return;
+          const up = s(r[c]);
+          if (c === 'productType') { if (up !== s(cp.productType)) { diffs.push({ kind: 'p', field: 'productType', id: pid, old: cp.productType || '', new: up }); seenProdField.add(key); } }
+          else if (c === 'vendor') { if (up && up !== s(cp.vendor)) { diffs.push({ kind: 'p', field: 'vendor', id: pid, old: cp.vendor || '', new: up }); seenProdField.add(key); } }
+          else if (c === 'status') { const nv = up.toUpperCase(); if (nv && ['ACTIVE','DRAFT','ARCHIVED'].indexOf(nv) !== -1 && nv !== s(cp.status).toUpperCase()) { diffs.push({ kind: 'p', field: 'status', id: pid, old: cp.status, new: nv }); seenProdField.add(key); } }
+          else if (c === 'seoTitle') { const ov = cp.seo ? s(cp.seo.title) : ''; if (up !== ov) { diffs.push({ kind: 'p', field: 'seoTitle', id: pid, old: ov, new: up }); seenProdField.add(key); } }
+          else if (c === 'seoDescription') { const ov = cp.seo ? s(cp.seo.description) : ''; if (up !== ov) { diffs.push({ kind: 'p', field: 'seoDescription', id: pid, old: ov, new: up }); seenProdField.add(key); } }
+          else if (c === 'tags') { const upList = up.split(',').map(t => t.trim()).filter(Boolean).join(', '); const ov = (cp.tags || []).join(', '); if (upList !== ov) { diffs.push({ kind: 'p', field: 'tags', id: pid, old: ov, new: upList }); seenProdField.add(key); } }
+        });
+      });
+      if (dryRun) {
+        const byField = {}; diffs.forEach(d2 => { const f = d2.field; byField[f] = (byField[f] || 0) + 1; });
+        return res.status(200).json({ ok: true, changeCount: diffs.length, byField, sample: diffs.slice(0, 30) });
+      }
+      // ---- APPLY ----
+      const now = new Date().toISOString();
+      const isFirst = !body.undoId;
+      const undoId = body.undoId || ('xlundo-' + now.replace(/[:.]/g, '-'));
+      const snapshot = [];
+      const errors = [];
+      let applied = 0;
+      // 1) variant fields via productVariantsBulkUpdate, grouped by product
+      const byProduct = {};
+      diffs.filter(d2 => d2.kind === 'v').forEach(d2 => { (byProduct[d2.productId] = byProduct[d2.productId] || {})[d2.id] = byProduct[d2.productId][d2.id] || { id: d2.id }; const V = byProduct[d2.productId][d2.id];
+        if (d2.field === 'price') V.price = d2.new; else if (d2.field === 'compareAt') V.compareAtPrice = d2.new; else if (d2.field === 'barcode') V.barcode = d2.new;
+        else if (d2.field === 'cost') { V.inventoryItem = V.inventoryItem || {}; V.inventoryItem.cost = d2.new; } else if (d2.field === 'sku') { V.inventoryItem = V.inventoryItem || {}; V.inventoryItem.sku = d2.new; }
+        else if (d2.field === 'weight') { V.inventoryItem = V.inventoryItem || {}; V.inventoryItem.measurement = { weight: { value: Number(d2.new), unit: d2.unit || 'KILOGRAMS' } }; }
+        snapshot.push(d2);
+      });
+      const pids2 = Object.keys(byProduct);
+      for (let i = 0; i < pids2.length && !dryRun; i += 15) {
+        const chunk = pids2.slice(i, i + 15);
+        for (const pid of chunk) {
+          const variants = Object.values(byProduct[pid]);
+          try {
+            const mm = `mutation($productId:ID!, $variants:[ProductVariantsBulkInput!]!){ productVariantsBulkUpdate(productId:$productId, variants:$variants){ userErrors{ field message } } }`;
+            const d3 = await shopify(mm, { productId: pid, variants });
+            const ue = d3.productVariantsBulkUpdate && d3.productVariantsBulkUpdate.userErrors ? d3.productVariantsBulkUpdate.userErrors : [];
+            if (ue.length) ue.forEach(e => errors.push(`${pid}: ${e.message}`)); else applied += variants.length;
+          } catch (e) { errors.push(`${pid}: ${String(e.message || e)}`); }
+        }
+      }
+      // 2) sold-out changes
+      const soDiffs = diffs.filter(d2 => d2.kind === 'soldout');
+      for (const d2 of soDiffs) {
+        snapshot.push(d2);
+        try {
+          const policy = d2.want === 'soldout' ? 'DENY' : 'CONTINUE';
+          await shopify(`mutation($productId:ID!, $variants:[ProductVariantsBulkInput!]!){ productVariantsBulkUpdate(productId:$productId, variants:$variants){ userErrors{ message } } }`, { productId: d2.productId, variants: [{ id: d2.id, inventoryPolicy: policy }] });
+          if (d2.inventoryItemId && d2.locationId) {
+            const qty = d2.want === 'soldout' ? 0 : SOLDOUT_RESTORE_QTY;
+            await shopify(`mutation { inventorySetQuantities(input:{ reason:"correction", name:"on_hand", ignoreCompareQuantity:true, quantities:[{inventoryItemId:"${d2.inventoryItemId}", locationId:"${d2.locationId}", quantity:${qty}}] }){ userErrors{ message } } }`);
+          }
+          applied++;
+        } catch (e) { errors.push(`${d2.id}: ${String(e.message || e)}`); }
+      }
+      // 3) product-level via productUpdate
+      const prodDiffs = {};
+      diffs.filter(d2 => d2.kind === 'p').forEach(d2 => { (prodDiffs[d2.id] = prodDiffs[d2.id] || []).push(d2); snapshot.push(d2); });
+      for (const pid of Object.keys(prodDiffs)) {
+        const flds = prodDiffs[pid];
+        let input = `id:"${pid}"`;
+        let seo = {};
+        flds.forEach(d2 => {
+          if (d2.field === 'productType') input += `, productType:${JSON.stringify(d2.new)}`;
+          else if (d2.field === 'vendor') input += `, vendor:${JSON.stringify(d2.new)}`;
+          else if (d2.field === 'status') input += `, status:${d2.new}`;
+          else if (d2.field === 'tags') input += `, tags:[${d2.new.split(',').map(t => JSON.stringify(t.trim())).filter(x => x !== '""').join(',')}]`;
+          else if (d2.field === 'seoTitle') seo.title = d2.new;
+          else if (d2.field === 'seoDescription') seo.description = d2.new;
+        });
+        if (seo.title != null || seo.description != null) input += `, seo:{${seo.title != null ? `title:${JSON.stringify(seo.title)}` : ''}${seo.title != null && seo.description != null ? ', ' : ''}${seo.description != null ? `description:${JSON.stringify(seo.description)}` : ''}}`;
+        try {
+          const d3 = await shopify(`mutation { productUpdate(input:{${input}}){ userErrors{ field message } } }`);
+          const ue = d3.productUpdate && d3.productUpdate.userErrors ? d3.productUpdate.userErrors : [];
+          if (ue.length) ue.forEach(e => errors.push(`${pid}: ${e.message}`)); else applied += flds.length;
+        } catch (e) { errors.push(`${pid}: ${String(e.message || e)}`); }
+      }
+      // save undo
+      try {
+        const DIR = 'data/xlsx-undo', IDX = 'data/xlsx-undos.json';
+        if (isFirst) {
+          await ghPut(`${DIR}/${undoId}.json`, { id: undoId, createdAt: now, snapshot }, `xlsx undo ${undoId}`);
+          const idx = (await ghGet(IDX)).json || []; idx.unshift({ id: undoId, createdAt: now, count: snapshot.length, reverted: false }); await ghPut(IDX, idx.slice(0, 100), `xlsx index ${undoId}`);
+        } else {
+          const ex = (await ghGet(`${DIR}/${undoId}.json`)).json || { id: undoId, snapshot: [] }; ex.snapshot = (ex.snapshot || []).concat(snapshot); await ghPut(`${DIR}/${undoId}.json`, ex, `xlsx undo append ${undoId}`);
+          const idx = (await ghGet(IDX)).json || []; const hit = idx.find(x => x.id === undoId); if (hit) hit.count = (hit.count || 0) + snapshot.length; await ghPut(IDX, idx, `xlsx index count ${undoId}`);
+        }
+      } catch (e) {}
+      return res.status(200).json({ ok: true, applied, undoId, errors: errors.slice(0, 20) });
+    }
+
+    // ---- xlsx-undo-list ----
+    if (action === 'xlsx-undo-list') {
+      const idx = (await ghGet('data/xlsx-undos.json')).json || [];
+      return res.status(200).json({ ok: true, undos: idx });
+    }
+    // ---- xlsx-undo: restore the old values a run changed ----
+    if (action === 'xlsx-undo') {
+      const undoId = body.undoId; if (!undoId) return res.status(400).json({ ok: false, error: 'undoId required' });
+      const snap = (await ghGet(`data/xlsx-undo/${undoId}.json`)).json; if (!snap || !Array.isArray(snap.snapshot)) return res.status(404).json({ ok: false, error: 'Snapshot not found' });
+      const offset = Number(body.offset) || 0, limit = Number(body.limit) || 60;
+      const work = snap.snapshot.slice(offset, offset + limit);
+      const errors = []; let restored = 0;
+      // variant fields grouped by product
+      const byProduct = {};
+      work.filter(d2 => d2.kind === 'v').forEach(d2 => { const V = (byProduct[d2.productId] = byProduct[d2.productId] || {})[d2.id] = byProduct[d2.productId][d2.id] || { id: d2.id };
+        if (d2.field === 'price') V.price = d2.old; else if (d2.field === 'compareAt') V.compareAtPrice = (d2.old === '' ? null : d2.old); else if (d2.field === 'barcode') V.barcode = d2.old;
+        else if (d2.field === 'cost') { V.inventoryItem = V.inventoryItem || {}; V.inventoryItem.cost = (d2.old === '' ? 0 : d2.old); } else if (d2.field === 'sku') { V.inventoryItem = V.inventoryItem || {}; V.inventoryItem.sku = d2.old; }
+        else if (d2.field === 'weight') { V.inventoryItem = V.inventoryItem || {}; V.inventoryItem.measurement = { weight: { value: Number(d2.old || 0), unit: d2.unit || 'KILOGRAMS' } }; }
+      });
+      for (const pid of Object.keys(byProduct)) {
+        try { const d3 = await shopify(`mutation($productId:ID!, $variants:[ProductVariantsBulkInput!]!){ productVariantsBulkUpdate(productId:$productId, variants:$variants){ userErrors{ message } } }`, { productId: pid, variants: Object.values(byProduct[pid]) });
+          const ue = d3.productVariantsBulkUpdate && d3.productVariantsBulkUpdate.userErrors ? d3.productVariantsBulkUpdate.userErrors : []; if (ue.length) ue.forEach(e => errors.push(e.message)); else restored += Object.keys(byProduct[pid]).length;
+        } catch (e) { errors.push(String(e.message || e)); }
+      }
+      // sold-out restore
+      for (const d2 of work.filter(x => x.kind === 'soldout')) {
+        try { await shopify(`mutation($productId:ID!, $variants:[ProductVariantsBulkInput!]!){ productVariantsBulkUpdate(productId:$productId, variants:$variants){ userErrors{ message } } }`, { productId: d2.productId, variants: [{ id: d2.id, inventoryPolicy: String(d2.oldPolicy).toUpperCase() === 'DENY' ? 'DENY' : 'CONTINUE' }] });
+          if (d2.inventoryItemId && d2.locationId && d2.oldOnHand != null) await shopify(`mutation { inventorySetQuantities(input:{ reason:"correction", name:"on_hand", ignoreCompareQuantity:true, quantities:[{inventoryItemId:"${d2.inventoryItemId}", locationId:"${d2.locationId}", quantity:${Number(d2.oldOnHand)}}] }){ userErrors{ message } } }`);
+          restored++;
+        } catch (e) { errors.push(String(e.message || e)); }
+      }
+      // product fields
+      const prodDiffs = {}; work.filter(d2 => d2.kind === 'p').forEach(d2 => { (prodDiffs[d2.id] = prodDiffs[d2.id] || []).push(d2); });
+      for (const pid of Object.keys(prodDiffs)) {
+        let input = `id:"${pid}"`, seo = {};
+        prodDiffs[pid].forEach(d2 => { if (d2.field === 'productType') input += `, productType:${JSON.stringify(d2.old)}`; else if (d2.field === 'vendor') input += `, vendor:${JSON.stringify(d2.old)}`; else if (d2.field === 'status') input += `, status:${d2.old}`; else if (d2.field === 'tags') input += `, tags:[${d2.old.split(',').map(t => JSON.stringify(t.trim())).filter(x => x !== '""').join(',')}]`; else if (d2.field === 'seoTitle') seo.title = d2.old; else if (d2.field === 'seoDescription') seo.description = d2.old; });
+        if (seo.title != null || seo.description != null) input += `, seo:{${seo.title != null ? `title:${JSON.stringify(seo.title)}` : ''}${seo.title != null && seo.description != null ? ', ' : ''}${seo.description != null ? `description:${JSON.stringify(seo.description)}` : ''}}`;
+        try { const d3 = await shopify(`mutation { productUpdate(input:{${input}}){ userErrors{ message } } }`); const ue = d3.productUpdate && d3.productUpdate.userErrors ? d3.productUpdate.userErrors : []; if (ue.length) ue.forEach(e => errors.push(e.message)); else restored += prodDiffs[pid].length; } catch (e) { errors.push(String(e.message || e)); }
+      }
+      const total = snap.snapshot.length, nextOffset = offset + work.length, hasMore = nextOffset < total;
+      if (!hasMore) { try { const idx = (await ghGet('data/xlsx-undos.json')).json || []; const hit = idx.find(x => x.id === undoId); if (hit) hit.reverted = true; await ghPut('data/xlsx-undos.json', idx, `xlsx reverted ${undoId}`); } catch (e) {} }
       return res.status(200).json({ ok: true, restored, total, nextOffset, hasMore, errors: errors.slice(0, 20) });
     }
 
