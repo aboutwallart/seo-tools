@@ -1,4 +1,7 @@
-// shopify-bulk.js — v2.9.2 (19 Sep 2026)
+// shopify-bulk.js — v2.9.3 (19 Sep 2026)
+// v2.9.3: FIX — inventorySetQuantities now passes ignoreCompareQuantity:true (Shopify rejected the
+//         stock write without it: "compareQuantity must be given or ignored"). So sold-out actually
+//         sets on_hand 0 now, and Show again restores it. Diagnostic 'soldout-doctor' kept.
 // v2.9.2: adds a read-only diagnostic action 'soldout-doctor' — reports the token's granted scopes
 //         and safely tests the on_hand write (no-op) to reveal why sold-out stock isn't landing.
 // v2.9.1: FIX — sold-out now sets on_hand=0 (Shopify won't let you set 'available' directly), so items
@@ -1136,7 +1139,7 @@ module.exports = async function handler(req, res) {
         for (let i = 0; i < qItems.length; i += 100) {
           const chunk = qItems.slice(i, i + 100);
           const quantities = chunk.map(x => `{inventoryItemId:"${x.inventoryItemId}", locationId:"${x.locationId}", quantity:${x.quantity}}`).join(',');
-          const m = `mutation { inventorySetQuantities(input:{ reason:"correction", name:"on_hand", quantities:[${quantities}] }){ userErrors{ field message } } }`;
+          const m = `mutation { inventorySetQuantities(input:{ reason:"correction", name:"on_hand", ignoreCompareQuantity:true, quantities:[${quantities}] }){ userErrors{ field message } } }`;
           const data = await shopify(m);
           const ue = data.inventorySetQuantities && data.inventorySetQuantities.userErrors ? data.inventorySetQuantities.userErrors : [];
           if (ue.length) { ue.forEach(e => errors.push(e.message)); chunk.forEach(x => failed.add(x.variantId)); }
@@ -1260,7 +1263,7 @@ module.exports = async function handler(req, res) {
         for (let i = 0; i < qItems.length; i += 100) {
           const chunk = qItems.slice(i, i + 100);
           const quantities = chunk.map(s => `{inventoryItemId:"${s.inventoryItemId}", locationId:"${s.locationId}", quantity:${Number(s.restoreQty)}}`).join(',');
-          const m = `mutation { inventorySetQuantities(input:{ reason:"correction", name:"on_hand", quantities:[${quantities}] }){ userErrors{ message } } }`;
+          const m = `mutation { inventorySetQuantities(input:{ reason:"correction", name:"on_hand", ignoreCompareQuantity:true, quantities:[${quantities}] }){ userErrors{ message } } }`;
           const data = await shopify(m);
           const ue = data.inventorySetQuantities && data.inventorySetQuantities.userErrors ? data.inventorySetQuantities.userErrors : [];
           if (ue.length) ue.forEach(e => errors.push(e.message));
