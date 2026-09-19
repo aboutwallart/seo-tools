@@ -1,4 +1,8 @@
-// shopify-bulk.js — v2.9.3 (19 Sep 2026)
+// shopify-bulk.js — v3.0 (19 Sep 2026)
+// v3.0: NEW 'addvar' — bulk-create variants (paper / frame colour / size) by group (Unframed-Framed /
+//       Canvas / Frames-only product). Tick-to-create, manual prices, weight copied (or set for a new
+//       size). Own undo that DELETES only the variants each run created. Also 'soldout' preview now
+//       reads current state (light) so already-sold-out rows show as no-change.
 // v2.9.3: FIX — inventorySetQuantities now passes ignoreCompareQuantity:true (Shopify rejected the
 //         stock write without it: "compareQuantity must be given or ignored"). So sold-out actually
 //         sets on_hand 0 now, and Show again restores it. Diagnostic 'soldout-doctor' kept.
@@ -302,6 +306,66 @@ module.exports = async function handler(req, res) {
     return { locationId: lv.location ? lv.location.id : null, available: av ? av.quantity : null, onHand: oh ? oh.quantity : null };
   }
   function isSoldOut(policy, available) { return String(policy).toUpperCase() === 'DENY' && Number(available) <= 0; }
+
+  // ---------- ADD VARIANTS planning ----------
+  const FRAMES_SOLOS_PID = 'gid://shopify/Product/8168004256030';   // the "empty frames" product (options: Size, Frame only)
+  const SIZE_FULL = {
+    uf:     { 'A4':'A4 8.27 x 11.69 in / 21 x 29.7 cm', 'A3':'A3 11.69 x 16.54 in / 29.7 x 42 cm', 'A2':'A2 16.54 x 23.39 in / 42 x 59.4 cm', '20x30':'20 x 30 in / 50 x 76 cm' },
+    canvas: { '12x16':'12 x 16 inches / 30.5 x 40.65 cm', '16x22':'16 x 22 inches / 40.65 cm x 56 cm', '20x30':'20 x 30 in / 50 x 76 cm' }
+  };
+  function pKey(p) { if (/satin/i.test(p)) return 'satin'; if (/matte/i.test(p)) return 'matte'; if (/canvas|polyester/i.test(p)) return 'canvas'; return 'satin'; }
+  // Returns the list of NEW variant inputs to create for one product (skips combos that already exist / lack a price).
+  function addvarPlan(cfg, pr) {
+    const optNames = (pr.options || []).map(o => o.name);
+    const hasPaper = optNames.indexOf('Paper') !== -1;
+    const vnodes = pr.variants ? pr.variants.nodes : [];
+    const existing = new Set();
+    const weightByFS = {}, weightByGroupSize = {}, sizeFullOnProduct = {};
+    vnodes.forEach(v => {
+      const f = optVal(v.selectedOptions, 'Frame'), s = optVal(v.selectedOptions, 'Size'), p = optVal(v.selectedOptions, 'Paper');
+      existing.add(f + '||' + s + '||' + (p || ''));
+      const w = v.inventoryItem && v.inventoryItem.measurement && v.inventoryItem.measurement.weight ? v.inventoryItem.measurement.weight : null;
+      if (w) { weightByFS[f + '||' + s] = w; const gk = frameKey(f) + '|' + sizeKey(s); if (gk && !weightByGroupSize[gk]) weightByGroupSize[gk] = w; }
+      const sc = sizeKey(s); if (sc) sizeFullOnProduct[sc] = s;
+    });
+    const out = [];
+    const P = cfg.prices || {}, W = cfg.weights || {};
+    function num(x) { return (x != null && x !== '' && !isNaN(parseFloat(x))) ? parseFloat(x) : null; }
+    function sizeStr(code) { return sizeFullOnProduct[code] || (SIZE_FULL[cfg.group === 'canvas' ? 'canvas' : 'uf'][code]) || code; }
+    function add(fVal, sVal, pVal, price, weight) {
+      const pr2 = num(price); if (pr2 == null) return;
+      if (existing.has(fVal + '||' + sVal + '||' + (pVal || ''))) return;
+      const ov = [];
+      if (optNames.indexOf('Frame') !== -1) ov.push({ name: fVal, optionName: 'Frame' });
+      if (optNames.indexOf('Size') !== -1) ov.push({ name: sVal, optionName: 'Size' });
+      if (hasPaper) ov.push({ name: pVal, optionName: 'Paper' });
+      out.push({ optionValues: ov, price: pr2.toFixed(2), weight: weight || null, label: [fVal, sVal, pVal].filter(Boolean).join(' / ') });
+    }
+    if (cfg.addType === 'paper') {
+      (cfg.frames || []).forEach(F => (cfg.sizes || []).forEach(code => {
+        const sVal = sizeStr(code);
+        add(F, sVal, cfg.newName, P[frameKey(F) + '|' + code], weightByFS[F + '||' + sVal] || weightByGroupSize[frameKey(F) + '|' + code] || null);
+      }));
+    } else if (cfg.addType === 'frame') {
+      if (cfg.group === 'frames') {
+        (cfg.sizes || []).forEach(code => add(cfg.newName, sizeStr(code), null, P[code], weightByGroupSize['framed|' + code] || null));
+      } else {
+        (cfg.sizes || []).forEach(code => (cfg.papers || []).forEach(P2 => add(cfg.newName, sizeStr(code), P2, P[code + '|' + pKey(P2)], weightByGroupSize['framed|' + code] || null)));
+      }
+    } else if (cfg.addType === 'size') {
+      const sVal = cfg.newName;                                     // the full size label typed by the user
+      if (cfg.group === 'canvas') {
+        const wv = num(W['canvas']);
+        add('Canvas wrapped', sVal, 'Polyester Canvas 260 gsm', P['canvas'], wv != null ? { value: wv, unit: 'KILOGRAMS' } : null);
+      } else if (cfg.group === 'frames') {
+        const wv = num(W['framed']);
+        (cfg.frames || []).forEach(F => add(F, sVal, null, P['framed'], wv != null ? { value: wv, unit: 'KILOGRAMS' } : null));
+      } else {
+        (cfg.frames || []).forEach(F => (cfg.papers || []).forEach(P2 => { const wv = num(W[frameKey(F)]); add(F, sVal, P2, P[frameKey(F) + '|' + pKey(P2)], wv != null ? { value: wv, unit: 'KILOGRAMS' } : null); }));
+      }
+    }
+    return out;
+  }
   function frameGroupOf(selOpts) { return frameKey(optVal(selOpts, 'Frame')); }   // unframed | framed | canvas
   function sizeCodeOf(selOpts) { return sizeKey(optVal(selOpts, 'Size')); }        // A4 | A3 | A2 | 20x30 | 12x16 | 16x22
   function paperKeyOf(selOpts) {
@@ -338,7 +402,7 @@ module.exports = async function handler(req, res) {
     if (field === 'weight')   return 'id title vendor status variants(first:100){ nodes { id title selectedOptions{ name value } inventoryItem{ id measurement{ weight{ value unit } } } } }';
     if (field === 'unitprice')return 'id title vendor status variants(first:100){ nodes { id title price compareAtPrice inventoryItem{ unitCost{ amount } } } } ';
     if (field === 'awaprice') return 'id title vendor status variants(first:100){ nodes { id title price compareAtPrice selectedOptions{ name value } } }';
-    if (field === 'soldout') return 'id title vendor status variants(first:100){ nodes { id title selectedOptions{ name value } inventoryItem{ id } } }';
+    if (field === 'soldout') return 'id title vendor status variants(first:100){ nodes { id title inventoryPolicy inventoryQuantity selectedOptions{ name value } inventoryItem{ id } } }';
     return 'id title vendor status';
   }
 
@@ -932,19 +996,22 @@ module.exports = async function handler(req, res) {
         }
 
         else if (field === 'soldout') {
-          // Option B: mark ALL variants of the chosen frame colour + size as Sold out (no state read → light query).
+          // Mark variants of the chosen frame colour + size as Sold out. Reads current state (light: policy +
+          // inventoryQuantity, no per-location connection) so already-sold-out ones show as "no change".
           const frame = cfg.frame || '';                                // exact Frame value, e.g. 'Oak Frame'
           const size = cfg.size || '';                                  // size code, e.g. 'A3'
           (pr.variants ? pr.variants.nodes : []).forEach(v => {
             unitCount++;
             if (optVal(v.selectedOptions, 'Frame') !== frame) return;    // only the chosen frame colour
             if (sizeCodeOf(v.selectedOptions) !== size) return;          // only the chosen size
-            const changed = !!(v.inventoryItem && v.inventoryItem.id);
+            const currentlySold = isSoldOut(v.inventoryPolicy, v.inventoryQuantity);
+            const changed = !currentlySold && !!(v.inventoryItem && v.inventoryItem.id);
             if (changed) changeCount++;
             rows.push({ productId: pr.id, productTitle: pr.title, vendor: pr.vendor,
               variantId: v.id, variantTitle: v.title, group: frame + ' · ' + size,
-              oldVal: '—', newVal: 'Sold out (no orders)',
-              changed, blocked: false, note: changed ? '' : 'no inventory item',
+              oldVal: currentlySold ? 'Sold out' : 'Available',
+              newVal: currentlySold ? 'Sold out (already)' : 'Sold out (no orders)',
+              changed, blocked: false, note: currentlySold ? 'already sold out' : '',
               payload: { variantId: v.id, inventoryItemId: v.inventoryItem ? v.inventoryItem.id : null, want: 'soldout' } });
           });
         }
@@ -1279,6 +1346,128 @@ module.exports = async function handler(req, res) {
           const hit = idx.find(x => x.id === undoId); if (hit) hit.reverted = true;
           await ghPut(FIELD_UNDO_INDEX, idx, `mark reverted ${undoId}`);
         } catch (e) {}
+      }
+      return res.status(200).json({ ok: true, restored, total, nextOffset, hasMore, errors: errors.slice(0, 20) });
+    }
+
+    // ---- addvar-preview: one page — projects the new variants that would be created ----
+    if (action === 'addvar-preview') {
+      const cfg = body.config || {};
+      const sel = 'id title options{ name } variants(first:100){ nodes{ id selectedOptions{ name value } inventoryItem{ measurement{ weight{ value unit } } } } }';
+      let products = [], pageInfo = { hasNextPage: false, endCursor: null };
+      if (cfg.group === 'frames') {
+        const d = await shopify(`query{ product(id:"${FRAMES_SOLOS_PID}"){ ${sel} } }`);
+        if (d.product) products = [d.product];
+      } else {
+        const d = await shopify(
+          `query($q:String,$cursor:String){ products(first:40, query:$q, after:$cursor){ pageInfo{ hasNextPage endCursor } nodes{ ${sel} } } }`,
+          { q: `vendor:'${AWA_VENDOR}'`, cursor: body.cursor || null }
+        );
+        products = (d.products.nodes || []).filter(p => p.id !== FRAMES_SOLOS_PID);
+        pageInfo = d.products.pageInfo;
+      }
+      let productsWithNew = 0, newVariants = 0;
+      const sample = [];
+      products.forEach(pr => {
+        const plan = addvarPlan(cfg, pr);
+        if (plan.length) { productsWithNew++; newVariants += plan.length; }
+        plan.forEach(v => { if (sample.length < 25) sample.push({ product: pr.title, variant: v.label, price: v.price }); });
+      });
+      return res.status(200).json({ ok: true, productsWithNew, newVariants, sample, pageInfo });
+    }
+
+    // ---- addvar-apply: one page — creates the new variants, records them for undo ----
+    if (action === 'addvar-apply') {
+      const cfg = body.config || {};
+      const now = new Date().toISOString();
+      const isFirst = !body.undoId;
+      const undoId = body.undoId || ('avundo-' + now.replace(/[:.]/g, '-'));
+      const ADDVAR_UNDO_DIR = 'data/addvar-undo', ADDVAR_UNDO_INDEX = 'data/addvar-undos.json';
+      // resolve a location for stock (Bluecoats Court / first)
+      let locationId = null;
+      try { const L = await shopify(`query{ locations(first:1){ nodes{ id } } }`); locationId = L.locations && L.locations.nodes && L.locations.nodes[0] ? L.locations.nodes[0].id : null; } catch (e) {}
+      const sel = 'id title options{ name } variants(first:100){ nodes{ id selectedOptions{ name value } inventoryItem{ measurement{ weight{ value unit } } } } }';
+      let products = [], pageInfo = { hasNextPage: false, endCursor: null };
+      if (cfg.group === 'frames') {
+        const d = await shopify(`query{ product(id:"${FRAMES_SOLOS_PID}"){ ${sel} } }`);
+        if (d.product) products = [d.product];
+      } else {
+        const d = await shopify(
+          `query($q:String,$cursor:String){ products(first:${body.limitProducts ? 1 : 20}, query:$q, after:$cursor){ pageInfo{ hasNextPage endCursor } nodes{ ${sel} } } }`,
+          { q: `vendor:'${AWA_VENDOR}'`, cursor: body.cursor || null }
+        );
+        products = (d.products.nodes || []).filter(p => p.id !== FRAMES_SOLOS_PID);
+        pageInfo = d.products.pageInfo;
+      }
+      const createdChunk = [];                                       // { productId, variantIds:[...] } for undo
+      const errors = [];
+      let created = 0;
+      const mutation = `mutation($productId:ID!, $variants:[ProductVariantsBulkInput!]!){ productVariantsBulkCreate(productId:$productId, variants:$variants){ productVariants{ id } userErrors{ field message } } }`;
+      for (const pr of products) {
+        const plan = addvarPlan(cfg, pr);
+        if (!plan.length) continue;
+        const variants = plan.map(v => {
+          const input = { optionValues: v.optionValues, price: v.price, inventoryPolicy: 'CONTINUE', inventoryItem: { tracked: true } };
+          if (v.weight && v.weight.value != null) input.inventoryItem.measurement = { weight: { value: Number(v.weight.value), unit: v.weight.unit || 'KILOGRAMS' } };
+          if (locationId) input.inventoryQuantities = [{ availableQuantity: SOLDOUT_RESTORE_QTY, locationId }];
+          return input;
+        });
+        try {
+          const d = await shopify(mutation, { productId: pr.id, variants });
+          const r = d.productVariantsBulkCreate || {};
+          const ue = r.userErrors || [];
+          if (ue.length) ue.forEach(e => errors.push(`${pr.title}: ${e.message}`));
+          const ids = (r.productVariants || []).map(x => x.id);
+          if (ids.length) { created += ids.length; createdChunk.push({ productId: pr.id, variantIds: ids }); }
+        } catch (e) { errors.push(`${pr.title}: ${String(e.message || e)}`); }
+      }
+      // save/append the undo snapshot (created variant ids)
+      try {
+        if (isFirst) {
+          await ghPut(`${ADDVAR_UNDO_DIR}/${undoId}.json`, { id: undoId, createdAt: now, config: { group: cfg.group, addType: cfg.addType, newName: cfg.newName }, items: createdChunk }, `addvar undo ${undoId}`);
+          const idx = (await ghGet(ADDVAR_UNDO_INDEX)).json || [];
+          idx.unshift({ id: undoId, createdAt: now, group: cfg.group, addType: cfg.addType, newName: cfg.newName, count: created, reverted: false });
+          await ghPut(ADDVAR_UNDO_INDEX, idx.slice(0, 100), `addvar index ${undoId}`);
+        } else {
+          const existing = (await ghGet(`${ADDVAR_UNDO_DIR}/${undoId}.json`)).json || { id: undoId, items: [] };
+          existing.items = (existing.items || []).concat(createdChunk);
+          await ghPut(`${ADDVAR_UNDO_DIR}/${undoId}.json`, existing, `addvar undo append ${undoId}`);
+          const idx = (await ghGet(ADDVAR_UNDO_INDEX)).json || [];
+          const hit = idx.find(x => x.id === undoId); if (hit) hit.count = (hit.count || 0) + created;
+          await ghPut(ADDVAR_UNDO_INDEX, idx, `addvar index count ${undoId}`);
+        }
+      } catch (e) {}
+      return res.status(200).json({ ok: true, created, undoId, errors: errors.slice(0, 20), pageInfo });
+    }
+
+    // ---- addvar-undo-list ----
+    if (action === 'addvar-undo-list') {
+      const idx = (await ghGet('data/addvar-undos.json')).json || [];
+      return res.status(200).json({ ok: true, undos: idx });
+    }
+
+    // ---- addvar-undo: delete the variants a given add-run created ----
+    if (action === 'addvar-undo') {
+      const undoId = body.undoId;
+      if (!undoId) return res.status(400).json({ ok: false, error: 'undoId required' });
+      const snap = (await ghGet(`data/addvar-undo/${undoId}.json`)).json;
+      if (!snap || !Array.isArray(snap.items)) return res.status(404).json({ ok: false, error: 'Snapshot not found' });
+      const offset = Number(body.offset) || 0, limit = Number(body.limit) || 50;
+      const work = snap.items.slice(offset, offset + limit);
+      const errors = [];
+      let restored = 0;
+      const m = `mutation($productId:ID!, $variantsIds:[ID!]!){ productVariantsBulkDelete(productId:$productId, variantsIds:$variantsIds){ userErrors{ field message } } }`;
+      for (const it of work) {
+        if (!it.variantIds || !it.variantIds.length) continue;
+        try {
+          const d = await shopify(m, { productId: it.productId, variantsIds: it.variantIds });
+          const ue = d.productVariantsBulkDelete && d.productVariantsBulkDelete.userErrors ? d.productVariantsBulkDelete.userErrors : [];
+          if (ue.length) ue.forEach(e => errors.push(e.message)); else restored += it.variantIds.length;
+        } catch (e) { errors.push(String(e.message || e)); }
+      }
+      const total = snap.items.length, nextOffset = offset + work.length, hasMore = nextOffset < total;
+      if (!hasMore) {
+        try { const idx = (await ghGet('data/addvar-undos.json')).json || []; const hit = idx.find(x => x.id === undoId); if (hit) hit.reverted = true; await ghPut('data/addvar-undos.json', idx, `addvar reverted ${undoId}`); } catch (e) {}
       }
       return res.status(200).json({ ok: true, restored, total, nextOffset, hasMore, errors: errors.slice(0, 20) });
     }
