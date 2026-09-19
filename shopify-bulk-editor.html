@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v3.1 · NEW: Excel tab — pick columns, download .xlsx, edit, upload; applies only what changed (preview + undo) · 5 tabs · batches + backup + undo</div>
+            <div class="subtitle">v3.2 · Excel tab now covers Collective too (pick vendors; shows each variant's own Options) · 5 tabs · batches + backup + undo</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -565,6 +565,18 @@
             <div class="panel">
                 <h2><span class="step-num">1</span> Download — choose columns</h2>
                 <div class="hint">Tick the columns you need (Product ID + Variant ID always go in). Drag the list to set the order. Then download one .xlsx, filter and edit in Excel.</div>
+                <div class="row" style="margin-top:12px;">
+                    <div class="field"><label>Catalog</label>
+                        <select id="xlScope" onchange="xlOnScope()">
+                            <option value="awa">About Wall Art</option>
+                            <option value="collective">Collective (choose vendors)</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="xlVendorWrap" style="margin-top:8px; display:none;">
+                    <div class="pct muted" style="margin-bottom:6px;">Vendors to include <button class="btn btn-light" style="margin-left:6px;" onclick="xlLoadVendors()">↻ Load vendors</button></div>
+                    <div id="xlVendorList" class="muted">Tap "Load vendors" to pick.</div>
+                </div>
                 <div id="xlChecks" style="margin-top:14px;"></div>
                 <div style="margin-top:14px;">
                     <div class="pct muted" style="margin-bottom:6px;">Column order (drag to reorder)</div>
@@ -1229,16 +1241,17 @@ const XLCOLS = [
     { key:'handle', label:'Handle', grp:'ref' },
     { key:'collections', label:'Collections', grp:'ref' },
     { key:'category', label:'Category', grp:'ref' },
-    { key:'frame', label:'Frame', grp:'ref' },
-    { key:'size', label:'Size', grp:'ref' },
-    { key:'paper', label:'Paper', grp:'ref' },
+    { key:'frame', label:'Frame', grp:'ref', scope:'awa' },
+    { key:'size', label:'Size', grp:'ref', scope:'awa' },
+    { key:'paper', label:'Paper', grp:'ref', scope:'awa' },
+    { key:'options', label:'Options', grp:'ref', scope:'collective' },
     { key:'sku', label:'SKU', grp:'var', editable:true },
     { key:'barcode', label:'Barcode', grp:'var', editable:true },
     { key:'price', label:'Price', grp:'var', editable:true },
     { key:'compareAt', label:'Compare-at', grp:'var', editable:true },
     { key:'cost', label:'Cost', grp:'var', editable:true },
     { key:'weight', label:'Weight (kg)', grp:'var', editable:true },
-    { key:'soldout', label:'Sold out', grp:'var', editable:true },
+    { key:'soldout', label:'Sold out', grp:'var', editable:true, scope:'awa' },
     { key:'productType', label:'Product type', grp:'prod', editable:true },
     { key:'tags', label:'Tags', grp:'prod', editable:true },
     { key:'vendor', label:'Vendor', grp:'prod', editable:true },
@@ -1250,12 +1263,30 @@ const XL_LABEL2KEY = {}; XLCOLS.forEach(c => XL_LABEL2KEY[c.label] = c.key);
 let xlOrder = ['title','sku','frame','size','paper','price','compareAt','soldout']; // default selected (order)
 let xlParsed = null; // parsed upload
 function xlSetStatus(m){ document.getElementById('xlStatus').innerHTML = m; }
+function xlScopeVal(){ const el=document.getElementById('xlScope'); return el?el.value:'awa'; }
+function xlColOk(c){ return !c.scope || c.scope===xlScopeVal(); }
+function xlOnScope(){
+    const coll = xlScopeVal()==='collective';
+    document.getElementById('xlVendorWrap').style.display = coll ? '' : 'none';
+    xlOrder = xlOrder.filter(k => { const c = XLCOLS.find(x=>x.key===k); return c && xlColOk(c); }); // drop columns not valid for the scope
+    xlRenderChecks();
+}
+async function xlLoadVendors(){
+    const box = document.getElementById('xlVendorList'); box.innerHTML='<span class="spinner"></span> Loading…';
+    try {
+        const d = await (await fetch(API+'?action=vendors')).json();
+        const list = (d&&d.vendors?d.vendors:[]).filter(v => !/about wall art/i.test(v.vendor) && v.vendor!=='(no vendor)');
+        if (!list.length){ box.innerHTML='<span class="muted">No other vendors found.</span>'; return; }
+        box.innerHTML = list.map(v => '<label style="display:inline-flex; align-items:center; gap:5px; margin:0 14px 6px 0;"><input type="checkbox" class="xlvendor" value="'+esc(v.vendor)+'"> '+esc(v.vendor)+' <span class="pct muted">('+v.count+')</span></label>').join('');
+    } catch(e){ box.innerHTML='<span class="down">⚠️ '+esc(e.message)+'</span>'; }
+}
+function xlTickedVendors(){ return Array.from(document.querySelectorAll('.xlvendor:checked')).map(x=>x.value); }
 function xlRenderChecks(){
     const groups = [['Identify / filter','ref'],['Editable · per variant','var'],['Editable · per product','prod']];
     let html = '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px;">';
     groups.forEach(([title,g]) => {
         html += '<div style="background:#faf9f6; border-radius:12px; padding:12px;"><div class="pct muted" style="margin-bottom:8px;">'+title+'</div>';
-        XLCOLS.filter(c=>c.grp===g).forEach(c => {
+        XLCOLS.filter(c=>c.grp===g && xlColOk(c)).forEach(c => {
             const on = xlOrder.indexOf(c.key)!==-1 ? 'checked' : '';
             html += '<label style="display:flex; align-items:center; gap:6px; padding:3px 0;"><input type="checkbox" '+on+' onchange="xlToggle(\''+c.key+'\',this.checked)"> '+esc(c.label)+(c.editable?'':' <span class="pct muted" style="margin-left:auto;">ref</span>')+'</label>';
         });
@@ -1282,6 +1313,8 @@ function xlDrop(e){ e.preventDefault(); const to = Number(e.target.getAttribute(
 async function xlDownload(){
     if (!xlOrder.length){ document.getElementById('xlDlStatus').innerHTML='⚠️ Tick at least one column.'; return; }
     if (typeof XLSX==='undefined'){ document.getElementById('xlDlStatus').innerHTML='⚠️ Excel library still loading — wait a second and try again.'; return; }
+    const vendors = xlScopeVal()==='collective' ? xlTickedVendors() : [];
+    if (xlScopeVal()==='collective' && !vendors.length){ document.getElementById('xlDlStatus').innerHTML='⚠️ Tick at least one vendor.'; return; }
     const keys = ['productId','variantId'].concat(xlOrder);
     const headers = keys.map(k => (XLCOLS.find(c=>c.key===k)||{}).label || k);
     document.getElementById('xlDownloadBtn').disabled = true;
@@ -1289,7 +1322,7 @@ async function xlDownload(){
     try {
         do {
             document.getElementById('xlDlStatus').innerHTML='<span class="spinner"></span> Reading Shopify… ('+all.length+' rows)';
-            const d = await (await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'xlsx-data',cursor})})).json();
+            const d = await (await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'xlsx-data',cursor,vendors})})).json();
             if (!d.ok){ document.getElementById('xlDlStatus').innerHTML='⚠️ '+esc(d.error||'Error'); document.getElementById('xlDownloadBtn').disabled=false; return; }
             all = all.concat(d.rows);
             cursor = d.pageInfo && d.pageInfo.hasNextPage ? d.pageInfo.endCursor : null;
