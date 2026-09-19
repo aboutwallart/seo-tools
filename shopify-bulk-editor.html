@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v2.9.3 · Sold out by frame + size (sets on-hand to 0, no orders) with a "Frames you've hidden" list to Show again · 3 tabs · batches + backup + undo</div>
+            <div class="subtitle">v2.9.4 · Sold out by frame + size (sets on-hand to 0, no orders); "Frames you've hidden" list now labels each row · 3 tabs · batches + backup + undo</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -948,9 +948,10 @@ async function loadSoldoutActive(){
         box.innerHTML = list.map(u => {
             const label = esc(u.label || ((u.frame||'') + ' · ' + (u.size||'')) || 'Sold out');
             const when = u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-GB') : '';
+            const tag = '<span style="color:#c62828; font-weight:700; font-size:0.75em; background:#fdecea; padding:2px 9px; border-radius:20px; margin-left:8px; vertical-align:middle;">● HIDDEN — SOLD OUT</span>';
             return '<div style="display:flex; align-items:center; gap:12px; padding:8px 0; border-bottom:1px solid #f0f0f0;">'
-                + '<div style="flex:1;"><b>' + label + '</b>'
-                + '<div class="pct muted">' + esc(when) + ' · ' + (u.count||0) + ' variants</div></div>'
+                + '<div style="flex:1;"><b>' + label + '</b>' + tag
+                + '<div class="pct muted">Hidden on ' + esc(when) + ' · ' + (u.count||0) + ' variants · tap Show again to put back on sale</div></div>'
                 + '<button class="btn btn-undo" onclick="showAgainFromLog(\'' + esc(u.id) + '\')">↺ Show again</button></div>';
         }).join('');
     } catch(e){ box.innerHTML = '<span class="down">⚠️ ' + esc(e.message) + '</span>'; }
