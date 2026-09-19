@@ -1,4 +1,7 @@
-// shopify-bulk.js — v3.1 (19 Sep 2026)
+// shopify-bulk.js — v3.2 (19 Sep 2026)
+// v3.2: xlsx-data accepts a vendors[] list (Collective) — defaults to About Wall Art — and adds an
+//       'options' column (each variant's own selectedOptions joined) for non-AWA products.
+// v3.1 (rolled into v3.2 delivery)
 // v3.1: NEW Excel export/import — 'xlsx-data' (one row per variant, all fields), 'xlsx-apply' (dryRun
 //       returns the diffs vs live Shopify; else applies price/compareAt/cost/weight/sku/barcode/soldout +
 //       productType/tags/vendor/status/SEO, and saves undo), 'xlsx-undo-list', 'xlsx-undo'.
@@ -1489,9 +1492,12 @@ module.exports = async function handler(req, res) {
     // ---- xlsx-data: one page of rows (one row per variant) for the download ----
     if (action === 'xlsx-data') {
       const sel = 'id title handle vendor status productType tags category{ fullName } seo{ title description } collections(first:20){ nodes{ title } } variants(first:100){ nodes{ id sku barcode price compareAtPrice inventoryPolicy inventoryQuantity selectedOptions{ name value } inventoryItem{ id unitCost{ amount } measurement{ weight{ value unit } } } } }';
+      // scope: default About Wall Art, or a chosen list of vendors (Collective)
+      const vendorList = Array.isArray(body.vendors) ? body.vendors.filter(Boolean) : [];
+      const qFilter = vendorList.length ? '(' + vendorList.map(v => `vendor:'${String(v).replace(/'/g, "\\'")}'`).join(' OR ') + ')' : `vendor:'${AWA_VENDOR}'`;
       const d = await shopify(
         `query($q:String,$cursor:String){ products(first:15, query:$q, after:$cursor){ pageInfo{ hasNextPage endCursor } nodes{ ${sel} } } }`,
-        { q: `vendor:'${AWA_VENDOR}'`, cursor: body.cursor || null }
+        { q: qFilter, cursor: body.cursor || null }
       );
       const rows = [];
       (d.products.nodes || []).forEach(pr => {
@@ -1502,6 +1508,7 @@ module.exports = async function handler(req, res) {
             productId: pr.id, variantId: v.id, title: pr.title, handle: pr.handle, vendor: pr.vendor, status: pr.status,
             collections: colls, category: pr.category ? pr.category.fullName : '',
             frame: optVal(v.selectedOptions, 'Frame'), size: optVal(v.selectedOptions, 'Size'), paper: optVal(v.selectedOptions, 'Paper'),
+            options: (v.selectedOptions || []).map(o => o.name + ': ' + o.value).join(' · '),
             sku: v.sku || '', barcode: v.barcode || '', price: v.price, compareAt: (v.compareAtPrice && v.compareAtPrice !== '0.00') ? v.compareAtPrice : '',
             cost: v.inventoryItem && v.inventoryItem.unitCost ? v.inventoryItem.unitCost.amount : '', weight: w ? w.value : '',
             soldout: isSoldOut(v.inventoryPolicy, v.inventoryQuantity) ? 'yes' : 'no',
