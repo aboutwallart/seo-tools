@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v3.2.1 · Excel covers Collective (pick vendors, Select all, file named per catalog) · 5 tabs · batches + backup + undo</div>
+            <div class="subtitle">v3.2.2 · Excel covers Collective (vendors in an aligned grid, Select all, file named per catalog) · 5 tabs · batches + backup + undo</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -1277,8 +1277,10 @@ async function xlLoadVendors(){
         const d = await (await fetch(API+'?action=vendors')).json();
         const list = (d&&d.vendors?d.vendors:[]).filter(v => !/about wall art/i.test(v.vendor) && v.vendor!=='(no vendor)');
         if (!list.length){ box.innerHTML='<span class="muted">No other vendors found.</span>'; return; }
-        box.innerHTML = '<div style="margin-bottom:8px;"><button class="btn btn-light" onclick="xlAllVendors(true)">Select all</button> <button class="btn btn-light" onclick="xlAllVendors(false)">Clear</button></div>'
-            + list.map(v => '<label style="display:inline-flex; align-items:center; gap:5px; margin:0 14px 6px 0;"><input type="checkbox" class="xlvendor" value="'+esc(v.vendor)+'"> '+esc(v.vendor)+' <span class="pct muted">('+v.count+')</span></label>').join('');
+        box.innerHTML = '<div style="margin-bottom:10px;"><button class="btn btn-light" onclick="xlAllVendors(true)">Select all</button> <button class="btn btn-light" onclick="xlAllVendors(false)">Clear</button></div>'
+            + '<div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:2px 16px;">'
+            + list.map(v => '<label style="display:flex; align-items:center; gap:7px; padding:4px 0; font-size:14px;"><input type="checkbox" class="xlvendor" value="'+esc(v.vendor)+'"><span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">'+esc(v.vendor)+'</span><span class="pct muted">'+v.count+'</span></label>').join('')
+            + '</div>';
     } catch(e){ box.innerHTML='<span class="down">⚠️ '+esc(e.message)+'</span>'; }
 }
 function xlAllVendors(on){ Array.prototype.forEach.call(document.querySelectorAll('.xlvendor'), function(x){ x.checked = on; }); }
