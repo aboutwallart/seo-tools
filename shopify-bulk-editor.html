@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v2.9.4 · Sold out by frame + size (sets on-hand to 0, no orders); "Frames you've hidden" list now labels each row · 3 tabs · batches + backup + undo</div>
+            <div class="subtitle">v3.0 · NEW: Add variants in bulk (paper / frame colour / size, by group, tick-to-create, test on 1 first) · Sold out preview now shows current status · 3 tabs · batches + backup + undo</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -318,6 +318,7 @@
                             <option value="collections">Collections</option>
                             <option value="category">Category</option>
                             <option value="soldout">Sold out / restore (About Wall Art only)</option>
+                            <option value="addvar">Add variants (About Wall Art only)</option>
                         </select>
                     </div>
                 </div>
@@ -497,9 +498,49 @@
                         <div id="soldoutActiveList" class="muted">—</div>
                     </div>
                 </div>
+
+                <!-- ADD VARIANTS -->
+                <div class="fieldpanel" id="fp-addvar" hidden style="margin-top:16px;">
+                    <div class="hint">Only <b>About Wall Art</b>. Add new variants in bulk. <b>Tick exactly what to create</b> — anything left unticked is not created. You type the prices; weight is copied automatically (for a new <b>size</b> you set it). <b>Always Test on 1 product first.</b></div>
+
+                    <div class="row" style="margin-top:12px;">
+                        <div class="field"><label>1 · Group</label>
+                            <select id="avGroup" onchange="avOnGroup()">
+                                <option value="uf">Unframed / Framed</option>
+                                <option value="canvas">Canvas</option>
+                                <option value="frames">Frames only (empty-frames product)</option>
+                            </select>
+                        </div>
+                        <div class="field"><label>2 · What to add</label>
+                            <select id="avType" onchange="avRender()"></select>
+                        </div>
+                        <div class="field" style="flex:1; min-width:240px;"><label id="avNameLabel">3 · New name</label>
+                            <input type="text" id="avName" placeholder="type the new value…" oninput="avRenderGrid()">
+                        </div>
+                    </div>
+
+                    <div id="avChecks" style="margin-top:14px;"></div>
+                    <div id="avGridWrap" style="margin-top:14px;"></div>
+
+                    <div class="actions" style="margin-top:16px;">
+                        <button class="btn btn-light" id="avTestBtn" onclick="avApply(true)">🧪 Test on 1 product</button>
+                        <button class="btn btn-primary" id="avPreviewBtn" onclick="avPreview()">👁️ Preview all</button>
+                        <button class="btn btn-green" id="avApplyBtn" onclick="avApply(false)">✅ Create on all AWA</button>
+                    </div>
+                    <div class="status" id="avStatus">Pick a group + what to add, tick where it applies, set prices, then <b>Test on 1 product</b> first.</div>
+
+                    <div style="margin-top:18px; border-top:2px solid #eee; padding-top:14px;">
+                        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+                            <b>Variants you've added</b>
+                            <span class="muted">tap "Undo" to delete a batch you just created</span>
+                            <button class="btn btn-light" style="margin-left:auto;" onclick="avLoadAdded()">↻ Refresh</button>
+                        </div>
+                        <div id="avAddedList" class="muted">—</div>
+                    </div>
+                </div>
             </div>
 
-            <div class="panel">
+            <div class="panel" id="t2step4">
                 <h2><span class="step-num">4</span> Preview &amp; apply</h2>
                 <div class="actions">
                     <button class="btn btn-primary" id="previewBtn2" onclick="runPreview2()">👁️ Preview</button>
@@ -598,7 +639,7 @@ async function backupAll(){
 }
 
 /* ---- Tab 2: per-field backup gate ---- */
-function fieldLabel(f){ return ({tags:'Tags', ptype:'Product type', weight:'Weight', unitprice:'Unit price', collections:'Collections', category:'Category', soldout:'Sold out / restore'})[f] || f; }
+function fieldLabel(f){ return ({tags:'Tags', ptype:'Product type', weight:'Weight', unitprice:'Unit price', collections:'Collections', category:'Category', soldout:'Sold out / restore', addvar:'Add variants'})[f] || f; }
 function paintFieldGate(state){
     const f = document.getElementById('t2field').value;
     const p = document.getElementById('fieldBackupPanel');
@@ -610,12 +651,14 @@ function paintFieldGate(state){
 }
 async function checkFieldGate(){
     const f = document.getElementById('t2field').value;
-    // Sold-out needs no full-store backup: every change is saved with its own exact undo ("Frames you've hidden").
-    if (f === 'soldout') {
+    // Sold-out & Add-variants need no full-store backup: each change is saved with its own exact undo.
+    if (f === 'soldout' || f === 'addvar') {
         paintFieldGate('green'); unlockBody('tab2Body');
         document.getElementById('fieldBackupTitle').innerHTML = '✅ Ready — no backup needed';
         document.getElementById('fieldBackupBtn').style.display = 'none';
-        document.getElementById('fieldBackupNote').innerHTML = 'Every change here is saved on its own and can be reverted below with <b>Show again</b> — no backup step needed.';
+        document.getElementById('fieldBackupNote').innerHTML = (f === 'addvar')
+            ? 'Adding variants only <b>adds</b> — it never changes what you already have. Each run can be undone below.'
+            : 'Every change here is saved on its own and can be reverted below with <b>Show again</b> — no backup step needed.';
         return;
     }
     document.getElementById('fieldBackupBtn').style.display = '';
@@ -929,11 +972,13 @@ async function loadFieldMeta(){
 }
 function onFieldChange(){
     const f = document.getElementById('t2field').value;
-    ['tags','ptype','weight','collections','category','soldout'].forEach(k => { document.getElementById('fp-'+k).hidden = (k !== f); });
-    // Weight & Sold-out apply only to About Wall Art and are chosen by frame/size — no supplier step needed
-    document.getElementById('t2step2').hidden = (f === 'weight' || f === 'soldout');
+    ['tags','ptype','weight','collections','category','soldout','addvar'].forEach(k => { document.getElementById('fp-'+k).hidden = (k !== f); });
+    // Weight, Sold-out & Add-variants apply only to About Wall Art — no supplier step needed. Add-variants has its own buttons (no shared step 4).
+    document.getElementById('t2step2').hidden = (f === 'weight' || f === 'soldout' || f === 'addvar');
+    const s4 = document.getElementById('t2step4'); if (s4) s4.hidden = (f === 'addvar');
     if (f === 'weight') buildWeightGrid();
     if (f === 'soldout') { onSoldoutFrame(); loadSoldoutActive(); }
+    if (f === 'addvar') { avOnGroup(); avLoadAdded(); }
     checkFieldGate(); // each field has its own backup gate
 }
 /* ---- Sold-out log: the list of frame+size you've hidden, each revertible with "Show again" ---- */
@@ -966,6 +1011,166 @@ async function showAgainFromLog(undoId){
     } catch(e){ stopWait(); setStatus2('⚠️ ' + esc(e.message)); }
     loadSoldoutActive();
 }
+
+/* ===================== ADD VARIANTS ===================== */
+const AV = {
+    frames_uf: ['Unframed','Black Frame','White Frame','Oak Frame'],
+    frames_solos: ['Black Frame','White Frame','Oak Frame'],
+    sizes_uf: ['A4','A3','A2','20x30'],
+    sizes_canvas: ['12x16','16x22','20x30'],
+    papers_uf: ['Satin Photo paper 280 gsm','Matte museum Quality Art Paper 290 gsm'],
+    types: { uf: [['paper','Paper'],['frame','Frame colour'],['size','Size']], canvas: [['size','Size']], frames: [['frame','Frame colour'],['size','Size']] }
+};
+function avFrameKey(f){ return /unframed/i.test(f)?'unframed':/canvas/i.test(f)?'canvas':'framed'; }
+function avPKey(p){ return /satin/i.test(p)?'satin':/matte/i.test(p)?'matte':/canvas|polyester/i.test(p)?'canvas':'satin'; }
+function avUniq(a){ return Array.from(new Set(a)); }
+function avTicked(cls){ return Array.from(document.querySelectorAll('.'+cls+':checked')).map(x=>x.value); }
+function avFrames(g){ return g==='frames' ? AV.frames_solos : AV.frames_uf; }
+function avSizes(g){ return g==='canvas' ? AV.sizes_canvas : AV.sizes_uf; }
+function avSetStatus(m){ document.getElementById('avStatus').innerHTML = m; }
+function avOnGroup(){
+    const g = document.getElementById('avGroup').value;
+    document.getElementById('avType').innerHTML = AV.types[g].map(t => '<option value="'+t[0]+'">'+t[1]+'</option>').join('');
+    avRender();
+}
+function avCheckRow(title, cls, items){
+    return '<div style="margin:8px 0;"><div class="pct muted" style="margin-bottom:4px;">'+title+'</div>'
+        + items.map(v => '<label style="display:inline-flex;align-items:center;gap:5px;margin:0 14px 6px 0;"><input type="checkbox" class="'+cls+'" value="'+esc(v)+'" onchange="avRenderGrid()"> '+esc(v)+'</label>').join('')
+        + '</div>';
+}
+function avRender(){
+    const g = document.getElementById('avGroup').value, t = document.getElementById('avType').value;
+    document.getElementById('avNameLabel').innerHTML = '3 · ' + (t==='paper'?'New paper name':t==='frame'?'New frame colour name':'New size — full label (e.g. A1 …)');
+    let html='';
+    if (t==='paper'){ html += avCheckRow('Frames it applies to','avF',avFrames(g)); html += avCheckRow('Sizes it applies to','avS',avSizes(g)); }
+    else if (t==='frame'){ html += avCheckRow('Sizes it applies to','avS',avSizes(g)); if (g!=='frames') html += avCheckRow('Papers it applies to','avP',AV.papers_uf); }
+    else if (t==='size'){
+        if (g==='uf'){ html += avCheckRow('Frames it applies to','avF',avFrames(g)); html += avCheckRow('Papers it applies to','avP',AV.papers_uf); }
+        else if (g==='frames'){ html += avCheckRow('Frames it applies to','avF',avFrames(g)); }
+    }
+    document.getElementById('avChecks').innerHTML = html;
+    avRenderGrid();
+}
+function avPriceIn(key){ return '<input type="number" step="0.01" min="0" data-avprice="'+esc(key)+'" placeholder="£" style="width:90px;">'; }
+function avWtIn(key){ return '<input type="number" step="0.001" min="0" data-avwt="'+esc(key)+'" placeholder="kg" style="width:90px;">'; }
+function avRenderGrid(){
+    const g = document.getElementById('avGroup').value, t = document.getElementById('avType').value;
+    const F = avTicked('avF'), S = avTicked('avS'), P = avTicked('avP');
+    const th = 'style="padding:4px 8px;text-align:left;"'; let html='';
+    if (t==='paper'){
+        const fks = avUniq(F.map(avFrameKey));
+        if (fks.length && S.length){
+            html += '<div class="pct muted" style="margin-bottom:6px;">Prices (£) — frame type × size</div><table><tr><th '+th+'></th>'+S.map(s=>'<th '+th+'>'+s+'</th>').join('')+'</tr>';
+            fks.forEach(fk=>{ html+='<tr><td '+th+'><b>'+fk+'</b></td>'+S.map(s=>'<td '+th+'>'+avPriceIn(fk+'|'+s)+'</td>').join('')+'</tr>'; });
+            html += '</table>';
+        }
+    } else if (t==='frame'){
+        if (g==='frames'){ if (S.length){ html += '<div class="pct muted" style="margin-bottom:6px;">Price (£) per size</div>'+S.map(s=>'<label style="margin-right:14px;">'+s+' '+avPriceIn(s)+'</label>').join(''); } }
+        else if (S.length && P.length){
+            html += '<div class="pct muted" style="margin-bottom:6px;">Prices (£) — size × paper</div><table><tr><th '+th+'></th>'+P.map(p=>'<th '+th+'>'+avPKey(p)+'</th>').join('')+'</tr>';
+            S.forEach(s=>{ html+='<tr><td '+th+'><b>'+s+'</b></td>'+P.map(p=>'<td '+th+'>'+avPriceIn(s+'|'+avPKey(p))+'</td>').join('')+'</tr>'; });
+            html += '</table>';
+        }
+    } else if (t==='size'){
+        if (g==='canvas'){ html += '<div class="pct muted" style="margin-bottom:6px;">Price &amp; weight for the new canvas size</div>Price '+avPriceIn('canvas')+' &nbsp; Weight '+avWtIn('canvas'); }
+        else if (g==='frames'){ if (F.length){ html += '<div class="pct muted" style="margin-bottom:6px;">Price &amp; weight for the new size (frame colours share)</div>Price '+avPriceIn('framed')+' &nbsp; Weight '+avWtIn('framed'); } }
+        else { const fks = avUniq(F.map(avFrameKey));
+            if (fks.length && P.length){
+                html += '<div class="pct muted" style="margin-bottom:6px;">Prices (£) — frame type × paper, and weight per frame type</div><table><tr><th '+th+'></th>'+P.map(p=>'<th '+th+'>'+avPKey(p)+'</th>').join('')+'<th '+th+'>Weight (kg)</th></tr>';
+                fks.forEach(fk=>{ html+='<tr><td '+th+'><b>'+fk+'</b></td>'+P.map(p=>'<td '+th+'>'+avPriceIn(fk+'|'+avPKey(p))+'</td>').join('')+'<td '+th+'>'+avWtIn(fk)+'</td></tr>'; });
+                html += '</table>';
+            }
+        }
+    }
+    document.getElementById('avGridWrap').innerHTML = html || '<div class="muted">Tick where it applies to set the prices.</div>';
+}
+function avBuildConfig(){
+    const cfg = { group: document.getElementById('avGroup').value, addType: document.getElementById('avType').value,
+        newName: document.getElementById('avName').value.trim(), frames: avTicked('avF'), sizes: avTicked('avS'), papers: avTicked('avP'), prices:{}, weights:{} };
+    document.querySelectorAll('[data-avprice]').forEach(el=>{ if(el.value!=='') cfg.prices[el.getAttribute('data-avprice')] = el.value; });
+    document.querySelectorAll('[data-avwt]').forEach(el=>{ if(el.value!=='') cfg.weights[el.getAttribute('data-avwt')] = el.value; });
+    return cfg;
+}
+function avValidate(cfg){
+    if (!cfg.newName) return 'Type a name for the new value.';
+    if (cfg.addType==='paper' && (!cfg.frames.length || !cfg.sizes.length)) return 'Tick at least one frame and one size.';
+    if (cfg.addType==='frame' && !cfg.sizes.length) return 'Tick at least one size.';
+    if (cfg.addType==='frame' && cfg.group!=='frames' && !cfg.papers.length) return 'Tick at least one paper.';
+    if (cfg.addType==='size' && cfg.group==='uf' && (!cfg.frames.length || !cfg.papers.length)) return 'Tick at least one frame and one paper.';
+    if (cfg.addType==='size' && cfg.group==='frames' && !cfg.frames.length) return 'Tick at least one frame.';
+    if (!Object.keys(cfg.prices).length) return 'Fill in at least one price.';
+    return '';
+}
+async function avPreview(){
+    const cfg = avBuildConfig(); const err = avValidate(cfg); if (err){ avSetStatus('⚠️ '+esc(err)); return; }
+    document.getElementById('avPreviewBtn').disabled = true;
+    let cursor=null, totProd=0, totVar=0, sample=[];
+    try {
+        do {
+            avSetStatus('<span class="spinner"></span> Checking… ('+totVar+' new variants so far)');
+            const d = await (await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'addvar-preview', config:cfg, cursor }) })).json();
+            if (!d.ok){ avSetStatus('⚠️ '+esc(d.error||'Error')); document.getElementById('avPreviewBtn').disabled=false; return; }
+            totProd += d.productsWithNew; totVar += d.newVariants; if (sample.length<25) sample = sample.concat(d.sample).slice(0,25);
+            cursor = d.pageInfo && d.pageInfo.hasNextPage ? d.pageInfo.endCursor : null;
+        } while (cursor);
+        let msg = '👁️ Would create <b>'+totVar+'</b> new variants across <b>'+totProd+'</b> products.';
+        if (!totVar) msg += ' <span class="muted">(nothing new — maybe they already exist, or no price set)</span>';
+        if (sample.length) msg += '<div class="pct muted" style="margin-top:8px;">e.g. '+sample.slice(0,6).map(s=>esc(s.variant)+' £'+esc(s.price)).join(' · ')+'…</div>';
+        msg += '<div style="margin-top:8px;"><b>Test on 1 product first</b> to check it looks right, then Create on all.</div>';
+        avSetStatus(msg);
+    } catch(e){ avSetStatus('⚠️ '+esc(e.message)); }
+    document.getElementById('avPreviewBtn').disabled = false;
+}
+async function avApply(testOne){
+    const cfg = avBuildConfig(); const err = avValidate(cfg); if (err){ avSetStatus('⚠️ '+esc(err)); return; }
+    const what = testOne ? 'on 1 product (test)' : 'on ALL About Wall Art products';
+    if (!confirm('Create new "'+cfg.newName+'" variants '+what+'?\n\nThis only ADDS variants — it never changes your existing ones. You can Undo it after.')) return;
+    ['avTestBtn','avPreviewBtn','avApplyBtn'].forEach(id=>document.getElementById(id).disabled=true);
+    startWait('Creating variants '+what+'…', 'Please don\'t close this.');
+    let cursor=null, undoId=null, created=0, errors=[];
+    try {
+        do {
+            setWaitText('Created '+created+' so far…');
+            const body = { action:'addvar-apply', config:cfg, cursor }; if (undoId) body.undoId = undoId; if (testOne) body.limitProducts = 1;
+            const d = await (await fetch(API, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })).json();
+            if (!d.ok) throw new Error(d.error||'Error');
+            created += (d.created||0); if (d.undoId) undoId = d.undoId; if (d.errors && d.errors.length) errors = errors.concat(d.errors);
+            cursor = (!testOne && d.pageInfo && d.pageInfo.hasNextPage) ? d.pageInfo.endCursor : null;
+        } while (cursor);
+        stopWait();
+        let msg = '✅ Created <b>'+created+'</b> variants'+(testOne?' (on 1 product — check it in Shopify)':'')+'.';
+        if (errors.length) msg += ' <span class="down">('+errors.length+' errors: '+esc(errors[0])+')</span>';
+        avSetStatus(msg); avLoadAdded();
+    } catch(e){ stopWait(); avSetStatus('⚠️ '+esc(e.message)); }
+    ['avTestBtn','avPreviewBtn','avApplyBtn'].forEach(id=>document.getElementById(id).disabled=false);
+}
+async function avLoadAdded(){
+    const box = document.getElementById('avAddedList'); if (!box) return;
+    box.innerHTML = '<span class="spinner"></span> Loading…';
+    try {
+        const d = await (await fetch(API + '?action=addvar-undo-list')).json();
+        const list = (d && d.undos ? d.undos : []).filter(u => !u.reverted);
+        if (!list.length){ box.innerHTML = '<span class="muted">Nothing added yet.</span>'; return; }
+        box.innerHTML = list.map(u => {
+            const when = u.createdAt ? new Date(u.createdAt).toLocaleString('en-GB') : '';
+            return '<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid #f0f0f0;">'
+                + '<div style="flex:1;"><b>'+esc(u.newName||'')+'</b> <span class="pct muted">('+esc(u.addType||'')+' · '+esc(u.group||'')+')</span>'
+                + '<div class="pct muted">'+esc(when)+' · '+(u.count||0)+' variants created</div></div>'
+                + '<button class="btn btn-undo" onclick="avUndo(\''+esc(u.id)+'\')">🗑️ Undo (delete these)</button></div>';
+        }).join('');
+    } catch(e){ box.innerHTML = '<span class="down">⚠️ '+esc(e.message)+'</span>'; }
+}
+async function avUndo(undoId){
+    if (!confirm('Delete the variants this run created?\n\nThis removes ONLY the variants the tool just created — your original variants are untouched.')) return;
+    startWait('Deleting the created variants…', 'Please don\'t close this.');
+    try {
+        const { restored, errors } = await runBatchedUndo('addvar-undo', undoId);
+        stopWait();
+        avSetStatus('✅ Removed '+restored+' created variants.'+(errors.length?(' <span class="down">('+errors.length+' errors)</span>'):''));
+    } catch(e){ stopWait(); avSetStatus('⚠️ '+esc(e.message)); }
+    avLoadAdded();
+}
+
 const SOLDOUT_SIZES = {
     'Canvas wrapped': ['12x16','16x22','20x30'],
     '_default': ['A4','A3','A2','20x30']
