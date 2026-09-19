@@ -1,4 +1,6 @@
-// shopify-bulk.js — v2.9.1 (19 Sep 2026)
+// shopify-bulk.js — v2.9.2 (19 Sep 2026)
+// v2.9.2: adds a read-only diagnostic action 'soldout-doctor' — reports the token's granted scopes
+//         and safely tests the on_hand write (no-op) to reveal why sold-out stock isn't landing.
 // v2.9.1: FIX — sold-out now sets on_hand=0 (Shopify won't let you set 'available' directly), so items
 //         actually show "Sold out". Undo/Show again restores on_hand (oldOnHand; falls back to oldAvailable
 //         for pre-fix entries). Frontend: sold-out no longer needs the full-store backup (each apply is
@@ -344,6 +346,51 @@ module.exports = async function handler(req, res) {
   const action = q.action || body.action;
 
   try {
+    // ======================= DIAGNOSTIC: sold-out doctor =======================
+    // Reports the Vercel token's granted scopes + safely tests the inventory write (sets on_hand
+    // to its CURRENT value = no change) and returns exactly what Shopify says. Changes nothing.
+    if (action === 'soldout-doctor') {
+      const out = { ok: true, apiVersion: API_VERSION };
+      // 1) which scopes does this token actually have?
+      try {
+        const s = await shopify(`query { currentAppInstallation { accessScopes { handle } } }`);
+        const handles = (s.currentAppInstallation && s.currentAppInstallation.accessScopes ? s.currentAppInstallation.accessScopes : []).map(x => x.handle);
+        out.scopes = handles;
+        out.hasWriteInventory = handles.indexOf('write_inventory') !== -1;
+        out.hasWriteProducts = handles.indexOf('write_products') !== -1;
+      } catch (e) { out.scopesError = String(e.message || e); }
+      // 2) find one Oak Frame + A4 variant and test the on_hand write with a NO-OP (current value)
+      try {
+        const d = await shopify(
+          `query($q:String){ products(first:10, query:$q){ nodes{ variants(first:100){ nodes{ id selectedOptions{ name value } inventoryItem{ id inventoryLevels(first:1){ nodes{ location{ id name } quantities(names:["on_hand"]){ name quantity } } } } } } } } }`,
+          { q: `vendor:'${AWA_VENDOR}'` }
+        );
+        let test = null;
+        (d.products ? d.products.nodes : []).forEach(pr => {
+          (pr.variants ? pr.variants.nodes : []).forEach(v => {
+            if (test) return;
+            if (optVal(v.selectedOptions, 'Frame') === 'Oak Frame' && sizeCodeOf(v.selectedOptions) === 'A4') {
+              const lv = firstLevelOf(v);
+              if (v.inventoryItem && v.inventoryItem.id && lv.locationId) test = { variantId: v.id, inventoryItemId: v.inventoryItem.id, locationId: lv.locationId, locationName: (v.inventoryItem.inventoryLevels.nodes[0].location||{}).name, currentOnHand: lv.onHand };
+            }
+          });
+        });
+        if (!test) { out.testError = 'No Oak Frame A4 variant found in the first 10 AWA products.'; return res.status(200).json(out); }
+        out.test = test;
+        const noop = test.currentOnHand == null ? 0 : test.currentOnHand;         // set to current value = no change
+        const m = `mutation { inventorySetQuantities(input:{ reason:"correction", name:"on_hand", quantities:[{inventoryItemId:"${test.inventoryItemId}", locationId:"${test.locationId}", quantity:${noop}}] }){ userErrors{ field message } inventoryAdjustmentGroup{ createdAt } } }`;
+        try {
+          const r = await shopify(m);
+          out.writeTest = {
+            ranWithoutThrow: true,
+            userErrors: (r.inventorySetQuantities && r.inventorySetQuantities.userErrors) || [],
+            adjustmentGroup: r.inventorySetQuantities ? r.inventorySetQuantities.inventoryAdjustmentGroup : null
+          };
+        } catch (e) { out.writeTest = { ranWithoutThrow: false, thrownError: String(e.message || e) }; }
+      } catch (e) { out.testError = String(e.message || e); }
+      return res.status(200).json(out);
+    }
+
     // ======================= TAB 1 — PRICES (unchanged) =======================
     if (action === 'backup-all') {
       const rows = [];
