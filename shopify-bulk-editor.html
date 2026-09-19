@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v2.8 · Sold out / restore variants by frame + size (no orders, reversible) · 3 tabs · batches + backup + undo</div>
+            <div class="subtitle">v2.9 · Sold out by frame + size (no orders) with a "Currently sold out" list to Show again · 3 tabs · batches + backup + undo</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -473,14 +473,8 @@
 
                 <!-- SOLD OUT / RESTORE -->
                 <div class="fieldpanel" id="fp-soldout" hidden style="margin-top:16px;">
-                    <div class="hint">Only <b>About Wall Art</b>. Mark a <b>frame colour + size</b> as <b>Sold out</b> (shows "Sold out", no orders can be placed) across every About Wall Art product, or show it again. Applies to <b>every paper</b> of that frame + size.</div>
+                    <div class="hint">Only <b>About Wall Art</b>. Pick a <b>frame colour + size</b> to mark as <b>Sold out</b> (shows "Sold out", no orders can be placed) across every About Wall Art product. Applies to <b>every paper</b> of that frame + size. Then <b>Preview</b> and <b>Apply</b> below.</div>
                     <div class="row" style="margin-top:12px;">
-                        <div class="field"><label>What to do</label>
-                            <select id="soldoutAction">
-                                <option value="soldout">Mark as Sold out — block orders</option>
-                                <option value="restore">Show again — available</option>
-                            </select>
-                        </div>
                         <div class="field"><label>Frame colour</label>
                             <select id="soldoutFrame" onchange="onSoldoutFrame()">
                                 <option value="Black Frame">Black Frame</option>
@@ -493,6 +487,14 @@
                         <div class="field"><label>Size</label>
                             <select id="soldoutSize"></select>
                         </div>
+                    </div>
+                    <div style="margin-top:20px; border-top:2px solid #eee; padding-top:16px;">
+                        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+                            <b>Currently sold out</b>
+                            <span class="muted">tap "Show again" to bring one back</span>
+                            <button class="btn btn-light" style="margin-left:auto;" onclick="loadSoldoutActive()">↻ Refresh</button>
+                        </div>
+                        <div id="soldoutActiveList" class="muted">—</div>
                     </div>
                 </div>
             </div>
@@ -922,8 +924,37 @@ function onFieldChange(){
     // Weight & Sold-out apply only to About Wall Art and are chosen by frame/size — no supplier step needed
     document.getElementById('t2step2').hidden = (f === 'weight' || f === 'soldout');
     if (f === 'weight') buildWeightGrid();
-    if (f === 'soldout') onSoldoutFrame();
+    if (f === 'soldout') { onSoldoutFrame(); loadSoldoutActive(); }
     checkFieldGate(); // each field has its own backup gate
+}
+/* ---- Sold-out log: the list of frame+size you've hidden, each revertible with "Show again" ---- */
+async function loadSoldoutActive(){
+    const box = document.getElementById('soldoutActiveList');
+    if (!box) return;
+    box.innerHTML = '<span class="spinner"></span> Loading…';
+    try {
+        const d = await (await fetch(API + '?action=field-undo-list')).json();
+        const list = (d && d.undos ? d.undos : []).filter(u => u.field === 'soldout' && !u.reverted);
+        if (!list.length){ box.innerHTML = '<span class="muted">Nothing is sold out right now.</span>'; return; }
+        box.innerHTML = list.map(u => {
+            const label = esc(u.label || ((u.frame||'') + ' · ' + (u.size||'')) || 'Sold out');
+            const when = u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-GB') : '';
+            return '<div style="display:flex; align-items:center; gap:12px; padding:8px 0; border-bottom:1px solid #f0f0f0;">'
+                + '<div style="flex:1;"><b>' + label + '</b>'
+                + '<div class="pct muted">' + esc(when) + ' · ' + (u.count||0) + ' variants</div></div>'
+                + '<button class="btn btn-undo" onclick="showAgainFromLog(\'' + esc(u.id) + '\')">↺ Show again</button></div>';
+        }).join('');
+    } catch(e){ box.innerHTML = '<span class="down">⚠️ ' + esc(e.message) + '</span>'; }
+}
+async function showAgainFromLog(undoId){
+    if (!confirm('Show these products again?\n\nThis brings that frame + size back to available (accepts orders), exactly as it was before you hid it.')) return;
+    startWait('Bringing them back…', 'Please don\'t close this.');
+    try {
+        const { restored, errors } = await runBatchedUndo('field-undo', undoId);
+        stopWait();
+        setStatus2('✅ Back on sale: ' + restored + ' variants.' + (errors.length ? (' <span class="down">(' + errors.length + ' errors)</span>') : ''));
+    } catch(e){ stopWait(); setStatus2('⚠️ ' + esc(e.message)); }
+    loadSoldoutActive();
 }
 const SOLDOUT_SIZES = {
     'Canvas wrapped': ['12x16','16x22','20x30'],
@@ -1039,7 +1070,7 @@ function buildConfig2(){
     if (f === 'category') return { field:f, config:{ action: document.getElementById('catAction').value, categoryId: catPickedObj?catPickedObj.id:'', categoryName: catPickedObj?catPickedObj.fullName:'' } };
     if (f === 'collections') return { field:f, config:{ action: document.getElementById('collAction').value, collectionIds: Array.from(collPicked), manualIds: (META.manualCollections||[]).map(c=>c.id), collectionTitles: META.manualCollections||[] } };
     if (f === 'weight') return { field:f, config:{ unit: document.getElementById('weightUnit').value, groups: collectWeightGroups() } };
-    if (f === 'soldout') return { field:f, config:{ action: document.getElementById('soldoutAction').value, frame: document.getElementById('soldoutFrame').value, size: document.getElementById('soldoutSize').value } };
+    if (f === 'soldout') return { field:f, config:{ action:'soldout', frame: document.getElementById('soldoutFrame').value, size: document.getElementById('soldoutSize').value } };
     if (f === 'unitprice') {
         const cmpOn = document.getElementById('upCmpEnable').checked;
         return { field:f, config:{ how: document.getElementById('upHow').value, value: parseFloat(document.getElementById('upValue').value), rounding: document.getElementById('upRounding').value,
@@ -1055,7 +1086,7 @@ function validConfig2(fc){
     if (f==='collections') return (c.collectionIds||[]).length>0;
     if (f==='weight') return Object.keys(c.groups||{}).length>0;
     if (f==='unitprice') return !isNaN(c.value);
-    if (f==='soldout') return !!c.frame && !!c.size && !!c.action;
+    if (f==='soldout') return !!c.frame && !!c.size;
     return true;
 }
 function rowKey2(r){ return r.variantId || r.productId; }
@@ -1144,8 +1175,12 @@ async function applyChanges2(){
     if (!confirm('You are about to change ' + items.length + ' items (' + lastField + ').\n\nBefore applying, the previous state is saved (for undo).\n\nApply now?')) return;
     document.getElementById('applyBtn2').disabled = true; document.getElementById('previewBtn2').disabled = true;
     startWait('Applying ' + fieldLabel(lastField) + '…', 'Please don\'t close this.');
+    // sold-out: send the frame + size so the change is saved as a revertible entry in "Currently sold out"
+    const baseBody = (lastField === 'soldout')
+        ? { field: lastField, frame: document.getElementById('soldoutFrame').value, size: document.getElementById('soldoutSize').value }
+        : { field: lastField };
     try {
-        const { undoId, updated, errors } = await runBatchedApply('apply-field', { field: lastField }, items);
+        const { undoId, updated, errors } = await runBatchedApply('apply-field', baseBody, items);
         stopWait();
         lastUndoId2 = undoId || null;
         let msg = '✅ Done: ' + updated + ' items updated.';
@@ -1153,6 +1188,7 @@ async function applyChanges2(){
         if (lastUndoId2) msg += ' <button class="btn btn-undo" style="margin-left:10px;" onclick="fieldUndoNow(\'' + lastUndoId2 + '\')">↺ Undo this</button>';
         msg += ' <span class="muted">· Hit "Preview" again to see the updated list.</span>';
         setStatus2(msg); document.getElementById('undoBtn2').disabled = false;
+        if (lastField === 'soldout') loadSoldoutActive(); // refresh the revertible list
     } catch(e){ stopWait(); setStatus2('⚠️ ' + esc(e.message)); }
     document.getElementById('previewBtn2').disabled = false; document.getElementById('applyBtn2').disabled = false;
 }
@@ -1175,6 +1211,7 @@ async function fieldUndoNow(undoId){
         stopWait();
         setStatus2('✅ Undone: ' + restored + ' items went back to their previous state.' + (errors.length ? (' <span class="down">(' + errors.length + ' errors)</span>') : ''));
     } catch(e){ stopWait(); setStatus2('⚠️ ' + esc(e.message)); }
+    if (document.getElementById('t2field') && document.getElementById('t2field').value === 'soldout') loadSoldoutActive();
 }
 
 /* ===================== AWA PRICES TAB ===================== */
