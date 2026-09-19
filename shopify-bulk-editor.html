@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v3.0 · NEW: Add variants in bulk (paper / frame colour / size, by group, tick-to-create, test on 1 first) · Sold out preview now shows current status · 3 tabs · batches + backup + undo</div>
+            <div class="subtitle">v3.0.1 · Add variants now in its own tab · skips the Gift Card automatically · 4 tabs · batches + backup + undo</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -156,6 +156,7 @@
             <button class="tab active" id="tabBtn1" onclick="switchTab(1)">💷 Collective Prices</button>
             <button class="tab" id="tabBtnAwa" onclick="switchTab('awa')">🖼️ AWA Prices</button>
             <button class="tab" id="tabBtn2" onclick="switchTab(2)">✨ Other fields</button>
+            <button class="tab" id="tabBtnAv" onclick="switchTab('av')">➕ Add variants</button>
         </div>
 
         <!-- ============ TAB 1: PRICES ============ -->
@@ -318,7 +319,6 @@
                             <option value="collections">Collections</option>
                             <option value="category">Category</option>
                             <option value="soldout">Sold out / restore (About Wall Art only)</option>
-                            <option value="addvar">Add variants (About Wall Art only)</option>
                         </select>
                     </div>
                 </div>
@@ -499,45 +499,6 @@
                     </div>
                 </div>
 
-                <!-- ADD VARIANTS -->
-                <div class="fieldpanel" id="fp-addvar" hidden style="margin-top:16px;">
-                    <div class="hint">Only <b>About Wall Art</b>. Add new variants in bulk. <b>Tick exactly what to create</b> — anything left unticked is not created. You type the prices; weight is copied automatically (for a new <b>size</b> you set it). <b>Always Test on 1 product first.</b></div>
-
-                    <div class="row" style="margin-top:12px;">
-                        <div class="field"><label>1 · Group</label>
-                            <select id="avGroup" onchange="avOnGroup()">
-                                <option value="uf">Unframed / Framed</option>
-                                <option value="canvas">Canvas</option>
-                                <option value="frames">Frames only (empty-frames product)</option>
-                            </select>
-                        </div>
-                        <div class="field"><label>2 · What to add</label>
-                            <select id="avType" onchange="avRender()"></select>
-                        </div>
-                        <div class="field" style="flex:1; min-width:240px;"><label id="avNameLabel">3 · New name</label>
-                            <input type="text" id="avName" placeholder="type the new value…" oninput="avRenderGrid()">
-                        </div>
-                    </div>
-
-                    <div id="avChecks" style="margin-top:14px;"></div>
-                    <div id="avGridWrap" style="margin-top:14px;"></div>
-
-                    <div class="actions" style="margin-top:16px;">
-                        <button class="btn btn-light" id="avTestBtn" onclick="avApply(true)">🧪 Test on 1 product</button>
-                        <button class="btn btn-primary" id="avPreviewBtn" onclick="avPreview()">👁️ Preview all</button>
-                        <button class="btn btn-green" id="avApplyBtn" onclick="avApply(false)">✅ Create on all AWA</button>
-                    </div>
-                    <div class="status" id="avStatus">Pick a group + what to add, tick where it applies, set prices, then <b>Test on 1 product</b> first.</div>
-
-                    <div style="margin-top:18px; border-top:2px solid #eee; padding-top:14px;">
-                        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
-                            <b>Variants you've added</b>
-                            <span class="muted">tap "Undo" to delete a batch you just created</span>
-                            <button class="btn btn-light" style="margin-left:auto;" onclick="avLoadAdded()">↻ Refresh</button>
-                        </div>
-                        <div id="avAddedList" class="muted">—</div>
-                    </div>
-                </div>
             </div>
 
             <div class="panel" id="t2step4">
@@ -554,6 +515,49 @@
 
             </div><!-- /tab2Body -->
         </div><!-- /tab2 -->
+
+        <!-- ============ TAB 4: ADD VARIANTS ============ -->
+        <div class="tabpanel" id="tabAv" hidden>
+            <div class="panel">
+                <h2><span class="step-num">＋</span> Add variants (About Wall Art)</h2>
+                <div class="hint">Add new variants in bulk. <b>Tick exactly what to create</b> — anything left unticked is not created. You type the prices; weight is copied automatically (for a new <b>size</b> you set it). The Gift Card is skipped automatically. <b>Always Test on 1 product first.</b></div>
+
+                <div class="row" style="margin-top:14px;">
+                    <div class="field"><label>1 · Group</label>
+                        <select id="avGroup" onchange="avOnGroup()">
+                            <option value="uf">Unframed / Framed</option>
+                            <option value="canvas">Canvas</option>
+                            <option value="frames">Frames only (empty-frames product)</option>
+                        </select>
+                    </div>
+                    <div class="field"><label>2 · What to add</label>
+                        <select id="avType" onchange="avRender()"></select>
+                    </div>
+                    <div class="field" style="flex:1; min-width:240px;"><label id="avNameLabel">3 · New name</label>
+                        <input type="text" id="avName" placeholder="type the new value…" oninput="avRenderGrid()">
+                    </div>
+                </div>
+
+                <div id="avChecks" style="margin-top:14px;"></div>
+                <div id="avGridWrap" style="margin-top:14px;"></div>
+
+                <div class="actions" style="margin-top:16px;">
+                    <button class="btn btn-light" id="avTestBtn" onclick="avApply(true)">🧪 Test on 1 product</button>
+                    <button class="btn btn-primary" id="avPreviewBtn" onclick="avPreview()">👁️ Preview all</button>
+                    <button class="btn btn-green" id="avApplyBtn" onclick="avApply(false)">✅ Create on all AWA</button>
+                </div>
+                <div class="status" id="avStatus">Pick a group + what to add, tick where it applies, set prices, then <b>Test on 1 product</b> first.</div>
+            </div>
+
+            <div class="panel">
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+                    <b>Variants you've added</b>
+                    <span class="muted">tap "Undo" to delete a batch you just created</span>
+                    <button class="btn btn-light" style="margin-left:auto;" onclick="avLoadAdded()">↻ Refresh</button>
+                </div>
+                <div id="avAddedList" class="muted">—</div>
+            </div>
+        </div><!-- /tabAv -->
     </div>
 
     <datalist id="allTagsList"></datalist>
@@ -592,10 +596,13 @@ function switchTab(w){
     document.getElementById('tab1').hidden = w!==1;
     document.getElementById('tabAwa').hidden = w!=='awa';
     document.getElementById('tab2').hidden = w!==2;
+    document.getElementById('tabAv').hidden = w!=='av';
     document.getElementById('tabBtn1').classList.toggle('active', w===1);
     document.getElementById('tabBtnAwa').classList.toggle('active', w==='awa');
     document.getElementById('tabBtn2').classList.toggle('active', w===2);
+    document.getElementById('tabBtnAv').classList.toggle('active', w==='av');
     if (w===2) loadFieldMeta(); // fresh from Shopify every time you open Other fields
+    if (w==='av') { avOnGroup(); avLoadAdded(); } // Add variants tab
 }
 
 /* ===================== BACKUP GATES (one per tab) ===================== */
@@ -651,14 +658,12 @@ function paintFieldGate(state){
 }
 async function checkFieldGate(){
     const f = document.getElementById('t2field').value;
-    // Sold-out & Add-variants need no full-store backup: each change is saved with its own exact undo.
-    if (f === 'soldout' || f === 'addvar') {
+    // Sold-out needs no full-store backup: each change is saved with its own exact undo.
+    if (f === 'soldout') {
         paintFieldGate('green'); unlockBody('tab2Body');
         document.getElementById('fieldBackupTitle').innerHTML = '✅ Ready — no backup needed';
         document.getElementById('fieldBackupBtn').style.display = 'none';
-        document.getElementById('fieldBackupNote').innerHTML = (f === 'addvar')
-            ? 'Adding variants only <b>adds</b> — it never changes what you already have. Each run can be undone below.'
-            : 'Every change here is saved on its own and can be reverted below with <b>Show again</b> — no backup step needed.';
+        document.getElementById('fieldBackupNote').innerHTML = 'Every change here is saved on its own and can be reverted below with <b>Show again</b> — no backup step needed.';
         return;
     }
     document.getElementById('fieldBackupBtn').style.display = '';
@@ -972,13 +977,11 @@ async function loadFieldMeta(){
 }
 function onFieldChange(){
     const f = document.getElementById('t2field').value;
-    ['tags','ptype','weight','collections','category','soldout','addvar'].forEach(k => { document.getElementById('fp-'+k).hidden = (k !== f); });
-    // Weight, Sold-out & Add-variants apply only to About Wall Art — no supplier step needed. Add-variants has its own buttons (no shared step 4).
-    document.getElementById('t2step2').hidden = (f === 'weight' || f === 'soldout' || f === 'addvar');
-    const s4 = document.getElementById('t2step4'); if (s4) s4.hidden = (f === 'addvar');
+    ['tags','ptype','weight','collections','category','soldout'].forEach(k => { document.getElementById('fp-'+k).hidden = (k !== f); });
+    // Weight & Sold-out apply only to About Wall Art — no supplier step needed.
+    document.getElementById('t2step2').hidden = (f === 'weight' || f === 'soldout');
     if (f === 'weight') buildWeightGrid();
     if (f === 'soldout') { onSoldoutFrame(); loadSoldoutActive(); }
-    if (f === 'addvar') { avOnGroup(); avLoadAdded(); }
     checkFieldGate(); // each field has its own backup gate
 }
 /* ---- Sold-out log: the list of frame+size you've hidden, each revertible with "Show again" ---- */
