@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v3.2 · Excel tab now covers Collective too (pick vendors; shows each variant's own Options) · 5 tabs · batches + backup + undo</div>
+            <div class="subtitle">v3.2.1 · Excel covers Collective (pick vendors, Select all, file named per catalog) · 5 tabs · batches + backup + undo</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -1277,9 +1277,11 @@ async function xlLoadVendors(){
         const d = await (await fetch(API+'?action=vendors')).json();
         const list = (d&&d.vendors?d.vendors:[]).filter(v => !/about wall art/i.test(v.vendor) && v.vendor!=='(no vendor)');
         if (!list.length){ box.innerHTML='<span class="muted">No other vendors found.</span>'; return; }
-        box.innerHTML = list.map(v => '<label style="display:inline-flex; align-items:center; gap:5px; margin:0 14px 6px 0;"><input type="checkbox" class="xlvendor" value="'+esc(v.vendor)+'"> '+esc(v.vendor)+' <span class="pct muted">('+v.count+')</span></label>').join('');
+        box.innerHTML = '<div style="margin-bottom:8px;"><button class="btn btn-light" onclick="xlAllVendors(true)">Select all</button> <button class="btn btn-light" onclick="xlAllVendors(false)">Clear</button></div>'
+            + list.map(v => '<label style="display:inline-flex; align-items:center; gap:5px; margin:0 14px 6px 0;"><input type="checkbox" class="xlvendor" value="'+esc(v.vendor)+'"> '+esc(v.vendor)+' <span class="pct muted">('+v.count+')</span></label>').join('');
     } catch(e){ box.innerHTML='<span class="down">⚠️ '+esc(e.message)+'</span>'; }
 }
+function xlAllVendors(on){ Array.prototype.forEach.call(document.querySelectorAll('.xlvendor'), function(x){ x.checked = on; }); }
 function xlTickedVendors(){ return Array.from(document.querySelectorAll('.xlvendor:checked')).map(x=>x.value); }
 function xlRenderChecks(){
     const groups = [['Identify / filter','ref'],['Editable · per variant','var'],['Editable · per product','prod']];
@@ -1329,8 +1331,9 @@ async function xlDownload(){
         } while (cursor);
         const aoa = [headers].concat(all.map(r => keys.map(k => r[k]!=null?r[k]:'')));
         const ws = XLSX.utils.aoa_to_sheet(aoa);
-        const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'AWA');
-        XLSX.writeFile(wb, 'awa-products.xlsx');
+        const isColl = xlScopeVal()==='collective';
+        const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, isColl?'Collective':'AWA');
+        XLSX.writeFile(wb, (isColl?'collective':'awa') + '-products.xlsx');
         document.getElementById('xlDlStatus').innerHTML='✅ Downloaded '+all.length+' rows. Edit in Excel, then upload below.';
     } catch(e){ document.getElementById('xlDlStatus').innerHTML='⚠️ '+esc(e.message); }
     document.getElementById('xlDownloadBtn').disabled = false;
