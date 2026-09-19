@@ -1,4 +1,8 @@
-// shopify-bulk.js — v2.8 (16 Sep 2026)
+// shopify-bulk.js — v2.9 (19 Sep 2026)
+// v2.9: 'soldout' preview is now light (no per-location read → fixes MAX_COST_EXCEEDED) and marks
+//       ALL variants of the chosen frame+size. Each apply is tagged with frame+size on its undo
+//       entry, so the UI shows a "Currently sold out" list where each row is reverted (Show again)
+//       via field-undo — restoring the exact prior inventoryPolicy + available. No full-store scan.
 // v2.8: NEW field 'soldout' — mark a Frame colour + Size as Sold out (inventoryPolicy DENY +
 //       available 0, so it shows "Sold out" and blocks orders) across all About Wall Art products,
 //       or restore (CONTINUE + available 100). AWA-only. Own backup + per-apply undo (restores the
@@ -131,13 +135,13 @@ module.exports = async function handler(req, res) {
   }
 
   // ---- incremental undo snapshots (Apply runs in batches; all batches share ONE undo entry) ----
-  async function saveFieldUndoSnapshot(undoId, field, snapshotChunk, isFirst) {
+  async function saveFieldUndoSnapshot(undoId, field, snapshotChunk, isFirst, meta) {
     const now = new Date().toISOString();
     if (isFirst) {
-      await ghPut(`${FIELD_UNDO_DIR}/${undoId}.json`, { id: undoId, createdAt: now, field, count: snapshotChunk.length, snapshot: snapshotChunk }, `field undo ${undoId} (${field})`);
+      await ghPut(`${FIELD_UNDO_DIR}/${undoId}.json`, Object.assign({ id: undoId, createdAt: now, field, count: snapshotChunk.length, snapshot: snapshotChunk }, meta || {}), `field undo ${undoId} (${field})`);
       try {
         const idx = (await ghGet(FIELD_UNDO_INDEX)).json || [];
-        idx.unshift({ id: undoId, createdAt: now, field, count: snapshotChunk.length, reverted: false });
+        idx.unshift(Object.assign({ id: undoId, createdAt: now, field, count: snapshotChunk.length, reverted: false }, meta || {}));
         await ghPut(FIELD_UNDO_INDEX, idx.slice(0, 100), `field index ${undoId}`);
       } catch (e) {}
     } else {
@@ -323,7 +327,7 @@ module.exports = async function handler(req, res) {
     if (field === 'weight')   return 'id title vendor status variants(first:100){ nodes { id title selectedOptions{ name value } inventoryItem{ id measurement{ weight{ value unit } } } } }';
     if (field === 'unitprice')return 'id title vendor status variants(first:100){ nodes { id title price compareAtPrice inventoryItem{ unitCost{ amount } } } } ';
     if (field === 'awaprice') return 'id title vendor status variants(first:100){ nodes { id title price compareAtPrice selectedOptions{ name value } } }';
-    if (field === 'soldout') return 'id title vendor status variants(first:100){ nodes { id title inventoryPolicy selectedOptions{ name value } inventoryItem{ id inventoryLevels(first:5){ nodes{ location{ id } quantities(names:["available"]){ name quantity } } } } } }';
+    if (field === 'soldout') return 'id title vendor status variants(first:100){ nodes { id title selectedOptions{ name value } inventoryItem{ id } } }';
     return 'id title vendor status';
   }
 
@@ -872,25 +876,20 @@ module.exports = async function handler(req, res) {
         }
 
         else if (field === 'soldout') {
-          const wantSoldout = cfg.action === 'soldout';                 // 'soldout' (mark) | 'restore' (show again)
+          // Option B: mark ALL variants of the chosen frame colour + size as Sold out (no state read → light query).
           const frame = cfg.frame || '';                                // exact Frame value, e.g. 'Oak Frame'
           const size = cfg.size || '';                                  // size code, e.g. 'A3'
           (pr.variants ? pr.variants.nodes : []).forEach(v => {
             unitCount++;
             if (optVal(v.selectedOptions, 'Frame') !== frame) return;    // only the chosen frame colour
             if (sizeCodeOf(v.selectedOptions) !== size) return;          // only the chosen size
-            const lv = firstLevelOf(v);
-            const currentlySold = isSoldOut(v.inventoryPolicy, lv.available);
-            const eligible = wantSoldout ? !currentlySold : currentlySold; // mark→only available; restore→only sold out
-            const changed = eligible && !!lv.locationId && !!(v.inventoryItem && v.inventoryItem.id);
+            const changed = !!(v.inventoryItem && v.inventoryItem.id);
             if (changed) changeCount++;
             rows.push({ productId: pr.id, productTitle: pr.title, vendor: pr.vendor,
               variantId: v.id, variantTitle: v.title, group: frame + ' · ' + size,
-              oldVal: currentlySold ? 'Sold out' : 'Available',
-              newVal: wantSoldout ? 'Sold out (no orders)' : 'Available',
-              changed, blocked: false,
-              note: changed ? '' : (wantSoldout ? 'already sold out' : 'already available'),
-              payload: { variantId: v.id, inventoryItemId: v.inventoryItem ? v.inventoryItem.id : null, locationId: lv.locationId, want: wantSoldout ? 'soldout' : 'restore' } });
+              oldVal: '—', newVal: 'Sold out (no orders)',
+              changed, blocked: false, note: changed ? '' : 'no inventory item',
+              payload: { variantId: v.id, inventoryItemId: v.inventoryItem ? v.inventoryItem.id : null, want: 'soldout' } });
           });
         }
       });
@@ -1034,13 +1033,13 @@ module.exports = async function handler(req, res) {
 
       // ---------- SOLD OUT / RESTORE via inventoryPolicy + available quantity ----------
       else if (field === 'soldout') {
-        const its = items.filter(it => it.payload && it.payload.variantId && it.payload.inventoryItemId && it.payload.locationId && it.payload.want);
+        const its = items.filter(it => it.payload && it.payload.variantId && it.payload.inventoryItemId && it.payload.want);
         const vids = its.map(it => it.payload.variantId);
         // read current policy + available (for undo) and productId (to group the policy write)
         const cur = {};
         for (let i = 0; i < vids.length; i += 50) {
           const chunk = vids.slice(i, i + 50);
-          const qy = 'query { ' + chunk.map((vid, j) => `v${j}: productVariant(id:"${vid}"){ id inventoryPolicy product{ id } inventoryItem{ id inventoryLevels(first:5){ nodes{ location{ id } quantities(names:["available"]){ name quantity } } } } }`).join(' ') + ' }';
+          const qy = 'query { ' + chunk.map((vid, j) => `v${j}: productVariant(id:"${vid}"){ id inventoryPolicy product{ id } inventoryItem{ id inventoryLevels(first:1){ nodes{ location{ id } quantities(names:["available"]){ name quantity } } } } }`).join(' ') + ' }';
           const data = await shopify(qy);
           chunk.forEach((vid, j) => {
             const n = data[`v${j}`]; if (!n) return;
@@ -1052,7 +1051,8 @@ module.exports = async function handler(req, res) {
           const c = cur[it.payload.variantId]; if (!c) return;
           snapshot.push({ variantId: it.payload.variantId, inventoryItemId: it.payload.inventoryItemId, locationId: c.locationId || it.payload.locationId, oldPolicy: c.policy, oldAvailable: c.available });
         });
-        await saveFieldUndoSnapshot(undoId, field, snapshot, isFirst); // save undo BEFORE writing
+        // save undo BEFORE writing, tagging the entry with the frame + size so the "Currently sold out" list can show & revert it
+        await saveFieldUndoSnapshot(undoId, field, snapshot, isFirst, { frame: body.frame || '', size: body.size || '', label: ((body.frame || '') + ' · ' + (body.size || '')).trim() });
         const failed = new Set();
         // 1) inventory policy, grouped per product
         const byProduct = {};
