@@ -1,4 +1,6 @@
-// shopify-bulk.js — v3.0 (19 Sep 2026)
+// shopify-bulk.js — v3.0.1 (19 Sep 2026)
+// v3.0.1: addvarPlan skips any product not built on Frame/Size/Paper (e.g. the Gift Card) so it's never
+//         given these variants. (Add-variants UI moved to its own 4th tab in the HTML.)
 // v3.0: NEW 'addvar' — bulk-create variants (paper / frame colour / size) by group (Unframed-Framed /
 //       Canvas / Frames-only product). Tick-to-create, manual prices, weight copied (or set for a new
 //       size). Own undo that DELETES only the variants each run created. Also 'soldout' preview now
@@ -317,6 +319,9 @@ module.exports = async function handler(req, res) {
   // Returns the list of NEW variant inputs to create for one product (skips combos that already exist / lack a price).
   function addvarPlan(cfg, pr) {
     const optNames = (pr.options || []).map(o => o.name);
+    // Only touch products built on Frame/Size/Paper (the art products & the frames-only product).
+    // Skips anything else (e.g. the Gift Card, whose option is "Denominations") so it's never given these variants.
+    if (!optNames.every(n => n === 'Frame' || n === 'Size' || n === 'Paper')) return [];
     const hasPaper = optNames.indexOf('Paper') !== -1;
     const vnodes = pr.variants ? pr.variants.nodes : [];
     const existing = new Set();
