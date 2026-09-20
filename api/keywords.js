@@ -1,4 +1,4 @@
-// api/keywords.js — New Product Generator backend  ·  v0.3
+// api/keywords.js — New Product Generator backend  ·  v0.4
 // Actions (POST { action, ... }):
 //   research        -> { products:[{sku, collections, set, trends, primaryColour, colour}], locationCode?, languageCode? }
 //                       returns { results:[{ sku, options:[{keyword, volume, difficulty, intent}] }] }
@@ -139,8 +139,24 @@ async function research(body) {
     return { seed, items };
   });
 
-  // 3) build per-product candidate map { keyword -> {volume, intent} }
-  const candByProduct = products.map(() => new Map());
+  // helpers: collapse word-order / filler variants; relevance to the product's style/trend/room
+  const FILLERS = ['and', 'the', 'for', 'in', 'on', 'of', 'a', 'to', 'with', '&'];
+  const canonical = kw => kw.split(/\s+/).filter(w => !FILLERS.includes(w)).sort().join(' ');
+  const relevanceOf = (kw, p) => {
+    const col = p.collections || {};
+    const styles = (col['By Style'] || []).map(s => s.toLowerCase());
+    const rooms = (col['By Room'] || []).map(s => s.toLowerCase());
+    const trendRoots = (p.trends || []).map(t => t.toLowerCase().replace(/\b(decor|design|style)\b/g, '').trim()).filter(Boolean);
+    let r = 1;
+    if (styles.some(s => s && kw.includes(s))) r += 3;
+    if (trendRoots.some(t => t && kw.includes(t))) r += 3;
+    if (rooms.some(rm => rm && kw.includes(rm))) r += 1.5;
+    return r;
+  };
+  const commercial = i => i === 'commercial' || i === 'transactional';
+
+  // 3) per-product candidates, DEDUPED by canonical form (one per concept, keep highest volume)
+  const candByProduct = products.map(() => new Map()); // canonical -> {keyword, volume, intent}
   sugg.forEach(res => {
     if (!res || res.__error || !res.items) return;
     const pis = seedToProducts.get(res.seed) || new Set();
@@ -149,28 +165,25 @@ async function research(body) {
       if (!kw) return;
       const vol = (it.search_volume == null ? 0 : it.search_volume);
       const intent = it.search_intent || null;
+      const can = canonical(kw);
       pis.forEach(pi => {
-        const m = candByProduct[pi];
-        const prev = m.get(kw);
-        if (!prev || vol > prev.volume) m.set(kw, { volume: vol, intent });
+        const m = candByProduct[pi]; const prev = m.get(can);
+        if (!prev || vol > prev.volume || (vol === prev.volume && kw.length < prev.keyword.length)) m.set(can, { keyword: kw, volume: vol, intent });
       });
     });
   });
 
-  // 4) exclude locked + low volume; pick top-by-volume candidates for difficulty
+  // 4) exclude locked + low volume; score by RELEVANCE × volume (style/trend rise, not just generic colour)
   const locked = await lockedKeywordSet();
+  const scored = candByProduct.map((m, pi) => [...m.values()]
+    .filter(c => !locked.has(c.keyword) && c.volume >= MIN_VOLUME)
+    .map(c => { const rel = relevanceOf(c.keyword, products[pi]); const intentF = commercial(c.intent) ? 1.25 : 1; return { ...c, score: rel * Math.sqrt(c.volume + 1) * intentF }; })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_DIFF_CANDIDATES_PER_PRODUCT));
   const diffNeeded = new Set();
-  const shortlists = candByProduct.map(m => {
-    const arr = [...m.entries()]
-      .filter(([kw, d]) => !locked.has(kw) && d.volume >= MIN_VOLUME)
-      .map(([kw, d]) => ({ keyword: kw, volume: d.volume, intent: d.intent }))
-      .sort((a, b) => b.volume - a.volume)
-      .slice(0, MAX_DIFF_CANDIDATES_PER_PRODUCT);
-    arr.forEach(c => diffNeeded.add(c.keyword));
-    return arr;
-  });
+  scored.forEach(arr => arr.forEach(c => diffNeeded.add(c.keyword)));
 
-  // 5) difficulty for all shortlisted keywords (batched, up to 1000 per call)
+  // 5) difficulty (UK) for the shortlist
   const diffMap = new Map();
   const allKw = [...diffNeeded];
   for (let i = 0; i < allKw.length; i += 1000) {
@@ -182,17 +195,13 @@ async function research(body) {
     } catch { /* difficulty stays unknown */ }
   }
 
-  // 6) score + rank + top options
-  const commercial = i => i === 'commercial' || i === 'transactional';
+  // 6) top options per product (already ranked by relevance × volume)
   const results = products.map((p, pi) => {
-    const options = shortlists[pi].map(c => {
-      const difficulty = diffMap.has(c.keyword) ? diffMap.get(c.keyword) : null;
-      const diffFactor = difficulty == null ? 0.7 : (100 - difficulty) / 100;
-      const intentFactor = commercial(c.intent) ? 1.3 : 1;
-      const score = c.volume * diffFactor * intentFactor;
-      return { keyword: c.keyword, volume: c.volume, difficulty, intent: c.intent, score };
-    }).sort((a, b) => b.score - a.score).slice(0, MAX_OPTIONS_PER_PRODUCT)
-      .map(({ score, ...rest }) => rest);
+    const options = scored[pi].slice(0, MAX_OPTIONS_PER_PRODUCT).map(c => ({
+      keyword: c.keyword, volume: c.volume,
+      difficulty: diffMap.has(c.keyword) ? diffMap.get(c.keyword) : null,
+      intent: c.intent
+    }));
     return { sku: p.sku || '', options };
   });
   return { results };
