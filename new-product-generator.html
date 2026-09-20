@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>New Product Generator</title>
+<style>
+  :root{
+    --bg:#f4f5f6; --card:#ffffff; --border:#e1e3e5; --border-strong:#c9cccf;
+    --ink:#1a1a1a; --muted:#6b7177; --accent:#1f5f4f; --accent-soft:#e7f1ee;
+    --chip:#f0f1f2; --danger:#b3261e; --ok:#1f7a4d; --warn:#8a6d1a;
+    --radius:12px; --shadow:0 1px 2px rgba(0,0,0,.06);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:14px;line-height:1.45}
+  .topbar{background:#fff;border-bottom:1px solid var(--border);padding:14px 22px;
+    display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:5}
+  .topbar h1{font-size:16px;margin:0;font-weight:650;letter-spacing:.2px}
+  .ver{font-size:11px;color:var(--muted);background:var(--chip);border-radius:20px;padding:3px 9px}
+  .tag{font-size:11px;color:var(--accent);background:var(--accent-soft);border-radius:20px;padding:3px 10px;font-weight:600}
+  .wrap{max-width:1040px;margin:22px auto;padding:0 18px 80px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+    box-shadow:var(--shadow);padding:22px;margin-bottom:20px}
+  .card h2{font-size:15px;margin:0 0 4px;font-weight:650}
+  .card .sub{color:var(--muted);font-size:12.5px;margin:0 0 18px}
+  label.f{display:block;font-weight:600;font-size:12.5px;margin:0 0 6px}
+  .req{color:var(--danger);font-weight:700}
+  input[type=text]{width:100%;padding:10px 12px;border:1px solid var(--border-strong);
+    border-radius:9px;font-size:14px;background:#fff}
+  input[type=text]:focus,.sel:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .field{margin-bottom:20px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .block{border-top:1px solid var(--border);padding-top:18px;margin-top:6px}
+  .block-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  .block-head h3{font-size:13px;margin:0;font-weight:650;text-transform:uppercase;letter-spacing:.4px;color:#3a3f45}
+  .cols{display:grid;grid-template-columns:repeat(4,1fr);gap:18px 22px}
+  .colgroup h4{font-size:12px;margin:0 0 8px;font-weight:700;color:var(--ink)}
+  .opt{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;color:#33383d;cursor:pointer}
+  .opt input{width:15px;height:15px;accent-color:var(--accent);cursor:pointer}
+  .trend-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:2px 22px}
+  .radios{display:flex;gap:10px;flex-wrap:wrap}
+  .radio{border:1px solid var(--border-strong);border-radius:9px;padding:9px 16px;font-size:13px;
+    cursor:pointer;display:flex;align-items:center;gap:8px;background:#fff}
+  .radio input{accent-color:var(--accent)}
+  .radio.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:600}
+  .btn{border:none;border-radius:9px;padding:11px 20px;font-size:13.5px;font-weight:600;cursor:pointer}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.primary{background:var(--ink);color:#fff}
+  .btn.primary:hover:not(:disabled){background:#000}
+  .btn.ghost{background:#fff;border:1px solid var(--border-strong);color:var(--ink)}
+  .btn.small{padding:6px 12px;font-size:12px}
+  .btn.link{background:none;border:none;color:var(--accent);font-weight:600;cursor:pointer;padding:0;font-size:12.5px}
+  .actions{display:flex;gap:10px;margin-top:8px}
+  .sel{width:100%;padding:10px 12px;border:1px solid var(--border-strong);border-radius:9px;font-size:14px;background:#fff}
+  .pcrow{display:flex;gap:6px;margin-bottom:6px}
+  .pcrow input{flex:1}
+  .pcx{border:1px solid var(--border-strong);background:#fff;border-radius:8px;width:36px;cursor:pointer;color:var(--muted);font-size:17px;line-height:1}
+  .pcx:hover{color:var(--danger);border-color:var(--danger)}
+  .addbox{background:#fafbfb;border:1px dashed var(--border-strong);border-radius:10px;padding:14px;margin-top:12px;display:none}
+  .addbox.open{display:block}
+  .addbox .row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+  .addbox .row > div{flex:1;min-width:160px}
+  .groupchecks{display:flex;gap:14px;flex-wrap:wrap;margin-top:6px}
+  .groupchecks label{font-size:12.5px;display:flex;gap:6px;align-items:center;color:#33383d}
+  .empty{color:var(--muted);font-size:13px;padding:6px 0}
+  .prod{border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden}
+  .prod-head{display:flex;align-items:center;gap:12px;padding:13px 16px;cursor:pointer;background:#fafbfb}
+  .prod-head:hover{background:#f2f4f4}
+  .chev{transition:transform .15s;color:var(--muted)}
+  .prod.open .chev{transform:rotate(90deg)}
+  .sel-cb{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+  .sku{font-weight:650;font-size:13.5px}
+  .status{margin-left:auto;font-size:11px;font-weight:600;border-radius:20px;padding:3px 10px}
+  .status.none{color:var(--warn);background:#fbf3d8}
+  .status.kw{color:var(--ok);background:#e4f3ea}
+  .prod-body{padding:0 16px;max-height:0;overflow:hidden;transition:max-height .25s ease,padding .25s}
+  .prod.open .prod-body{max-height:900px;padding:14px 16px 18px}
+  .kv{display:flex;gap:10px;font-size:13px;padding:4px 0;border-top:1px solid #f0f1f2}
+  .kv:first-child{border-top:none}
+  .kv .k{color:var(--muted);min-width:130px;font-weight:600}
+  .pill{display:inline-block;background:var(--chip);border-radius:20px;padding:2px 9px;margin:2px 4px 2px 0;font-size:12px}
+  .msg{padding:10px 14px;border-radius:9px;font-size:13px;margin-bottom:14px;display:none}
+  .msg.show{display:block}
+  .msg.ok{background:#e4f3ea;color:#155f3a}
+  .msg.err{background:#fbe6e4;color:#8f1c16}
+  .msg.info{background:#eef3fb;color:#1e3a63}
+  .spin{display:inline-block;width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px;margin-right:6px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  /* keyword results */
+  .kwblock{border:1px solid var(--border);border-radius:10px;margin-bottom:12px;padding:14px 16px}
+  .kwblock h4{margin:0 0 10px;font-size:13.5px}
+  .kwrow{display:grid;grid-template-columns:1fr 90px 90px 110px 90px;gap:10px;align-items:center;padding:8px 0;border-top:1px solid #f0f1f2;font-size:13px}
+  .kwrow.hd{border-top:none;color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.3px}
+  .kwrow .kw{font-weight:600}
+  .diff-e{color:var(--ok);font-weight:600}.diff-m{color:var(--warn);font-weight:600}.diff-h{color:var(--danger);font-weight:600}
+  .intent{font-size:11px;background:var(--chip);border-radius:20px;padding:2px 8px}
+  @media(max-width:820px){.cols{grid-template-columns:1fr 1fr}.trend-grid{grid-template-columns:1fr 1fr}.grid2{grid-template-columns:1fr}.kwrow{grid-template-columns:1fr 60px 60px;}.kwrow .h-int,.kwrow .c-int,.kwrow .h-act{display:none}}
+</style>
+</head>
+<body>
+<script>
+/* auth gate — same as the other tools */
+(function(){try{const a=localStorage.getItem('seo_tools_auth_token');if(!a){location.href='/';return;}const {token,expiry}=JSON.parse(a);if(!token||!expiry||Date.now()>=expiry){localStorage.removeItem('seo_tools_auth_token');location.href='/';}}catch(e){location.href='/';}})();
+</script>
+
+<div class="topbar">
+  <h1>New Product Generator</h1>
+  <span class="ver">v1.0</span>
+  <span class="tag">AWA Products</span>
+</div>
+
+<div class="wrap">
+  <div id="msg" class="msg"></div>
+
+  <!-- DEFINE PRODUCT -->
+  <div class="card">
+    <h2>New product</h2>
+    <p class="sub">Define one product. Only the product-specific details — shared defaults are applied later.</p>
+
+    <div class="field">
+      <label class="f">SKU for print files <span class="req">*</span></label>
+      <input type="text" id="sku" placeholder="e.g. TRAVPARIS01" autocomplete="off">
+    </div>
+
+    <div class="block">
+      <div class="block-head"><h3>Collections</h3><button class="btn link" id="addColBtn">＋ Add collection</button></div>
+      <div class="cols" id="colCols"></div>
+      <div class="addbox" id="addBox">
+        <div class="row">
+          <div><label class="f">Collection name</label><input type="text" id="newColName" placeholder="e.g. Art Deco"></div>
+          <button class="btn primary small" id="doAddCol">Add</button>
+        </div>
+        <div style="margin-top:10px">
+          <label class="f" style="margin-bottom:4px">Show under group(s)</label>
+          <div class="groupchecks" id="groupChecks"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="block">
+      <div class="block-head"><h3>Set size</h3></div>
+      <div class="radios" id="setRadios">
+        <label class="radio"><input type="radio" name="set" value="Set of 1"> Set of 1</label>
+        <label class="radio"><input type="radio" name="set" value="Set of 2"> Set of 2</label>
+        <label class="radio"><input type="radio" name="set" value="Set of 3"> Set of 3</label>
+      </div>
+    </div>
+
+    <div class="block">
+      <div class="block-head"><h3>Trends</h3></div>
+      <div class="trend-grid" id="trendGrid"></div>
+    </div>
+
+    <div class="block">
+      <div class="block-head"><h3>Colours</h3></div>
+      <div class="grid2">
+        <div>
+          <label class="f">Primary colour <span style="color:var(--muted);font-weight:400">— one or more</span></label>
+          <div id="primaryBoxes"></div>
+          <button class="btn link" id="addPrimary" style="margin-top:4px">＋ Add colour</button>
+        </div>
+        <div>
+          <label class="f">Colour <span style="color:var(--muted);font-weight:400">— pick one</span></label>
+          <select id="colour" class="sel"><option value="">— select —</option></select>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions" style="margin-top:22px">
+      <button class="btn primary" id="saveBtn">Save product</button>
+      <button class="btn ghost" id="clearBtn">Clear</button>
+    </div>
+  </div>
+
+  <!-- LIST -->
+  <div class="card">
+    <h2>Defined products</h2>
+    <p class="sub">Tick the ones you want, then find keywords. Each keyword is checked against your registry and reserved when you apply it.</p>
+    <div id="listToolbar" style="display:none;margin-bottom:14px">
+      <button class="btn primary small" id="findBtn">Find keywords (<span id="selCount">0</span>)</button>
+    </div>
+    <div id="list"><div class="empty">Loading…</div></div>
+  </div>
+
+  <!-- KEYWORD RESULTS -->
+  <div class="card" id="kwCard" style="display:none">
+    <h2>Keyword options</h2>
+    <p class="sub">Pick one per product. "Use" reserves it in the registry (with an empty URL, for now).</p>
+    <div id="kwResults"></div>
+  </div>
+</div>
+
+<script>
+/* ---------- CONFIG ---------- */
+const BASE_GROUPS = {
+  "By Room":["Above Fireplace","Bathroom","Bedroom","Games room","Hallway","Kitchen","Laundry room","Living room","Nursery","Office","Teens Bedroom"],
+  "By Style":["Abstract","Bohemian","Chinoiserie","Christian","Coastal","Coffee","Contemporary","Eclectic","Maximalism","Farmhouse","French Country","Islamic","Japandi","Marble","Minimalism","Scandinavian","Shabby Chic","Sun & Moon","Travel","Tropical","Wild Life","Zen"],
+  "By Colour":["Black & White","Earth Toned","Gold","Pastels","Pink","Neutrals","Teal"],
+  "By Occasion":["Birthdays","Birthstones","Christmas","Family Reunion","Prints of Love","Zodiac"],
+  "Featured":["Bestsellers","New Arrivals"]
+};
+const TRENDS = ["Biophilic Design","Black & White Decor","Boho Decor","Coastal Decor","Coffee House Design","Contemporary Decor","Country Cottage Decor","Eclectic Decor","Farmhouse Decor","French Country Decor","Industrial Decor","Japandi Decor","Masculine Decor","Mediterranean Decor","Mid Century Decor","Minimalism Decor","Moroccan Decor","Old Money Decor","Preppy Style","Scandi Decor","Transitional Decor","Tropical Decor","Wildlife Decor","Zen Decor"];
+const COLOUR_CHOICES = ["Black","White","Blue","Pink","Green","Grey","Plum","Ivory","Peach","Teal","Maroon","Aquamarine","Brown","Beige","Mauve","Multicolour","Purple","Violet","Mink","Burgundy","Blush","Magenta","Light Blue"];
+
+let GROUPS = JSON.parse(JSON.stringify(BASE_GROUPS));
+let CUSTOM = {};          // added collections per group (persisted)
+let PRODUCTS = [];        // loaded from GitHub
+
+/* ---------- API ---------- */
+async function api(payload){
+  const r = await fetch('/api/keywords',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  let j; try{ j = await r.json(); }catch{ throw new Error('Bad response'); }
+  if(!j.ok) throw new Error(j.error || j.message || 'Error');
+  return j;
+}
+function msg(text,type){ const m=document.getElementById('msg'); m.textContent=text; m.className='msg show '+(type||'info'); if(type==='ok'){ setTimeout(()=>{ if(m.textContent===text) m.className='msg'; },3500);} }
+function clearMsg(){ document.getElementById('msg').className='msg'; }
+
+/* ---------- RENDER selectors ---------- */
+function renderCollections(){
+  const wrap=document.getElementById('colCols'); wrap.innerHTML='';
+  Object.keys(GROUPS).forEach(g=>{
+    const div=document.createElement('div'); div.className='colgroup';
+    div.innerHTML='<h4>'+g+'</h4>'+GROUPS[g].map(c=>'<label class="opt"><input type="checkbox" class="col-cb" value="'+esc(c)+'" data-group="'+esc(g)+'">'+esc(c)+'</label>').join('');
+    wrap.appendChild(div);
+  });
+}
+function renderTrends(){ document.getElementById('trendGrid').innerHTML=TRENDS.map(t=>'<label class="opt"><input type="checkbox" class="trend-cb" value="'+esc(t)+'">'+esc(t)+'</label>').join(''); }
+function renderGroupChecks(){ document.getElementById('groupChecks').innerHTML=Object.keys(GROUPS).map(g=>'<label><input type="checkbox" class="grp-cb" value="'+esc(g)+'">'+g+'</label>').join(''); }
+function fillColourSelect(){ const sel=document.getElementById('colour'); COLOUR_CHOICES.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;sel.appendChild(o);}); }
+function addPrimaryBox(val){ const box=document.getElementById('primaryBoxes');const row=document.createElement('div');row.className='pcrow';const inp=document.createElement('input');inp.type='text';inp.className='primary-cb';inp.placeholder='e.g. White';inp.value=val||'';const x=document.createElement('button');x.className='pcx';x.title='Remove';x.textContent='×';x.onclick=()=>{if(document.querySelectorAll('.pcrow').length>1)row.remove();else inp.value='';};row.appendChild(inp);row.appendChild(x);box.appendChild(row); }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+/* ---------- ADD COLLECTION ---------- */
+document.getElementById('addColBtn').onclick=()=>document.getElementById('addBox').classList.toggle('open');
+document.getElementById('doAddCol').onclick=async()=>{
+  const name=document.getElementById('newColName').value.trim();
+  const grps=[...document.querySelectorAll('.grp-cb:checked')].map(x=>x.value);
+  if(!name) return alert('Type a collection name.');
+  if(!grps.length) return alert('Pick at least one group.');
+  grps.forEach(g=>{ if(!GROUPS[g].includes(name)) GROUPS[g].push(name); if(!CUSTOM[g])CUSTOM[g]=[]; if(!CUSTOM[g].includes(name))CUSTOM[g].push(name); });
+  try{ await api({action:'save-collections',custom:CUSTOM}); }catch(e){ msg('Could not save collection: '+e.message,'err'); }
+  renderCollections();
+  document.querySelectorAll('.col-cb').forEach(cb=>{ if(cb.value===name) cb.checked=true; });
+  document.getElementById('newColName').value='';
+  document.querySelectorAll('.grp-cb').forEach(x=>x.checked=false);
+  document.getElementById('addBox').classList.remove('open');
+};
+document.getElementById('setRadios').addEventListener('change',()=>document.querySelectorAll('#setRadios .radio').forEach(r=>r.classList.toggle('on',r.querySelector('input').checked)));
+document.getElementById('addPrimary').onclick=()=>addPrimaryBox();
+
+/* ---------- SAVE / CLEAR ---------- */
+function collectForm(){
+  const cols={}; document.querySelectorAll('.col-cb:checked').forEach(cb=>{const g=cb.dataset.group;(cols[g]=cols[g]||[]).push(cb.value);});
+  return { sku:document.getElementById('sku').value.trim(), collections:cols,
+    set:(document.querySelector('input[name=set]:checked')||{}).value||'',
+    trends:[...document.querySelectorAll('.trend-cb:checked')].map(x=>x.value),
+    primaryColour:[...document.querySelectorAll('.primary-cb')].map(x=>x.value.trim()).filter(Boolean),
+    colour:document.getElementById('colour').value };
+}
+document.getElementById('saveBtn').onclick=async()=>{
+  const p=collectForm();
+  if(!p.sku) return alert('SKU for print files is required.');
+  const btn=document.getElementById('saveBtn'); btn.disabled=true; btn.innerHTML='<span class="spin"></span>Saving…';
+  try{ const r=await api({action:'save-product',product:p}); PRODUCTS=r.products; renderList(); clearForm(); msg('Saved '+p.sku,'ok'); }
+  catch(e){ msg('Save failed: '+e.message,'err'); }
+  finally{ btn.disabled=false; btn.textContent='Save product'; }
+};
+document.getElementById('clearBtn').onclick=clearForm;
+function clearForm(){ document.getElementById('sku').value=''; document.getElementById('primaryBoxes').innerHTML=''; addPrimaryBox(); document.getElementById('colour').value=''; document.querySelectorAll('.col-cb,.trend-cb').forEach(x=>x.checked=false); document.querySelectorAll('input[name=set]').forEach(x=>x.checked=false); document.querySelectorAll('#setRadios .radio').forEach(r=>r.classList.remove('on')); }
+
+/* ---------- LIST ---------- */
+function renderList(){
+  const list=document.getElementById('list');
+  if(!PRODUCTS.length){ list.innerHTML='<div class="empty">No products yet.</div>'; updateSel(); return; }
+  list.innerHTML=PRODUCTS.map((p,i)=>{
+    const colPills=Object.keys(p.collections||{}).map(g=>'<div class="kv"><span class="k">'+esc(g)+'</span><span>'+(p.collections[g]||[]).map(c=>'<span class="pill">'+esc(c)+'</span>').join('')+'</span></div>').join('');
+    const status = p.keyword ? '<span class="status kw">🔒 '+esc(p.keyword)+'</span>' : '<span class="status none">No keyword</span>';
+    return '<div class="prod" id="prod'+i+'">'+
+      '<div class="prod-head" onclick="toggle('+i+')">'+
+        '<input type="checkbox" class="sel-cb" data-sku="'+esc(p.sku)+'" onclick="event.stopPropagation();updateSel()">'+
+        '<span class="chev">▶</span><span class="sku">'+esc(p.sku)+'</span>'+status+'</div>'+
+      '<div class="prod-body">'+
+        (colPills||'<div class="kv"><span class="k">Collections</span><span>—</span></div>')+
+        '<div class="kv"><span class="k">Set size</span><span>'+esc(p.set||'—')+'</span></div>'+
+        '<div class="kv"><span class="k">Trends</span><span>'+((p.trends||[]).length?p.trends.map(t=>'<span class="pill">'+esc(t)+'</span>').join(''):'—')+'</span></div>'+
+        '<div class="kv"><span class="k">Primary colour</span><span>'+((p.primaryColour||[]).length?p.primaryColour.map(c=>'<span class="pill">'+esc(c)+'</span>').join(''):'—')+'</span></div>'+
+        '<div class="kv"><span class="k">Colour</span><span>'+esc(p.colour||'—')+'</span></div>'+
+        (p.keyword?'<div class="kv"><span class="k">Keyword</span><span>'+esc(p.keyword)+'</span></div>':'')+
+        '<div style="margin-top:12px"><button class="btn ghost small" onclick="delProduct(event,\''+esc(p.sku)+'\')">Delete</button></div>'+
+      '</div></div>';
+  }).join('');
+  updateSel();
+}
+function toggle(i){ document.getElementById('prod'+i).classList.toggle('open'); }
+function updateSel(){ const n=document.querySelectorAll('.sel-cb:checked').length; document.getElementById('selCount').textContent=n; document.getElementById('listToolbar').style.display=PRODUCTS.length?'block':'none'; document.getElementById('findBtn').disabled=n===0; }
+async function delProduct(e,sku){ e.stopPropagation(); if(!confirm('Delete '+sku+'?'))return; try{ const r=await api({action:'delete-product',sku}); PRODUCTS=r.products; renderList(); msg('Deleted '+sku,'ok'); }catch(err){ msg('Delete failed: '+err.message,'err'); } }
+
+/* ---------- FIND KEYWORDS ---------- */
+document.getElementById('findBtn').onclick=async()=>{
+  const skus=[...document.querySelectorAll('.sel-cb:checked')].map(x=>x.dataset.sku);
+  const selected=PRODUCTS.filter(p=>skus.includes(p.sku));
+  if(!selected.length) return;
+  const btn=document.getElementById('findBtn'); btn.disabled=true; btn.innerHTML='<span class="spin"></span>Searching…';
+  msg('Searching keywords in Ubersuggest/DataForSEO — this can take 1–2 minutes.','info');
+  try{
+    const r=await api({action:'research',products:selected});
+    renderKwResults(r.results||[]);
+    clearMsg();
+  }catch(e){ msg('Keyword search failed: '+e.message,'err'); }
+  finally{ btn.disabled=false; btn.innerHTML='Find keywords (<span id="selCount">'+document.querySelectorAll('.sel-cb:checked').length+'</span>)'; }
+};
+function diffClass(d){ if(d==null)return ''; if(d<=20)return 'diff-e'; if(d<=40)return 'diff-m'; return 'diff-h'; }
+function renderKwResults(results){
+  const card=document.getElementById('kwCard'), box=document.getElementById('kwResults');
+  if(!results.length){ card.style.display='none'; return; }
+  box.innerHTML=results.map((r,ri)=>{
+    if(!r.options||!r.options.length) return '<div class="kwblock"><h4>'+esc(r.sku)+'</h4><div class="empty">No free options found. Try broadening the product’s collections/colours.</div></div>';
+    const rows=r.options.map((o,oi)=>'<div class="kwrow">'+
+      '<span class="kw">'+esc(o.keyword)+'</span>'+
+      '<span>'+(o.volume!=null?o.volume:'—')+'</span>'+
+      '<span class="'+diffClass(o.difficulty)+'">'+(o.difficulty!=null?o.difficulty:'—')+'</span>'+
+      '<span class="c-int">'+(o.intent?'<span class="intent">'+esc(o.intent)+'</span>':'')+'</span>'+
+      '<span class="h-act"><button class="btn primary small" onclick="applyKw('+ri+','+oi+')">Use</button></span>'+
+    '</div>').join('');
+    return '<div class="kwblock" id="kwb'+ri+'" data-sku="'+esc(r.sku)+'">'+
+      '<h4>'+esc(r.sku)+'</h4>'+
+      '<div class="kwrow hd"><span>Keyword</span><span>Vol</span><span>Diff</span><span class="h-int">Intent</span><span class="h-act"></span></div>'+
+      rows+'</div>';
+  }).join('');
+  window.__kwResults=results;
+  card.style.display='block'; card.scrollIntoView({behavior:'smooth'});
+}
+async function applyKw(ri,oi){
+  const r=window.__kwResults[ri]; const o=r.options[oi];
+  if(!confirm('Reserve "'+o.keyword+'" for '+r.sku+'?\nThis locks it in your keyword registry (empty URL for now).'))return;
+  try{
+    const rr=await api({action:'reserve-keyword',keyword:o.keyword,sku:r.sku});
+    if(rr.duplicate){ msg('"'+o.keyword+'" is already locked in the registry. Pick another.','err'); return; }
+    const prod=PRODUCTS.find(p=>p.sku===r.sku);
+    const updated={...prod,keyword:o.keyword};
+    const sv=await api({action:'save-product',product:updated}); PRODUCTS=sv.products; renderList();
+    const block=document.getElementById('kwb'+ri); if(block) block.innerHTML='<h4>'+esc(r.sku)+'</h4><div class="msg show ok">🔒 Keyword applied: '+esc(o.keyword)+'</div>';
+    msg('Applied "'+o.keyword+'" to '+r.sku,'ok');
+  }catch(e){ msg('Apply failed: '+e.message,'err'); }
+}
+
+/* ---------- INIT ---------- */
+async function init(){
+  renderTrends(); renderGroupChecks(); fillColourSelect(); addPrimaryBox();
+  try{ const c=await api({action:'list-collections'}); CUSTOM=c.custom||{}; Object.keys(CUSTOM).forEach(g=>{ if(!GROUPS[g])GROUPS[g]=[]; CUSTOM[g].forEach(n=>{ if(!GROUPS[g].includes(n))GROUPS[g].push(n); }); }); }catch(e){}
+  renderCollections(); renderGroupChecks();
+  try{ const r=await api({action:'list-products'}); PRODUCTS=r.products||[]; renderList(); }
+  catch(e){ document.getElementById('list').innerHTML='<div class="empty">Could not load products: '+esc(e.message)+'</div>'; }
+}
+init();
+</script>
+</body>
+</html>
