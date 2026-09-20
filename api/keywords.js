@@ -1,4 +1,4 @@
-// api/keywords.js — New Product Generator backend  ·  v0.2
+// api/keywords.js — New Product Generator backend  ·  v0.3
 // Actions (POST { action, ... }):
 //   research        -> { products:[{sku, collections, set, trends, primaryColour, colour}], locationCode?, languageCode? }
 //                       returns { results:[{ sku, options:[{keyword, volume, difficulty, intent}] }] }
@@ -20,9 +20,10 @@ const MAX_DIFF_CANDIDATES_PER_PRODUCT = 15;
 const MAX_OPTIONS_PER_PRODUCT = 10;
 
 /* ---------------- Apify ---------------- */
-async function callActor(input) {
+async function callActor(input, actorId) {
   const token = process.env.APIFY_TOKEN;
-  const url = `https://api.apify.com/v2/acts/${ACTOR}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
+  const actor = (actorId || ACTOR).replace('/', '~');
+  const url = `https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`;
   const r = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -248,7 +249,7 @@ export default async function handler(req, res) {
 
     if (action === 'raw') {
       if (!process.env.APIFY_TOKEN) return res.status(500).json({ ok: false, error: 'APIFY_TOKEN not set' });
-      const items = await callActor(body.input || {});
+      const items = await callActor(body.input || {}, body.actor);
       return res.status(200).json({ ok: true, count: items.length, items });
     }
 
