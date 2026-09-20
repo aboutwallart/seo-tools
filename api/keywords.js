@@ -1,4 +1,4 @@
-// api/keywords.js — New Product Generator backend  ·  v0.4
+// api/keywords.js — New Product Generator backend  ·  v0.5
 // Actions (POST { action, ... }):
 //   research        -> { products:[{sku, collections, set, trends, primaryColour, colour}], locationCode?, languageCode? }
 //                       returns { results:[{ sku, options:[{keyword, volume, difficulty, intent}] }] }
@@ -14,6 +14,7 @@ const PRODUCTS_PATH = 'data/npg-products.json';
 const REGISTRY_PATH = 'data/keyword-locker-registry.csv';
 const ACTOR = 'santhej~dataforseo-labs-keyword-explorer';
 const CATEGORY_SYNONYMS = ['wall art', 'art print', 'wall decor', 'wall hanging', 'canvas wall art', 'framed wall art', 'poster', 'wall pictures'];
+const COLOUR_VOCAB = new Set(['black','white','blue','pink','green','grey','gray','gold','beige','brown','teal','purple','violet','mauve','plum','ivory','peach','maroon','aquamarine','burgundy','blush','magenta','mink','cream','navy','orange','yellow','red','silver','turquoise','coral','charcoal','sage','terracotta','rust','lilac','lavender','emerald','mustard','tan','taupe']);
 const MIN_VOLUME = 10;
 const MAX_SEEDS_PER_PRODUCT = 8;
 const MAX_DIFF_CANDIDATES_PER_PRODUCT = 15;
@@ -102,7 +103,7 @@ function buildSeeds(p) {
   const col = p.collections || {};
   const styles = col['By Style'] || [];
   const rooms = col['By Room'] || [];
-  const colours = [...(p.primaryColour || []), ...(p.colour ? [p.colour] : []), ...(col['By Colour'] || [])];
+  const colours = (p.primaryColour || []); // research colours = Primary Colour ONLY (ignore Colour/Multicolour)
   const trends = p.trends || [];
   const setN = (p.set || '').match(/\d+/) ? (p.set || '').match(/\d+/)[0] : '';
   const seeds = [];
@@ -175,11 +176,17 @@ async function research(body) {
 
   // 4) exclude locked + low volume; score by RELEVANCE × volume (style/trend rise, not just generic colour)
   const locked = await lockedKeywordSet();
-  const scored = candByProduct.map((m, pi) => [...m.values()]
-    .filter(c => !locked.has(c.keyword) && c.volume >= MIN_VOLUME)
-    .map(c => { const rel = relevanceOf(c.keyword, products[pi]); const intentF = commercial(c.intent) ? 1.25 : 1; return { ...c, score: rel * Math.sqrt(c.volume + 1) * intentF }; })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, MAX_DIFF_CANDIDATES_PER_PRODUCT));
+  // colours allowed = ONLY the product's Primary Colour words; drop keywords that mention any other colour
+  const colourWordsOf = list => { const s = new Set(); (list || []).forEach(c => String(c).toLowerCase().split(/[^a-z]+/).forEach(w => { if (COLOUR_VOCAB.has(w)) s.add(w); })); return s; };
+  const colourOk = (kw, allowed) => { for (const w of kw.split(/[^a-z]+/)) { if (COLOUR_VOCAB.has(w) && !allowed.has(w)) return false; } return true; };
+  const scored = candByProduct.map((m, pi) => {
+    const allowed = colourWordsOf(products[pi].primaryColour);
+    return [...m.values()]
+      .filter(c => !locked.has(c.keyword) && c.volume >= MIN_VOLUME && colourOk(c.keyword, allowed))
+      .map(c => { const rel = relevanceOf(c.keyword, products[pi]); const intentF = commercial(c.intent) ? 1.25 : 1; return { ...c, score: rel * Math.sqrt(c.volume + 1) * intentF }; })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, MAX_DIFF_CANDIDATES_PER_PRODUCT);
+  });
   const diffNeeded = new Set();
   scored.forEach(arr => arr.forEach(c => diffNeeded.add(c.keyword)));
 
