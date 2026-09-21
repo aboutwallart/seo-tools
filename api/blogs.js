@@ -1434,6 +1434,17 @@ Include EXACTLY 3 items.`;
         }
       }
 
+      // ── ACTION: get-mpd-winner-out ── (Money Page Doctor — winners the user manually sent to Start Here to optimise)
+      if (req.query.action === 'get-mpd-winner-out') {
+        try {
+          const file = await getGitHubFile('data/mpd-winner-out.json');
+          const arr = JSON.parse(file.content);
+          return res.status(200).json({ success: true, out: Array.isArray(arr) ? arr : [] });
+        } catch(e) {
+          return res.status(200).json({ success: true, out: [] });
+        }
+      }
+
       // ── ACTION: get-mpd-winner-serp ── (Money Page Doctor — stored SERP UK positions for winners)
       // Map of "normalizedPath|||keyword" → { position, checkedAt } (position null = checked, not in top 10).
       if (req.query.action === 'get-mpd-winner-serp') {
@@ -2333,6 +2344,34 @@ Include EXACTLY 3 items.`;
         const updated = [...set];
         await updateGitHubFile('data/mpd-hold.json', JSON.stringify(updated, null, 2), sha, `${hold ? 'Hold' : 'Unhold'} MPD winner: ${url}`);
         return res.status(200).json({ success: true, hold: updated });
+      }
+
+      // ── ACTION: save-mpd-hold-set ── (Money Page Doctor — replace the whole winners set in ONE write; used for bulk auto-adopt)
+      if (req.body.action === 'save-mpd-hold-set') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const arr = Array.isArray(req.body.hold) ? req.body.hold : null;
+        if (!arr) return res.status(400).json({ error: 'hold array required' });
+        let sha = null;
+        try { const file = await getGitHubFile('data/mpd-hold.json'); sha = file.sha; } catch(e) {}
+        const updated = [...new Set(arr.filter(Boolean))];
+        await updateGitHubFile('data/mpd-hold.json', JSON.stringify(updated, null, 2), sha, `Set MPD winners (bulk, ${updated.length})`);
+        return res.status(200).json({ success: true, hold: updated });
+      }
+
+      // ── ACTION: save-mpd-winner-out ── (Money Page Doctor — toggle a winner the user sent to Start Here to optimise)
+      if (req.body.action === 'save-mpd-winner-out') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { url, out } = req.body;
+        if (!url) return res.status(400).json({ error: 'url required' });
+        let existing = [];
+        let sha = null;
+        try { const file = await getGitHubFile('data/mpd-winner-out.json'); existing = JSON.parse(file.content); sha = file.sha; } catch(e) {}
+        if (!Array.isArray(existing)) existing = [];
+        const set = new Set(existing);
+        if (out) set.add(url); else set.delete(url);
+        const updated = [...set];
+        await updateGitHubFile('data/mpd-winner-out.json', JSON.stringify(updated, null, 2), sha, `${out ? 'Send to Start Here' : 'Return to Winners'} MPD: ${url}`);
+        return res.status(200).json({ success: true, out: updated });
       }
 
       // ── ACTION: save-mpd-winner-serp ── (Money Page Doctor — store SERP UK positions for winners)
