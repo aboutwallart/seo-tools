@@ -1,4 +1,4 @@
-// api/keywords.js — New Product Generator backend  ·  v0.6
+// api/keywords.js — New Product Generator backend  ·  v0.7
 // Actions (POST { action, ... }):
 //   gap-research    -> { products:[{sku, collections, set, trends, primaryColour, colour, keywordWords}] }
 //                       returns { results:[{ sku, options:[{keyword, volume, difficulty, difficultyRaw}] }] }
@@ -167,15 +167,20 @@ function gapTermsForProduct(p) {
   const extra = (p.keywordWords || []).map(w => String(w).toLowerCase().trim()).filter(Boolean);
   return { styles, rooms, trends, colours, setN, extra };
 }
+// A colour match alone never qualifies a keyword (e.g. "the white rabbit" ≠ wall art).
+// The keyword needs a topical signal: a style/trend/room/extra-term match, OR one of these category words.
+const CATEGORY_WORDS = ['wall art', 'art print', 'print', 'poster', 'canvas', 'wall decor', 'artwork', 'painting', 'picture', 'wall hanging', 'decor'];
 function gapRelevance(kw, terms) {
   let r = 0;
-  terms.styles.forEach(s => { if (s && kw.includes(s)) r += 3; });
-  terms.trends.forEach(t => { if (t && kw.includes(t)) r += 3; });
-  terms.rooms.forEach(rm => { if (rm && kw.includes(rm)) r += 1.5; });
-  terms.colours.forEach(c => { if (c && kw.includes(c)) r += 1.5; });
-  terms.extra.forEach(w => { if (w && kw.includes(w)) r += 2.5; });
-  if (terms.setN && kw.includes('set of ' + terms.setN)) r += 1;
-  return r;
+  let topical = false; // true once we see a non-colour signal (style/trend/room/extra/category word)
+  terms.styles.forEach(s => { if (s && kw.includes(s)) { r += 3; topical = true; } });
+  terms.trends.forEach(t => { if (t && kw.includes(t)) { r += 3; topical = true; } });
+  terms.rooms.forEach(rm => { if (rm && kw.includes(rm)) { r += 1.5; topical = true; } });
+  terms.extra.forEach(w => { if (w && kw.includes(w)) { r += 2.5; topical = true; } });
+  terms.colours.forEach(c => { if (c && kw.includes(c)) r += 1.5; }); // colour alone does NOT set topical
+  if (terms.setN && kw.includes('set of ' + terms.setN)) { r += 1; topical = true; }
+  if (!topical && CATEGORY_WORDS.some(w => kw.includes(w))) { r += 1; topical = true; }
+  return topical ? r : 0;
 }
 async function gapResearch(body) {
   const products = Array.isArray(body.products) ? body.products : [];
