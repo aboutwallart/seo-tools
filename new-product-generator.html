@@ -107,7 +107,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v1.1</span>
+  <span class="ver">v1.2</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -287,7 +287,9 @@ function renderList(){
     return '<div class="prod" id="prod'+i+'">'+
       '<div class="prod-head" onclick="toggle('+i+')">'+
         '<input type="checkbox" class="sel-cb" data-sku="'+esc(p.sku)+'" onclick="event.stopPropagation();updateSel()">'+
-        '<span class="chev">▶</span><span class="sku">'+esc(p.sku)+'</span>'+status+'</div>'+
+        '<span class="chev">▶</span><span class="sku">'+esc(p.sku)+'</span>'+status+
+        '<button class="btn ghost small" title="Delete" onclick="delProduct(event,\''+esc(p.sku)+'\')">Delete</button>'+
+      '</div>'+
       '<div class="prod-body">'+
         (colPills||'<div class="kv"><span class="k">Collections</span><span>—</span></div>')+
         '<div class="kv"><span class="k">Set size</span><span>'+esc(p.set||'—')+'</span></div>'+
@@ -296,10 +298,7 @@ function renderList(){
         '<div class="kv"><span class="k">Colour</span><span>'+esc(p.colour||'—')+'</span></div>'+
         ((p.keywordWords||[]).length?'<div class="kv"><span class="k">Extra terms</span><span>'+p.keywordWords.map(w=>'<span class="pill">'+esc(w)+'</span>').join('')+'</span></div>':'')+
         (p.keyword?'<div class="kv"><span class="k">Keyword</span><span>'+esc(p.keyword)+'</span></div>':'')+
-        '<div style="margin-top:12px;display:flex;gap:8px">'+
-          '<button class="btn ghost small" onclick="delProduct(event,\''+esc(p.sku)+'\')">Delete</button>'+
-          (p.keyword?'<button class="btn ghost small" onclick="event.stopPropagation();changeKeyword(\''+esc(p.sku)+'\')">Change keyword</button>':'')+
-        '</div>'+
+        (p.keyword?'<div style="margin-top:12px"><button class="btn ghost small" onclick="event.stopPropagation();changeKeyword(\''+esc(p.sku)+'\')">Change keyword</button></div>':'')+
       '</div></div>';
   }).join('');
   updateSel();
@@ -328,11 +327,12 @@ async function runFindKeywords(skus){
 function changeKeyword(sku){ runFindKeywords([sku]); }
 
 function diffClass(d){ if(d==null)return ''; if(d<=20)return 'diff-e'; if(d<=40)return 'diff-m'; return 'diff-h'; }
+function diffDot(d){ if(d==null)return ''; if(d<=20)return '🟢 '; if(d<=40)return '🟡 '; return '🔴 '; }
 function diffLabel(o){
   if(o.difficulty==null) return '—';
   const raw=(o.difficultyRaw||'').toLowerCase();
-  if(raw==='low'||raw==='medium'||raw==='high') return o.difficulty+' ('+o.difficultyRaw+')';
-  return String(o.difficulty);
+  const num=(raw==='low'||raw==='medium'||raw==='high')?(o.difficulty+' ('+o.difficultyRaw+')'):String(o.difficulty);
+  return diffDot(o.difficulty)+num;
 }
 function promptTerms(p){
   const col=p.collections||{};
