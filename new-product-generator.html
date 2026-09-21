@@ -108,6 +108,14 @@
   .contentfield-body.html :is(h2,h3){font-size:13.5px;margin:10px 0 4px}
   .contentfield textarea{width:100%;min-height:80px;font-family:inherit;font-size:13px;padding:8px;border:1px solid var(--border-strong);border-radius:7px}
   .btnrow{display:flex;gap:8px}
+  .dz{width:150px;height:150px;border:2px dashed var(--border-strong);border-radius:12px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;text-align:center;padding:10px;color:var(--muted);
+    font-size:12.5px;background:#fafbfb;position:relative;overflow:hidden;transition:border-color .15s,background .15s}
+  .dz:hover{border-color:var(--accent);background:var(--accent-soft)}
+  .dz.over{border-color:var(--accent);background:var(--accent-soft);border-style:solid}
+  .dz img{width:100%;height:100%;object-fit:cover;position:absolute;inset:0;border-radius:10px}
+  .dz-wide{width:100%;height:150px}
+  .dz-label{font-size:12px;font-weight:600;margin-top:6px;color:var(--ink)}
   .aiblock{border-left:3px solid var(--accent);padding-left:10px;margin-bottom:12px}
   @media(max-width:820px){.cols{grid-template-columns:1fr 1fr}.trend-grid{grid-template-columns:1fr 1fr}.grid2{grid-template-columns:1fr}.kwrow{grid-template-columns:1fr 60px 60px;}.kwrow .h-int,.kwrow .c-int,.kwrow .h-act{display:none}}
 </style>
@@ -120,7 +128,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v1.5</span>
+  <span class="ver">v1.6</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -504,46 +512,61 @@ function renderContentPanel(sku){
   body.innerHTML=html;
 }
 
-/* ---------- IMAGES (lifestyle / individuals / flats) ---------- */
+/* ---------- IMAGES (lifestyle / individuals / flats) — big drag-and-drop boxes ---------- */
 const FLAT_LABELS=[['flatWhite','White frames'],['flatBlack','Black frames'],['flatOak','Oak frames'],['flatCanvas','Canvas wrapped'],['flatUnframed','Unframed']];
-function imgThumb(url,ring){ return '<img src="'+esc(url||'')+'" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:2px solid '+(ring?'var(--accent)':'var(--border-strong)')+'">'; }
+let DZ_SEQ=0;
+// A single dropzone box. Empty -> dashed box, click or drop to upload. Filled -> shows the image full-bleed.
+function dropzone(sku, slot, index, label, filled){
+  const id='dz'+(DZ_SEQ++);
+  const fileId=id+'-file';
+  const wide = slot==='lifestyle' ? ' dz-wide' : '';
+  const inner = filled
+    ? '<img src="'+esc(filled.url||'')+'">'
+    : '<div>📷<br>Drop image here<br>or click to browse</div>';
+  return '<div>'+
+    '<div class="dz'+wide+'" id="'+id+'" '+
+      'ondragover="event.preventDefault();event.stopPropagation();this.classList.add(\'over\')" '+
+      'ondragleave="this.classList.remove(\'over\')" '+
+      'ondrop="onImageDrop(event,\''+esc(sku)+'\',\''+slot+'\','+index+')" '+
+      'onclick="document.getElementById(\''+fileId+'\').click()">'+
+      inner+
+    '</div>'+
+    '<input type="file" id="'+fileId+'" accept="image/*" '+(slot==='lifestyle'?'multiple':'')+' style="display:none" onchange="onFileInputChosen(this,\''+esc(sku)+'\',\''+slot+'\','+index+')">'+
+    (label?'<div class="dz-label">'+label+'</div>':'')+
+  '</div>';
+}
 function renderImagesSection(sku){
   const p=PRODUCTS.find(x=>x.sku===sku); if(!p) return '';
   const setMatch=(p.set||'').match(/\d+/); const setSize=setMatch?parseInt(setMatch[0],10):1;
   const img=p.images||{lifestyle:[],lifestyleCoverIndex:0,individuals:[],flats:{}};
   let html='<div class="block"><div class="block-head"><h3>Images</h3></div>';
 
-  html+='<div style="margin-bottom:20px"><label class="f" style="margin-bottom:6px">Lifestyle photos <span style="color:var(--muted);font-weight:400">— add as many as you have, then pick the cover</span></label>'+
-    '<input type="file" accept="image/*" multiple onchange="onLifestyleFilesSelected(\''+esc(sku)+'\',this)">'+
-    (img.lifestyle.length?'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">'+
-      img.lifestyle.map((im,i)=>'<div style="text-align:center;width:84px">'+imgThumb(im.url,img.lifestyleCoverIndex===i)+
-        '<label style="display:block;font-size:11px;margin-top:4px;cursor:pointer"><input type="radio" name="lifecover-'+esc(sku)+'" '+(img.lifestyleCoverIndex===i?'checked':'')+' onchange="setLifestyleCoverUI(\''+esc(sku)+'\','+i+')" style="vertical-align:middle"> Cover</label>'+
-        '<button class="btn ghost small" style="padding:2px 6px;font-size:10px;margin-top:2px" onclick="removeProdImage(\''+esc(sku)+'\',\'lifestyle\','+i+')">Remove</button>'+
+  html+='<div style="margin-bottom:22px"><label class="f" style="margin-bottom:6px">Lifestyle photos <span style="color:var(--muted);font-weight:400">— add as many as you have, then pick the cover</span></label>'+
+    dropzone(sku,'lifestyle',img.lifestyle.length,null,null)+
+    (img.lifestyle.length?'<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:14px">'+
+      img.lifestyle.map((im,i)=>'<div style="text-align:center;width:150px">'+
+        '<div class="dz" style="cursor:default;border-style:solid;'+(img.lifestyleCoverIndex===i?'border-color:var(--accent)':'')+'"><img src="'+esc(im.url||'')+'"></div>'+
+        '<label style="display:block;font-size:12px;margin-top:6px;cursor:pointer"><input type="radio" name="lifecover-'+esc(sku)+'" '+(img.lifestyleCoverIndex===i?'checked':'')+' onchange="setLifestyleCoverUI(\''+esc(sku)+'\','+i+')" style="vertical-align:middle"> Cover</label>'+
+        '<button class="btn ghost small" style="padding:2px 8px;font-size:11px;margin-top:4px" onclick="removeProdImage(\''+esc(sku)+'\',\'lifestyle\','+i+')">Remove</button>'+
       '</div>').join('')+
     '</div>':'')+
   '</div>';
 
-  html+='<div style="margin-bottom:20px"><label class="f" style="margin-bottom:6px">Individual artwork photos <span style="color:var(--muted);font-weight:400">— '+setSize+' needed ('+esc(p.set||'')+')</span></label>'+
-    '<div style="display:flex;gap:14px;flex-wrap:wrap">'+
+  html+='<div style="margin-bottom:22px"><label class="f" style="margin-bottom:6px">Individual artwork photos <span style="color:var(--muted);font-weight:400">— '+setSize+' needed ('+esc(p.set||'')+')</span></label>'+
+    '<div style="display:flex;gap:16px;flex-wrap:wrap">'+
     Array.from({length:setSize}).map((_,i)=>{
       const has=img.individuals[i];
-      return '<div style="text-align:center;width:90px">'+
-        (has?imgThumb(has.url,false):'<input type="file" accept="image/*" onchange="onSingleFileSelected(\''+esc(sku)+'\',\'individual\',this)" style="width:80px">')+
-        '<div style="font-size:11px;margin-top:4px">Individual '+(i+1)+'</div>'+
-        (has?'<button class="btn ghost small" style="padding:2px 6px;font-size:10px" onclick="removeProdImage(\''+esc(sku)+'\',\'individual\','+i+')">Remove</button>':'')+
-      '</div>';
+      return dropzone(sku,'individual',i,'Individual '+(i+1),has)+
+        (has?'<button class="btn ghost small" style="padding:2px 8px;font-size:11px;margin-top:-16px;margin-bottom:16px" onclick="removeProdImage(\''+esc(sku)+'\',\'individual\','+i+')">Remove</button>':'');
     }).join('')+
   '</div></div>';
 
   html+='<div><label class="f" style="margin-bottom:6px">Flat images <span style="color:var(--muted);font-weight:400">— these also show as the variant images in the cart</span></label>'+
-    '<div style="display:flex;gap:14px;flex-wrap:wrap">'+
+    '<div style="display:flex;gap:16px;flex-wrap:wrap">'+
     FLAT_LABELS.map(([slot,label])=>{
       const has=img.flats[slot];
-      return '<div style="text-align:center;width:90px">'+
-        (has?imgThumb(has.url,false):'<input type="file" accept="image/*" onchange="onSingleFileSelected(\''+esc(sku)+'\',\''+slot+'\',this)" style="width:80px">')+
-        '<div style="font-size:11px;margin-top:4px">'+label+'</div>'+
-        (has?'<button class="btn ghost small" style="padding:2px 6px;font-size:10px" onclick="removeProdImage(\''+esc(sku)+'\',\''+slot+'\',0)">Remove</button>':'')+
-      '</div>';
+      return dropzone(sku,slot,0,label,has)+
+        (has?'<button class="btn ghost small" style="padding:2px 8px;font-size:11px;margin-top:-16px;margin-bottom:16px" onclick="removeProdImage(\''+esc(sku)+'\',\''+slot+'\',0)">Remove</button>':'');
     }).join('')+
   '</div></div>';
 
@@ -558,8 +581,18 @@ function readFileAsBase64(file){
     reader.readAsDataURL(file);
   });
 }
-async function onLifestyleFilesSelected(sku, inputEl){
-  const files=[...inputEl.files]; if(!files.length) return;
+async function uploadOneFile(sku, slot, file){
+  msg('Uploading…','info');
+  try{
+    const {mediaType,data}=await readFileAsBase64(file);
+    const r=await api({action:'upload-image', sku, slot, image:data, imageMediaType:mediaType});
+    PRODUCTS=r.products;
+    renderContentPanel(sku);
+    msg('Uploaded.','ok');
+  }catch(e){ msg('Upload failed: '+e.message,'err'); }
+}
+async function uploadLifestyleFiles(sku, files){
+  if(!files.length) return;
   msg('Uploading '+files.length+' lifestyle photo(s)…','info');
   for(const f of files){
     try{
@@ -568,20 +601,22 @@ async function onLifestyleFilesSelected(sku, inputEl){
       PRODUCTS=r.products;
     }catch(e){ msg('Upload failed for '+f.name+': '+e.message,'err'); }
   }
-  inputEl.value='';
   renderContentPanel(sku);
   msg('Lifestyle photos uploaded.','ok');
 }
-async function onSingleFileSelected(sku, slot, inputEl){
-  const f=inputEl.files[0]; if(!f) return;
-  msg('Uploading…','info');
-  try{
-    const {mediaType,data}=await readFileAsBase64(f);
-    const r=await api({action:'upload-image', sku, slot, image:data, imageMediaType:mediaType});
-    PRODUCTS=r.products;
-    renderContentPanel(sku);
-    msg('Uploaded.','ok');
-  }catch(e){ msg('Upload failed: '+e.message,'err'); }
+function onFileInputChosen(inputEl, sku, slot){
+  const files=[...inputEl.files]; if(!files.length) return;
+  if(slot==='lifestyle') uploadLifestyleFiles(sku, files);
+  else uploadOneFile(sku, slot, files[0]);
+  inputEl.value='';
+}
+function onImageDrop(e, sku, slot){
+  e.preventDefault(); e.stopPropagation();
+  e.currentTarget.classList.remove('over');
+  const files=[...(e.dataTransfer.files||[])].filter(f=>f.type && f.type.startsWith('image/'));
+  if(!files.length) return;
+  if(slot==='lifestyle') uploadLifestyleFiles(sku, files);
+  else uploadOneFile(sku, slot, files[0]);
 }
 async function setLifestyleCoverUI(sku, index){
   try{ const r=await api({action:'set-lifestyle-cover', sku, index}); PRODUCTS=r.products; renderContentPanel(sku); }
