@@ -1,20 +1,28 @@
-// api/keywords.js — New Product Generator backend  ·  v0.5
+// api/keywords.js — New Product Generator backend  ·  v0.6
 // Actions (POST { action, ... }):
-//   research        -> { products:[{sku, collections, set, trends, primaryColour, colour}], locationCode?, languageCode? }
+//   gap-research    -> { products:[{sku, collections, set, trends, primaryColour, colour, keywordWords}] }
+//                       returns { results:[{ sku, options:[{keyword, volume, difficulty, difficultyRaw}] }] }
+//                       (reads data/competitors-gap.csv — no Apify cost)
+//   set-keyword     -> { sku, keyword }      validates (not locked, not used by another in-progress product) + saves onto product
+//   research        -> { products:[{sku, collections, set, trends, primaryColour, colour}], locationCode?, languageCode? }  [PARKED — Apify, use sparingly]
 //                       returns { results:[{ sku, options:[{keyword, volume, difficulty, intent}] }] }
 //   list-products   -> {}                    returns { products:[...] }
 //   save-product    -> { product }           upserts by sku into data/npg-products.json
 //   delete-product  -> { sku }               removes from data/npg-products.json
-//   reserve-keyword -> { keyword, sku }       locks a reservation row in the keyword registry (url = N/A, intent COMMERCIAL)
+//   reserve-keyword -> { keyword, sku }       locks a reservation row in the keyword registry (url = N/A, intent COMMERCIAL) — used at Send-to-Shopify time
 //   raw             -> { input }             (debug) runs the actor with a raw input, returns dataset items
 // Env: APIFY_TOKEN, GITHUB_TOKEN
 
 const REPO = 'aboutwallart/seo-tools';
 const PRODUCTS_PATH = 'data/npg-products.json';
 const REGISTRY_PATH = 'data/keyword-locker-registry.csv';
+const GAP_PATH = 'data/competitors-gap.csv';
 const ACTOR = 'santhej~dataforseo-labs-keyword-explorer';
 const CATEGORY_SYNONYMS = ['wall art', 'art print', 'wall decor', 'wall hanging', 'canvas wall art', 'framed wall art', 'poster', 'wall pictures'];
 const COLOUR_VOCAB = new Set(['black','white','blue','pink','green','grey','gray','gold','beige','brown','teal','purple','violet','mauve','plum','ivory','peach','maroon','aquamarine','burgundy','blush','magenta','mink','cream','navy','orange','yellow','red','silver','turquoise','coral','charcoal','sage','terracotta','rust','lilac','lavender','emerald','mustard','tan','taupe']);
+// colours allowed = ONLY the given list's colour words; used to drop keywords mentioning any other colour
+function colourWordsOf(list) { const s = new Set(); (list || []).forEach(c => String(c).toLowerCase().split(/[^a-z]+/).forEach(w => { if (COLOUR_VOCAB.has(w)) s.add(w); })); return s; }
+function colourOk(kw, allowed) { for (const w of kw.split(/[^a-z]+/)) { if (COLOUR_VOCAB.has(w) && !allowed.has(w)) return false; } return true; }
 const MIN_VOLUME = 10;
 const MAX_SEEDS_PER_PRODUCT = 8;
 const MAX_DIFF_CANDIDATES_PER_PRODUCT = 15;
@@ -98,7 +106,100 @@ async function lockedKeywordSet() {
   return set;
 }
 
-/* ---------------- seeds ---------------- */
+/* ---------------- in-progress keyword set (products with a keyword, not yet sent to Shopify) ---------------- */
+function inProgressKeywordMap(products, excludeSku) {
+  // keyword(lower) -> sku, for products that already have a keyword and aren't sent yet
+  const map = new Map();
+  (products || []).forEach(p => {
+    if (excludeSku && (p.sku || '').toLowerCase() === excludeSku.toLowerCase()) return;
+    if (p.sent) return;
+    if (p.keyword) map.set(String(p.keyword).toLowerCase().trim(), p.sku);
+  });
+  return map;
+}
+
+/* ---------------- GAP FILE (Competitors gap CSV) — primary keyword source, no Apify cost ---------------- */
+function normDifficulty(raw) {
+  if (raw == null) return 30;
+  const s = String(raw).trim();
+  if (s === '') return 30; // empty = treat as low
+  const low = s.toLowerCase();
+  if (low === 'low') return 30;
+  if (low === 'medium') return 50;
+  if (low === 'high') return 75;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 30;
+}
+function normVolume(raw) {
+  if (raw == null) return 0;
+  const s = String(raw).trim();
+  if (s === '') return 0;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
+async function readGapFile() {
+  const rows = [];
+  try {
+    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${GAP_PATH}?t=${Date.now()}`);
+    if (!r.ok) return rows;
+    let txt = await r.text();
+    txt = txt.replace(/^﻿/, ''); // strip BOM
+    const lines = txt.split('\n');
+    for (let i = 1; i < lines.length; i++) { // skip header
+      const line = lines[i].replace(/\r/g, '');
+      if (!line.trim()) continue;
+      const c = parseCSVLine(line);
+      const keyword = (c[0] || '').toLowerCase().trim();
+      if (!keyword) continue;
+      const difficultyRaw = c[2] != null ? c[2].trim() : '';
+      rows.push({ keyword, volume: normVolume(c[1]), difficulty: normDifficulty(c[2]), difficultyRaw: difficultyRaw || '' });
+    }
+  } catch { /* ignore */ }
+  return rows;
+}
+function gapTermsForProduct(p) {
+  const col = p.collections || {};
+  const styles = (col['By Style'] || []).map(s => s.toLowerCase());
+  const rooms = (col['By Room'] || []).map(s => s.toLowerCase());
+  const trends = (p.trends || []).map(t => t.toLowerCase());
+  const colours = (p.primaryColour || []).map(c => c.toLowerCase());
+  const setN = (p.set || '').match(/\d+/) ? (p.set || '').match(/\d+/)[0] : '';
+  const extra = (p.keywordWords || []).map(w => String(w).toLowerCase().trim()).filter(Boolean);
+  return { styles, rooms, trends, colours, setN, extra };
+}
+function gapRelevance(kw, terms) {
+  let r = 0;
+  terms.styles.forEach(s => { if (s && kw.includes(s)) r += 3; });
+  terms.trends.forEach(t => { if (t && kw.includes(t)) r += 3; });
+  terms.rooms.forEach(rm => { if (rm && kw.includes(rm)) r += 1.5; });
+  terms.colours.forEach(c => { if (c && kw.includes(c)) r += 1.5; });
+  terms.extra.forEach(w => { if (w && kw.includes(w)) r += 2.5; });
+  if (terms.setN && kw.includes('set of ' + terms.setN)) r += 1;
+  return r;
+}
+async function gapResearch(body) {
+  const products = Array.isArray(body.products) ? body.products : [];
+  if (!products.length) return { results: [] };
+  const [gapRows, locked, allProducts] = await Promise.all([readGapFile(), lockedKeywordSet(), readProducts()]);
+  const results = products.map(p => {
+    const terms = gapTermsForProduct(p);
+    const allowedColours = colourWordsOf((p.primaryColour || []).concat(p.keywordWords || []));
+    const inProgress = inProgressKeywordMap(allProducts, p.sku);
+    const scored = gapRows
+      .filter(row => !locked.has(row.keyword) && !inProgress.has(row.keyword))
+      .filter(row => colourOk(row.keyword, allowedColours))
+      .map(row => ({ ...row, relevance: gapRelevance(row.keyword, terms) }))
+      .filter(row => row.relevance > 0)
+      .map(row => ({ ...row, score: row.relevance * Math.sqrt(row.volume + 1) * (100 / (row.difficulty + 10)) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, MAX_OPTIONS_PER_PRODUCT)
+      .map(row => ({ keyword: row.keyword, volume: row.volume, difficulty: row.difficulty, difficultyRaw: row.difficultyRaw }));
+    return { sku: p.sku || '', options: scored };
+  });
+  return { results };
+}
+
+/* ---------------- seeds (Apify/DataForSEO path — PARKED, use sparingly) ---------------- */
 function buildSeeds(p) {
   const col = p.collections || {};
   const styles = col['By Style'] || [];
@@ -176,9 +277,7 @@ async function research(body) {
 
   // 4) exclude locked + low volume; score by RELEVANCE × volume (style/trend rise, not just generic colour)
   const locked = await lockedKeywordSet();
-  // colours allowed = ONLY the product's Primary Colour words; drop keywords that mention any other colour
-  const colourWordsOf = list => { const s = new Set(); (list || []).forEach(c => String(c).toLowerCase().split(/[^a-z]+/).forEach(w => { if (COLOUR_VOCAB.has(w)) s.add(w); })); return s; };
-  const colourOk = (kw, allowed) => { for (const w of kw.split(/[^a-z]+/)) { if (COLOUR_VOCAB.has(w) && !allowed.has(w)) return false; } return true; };
+  // colours allowed = ONLY the product's Primary Colour words (module-level colourWordsOf/colourOk); drop keywords that mention any other colour
   const scored = candByProduct.map((m, pi) => {
     const allowed = colourWordsOf(products[pi].primaryColour);
     return [...m.values()]
@@ -214,7 +313,29 @@ async function research(body) {
   return { results };
 }
 
-/* ---------------- reserve keyword ---------------- */
+/* ---------------- set keyword (no registry lock — just saves onto the product; lock happens at Send-to-Shopify) ---------------- */
+async function setKeyword(sku, keyword) {
+  keyword = (keyword || '').trim();
+  if (!sku) throw new Error('sku required');
+  if (!keyword) throw new Error('keyword required');
+  const locked = await lockedKeywordSet();
+  if (locked.has(keyword.toLowerCase())) return { taken: true, reason: 'This keyword is already locked in the registry.' };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const file = await ghGet(PRODUCTS_PATH);
+    let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    const inProgress = inProgressKeywordMap(arr, sku);
+    if (inProgress.has(keyword.toLowerCase())) return { taken: true, reason: `Already used by product ${inProgress.get(keyword.toLowerCase())}.` };
+    const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === sku.toLowerCase());
+    if (idx < 0) throw new Error('product not found: ' + sku);
+    arr[idx] = { ...arr[idx], keyword, updatedAt: new Date().toISOString() };
+    try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG set keyword: ${sku} -> ${keyword}`); return { ok: true, products: arr }; }
+    catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
+  }
+  throw new Error('write conflict, try again');
+}
+
+/* ---------------- reserve keyword (Send-to-Shopify phase — locks the registry) ---------------- */
 async function reserveKeyword(keyword, sku) {
   keyword = (keyword || '').trim();
   if (!keyword) throw new Error('keyword required');
@@ -256,6 +377,17 @@ export default async function handler(req, res) {
     let body = req.body || {};
     if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
     const action = body.action || 'research';
+
+    if (action === 'gap-research') {
+      const out = await gapResearch(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    if (action === 'set-keyword') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const out = await setKeyword(body.sku, body.keyword);
+      return res.status(200).json({ ok: true, ...out });
+    }
 
     if (action === 'research') {
       if (!process.env.APIFY_TOKEN) return res.status(500).json({ ok: false, error: 'APIFY_TOKEN not set' });
