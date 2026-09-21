@@ -1,4 +1,14 @@
-// api/keywords.js — New Product Generator backend  ·  v0.11
+// api/keywords.js — New Product Generator backend  ·  v0.12
+// v0.12: SEND-TO-SHOPIFY — Batch 2 (image uploads). New actions:
+//   upload-image { sku, slot, image, imageMediaType } — slot: lifestyle|individual|flatWhite|flatBlack|
+//     flatOak|flatCanvas|flatUnframed. Uploads to Shopify Files (staged upload + fileCreate + CDN poll),
+//     names the file from the product's keyword + a number, writes an SEO alt text, saves the record
+//     onto product.images in npg-products.json. Returns immediately per image (never batched).
+//   set-lifestyle-cover { sku, index } — which lifestyle image is #1 (the storefront cover).
+//   remove-product-image { sku, slot, index? } — removes a saved image reference (Mae fixing a mistake).
+//   upload-fixed-images {} / get-fixed-images {} — the 3 fixed + 9 room-size images, uploaded to Shopify
+//     ONCE (idempotent — skips ones already done) and cached in data/npg-fixed-images.json for reuse on
+//     every product forever after. Source files: assets/npg-images/{fixed,rooms}/*.
 // v0.11: SEND-TO-SHOPIFY — Batch 1 (metafields + tags/collections resolver, READ-ONLY).
 //   New action 'resolve-shopify-fields' { sku } — computes everything Send-to-Shopify will need
 //   to write (metafields array, tags to add, collections to join, linked trends/blogs/collections,
@@ -791,6 +801,221 @@ async function resolveRelatedProducts(product, megaMenu, fallbackByTitle) {
   } catch (e) { return { gids: [], mainName, reason: String(e.message || e) }; }
 }
 
+/* ---------------- IMAGE UPLOAD (Send-to-Shopify Batch 2) ---------------- */
+const FIXED_IMAGES_PATH = 'data/npg-fixed-images.json';
+// Uploads one image to Shopify Files: stagedUploadsCreate -> manual multipart POST -> fileCreate -> poll
+// for the permanent CDN url. COPIED/ADAPTED from api/shopify-files.js's proven 'upload-image' subAction
+// (same 3 steps + polling) — do not diverge from that pattern.
+async function uploadImageToShopify(base64, filename, mimeType, altText) {
+  const mime = mimeType || 'image/jpeg';
+  const safeFilename = String(filename || 'image').replace(/[^a-zA-Z0-9._-]/g, '_');
+  const sd = await shopifyGQL(
+    `mutation($input:[StagedUploadInput!]!){ stagedUploadsCreate(input:$input){ stagedTargets{ url resourceUrl parameters{ name value } } userErrors{ field message } } }`,
+    { input: [{ resource: 'FILE', filename: safeFilename, mimeType: mime, httpMethod: 'POST' }] }
+  );
+  const ue1 = sd.stagedUploadsCreate.userErrors || [];
+  if (ue1.length) throw new Error(ue1[0].message);
+  const target = sd.stagedUploadsCreate.stagedTargets[0];
+  if (!target) throw new Error('No staged upload target returned');
+
+  const imageBuffer = Buffer.from(base64, 'base64');
+  const boundary = '----FormBoundary' + Math.random().toString(36).slice(2);
+  let formParts = '';
+  for (const p of target.parameters) formParts += `--${boundary}\r\nContent-Disposition: form-data; name="${p.name}"\r\n\r\n${p.value}\r\n`;
+  formParts += `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${safeFilename}"\r\nContent-Type: ${mime}\r\n\r\n`;
+  const bodyBuf = Buffer.concat([Buffer.from(formParts, 'utf8'), imageBuffer, Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8')]);
+  const ur = await fetch(target.url, { method: 'POST', headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` }, body: bodyBuf });
+  if (!ur.ok) { const t = await ur.text(); throw new Error('Upload to Shopify failed: ' + t.slice(0, 200)); }
+
+  const cd = await shopifyGQL(
+    `mutation($files:[FileCreateInput!]!){ fileCreate(files:$files){ files{ ... on MediaImage { id image{ url } } } userErrors{ field message } } }`,
+    { files: [{ originalSource: target.resourceUrl, contentType: 'IMAGE', alt: String(altText || safeFilename).slice(0, 512) }] }
+  );
+  const ue2 = cd.fileCreate.userErrors || [];
+  if (ue2.length) throw new Error(ue2[0].message);
+  const file = cd.fileCreate.files[0];
+  let cdnUrl = file && file.image ? file.image.url : null;
+  const fileId = file ? file.id : null;
+  if (!fileId) throw new Error('fileCreate did not return a file id.');
+
+  for (let attempt = 0; !cdnUrl && attempt < 6; attempt++) {
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+      const pd = await shopifyGQL(`query($id:ID!){ node(id:$id){ ... on MediaImage { image{ url } } } }`, { id: fileId });
+      cdnUrl = pd.node && pd.node.image ? pd.node.image.url : null;
+    } catch { /* keep polling */ }
+  }
+  return { gid: fileId, url: cdnUrl };
+}
+
+function slugifyKeyword(keyword) {
+  return String(keyword || 'wall-art').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'wall-art';
+}
+function extFromMime(mime) {
+  if (/png/i.test(mime)) return 'png';
+  if (/webp/i.test(mime)) return 'webp';
+  return 'jpg';
+}
+function altFor(slot, keyword, n, setSize) {
+  const kw = String(keyword || '').trim();
+  const cap = kw ? kw.charAt(0).toUpperCase() + kw.slice(1) : 'Wall art';
+  if (slot === 'lifestyle') return `${cap} styled in a room setting${n > 1 ? ' — view ' + n : ''}`;
+  if (slot === 'individual') return setSize > 1 ? `${cap} — individual print ${n} of ${setSize}` : `${cap} print close-up`;
+  if (slot === 'flatWhite') return `${cap} shown in a white frame`;
+  if (slot === 'flatBlack') return `${cap} shown in a black frame`;
+  if (slot === 'flatOak') return `${cap} shown in an oak frame`;
+  if (slot === 'flatCanvas') return `${cap} as a wrapped canvas`;
+  if (slot === 'flatUnframed') return `${cap} unframed print`;
+  return cap;
+}
+const FLAT_SLOTS = ['flatWhite', 'flatBlack', 'flatOak', 'flatCanvas', 'flatUnframed'];
+
+async function uploadProductImage(body) {
+  const { sku, slot, image, imageMediaType } = body;
+  if (!sku) throw new Error('sku required');
+  if (!slot) throw new Error('slot required');
+  if (!image) throw new Error('image required');
+  if (slot !== 'lifestyle' && slot !== 'individual' && !FLAT_SLOTS.includes(slot)) throw new Error('invalid slot: ' + slot);
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const file = await ghGet(PRODUCTS_PATH);
+    let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === sku.toLowerCase());
+    if (idx < 0) throw new Error('product not found: ' + sku);
+    const product = arr[idx];
+    const images = product.images ? { ...product.images, lifestyle: [...(product.images.lifestyle || [])], individuals: [...(product.images.individuals || [])], flats: { ...(product.images.flats || {}) } } : { lifestyle: [], lifestyleCoverIndex: 0, individuals: [], flats: {} };
+
+    const setMatch = (product.set || '').match(/\d+/);
+    const setSize = setMatch ? parseInt(setMatch[0], 10) : 1;
+    const ext = extFromMime(imageMediaType);
+    let n;
+    if (slot === 'lifestyle') n = images.lifestyle.length + 1;
+    else if (slot === 'individual') { n = images.individuals.length + 1; if (n > setSize) throw new Error(`This product is a ${product.set || 'set'} — it already has ${setSize} individual image(s).`); }
+    else n = 1; // flats are single slots
+
+    const filename = `${slugifyKeyword(product.keyword)}-${slot === 'individual' ? 'individual-' + n : slot === 'lifestyle' ? 'lifestyle-' + n : slot.replace('flat', '').toLowerCase()}.${ext}`;
+    const alt = altFor(slot, product.keyword, n, setSize);
+
+    const uploaded = await uploadImageToShopify(image, filename, imageMediaType, alt);
+    const record = { gid: uploaded.gid, url: uploaded.url, filename, alt };
+
+    if (slot === 'lifestyle') images.lifestyle.push(record);
+    else if (slot === 'individual') images.individuals.push(record);
+    else images.flats[slot] = record;
+
+    arr[idx] = { ...product, images, updatedAt: new Date().toISOString() };
+    try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG upload image: ${sku} (${slot})`); return { image: record, products: arr }; }
+    catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
+  }
+  throw new Error('write conflict, try again');
+}
+
+async function setLifestyleCover(sku, index) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const file = await ghGet(PRODUCTS_PATH);
+    let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === sku.toLowerCase());
+    if (idx < 0) throw new Error('product not found: ' + sku);
+    const product = arr[idx];
+    const images = { ...(product.images || {}), lifestyleCoverIndex: index };
+    arr[idx] = { ...product, images, updatedAt: new Date().toISOString() };
+    try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG set lifestyle cover: ${sku}`); return { products: arr }; }
+    catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
+  }
+  throw new Error('write conflict, try again');
+}
+
+async function removeProductImage(sku, slot, index) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const file = await ghGet(PRODUCTS_PATH);
+    let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === sku.toLowerCase());
+    if (idx < 0) throw new Error('product not found: ' + sku);
+    const product = arr[idx];
+    const images = product.images ? { ...product.images, lifestyle: [...(product.images.lifestyle || [])], individuals: [...(product.images.individuals || [])], flats: { ...(product.images.flats || {}) } } : { lifestyle: [], lifestyleCoverIndex: 0, individuals: [], flats: {} };
+    if (slot === 'lifestyle') { images.lifestyle.splice(index, 1); if (images.lifestyleCoverIndex >= images.lifestyle.length) images.lifestyleCoverIndex = 0; }
+    else if (slot === 'individual') images.individuals.splice(index, 1);
+    else if (FLAT_SLOTS.includes(slot)) delete images.flats[slot];
+    else throw new Error('invalid slot: ' + slot);
+    arr[idx] = { ...product, images, updatedAt: new Date().toISOString() };
+    try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG remove image: ${sku} (${slot})`); return { products: arr }; }
+    catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
+  }
+  throw new Error('write conflict, try again');
+}
+
+// ---- Shared images (3 fixed + 9 room) — uploaded ONCE, reused by every product forever after. ----
+const FIXED_IMAGE_FILES = [
+  { key: 'frameSizes', path: 'assets/npg-images/fixed/frame-sizes.jpg', alt: 'Frame sizes' },
+  { key: 'pictureFrames', path: 'assets/npg-images/fixed/picture-frames.jpg', alt: 'Picture frames' },
+  { key: 'canvasWrapped', path: 'assets/npg-images/fixed/canvas-wrapped.webp', alt: 'Canvas wrapped' }
+];
+// room-13..21 map to the form's room names, confirmed with Mae 2026-09-21. Games room shares Living
+// room's image; Laundry room shares Bathroom's image (no separate file for those two).
+const ROOM_IMAGE_FILES = {
+  'Above Fireplace': 'assets/npg-images/rooms/room-21.jpg',
+  'Bathroom': 'assets/npg-images/rooms/room-15.jpg',
+  'Bedroom': 'assets/npg-images/rooms/room-14.jpg',
+  'Games room': 'assets/npg-images/rooms/room-18.jpg',
+  'Hallway': 'assets/npg-images/rooms/room-17.jpg',
+  'Kitchen': 'assets/npg-images/rooms/room-13.jpg',
+  'Laundry room': 'assets/npg-images/rooms/room-15.jpg',
+  'Living room': 'assets/npg-images/rooms/room-18.jpg',
+  'Nursery': 'assets/npg-images/rooms/room-19.jpg',
+  'Office': 'assets/npg-images/rooms/room-20.jpg',
+  'Teens Bedroom': 'assets/npg-images/rooms/room-19.jpg'
+};
+async function fetchRepoFileAsBase64(path) {
+  const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${path}?t=${Date.now()}`);
+  if (!r.ok) throw new Error('Could not fetch ' + path + ' from GitHub (status ' + r.status + ') — make sure it was uploaded.');
+  const buf = await r.arrayBuffer();
+  return Buffer.from(buf).toString('base64');
+}
+function mimeFromPath(path) {
+  if (/\.png$/i.test(path)) return 'image/png';
+  if (/\.webp$/i.test(path)) return 'image/webp';
+  return 'image/jpeg';
+}
+async function getFixedImages() {
+  const r = await ghGet(FIXED_IMAGES_PATH);
+  let data = {}; if (r.content) { try { data = JSON.parse(r.content); } catch { data = {}; } }
+  return { data, sha: r.sha };
+}
+async function uploadFixedImages() {
+  const { data } = await getFixedImages();
+  const out = { fixed: { ...(data.fixed || {}) }, rooms: { ...(data.rooms || {}) } };
+  const results = [];
+  for (const f of FIXED_IMAGE_FILES) {
+    if (out.fixed[f.key] && out.fixed[f.key].gid) { results.push({ key: f.key, status: 'already uploaded' }); continue; }
+    try {
+      const b64 = await fetchRepoFileAsBase64(f.path);
+      const uploaded = await uploadImageToShopify(b64, f.path.split('/').pop(), mimeFromPath(f.path), f.alt);
+      out.fixed[f.key] = { gid: uploaded.gid, url: uploaded.url, alt: f.alt };
+      results.push({ key: f.key, status: 'uploaded' });
+    } catch (e) { results.push({ key: f.key, status: 'error', error: String(e.message || e) }); }
+  }
+  for (const roomName of Object.keys(ROOM_IMAGE_FILES)) {
+    if (out.rooms[roomName] && out.rooms[roomName].gid) { results.push({ key: roomName, status: 'already uploaded' }); continue; }
+    const path = ROOM_IMAGE_FILES[roomName];
+    // Rooms that SHARE a file with another room (Games room -> Living room, Laundry room -> Bathroom)
+    // reuse that room's already-uploaded GID instead of uploading the same image twice.
+    const sharedWith = Object.keys(ROOM_IMAGE_FILES).find(other => other !== roomName && ROOM_IMAGE_FILES[other] === path && out.rooms[other] && out.rooms[other].gid);
+    if (sharedWith) { out.rooms[roomName] = { ...out.rooms[sharedWith] }; results.push({ key: roomName, status: 'reused from ' + sharedWith }); continue; }
+    try {
+      const b64 = await fetchRepoFileAsBase64(path);
+      const uploaded = await uploadImageToShopify(b64, path.split('/').pop(), mimeFromPath(path), `Wall art size guide — ${roomName}`);
+      out.rooms[roomName] = { gid: uploaded.gid, url: uploaded.url };
+      results.push({ key: roomName, status: 'uploaded' });
+    } catch (e) { results.push({ key: roomName, status: 'error', error: String(e.message || e) }); }
+  }
+  const { sha } = await getFixedImages();
+  await ghPut(FIXED_IMAGES_PATH, JSON.stringify(out, null, 2), sha, 'NPG upload fixed/room images');
+  return { data: out, results };
+}
+
 /* ---------------- resolve-shopify-fields — READ-ONLY preview of everything Send-to-Shopify will write ---------------- */
 async function resolveShopifyFields(sku) {
   const products = await readProducts();
@@ -910,6 +1135,37 @@ export default async function handler(req, res) {
       if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
       if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ ok: false, error: 'ANTHROPIC_API_KEY not set' });
       const out = await generateContent(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    if (action === 'upload-image') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      if (!process.env.SHOPIFY_STORE_DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return res.status(500).json({ ok: false, error: 'Shopify credentials not configured' });
+      const out = await uploadProductImage(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    if (action === 'set-lifestyle-cover') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const out = await setLifestyleCover(body.sku, Number(body.index) || 0);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    if (action === 'remove-product-image') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const out = await removeProductImage(body.sku, body.slot, Number(body.index) || 0);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    if (action === 'get-fixed-images') {
+      const out = await getFixedImages();
+      return res.status(200).json({ ok: true, images: out.data });
+    }
+
+    if (action === 'upload-fixed-images') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      if (!process.env.SHOPIFY_STORE_DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return res.status(500).json({ ok: false, error: 'Shopify credentials not configured' });
+      const out = await uploadFixedImages();
       return res.status(200).json({ ok: true, ...out });
     }
 
