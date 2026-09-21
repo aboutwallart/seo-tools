@@ -1,23 +1,28 @@
-// api/keywords.js — New Product Generator backend  ·  v0.8
+// api/keywords.js — New Product Generator backend  ·  v0.9
 // Actions (POST { action, ... }):
-//   gap-research    -> { products:[{sku, collections, set, trends, primaryColour, colour, keywordWords}] }
-//                       returns { results:[{ sku, options:[{keyword, volume, difficulty, difficultyRaw}] }] }
-//                       (reads data/competitors-gap.csv — no Apify cost)
-//   set-keyword     -> { sku, keyword }      validates (not locked, not used by another in-progress product) + saves onto product
-//   research        -> { products:[{sku, collections, set, trends, primaryColour, colour}], locationCode?, languageCode? }  [PARKED — Apify, use sparingly]
-//                       returns { results:[{ sku, options:[{keyword, volume, difficulty, intent}] }] }
-//   list-products   -> {}                    returns { products:[...] }
-//   save-product    -> { product }           upserts by sku into data/npg-products.json
-//   delete-product  -> { sku }               removes from data/npg-products.json
-//   reserve-keyword -> { keyword, sku }       locks a reservation row in the keyword registry (url = N/A, intent COMMERCIAL) — used at Send-to-Shopify time
-//   raw             -> { input }             (debug) runs the actor with a raw input, returns dataset items
-// Env: APIFY_TOKEN, GITHUB_TOKEN
+//   gap-research      -> { products:[{sku, collections, set, trends, primaryColour, colour, keywordWords}] }
+//                         returns { results:[{ sku, options:[{keyword, volume, difficulty, difficultyRaw}] }] }
+//                         (reads data/competitors-gap.csv — no Apify cost)
+//   set-keyword       -> { sku, keyword }      validates (not locked, not used by another in-progress product) + saves onto product
+//   generate-content  -> { sku, image, imageMediaType }   image = base64 (no data: prefix). Requires product.keyword.
+//                         Finds top-3 SERP competitors for the keyword, reads the uploaded artwork image (vision),
+//                         and generates productTitle/seoTitle/metaDescription/productDescription/aiItems.
+//                         Saves onto product.content and returns { ok:true, content, products }.
+//   research          -> { products:[{sku, collections, set, trends, primaryColour, colour}], locationCode?, languageCode? }  [PARKED — Apify, use sparingly]
+//                         returns { results:[{ sku, options:[{keyword, volume, difficulty, intent}] }] }
+//   list-products     -> {}                    returns { products:[...] }
+//   save-product      -> { product }           upserts by sku into data/npg-products.json
+//   delete-product    -> { sku }               removes from data/npg-products.json
+//   reserve-keyword   -> { keyword, sku }       locks a reservation row in the keyword registry (url = N/A, intent COMMERCIAL) — used at Send-to-Shopify time
+//   raw               -> { input }             (debug) runs the actor with a raw input, returns dataset items
+// Env: APIFY_TOKEN, GITHUB_TOKEN, SERPAPI_KEY, ANTHROPIC_API_KEY
 
 const REPO = 'aboutwallart/seo-tools';
 const PRODUCTS_PATH = 'data/npg-products.json';
 const REGISTRY_PATH = 'data/keyword-locker-registry.csv';
 const GAP_PATH = 'data/competitors-gap.csv';
 const ACTOR = 'santhej~dataforseo-labs-keyword-explorer';
+const SERPAPI_KEY = process.env.SERPAPI_KEY;
 const CATEGORY_SYNONYMS = ['wall art', 'art print', 'wall decor', 'wall hanging', 'canvas wall art', 'framed wall art', 'poster', 'wall pictures'];
 const COLOUR_VOCAB = new Set(['black','white','blue','pink','green','grey','gray','gold','beige','brown','teal','purple','violet','mauve','plum','ivory','peach','maroon','aquamarine','burgundy','blush','magenta','mink','cream','navy','orange','yellow','red','silver','turquoise','coral','charcoal','sage','terracotta','rust','lilac','lavender','emerald','mustard','tan','taupe']);
 // colours allowed = ONLY the given list's colour words; used to drop keywords mentioning any other colour
@@ -325,6 +330,206 @@ async function research(body) {
   return { results };
 }
 
+/* ---------------- GENERATE CONTENT — competitor analysis + vision + Claude ---------------- */
+
+// Lean competitor finder (top-3 SERP for the keyword). Copied/simplified from api/analyze-money-page.js
+// findCompetitors() — no userUrl (product has no URL yet), no Scrappa fallback (SerpAPI only per spec).
+const NON_COMPETABLE = ['amazon.', 'etsy.', 'ebay.', 'aliexpress.', 'temu.', 'walmart.', 'wayfair.',
+  'pinterest.', 'youtube.', 'youtu.be', 'reddit.', 'quora.', 'tiktok.', 'instagram.', 'facebook.', 'm.facebook', 'fb.com'];
+function normalizeUrl(u) { return String(u || '').toLowerCase().replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, ''); }
+function isNonCompetable(u) { const n = normalizeUrl(u); return NON_COMPETABLE.some(d => n.includes(d)); }
+async function findTop3Competitors(keyword) {
+  if (!SERPAPI_KEY) return [];
+  try {
+    const url = `https://serpapi.com/search.json?q=${encodeURIComponent(keyword)}&api_key=${SERPAPI_KEY}&num=10&gl=uk&hl=en`;
+    const r = await fetch(url);
+    const data = await r.json();
+    const organicResults = data.organic_results || [];
+    const competitors = [];
+    organicResults.forEach((result, i) => {
+      if (competitors.length >= 3) return;
+      const resultUrl = result.link; if (!resultUrl) return;
+      if (isNonCompetable(resultUrl)) return;
+      competitors.push({ position: i + 1, title: result.title || '', url: resultUrl });
+    });
+    return competitors;
+  } catch { return []; }
+}
+
+// Lean SEO extractor (title/meta/h1/h2/wordCount only — no schema/AI-optimisation detection, not needed here).
+function extractLiteSEOData(html) {
+  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+  const title = titleMatch ? titleMatch[1].trim() : '';
+  const metaMatch = html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([^"']+)["']/i);
+  const metaDescription = metaMatch ? metaMatch[1].trim() : '';
+  const h1 = (html.match(/<h1[^>]*>([^<]+)<\/h1>/gi) || []).map(m => m.replace(/<\/?h1[^>]*>/gi, '').trim());
+  const h2 = (html.match(/<h2[^>]*>([^<]+)<\/h2>/gi) || [])
+    .map(m => m.replace(/<\/?h2[^>]*>/gi, '').trim())
+    .filter(h => !h.includes('{{') && !h.includes('}}') && h.length > 2);
+  let text = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '').replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  const wordCount = text.split(/\s+/).filter(Boolean).length;
+  return { title, metaDescription, h1, h2, wordCount };
+}
+async function fetchCompetitorData(c) {
+  try {
+    const r = await fetch(c.url, { headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' } });
+    const html = await r.text();
+    return { ...c, ...extractLiteSEOData(html) };
+  } catch { return { ...c, title: '', metaDescription: '', h1: [], h2: [], wordCount: 0 }; }
+}
+
+function buildGenerateContentPrompt(product, competitors) {
+  const col = product.collections || {};
+  const styles = (col['By Style'] || []).join(', ');
+  const rooms = (col['By Room'] || []).join(', ');
+  const primaryColours = (product.primaryColour || []).join(', ');
+  const trends = (product.trends || []).join(', ');
+  const extraWords = (product.keywordWords || []).join(', ');
+  const keyword = product.keyword;
+  const setMatch = (product.set || '').match(/\d+/);
+  const setN = setMatch ? setMatch[0] : '';
+  const roomsLower = (col['By Room'] || []).map(r => r.toLowerCase());
+  const moisture = roomsLower.includes('bathroom') || roomsLower.includes('laundry room');
+
+  const competitorsBlock = competitors.length
+    ? competitors.map(c => `--- Position ${c.position}: ${c.url}\n  Title: ${c.title || 'N/A'}\n  H2s: ${(c.h2 || []).join(' | ') || 'N/A'}\n  Words: ${c.wordCount || 0}`).join('\n')
+    : '(no competitor data — write the closing sections from the product itself)';
+
+  return `You are an expert SEO copywriter AND a very warm, friendly UK interior-decor advisor writing a PRODUCT description for AboutWallArt (a UK wall art / home-decor store). You are looking at the ACTUAL product image supplied with this message. Return ONLY a valid JSON object — no text before or after, no markdown code fences.
+
+WHAT YOU MAY TREAT AS FACT (never go beyond this):
+- The IMAGE shows the artwork. Describe ONLY THE ART ITSELF — the subject, the colours, the style/pattern of the artwork. Say NOTHING about the frames, mounts, glass, the wall, the room, or how the pieces are hung or arranged: the image is only a mockup and the real framing/room will vary. Describe just what is drawn/printed in the art. NEVER invent anything not visible in the art.
+- The product definition below. Never invent set size, style, room or colours beyond it.
+- Product wording: refer to the items as "wall art prints" / "art prints" (this is the accepted wording).
+
+PRODUCT DEFINITION:
+- Main keyword: "${keyword}"
+- Set size: ${product.set || 'n/a'} (a set of ${setN || '?'} prints)
+- Style: ${styles || 'n/a'}
+- Room(s): ${rooms || 'n/a'}
+- Defined colours: ${primaryColours || 'n/a'}
+- Trends: ${trends || 'n/a'}
+- Extra terms: ${extraWords || 'n/a'}
+
+COMPETITORS (top-3 ranking for "${keyword}" right now). Use these to SHAPE the two closing H2 sections so this product covers what they cover and fills their gaps:
+${competitorsBlock}
+
+Return EXACTLY this JSON (real content, no placeholders):
+{
+  "productTitle": "The product name — keyword near the front, PLUS a short distinctive detail of the actual artwork (its subject or main colours, from the image), and ENDS with the set size. Title Case. e.g. 'Gold Celestial Yoga Wall Art | Set of 3' or 'Blue Amalfi Coast Wall Art | Set of 3'. This is also the page H1.",
+  "seoTitle": "SEO title tag, max 60 chars, keyword near the START, UK spelling",
+  "metaDescription": "Max 135 chars. PERSUASIVE, not a description — lead with the BENEFIT and what the art is GOOD FOR, and make the reader want to click through to the product. Keyword once, UK spelling. Do NOT write shipping yourself — the tool appends ' Free UK shipping!' automatically at the end.",
+  "productDescription": "The FULL description as ONE HTML string — follow STRUCTURE + VOICE exactly.",
+  "aiItems": [
+    { "element":"Comparison Snippet", "metafieldKey":"comparison_snippet", "format":"richtext_snippet", "priority":"high", "content":"<h2>What is/are ${keyword}?</h2><p>[standalone 3-5 sentence answer; first sentence answers fully]</p>", "competitorDriven": false },
+    { "element":"How-To Block", "metafieldKey":"how_to_block", "format":"richtext_snippet", "priority":"medium", "content":"<h2>[how-to title about ${keyword}]</h2><p><strong>1. Step:</strong> ...</p><p><strong>2. Step:</strong> ...</p>", "competitorDriven": false },
+    { "element":"Comparison Table", "metafieldKey":"comparison_table", "format":"richtext_snippet", "priority":"medium", "content":"<h2>[title]</h2><p><strong>Feature —</strong> A. B.</p><p><strong>Feature —</strong> A. B.</p>", "competitorDriven": false }
+  ]
+}
+
+═══ JSON SAFETY ═══
+- RAW JSON only, no code fences. In productDescription and every aiItems content use SINGLE quotes for ALL HTML attributes, never double. Keep each string on ONE line (no raw line breaks/tabs/unescaped double quotes inside a value).
+
+═══ PRODUCT DESCRIPTION — build "productDescription" as ONE HTML string, in THIS order ═══
+1. INTRO — 2 short paragraphs, NO heading, do NOT repeat the title as a heading.
+   - Open the FIRST sentence with the verb that BEST fits THIS specific artwork — choose it to match what you see, and VARY it (never default to the same verb across products). Include the exact keyword "${keyword}" in that first sentence.
+   - It must be EMOTIONAL and persuasive — make the buyer want it — but in the grounded, chatty, friendly-advisor voice below. Speak as I/we. Describe the REAL artwork you see (subject, colours, where it suits) in plain, concrete words. A light question is fine.
+   - The description must NEVER begin with the word "SHOP".
+   - NO poetic / abstract / luxury-brochure lines.
+2. <h3>What's Included with [productTitle]</h3> then a short <ul>:
+   - Product-specific receivables / quality only, real facts (e.g. printed in the UK with fade-resistant pigment inks; for indoor use).
+   - INCLUDE the framing-convenience point (ALL products): a bullet saying it's available framed or unframed, and that the FRAMED option arrives READY TO HANG — saving the time and hassle of hunting for frames that fit.
+   - Do NOT list specific frame types / sizes / papers / mounts here (those live in the shared theme section) — only the convenience angle.
+   - The LAST bullet MUST read exactly: <li>Choose between framed and unframed options</li>
+3. <h2>How to Style ${keyword} ...</h2> — one or two WARM first-person paragraphs of real styling/hanging advice, with ONE internal link to a relevant collection/page (full URL, target='_blank' rel='noopener'). Shape it around the styling angles the top-3 competitors cover.
+4. <h2>[a natural "what to consider when choosing" heading — NOT the exact keyword]</h2> — WARM first-person advice on choosing for this artwork's style, colours and wall size, shaped by what competitors cover.${moisture ? '\n   - THIS PRODUCT IS FOR A BATHROOM / LAUNDRY ROOM: include a clear recommendation that for damp, high-moisture rooms the CANVAS-WRAPPED option is the best choice because it is moisture-resistant.' : ''}
+(The EXACT keyword belongs in AT MOST two headings across the whole description + snippets. Vary all other headings.)
+
+═══ VOICE (the most important part) ═══
+- A very friendly, warm UK interior-decor advisor giving genuine advice to ONE person. First person (I/we). Conversational, human, practical, inspiring. Active voice. Vary sentence length. UK spelling throughout. If it reads like AI or a dry spec sheet, it has FAILED — rewrite warmer.
+- GOLD-STANDARD VOICE (copy the VOICE, not the content): "Picture this set of three prints above your sofa — soft greys with warm gold running through them, calm but never boring. I love how they pull a living room together without shouting for attention. I'd hang all three in a row at eye level with an even gap between each one; because the palette is neutral, they pair brilliantly with warm white or sage walls."
+- The customer SELECTS framing options — never say "I add" frames/mounts.
+- Use ONLY what you SEE in the image + the definition. NEVER invent set size, subject, colours, style or room.
+- Do NOT begin the description with "SHOP", and do NOT open with the same verb every time.
+- BANNED WORDS (never use): Delve, Spearheading, Embarking, Compelling, Empowering, Encompassing, Comprehensively, Effectively, Beacon, Dive, Showcasing, Remarked, Aligns, Surpassing, Tragically, Impacting, Prioritize, Sparking, Standout, Hindering, Advancements, Aiding, Fostering, Multifaceted, Revolutionary, Testament, Elevate.
+- BANNED PHRASES: "in the ever-evolving world of", "at the forefront of", "in summary", "in conclusion", "in essence", "it's important to note", "emerges as a beacon", "dive into".
+
+═══ AI ITEMS ═══
+- Generate all three in the EXACT H2 formats shown. Keep metafieldKey + format EXACTLY. Set competitorDriven:true when the block fills a competitor gap, else false. how_to_block and comparison_table use bold-labelled paragraphs (rich text can't hold real tables).
+
+Return ONLY the JSON object — no other text.`;
+}
+
+async function generateContent(body) {
+  const sku = body.sku;
+  const image = body.image;
+  const imageMediaType = body.imageMediaType || 'image/jpeg';
+  if (!sku) throw new Error('sku required');
+  if (!image) throw new Error('image required');
+  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set');
+
+  const products = await readProducts();
+  const product = products.find(p => (p.sku || '').toLowerCase() === sku.toLowerCase());
+  if (!product) throw new Error('product not found: ' + sku);
+  if (!product.keyword) { const e = new Error('This product has no keyword yet — pick one first.'); e.status = 400; throw e; }
+
+  const competitors = await findTop3Competitors(product.keyword);
+  const competitorsData = competitors.length ? await Promise.all(competitors.map(fetchCompetitorData)) : [];
+
+  const prompt = buildGenerateContentPrompt(product, competitorsData);
+
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 8000,
+      messages: [{ role: 'user', content: [
+        { type: 'text', text: prompt },
+        { type: 'image', source: { type: 'base64', media_type: imageMediaType, data: image } }
+      ] }]
+    })
+  });
+  if (!r.ok) { const t = await r.text(); throw new Error('Claude API error ' + r.status + ': ' + t.slice(0, 300)); }
+  const data = await r.json();
+  let responseText = '';
+  if (data.content && Array.isArray(data.content)) {
+    responseText = data.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
+  }
+  let clean = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+  const jsonMatch = clean.match(/\{[\s\S]*\}/);
+  if (jsonMatch) clean = jsonMatch[0];
+  let parsed;
+  try { parsed = JSON.parse(clean); } catch (e) { throw new Error('Could not parse Claude response as JSON: ' + String(e.message || e)); }
+
+  // meta description must always end with "Free UK shipping!"
+  let meta = (parsed.metaDescription || '').trim();
+  if (!/free uk shipping!?$/i.test(meta)) meta = meta.replace(/\s+$/, '') + ' Free UK shipping!';
+  parsed.metaDescription = meta;
+
+  const content = {
+    productTitle: parsed.productTitle || '',
+    seoTitle: parsed.seoTitle || '',
+    metaDescription: parsed.metaDescription || '',
+    productDescription: parsed.productDescription || '',
+    aiItems: Array.isArray(parsed.aiItems) ? parsed.aiItems : [],
+    generatedAt: new Date().toISOString()
+  };
+
+  // save onto the product (SHA-conflict retry ×1, same pattern as save-product)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const file = await ghGet(PRODUCTS_PATH);
+    let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === sku.toLowerCase());
+    if (idx < 0) throw new Error('product not found: ' + sku);
+    arr[idx] = { ...arr[idx], content, updatedAt: new Date().toISOString() };
+    try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG generate content: ${sku}`); return { content, products: arr }; }
+    catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
+  }
+  throw new Error('write conflict, try again');
+}
+
 /* ---------------- set keyword (no registry lock — just saves onto the product; lock happens at Send-to-Shopify) ---------------- */
 async function setKeyword(sku, keyword) {
   keyword = (keyword || '').trim();
@@ -398,6 +603,13 @@ export default async function handler(req, res) {
     if (action === 'set-keyword') {
       if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
       const out = await setKeyword(body.sku, body.keyword);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    if (action === 'generate-content') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ ok: false, error: 'ANTHROPIC_API_KEY not set' });
+      const out = await generateContent(body);
       return res.status(200).json({ ok: true, ...out });
     }
 
