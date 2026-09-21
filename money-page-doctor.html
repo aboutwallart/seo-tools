@@ -287,7 +287,7 @@
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
                     <p class="subtitle">AI-Powered SEO Analysis</p>
-                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.10</p>
+                    <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.11</p>
                     <button onclick="resetAllChecklists()" title="Wipe all saved checklists so every page starts fresh" style="margin-top:6px;background:#fff;color:#c62828;border:1px solid #ef9a9a;padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;">🧹 Reset all checklists (start clean)</button>
                 </div>
             </div>
@@ -424,7 +424,7 @@
         <!-- WINNERS & HOLD TAB -->
         <div class="tab-content" id="winnersTab">
             <h3>🏆 Winners &amp; Hold</h3>
-            <p style="color:#666;margin-bottom:15px;">Pages whose keyword ranks #1–5 in the UK (auto), or ones you've put on hold. Kept out of the Start Here queue — light touch only, don't rush these.</p>
+            <p style="color:#666;margin-bottom:15px;">Pages whose keyword ranks #1–6 in the UK (auto), plus ones you've kept here. They stay in Winners even if they drop (shown grey) — send one to Start Here yourself when you want to optimise it.</p>
             <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;background:#f4f9f4;border:1px solid #cfe6cf;border-radius:8px;padding:10px 12px;">
                 <button onclick="checkWinnersSerp(this)" style="padding:9px 16px;border:none;background:#2e7d32;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;font-size:0.88rem;">🇬🇧 Check winners in the UK (SERP)</button>
                 <span id="winnersSerpStatus" style="font-size:0.82rem;color:#555;"></span>
@@ -625,7 +625,8 @@
         let mpdChecklist = {};   // { url: { _total: N, key: true/false } }
         let mpdSnapshots = {};   // { url: { optimizedAt, position, impressions, clicks, keyword } }
         let mpdPushState = {};   // { url: { pushed: bool, linksPushed: bool } }
-        let mpdHold = new Set(); // URLs she's flagged "Winner — hold (don't optimise yet)"
+        let mpdHold = new Set(); // URLs that are WINNERS — sticky: once here they stay in the Winners tab until she sends them out
+        let mpdWinnerOut = new Set(); // winners she manually sent to Start Here to optimise (keeps them out of Winners, and stops auto-adopt re-adding them)
         let mpdWinnerSerp = {};  // "normalizedPath|||keyword" → { position, checkedAt } — real SERP UK position for winners
         const MPD_SERP_STALE_DAYS = 15;  // a stored SERP check older than this gets re-checked when she clicks the button
         let checklistSaveTimer = null;
@@ -633,30 +634,42 @@
 
         async function loadMPDData() {
             try {
-                const [clRes, snRes, psRes, hdRes, spRes] = await Promise.all([
+                const [clRes, snRes, psRes, hdRes, spRes, woRes] = await Promise.all([
                     fetch('/api/blogs?action=get-mpd-checklist').then(r => r.json()).catch(() => ({ checklist: {} })),
                     fetch('/api/blogs?action=get-mpd-snapshots').then(r => r.json()).catch(() => ({ snapshots: {} })),
                     fetch('/api/blogs?action=get-mpd-push-state').then(r => r.json()).catch(() => ({ pushState: {} })),
                     fetch('/api/blogs?action=get-mpd-hold').then(r => r.json()).catch(() => ({ hold: [] })),
-                    fetch('/api/blogs?action=get-mpd-winner-serp').then(r => r.json()).catch(() => ({ serp: {} }))
+                    fetch('/api/blogs?action=get-mpd-winner-serp').then(r => r.json()).catch(() => ({ serp: {} })),
+                    fetch('/api/blogs?action=get-mpd-winner-out').then(r => r.json()).catch(() => ({ out: [] }))
                 ]);
                 mpdChecklist = clRes.checklist || {};
                 mpdSnapshots = snRes.snapshots || {};
                 mpdPushState = psRes.pushState || {};
                 mpdHold = new Set(hdRes.hold || []);
+                mpdWinnerOut = new Set(woRes.out || []);
                 mpdWinnerSerp = spRes.serp || {};
                 console.log('[MPD Data] Loaded from GitHub');
             } catch(e) { console.warn('[MPD Data] Load failed:', e); }
         }
 
         // Toggle "Winner — hold" for a page (saved to GitHub so it survives close/re-open — no re-analysis).
+        // Winner ⇆ Start Here. hold=true → it's a winner (stays in Winners, clears any "sent out" flag).
+        // hold=false → she sent it to Start Here to optimise (leaves Winners; mpdWinnerOut stops auto-adopt re-adding it).
         async function toggleWinnerHold(url, hold) {
-            if (hold) mpdHold.add(url); else mpdHold.delete(url);   // optimistic
+            if (hold) { mpdHold.add(url); mpdWinnerOut.delete(url); }   // optimistic
+            else      { mpdHold.delete(url); mpdWinnerOut.add(url); }
             try {
                 await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-mpd-hold', url, hold }) });
+                await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-mpd-winner-out', url, out: !hold }) });
             } catch (e) { console.warn('[Winner-Hold] save failed:', e); }
             renderStartHere();
             renderWinners();
+        }
+
+        // "Send to Start Here" button on a Winner card — she chose to optimise it.
+        async function sendWinnerToStartHere(url, btn) {
+            if (btn) { btn.disabled = true; btn.textContent = '⏳ Sending…'; }
+            await toggleWinnerHold(url, false);
         }
         // Hold/un-hold from inside an open analysis (after she's seen today's real position).
         async function holdFromAnalysis(url, btn) {
@@ -711,15 +724,16 @@
             const imp = g.impressions || 0;
             const clk = g.clicks || 0;
             const ctr = imp > 0 ? clk / imp : 0;
-            // Winner / hold zone = the LOCKED keyword ranking 1–5 in the UK.
+            // ── WINNERS (sticky) ──────────────────────────────────────────────────
+            // A winner STAYS in the Winners tab once it's there; it never drops back on its own.
+            // It only leaves when she clicks "Send to Start Here" (which adds it to mpdWinnerOut).
             const best = bestWinnerPos(url, keyword);   // SERP UK check (when run) wins; otherwise Google's UK number
             const gUK  = ukKwPos(url, keyword);         // Google's UK number only
-            // Manual/accepted winner ("hold"): stays while the best UK reading is ≤5 (or unknown — don't wrongly
-            // demote). Drops back to Start Here only when a reading clearly shows it fell below 5.
-            if (mpdHold.has(url) && (best == null || best <= 5)) return 'hold';
-            // Auto winner: Google says ≤5 in the UK — UNLESS a SERP check has since shown it dropped (>5). SERP wins.
-            // (A page that's ≤5 in SERP but NOT in Google waits for you to accept it via the analysis pop-up.)
-            if (gUK && gUK <= 5 && !(best != null && best > 5)) return 'winner';
+            if (!mpdWinnerOut.has(url)) {
+                if (mpdHold.has(url)) return 'hold';                 // sticky winner (adopted or accepted) — stays regardless of position
+                // Auto winner: the LOCKED keyword ranks ≤6 in the UK (Google or SERP). renderWinners then ADOPTS it into mpdHold so it stays.
+                if ((gUK && gUK <= 6) || (best != null && best <= 6)) return 'winner';
+            }
             if (g.urgency === 'quickwin') return 'quickwin';               // striking distance
             if (imp >= 100 && pos && pos <= 15 && ctr < 0.01) return 'fixctr'; // seen a lot, rarely clicked
             if (g.urgency === 'danger') return 'danger';                   // slipping
@@ -760,7 +774,11 @@
             const ranked = candidates.map(item => ({ item, cat: startHereCategory(item.url, item.keyword) }))
                 .filter(r => r.cat !== 'winner' && r.cat !== 'hold')   // winners + held pages ALWAYS live in the Winners tab, never here (even if pinned)
                 .sort((a, b) => {
-                    // Freshly retargeted pages are pinned to the very top (highest priority, even if metrics are low).
+                    // RED pages ("Too long — shorten it": couldn't be analysed) ALWAYS sit at the very top.
+                    const ar = (mpdChecklist[a.item.url] && mpdChecklist[a.item.url]._toolong) ? 0 : 1;
+                    const br = (mpdChecklist[b.item.url] && mpdChecklist[b.item.url]._toolong) ? 0 : 1;
+                    if (ar !== br) return ar - br;
+                    // Freshly retargeted pages are pinned to the top next (highest priority, even if metrics are low).
                     const ap = mpdPinnedTop.has(normalizeUrlPath(a.item.url)) ? 0 : 1;
                     const bp = mpdPinnedTop.has(normalizeUrlPath(b.item.url)) ? 0 : 1;
                     if (ap !== bp) return ap - bp;
@@ -915,6 +933,22 @@
             if (!list) return;
             const optimisedSet = new Set((optimizedPages || []).map(p => normalizeUrlPath(p.url || '')));
             const removedSet   = new Set((removedPages   || []).map(p => normalizeUrlPath(p.url || '')));
+            // Auto-adopt: any page whose LOCKED keyword now ranks ≤6 in the UK becomes a STICKY winner (added to mpdHold),
+            // so it stays in Winners even if it later drops. Skip ones she sent out, already winners, optimised or removed.
+            (function adoptNewWinners(){
+                let added = false;
+                deduplicateUrls(urls).forEach(item => {
+                    const url = item.url; if (!url) return;
+                    const np = normalizeUrlPath(url);
+                    if (mpdHold.has(url) || mpdWinnerOut.has(url) || optimisedSet.has(np) || removedSet.has(np)) return;
+                    const bp = bestWinnerPos(url, item.keyword);
+                    const gUK = ukKwPos(url, item.keyword);
+                    if ((typeof bp === 'number' && bp > 0 && bp <= 6) || (gUK && gUK <= 6)) { mpdHold.add(url); added = true; }
+                });
+                if (added) {
+                    fetch('/api/blogs', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'save-mpd-hold-set', hold:[...mpdHold] }) }).catch(()=>{});
+                }
+            })();
             const items = deduplicateUrls(urls)
                 .filter(item => {
                     const _np = normalizeUrlPath(item.url || '');
@@ -926,7 +960,7 @@
                 .map(item => ({ item, cat: startHereCategory(item.url, item.keyword) }))
                 .sort((a, b) => (bestWinnerPos(a.item.url, a.item.keyword) || 99) - (bestWinnerPos(b.item.url, b.item.keyword) || 99));
             const c = document.getElementById('winnersCount'); if (c) c.textContent = items.length;
-            if (!items.length) { list.innerHTML = '<p style="text-align:center;color:#666;padding:40px;">No winners or held pages yet. Pages whose keyword ranks #1–5 in the UK, and ones you put on hold, will show here.</p>'; return; }
+            if (!items.length) { list.innerHTML = '<p style="text-align:center;color:#666;padding:40px;">No winners yet. Pages whose keyword ranks #1–6 in the UK will show here, and stay here even if they later drop.</p>'; return; }
             // Flexible search: type any words (any order) — all must appear in the URL or keyword.
             const _wq = (document.getElementById('winnersSearch')?.value || '').toLowerCase().trim();
             let _display = items;
@@ -940,8 +974,12 @@
             }
             list.innerHTML = _display.map(row => {
                 const item = row.item, g = gscEnrichment[normalizeUrlPath(item.url)] || {};
-                const isHold = row.cat === 'hold';
-                const note = isHold ? 'You flagged this to leave for now.' : 'Top 5 already — light touch, don\'t rush.';
+                // Dropped = its best UK reading is a real number ≥7 (fell below position 6). Unknown positions stay green.
+                const _bp = bestWinnerPos(item.url, item.keyword);
+                const dropped = (typeof _bp === 'number' && _bp >= 7);
+                const winColor = dropped ? '#757575' : '#2e7d32';     // grey when dropped, green when 1–6
+                const note = dropped ? 'Dropped below position 6 — send it to Start Here to optimise, or leave it here.'
+                                     : 'Ranking 1–6 — light touch, don\'t rush.';
                 const ukRec = item.keyword ? (gscKwUK15[normalizeUrlPath(item.url) + '|||' + item.keyword.toLowerCase()] || null) : null;
                 const _sp = mpdWinnerSerp[serpKey(item.url, item.keyword)];
                 const _fmtD = (ts) => { try { return new Date(ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); } catch(e) { return ''; } };
@@ -956,19 +994,19 @@
                 } else {
                     metrics = `<div style="font-size:0.8rem;color:#9a6b00;margin-top:4px;">📍 Pos <strong>${g.position ? g.position.toFixed(1) : '—'}</strong> <span style="color:#b08400;">(all countries — not checked in the UK yet)</span></div>`;
                 }
-                return `<div class="url-item" style="border-left:4px solid #2e7d32;background:#fff;">
+                return `<div class="url-item" style="border-left:4px solid ${winColor};background:${dropped?'#f5f5f5':'#fff'};">
                     <div style="flex:1;">
                         <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap;">
-                            <span style="background:#2e7d32;color:#fff;padding:2px 9px;border-radius:4px;font-size:0.75rem;font-weight:600;">🏆 ${isHold ? 'Winner — Hold' : 'Winner'}</span>
+                            <span style="background:${winColor};color:#fff;padding:2px 9px;border-radius:4px;font-size:0.75rem;font-weight:600;">🏆 ${dropped ? 'Winner — Dropped' : 'Winner'}</span>
                             <span style="font-size:0.72rem;color:#999;text-transform:uppercase;">${getPageType(item.url)}</span>
                         </div>
                         <div style="font-weight:500;margin-bottom:3px;word-break:break-all;">${item.url}</div>
                         ${(item.keyword || g.keyword) ? `<div style="font-size:0.85rem;color:#1976d2;margin-bottom:3px;">🎯 Keyword: "${item.keyword || g.keyword}"</div>` : ''}
                         ${metrics}
-                        <div style="font-size:0.78rem;color:#2e7d32;margin-top:4px;font-weight:600;">⚠️ ${note}</div>
+                        <div style="font-size:0.78rem;color:${winColor};margin-top:4px;font-weight:600;">⚠️ ${note}</div>
                     </div>
                     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-                        ${isHold ? `<button class="btn-secondary" onclick="toggleWinnerHold('${item.url.replace(/'/g, "\\'")}', false)">↩️ Un-hold</button>` : ''}
+                        <button class="btn-secondary" title="Send this page to Start Here to optimise it (it leaves Winners until you accept it again)" style="border-color:#757575;color:#555;" onclick="sendWinnerToStartHere('${item.url.replace(/'/g, "\\'")}', this)">➡️ Send to Start Here</button>
                         ${item.analyzed ? `<button class="btn-secondary" onclick="viewResults(${item.id})">📊 View</button>` : ''}
                         ${item.keyword ? `<button class="btn-secondary" title="Check this page's real UK position now (SERP)" onclick="recheckOneWinner('${encodeURIComponent(item.url)}','${encodeURIComponent(item.keyword)}', this)">🇬🇧 Re-check UK</button>` : ''}
                         <button onclick="openAnalyzeModal(${item.id})">${item.analyzed ? '🔄 Re-analyze' : '🔍 Analyze'}</button>
