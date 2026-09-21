@@ -1,4 +1,11 @@
-// api/keywords.js — New Product Generator backend  ·  v0.10
+// api/keywords.js — New Product Generator backend  ·  v0.11
+// v0.11: SEND-TO-SHOPIFY — Batch 1 (metafields + tags/collections resolver, READ-ONLY).
+//   New action 'resolve-shopify-fields' { sku } — computes everything Send-to-Shopify will need
+//   to write (metafields array, tags to add, collections to join, linked trends/blogs/collections,
+//   related/complementary products, random sales/stock numbers) WITHOUT touching Shopify. Lets Mae
+//   verify correctness before any live write. See handovers/npg-send-to-shopify-spec-2026-09-21.md.
+//   Also tweaked the generate-content SEO-title instruction (keyword as close to the start as reads
+//   natural, not forced).
 // Actions (POST { action, ... }):
 //   gap-research      -> { products:[{sku, collections, set, trends, primaryColour, colour, keywordWords}] }
 //                         returns { results:[{ sku, options:[{keyword, volume, difficulty, difficultyRaw}] }] }
@@ -8,6 +15,9 @@
 //                         Finds top-3 SERP competitors for the keyword, reads the uploaded artwork image (vision),
 //                         and generates productTitle/seoTitle/metaDescription/productDescription/aiItems.
 //                         Saves onto product.content and returns { ok:true, content, products }.
+//   resolve-shopify-fields -> { sku }          READ-ONLY. Returns { metafields, tagsToAdd, collectionsToJoin,
+//                         unresolvedSmart, notFoundCollections, linkedTrendGids, linkedBlogGids, warnings, debug }.
+//                         Nothing is written to Shopify or GitHub.
 //   research          -> { products:[{sku, collections, set, trends, primaryColour, colour}], locationCode?, languageCode? }  [PARKED — Apify, use sparingly]
 //                         returns { results:[{ sku, options:[{keyword, volume, difficulty, intent}] }] }
 //   list-products     -> {}                    returns { products:[...] }
@@ -15,7 +25,7 @@
 //   delete-product    -> { sku }               removes from data/npg-products.json
 //   reserve-keyword   -> { keyword, sku }       locks a reservation row in the keyword registry (url = N/A, intent COMMERCIAL) — used at Send-to-Shopify time
 //   raw               -> { input }             (debug) runs the actor with a raw input, returns dataset items
-// Env: APIFY_TOKEN, GITHUB_TOKEN, SERPAPI_KEY, ANTHROPIC_API_KEY
+// Env: APIFY_TOKEN, GITHUB_TOKEN, SERPAPI_KEY, ANTHROPIC_API_KEY, SHOPIFY_STORE_DOMAIN, SHOPIFY_ACCESS_TOKEN
 
 const REPO = 'aboutwallart/seo-tools';
 const PRODUCTS_PATH = 'data/npg-products.json';
@@ -425,7 +435,7 @@ ${competitorsBlock}
 Return EXACTLY this JSON (real content, no placeholders):
 {
   "productTitle": "${productTitleRule}",
-  "seoTitle": "SEO title tag, max 60 chars, keyword near the START, UK spelling. It MUST contain the phrase 'wall art print' or 'wall art prints'.",
+  "seoTitle": "SEO title tag, max 60 chars, UK spelling. Put the exact keyword as close to the very beginning as still reads natural — front-loaded, never forced or awkward. It MUST contain the phrase 'wall art print' or 'wall art prints'.",
   "metaDescription": "Max 135 chars. PERSUASIVE, not a description — lead with the BENEFIT and what the art is GOOD FOR, and make the reader want to click through to the product. Keyword once, UK spelling. Do NOT write shipping yourself — the tool appends ' Free UK shipping!' automatically at the end.",
   "productDescription": "The FULL description as ONE HTML string — follow STRUCTURE + VOICE exactly.",
   "aiItems": [
@@ -593,6 +603,285 @@ async function reserveKeyword(keyword, sku) {
   throw new Error('registry write conflict, try again');
 }
 
+/* ---------------- SHOPIFY (Send-to-Shopify support, v0.11) ---------------- */
+const SHOPIFY_API_VERSION = '2025-01';
+function shopifyGqlUrl() { return `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`; }
+async function shopifyGQL(query, variables) {
+  const sleep = ms => new Promise(s => setTimeout(s, ms));
+  for (let attempt = 0; attempt < 6; attempt++) {
+    let r, d;
+    try {
+      r = await fetch(shopifyGqlUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Shopify-Access-Token': process.env.SHOPIFY_ACCESS_TOKEN },
+        body: JSON.stringify({ query, variables })
+      });
+      d = await r.json();
+    } catch (e) { if (attempt < 5) { await sleep(1200 * (attempt + 1)); continue; } throw e; }
+    const throttled = (r.status === 429) || (d && Array.isArray(d.errors) && d.errors.some(e => (e.extensions && e.extensions.code === 'THROTTLED') || /throttl/i.test(e.message || '')));
+    if (throttled && attempt < 5) { await sleep(2000 * (attempt + 1)); continue; }
+    if (d.errors) throw new Error(typeof d.errors === 'string' ? d.errors : JSON.stringify(d.errors));
+    return d.data;
+  }
+  throw new Error('Shopify request failed after retries (throttled)');
+}
+function normTitle(s) { return String(s || '').toLowerCase().trim().replace(/\s+/g, ' '); }
+function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+function pickRandomN(arr, n) { const pool = [...arr]; const out = []; while (pool.length && out.length < n) { const i = Math.floor(Math.random() * pool.length); out.push(pool.splice(i, 1)[0]); } return out; }
+
+// Shopify rich-text JSON builder — COPIED VERBATIM from api/shopify-files.js (that's where Money Page
+// Doctor's push-metafields builds rich_text_field values). Keep in sync if the source ever changes.
+function htmlToRichText(html) {
+  const decode = s => s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  function parseInline(str) {
+    const nodes = [];
+    const pushText = (chunk) => { const t = decode(chunk.replace(/<[^>]+>/g, '')); if (t) nodes.push({ type: 'text', value: t }); };
+    const re = /(<a\b[^>]*>[\s\S]*?<\/a>)|(<(?:strong|b)\b[^>]*>[\s\S]*?<\/(?:strong|b)>)/gi;
+    let last = 0, m;
+    while ((m = re.exec(str)) !== null) {
+      if (m.index > last) pushText(str.slice(last, m.index));
+      if (m[1]) {
+        const tag = m[1];
+        const url = (tag.match(/href=["']([^"']*)["']/i) || [])[1] || '';
+        const title = (tag.match(/title=["']([^"']*)["']/i) || [])[1] || null;
+        const target = (tag.match(/target=["']([^"']*)["']/i) || [])[1] || null;
+        const innerTxt = tag.replace(/^<a\b[^>]*>/i, '').replace(/<\/a>$/i, '');
+        const boldInner = /<(?:strong|b)\b/i.test(innerTxt);
+        const textVal = decode(innerTxt.replace(/<[^>]+>/g, '')).trim();
+        nodes.push({ type: 'link', url, title, target, children: [boldInner ? { type: 'text', value: textVal, bold: true } : { type: 'text', value: textVal }] });
+      } else if (m[2]) {
+        const t = decode(m[2].replace(/<[^>]+>/g, ''));
+        if (t) nodes.push({ type: 'text', value: t, bold: true });
+      }
+      last = re.lastIndex;
+    }
+    if (last < str.length) pushText(str.slice(last));
+    return nodes;
+  }
+  const children = [];
+  const blockRe = /<(h2|h3|p|ul|ol)\b[^>]*>([\s\S]*?)<\/\1>/gi;
+  let m, matched = false;
+  while ((m = blockRe.exec(html)) !== null) {
+    matched = true;
+    const tag = m[1].toLowerCase();
+    const inner = m[2];
+    if (tag === 'h2' || tag === 'h3') {
+      const kids = parseInline(inner);
+      if (kids.length) children.push({ type: 'heading', level: tag === 'h2' ? 2 : 3, children: kids });
+    } else if (tag === 'p') {
+      const kids = parseInline(inner);
+      if (kids.length) children.push({ type: 'paragraph', children: kids });
+    } else {
+      const listType = tag === 'ol' ? 'ordered' : 'unordered';
+      const lis = inner.match(/<li\b[^>]*>[\s\S]*?<\/li>/gi) || [];
+      const liNodes = lis
+        .map(li => ({ type: 'list-item', children: parseInline(li.replace(/^<li[^>]*>/i, '').replace(/<\/li>$/i, '')) }))
+        .filter(n => n.children.length);
+      if (liNodes.length) children.push({ type: 'list', listType, children: liNodes });
+    }
+  }
+  if (!matched) { const kids = parseInline(html); if (kids.length) children.push({ type: 'paragraph', children: kids }); }
+  return JSON.stringify({ type: 'root', children: children.length ? children : [{ type: 'paragraph', children: [{ type: 'text', value: '' }] }] });
+}
+
+// ---- Site mega-menu (Shopify admin: Content > Menus > "New Main Menu", handle "new-mega-menu").
+// THIS is the source of truth for matching a ticked form name (Room/Style/Colour/Occasion/Trend) to
+// its real Shopify collection or page — collection TITLES in the store are marketing titles that
+// often look nothing like the form checkbox (e.g. "Living room" -> collection titled "Living Room
+// Pictures | Framed Wall Art"), so a blind title match on the collections list fails. The menu is
+// 3 levels deep: SHOP WALL ART > By Room/Style/Colour/Occasion > individual items (each a COLLECTION,
+// title = the exact form label); and SHOP HOME DECOR > By Trend > individual items (each a PAGE,
+// title = the exact TRENDS[] label).
+async function fetchMegaMenu() {
+  const list = await shopifyGQL(`query{ menus(first:20){ nodes{ id handle } } }`);
+  const hit = (list.menus.nodes || []).find(m => m.handle === 'new-mega-menu');
+  if (!hit) throw new Error('Site menu "new-mega-menu" not found — check Content > Menus in Shopify admin.');
+  const data = await shopifyGQL(
+    `query($id:ID!){ menu(id:$id){ items{ title resourceId items{ title resourceId items{ title resourceId } } } } }`,
+    { id: hit.id }
+  );
+  const collectionMap = new Map(); // normTitle -> collection GID (Room/Style/Colour/Occasion + top-level items like "New arrivals")
+  const trendMap = new Map();      // normTitle -> page GID
+  const shopWallArt = (data.menu.items || []).find(t => normTitle(t.title) === 'shop wall art');
+  (shopWallArt ? shopWallArt.items || [] : []).forEach(group => {
+    if (group.resourceId && /\/Collection\//.test(group.resourceId)) collectionMap.set(normTitle(group.title), group.resourceId);
+    (group.items || []).forEach(leaf => { if (leaf.resourceId && /\/Collection\//.test(leaf.resourceId)) collectionMap.set(normTitle(leaf.title), leaf.resourceId); });
+  });
+  const shopHomeDecor = (data.menu.items || []).find(t => normTitle(t.title) === 'shop home decor');
+  const byTrend = shopHomeDecor ? (shopHomeDecor.items || []).find(g => normTitle(g.title) === 'by trend') : null;
+  (byTrend ? byTrend.items || [] : []).forEach(leaf => { if (leaf.resourceId && /\/Page\//.test(leaf.resourceId)) trendMap.set(normTitle(leaf.title), leaf.resourceId); });
+  return { collectionMap, trendMap };
+}
+// ---- Fallback: full collections list by exact title — only for names the mega-menu doesn't cover
+// (e.g. "Bestsellers" under Featured, which is a smart collection with no menu item of its own). ----
+async function fetchAllCollectionsByTitle() {
+  const map = new Map();
+  let cursor = null, pages = 0;
+  while (pages < 40) {
+    const data = await shopifyGQL(`query($c:String){ collections(first:100, after:$c){ pageInfo{ hasNextPage endCursor } nodes{ id title } } }`, { c: cursor });
+    const conn = data.collections;
+    conn.nodes.forEach(n => map.set(normTitle(n.title), { id: n.id, title: n.title }));
+    pages++;
+    if (!conn.pageInfo.hasNextPage) break;
+    cursor = conn.pageInfo.endCursor;
+  }
+  return map;
+}
+// ---- Given specific collection GIDs (only the ones actually ticked), fetch each one's ruleSet in ONE
+// batched GraphQL call (aliases) — smart w/ a single plain TAG=X rule -> tag known; smart w/ any other
+// rule shape -> unresolvedSmart (Mae picks by hand); no ruleSet at all -> manual (join directly). ----
+async function fetchRuleSetsByIds(ids) {
+  const out = new Map();
+  const unique = [...new Set(ids)];
+  for (let i = 0; i < unique.length; i += 20) {
+    const chunk = unique.slice(i, i + 20);
+    const q = 'query {\n' + chunk.map((id, j) => `c${j}: collection(id:"${id}"){ id title ruleSet{ rules{ column relation condition } } } `).join('\n') + '\n}';
+    const data = await shopifyGQL(q);
+    chunk.forEach((id, j) => {
+      const n = data['c' + j]; if (!n) return;
+      const isSmart = !!(n.ruleSet && Array.isArray(n.ruleSet.rules) && n.ruleSet.rules.length);
+      // Trust the rules (add ALL the tags) only when EVERY rule is a plain TAG=X condition — that's a
+      // safe superset regardless of whether the store's collection matches ANY or ALL of its rules.
+      // Any non-tag rule (VARIANT_PRICE, TYPE, VARIANT_INVENTORY…) can't be satisfied by tagging alone.
+      let tags = null;
+      if (isSmart && n.ruleSet.rules.every(r => r.column === 'TAG' && r.relation === 'EQUALS' && r.condition)) {
+        tags = n.ruleSet.rules.map(r => r.condition);
+      }
+      out.set(id, { isSmart, tags, ruleCount: isSmart ? n.ruleSet.rules.length : 0, title: n.title });
+    });
+  }
+  return out;
+}
+async function readBlogIndex() {
+  try {
+    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/blog-index.json?t=${Date.now()}`);
+    if (!r.ok) return { articles: [] };
+    const j = await r.json();
+    return { articles: Array.isArray(j.articles) ? j.articles : [] };
+  } catch { return { articles: [] }; }
+}
+// ---- Complementary products — always these 2 fixed handles ----
+const COMPLEMENTARY_HANDLES = ['black-picture-frame-mount', 'white-picture-frame-mount'];
+async function resolveComplementaryProducts() {
+  const gids = [];
+  for (const handle of COMPLEMENTARY_HANDLES) {
+    try {
+      const data = await shopifyGQL(`query($q:String){ products(first:1, query:$q){ nodes{ id } } }`, { q: `handle:'${handle}'` });
+      const n = data.products && data.products.nodes && data.products.nodes[0];
+      if (n) gids.push(n.id);
+    } catch { /* caller warns if short */ }
+  }
+  return gids;
+}
+// ---- Related products — 4 random from the "main collection" (re-rolled every call, never a fixed set) ----
+// Rule: room ticked is ONLY "Living room" -> main = first By Style ticked. Any other room (or none) -> main = first By Room ticked (style ignored).
+async function resolveRelatedProducts(product, megaMenu, fallbackByTitle) {
+  const col = product.collections || {};
+  const rooms = (col['By Room'] || []);
+  const onlyLivingRoom = rooms.length === 1 && normTitle(rooms[0]) === 'living room';
+  const mainName = onlyLivingRoom ? ((col['By Style'] || [])[0] || null) : (rooms[0] || null);
+  if (!mainName) return { gids: [], mainName: null, reason: 'no room/style ticked to pick a main collection' };
+  let gid = megaMenu.collectionMap.get(normTitle(mainName));
+  if (!gid) { const f = fallbackByTitle.get(normTitle(mainName)); if (f) gid = f.id; }
+  if (!gid) return { gids: [], mainName, reason: 'main collection not found: ' + mainName };
+  try {
+    const data = await shopifyGQL(`query($id:ID!){ collection(id:$id){ products(first:50){ nodes{ id } } } }`, { id: gid });
+    const ids = ((data.collection && data.collection.products && data.collection.products.nodes) || []).map(n => n.id);
+    return { gids: pickRandomN(ids, Math.min(4, ids.length)), mainName, collectionId: gid };
+  } catch (e) { return { gids: [], mainName, reason: String(e.message || e) }; }
+}
+
+/* ---------------- resolve-shopify-fields — READ-ONLY preview of everything Send-to-Shopify will write ---------------- */
+async function resolveShopifyFields(sku) {
+  const products = await readProducts();
+  const product = products.find(p => (p.sku || '').toLowerCase() === (sku || '').toLowerCase());
+  if (!product) throw new Error('product not found: ' + sku);
+  if (!product.keyword) { const e = new Error('This product has no keyword yet.'); e.status = 400; throw e; }
+  if (!product.content) { const e = new Error('This product has no generated content yet.'); e.status = 400; throw e; }
+
+  const warnings = [];
+  const col = product.collections || {};
+  const allTicked = [];
+  Object.keys(col).forEach(g => (col[g] || []).forEach(name => allTicked.push({ group: g, name })));
+
+  const megaMenu = await fetchMegaMenu();
+  const fallbackByTitle = await fetchAllCollectionsByTitle();
+
+  const collectionsToJoin = [];
+  const linkedCollectionGids = [];
+  const tagsToAdd = [];
+  const unresolvedSmart = [];
+  const notFoundCollections = [];
+  const resolvedTicked = [];
+  allTicked.forEach(({ name }) => {
+    // Menu first (authoritative — covers Room/Style/Colour/Occasion + top-level items like "New arrivals").
+    // Fallback to an exact title match only for names the menu doesn't have (e.g. "Bestsellers").
+    let gid = megaMenu.collectionMap.get(normTitle(name));
+    if (!gid) { const f = fallbackByTitle.get(normTitle(name)); if (f) gid = f.id; }
+    if (!gid) { notFoundCollections.push(name); return; }
+    resolvedTicked.push({ name, gid });
+  });
+  linkedCollectionGids.push(...resolvedTicked.map(r => r.gid));
+  if (resolvedTicked.length) {
+    const ruleSets = await fetchRuleSetsByIds(resolvedTicked.map(r => r.gid));
+    resolvedTicked.forEach(r => {
+      const rs = ruleSets.get(r.gid);
+      if (!rs) { notFoundCollections.push(r.name); return; }
+      if (rs.isSmart) {
+        if (rs.tags && rs.tags.length) tagsToAdd.push(...rs.tags);
+        else unresolvedSmart.push({ name: r.name, collectionId: r.gid, title: rs.title, ruleCount: rs.ruleCount });
+      } else {
+        collectionsToJoin.push({ id: r.gid, title: rs.title });
+      }
+    });
+  }
+  if (product.set) tagsToAdd.push(product.set);
+
+  let linkedTrendGids = [], linkedBlogGids = [];
+  const trendsList = product.trends || [];
+  if (trendsList.length) {
+    trendsList.forEach(t => { const gid = megaMenu.trendMap.get(normTitle(t)); if (gid) linkedTrendGids.push(gid); else warnings.push('Trend page not found in menu: ' + t); });
+    const blogIdx = await readBlogIndex();
+    const trendRoots = trendsList.map(t => t.toLowerCase().replace(/\b(decor|design|style)\b/g, '').trim()).filter(Boolean);
+    const matches = blogIdx.articles.filter(a => trendRoots.some(root => (a.tags || []).some(tag => tag.toLowerCase().includes(root)) || (a.title || '').toLowerCase().includes(root)));
+    linkedBlogGids = matches.slice(0, 10).map(a => a.gid);
+  }
+
+  const complementaryGids = await resolveComplementaryProducts();
+  if (complementaryGids.length < COMPLEMENTARY_HANDLES.length) warnings.push('Could not find one or both complementary products (black/white picture frame mount) in the store.');
+  const related = await resolveRelatedProducts(product, megaMenu, fallbackByTitle);
+  if (related.reason) warnings.push('Related products: ' + related.reason);
+
+  const sales24 = randInt(15, 55);
+  const salesCount = randInt(sales24 + 1, 150);
+  const foxkit = randInt(2, 12);
+
+  const metafields = [];
+  const push = (namespace, key, type, value) => { if (value != null && value !== '' && !(Array.isArray(value) && !value.length)) metafields.push({ namespace, key, type, value }); };
+  push('global', 'title_tag', 'single_line_text_field', product.content.seoTitle);
+  push('global', 'description_tag', 'single_line_text_field', product.content.metaDescription);
+  (product.content.aiItems || []).forEach(it => { if (it.metafieldKey && it.content) push('custom', it.metafieldKey, 'rich_text_field', htmlToRichText(it.content)); });
+  if (linkedTrendGids.length) push('custom', 'linked_trends', 'list.page_reference', JSON.stringify(linkedTrendGids));
+  if (linkedBlogGids.length) push('custom', 'linked_blogs', 'list.article_reference', JSON.stringify(linkedBlogGids));
+  if (linkedCollectionGids.length) push('custom', 'linked_collections', 'list.collection_reference', JSON.stringify(linkedCollectionGids));
+  if ((product.primaryColour || []).length) push('custom', 'primary_colour', 'list.single_line_text_field', JSON.stringify(product.primaryColour));
+  if (product.colour) push('custom', 'colour', 'single_line_text_field', product.colour);
+  if ((col['By Room'] || []).length) push('custom', 'room_type', 'list.single_line_text_field', JSON.stringify(col['By Room']));
+  push('custom', 'foxkit_stock', 'number_integer', String(foxkit));
+  push('custom', 'sales_last_24_hs', 'number_integer', String(sales24));
+  push('custom', 'sales_count', 'number_integer', String(salesCount));
+  push('custom', 'lead_time', 'number_integer', '2');
+  if (product.sku) push('custom', 'sku_for_print_files', 'single_line_text_field', product.sku);
+  if (complementaryGids.length) push('shopify--discovery--product_recommendation', 'complementary_products', 'list.product_reference', JSON.stringify(complementaryGids));
+  if (related.gids.length) push('shopify--discovery--product_recommendation', 'related_products', 'list.product_reference', JSON.stringify(related.gids));
+
+  return {
+    sku: product.sku, metafields, tagsToAdd: [...new Set(tagsToAdd)], collectionsToJoin,
+    unresolvedSmart, notFoundCollections, relatedMainCollection: related.mainName || null, warnings,
+    debug: { sales24, salesCount, foxkit }
+  };
+}
+
 /* ---------------- handler ---------------- */
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -621,6 +910,12 @@ export default async function handler(req, res) {
       if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
       if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ ok: false, error: 'ANTHROPIC_API_KEY not set' });
       const out = await generateContent(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    if (action === 'resolve-shopify-fields') {
+      if (!process.env.SHOPIFY_STORE_DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return res.status(500).json({ ok: false, error: 'Shopify credentials not configured' });
+      const out = await resolveShopifyFields(body.sku);
       return res.status(200).json({ ok: true, ...out });
     }
 
