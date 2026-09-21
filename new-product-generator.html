@@ -120,12 +120,19 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v1.4</span>
+  <span class="ver">v1.5</span>
   <span class="tag">AWA Products</span>
 </div>
 
 <div class="wrap">
   <div id="msg" class="msg"></div>
+
+  <!-- SHARED IMAGES (upload once, reused on every product) -->
+  <div class="card">
+    <h2>Shared images <span style="font-weight:400;color:var(--muted);font-size:12.5px">— upload once, reused on every product</span></h2>
+    <div id="sharedImagesStatus" class="empty">Checking…</div>
+    <button class="btn ghost small" id="sharedImagesBtn" style="margin-top:10px">Check / upload shared images</button>
+  </div>
 
   <!-- DEFINE PRODUCT -->
   <div class="card">
@@ -492,8 +499,98 @@ function renderContentPanel(sku){
         p.content.aiItems.map((it,ai)=>aiItemBlock(sku,ai,it)).join('')+
       '</div>';
     }
+    html+=renderImagesSection(sku);
   }
   body.innerHTML=html;
+}
+
+/* ---------- IMAGES (lifestyle / individuals / flats) ---------- */
+const FLAT_LABELS=[['flatWhite','White frames'],['flatBlack','Black frames'],['flatOak','Oak frames'],['flatCanvas','Canvas wrapped'],['flatUnframed','Unframed']];
+function imgThumb(url,ring){ return '<img src="'+esc(url||'')+'" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:2px solid '+(ring?'var(--accent)':'var(--border-strong)')+'">'; }
+function renderImagesSection(sku){
+  const p=PRODUCTS.find(x=>x.sku===sku); if(!p) return '';
+  const setMatch=(p.set||'').match(/\d+/); const setSize=setMatch?parseInt(setMatch[0],10):1;
+  const img=p.images||{lifestyle:[],lifestyleCoverIndex:0,individuals:[],flats:{}};
+  let html='<div class="block"><div class="block-head"><h3>Images</h3></div>';
+
+  html+='<div style="margin-bottom:20px"><label class="f" style="margin-bottom:6px">Lifestyle photos <span style="color:var(--muted);font-weight:400">— add as many as you have, then pick the cover</span></label>'+
+    '<input type="file" accept="image/*" multiple onchange="onLifestyleFilesSelected(\''+esc(sku)+'\',this)">'+
+    (img.lifestyle.length?'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">'+
+      img.lifestyle.map((im,i)=>'<div style="text-align:center;width:84px">'+imgThumb(im.url,img.lifestyleCoverIndex===i)+
+        '<label style="display:block;font-size:11px;margin-top:4px;cursor:pointer"><input type="radio" name="lifecover-'+esc(sku)+'" '+(img.lifestyleCoverIndex===i?'checked':'')+' onchange="setLifestyleCoverUI(\''+esc(sku)+'\','+i+')" style="vertical-align:middle"> Cover</label>'+
+        '<button class="btn ghost small" style="padding:2px 6px;font-size:10px;margin-top:2px" onclick="removeProdImage(\''+esc(sku)+'\',\'lifestyle\','+i+')">Remove</button>'+
+      '</div>').join('')+
+    '</div>':'')+
+  '</div>';
+
+  html+='<div style="margin-bottom:20px"><label class="f" style="margin-bottom:6px">Individual artwork photos <span style="color:var(--muted);font-weight:400">— '+setSize+' needed ('+esc(p.set||'')+')</span></label>'+
+    '<div style="display:flex;gap:14px;flex-wrap:wrap">'+
+    Array.from({length:setSize}).map((_,i)=>{
+      const has=img.individuals[i];
+      return '<div style="text-align:center;width:90px">'+
+        (has?imgThumb(has.url,false):'<input type="file" accept="image/*" onchange="onSingleFileSelected(\''+esc(sku)+'\',\'individual\',this)" style="width:80px">')+
+        '<div style="font-size:11px;margin-top:4px">Individual '+(i+1)+'</div>'+
+        (has?'<button class="btn ghost small" style="padding:2px 6px;font-size:10px" onclick="removeProdImage(\''+esc(sku)+'\',\'individual\','+i+')">Remove</button>':'')+
+      '</div>';
+    }).join('')+
+  '</div></div>';
+
+  html+='<div><label class="f" style="margin-bottom:6px">Flat images <span style="color:var(--muted);font-weight:400">— these also show as the variant images in the cart</span></label>'+
+    '<div style="display:flex;gap:14px;flex-wrap:wrap">'+
+    FLAT_LABELS.map(([slot,label])=>{
+      const has=img.flats[slot];
+      return '<div style="text-align:center;width:90px">'+
+        (has?imgThumb(has.url,false):'<input type="file" accept="image/*" onchange="onSingleFileSelected(\''+esc(sku)+'\',\''+slot+'\',this)" style="width:80px">')+
+        '<div style="font-size:11px;margin-top:4px">'+label+'</div>'+
+        (has?'<button class="btn ghost small" style="padding:2px 6px;font-size:10px" onclick="removeProdImage(\''+esc(sku)+'\',\''+slot+'\',0)">Remove</button>':'')+
+      '</div>';
+    }).join('')+
+  '</div></div>';
+
+  html+='</div>';
+  return html;
+}
+function readFileAsBase64(file){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>{ const m=(reader.result||'').match(/^data:([^;]+);base64,([\s\S]*)$/); if(!m) return reject(new Error('Could not read file')); resolve({mediaType:m[1],data:m[2]}); };
+    reader.onerror=()=>reject(new Error('Could not read file'));
+    reader.readAsDataURL(file);
+  });
+}
+async function onLifestyleFilesSelected(sku, inputEl){
+  const files=[...inputEl.files]; if(!files.length) return;
+  msg('Uploading '+files.length+' lifestyle photo(s)…','info');
+  for(const f of files){
+    try{
+      const {mediaType,data}=await readFileAsBase64(f);
+      const r=await api({action:'upload-image', sku, slot:'lifestyle', image:data, imageMediaType:mediaType});
+      PRODUCTS=r.products;
+    }catch(e){ msg('Upload failed for '+f.name+': '+e.message,'err'); }
+  }
+  inputEl.value='';
+  renderContentPanel(sku);
+  msg('Lifestyle photos uploaded.','ok');
+}
+async function onSingleFileSelected(sku, slot, inputEl){
+  const f=inputEl.files[0]; if(!f) return;
+  msg('Uploading…','info');
+  try{
+    const {mediaType,data}=await readFileAsBase64(f);
+    const r=await api({action:'upload-image', sku, slot, image:data, imageMediaType:mediaType});
+    PRODUCTS=r.products;
+    renderContentPanel(sku);
+    msg('Uploaded.','ok');
+  }catch(e){ msg('Upload failed: '+e.message,'err'); }
+}
+async function setLifestyleCoverUI(sku, index){
+  try{ const r=await api({action:'set-lifestyle-cover', sku, index}); PRODUCTS=r.products; renderContentPanel(sku); }
+  catch(e){ msg('Failed: '+e.message,'err'); }
+}
+async function removeProdImage(sku, slot, index){
+  if(!confirm('Remove this image?')) return;
+  try{ const r=await api({action:'remove-product-image', sku, slot, index}); PRODUCTS=r.products; renderContentPanel(sku); msg('Removed.','ok'); }
+  catch(e){ msg('Failed: '+e.message,'err'); }
 }
 
 function onImageSelected(sku, inputEl){
@@ -596,9 +693,32 @@ function copyAiItem(ai){
   navigator.clipboard.writeText(raw).then(()=>msg('Copied.','ok')).catch(()=>msg('Could not copy — select the text manually.','err'));
 }
 
+/* ---------- SHARED IMAGES ---------- */
+const SHARED_FIXED_KEYS=['frameSizes','pictureFrames','canvasWrapped'];
+const SHARED_ROOM_KEYS=['Above Fireplace','Bathroom','Bedroom','Games room','Hallway','Kitchen','Laundry room','Living room','Nursery','Office','Teens Bedroom'];
+function renderSharedImagesStatus(data){
+  const fixed=data.fixed||{}, rooms=data.rooms||{};
+  const doneFixed=SHARED_FIXED_KEYS.filter(k=>fixed[k]&&fixed[k].gid).length;
+  const doneRooms=SHARED_ROOM_KEYS.filter(k=>rooms[k]&&rooms[k].gid).length;
+  const total=SHARED_FIXED_KEYS.length+SHARED_ROOM_KEYS.length, done=doneFixed+doneRooms;
+  const el=document.getElementById('sharedImagesStatus');
+  el.textContent = (done>=total) ? ('✅ All '+total+' shared images are set up.') : (done+' / '+total+' uploaded so far.');
+}
+async function loadSharedImagesStatus(){
+  try{ const r=await api({action:'get-fixed-images'}); renderSharedImagesStatus(r.images||{}); }
+  catch(e){ document.getElementById('sharedImagesStatus').textContent='Could not check: '+e.message; }
+}
+document.getElementById('sharedImagesBtn').onclick=async()=>{
+  const btn=document.getElementById('sharedImagesBtn'); btn.disabled=true; btn.innerHTML='<span class="spin"></span>Uploading…';
+  try{ const r=await api({action:'upload-fixed-images'}); renderSharedImagesStatus(r.data||{}); msg('Shared images checked.','ok'); }
+  catch(e){ msg('Failed: '+e.message,'err'); }
+  finally{ btn.disabled=false; btn.textContent='Check / upload shared images'; }
+};
+
 /* ---------- INIT ---------- */
 async function init(){
   renderTrends(); renderGroupChecks(); fillColourSelect(); addPrimaryBox();
+  loadSharedImagesStatus();
   try{ const c=await api({action:'list-collections'}); CUSTOM=c.custom||{}; Object.keys(CUSTOM).forEach(g=>{ if(!GROUPS[g])GROUPS[g]=[]; CUSTOM[g].forEach(n=>{ if(!GROUPS[g].includes(n))GROUPS[g].push(n); }); }); }catch(e){}
   renderCollections(); renderGroupChecks();
   try{ const r=await api({action:'list-products'}); PRODUCTS=r.products||[]; renderList(); }
