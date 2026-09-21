@@ -1,4 +1,4 @@
-// api/keywords.js — New Product Generator backend  ·  v0.9
+// api/keywords.js — New Product Generator backend  ·  v0.10
 // Actions (POST { action, ... }):
 //   gap-research      -> { products:[{sku, collections, set, trends, primaryColour, colour, keywordWords}] }
 //                         returns { results:[{ sku, options:[{keyword, volume, difficulty, difficultyRaw}] }] }
@@ -390,6 +390,13 @@ function buildGenerateContentPrompt(product, competitors) {
   const setN = setMatch ? setMatch[0] : '';
   const roomsLower = (col['By Room'] || []).map(r => r.toLowerCase());
   const moisture = roomsLower.includes('bathroom') || roomsLower.includes('laundry room');
+  const firstRoom = (col['By Room'] || [])[0] || '';
+  const scrollRoom = firstRoom ? ('a ' + firstRoom.toLowerCase()) : 'your room';
+
+  // Title rule depends on set size: sets of 2/3 end with "| Set of X"; a set of 1 is a single print (never "Set of 1").
+  const productTitleRule = (setN === '1' || /set of 1/i.test(product.set || ''))
+    ? `The product name — keyword near the front, PLUS a short distinctive detail of the actual artwork (its subject or main colours, from the image). This is a SINGLE print, so do NOT write 'Set of 1'. Make sure the title contains 'Wall Art Print' (singular) — but if the front part already contains 'Wall Art Print', do NOT repeat it. Title Case. e.g. 'Gold Celestial Yoga Wall Art Print'. This is also the page H1.`
+    : `The product name — keyword near the front, PLUS a short distinctive detail of the actual artwork (its subject or main colours, from the image), and ENDS with the set size. Title Case. e.g. 'Gold Celestial Yoga Wall Art | Set of ${setN || '3'}'. This is also the page H1.`;
 
   const competitorsBlock = competitors.length
     ? competitors.map(c => `--- Position ${c.position}: ${c.url}\n  Title: ${c.title || 'N/A'}\n  H2s: ${(c.h2 || []).join(' | ') || 'N/A'}\n  Words: ${c.wordCount || 0}`).join('\n')
@@ -401,6 +408,7 @@ WHAT YOU MAY TREAT AS FACT (never go beyond this):
 - The IMAGE shows the artwork. Describe ONLY THE ART ITSELF — the subject, the colours, the style/pattern of the artwork. Say NOTHING about the frames, mounts, glass, the wall, the room, or how the pieces are hung or arranged: the image is only a mockup and the real framing/room will vary. Describe just what is drawn/printed in the art. NEVER invent anything not visible in the art.
 - The product definition below. Never invent set size, style, room or colours beyond it.
 - Product wording: refer to the items as "wall art prints" / "art prints" (this is the accepted wording).
+- METALLIC COLOURS ARE NOT REAL METAL: we cannot print metallic or foil. If the art shows gold, rose gold, silver, copper or any metallic colour, describe it as a printed TONE / colour only (e.g. "warm rose-gold tones", "gold-toned linework") — NEVER as real metallic, metallic finish, or foil, and never imply the customer receives metallic foil or shine.
 
 PRODUCT DEFINITION:
 - Main keyword: "${keyword}"
@@ -416,8 +424,8 @@ ${competitorsBlock}
 
 Return EXACTLY this JSON (real content, no placeholders):
 {
-  "productTitle": "The product name — keyword near the front, PLUS a short distinctive detail of the actual artwork (its subject or main colours, from the image), and ENDS with the set size. Title Case. e.g. 'Gold Celestial Yoga Wall Art | Set of 3' or 'Blue Amalfi Coast Wall Art | Set of 3'. This is also the page H1.",
-  "seoTitle": "SEO title tag, max 60 chars, keyword near the START, UK spelling",
+  "productTitle": "${productTitleRule}",
+  "seoTitle": "SEO title tag, max 60 chars, keyword near the START, UK spelling. It MUST contain the phrase 'wall art print' or 'wall art prints'.",
   "metaDescription": "Max 135 chars. PERSUASIVE, not a description — lead with the BENEFIT and what the art is GOOD FOR, and make the reader want to click through to the product. Keyword once, UK spelling. Do NOT write shipping yourself — the tool appends ' Free UK shipping!' automatically at the end.",
   "productDescription": "The FULL description as ONE HTML string — follow STRUCTURE + VOICE exactly.",
   "aiItems": [
@@ -432,17 +440,18 @@ Return EXACTLY this JSON (real content, no placeholders):
 
 ═══ PRODUCT DESCRIPTION — build "productDescription" as ONE HTML string, in THIS order ═══
 1. INTRO — 2 short paragraphs, NO heading, do NOT repeat the title as a heading.
-   - Open the FIRST sentence with the verb that BEST fits THIS specific artwork — choose it to match what you see, and VARY it (never default to the same verb across products). Include the exact keyword "${keyword}" in that first sentence.
+   - Open the FIRST sentence with an EVERYDAY, common verb people actually say (Add, Bring, Give, Picture, Imagine, Hang, Make, Turn...) — choose the one that best fits THIS artwork and VARY it across products. NEVER use an academic, formal or fancy verb (e.g. "Gracing", "Adorn", "Bestow", "Grace") — those sound odd. Include the exact keyword "${keyword}" in that first sentence.
    - It must be EMOTIONAL and persuasive — make the buyer want it — but in the grounded, chatty, friendly-advisor voice below. Speak as I/we. Describe the REAL artwork you see (subject, colours, where it suits) in plain, concrete words. A light question is fine.
    - The description must NEVER begin with the word "SHOP".
    - NO poetic / abstract / luxury-brochure lines.
 2. <h3>What's Included with [productTitle]</h3> then a short <ul>:
    - Product-specific receivables / quality only, real facts (e.g. printed in the UK with fade-resistant pigment inks; for indoor use).
-   - INCLUDE the framing-convenience point (ALL products): a bullet saying it's available framed or unframed, and that the FRAMED option arrives READY TO HANG — saving the time and hassle of hunting for frames that fit.
-   - Do NOT list specific frame types / sizes / papers / mounts here (those live in the shared theme section) — only the convenience angle.
-   - The LAST bullet MUST read exactly: <li>Choose between framed and unframed options</li>
+   - INCLUDE a convenience bullet (ALL products): the FRAMED and CANVAS-WRAPPED options arrive READY TO HANG — saving the time and hassle of hunting for a frame that fits. (The unframed option is the print only.)
+   - Do NOT describe specific frame colours, exact sizes or gsm here (those live in the shared theme section) — only the convenience bullet and the options bullet below.
+   - The LAST bullet MUST read exactly: <li>Choose between unframed and framed options in multiple sizes and in Luster or Museum quality; also available in wrapped canvas size options</li>
 3. <h2>How to Style ${keyword} ...</h2> — one or two WARM first-person paragraphs of real styling/hanging advice, with ONE internal link to a relevant collection/page (full URL, target='_blank' rel='noopener'). Shape it around the styling angles the top-3 competitors cover.
-4. <h2>[a natural "what to consider when choosing" heading — NOT the exact keyword]</h2> — WARM first-person advice on choosing for this artwork's style, colours and wall size, shaped by what competitors cover.${moisture ? '\n   - THIS PRODUCT IS FOR A BATHROOM / LAUNDRY ROOM: include a clear recommendation that for damp, high-moisture rooms the CANVAS-WRAPPED option is the best choice because it is moisture-resistant.' : ''}
+4. <h2>[a natural "what to consider when choosing" heading — NOT the exact keyword]</h2> — WARM first-person advice on choosing for this artwork's style, colours and wall size, shaped by what competitors cover.
+   - END this section with a friendly line telling the reader to scroll down to see how each size looks in ${scrollRoom} — there is a size-guide image below showing every size in that room (e.g. "Scroll down to see how each size looks in ${scrollRoom} before you decide.").${moisture ? '\n   - THIS PRODUCT IS FOR A BATHROOM / LAUNDRY ROOM: include a clear recommendation that for damp, high-moisture rooms the CANVAS-WRAPPED option is the best choice because it is moisture-resistant.' : ''}
 (The EXACT keyword belongs in AT MOST two headings across the whole description + snippets. Vary all other headings.)
 
 ═══ VOICE (the most important part) ═══
@@ -451,11 +460,13 @@ Return EXACTLY this JSON (real content, no placeholders):
 - The customer SELECTS framing options — never say "I add" frames/mounts.
 - Use ONLY what you SEE in the image + the definition. NEVER invent set size, subject, colours, style or room.
 - Do NOT begin the description with "SHOP", and do NOT open with the same verb every time.
+- Use plain, EVERYDAY words the way a real person talks — NEVER academic, literary or fancy vocabulary (no "gracing", "adorn", "bestow", "resplendent", etc.). If a word sounds like it belongs in an essay, use a simpler one.
 - BANNED WORDS (never use): Delve, Spearheading, Embarking, Compelling, Empowering, Encompassing, Comprehensively, Effectively, Beacon, Dive, Showcasing, Remarked, Aligns, Surpassing, Tragically, Impacting, Prioritize, Sparking, Standout, Hindering, Advancements, Aiding, Fostering, Multifaceted, Revolutionary, Testament, Elevate.
 - BANNED PHRASES: "in the ever-evolving world of", "at the forefront of", "in summary", "in conclusion", "in essence", "it's important to note", "emerges as a beacon", "dive into".
 
 ═══ AI ITEMS ═══
 - Generate all three in the EXACT H2 formats shown. Keep metafieldKey + format EXACTLY. Set competitorDriven:true when the block fills a competitor gap, else false. how_to_block and comparison_table use bold-labelled paragraphs (rich text can't hold real tables).
+- Comparison Table — use ONLY the REAL options this shop offers, never invented paper names or gsm. The options are: Unframed print, Framed print, Wrapped canvas; and the paper choice for prints is Luster art paper or Museum quality paper. (Remember: any metallic look in the art is a printed tone, not real foil.)
 
 Return ONLY the JSON object — no other text.`;
 }
