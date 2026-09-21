@@ -120,7 +120,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v1.3</span>
+  <span class="ver">v1.4</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -318,16 +318,30 @@ function renderList(){
         '<div class="kv"><span class="k">Colour</span><span>'+esc(p.colour||'—')+'</span></div>'+
         ((p.keywordWords||[]).length?'<div class="kv"><span class="k">Extra terms</span><span>'+p.keywordWords.map(w=>'<span class="pill">'+esc(w)+'</span>').join('')+'</span></div>':'')+
         (p.keyword?'<div class="kv"><span class="k">Keyword</span><span>'+esc(p.keyword)+'</span></div>':'')+
-        (p.keyword?'<div style="margin-top:12px;display:flex;gap:8px">'+
+        (p.keyword?'<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">'+
           '<button class="btn ghost small" onclick="event.stopPropagation();changeKeyword(\''+esc(p.sku)+'\')">Change keyword</button>'+
           '<button class="btn ghost small" onclick="event.stopPropagation();openContentPanel(\''+esc(p.sku)+'\')">'+(p.content?'View / edit content':'Generate content')+'</button>'+
-        '</div>':'')+
+          (p.content?'<button class="btn ghost small" onclick="event.stopPropagation();previewShopifyFields(\''+esc(p.sku)+'\')">🔍 Preview Shopify fields (debug)</button>':'')+
+        '</div>'+
+        '<pre id="sfPreview-'+esc(p.sku)+'" style="display:none;margin-top:10px;background:#fafbfb;border:1px solid var(--border);border-radius:9px;padding:10px 12px;font-size:11.5px;white-space:pre-wrap;max-height:400px;overflow:auto"></pre>'
+        :'')+
       '</div></div>';
   }).join('');
   updateSel();
 }
 function toggle(i){ document.getElementById('prod'+i).classList.toggle('open'); }
 function updateSel(){ const n=document.querySelectorAll('.sel-cb:checked').length; document.getElementById('selCount').textContent=n; document.getElementById('listToolbar').style.display=PRODUCTS.length?'block':'none'; document.getElementById('findBtn').disabled=n===0; }
+async function previewShopifyFields(sku){
+  const pre=document.getElementById('sfPreview-'+sku);
+  if(!pre) return;
+  const show=pre.style.display==='none';
+  if(!show){ pre.style.display='none'; return; }
+  pre.style.display='block'; pre.textContent='Loading…';
+  try{
+    const r=await api({action:'resolve-shopify-fields', sku});
+    pre.textContent=JSON.stringify(r,null,2);
+  }catch(e){ pre.textContent='Error: '+e.message; }
+}
 async function delProduct(e,sku){ e.stopPropagation(); if(!confirm('Delete '+sku+'?'))return; try{ const r=await api({action:'delete-product',sku}); PRODUCTS=r.products; renderList(); msg('Deleted '+sku,'ok'); }catch(err){ msg('Delete failed: '+err.message,'err'); } }
 
 /* ---------- FIND KEYWORDS ---------- */
