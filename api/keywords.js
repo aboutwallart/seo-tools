@@ -1,4 +1,4 @@
-// api/keywords.js — New Product Generator backend  ·  v0.7
+// api/keywords.js — New Product Generator backend  ·  v0.8
 // Actions (POST { action, ... }):
 //   gap-research    -> { products:[{sku, collections, set, trends, primaryColour, colour, keywordWords}] }
 //                       returns { results:[{ sku, options:[{keyword, volume, difficulty, difficultyRaw}] }] }
@@ -157,30 +157,32 @@ async function readGapFile() {
   } catch { /* ignore */ }
   return rows;
 }
+// ART_WORDS: signal that a keyword is about wall art / decor (used ONLY together with the product's own colour).
+const ART_WORDS = ['wall art', 'art print', 'print', 'prints', 'poster', 'posters', 'canvas', 'wall decor', 'artwork', 'painting', 'paintings', 'picture', 'pictures', 'wall hanging', 'wall pictures', 'art', 'decor'];
+function escRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+// whole-word / whole-phrase match (so "sea" does NOT match inside "rousseau", "art" not inside "cartoon")
+function wordMatch(kw, term) { if (!term) return false; return new RegExp('\\b' + escRe(term) + '\\b').test(kw); }
+function anyWord(kw, list) { return (list || []).some(t => wordMatch(kw, t)); }
 function gapTermsForProduct(p) {
   const col = p.collections || {};
   const styles = (col['By Style'] || []).map(s => s.toLowerCase());
   const rooms = (col['By Room'] || []).map(s => s.toLowerCase());
-  const trends = (p.trends || []).map(t => t.toLowerCase());
+  // trend roots: "Coastal Decor" -> "coastal" (strip decor/design/style so it actually matches real keywords)
+  const trendRoots = (p.trends || []).map(t => t.toLowerCase().replace(/\b(decor|design|style)\b/g, '').trim()).filter(Boolean);
   const colours = (p.primaryColour || []).map(c => c.toLowerCase());
-  const setN = (p.set || '').match(/\d+/) ? (p.set || '').match(/\d+/)[0] : '';
   const extra = (p.keywordWords || []).map(w => String(w).toLowerCase().trim()).filter(Boolean);
-  return { styles, rooms, trends, colours, setN, extra };
+  return { styles, rooms, trendRoots, colours, extra };
 }
-// A colour match alone never qualifies a keyword (e.g. "the white rabbit" ≠ wall art).
-// The keyword needs a topical signal: a style/trend/room/extra-term match, OR one of these category words.
-const CATEGORY_WORDS = ['wall art', 'art print', 'print', 'poster', 'canvas', 'wall decor', 'artwork', 'painting', 'picture', 'wall hanging', 'decor'];
-function gapRelevance(kw, terms) {
-  let r = 0;
-  let topical = false; // true once we see a non-colour signal (style/trend/room/extra/category word)
-  terms.styles.forEach(s => { if (s && kw.includes(s)) { r += 3; topical = true; } });
-  terms.trends.forEach(t => { if (t && kw.includes(t)) { r += 3; topical = true; } });
-  terms.rooms.forEach(rm => { if (rm && kw.includes(rm)) { r += 1.5; topical = true; } });
-  terms.extra.forEach(w => { if (w && kw.includes(w)) { r += 2.5; topical = true; } });
-  terms.colours.forEach(c => { if (c && kw.includes(c)) r += 1.5; }); // colour alone does NOT set topical
-  if (terms.setN && kw.includes('set of ' + terms.setN)) { r += 1; topical = true; }
-  if (!topical && CATEGORY_WORDS.some(w => kw.includes(w))) { r += 1; topical = true; }
-  return topical ? r : 0;
+// Returns { qualifies, tier } — tier 1 = manual/extra word match (top priority), tier 2 = style/room/trend or product-colour+art.
+// A colour only qualifies when the product's own colour describes art (colour word + an ART_WORD together);
+// a colour alone, or a colour describing something else (e.g. "the white rabbit"), never qualifies.
+function gapClassify(kw, terms) {
+  const extraHit = anyWord(kw, terms.extra);
+  if (extraHit) return { qualifies: true, tier: 1 };
+  const themeHit = anyWord(kw, terms.styles) || anyWord(kw, terms.rooms) || anyWord(kw, terms.trendRoots);
+  const colourArtHit = anyWord(kw, terms.colours) && anyWord(kw, ART_WORDS);
+  if (themeHit || colourArtHit) return { qualifies: true, tier: 2 };
+  return { qualifies: false, tier: 0 };
 }
 async function gapResearch(body) {
   const products = Array.isArray(body.products) ? body.products : [];
@@ -190,16 +192,21 @@ async function gapResearch(body) {
     const terms = gapTermsForProduct(p);
     const allowedColours = colourWordsOf((p.primaryColour || []).concat(p.keywordWords || []));
     const inProgress = inProgressKeywordMap(allProducts, p.sku);
-    const scored = gapRows
+    // opportunity = high volume + low difficulty; small colour bonus as a tie-breaker
+    const opportunity = row => Math.sqrt(row.volume + 1) * (100 / (row.difficulty + 10)) + (anyWord(row.keyword, terms.colours) ? 1 : 0);
+    const qualified = gapRows
       .filter(row => !locked.has(row.keyword) && !inProgress.has(row.keyword))
       .filter(row => colourOk(row.keyword, allowedColours))
-      .map(row => ({ ...row, relevance: gapRelevance(row.keyword, terms) }))
-      .filter(row => row.relevance > 0)
-      .map(row => ({ ...row, score: row.relevance * Math.sqrt(row.volume + 1) * (100 / (row.difficulty + 10)) }))
-      .sort((a, b) => b.score - a.score)
+      .map(row => ({ ...row, cls: gapClassify(row.keyword, terms) }))
+      .filter(row => row.cls.qualifies);
+    // tier 1 = manual/extra words first; tier 2 = the rest. Within each tier, best opportunity first.
+    const byOpp = (a, b) => opportunity(b) - opportunity(a);
+    const tier1 = qualified.filter(r => r.cls.tier === 1).sort(byOpp);
+    const tier2 = qualified.filter(r => r.cls.tier === 2).sort(byOpp);
+    const options = [...tier1, ...tier2]
       .slice(0, MAX_OPTIONS_PER_PRODUCT)
       .map(row => ({ keyword: row.keyword, volume: row.volume, difficulty: row.difficulty, difficultyRaw: row.difficultyRaw }));
-    return { sku: p.sku || '', options: scored };
+    return { sku: p.sku || '', options };
   });
   return { results };
 }
