@@ -107,7 +107,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v1.0</span>
+  <span class="ver">v1.1</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -122,6 +122,11 @@
     <div class="field">
       <label class="f">SKU for print files <span class="req">*</span></label>
       <input type="text" id="sku" placeholder="e.g. TRAVPARIS01" autocomplete="off">
+    </div>
+
+    <div class="field">
+      <label class="f">Extra keyword terms <span style="color:var(--muted);font-weight:400">— optional, comma-separated</span></label>
+      <input type="text" id="keywordWords" placeholder="e.g. gallery wall, living room set" autocomplete="off">
     </div>
 
     <div class="block">
@@ -177,7 +182,7 @@
   <!-- LIST -->
   <div class="card">
     <h2>Defined products</h2>
-    <p class="sub">Tick the ones you want, then find keywords. Each keyword is checked against your registry and reserved when you apply it.</p>
+    <p class="sub">Tick the ones you want, then find keywords. Options come from your competitors-gap file — checked against your registry and against other in-progress products.</p>
     <div id="listToolbar" style="display:none;margin-bottom:14px">
       <button class="btn primary small" id="findBtn">Find keywords (<span id="selCount">0</span>)</button>
     </div>
@@ -187,7 +192,7 @@
   <!-- KEYWORD RESULTS -->
   <div class="card" id="kwCard" style="display:none">
     <h2>Keyword options</h2>
-    <p class="sub">Pick one per product. "Use" reserves it in the registry (with an empty URL, for now).</p>
+    <p class="sub">Pick one per product. Options come from your competitors-gap file — nothing is locked in the registry yet (that happens when the product is sent to Shopify).</p>
     <div id="kwResults"></div>
   </div>
 </div>
@@ -258,7 +263,8 @@ function collectForm(){
     set:(document.querySelector('input[name=set]:checked')||{}).value||'',
     trends:[...document.querySelectorAll('.trend-cb:checked')].map(x=>x.value),
     primaryColour:[...document.querySelectorAll('.primary-cb')].map(x=>x.value.trim()).filter(Boolean),
-    colour:document.getElementById('colour').value };
+    colour:document.getElementById('colour').value,
+    keywordWords:document.getElementById('keywordWords').value.split(',').map(w=>w.trim()).filter(Boolean) };
 }
 document.getElementById('saveBtn').onclick=async()=>{
   const p=collectForm();
@@ -269,7 +275,7 @@ document.getElementById('saveBtn').onclick=async()=>{
   finally{ btn.disabled=false; btn.textContent='Save product'; }
 };
 document.getElementById('clearBtn').onclick=clearForm;
-function clearForm(){ document.getElementById('sku').value=''; document.getElementById('primaryBoxes').innerHTML=''; addPrimaryBox(); document.getElementById('colour').value=''; document.querySelectorAll('.col-cb,.trend-cb').forEach(x=>x.checked=false); document.querySelectorAll('input[name=set]').forEach(x=>x.checked=false); document.querySelectorAll('#setRadios .radio').forEach(r=>r.classList.remove('on')); }
+function clearForm(){ document.getElementById('sku').value=''; document.getElementById('keywordWords').value=''; document.getElementById('primaryBoxes').innerHTML=''; addPrimaryBox(); document.getElementById('colour').value=''; document.querySelectorAll('.col-cb,.trend-cb').forEach(x=>x.checked=false); document.querySelectorAll('input[name=set]').forEach(x=>x.checked=false); document.querySelectorAll('#setRadios .radio').forEach(r=>r.classList.remove('on')); }
 
 /* ---------- LIST ---------- */
 function renderList(){
@@ -288,8 +294,12 @@ function renderList(){
         '<div class="kv"><span class="k">Trends</span><span>'+((p.trends||[]).length?p.trends.map(t=>'<span class="pill">'+esc(t)+'</span>').join(''):'—')+'</span></div>'+
         '<div class="kv"><span class="k">Primary colour</span><span>'+((p.primaryColour||[]).length?p.primaryColour.map(c=>'<span class="pill">'+esc(c)+'</span>').join(''):'—')+'</span></div>'+
         '<div class="kv"><span class="k">Colour</span><span>'+esc(p.colour||'—')+'</span></div>'+
+        ((p.keywordWords||[]).length?'<div class="kv"><span class="k">Extra terms</span><span>'+p.keywordWords.map(w=>'<span class="pill">'+esc(w)+'</span>').join('')+'</span></div>':'')+
         (p.keyword?'<div class="kv"><span class="k">Keyword</span><span>'+esc(p.keyword)+'</span></div>':'')+
-        '<div style="margin-top:12px"><button class="btn ghost small" onclick="delProduct(event,\''+esc(p.sku)+'\')">Delete</button></div>'+
+        '<div style="margin-top:12px;display:flex;gap:8px">'+
+          '<button class="btn ghost small" onclick="delProduct(event,\''+esc(p.sku)+'\')">Delete</button>'+
+          (p.keyword?'<button class="btn ghost small" onclick="event.stopPropagation();changeKeyword(\''+esc(p.sku)+'\')">Change keyword</button>':'')+
+        '</div>'+
       '</div></div>';
   }).join('');
   updateSel();
@@ -301,49 +311,113 @@ async function delProduct(e,sku){ e.stopPropagation(); if(!confirm('Delete '+sku
 /* ---------- FIND KEYWORDS ---------- */
 document.getElementById('findBtn').onclick=async()=>{
   const skus=[...document.querySelectorAll('.sel-cb:checked')].map(x=>x.dataset.sku);
+  runFindKeywords(skus);
+};
+async function runFindKeywords(skus){
   const selected=PRODUCTS.filter(p=>skus.includes(p.sku));
   if(!selected.length) return;
   const btn=document.getElementById('findBtn'); btn.disabled=true; btn.innerHTML='<span class="spin"></span>Searching…';
-  msg('Searching keywords in Ubersuggest/DataForSEO — this can take 1–2 minutes.','info');
+  msg('Searching your competitors-gap file…','info');
   try{
-    const r=await api({action:'research',products:selected});
+    const r=await api({action:'gap-research',products:selected});
     renderKwResults(r.results||[]);
     clearMsg();
   }catch(e){ msg('Keyword search failed: '+e.message,'err'); }
   finally{ btn.disabled=false; btn.innerHTML='Find keywords (<span id="selCount">'+document.querySelectorAll('.sel-cb:checked').length+'</span>)'; }
-};
+}
+function changeKeyword(sku){ runFindKeywords([sku]); }
+
 function diffClass(d){ if(d==null)return ''; if(d<=20)return 'diff-e'; if(d<=40)return 'diff-m'; return 'diff-h'; }
+function diffLabel(o){
+  if(o.difficulty==null) return '—';
+  const raw=(o.difficultyRaw||'').toLowerCase();
+  if(raw==='low'||raw==='medium'||raw==='high') return o.difficulty+' ('+o.difficultyRaw+')';
+  return String(o.difficulty);
+}
+function promptTerms(p){
+  const col=p.collections||{};
+  const parts=[...(col['By Style']||[]),...(col['By Room']||[]),...(col['By Colour']||[]),...(p.trends||[]),...(p.primaryColour||[]),...(p.keywordWords||[])];
+  return [...new Set(parts.filter(Boolean))];
+}
+function promptText(p){
+  const terms=promptTerms(p);
+  return 'Search Ubersuggest (UK) for wall art keywords related to: '+(terms.length?terms.join(', '):p.sku)+'. Give up to 10 options with high volume and low difficulty, showing volume and difficulty for each.';
+}
+function blockHtml(r,ri){
+  const prod=PRODUCTS.find(p=>p.sku===r.sku)||{sku:r.sku};
+  const hasOptions=r.options&&r.options.length>0;
+  const rows=hasOptions?r.options.map((o,oi)=>{
+    const isCurrent=prod.keyword&&prod.keyword.toLowerCase()===o.keyword.toLowerCase();
+    return '<div class="kwrow">'+
+      '<span class="kw">'+(isCurrent?'✓ ':'')+esc(o.keyword)+'</span>'+
+      '<span>'+(o.volume!=null?o.volume:'—')+'</span>'+
+      '<span class="'+diffClass(o.difficulty)+'">'+diffLabel(o)+'</span>'+
+      '<span class="c-int"></span>'+
+      '<span class="h-act"><button class="btn '+(isCurrent?'ghost':'primary')+' small" onclick="applyKw('+ri+','+oi+')">'+(isCurrent?'Selected':'Use')+'</button></span>'+
+    '</div>';
+  }).join('') : '<div class="empty">No matching options found in the competitors-gap file. Try adding extra keyword terms, or generate an Ubersuggest prompt below.</div>';
+  return '<div class="kwblock" id="kwb'+ri+'" data-sku="'+esc(r.sku)+'">'+
+    '<h4>'+esc(r.sku)+(prod.keyword?' <span class="status kw" style="margin-left:8px">🔒 '+esc(prod.keyword)+'</span>':'')+'</h4>'+
+    (hasOptions?'<div class="kwrow hd"><span>Keyword</span><span>Vol</span><span>Diff</span><span class="h-int"></span><span class="h-act"></span></div>':'')+
+    rows+
+    '<div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">'+
+      '<button class="btn ghost small" onclick="togglePrompt('+ri+')">Don\'t like these? Generate Ubersuggest prompt</button>'+
+    '</div>'+
+    '<div id="prompt'+ri+'" style="display:none;margin-top:10px">'+
+      '<div style="background:#fafbfb;border:1px solid var(--border);border-radius:9px;padding:10px 12px;font-size:12.5px;white-space:pre-wrap" id="promptText'+ri+'"></div>'+
+      '<button class="btn ghost small" style="margin-top:8px" onclick="copyPrompt('+ri+')">Copy prompt</button>'+
+    '</div>'+
+    '<div style="margin-top:14px;border-top:1px solid #f0f1f2;padding-top:12px">'+
+      '<label class="f" style="margin-bottom:6px">Add keyword manually (from Ubersuggest)</label>'+
+      '<div style="display:flex;gap:8px"><input type="text" id="manualKw'+ri+'" placeholder="paste the keyword you picked"><button class="btn primary small" onclick="applyManualKw('+ri+')">Add</button></div>'+
+    '</div>'+
+  '</div>';
+}
 function renderKwResults(results){
   const card=document.getElementById('kwCard'), box=document.getElementById('kwResults');
   if(!results.length){ card.style.display='none'; return; }
-  box.innerHTML=results.map((r,ri)=>{
-    if(!r.options||!r.options.length) return '<div class="kwblock"><h4>'+esc(r.sku)+'</h4><div class="empty">No free options found. Try broadening the product’s collections/colours.</div></div>';
-    const rows=r.options.map((o,oi)=>'<div class="kwrow">'+
-      '<span class="kw">'+esc(o.keyword)+'</span>'+
-      '<span>'+(o.volume!=null?o.volume:'—')+'</span>'+
-      '<span class="'+diffClass(o.difficulty)+'">'+(o.difficulty!=null?o.difficulty:'—')+'</span>'+
-      '<span class="c-int">'+(o.intent?'<span class="intent">'+esc(o.intent)+'</span>':'')+'</span>'+
-      '<span class="h-act"><button class="btn primary small" onclick="applyKw('+ri+','+oi+')">Use</button></span>'+
-    '</div>').join('');
-    return '<div class="kwblock" id="kwb'+ri+'" data-sku="'+esc(r.sku)+'">'+
-      '<h4>'+esc(r.sku)+'</h4>'+
-      '<div class="kwrow hd"><span>Keyword</span><span>Vol</span><span>Diff</span><span class="h-int">Intent</span><span class="h-act"></span></div>'+
-      rows+'</div>';
-  }).join('');
   window.__kwResults=results;
+  box.innerHTML=results.map((r,ri)=>blockHtml(r,ri)).join('');
   card.style.display='block'; card.scrollIntoView({behavior:'smooth'});
+  // auto-show the prompt for any product with zero options
+  results.forEach((r,ri)=>{ if(!r.options||!r.options.length) togglePrompt(ri,true); });
+}
+function refreshBlock(ri){
+  const r=window.__kwResults&&window.__kwResults[ri]; if(!r) return;
+  const el=document.getElementById('kwb'+ri); if(!el) return;
+  const wasPromptOpen=document.getElementById('prompt'+ri)&&document.getElementById('prompt'+ri).style.display!=='none';
+  el.outerHTML=blockHtml(r,ri);
+  if(wasPromptOpen) togglePrompt(ri,true);
+}
+function togglePrompt(ri,forceOpen){
+  const el=document.getElementById('prompt'+ri); if(!el) return;
+  const r=window.__kwResults[ri]; const prod=PRODUCTS.find(p=>p.sku===r.sku)||{sku:r.sku};
+  document.getElementById('promptText'+ri).textContent=promptText(prod);
+  el.style.display=(forceOpen||el.style.display==='none')?'block':'none';
+}
+async function copyPrompt(ri){
+  const text=document.getElementById('promptText'+ri).textContent;
+  try{ await navigator.clipboard.writeText(text); msg('Prompt copied.','ok'); }
+  catch{ msg('Could not copy — select and copy the text manually.','err'); }
 }
 async function applyKw(ri,oi){
   const r=window.__kwResults[ri]; const o=r.options[oi];
-  if(!confirm('Reserve "'+o.keyword+'" for '+r.sku+'?\nThis locks it in your keyword registry (empty URL for now).'))return;
+  await doSetKeyword(r.sku, o.keyword, ri);
+}
+async function applyManualKw(ri){
+  const r=window.__kwResults[ri];
+  const input=document.getElementById('manualKw'+ri);
+  const kw=input.value.trim();
+  if(!kw) return;
+  await doSetKeyword(r.sku, kw, ri);
+}
+async function doSetKeyword(sku, keyword, ri){
   try{
-    const rr=await api({action:'reserve-keyword',keyword:o.keyword,sku:r.sku});
-    if(rr.duplicate){ msg('"'+o.keyword+'" is already locked in the registry. Pick another.','err'); return; }
-    const prod=PRODUCTS.find(p=>p.sku===r.sku);
-    const updated={...prod,keyword:o.keyword};
-    const sv=await api({action:'save-product',product:updated}); PRODUCTS=sv.products; renderList();
-    const block=document.getElementById('kwb'+ri); if(block) block.innerHTML='<h4>'+esc(r.sku)+'</h4><div class="msg show ok">🔒 Keyword applied: '+esc(o.keyword)+'</div>';
-    msg('Applied "'+o.keyword+'" to '+r.sku,'ok');
+    const rr=await api({action:'set-keyword',sku,keyword});
+    if(rr.taken){ msg(rr.reason||'That keyword is already taken.','err'); return; }
+    PRODUCTS=rr.products; renderList();
+    if(ri!=null) refreshBlock(ri);
+    msg('Applied "'+keyword+'" to '+sku,'ok');
   }catch(e){ msg('Apply failed: '+e.message,'err'); }
 }
 
