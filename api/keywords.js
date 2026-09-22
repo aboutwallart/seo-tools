@@ -1,10 +1,19 @@
-// api/keywords.js — New Product Generator backend  ·  v0.12
+// api/keywords.js — New Product Generator backend  ·  v0.13
+// v0.13: SEND-TO-SHOPIFY — Batch 3 (create the product in Shopify). New action:
+//   send-to-shopify { sku } — builds the full variant matrix (Frame x Size x Paper, priced by Set
+//     size from live price tables) + options + metafields/tags/collections (reuses resolveShopifyFields)
+//     + product media in the confirmed gallery order + per-Frame variant images from the Flats, then
+//     writes it all in one productSet mutation (status DRAFT), publishes to every live channel, and
+//     marks the product 'sent' with the new Shopify product id/handle. Blocks with a plain-English
+//     error (no raw JSON) if images/room/collections aren't ready yet — nothing partial is written.
+//   Also: replaced the lifestyle-cover radio with drag-to-reorder (index 0 = cover) — new action
+//   'reorder-lifestyle-images' replaces 'set-lifestyle-cover'. upload-fixed-images now takes an optional
+//   { force: [keys] } to force re-upload a stale fixed/room image (e.g. after fixing a source file).
 // v0.12: SEND-TO-SHOPIFY — Batch 2 (image uploads). New actions:
 //   upload-image { sku, slot, image, imageMediaType } — slot: lifestyle|individual|flatWhite|flatBlack|
 //     flatOak|flatCanvas|flatUnframed. Uploads to Shopify Files (staged upload + fileCreate + CDN poll),
 //     names the file from the product's keyword + a number, writes an SEO alt text, saves the record
 //     onto product.images in npg-products.json. Returns immediately per image (never batched).
-//   set-lifestyle-cover { sku, index } — which lifestyle image is #1 (the storefront cover).
 //   remove-product-image { sku, slot, index? } — removes a saved image reference (Mae fixing a mistake).
 //   upload-fixed-images {} / get-fixed-images {} — the 3 fixed + 9 room-size images, uploaded to Shopify
 //     ONCE (idempotent — skips ones already done) and cached in data/npg-fixed-images.json for reuse on
@@ -884,7 +893,7 @@ async function uploadProductImage(body) {
     const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === sku.toLowerCase());
     if (idx < 0) throw new Error('product not found: ' + sku);
     const product = arr[idx];
-    const images = product.images ? { ...product.images, lifestyle: [...(product.images.lifestyle || [])], individuals: [...(product.images.individuals || [])], flats: { ...(product.images.flats || {}) } } : { lifestyle: [], lifestyleCoverIndex: 0, individuals: [], flats: {} };
+    const images = product.images ? { ...product.images, lifestyle: [...(product.images.lifestyle || [])], individuals: [...(product.images.individuals || [])], flats: { ...(product.images.flats || {}) } } : { lifestyle: [], individuals: [], flats: {} };
 
     const setMatch = (product.set || '').match(/\d+/);
     const setSize = setMatch ? parseInt(setMatch[0], 10) : 1;
@@ -911,7 +920,9 @@ async function uploadProductImage(body) {
   throw new Error('write conflict, try again');
 }
 
-async function setLifestyleCover(sku, index) {
+// Cover is simply lifestyle[0] — dragging a tile to the front makes it the cover, no separate flag.
+async function reorderLifestyleImages(sku, order) {
+  if (!Array.isArray(order)) throw new Error('order required');
   for (let attempt = 0; attempt < 2; attempt++) {
     const file = await ghGet(PRODUCTS_PATH);
     let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
@@ -919,9 +930,13 @@ async function setLifestyleCover(sku, index) {
     const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === sku.toLowerCase());
     if (idx < 0) throw new Error('product not found: ' + sku);
     const product = arr[idx];
-    const images = { ...(product.images || {}), lifestyleCoverIndex: index };
+    const lifestyle = (product.images && product.images.lifestyle) || [];
+    const valid = order.length === lifestyle.length && new Set(order).size === lifestyle.length && order.every(i => Number.isInteger(i) && i >= 0 && i < lifestyle.length);
+    if (!valid) throw new Error('invalid order');
+    const images = { ...(product.images || {}), lifestyle: order.map(i => lifestyle[i]) };
+    delete images.lifestyleCoverIndex;
     arr[idx] = { ...product, images, updatedAt: new Date().toISOString() };
-    try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG set lifestyle cover: ${sku}`); return { products: arr }; }
+    try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG reorder lifestyle images: ${sku}`); return { products: arr }; }
     catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
   }
   throw new Error('write conflict, try again');
@@ -935,8 +950,8 @@ async function removeProductImage(sku, slot, index) {
     const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === sku.toLowerCase());
     if (idx < 0) throw new Error('product not found: ' + sku);
     const product = arr[idx];
-    const images = product.images ? { ...product.images, lifestyle: [...(product.images.lifestyle || [])], individuals: [...(product.images.individuals || [])], flats: { ...(product.images.flats || {}) } } : { lifestyle: [], lifestyleCoverIndex: 0, individuals: [], flats: {} };
-    if (slot === 'lifestyle') { images.lifestyle.splice(index, 1); if (images.lifestyleCoverIndex >= images.lifestyle.length) images.lifestyleCoverIndex = 0; }
+    const images = product.images ? { ...product.images, lifestyle: [...(product.images.lifestyle || [])], individuals: [...(product.images.individuals || [])], flats: { ...(product.images.flats || {}) } } : { lifestyle: [], individuals: [], flats: {} };
+    if (slot === 'lifestyle') images.lifestyle.splice(index, 1);
     else if (slot === 'individual') images.individuals.splice(index, 1);
     else if (FLAT_SLOTS.includes(slot)) delete images.flats[slot];
     else throw new Error('invalid slot: ' + slot);
@@ -984,12 +999,13 @@ async function getFixedImages() {
   let data = {}; if (r.content) { try { data = JSON.parse(r.content); } catch { data = {}; } }
   return { data, sha: r.sha };
 }
-async function uploadFixedImages() {
+async function uploadFixedImages(force) {
+  const forceSet = new Set(Array.isArray(force) ? force : []);
   const { data } = await getFixedImages();
   const out = { fixed: { ...(data.fixed || {}) }, rooms: { ...(data.rooms || {}) } };
   const results = [];
   for (const f of FIXED_IMAGE_FILES) {
-    if (out.fixed[f.key] && out.fixed[f.key].gid) { results.push({ key: f.key, status: 'already uploaded' }); continue; }
+    if (out.fixed[f.key] && out.fixed[f.key].gid && !forceSet.has(f.key)) { results.push({ key: f.key, status: 'already uploaded' }); continue; }
     try {
       const b64 = await fetchRepoFileAsBase64(f.path);
       const uploaded = await uploadImageToShopify(b64, f.path.split('/').pop(), mimeFromPath(f.path), f.alt);
@@ -998,7 +1014,7 @@ async function uploadFixedImages() {
     } catch (e) { results.push({ key: f.key, status: 'error', error: String(e.message || e) }); }
   }
   for (const roomName of Object.keys(ROOM_IMAGE_FILES)) {
-    if (out.rooms[roomName] && out.rooms[roomName].gid) { results.push({ key: roomName, status: 'already uploaded' }); continue; }
+    if (out.rooms[roomName] && out.rooms[roomName].gid && !forceSet.has(roomName)) { results.push({ key: roomName, status: 'already uploaded' }); continue; }
     const path = ROOM_IMAGE_FILES[roomName];
     // Rooms that SHARE a file with another room (Games room -> Living room, Laundry room -> Bathroom)
     // reuse that room's already-uploaded GID instead of uploading the same image twice.
@@ -1107,6 +1123,191 @@ async function resolveShopifyFields(sku) {
   };
 }
 
+/* ---------------- SEND TO SHOPIFY (Send-to-Shopify Batch 3 — create the product) ---------------- */
+// Price tables read LIVE from one real product per set size, 2026-09-22 (Alexandrite=Set1,
+// "Bathroom wall pictures"=Set2, "Bathroom pictures"=Set3 — see npg-send-to-shopify-spec-2026-09-21.md).
+// Set 2's canvas A3(12x16)/A2(16x22) prices are NOT a typo — verified identical on 2 independent live
+// Set-of-2 products: the smaller (12x16) canvas genuinely costs more than the bigger (16x22) one on
+// this store. Kept as-is on purpose.
+const PRICE_TABLES = {
+  1: {
+    UN: { A4: 19, A3: 25, A2_SP: 52, A2_MQ: 66, A1_SP: 62, A1_MQ: 82 },
+    FB: { A4: 33, A3: 43, A2_SP: 110, A2_MQ: 132, A1_SP: 129, A1_MQ: 159 },
+    FW: { A4: 33, A3: 43, A2_SP: 110, A2_MQ: 129, A1_SP: 129, A1_MQ: 149 },
+    FO: { A4: 33, A3: 43, A2_SP: 110, A2_MQ: 129, A1_SP: 129, A1_MQ: 149 },
+    CW: { A1: 129, A3: 43, A2: 110 }
+  },
+  2: {
+    UN: { A4: 20, A3: 29, A2_SP: 62, A2_MQ: 82, A1_SP: 72, A1_MQ: 92 },
+    FB: { A4: 45, A3: 65, A2_SP: 149, A2_MQ: 169, A1_SP: 159, A1_MQ: 179 },
+    FW: { A4: 45, A3: 65, A2_SP: 149, A2_MQ: 169, A1_SP: 159, A1_MQ: 179 },
+    FO: { A4: 45, A3: 65, A2_SP: 149, A2_MQ: 159, A1_SP: 159, A1_MQ: 179 },
+    CW: { A1: 159, A3: 149, A2: 65 }
+  },
+  3: {
+    UN: { A4: 26, A3: 35, A2_SP: 72, A2_MQ: 92, A1_SP: 82, A1_MQ: 102 },
+    FB: { A4: 57, A3: 87, A2_SP: 179, A2_MQ: 199, A1_SP: 199, A1_MQ: 219 },
+    FW: { A4: 57, A3: 87, A2_SP: 179, A2_MQ: 199, A1_SP: 199, A1_MQ: 219 },
+    FO: { A4: 57, A3: 87, A2_SP: 179, A2_MQ: 199, A1_SP: 199, A1_MQ: 219 },
+    CW: { A1: 199, A3: 87, A2: 179 }
+  }
+};
+const SIZE_LABEL = { A4: 'A4 8.27 x 11.69 in / 21 x 29.7 cm', A3: 'A3 11.69 x 16.54 in / 29.7 x 42 cm', A2: 'A2 16.54 x 23.39 in / 42 x 59.4 cm', A1: '20 x 30 in / 50 x 76 cm' };
+const CANVAS_SIZE_LABEL = { A1: '20 x 30 in / 50 x 76 cm', A3: '12 x 16 inches / 30.5 x 40.65 cm', A2: '16 x 22 inches / 40.65 cm x 56 cm' };
+const FRAME_LABEL = { UN: 'Unframed', FB: 'Black Frame', FW: 'White Frame', FO: 'Oak Frame', CW: 'Canvas wrapped' };
+const PAPER_LABEL = { SP: 'Satin Photo paper 280 gsm', MQ: 'Matte museum Quality Art Paper 290 gsm', CANVAS: 'Polyester Canvas 260 gsm' };
+const PRODUCT_CATEGORY_GID = 'gid://shopify/TaxonomyCategory/hg-3-4-2-2';
+
+// SKU ending pattern confirmed live on real variants: "ALEXANDRITE1- A4UN SP" / "ALEXANDRITE1- A1CW"
+// — no space before the dash (the spec doc said "space-dash-space"; the real data doesn't have it).
+function buildVariantMatrix(skuRoot, priceTable, flatFileGids) {
+  const variants = [];
+  for (const frameCode of ['UN', 'FB', 'FW', 'FO']) {
+    const p = priceTable[frameCode];
+    const fileRef = flatFileGids[frameCode] ? { id: flatFileGids[frameCode] } : undefined;
+    const rows = [['A4', 'SP', p.A4], ['A3', 'SP', p.A3], ['A2', 'SP', p.A2_SP], ['A2', 'MQ', p.A2_MQ], ['A1', 'SP', p.A1_SP], ['A1', 'MQ', p.A1_MQ]];
+    for (const [sizeCode, paperCode, price] of rows) {
+      variants.push({
+        optionValues: [{ optionName: 'Frame', name: FRAME_LABEL[frameCode] }, { optionName: 'Size', name: SIZE_LABEL[sizeCode] }, { optionName: 'Paper', name: PAPER_LABEL[paperCode] }],
+        price: String(price), sku: `${skuRoot}- ${sizeCode}${frameCode} ${paperCode}`,
+        ...(fileRef ? { file: fileRef } : {})
+      });
+    }
+  }
+  const cw = priceTable.CW;
+  const cwFile = flatFileGids.CW ? { id: flatFileGids.CW } : undefined;
+  for (const [sizeCode, price] of [['A1', cw.A1], ['A3', cw.A3], ['A2', cw.A2]]) {
+    variants.push({
+      optionValues: [{ optionName: 'Frame', name: 'Canvas wrapped' }, { optionName: 'Size', name: CANVAS_SIZE_LABEL[sizeCode] }, { optionName: 'Paper', name: PAPER_LABEL.CANVAS }],
+      price: String(price), sku: `${skuRoot}- ${sizeCode}CW`,
+      ...(cwFile ? { file: cwFile } : {})
+    });
+  }
+  return variants;
+}
+async function fetchAllPublicationIds() {
+  const data = await shopifyGQL(`query{ publications(first:50){ nodes{ id } } }`);
+  return (data.publications.nodes || []).map(n => n.id);
+}
+async function sendToShopify(sku) {
+  if (!sku) throw new Error('sku required');
+  const products = await readProducts();
+  const product = products.find(p => (p.sku || '').toLowerCase() === sku.toLowerCase());
+  if (!product) throw new Error('product not found: ' + sku);
+  if (product.sent) { const e = new Error('This product was already sent to Shopify.'); e.status = 400; throw e; }
+  if (!product.keyword) { const e = new Error('This product has no keyword yet.'); e.status = 400; throw e; }
+  if (!product.content) { const e = new Error('This product has no generated content yet.'); e.status = 400; throw e; }
+
+  const setMatch = (product.set || '').match(/\d+/);
+  const setSize = setMatch ? parseInt(setMatch[0], 10) : 1;
+  if (!PRICE_TABLES[setSize]) { const e = new Error('No price table for "' + product.set + '" — only Set of 1/2/3 are supported.'); e.status = 400; throw e; }
+
+  const img = product.images || { lifestyle: [], individuals: [], flats: {} };
+  const missing = [];
+  if (!(img.lifestyle || []).length) missing.push('at least 1 lifestyle photo');
+  if ((img.individuals || []).length !== setSize) missing.push(`${setSize} individual photo(s) (has ${(img.individuals || []).length})`);
+  FLAT_SLOTS.forEach(slot => { if (!img.flats || !img.flats[slot]) missing.push('flat image: ' + slot.replace('flat', '')); });
+  if (missing.length) { const e = new Error('Missing before sending — ' + missing.join(', ') + '.'); e.status = 400; throw e; }
+
+  const col = product.collections || {};
+  const rooms = col['By Room'] || [];
+  if (rooms.length !== 1) { const e = new Error(rooms.length === 0 ? 'Tick a Room collection before sending (needed for the size-guide image).' : 'More than one Room ticked — untick down to just one before sending.'); e.status = 400; throw e; }
+  const roomName = rooms[0];
+  if (!ROOM_IMAGE_FILES[roomName]) { const e = new Error('No size-guide image mapped for room: ' + roomName); e.status = 400; throw e; }
+
+  const { data: fixedData } = await getFixedImages();
+  const roomGidEntry = fixedData.rooms && fixedData.rooms[roomName];
+  const fixedOk = fixedData.fixed && fixedData.fixed.frameSizes && fixedData.fixed.pictureFrames && fixedData.fixed.canvasWrapped;
+  if (!roomGidEntry || !fixedOk) { const e = new Error('Shared images not uploaded yet — click "Check / upload shared images" first.'); e.status = 400; throw e; }
+
+  const resolved = await resolveShopifyFields(sku);
+  if (resolved.unresolvedSmart.length || resolved.notFoundCollections.length) {
+    const parts = [];
+    if (resolved.unresolvedSmart.length) parts.push('collections needing a manual check: ' + resolved.unresolvedSmart.map(u => u.name).join(', '));
+    if (resolved.notFoundCollections.length) parts.push('collections not found: ' + resolved.notFoundCollections.join(', '));
+    const e = new Error('Fix before sending — ' + parts.join('; ') + '.'); e.status = 400; throw e;
+  }
+
+  const flatFileGids = {
+    UN: img.flats.flatUnframed.gid, FB: img.flats.flatBlack.gid, FW: img.flats.flatWhite.gid,
+    FO: img.flats.flatOak.gid, CW: img.flats.flatCanvas.gid
+  };
+  const variants = buildVariantMatrix(product.sku, PRICE_TABLES[setSize], flatFileGids);
+
+  // Gallery order, confirmed with Mae 2026-09-22: Lifestyle (cover=first) -> Individuals -> Flats
+  // (Unframed/White/Oak/Black) -> Room size -> Canvas-wrapped FLAT -> Canvas-wrapped/Picture-frames/
+  // Frame-sizes FIXED.
+  const files = [];
+  (img.lifestyle || []).forEach(im => files.push({ id: im.gid }));
+  (img.individuals || []).forEach(im => files.push({ id: im.gid }));
+  ['flatUnframed', 'flatWhite', 'flatOak', 'flatBlack'].forEach(slot => files.push({ id: img.flats[slot].gid }));
+  files.push({ id: roomGidEntry.gid });
+  files.push({ id: img.flats.flatCanvas.gid });
+  files.push({ id: fixedData.fixed.canvasWrapped.gid });
+  files.push({ id: fixedData.fixed.pictureFrames.gid });
+  files.push({ id: fixedData.fixed.frameSizes.gid });
+
+  // global.title_tag/description_tag are set via the dedicated `seo` field below instead of as raw
+  // metafields (same underlying value — resolveShopifyFields still returns them for the debug preview).
+  const metafields = resolved.metafields.filter(m => !(m.namespace === 'global' && (m.key === 'title_tag' || m.key === 'description_tag')));
+
+  const input = {
+    title: product.content.productTitle,
+    descriptionHtml: product.content.productDescription,
+    vendor: 'About Wall Art',
+    productType: 'Wall art Prints',
+    templateSuffix: 'wall-decor',
+    category: PRODUCT_CATEGORY_GID,
+    status: 'DRAFT',
+    seo: { title: product.content.seoTitle, description: product.content.metaDescription },
+    tags: resolved.tagsToAdd,
+    collections: resolved.collectionsToJoin.map(c => c.id),
+    metafields,
+    files,
+    productOptions: [
+      { name: 'Frame', position: 1, values: ['Unframed', 'Black Frame', 'White Frame', 'Oak Frame', 'Canvas wrapped'].map(name => ({ name })) },
+      { name: 'Size', position: 2, values: [SIZE_LABEL.A4, SIZE_LABEL.A3, SIZE_LABEL.A2, SIZE_LABEL.A1, CANVAS_SIZE_LABEL.A3, CANVAS_SIZE_LABEL.A2].map(name => ({ name })) },
+      { name: 'Paper', position: 3, values: [PAPER_LABEL.SP, PAPER_LABEL.MQ, PAPER_LABEL.CANVAS].map(name => ({ name })) }
+    ],
+    variants
+  };
+
+  const result = await shopifyGQL(
+    `mutation($input: ProductSetInput!){ productSet(input:$input, synchronous:true){ product{ id handle onlineStoreUrl } userErrors{ field message } } }`,
+    { input }
+  );
+  const ue = result.productSet.userErrors || [];
+  if (ue.length) { const e = new Error(ue.map(u => u.message).join('; ')); e.status = 502; throw e; }
+  const created = result.productSet.product;
+
+  const warnings = [...resolved.warnings];
+  try {
+    const pubIds = await fetchAllPublicationIds();
+    if (pubIds.length) {
+      const pubResult = await shopifyGQL(
+        `mutation($id:ID!, $input:[PublicationInput!]!){ publishablePublish(id:$id, input:$input){ userErrors{ field message } } }`,
+        { id: created.id, input: pubIds.map(id => ({ publicationId: id })) }
+      );
+      const pue = pubResult.publishablePublish.userErrors || [];
+      if (pue.length) warnings.push('Publish warning: ' + pue.map(u => u.message).join('; '));
+    }
+  } catch (e) { warnings.push('Could not publish to channels: ' + String(e.message || e)); }
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const file = await ghGet(PRODUCTS_PATH);
+    let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === sku.toLowerCase());
+    if (idx < 0) throw new Error('product not found on save: ' + sku);
+    arr[idx] = { ...arr[idx], sent: true, shopifyProductId: created.id, shopifyHandle: created.handle, sentAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    try {
+      await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG sent to Shopify: ${sku}`);
+      return { sku, shopifyProductId: created.id, shopifyHandle: created.handle, onlineStoreUrl: created.onlineStoreUrl || null, warnings, products: arr };
+    } catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
+  }
+  throw new Error('write conflict, try again');
+}
+
 /* ---------------- handler ---------------- */
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -1145,9 +1346,9 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, ...out });
     }
 
-    if (action === 'set-lifestyle-cover') {
+    if (action === 'reorder-lifestyle-images') {
       if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
-      const out = await setLifestyleCover(body.sku, Number(body.index) || 0);
+      const out = await reorderLifestyleImages(body.sku, Array.isArray(body.order) ? body.order.map(Number) : []);
       return res.status(200).json({ ok: true, ...out });
     }
 
@@ -1165,13 +1366,20 @@ export default async function handler(req, res) {
     if (action === 'upload-fixed-images') {
       if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
       if (!process.env.SHOPIFY_STORE_DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return res.status(500).json({ ok: false, error: 'Shopify credentials not configured' });
-      const out = await uploadFixedImages();
+      const out = await uploadFixedImages(body.force);
       return res.status(200).json({ ok: true, ...out });
     }
 
     if (action === 'resolve-shopify-fields') {
       if (!process.env.SHOPIFY_STORE_DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return res.status(500).json({ ok: false, error: 'Shopify credentials not configured' });
       const out = await resolveShopifyFields(body.sku);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    if (action === 'send-to-shopify') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      if (!process.env.SHOPIFY_STORE_DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return res.status(500).json({ ok: false, error: 'Shopify credentials not configured' });
+      const out = await sendToShopify(body.sku);
       return res.status(200).json({ ok: true, ...out });
     }
 
