@@ -1,4 +1,9 @@
-// api/keywords.js — New Product Generator backend  ·  v0.13
+// api/keywords.js — New Product Generator backend  ·  v0.14
+// v0.14: fixes found testing Batch 3 live on ISLTRIAL (2026-09-22): gallery order corrected (room-size
+//   image now goes AFTER the canvas pair, right before Picture-frames); every variant gets 100 stock at
+//   the store's location; sales-last-24h/sales-count no longer look fake (24h capped 5-15, total always
+//   >= double); the generate-content prompt now quotes any phrase actually written ON the artwork when
+//   it's used in the product title (e.g. "Allah Is The Light").
 // v0.13: SEND-TO-SHOPIFY — Batch 3 (create the product in Shopify). New action:
 //   send-to-shopify { sku } — builds the full variant matrix (Frame x Size x Paper, priced by Set
 //     size from live price tables) + options + metafields/tags/collections (reuses resolveShopifyFields)
@@ -423,9 +428,10 @@ function buildGenerateContentPrompt(product, competitors) {
   const scrollRoom = firstRoom ? ('a ' + firstRoom.toLowerCase()) : 'your room';
 
   // Title rule depends on set size: sets of 2/3 end with "| Set of X"; a set of 1 is a single print (never "Set of 1").
+  const quoteRule = `If you name the product using a specific word or phrase that is actually WRITTEN ON the artwork itself (e.g. a quote, a name, lettering visible in the image) — as opposed to just describing the subject/colours — wrap that exact phrase in straight double quotes in the title, e.g. 'Wall Art Print "Allah Is The Light" Islamic Calligraphy'. Never quote ordinary descriptive words (colours, subjects, styles) — only wording actually printed on the piece.`;
   const productTitleRule = (setN === '1' || /set of 1/i.test(product.set || ''))
-    ? `The product name — keyword near the front, PLUS a short distinctive detail of the actual artwork (its subject or main colours, from the image). This is a SINGLE print, so do NOT write 'Set of 1'. Make sure the title contains 'Wall Art Print' (singular) — but if the front part already contains 'Wall Art Print', do NOT repeat it. Title Case. e.g. 'Gold Celestial Yoga Wall Art Print'. This is also the page H1.`
-    : `The product name — keyword near the front, PLUS a short distinctive detail of the actual artwork (its subject or main colours, from the image), and ENDS with the set size. Title Case. e.g. 'Gold Celestial Yoga Wall Art | Set of ${setN || '3'}'. This is also the page H1.`;
+    ? `The product name — keyword near the front, PLUS a short distinctive detail of the actual artwork (its subject or main colours, from the image). This is a SINGLE print, so do NOT write 'Set of 1'. Make sure the title contains 'Wall Art Print' (singular) — but if the front part already contains 'Wall Art Print', do NOT repeat it. Title Case. e.g. 'Gold Celestial Yoga Wall Art Print'. ${quoteRule} This is also the page H1.`
+    : `The product name — keyword near the front, PLUS a short distinctive detail of the actual artwork (its subject or main colours, from the image), and ENDS with the set size. Title Case. e.g. 'Gold Celestial Yoga Wall Art | Set of ${setN || '3'}'. ${quoteRule} This is also the page H1.`;
 
   const competitorsBlock = competitors.length
     ? competitors.map(c => `--- Position ${c.position}: ${c.url}\n  Title: ${c.title || 'N/A'}\n  H2s: ${(c.h2 || []).join(' | ') || 'N/A'}\n  Words: ${c.wordCount || 0}`).join('\n')
@@ -1093,8 +1099,10 @@ async function resolveShopifyFields(sku) {
   const related = await resolveRelatedProducts(product, megaMenu, fallbackByTitle);
   if (related.reason) warnings.push('Related products: ' + related.reason);
 
-  const sales24 = randInt(15, 55);
-  const salesCount = randInt(sales24 + 1, 150);
+  // Sales count must look believable — Mae's rule (2026-09-22): last-24h stays small (5-15), total
+  // sales is always at least double that, so it never reads as "37 of 38 sold today".
+  const sales24 = randInt(5, 15);
+  const salesCount = randInt(sales24 * 2, 150);
   const foxkit = randInt(2, 12);
 
   const metafields = [];
@@ -1157,6 +1165,7 @@ const CANVAS_SIZE_LABEL = { A1: '20 x 30 in / 50 x 76 cm', A3: '12 x 16 inches /
 const FRAME_LABEL = { UN: 'Unframed', FB: 'Black Frame', FW: 'White Frame', FO: 'Oak Frame', CW: 'Canvas wrapped' };
 const PAPER_LABEL = { SP: 'Satin Photo paper 280 gsm', MQ: 'Matte museum Quality Art Paper 290 gsm', CANVAS: 'Polyester Canvas 260 gsm' };
 const PRODUCT_CATEGORY_GID = 'gid://shopify/TaxonomyCategory/hg-3-4-2-2';
+const STORE_LOCATION_GID = 'gid://shopify/Location/76881428766'; // "Bluecoats Court" — the store's only location
 
 // SKU ending pattern confirmed live on real variants: "ALEXANDRITE1- A4UN SP" / "ALEXANDRITE1- A1CW"
 // — no space before the dash (the spec doc said "space-dash-space"; the real data doesn't have it).
@@ -1170,6 +1179,7 @@ function buildVariantMatrix(skuRoot, priceTable, flatFileGids) {
       variants.push({
         optionValues: [{ optionName: 'Frame', name: FRAME_LABEL[frameCode] }, { optionName: 'Size', name: SIZE_LABEL[sizeCode] }, { optionName: 'Paper', name: PAPER_LABEL[paperCode] }],
         price: String(price), sku: `${skuRoot}- ${sizeCode}${frameCode} ${paperCode}`,
+        inventoryQuantities: [{ locationId: STORE_LOCATION_GID, name: 'available', quantity: 100 }],
         ...(fileRef ? { file: fileRef } : {})
       });
     }
@@ -1180,6 +1190,7 @@ function buildVariantMatrix(skuRoot, priceTable, flatFileGids) {
     variants.push({
       optionValues: [{ optionName: 'Frame', name: 'Canvas wrapped' }, { optionName: 'Size', name: CANVAS_SIZE_LABEL[sizeCode] }, { optionName: 'Paper', name: PAPER_LABEL.CANVAS }],
       price: String(price), sku: `${skuRoot}- ${sizeCode}CW`,
+      inventoryQuantities: [{ locationId: STORE_LOCATION_GID, name: 'available', quantity: 100 }],
       ...(cwFile ? { file: cwFile } : {})
     });
   }
@@ -1234,16 +1245,16 @@ async function sendToShopify(sku) {
   };
   const variants = buildVariantMatrix(product.sku, PRICE_TABLES[setSize], flatFileGids);
 
-  // Gallery order, confirmed with Mae 2026-09-22: Lifestyle (cover=first) -> Individuals -> Flats
-  // (Unframed/White/Oak/Black) -> Room size -> Canvas-wrapped FLAT -> Canvas-wrapped/Picture-frames/
-  // Frame-sizes FIXED.
+  // Gallery order, confirmed with Mae 2026-09-22 (corrected same day after checking a live test
+  // product): Lifestyle (cover=first) -> Individuals -> Flats (Unframed/White/Oak/Black) ->
+  // Canvas-wrapped FLAT -> Canvas-wrapped FIXED -> Room size -> Picture-frames FIXED -> Frame-sizes FIXED.
   const files = [];
   (img.lifestyle || []).forEach(im => files.push({ id: im.gid }));
   (img.individuals || []).forEach(im => files.push({ id: im.gid }));
   ['flatUnframed', 'flatWhite', 'flatOak', 'flatBlack'].forEach(slot => files.push({ id: img.flats[slot].gid }));
-  files.push({ id: roomGidEntry.gid });
   files.push({ id: img.flats.flatCanvas.gid });
   files.push({ id: fixedData.fixed.canvasWrapped.gid });
+  files.push({ id: roomGidEntry.gid });
   files.push({ id: fixedData.fixed.pictureFrames.gid });
   files.push({ id: fixedData.fixed.frameSizes.gid });
 

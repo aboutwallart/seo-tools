@@ -1,4 +1,6 @@
-// shopify-files.js — v2.8
+// shopify-files.js — v2.9
+// v2.9 (Sep 22, 2026): autolink-webhook no longer links a PRODUCT to another PRODUCT (competes for the
+//                       same sale) — blogs and collections still link normally. Mae's rule.
 // v2.8 (June 29, 2026): BATCH 3 fixes. (1) NEW push-edits kind 'word-swap' — whole-word, case-aware
 //                       find→replace across the body (British English bulk/per-item push). (2) Each
 //                       edit in a push-edits batch is now isolated in try/catch → a bad edit is
@@ -409,6 +411,9 @@ module.exports = async function handler(req, res) {
         if (!keyword || !url) continue;
         if (wordsToIgnoreSet.has(keyword.toLowerCase())) continue;
         if (ignoreNumbers && /^\d+(\.\d+)?$/.test(keyword)) continue;
+        // Mae's rule (2026-09-22): a product's own body never links to ANOTHER product — it competes
+        // for the same sale/search intent. Blogs and collections are still fine to link to.
+        if (itemType === 'product' && /^\/products\//.test(url)) continue;
         if (updatedHtml.includes('href="' + url + '"') || updatedHtml.includes('href="https://aboutwallart.com' + url + '"')) continue;
         const newHtml = applyKeywordLink(updatedHtml, keyword, url);
         if (newHtml !== updatedHtml) {
