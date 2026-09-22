@@ -116,6 +116,13 @@
   .dz img{width:100%;height:100%;object-fit:cover;position:absolute;inset:0;border-radius:10px}
   .dz-wide{width:100%;height:150px}
   .dz-label{font-size:12px;font-weight:600;margin-top:6px;color:var(--ink)}
+  .dz.busy{cursor:default}
+  .dz-spinicon{width:24px;height:24px;border:3px solid var(--border-strong);border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite;margin:0 auto 8px}
+  .dz-badge{position:absolute;top:6px;right:6px;width:20px;height:20px;border-radius:50%;background:var(--ok);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,.35);z-index:2}
+  .cover-badge{position:absolute;top:6px;left:6px;background:var(--ink);color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;z-index:2}
+  .btn.rm{background:#fbe6e4;color:#8f1c16;border:none}
+  .dz-tile{cursor:grab}
+  .dz-tile.dragging{opacity:.4}
   .aiblock{border-left:3px solid var(--accent);padding-left:10px;margin-bottom:12px}
   @media(max-width:820px){.cols{grid-template-columns:1fr 1fr}.trend-grid{grid-template-columns:1fr 1fr}.grid2{grid-template-columns:1fr}.kwrow{grid-template-columns:1fr 60px 60px;}.kwrow .h-int,.kwrow .c-int,.kwrow .h-act{display:none}}
 </style>
@@ -128,7 +135,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v1.6</span>
+  <span class="ver">v1.7</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -318,7 +325,7 @@ function renderList(){
   if(!PRODUCTS.length){ list.innerHTML='<div class="empty">No products yet.</div>'; updateSel(); return; }
   list.innerHTML=PRODUCTS.map((p,i)=>{
     const colPills=Object.keys(p.collections||{}).map(g=>'<div class="kv"><span class="k">'+esc(g)+'</span><span>'+(p.collections[g]||[]).map(c=>'<span class="pill">'+esc(c)+'</span>').join('')+'</span></div>').join('');
-    const status = p.keyword ? '<span class="status kw">🔒 '+esc(p.keyword)+'</span>' : '<span class="status none">No keyword</span>';
+    const status = (p.keyword ? '<span class="status kw">🔒 '+esc(p.keyword)+'</span>' : '<span class="status none">No keyword</span>')+(p.sent?' <span class="status kw">✅ Sent to Shopify</span>':'');
     return '<div class="prod" id="prod'+i+'">'+
       '<div class="prod-head" onclick="toggle('+i+')">'+
         '<input type="checkbox" class="sel-cb" data-sku="'+esc(p.sku)+'" onclick="event.stopPropagation();updateSel()">'+
@@ -336,9 +343,7 @@ function renderList(){
         (p.keyword?'<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">'+
           '<button class="btn ghost small" onclick="event.stopPropagation();changeKeyword(\''+esc(p.sku)+'\')">Change keyword</button>'+
           '<button class="btn ghost small" onclick="event.stopPropagation();openContentPanel(\''+esc(p.sku)+'\')">'+(p.content?'View / edit content':'Generate content')+'</button>'+
-          (p.content?'<button class="btn ghost small" onclick="event.stopPropagation();previewShopifyFields(\''+esc(p.sku)+'\')">🔍 Preview Shopify fields (debug)</button>':'')+
-        '</div>'+
-        '<pre id="sfPreview-'+esc(p.sku)+'" style="display:none;margin-top:10px;background:#fafbfb;border:1px solid var(--border);border-radius:9px;padding:10px 12px;font-size:11.5px;white-space:pre-wrap;max-height:400px;overflow:auto"></pre>'
+        '</div>'
         :'')+
       '</div></div>';
   }).join('');
@@ -346,17 +351,6 @@ function renderList(){
 }
 function toggle(i){ document.getElementById('prod'+i).classList.toggle('open'); }
 function updateSel(){ const n=document.querySelectorAll('.sel-cb:checked').length; document.getElementById('selCount').textContent=n; document.getElementById('listToolbar').style.display=PRODUCTS.length?'block':'none'; document.getElementById('findBtn').disabled=n===0; }
-async function previewShopifyFields(sku){
-  const pre=document.getElementById('sfPreview-'+sku);
-  if(!pre) return;
-  const show=pre.style.display==='none';
-  if(!show){ pre.style.display='none'; return; }
-  pre.style.display='block'; pre.textContent='Loading…';
-  try{
-    const r=await api({action:'resolve-shopify-fields', sku});
-    pre.textContent=JSON.stringify(r,null,2);
-  }catch(e){ pre.textContent='Error: '+e.message; }
-}
 async function delProduct(e,sku){ e.stopPropagation(); if(!confirm('Delete '+sku+'?'))return; try{ const r=await api({action:'delete-product',sku}); PRODUCTS=r.products; renderList(); msg('Deleted '+sku,'ok'); }catch(err){ msg('Delete failed: '+err.message,'err'); } }
 
 /* ---------- FIND KEYWORDS ---------- */
@@ -508,70 +502,123 @@ function renderContentPanel(sku){
       '</div>';
     }
     html+=renderImagesSection(sku);
+    html+=renderSendToShopify(sku);
   }
   body.innerHTML=html;
+}
+function renderSendToShopify(sku){
+  const p=PRODUCTS.find(x=>x.sku===sku); if(!p) return '';
+  if(p.sent){
+    return '<div class="block"><div class="block-head"><h3>Shopify</h3></div>'+
+      '<div class="kv"><span class="k">Status</span><span class="status kw">✅ Sent to Shopify</span></div>'+
+      (p.shopifyHandle?'<div class="kv"><span class="k">Product</span><span><a href="https://admin.shopify.com/store/aboutwallart/products?query='+encodeURIComponent(p.shopifyHandle)+'" target="_blank">Open in Shopify admin</a></span></div>':'')+
+    '</div>';
+  }
+  return '<div class="block"><div class="block-head"><h3>Send to Shopify</h3></div>'+
+    '<p class="sub" style="margin:0 0 12px">Creates the product as a Draft with every variant, price, image and metafield filled in.</p>'+
+    '<button class="btn primary" id="sendBtn-'+esc(sku)+'" onclick="runSendToShopify(\''+esc(sku)+'\')">Send to Shopify</button>'+
+    '<div id="sendResult-'+esc(sku)+'" style="margin-top:12px"></div>'+
+  '</div>';
+}
+async function runSendToShopify(sku){
+  const btn=document.getElementById('sendBtn-'+sku);
+  const out=document.getElementById('sendResult-'+sku);
+  btn.disabled=true; btn.innerHTML='<span class="spin"></span>Sending…';
+  out.innerHTML='';
+  try{
+    const r=await api({action:'send-to-shopify', sku});
+    PRODUCTS=r.products;
+    let html='<div class="msg show ok">Created — product #'+esc(r.shopifyProductId.split('/').pop())+' ('+esc(r.shopifyHandle)+'), saved as Draft.</div>';
+    if((r.warnings||[]).length) html+='<div class="msg show info" style="margin-top:8px">'+r.warnings.map(esc).join('<br>')+'</div>';
+    out.innerHTML=html;
+    renderContentPanel(sku);
+  }catch(e){
+    out.innerHTML='<div class="msg show err">'+esc(e.message)+'</div>';
+    btn.disabled=false; btn.textContent='Send to Shopify';
+  }
 }
 
 /* ---------- IMAGES (lifestyle / individuals / flats) — big drag-and-drop boxes ---------- */
 const FLAT_LABELS=[['flatWhite','White frames'],['flatBlack','Black frames'],['flatOak','Oak frames'],['flatCanvas','Canvas wrapped'],['flatUnframed','Unframed']];
 let DZ_SEQ=0;
-// A single dropzone box. Empty -> dashed box, click or drop to upload. Filled -> shows the image full-bleed.
-function dropzone(sku, slot, index, label, filled){
+const UPLOADING={};
+function dzKey(sku,slot,index){ return sku+'|'+slot+'|'+index; }
+// A single dropzone box: empty -> dashed box, click/drop to upload. busy -> spinner. filled -> image +
+// green check badge + Remove button, all in ONE column (never a stray sibling).
+function dropzone(sku, slot, index, label, filled, busy){
   const id='dz'+(DZ_SEQ++);
   const fileId=id+'-file';
   const wide = slot==='lifestyle' ? ' dz-wide' : '';
-  const inner = filled
-    ? '<img src="'+esc(filled.url||'')+'">'
-    : '<div>📷<br>Drop image here<br>or click to browse</div>';
-  return '<div>'+
-    '<div class="dz'+wide+'" id="'+id+'" '+
-      'ondragover="event.preventDefault();event.stopPropagation();this.classList.add(\'over\')" '+
-      'ondragleave="this.classList.remove(\'over\')" '+
-      'ondrop="onImageDrop(event,\''+esc(sku)+'\',\''+slot+'\','+index+')" '+
-      'onclick="document.getElementById(\''+fileId+'\').click()">'+
-      inner+
-    '</div>'+
-    '<input type="file" id="'+fileId+'" accept="image/*" '+(slot==='lifestyle'?'multiple':'')+' style="display:none" onchange="onFileInputChosen(this,\''+esc(sku)+'\',\''+slot+'\','+index+')">'+
+  let inner;
+  if(busy) inner='<div class="dz-spinicon"></div>Uploading…';
+  else if(filled) inner='<img src="'+esc(filled.url||'')+'"><div class="dz-badge">✓</div>';
+  else inner='<div>📷<br>Drop image here<br>or click to browse</div>';
+  const activeAttrs = busy ? '' :
+    'ondragover="event.preventDefault();event.stopPropagation();this.classList.add(\'over\')" '+
+    'ondragleave="this.classList.remove(\'over\')" '+
+    'ondrop="onImageDrop(event,\''+esc(sku)+'\',\''+slot+'\','+index+')" '+
+    'onclick="document.getElementById(\''+fileId+'\').click()"';
+  return '<div style="text-align:center'+(slot==='lifestyle'?'':';width:150px')+'">'+
+    '<div class="dz'+wide+(busy?' busy':'')+'" id="'+id+'" '+activeAttrs+'>'+inner+'</div>'+
+    (busy?'':'<input type="file" id="'+fileId+'" accept="image/*" '+(slot==='lifestyle'?'multiple':'')+' style="display:none" onchange="onFileInputChosen(this,\''+esc(sku)+'\',\''+slot+'\','+index+')">')+
     (label?'<div class="dz-label">'+label+'</div>':'')+
+    (filled&&!busy?'<button class="btn rm small" style="margin-top:6px" onclick="removeProdImage(\''+esc(sku)+'\',\''+slot+'\','+index+')">Remove</button>':'')+
   '</div>';
 }
 function renderImagesSection(sku){
   const p=PRODUCTS.find(x=>x.sku===sku); if(!p) return '';
   const setMatch=(p.set||'').match(/\d+/); const setSize=setMatch?parseInt(setMatch[0],10):1;
-  const img=p.images||{lifestyle:[],lifestyleCoverIndex:0,individuals:[],flats:{}};
+  const img=p.images||{lifestyle:[],individuals:[],flats:{}};
   let html='<div class="block"><div class="block-head"><h3>Images</h3></div>';
 
-  html+='<div style="margin-bottom:22px"><label class="f" style="margin-bottom:6px">Lifestyle photos <span style="color:var(--muted);font-weight:400">— add as many as you have, then pick the cover</span></label>'+
-    dropzone(sku,'lifestyle',img.lifestyle.length,null,null)+
+  html+='<div style="margin-bottom:22px"><label class="f" style="margin-bottom:6px">Lifestyle photos <span style="color:var(--muted);font-weight:400">— add as many as you have; arrastrá para ordenar, la primera es la portada</span></label>'+
+    dropzone(sku,'lifestyle',img.lifestyle.length,null,null,!!UPLOADING[dzKey(sku,'lifestyle',img.lifestyle.length)])+
     (img.lifestyle.length?'<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:14px">'+
-      img.lifestyle.map((im,i)=>'<div style="text-align:center;width:150px">'+
-        '<div class="dz" style="cursor:default;border-style:solid;'+(img.lifestyleCoverIndex===i?'border-color:var(--accent)':'')+'"><img src="'+esc(im.url||'')+'"></div>'+
-        '<label style="display:block;font-size:12px;margin-top:6px;cursor:pointer"><input type="radio" name="lifecover-'+esc(sku)+'" '+(img.lifestyleCoverIndex===i?'checked':'')+' onchange="setLifestyleCoverUI(\''+esc(sku)+'\','+i+')" style="vertical-align:middle"> Cover</label>'+
-        '<button class="btn ghost small" style="padding:2px 8px;font-size:11px;margin-top:4px" onclick="removeProdImage(\''+esc(sku)+'\',\'lifestyle\','+i+')">Remove</button>'+
-      '</div>').join('')+
+      img.lifestyle.map((im,i)=>
+        '<div class="dz-tile" draggable="true" data-idx="'+i+'" '+
+          'ondragstart="onLifeDragStart(event,'+i+')" '+
+          'ondragover="event.preventDefault()" '+
+          'ondrop="onLifeDrop(event,\''+esc(sku)+'\','+i+')" '+
+          'ondragend="onLifeDragEnd(event)" '+
+          'style="text-align:center;width:150px">'+
+          '<div class="dz" style="cursor:grab">'+
+            '<img src="'+esc(im.url||'')+'">'+
+            (i===0?'<div class="cover-badge">Portada</div>':'')+
+            '<div class="dz-badge">✓</div>'+
+          '</div>'+
+          '<button class="btn rm small" style="margin-top:6px" onclick="removeProdImage(\''+esc(sku)+'\',\'lifestyle\','+i+')">Remove</button>'+
+        '</div>'
+      ).join('')+
     '</div>':'')+
   '</div>';
 
   html+='<div style="margin-bottom:22px"><label class="f" style="margin-bottom:6px">Individual artwork photos <span style="color:var(--muted);font-weight:400">— '+setSize+' needed ('+esc(p.set||'')+')</span></label>'+
     '<div style="display:flex;gap:16px;flex-wrap:wrap">'+
-    Array.from({length:setSize}).map((_,i)=>{
-      const has=img.individuals[i];
-      return dropzone(sku,'individual',i,'Individual '+(i+1),has)+
-        (has?'<button class="btn ghost small" style="padding:2px 8px;font-size:11px;margin-top:-16px;margin-bottom:16px" onclick="removeProdImage(\''+esc(sku)+'\',\'individual\','+i+')">Remove</button>':'');
-    }).join('')+
+    Array.from({length:setSize}).map((_,i)=>dropzone(sku,'individual',i,'Individual '+(i+1),img.individuals[i],!!UPLOADING[dzKey(sku,'individual',i)])).join('')+
   '</div></div>';
 
   html+='<div><label class="f" style="margin-bottom:6px">Flat images <span style="color:var(--muted);font-weight:400">— these also show as the variant images in the cart</span></label>'+
     '<div style="display:flex;gap:16px;flex-wrap:wrap">'+
-    FLAT_LABELS.map(([slot,label])=>{
-      const has=img.flats[slot];
-      return dropzone(sku,slot,0,label,has)+
-        (has?'<button class="btn ghost small" style="padding:2px 8px;font-size:11px;margin-top:-16px;margin-bottom:16px" onclick="removeProdImage(\''+esc(sku)+'\',\''+slot+'\',0)">Remove</button>':'');
-    }).join('')+
+    FLAT_LABELS.map(([slot,label])=>dropzone(sku,slot,0,label,img.flats[slot],!!UPLOADING[dzKey(sku,slot,0)])).join('')+
   '</div></div>';
 
   html+='</div>';
   return html;
+}
+let LIFE_DRAG_FROM=null;
+function onLifeDragStart(e, idx){ LIFE_DRAG_FROM=idx; e.currentTarget.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; }
+function onLifeDragEnd(e){ e.currentTarget.classList.remove('dragging'); }
+async function onLifeDrop(e, sku, toIdx){
+  e.preventDefault();
+  const from=LIFE_DRAG_FROM; LIFE_DRAG_FROM=null;
+  if(from===null || from===toIdx) return;
+  const p=PRODUCTS.find(x=>x.sku===sku); if(!p) return;
+  const list=(p.images&&p.images.lifestyle)||[];
+  const order=list.map((_,i)=>i);
+  const [moved]=order.splice(from,1);
+  order.splice(toIdx,0,moved);
+  try{ const r=await api({action:'reorder-lifestyle-images', sku, order}); PRODUCTS=r.products; renderContentPanel(sku); }
+  catch(err){ msg('Failed: '+err.message,'err'); }
 }
 function readFileAsBase64(file){
   return new Promise((resolve,reject)=>{
@@ -581,46 +628,44 @@ function readFileAsBase64(file){
     reader.readAsDataURL(file);
   });
 }
-async function uploadOneFile(sku, slot, file){
-  msg('Uploading…','info');
+async function uploadOneFile(sku, slot, index, file){
+  const key=dzKey(sku,slot,index);
+  UPLOADING[key]=true; renderContentPanel(sku);
   try{
     const {mediaType,data}=await readFileAsBase64(file);
     const r=await api({action:'upload-image', sku, slot, image:data, imageMediaType:mediaType});
     PRODUCTS=r.products;
-    renderContentPanel(sku);
-    msg('Uploaded.','ok');
   }catch(e){ msg('Upload failed: '+e.message,'err'); }
+  finally{ delete UPLOADING[key]; renderContentPanel(sku); }
 }
 async function uploadLifestyleFiles(sku, files){
   if(!files.length) return;
-  msg('Uploading '+files.length+' lifestyle photo(s)…','info');
   for(const f of files){
+    const p=PRODUCTS.find(x=>x.sku===sku);
+    const idx=(p&&p.images&&p.images.lifestyle)?p.images.lifestyle.length:0;
+    const key=dzKey(sku,'lifestyle',idx);
+    UPLOADING[key]=true; renderContentPanel(sku);
     try{
       const {mediaType,data}=await readFileAsBase64(f);
       const r=await api({action:'upload-image', sku, slot:'lifestyle', image:data, imageMediaType:mediaType});
       PRODUCTS=r.products;
     }catch(e){ msg('Upload failed for '+f.name+': '+e.message,'err'); }
+    finally{ delete UPLOADING[key]; renderContentPanel(sku); }
   }
-  renderContentPanel(sku);
-  msg('Lifestyle photos uploaded.','ok');
 }
-function onFileInputChosen(inputEl, sku, slot){
+function onFileInputChosen(inputEl, sku, slot, index){
   const files=[...inputEl.files]; if(!files.length) return;
   if(slot==='lifestyle') uploadLifestyleFiles(sku, files);
-  else uploadOneFile(sku, slot, files[0]);
+  else uploadOneFile(sku, slot, index, files[0]);
   inputEl.value='';
 }
-function onImageDrop(e, sku, slot){
+function onImageDrop(e, sku, slot, index){
   e.preventDefault(); e.stopPropagation();
   e.currentTarget.classList.remove('over');
   const files=[...(e.dataTransfer.files||[])].filter(f=>f.type && f.type.startsWith('image/'));
   if(!files.length) return;
   if(slot==='lifestyle') uploadLifestyleFiles(sku, files);
-  else uploadOneFile(sku, slot, files[0]);
-}
-async function setLifestyleCoverUI(sku, index){
-  try{ const r=await api({action:'set-lifestyle-cover', sku, index}); PRODUCTS=r.products; renderContentPanel(sku); }
-  catch(e){ msg('Failed: '+e.message,'err'); }
+  else uploadOneFile(sku, slot, index, files[0]);
 }
 async function removeProdImage(sku, slot, index){
   if(!confirm('Remove this image?')) return;
