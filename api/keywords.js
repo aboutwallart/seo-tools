@@ -1,4 +1,11 @@
-// api/keywords.js — New Product Generator backend  ·  v0.14
+// api/keywords.js — New Product Generator backend  ·  v0.15
+// v0.15 (2026-09-22): two fixes found testing on ISLTRIAL2.
+//   (1) SHARED images (3 fixed + room size guide) are now attached to each product by originalSource URL
+//       (Shopify makes a COPY) instead of by media id (which MOVED the one shared file into the product,
+//       so deleting any product deleted the shared file for everyone -> "Media ids ... do not exist").
+//   (2) MANDATORY keyword lock: creating the product now writes the keyword into the registry as
+//       LOCKED/DONE/OPTIMIZED with the real URL + date, so it's never offered again. New helper
+//       lockKeywordInRegistry(); idempotent (skips if already LOCKED COMMERCIAL).
 // v0.14: fixes found testing Batch 3 live on ISLTRIAL (2026-09-22): gallery order corrected (room-size
 //   image now goes AFTER the canvas pair, right before Picture-frames); every variant gets 100 stock at
 //   the store's location; sales-last-24h/sales-count no longer look fake (24h capped 5-15, total always
@@ -627,6 +634,38 @@ async function reserveKeyword(keyword, sku) {
   }
   throw new Error('registry write conflict, try again');
 }
+// Called after a product is created in Shopify: writes the keyword into the registry as LOCKED so it's
+// never offered again. Status is OPTIMIZED (not TO_OPTIMIZE) on purpose — a brand-new product shouldn't
+// show up in Money Page Doctor's "Start Here". Columns match reserveKeyword's 12-column layout, but with
+// the real product URL and today's date. Idempotent: skips if the keyword is already LOCKED COMMERCIAL.
+async function lockKeywordInRegistry(keyword, sku, productUrl) {
+  keyword = (keyword || '').trim();
+  if (!keyword) throw new Error('keyword required');
+  const today = new Date().toISOString().slice(0, 10);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const reg = await ghGet(REGISTRY_PATH);
+    if (reg.content == null) throw new Error('registry not found');
+    const lines = reg.content.split('\n').map(l => l.replace(/\r/g, ''));
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const c = parseCSVLine(line);
+      if ((c[0] || '').toLowerCase() === keyword.toLowerCase() && (c[2] || '').toUpperCase() === 'LOCKED' && (c[10] || '').toUpperCase() === 'COMMERCIAL') {
+        return { ok: true, alreadyLocked: true };
+      }
+    }
+    const source = 'NPG' + (sku ? ':' + sku : '');
+    const newRow = `${csvField(keyword)},${csvField(productUrl || 'N/A')},LOCKED,DONE,OPTIMIZED,N/A,N/A,N/A,N/A,${csvField(source)},COMMERCIAL,${csvField(today)}`;
+    const updated = reg.content.trimEnd() + '\n' + newRow + '\n';
+    try {
+      await ghPut(REGISTRY_PATH, updated, reg.sha, `NPG lock keyword (sent to Shopify): ${keyword}`);
+      return { ok: true, keyword };
+    } catch (e) {
+      if (e.status === 409 && attempt === 0) continue;
+      throw e;
+    }
+  }
+  throw new Error('registry write conflict, try again');
+}
 
 /* ---------------- SHOPIFY (Send-to-Shopify support, v0.11) ---------------- */
 const SHOPIFY_API_VERSION = '2025-01';
@@ -1019,17 +1058,21 @@ async function uploadFixedImages(force) {
       results.push({ key: f.key, status: 'uploaded' });
     } catch (e) { results.push({ key: f.key, status: 'error', error: String(e.message || e) }); }
   }
+  // path -> record uploaded IN THIS RUN, so shared rooms reuse the FRESH upload, never a stale/old gid
+  // (forcing a re-upload of a shared pair like Living room + Games room must not reuse the dead id).
+  const uploadedThisRun = {};
   for (const roomName of Object.keys(ROOM_IMAGE_FILES)) {
-    if (out.rooms[roomName] && out.rooms[roomName].gid && !forceSet.has(roomName)) { results.push({ key: roomName, status: 'already uploaded' }); continue; }
     const path = ROOM_IMAGE_FILES[roomName];
-    // Rooms that SHARE a file with another room (Games room -> Living room, Laundry room -> Bathroom)
-    // reuse that room's already-uploaded GID instead of uploading the same image twice.
-    const sharedWith = Object.keys(ROOM_IMAGE_FILES).find(other => other !== roomName && ROOM_IMAGE_FILES[other] === path && out.rooms[other] && out.rooms[other].gid);
-    if (sharedWith) { out.rooms[roomName] = { ...out.rooms[sharedWith] }; results.push({ key: roomName, status: 'reused from ' + sharedWith }); continue; }
+    if (out.rooms[roomName] && out.rooms[roomName].gid && !forceSet.has(roomName)) { results.push({ key: roomName, status: 'already uploaded' }); continue; }
+    // Rooms that SHARE a file (Games room <-> Living room, Laundry room <-> Bathroom) reuse the copy
+    // uploaded earlier in THIS run instead of uploading the same image twice.
+    if (uploadedThisRun[path]) { out.rooms[roomName] = { ...uploadedThisRun[path] }; results.push({ key: roomName, status: 'reused from this run' }); continue; }
     try {
       const b64 = await fetchRepoFileAsBase64(path);
       const uploaded = await uploadImageToShopify(b64, path.split('/').pop(), mimeFromPath(path), `Wall art size guide — ${roomName}`);
-      out.rooms[roomName] = { gid: uploaded.gid, url: uploaded.url };
+      const rec = { gid: uploaded.gid, url: uploaded.url };
+      out.rooms[roomName] = rec;
+      uploadedThisRun[path] = rec;
       results.push({ key: roomName, status: 'uploaded' });
     } catch (e) { results.push({ key: roomName, status: 'error', error: String(e.message || e) }); }
   }
@@ -1228,8 +1271,9 @@ async function sendToShopify(sku) {
 
   const { data: fixedData } = await getFixedImages();
   const roomGidEntry = fixedData.rooms && fixedData.rooms[roomName];
-  const fixedOk = fixedData.fixed && fixedData.fixed.frameSizes && fixedData.fixed.pictureFrames && fixedData.fixed.canvasWrapped;
-  if (!roomGidEntry || !fixedOk) { const e = new Error('Shared images not uploaded yet — click "Check / upload shared images" first.'); e.status = 400; throw e; }
+  const f = fixedData.fixed || {};
+  const fixedOk = f.frameSizes && f.frameSizes.url && f.pictureFrames && f.pictureFrames.url && f.canvasWrapped && f.canvasWrapped.url;
+  if (!roomGidEntry || !roomGidEntry.url || !fixedOk) { const e = new Error('Shared images not uploaded yet — click "Check / upload shared images" first.'); e.status = 400; throw e; }
 
   const resolved = await resolveShopifyFields(sku);
   if (resolved.unresolvedSmart.length || resolved.notFoundCollections.length) {
@@ -1248,15 +1292,21 @@ async function sendToShopify(sku) {
   // Gallery order, confirmed with Mae 2026-09-22 (corrected same day after checking a live test
   // product): Lifestyle (cover=first) -> Individuals -> Flats (Unframed/White/Oak/Black) ->
   // Canvas-wrapped FLAT -> Canvas-wrapped FIXED -> Room size -> Picture-frames FIXED -> Frame-sizes FIXED.
+  //
+  // Product-OWN images (lifestyle/individuals/flats) are passed by { id } — they belong to this product.
+  // SHARED images (the 3 fixed + the room size guide) are passed by { originalSource: url } so Shopify
+  // makes a COPY for each product. Passing them by { id } would MOVE the one shared file into this
+  // product, and deleting any product would then delete the shared file for everyone (this is exactly
+  // the "Media ids ... do not exist" bug hit on 2026-09-22). Copying keeps the originals in Files intact.
   const files = [];
   (img.lifestyle || []).forEach(im => files.push({ id: im.gid }));
   (img.individuals || []).forEach(im => files.push({ id: im.gid }));
   ['flatUnframed', 'flatWhite', 'flatOak', 'flatBlack'].forEach(slot => files.push({ id: img.flats[slot].gid }));
   files.push({ id: img.flats.flatCanvas.gid });
-  files.push({ id: fixedData.fixed.canvasWrapped.gid });
-  files.push({ id: roomGidEntry.gid });
-  files.push({ id: fixedData.fixed.pictureFrames.gid });
-  files.push({ id: fixedData.fixed.frameSizes.gid });
+  files.push({ originalSource: fixedData.fixed.canvasWrapped.url, alt: fixedData.fixed.canvasWrapped.alt || 'Canvas wrapped' });
+  files.push({ originalSource: roomGidEntry.url, alt: `Wall art size guide — ${roomName}` });
+  files.push({ originalSource: fixedData.fixed.pictureFrames.url, alt: fixedData.fixed.pictureFrames.alt || 'Picture frames' });
+  files.push({ originalSource: fixedData.fixed.frameSizes.url, alt: fixedData.fixed.frameSizes.alt || 'Frame sizes' });
 
   // global.title_tag/description_tag are set via the dedicated `seo` field below instead of as raw
   // metafields (same underlying value — resolveShopifyFields still returns them for the debug preview).
@@ -1303,6 +1353,13 @@ async function sendToShopify(sku) {
       if (pue.length) warnings.push('Publish warning: ' + pue.map(u => u.message).join('; '));
     }
   } catch (e) { warnings.push('Could not publish to channels: ' + String(e.message || e)); }
+
+  // Mandatory: lock the keyword in the registry the moment the product is live, so it can never be
+  // offered again for another product. If this fails, the product is still created — surface a warning
+  // rather than losing the created product.
+  const productUrl = `https://aboutwallart.com/products/${created.handle}`;
+  try { await lockKeywordInRegistry(product.keyword, product.sku, productUrl); }
+  catch (e) { warnings.push('Keyword NOT locked in the registry — add it by hand. Reason: ' + String(e.message || e)); }
 
   for (let attempt = 0; attempt < 2; attempt++) {
     const file = await ghGet(PRODUCTS_PATH);
