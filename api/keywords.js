@@ -1,4 +1,8 @@
-// api/keywords.js — New Product Generator backend  ·  v0.15
+// api/keywords.js — New Product Generator backend  ·  v0.16
+// v0.16 (2026-09-22): linked_blogs now works without trends. Blogs are matched on the product's trends
+//   AND styles (by blog title/tags), capped at 3 per product, and picked at RANDOM so they vary from
+//   product to product (no longer only searched when a trend was ticked). Trend PAGES still come only
+//   from ticked trends.
 // v0.15 (2026-09-22): two fixes found testing on ISLTRIAL2.
 //   (1) SHARED images (3 fixed + room size guide) are now attached to each product by originalSource URL
 //       (Shopify makes a COPY) instead of by media id (which MOVED the one shared file into the product,
@@ -1129,12 +1133,19 @@ async function resolveShopifyFields(sku) {
 
   let linkedTrendGids = [], linkedBlogGids = [];
   const trendsList = product.trends || [];
-  if (trendsList.length) {
-    trendsList.forEach(t => { const gid = megaMenu.trendMap.get(normTitle(t)); if (gid) linkedTrendGids.push(gid); else warnings.push('Trend page not found in menu: ' + t); });
+  // Trend PAGES: only from the ticked trends.
+  trendsList.forEach(t => { const gid = megaMenu.trendMap.get(normTitle(t)); if (gid) linkedTrendGids.push(gid); else warnings.push('Trend page not found in menu: ' + t); });
+  // Linked BLOGS: match on the product's trends AND styles (by blog title or tags). Mae's rules
+  // (2026-09-22): at most 3 per product, and picked at RANDOM so it varies product-to-product instead
+  // of always grabbing the same first matches.
+  const blogRootSource = [...trendsList, ...(col['By Style'] || [])];
+  if (blogRootSource.length) {
     const blogIdx = await readBlogIndex();
-    const trendRoots = trendsList.map(t => t.toLowerCase().replace(/\b(decor|design|style)\b/g, '').trim()).filter(Boolean);
-    const matches = blogIdx.articles.filter(a => trendRoots.some(root => (a.tags || []).some(tag => tag.toLowerCase().includes(root)) || (a.title || '').toLowerCase().includes(root)));
-    linkedBlogGids = matches.slice(0, 10).map(a => a.gid);
+    const roots = blogRootSource.map(t => t.toLowerCase().replace(/\b(decor|design|style|art|wall)\b/g, '').trim()).filter(Boolean);
+    const matchGids = blogIdx.articles
+      .filter(a => roots.some(root => (a.tags || []).some(tag => tag.toLowerCase().includes(root)) || (a.title || '').toLowerCase().includes(root)))
+      .map(a => a.gid);
+    linkedBlogGids = pickRandomN([...new Set(matchGids)], 3);
   }
 
   const complementaryGids = await resolveComplementaryProducts();
