@@ -1,4 +1,7 @@
-// api/keywords.js — New Product Generator backend  ·  v0.17
+// api/keywords.js — New Product Generator backend  ·  v0.18
+// v0.18 (2026-09-26): template picker. New action `list-product-templates` reads the live theme's
+//   product templates (needs read_themes). send-to-shopify now uses product.templateSuffix (defaults
+//   to 'wall-decor' when not set; '' means the theme's Default product template).
 // v0.17 (2026-09-26): generate-content now honours product.aiNotes — a free-text field Mae fills in on
 //   the definition step ("mention it's got X") — worked into productDescription naturally. No new action;
 //   the field rides along on the existing save-product payload (schema-less) and generateContent already
@@ -698,6 +701,35 @@ async function shopifyGQL(query, variables) {
   }
   throw new Error('Shopify request failed after retries (throttled)');
 }
+
+/* Read-only Shopify REST helper (used to list theme templates — needs read_themes). */
+async function shopifyREST(path) {
+  const url = `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/${path}`;
+  const r = await fetch(url, { headers: { 'X-Shopify-Access-Token': process.env.SHOPIFY_ACCESS_TOKEN } });
+  const text = await r.text();
+  let d; try { d = JSON.parse(text); } catch { throw new Error('Shopify REST bad response (' + r.status + ')'); }
+  if (!r.ok) throw new Error(d && d.errors ? (typeof d.errors === 'string' ? d.errors : JSON.stringify(d.errors)) : ('Shopify REST ' + r.status));
+  return d;
+}
+// Lists the published theme's product templates, e.g. [{suffix:'wall-decor',label:'wall-decor'}].
+// suffix '' = the theme's Default product template. Always includes 'wall-decor'.
+async function listProductTemplates() {
+  const t = await shopifyREST('themes.json?fields=id,role,name');
+  const main = (t.themes || []).find(x => x.role === 'main') || (t.themes || [])[0];
+  if (!main) return { templates: [{ suffix: 'wall-decor', label: 'wall-decor' }], theme: null };
+  const a = await shopifyREST(`themes/${main.id}/assets.json?fields=key`);
+  const set = new Set();
+  (a.assets || []).forEach(as => {
+    const key = as.key || '';
+    const m = key.match(/^templates\/product\.(.+)\.(json|liquid)$/);
+    if (m) set.add(m[1]);
+    else if (/^templates\/product\.(json|liquid)$/.test(key)) set.add('');
+  });
+  if (!set.has('wall-decor')) set.add('wall-decor');
+  const suffixes = [...set].sort((x, y) => (x === '' ? -1 : y === '' ? 1 : x.localeCompare(y)));
+  const templates = suffixes.map(s => ({ suffix: s, label: s === '' ? 'Default product' : s }));
+  return { templates, theme: main.name };
+}
 function normTitle(s) { return String(s || '').toLowerCase().trim().replace(/\s+/g, ' '); }
 function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
 function pickRandomN(arr, n) { const pool = [...arr]; const out = []; while (pool.length && out.length < n) { const i = Math.floor(Math.random() * pool.length); out.push(pool.splice(i, 1)[0]); } return out; }
@@ -1333,7 +1365,7 @@ async function sendToShopify(sku) {
     descriptionHtml: product.content.productDescription,
     vendor: 'About Wall Art',
     productType: 'Wall art Prints',
-    templateSuffix: 'wall-decor',
+    templateSuffix: Object.prototype.hasOwnProperty.call(product, 'templateSuffix') ? (product.templateSuffix || null) : 'wall-decor',
     category: PRODUCT_CATEGORY_GID,
     status: 'DRAFT',
     seo: { title: product.content.seoTitle, description: product.content.metaDescription },
@@ -1457,6 +1489,12 @@ export default async function handler(req, res) {
     if (action === 'resolve-shopify-fields') {
       if (!process.env.SHOPIFY_STORE_DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return res.status(500).json({ ok: false, error: 'Shopify credentials not configured' });
       const out = await resolveShopifyFields(body.sku);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    if (action === 'list-product-templates') {
+      if (!process.env.SHOPIFY_STORE_DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return res.status(500).json({ ok: false, error: 'Shopify credentials not configured' });
+      const out = await listProductTemplates();
       return res.status(200).json({ ok: true, ...out });
     }
 
