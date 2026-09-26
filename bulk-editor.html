@@ -131,7 +131,7 @@
 <header>
   <div>
     <h1>Bulk Editor</h1>
-    <div class="version">v1.1</div>
+    <div class="version">v1.0</div>
   </div>
 </header>
 
@@ -541,7 +541,7 @@ const FIELD_OPS = {
   descriptionHtml:['Find & Replace', 'Set to', 'Prepend', 'Append', 'Clear'],
   tags:           ['Add tags', 'Remove tags', 'Replace all', 'Clear all'],
   status:         ['Set to'],
-  'seo.title':    ['Set to', 'Find & Replace', 'Remove brand', 'Clear'],
+  'seo.title':    ['Set to', 'Find & Replace', 'Clear'],
   'seo.description':['Set to', 'Find & Replace', 'Clear'],
   price:          ['Increase by %', 'Decrease by %', 'Increase by £', 'Decrease by £', 'Apply markup on cost', 'Apply VAT only', 'Apply markup + VAT'],
   compareAtPrice: ['Set from current price', 'Clear'],
@@ -574,7 +574,7 @@ function onOpChange() {
 function buildValueInputs(field, op) {
   if (!field || !op) return '';
 
-  if (op === 'Clear' || op === 'Clear all' || op === 'Set from current price' || op === 'Remove brand') return '';
+  if (op === 'Clear' || op === 'Clear all' || op === 'Set from current price') return '';
 
   if (op === 'Find & Replace') {
     return `
@@ -635,7 +635,7 @@ function calcNewValue(product, field, op) {
   if (field === 'productType') return v('valText');
   if (field === 'handle') return applyTextOp(product.handle, op, v('valText'), v('valFind'), v('valReplace'));
   if (field === 'descriptionHtml') return applyTextOp(product.descriptionHtml || '', op, v('valText'), v('valFind'), v('valReplace'));
-  if (field === 'seo.title') return op === 'Remove brand' ? removeBrand(product.seo?.title || '') : applyTextOp(product.seo?.title || '', op, v('valText'), v('valFind'), v('valReplace'));
+  if (field === 'seo.title') return applyTextOp(product.seo?.title || '', op, v('valText'), v('valFind'), v('valReplace'));
   if (field === 'seo.description') return applyTextOp(product.seo?.description || '', op, v('valText'), v('valFind'), v('valReplace'));
   if (field === 'status') return v('valStatus') || 'ACTIVE';
   if (field === 'tags') {
@@ -679,24 +679,6 @@ function calcNewValue(product, field, op) {
   }
 
   return null;
-}
-
-// Removes the brand ("About Wall Art" in any spacing/case/punctuation, optional "UK" / ".com")
-// from a title and tidies the leftover separator/spaces. Products without the brand are unchanged.
-function removeBrand(s) {
-  if (!s) return s;
-  let out = String(s);
-  // brand in any form: about / wall / art with any spaces, dots, hyphens or nothing between; optional UK and .com
-  out = out.replace(/about[\s._-]*wall[\s._-]*art(?:[\s._-]*uk)?(?:\.com)?/gi, '');
-  // collapse a separator left stranded between two separators
-  out = out.replace(/\s*[|·–—:]\s*[|·–—:]\s*/g, ' | ');
-  // strip a non-hyphen separator now dangling at the start or end
-  out = out.replace(/^\s*[|·–—:]\s*/, '').replace(/\s*[|·–—:]\s*$/, '');
-  // strip a dangling hyphen ONLY when it's space-separated (protects words like "ready-to-hang")
-  out = out.replace(/^\s*-\s+/, '').replace(/\s+-\s*$/, '');
-  // tidy spaces
-  out = out.replace(/\s{2,}/g, ' ').trim();
-  return out;
 }
 
 function applyTextOp(current, op, val, find, replace) {
@@ -750,12 +732,6 @@ function showPreview() {
     product: p,
     newValue: calcNewValue(p, field, op)
   }));
-
-  // Remove brand: only keep the products that actually have the brand in their SEO title.
-  if (field === 'seo.title' && op === 'Remove brand') {
-    pendingChanges = pendingChanges.filter(pc => (pc.product.seo?.title || '') !== pc.newValue);
-    if (pendingChanges.length === 0) { alert('None of the selected products have the brand in their SEO title — nothing to change.'); return; }
-  }
 
   const tbody = document.getElementById('previewBody');
   tbody.innerHTML = '';
