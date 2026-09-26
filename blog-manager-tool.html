@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.10.0 - 2026-09-26</p>
+        <p class="version">v6.10.1 - 2026-09-26</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -326,7 +326,7 @@
 
             <div id="gsc-blog-panel" style="background:#f4faf8;border:1px solid #cfe2db;border-radius:10px;padding:14px;margin-bottom:16px;">
                 <div style="font-weight:700;margin-bottom:4px;">🔎 Priority topics from Google Search Console</div>
-                <div style="color:#5a7a70;font-size:13px;margin-bottom:10px;">Informational searches you appear for but don't get clicked — great topics for new blogs. Click <b>Use</b>, review the title, then <b>Check &amp; Add</b>.</div>
+                <div style="color:#5a7a70;font-size:13px;margin-bottom:10px;">Informational searches you appear for but don't get clicked — great topics for new blogs. Remove the ones you don't want with <b>✕</b>, then <b>Approve</b> the rest to add them to To Write (they're mixed in when you plan a month).</div>
                 <div id="gsc-blog-list"><span style="color:#888;font-size:13px;">Loading…</span></div>
             </div>
 
@@ -448,35 +448,66 @@
         // TAB SWITCHING
         // ============================================
         let GSC_BLOG_LOADED = false;
+        let GSC_BLOG_KEPT = [];
         function escBlog(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
         async function loadGscBlogTopics(force) {
             const box = document.getElementById('gsc-blog-list');
             if (!box) return;
             if (GSC_BLOG_LOADED && !force) return;
             GSC_BLOG_LOADED = true;
+            box.innerHTML = '<span style="color:#888;font-size:13px;">Loading…</span>';
             try {
                 const r = await fetch('/api/blogs?action=gsc-blog-opportunities').then(x => x.json());
-                const opts = (r && r.options) || [];
-                if (!opts.length) { box.innerHTML = '<span style="color:#888;font-size:13px;">No new topics right now.</span>'; return; }
-                window.__GSC_BLOG = opts;
-                box.innerHTML = '<div style="display:grid;grid-template-columns:1fr auto auto auto auto;gap:6px 14px;align-items:center;font-size:13px;">'
-                    + '<div style="font-weight:700;color:#666;">Keyword</div><div style="font-weight:700;color:#666;">Impr.</div><div style="font-weight:700;color:#666;">Clicks</div><div style="font-weight:700;color:#666;">Pos.</div><div></div>'
-                    + opts.map((o, i) =>
-                        '<div style="font-weight:600;">' + escBlog(o.keyword) + '</div>'
-                        + '<div>' + (o.impressions != null ? o.impressions : '—') + '</div>'
-                        + '<div>' + (o.clicks != null ? o.clicks : '—') + '</div>'
-                        + '<div>' + (o.position != null ? o.position : '—') + '</div>'
-                        + '<div><button onclick="useGscTopic(' + i + ')" style="background:#1f5f4f;color:#fff;border:none;border-radius:6px;padding:5px 12px;font-weight:700;cursor:pointer;">Use</button></div>'
-                      ).join('')
-                    + '</div>';
+                let opts = (r && r.options) || [];
+                const have = new Set((allIdeas || []).map(i => (i.keyword || i.title || '').toLowerCase()));
+                opts = opts.filter(o => !have.has((o.keyword || '').toLowerCase()));   // drop ones already in your list
+                GSC_BLOG_KEPT = opts;
+                renderGscBlogList();
             } catch (e) { box.innerHTML = '<span style="color:#a33;font-size:13px;">Could not load topics.</span>'; }
         }
-        function useGscTopic(i) {
-            const o = (window.__GSC_BLOG || [])[i]; if (!o) return;
-            const input = document.getElementById('new-title-input');
-            if (input) { input.value = o.keyword; input.focus(); input.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
-            const out = document.getElementById('add-title-result');
-            if (out) out.innerHTML = '<span style="color:#1f5f4f;">Review/polish the title above, then click “Check &amp; Add”.</span>';
+        function renderGscBlogList() {
+            const box = document.getElementById('gsc-blog-list'); if (!box) return;
+            const opts = GSC_BLOG_KEPT;
+            if (!opts.length) { box.innerHTML = '<span style="color:#888;font-size:13px;">No new topics right now.</span>'; return; }
+            box.innerHTML =
+                '<div style="margin-bottom:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
+                + '<button onclick="approveGscTopics(this)" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">✅ Approve &amp; add ' + opts.length + ' to To Write</button>'
+                + '<span style="color:#5a7a70;font-size:12.5px;">Remove the ones you don\'t want (✕) first — they won\'t come back. The rest get mixed in when you plan a month.</span>'
+                + '</div>'
+                + '<div style="display:grid;grid-template-columns:auto 1fr auto auto auto;gap:6px 14px;align-items:center;font-size:13px;">'
+                + '<div></div><div style="font-weight:700;color:#666;">Keyword</div><div style="font-weight:700;color:#666;">Impr.</div><div style="font-weight:700;color:#666;">Clicks</div><div style="font-weight:700;color:#666;">Pos.</div>'
+                + opts.map((o, i) =>
+                    '<div><button title="Remove for good" onclick="removeGscTopic(' + i + ')" style="background:#fbe6e4;color:#8f1c16;border:none;border-radius:6px;padding:3px 9px;font-weight:700;cursor:pointer;">✕</button></div>'
+                    + '<div style="font-weight:600;">' + escBlog(o.keyword) + '</div>'
+                    + '<div>' + (o.impressions != null ? o.impressions : '—') + '</div>'
+                    + '<div>' + (o.clicks != null ? o.clicks : '—') + '</div>'
+                    + '<div>' + (o.position != null ? o.position : '—') + '</div>'
+                  ).join('')
+                + '</div>';
+        }
+        async function removeGscTopic(i) {
+            const o = GSC_BLOG_KEPT[i]; if (!o) return;
+            GSC_BLOG_KEPT.splice(i, 1);
+            renderGscBlogList();
+            try { await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'dismiss-gsc-blog-topic', keyword: o.keyword }) }); } catch (e) {}
+        }
+        async function approveGscTopics(btn) {
+            const kept = GSC_BLOG_KEPT.slice();
+            if (!kept.length) return;
+            btn.disabled = true; btn.textContent = 'Adding… (checking your blogs)';
+            try {
+                const titles = kept.map(o => o.keyword);
+                const res = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'analyze-blog-titles', titles }) }).then(x => x.json());
+                const results = (res && res.results) || [];
+                const rows = results.map(r => ({ title: r.title, keyword: r.keyword, cannibalization: r.cannibalization, conflictingKeyword: r.conflictingKeyword, conflictingUrl: r.conflictingUrl, clashIntent: r.clashIntent, looserCount: r.looserCount, isNew: true }));
+                const save = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-blog-ideas', rows }) }).then(x => x.json());
+                if (!save.success) throw new Error(save.error || 'Save failed');
+                let nextIndex = allIdeas.length ? Math.max(...allIdeas.map(i => i.index)) + 1 : 0;
+                results.forEach(r => allIdeas.push({ index: nextIndex++, keyword: r.keyword, title: r.title, perspective: '', cannibalization: r.cannibalization, conflictingKeyword: r.conflictingKeyword, conflictingUrl: r.conflictingUrl, clashIntent: r.clashIntent || '', looserCount: r.looserCount || 0, currentTitle: r.title, currentKeyword: r.keyword, status: 'TO_WRITE' }));
+                GSC_BLOG_KEPT = []; GSC_BLOG_LOADED = false;
+                const box = document.getElementById('gsc-blog-list'); if (box) box.innerHTML = '<span style="color:#2e7d32;">✅ Added ' + results.length + ' topics to To Write. Plan a month to mix them in.</span>';
+                if (typeof refreshAll === 'function') refreshAll();
+            } catch (e) { btn.disabled = false; btn.textContent = '✅ Approve & add to To Write'; alert('Could not add: ' + e.message); }
         }
 
         function switchTab(tab) {
