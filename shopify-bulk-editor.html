@@ -148,7 +148,7 @@
         <div class="header">
             <h1>🏷️ Shopify Bulk Editor</h1>
             <p>Bulk-edit <b>Collective prices</b> in one tab, and <b>other fields</b> (tags, type, weight, unit price, collections, category) in the other. With preview and undo.</p>
-            <div class="subtitle">v3.2.2 · Excel covers Collective (vendors in an aligned grid, Select all, file named per catalog) · 5 tabs · batches + backup + undo</div>
+            <div class="subtitle">v3.3 · Other fields now includes SEO title → remove brand · Excel covers Collective (vendors in an aligned grid, Select all, file named per catalog) · 5 tabs · batches + backup + undo</div>
         </div>
 
         <!-- TABS (always visible) -->
@@ -319,6 +319,7 @@
                             <option value="weight">Weight (About Wall Art only)</option>
                             <option value="collections">Collections</option>
                             <option value="category">Category</option>
+                            <option value="seotitle">SEO title — remove brand</option>
                             <option value="soldout">Sold out / restore (About Wall Art only)</option>
                         </select>
                     </div>
@@ -471,6 +472,11 @@
                             <div id="catPicked" class="muted" style="margin-top:6px;">None picked.</div>
                         </div>
                     </div>
+                </div>
+
+                <!-- SEO TITLE — REMOVE BRAND -->
+                <div class="fieldpanel" id="fp-seotitle" hidden style="margin-top:16px;">
+                    <div class="hint">Removes the brand — <b>About Wall Art</b> in any form (spacing, upper/lowercase, with a <b>|</b> or <b>–</b>, "UK" or ".com") — from each product's <b>SEO title</b>, and tidies the leftover separator. Products without the brand are left untouched. Hit <b>Preview</b> to see the before → after, then <b>Apply</b>.</div>
                 </div>
 
                 <!-- SOLD OUT / RESTORE -->
@@ -705,7 +711,7 @@ async function backupAll(){
 }
 
 /* ---- Tab 2: per-field backup gate ---- */
-function fieldLabel(f){ return ({tags:'Tags', ptype:'Product type', weight:'Weight', unitprice:'Unit price', collections:'Collections', category:'Category', soldout:'Sold out / restore', addvar:'Add variants'})[f] || f; }
+function fieldLabel(f){ return ({tags:'Tags', ptype:'Product type', weight:'Weight', unitprice:'Unit price', collections:'Collections', category:'Category', soldout:'Sold out / restore', seotitle:'SEO titles', addvar:'Add variants'})[f] || f; }
 function paintFieldGate(state){
     const f = document.getElementById('t2field').value;
     const p = document.getElementById('fieldBackupPanel');
@@ -1036,7 +1042,7 @@ async function loadFieldMeta(){
 }
 function onFieldChange(){
     const f = document.getElementById('t2field').value;
-    ['tags','ptype','weight','collections','category','soldout'].forEach(k => { document.getElementById('fp-'+k).hidden = (k !== f); });
+    ['tags','ptype','weight','collections','category','soldout','seotitle'].forEach(k => { document.getElementById('fp-'+k).hidden = (k !== f); });
     // Weight & Sold-out apply only to About Wall Art — no supplier step needed.
     document.getElementById('t2step2').hidden = (f === 'weight' || f === 'soldout');
     if (f === 'weight') buildWeightGrid();
@@ -1546,6 +1552,7 @@ function buildConfig2(){
     if (f === 'collections') return { field:f, config:{ action: document.getElementById('collAction').value, collectionIds: Array.from(collPicked), manualIds: (META.manualCollections||[]).map(c=>c.id), collectionTitles: META.manualCollections||[] } };
     if (f === 'weight') return { field:f, config:{ unit: document.getElementById('weightUnit').value, groups: collectWeightGroups() } };
     if (f === 'soldout') return { field:f, config:{ action:'soldout', frame: document.getElementById('soldoutFrame').value, size: document.getElementById('soldoutSize').value } };
+    if (f === 'seotitle') return { field:f, config:{ action:'removeBrand' } };
     if (f === 'unitprice') {
         const cmpOn = document.getElementById('upCmpEnable').checked;
         return { field:f, config:{ how: document.getElementById('upHow').value, value: parseFloat(document.getElementById('upValue').value), rounding: document.getElementById('upRounding').value,
