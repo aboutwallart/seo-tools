@@ -1,4 +1,6 @@
-// api/keywords.js — New Product Generator backend  ·  v0.18
+// api/keywords.js — New Product Generator backend  ·  v0.19
+// v0.19 (2026-09-26): new action `gsc-opportunities` — commercial (product-intent) GSC opportunity
+//   keywords for Step 2, with registry-locked and in-progress keywords removed.
 // v0.18 (2026-09-26): template picker. New action `list-product-templates` reads the live theme's
 //   product templates (needs read_themes). send-to-shopify now uses product.templateSuffix (defaults
 //   to 'wall-decor' when not set; '' means the theme's Default product template).
@@ -266,6 +268,24 @@ async function gapResearch(body) {
     return { sku: p.sku || '', options };
   });
   return { results };
+}
+
+// GSC opportunity keywords for the New Product Generator: only the COMMERCIAL (product-intent) ones,
+// with keywords already LOCKED in the registry or used by an in-progress product removed.
+async function gscOpportunities(body) {
+  let list = [];
+  try {
+    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/gsc-opportunity-keywords.json?t=${Date.now()}`);
+    if (r.ok) { const j = await r.json(); list = Array.isArray(j.keywords) ? j.keywords : []; }
+  } catch { /* ignore — no list yet */ }
+  const [locked, allProducts] = await Promise.all([lockedKeywordSet(), readProducts()]);
+  const inProgress = inProgressKeywordMap(allProducts, (body && body.sku) || undefined);
+  const options = list
+    .filter(k => k && k.keyword && (k.intent || 'product') === 'product')
+    .filter(k => !locked.has(k.keyword.toLowerCase()) && !inProgress.has(k.keyword.toLowerCase()))
+    .slice(0, 15)
+    .map(k => ({ keyword: k.keyword, impressions: k.impressions, clicks: k.clicks, position: k.position }));
+  return { options };
 }
 
 /* ---------------- seeds (Apify/DataForSEO path — PARKED, use sparingly) ---------------- */
@@ -1439,6 +1459,11 @@ export default async function handler(req, res) {
 
     if (action === 'gap-research') {
       const out = await gapResearch(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    if (action === 'gsc-opportunities') {
+      const out = await gscOpportunities(body);
       return res.status(200).json({ ok: true, ...out });
     }
 
