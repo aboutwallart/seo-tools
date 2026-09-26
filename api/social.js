@@ -1,4 +1,6 @@
 // Social Content Tool — tick-state persistence on GitHub.
+// 2026-09-26: captions now weave in one GSC "opportunity" keyword per post (natural, never forced),
+//   rotating through data/gsc-opportunity-keywords.json (pointer in data/social-kw-rotation.json).
 // Stores which video cards are marked done (Kling prompt / on-screen text)
 // in data/social-video-state.json so the ticks show on every computer.
 //
@@ -664,6 +666,16 @@ module.exports = async (req, res) => {
       }
       if (!posts.length) return res.status(400).json({ ok: false, error: 'No posts selected' });
 
+      // GSC opportunity keywords — woven naturally into captions, one per post, rotating through the list.
+      var OPP_KWS = [], kwPtr = 0;
+      try {
+        var oppG = await ghGet('data/gsc-opportunity-keywords.json');
+        if (oppG.content) { var od = JSON.parse(oppG.content); OPP_KWS = (od.keywords || []).map(function (k) { return k.keyword; }).filter(Boolean); }
+        var rotG = await ghGet('data/social-kw-rotation.json');
+        if (rotG.content) { var rd = JSON.parse(rotG.content); kwPtr = (rd && typeof rd.index === 'number') ? rd.index : 0; }
+      } catch (e) { OPP_KWS = []; }
+      function nextKw() { if (!OPP_KWS.length) return ''; var i = ((kwPtr % OPP_KWS.length) + OPP_KWS.length) % OPP_KWS.length; kwPtr++; return OPP_KWS[i]; }
+
       // Metricool import template header (94 columns)
       var H = ['Text', 'Date', 'Time', 'Draft', 'Facebook', 'Twitter/X', 'LinkedIn', 'GBP', 'Instagram', 'Pinterest', 'TikTok', 'Youtube', 'Threads', 'Bluesky'];
       for (var pi = 1; pi <= 10; pi++) H.push('Picture Url ' + pi);
@@ -845,6 +857,7 @@ module.exports = async (req, res) => {
         var shop = function (src, med) { return url + '?utm_source=' + src + (med ? ('&utm_medium=' + med) : '') + '&utm_campaign=' + camp; };
         var blog = p._blog;
         var rows = [];
+        var oppKw = nextKw();   // one GSC opportunity keyword for this post (rotates)
 
         var instr = 'You write organic social captions for a wall-art product video (a reel) in the About Wall Art voice: warm, friendly home-decor advisor, UK spelling, NOT salesy, never words like elevate, delve, showcase, dive, beacon. Product: "' + title + '"' + (room ? (' — room: ' + room) : '') + '. It is a framed set, ready to hang.\n' +
           'Write ONE caption per platform in this exact style (use the shop links EXACTLY as given, placed before any hashtags):\n' +
@@ -871,6 +884,12 @@ module.exports = async (req, res) => {
             '- pinterestTitle: max 90 characters.\n' +
             '- alt: one short line describing a styled interior for this blog.\n' +
             'Return ONLY: {"linkedin":"","facebook":"","threads":"","instagram":"","gmb":"","pinterestA":"","pinterestB":"","pinterestTitle":"","alt":""}';
+        }
+
+        if (oppKw) {
+          var kwRule = 'SEO opportunity keyword — try to weave it in NATURALLY where it best fits (in the caption wording OR as one of the hashtags), matching the voice, NEVER forced; if it does not fit naturally, leave it out entirely: "' + oppKw + '".\n';
+          instr = instr.replace('Return ONLY strict JSON', kwRule + 'Return ONLY strict JSON');
+          if (binstr) binstr = binstr.replace('Return ONLY strict JSON', kwRule + 'Return ONLY strict JSON');
         }
 
         var pair = await Promise.all([blogsOnly ? Promise.resolve({}) : callAI(instr, 2000), binstr ? callAI(binstr, 3000).catch(function () { return null; }) : Promise.resolve(null)]);
@@ -931,6 +950,8 @@ module.exports = async (req, res) => {
       var built;
       try { built = await mapLimit(posts, 6, buildPost); }
       catch (e) { return res.status(200).json({ ok: false, error: 'Caption AI error — ' + (e && e.message ? e.message : 'try again') }); }
+      // advance the GSC keyword rotation so the next generation continues where this one left off
+      if (OPP_KWS.length) { try { await ghSave('data/social-kw-rotation.json', function () { return JSON.stringify({ index: kwPtr, updatedAt: new Date().toISOString() }, null, 2); }, 'social kw rotation'); } catch (e) {} }
       built.forEach(function (b) {
         b.rows.forEach(function (rw) { out.push(rw); });
         if (b.usedV) usedToMark.push(b.usedV);

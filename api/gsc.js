@@ -1,4 +1,74 @@
+// gsc.js — 2026-09-26: added `refresh-opportunities` (daily cron) — saves high-impression/low-click
+//   queries, AI-classified product vs blog (cached), for the Social / New Product / Blog tools.
 const https = require('https');
+
+/* ================= GSC opportunity keywords (for Social / New Product / Blog tools) =================
+   "Opportunity" = a query with lots of impressions but few clicks (low CTR): you appear in Google but
+   aren't clicked. Brand queries are excluded. Each is classified once by AI as 'product' (commercial)
+   or 'blog' (informational); the classification is cached so only brand-new keywords are ever sent to
+   the AI. Refreshed daily by a cron. ============================================================= */
+const GH_OPP_REPO = 'aboutwallart/seo-tools';
+const OPP_LIST_PATH = 'data/gsc-opportunity-keywords.json';   // the ranked, classified list tools read
+const OPP_CACHE_PATH = 'data/gsc-keyword-intent-cache.json';  // keyword -> 'product'|'blog' (grows over time)
+const OPP_MIN_IMPRESSIONS = 30, OPP_MAX_CTR = 0.02, OPP_TOP_N = 150;
+
+async function ghGetFile(path) {
+  try {
+    const r = await fetch(`https://api.github.com/repos/${GH_OPP_REPO}/contents/${path}`, {
+      headers: { 'Authorization': `token ${process.env.GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
+    });
+    if (!r.ok) return { sha: null, json: null };
+    const j = await r.json();
+    let parsed = null;
+    try { parsed = JSON.parse(Buffer.from(j.content || '', 'base64').toString('utf8')); } catch (e) { parsed = null; }
+    return { sha: j.sha || null, json: parsed };
+  } catch (e) { return { sha: null, json: null }; }
+}
+async function ghPutFile(path, obj, sha, message) {
+  const body = { message, content: Buffer.from(JSON.stringify(obj, null, 2)).toString('base64') };
+  if (sha) body.sha = sha;
+  const r = await fetch(`https://api.github.com/repos/${GH_OPP_REPO}/contents/${path}`, {
+    method: 'PUT',
+    headers: { 'Authorization': `token ${process.env.GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!r.ok) { const t = await r.text(); throw new Error('GitHub write failed: ' + r.status + ' ' + t.slice(0, 200)); }
+  return true;
+}
+function computeOpportunities(rows) {
+  const brand = /about\s*wall\s*art|aboutwallart/i;
+  return (rows || [])
+    .map(r => ({ keyword: (r.keys && r.keys[0]) || '', impressions: Math.round(r.impressions || 0), clicks: Math.round(r.clicks || 0), ctr: r.ctr || 0, position: Math.round((r.position || 0) * 10) / 10 }))
+    .filter(r => r.keyword && !brand.test(r.keyword) && r.impressions >= OPP_MIN_IMPRESSIONS && r.ctr <= OPP_MAX_CTR)
+    .sort((a, b) => b.impressions - a.impressions)
+    .slice(0, OPP_TOP_N);
+}
+// Classify ONLY brand-new keywords (never seen before) via one AI call -> { keyword: 'product'|'blog' }.
+async function classifyNewIntents(newKeywords) {
+  if (!newKeywords.length) return {};
+  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set');
+  const prompt = 'You classify search keywords for a UK wall-art & home-decor shop (About Wall Art). '
+    + 'For each keyword decide the searcher\'s intent:\n'
+    + '- "product" = commercial / buying intent (they want to buy wall art, e.g. "boho wall art set of 3", "living room canvas prints").\n'
+    + '- "blog" = informational intent (how-to, ideas, meaning, tips, guides, e.g. "how to hang wall art", "cherry blossom meaning").\n'
+    + 'Return ONLY a JSON object mapping each keyword EXACTLY as given to "product" or "blog". No other text.\n\n'
+    + 'Keywords:\n' + newKeywords.map(k => '- ' + k).join('\n');
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 8000, messages: [{ role: 'user', content: prompt }] })
+  });
+  if (!r.ok) { const t = await r.text(); throw new Error('Claude API error ' + r.status + ': ' + t.slice(0, 200)); }
+  const data = await r.json();
+  let txt = (data.content && Array.isArray(data.content)) ? data.content.filter(b => b.type === 'text').map(b => b.text).join('\n') : '';
+  txt = txt.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+  const m = txt.match(/\{[\s\S]*\}/);
+  let obj = {};
+  try { obj = m ? JSON.parse(m[0]) : {}; } catch (e) { obj = {}; }
+  const out = {};
+  newKeywords.forEach(k => { const v = (obj[k] || '').toString().toLowerCase(); out[k] = (v === 'blog') ? 'blog' : 'product'; }); // default to product if unclear
+  return out;
+}
 
 module.exports = async (req, res) => {
   // CORS Headers
@@ -396,6 +466,35 @@ module.exports = async (req, res) => {
         batchUrls
       };
 
+    } else if (action === 'refresh-opportunities') {
+      // Daily job: pull queries, keep the high-impression/low-click ones, classify NEW ones with AI
+      // (cached), and save the ranked, classified list for the Social / New Product / Blog tools.
+      const qrows = (await gscQuery(accessToken, siteUrl, {
+        startDate: start, endDate: end, dimensions: ['query'], rowLimit: 25000
+      })).rows || [];
+      const opps = computeOpportunities(qrows);
+      const cacheFile = await ghGetFile(OPP_CACHE_PATH);
+      const cache = (cacheFile.json && typeof cacheFile.json === 'object') ? cacheFile.json : {};
+      const unknown = opps.map(o => o.keyword).filter(k => !(k in cache));
+      let classifiedNow = 0;
+      if (unknown.length) {
+        const fresh = await classifyNewIntents(unknown);
+        Object.keys(fresh).forEach(k => { cache[k] = fresh[k]; });
+        classifiedNow = Object.keys(fresh).length;
+        await ghPutFile(OPP_CACHE_PATH, cache, cacheFile.sha, `GSC intent cache +${classifiedNow}`);
+      }
+      const keywords = opps.map(o => Object.assign({}, o, { intent: cache[o.keyword] || 'product' }));
+      const listFile = await ghGetFile(OPP_LIST_PATH);
+      await ghPutFile(OPP_LIST_PATH, {
+        updatedAt: new Date().toISOString(), window: { start, end },
+        count: keywords.length,
+        productCount: keywords.filter(k => k.intent === 'product').length,
+        blogCount: keywords.filter(k => k.intent === 'blog').length,
+        keywords
+      }, listFile.sha, `GSC opportunities refresh (${keywords.length})`);
+      data = { refreshed: true, total: keywords.length, newlyClassified: classifiedNow,
+        productCount: keywords.filter(k => k.intent === 'product').length,
+        blogCount: keywords.filter(k => k.intent === 'blog').length };
     } else {
       // Default: overview
       data = await gscQuery(accessToken, siteUrl, {
