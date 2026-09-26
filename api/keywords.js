@@ -1,4 +1,7 @@
-// api/keywords.js — New Product Generator backend  ·  v0.19
+// api/keywords.js — New Product Generator backend  ·  v0.20
+// v0.20 (2026-09-26): gsc-opportunities now topic-matches the product (same as gap options) and also
+//   removes keywords contained inside a more-specific locked keyword. delete-product now frees the
+//   keyword (removes its NPG:<sku> registry rows).
 // v0.19 (2026-09-26): new action `gsc-opportunities` — commercial (product-intent) GSC opportunity
 //   keywords for Step 2, with registry-locked and in-progress keywords removed.
 // v0.18 (2026-09-26): template picker. New action `list-product-templates` reads the live theme's
@@ -271,7 +274,9 @@ async function gapResearch(body) {
 }
 
 // GSC opportunity keywords for the New Product Generator: only the COMMERCIAL (product-intent) ones,
-// with keywords already LOCKED in the registry or used by an in-progress product removed.
+// topic-matched to the product (same logic as the competitors-gap options), with keywords already
+// LOCKED exactly OR contained inside a more-specific locked keyword, or used by an in-progress
+// product, removed.
 async function gscOpportunities(body) {
   let list = [];
   try {
@@ -279,13 +284,45 @@ async function gscOpportunities(body) {
     if (r.ok) { const j = await r.json(); list = Array.isArray(j.keywords) ? j.keywords : []; }
   } catch { /* ignore — no list yet */ }
   const [locked, allProducts] = await Promise.all([lockedKeywordSet(), readProducts()]);
-  const inProgress = inProgressKeywordMap(allProducts, (body && body.sku) || undefined);
+  const sku = (body && body.sku) || '';
+  const p = (body && body.product) || allProducts.find(x => (x.sku || '').toLowerCase() === sku.toLowerCase()) || null;
+  const inProgress = inProgressKeywordMap(allProducts, sku || undefined);
+  const lockedArr = [...locked];
+  const terms = p ? gapTermsForProduct(p) : null;
   const options = list
     .filter(k => k && k.keyword && (k.intent || 'product') === 'product')
-    .filter(k => !locked.has(k.keyword.toLowerCase()) && !inProgress.has(k.keyword.toLowerCase()))
+    .filter(k => { const kw = k.keyword.toLowerCase();
+      if (locked.has(kw)) return false;                       // exact lock
+      if (lockedArr.some(lk => lk.includes(kw))) return false; // already covered by a more-specific lock
+      if (inProgress.has(kw)) return false;                    // used by an in-progress product
+      if (terms && !gapClassify(k.keyword, terms).qualifies) return false; // topic-related to THIS product
+      return true;
+    })
     .slice(0, 15)
     .map(k => ({ keyword: k.keyword, impressions: k.impressions, clicks: k.clicks, position: k.position }));
   return { options };
+}
+
+// Frees a deleted product's keyword: removes every registry row tagged NPG:<sku> (the source column).
+// Safe no-op if there are none. Never throws to the caller (delete must still succeed).
+async function freeKeywordFromRegistry(sku) {
+  const tag = ('NPG:' + sku).toLowerCase();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const reg = await ghGet(REGISTRY_PATH);
+    if (reg.content == null) return 0;
+    const lines = reg.content.split('\n');
+    let removed = 0;
+    const kept = lines.filter(line => {
+      if (!line.trim()) return true;
+      const c = parseCSVLine(line.replace(/\r/g, ''));
+      if ((c[9] || '').toLowerCase() === tag) { removed++; return false; }
+      return true;
+    });
+    if (removed === 0) return 0;
+    try { await ghPut(REGISTRY_PATH, kept.join('\n'), reg.sha, `NPG free keyword for deleted ${sku} (-${removed})`); return removed; }
+    catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
+  }
+  return 0;
 }
 
 /* ---------------- seeds (Apify/DataForSEO path — PARKED, use sparingly) ---------------- */
@@ -1573,7 +1610,11 @@ export default async function handler(req, res) {
         const file = await ghGet(PRODUCTS_PATH);
         let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
         arr = arr.filter(x => (x.sku || '').toLowerCase() !== sku.toLowerCase());
-        try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG delete product: ${sku}`); return res.status(200).json({ ok: true, products: arr }); }
+        try {
+          await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG delete product: ${sku}`);
+          let freed = 0; try { freed = await freeKeywordFromRegistry(sku); } catch (e) { /* delete still succeeds */ }
+          return res.status(200).json({ ok: true, products: arr, keywordFreed: freed });
+        }
         catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
       }
     }
