@@ -29,7 +29,8 @@
   .req{color:var(--danger);font-weight:700}
   input[type=text]{width:100%;padding:10px 12px;border:1px solid var(--border-strong);
     border-radius:9px;font-size:14px;background:#fff}
-  input[type=text]:focus,.sel:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  input[type=text]:focus,.sel:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  input:disabled{background:#f4f5f6;color:var(--muted);cursor:not-allowed}
   .field{margin-bottom:20px}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
   .block{border-top:1px solid var(--border);padding-top:18px;margin-top:6px}
@@ -60,27 +61,11 @@
   .pcx:hover{color:var(--danger);border-color:var(--danger)}
   .addbox{background:#fafbfb;border:1px dashed var(--border-strong);border-radius:10px;padding:14px;margin-top:12px;display:none}
   .addbox.open{display:block}
-  .addbox .row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
-  .addbox .row > div{flex:1;min-width:160px}
+  .addbox .arow{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+  .addbox .arow > div{flex:1;min-width:160px}
   .groupchecks{display:flex;gap:14px;flex-wrap:wrap;margin-top:6px}
   .groupchecks label{font-size:12.5px;display:flex;gap:6px;align-items:center;color:#33383d}
   .empty{color:var(--muted);font-size:13px;padding:6px 0}
-  .prod{border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden}
-  .prod-head{display:flex;align-items:center;gap:12px;padding:13px 16px;cursor:pointer;background:#fafbfb}
-  .prod-head:hover{background:#f2f4f4}
-  .chev{transition:transform .15s;color:var(--muted)}
-  .prod.open .chev{transform:rotate(90deg)}
-  .sel-cb{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
-  .sku{font-weight:650;font-size:13.5px}
-  .status{margin-left:auto;font-size:11px;font-weight:600;border-radius:20px;padding:3px 10px}
-  .status.none{color:var(--warn);background:#fbf3d8}
-  .status.kw{color:var(--ok);background:#e4f3ea}
-  .prod-body{padding:0 16px;max-height:0;overflow:hidden;transition:max-height .25s ease,padding .25s}
-  .prod.open .prod-body{max-height:900px;padding:14px 16px 18px}
-  .kv{display:flex;gap:10px;font-size:13px;padding:4px 0;border-top:1px solid #f0f1f2}
-  .kv:first-child{border-top:none}
-  .kv .k{color:var(--muted);min-width:130px;font-weight:600}
-  .pill{display:inline-block;background:var(--chip);border-radius:20px;padding:2px 9px;margin:2px 4px 2px 0;font-size:12px}
   .msg{padding:10px 14px;border-radius:9px;font-size:13px;margin-bottom:14px;display:none}
   .msg.show{display:block}
   .msg.ok{background:#e4f3ea;color:#155f3a}
@@ -88,19 +73,48 @@
   .msg.info{background:#eef3fb;color:#1e3a63}
   .spin{display:inline-block;width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px;margin-right:6px}
   @keyframes sp{to{transform:rotate(360deg)}}
+  /* ---------- STEPPER ---------- */
+  .step{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:14px;overflow:hidden}
+  .step-open{padding:22px}
+  .step-num{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;font-weight:700;flex:none}
+  .step-title{font-size:15px;font-weight:650}
+  .step-openhead{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  /* collapsed one-line row */
+  .steprow{display:flex;align-items:center;gap:10px;padding:15px 20px;cursor:default}
+  .steprow .step-num{background:var(--ok)}
+  .steprow .srsummary{font-weight:600;font-size:13.5px}
+  .steprow .srextra{color:var(--muted);font-size:12.5px;font-weight:400}
+  .steprow .sredit{margin-left:auto}
+  .steprow.locked{opacity:.4}
+  .steprow.locked .step-num{background:var(--border-strong)}
+  .steprow .kwchanged{margin-left:8px;font-size:11px;color:var(--warn);background:#fbf3d8;border-radius:20px;padding:2px 9px;font-weight:600}
+  /* add product empty state */
+  .addprod{background:var(--card);border:1px dashed var(--border-strong);border-radius:var(--radius);
+    padding:40px 22px;text-align:center;box-shadow:var(--shadow)}
+  .addprod p{color:var(--muted);margin:0 0 16px;font-size:13px}
+  /* shared images strip */
+  .sharedstrip{display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted);
+    background:#fff;border:1px solid var(--border);border-radius:10px;padding:10px 16px;margin-bottom:16px}
+  .sharedstrip .sst{font-weight:600;color:var(--ink)}
+  .sharedstrip button{margin-left:auto}
   /* keyword results */
-  .kwblock{border:1px solid var(--border);border-radius:10px;margin-bottom:12px;padding:14px 16px}
+  .kwblock{border:1px solid var(--border);border-radius:10px;padding:14px 16px}
   .kwblock h4{margin:0 0 10px;font-size:13.5px}
   .kwrow{display:grid;grid-template-columns:1fr 90px 90px 110px 90px;gap:10px;align-items:center;padding:8px 0;border-top:1px solid #f0f1f2;font-size:13px}
   .kwrow.hd{border-top:none;color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.3px}
   .kwrow .kw{font-weight:600}
   .diff-e{color:var(--ok);font-weight:600}.diff-m{color:var(--warn);font-weight:600}.diff-h{color:var(--danger);font-weight:600}
   .intent{font-size:11px;background:var(--chip);border-radius:20px;padding:2px 8px}
+  .comingsoon{border:1px solid #e6d9a8;background:#fdf9ec;border-radius:10px;padding:14px 16px;margin-top:14px}
+  .comingsoon .cshead{display:flex;align-items:center;gap:8px;font-weight:650;font-size:13px;color:#6b551a}
+  .csbadge{font-size:10.5px;font-weight:700;color:#6b551a;background:#f3e6b8;border-radius:20px;padding:2px 9px;text-transform:uppercase;letter-spacing:.3px}
+  .comingsoon p{margin:8px 0 0;font-size:12.5px;color:#8a7530}
   /* generate content */
+  .ainotes{background:var(--accent-soft);border:1px solid #cfe2db;border-radius:10px;padding:12px 14px}
+  .ainotes label{font-weight:600;font-size:12.5px;display:block;margin-bottom:6px;color:var(--accent)}
+  .ainotes textarea{width:100%;min-height:60px;font-family:inherit;font-size:13px;padding:9px 11px;border:1px solid #cfe2db;border-radius:8px;background:#fff}
   .imgbox{display:flex;align-items:center;gap:12px;margin-top:10px}
   .imgpreview{width:56px;height:56px;border-radius:8px;object-fit:cover;border:1px solid var(--border-strong)}
-  .contentcard{background:#fafbfb;border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-top:14px}
-  .contentcard h5{margin:0 0 8px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:#3a3f45}
   .contentfield{background:#fff;border:1px solid var(--border);border-radius:9px;padding:12px 14px;margin-bottom:10px}
   .contentfield-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
   .contentfield-head b{font-size:12.5px}
@@ -124,6 +138,12 @@
   .dz-tile{cursor:grab}
   .dz-tile.dragging{opacity:.4}
   .aiblock{border-left:3px solid var(--accent);padding-left:10px;margin-bottom:12px}
+  .kv{display:flex;gap:10px;font-size:13px;padding:4px 0;border-top:1px solid #f0f1f2}
+  .kv:first-child{border-top:none}
+  .kv .k{color:var(--muted);min-width:130px;font-weight:600}
+  .status{font-size:11px;font-weight:600;border-radius:20px;padding:3px 10px}
+  .status.kw{color:var(--ok);background:#e4f3ea}
+  .pill{display:inline-block;background:var(--chip);border-radius:20px;padding:2px 9px;margin:2px 4px 2px 0;font-size:12px}
   @media(max-width:820px){.cols{grid-template-columns:1fr 1fr}.trend-grid{grid-template-columns:1fr 1fr}.grid2{grid-template-columns:1fr}.kwrow{grid-template-columns:1fr 60px 60px;}.kwrow .h-int,.kwrow .c-int,.kwrow .h-act{display:none}}
 </style>
 </head>
@@ -135,108 +155,22 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v1.7</span>
+  <span class="ver">v2.0</span>
   <span class="tag">AWA Products</span>
 </div>
 
 <div class="wrap">
   <div id="msg" class="msg"></div>
 
-  <!-- SHARED IMAGES (upload once, reused on every product) -->
-  <div class="card">
-    <h2>Shared images <span style="font-weight:400;color:var(--muted);font-size:12.5px">— upload once, reused on every product</span></h2>
-    <div id="sharedImagesStatus" class="empty">Checking…</div>
-    <button class="btn ghost small" id="sharedImagesBtn" style="margin-top:10px">Check / upload shared images</button>
+  <!-- SHARED IMAGES — one-time setup, kept small at the top -->
+  <div class="sharedstrip">
+    <span class="sst">Shared images</span>
+    <span id="sharedImagesStatus">Checking…</span>
+    <button class="btn ghost small" id="sharedImagesBtn">Check / upload</button>
   </div>
 
-  <!-- DEFINE PRODUCT -->
-  <div class="card">
-    <h2>New product</h2>
-    <p class="sub">Define one product. Only the product-specific details — shared defaults are applied later.</p>
-
-    <div class="field">
-      <label class="f">SKU for print files <span class="req">*</span></label>
-      <input type="text" id="sku" placeholder="e.g. TRAVPARIS01" autocomplete="off">
-    </div>
-
-    <div class="field">
-      <label class="f">Extra keyword terms <span style="color:var(--muted);font-weight:400">— optional, comma-separated</span></label>
-      <input type="text" id="keywordWords" placeholder="e.g. gallery wall, living room set" autocomplete="off">
-    </div>
-
-    <div class="block">
-      <div class="block-head"><h3>Collections</h3><button class="btn link" id="addColBtn">＋ Add collection</button></div>
-      <div class="cols" id="colCols"></div>
-      <div class="addbox" id="addBox">
-        <div class="row">
-          <div><label class="f">Collection name</label><input type="text" id="newColName" placeholder="e.g. Art Deco"></div>
-          <button class="btn primary small" id="doAddCol">Add</button>
-        </div>
-        <div style="margin-top:10px">
-          <label class="f" style="margin-bottom:4px">Show under group(s)</label>
-          <div class="groupchecks" id="groupChecks"></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="block">
-      <div class="block-head"><h3>Set size</h3></div>
-      <div class="radios" id="setRadios">
-        <label class="radio"><input type="radio" name="set" value="Set of 1"> Set of 1</label>
-        <label class="radio"><input type="radio" name="set" value="Set of 2"> Set of 2</label>
-        <label class="radio"><input type="radio" name="set" value="Set of 3"> Set of 3</label>
-      </div>
-    </div>
-
-    <div class="block">
-      <div class="block-head"><h3>Trends</h3></div>
-      <div class="trend-grid" id="trendGrid"></div>
-    </div>
-
-    <div class="block">
-      <div class="block-head"><h3>Colours</h3></div>
-      <div class="grid2">
-        <div>
-          <label class="f">Primary colour <span style="color:var(--muted);font-weight:400">— one or more</span></label>
-          <div id="primaryBoxes"></div>
-          <button class="btn link" id="addPrimary" style="margin-top:4px">＋ Add colour</button>
-        </div>
-        <div>
-          <label class="f">Colour <span style="color:var(--muted);font-weight:400">— pick one</span></label>
-          <select id="colour" class="sel"><option value="">— select —</option></select>
-        </div>
-      </div>
-    </div>
-
-    <div class="actions" style="margin-top:22px">
-      <button class="btn primary" id="saveBtn">Save product</button>
-      <button class="btn ghost" id="clearBtn">Clear</button>
-    </div>
-  </div>
-
-  <!-- LIST -->
-  <div class="card">
-    <h2>Defined products</h2>
-    <p class="sub">Tick the ones you want, then find keywords. Options come from your competitors-gap file — checked against your registry and against other in-progress products.</p>
-    <div id="listToolbar" style="display:none;margin-bottom:14px">
-      <button class="btn primary small" id="findBtn">Find keywords (<span id="selCount">0</span>)</button>
-    </div>
-    <div id="list"><div class="empty">Loading…</div></div>
-  </div>
-
-  <!-- KEYWORD RESULTS -->
-  <div class="card" id="kwCard" style="display:none">
-    <h2>Keyword options</h2>
-    <p class="sub">Pick one per product. Options come from your competitors-gap file — nothing is locked in the registry yet (that happens when the product is sent to Shopify).</p>
-    <div id="kwResults"></div>
-  </div>
-
-  <!-- GENERATE CONTENT -->
-  <div class="card" id="contentCard" style="display:none">
-    <h2>Product content — <span id="contentSku"></span></h2>
-    <p class="sub">Upload the artwork image, then generate. Review and edit before sending to Shopify.</p>
-    <div id="contentBody"></div>
-  </div>
+  <!-- GUIDED FLOW — one product at a time, 5 steps -->
+  <div id="flow"><div class="empty">Loading…</div></div>
 </div>
 
 <script>
@@ -255,6 +189,13 @@ let GROUPS = JSON.parse(JSON.stringify(BASE_GROUPS));
 let CUSTOM = {};          // added collections per group (persisted)
 let PRODUCTS = [];        // loaded from GitHub
 
+/* ---------- FLOW STATE ---------- */
+let DRAFT = false;        // true = showing an empty Step-1 form for a brand-new, not-yet-saved product
+let EDIT_STEP = null;     // if set, force this step open for editing even though it's already "done"
+let IMAGE_STATE = {};     // sku -> {data, mediaType} (artwork base64, no data: prefix)
+let KW_RESULTS = null;    // Step 2 cached gap-research results for the current product
+let KW_LOADING = false;   // Step 2 auto-search in flight
+
 /* ---------- API ---------- */
 async function api(payload){
   const r = await fetch('/api/keywords',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -264,41 +205,221 @@ async function api(payload){
 }
 function msg(text,type){ const m=document.getElementById('msg'); m.textContent=text; m.className='msg show '+(type||'info'); if(type==='ok'){ setTimeout(()=>{ if(m.textContent===text) m.className='msg'; },3500);} }
 function clearMsg(){ document.getElementById('msg').className='msg'; }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-/* ---------- RENDER selectors ---------- */
+/* ---------- STEP LOGIC (from handover, don't re-derive) ---------- */
+function currentProduct(){ return PRODUCTS.find(p => !p.sent) || null; }
+function isStepDone(p, n){
+  if(!p) return false;
+  if(n===1) return true;                 // the record existing means step 1's data exists
+  if(n===2) return !!p.keyword;
+  if(n===3) return !!p.contentApproved && !!p.content;
+  if(n===4) return imagesComplete(p);
+  if(n===5) return !!p.sent;
+}
+function imagesComplete(p){
+  const img=p.images||{lifestyle:[],individuals:[],flats:{}};
+  const m=(p.set||'').match(/\d+/); const setSize=m?parseInt(m[0],10):1;
+  const flats=img.flats||{};
+  const flatsOk=['flatUnframed','flatWhite','flatOak','flatBlack','flatCanvas'].every(s=>flats[s]);
+  return (img.lifestyle||[]).length>=1 && (img.individuals||[]).length===setSize && flatsOk;
+}
+function computeNaturalStep(p){
+  if(!p) return 1;
+  for(let n=1;n<=4;n++) if(!isStepDone(p,n)) return n;
+  return 5;
+}
+
+/* ---------- FLOW RENDERER ---------- */
+function renderFlow(){
+  const flow=document.getElementById('flow');
+  const p=currentProduct();
+  if(!p && !DRAFT){
+    flow.innerHTML=
+      '<div class="addprod">'+
+        '<p>No product in progress. Start a new one and the tool will guide you step by step.</p>'+
+        '<button class="btn primary" onclick="startDraft()">＋ Add product</button>'+
+      '</div>';
+    return;
+  }
+  const natural = p ? computeNaturalStep(p) : 1;
+  const openN = EDIT_STEP || natural;
+  let html='';
+  for(let n=1;n<=5;n++){
+    if(n===openN) html+=renderStepOpen(n,p);
+    else if(isStepDone(p,n)) html+=renderStepCollapsed(n,p);
+    else html+=renderStepLocked(n);
+  }
+  flow.innerHTML=html;
+
+  // Step 1's form fields are recreated each render — (re)populate the selectors.
+  if(openN===1){
+    renderCollections(); renderTrends(); renderGroupChecks(); fillColourSelect();
+    prefillStep1(p);
+  }
+  // Step 2 auto-searches keywords when it opens (option A).
+  if(openN===2){ ensureKwResults(p); }
+}
+
+const STEP_NAMES={1:'Product',2:'Keyword',3:'Content',4:'Images',5:'Send to Shopify'};
+
+function renderStepLocked(n){
+  return '<div class="step"><div class="steprow locked">'+
+    '<span class="step-num">'+n+'</span><span class="srsummary">'+STEP_NAMES[n]+'</span>'+
+  '</div></div>';
+}
+function renderStepCollapsed(n,p){
+  let summary='', extra='', badge='';
+  if(n===1){
+    summary='Product: '+esc(p.sku);
+    const cols=p.collections||{};
+    const bits=[...(cols['By Room']||[]),...(cols['By Style']||[])].slice(0,4);
+    extra=[bits.join(', '), p.set].filter(Boolean).join(' · ');
+  } else if(n===2){
+    summary='Keyword: '+esc(p.keyword||'');
+  } else if(n===3){
+    summary='Content generated';
+    if(p.content && p.contentKeyword && p.keyword && p.contentKeyword.toLowerCase()!==p.keyword.toLowerCase()){
+      badge='<span class="kwchanged">keyword changed — regenerate if needed</span>';
+    }
+  } else if(n===4){
+    const img=p.images||{lifestyle:[],individuals:[],flats:{}};
+    const count=(img.lifestyle||[]).length+(img.individuals||[]).length+Object.keys(img.flats||{}).length;
+    summary=count+' images uploaded';
+  }
+  return '<div class="step"><div class="steprow">'+
+    '<span class="step-num">✓</span>'+
+    '<span class="srsummary">'+summary+(extra?' <span class="srextra">· '+esc(extra)+'</span>':'')+'</span>'+
+    badge+
+    '<button class="btn ghost small sredit" onclick="editStep('+n+')">Edit</button>'+
+  '</div></div>';
+}
+function renderStepOpen(n,p){
+  let inner='';
+  if(n===1) inner=stepProductForm(p);
+  else if(n===2) inner=stepKeyword(p);
+  else if(n===3) inner=stepContent(p);
+  else if(n===4) inner=stepImages(p);
+  else if(n===5) inner=stepSend(p);
+  return '<div class="step"><div class="step-open">'+
+    '<div class="step-openhead"><span class="step-num">'+n+'</span><span class="step-title">'+STEP_NAMES[n]+'</span></div>'+
+    inner+
+  '</div></div>';
+}
+function startDraft(){ DRAFT=true; EDIT_STEP=null; renderFlow(); }
+function editStep(n){ EDIT_STEP=n; if(n===2){ KW_RESULTS=null; } renderFlow(); }
+function closeEdit(){ EDIT_STEP=null; renderFlow(); }
+
+/* =====================================================================
+   STEP 1 — PRODUCT
+   ===================================================================== */
+function stepProductForm(p){
+  const isNew=!p;   // fresh draft
+  return ''+
+    '<p class="sub">Define the product. Shared defaults are applied later.</p>'+
+    '<div class="field">'+
+      '<label class="f">SKU for print files <span class="req">*</span></label>'+
+      '<input type="text" id="sku" placeholder="e.g. TRAVPARIS01" autocomplete="off"'+(isNew?'':' disabled')+'>'+
+      (isNew?'':'<div class="sub" style="margin:6px 0 0">SKU can\'t change after the product is created.</div>')+
+    '</div>'+
+    '<div class="field">'+
+      '<label class="f">Extra keyword terms <span style="color:var(--muted);font-weight:400">— optional, comma-separated</span></label>'+
+      '<input type="text" id="keywordWords" placeholder="e.g. gallery wall, living room set" autocomplete="off">'+
+    '</div>'+
+    '<div class="field">'+
+      '<div class="ainotes">'+
+        '<label>Instructions for the AI <span style="color:var(--muted);font-weight:400">— optional</span></label>'+
+        '<textarea id="aiNotes" placeholder="e.g. mention it works well in a nursery, or that it comes as a set of 3"></textarea>'+
+      '</div>'+
+    '</div>'+
+    '<div class="block">'+
+      '<div class="block-head"><h3>Collections</h3><button class="btn link" onclick="toggleAddCol()">＋ Add collection</button></div>'+
+      '<div class="cols" id="colCols"></div>'+
+      '<div class="addbox" id="addBox">'+
+        '<div class="arow">'+
+          '<div><label class="f">Collection name</label><input type="text" id="newColName" placeholder="e.g. Art Deco"></div>'+
+          '<button class="btn primary small" onclick="doAddCol()">Add</button>'+
+        '</div>'+
+        '<div style="margin-top:10px">'+
+          '<label class="f" style="margin-bottom:4px">Show under group(s)</label>'+
+          '<div class="groupchecks" id="groupChecks"></div>'+
+        '</div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="block">'+
+      '<div class="block-head"><h3>Set size</h3></div>'+
+      '<div class="radios" id="setRadios" onchange="syncSetRadios()">'+
+        '<label class="radio"><input type="radio" name="set" value="Set of 1"> Set of 1</label>'+
+        '<label class="radio"><input type="radio" name="set" value="Set of 2"> Set of 2</label>'+
+        '<label class="radio"><input type="radio" name="set" value="Set of 3"> Set of 3</label>'+
+      '</div>'+
+    '</div>'+
+    '<div class="block">'+
+      '<div class="block-head"><h3>Trends</h3></div>'+
+      '<div class="trend-grid" id="trendGrid"></div>'+
+    '</div>'+
+    '<div class="block">'+
+      '<div class="block-head"><h3>Colours</h3></div>'+
+      '<div class="grid2">'+
+        '<div>'+
+          '<label class="f">Primary colour <span style="color:var(--muted);font-weight:400">— one or more</span></label>'+
+          '<div id="primaryBoxes"></div>'+
+          '<button class="btn link" onclick="addPrimaryBox()" style="margin-top:4px">＋ Add colour</button>'+
+        '</div>'+
+        '<div>'+
+          '<label class="f">Colour <span style="color:var(--muted);font-weight:400">— pick one</span></label>'+
+          '<select id="colour" class="sel"><option value="">— select —</option></select>'+
+        '</div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="actions" style="margin-top:22px">'+
+      '<button class="btn primary" id="saveBtn" onclick="saveStep1()">Save and continue</button>'+
+      (isNew?'<button class="btn ghost" onclick="cancelDraft()">Cancel</button>'
+            :'<button class="btn ghost" onclick="closeEdit()">Cancel</button>')+
+      (isNew?'':'<button class="btn ghost" style="margin-left:auto;color:var(--danger)" onclick="deleteCurrent(\''+esc(p.sku)+'\')">Delete this product</button>')+
+    '</div>';
+}
 function renderCollections(){
-  const wrap=document.getElementById('colCols'); wrap.innerHTML='';
+  const wrap=document.getElementById('colCols'); if(!wrap) return; wrap.innerHTML='';
   Object.keys(GROUPS).forEach(g=>{
     const div=document.createElement('div'); div.className='colgroup';
     div.innerHTML='<h4>'+g+'</h4>'+GROUPS[g].map(c=>'<label class="opt"><input type="checkbox" class="col-cb" value="'+esc(c)+'" data-group="'+esc(g)+'">'+esc(c)+'</label>').join('');
     wrap.appendChild(div);
   });
 }
-function renderTrends(){ document.getElementById('trendGrid').innerHTML=TRENDS.map(t=>'<label class="opt"><input type="checkbox" class="trend-cb" value="'+esc(t)+'">'+esc(t)+'</label>').join(''); }
-function renderGroupChecks(){ document.getElementById('groupChecks').innerHTML=Object.keys(GROUPS).map(g=>'<label><input type="checkbox" class="grp-cb" value="'+esc(g)+'">'+g+'</label>').join(''); }
-function fillColourSelect(){ const sel=document.getElementById('colour'); COLOUR_CHOICES.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;sel.appendChild(o);}); }
-function addPrimaryBox(val){ const box=document.getElementById('primaryBoxes');const row=document.createElement('div');row.className='pcrow';const inp=document.createElement('input');inp.type='text';inp.className='primary-cb';inp.placeholder='e.g. White';inp.value=val||'';const x=document.createElement('button');x.className='pcx';x.title='Remove';x.textContent='×';x.onclick=()=>{if(document.querySelectorAll('.pcrow').length>1)row.remove();else inp.value='';};row.appendChild(inp);row.appendChild(x);box.appendChild(row); }
-function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-
-/* ---------- ADD COLLECTION ---------- */
-document.getElementById('addColBtn').onclick=()=>document.getElementById('addBox').classList.toggle('open');
-document.getElementById('doAddCol').onclick=async()=>{
+function renderTrends(){ const el=document.getElementById('trendGrid'); if(el) el.innerHTML=TRENDS.map(t=>'<label class="opt"><input type="checkbox" class="trend-cb" value="'+esc(t)+'">'+esc(t)+'</label>').join(''); }
+function renderGroupChecks(){ const el=document.getElementById('groupChecks'); if(el) el.innerHTML=Object.keys(GROUPS).map(g=>'<label><input type="checkbox" class="grp-cb" value="'+esc(g)+'">'+g+'</label>').join(''); }
+function fillColourSelect(){ const sel=document.getElementById('colour'); if(!sel) return; COLOUR_CHOICES.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;sel.appendChild(o);}); }
+function addPrimaryBox(val){ const box=document.getElementById('primaryBoxes'); if(!box) return; const row=document.createElement('div');row.className='pcrow';const inp=document.createElement('input');inp.type='text';inp.className='primary-cb';inp.placeholder='e.g. White';inp.value=val||'';const x=document.createElement('button');x.className='pcx';x.title='Remove';x.textContent='×';x.onclick=()=>{if(document.querySelectorAll('.pcrow').length>1)row.remove();else inp.value='';};row.appendChild(inp);row.appendChild(x);box.appendChild(row); }
+function syncSetRadios(){ document.querySelectorAll('#setRadios .radio').forEach(r=>r.classList.toggle('on',r.querySelector('input').checked)); }
+function toggleAddCol(){ const b=document.getElementById('addBox'); if(b) b.classList.toggle('open'); }
+async function doAddCol(){
   const name=document.getElementById('newColName').value.trim();
   const grps=[...document.querySelectorAll('.grp-cb:checked')].map(x=>x.value);
   if(!name) return alert('Type a collection name.');
   if(!grps.length) return alert('Pick at least one group.');
   grps.forEach(g=>{ if(!GROUPS[g].includes(name)) GROUPS[g].push(name); if(!CUSTOM[g])CUSTOM[g]=[]; if(!CUSTOM[g].includes(name))CUSTOM[g].push(name); });
   try{ await api({action:'save-collections',custom:CUSTOM}); }catch(e){ msg('Could not save collection: '+e.message,'err'); }
+  // re-render collections but keep current tick state
+  const checked=[...document.querySelectorAll('.col-cb:checked')].map(cb=>cb.value);
   renderCollections();
-  document.querySelectorAll('.col-cb').forEach(cb=>{ if(cb.value===name) cb.checked=true; });
+  document.querySelectorAll('.col-cb').forEach(cb=>{ if(checked.includes(cb.value)||cb.value===name) cb.checked=true; });
+  renderGroupChecks();
   document.getElementById('newColName').value='';
-  document.querySelectorAll('.grp-cb').forEach(x=>x.checked=false);
   document.getElementById('addBox').classList.remove('open');
-};
-document.getElementById('setRadios').addEventListener('change',()=>document.querySelectorAll('#setRadios .radio').forEach(r=>r.classList.toggle('on',r.querySelector('input').checked)));
-document.getElementById('addPrimary').onclick=()=>addPrimaryBox();
-
-/* ---------- SAVE / CLEAR ---------- */
+}
+function prefillStep1(p){
+  if(!p) return;   // fresh draft — leave everything empty (one primary box already needed)
+  const sku=document.getElementById('sku'); if(sku) sku.value=p.sku||'';
+  const kw=document.getElementById('keywordWords'); if(kw) kw.value=(p.keywordWords||[]).join(', ');
+  const an=document.getElementById('aiNotes'); if(an) an.value=p.aiNotes||'';
+  const cols=p.collections||{};
+  document.querySelectorAll('.col-cb').forEach(cb=>{ const g=cb.dataset.group; cb.checked=(cols[g]||[]).includes(cb.value); });
+  (p.trends||[]).forEach(t=>{ document.querySelectorAll('.trend-cb').forEach(cb=>{ if(cb.value===t) cb.checked=true; }); });
+  if(p.set){ document.querySelectorAll('input[name=set]').forEach(r=>{ if(r.value===p.set) r.checked=true; }); syncSetRadios(); }
+  const colour=document.getElementById('colour'); if(colour) colour.value=p.colour||'';
+  const box=document.getElementById('primaryBoxes'); if(box){ box.innerHTML=''; const list=(p.primaryColour||[]); if(list.length) list.forEach(c=>addPrimaryBox(c)); else addPrimaryBox(); }
+}
 function collectForm(){
   const cols={}; document.querySelectorAll('.col-cb:checked').forEach(cb=>{const g=cb.dataset.group;(cols[g]=cols[g]||[]).push(cb.value);});
   return { sku:document.getElementById('sku').value.trim(), collections:cols,
@@ -306,72 +427,64 @@ function collectForm(){
     trends:[...document.querySelectorAll('.trend-cb:checked')].map(x=>x.value),
     primaryColour:[...document.querySelectorAll('.primary-cb')].map(x=>x.value.trim()).filter(Boolean),
     colour:document.getElementById('colour').value,
+    aiNotes:document.getElementById('aiNotes').value.trim(),
     keywordWords:document.getElementById('keywordWords').value.split(',').map(w=>w.trim()).filter(Boolean) };
 }
-document.getElementById('saveBtn').onclick=async()=>{
-  const p=collectForm();
-  if(!p.sku) return alert('SKU for print files is required.');
+async function saveStep1(){
+  const existing=currentProduct();
+  const f=collectForm();
+  if(!f.sku) return alert('SKU for print files is required.');
+  // Duplicate-SKU guard: only when creating a NEW product (no product in progress).
+  if(!existing){
+    const clash=PRODUCTS.find(x=>(x.sku||'').toLowerCase()===f.sku.toLowerCase());
+    if(clash) return alert('A product with SKU "'+f.sku+'" already exists'+(clash.sent?' (already sent to Shopify)':'')+'. Use a different SKU.');
+  }
+  // Merge onto existing (keeps keyword/content/images); for a new product it's a plain create.
+  const product = existing ? {...f, sku:existing.sku} : f;
   const btn=document.getElementById('saveBtn'); btn.disabled=true; btn.innerHTML='<span class="spin"></span>Saving…';
-  try{ const r=await api({action:'save-product',product:p}); PRODUCTS=r.products; renderList(); clearForm(); msg('Saved '+p.sku,'ok'); }
-  catch(e){ msg('Save failed: '+e.message,'err'); }
-  finally{ btn.disabled=false; btn.textContent='Save product'; }
-};
-document.getElementById('clearBtn').onclick=clearForm;
-function clearForm(){ document.getElementById('sku').value=''; document.getElementById('keywordWords').value=''; document.getElementById('primaryBoxes').innerHTML=''; addPrimaryBox(); document.getElementById('colour').value=''; document.querySelectorAll('.col-cb,.trend-cb').forEach(x=>x.checked=false); document.querySelectorAll('input[name=set]').forEach(x=>x.checked=false); document.querySelectorAll('#setRadios .radio').forEach(r=>r.classList.remove('on')); }
-
-/* ---------- LIST ---------- */
-function renderList(){
-  const list=document.getElementById('list');
-  if(!PRODUCTS.length){ list.innerHTML='<div class="empty">No products yet.</div>'; updateSel(); return; }
-  list.innerHTML=PRODUCTS.map((p,i)=>{
-    const colPills=Object.keys(p.collections||{}).map(g=>'<div class="kv"><span class="k">'+esc(g)+'</span><span>'+(p.collections[g]||[]).map(c=>'<span class="pill">'+esc(c)+'</span>').join('')+'</span></div>').join('');
-    const status = (p.keyword ? '<span class="status kw">🔒 '+esc(p.keyword)+'</span>' : '<span class="status none">No keyword</span>')+(p.sent?' <span class="status kw">✅ Sent to Shopify</span>':'');
-    return '<div class="prod" id="prod'+i+'">'+
-      '<div class="prod-head" onclick="toggle('+i+')">'+
-        '<input type="checkbox" class="sel-cb" data-sku="'+esc(p.sku)+'" onclick="event.stopPropagation();updateSel()">'+
-        '<span class="chev">▶</span><span class="sku">'+esc(p.sku)+'</span>'+status+
-        '<button class="btn ghost small" title="Delete" onclick="delProduct(event,\''+esc(p.sku)+'\')">Delete</button>'+
-      '</div>'+
-      '<div class="prod-body">'+
-        (colPills||'<div class="kv"><span class="k">Collections</span><span>—</span></div>')+
-        '<div class="kv"><span class="k">Set size</span><span>'+esc(p.set||'—')+'</span></div>'+
-        '<div class="kv"><span class="k">Trends</span><span>'+((p.trends||[]).length?p.trends.map(t=>'<span class="pill">'+esc(t)+'</span>').join(''):'—')+'</span></div>'+
-        '<div class="kv"><span class="k">Primary colour</span><span>'+((p.primaryColour||[]).length?p.primaryColour.map(c=>'<span class="pill">'+esc(c)+'</span>').join(''):'—')+'</span></div>'+
-        '<div class="kv"><span class="k">Colour</span><span>'+esc(p.colour||'—')+'</span></div>'+
-        ((p.keywordWords||[]).length?'<div class="kv"><span class="k">Extra terms</span><span>'+p.keywordWords.map(w=>'<span class="pill">'+esc(w)+'</span>').join('')+'</span></div>':'')+
-        (p.keyword?'<div class="kv"><span class="k">Keyword</span><span>'+esc(p.keyword)+'</span></div>':'')+
-        (p.keyword?'<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">'+
-          '<button class="btn ghost small" onclick="event.stopPropagation();changeKeyword(\''+esc(p.sku)+'\')">Change keyword</button>'+
-          '<button class="btn ghost small" onclick="event.stopPropagation();openContentPanel(\''+esc(p.sku)+'\')">'+(p.content?'View / edit content':'Generate content')+'</button>'+
-        '</div>'
-        :'')+
-      '</div></div>';
-  }).join('');
-  updateSel();
-}
-function toggle(i){ document.getElementById('prod'+i).classList.toggle('open'); }
-function updateSel(){ const n=document.querySelectorAll('.sel-cb:checked').length; document.getElementById('selCount').textContent=n; document.getElementById('listToolbar').style.display=PRODUCTS.length?'block':'none'; document.getElementById('findBtn').disabled=n===0; }
-async function delProduct(e,sku){ e.stopPropagation(); if(!confirm('Delete '+sku+'?'))return; try{ const r=await api({action:'delete-product',sku}); PRODUCTS=r.products; renderList(); msg('Deleted '+sku,'ok'); }catch(err){ msg('Delete failed: '+err.message,'err'); } }
-
-/* ---------- FIND KEYWORDS ---------- */
-document.getElementById('findBtn').onclick=async()=>{
-  const skus=[...document.querySelectorAll('.sel-cb:checked')].map(x=>x.dataset.sku);
-  runFindKeywords(skus);
-};
-async function runFindKeywords(skus){
-  const selected=PRODUCTS.filter(p=>skus.includes(p.sku));
-  if(!selected.length) return;
-  const btn=document.getElementById('findBtn'); btn.disabled=true; btn.innerHTML='<span class="spin"></span>Searching…';
-  msg('Searching your competitors-gap file…','info');
   try{
-    const r=await api({action:'gap-research',products:selected});
-    renderKwResults(r.results||[]);
-    clearMsg();
-  }catch(e){ msg('Keyword search failed: '+e.message,'err'); }
-  finally{ btn.disabled=false; btn.innerHTML='Find keywords (<span id="selCount">'+document.querySelectorAll('.sel-cb:checked').length+'</span>)'; }
+    const r=await api({action:'save-product',product});
+    PRODUCTS=r.products; DRAFT=false; EDIT_STEP=null;
+    renderFlow(); msg('Saved '+product.sku,'ok');
+  }catch(e){ msg('Save failed: '+e.message,'err'); btn.disabled=false; btn.textContent='Save and continue'; }
 }
-function changeKeyword(sku){ runFindKeywords([sku]); }
+function cancelDraft(){ DRAFT=false; EDIT_STEP=null; renderFlow(); }
+async function deleteCurrent(sku){
+  if(!confirm('Delete '+sku+'? This removes the in-progress product.')) return;
+  try{ const r=await api({action:'delete-product',sku}); PRODUCTS=r.products; DRAFT=false; EDIT_STEP=null; KW_RESULTS=null; renderFlow(); msg('Deleted '+sku,'ok'); }
+  catch(e){ msg('Delete failed: '+e.message,'err'); }
+}
 
+/* =====================================================================
+   STEP 2 — KEYWORD
+   ===================================================================== */
+function stepKeyword(p){
+  return '<p class="sub">Pick one keyword. Options come from your competitors-gap file — nothing is locked in the registry yet (that happens when the product is sent to Shopify).</p>'+
+    '<div id="kwResults">'+(KW_LOADING?'<div class="empty"><span class="spin" style="border-color:var(--accent);border-top-color:transparent"></span>Searching your competitors-gap file…</div>':'')+'</div>'+
+    '<div class="comingsoon">'+
+      '<div class="cshead">From Google Keyword Planner <span class="csbadge">coming soon</span></div>'+
+      '<p>Google Keyword Planner ideas will show here as a second source, kept separate from the gap-file options.</p>'+
+    '</div>'+
+    (isStepDone(p,2)?'<div class="actions" style="margin-top:16px"><button class="btn ghost" onclick="closeEdit()">Done</button></div>':'');
+}
+async function ensureKwResults(p){
+  if(KW_RESULTS || KW_LOADING || !p) { if(KW_RESULTS) renderKwResults(); return; }
+  KW_LOADING=true;
+  try{
+    const r=await api({action:'gap-research',products:[p]});
+    KW_RESULTS=r.results||[];
+    KW_LOADING=false;
+    // auto-open the prompt for a product with zero options
+    renderKwResults();
+  }catch(e){ KW_LOADING=false; const box=document.getElementById('kwResults'); if(box) box.innerHTML='<div class="msg show err">Keyword search failed: '+esc(e.message)+'</div>'; }
+}
+function renderKwResults(){
+  const box=document.getElementById('kwResults'); if(!box) return;
+  const p=currentProduct(); if(!p){ box.innerHTML=''; return; }
+  const r=(KW_RESULTS||[]).find(x=>x.sku===p.sku) || (KW_RESULTS||[])[0] || {sku:p.sku,options:[]};
+  box.innerHTML=blockHtml(r);
+  if(!r.options||!r.options.length) togglePrompt(true);
+}
 function diffClass(d){ if(d==null)return ''; if(d<=20)return 'diff-e'; if(d<=40)return 'diff-m'; return 'diff-h'; }
 function diffDot(d){ if(d==null)return ''; if(d<=20)return '🟢 '; if(d<=40)return '🟡 '; return '🔴 '; }
 function diffLabel(o){
@@ -389,7 +502,7 @@ function promptText(p){
   const terms=promptTerms(p);
   return 'Search Ubersuggest (UK) for wall art keywords related to: '+(terms.length?terms.join(', '):p.sku)+'. Give up to 10 options with high volume and low difficulty, showing volume and difficulty for each.';
 }
-function blockHtml(r,ri){
+function blockHtml(r){
   const prod=PRODUCTS.find(p=>p.sku===r.sku)||{sku:r.sku};
   const hasOptions=r.options&&r.options.length>0;
   const rows=hasOptions?r.options.map((o,oi)=>{
@@ -399,152 +512,203 @@ function blockHtml(r,ri){
       '<span>'+(o.volume!=null?o.volume:'—')+'</span>'+
       '<span class="'+diffClass(o.difficulty)+'">'+diffLabel(o)+'</span>'+
       '<span class="c-int"></span>'+
-      '<span class="h-act"><button class="btn '+(isCurrent?'ghost':'primary')+' small" onclick="applyKw('+ri+','+oi+')">'+(isCurrent?'Selected':'Use')+'</button></span>'+
+      '<span class="h-act"><button class="btn '+(isCurrent?'ghost':'primary')+' small" onclick="applyKw('+oi+')">'+(isCurrent?'Selected':'Use')+'</button></span>'+
     '</div>';
   }).join('') : '<div class="empty">No matching options found in the competitors-gap file. Try adding extra keyword terms, or generate an Ubersuggest prompt below.</div>';
-  return '<div class="kwblock" id="kwb'+ri+'" data-sku="'+esc(r.sku)+'">'+
+  return '<div class="kwblock" data-sku="'+esc(r.sku)+'">'+
     '<h4>'+esc(r.sku)+(prod.keyword?' <span class="status kw" style="margin-left:8px">🔒 '+esc(prod.keyword)+'</span>':'')+'</h4>'+
     (hasOptions?'<div class="kwrow hd"><span>Keyword</span><span>Vol</span><span>Diff</span><span class="h-int"></span><span class="h-act"></span></div>':'')+
     rows+
     '<div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">'+
-      '<button class="btn ghost small" onclick="togglePrompt('+ri+')">Don\'t like these? Generate Ubersuggest prompt</button>'+
+      '<button class="btn ghost small" onclick="togglePrompt()">Don\'t like these? Generate Ubersuggest prompt</button>'+
     '</div>'+
-    '<div id="prompt'+ri+'" style="display:none;margin-top:10px">'+
-      '<div style="background:#fafbfb;border:1px solid var(--border);border-radius:9px;padding:10px 12px;font-size:12.5px;white-space:pre-wrap" id="promptText'+ri+'"></div>'+
-      '<button class="btn ghost small" style="margin-top:8px" onclick="copyPrompt('+ri+')">Copy prompt</button>'+
+    '<div id="promptBox" style="display:none;margin-top:10px">'+
+      '<div style="background:#fafbfb;border:1px solid var(--border);border-radius:9px;padding:10px 12px;font-size:12.5px;white-space:pre-wrap" id="promptText"></div>'+
+      '<button class="btn ghost small" style="margin-top:8px" onclick="copyPrompt()">Copy prompt</button>'+
     '</div>'+
     '<div style="margin-top:14px;border-top:1px solid #f0f1f2;padding-top:12px">'+
       '<label class="f" style="margin-bottom:6px">Add keyword manually (from Ubersuggest)</label>'+
-      '<div style="display:flex;gap:8px"><input type="text" id="manualKw'+ri+'" placeholder="paste the keyword you picked"><button class="btn primary small" onclick="applyManualKw('+ri+')">Add</button></div>'+
+      '<div style="display:flex;gap:8px"><input type="text" id="manualKw" placeholder="paste the keyword you picked"><button class="btn primary small" onclick="applyManualKw()">Add</button></div>'+
     '</div>'+
   '</div>';
 }
-function renderKwResults(results){
-  const card=document.getElementById('kwCard'), box=document.getElementById('kwResults');
-  if(!results.length){ card.style.display='none'; return; }
-  window.__kwResults=results;
-  box.innerHTML=results.map((r,ri)=>blockHtml(r,ri)).join('');
-  card.style.display='block'; card.scrollIntoView({behavior:'smooth'});
-  // auto-show the prompt for any product with zero options
-  results.forEach((r,ri)=>{ if(!r.options||!r.options.length) togglePrompt(ri,true); });
-}
-function refreshBlock(ri){
-  const r=window.__kwResults&&window.__kwResults[ri]; if(!r) return;
-  const el=document.getElementById('kwb'+ri); if(!el) return;
-  const wasPromptOpen=document.getElementById('prompt'+ri)&&document.getElementById('prompt'+ri).style.display!=='none';
-  el.outerHTML=blockHtml(r,ri);
-  if(wasPromptOpen) togglePrompt(ri,true);
-}
-function togglePrompt(ri,forceOpen){
-  const el=document.getElementById('prompt'+ri); if(!el) return;
-  const r=window.__kwResults[ri]; const prod=PRODUCTS.find(p=>p.sku===r.sku)||{sku:r.sku};
-  document.getElementById('promptText'+ri).textContent=promptText(prod);
+function togglePrompt(forceOpen){
+  const el=document.getElementById('promptBox'); if(!el) return;
+  const p=currentProduct(); if(!p) return;
+  document.getElementById('promptText').textContent=promptText(p);
   el.style.display=(forceOpen||el.style.display==='none')?'block':'none';
 }
-async function copyPrompt(ri){
-  const text=document.getElementById('promptText'+ri).textContent;
+async function copyPrompt(){
+  const text=document.getElementById('promptText').textContent;
   try{ await navigator.clipboard.writeText(text); msg('Prompt copied.','ok'); }
   catch{ msg('Could not copy — select and copy the text manually.','err'); }
 }
-async function applyKw(ri,oi){
-  const r=window.__kwResults[ri]; const o=r.options[oi];
-  await doSetKeyword(r.sku, o.keyword, ri);
+async function applyKw(oi){
+  const p=currentProduct(); if(!p) return;
+  const r=(KW_RESULTS||[]).find(x=>x.sku===p.sku)||(KW_RESULTS||[])[0]; if(!r) return;
+  await doSetKeyword(p.sku, r.options[oi].keyword);
 }
-async function applyManualKw(ri){
-  const r=window.__kwResults[ri];
-  const input=document.getElementById('manualKw'+ri);
-  const kw=input.value.trim();
+async function applyManualKw(){
+  const p=currentProduct(); if(!p) return;
+  const kw=(document.getElementById('manualKw').value||'').trim();
   if(!kw) return;
-  await doSetKeyword(r.sku, kw, ri);
+  await doSetKeyword(p.sku, kw);
 }
-async function doSetKeyword(sku, keyword, ri){
+async function doSetKeyword(sku, keyword){
   try{
     const rr=await api({action:'set-keyword',sku,keyword});
     if(rr.taken){ msg(rr.reason||'That keyword is already taken.','err'); return; }
-    PRODUCTS=rr.products; renderList();
-    if(ri!=null) refreshBlock(ri);
+    PRODUCTS=rr.products;
+    EDIT_STEP=null;   // collapse Step 2, advance
+    renderFlow();
     msg('Applied "'+keyword+'" to '+sku,'ok');
   }catch(e){ msg('Apply failed: '+e.message,'err'); }
 }
 
-/* ---------- GENERATE CONTENT ---------- */
-let IMAGE_STATE={}; // sku -> {data, mediaType} (base64, no data: prefix)
-
-function openContentPanel(sku){
-  document.getElementById('contentSku').textContent=sku;
-  renderContentPanel(sku);
-  document.getElementById('contentCard').style.display='block';
-  document.getElementById('contentCard').scrollIntoView({behavior:'smooth'});
-}
-
-function renderContentPanel(sku){
-  const p=PRODUCTS.find(x=>x.sku===sku); if(!p) return;
-  const img=IMAGE_STATE[sku];
-  const body=document.getElementById('contentBody');
-  let html='<div class="imgbox">'+
+/* =====================================================================
+   STEP 3 — CONTENT
+   ===================================================================== */
+function stepContent(p){
+  const img=IMAGE_STATE[p.sku];
+  let html='<p class="sub">Upload the artwork image, then generate. Review and edit before continuing.</p>'+
+    '<div class="imgbox">'+
       (img?'<img class="imgpreview" src="data:'+esc(img.mediaType)+';base64,'+img.data+'">':'')+
       '<div><label class="f" style="margin-bottom:6px">Artwork image <span style="color:var(--muted);font-weight:400">— the art only, no frames/wall</span></label>'+
-      '<input type="file" accept="image/*" onchange="onImageSelected(\''+esc(sku)+'\',this)"></div>'+
+      '<input type="file" accept="image/*" onchange="onImageSelected(\''+esc(p.sku)+'\',this)"></div>'+
     '</div>'+
     '<div class="actions" style="margin-top:14px">'+
-      '<button class="btn primary small" id="genBtn" onclick="runGenerateContent(\''+esc(sku)+'\')" '+(img?'':'disabled')+'>'+(p.content?'Regenerate content':'Generate content')+'</button>'+
+      '<button class="btn primary small" id="genBtn" onclick="runGenerateContent(\''+esc(p.sku)+'\')" '+(img?'':'disabled')+'>'+(p.content?'Regenerate content':'Generate content')+'</button>'+
     '</div>';
   if(p.content){
+    if(p.contentKeyword && p.keyword && p.contentKeyword.toLowerCase()!==p.keyword.toLowerCase()){
+      html+='<div class="msg show info" style="margin-top:14px">Keyword changed to "'+esc(p.keyword)+'" after this content was generated. Regenerate if you want it worked in.</div>';
+    }
     html+='<div style="margin-top:18px">'+
-      contentFieldBlock(sku,'productTitle','Product Title',p.content.productTitle||'',false)+
-      contentFieldBlock(sku,'seoTitle','SEO Title',p.content.seoTitle||'',false)+
-      contentFieldBlock(sku,'metaDescription','Meta Description',p.content.metaDescription||'',false)+
-      contentFieldBlock(sku,'productDescription','Description',p.content.productDescription||'',true)+
+      contentFieldBlock(p.sku,'productTitle','Product Title',p.content.productTitle||'',false)+
+      contentFieldBlock(p.sku,'seoTitle','SEO Title',p.content.seoTitle||'',false)+
+      contentFieldBlock(p.sku,'metaDescription','Meta Description',p.content.metaDescription||'',false)+
+      contentFieldBlock(p.sku,'productDescription','Description',p.content.productDescription||'',true)+
     '</div>';
     if((p.content.aiItems||[]).length){
       html+='<div class="block"><div class="block-head"><h3>AI Optimisation</h3></div>'+
-        p.content.aiItems.map((it,ai)=>aiItemBlock(sku,ai,it)).join('')+
+        p.content.aiItems.map((it,ai)=>aiItemBlock(p.sku,ai,it)).join('')+
       '</div>';
     }
-    html+=renderImagesSection(sku);
-    html+=renderSendToShopify(sku);
-  }
-  body.innerHTML=html;
-}
-function renderSendToShopify(sku){
-  const p=PRODUCTS.find(x=>x.sku===sku); if(!p) return '';
-  if(p.sent){
-    return '<div class="block"><div class="block-head"><h3>Shopify</h3></div>'+
-      '<div class="kv"><span class="k">Status</span><span class="status kw">✅ Sent to Shopify</span></div>'+
-      (p.shopifyHandle?'<div class="kv"><span class="k">Product</span><span><a href="https://admin.shopify.com/store/aboutwallart/products?query='+encodeURIComponent(p.shopifyHandle)+'" target="_blank">Open in Shopify admin</a></span></div>':'')+
+    html+='<div class="actions" style="margin-top:20px">'+
+      '<button class="btn primary" onclick="approveContent(\''+esc(p.sku)+'\')">Looks good — continue</button>'+
+      (isStepDone(p,3)?'<button class="btn ghost" onclick="closeEdit()">Cancel</button>':'')+
     '</div>';
   }
-  return '<div class="block"><div class="block-head"><h3>Send to Shopify</h3></div>'+
-    '<p class="sub" style="margin:0 0 12px">Creates the product as a Draft with every variant, price, image and metafield filled in.</p>'+
-    '<button class="btn primary" id="sendBtn-'+esc(sku)+'" onclick="runSendToShopify(\''+esc(sku)+'\')">Send to Shopify</button>'+
-    '<div id="sendResult-'+esc(sku)+'" style="margin-top:12px"></div>'+
+  return html;
+}
+async function approveContent(sku){
+  const p=PRODUCTS.find(x=>x.sku===sku); if(!p||!p.content){ msg('Generate the content first.','err'); return; }
+  const updated={...p, contentApproved:true};
+  try{
+    const r=await api({action:'save-product',product:updated});
+    PRODUCTS=r.products; EDIT_STEP=null; renderFlow(); msg('Content approved.','ok');
+  }catch(e){ msg('Save failed: '+e.message,'err'); }
+}
+function onImageSelected(sku, inputEl){
+  const file=inputEl.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=()=>{
+    const m=(reader.result||'').match(/^data:([^;]+);base64,([\s\S]*)$/);
+    if(!m){ msg('Could not read that image.','err'); return; }
+    IMAGE_STATE[sku]={mediaType:m[1], data:m[2]};
+    renderFlow();
+  };
+  reader.onerror=()=>msg('Could not read that image.','err');
+  reader.readAsDataURL(file);
+}
+async function runGenerateContent(sku){
+  const img=IMAGE_STATE[sku];
+  if(!img) return;
+  const btn=document.getElementById('genBtn');
+  if(btn){ btn.disabled=true; btn.innerHTML='<span class="spin"></span>Generating…'; }
+  msg('Analysing competitors and generating content — this can take 20-40 seconds.','info');
+  try{
+    const r=await api({action:'generate-content', sku, image:img.data, imageMediaType:img.mediaType});
+    PRODUCTS=r.products;
+    // record which keyword this content was generated with, and reset approval
+    const p=PRODUCTS.find(x=>x.sku===sku);
+    if(p){ const upd={...p, contentKeyword:p.keyword||'', contentApproved:false}; const rr=await api({action:'save-product',product:upd}); PRODUCTS=rr.products; }
+    renderFlow();
+    msg('Content generated for '+sku+' — review it, then click “Looks good — continue”.','ok');
+  }catch(e){ msg('Generate failed: '+e.message,'err'); if(btn){ btn.disabled=false; btn.textContent='Generate content'; } }
+}
+/* editable content fields */
+function contentFieldBlock(sku,key,label,value,isHtml){
+  const bodyHtml = isHtml ? value : esc(value);
+  return '<div class="contentfield" id="field-'+key+'" data-raw="'+esc(value)+'">'+
+    '<div class="contentfield-head"><b>'+esc(label)+'</b>'+
+      '<div class="btnrow">'+
+        '<button class="btn ghost small" onclick="copyContentField(\''+key+'\')">Copy</button>'+
+        '<button class="btn ghost small" onclick="editContentField(\''+esc(sku)+'\',\''+key+'\')">Edit</button>'+
+      '</div>'+
+    '</div>'+
+    '<div class="contentfield-body'+(isHtml?' html':'')+'" id="body-'+key+'">'+bodyHtml+'</div>'+
   '</div>';
 }
-async function runSendToShopify(sku){
-  const btn=document.getElementById('sendBtn-'+sku);
-  const out=document.getElementById('sendResult-'+sku);
-  btn.disabled=true; btn.innerHTML='<span class="spin"></span>Sending…';
-  out.innerHTML='';
-  try{
-    const r=await api({action:'send-to-shopify', sku});
-    PRODUCTS=r.products;
-    let html='<div class="msg show ok">Created — product #'+esc(r.shopifyProductId.split('/').pop())+' ('+esc(r.shopifyHandle)+'), saved as Draft.</div>';
-    if((r.warnings||[]).length) html+='<div class="msg show info" style="margin-top:8px">'+r.warnings.map(esc).join('<br>')+'</div>';
-    out.innerHTML=html;
-    renderContentPanel(sku);
-  }catch(e){
-    out.innerHTML='<div class="msg show err">'+esc(e.message)+'</div>';
-    btn.disabled=false; btn.textContent='Send to Shopify';
-  }
+function editContentField(sku,key){
+  const raw=document.getElementById('field-'+key).dataset.raw;
+  document.getElementById('body-'+key).innerHTML='<textarea id="ta-'+key+'">'+esc(raw)+'</textarea>'+
+    '<div class="btnrow" style="margin-top:8px">'+
+      '<button class="btn primary small" onclick="saveContentField(\''+esc(sku)+'\',\''+key+'\')">Save</button>'+
+      '<button class="btn ghost small" onclick="renderFlow()">Cancel</button>'+
+    '</div>';
+}
+async function saveContentField(sku,key){
+  const val=document.getElementById('ta-'+key).value;
+  const p=PRODUCTS.find(x=>x.sku===sku); if(!p) return;
+  const updated={...p, content:{...(p.content||{}), [key]:val}};
+  try{ const r=await api({action:'save-product',product:updated}); PRODUCTS=r.products; renderFlow(); msg('Saved.','ok'); }
+  catch(e){ msg('Save failed: '+e.message,'err'); }
+}
+function copyContentField(key){
+  const raw=document.getElementById('field-'+key).dataset.raw;
+  navigator.clipboard.writeText(raw).then(()=>msg('Copied.','ok')).catch(()=>msg('Could not copy — select the text manually.','err'));
+}
+function aiItemBlock(sku,ai,item){
+  return '<div class="aiblock" id="aiblock-'+ai+'" data-raw="'+esc(item.content||'')+'">'+
+    '<div class="contentfield-head"><b>'+esc(item.element||'')+'</b>'+
+      '<div class="btnrow">'+
+        '<button class="btn ghost small" onclick="copyAiItem('+ai+')">Copy</button>'+
+        '<button class="btn ghost small" onclick="editAiItem(\''+esc(sku)+'\','+ai+')">Edit</button>'+
+      '</div>'+
+    '</div>'+
+    '<div class="contentfield-body html" id="aibody-'+ai+'">'+(item.content||'')+'</div>'+
+  '</div>';
+}
+function editAiItem(sku,ai){
+  const raw=document.getElementById('aiblock-'+ai).dataset.raw;
+  document.getElementById('aibody-'+ai).innerHTML='<textarea id="ta-ai-'+ai+'">'+esc(raw)+'</textarea>'+
+    '<div class="btnrow" style="margin-top:8px">'+
+      '<button class="btn primary small" onclick="saveAiItem(\''+esc(sku)+'\','+ai+')">Save</button>'+
+      '<button class="btn ghost small" onclick="renderFlow()">Cancel</button>'+
+    '</div>';
+}
+async function saveAiItem(sku,ai){
+  const val=document.getElementById('ta-ai-'+ai).value;
+  const p=PRODUCTS.find(x=>x.sku===sku); if(!p) return;
+  const items=[...(p.content.aiItems||[])];
+  items[ai]={...items[ai], content:val};
+  const updated={...p, content:{...p.content, aiItems:items}};
+  try{ const r=await api({action:'save-product',product:updated}); PRODUCTS=r.products; renderFlow(); msg('Saved.','ok'); }
+  catch(e){ msg('Save failed: '+e.message,'err'); }
+}
+function copyAiItem(ai){
+  const raw=document.getElementById('aiblock-'+ai).dataset.raw;
+  navigator.clipboard.writeText(raw).then(()=>msg('Copied.','ok')).catch(()=>msg('Could not copy — select the text manually.','err'));
 }
 
-/* ---------- IMAGES (lifestyle / individuals / flats) — big drag-and-drop boxes ---------- */
+/* =====================================================================
+   STEP 4 — IMAGES
+   ===================================================================== */
 const FLAT_LABELS=[['flatWhite','White frames'],['flatBlack','Black frames'],['flatOak','Oak frames'],['flatCanvas','Canvas wrapped'],['flatUnframed','Unframed']];
 let DZ_SEQ=0;
 const UPLOADING={};
 function dzKey(sku,slot,index){ return sku+'|'+slot+'|'+index; }
-// A single dropzone box: empty -> dashed box, click/drop to upload. busy -> spinner. filled -> image +
-// green check badge + Remove button, all in ONE column (never a stray sibling).
 function dropzone(sku, slot, index, label, filled, busy){
   const id='dz'+(DZ_SEQ++);
   const fileId=id+'-file';
@@ -565,13 +729,12 @@ function dropzone(sku, slot, index, label, filled, busy){
     (filled&&!busy?'<button class="btn rm small" style="margin-top:6px" onclick="removeProdImage(\''+esc(sku)+'\',\''+slot+'\','+index+')">Remove</button>':'')+
   '</div>';
 }
-function renderImagesSection(sku){
-  const p=PRODUCTS.find(x=>x.sku===sku); if(!p) return '';
+function stepImages(p){
+  const sku=p.sku;
   const setMatch=(p.set||'').match(/\d+/); const setSize=setMatch?parseInt(setMatch[0],10):1;
   const img=p.images||{lifestyle:[],individuals:[],flats:{}};
-  let html='<div class="block"><div class="block-head"><h3>Images</h3></div>';
-
-  html+='<div style="margin-bottom:22px"><label class="f" style="margin-bottom:6px">Lifestyle photos <span style="color:var(--muted);font-weight:400">— add as many as you have; arrastrá para ordenar, la primera es la portada</span></label>'+
+  let html='';
+  html+='<div style="margin-bottom:22px"><label class="f" style="margin-bottom:6px">Lifestyle photos <span style="color:var(--muted);font-weight:400">— add as many as you have; drag to reorder, the first one is the cover</span></label>'+
     dropzone(sku,'lifestyle',img.lifestyle.length,null,null,!!UPLOADING[dzKey(sku,'lifestyle',img.lifestyle.length)])+
     (img.lifestyle.length?'<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:14px">'+
       img.lifestyle.map((im,i)=>
@@ -583,7 +746,7 @@ function renderImagesSection(sku){
           'style="text-align:center;width:150px">'+
           '<div class="dz" style="cursor:grab">'+
             '<img src="'+esc(im.url||'')+'">'+
-            (i===0?'<div class="cover-badge">Portada</div>':'')+
+            (i===0?'<div class="cover-badge">Cover</div>':'')+
             '<div class="dz-badge">✓</div>'+
           '</div>'+
           '<button class="btn rm small" style="margin-top:6px" onclick="removeProdImage(\''+esc(sku)+'\',\'lifestyle\','+i+')">Remove</button>'+
@@ -602,7 +765,12 @@ function renderImagesSection(sku){
     FLAT_LABELS.map(([slot,label])=>dropzone(sku,slot,0,label,img.flats[slot],!!UPLOADING[dzKey(sku,slot,0)])).join('')+
   '</div></div>';
 
-  html+='</div>';
+  if(isStepDone(p,4)){
+    html+='<div class="actions" style="margin-top:20px"><button class="btn primary" onclick="closeEdit()">Looks good — continue</button>'+
+      (EDIT_STEP===4?'<button class="btn ghost" onclick="closeEdit()">Done</button>':'')+'</div>';
+  } else {
+    html+='<p class="sub" style="margin-top:18px">Add the lifestyle cover, all '+setSize+' individual photo(s) and the 5 flat images to unlock Send to Shopify.</p>';
+  }
   return html;
 }
 let LIFE_DRAG_FROM=null;
@@ -617,7 +785,7 @@ async function onLifeDrop(e, sku, toIdx){
   const order=list.map((_,i)=>i);
   const [moved]=order.splice(from,1);
   order.splice(toIdx,0,moved);
-  try{ const r=await api({action:'reorder-lifestyle-images', sku, order}); PRODUCTS=r.products; renderContentPanel(sku); }
+  try{ const r=await api({action:'reorder-lifestyle-images', sku, order}); PRODUCTS=r.products; renderFlow(); }
   catch(err){ msg('Failed: '+err.message,'err'); }
 }
 function readFileAsBase64(file){
@@ -630,13 +798,13 @@ function readFileAsBase64(file){
 }
 async function uploadOneFile(sku, slot, index, file){
   const key=dzKey(sku,slot,index);
-  UPLOADING[key]=true; renderContentPanel(sku);
+  UPLOADING[key]=true; renderFlow();
   try{
     const {mediaType,data}=await readFileAsBase64(file);
     const r=await api({action:'upload-image', sku, slot, image:data, imageMediaType:mediaType});
     PRODUCTS=r.products;
   }catch(e){ msg('Upload failed: '+e.message,'err'); }
-  finally{ delete UPLOADING[key]; renderContentPanel(sku); }
+  finally{ delete UPLOADING[key]; renderFlow(); }
 }
 async function uploadLifestyleFiles(sku, files){
   if(!files.length) return;
@@ -644,13 +812,13 @@ async function uploadLifestyleFiles(sku, files){
     const p=PRODUCTS.find(x=>x.sku===sku);
     const idx=(p&&p.images&&p.images.lifestyle)?p.images.lifestyle.length:0;
     const key=dzKey(sku,'lifestyle',idx);
-    UPLOADING[key]=true; renderContentPanel(sku);
+    UPLOADING[key]=true; renderFlow();
     try{
       const {mediaType,data}=await readFileAsBase64(f);
       const r=await api({action:'upload-image', sku, slot:'lifestyle', image:data, imageMediaType:mediaType});
       PRODUCTS=r.products;
     }catch(e){ msg('Upload failed for '+f.name+': '+e.message,'err'); }
-    finally{ delete UPLOADING[key]; renderContentPanel(sku); }
+    finally{ delete UPLOADING[key]; renderFlow(); }
   }
 }
 function onFileInputChosen(inputEl, sku, slot, index){
@@ -669,108 +837,36 @@ function onImageDrop(e, sku, slot, index){
 }
 async function removeProdImage(sku, slot, index){
   if(!confirm('Remove this image?')) return;
-  try{ const r=await api({action:'remove-product-image', sku, slot, index}); PRODUCTS=r.products; renderContentPanel(sku); msg('Removed.','ok'); }
+  try{ const r=await api({action:'remove-product-image', sku, slot, index}); PRODUCTS=r.products; renderFlow(); msg('Removed.','ok'); }
   catch(e){ msg('Failed: '+e.message,'err'); }
 }
 
-function onImageSelected(sku, inputEl){
-  const file=inputEl.files[0]; if(!file) return;
-  const reader=new FileReader();
-  reader.onload=()=>{
-    const result=reader.result||'';
-    const m=result.match(/^data:([^;]+);base64,([\s\S]*)$/);
-    if(!m){ msg('Could not read that image.','err'); return; }
-    IMAGE_STATE[sku]={mediaType:m[1], data:m[2]};
-    renderContentPanel(sku);
-  };
-  reader.onerror=()=>msg('Could not read that image.','err');
-  reader.readAsDataURL(file);
+/* =====================================================================
+   STEP 5 — SEND TO SHOPIFY
+   ===================================================================== */
+function stepSend(p){
+  return '<p class="sub">Creates the product as a Draft with every variant, price, image and metafield filled in.</p>'+
+    '<button class="btn primary" id="sendBtn" onclick="runSendToShopify(\''+esc(p.sku)+'\')">Send to Shopify</button>'+
+    '<div id="sendResult" style="margin-top:12px"></div>';
 }
-
-async function runGenerateContent(sku){
-  const img=IMAGE_STATE[sku];
-  if(!img) return;
-  const btn=document.getElementById('genBtn');
-  if(btn){ btn.disabled=true; btn.innerHTML='<span class="spin"></span>Generating…'; }
-  msg('Analysing competitors and generating content — this can take 20-40 seconds.','info');
+async function runSendToShopify(sku){
+  const btn=document.getElementById('sendBtn');
+  const out=document.getElementById('sendResult');
+  btn.disabled=true; btn.innerHTML='<span class="spin"></span>Sending…';
+  out.innerHTML='';
   try{
-    const r=await api({action:'generate-content', sku, image:img.data, imageMediaType:img.mediaType});
-    PRODUCTS=r.products; renderList(); renderContentPanel(sku);
-    msg('Content generated for '+sku,'ok');
-  }catch(e){ msg('Generate failed: '+e.message,'err'); if(btn){ btn.disabled=false; btn.textContent='Generate content'; } }
-}
-
-/* editable content fields (productTitle, seoTitle, metaDescription, productDescription) */
-function contentFieldBlock(sku,key,label,value,isHtml){
-  const bodyHtml = isHtml ? value : esc(value);
-  return '<div class="contentfield" id="field-'+key+'" data-raw="'+esc(value)+'">'+
-    '<div class="contentfield-head"><b>'+esc(label)+'</b>'+
-      '<div class="btnrow">'+
-        '<button class="btn ghost small" onclick="copyContentField(\''+key+'\')">Copy</button>'+
-        '<button class="btn ghost small" onclick="editContentField(\''+esc(sku)+'\',\''+key+'\')">Edit</button>'+
-      '</div>'+
-    '</div>'+
-    '<div class="contentfield-body'+(isHtml?' html':'')+'" id="body-'+key+'">'+bodyHtml+'</div>'+
-  '</div>';
-}
-function editContentField(sku,key){
-  const raw=document.getElementById('field-'+key).dataset.raw;
-  document.getElementById('body-'+key).innerHTML='<textarea id="ta-'+key+'">'+esc(raw)+'</textarea>'+
-    '<div class="btnrow" style="margin-top:8px">'+
-      '<button class="btn primary small" onclick="saveContentField(\''+esc(sku)+'\',\''+key+'\')">Save</button>'+
-      '<button class="btn ghost small" onclick="renderContentPanel(\''+esc(sku)+'\')">Cancel</button>'+
-    '</div>';
-}
-async function saveContentField(sku,key){
-  const val=document.getElementById('ta-'+key).value;
-  const p=PRODUCTS.find(x=>x.sku===sku); if(!p) return;
-  const updated={...p, content:{...(p.content||{}), [key]:val}};
-  try{
-    const r=await api({action:'save-product',product:updated});
-    PRODUCTS=r.products; renderContentPanel(sku); renderList();
-    msg('Saved.','ok');
-  }catch(e){ msg('Save failed: '+e.message,'err'); }
-}
-function copyContentField(key){
-  const raw=document.getElementById('field-'+key).dataset.raw;
-  navigator.clipboard.writeText(raw).then(()=>msg('Copied.','ok')).catch(()=>msg('Could not copy — select the text manually.','err'));
-}
-
-/* AI optimisation blocks (Comparison Snippet / How-To / Comparison Table) */
-function aiItemBlock(sku,ai,item){
-  return '<div class="aiblock" id="aiblock-'+ai+'" data-raw="'+esc(item.content||'')+'">'+
-    '<div class="contentfield-head"><b>'+esc(item.element||'')+'</b>'+
-      '<div class="btnrow">'+
-        '<button class="btn ghost small" onclick="copyAiItem('+ai+')">Copy</button>'+
-        '<button class="btn ghost small" onclick="editAiItem(\''+esc(sku)+'\','+ai+')">Edit</button>'+
-      '</div>'+
-    '</div>'+
-    '<div class="contentfield-body html" id="aibody-'+ai+'">'+(item.content||'')+'</div>'+
-  '</div>';
-}
-function editAiItem(sku,ai){
-  const raw=document.getElementById('aiblock-'+ai).dataset.raw;
-  document.getElementById('aibody-'+ai).innerHTML='<textarea id="ta-ai-'+ai+'">'+esc(raw)+'</textarea>'+
-    '<div class="btnrow" style="margin-top:8px">'+
-      '<button class="btn primary small" onclick="saveAiItem(\''+esc(sku)+'\','+ai+')">Save</button>'+
-      '<button class="btn ghost small" onclick="renderContentPanel(\''+esc(sku)+'\')">Cancel</button>'+
-    '</div>';
-}
-async function saveAiItem(sku,ai){
-  const val=document.getElementById('ta-ai-'+ai).value;
-  const p=PRODUCTS.find(x=>x.sku===sku); if(!p) return;
-  const items=[...(p.content.aiItems||[])];
-  items[ai]={...items[ai], content:val};
-  const updated={...p, content:{...p.content, aiItems:items}};
-  try{
-    const r=await api({action:'save-product',product:updated});
-    PRODUCTS=r.products; renderContentPanel(sku); renderList();
-    msg('Saved.','ok');
-  }catch(e){ msg('Save failed: '+e.message,'err'); }
-}
-function copyAiItem(ai){
-  const raw=document.getElementById('aiblock-'+ai).dataset.raw;
-  navigator.clipboard.writeText(raw).then(()=>msg('Copied.','ok')).catch(()=>msg('Could not copy — select the text manually.','err'));
+    const r=await api({action:'send-to-shopify', sku});
+    PRODUCTS=r.products;
+    // reset the flow: sent product leaves view
+    DRAFT=false; EDIT_STEP=null; KW_RESULTS=null; delete IMAGE_STATE[sku];
+    let text='Created — product #'+esc(r.shopifyProductId.split('/').pop())+' ('+esc(r.shopifyHandle)+'), saved as Draft.';
+    if((r.warnings||[]).length) text+=' Warnings: '+r.warnings.map(esc).join(' · ');
+    renderFlow();
+    msg(text,'ok');
+  }catch(e){
+    out.innerHTML='<div class="msg show err">'+esc(e.message)+'</div>';
+    btn.disabled=false; btn.textContent='Send to Shopify';
+  }
 }
 
 /* ---------- SHARED IMAGES ---------- */
@@ -782,7 +878,7 @@ function renderSharedImagesStatus(data){
   const doneRooms=SHARED_ROOM_KEYS.filter(k=>rooms[k]&&rooms[k].gid).length;
   const total=SHARED_FIXED_KEYS.length+SHARED_ROOM_KEYS.length, done=doneFixed+doneRooms;
   const el=document.getElementById('sharedImagesStatus');
-  el.textContent = (done>=total) ? ('✅ All '+total+' shared images are set up.') : (done+' / '+total+' uploaded so far.');
+  el.textContent = (done>=total) ? ('✅ All '+total+' set up.') : (done+' / '+total+' uploaded so far.');
 }
 async function loadSharedImagesStatus(){
   try{ const r=await api({action:'get-fixed-images'}); renderSharedImagesStatus(r.images||{}); }
@@ -792,17 +888,16 @@ document.getElementById('sharedImagesBtn').onclick=async()=>{
   const btn=document.getElementById('sharedImagesBtn'); btn.disabled=true; btn.innerHTML='<span class="spin"></span>Uploading…';
   try{ const r=await api({action:'upload-fixed-images'}); renderSharedImagesStatus(r.data||{}); msg('Shared images checked.','ok'); }
   catch(e){ msg('Failed: '+e.message,'err'); }
-  finally{ btn.disabled=false; btn.textContent='Check / upload shared images'; }
+  finally{ btn.disabled=false; btn.textContent='Check / upload'; }
 };
 
 /* ---------- INIT ---------- */
 async function init(){
-  renderTrends(); renderGroupChecks(); fillColourSelect(); addPrimaryBox();
   loadSharedImagesStatus();
   try{ const c=await api({action:'list-collections'}); CUSTOM=c.custom||{}; Object.keys(CUSTOM).forEach(g=>{ if(!GROUPS[g])GROUPS[g]=[]; CUSTOM[g].forEach(n=>{ if(!GROUPS[g].includes(n))GROUPS[g].push(n); }); }); }catch(e){}
-  renderCollections(); renderGroupChecks();
-  try{ const r=await api({action:'list-products'}); PRODUCTS=r.products||[]; renderList(); }
-  catch(e){ document.getElementById('list').innerHTML='<div class="empty">Could not load products: '+esc(e.message)+'</div>'; }
+  try{ const r=await api({action:'list-products'}); PRODUCTS=r.products||[]; }
+  catch(e){ document.getElementById('flow').innerHTML='<div class="empty">Could not load products: '+esc(e.message)+'</div>'; return; }
+  renderFlow();
 }
 init();
 </script>
