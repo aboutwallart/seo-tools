@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.9.0 - 2026-08-08</p>
+        <p class="version">v6.10.0 - 2026-09-26</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -322,6 +322,12 @@
                     <button id="add-title-btn" onclick="checkNewTitle()" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:10px 18px;font-weight:700;cursor:pointer;">Check &amp; Add</button>
                 </div>
                 <div id="add-title-result" style="margin-top:10px;font-size:14px;"></div>
+            </div>
+
+            <div id="gsc-blog-panel" style="background:#f4faf8;border:1px solid #cfe2db;border-radius:10px;padding:14px;margin-bottom:16px;">
+                <div style="font-weight:700;margin-bottom:4px;">🔎 Priority topics from Google Search Console</div>
+                <div style="color:#5a7a70;font-size:13px;margin-bottom:10px;">Informational searches you appear for but don't get clicked — great topics for new blogs. Click <b>Use</b>, review the title, then <b>Check &amp; Add</b>.</div>
+                <div id="gsc-blog-list"><span style="color:#888;font-size:13px;">Loading…</span></div>
             </div>
 
             <div style="background:#f4f8ff;border:1px solid #cfe0ff;border-radius:10px;padding:14px;margin-bottom:16px;">
@@ -441,12 +447,45 @@
         // ============================================
         // TAB SWITCHING
         // ============================================
+        let GSC_BLOG_LOADED = false;
+        function escBlog(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+        async function loadGscBlogTopics(force) {
+            const box = document.getElementById('gsc-blog-list');
+            if (!box) return;
+            if (GSC_BLOG_LOADED && !force) return;
+            GSC_BLOG_LOADED = true;
+            try {
+                const r = await fetch('/api/blogs?action=gsc-blog-opportunities').then(x => x.json());
+                const opts = (r && r.options) || [];
+                if (!opts.length) { box.innerHTML = '<span style="color:#888;font-size:13px;">No new topics right now.</span>'; return; }
+                window.__GSC_BLOG = opts;
+                box.innerHTML = '<div style="display:grid;grid-template-columns:1fr auto auto auto auto;gap:6px 14px;align-items:center;font-size:13px;">'
+                    + '<div style="font-weight:700;color:#666;">Keyword</div><div style="font-weight:700;color:#666;">Impr.</div><div style="font-weight:700;color:#666;">Clicks</div><div style="font-weight:700;color:#666;">Pos.</div><div></div>'
+                    + opts.map((o, i) =>
+                        '<div style="font-weight:600;">' + escBlog(o.keyword) + '</div>'
+                        + '<div>' + (o.impressions != null ? o.impressions : '—') + '</div>'
+                        + '<div>' + (o.clicks != null ? o.clicks : '—') + '</div>'
+                        + '<div>' + (o.position != null ? o.position : '—') + '</div>'
+                        + '<div><button onclick="useGscTopic(' + i + ')" style="background:#1f5f4f;color:#fff;border:none;border-radius:6px;padding:5px 12px;font-weight:700;cursor:pointer;">Use</button></div>'
+                      ).join('')
+                    + '</div>';
+            } catch (e) { box.innerHTML = '<span style="color:#a33;font-size:13px;">Could not load topics.</span>'; }
+        }
+        function useGscTopic(i) {
+            const o = (window.__GSC_BLOG || [])[i]; if (!o) return;
+            const input = document.getElementById('new-title-input');
+            if (input) { input.value = o.keyword; input.focus(); input.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+            const out = document.getElementById('add-title-result');
+            if (out) out.innerHTML = '<span style="color:#1f5f4f;">Review/polish the title above, then click “Check &amp; Add”.</span>';
+        }
+
         function switchTab(tab) {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(p => p.classList.remove('active'));
             document.getElementById(`tab-${tab}`).classList.add('active');
             document.getElementById(`panel-${tab}`).classList.add('active');
             if (tab !== 'ideas') clearSelection();
+            if (tab === 'towrite') loadGscBlogTopics();
         }
 
         function updateTabCounts() {
