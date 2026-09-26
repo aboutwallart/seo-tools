@@ -1,4 +1,6 @@
-// shopify-bulk.js — v3.2 (19 Sep 2026)
+// shopify-bulk.js — v3.3 (26 Sep 2026)
+// v3.3: Other-fields tab gains "SEO title" → "Remove brand" — strips "About Wall Art" (any form) from
+//       product SEO titles, with per-field backup, preview and undo, same as the other product fields.
 // v3.2: xlsx-data accepts a vendors[] list (Collective) — defaults to About Wall Art — and adds an
 //       'options' column (each variant's own selectedOptions joined) for non-AWA products.
 // v3.1 (rolled into v3.2 delivery)
@@ -74,6 +76,19 @@ const UNDO_INDEX = 'data/bulk-price-undos.json';       // price undo list
 const UNDO_DIR = 'data/bulk-price-undo';                // price undo snapshots
 const FIELD_UNDO_INDEX = 'data/bulk-field-undos.json';  // other-fields undo list
 const FIELD_UNDO_DIR = 'data/bulk-field-undo';          // other-fields undo snapshots
+
+// Remove the brand ("About Wall Art" in any spacing/case/punctuation, optional "UK" / ".com")
+// from an SEO title and tidy the leftover separator/spaces. No brand present -> unchanged.
+function removeBrandFromTitle(s) {
+  if (!s) return s || '';
+  let out = String(s);
+  out = out.replace(/about[\s._-]*wall[\s._-]*art(?:[\s._-]*uk)?(?:\.com)?/gi, '');
+  out = out.replace(/\s*[|·–—:]\s*[|·–—:]\s*/g, ' | ');
+  out = out.replace(/^\s*[|·–—:]\s*/, '').replace(/\s*[|·–—:]\s*$/, '');
+  out = out.replace(/^\s*-\s+/, '').replace(/\s+-\s*$/, '');
+  out = out.replace(/\s{2,}/g, ' ').trim();
+  return out;
+}
 const CLUSTER_TAGS_PATH = 'data/cluster-tags.json';
 const AWA_VENDOR = 'About Wall Art';                    // weight is restricted to this vendor
 
@@ -415,6 +430,7 @@ module.exports = async function handler(req, res) {
     if (field === 'unitprice')return 'id title vendor status variants(first:100){ nodes { id title price compareAtPrice inventoryItem{ unitCost{ amount } } } } ';
     if (field === 'awaprice') return 'id title vendor status variants(first:100){ nodes { id title price compareAtPrice selectedOptions{ name value } } }';
     if (field === 'soldout') return 'id title vendor status variants(first:100){ nodes { id title inventoryPolicy inventoryQuantity selectedOptions{ name value } inventoryItem{ id } } }';
+    if (field === 'seotitle') return 'id title vendor status seo{ title }';
     return 'id title vendor status';
   }
 
@@ -509,7 +525,7 @@ module.exports = async function handler(req, res) {
     // ---------------- per-FIELD backup (Tab 2: one field across the whole store) ----------------
     if (action === 'backup-field') {
       const field = q.field || body.field;
-      const allowed = ['tags', 'ptype', 'category', 'collections', 'weight', 'unitprice', 'awaprice', 'soldout'];
+      const allowed = ['tags', 'ptype', 'category', 'collections', 'weight', 'unitprice', 'awaprice', 'soldout', 'seotitle'];
       if (!field || allowed.indexOf(field) === -1) return res.status(400).json({ ok: false, error: 'valid field required' });
       // weight, AWA prices & sold-out only exist for About Wall Art products, so back up just those (small & fast)
       const vendorFilter = (field === 'weight' || field === 'awaprice' || field === 'soldout') ? `vendor:'About Wall Art'` : null;
@@ -522,6 +538,7 @@ module.exports = async function handler(req, res) {
         if (field === 'weight') return 'id variants(first:100){ nodes{ id inventoryItem{ id measurement{ weight{ value unit } } } } }';
         if (field === 'unitprice' || field === 'awaprice') return 'id variants(first:100){ nodes{ id price compareAtPrice } }';
         if (field === 'soldout') return 'id variants(first:100){ nodes{ id inventoryPolicy inventoryItem{ id inventoryLevels(first:5){ nodes{ location{ id } quantities(names:["available"]){ name quantity } } } } } }';
+        if (field === 'seotitle') return 'id seo{ title }';
         return 'id';
       }
       const rows = [];
@@ -540,6 +557,7 @@ module.exports = async function handler(req, res) {
           else if (field === 'weight') rows.push({ productId: pr.id, weights: (pr.variants && pr.variants.nodes ? pr.variants.nodes : []).map(v => { const w = v.inventoryItem && v.inventoryItem.measurement && v.inventoryItem.measurement.weight ? v.inventoryItem.measurement.weight : null; return { variantId: v.id, inventoryItemId: v.inventoryItem ? v.inventoryItem.id : null, value: w ? w.value : null, unit: w ? w.unit : null }; }) });
           else if (field === 'unitprice' || field === 'awaprice') rows.push({ productId: pr.id, variants: (pr.variants && pr.variants.nodes ? pr.variants.nodes : []).map(v => ({ variantId: v.id, price: v.price, compareAtPrice: v.compareAtPrice })) });
           else if (field === 'soldout') rows.push({ productId: pr.id, variants: (pr.variants && pr.variants.nodes ? pr.variants.nodes : []).map(v => { const lv = firstLevelOf(v); return { variantId: v.id, inventoryItemId: v.inventoryItem ? v.inventoryItem.id : null, locationId: lv.locationId, policy: v.inventoryPolicy, available: lv.available }; }) });
+          else if (field === 'seotitle') rows.push({ productId: pr.id, seoTitle: pr.seo ? (pr.seo.title || '') : '' });
         });
         pages++;
         if (!conn.pageInfo.hasNextPage) break;
@@ -899,6 +917,18 @@ module.exports = async function handler(req, res) {
             payload: { category: cfg.categoryId } });
         }
 
+        else if (field === 'seotitle') {
+          const cur = pr.seo ? (pr.seo.title || '') : '';
+          const next = removeBrandFromTitle(cur);
+          const changed = next !== cur;
+          unitCount++;
+          if (changed) changeCount++;
+          rows.push({ productId: pr.id, productTitle: pr.title, vendor: pr.vendor,
+            oldVal: cur || '(none)', newVal: changed ? next : (cur || '(none)'),
+            changed, blocked: false, note: changed ? '' : 'no brand in the SEO title',
+            payload: { seoTitle: next } });
+        }
+
         else if (field === 'collections') {
           const curNodes = (pr.collections && pr.collections.nodes) || [];
           const manualIds = new Set(Array.isArray(cfg.manualIds) ? cfg.manualIds : []);
@@ -1049,14 +1079,14 @@ module.exports = async function handler(req, res) {
       let updated = 0;
 
       // ---------- PRODUCT-level fields via productUpdate ----------
-      if (field === 'tags' || field === 'ptype' || field === 'category' || field === 'collections') {
+      if (field === 'tags' || field === 'ptype' || field === 'category' || field === 'collections' || field === 'seotitle') {
         const pids = items.map(it => it.productId).filter(Boolean);
         // read current values for undo
         const cur = {};
         for (let i = 0; i < pids.length; i += 50) {
           const chunk = pids.slice(i, i + 50);
           const qy = 'query { ' + chunk.map((pid, j) =>
-            `p${j}: product(id:"${pid}"){ id tags productType category{ id } collections(first:100){ nodes{ id } } }`).join(' ') + ' }';
+            `p${j}: product(id:"${pid}"){ id tags productType category{ id } seo{ title } collections(first:100){ nodes{ id } } }`).join(' ') + ' }';
           const data = await shopify(qy);
           chunk.forEach((pid, j) => { const n = data[`p${j}`]; if (n) cur[pid] = n; });
         }
@@ -1066,6 +1096,7 @@ module.exports = async function handler(req, res) {
           else if (field === 'ptype') snapshot.push({ productId: it.productId, oldType: c.productType || '' });
           else if (field === 'category') snapshot.push({ productId: it.productId, oldCategoryId: c.category ? c.category.id : null });
           else if (field === 'collections') snapshot.push({ productId: it.productId, added: it.payload.join || [], removed: it.payload.leave || [] });
+          else if (field === 'seotitle') snapshot.push({ productId: it.productId, oldSeoTitle: c.seo ? (c.seo.title || '') : '' });
         });
         await saveFieldUndoSnapshot(undoId, field, snapshot, isFirst); // save undo BEFORE writing
         // write, one productUpdate per product, batched
@@ -1081,6 +1112,7 @@ module.exports = async function handler(req, res) {
               if (p.join && p.join.length) input += `, collectionsToJoin:[${p.join.map(id => `"${id}"`).join(',')}]`;
               if (p.leave && p.leave.length) input += `, collectionsToLeave:[${p.leave.map(id => `"${id}"`).join(',')}]`;
             }
+            if (field === 'seotitle') input += `, seo:{ title:${JSON.stringify(p.seoTitle || '')} }`;
             return `  u${j}: productUpdate(input:{${input}}){ userErrors{ field message } }`;
           });
           const m = 'mutation {\n' + parts.join('\n') + '\n}';
@@ -1248,7 +1280,7 @@ module.exports = async function handler(req, res) {
       const limit = Number(body.limit) || snap.snapshot.length;
       const work = snap.snapshot.slice(offset, offset + limit);
 
-      if (field === 'tags' || field === 'ptype' || field === 'category' || field === 'collections') {
+      if (field === 'tags' || field === 'ptype' || field === 'category' || field === 'collections' || field === 'seotitle') {
         for (let i = 0; i < work.length; i += 20) {
           const chunk = work.slice(i, i + 20);
           const m = 'mutation {\n' + chunk.map((s, j) => {
@@ -1261,6 +1293,7 @@ module.exports = async function handler(req, res) {
               if (s.removed && s.removed.length) input += `, collectionsToJoin:[${s.removed.map(id => `"${id}"`).join(',')}]`;
               if (s.added && s.added.length) input += `, collectionsToLeave:[${s.added.map(id => `"${id}"`).join(',')}]`;
             }
+            if (field === 'seotitle') input += `, seo:{ title:${JSON.stringify(s.oldSeoTitle || '')} }`;
             return `  u${j}: productUpdate(input:{${input}}){ userErrors{ message } }`;
           }).join('\n') + '\n}';
           const data = await shopify(m);

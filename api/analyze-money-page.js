@@ -1,7 +1,10 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v51.8
+// analyze-money-page.js — v51.9
+// v51.9 (2026-09-26): product SEO title — AI is now explicitly told to NEVER include the brand/store
+//   name ("About Wall Art"/"AboutWallArt") in the SEO title (product prompt title field + rule, and the
+//   generic fallback's "include brand or USP" replaced with the same negative rule). No layout change.
 // v51.8 (Sep 4, 2026): SCRAPPA RETRIES. Scrappa's Google search returns a transient HTTP 503
 //                        ("temporarily unable to return a valid SERP") — confirmed via runtime logs.
 //                        Now retries 503/429 up to 3× with a short backoff (honours Retry-After)
@@ -2234,7 +2237,7 @@ ${loserPages.map(l => `- ${l.loserUrl} (${l.pageType}, keyword: "${l.loserKeywor
 ` : ''}
 
 RULES:
-- suggestedTitle: max 60 chars (hard limit — audit flags above this), keyword near start, include brand or USP
+- suggestedTitle: max 60 chars (hard limit — audit flags above this), keyword near start, and NEVER include the brand or store name (e.g. "About Wall Art" / "AboutWallArt") anywhere in the title
 - suggestedMeta: max 135 chars (hard limit — also used as OG description, stricter threshold), keyword, main benefit, CTA
 - suggestedDescription: plain text only, no HTML, 2-3 sentences, keyword-rich, UK spelling
 - pageSchema: write complete valid schema appropriate for the page type — for collections include numberOfItems, for articles include author/datePublished. NEVER fabricate a price or offer: only include offers/price if a real price is given in the page data above, otherwise omit them. NEVER suggest product-level schema for individual items within a collection page — that belongs on each product page separately and should NOT appear here.
@@ -2709,7 +2712,7 @@ ${competitors.map(c => `--- Position ${c.position}: ${c.url}
 Return this exact JSON structure with real content (no placeholders):
 
 {
-  "suggestedTitle": "Optimised SEO title tag, max 60 chars, keyword near start, UK spelling",
+  "suggestedTitle": "Optimised SEO title tag, max 60 chars, keyword near start, UK spelling. NEVER include the brand or store name (e.g. 'About Wall Art', 'AboutWallArt') — no separator + brand at the end, no brand anywhere. Use the whole title for the keyword and its value.",
   "suggestedMeta": "Compelling meta description, max 135 chars, keyword included, ends with a benefit or CTA, UK spelling. Do NOT mention shipping — 'Free UK shipping!' is appended automatically.",
   "descriptionAlreadyOptimised": false,
   "descriptionOptimisedReason": "",
@@ -2819,7 +2822,7 @@ IMPORTANT: do NOT describe frames, perspex, canvas, paper types, sizes, mounts, 
 - BANNED PHRASES: "in the ever-evolving world of", "at the forefront of", "in summary", "in conclusion", "in essence", "it's important to note", "emerges as a beacon", "dive into".
 
 ═══ OTHER RULES ═══
-- suggestedTitle: max 60 chars, keyword near start. suggestedMeta: max 135 chars, keyword once, benefit, CTA. (Copy-only — not pushed.)
+- suggestedTitle: max 60 chars, keyword near start, and NEVER include the brand or store name (e.g. "About Wall Art" / "AboutWallArt") — do not append it with a separator or put it anywhere in the title. suggestedMeta: max 135 chars, keyword once, benefit, CTA. (Copy-only — not pushed.)
 - aiItems — generate all three rich-text snippets in the EXACT H2 formats shown (heading level 2). how_to_block and comparison_table use bold-labelled paragraphs (rich text cannot hold real tables). Keep "metafieldKey" and "format" EXACTLY as shown. competitorDriven: true when a snippet fills a competitor gap, else false.
 - keywordOveruse: examine the current description + metafields; flag genuine over-use of "${keyword}" only (exclude shared theme chrome). If clean, isOverstuffed:false with an empty findings array.
 - ⚠️ HEADINGS & KEYWORD (SEO balance): put the EXACT keyword "${keyword}" in AT MOST TWO headings across the WHOLE description + snippets (e.g. the "How to Style" H2 and the Comparison Snippet H2). For ALL other H2/H3 headings, write a NATURAL VARIATION or related phrasing (still topical and useful) — do NOT repeat the exact keyword in every heading; that is stuffing and hurts ranking.
