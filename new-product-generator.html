@@ -105,6 +105,7 @@
   .kwrow .kw{font-weight:600}
   .diff-e{color:var(--ok);font-weight:600}.diff-m{color:var(--warn);font-weight:600}.diff-h{color:var(--danger);font-weight:600}
   .intent{font-size:11px;background:var(--chip);border-radius:20px;padding:2px 8px}
+  .srcpill{font-size:10px;font-weight:700;border-radius:20px;padding:2px 8px;text-transform:uppercase;letter-spacing:.3px}
   .comingsoon{border:1px solid #e6d9a8;background:#fdf9ec;border-radius:10px;padding:14px 16px;margin-top:14px}
   .comingsoon .cshead{display:flex;align-items:center;gap:8px;font-weight:650;font-size:13px;color:#6b551a}
   .csbadge{font-size:10.5px;font-weight:700;color:#6b551a;background:#f3e6b8;border-radius:20px;padding:2px 9px;text-transform:uppercase;letter-spacing:.3px}
@@ -155,7 +156,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v2.3</span>
+  <span class="ver">v2.4</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -296,6 +297,7 @@ function renderStepCollapsed(n,p){
     '<span class="srsummary">'+summary+(extra?' <span class="srextra">· '+esc(extra)+'</span>':'')+'</span>'+
     badge+
     '<button class="btn ghost small sredit" onclick="editStep('+n+')">Edit</button>'+
+    (n===1?'<button class="btn ghost small" style="color:var(--danger);margin-left:8px" onclick="deleteCurrent(\''+esc(p.sku)+'\')">Delete</button>':'')+
   '</div></div>';
 }
 function renderStepOpen(n,p){
@@ -385,7 +387,6 @@ function stepProductForm(p){
       '<button class="btn primary" id="saveBtn" onclick="saveStep1()">Save and continue</button>'+
       (isNew?'<button class="btn ghost" onclick="cancelDraft()">Cancel</button>'
             :'<button class="btn ghost" onclick="closeEdit()">Cancel</button>')+
-      (isNew?'':'<button class="btn ghost" style="margin-left:auto;color:var(--danger)" onclick="deleteCurrent(\''+esc(p.sku)+'\')">Delete this product</button>')+
     '</div>';
 }
 function renderCollections(){
@@ -484,10 +485,9 @@ async function deleteCurrent(sku){
 function stepKeyword(p){
   return '<p class="sub">Pick one keyword. Options come from your competitors-gap file — nothing is locked in the registry yet (that happens when the product is sent to Shopify).</p>'+
     '<div id="kwResults">'+(KW_LOADING?'<div class="empty"><span class="spin" style="border-color:var(--accent);border-top-color:transparent"></span>Searching your competitors-gap file…</div>':'')+'</div>'+
-    '<div id="gscResults"></div>'+
     '<div class="comingsoon">'+
       '<div class="cshead">From Google Keyword Planner <span class="csbadge">coming soon</span></div>'+
-      '<p>Google Keyword Planner ideas will show here as a second source, kept separate from the gap-file options.</p>'+
+      '<p>Google Keyword Planner ideas will join the list above (in pastel blue) as a third source, ranked by potential.</p>'+
     '</div>'+
     (isStepDone(p,2)?'<div class="actions" style="margin-top:16px"><button class="btn ghost" onclick="closeEdit()">Done</button></div>':'');
 }
@@ -505,11 +505,11 @@ async function ensureKwResults(p){
 }
 async function ensureGscResults(p){
   if(!p) return;
-  if(GSC_RESULTS){ renderGscResults(); return; }
+  if(GSC_RESULTS){ renderKwResults(); return; }
   try{
     const r=await api({action:'gsc-opportunities',sku:p.sku});
     GSC_RESULTS=r.options||[];
-    renderGscResults();
+    renderKwResults();
   }catch(e){ /* silent — GSC source is optional */ }
 }
 function renderGscResults(){
@@ -537,12 +537,63 @@ async function applyGscKw(i){
   const o=(GSC_RESULTS||[])[i]; if(!o) return;
   await doSetKeyword(p.sku, o.keyword);
 }
+function mergedOptions(p){
+  const gapR=(KW_RESULTS||[]).find(x=>x.sku===p.sku)||(KW_RESULTS||[])[0]||{options:[]};
+  const gap=(gapR.options||[]).map(o=>({source:'gap',keyword:o.keyword,volume:o.volume,difficulty:o.difficulty,difficultyRaw:o.difficultyRaw,
+    pot:Math.sqrt((o.volume||0)+1)*(100/(((o.difficulty==null?50:o.difficulty))+10))}));
+  const gsc=(GSC_RESULTS||[]).map(o=>({source:'gsc',keyword:o.keyword,impressions:o.impressions,clicks:o.clicks,position:o.position,
+    pot:Math.sqrt((o.impressions||0)+1)*(100/(((o.position==null?20:o.position))+10))}));
+  const seen=new Set();
+  return [...gap,...gsc].sort((a,b)=>b.pot-a.pot).filter(o=>{const k=(o.keyword||'').toLowerCase(); if(!k||seen.has(k))return false; seen.add(k); return true;});
+}
+function mergedRow(o,i,p){
+  const isCurrent=p.keyword&&p.keyword.toLowerCase()===o.keyword.toLowerCase();
+  const bg=o.source==='gap'?'background:#fdf9ec':'background:#f4faf8';
+  const badge=o.source==='gap'
+    ? '<span class="srcpill" style="background:#f3e6b8;color:#6b551a">gap</span>'
+    : '<span class="srcpill" style="background:#d9efe6;color:#1f5f4f">GSC</span>';
+  const metric=o.source==='gap'
+    ? ('vol '+(o.volume!=null?o.volume:'—')+' · '+diffLabel(o))
+    : ((o.impressions!=null?o.impressions:'—')+' impr · '+(o.clicks!=null?o.clicks:'—')+' clk · pos '+(o.position!=null?o.position:'—'));
+  return '<div class="kwrow" style="'+bg+'">'+
+    '<span class="kw">'+(isCurrent?'✓ ':'')+esc(o.keyword)+'</span>'+
+    '<span>'+badge+'</span>'+
+    '<span class="pct" style="font-size:11px;color:var(--muted)">'+esc(metric)+'</span>'+
+    '<span></span>'+
+    '<span class="h-act"><button class="btn '+(isCurrent?'ghost':'primary')+' small" onclick="applyMergedKw('+i+')">'+(isCurrent?'Selected':'Use')+'</button></span>'+
+  '</div>';
+}
+async function applyMergedKw(i){
+  const p=currentProduct(); if(!p) return;
+  const o=(window.__MERGED||[])[i]; if(!o) return;
+  await doSetKeyword(p.sku,o.keyword);
+}
 function renderKwResults(){
   const box=document.getElementById('kwResults'); if(!box) return;
   const p=currentProduct(); if(!p){ box.innerHTML=''; return; }
-  const r=(KW_RESULTS||[]).find(x=>x.sku===p.sku) || (KW_RESULTS||[])[0] || {sku:p.sku,options:[]};
-  box.innerHTML=blockHtml(r);
-  if(!r.options||!r.options.length) togglePrompt(true);
+  const opts=mergedOptions(p); window.__MERGED=opts;
+  const rowsHtml=opts.length ? opts.map((o,i)=>mergedRow(o,i,p)).join('')
+    : (KW_LOADING?'':'<div class="empty">No matching options yet. Add extra keyword terms, generate an Ubersuggest prompt, or add one manually below.</div>');
+  box.innerHTML='<div class="kwblock">'+
+    '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);margin-bottom:10px">'+
+      '<span><span class="srcpill" style="background:#f3e6b8;color:#6b551a">gap</span> competitors-gap file</span>'+
+      '<span><span class="srcpill" style="background:#d9efe6;color:#1f5f4f">GSC</span> you appear but don’t get clicked</span>'+
+    '</div>'+
+    (opts.length?'<div class="kwrow hd"><span>Keyword</span><span>Source</span><span>Metric</span><span></span><span></span></div>':'')+
+    rowsHtml+
+    '<div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">'+
+      '<button class="btn ghost small" onclick="togglePrompt()">Don’t like these? Generate Ubersuggest prompt</button>'+
+    '</div>'+
+    '<div id="promptBox" style="display:none;margin-top:10px">'+
+      '<div style="background:#fafbfb;border:1px solid var(--border);border-radius:9px;padding:10px 12px;font-size:12.5px;white-space:pre-wrap" id="promptText"></div>'+
+      '<button class="btn ghost small" style="margin-top:8px" onclick="copyPrompt()">Copy prompt</button>'+
+    '</div>'+
+    '<div style="margin-top:14px;border-top:1px solid #f0f1f2;padding-top:12px">'+
+      '<label class="f" style="margin-bottom:6px">Add keyword manually (from Ubersuggest)</label>'+
+      '<div style="display:flex;gap:8px"><input type="text" id="manualKw" placeholder="paste the keyword you picked"><button class="btn primary small" onclick="applyManualKw()">Add</button></div>'+
+    '</div>'+
+  '</div>';
+  if(!opts.length && !KW_LOADING) togglePrompt(true);
 }
 function diffClass(d){ if(d==null)return ''; if(d<=20)return 'diff-e'; if(d<=40)return 'diff-m'; return 'diff-h'; }
 function diffDot(d){ if(d==null)return ''; if(d<=20)return '🟢 '; if(d<=40)return '🟡 '; return '🔴 '; }
