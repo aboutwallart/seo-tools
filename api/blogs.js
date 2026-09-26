@@ -1,4 +1,6 @@
-// blogs.js — v4.3
+// blogs.js — v4.4
+// v4.4 (2026-09-26): new GET action `gsc-blog-opportunities` — informational GSC opportunity keywords
+//                    for new blogs, minus ones a blog already covers (registry Published/To_Write blog).
 // v4.3 (Sep 4, 2026): Scrappa competitor fallback now retries transient HTTP 503/429 (up to 3×,
 //                     short backoff) before dead-ending — matches api/analyze-money-page.js v51.8.
 // v4.2 (Aug 21, 2026): Blog scheduling now spaces new blogs EVERY OTHER DAY (1 day on, 1 day off)
@@ -1104,6 +1106,35 @@ Include EXACTLY 3 items.`;
           }
         }
         return res.status(200).json({ success: true, publishedBlogs });
+      }
+
+      // ── ACTION: gsc-blog-opportunities ── informational GSC opportunities for new blogs,
+      // minus any keyword a blog already covers (registry source Published Blog / To_Write_Blog).
+      if (req.query.action === 'gsc-blog-opportunities') {
+        let list = [];
+        try {
+          const rr = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/gsc-opportunity-keywords.json?t=${Date.now()}`);
+          if (rr.ok) { const j = await rr.json(); list = Array.isArray(j.keywords) ? j.keywords : []; }
+        } catch (e) { /* no list yet */ }
+        const blogKws = [];
+        try {
+          const rc = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/keyword-locker-registry.csv?t=${Date.now()}`);
+          if (rc.ok) {
+            const txt = await rc.text();
+            txt.split('\n').forEach((line, i) => {
+              if (i === 0 || !line.trim()) return;
+              const c = parseCSVLine(line.replace(/\r/g, ''));
+              const src = (c[9] || '');
+              if ((src === 'Published Blog' || src === 'To_Write_Blog') && c[0]) blogKws.push(c[0].toLowerCase());
+            });
+          }
+        } catch (e) { /* ignore */ }
+        const options = list
+          .filter(k => k && k.keyword && k.intent === 'blog')
+          .filter(k => { const kw = k.keyword.toLowerCase(); return !blogKws.some(bk => bk === kw || bk.includes(kw)); })
+          .slice(0, 20)
+          .map(k => ({ keyword: k.keyword, impressions: k.impressions, clicks: k.clicks, position: k.position }));
+        return res.status(200).json({ success: true, options });
       }
 
       // ── ACTION: get-registry ──
