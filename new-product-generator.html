@@ -155,7 +155,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v2.1</span>
+  <span class="ver">v2.2</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -188,6 +188,9 @@ const COLOUR_CHOICES = ["Black","White","Blue","Pink","Green","Grey","Plum","Ivo
 let GROUPS = JSON.parse(JSON.stringify(BASE_GROUPS));
 let CUSTOM = {};          // added collections per group (persisted)
 let PRODUCTS = [];        // loaded from GitHub
+let TEMPLATES = null;     // [{suffix,label}] loaded from Shopify theme; null until loaded
+let TEMPLATES_ERROR = ''; // set if the live template list couldn't load (falls back to wall-decor)
+const DEFAULT_TEMPLATE = 'wall-decor';
 
 /* ---------- FLOW STATE ---------- */
 let DRAFT = false;        // true = showing an empty Step-1 form for a brand-new, not-yet-saved product
@@ -254,7 +257,7 @@ function renderFlow(){
 
   // Step 1's form fields are recreated each render — (re)populate the selectors.
   if(openN===1){
-    renderCollections(); renderTrends(); renderGroupChecks(); fillColourSelect();
+    renderCollections(); renderTrends(); renderGroupChecks(); fillColourSelect(); fillTemplateSelect(p);
     prefillStep1(p);
   }
   // Step 2 auto-searches keywords when it opens (option A).
@@ -332,6 +335,11 @@ function stepProductForm(p){
         '<textarea id="aiNotes" placeholder="e.g. mention it works well in a nursery, or that it comes as a set of 3"></textarea>'+
       '</div>'+
     '</div>'+
+    '<div class="field">'+
+      '<label class="f">Theme template <span style="color:var(--muted);font-weight:400">— leave as Wall art unless you need a different one</span></label>'+
+      '<select id="template" class="sel"></select>'+
+      '<div id="templateNote" class="sub" style="margin:6px 0 0"></div>'+
+    '</div>'+
     '<div class="block">'+
       '<div class="block-head"><h3>Collections</h3><button class="btn link" onclick="toggleAddCol()">＋ Add collection</button></div>'+
       '<div class="cols" id="colCols"></div>'+
@@ -390,6 +398,19 @@ function renderCollections(){
 function renderTrends(){ const el=document.getElementById('trendGrid'); if(el) el.innerHTML=TRENDS.map(t=>'<label class="opt"><input type="checkbox" class="trend-cb" value="'+esc(t)+'">'+esc(t)+'</label>').join(''); }
 function renderGroupChecks(){ const el=document.getElementById('groupChecks'); if(el) el.innerHTML=Object.keys(GROUPS).map(g=>'<label><input type="checkbox" class="grp-cb" value="'+esc(g)+'">'+g+'</label>').join(''); }
 function fillColourSelect(){ const sel=document.getElementById('colour'); if(!sel) return; COLOUR_CHOICES.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;sel.appendChild(o);}); }
+function templateLabel(t){ return (t.suffix===DEFAULT_TEMPLATE ? 'Wall art (wall-decor) — default' : t.label); }
+function fillTemplateSelect(p){
+  const sel=document.getElementById('template'); if(!sel) return;
+  const list = (TEMPLATES && TEMPLATES.length) ? TEMPLATES : [{suffix:DEFAULT_TEMPLATE,label:DEFAULT_TEMPLATE}];
+  const want = (p && p.templateSuffix!==undefined && p.templateSuffix!==null) ? p.templateSuffix : DEFAULT_TEMPLATE;
+  sel.innerHTML=list.map(t=>'<option value="'+esc(t.suffix)+'"'+(t.suffix===want?' selected':'')+'>'+esc(templateLabel(t))+'</option>').join('');
+  const note=document.getElementById('templateNote');
+  if(note) note.textContent = TEMPLATES_ERROR ? ('Couldn’t load the live template list ('+TEMPLATES_ERROR+') — using Wall art. It’ll still send fine.') : '';
+}
+async function loadTemplates(){
+  try{ const r=await api({action:'list-product-templates'}); TEMPLATES=r.templates||[]; TEMPLATES_ERROR=''; }
+  catch(e){ TEMPLATES=[{suffix:DEFAULT_TEMPLATE,label:DEFAULT_TEMPLATE}]; TEMPLATES_ERROR=e.message; }
+}
 function addPrimaryBox(val){ const box=document.getElementById('primaryBoxes'); if(!box) return; const row=document.createElement('div');row.className='pcrow';const inp=document.createElement('input');inp.type='text';inp.className='primary-cb';inp.placeholder='e.g. White';inp.value=val||'';const x=document.createElement('button');x.className='pcx';x.title='Remove';x.textContent='×';x.onclick=()=>{if(document.querySelectorAll('.pcrow').length>1)row.remove();else inp.value='';};row.appendChild(inp);row.appendChild(x);box.appendChild(row); }
 function syncSetRadios(){ document.querySelectorAll('#setRadios .radio').forEach(r=>r.classList.toggle('on',r.querySelector('input').checked)); }
 function toggleAddCol(){ const b=document.getElementById('addBox'); if(b) b.classList.toggle('open'); }
@@ -427,6 +448,7 @@ function collectForm(){
     trends:[...document.querySelectorAll('.trend-cb:checked')].map(x=>x.value),
     primaryColour:[...document.querySelectorAll('.primary-cb')].map(x=>x.value.trim()).filter(Boolean),
     colour:document.getElementById('colour').value,
+    templateSuffix:(document.getElementById('template')||{}).value ?? DEFAULT_TEMPLATE,
     aiNotes:document.getElementById('aiNotes').value.trim(),
     keywordWords:document.getElementById('keywordWords').value.split(',').map(w=>w.trim()).filter(Boolean) };
 }
@@ -894,6 +916,7 @@ document.getElementById('sharedImagesBtn').onclick=async()=>{
 /* ---------- INIT ---------- */
 async function init(){
   loadSharedImagesStatus();
+  await loadTemplates();
   try{ const c=await api({action:'list-collections'}); CUSTOM=c.custom||{}; Object.keys(CUSTOM).forEach(g=>{ if(!GROUPS[g])GROUPS[g]=[]; CUSTOM[g].forEach(n=>{ if(!GROUPS[g].includes(n))GROUPS[g].push(n); }); }); }catch(e){}
   try{ const r=await api({action:'list-products'}); PRODUCTS=r.products||[]; }
   catch(e){ document.getElementById('flow').innerHTML='<div class="empty">Could not load products: '+esc(e.message)+'</div>'; return; }
