@@ -155,7 +155,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v2.0</span>
+  <span class="ver">v2.1</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -200,7 +200,7 @@ let KW_LOADING = false;   // Step 2 auto-search in flight
 async function api(payload){
   const r = await fetch('/api/keywords',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
   let j; try{ j = await r.json(); }catch{ throw new Error('Bad response'); }
-  if(!j.ok) throw new Error(j.error || j.message || 'Error');
+  if(!j.ok) throw new Error(j.message || j.error || 'Error');
   return j;
 }
 function msg(text,type){ const m=document.getElementById('msg'); m.textContent=text; m.className='msg show '+(type||'info'); if(type==='ok'){ setTimeout(()=>{ if(m.textContent===text) m.className='msg'; },3500);} }
