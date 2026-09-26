@@ -155,7 +155,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v2.2</span>
+  <span class="ver">v2.3</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -197,6 +197,7 @@ let DRAFT = false;        // true = showing an empty Step-1 form for a brand-new
 let EDIT_STEP = null;     // if set, force this step open for editing even though it's already "done"
 let IMAGE_STATE = {};     // sku -> {data, mediaType} (artwork base64, no data: prefix)
 let KW_RESULTS = null;    // Step 2 cached gap-research results for the current product
+let GSC_RESULTS = null;   // Step 2 cached GSC opportunity keywords (commercial, not locked)
 let KW_LOADING = false;   // Step 2 auto-search in flight
 
 /* ---------- API ---------- */
@@ -310,7 +311,7 @@ function renderStepOpen(n,p){
   '</div></div>';
 }
 function startDraft(){ DRAFT=true; EDIT_STEP=null; renderFlow(); }
-function editStep(n){ EDIT_STEP=n; if(n===2){ KW_RESULTS=null; } renderFlow(); }
+function editStep(n){ EDIT_STEP=n; if(n===2){ KW_RESULTS=null; GSC_RESULTS=null; } renderFlow(); }
 function closeEdit(){ EDIT_STEP=null; renderFlow(); }
 
 /* =====================================================================
@@ -483,6 +484,7 @@ async function deleteCurrent(sku){
 function stepKeyword(p){
   return '<p class="sub">Pick one keyword. Options come from your competitors-gap file — nothing is locked in the registry yet (that happens when the product is sent to Shopify).</p>'+
     '<div id="kwResults">'+(KW_LOADING?'<div class="empty"><span class="spin" style="border-color:var(--accent);border-top-color:transparent"></span>Searching your competitors-gap file…</div>':'')+'</div>'+
+    '<div id="gscResults"></div>'+
     '<div class="comingsoon">'+
       '<div class="cshead">From Google Keyword Planner <span class="csbadge">coming soon</span></div>'+
       '<p>Google Keyword Planner ideas will show here as a second source, kept separate from the gap-file options.</p>'+
@@ -490,7 +492,7 @@ function stepKeyword(p){
     (isStepDone(p,2)?'<div class="actions" style="margin-top:16px"><button class="btn ghost" onclick="closeEdit()">Done</button></div>':'');
 }
 async function ensureKwResults(p){
-  if(KW_RESULTS || KW_LOADING || !p) { if(KW_RESULTS) renderKwResults(); return; }
+  if(KW_RESULTS || KW_LOADING || !p) { if(KW_RESULTS) renderKwResults(); ensureGscResults(p); return; }
   KW_LOADING=true;
   try{
     const r=await api({action:'gap-research',products:[p]});
@@ -499,6 +501,41 @@ async function ensureKwResults(p){
     // auto-open the prompt for a product with zero options
     renderKwResults();
   }catch(e){ KW_LOADING=false; const box=document.getElementById('kwResults'); if(box) box.innerHTML='<div class="msg show err">Keyword search failed: '+esc(e.message)+'</div>'; }
+  ensureGscResults(p);
+}
+async function ensureGscResults(p){
+  if(!p) return;
+  if(GSC_RESULTS){ renderGscResults(); return; }
+  try{
+    const r=await api({action:'gsc-opportunities',sku:p.sku});
+    GSC_RESULTS=r.options||[];
+    renderGscResults();
+  }catch(e){ /* silent — GSC source is optional */ }
+}
+function renderGscResults(){
+  const box=document.getElementById('gscResults'); if(!box) return;
+  const opts=GSC_RESULTS||[];
+  if(!opts.length){ box.innerHTML=''; return; }
+  box.innerHTML='<div class="kwblock" style="border-color:#cfe2db;background:#f4faf8">'+
+    '<h4>From Google Search Console <span class="status kw" style="margin-left:6px">you appear but don\'t get clicked</span></h4>'+
+    '<div class="kwrow hd"><span>Keyword</span><span>Impr.</span><span>Clicks</span><span>Pos.</span><span></span></div>'+
+    opts.map((o,i)=>{
+      const cur=currentProduct();
+      const isCurrent=cur&&cur.keyword&&cur.keyword.toLowerCase()===o.keyword.toLowerCase();
+      return '<div class="kwrow">'+
+        '<span class="kw">'+(isCurrent?'✓ ':'')+esc(o.keyword)+'</span>'+
+        '<span>'+(o.impressions!=null?o.impressions:'—')+'</span>'+
+        '<span>'+(o.clicks!=null?o.clicks:'—')+'</span>'+
+        '<span>'+(o.position!=null?o.position:'—')+'</span>'+
+        '<span class="h-act"><button class="btn '+(isCurrent?'ghost':'primary')+' small" onclick="applyGscKw('+i+')">'+(isCurrent?'Selected':'Use')+'</button></span>'+
+      '</div>';
+    }).join('')+
+  '</div>';
+}
+async function applyGscKw(i){
+  const p=currentProduct(); if(!p) return;
+  const o=(GSC_RESULTS||[])[i]; if(!o) return;
+  await doSetKeyword(p.sku, o.keyword);
 }
 function renderKwResults(){
   const box=document.getElementById('kwResults'); if(!box) return;
