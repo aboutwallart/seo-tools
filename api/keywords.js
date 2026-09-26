@@ -1,4 +1,8 @@
-// api/keywords.js — New Product Generator backend  ·  v0.16
+// api/keywords.js — New Product Generator backend  ·  v0.17
+// v0.17 (2026-09-26): generate-content now honours product.aiNotes — a free-text field Mae fills in on
+//   the definition step ("mention it's got X") — worked into productDescription naturally. No new action;
+//   the field rides along on the existing save-product payload (schema-less) and generateContent already
+//   reads the full product record.
 // v0.16 (2026-09-22): linked_blogs now works without trends. Blogs are matched on the product's trends
 //   AND styles (by blog title/tags), capped at 3 per product, and picked at RANDOM so they vary from
 //   product to product (no longer only searched when a trend was ticked). Trend PAGES still come only
@@ -464,6 +468,7 @@ PRODUCT DEFINITION:
 - Defined colours: ${primaryColours || 'n/a'}
 - Trends: ${trends || 'n/a'}
 - Extra terms: ${extraWords || 'n/a'}
+${product.aiNotes ? '- MANDATORY — Mae\'s own instruction for this product, work it in naturally somewhere in productDescription (not forced, not a separate bullet unless it reads naturally as one): "' + product.aiNotes + '"' : ''}
 
 COMPETITORS (top-3 ranking for "${keyword}" right now). Use these to SHAPE the two closing H2 sections so this product covers what they cover and fills their gaps:
 ${competitorsBlock}
