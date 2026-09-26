@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bulk Editor</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #222; }
+
+    header { background: #1a1a2e; color: #fff; padding: 18px 32px; display: flex; align-items: center; gap: 16px; }
+    header h1 { font-size: 20px; font-weight: 600; }
+    header .version { font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 3px; }
+
+    .tabs { background: #fff; border-bottom: 1px solid #e5e7eb; display: flex; gap: 0; padding: 0 28px; }
+    .tab { padding: 14px 20px; font-size: 14px; font-weight: 500; cursor: pointer; border-bottom: 3px solid transparent; color: #888; transition: 0.15s; }
+    .tab.active { color: #1a1a2e; border-bottom-color: #1a1a2e; }
+    .tab.disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .container { max-width: 1400px; margin: 28px auto; padding: 0 24px; }
+
+    .card { background: #fff; border-radius: 10px; padding: 24px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); margin-bottom: 20px; }
+    .card-title { font-size: 14px; font-weight: 600; color: #1a1a2e; margin-bottom: 16px; }
+
+    .filters-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .filter-group { display: flex; flex-direction: column; gap: 5px; }
+    .filter-group label { font-size: 12px; font-weight: 500; color: #555; }
+    .filter-group input, .filter-group select { padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; width: 100%; }
+    .filter-group input:focus, .filter-group select:focus { outline: none; border-color: #1a1a2e; }
+
+    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 20px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; transition: opacity 0.15s; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-primary { background: #1a1a2e; color: #fff; }
+    .btn-primary:hover:not(:disabled) { opacity: 0.85; }
+    .btn-green { background: #16a34a; color: #fff; }
+    .btn-green:hover:not(:disabled) { opacity: 0.85; }
+    .btn-red { background: #dc2626; color: #fff; }
+    .btn-red:hover:not(:disabled) { opacity: 0.85; }
+    .btn-outline { background: #fff; color: #1a1a2e; border: 1px solid #d1d5db; }
+    .btn-outline:hover:not(:disabled) { background: #f9fafb; }
+    .btn-amber { background: #d97706; color: #fff; }
+    .btn-amber:hover:not(:disabled) { opacity: 0.85; }
+
+    .btn-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+    .progress-bar-bg { background: #e5e7eb; border-radius: 99px; height: 6px; overflow: hidden; margin-top: 10px; }
+    .progress-bar { background: #1a1a2e; height: 100%; border-radius: 99px; transition: width 0.3s; width: 0%; }
+    .status-text { font-size: 13px; color: #555; margin-top: 6px; }
+
+    .alert { padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 14px; }
+    .alert-blue { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+    .alert-green { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+    .alert-red { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+    .alert-amber { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+
+    .tbl-wrap { overflow-x: auto; max-height: 500px; overflow-y: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    thead th { background: #f3f4f6; text-align: left; padding: 9px 10px; font-weight: 600; color: #444; border-bottom: 1px solid #e5e7eb; position: sticky; top: 0; z-index: 2; white-space: nowrap; }
+    thead th.sortable { cursor: pointer; user-select: none; }
+    thead th.sortable:hover { background: #e9ecef; }
+    td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #fafafa; }
+    tr.selected td { background: #eff6ff; }
+    tr.row-saved td { background: #f0fdf4; }
+    tr.row-failed td { background: #fef2f2; }
+
+    .thumb { width: 36px; height: 36px; border-radius: 4px; object-fit: cover; background: #f3f4f6; }
+    .thumb-empty { width: 36px; height: 36px; border-radius: 4px; background: #f3f4f6; display: inline-block; }
+
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+    .badge-active { background: #dcfce7; color: #16a34a; }
+    .badge-draft { background: #fef9c3; color: #854d0e; }
+    .badge-archived { background: #f3f4f6; color: #666; }
+    .badge-ok { background: #dcfce7; color: #16a34a; }
+    .badge-fail { background: #fee2e2; color: #dc2626; }
+    .badge-saving { background: #eff6ff; color: #1d4ed8; }
+
+    .tags-cell { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #666; }
+    .price-cell { font-weight: 500; white-space: nowrap; }
+    .cost-cell { color: #888; white-space: nowrap; }
+
+    input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; accent-color: #1a1a2e; }
+
+    .edit-panel { border-top: 1px solid #e5e7eb; margin-top: 20px; padding-top: 20px; }
+    .edit-panel-title { font-size: 14px; font-weight: 600; color: #1a1a2e; margin-bottom: 14px; }
+    .edit-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
+    .edit-row .edit-group { display: flex; flex-direction: column; gap: 5px; }
+    .edit-row .edit-group label { font-size: 12px; font-weight: 500; color: #555; }
+    .edit-row select, .edit-row input, .edit-row textarea { padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; }
+    .edit-row select:focus, .edit-row input:focus, .edit-row textarea:focus { outline: none; border-color: #1a1a2e; }
+    .edit-row textarea { min-height: 70px; resize: vertical; width: 300px; }
+    .field-select { min-width: 170px; }
+    .op-select { min-width: 200px; }
+    .val-input { min-width: 220px; }
+    .val-input-sm { min-width: 100px; }
+    .vat-note { font-size: 11px; color: #888; margin-top: 3px; }
+
+    .selection-bar { display: flex; align-items: center; gap: 14px; padding: 10px 0; margin-bottom: 10px; }
+    .selection-count { font-size: 13px; color: #555; }
+    .selection-count strong { color: #1a1a2e; }
+
+    /* Modal */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100; display: flex; align-items: center; justify-content: center; }
+    .modal-overlay.hidden { display: none; }
+    .modal { background: #fff; border-radius: 12px; width: 90%; max-width: 860px; max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
+    .modal-header { padding: 20px 24px 16px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; }
+    .modal-header h2 { font-size: 16px; font-weight: 600; }
+    .modal-close { background: none; border: none; font-size: 22px; cursor: pointer; color: #888; line-height: 1; }
+    .modal-body { flex: 1; overflow-y: auto; padding: 20px 24px; }
+    .modal-footer { padding: 16px 24px; border-top: 1px solid #e5e7eb; display: flex; gap: 10px; justify-content: flex-end; }
+
+    .preview-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .preview-table th { text-align: left; padding: 8px 10px; font-weight: 600; color: #555; background: #f3f4f6; border-bottom: 1px solid #e5e7eb; }
+    .preview-table td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+    .preview-table .val-old { color: #888; }
+    .preview-table .val-new { color: #16a34a; font-weight: 500; }
+    .preview-table .val-unchanged { color: #aaa; font-style: italic; }
+
+    .apply-progress { margin-top: 12px; }
+
+    .hidden { display: none; }
+    .stat-chip { background: #f3f4f6; border-radius: 8px; padding: 10px 16px; font-size: 13px; display: inline-flex; flex-direction: column; gap: 2px; }
+    .stat-chip .stat-val { font-size: 22px; font-weight: 700; color: #1a1a2e; }
+    .stat-chip .stat-lbl { font-size: 11px; color: #888; }
+    .stats-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Bulk Editor</h1>
+    <div class="version">v1.1</div>
+  </div>
+</header>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('products')">Products</div>
+  <div class="tab disabled" title="Coming soon">Blogs</div>
+  <div class="tab disabled" title="Coming soon">Collections</div>
+</div>
+
+<div class="container">
+
+  <!-- PRODUCTS TAB -->
+  <div id="tab-products">
+
+    <!-- FILTERS -->
+    <div class="card">
+      <div class="card-title">Filters — set before loading</div>
+      <div class="filters-grid">
+        <div class="filter-group">
+          <label>Keyword in title</label>
+          <input type="text" id="fKeyword" placeholder="e.g. canvas">
+        </div>
+        <div class="filter-group">
+          <label>Exclude keyword</label>
+          <input type="text" id="fExcludeKeyword" placeholder="e.g. sample">
+        </div>
+        <div class="filter-group">
+          <label>Vendor</label>
+          <input type="text" id="fVendor" placeholder="Exact vendor name">
+        </div>
+        <div class="filter-group">
+          <label>Product Type</label>
+          <input type="text" id="fProductType" placeholder="Exact type">
+        </div>
+        <div class="filter-group">
+          <label>Status</label>
+          <select id="fStatus">
+            <option value="">All statuses</option>
+            <option value="active">Active</option>
+            <option value="draft">Draft</option>
+            <option value="archived">Archived</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Collection</label>
+          <select id="fCollection">
+            <option value="">All collections</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Has tags (comma-separated)</label>
+          <input type="text" id="fTags" placeholder="tag1, tag2">
+        </div>
+        <div class="filter-group">
+          <label>Exclude tags (comma-separated)</label>
+          <input type="text" id="fExcludeTags" placeholder="tag1, tag2">
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="btnLoad" onclick="loadProducts()">Load Products</button>
+        <button class="btn btn-outline" onclick="resetFilters()">Clear Filters</button>
+        <span id="loadStatus" class="status-text"></span>
+      </div>
+      <div id="loadProgress" class="hidden">
+        <div class="progress-bar-bg"><div class="progress-bar" id="loadBar"></div></div>
+        <div class="status-text" id="loadMsg">Loading…</div>
+      </div>
+    </div>
+
+    <!-- RESULTS -->
+    <div class="card hidden" id="resultsCard">
+
+      <div class="stats-row">
+        <div class="stat-chip"><span class="stat-val" id="statTotal">0</span><span class="stat-lbl">Products loaded</span></div>
+        <div class="stat-chip"><span class="stat-val" id="statSelected">0</span><span class="stat-lbl">Selected</span></div>
+        <div class="stat-chip"><span class="stat-val" id="statSaved">0</span><span class="stat-lbl">Saved</span></div>
+        <div class="stat-chip"><span class="stat-val" id="statFailed">0</span><span class="stat-lbl">Failed</span></div>
+      </div>
+
+      <div id="resultAlert" class="alert alert-blue hidden"></div>
+
+      <div class="selection-bar">
+        <button class="btn btn-outline" id="btnSelectAll" onclick="selectAll()">Select All</button>
+        <button class="btn btn-outline" onclick="clearSelection()">Clear Selection</button>
+        <span class="selection-count"><strong id="selCount">0</strong> of <strong id="totalCount">0</strong> selected</span>
+      </div>
+
+      <div class="tbl-wrap">
+        <table id="productsTable">
+          <thead>
+            <tr>
+              <th style="width:30px;"><input type="checkbox" id="chkAll" onchange="toggleAllCheck()"></th>
+              <th style="width:30px;">#</th>
+              <th style="width:44px;">Img</th>
+              <th class="sortable" onclick="sortBy('title')">Title ⇅</th>
+              <th class="sortable" onclick="sortBy('vendor')">Vendor ⇅</th>
+              <th class="sortable" onclick="sortBy('productType')">Type ⇅</th>
+              <th>Status</th>
+              <th>Tags</th>
+              <th class="sortable" onclick="sortBy('price')">Price ⇅</th>
+              <th>Cost</th>
+              <th>Variants</th>
+              <th>Save</th>
+            </tr>
+          </thead>
+          <tbody id="productsBody"></tbody>
+        </table>
+      </div>
+
+      <!-- BULK EDIT PANEL -->
+      <div class="edit-panel hidden" id="editPanel">
+        <div class="edit-panel-title">Bulk Edit — <span id="editSelCount">0</span> products selected</div>
+
+        <div class="edit-row">
+          <div class="edit-group">
+            <label>Field</label>
+            <select class="field-select" id="editField" onchange="onFieldChange()">
+              <option value="">— choose field —</option>
+              <optgroup label="Product Info">
+                <option value="title">Title</option>
+                <option value="vendor">Vendor</option>
+                <option value="productType">Product Type</option>
+                <option value="tags">Tags</option>
+                <option value="status">Status</option>
+                <option value="handle">Handle</option>
+                <option value="descriptionHtml">Description (HTML)</option>
+              </optgroup>
+              <optgroup label="SEO">
+                <option value="seo.title">SEO Title</option>
+                <option value="seo.description">SEO Description</option>
+              </optgroup>
+              <optgroup label="Pricing">
+                <option value="price">Price (all variants)</option>
+                <option value="compareAtPrice">Compare-at Price (all variants)</option>
+              </optgroup>
+              <optgroup label="Metafields">
+                <option value="metafield">Metafield (custom)</option>
+              </optgroup>
+            </select>
+          </div>
+          <div class="edit-group" id="opGroup" style="display:none;">
+            <label>Operation</label>
+            <select class="op-select" id="editOp" onchange="onOpChange()"></select>
+          </div>
+        </div>
+
+        <!-- Dynamic value inputs -->
+        <div class="edit-row" id="valueInputs" style="display:none;"></div>
+
+        <div class="btn-row" style="margin-top:14px;">
+          <button class="btn btn-amber" id="btnPreview" onclick="showPreview()">Preview Changes</button>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</div>
+
+<!-- PREVIEW MODAL -->
+<div class="modal-overlay hidden" id="previewOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="previewTitle">Preview Changes</h2>
+      <button class="modal-close" onclick="closePreview()">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="previewAlert" class="alert alert-amber" style="margin-bottom:14px;"></div>
+      <table class="preview-table">
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>Current Value</th>
+            <th>New Value</th>
+          </tr>
+        </thead>
+        <tbody id="previewBody"></tbody>
+      </table>
+      <div class="apply-progress hidden" id="applyProgress">
+        <div class="progress-bar-bg"><div class="progress-bar" id="applyBar"></div></div>
+        <div class="status-text" id="applyMsg"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closePreview()">Cancel</button>
+      <button class="btn btn-green" id="btnApply" onclick="applyChanges()">Apply to All</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '/api/blogs';
+let allProducts = [];
+let selectedIds = new Set();
+let sortField = null;
+let sortAsc = true;
+let savedCount = 0;
+let failedCount = 0;
+let pendingChanges = []; // computed in showPreview
+
+// ── INIT ──────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', loadOptions);
+
+async function loadOptions() {
+  try {
+    const res = await fetch(`${API}?action=bulk-get-options`);
+    const data = await res.json();
+    if (!data.success) return;
+    const sel = document.getElementById('fCollection');
+    data.collections.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.title;
+      sel.appendChild(opt);
+    });
+  } catch(e) { /* silently ignore — collections dropdown just stays empty */ }
+}
+
+// ── FILTERS ───────────────────────────────────────
+function resetFilters() {
+  ['fKeyword','fExcludeKeyword','fVendor','fProductType','fTags','fExcludeTags'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('fStatus').value = '';
+  document.getElementById('fCollection').value = '';
+}
+
+function getFilterParams() {
+  const p = new URLSearchParams();
+  const v = id => document.getElementById(id).value.trim();
+  if (v('fKeyword')) p.set('keyword', v('fKeyword'));
+  if (v('fExcludeKeyword')) p.set('excludeKeyword', v('fExcludeKeyword'));
+  if (v('fVendor')) p.set('vendor', v('fVendor'));
+  if (v('fProductType')) p.set('productType', v('fProductType'));
+  if (v('fStatus')) p.set('status', v('fStatus'));
+  if (v('fCollection')) p.set('collection', v('fCollection'));
+  if (v('fTags')) p.set('tags', v('fTags'));
+  if (v('fExcludeTags')) p.set('excludeTags', v('fExcludeTags'));
+  return p;
+}
+
+// ── LOAD PRODUCTS ─────────────────────────────────
+async function loadProducts() {
+  document.getElementById('btnLoad').disabled = true;
+  document.getElementById('resultsCard').classList.add('hidden');
+  document.getElementById('loadProgress').classList.remove('hidden');
+  document.getElementById('loadBar').style.width = '0%';
+  document.getElementById('loadMsg').textContent = 'Loading products…';
+
+  allProducts = [];
+  selectedIds.clear();
+  savedCount = 0;
+  failedCount = 0;
+
+  const filters = getFilterParams();
+  let cursor = null;
+  let page = 0;
+  let hasNext = true;
+
+  try {
+    while (hasNext) {
+      page++;
+      const params = new URLSearchParams(filters);
+      params.set('action', 'bulk-product-scan');
+      if (cursor) params.set('cursor', cursor);
+
+      const res = await fetch(`${API}?${params}`);
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Unknown error');
+
+      allProducts = allProducts.concat(data.products);
+      hasNext = data.hasNextPage;
+      cursor = data.endCursor;
+
+      const pct = Math.min(95, page * 8);
+      document.getElementById('loadBar').style.width = pct + '%';
+      document.getElementById('loadMsg').textContent = `Page ${page} loaded… ${allProducts.length} products so far`;
+
+      if (hasNext) await new Promise(r => setTimeout(r, 300));
+    }
+
+    document.getElementById('loadBar').style.width = '100%';
+    document.getElementById('loadMsg').textContent = `Done — ${allProducts.length} products loaded`;
+
+    renderTable();
+    document.getElementById('resultsCard').classList.remove('hidden');
+
+  } catch(err) {
+    document.getElementById('loadMsg').textContent = `Error: ${err.message}`;
+  }
+
+  document.getElementById('btnLoad').disabled = false;
+}
+
+// ── TABLE ─────────────────────────────────────────
+function renderTable() {
+  const tbody = document.getElementById('productsBody');
+  tbody.innerHTML = '';
+
+  let products = [...allProducts];
+  if (sortField) {
+    products.sort((a, b) => {
+      let va = sortField === 'price' ? parseFloat(a.variants[0]?.price || 0) : (a[sortField] || '');
+      let vb = sortField === 'price' ? parseFloat(b.variants[0]?.price || 0) : (b[sortField] || '');
+      if (typeof va === 'string') va = va.toLowerCase();
+      if (typeof vb === 'string') vb = vb.toLowerCase();
+      if (va < vb) return sortAsc ? -1 : 1;
+      if (va > vb) return sortAsc ? 1 : -1;
+      return 0;
+    });
+  }
+
+  products.forEach((p, i) => {
+    const v0 = p.variants[0] || {};
+    const cost = v0.inventoryItem?.unitCost?.amount;
+    const statusClass = { ACTIVE: 'badge-active', DRAFT: 'badge-draft', ARCHIVED: 'badge-archived' }[p.status] || 'badge-draft';
+    const isSelected = selectedIds.has(p.id);
+
+    const tr = document.createElement('tr');
+    tr.id = `row-${p.id.replace(/\D/g, '')}`;
+    if (isSelected) tr.classList.add('selected');
+    tr.innerHTML = `
+      <td><input type="checkbox" class="row-chk" data-id="${esc(p.id)}" ${isSelected ? 'checked' : ''} onchange="onRowCheck(this)"></td>
+      <td>${i + 1}</td>
+      <td>${p.featuredImage ? `<img class="thumb" src="${esc(p.featuredImage.url)}" alt="">` : `<span class="thumb-empty"></span>`}</td>
+      <td><a href="https://admin.shopify.com/store/aboutwallart/products/${p.id.replace('gid://shopify/Product/','')}" target="_blank" style="color:#1a1a2e;font-weight:500;text-decoration:none;">${esc(p.title)}</a></td>
+      <td>${esc(p.vendor)}</td>
+      <td>${esc(p.productType)}</td>
+      <td><span class="badge ${statusClass}">${p.status}</span></td>
+      <td class="tags-cell" title="${esc((p.tags||[]).join(', '))}">${esc((p.tags||[]).slice(0,3).join(', '))}${p.tags && p.tags.length > 3 ? ` +${p.tags.length-3}` : ''}</td>
+      <td class="price-cell">£${parseFloat(v0.price || 0).toFixed(2)}</td>
+      <td class="cost-cell">${cost ? `£${parseFloat(cost).toFixed(2)}` : '—'}</td>
+      <td>${p.variants.length}</td>
+      <td id="save-${p.id.replace(/\D/g, '')}"></td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  updateCounts();
+}
+
+function sortBy(field) {
+  if (sortField === field) sortAsc = !sortAsc;
+  else { sortField = field; sortAsc = true; }
+  renderTable();
+}
+
+// ── SELECTION ─────────────────────────────────────
+function onRowCheck(chk) {
+  const id = chk.dataset.id;
+  if (chk.checked) selectedIds.add(id);
+  else selectedIds.delete(id);
+  const tr = chk.closest('tr');
+  if (chk.checked) tr.classList.add('selected');
+  else tr.classList.remove('selected');
+  updateCounts();
+}
+
+function toggleAllCheck() {
+  const masterChk = document.getElementById('chkAll');
+  document.querySelectorAll('.row-chk').forEach(chk => {
+    chk.checked = masterChk.checked;
+    const id = chk.dataset.id;
+    if (masterChk.checked) selectedIds.add(id);
+    else selectedIds.delete(id);
+    const tr = chk.closest('tr');
+    if (masterChk.checked) tr.classList.add('selected');
+    else tr.classList.remove('selected');
+  });
+  updateCounts();
+}
+
+function selectAll() {
+  allProducts.forEach(p => selectedIds.add(p.id));
+  document.querySelectorAll('.row-chk').forEach(chk => { chk.checked = true; chk.closest('tr').classList.add('selected'); });
+  document.getElementById('chkAll').checked = true;
+  updateCounts();
+}
+
+function clearSelection() {
+  selectedIds.clear();
+  document.querySelectorAll('.row-chk').forEach(chk => { chk.checked = false; chk.closest('tr').classList.remove('selected'); });
+  document.getElementById('chkAll').checked = false;
+  updateCounts();
+}
+
+function updateCounts() {
+  const sel = selectedIds.size;
+  document.getElementById('statTotal').textContent = allProducts.length;
+  document.getElementById('statSelected').textContent = sel;
+  document.getElementById('statSaved').textContent = savedCount;
+  document.getElementById('statFailed').textContent = failedCount;
+  document.getElementById('selCount').textContent = sel;
+  document.getElementById('totalCount').textContent = allProducts.length;
+  document.getElementById('editSelCount').textContent = sel;
+
+  const panel = document.getElementById('editPanel');
+  if (sel > 0) panel.classList.remove('hidden');
+  else panel.classList.add('hidden');
+}
+
+// ── EDIT PANEL ────────────────────────────────────
+const FIELD_OPS = {
+  title:          ['Find & Replace', 'Set to', 'Prepend', 'Append'],
+  vendor:         ['Set to'],
+  productType:    ['Set to'],
+  handle:         ['Find & Replace', 'Set to'],
+  descriptionHtml:['Find & Replace', 'Set to', 'Prepend', 'Append', 'Clear'],
+  tags:           ['Add tags', 'Remove tags', 'Replace all', 'Clear all'],
+  status:         ['Set to'],
+  'seo.title':    ['Set to', 'Find & Replace', 'Remove brand', 'Clear'],
+  'seo.description':['Set to', 'Find & Replace', 'Clear'],
+  price:          ['Increase by %', 'Decrease by %', 'Increase by £', 'Decrease by £', 'Apply markup on cost', 'Apply VAT only', 'Apply markup + VAT'],
+  compareAtPrice: ['Set from current price', 'Clear'],
+  metafield:      ['Set to', 'Clear']
+};
+
+function onFieldChange() {
+  const field = document.getElementById('editField').value;
+  const opGroup = document.getElementById('opGroup');
+  const valueInputs = document.getElementById('valueInputs');
+
+  if (!field) { opGroup.style.display = 'none'; valueInputs.style.display = 'none'; return; }
+
+  const ops = FIELD_OPS[field] || [];
+  const opSel = document.getElementById('editOp');
+  opSel.innerHTML = ops.map(op => `<option value="${op}">${op}</option>`).join('');
+  opGroup.style.display = '';
+  onOpChange();
+}
+
+function onOpChange() {
+  const field = document.getElementById('editField').value;
+  const op = document.getElementById('editOp').value;
+  const valueInputs = document.getElementById('valueInputs');
+
+  valueInputs.innerHTML = buildValueInputs(field, op);
+  valueInputs.style.display = valueInputs.innerHTML.trim() ? '' : 'none';
+}
+
+function buildValueInputs(field, op) {
+  if (!field || !op) return '';
+
+  if (op === 'Clear' || op === 'Clear all' || op === 'Set from current price' || op === 'Remove brand') return '';
+
+  if (op === 'Find & Replace') {
+    return `
+      <div class="edit-group"><label>Find</label><input class="val-input" id="valFind" placeholder="Text to find"></div>
+      <div class="edit-group"><label>Replace with</label><input class="val-input" id="valReplace" placeholder="Replacement text"></div>
+    `;
+  }
+
+  if (field === 'status' && op === 'Set to') {
+    return `<div class="edit-group"><label>New Status</label><select id="valStatus"><option value="ACTIVE">Active</option><option value="DRAFT">Draft</option><option value="ARCHIVED">Archived</option></select></div>`;
+  }
+
+  if (field === 'price') {
+    if (op === 'Increase by %' || op === 'Decrease by %') {
+      return `<div class="edit-group"><label>Percentage</label><input class="val-input-sm" id="valPct" type="number" min="0" step="0.1" placeholder="e.g. 10"> <div class="vat-note">%</div></div>`;
+    }
+    if (op === 'Increase by £' || op === 'Decrease by £') {
+      return `<div class="edit-group"><label>Amount (£)</label><input class="val-input-sm" id="valAmt" type="number" min="0" step="0.01" placeholder="e.g. 5.00"></div>`;
+    }
+    if (op === 'Apply markup on cost') {
+      return `<div class="edit-group"><label>Markup %</label><input class="val-input-sm" id="valMarkup" type="number" min="0" step="0.1" placeholder="e.g. 50"> <div class="vat-note">New price = cost × (1 + markup%)</div></div>`;
+    }
+    if (op === 'Apply VAT only') {
+      return `<div class="edit-group"><label>VAT %</label><input class="val-input-sm" id="valVat" type="number" value="20" step="0.1"> <div class="vat-note">New price = current price × (1 + VAT%)</div></div>`;
+    }
+    if (op === 'Apply markup + VAT') {
+      return `
+        <div class="edit-group"><label>Markup %</label><input class="val-input-sm" id="valMarkup" type="number" min="0" step="0.1" placeholder="e.g. 50"></div>
+        <div class="edit-group"><label>VAT %</label><input class="val-input-sm" id="valVat" type="number" value="20" step="0.1"> <div class="vat-note">New price = cost × (1 + markup%) × (1 + VAT%)</div></div>
+      `;
+    }
+  }
+
+  if (field === 'metafield') {
+    return `
+      <div class="edit-group"><label>Namespace</label><input class="val-input-sm" id="mfNamespace" placeholder="e.g. custom"></div>
+      <div class="edit-group"><label>Key</label><input class="val-input-sm" id="mfKey" placeholder="e.g. subtitle"></div>
+      <div class="edit-group"><label>Type</label><select id="mfType"><option value="single_line_text_field">single_line_text_field</option><option value="multi_line_text_field">multi_line_text_field</option><option value="url">url</option><option value="number_integer">number_integer</option><option value="number_decimal">number_decimal</option><option value="boolean">boolean</option></select></div>
+      <div class="edit-group"><label>Value</label><input class="val-input" id="mfValue" placeholder="New value"></div>
+    `;
+  }
+
+  if (field === 'descriptionHtml' && op === 'Set to') {
+    return `<div class="edit-group"><label>HTML Content</label><textarea id="valText" class="val-input"></textarea></div>`;
+  }
+
+  // Default: single text input
+  const label = { 'Set to': 'New value', 'Prepend': 'Text to prepend', 'Append': 'Text to append', 'Add tags': 'Tags to add (comma-separated)', 'Remove tags': 'Tags to remove (comma-separated)', 'Replace all': 'New tags (comma-separated)' }[op] || 'Value';
+  return `<div class="edit-group"><label>${label}</label><input class="val-input" id="valText" placeholder="${label}"></div>`;
+}
+
+// ── CALCULATE NEW VALUE ───────────────────────────
+function calcNewValue(product, field, op) {
+  const v = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+
+  if (field === 'title') return applyTextOp(product.title, op, v('valText'), v('valFind'), v('valReplace'));
+  if (field === 'vendor') return v('valText');
+  if (field === 'productType') return v('valText');
+  if (field === 'handle') return applyTextOp(product.handle, op, v('valText'), v('valFind'), v('valReplace'));
+  if (field === 'descriptionHtml') return applyTextOp(product.descriptionHtml || '', op, v('valText'), v('valFind'), v('valReplace'));
+  if (field === 'seo.title') return op === 'Remove brand' ? removeBrand(product.seo?.title || '') : applyTextOp(product.seo?.title || '', op, v('valText'), v('valFind'), v('valReplace'));
+  if (field === 'seo.description') return applyTextOp(product.seo?.description || '', op, v('valText'), v('valFind'), v('valReplace'));
+  if (field === 'status') return v('valStatus') || 'ACTIVE';
+  if (field === 'tags') {
+    const curTags = product.tags || [];
+    if (op === 'Clear all') return [];
+    if (op === 'Add tags') return [...new Set([...curTags, ...v('valText').split(',').map(t=>t.trim()).filter(Boolean)])];
+    if (op === 'Remove tags') { const rem = v('valText').split(',').map(t=>t.trim().toLowerCase()); return curTags.filter(t => !rem.includes(t.toLowerCase())); }
+    if (op === 'Replace all') return v('valText').split(',').map(t=>t.trim()).filter(Boolean);
+  }
+
+  if (field === 'price') {
+    const results = product.variants.map(variant => {
+      const curPrice = parseFloat(variant.price || 0);
+      const cost = parseFloat(variant.inventoryItem?.unitCost?.amount || 0);
+      let newPrice = curPrice;
+
+      if (op === 'Increase by %') newPrice = curPrice * (1 + parseFloat(v('valPct') || 0) / 100);
+      else if (op === 'Decrease by %') newPrice = curPrice * (1 - parseFloat(v('valPct') || 0) / 100);
+      else if (op === 'Increase by £') newPrice = curPrice + parseFloat(v('valAmt') || 0);
+      else if (op === 'Decrease by £') newPrice = curPrice - parseFloat(v('valAmt') || 0);
+      else if (op === 'Apply markup on cost') newPrice = cost * (1 + parseFloat(v('valMarkup') || 0) / 100);
+      else if (op === 'Apply VAT only') newPrice = curPrice * (1 + parseFloat(v('valVat') || 20) / 100);
+      else if (op === 'Apply markup + VAT') {
+        const mu = parseFloat(v('valMarkup') || 0) / 100;
+        const vat = parseFloat(v('valVat') || 20) / 100;
+        newPrice = cost * (1 + mu) * (1 + vat);
+      }
+
+      return { id: variant.id, oldPrice: curPrice, newPrice: Math.max(0, Math.round(newPrice * 100) / 100) };
+    });
+    return results;
+  }
+
+  if (field === 'compareAtPrice') {
+    if (op === 'Clear') return product.variants.map(variant => ({ id: variant.id, newCompareAt: null }));
+    if (op === 'Set from current price') return product.variants.map(variant => ({ id: variant.id, newCompareAt: variant.price }));
+  }
+
+  if (field === 'metafield') {
+    return { namespace: v('mfNamespace'), key: v('mfKey'), type: v('mfType'), value: op === 'Clear' ? '' : v('mfValue') };
+  }
+
+  return null;
+}
+
+// Removes the brand ("About Wall Art" in any spacing/case/punctuation, optional "UK" / ".com")
+// from a title and tidies the leftover separator/spaces. Products without the brand are unchanged.
+function removeBrand(s) {
+  if (!s) return s;
+  let out = String(s);
+  // brand in any form: about / wall / art with any spaces, dots, hyphens or nothing between; optional UK and .com
+  out = out.replace(/about[\s._-]*wall[\s._-]*art(?:[\s._-]*uk)?(?:\.com)?/gi, '');
+  // collapse a separator left stranded between two separators
+  out = out.replace(/\s*[|·–—:]\s*[|·–—:]\s*/g, ' | ');
+  // strip a non-hyphen separator now dangling at the start or end
+  out = out.replace(/^\s*[|·–—:]\s*/, '').replace(/\s*[|·–—:]\s*$/, '');
+  // strip a dangling hyphen ONLY when it's space-separated (protects words like "ready-to-hang")
+  out = out.replace(/^\s*-\s+/, '').replace(/\s+-\s*$/, '');
+  // tidy spaces
+  out = out.replace(/\s{2,}/g, ' ').trim();
+  return out;
+}
+
+function applyTextOp(current, op, val, find, replace) {
+  if (op === 'Set to') return val;
+  if (op === 'Clear') return '';
+  if (op === 'Prepend') return val + current;
+  if (op === 'Append') return current + val;
+  if (op === 'Find & Replace') return current.split(find).join(replace);
+  return current;
+}
+
+function previewText(val) {
+  if (Array.isArray(val)) {
+    if (val.length === 0) return '(empty)';
+    if (typeof val[0] === 'object' && 'newPrice' in val[0]) {
+      return val.map(v => `£${v.newPrice.toFixed(2)}`).slice(0, 3).join(', ') + (val.length > 3 ? ' …' : '');
+    }
+    return val.slice(0, 5).join(', ') + (val.length > 5 ? ' …' : '');
+  }
+  if (typeof val === 'object' && val !== null) return JSON.stringify(val);
+  const s = String(val || '');
+  return s.length > 120 ? s.slice(0, 120) + '…' : s || '(empty)';
+}
+
+function currentText(product, field) {
+  if (field === 'title') return product.title;
+  if (field === 'vendor') return product.vendor;
+  if (field === 'productType') return product.productType;
+  if (field === 'handle') return product.handle;
+  if (field === 'descriptionHtml') { const s = (product.descriptionHtml || '').replace(/<[^>]+>/g, ' ').trim(); return s.length > 100 ? s.slice(0,100)+'…' : s || '(empty)'; }
+  if (field === 'seo.title') return product.seo?.title || '(none)';
+  if (field === 'seo.description') return product.seo?.description || '(none)';
+  if (field === 'status') return product.status;
+  if (field === 'tags') return (product.tags || []).join(', ') || '(none)';
+  if (field === 'price') { const prices = product.variants.map(v => `£${parseFloat(v.price||0).toFixed(2)}`).slice(0,3); return prices.join(', ') + (product.variants.length > 3 ? ' …' : ''); }
+  if (field === 'compareAtPrice') { const vals = product.variants.map(v => v.compareAtPrice ? `£${parseFloat(v.compareAtPrice).toFixed(2)}` : '—').slice(0,3); return vals.join(', ') + (product.variants.length > 3 ? ' …' : ''); }
+  if (field === 'metafield') { const ns = document.getElementById('mfNamespace')?.value.trim(); const key = document.getElementById('mfKey')?.value.trim(); const mf = (product.metafields||[]).find(m => m.namespace === ns && m.key === key); return mf ? mf.value : '(not set)'; }
+  return '—';
+}
+
+// ── PREVIEW MODAL ─────────────────────────────────
+function showPreview() {
+  const field = document.getElementById('editField').value;
+  const op = document.getElementById('editOp').value;
+  if (!field) { alert('Please choose a field to edit.'); return; }
+
+  const selected = allProducts.filter(p => selectedIds.has(p.id));
+  if (selected.length === 0) { alert('No products selected.'); return; }
+
+  pendingChanges = selected.map(p => ({
+    product: p,
+    newValue: calcNewValue(p, field, op)
+  }));
+
+  // Remove brand: only keep the products that actually have the brand in their SEO title.
+  if (field === 'seo.title' && op === 'Remove brand') {
+    pendingChanges = pendingChanges.filter(pc => (pc.product.seo?.title || '') !== pc.newValue);
+    if (pendingChanges.length === 0) { alert('None of the selected products have the brand in their SEO title — nothing to change.'); return; }
+  }
+
+  const tbody = document.getElementById('previewBody');
+  tbody.innerHTML = '';
+  pendingChanges.forEach(({ product, newValue }) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${esc(product.title)}</td>
+      <td class="val-old">${esc(currentText(product, field))}</td>
+      <td class="val-new">${esc(previewText(newValue))}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  document.getElementById('previewTitle').textContent = `Preview — ${field} — ${op} (${selected.length} products)`;
+  document.getElementById('previewAlert').textContent = `You are about to update "${field}" on ${selected.length} product(s). Review the changes below before applying.`;
+  document.getElementById('applyProgress').classList.add('hidden');
+  document.getElementById('btnApply').disabled = false;
+  document.getElementById('previewOverlay').classList.remove('hidden');
+}
+
+function closePreview() {
+  document.getElementById('previewOverlay').classList.add('hidden');
+}
+
+// ── APPLY CHANGES ──────────────────────────────────
+async function applyChanges() {
+  const field = document.getElementById('editField').value;
+  const op = document.getElementById('editOp').value;
+
+  document.getElementById('btnApply').disabled = true;
+  document.getElementById('applyProgress').classList.remove('hidden');
+  document.getElementById('applyBar').style.width = '0%';
+
+  let done = 0;
+  for (const { product, newValue } of pendingChanges) {
+    document.getElementById('applyMsg').textContent = `Saving ${done + 1} / ${pendingChanges.length}…`;
+
+    const rowId = product.id.replace(/\D/g, '');
+    const saveCell = document.getElementById(`save-${rowId}`);
+
+    try {
+      const payload = buildUpdatePayload(product, field, op, newValue);
+      const res = await fetch(API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'bulk-product-update', productId: product.id, ...payload })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || `Server error ${res.status}`);
+
+      if (saveCell) saveCell.innerHTML = '<span class="badge badge-ok">Saved</span>';
+      document.getElementById(`row-${rowId}`)?.classList.add('row-saved');
+      savedCount++;
+
+      // Update local state so subsequent previews show new values
+      applyLocalUpdate(product, field, newValue);
+
+    } catch(err) {
+      if (saveCell) saveCell.innerHTML = `<span class="badge badge-fail" title="${esc(err.message)}">Failed</span>`;
+      document.getElementById(`row-${rowId}`)?.classList.add('row-failed');
+      failedCount++;
+    }
+
+    done++;
+    document.getElementById('applyBar').style.width = (done / pendingChanges.length * 100) + '%';
+    updateCounts();
+    await new Promise(r => setTimeout(r, 200));
+  }
+
+  document.getElementById('applyMsg').textContent = `Done — ${savedCount} saved, ${failedCount} failed.`;
+}
+
+function buildUpdatePayload(product, field, op, newValue) {
+  const payload = {};
+
+  if (field === 'price') {
+    if (Array.isArray(newValue)) {
+      payload.variantUpdates = newValue.map(v => ({ id: v.id, price: v.newPrice.toFixed(2) }));
+    }
+    return payload;
+  }
+
+  if (field === 'compareAtPrice') {
+    if (Array.isArray(newValue)) {
+      payload.variantUpdates = newValue.map(v => ({ id: v.id, compareAtPrice: v.newCompareAt }));
+    }
+    return payload;
+  }
+
+  if (field === 'metafield') {
+    if (newValue && op !== 'Clear') {
+      payload.metafieldUpdates = [{ ownerId: product.id, namespace: newValue.namespace, key: newValue.key, type: newValue.type, value: newValue.value }];
+    }
+    return payload;
+  }
+
+  if (field === 'seo.title' || field === 'seo.description') {
+    const seo = {};
+    if (field === 'seo.title') seo.title = newValue;
+    else seo.description = newValue;
+    payload.productFields = { seo };
+    return payload;
+  }
+
+  if (field === 'tags') {
+    payload.productFields = { tags: Array.isArray(newValue) ? newValue : [] };
+    return payload;
+  }
+
+  if (field === 'status') {
+    payload.productFields = { status: newValue };
+    return payload;
+  }
+
+  // All other text fields map directly
+  const fieldMap = { title: 'title', vendor: 'vendor', productType: 'productType', handle: 'handle', descriptionHtml: 'bodyHtml' };
+  const shopifyKey = fieldMap[field] || field;
+  payload.productFields = { [shopifyKey]: newValue };
+  return payload;
+}
+
+function applyLocalUpdate(product, field, newValue) {
+  const p = allProducts.find(x => x.id === product.id);
+  if (!p) return;
+  if (field === 'title') p.title = newValue;
+  if (field === 'vendor') p.vendor = newValue;
+  if (field === 'productType') p.productType = newValue;
+  if (field === 'status') p.status = newValue;
+  if (field === 'tags') p.tags = newValue;
+  if (field === 'seo.title') p.seo = { ...p.seo, title: newValue };
+  if (field === 'seo.description') p.seo = { ...p.seo, description: newValue };
+  if (field === 'price' && Array.isArray(newValue)) {
+    newValue.forEach(v => {
+      const variant = p.variants.find(x => x.id === v.id);
+      if (variant) variant.price = v.newPrice.toFixed(2);
+    });
+  }
+}
+
+// ── UTILS ─────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  event.target.classList.add('active');
+}
+
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+
+</body>
+</html>
