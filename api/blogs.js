@@ -1,4 +1,6 @@
-// blogs.js — v4.4
+// blogs.js — v4.5
+// v4.5 (2026-09-26): gsc-blog-opportunities returns ALL informational topics (no cap) and excludes
+//                    dismissed ones; new action `dismiss-gsc-blog-topic` (data/gsc-blog-dismissed.json).
 // v4.4 (2026-09-26): new GET action `gsc-blog-opportunities` — informational GSC opportunity keywords
 //                    for new blogs, minus ones a blog already covers (registry Published/To_Write blog).
 // v4.3 (Sep 4, 2026): Scrappa competitor fallback now retries transient HTTP 503/429 (up to 3×,
@@ -1129,10 +1131,14 @@ Include EXACTLY 3 items.`;
             });
           }
         } catch (e) { /* ignore */ }
+        let dismissed = [];
+        try { const df = await getGitHubFile('data/gsc-blog-dismissed.json'); dismissed = (JSON.parse(df.content) || []).map(s => String(s).toLowerCase()); } catch (e) { dismissed = []; }
         const options = list
           .filter(k => k && k.keyword && k.intent === 'blog')
-          .filter(k => { const kw = k.keyword.toLowerCase(); return !blogKws.some(bk => bk === kw || bk.includes(kw)); })
-          .slice(0, 20)
+          .filter(k => { const kw = k.keyword.toLowerCase();
+            if (dismissed.includes(kw)) return false;                       // discarded earlier
+            return !blogKws.some(bk => bk === kw || bk.includes(kw));        // already covered by a blog
+          })
           .map(k => ({ keyword: k.keyword, impressions: k.impressions, clicks: k.clicks, position: k.position }));
         return res.status(200).json({ success: true, options });
       }
@@ -2304,6 +2310,23 @@ Include EXACTLY 3 items.`;
         });
         if (!response.ok) { const err = await response.text(); return res.status(500).json({ error: `GitHub save failed: ${err}` }); }
         return res.status(200).json({ success: true, count: keywords.length });
+      }
+
+      // ── ACTION: dismiss-gsc-blog-topic ── permanently hide a GSC blog topic from the panel
+      if (req.body.action === 'dismiss-gsc-blog-topic') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const kw = (req.body.keyword || '').toString().toLowerCase().trim();
+        if (!kw) return res.status(400).json({ error: 'keyword required' });
+        let arr = []; let sha = null;
+        try { const existing = await getGitHubFile('data/gsc-blog-dismissed.json'); sha = existing.sha; arr = JSON.parse(existing.content) || []; } catch (e) { arr = []; }
+        if (!arr.map(s => String(s).toLowerCase()).includes(kw)) arr.push(kw);
+        const response = await fetch(`https://api.github.com/repos/${REPO}/contents/data/gsc-blog-dismissed.json`, {
+          method: 'PUT',
+          headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: `Dismiss GSC blog topic: ${kw}`, content: Buffer.from(JSON.stringify(arr, null, 2)).toString('base64'), ...(sha ? { sha } : {}) })
+        });
+        if (!response.ok) { const err = await response.text(); return res.status(500).json({ error: `GitHub save failed: ${err}` }); }
+        return res.status(200).json({ success: true });
       }
 
       // ── ACTION: save-tech-status ──
