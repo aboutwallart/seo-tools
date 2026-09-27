@@ -1,4 +1,13 @@
-// blogs.js — v4.6
+// blogs.js — v4.7
+// v4.7 (2026-09-27): blog fusion (anti-cannibalisation WITHIN To Write) — AI groups keywords that
+//                    share the same search intent so they don't compete with each other; the group
+//                    merges into ONE blog (winner picked by volume/GSC impressions, else AI's pick),
+//                    the rest become secondary angles covered as H2 sections. New actions:
+//                    find-fusion-groups, get-fusion-pending, apply-fusion-group, discard-fusion-group,
+//                    get-fused-groups. New data files: blog-fusion-checked.json (cache — only new
+//                    keywords get sent to AI next time), blog-fusion-pending.json (proposed, awaiting
+//                    review), blog-fused-groups.json (applied, permanent). write-blog-body now accepts
+//                    `secondaryAngles` and tells the writer to cover each as its own H2 section.
 // v4.6 (2026-09-27): approving GSC blog topics now (a) auto-dismisses them from the panel so they
 //                    don't reappear, and (b) saves them SPREAD through blog_ideas.csv (save-blog-ideas
 //                    `spread:true`) instead of all at the end, so the monthly auto-pick distributes
@@ -642,6 +651,17 @@ Return ONLY a JSON object, no commentary, exactly:
       text = data.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
     }
     return text.trim();
+  }
+
+  // Small JSON-file helpers for fusion data (blog-fusion-checked.json, blog-fusion-pending.json,
+  // blog-fused-groups.json). readJsonFileSafe returns `fallback` for a missing/broken file (never throws).
+  async function readJsonFileSafe(filePath, fallback) {
+    try { const f = await getGitHubFile(filePath); return JSON.parse(f.content); } catch (e) { return fallback; }
+  }
+  async function writeJsonFile(filePath, obj, message) {
+    let sha = null;
+    try { const existing = await getGitHubFile(filePath); sha = existing.sha; } catch (e) { sha = null; }
+    await updateGitHubFile(filePath, JSON.stringify(obj, null, 2) + '\n', sha, message);
   }
 
   // Column P — 3 "People Also Ask" Q&A pairs, plain text
@@ -3016,6 +3036,210 @@ Include EXACTLY 3 items.`;
         return res.status(200).json({ success: true, updated: done.size, appended });
       }
 
+      // ── ACTION: find-fusion-groups ── AI groups To Write keywords that share the SAME search intent
+      // (so they'd fight each other in Google — cannibalisation WITHIN the write list, as opposed to
+      // analyze-blog-titles above which only checks against ALREADY PUBLISHED blogs). Only sends
+      // keywords never checked before (cache in data/blog-fusion-checked.json) — cheap on repeat runs.
+      // Proposed groups are saved to data/blog-fusion-pending.json for Mae to review + apply/discard;
+      // nothing in blog_ideas.csv changes until apply-fusion-group is called.
+      if (req.body.action === 'find-fusion-groups') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+        const lines = ideasFile.content.split('\n');
+        const poolMap = new Map(); // lowercase keyword -> { keyword, title }
+        lines.forEach((line, i) => {
+          if (i === 0) return;
+          const trimmed = line.trim().replace(/\r/g, '');
+          if (!trimmed) return;
+          const cols = parseCSVLine(trimmed);
+          const status = (cols[6] || '').trim().toUpperCase();
+          const kw = (cols[0] || '').trim();
+          if (!kw || (status !== 'TO_WRITE' && status !== 'TO_WRITE_PENDING')) return;
+          poolMap.set(kw.toLowerCase(), { keyword: kw, title: cols[1] || '' });
+        });
+
+        const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
+        const groupedSet = new Set((checked.grouped || []).map(s => String(s).toLowerCase()));
+        const pool = [...poolMap.values()].filter(p => !groupedSet.has(p.keyword.toLowerCase()));
+
+        if (pool.length < 2) {
+          return res.status(200).json({ success: true, newGroups: [], checkedCount: pool.length, message: 'Nothing new to check.' });
+        }
+
+        // Best-effort volume/impressions data — never blocks the run if missing.
+        let metrics = {};
+        try { const mf = await getGitHubFile('data/keyword-metrics.json'); metrics = JSON.parse(mf.content) || {}; } catch (e) { metrics = {}; }
+        let gscOpp = [];
+        try {
+          const rr = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/gsc-opportunity-keywords.json?t=${Date.now()}`);
+          if (rr.ok) { const j = await rr.json(); gscOpp = Array.isArray(j.keywords) ? j.keywords : []; }
+        } catch (e) { gscOpp = []; }
+        const metricsLc = {}; Object.keys(metrics).forEach(k => { metricsLc[k.toLowerCase()] = metrics[k]; });
+        const gscLc = {}; gscOpp.forEach(k => { if (k && k.keyword) gscLc[k.keyword.toLowerCase()] = k; });
+
+        const prompt = `You are grouping SEO keywords for a UK wall-art & home-decor blog (About Wall Art) to avoid writing two blog posts that would compete with each other in Google (keyword cannibalisation).
+
+Group keywords ONLY when a single blog post answering one of them would fully satisfy someone searching any of the others in the SAME group — they must be the SAME underlying question/intent, just phrased differently (spelling variants like colour/color, singular/plural, different word order, or an obvious synonym for the exact same question).
+
+Do NOT group keywords that are merely on a similar TOPIC but ask a DIFFERENT question (e.g. "grey walls" and "grey and beige" are related topics but different questions — do not group them). When unsure, do NOT group — leave it out entirely.
+
+For each group, also name the ONE member that is the clearest, most natural way a real person would type that search — call it "suggested_primary".
+
+Return ONLY compact JSON, no other text: an array of groups (2+ members each). Keywords that don't share intent with anything else must NOT appear anywhere in the output.
+[{"members":["exact keyword 1","exact keyword 2"],"suggested_primary":"exact keyword 1","reason":"short reason"}]
+
+KEYWORDS (use the EXACT text back, one per line):
+${pool.map(p => '- ' + p.keyword).join('\n')}`;
+
+        let aiText = '';
+        try { aiText = await callClaudeText(prompt, 4000); } catch (e) { return res.status(500).json({ error: 'AI grouping failed: ' + e.message }); }
+        const raw = aiText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+        const m = raw.match(/\[[\s\S]*\]/);
+        let aiGroups = [];
+        try { aiGroups = m ? JSON.parse(m[0]) : []; } catch (e) { aiGroups = []; }
+
+        const poolLc = new Set(pool.map(p => p.keyword.toLowerCase()));
+        const newGroups = [];
+        const nowGroupedLc = new Set();
+        (Array.isArray(aiGroups) ? aiGroups : []).forEach((g, gi) => {
+          const memberKws = Array.isArray(g.members) ? g.members.map(String) : [];
+          const validMembers = [];
+          const seenLc = new Set();
+          memberKws.forEach(kwText => {
+            const lc = kwText.trim().toLowerCase();
+            if (poolLc.has(lc) && !seenLc.has(lc) && !nowGroupedLc.has(lc)) { seenLc.add(lc); validMembers.push(poolMap.get(lc)); }
+          });
+          if (validMembers.length < 2) return; // AI hallucinated a keyword or only 1 survived — skip
+          // Attach volume/impressions signals for winner selection + display.
+          const withSignals = validMembers.map(v => {
+            const met = metricsLc[v.keyword.toLowerCase()];
+            const gsc = gscLc[v.keyword.toLowerCase()];
+            return { keyword: v.keyword, title: v.title, volume: met ? met.volume : null, difficulty: met ? met.seo_difficulty : null, impressions: gsc ? gsc.impressions : null };
+          });
+          // Winner: highest search volume (our own data) > highest GSC impressions > AI's suggested_primary.
+          let winner = null, signal = 'ai-choice';
+          const withVolume = withSignals.filter(s => s.volume != null);
+          if (withVolume.length) {
+            winner = withVolume.slice().sort((a, b) => (b.volume - a.volume) || ((a.difficulty ?? 99) - (b.difficulty ?? 99)))[0];
+            signal = 'volume';
+          } else {
+            const withImpr = withSignals.filter(s => s.impressions != null);
+            if (withImpr.length) { winner = withImpr.slice().sort((a, b) => b.impressions - a.impressions)[0]; signal = 'impressions'; }
+          }
+          if (!winner) {
+            const sp = String(g.suggested_primary || '').trim().toLowerCase();
+            winner = withSignals.find(s => s.keyword.toLowerCase() === sp) || withSignals[0];
+            signal = 'ai-choice';
+          }
+          const secondary = withSignals.filter(s => s.keyword.toLowerCase() !== winner.keyword.toLowerCase());
+          if (!secondary.length) return; // winner ended up alone — nothing to fuse
+          withSignals.forEach(s => nowGroupedLc.add(s.keyword.toLowerCase()));
+          newGroups.push({
+            id: `grp_${Date.now()}_${gi}`,
+            winnerKeyword: winner.keyword,
+            winnerTitle: winner.title,
+            reason: String(g.reason || ''),
+            signals: signal,
+            secondary
+          });
+        });
+
+        // Cache update: grouped keywords are never re-sent; leftover pool keywords become singletons
+        // (retried next run in case a newly-added keyword turns out to match one of them).
+        const newGroupedAll = new Set([...groupedSet, ...nowGroupedLc]);
+        const leftoverSingletons = pool.filter(p => !nowGroupedLc.has(p.keyword.toLowerCase())).map(p => p.keyword.toLowerCase());
+        await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...new Set(leftoverSingletons)], grouped: [...newGroupedAll] }, `Fusion check: +${nowGroupedLc.size} grouped`);
+
+        if (newGroups.length) {
+          const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+          await writeJsonFile('data/blog-fusion-pending.json', [...pending, ...newGroups], `Fusion: +${newGroups.length} pending group(s)`);
+        }
+
+        return res.status(200).json({ success: true, newGroups, checkedCount: pool.length, message: `Checked ${pool.length} topics — found ${newGroups.length} new group${newGroups.length === 1 ? '' : 's'}.` });
+      }
+
+      // ── ACTION: get-fusion-pending ── (GET) load proposed-but-not-yet-applied fusion groups
+      if (req.query.action === 'get-fusion-pending') {
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        return res.status(200).json({ success: true, groups: pending });
+      }
+
+      // ── ACTION: get-fused-groups ── (GET) load APPLIED fusion groups, keyed by winner keyword (lowercase)
+      if (req.query.action === 'get-fused-groups') {
+        const groups = await readJsonFileSafe('data/blog-fused-groups.json', {});
+        return res.status(200).json({ success: true, groups });
+      }
+
+      // ── ACTION: apply-fusion-group ── Mae approved a proposed group: secondary keywords' rows go
+      // IGNORED (marked FUSED, pointing at the winner); the winner's secondary angles are recorded
+      // permanently in blog-fused-groups.json so "Write blog" can cover them as extra H2 sections.
+      if (req.body.action === 'apply-fusion-group') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const winnerKeyword = String(req.body.winnerKeyword || '').trim();
+        if (!winnerKeyword) return res.status(400).json({ error: 'winnerKeyword required' });
+        const winnerLc = winnerKeyword.toLowerCase();
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        const idx = pending.findIndex(g => (g.winnerKeyword || '').toLowerCase() === winnerLc);
+        if (idx === -1) return res.status(404).json({ error: 'That group is no longer pending (maybe already applied or discarded).' });
+        const group = pending[idx];
+
+        const esc = (c) => { const s = String(c == null ? '' : c); return (s.includes(',') || s.includes('"') || s.includes('\n')) ? `"${s.replace(/"/g, '""')}"` : s; };
+        const secLc = new Set(group.secondary.map(s => s.keyword.toLowerCase()));
+        const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+        const lines = ideasFile.content.split('\n');
+        let touched = 0;
+        const updated = lines.map((line, i) => {
+          if (i === 0) return line;
+          const trimmed = line.trim().replace(/\r/g, '');
+          if (!trimmed) return line;
+          const cols = parseCSVLine(trimmed);
+          const kw = (cols[0] || '').trim().toLowerCase();
+          if (secLc.has(kw)) {
+            while (cols.length < 10) cols.push('');
+            cols[3] = 'FUSED';               // CANNIBALIZATION
+            cols[4] = group.winnerKeyword;   // CONFLICTING KEYWORD -> points at the winner
+            cols[6] = 'IGNORED';             // STATUS
+            touched++;
+            return cols.map(esc).join(',');
+          }
+          return line;
+        });
+        await updateGitHubFile('data/blog_ideas.csv', updated.join('\n'), ideasFile.sha, `Fuse ${touched} keyword(s) into: ${group.winnerKeyword}`);
+
+        const fused = await readJsonFileSafe('data/blog-fused-groups.json', {});
+        fused[winnerLc] = { winnerKeyword: group.winnerKeyword, winnerTitle: group.winnerTitle, secondary: group.secondary, reason: group.reason, appliedAt: new Date().toISOString() };
+        await writeJsonFile('data/blog-fused-groups.json', fused, `Fusion applied: ${group.winnerKeyword}`);
+
+        pending.splice(idx, 1);
+        await writeJsonFile('data/blog-fusion-pending.json', pending, `Fusion applied — removed from pending: ${group.winnerKeyword}`);
+
+        return res.status(200).json({ success: true, winnerKeyword: group.winnerKeyword, winnerTitle: group.winnerTitle, secondary: group.secondary, reason: group.reason, touched });
+      }
+
+      // ── ACTION: discard-fusion-group ── Mae said keep them separate — un-group these keywords so a
+      // future "Find duplicate topics" run can reconsider them (e.g. paired with a different keyword).
+      if (req.body.action === 'discard-fusion-group') {
+        const winnerKeyword = String(req.body.winnerKeyword || '').trim();
+        if (!winnerKeyword) return res.status(400).json({ error: 'winnerKeyword required' });
+        const winnerLc = winnerKeyword.toLowerCase();
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        const idx = pending.findIndex(g => (g.winnerKeyword || '').toLowerCase() === winnerLc);
+        if (idx === -1) return res.status(200).json({ success: true, note: 'Already gone.' });
+        const group = pending[idx];
+        pending.splice(idx, 1);
+        await writeJsonFile('data/blog-fusion-pending.json', pending, `Fusion discarded: ${group.winnerKeyword}`);
+
+        const memberLc = [group.winnerKeyword.toLowerCase(), ...group.secondary.map(s => s.keyword.toLowerCase())];
+        const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
+        const groupedSet = new Set((checked.grouped || []).map(s => String(s).toLowerCase()));
+        memberLc.forEach(k => groupedSet.delete(k));
+        const singletonsSet = new Set((checked.singletons || []).map(s => String(s).toLowerCase()));
+        memberLc.forEach(k => singletonsSet.add(k));
+        await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletonsSet], grouped: [...groupedSet] }, `Fusion discarded — unlocked: ${group.winnerKeyword}`);
+
+        return res.status(200).json({ success: true });
+      }
+
       // ── ACTION: clean-keywords ── (LIGHT PASS: derive the real keyword only, NO clash check)
       // Input: { titles: ["...", ...] } — one batch (the frontend loops in batches). Saves NOTHING.
       if (req.body.action === 'clean-keywords') {
@@ -4332,6 +4556,11 @@ Return only the JSON.`;
         const mustCover = Array.isArray(brief.mustCover) ? brief.mustCover.filter(Boolean) : [];
         const gaps = Array.isArray(brief.gaps) ? brief.gaps.filter(Boolean) : [];
         const angle = String(brief.angle || '').trim();
+        // This blog may FUSE several near-duplicate searches into one post (see find-fusion-groups) —
+        // each secondary keyword must get covered as its own H2 so the merged post still wins all of them.
+        const secondaryAngles = Array.isArray(req.body.secondaryAngles)
+          ? req.body.secondaryAngles.map(s => (s && s.keyword) ? String(s.keyword) : String(s || '')).filter(Boolean)
+          : [];
 
         const BANNED = 'Delve, Spearheading, Embarking, Embark, Compelling, Empowering, Encompassing, Comprehensively, Effectively, Beacon, Dive, Showcasing, Remarked, Aligns, Surpassing, Tragically, Impacting, Prioritize, Prioritizing, Sparking, Standout, Hindering, Advancements, Aiding, Fostering, Multifaceted, Revolutionary, Testament, Elevate, journey. Banned phrases: "in the ever-evolving world of", "at the forefront of", "in summary", "in conclusion", "in essence", "it\'s important to note", "emerges as a beacon", "dive into", "study aims to explore", "plays a significant role in shaping", "explores themes", "gain valuable insights".';
 
@@ -4350,6 +4579,7 @@ ${angle ? `WINNING ANGLE: ${angle}` : ''}
 TARGET LENGTH: at least ${wordTarget} words IN THE BODY (this already leaves ~500 words for the FAQ/summary/related sections that render below the body). Match or beat this — never write less.
 ${mustCover.length ? `MUST COVER these topics as H2 sections: ${mustCover.join('; ')}.` : ''}
 ${gaps.length ? `WIN ON these gaps the top pages miss (add as extra H2 sections): ${gaps.join('; ')}.` : ''}
+${secondaryAngles.length ? `FUSED SEARCH TERMS — this post merges several near-duplicate searches into ONE blog so they stop competing with each other: cover EACH of these as its own H2 section, using its exact phrase naturally in that section's heading and text (no keyword-stuffing): ${secondaryAngles.map(s => `"${s}"`).join('; ')}.` : ''}
 
 VOICE (this is what makes it sound human, not AI):
 - First person (I / we), a warm, friendly personal decorator advisor talking directly to the reader — like a friend who styles homes for a living.
