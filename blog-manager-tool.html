@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.10.4 - 2026-09-27</p>
+        <p class="version">v6.11.0 - 2026-09-27</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -336,6 +336,13 @@
                 <button id="fusion-find-btn" onclick="findFusionGroups()" style="background:#c0561d;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">🔍 Find duplicate topics (AI)</button>
                 <span id="fusion-find-note" style="margin-left:10px;color:#666;font-size:13px;"></span>
                 <div id="fusion-pending-list" style="margin-top:12px;"></div>
+            </div>
+
+            <div id="perf-panel-blog" style="background:#fff8e6;border:1px solid #f0ddb8;border-radius:10px;padding:14px;margin-bottom:16px;">
+                <div style="font-weight:700;margin-bottom:4px;">⭐ Ya rankeás — capturá más</div>
+                <div style="color:#8a6d1a;font-size:13px;margin-bottom:10px;">Informational searches you already get clicks on but haven't claimed. Top-6 first. Lock one to the page that already ranks (to optimise it in Money Page Doctor), or add it to To Write to write a dedicated blog.</div>
+                <button onclick="loadPerformingBlog(true)" style="background:#c0561d;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">↻ Refresh</button>
+                <div id="perf-list-blog" style="margin-top:12px;color:#888;font-size:13px;">Loading…</div>
             </div>
 
             <div style="background:#f4f8ff;border:1px solid #cfe0ff;border-radius:10px;padding:14px;margin-bottom:16px;">
@@ -605,13 +612,66 @@
             try { await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'discard-fusion-group', winnerKeyword: kw }) }); } catch (e) {}
         }
 
+        // ============================================
+        // "Ya rankeás — capturá más" (BLOG side): informational keywords you already get clicks on.
+        // ① Add to registry to optimise → /api/keywords claim-to-registry (INFORMATIONAL) → Money Page Doctor.
+        // ② Use in a blog → adds it to To Write (save-blog-ideas), ready to write a dedicated blog.
+        // ============================================
+        let PERFORMING_BLOG = null;
+        async function loadPerformingBlog(force) {
+            const box = document.getElementById('perf-list-blog'); if (!box) return;
+            if (PERFORMING_BLOG && !force) { renderPerformingBlog(); return; }
+            box.innerHTML = 'Loading…';
+            try { const r = await fetch('/api/blogs?action=performing-keywords-blog').then(x => x.json()); PERFORMING_BLOG = (r && r.options) || []; renderPerformingBlog(); }
+            catch (e) { box.innerHTML = '<span style="color:#a33;">Could not load: ' + escBlog(e.message) + '</span>'; }
+        }
+        function renderPerformingBlog() {
+            const box = document.getElementById('perf-list-blog'); if (!box) return;
+            const opts = PERFORMING_BLOG || [];
+            if (!opts.length) { box.innerHTML = '<span style="color:#888;">Nothing new right now.</span>'; return; }
+            box.innerHTML = '<div style="display:grid;gap:8px;">' + opts.map((o, i) => {
+                const star = o.topSix ? '⭐ ' : '';
+                const metrics = '<span style="color:#888;font-size:12px;">' + o.impressions + ' impr · ' + o.clicks + ' clicks · pos ' + o.position + '</span>';
+                let action;
+                if (o.rankingUrl) {
+                    action = '<div style="font-size:12px;color:#2e7d32;margin-top:2px;">ranking (free): ' + escBlog(o.rankingUrl) + '</div>'
+                        + '<button onclick="claimBlogToRegistry(' + i + ')" style="margin-top:6px;background:#2e7d32;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">① Add to registry to optimise</button> '
+                        + '<button onclick="usePerformingInBlog(' + i + ')" style="background:#fff;color:#8a6d1a;border:1px solid #ccc;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">② Use in a blog</button>';
+                } else {
+                    const taken = o.urlLockedToOther ? '<div style="font-size:12px;color:#b3620a;margin-top:2px;">the page that ranks is already locked to another keyword → write new</div>' : '';
+                    action = taken + '<button onclick="usePerformingInBlog(' + i + ')" style="margin-top:6px;background:#c0561d;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">② Use in a blog</button>';
+                }
+                return '<div style="border:1px solid #e6d3a3;border-radius:8px;padding:10px 12px;background:#fffdf8;">'
+                    + '<div style="font-weight:600;">' + star + escBlog(o.keyword) + '</div>' + metrics + '<div>' + action + '</div></div>';
+            }).join('') + '</div>';
+        }
+        async function claimBlogToRegistry(i) {
+            const o = (PERFORMING_BLOG || [])[i]; if (!o) return;
+            if (!confirm('Lock "' + o.keyword + '" to ' + o.rankingUrl + ' and send it to Money Page Doctor to optimise?')) return;
+            try { const r = await fetch('/api/keywords', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'claim-to-registry', keyword: o.keyword, url: o.rankingUrl, intent: 'INFORMATIONAL' }) }).then(x => x.json()); if (!r.ok) throw new Error(r.error || r.message || 'failed'); PERFORMING_BLOG.splice(i, 1); renderPerformingBlog(); }
+            catch (e) { alert('Could not lock: ' + e.message); }
+        }
+        async function usePerformingInBlog(i) {
+            const o = (PERFORMING_BLOG || [])[i]; if (!o) return;
+            try {
+                const res = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'analyze-blog-titles', titles: [o.keyword] }) }).then(x => x.json());
+                const rr = ((res && res.results) || [])[0] || { title: o.keyword, keyword: o.keyword, cannibalization: 'NO CONFLICT' };
+                const row = { title: rr.title, keyword: rr.keyword, cannibalization: rr.cannibalization, conflictingKeyword: rr.conflictingKeyword, conflictingUrl: rr.conflictingUrl, clashIntent: rr.clashIntent, isNew: true };
+                const save = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-blog-ideas', rows: [row], spread: true }) }).then(x => x.json());
+                if (!save.success) throw new Error(save.error || 'Save failed');
+                let nextIndex = allIdeas.length ? Math.max(...allIdeas.map(x => x.index)) + 1 : 0;
+                allIdeas.push({ index: nextIndex, keyword: rr.keyword, title: rr.title, perspective: '', cannibalization: rr.cannibalization, conflictingKeyword: rr.conflictingKeyword || '', conflictingUrl: rr.conflictingUrl || '', clashIntent: rr.clashIntent || '', currentTitle: rr.title, currentKeyword: rr.keyword, status: 'TO_WRITE' });
+                PERFORMING_BLOG.splice(i, 1); renderPerformingBlog(); refreshAll();
+            } catch (e) { alert('Could not add: ' + e.message); }
+        }
+
         function switchTab(tab) {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(p => p.classList.remove('active'));
             document.getElementById(`tab-${tab}`).classList.add('active');
             document.getElementById(`panel-${tab}`).classList.add('active');
             if (tab !== 'ideas') clearSelection();
-            if (tab === 'towrite') { loadGscBlogTopics(); loadFusionPending(); }
+            if (tab === 'towrite') { loadGscBlogTopics(); loadFusionPending(); loadPerformingBlog(false); }
         }
 
         function updateTabCounts() {
