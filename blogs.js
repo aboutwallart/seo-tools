@@ -1,4 +1,49 @@
-// blogs.js — v4.0
+// blogs.js — v5.2
+// v5.2 (2026-09-27): performing-keywords-blog cleans ranking URLs (drop query) so the real page shows + URL-lock check matches.
+// v5.1 (2026-09-27): performing-keywords-blog now also hides the shared "✕ Dismiss" list (gsc-performing-dismissed.json).
+// v5.0 (2026-09-27): new GET action performing-keywords-blog — "Ya rankeás — capturá más" (blog side):
+//   informational keywords you already get clicks on (data/gsc-performing-keywords.json), not locked /
+//   not already a blog / not dismissed; ranking URL shown only if free (taken URL = write a new blog).
+//   The "add to registry to optimise" button reuses /api/keywords claim-to-registry; "use in blog" reuses
+//   save-blog-ideas.
+// blogs.js — v4.9
+// v4.9 (2026-09-27): FIX — the fusion groups were found + saved but never SHOWED on screen. The two
+//                    GET readers (get-fusion-pending, get-fused-groups) had been placed inside the POST
+//                    block, but a GET request returns from the GET block first (default "return {blogs}")
+//                    and never reaches the POST section — so the page got a blog list instead of the
+//                    groups and rendered nothing. Moved both readers to the TOP of the GET block.
+// v4.8 (2026-09-27): fix find-fusion-groups returning 0 groups despite real duplicates existing —
+//                    the AI was asked to echo back exact keyword TEXT, and small rewording (case, a
+//                    word) on echo silently dropped every group during exact-match filtering. Now the
+//                    AI is sent a NUMBERED list and returns INDEX NUMBERS instead (immune to rewording).
+//                    Also: the raw AI response is now ALWAYS saved to data/blog-fusion-last-raw.json
+//                    (debugging never has to guess), and the result message shows "AI proposed N,
+//                    M valid" when they differ.
+// v4.7 (2026-09-27): blog fusion (anti-cannibalisation WITHIN To Write) — AI groups keywords that
+//                    share the same search intent so they don't compete with each other; the group
+//                    merges into ONE blog (winner picked by volume/GSC impressions, else AI's pick),
+//                    the rest become secondary angles covered as H2 sections. New actions:
+//                    find-fusion-groups, get-fusion-pending, apply-fusion-group, discard-fusion-group,
+//                    get-fused-groups. New data files: blog-fusion-checked.json (cache — only new
+//                    keywords get sent to AI next time), blog-fusion-pending.json (proposed, awaiting
+//                    review), blog-fused-groups.json (applied, permanent). write-blog-body now accepts
+//                    `secondaryAngles` and tells the writer to cover each as its own H2 section.
+// v4.6 (2026-09-27): approving GSC blog topics now (a) auto-dismisses them from the panel so they
+//                    don't reappear, and (b) saves them SPREAD through blog_ideas.csv (save-blog-ideas
+//                    `spread:true`) instead of all at the end, so the monthly auto-pick distributes
+//                    them across months. `dismiss-gsc-blog-topic` also accepts a `keywords` array.
+// v4.5 (2026-09-26): gsc-blog-opportunities returns ALL informational topics (no cap) and excludes
+//                    dismissed ones; new action `dismiss-gsc-blog-topic` (data/gsc-blog-dismissed.json).
+// v4.4 (2026-09-26): new GET action `gsc-blog-opportunities` — informational GSC opportunity keywords
+//                    for new blogs, minus ones a blog already covers (registry Published/To_Write blog).
+// v4.3 (Sep 4, 2026): Scrappa competitor fallback now retries transient HTTP 503/429 (up to 3×,
+//                     short backoff) before dead-ending — matches api/analyze-money-page.js v51.8.
+// v4.2 (Aug 21, 2026): Blog scheduling now spaces new blogs EVERY OTHER DAY (1 day on, 1 day off)
+//                      instead of one per day — the next free slot is now 2 days after the last
+//                      scheduled blog, not 1. (publish-blog: gap 86400000 → 2 * 86400000.)
+// v4.1 (Aug 2, 2026): Money Page Doctor Removed tab — mark-removed (bulk) sets registry rows to
+//                     action REMOVED (page shows ONLY in the Removed tab, never back in Start Here/
+//                     Optimized/Winners); restore-removed sends a page back to TO_OPTIMIZE.
 // v4.0 (June 30, 2026): Money Page Doctor Winner-Hold — get-mpd-hold / save-mpd-hold actions
 //                       (data/mpd-hold.json, array of URLs flagged "winner — don't optimise yet").
 // v3.0: Blog Manager Batch 1 — send-to-sheet now auto-generates content sources (colG–colK):
@@ -361,7 +406,7 @@ If you genuinely cannot find one of the two, leave its two fields as empty strin
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 2000,
         messages: [{ role: 'user', content: prompt }],
         tools: [{ type: 'web_search_20250305', name: 'web_search' }]
@@ -550,7 +595,47 @@ Return ONLY a JSON object, no commentary, exactly:
   }
 
   // Helper: plain Claude text call (no web search) — used by Batch 2 writers
-  async function callClaudeText(prompt, maxTokens) {
+  async function callClaudeText(prompt, maxTokens, model) {
+    const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+    if (!ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not configured');
+    const _mkCall = (mdl) => fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': ANTHROPIC_API_KEY,
+        'content-type': 'application/json',
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: mdl,
+        max_tokens: maxTokens || 2000,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    const _wanted = model || 'claude-sonnet-4-6';
+    let response = await _mkCall(_wanted);
+    // Safety net: if a cheaper engine was requested and it's unavailable (model error), fall back to the good engine so nothing breaks.
+    if (!response.ok && _wanted !== 'claude-sonnet-4-6' && (response.status === 404 || response.status === 400)) {
+      response = await _mkCall('claude-sonnet-4-6');
+    }
+    if (!response.ok) {
+      const errText = await response.text();
+      const low = (errText || '').toLowerCase();
+      const outOfCredits = response.status === 402 || response.status === 429 || low.includes('credit') || low.includes('billing') || low.includes('quota') || low.includes('insufficient');
+      throw new Error(outOfCredits
+        ? 'Claude is out of credits or rate-limited — top up your Anthropic account, then press again.'
+        : `Claude API error: ${response.status} ${errText.slice(0, 150)}`);
+    }
+    const data = await response.json();
+    let text = '';
+    if (data.content && Array.isArray(data.content)) {
+      text = data.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
+    }
+    return text.trim();
+  }
+
+  // Same as callClaudeText but with ONE image (for reading a style photo). imageBase64 = the raw
+  // base64 (no "data:" prefix); mediaType = e.g. "image/jpeg" / "image/png" / "image/webp".
+  async function callClaudeVision(prompt, imageBase64, mediaType, maxTokens) {
     const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
     if (!ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not configured');
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -562,8 +647,14 @@ Return ONLY a JSON object, no commentary, exactly:
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: maxTokens || 2000,
-        messages: [{ role: 'user', content: prompt }]
+        max_tokens: maxTokens || 1500,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 } },
+            { type: 'text', text: prompt }
+          ]
+        }]
       })
     });
     if (!response.ok) {
@@ -580,6 +671,17 @@ Return ONLY a JSON object, no commentary, exactly:
       text = data.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
     }
     return text.trim();
+  }
+
+  // Small JSON-file helpers for fusion data (blog-fusion-checked.json, blog-fusion-pending.json,
+  // blog-fused-groups.json). readJsonFileSafe returns `fallback` for a missing/broken file (never throws).
+  async function readJsonFileSafe(filePath, fallback) {
+    try { const f = await getGitHubFile(filePath); return JSON.parse(f.content); } catch (e) { return fallback; }
+  }
+  async function writeJsonFile(filePath, obj, message) {
+    let sha = null;
+    try { const existing = await getGitHubFile(filePath); sha = existing.sha; } catch (e) { sha = null; }
+    await updateGitHubFile(filePath, JSON.stringify(obj, null, 2) + '\n', sha, message);
   }
 
   // Column P — 3 "People Also Ask" Q&A pairs, plain text
@@ -1026,6 +1128,74 @@ Include EXACTLY 3 items.`;
     // ============================================
     if (req.method === 'GET') {
 
+      // ── ACTION: get-fusion-pending ── proposed-but-not-yet-applied fusion groups (for the review panel).
+      // ── ACTION: get-fused-groups ── APPLIED fusion groups, keyed by winner keyword (for card badges + writer).
+      // These GET handlers MUST sit at the top of the GET block — the GET block ends in a default
+      // "return { blogs }", so anything placed after that default never runs for a GET request.
+      if (req.query.action === 'get-fusion-pending') {
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        return res.status(200).json({ success: true, groups: pending });
+      }
+      if (req.query.action === 'get-fused-groups') {
+        const groups = await readJsonFileSafe('data/blog-fused-groups.json', {});
+        return res.status(200).json({ success: true, groups });
+      }
+
+      // ── ACTION: performing-keywords-blog ── "Ya rankeás — capturá más" (BLOG side): informational
+      // keywords you already get clicks on (data/gsc-performing-keywords.json), not locked, not already
+      // a blog, not dismissed. Each carries its ranking URL only if that URL is free (not locked to
+      // another keyword) — a taken URL means "write a new blog instead". Mirrors the product-side logic.
+      if (req.query.action === 'performing-keywords-blog') {
+        let list = [];
+        try {
+          const rr = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/gsc-performing-keywords.json?t=${Date.now()}`);
+          if (rr.ok) { const j = await rr.json(); list = Array.isArray(j.keywords) ? j.keywords : []; }
+        } catch (e) { /* no list yet */ }
+        const lockedSet = new Set(); const blogKws = []; const urlLock = {};
+        // Strip ?variant=… query so the real page shows + the "URL locked?" check matches the registry.
+        const cleanU = u => String(u || '').split(/[?#]/)[0];
+        const nrm = u => cleanU(u).trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
+        try {
+          const rc = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/keyword-locker-registry.csv?t=${Date.now()}`);
+          if (rc.ok) {
+            const txt = await rc.text();
+            txt.split('\n').forEach((line, i) => {
+              if (i === 0 || !line.trim()) return;
+              const c = parseCSVLine(line.replace(/\r/g, ''));
+              const kw = (c[0] || '').toLowerCase(); const url = (c[1] || '').trim(); const lk = (c[2] || '').toUpperCase(); const src = (c[9] || '');
+              if (kw && lk === 'LOCKED') lockedSet.add(kw);
+              if (url && url !== 'N/A' && lk === 'LOCKED') { const k = nrm(url); if (!urlLock[k]) urlLock[k] = c[0] || ''; }
+              if ((src === 'Published Blog' || src === 'To_Write_Blog') && c[0]) blogKws.push(kw);
+            });
+          }
+        } catch (e) { /* ignore */ }
+        let dismissed = [];
+        try { const df = await getGitHubFile('data/gsc-blog-dismissed.json'); dismissed = (JSON.parse(df.content) || []).map(s => String(s).toLowerCase()); } catch (e) { dismissed = []; }
+        // Shared "✕ Dismiss" list (hidden from BOTH the product and blog performing panels).
+        let perfDismissed = [];
+        try { const pf = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/gsc-performing-dismissed.json?t=${Date.now()}`); if (pf.ok) { const j = await pf.json(); perfDismissed = (Array.isArray(j) ? j : []).map(s => String(s).toLowerCase()); } } catch (e) { perfDismissed = []; }
+        const lockedArr = [...lockedSet];
+        const options = list
+          .filter(k => k && k.keyword && k.intent === 'blog')
+          .filter(k => { const kw = k.keyword.toLowerCase();
+            if (lockedSet.has(kw)) return false;
+            if (lockedArr.some(lk => lk.includes(kw))) return false;
+            if (blogKws.some(bk => bk === kw || bk.includes(kw))) return false;
+            if (dismissed.includes(kw)) return false;
+            if (perfDismissed.includes(kw)) return false;
+            return true;
+          })
+          .map(k => {
+            const cleanRanking = k.rankingUrl ? cleanU(k.rankingUrl) : null;
+            const lockedTo = cleanRanking ? urlLock[nrm(cleanRanking)] : null;
+            const urlFree = !!(cleanRanking && !lockedTo);
+            return { keyword: k.keyword, impressions: k.impressions, clicks: k.clicks, position: k.position,
+              rankingUrl: urlFree ? cleanRanking : null, urlLockedToOther: !!lockedTo, topSix: (k.position != null && k.position <= 6) };
+          })
+          .slice(0, 100);
+        return res.status(200).json({ success: true, options });
+      }
+
       // ── NEW ACTION: get-published-keywords ──
       if (req.query.action === 'get-published-keywords') {
         const csvPath = path.resolve(process.cwd(), 'data', 'keyword-locker-registry.csv');
@@ -1050,6 +1220,39 @@ Include EXACTLY 3 items.`;
           }
         }
         return res.status(200).json({ success: true, publishedBlogs });
+      }
+
+      // ── ACTION: gsc-blog-opportunities ── informational GSC opportunities for new blogs,
+      // minus any keyword a blog already covers (registry source Published Blog / To_Write_Blog).
+      if (req.query.action === 'gsc-blog-opportunities') {
+        let list = [];
+        try {
+          const rr = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/gsc-opportunity-keywords.json?t=${Date.now()}`);
+          if (rr.ok) { const j = await rr.json(); list = Array.isArray(j.keywords) ? j.keywords : []; }
+        } catch (e) { /* no list yet */ }
+        const blogKws = [];
+        try {
+          const rc = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/keyword-locker-registry.csv?t=${Date.now()}`);
+          if (rc.ok) {
+            const txt = await rc.text();
+            txt.split('\n').forEach((line, i) => {
+              if (i === 0 || !line.trim()) return;
+              const c = parseCSVLine(line.replace(/\r/g, ''));
+              const src = (c[9] || '');
+              if ((src === 'Published Blog' || src === 'To_Write_Blog') && c[0]) blogKws.push(c[0].toLowerCase());
+            });
+          }
+        } catch (e) { /* ignore */ }
+        let dismissed = [];
+        try { const df = await getGitHubFile('data/gsc-blog-dismissed.json'); dismissed = (JSON.parse(df.content) || []).map(s => String(s).toLowerCase()); } catch (e) { dismissed = []; }
+        const options = list
+          .filter(k => k && k.keyword && k.intent === 'blog')
+          .filter(k => { const kw = k.keyword.toLowerCase();
+            if (dismissed.includes(kw)) return false;                       // discarded earlier
+            return !blogKws.some(bk => bk === kw || bk.includes(kw));        // already covered by a blog
+          })
+          .map(k => ({ keyword: k.keyword, impressions: k.impressions, clicks: k.clicks, position: k.position }));
+        return res.status(200).json({ success: true, options });
       }
 
       // ── ACTION: get-registry ──
@@ -1078,6 +1281,34 @@ Include EXACTLY 3 items.`;
           }
         }
         return res.status(200).json({ success: true, registry });
+      }
+
+      // ── ACTION: awa-collection-handles ── (product handles in the "Discountable Products" collection = About Wall Art's own products)
+      if (req.query.action === 'awa-collection-handles') {
+        const shopifyDomain = process.env.SHOPIFY_STORE_DOMAIN;
+        const shopifyToken  = process.env.SHOPIFY_ACCESS_TOKEN;
+        if (!shopifyDomain || !shopifyToken) return res.status(500).json({ error: 'Shopify credentials not configured' });
+        const COLLECTION_HANDLE = 'products-with-applicable-discounts';
+        const handles = [];
+        let cursor = null, hasNext = true, guard = 0;
+        while (hasNext && guard < 30) {
+          guard++;
+          const q = `query($cursor:String){ collectionByHandle(handle:"${COLLECTION_HANDLE}"){ products(first:250, after:$cursor){ pageInfo{ hasNextPage endCursor } edges{ node{ handle } } } } }`;
+          const r = await fetch(`https://${shopifyDomain}/admin/api/2025-01/graphql.json`, {
+            method: 'POST',
+            headers: { 'X-Shopify-Access-Token': shopifyToken, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: q, variables: { cursor } })
+          });
+          if (!r.ok) return res.status(500).json({ error: `Shopify error: ${r.status}` });
+          const d = await r.json();
+          if (d.errors) return res.status(500).json({ error: d.errors[0].message });
+          const coll = d.data && d.data.collectionByHandle;
+          if (!coll) return res.status(404).json({ error: 'Collection not found' });
+          coll.products.edges.forEach(e => { if (e.node.handle) handles.push(e.node.handle); });
+          hasNext = coll.products.pageInfo.hasNextPage;
+          cursor = coll.products.pageInfo.endCursor;
+        }
+        return res.status(200).json({ success: true, handles });
       }
 
       // ── ACTION: get-revenue-by-month ──
@@ -1352,6 +1583,29 @@ Include EXACTLY 3 items.`;
         }
       }
 
+      // ── ACTION: get-mpd-winner-out ── (Money Page Doctor — winners the user manually sent to Start Here to optimise)
+      if (req.query.action === 'get-mpd-winner-out') {
+        try {
+          const file = await getGitHubFile('data/mpd-winner-out.json');
+          const arr = JSON.parse(file.content);
+          return res.status(200).json({ success: true, out: Array.isArray(arr) ? arr : [] });
+        } catch(e) {
+          return res.status(200).json({ success: true, out: [] });
+        }
+      }
+
+      // ── ACTION: get-mpd-winner-serp ── (Money Page Doctor — stored SERP UK positions for winners)
+      // Map of "normalizedPath|||keyword" → { position, checkedAt } (position null = checked, not in top 10).
+      if (req.query.action === 'get-mpd-winner-serp') {
+        try {
+          const file = await getGitHubFile('data/mpd-winner-serp.json');
+          const obj = JSON.parse(file.content);
+          return res.status(200).json({ success: true, serp: (obj && typeof obj === 'object') ? obj : {} });
+        } catch(e) {
+          return res.status(200).json({ success: true, serp: {} });
+        }
+      }
+
       // ── ACTION: get-briefs ── (saved competitor briefs, keyed by lowercased blog title)
       if (req.query.action === 'get-briefs') {
         try {
@@ -1619,6 +1873,7 @@ Include EXACTLY 3 items.`;
           cols.push(cur.trim());
           return cols;
         }
+        const resolvedIntent = detectIntent(url);
         const lines = registry.content.split('\n').map(l => l.replace(/\r/g, ''));
         for (const line of lines) {
           if (!line.trim()) continue;
@@ -1628,12 +1883,14 @@ Include EXACTLY 3 items.`;
           const rowStatus = (cols[3]||'').toUpperCase();
           const rowAction = (cols[4]||'').toUpperCase();
           const rowUrl    = cols[1]||'';
+          const rowIntent = (cols[10]||'').toUpperCase();
           const isRealLock = rowLocked === 'LOCKED' && rowStatus === 'DONE' && ['TO_OPTIMIZE','OPTIMIZED'].includes(rowAction);
-          if (isRealLock && rowKw === keyword.toLowerCase()) {
+          // Per-intent lock: only block when the SAME keyword is locked under the SAME intent.
+          // A keyword CAN be locked to different pages under different intents.
+          if (isRealLock && rowKw === keyword.toLowerCase() && rowIntent === (resolvedIntent||'').toUpperCase()) {
             return res.status(409).json({ duplicate: true, error: `DUPLICATE_KEYWORD`, lockedTo: rowUrl });
           }
         }
-        const resolvedIntent = detectIntent(url);
         // Remove any existing SAVED_FOR_FUTURE row for this keyword before adding the locked row
         const cleanedLines = lines.filter(line => {
           if (!line.trim()) return true;
@@ -1715,6 +1972,63 @@ Include EXACTLY 3 items.`;
         return res.status(200).json({ success: true });
       }
 
+      // ── ACTION: mark-removed ── (Money Page Doctor — move page(s) to the Removed tab; bulk)
+      // Sets the registry row action to REMOVED so the page shows ONLY in the Removed tab and never
+      // returns to Start Here / Optimized / Winners. Accepts a single {keyword,url} OR {pages:[...]}.
+      if (req.body.action === 'mark-removed') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        let pages = Array.isArray(req.body.pages) ? req.body.pages : [];
+        if (!pages.length && req.body.keyword && req.body.url) pages = [{ keyword: req.body.keyword, url: req.body.url }];
+        pages = pages.filter(p => p && p.keyword && p.url);
+        if (!pages.length) return res.status(400).json({ error: 'pages (or keyword+url) required' });
+        const wanted = new Map(pages.map(p => [`${String(p.keyword).trim().toLowerCase()}|${String(p.url).trim().toLowerCase()}`, p]));
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const lines = registry.content.split('\n').map(l => l.replace(/\r/g, ''));
+        const { titleLines, header, startIdx } = findRegistryHeader(lines);
+        const updatedLines = [...titleLines, header];
+        const seen = new Set();
+        const today = new Date().toISOString().split('T')[0];
+        for (let i = startIdx; i < lines.length; i++) {
+          if (!lines[i].trim()) continue;
+          const cols = parseCSVLine(lines[i]);
+          while (cols.length < 12) cols.push('');
+          const key = `${(cols[0]||'').trim().toLowerCase()}|${(cols[1]||'').trim().toLowerCase()}`;
+          if (wanted.has(key)) { cols[2] = 'LOCKED'; cols[3] = 'DONE'; cols[4] = 'REMOVED'; seen.add(key); }
+          updatedLines.push(sanitizeRow(cols));
+        }
+        // Any requested page not already in the registry → add it as a REMOVED row.
+        for (const [key, p] of wanted) {
+          if (seen.has(key)) continue;
+          updatedLines.push(sanitizeRow([p.keyword, p.url, 'LOCKED', 'DONE', 'REMOVED', '', '', '', '', 'User Resolved', detectIntent(p.url), today]));
+        }
+        await updateGitHubFile('data/keyword-locker-registry.csv', updatedLines.join('\n') + '\n', registry.sha, `MPD remove: ${pages.length} page(s)`);
+        return res.status(200).json({ success: true, removed: pages.length });
+      }
+
+      // ── ACTION: restore-removed ── (Money Page Doctor — bring a Removed page back to the queue)
+      if (req.body.action === 'restore-removed') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { keyword, url } = req.body;
+        if (!keyword || !url) return res.status(400).json({ error: 'keyword and url required' });
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const lines = registry.content.split('\n').map(l => l.replace(/\r/g, ''));
+        const { titleLines, header, startIdx } = findRegistryHeader(lines);
+        let found = false;
+        const updatedLines = [...titleLines, header];
+        for (let i = startIdx; i < lines.length; i++) {
+          if (!lines[i].trim()) continue;
+          const cols = parseCSVLine(lines[i]);
+          while (cols.length < 12) cols.push('');
+          if ((cols[1]||'').trim().toLowerCase() === url.toLowerCase() && (cols[0]||'').trim().toLowerCase() === keyword.toLowerCase()) {
+            cols[4] = 'TO_OPTIMIZE'; cols[11] = ''; found = true;
+          }
+          updatedLines.push(sanitizeRow(cols));
+        }
+        if (!found) return res.status(404).json({ error: 'Page not found in registry' });
+        await updateGitHubFile('data/keyword-locker-registry.csv', updatedLines.join('\n') + '\n', registry.sha, `MPD restore: ${keyword}`);
+        return res.status(200).json({ success: true });
+      }
+
       // ── ACTION: add-to-optimize ──
       if (req.body.action === 'add-to-optimize') {
         if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
@@ -1731,6 +2045,50 @@ Include EXACTLY 3 items.`;
         const newRow = `${csvField(keyword)},${csvField(url)},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,User Resolved,${detectIntent(url)},`;
         const updated = lines.filter(l => l.trim()).join('\n') + '\n' + newRow + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Add to optimize: ${keyword} on ${url}`);
+        return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: mpd-change-keyword ── (Money Page Doctor — swap a page's target keyword and FREE the old one)
+      // Rewrites the page's existing registry row to the NEW keyword as TO_OPTIMIZE, so the old weak keyword
+      // is released (no leftover row) and the page shows once in Start Here on the new keyword.
+      if (req.body.action === 'mpd-change-keyword') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { url, oldKeyword, newKeyword } = req.body;
+        if (!url || !oldKeyword || !newKeyword) return res.status(400).json({ error: 'url, oldKeyword and newKeyword required' });
+        const urlLower = String(url).trim().toLowerCase();
+        const oldLower = String(oldKeyword).trim().toLowerCase();
+        const nkLower  = String(newKeyword).trim().toLowerCase();
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const lines = registry.content.split('\n').map(l => l.replace(/\r/g, ''));
+        const { titleLines, header, startIdx } = findRegistryHeader(lines);
+        // Guard: refuse if the new keyword is already locked/queued to a DIFFERENT page.
+        for (let i = startIdx; i < lines.length; i++) {
+          if (!lines[i].trim()) continue;
+          const c = parseCSVLine(lines[i]);
+          const kw = (c[0] || '').trim().toLowerCase();
+          const ru = (c[1] || '').trim().toLowerCase();
+          const act = (c[4] || '').trim().toUpperCase();
+          if (kw === nkLower && ru !== urlLower && (act === 'OPTIMIZED' || act === 'TO_OPTIMIZE')) {
+            return res.status(200).json({ success: false, locked: true, error: 'That keyword is already locked to another page.' });
+          }
+        }
+        let found = false;
+        const updatedLines = [...titleLines, header];
+        for (let i = startIdx; i < lines.length; i++) {
+          if (!lines[i].trim()) continue;
+          const cols = parseCSVLine(lines[i]);
+          while (cols.length < 12) cols.push('');
+          if (!found && (cols[1] || '').trim().toLowerCase() === urlLower && (cols[0] || '').trim().toLowerCase() === oldLower) {
+            cols[0] = newKeyword; cols[2] = 'LOCKED'; cols[3] = 'DONE'; cols[4] = 'TO_OPTIMIZE'; cols[9] = 'Retargeted'; cols[11] = '';
+            updatedLines.push(sanitizeRow(cols));
+            found = true;
+          } else { updatedLines.push(sanitizeRow(cols)); }
+        }
+        if (!found) {
+          // Old row not in the registry (e.g. a seeded page) → just add a fresh TO_OPTIMIZE row for the new keyword.
+          updatedLines.push(sanitizeRow([newKeyword, url, 'LOCKED', 'DONE', 'TO_OPTIMIZE', 'N/A', 'N/A', 'N/A', 'N/A', 'Retargeted', detectIntent(url), '']));
+        }
+        await updateGitHubFile('data/keyword-locker-registry.csv', updatedLines.join('\n') + '\n', registry.sha, `MPD change keyword: ${oldKeyword} → ${newKeyword} on ${url}`);
         return res.status(200).json({ success: true });
       }
 
@@ -1773,6 +2131,98 @@ Include EXACTLY 3 items.`;
         const updated = registry.content.trimEnd() + '\n' + newRow + '\n';
         await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Save for later: ${keyword}`);
         return res.status(200).json({ success: true, keyword });
+      }
+
+      // ── ACTION: skw-ignore ── (ban a keyword FOR A SPECIFIC PAGE from the "Ranking, Not Locked" tab; keyword stays usable on other pages)
+      if (req.body.action === 'skw-ignore') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { keyword, url, intent } = req.body;
+        if (!keyword || !url) return res.status(400).json({ error: 'keyword and url required' });
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const kwLower = keyword.toLowerCase(), urlLower = url.toLowerCase();
+        // Skip if this exact keyword+url is already marked IGNORED
+        const already = registry.content.split('\n').some(line => {
+          const cols = parseCSVLine(line.trim());
+          return (cols[0]||'').toLowerCase() === kwLower && (cols[1]||'').toLowerCase() === urlLower && (cols[4]||'').toUpperCase() === 'IGNORED';
+        });
+        if (already) return res.status(200).json({ success: true, keyword, url, skipped: true });
+        const newRow = `${csvField(keyword)},${csvField(url)},,DONE,IGNORED,N/A,N/A,N/A,N/A,User Action,${csvField(intent||'')},`;
+        const updated = registry.content.trimEnd() + '\n' + newRow + '\n';
+        await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Ignore keyword for page: ${keyword} on ${url}`);
+        return res.status(200).json({ success: true, keyword, url });
+      }
+
+      // ── ACTION: mpd-liberate ── (Money Page Doctor: free a keyword+URL so the page goes back to the Keyword Locker)
+      if (req.body.action === 'mpd-liberate') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { keyword, url } = req.body;
+        if (!keyword || !url) return res.status(400).json({ error: 'keyword and url required' });
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const kwLower = keyword.toLowerCase(), urlLower = url.toLowerCase();
+        let removed = 0;
+        const kept = registry.content.split('\n').filter(line => {
+          if (!line.trim()) return true;
+          const cols = parseCSVLine(line);
+          const rowKw = (cols[0]||'').toLowerCase();
+          const rowUrl = (cols[1]||'').toLowerCase();
+          const rowAction = (cols[4]||'').toUpperCase();
+          const rowWinner = (cols[5]||'').toLowerCase();
+          // remove this page's lock row for this keyword
+          if (rowKw === kwLower && rowUrl === urlLower && ['TO_OPTIMIZE','OPTIMIZED'].includes(rowAction)) { removed++; return false; }
+          // remove its loser internal-link rows (same keyword, winner = this page)
+          if (rowKw === kwLower && rowAction === 'INTERNAL_LINK' && rowWinner === urlLower) { removed++; return false; }
+          return true;
+        });
+        const updated = kept.join('\n').replace(/\n+$/, '') + '\n';
+        await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Liberate (back to Locker): ${keyword} on ${url}`);
+        return res.status(200).json({ success: true, keyword, url, removed });
+      }
+
+      // ── ACTION: mpd-switch-url ── (Money Page Doctor: point a lock at the current URL when the old one 301-redirects)
+      if (req.body.action === 'mpd-switch-url') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { keyword, oldUrl, newUrl } = req.body;
+        if (!keyword || !oldUrl || !newUrl) return res.status(400).json({ error: 'keyword, oldUrl and newUrl required' });
+        const registry = await getGitHubFile('data/keyword-locker-registry.csv');
+        const kwLower = keyword.toLowerCase(), oldLower = oldUrl.toLowerCase();
+        let changed = 0;
+        const out = registry.content.split('\n').map(line => {
+          if (!line.trim()) return line;
+          const cols = parseCSVLine(line);
+          const rowKw = (cols[0]||'').toLowerCase();
+          const rowUrl = (cols[1]||'').toLowerCase();
+          const rowAction = (cols[4]||'').toUpperCase();
+          const rowWinner = (cols[5]||'').toLowerCase();
+          // the lock row for keyword+oldUrl → change its page URL to the current one
+          if (rowKw === kwLower && rowUrl === oldLower && ['TO_OPTIMIZE','OPTIMIZED'].includes(rowAction)) { cols[1] = newUrl; changed++; return cols.map(csvField).join(','); }
+          // loser internal-link rows pointing at the old URL → repoint to the current one
+          if (rowKw === kwLower && rowAction === 'INTERNAL_LINK' && rowWinner === oldLower) { cols[5] = newUrl; changed++; return cols.map(csvField).join(','); }
+          return line;
+        });
+        // Fallback: the analysed/old URL was wrong or truncated so it didn't match by URL. If this keyword has
+        // exactly ONE lock row, repoint THAT one (match by keyword, not by the broken URL). Safe: only when unique.
+        if (!changed) {
+          const locks = [];
+          registry.content.split('\n').forEach(line => {
+            if (!line.trim()) return;
+            const cols = parseCSVLine(line);
+            if ((cols[0]||'').toLowerCase() === kwLower && ['TO_OPTIMIZE','OPTIMIZED'].includes((cols[4]||'').toUpperCase())) locks.push((cols[1]||'').toLowerCase());
+          });
+          if (locks.length === 1) {
+            const target = locks[0];
+            for (let i = 0; i < out.length; i++) {
+              if (!out[i].trim()) continue;
+              const cols = parseCSVLine(out[i]);
+              const rowKw = (cols[0]||'').toLowerCase(), rowUrl = (cols[1]||'').toLowerCase(), rowAction = (cols[4]||'').toUpperCase(), rowWinner = (cols[5]||'').toLowerCase();
+              if (rowKw === kwLower && rowUrl === target && ['TO_OPTIMIZE','OPTIMIZED'].includes(rowAction)) { cols[1] = newUrl; changed++; out[i] = cols.map(csvField).join(','); }
+              else if (rowKw === kwLower && rowAction === 'INTERNAL_LINK' && rowWinner === target) { cols[5] = newUrl; changed++; out[i] = cols.map(csvField).join(','); }
+            }
+          }
+        }
+        if (!changed) return res.status(404).json({ error: 'No matching lock row found for that keyword + URL' });
+        const updated = out.join('\n').replace(/\n+$/, '') + '\n';
+        await updateGitHubFile('data/keyword-locker-registry.csv', updated, registry.sha, `Switch URL: ${keyword} ${oldUrl} → ${newUrl}`);
+        return res.status(200).json({ success: true, keyword, oldUrl, newUrl, changed });
       }
 
       // ── ACTION: delete-keyword ──
@@ -1974,6 +2424,27 @@ Include EXACTLY 3 items.`;
         return res.status(200).json({ success: true, count: keywords.length });
       }
 
+      // ── ACTION: dismiss-gsc-blog-topic ── permanently hide a GSC blog topic from the panel
+      if (req.body.action === 'dismiss-gsc-blog-topic') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        // Accept a single `keyword` or a `keywords` array (bulk — used when approving several at once).
+        const kws = (Array.isArray(req.body.keywords) ? req.body.keywords : [req.body.keyword])
+          .map(s => (s == null ? '' : String(s)).toLowerCase().trim())
+          .filter(Boolean);
+        if (!kws.length) return res.status(400).json({ error: 'keyword or keywords required' });
+        let arr = []; let sha = null;
+        try { const existing = await getGitHubFile('data/gsc-blog-dismissed.json'); sha = existing.sha; arr = JSON.parse(existing.content) || []; } catch (e) { arr = []; }
+        const have = new Set(arr.map(s => String(s).toLowerCase()));
+        kws.forEach(kw => { if (!have.has(kw)) { arr.push(kw); have.add(kw); } });
+        const response = await fetch(`https://api.github.com/repos/${REPO}/contents/data/gsc-blog-dismissed.json`, {
+          method: 'PUT',
+          headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: `Dismiss GSC blog topic(s): ${kws.length}`, content: Buffer.from(JSON.stringify(arr, null, 2)).toString('base64'), ...(sha ? { sha } : {}) })
+        });
+        if (!response.ok) { const err = await response.text(); return res.status(500).json({ error: `GitHub save failed: ${err}` }); }
+        return res.status(200).json({ success: true });
+      }
+
       // ── ACTION: save-tech-status ──
       if (req.body.action === 'save-tech-status') {
         if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
@@ -2043,6 +2514,49 @@ Include EXACTLY 3 items.`;
         const updated = [...set];
         await updateGitHubFile('data/mpd-hold.json', JSON.stringify(updated, null, 2), sha, `${hold ? 'Hold' : 'Unhold'} MPD winner: ${url}`);
         return res.status(200).json({ success: true, hold: updated });
+      }
+
+      // ── ACTION: save-mpd-hold-set ── (Money Page Doctor — replace the whole winners set in ONE write; used for bulk auto-adopt)
+      if (req.body.action === 'save-mpd-hold-set') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const arr = Array.isArray(req.body.hold) ? req.body.hold : null;
+        if (!arr) return res.status(400).json({ error: 'hold array required' });
+        let sha = null;
+        try { const file = await getGitHubFile('data/mpd-hold.json'); sha = file.sha; } catch(e) {}
+        const updated = [...new Set(arr.filter(Boolean))];
+        await updateGitHubFile('data/mpd-hold.json', JSON.stringify(updated, null, 2), sha, `Set MPD winners (bulk, ${updated.length})`);
+        return res.status(200).json({ success: true, hold: updated });
+      }
+
+      // ── ACTION: save-mpd-winner-out ── (Money Page Doctor — toggle a winner the user sent to Start Here to optimise)
+      if (req.body.action === 'save-mpd-winner-out') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const { url, out } = req.body;
+        if (!url) return res.status(400).json({ error: 'url required' });
+        let existing = [];
+        let sha = null;
+        try { const file = await getGitHubFile('data/mpd-winner-out.json'); existing = JSON.parse(file.content); sha = file.sha; } catch(e) {}
+        if (!Array.isArray(existing)) existing = [];
+        const set = new Set(existing);
+        if (out) set.add(url); else set.delete(url);
+        const updated = [...set];
+        await updateGitHubFile('data/mpd-winner-out.json', JSON.stringify(updated, null, 2), sha, `${out ? 'Send to Start Here' : 'Return to Winners'} MPD: ${url}`);
+        return res.status(200).json({ success: true, out: updated });
+      }
+
+      // ── ACTION: save-mpd-winner-serp ── (Money Page Doctor — store SERP UK positions for winners)
+      // Body: { entries: { "normalizedPath|||keyword": { position, checkedAt } , ... } } — merged into the file.
+      if (req.body.action === 'save-mpd-winner-serp') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const entries = (req.body.entries && typeof req.body.entries === 'object') ? req.body.entries : null;
+        if (!entries) return res.status(400).json({ error: 'entries object required' });
+        let existing = {};
+        let sha = null;
+        try { const file = await getGitHubFile('data/mpd-winner-serp.json'); existing = JSON.parse(file.content); sha = file.sha; } catch(e) {}
+        if (!existing || typeof existing !== 'object') existing = {};
+        Object.assign(existing, entries);
+        await updateGitHubFile('data/mpd-winner-serp.json', JSON.stringify(existing, null, 2), sha, `MPD winner SERP UK positions (${Object.keys(entries).length} update(s))`);
+        return res.status(200).json({ success: true, serp: existing });
       }
 
       // ── ACTION: save-keyword-tabs ──
@@ -2269,6 +2783,31 @@ Include EXACTLY 3 items.`;
         if (!found) return res.status(404).json({ error: 'blog not found in the list' });
         await updateGitHubFile('data/blog_ideas.csv', out.join('\n'), f.sha, 'Mark blog done: ' + title);
         return res.status(200).json({ success: true });
+      }
+
+      // ── ACTION: swap-month-blog ── (ONE CSV write: clear removeTitle's month AND set addTitle's month.
+      // Atomic so a remove-and-replace can never half-apply and shrink the month. MONTH = col 9, title = col 1.)
+      if (req.body.action === 'swap-month-blog') {
+        const month = String(req.body.month || '').trim();
+        const removeTitle = String(req.body.removeTitle || '').trim();
+        const addTitle = String(req.body.addTitle || '').trim();
+        if (!month || !removeTitle) return res.status(400).json({ error: 'month and removeTitle required' });
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const nrm = (s) => String(s || '').trim().toLowerCase();
+        const esc = (c) => { const s = String(c == null ? '' : c); return (s.includes(',') || s.includes('"') || s.includes('\n')) ? `"${s.replace(/"/g, '""')}"` : s; };
+        const f = await getGitHubFile('data/blog_ideas.csv');
+        let removed = false, added = false;
+        const out = f.content.split('\n').map(line => {
+          const t = line.trim().replace(/\r/g, '');
+          if (!t) return line;
+          const cols = parseCSVLine(t);
+          if (nrm(cols[1]) === 'blog post title') return line;
+          if (nrm(cols[1]) === nrm(removeTitle)) { while (cols.length < 10) cols.push(''); cols[9] = ''; removed = true; return cols.map(esc).join(','); }
+          if (addTitle && nrm(cols[1]) === nrm(addTitle)) { while (cols.length < 10) cols.push(''); cols[9] = month; added = true; return cols.map(esc).join(','); }
+          return line;
+        });
+        await updateGitHubFile('data/blog_ideas.csv', out.join('\n'), f.sha, `Swap month ${month}: -${removeTitle} +${addTitle || '(none)'}`);
+        return res.status(200).json({ success: true, removed, added });
       }
 
       // ── ACTION: update-blog-status ── (single keyword — updates STATUS column in blog_ideas.csv)
@@ -2553,20 +3092,241 @@ Include EXACTLY 3 items.`;
         });
         while (updated.length && updated[updated.length - 1].trim() === '') updated.pop();
         let appended = 0;
+        const newLines = [];
         for (const r of rows) {
           if (r.isNew && !done.has(norm(r.title))) {
             const newCols = [
               r.keyword || '', r.title || '', r.perspective || '',
               r.cannibalization || 'NO CONFLICT', r.conflictingKeyword || '', r.conflictingUrl || '', 'TO_WRITE', r.clashIntent || ''
             ];
-            updated.push(newCols.map(esc).join(','));
+            newLines.push(newCols.map(esc).join(','));
             done.add(norm(r.title));
             appended++;
           }
         }
+        // Default: append at the end. With `spread:true` (GSC approve), insert the new rows evenly
+        // among the existing ones so the monthly auto-pick distributes them, not all in one month.
+        if (req.body.spread && newLines.length) {
+          const base = updated.length; // header (index 0) + existing rows
+          const placed = newLines.map((line, n) => {
+            let pos = Math.round((n + 1) * base / (newLines.length + 1));
+            if (pos < 1) pos = 1;          // never before the header row
+            if (pos > base) pos = base;
+            return { line, pos };
+          });
+          placed.sort((a, b) => b.pos - a.pos); // insert from the end so earlier positions don't shift
+          placed.forEach(p => updated.splice(p.pos, 0, p.line));
+        } else {
+          newLines.forEach(line => updated.push(line));
+        }
         const out = updated.join('\n') + '\n';
         await updateGitHubFile('data/blog_ideas.csv', out, ideasFile.sha, `Blog keywords + cannibalisation: ${done.size} rows (${appended} new)`);
         return res.status(200).json({ success: true, updated: done.size, appended });
+      }
+
+      // ── ACTION: find-fusion-groups ── AI groups To Write keywords that share the SAME search intent
+      // (so they'd fight each other in Google — cannibalisation WITHIN the write list, as opposed to
+      // analyze-blog-titles above which only checks against ALREADY PUBLISHED blogs). Only sends
+      // keywords never checked before (cache in data/blog-fusion-checked.json) — cheap on repeat runs.
+      // Proposed groups are saved to data/blog-fusion-pending.json for Mae to review + apply/discard;
+      // nothing in blog_ideas.csv changes until apply-fusion-group is called.
+      if (req.body.action === 'find-fusion-groups') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+        const lines = ideasFile.content.split('\n');
+        const poolMap = new Map(); // lowercase keyword -> { keyword, title }
+        lines.forEach((line, i) => {
+          if (i === 0) return;
+          const trimmed = line.trim().replace(/\r/g, '');
+          if (!trimmed) return;
+          const cols = parseCSVLine(trimmed);
+          const status = (cols[6] || '').trim().toUpperCase();
+          const kw = (cols[0] || '').trim();
+          if (!kw || (status !== 'TO_WRITE' && status !== 'TO_WRITE_PENDING')) return;
+          poolMap.set(kw.toLowerCase(), { keyword: kw, title: cols[1] || '' });
+        });
+
+        const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
+        const groupedSet = new Set((checked.grouped || []).map(s => String(s).toLowerCase()));
+        const pool = [...poolMap.values()].filter(p => !groupedSet.has(p.keyword.toLowerCase()));
+
+        if (pool.length < 2) {
+          return res.status(200).json({ success: true, newGroups: [], checkedCount: pool.length, message: 'Nothing new to check.' });
+        }
+
+        // Best-effort volume/impressions data — never blocks the run if missing.
+        let metrics = {};
+        try { const mf = await getGitHubFile('data/keyword-metrics.json'); metrics = JSON.parse(mf.content) || {}; } catch (e) { metrics = {}; }
+        let gscOpp = [];
+        try {
+          const rr = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/gsc-opportunity-keywords.json?t=${Date.now()}`);
+          if (rr.ok) { const j = await rr.json(); gscOpp = Array.isArray(j.keywords) ? j.keywords : []; }
+        } catch (e) { gscOpp = []; }
+        const metricsLc = {}; Object.keys(metrics).forEach(k => { metricsLc[k.toLowerCase()] = metrics[k]; });
+        const gscLc = {}; gscOpp.forEach(k => { if (k && k.keyword) gscLc[k.keyword.toLowerCase()] = k; });
+
+        // Numbered list + the AI returns INDEX NUMBERS (not repeated text) — a model that paraphrases
+        // even slightly while echoing text back (capitalisation, a comma, "the") used to make groups
+        // silently vanish during exact-text matching. Numbers can't drift.
+        const prompt = `You are grouping SEO keywords for a UK wall-art & home-decor blog (About Wall Art) to avoid writing two blog posts that would compete with each other in Google (keyword cannibalisation).
+
+Group keywords ONLY when a single blog post answering one of them would fully satisfy someone searching any of the others in the SAME group — they must be the SAME underlying question/intent, just phrased differently (spelling variants like colour/color, singular/plural, different word order, or an obvious synonym for the exact same question).
+
+WORKED EXAMPLE (group these — same intent, different phrasing): "what colour goes with grey", "what colors go with grey", "colours that go with grey", "what color goes with grey" — ALL the same question, just UK/US spelling and word-order variants. Group them together.
+
+Do NOT group keywords that are merely on a similar TOPIC but ask a DIFFERENT question (e.g. "grey walls" and "grey and beige" are related topics but different questions — do not group them). When genuinely unsure, do NOT group — leave it out.
+
+Return ONLY compact JSON, no other text: an array of groups (2+ members each), referring to each keyword by its NUMBER from the list below (not its text). "suggested_primary" is the number of the clearest, most natural phrasing in that group.
+[{"members":[3,17],"suggested_primary":3,"reason":"short reason"}]
+
+Keywords that don't share intent with anything else must NOT appear in the output at all.
+
+KEYWORDS (numbered):
+${pool.map((p, i) => (i + 1) + '. ' + p.keyword).join('\n')}`;
+
+        let aiText = '';
+        try { aiText = await callClaudeText(prompt, 4000); } catch (e) { return res.status(500).json({ error: 'AI grouping failed: ' + e.message }); }
+        // Always persist the raw response — never guess at a failure, read this file instead.
+        try {
+          await writeJsonFile('data/blog-fusion-last-raw.json', { at: new Date().toISOString(), poolSize: pool.length, rawText: aiText }, 'Fusion: save raw AI response for debugging');
+        } catch (e) { /* debug file only — never blocks the real run */ }
+        const raw = aiText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+        const m = raw.match(/\[[\s\S]*\]/);
+        let aiGroups = [];
+        try { aiGroups = m ? JSON.parse(m[0]) : []; } catch (e) { aiGroups = []; }
+        const aiProposedCount = Array.isArray(aiGroups) ? aiGroups.length : 0;
+
+        const newGroups = [];
+        const nowGroupedLc = new Set();
+        (Array.isArray(aiGroups) ? aiGroups : []).forEach((g, gi) => {
+          const memberIdx = Array.isArray(g.members) ? g.members.map(n => parseInt(n, 10)) : [];
+          const validMembers = [];
+          const seenLc = new Set();
+          memberIdx.forEach(n => {
+            const p = Number.isInteger(n) && n >= 1 && n <= pool.length ? pool[n - 1] : null;
+            if (!p) return;
+            const lc = p.keyword.toLowerCase();
+            if (!seenLc.has(lc) && !nowGroupedLc.has(lc)) { seenLc.add(lc); validMembers.push(p); }
+          });
+          if (validMembers.length < 2) return; // AI referenced a bad number or only 1 survived — skip
+          // Attach volume/impressions signals for winner selection + display.
+          const withSignals = validMembers.map(v => {
+            const met = metricsLc[v.keyword.toLowerCase()];
+            const gsc = gscLc[v.keyword.toLowerCase()];
+            return { keyword: v.keyword, title: v.title, volume: met ? met.volume : null, difficulty: met ? met.seo_difficulty : null, impressions: gsc ? gsc.impressions : null };
+          });
+          // Winner: highest search volume (our own data) > highest GSC impressions > AI's suggested_primary.
+          let winner = null, signal = 'ai-choice';
+          const withVolume = withSignals.filter(s => s.volume != null);
+          if (withVolume.length) {
+            winner = withVolume.slice().sort((a, b) => (b.volume - a.volume) || ((a.difficulty ?? 99) - (b.difficulty ?? 99)))[0];
+            signal = 'volume';
+          } else {
+            const withImpr = withSignals.filter(s => s.impressions != null);
+            if (withImpr.length) { winner = withImpr.slice().sort((a, b) => b.impressions - a.impressions)[0]; signal = 'impressions'; }
+          }
+          if (!winner) {
+            const spIdx = parseInt(g.suggested_primary, 10);
+            const spKw = (Number.isInteger(spIdx) && spIdx >= 1 && spIdx <= pool.length) ? pool[spIdx - 1].keyword.toLowerCase() : null;
+            winner = (spKw && withSignals.find(s => s.keyword.toLowerCase() === spKw)) || withSignals[0];
+            signal = 'ai-choice';
+          }
+          const secondary = withSignals.filter(s => s.keyword.toLowerCase() !== winner.keyword.toLowerCase());
+          if (!secondary.length) return; // winner ended up alone — nothing to fuse
+          withSignals.forEach(s => nowGroupedLc.add(s.keyword.toLowerCase()));
+          newGroups.push({
+            id: `grp_${Date.now()}_${gi}`,
+            winnerKeyword: winner.keyword,
+            winnerTitle: winner.title,
+            reason: String(g.reason || ''),
+            signals: signal,
+            secondary
+          });
+        });
+
+        // Cache update: grouped keywords are never re-sent; leftover pool keywords become singletons
+        // (retried next run in case a newly-added keyword turns out to match one of them).
+        const newGroupedAll = new Set([...groupedSet, ...nowGroupedLc]);
+        const leftoverSingletons = pool.filter(p => !nowGroupedLc.has(p.keyword.toLowerCase())).map(p => p.keyword.toLowerCase());
+        await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...new Set(leftoverSingletons)], grouped: [...newGroupedAll] }, `Fusion check: +${nowGroupedLc.size} grouped`);
+
+        if (newGroups.length) {
+          const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+          await writeJsonFile('data/blog-fusion-pending.json', [...pending, ...newGroups], `Fusion: +${newGroups.length} pending group(s)`);
+        }
+
+        const survivedNote = (aiProposedCount && aiProposedCount !== newGroups.length) ? ` (AI proposed ${aiProposedCount}, ${newGroups.length} valid — see data/blog-fusion-last-raw.json if that gap looks wrong)` : '';
+        return res.status(200).json({ success: true, newGroups, checkedCount: pool.length, aiProposedCount, message: `Checked ${pool.length} topics — found ${newGroups.length} new group${newGroups.length === 1 ? '' : 's'}.${survivedNote}` });
+      }
+
+      // ── ACTION: apply-fusion-group ── Mae approved a proposed group: secondary keywords' rows go
+      // IGNORED (marked FUSED, pointing at the winner); the winner's secondary angles are recorded
+      // permanently in blog-fused-groups.json so "Write blog" can cover them as extra H2 sections.
+      if (req.body.action === 'apply-fusion-group') {
+        if (!GITHUB_TOKEN) return res.status(500).json({ error: 'GITHUB_TOKEN not configured' });
+        const winnerKeyword = String(req.body.winnerKeyword || '').trim();
+        if (!winnerKeyword) return res.status(400).json({ error: 'winnerKeyword required' });
+        const winnerLc = winnerKeyword.toLowerCase();
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        const idx = pending.findIndex(g => (g.winnerKeyword || '').toLowerCase() === winnerLc);
+        if (idx === -1) return res.status(404).json({ error: 'That group is no longer pending (maybe already applied or discarded).' });
+        const group = pending[idx];
+
+        const esc = (c) => { const s = String(c == null ? '' : c); return (s.includes(',') || s.includes('"') || s.includes('\n')) ? `"${s.replace(/"/g, '""')}"` : s; };
+        const secLc = new Set(group.secondary.map(s => s.keyword.toLowerCase()));
+        const ideasFile = await getGitHubFile('data/blog_ideas.csv');
+        const lines = ideasFile.content.split('\n');
+        let touched = 0;
+        const updated = lines.map((line, i) => {
+          if (i === 0) return line;
+          const trimmed = line.trim().replace(/\r/g, '');
+          if (!trimmed) return line;
+          const cols = parseCSVLine(trimmed);
+          const kw = (cols[0] || '').trim().toLowerCase();
+          if (secLc.has(kw)) {
+            while (cols.length < 10) cols.push('');
+            cols[3] = 'FUSED';               // CANNIBALIZATION
+            cols[4] = group.winnerKeyword;   // CONFLICTING KEYWORD -> points at the winner
+            cols[6] = 'IGNORED';             // STATUS
+            touched++;
+            return cols.map(esc).join(',');
+          }
+          return line;
+        });
+        await updateGitHubFile('data/blog_ideas.csv', updated.join('\n'), ideasFile.sha, `Fuse ${touched} keyword(s) into: ${group.winnerKeyword}`);
+
+        const fused = await readJsonFileSafe('data/blog-fused-groups.json', {});
+        fused[winnerLc] = { winnerKeyword: group.winnerKeyword, winnerTitle: group.winnerTitle, secondary: group.secondary, reason: group.reason, appliedAt: new Date().toISOString() };
+        await writeJsonFile('data/blog-fused-groups.json', fused, `Fusion applied: ${group.winnerKeyword}`);
+
+        pending.splice(idx, 1);
+        await writeJsonFile('data/blog-fusion-pending.json', pending, `Fusion applied — removed from pending: ${group.winnerKeyword}`);
+
+        return res.status(200).json({ success: true, winnerKeyword: group.winnerKeyword, winnerTitle: group.winnerTitle, secondary: group.secondary, reason: group.reason, touched });
+      }
+
+      // ── ACTION: discard-fusion-group ── Mae said keep them separate — un-group these keywords so a
+      // future "Find duplicate topics" run can reconsider them (e.g. paired with a different keyword).
+      if (req.body.action === 'discard-fusion-group') {
+        const winnerKeyword = String(req.body.winnerKeyword || '').trim();
+        if (!winnerKeyword) return res.status(400).json({ error: 'winnerKeyword required' });
+        const winnerLc = winnerKeyword.toLowerCase();
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        const idx = pending.findIndex(g => (g.winnerKeyword || '').toLowerCase() === winnerLc);
+        if (idx === -1) return res.status(200).json({ success: true, note: 'Already gone.' });
+        const group = pending[idx];
+        pending.splice(idx, 1);
+        await writeJsonFile('data/blog-fusion-pending.json', pending, `Fusion discarded: ${group.winnerKeyword}`);
+
+        const memberLc = [group.winnerKeyword.toLowerCase(), ...group.secondary.map(s => s.keyword.toLowerCase())];
+        const checked = await readJsonFileSafe('data/blog-fusion-checked.json', { singletons: [], grouped: [] });
+        const groupedSet = new Set((checked.grouped || []).map(s => String(s).toLowerCase()));
+        memberLc.forEach(k => groupedSet.delete(k));
+        const singletonsSet = new Set((checked.singletons || []).map(s => String(s).toLowerCase()));
+        memberLc.forEach(k => singletonsSet.add(k));
+        await writeJsonFile('data/blog-fusion-checked.json', { singletons: [...singletonsSet], grouped: [...groupedSet] }, `Fusion discarded — unlocked: ${group.winnerKeyword}`);
+
+        return res.status(200).json({ success: true });
       }
 
       // ── ACTION: clean-keywords ── (LIGHT PASS: derive the real keyword only, NO clash check)
@@ -2584,7 +3344,7 @@ ${titlesBlock}
 
 Return ONLY a JSON array, one object per title in order, exactly:
 [{"t":1,"keyword":""}]`;
-        const raw = await callClaudeText(prompt, 2000);
+        const raw = await callClaudeText(prompt, 2000, 'claude-haiku-4-5-20251001');
         const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '');
         const m = cleaned.match(/\[[\s\S]*\]/);
         if (!m) throw new Error('Could not read the keyword result');
@@ -2652,13 +3412,33 @@ Return ONLY a JSON array, one object per title in order, exactly:
           } catch (e) {
             return res.status(200).json({ success: false, error: 'Could not reach SerpAPI: ' + e.message });
           }
-          // SerpAPI signals problems in data.error — detect the "out of searches/credits" case explicitly.
-          if (data.error) {
+          // SerpAPI signals problems in data.error (out of searches/credits). Before dead-ending, try Scrappa.
+          let organic = data.error ? [] : (data.organic_results || []);
+          if (!organic.length && process.env.SCRAPPA_KEY) {
+            // Scrappa's Google search can return a transient 503/429 — retry a few times before giving up.
+            for (let attempt = 1; attempt <= 3 && !organic.length; attempt++) {
+              try {
+                const sr = await fetch(`https://scrappa.co/api/search?query=${encodeURIComponent(keyword)}&gl=gb&hl=en`, { headers: { 'x-api-key': process.env.SCRAPPA_KEY } });
+                if (sr.status === 503 || sr.status === 429) {
+                  const ra = parseInt(sr.headers.get('retry-after') || '0', 10);
+                  const waitMs = Math.min((ra ? ra * 1000 : 1500) * attempt, 5000);
+                  console.warn('[Blog competitor] Scrappa HTTP ' + sr.status + ' (transient) — retry ' + attempt + '/3 in ' + waitMs + 'ms');
+                  if (attempt < 3) await new Promise(r => setTimeout(r, waitMs));
+                  continue;
+                }
+                const sd = await sr.json();
+                // Scrappa returns rows as `url` (not `link`) and array `organic_results` OR `results` — normalise.
+                const rows = sd.organic_results || sd.results || [];
+                if (Array.isArray(rows) && rows.length) { organic = rows.map(r => ({ link: r.link || r.url, title: r.title || '' })); console.log('[Blog competitor] Scrappa fallback used — ' + organic.length + ' results (attempt ' + attempt + ')'); }
+                else { console.error('[Scrappa] no rows. HTTP', sr.status, '— body:', JSON.stringify(sd).slice(0, 300)); break; }
+              } catch (e) { console.error('[Scrappa] Error:', e); break; }
+            }
+          }
+          if (!organic.length && data.error) {
             const e = String(data.error).toLowerCase();
             const outOfCredits = e.includes('run out') || e.includes('ran out') || e.includes('exceeded') || e.includes('no searches') || e.includes('out of searches') || e.includes('plan') || e.includes('limit');
             return res.status(200).json({ success: false, outOfCredits, error: data.error });
           }
-          const organic = data.organic_results || [];
           const isMine = (u) => /aboutwallart\.com/i.test(u || '');
           competitors = organic.filter(o => o.link && !isMine(o.link)).slice(0, 3).map((o, i) => ({ position: i + 1, title: o.title || '', url: o.link }));
           if (!competitors.length) {
@@ -2777,6 +3557,10 @@ Return ONLY a JSON array, one object per title in order, exactly:
             if (h && !handles.includes(h)) handles.push(h);
           }
         } catch (e) { /* fall back below */ }
+        // If she picked a trend collection for this blog, use ONLY that collection so EVERY spot
+        // (wall-art AND partner) fills from the one collection she chose — no topic guessing mixed in.
+        const chosenColl = String(req.body.collectionHandle || '').trim();
+        if (chosenColl) handles = [chosenColl];
         if (!handles.length) handles = ['framed-wall-pictures-for-living-room'];
 
         const seen = new Set();
@@ -2786,7 +3570,7 @@ Return ONLY a JSON array, one object per title in order, exactly:
           const price = parseFloat((n.variants && n.variants.edges[0] && n.variants.edges[0].node.price) || '0') || 0;
           return { gid: n.id, title: n.title || '', vendor: n.vendor || '', handle: n.handle || '', productType: n.productType || '', price, url: n.onlineStoreUrl || ('https://aboutwallart.com/products/' + (n.handle || '')), sku: (n.sku && n.sku.value) || '', images };
         };
-        const PFIELDS = 'id title vendor handle productType onlineStoreUrl sku:metafield(namespace:"custom",key:"sku_for_print_files"){ value } variants(first:1){ edges{ node{ price } } } media(first:15){ edges{ node{ ... on MediaImage { image{ url } } } } }';
+        const PFIELDS = 'id title vendor handle productType status onlineStoreUrl sku:metafield(namespace:"custom",key:"sku_for_print_files"){ value } variants(first:1){ edges{ node{ price } } } media(first:15){ edges{ node{ ... on MediaImage { image{ url } } } } }';
         for (const handle of handles) {
           let data;
           try {
@@ -2799,6 +3583,7 @@ Return ONLY a JSON array, one object per title in order, exactly:
           if (!c || !c.products) continue;
           for (const e of c.products.edges) {
             const n = e.node;
+            if (n.status && n.status !== 'ACTIVE') continue; // only ACTIVE products may be picked
             if (seen.has(n.id)) continue;
             seen.add(n.id);
             const p = toProd(n);
@@ -2815,7 +3600,7 @@ Return ONLY a JSON array, one object per title in order, exactly:
               { handle: 'framed-wall-pictures-for-living-room' }
             );
             const fc = fb && fb.collectionByHandle;
-            const prints = (fc && fc.products ? fc.products.edges : []).map(e => e.node).filter(n => n.vendor === AWA_VENDOR);
+            const prints = (fc && fc.products ? fc.products.edges : []).map(e => e.node).filter(n => n.vendor === AWA_VENDOR && (!n.status || n.status === 'ACTIVE'));
             const matched = term ? prints.filter(n => (n.title || '').toLowerCase().includes(term)) : [];
             const use = (matched.length ? matched : prints).slice(0, 8);
             for (const n of use) { if (seen.has(n.id)) continue; seen.add(n.id); awa.push(toProd(n)); }
@@ -2842,7 +3627,35 @@ Return ONLY a JSON array, one object per title in order, exactly:
           for (const p of coll) { const t = p.productType || 'Other'; if (!byType[t] || p.price > byType[t].price) byType[t] = p; }
           collectiveByNeed = Object.values(byType).sort((a, b) => b.price - a.price).slice(0, 4);
         }
-        return res.status(200).json({ success: true, awa: awa.slice(0, 8), collective: collectiveByNeed });
+        // collectivePool = every partner (non-wall-art) product in the collection, so the tool page can
+        // show a "choose from this collection" browse under each partner spot (with pictures).
+        return res.status(200).json({ success: true, awa: awa.slice(0, 40), collective: collectiveByNeed, collectivePool: coll.slice(0, 60) });
+      }
+
+      // ── ACTION: search-wall-art ── (Pick freely: search the WHOLE About Wall Art print range by a word)
+      // Input: { term }. Output: { success, products:[{gid,title,vendor,handle,url,sku,images:[url]}] }
+      if (req.body.action === 'search-wall-art') {
+        const term = String(req.body.term || '').trim().replace(/["\\]/g, '');
+        const AWA_VENDOR = 'About Wall Art';
+        const PFIELDS = 'id title vendor handle productType status onlineStoreUrl sku:metafield(namespace:"custom",key:"sku_for_print_files"){ value } variants(first:1){ edges{ node{ price } } } media(first:15){ edges{ node{ ... on MediaImage { image{ url } } } } }';
+        const q = "status:active vendor:'About Wall Art'" + (term ? ' ' + term : '');
+        const out = [];
+        try {
+          const data = await shopifyGraphQL(
+            `query($q:String!){ products(first:40, query:$q){ edges{ node{ ${PFIELDS} } } } }`,
+            { q }
+          );
+          const edges = (data && data.products && data.products.edges) || [];
+          for (const e of edges) {
+            const n = e.node;
+            if (n.vendor !== AWA_VENDOR) continue;
+            if (n.status && n.status !== 'ACTIVE') continue;
+            const images = (n.media && n.media.edges ? n.media.edges : []).map(m => m.node && m.node.image && m.node.image.url).filter(Boolean);
+            const price = parseFloat((n.variants && n.variants.edges[0] && n.variants.edges[0].node.price) || '0') || 0;
+            out.push({ gid: n.id, title: n.title || '', vendor: n.vendor || '', handle: n.handle || '', productType: n.productType || '', price, url: n.onlineStoreUrl || ('https://aboutwallart.com/products/' + (n.handle || '')), sku: (n.sku && n.sku.value) || '', images });
+          }
+        } catch (e) { return res.status(200).json({ success: false, error: 'Search failed — try another word.' }); }
+        return res.status(200).json({ success: true, products: out });
       }
 
       // ── ACTION: lookup-product ── (Add a product by its print-files SKU, or by product name)
@@ -2905,6 +3718,130 @@ Return ONLY a JSON array, one object per title in order, exactly:
         return res.status(200).json({ success: true });
       }
 
+      // ── ACTION: style-bible ── reads Mae's uploaded style photo + her short quiz and writes the rich
+      // STYLE BIBLE that leads every image prompt for this blog. Vision call. Nothing is saved server-side
+      // here — the tool keeps the bible on the draft and the photo in the browser.
+      // Input: { image (base64, no data: prefix), mediaType, quiz:{busy,arch,light,white,extra}, collectiveTitles:[], avoid:[] }
+      // Output: { success, bible }
+      if (req.body.action === 'style-bible') {
+        const imageB64 = String(req.body.image || '').replace(/^data:[^;]+;base64,/, '').trim();
+        const mediaType = String(req.body.mediaType || 'image/jpeg');
+        const quiz = (req.body.quiz && typeof req.body.quiz === 'object') ? req.body.quiz : {};
+        const collectiveTitles = Array.isArray(req.body.collectiveTitles) ? req.body.collectiveTitles.filter(Boolean) : [];
+        const avoid = Array.isArray(req.body.avoid) ? req.body.avoid.filter(Boolean) : [];
+        if (!imageB64) return res.status(400).json({ error: 'A style photo is required.' });
+
+        const pick = (v) => (v && String(v).trim() && !/^skip$/i.test(v)) ? String(v).trim() : '';
+        const overrideLines = [];
+        if (pick(quiz.busy))  overrideLines.push(`How busy the decor should be: ${pick(quiz.busy)}`);
+        if (pick(quiz.arch))  overrideLines.push(`Building / architecture style: ${pick(quiz.arch)}`);
+        if (pick(quiz.light)) overrideLines.push(`Lighting mood: ${pick(quiz.light)}`);
+        if (pick(quiz.white)) overrideLines.push(`Light colour / white balance: ${pick(quiz.white)}`);
+        if (pick(quiz.extra)) overrideLines.push(`Extra style notes from me: ${pick(quiz.extra)}`);
+        const overrides = overrideLines.length ? overrideLines.join('\n') : '(none — take everything from the photo)';
+        const avoidExtra = avoid.length ? avoid.join(', ') : '';
+
+        const biblePrompt = `You are an interior-design art director. Look at the attached room photo and write a STYLE BIBLE that will guide AI-generated lifestyle images for a home-decor blog. The bible describes the STYLE ONLY — it must apply to ANY room (bedroom, hallway, dining, nursery…), never just the room in the photo.
+
+Write it in EXACTLY this shape, each line starting with the label and a dash, plain text (no markdown, no ** **):
+
+Style name: <2-4 word name for this look>
+- Palette: <wall colours, wood tones, main and accent colours — be specific about warmth/coolness>
+- Furniture: <general direction + materials/finishes; do NOT lock to exact pieces — say "vary the actual pieces from image to image">
+- Lighting: <fixture styles + the light quality>
+- Plants: <the greenery direction, or "none" if the look has none>
+- Wall decor: <what goes on walls — shelves, mirrors, sconces, woven panels — and always include "NO framed prints as default (the shop's wall art is added separately as product photos)">
+- Ceramics/objects: <vases, vessels, decorative objects>
+- Textiles: <rugs, cushions, throws, linens and their textures>
+- Mood: <2-4 words of overall feeling>
+- White balance: <one plain sentence, e.g. "Neutral white balance — clean true whites, no yellow or warm cast">
+- No: <comma-separated avoid list: things that would break this style${avoidExtra ? `; ALWAYS include these personal dislikes: ${avoidExtra}` : ''}>
+
+RULES:
+- Describe the LOOK, not exact furniture pieces — being too specific makes every image rebuild the same room. Set palette + materials + finishes + a general furniture direction, and say to vary the actual pieces per image.
+- Room-agnostic: never tie it to the room in the photo; add "vary the pieces to suit each room".
+- Keep each line to one rich sentence or a tight comma list.
+
+MY QUIZ ANSWERS (these OVERRIDE the photo where given; where blank, read it from the photo):
+${overrides}
+
+After the bible lines, add these two blocks exactly:
+
+Quiz notes: ${overrideLines.length ? overrideLines.map(l => l.replace(/^.*?: /, '')).join(' · ') : 'none'}
+${collectiveTitles.length ? `Featured products on this blog:\n${collectiveTitles.map(t => '- ' + t).join('\n')}` : 'Featured products on this blog: (none listed)'}
+
+Output ONLY the bible text, nothing before or after.`;
+
+        try {
+          const bible = await callClaudeVision(biblePrompt, imageB64, mediaType, 1600);
+          if (!bible) return res.status(200).json({ success: false, error: 'Could not read the photo — try a clearer room photo.' });
+          return res.status(200).json({ success: true, bible });
+        } catch (e) {
+          return res.status(200).json({ success: false, error: e.message });
+        }
+      }
+
+      // ── ACTION: section-shows ── reads the finished blog body and returns, per H2 image, a short SHOW
+      // (what the image must illustrate — NO scene description) + a style flag, so the tool can wrap each
+      // with the style bible + people rules. The blog-writer is NOT touched; this only reads its output.
+      // Input: { title }  Output: { success, shows:[{filename, section, kind, ratio, show, flag}] }
+      if (req.body.action === 'section-shows') {
+        const ssT = String(req.body.title || '').trim();
+        if (!ssT) return res.status(400).json({ error: 'title required' });
+        // Prefer the blog body the tool just sent (it has any un-saved edits); fall back to the saved draft.
+        let draft = (req.body.draft && typeof req.body.draft === 'object' && req.body.draft.bodyHtml) ? req.body.draft : null;
+        if (!draft) {
+          let draftsMap = {};
+          try { const f = await getGitHubFile('data/blog-drafts.json'); draftsMap = JSON.parse(f.content || '{}'); } catch (e) { draftsMap = {}; }
+          draft = draftsMap[ssT.toLowerCase()] || null;
+        }
+        if (!draft || !draft.bodyHtml) return res.status(200).json({ success: false, error: 'Write and save the blog first.' });
+
+        // Pull each [[IMG|slug|ratio|kind|prompt]] with the H2 it sits under.
+        const body = String(draft.bodyHtml);
+        const re = /<h2[^>]*>([\s\S]*?)<\/h2>|\[\[IMG\|([^|]*)\|([^|]*)\|([^|]*)\|([\s\S]*?)\]\]/g;
+        let m, sec = ''; const markers = [];
+        while ((m = re.exec(body)) !== null) {
+          if (m[1] !== undefined) sec = m[1].replace(/<[^>]+>/g, '').trim();
+          else markers.push({ filename: (m[2] || '').trim(), ratio: (m[3] || '').trim() || '3:2', kind: (m[4] || '').trim() || 'photo', section: sec, prompt: (m[5] || '').trim() });
+        }
+        if (!markers.length) return res.status(200).json({ success: true, shows: [] });
+
+        const listTxt = markers.map((im, i) => `${i + 1}. SECTION: "${im.section}" [${im.kind}] — original note: ${im.prompt.replace(/\s+/g, ' ').slice(0, 300)}`).join('\n');
+        const showPrompt = `You are planning images for a home-decor blog on aboutwallart.com. For each numbered section below, write a short SHOW line — ONE or TWO sentences describing WHAT the image must illustrate to prove that section's point (the action / subject / what the reader should understand). Do NOT describe the room, colours, furniture, or styling — a separate style bible handles all of that. Just say what to SHOW.
+
+Also set a FLAG for each, deciding how the style bible applies:
+- FOLLOW  → a normal styled room photo (default for almost everything).
+- BREAK   → the image must deliberately show a decorating MISTAKE or a plain/contrasting look that goes AGAINST the style (only when the section is literally about what NOT to do).
+- USE:<style name>  → the section is about a SPECIFIC different named interior style (e.g. a "styles you can try" section with Coastal / Industrial / Japandi): put that style's name here so the image uses that style instead of the bible.
+- WALLART  → the section's main subject IS wall art / prints / artwork: the image should be built around a specific piece of the shop's wall art.
+- INFOGRAPHIC → keep for genuine comparisons/steps/stats only (white background, black text, no people).
+
+Sections:
+${listTxt}
+
+Return ONLY a JSON array, one object per section IN ORDER, each: {"show":"...","flag":"FOLLOW|BREAK|USE:<style>|WALLART|INFOGRAPHIC"}. Nothing else.`;
+
+        try {
+          const raw = await callClaudeText(showPrompt, 2000);
+          const jsonStr = (raw.match(/\[[\s\S]*\]/) || [raw])[0];
+          let arr = [];
+          try { arr = JSON.parse(jsonStr); } catch (e) { arr = []; }
+          const shows = markers.map((im, i) => {
+            const a = arr[i] || {};
+            let flag = String(a.flag || '').trim() || (im.kind === 'infographic' ? 'INFOGRAPHIC' : 'FOLLOW');
+            // never override a genuine infographic marker back to a photo
+            if (im.kind === 'infographic' && !/^INFOGRAPHIC/i.test(flag)) flag = 'INFOGRAPHIC';
+            return { filename: im.filename, section: im.section, kind: im.kind, ratio: im.ratio, show: String(a.show || im.section || '').trim(), flag };
+          });
+          return res.status(200).json({ success: true, shows });
+        } catch (e) {
+          // Fallback: no AI — hand back the sections with their own notes as the SHOW so the tool still works.
+          const shows = markers.map(im => ({ filename: im.filename, section: im.section, kind: im.kind, ratio: im.ratio, show: im.section, flag: im.kind === 'infographic' ? 'INFOGRAPHIC' : 'FOLLOW' }));
+          return res.status(200).json({ success: true, shows });
+        }
+      }
+
       // ── ACTION: finish-blog ── (Batch B: fetch the saved images from Shopify Files, drop the scene photos + the 6
       // product blocks into the blog body, and save the finished body so the Publish step can use it.)
       // Input: { title, keyword }. Output: { success, report:[{ok,label,fix}], finishedBody, featuredUrl }.
@@ -2919,6 +3856,10 @@ Return ONLY a JSON array, one object per title in order, exactly:
         try { const f = await getGitHubFile('data/blog-drafts.json'); draftsMap = JSON.parse(f.content || '{}'); draftsSha = f.sha; } catch (e) { draftsMap = {}; }
         const draft = draftsMap[fbT.toLowerCase()];
         if (!draft || !draft.bodyHtml) return res.status(200).json({ success: false, error: 'No written blog found for "' + fbT + '". Write the blog first (step 2).' });
+        // Unique per-blog tag so a reused image name never grabs an OLD blog's image. Empty for older blogs
+        // (their images were saved with plain names), so those keep working exactly as before.
+        const blogCode = String(draft.blogCode || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        const codeSuf = blogCode ? '-' + blogCode : '';
         let prodMap = {};
         try { const f = await getGitHubFile('data/blog-products.json'); prodMap = JSON.parse(f.content || '{}'); } catch (e) { prodMap = {}; }
         const prods = prodMap[fbT.toLowerCase()] || { awa: [], needs: [], collective: [], extra: [], selected: {}, chosen: {} };
@@ -2973,7 +3914,7 @@ Return ONLY a JSON array, one object per title in order, exactly:
           const isAwa = (p.vendor === 'About Wall Art');
           let imgUrl = '';
           if (isAwa) {
-            const name = slugSku(p) + '-lifestyle';
+            const name = slugSku(p) + codeSuf + '-lifestyle';
             imgUrl = await findImage(name, false);
             if (!imgUrl) return { ok: false, label: 'Wall art photo not found: ' + name, fix: 'Make the lifestyle photo for "' + p.title + '" and save it in Shopify named "' + name + '", then press again.' };
           } else {
@@ -3016,8 +3957,8 @@ Return ONLY a JSON array, one object per title in order, exactly:
         const featuredBase = draft.featuredBase || '';
         let featuredUrl = '';
         if (featuredBase) {
-          featuredUrl = await findImage(featuredBase + '-featured', true);
-          if (!featuredUrl) report.push({ ok: false, label: 'Featured image not found', fix: 'Save your favourite featured photo in Shopify with a name starting "' + featuredBase + '-featured-option", then press again.' });
+          featuredUrl = await findImage(featuredBase + codeSuf + '-featured', true);
+          if (!featuredUrl) report.push({ ok: false, label: 'Featured image not found', fix: 'Save your favourite featured photo in Shopify with a name starting "' + featuredBase + codeSuf + '-featured-option", then press again.' });
         } else {
           report.push({ ok: false, label: 'This blog has no featured name yet', fix: 'Re-write the blog (step 2) so it has a featured name, then press again.' });
         }
@@ -3059,7 +4000,7 @@ Images (id :: what it shows):
 ${listTxt}
 
 Return ONLY a JSON object mapping each id to its alt line, and nothing else.`;
-            const raw = await callClaudeText(prompt, 2000);
+            const raw = await callClaudeText(prompt, 2000, 'claude-haiku-4-5-20251001');
             const jsonStr = (raw.match(/\{[\s\S]*\}/) || [raw])[0];
             const map = JSON.parse(jsonStr);
             const clean = {};
@@ -3075,12 +4016,13 @@ Return ONLY a JSON object mapping each id to its alt line, and nothing else.`;
         let sceneOk = 0;
         for (const im of sceneMarkers) {
           const alt = altMap['scene:' + im.filename] || readableAlt(im.filename);
-          const url = await findImage(im.filename, false);
+          const lookup = im.filename + codeSuf;
+          const url = await findImage(lookup, false);
           if (url) {
             body = body.split(im.full).join('<div style="text-align: center; margin: 20px 0;"><img style="max-width: 1024px; width: 100%; height: auto;" alt="' + escF(alt) + '" src="' + escF(url) + '"></div>');
             sceneOk++;
           } else {
-            report.push({ ok: false, label: 'Photo not saved yet: ' + im.filename, fix: 'Save that image in Shopify with the exact name "' + im.filename + '", then press again.' });
+            report.push({ ok: false, label: 'Photo not saved yet: ' + lookup, fix: 'Save that image in Shopify with the exact name "' + lookup + '", then press again.' });
           }
         }
         if (sceneOk) report.push({ ok: true, label: sceneOk + ' scene photo' + (sceneOk === 1 ? '' : 's') + ' placed with alt text' });
@@ -3235,15 +4177,17 @@ Return ONE valid JSON object, no code fences, exactly these keys:
 "howToSteps": "if isHowTo an array of 3 to 6 real steps from the blog as {\\"name\\":\\"...\\",\\"text\\":\\"...\\"}, else an empty array"
 }
 Return only the JSON.`;
-          let raw = await callClaudeText(seoPrompt, 2600);
+          let raw = await callClaudeText(seoPrompt, 2600, 'claude-haiku-4-5-20251001');
           raw = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '');
           const m = raw.match(/\{[\s\S]*\}/);
           boxes = m ? JSON.parse(m[0]) : {};
         } catch (e) { boxes = {}; report.push({ ok: false, label: 'Could not auto-write the SEO boxes', fix: 'Press Publish again. The blog still gets created either way — you can add the boxes by hand.' }); }
 
-        const seoTitle = String(boxes.seoTitle || pbTitle).slice(0, 70);
-        const metaDescription = String(boxes.metaDescription || '').slice(0, 160);
-        const excerpt = String(boxes.excerpt || '');
+        // Clean any HTML entities (e.g. a cheaper engine may write "&amp;" instead of "&") in these plain-text fields.
+        const deEnt = s => String(s || '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'");
+        const seoTitle = deEnt(boxes.seoTitle || pbTitle).slice(0, 70);
+        const metaDescription = deEnt(boxes.metaDescription || '').slice(0, 160);
+        const excerpt = deEnt(boxes.excerpt || '');
         // How-To schema — Money Page Doctor's exact format (JSON-LD in a script tag), only for real how-tos
         let howToSchema = '';
         if (boxes.isHowTo && Array.isArray(boxes.howToSteps) && boxes.howToSteps.length) {
@@ -3347,7 +4291,7 @@ Return only the JSON.`;
         const galleryGids = bestGallery ? galleryProductGids(bestGallery, awaGids) : [];
         const productGids = [...awaGids, ...galleryGids].slice(0, 4);
 
-        // ---- 7) Schedule — the first free day; today → 19:00 UK, any future day → 10:00 UK, one per day ----
+        // ---- 7) Schedule — the first free day; today → 19:00 UK, any future day → 10:00 UK, EVERY OTHER DAY (1 on, 1 off) ----
         function londonOffsetMin(date) { const u = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' })); const l = new Date(date.toLocaleString('en-US', { timeZone: 'Europe/London' })); return Math.round((l - u) / 60000); }
         function ukIso(y, m0, d, hour) { const g = new Date(Date.UTC(y, m0, d, hour, 0, 0)); const off = londonOffsetMin(g); return new Date(g.getTime() - off * 60000).toISOString(); }
         let publishIso, scheduledToday = false;
@@ -3365,7 +4309,7 @@ Return only the JSON.`;
           const nowUk = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/London' }));
           const todayMid = Date.UTC(nowUk.getFullYear(), nowUk.getMonth(), nowUk.getDate());
           let candMid = todayMid;
-          if (last) { const lu = new Date(last.toLocaleString('en-US', { timeZone: 'Europe/London' })); const lNext = Date.UTC(lu.getFullYear(), lu.getMonth(), lu.getDate()) + 86400000; if (lNext > candMid) candMid = lNext; }
+          if (last) { const lu = new Date(last.toLocaleString('en-US', { timeZone: 'Europe/London' })); const lNext = Date.UTC(lu.getFullYear(), lu.getMonth(), lu.getDate()) + 2 * 86400000; if (lNext > candMid) candMid = lNext; }  // +2 days = every other day (1 on, 1 off)
           scheduledToday = candMid === todayMid;
           const cd = new Date(candMid);
           publishIso = ukIso(cd.getUTCFullYear(), cd.getUTCMonth(), cd.getUTCDate(), scheduledToday ? 19 : 10);
@@ -3701,6 +4645,11 @@ Return only the JSON.`;
         const mustCover = Array.isArray(brief.mustCover) ? brief.mustCover.filter(Boolean) : [];
         const gaps = Array.isArray(brief.gaps) ? brief.gaps.filter(Boolean) : [];
         const angle = String(brief.angle || '').trim();
+        // This blog may FUSE several near-duplicate searches into one post (see find-fusion-groups) —
+        // each secondary keyword must get covered as its own H2 so the merged post still wins all of them.
+        const secondaryAngles = Array.isArray(req.body.secondaryAngles)
+          ? req.body.secondaryAngles.map(s => (s && s.keyword) ? String(s.keyword) : String(s || '')).filter(Boolean)
+          : [];
 
         const BANNED = 'Delve, Spearheading, Embarking, Embark, Compelling, Empowering, Encompassing, Comprehensively, Effectively, Beacon, Dive, Showcasing, Remarked, Aligns, Surpassing, Tragically, Impacting, Prioritize, Prioritizing, Sparking, Standout, Hindering, Advancements, Aiding, Fostering, Multifaceted, Revolutionary, Testament, Elevate, journey. Banned phrases: "in the ever-evolving world of", "at the forefront of", "in summary", "in conclusion", "in essence", "it\'s important to note", "emerges as a beacon", "dive into", "study aims to explore", "plays a significant role in shaping", "explores themes", "gain valuable insights".';
 
@@ -3719,6 +4668,7 @@ ${angle ? `WINNING ANGLE: ${angle}` : ''}
 TARGET LENGTH: at least ${wordTarget} words IN THE BODY (this already leaves ~500 words for the FAQ/summary/related sections that render below the body). Match or beat this — never write less.
 ${mustCover.length ? `MUST COVER these topics as H2 sections: ${mustCover.join('; ')}.` : ''}
 ${gaps.length ? `WIN ON these gaps the top pages miss (add as extra H2 sections): ${gaps.join('; ')}.` : ''}
+${secondaryAngles.length ? `FUSED SEARCH TERMS — this post merges several near-duplicate searches into ONE blog so they stop competing with each other: cover EACH of these as its own H2 section, using its exact phrase naturally in that section's heading and text (no keyword-stuffing): ${secondaryAngles.map(s => `"${s}"`).join('; ')}.` : ''}
 
 VOICE (this is what makes it sound human, not AI):
 - First person (I / we), a warm, friendly personal decorator advisor talking directly to the reader — like a friend who styles homes for a living.
@@ -3744,7 +4694,7 @@ EXACT ORDER (follow precisely):
    d. Either an <h3> + a <ul> of practical bullets, OR a comparison <table>.
    e. In several sections (not all), a short personal anecdote paragraph (invented but realistic — a client, a room, a fix).
    f. A callout in EXACTLY this grey box (no border, no rounded corners): <div style="background:#ededed;padding:16px 20px;margin:24px 0;"><strong>Pro Tip:</strong> ...</div> or the same box with <strong>Real Example:</strong>.
-8. Product markers — place EXACTLY 6 markers total across the whole blog, in the 6 most product-relevant sections (NOT one in every section). Each on its own line: [[PRODUCT|the specific thing this section is about]]
+8. Product markers — place AT LEAST 7 markers total across the whole blog, in the most product-relevant sections (NOT one in every section). Each on its own line: [[PRODUCT|the specific thing this section is about]]. AT LEAST 4 of these MUST be WALL ART markers — word each of those with "wall art", "prints", "wall pictures" or "artwork" so it is clearly wall art (e.g. [[PRODUCT|coastal wall art prints for the living room]]). The other markers are for non-art decor items (a lamp, a rug, a plant, etc.).
 9. Visual-Inspiration section — an <h2> with an SEO-usable heading (about styles/looks, NOT just "Visual Inspiration"), a short intro line, then the marker [[TRENDS]] on its own line.
 10. More-About section — an <h2> with an SEO-usable heading (NOT just "More About"), a bold lead sentence, then the supporting paragraph. ${authorityLine}
 11. WATCH section. ${watchLine}
@@ -3755,7 +4705,7 @@ HARD RULES:
 - Do NOT write a "Key Takeaways" section.
 - The WATCH / video section is the LAST visual piece of the blog: do NOT place any image markers [[IMG|...]] or product markers [[PRODUCT|...]] in it or anywhere after it. Only the short closing text comes after the video.
 - EVERY H2 body section gets its own [[IMG|...]] marker (see IMAGE RULES). Include at least ONE <table>.
-- Place EXACTLY 6 [[PRODUCT|...]] markers total (3 will be About Wall Art products, 3 Collective — chosen later).
+- Place AT LEAST 7 [[PRODUCT|...]] markers total: AT LEAST 4 must be WALL ART (worded with "wall art"/"prints"/"artwork" so they are recognised as wall art), plus at least 3 for other decor items (Collective) — the actual products are chosen later.
 - Keep every paragraph to 2-4 sentences.
 - Use ONLY the exact links given above. Never invent a URL, product, price or fact (anecdotes are the only thing you may invent).
 - Output ONLY the blog body HTML (start at the first <p>). No <html>, <head>, <body>, no markdown fences, no commentary.
