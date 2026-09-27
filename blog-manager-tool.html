@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.11.0 - 2026-09-27</p>
+        <p class="version">v6.11.1 - 2026-09-27</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -641,9 +641,26 @@
                     const taken = o.urlLockedToOther ? '<div style="font-size:12px;color:#b3620a;margin-top:2px;">the page that ranks is already locked to another keyword → write new</div>' : '';
                     action = taken + '<button onclick="usePerformingInBlog(' + i + ')" style="margin-top:6px;background:#c0561d;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">② Use in a blog</button>';
                 }
+                const footer = '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">'
+                    + '<button onclick="sendPerfBlogToProduct(' + i + ')" style="background:#fff;color:#555;border:1px solid #ccc;border-radius:6px;padding:5px 10px;font-size:13px;font-weight:700;cursor:pointer;">→ Send to product</button>'
+                    + '<button onclick="dismissPerfBlog(' + i + ')" style="background:#fff;color:#a33;border:1px solid #ccc;border-radius:6px;padding:5px 10px;font-size:13px;font-weight:700;cursor:pointer;">✕ Dismiss</button></div>';
                 return '<div style="border:1px solid #e6d3a3;border-radius:8px;padding:10px 12px;background:#fffdf8;">'
-                    + '<div style="font-weight:600;">' + star + escBlog(o.keyword) + '</div>' + metrics + '<div>' + action + '</div></div>';
+                    + '<div style="font-weight:600;">' + star + escBlog(o.keyword) + '</div>' + metrics + '<div>' + action + '</div>' + footer + '</div>';
             }).join('') + '</div>';
+        }
+        async function sendPerfBlogToProduct(i) {
+            const o = (PERFORMING_BLOG || [])[i]; if (!o) return;
+            try {
+                let r = await fetch('/api/keywords', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send-to-product-pool', keyword: o.keyword, meta: { impressions: o.impressions, clicks: o.clicks, position: o.position } }) }).then(x => x.json());
+                if (!r.ok) throw new Error(r.error || r.message || 'failed');
+                await fetch('/api/keywords', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'dismiss-performing', keyword: o.keyword }) });
+                PERFORMING_BLOG.splice(i, 1); renderPerformingBlog();
+            } catch (e) { alert('Could not send to product: ' + e.message); }
+        }
+        async function dismissPerfBlog(i) {
+            const o = (PERFORMING_BLOG || [])[i]; if (!o) return;
+            try { await fetch('/api/keywords', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'dismiss-performing', keyword: o.keyword }) }); PERFORMING_BLOG.splice(i, 1); renderPerformingBlog(); }
+            catch (e) { alert('Could not dismiss: ' + e.message); }
         }
         async function claimBlogToRegistry(i) {
             const o = (PERFORMING_BLOG || [])[i]; if (!o) return;

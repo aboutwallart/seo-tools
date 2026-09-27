@@ -156,7 +156,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v2.5</span>
+  <span class="ver">v2.7</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -238,9 +238,11 @@ function renderPerforming(){
       const taken=o.urlLockedToOther?'<div style="font-size:12px;color:#b3620a;margin-top:2px;">the page that ranks is already locked to another keyword → build new</div>':'';
       action=taken+'<button class="btn small" style="margin-top:6px;background:#c0561d;color:#fff" onclick="useInProduct('+i+')">② Use in a new product</button>';
     }
-    if(o.savedToIdeas) action='<span style="color:#2e7d32;font-weight:700;font-size:13px;">✅ saved to build</span>';
+    const footer='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">'+
+      '<button class="btn small ghost" onclick="sendPerfToBlog('+i+')">→ Send to blog</button>'+
+      '<button class="btn small ghost" style="color:#a33" onclick="dismissPerf('+i+')">✕ Dismiss</button></div>';
     return '<div style="border:1px solid #e6d3a3;border-radius:8px;padding:10px 12px;background:#fffdf8;">'+
-      '<div style="font-weight:600;">'+star+esc(o.keyword)+'</div>'+metrics+'<div>'+action+'</div></div>';
+      '<div style="font-weight:600;">'+star+esc(o.keyword)+'</div>'+metrics+'<div>'+action+'</div>'+footer+'</div>';
   }).join('')+'</div>';
 }
 async function claimToRegistry(i){
@@ -251,8 +253,27 @@ async function claimToRegistry(i){
 }
 async function useInProduct(i){
   const o=(PERFORMING||[])[i]; if(!o) return;
-  try{ await api({action:'send-to-product-pool',keyword:o.keyword,meta:{impressions:o.impressions,clicks:o.clicks,position:o.position}}); msg('Saved to build a product: '+o.keyword,'ok'); o.savedToIdeas=true; renderPerforming(); loadProductIdeas(); }
+  try{ await api({action:'send-to-product-pool',keyword:o.keyword,meta:{impressions:o.impressions,clicks:o.clicks,position:o.position}}); msg('Saved to build a product: '+o.keyword,'ok'); PERFORMING.splice(i,1); renderPerforming(); loadProductIdeas(); }
   catch(e){ msg('Could not save: '+e.message,'err'); }
+}
+// This keyword is really informational → send it to the blog To Write list, then drop it from here.
+async function sendPerfToBlog(i){
+  const o=(PERFORMING||[])[i]; if(!o) return;
+  try{
+    const res=await fetch('/api/blogs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'analyze-blog-titles',titles:[o.keyword]})}).then(x=>x.json());
+    const rr=((res&&res.results)||[])[0]||{title:o.keyword,keyword:o.keyword,cannibalization:'NO CONFLICT'};
+    const row={title:rr.title,keyword:rr.keyword,cannibalization:rr.cannibalization,conflictingKeyword:rr.conflictingKeyword,conflictingUrl:rr.conflictingUrl,clashIntent:rr.clashIntent,isNew:true};
+    const save=await fetch('/api/blogs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'save-blog-ideas',rows:[row],spread:true})}).then(x=>x.json());
+    if(!save.success) throw new Error(save.error||'Save failed');
+    await api({action:'dismiss-performing',keyword:o.keyword}); // remove from BOTH panels
+    msg('Sent to blog To Write: '+o.keyword,'ok'); PERFORMING.splice(i,1); renderPerforming();
+  }catch(e){ msg('Could not send to blog: '+e.message,'err'); }
+}
+// Never offer this keyword again (in product or blog).
+async function dismissPerf(i){
+  const o=(PERFORMING||[])[i]; if(!o) return;
+  try{ await api({action:'dismiss-performing',keyword:o.keyword}); PERFORMING.splice(i,1); renderPerforming(); }
+  catch(e){ msg('Could not dismiss: '+e.message,'err'); }
 }
 // Keywords you saved to build products from (data/product-keyword-ideas.json) — shown so you can start one.
 async function loadProductIdeas(){
