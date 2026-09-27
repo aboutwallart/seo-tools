@@ -1,4 +1,11 @@
-// api/keywords.js — New Product Generator backend  ·  v0.20
+// api/keywords.js — New Product Generator backend  ·  v0.21
+// v0.21 (2026-09-27): SHARED-IMAGE SELF-HEAL. A shared image (frame-sizes / picture-frames /
+//   canvas-wrapped / a room guide) that gets deleted from Shopify Files used to silently break every
+//   new product — Shopify returned 404 "Media processing failed" for those media on send. Now:
+//   (a) "Check / upload shared images" treats a saved-but-DELETED image as missing and re-uploads it
+//   (was: skipped as "already uploaded" if it merely had a saved gid); (b) send-to-shopify verifies
+//   the 4 shared images it needs are still alive right before creating the product and auto-re-uploads
+//   any dead one from the repo. New helper shopifyUrlAlive().
 // v0.20 (2026-09-26): gsc-opportunities now topic-matches the product (same as gap options) and also
 //   removes keywords contained inside a more-specific locked keyword. delete-product now frees the
 //   keyword (removes its NPG:<sku> registry rows).
@@ -1132,6 +1139,17 @@ async function fetchRepoFileAsBase64(path) {
   const buf = await r.arrayBuffer();
   return Buffer.from(buf).toString('base64');
 }
+// A shared image can be DELETED from Shopify Files later (this happened once and silently broke every
+// new product — Shopify returned a 404 "Media processing failed" on send). So "already uploaded" must
+// mean the file STILL EXISTS, not just that we have a saved url. Returns false for a dead/404 url.
+async function shopifyUrlAlive(url) {
+  if (!url) return false;
+  try {
+    let r = await fetch(url, { method: 'HEAD' });
+    if (r.status === 405 || r.status === 403) r = await fetch(url, { method: 'GET' }); // some CDNs dislike HEAD
+    return r.ok;
+  } catch (e) { return false; }
+}
 function mimeFromPath(path) {
   if (/\.png$/i.test(path)) return 'image/png';
   if (/\.webp$/i.test(path)) return 'image/webp';
@@ -1148,7 +1166,8 @@ async function uploadFixedImages(force) {
   const out = { fixed: { ...(data.fixed || {}) }, rooms: { ...(data.rooms || {}) } };
   const results = [];
   for (const f of FIXED_IMAGE_FILES) {
-    if (out.fixed[f.key] && out.fixed[f.key].gid && !forceSet.has(f.key)) { results.push({ key: f.key, status: 'already uploaded' }); continue; }
+    // Skip ONLY if we have it AND it still exists in Shopify. A dead (deleted/404) one is re-uploaded.
+    if (out.fixed[f.key] && out.fixed[f.key].gid && !forceSet.has(f.key) && await shopifyUrlAlive(out.fixed[f.key].url)) { results.push({ key: f.key, status: 'already uploaded' }); continue; }
     try {
       const b64 = await fetchRepoFileAsBase64(f.path);
       const uploaded = await uploadImageToShopify(b64, f.path.split('/').pop(), mimeFromPath(f.path), f.alt);
@@ -1161,7 +1180,7 @@ async function uploadFixedImages(force) {
   const uploadedThisRun = {};
   for (const roomName of Object.keys(ROOM_IMAGE_FILES)) {
     const path = ROOM_IMAGE_FILES[roomName];
-    if (out.rooms[roomName] && out.rooms[roomName].gid && !forceSet.has(roomName)) { results.push({ key: roomName, status: 'already uploaded' }); continue; }
+    if (out.rooms[roomName] && out.rooms[roomName].gid && !forceSet.has(roomName) && await shopifyUrlAlive(out.rooms[roomName].url)) { results.push({ key: roomName, status: 'already uploaded' }); continue; }
     // Rooms that SHARE a file (Games room <-> Living room, Laundry room <-> Bathroom) reuse the copy
     // uploaded earlier in THIS run instead of uploading the same image twice.
     if (uploadedThisRun[path]) { out.rooms[roomName] = { ...uploadedThisRun[path] }; results.push({ key: roomName, status: 'reused from this run' }); continue; }
@@ -1374,7 +1393,24 @@ async function sendToShopify(sku) {
   const roomName = rooms[0];
   if (!ROOM_IMAGE_FILES[roomName]) { const e = new Error('No size-guide image mapped for room: ' + roomName); e.status = 400; throw e; }
 
-  const { data: fixedData } = await getFixedImages();
+  let { data: fixedData } = await getFixedImages();
+  {
+    // AUTO-HEAL: a shared image can be deleted from Shopify later (once caused every new product to
+    // fail those media with a silent 404). Verify the 4 shared images this product needs are still
+    // ALIVE right before creating the product; re-upload any dead one from the repo, then continue.
+    const need = [
+      { key: 'frameSizes', url: fixedData.fixed && fixedData.fixed.frameSizes && fixedData.fixed.frameSizes.url },
+      { key: 'pictureFrames', url: fixedData.fixed && fixedData.fixed.pictureFrames && fixedData.fixed.pictureFrames.url },
+      { key: 'canvasWrapped', url: fixedData.fixed && fixedData.fixed.canvasWrapped && fixedData.fixed.canvasWrapped.url },
+      { key: roomName, url: fixedData.rooms && fixedData.rooms[roomName] && fixedData.rooms[roomName].url }
+    ];
+    const dead = [];
+    for (const n of need) { if (!n.url || !(await shopifyUrlAlive(n.url))) dead.push(n.key); }
+    if (dead.length) {
+      await uploadFixedImages(dead);            // re-uploads only the dead ones from the repo
+      ({ data: fixedData } = await getFixedImages());
+    }
+  }
   const roomGidEntry = fixedData.rooms && fixedData.rooms[roomName];
   const f = fixedData.fixed || {};
   const fixedOk = f.frameSizes && f.frameSizes.url && f.pictureFrames && f.pictureFrames.url && f.canvasWrapped && f.canvasWrapped.url;
