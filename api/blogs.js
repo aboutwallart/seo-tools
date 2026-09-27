@@ -1,4 +1,11 @@
-// blogs.js — v4.7
+// blogs.js — v4.8
+// v4.8 (2026-09-27): fix find-fusion-groups returning 0 groups despite real duplicates existing —
+//                    the AI was asked to echo back exact keyword TEXT, and small rewording (case, a
+//                    word) on echo silently dropped every group during exact-match filtering. Now the
+//                    AI is sent a NUMBERED list and returns INDEX NUMBERS instead (immune to rewording).
+//                    Also: the raw AI response is now ALWAYS saved to data/blog-fusion-last-raw.json
+//                    (debugging never has to guess), and the result message shows "AI proposed N,
+//                    M valid" when they differ.
 // v4.7 (2026-09-27): blog fusion (anti-cannibalisation WITHIN To Write) — AI groups keywords that
 //                    share the same search intent so they don't compete with each other; the group
 //                    merges into ONE blog (winner picked by volume/GSC impressions, else AI's pick),
@@ -3077,39 +3084,50 @@ Include EXACTLY 3 items.`;
         const metricsLc = {}; Object.keys(metrics).forEach(k => { metricsLc[k.toLowerCase()] = metrics[k]; });
         const gscLc = {}; gscOpp.forEach(k => { if (k && k.keyword) gscLc[k.keyword.toLowerCase()] = k; });
 
+        // Numbered list + the AI returns INDEX NUMBERS (not repeated text) — a model that paraphrases
+        // even slightly while echoing text back (capitalisation, a comma, "the") used to make groups
+        // silently vanish during exact-text matching. Numbers can't drift.
         const prompt = `You are grouping SEO keywords for a UK wall-art & home-decor blog (About Wall Art) to avoid writing two blog posts that would compete with each other in Google (keyword cannibalisation).
 
 Group keywords ONLY when a single blog post answering one of them would fully satisfy someone searching any of the others in the SAME group — they must be the SAME underlying question/intent, just phrased differently (spelling variants like colour/color, singular/plural, different word order, or an obvious synonym for the exact same question).
 
-Do NOT group keywords that are merely on a similar TOPIC but ask a DIFFERENT question (e.g. "grey walls" and "grey and beige" are related topics but different questions — do not group them). When unsure, do NOT group — leave it out entirely.
+WORKED EXAMPLE (group these — same intent, different phrasing): "what colour goes with grey", "what colors go with grey", "colours that go with grey", "what color goes with grey" — ALL the same question, just UK/US spelling and word-order variants. Group them together.
 
-For each group, also name the ONE member that is the clearest, most natural way a real person would type that search — call it "suggested_primary".
+Do NOT group keywords that are merely on a similar TOPIC but ask a DIFFERENT question (e.g. "grey walls" and "grey and beige" are related topics but different questions — do not group them). When genuinely unsure, do NOT group — leave it out.
 
-Return ONLY compact JSON, no other text: an array of groups (2+ members each). Keywords that don't share intent with anything else must NOT appear anywhere in the output.
-[{"members":["exact keyword 1","exact keyword 2"],"suggested_primary":"exact keyword 1","reason":"short reason"}]
+Return ONLY compact JSON, no other text: an array of groups (2+ members each), referring to each keyword by its NUMBER from the list below (not its text). "suggested_primary" is the number of the clearest, most natural phrasing in that group.
+[{"members":[3,17],"suggested_primary":3,"reason":"short reason"}]
 
-KEYWORDS (use the EXACT text back, one per line):
-${pool.map(p => '- ' + p.keyword).join('\n')}`;
+Keywords that don't share intent with anything else must NOT appear in the output at all.
+
+KEYWORDS (numbered):
+${pool.map((p, i) => (i + 1) + '. ' + p.keyword).join('\n')}`;
 
         let aiText = '';
         try { aiText = await callClaudeText(prompt, 4000); } catch (e) { return res.status(500).json({ error: 'AI grouping failed: ' + e.message }); }
+        // Always persist the raw response — never guess at a failure, read this file instead.
+        try {
+          await writeJsonFile('data/blog-fusion-last-raw.json', { at: new Date().toISOString(), poolSize: pool.length, rawText: aiText }, 'Fusion: save raw AI response for debugging');
+        } catch (e) { /* debug file only — never blocks the real run */ }
         const raw = aiText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
         const m = raw.match(/\[[\s\S]*\]/);
         let aiGroups = [];
         try { aiGroups = m ? JSON.parse(m[0]) : []; } catch (e) { aiGroups = []; }
+        const aiProposedCount = Array.isArray(aiGroups) ? aiGroups.length : 0;
 
-        const poolLc = new Set(pool.map(p => p.keyword.toLowerCase()));
         const newGroups = [];
         const nowGroupedLc = new Set();
         (Array.isArray(aiGroups) ? aiGroups : []).forEach((g, gi) => {
-          const memberKws = Array.isArray(g.members) ? g.members.map(String) : [];
+          const memberIdx = Array.isArray(g.members) ? g.members.map(n => parseInt(n, 10)) : [];
           const validMembers = [];
           const seenLc = new Set();
-          memberKws.forEach(kwText => {
-            const lc = kwText.trim().toLowerCase();
-            if (poolLc.has(lc) && !seenLc.has(lc) && !nowGroupedLc.has(lc)) { seenLc.add(lc); validMembers.push(poolMap.get(lc)); }
+          memberIdx.forEach(n => {
+            const p = Number.isInteger(n) && n >= 1 && n <= pool.length ? pool[n - 1] : null;
+            if (!p) return;
+            const lc = p.keyword.toLowerCase();
+            if (!seenLc.has(lc) && !nowGroupedLc.has(lc)) { seenLc.add(lc); validMembers.push(p); }
           });
-          if (validMembers.length < 2) return; // AI hallucinated a keyword or only 1 survived — skip
+          if (validMembers.length < 2) return; // AI referenced a bad number or only 1 survived — skip
           // Attach volume/impressions signals for winner selection + display.
           const withSignals = validMembers.map(v => {
             const met = metricsLc[v.keyword.toLowerCase()];
@@ -3127,8 +3145,9 @@ ${pool.map(p => '- ' + p.keyword).join('\n')}`;
             if (withImpr.length) { winner = withImpr.slice().sort((a, b) => b.impressions - a.impressions)[0]; signal = 'impressions'; }
           }
           if (!winner) {
-            const sp = String(g.suggested_primary || '').trim().toLowerCase();
-            winner = withSignals.find(s => s.keyword.toLowerCase() === sp) || withSignals[0];
+            const spIdx = parseInt(g.suggested_primary, 10);
+            const spKw = (Number.isInteger(spIdx) && spIdx >= 1 && spIdx <= pool.length) ? pool[spIdx - 1].keyword.toLowerCase() : null;
+            winner = (spKw && withSignals.find(s => s.keyword.toLowerCase() === spKw)) || withSignals[0];
             signal = 'ai-choice';
           }
           const secondary = withSignals.filter(s => s.keyword.toLowerCase() !== winner.keyword.toLowerCase());
@@ -3155,7 +3174,8 @@ ${pool.map(p => '- ' + p.keyword).join('\n')}`;
           await writeJsonFile('data/blog-fusion-pending.json', [...pending, ...newGroups], `Fusion: +${newGroups.length} pending group(s)`);
         }
 
-        return res.status(200).json({ success: true, newGroups, checkedCount: pool.length, message: `Checked ${pool.length} topics — found ${newGroups.length} new group${newGroups.length === 1 ? '' : 's'}.` });
+        const survivedNote = (aiProposedCount && aiProposedCount !== newGroups.length) ? ` (AI proposed ${aiProposedCount}, ${newGroups.length} valid — see data/blog-fusion-last-raw.json if that gap looks wrong)` : '';
+        return res.status(200).json({ success: true, newGroups, checkedCount: pool.length, aiProposedCount, message: `Checked ${pool.length} topics — found ${newGroups.length} new group${newGroups.length === 1 ? '' : 's'}.${survivedNote}` });
       }
 
       // ── ACTION: get-fusion-pending ── (GET) load proposed-but-not-yet-applied fusion groups
