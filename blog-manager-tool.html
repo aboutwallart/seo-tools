@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.10.3 - 2026-09-27</p>
+        <p class="version">v6.10.4 - 2026-09-27</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -328,6 +328,14 @@
                 <div style="font-weight:700;margin-bottom:4px;">🔎 Priority topics from Google Search Console</div>
                 <div style="color:#5a7a70;font-size:13px;margin-bottom:10px;">Informational searches you appear for but don't get clicked — great topics for new blogs. Remove the ones you don't want with <b>✕</b>, then <b>Approve</b> the rest to add them to To Write (they're mixed in when you plan a month).</div>
                 <div id="gsc-blog-list"><span style="color:#888;font-size:13px;">Loading…</span></div>
+            </div>
+
+            <div id="fusion-panel" style="background:#fdf6ec;border:1px solid #f0ddb8;border-radius:10px;padding:14px;margin-bottom:16px;">
+                <div style="font-weight:700;margin-bottom:4px;">🔗 Duplicate-topic check</div>
+                <div style="color:#8a6d1a;font-size:13px;margin-bottom:10px;">Finds To Write topics that are really the SAME search asked differently, and merges them into ONE blog so they don't compete with each other for the same ranking. You review and approve each merge before anything changes.</div>
+                <button id="fusion-find-btn" onclick="findFusionGroups()" style="background:#c0561d;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;">🔍 Find duplicate topics (AI)</button>
+                <span id="fusion-find-note" style="margin-left:10px;color:#666;font-size:13px;"></span>
+                <div id="fusion-pending-list" style="margin-top:12px;"></div>
             </div>
 
             <div style="background:#f4f8ff;border:1px solid #cfe0ff;border-radius:10px;padding:14px;margin-bottom:16px;">
@@ -513,13 +521,97 @@
             } catch (e) { btn.disabled = false; btn.textContent = '✅ Approve & add to To Write'; alert('Could not add: ' + e.message); }
         }
 
+        // ============================================
+        // FUSION — merge To Write topics that are the SAME search asked differently, so they don't
+        // compete with each other. window._fusedGroups (applied) loads once at startup for card badges
+        // + the write step; FUSION_PENDING (proposed, awaiting review) loads when the To Write tab opens.
+        // ============================================
+        let FUSION_PENDING = [];
+        async function loadFusionPending() {
+            try {
+                const r = await fetch('/api/blogs?action=get-fusion-pending').then(x => x.json());
+                FUSION_PENDING = (r && r.groups) || [];
+                renderFusionPending();
+            } catch (e) { /* non-blocking */ }
+        }
+        async function loadFusedGroups() {
+            try {
+                const r = await fetch('/api/blogs?action=get-fused-groups').then(x => x.json());
+                window._fusedGroups = (r && r.groups) || {};
+            } catch (e) { window._fusedGroups = window._fusedGroups || {}; }
+        }
+        function fusionFor(idea) {
+            const k = (idea.keyword || idea.currentKeyword || '').toLowerCase();
+            if (idea.fusedSecondary && idea.fusedSecondary.length) return idea.fusedSecondary;
+            const fg = window._fusedGroups && window._fusedGroups[k];
+            return (fg && fg.secondary) || [];
+        }
+        function renderFusionPending() {
+            const box = document.getElementById('fusion-pending-list'); if (!box) return;
+            if (!FUSION_PENDING.length) { box.innerHTML = ''; return; }
+            const sigLabel = (s) => s === 'volume' ? 'by search volume' : s === 'impressions' ? 'by your GSC impressions' : 'AI pick — no volume data';
+            box.innerHTML = FUSION_PENDING.map(g => {
+                const secList = (g.secondary || []).map(s =>
+                    '<li>' + escBlog(s.keyword) + (s.volume ? ' (vol ' + s.volume + ')' : (s.impressions ? ' (' + s.impressions + ' impr.)' : '')) + '</li>'
+                ).join('');
+                const kwEnc = encodeURIComponent(g.winnerKeyword);
+                return '<div style="border:1px solid #e6d3a3;border-radius:8px;padding:12px;margin-bottom:10px;background:#fffdf8;">'
+                    + '<div style="font-weight:700;">🏆 Winner: ' + escBlog(g.winnerKeyword) + ' <span style="font-weight:400;color:#888;font-size:12px;">(' + sigLabel(g.signals) + ')</span></div>'
+                    + '<div style="color:#555;font-size:13px;margin:4px 0;">' + escBlog(g.winnerTitle) + '</div>'
+                    + '<div style="font-size:13px;color:#444;">Will also cover as secondary angles:</div>'
+                    + '<ul style="margin:4px 0 8px 20px;font-size:13px;color:#444;">' + secList + '</ul>'
+                    + (g.reason ? '<div style="font-size:12px;color:#999;margin-bottom:8px;">' + escBlog(g.reason) + '</div>' : '')
+                    + '<button onclick="applyFusionGroup(\'' + kwEnc + '\')" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;margin-right:8px;">✅ Merge these</button>'
+                    + '<button onclick="discardFusionGroup(\'' + kwEnc + '\')" style="background:#fff;color:#8a6d1a;border:1px solid #ccc;border-radius:6px;padding:7px 14px;font-weight:700;cursor:pointer;">✕ Keep separate</button>'
+                    + '</div>';
+            }).join('');
+        }
+        async function findFusionGroups() {
+            const btn = document.getElementById('fusion-find-btn');
+            const note = document.getElementById('fusion-find-note');
+            if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+            if (note) { note.style.color = '#666'; note.textContent = ''; }
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'find-fusion-groups' }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Could not check.');
+                if (note) note.textContent = r.message || ('Checked ' + (r.checkedCount || 0) + ' topics.');
+                await loadFusionPending();
+            } catch (e) { if (note) { note.style.color = '#a33'; note.textContent = 'Error: ' + e.message; } }
+            finally { if (btn) { btn.disabled = false; btn.textContent = '🔍 Find duplicate topics (AI)'; } }
+        }
+        async function applyFusionGroup(encKw) {
+            const kw = decodeURIComponent(encKw);
+            try {
+                const r = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'apply-fusion-group', winnerKeyword: kw }) }).then(x => x.json());
+                if (!r.success) throw new Error(r.error || 'Could not merge.');
+                FUSION_PENDING = FUSION_PENDING.filter(g => (g.winnerKeyword || '').toLowerCase() !== kw.toLowerCase());
+                renderFusionPending();
+                const winnerLc = kw.toLowerCase();
+                const secLc = new Set((r.secondary || []).map(s => (s.keyword || '').toLowerCase()));
+                allIdeas.forEach(idea => {
+                    const k = (idea.keyword || idea.currentKeyword || '').toLowerCase();
+                    if (secLc.has(k)) { idea.status = 'IGNORED'; idea.cannibalization = 'FUSED'; idea.conflictingKeyword = kw; }
+                    if (k === winnerLc) idea.fusedSecondary = r.secondary || [];
+                });
+                window._fusedGroups = window._fusedGroups || {};
+                window._fusedGroups[winnerLc] = { winnerKeyword: kw, winnerTitle: r.winnerTitle || '', secondary: r.secondary || [], reason: r.reason || '' };
+                refreshAll();
+            } catch (e) { alert('Could not merge: ' + e.message); }
+        }
+        async function discardFusionGroup(encKw) {
+            const kw = decodeURIComponent(encKw);
+            FUSION_PENDING = FUSION_PENDING.filter(g => (g.winnerKeyword || '').toLowerCase() !== kw.toLowerCase());
+            renderFusionPending();
+            try { await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'discard-fusion-group', winnerKeyword: kw }) }); } catch (e) {}
+        }
+
         function switchTab(tab) {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(p => p.classList.remove('active'));
             document.getElementById(`tab-${tab}`).classList.add('active');
             document.getElementById(`panel-${tab}`).classList.add('active');
             if (tab !== 'ideas') clearSelection();
-            if (tab === 'towrite') loadGscBlogTopics();
+            if (tab === 'towrite') { loadGscBlogTopics(); loadFusionPending(); }
         }
 
         function updateTabCounts() {
@@ -714,6 +806,7 @@
                 await loadDrafts();
                 await loadPublishedTitles();
                 await loadProducts();
+                await loadFusedGroups();
                 refreshAll();
 
             } catch (error) {
@@ -1205,6 +1298,18 @@
             const manualFormHTML = '';
             const compHTML = '';
 
+            // Fusion note: on the LOSER's card (Ignored, merged into a winner) or the WINNER's card
+            // (To Write, now covering the merged secondary angles too) — see find/apply-fusion-group.
+            let fusionNoteHTML = '';
+            if (tab === 'ignored' && level === 'FUSED' && idea.conflictingKeyword) {
+                fusionNoteHTML = `<div style="margin-top:8px;background:#eef6ff;border:1px solid #d6e4ff;border-radius:6px;padding:8px 12px;font-size:13px;color:#1a1a1a;">🔗 <strong>Fused into:</strong> ${escHtml(idea.conflictingKeyword)}</div>`;
+            } else if (tab === 'towrite') {
+                const secList = fusionFor(idea);
+                if (secList.length) {
+                    fusionNoteHTML = `<div style="margin-top:8px;background:#fff8e6;border:1px solid #f0ddb8;border-radius:6px;padding:8px 12px;font-size:13px;color:#6b5215;">🔗 <strong>Fused blog — also covers:</strong> ${secList.map(s => escHtml(s.keyword || s.title || '')).join(', ')}</div>`;
+                }
+            }
+
             // To Write cards are already approved — show them neutral (no conflict colour/badge).
             // Sent-to-sheet ones stay grey to mark them done. Ignored = grey.
             let cardColorClass;
@@ -1222,7 +1327,7 @@
                     ${tab === 'ideas' ? ideasBodyHTML : `
                     <div class="keyword">${idea.currentKeyword}</div>
                     <div class="title">${idea.currentTitle}</div>
-                    <div class="perspective">${idea.perspective}</div>`}
+                    <div class="perspective">${idea.perspective}</div>${fusionNoteHTML}`}
                     <div class="card-actions">${actionsHTML}</div>
                     ${compHTML}
                     ${manualFormHTML}
@@ -1407,10 +1512,12 @@
                 if (!sd.success) throw new Error(sd.error || 'Could not gather sources');
                 pct = Math.max(pct, 45); label = 'Writing the blog…'; draw();
 
-                // STEP 2 — the body, using those sources
+                // STEP 2 — the body, using those sources. If this blog fused several near-duplicate
+                // searches into one (see Find duplicate topics), pass the secondary angles along so
+                // the writer covers each as its own H2 section.
                 const r = await fetch('/api/blogs', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'write-blog-body', keyword, title: idea.currentTitle, brief: stored.brief || null, authority: sd.authority, youtube: sd.youtube, trendsHtml: sd.trendsHtml })
+                    body: JSON.stringify({ action: 'write-blog-body', keyword, title: idea.currentTitle, brief: stored.brief || null, authority: sd.authority, youtube: sd.youtube, trendsHtml: sd.trendsHtml, secondaryAngles: fusionFor(idea) })
                 });
                 const data = await readJson(r);
                 if (!data.success) throw new Error(data.error || 'Writing failed');
