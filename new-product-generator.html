@@ -156,7 +156,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v2.4</span>
+  <span class="ver">v2.5</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -212,6 +212,59 @@ function msg(text,type){ const m=document.getElementById('msg'); m.textContent=t
 function clearMsg(){ document.getElementById('msg').className='msg'; }
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+/* ---------- "Ya rankeás — capturá más" (performing keywords you already get clicks on) ---------- */
+let PERFORMING = null;
+async function loadPerforming(force){
+  const box=document.getElementById('perf-list'); if(!box) return;
+  if(PERFORMING && !force){ renderPerforming(); return; }
+  box.innerHTML='Loading…';
+  try{ const r=await api({action:'performing-keywords'}); PERFORMING=r.options||[]; renderPerforming(); }
+  catch(e){ box.innerHTML='<span style="color:#a33;">Could not load: '+esc(e.message)+'</span>'; }
+}
+function renderPerforming(){
+  const box=document.getElementById('perf-list'); if(!box) return;
+  const opts=PERFORMING||[];
+  if(!opts.length){ box.innerHTML='<span style="color:#888;">Nothing new right now.</span>'; return; }
+  box.innerHTML='<div style="display:grid;gap:8px;">'+opts.map((o,i)=>{
+    const star=o.topSix?'⭐ ':'';
+    const metrics='<span style="color:#888;font-size:12px;">'+o.impressions+' impr · '+o.clicks+' clicks · pos '+o.position+'</span>';
+    const kwEnc=encodeURIComponent(o.keyword);
+    let action='';
+    if(o.rankingUrl){
+      action='<div style="font-size:12px;color:#2e7d32;margin-top:2px;">ranking (free): '+esc(o.rankingUrl)+'</div>'+
+        '<button class="btn small" style="margin-top:6px;background:#2e7d32;color:#fff" onclick="claimToRegistry('+i+')">① Add to registry to optimise</button> '+
+        '<button class="btn small ghost" onclick="useInProduct('+i+')">② Use in a new product</button>';
+    } else {
+      const taken=o.urlLockedToOther?'<div style="font-size:12px;color:#b3620a;margin-top:2px;">the page that ranks is already locked to another keyword → build new</div>':'';
+      action=taken+'<button class="btn small" style="margin-top:6px;background:#c0561d;color:#fff" onclick="useInProduct('+i+')">② Use in a new product</button>';
+    }
+    if(o.savedToIdeas) action='<span style="color:#2e7d32;font-weight:700;font-size:13px;">✅ saved to build</span>';
+    return '<div style="border:1px solid #e6d3a3;border-radius:8px;padding:10px 12px;background:#fffdf8;">'+
+      '<div style="font-weight:600;">'+star+esc(o.keyword)+'</div>'+metrics+'<div>'+action+'</div></div>';
+  }).join('')+'</div>';
+}
+async function claimToRegistry(i){
+  const o=(PERFORMING||[])[i]; if(!o) return;
+  if(!confirm('Lock "'+o.keyword+'" to '+o.rankingUrl+' and send it to Money Page Doctor to optimise?')) return;
+  try{ await api({action:'claim-to-registry',keyword:o.keyword,url:o.rankingUrl,intent:'COMMERCIAL'}); msg('Locked + sent to optimise: '+o.keyword,'ok'); PERFORMING.splice(i,1); renderPerforming(); }
+  catch(e){ msg('Could not lock: '+e.message,'err'); }
+}
+async function useInProduct(i){
+  const o=(PERFORMING||[])[i]; if(!o) return;
+  try{ await api({action:'send-to-product-pool',keyword:o.keyword,meta:{impressions:o.impressions,clicks:o.clicks,position:o.position}}); msg('Saved to build a product: '+o.keyword,'ok'); o.savedToIdeas=true; renderPerforming(); loadProductIdeas(); }
+  catch(e){ msg('Could not save: '+e.message,'err'); }
+}
+// Keywords you saved to build products from (data/product-keyword-ideas.json) — shown so you can start one.
+async function loadProductIdeas(){
+  const box=document.getElementById('perf-saved'); if(!box) return;
+  try{
+    const r=await api({action:'get-product-ideas'}); const ideas=r.ideas||[];
+    if(!ideas.length){ box.innerHTML=''; return; }
+    box.innerHTML='<div style="font-weight:700;font-size:13px;margin-bottom:6px;">💡 Saved to build ('+ideas.length+') — start a product and use one of these as its keyword:</div>'+
+      '<div style="display:flex;flex-wrap:wrap;gap:6px;">'+ideas.map(function(x){ return '<span style="background:#eef6ff;border:1px solid #d6e4ff;border-radius:12px;padding:3px 10px;font-size:13px;">'+esc(x.keyword)+'</span>'; }).join('')+'</div>';
+  }catch(e){ box.innerHTML=''; }
+}
+
 /* ---------- STEP LOGIC (from handover, don't re-derive) ---------- */
 function currentProduct(){ return PRODUCTS.find(p => !p.sent) || null; }
 function isStepDone(p, n){
@@ -244,7 +297,16 @@ function renderFlow(){
       '<div class="addprod">'+
         '<p>No product in progress. Start a new one and the tool will guide you step by step.</p>'+
         '<button class="btn primary" onclick="startDraft()">＋ Add product</button>'+
+      '</div>'+
+      '<div id="perf-panel" style="margin-top:22px;background:#fdf6ec;border:1px solid #f0ddb8;border-radius:10px;padding:16px;">'+
+        '<div style="font-weight:700;margin-bottom:4px;">⭐ Ya rankeás — capturá más</div>'+
+        '<div style="color:#8a6d1a;font-size:13px;margin-bottom:10px;">Commercial keywords you already get clicks on but haven\'t claimed. The ones ranking top 6 are first. Lock one to the page that already ranks (to optimise it), or save it to build a new product.</div>'+
+        '<button class="btn ghost small" onclick="loadPerforming(true)">↻ Refresh</button>'+
+        '<div id="perf-list" style="margin-top:12px;color:#888;font-size:13px;">Loading…</div>'+
+        '<div id="perf-saved" style="margin-top:14px;"></div>'+
       '</div>';
+    loadPerforming(false);
+    loadProductIdeas();
     return;
   }
   const natural = p ? computeNaturalStep(p) : 1;
