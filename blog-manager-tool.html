@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.10.1 - 2026-09-26</p>
+        <p class="version">v6.10.2 - 2026-09-27</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -339,7 +339,7 @@
                     <button id="savemonth-btn" onclick="assignSelectedToMonth()" style="background:#43a047;color:#fff;border:none;border-radius:6px;padding:10px 16px;font-weight:700;cursor:pointer;">Save selection to month</button>
                     <span id="monthly-note" style="color:#666;font-size:13px;"></span>
                 </div>
-                <div style="margin-top:6px;color:#888;font-size:12px;">Picks the right number for the month (days in it), seasonal topics matched, spread by room/style. Then process each one — start with its Competitor check.</div>
+                <div style="margin-top:6px;color:#888;font-size:12px;">Picks the right number for the month (every other day, ~half its days), seasonal topics matched, spread by room/style. Then process each one — start with its Competitor check.</div>
             </div>
 
             <div class="filter-bar" style="margin-bottom:14px;">
@@ -872,10 +872,10 @@
             }
             const sel = (filter && filter.value) || months[0];
             const list = tagged.filter(i => i.month === sel);
-            // Completion banner: a month aims for a full set (one per day). Count what's already scheduled on the
-            // store toward it, so it shows exactly how many more are needed to complete the month.
+            // Completion banner: publishing is every other day, so a month aims for ~half its days. Count what's
+            // already scheduled on the store toward it, so it shows exactly how many more are needed to complete it.
             const parts = sel.split('-').map(Number);
-            const target = daysInMonth(parts[0], parts[1]);
+            const target = Math.ceil(daysInMonth(parts[0], parts[1]) / 2);
             const already = (window._publishedMonthCount && window._publishedMonthCount[sel]) || 0;
             const slotsLeft = target - already;                          // how many more the month needs beyond what's scheduled
             const remaining = Math.max(0, slotsLeft - list.length);      // still to plan
@@ -883,7 +883,7 @@
             const statusTxt = over ? (over + ' over — use "✕ Remove from month" on ' + over + ' card' + (over === 1 ? '' : 's')) : (remaining ? (remaining + ' more to complete') : 'month is full ✅');
             const statusColor = (over || remaining) ? '#c0561d' : '#2e7d32';
             const banner = `<div style="background:#eef6ff;border:1px solid #d6e4ff;border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:14px;color:#1a1a1a;">
-                <strong>${MONTH_NAMES[parts[1] - 1]} ${parts[0]}</strong> — aiming for a full month (${target}).
+                <strong>${MONTH_NAMES[parts[1] - 1]} ${parts[0]}</strong> — every other day (~${target}).
                 &nbsp;<span style="color:#2e7d32;font-weight:700;">${already} already scheduled</span>
                 &nbsp;·&nbsp;<span style="font-weight:700;">${list.length} in progress</span>
                 &nbsp;·&nbsp;<span style="color:${statusColor};font-weight:700;">${statusTxt}</span>
@@ -3319,7 +3319,10 @@
         }
         function daysInMonth(year, month) { return new Date(year, month, 0).getDate(); } // month 1-12
 
-        // Fill the month + year dropdowns (default = next month).
+        // Blogs are already scheduled every other day through this month — planning starts AFTER it.
+        const COVERED_THROUGH = { year: 2026, month: 12 };
+
+        // Fill the month + year dropdowns (default = first month still to plan).
         function populateMonthYear() {
             const mSel = document.getElementById('plan-month');
             const ySel = document.getElementById('plan-year');
@@ -3327,6 +3330,11 @@
             const now = new Date();
             let defMonth = now.getMonth() + 2; let defYear = now.getFullYear();
             if (defMonth > 12) { defMonth -= 12; defYear += 1; }
+            // If the default month is already covered, jump to the first month AFTER the covered range.
+            if (defYear * 12 + defMonth <= COVERED_THROUGH.year * 12 + COVERED_THROUGH.month) {
+                defMonth = COVERED_THROUGH.month + 1; defYear = COVERED_THROUGH.year;
+                if (defMonth > 12) { defMonth -= 12; defYear += 1; }
+            }
             MONTH_NAMES.forEach((n, i) => { const o = document.createElement('option'); o.value = i + 1; o.textContent = n; if (i + 1 === defMonth) o.selected = true; mSel.appendChild(o); });
             for (let y = now.getFullYear(); y <= now.getFullYear() + 2; y++) { const o = document.createElement('option'); o.value = y; o.textContent = y; if (y === defYear) o.selected = true; ySel.appendChild(o); }
         }
@@ -3335,10 +3343,15 @@
         function autoPickMonth() {
             const month = parseInt(document.getElementById('plan-month').value, 10);
             const year = parseInt(document.getElementById('plan-year').value, 10);
+            // Oct/Nov/Dec 2026 are already scheduled every other day — don't plan them again.
+            if (year * 12 + month <= COVERED_THROUGH.year * 12 + COVERED_THROUGH.month) {
+                alert(`${MONTH_NAMES[month - 1]} ${year} is already covered — blogs are scheduled every other day through December 2026. Plan from January 2027.`);
+                return;
+            }
             const monthStr = `${year}-${String(month).padStart(2, '0')}`;
-            // Only plan what the month still needs: full month minus what's already scheduled on the store.
+            // Publishing is every other day now, so plan ~half the month's days, minus what's already scheduled.
             const alreadySched = (window._publishedMonthCount && window._publishedMonthCount[monthStr]) || 0;
-            const count = Math.max(0, daysInMonth(year, month) - alreadySched);
+            const count = Math.max(0, Math.ceil(daysInMonth(year, month) / 2) - alreadySched);
             // Eligible = To Write, not already tagged to a DIFFERENT month.
             const pool = allIdeas.filter(i => (i.status === 'TO_WRITE' || i.status === 'TO_WRITE_PENDING') && (!i.month || i.month === monthStr) && !isPublishedBlog(i));
             if (!pool.length) { alert('No available To Write blogs to plan.'); return; }
@@ -3361,7 +3374,7 @@
             window._monthlyOrder = finalOrder.map(i => i.index);
             displayToWrite();
             const seasonalUsed = pick.filter(i => seasonalMonths(i.title).includes(month)).length;
-            document.getElementById('monthly-note').textContent = `${pick.length} picked for ${MONTH_NAMES[month - 1]} ${year} (${count} days${seasonalUsed ? `, ${seasonalUsed} seasonal` : ''}). Adjust ticks, then Save selection to month.`;
+            document.getElementById('monthly-note').textContent = `${pick.length} picked for ${MONTH_NAMES[month - 1]} ${year} (every other day, ~${count}${seasonalUsed ? `, ${seasonalUsed} seasonal` : ''}). Adjust ticks, then Save selection to month.`;
         }
 
         // Save the currently-ticked blogs to the chosen month (persists a MONTH tag).
