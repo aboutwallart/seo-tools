@@ -1,3 +1,6 @@
+// gsc.js — 2026-09-27: refresh-opportunities now ALSO builds data/gsc-performing-keywords.json — queries
+//   you already get CLICKS on (impr>=30, clicks>=1) + the page that ranks for each (a [page,query] pull),
+//   for the "Ya rankeás — capturá más" panel in the Product + Blog tools. Same intent cache, one AI pass.
 // gsc.js — 2026-09-26: added `refresh-opportunities` (daily cron) — saves high-impression/low-click
 //   queries, AI-classified product vs blog (cached), for the Social / New Product / Blog tools.
 const https = require('https');
@@ -11,6 +14,32 @@ const GH_OPP_REPO = 'aboutwallart/seo-tools';
 const OPP_LIST_PATH = 'data/gsc-opportunity-keywords.json';   // the ranked, classified list tools read
 const OPP_CACHE_PATH = 'data/gsc-keyword-intent-cache.json';  // keyword -> 'product'|'blog' (grows over time)
 const OPP_MIN_IMPRESSIONS = 30, OPP_MAX_CTR = 0.02, OPP_TOP_N = 150;
+
+// "Performing" list (separate from the low-CTR opportunities above): queries you ALREADY get clicks on
+// but haven't necessarily locked to a page. Surfaced in the "Ya rankeás — capturá más" panel so Mae can
+// either lock a top-ranking one to its page (→ Money Page Doctor to optimise) or build a new page for it.
+// The ranking URL comes from a [page,query] pull; the "is this keyword/URL locked?" checks are done by
+// the CONSUMER tools (they read the registry — gsc.js stays pure GSC data).
+const PERFORMING_LIST_PATH = 'data/gsc-performing-keywords.json';
+const PERFORMING_MIN_IMPRESSIONS = 30, PERFORMING_MIN_CLICKS = 1, PERFORMING_TOP_N = 300;
+function computePerforming(queryRows, pageQueryRows) {
+  const brand = /about\s*wall\s*art|aboutwallart/i;
+  // Best-ranking page per query: lowest average position wins (tie → most impressions on that page).
+  const pageByQuery = {};
+  (pageQueryRows || []).forEach(r => {
+    const page = r.keys && r.keys[0], q = r.keys && r.keys[1];
+    if (!page || !q) return;
+    const pos = r.position || 999, impr = r.impressions || 0;
+    const cur = pageByQuery[q];
+    if (!cur || pos < cur.pos || (pos === cur.pos && impr > cur.impr)) pageByQuery[q] = { url: page, pos, impr };
+  });
+  return (queryRows || [])
+    .map(r => ({ keyword: (r.keys && r.keys[0]) || '', impressions: Math.round(r.impressions || 0), clicks: Math.round(r.clicks || 0), ctr: r.ctr || 0, position: Math.round((r.position || 0) * 10) / 10 }))
+    .filter(r => r.keyword && !brand.test(r.keyword) && r.impressions >= PERFORMING_MIN_IMPRESSIONS && r.clicks >= PERFORMING_MIN_CLICKS)
+    .map(r => ({ ...r, rankingUrl: (pageByQuery[r.keyword] && pageByQuery[r.keyword].url) || null }))
+    .sort((a, b) => (a.position - b.position) || (b.clicks - a.clicks)) // best rank first (top-6 float up), then most clicks
+    .slice(0, PERFORMING_TOP_N);
+}
 
 async function ghGetFile(path) {
   try {
@@ -473,9 +502,17 @@ module.exports = async (req, res) => {
         startDate: start, endDate: end, dimensions: ['query'], rowLimit: 25000
       })).rows || [];
       const opps = computeOpportunities(qrows);
+      // Extra [page,query] pull so the performing list knows WHICH page ranks for each keyword.
+      const pqrows = (await gscQuery(accessToken, siteUrl, {
+        startDate: start, endDate: end, dimensions: ['page', 'query'], rowLimit: 25000
+      })).rows || [];
+      const performing = computePerforming(qrows, pqrows);
+
       const cacheFile = await ghGetFile(OPP_CACHE_PATH);
       const cache = (cacheFile.json && typeof cacheFile.json === 'object') ? cacheFile.json : {};
-      const unknown = opps.map(o => o.keyword).filter(k => !(k in cache));
+      // Classify NEW keywords from BOTH lists in one pass (cached — nothing re-sent to the AI twice).
+      const allKw = [...new Set([...opps.map(o => o.keyword), ...performing.map(o => o.keyword)])];
+      const unknown = allKw.filter(k => !(k in cache));
       let classifiedNow = 0;
       if (unknown.length) {
         const fresh = await classifyNewIntents(unknown);
@@ -492,7 +529,19 @@ module.exports = async (req, res) => {
         blogCount: keywords.filter(k => k.intent === 'blog').length,
         keywords
       }, listFile.sha, `GSC opportunities refresh (${keywords.length})`);
-      data = { refreshed: true, total: keywords.length, newlyClassified: classifiedNow,
+
+      // Write the performing list (with each keyword's intent + ranking URL).
+      const perfKeywords = performing.map(o => Object.assign({}, o, { intent: cache[o.keyword] || 'product' }));
+      const perfFile = await ghGetFile(PERFORMING_LIST_PATH);
+      await ghPutFile(PERFORMING_LIST_PATH, {
+        updatedAt: new Date().toISOString(), window: { start, end },
+        count: perfKeywords.length,
+        productCount: perfKeywords.filter(k => k.intent === 'product').length,
+        blogCount: perfKeywords.filter(k => k.intent === 'blog').length,
+        keywords: perfKeywords
+      }, perfFile.sha, `GSC performing refresh (${perfKeywords.length})`);
+
+      data = { refreshed: true, total: keywords.length, performingTotal: perfKeywords.length, newlyClassified: classifiedNow,
         productCount: keywords.filter(k => k.intent === 'product').length,
         blogCount: keywords.filter(k => k.intent === 'blog').length };
     } else {

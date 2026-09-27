@@ -1,3 +1,9 @@
+// blogs.js — v5.0
+// v5.0 (2026-09-27): new GET action performing-keywords-blog — "Ya rankeás — capturá más" (blog side):
+//   informational keywords you already get clicks on (data/gsc-performing-keywords.json), not locked /
+//   not already a blog / not dismissed; ranking URL shown only if free (taken URL = write a new blog).
+//   The "add to registry to optimise" button reuses /api/keywords claim-to-registry; "use in blog" reuses
+//   save-blog-ideas.
 // blogs.js — v4.9
 // v4.9 (2026-09-27): FIX — the fusion groups were found + saved but never SHOWED on screen. The two
 //                    GET readers (get-fusion-pending, get-fused-groups) had been placed inside the POST
@@ -1131,6 +1137,54 @@ Include EXACTLY 3 items.`;
       if (req.query.action === 'get-fused-groups') {
         const groups = await readJsonFileSafe('data/blog-fused-groups.json', {});
         return res.status(200).json({ success: true, groups });
+      }
+
+      // ── ACTION: performing-keywords-blog ── "Ya rankeás — capturá más" (BLOG side): informational
+      // keywords you already get clicks on (data/gsc-performing-keywords.json), not locked, not already
+      // a blog, not dismissed. Each carries its ranking URL only if that URL is free (not locked to
+      // another keyword) — a taken URL means "write a new blog instead". Mirrors the product-side logic.
+      if (req.query.action === 'performing-keywords-blog') {
+        let list = [];
+        try {
+          const rr = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/gsc-performing-keywords.json?t=${Date.now()}`);
+          if (rr.ok) { const j = await rr.json(); list = Array.isArray(j.keywords) ? j.keywords : []; }
+        } catch (e) { /* no list yet */ }
+        const lockedSet = new Set(); const blogKws = []; const urlLock = {};
+        const nrm = u => String(u || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
+        try {
+          const rc = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/keyword-locker-registry.csv?t=${Date.now()}`);
+          if (rc.ok) {
+            const txt = await rc.text();
+            txt.split('\n').forEach((line, i) => {
+              if (i === 0 || !line.trim()) return;
+              const c = parseCSVLine(line.replace(/\r/g, ''));
+              const kw = (c[0] || '').toLowerCase(); const url = (c[1] || '').trim(); const lk = (c[2] || '').toUpperCase(); const src = (c[9] || '');
+              if (kw && lk === 'LOCKED') lockedSet.add(kw);
+              if (url && url !== 'N/A' && lk === 'LOCKED') { const k = nrm(url); if (!urlLock[k]) urlLock[k] = c[0] || ''; }
+              if ((src === 'Published Blog' || src === 'To_Write_Blog') && c[0]) blogKws.push(kw);
+            });
+          }
+        } catch (e) { /* ignore */ }
+        let dismissed = [];
+        try { const df = await getGitHubFile('data/gsc-blog-dismissed.json'); dismissed = (JSON.parse(df.content) || []).map(s => String(s).toLowerCase()); } catch (e) { dismissed = []; }
+        const lockedArr = [...lockedSet];
+        const options = list
+          .filter(k => k && k.keyword && k.intent === 'blog')
+          .filter(k => { const kw = k.keyword.toLowerCase();
+            if (lockedSet.has(kw)) return false;
+            if (lockedArr.some(lk => lk.includes(kw))) return false;
+            if (blogKws.some(bk => bk === kw || bk.includes(kw))) return false;
+            if (dismissed.includes(kw)) return false;
+            return true;
+          })
+          .map(k => {
+            const lockedTo = k.rankingUrl ? urlLock[nrm(k.rankingUrl)] : null;
+            const urlFree = !!(k.rankingUrl && !lockedTo);
+            return { keyword: k.keyword, impressions: k.impressions, clicks: k.clicks, position: k.position,
+              rankingUrl: urlFree ? k.rankingUrl : null, urlLockedToOther: !!lockedTo, topSix: (k.position != null && k.position <= 6) };
+          })
+          .slice(0, 100);
+        return res.status(200).json({ success: true, options });
       }
 
       // ── NEW ACTION: get-published-keywords ──

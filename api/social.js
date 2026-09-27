@@ -1,4 +1,6 @@
 // Social Content Tool — tick-state persistence on GitHub.
+// 2026-09-27: caption keyword pool now ALSO includes data/gsc-performing-keywords.json (keywords you
+//   already get clicks on) — a post isn't a ranking page, so all performing keywords are fair game.
 // 2026-09-26: captions now weave in one GSC "opportunity" keyword per post (natural, never forced),
 //   rotating through data/gsc-opportunity-keywords.json (pointer in data/social-kw-rotation.json).
 // Stores which video cards are marked done (Kling prompt / on-screen text)
@@ -666,14 +668,21 @@ module.exports = async (req, res) => {
       }
       if (!posts.length) return res.status(400).json({ ok: false, error: 'No posts selected' });
 
-      // GSC opportunity keywords — woven naturally into captions, one per post, rotating through the list.
+      // GSC keywords — woven naturally into captions, one per post, rotating through the list.
+      // Pool = low-CTR opportunities + "performing" keywords (ones you already get clicks on). A social
+      // post is not a ranking page, so there's no cannibalisation concern — all performing keywords are
+      // fair game in captions.
       var OPP_KWS = [], kwPtr = 0;
       try {
+        var seenKw = {};
+        function addKws(arr) { (arr || []).forEach(function (k) { var kw = k && k.keyword; if (kw && !seenKw[kw.toLowerCase()]) { seenKw[kw.toLowerCase()] = 1; OPP_KWS.push(kw); } }); }
         var oppG = await ghGet('data/gsc-opportunity-keywords.json');
-        if (oppG.content) { var od = JSON.parse(oppG.content); OPP_KWS = (od.keywords || []).map(function (k) { return k.keyword; }).filter(Boolean); }
+        if (oppG.content) { try { addKws(JSON.parse(oppG.content).keywords); } catch (e) {} }
+        var perfG = await ghGet('data/gsc-performing-keywords.json');
+        if (perfG.content) { try { addKws(JSON.parse(perfG.content).keywords); } catch (e) {} }
         var rotG = await ghGet('data/social-kw-rotation.json');
         if (rotG.content) { var rd = JSON.parse(rotG.content); kwPtr = (rd && typeof rd.index === 'number') ? rd.index : 0; }
-      } catch (e) { OPP_KWS = []; }
+      } catch (e) { OPP_KWS = OPP_KWS || []; }
       function nextKw() { if (!OPP_KWS.length) return ''; var i = ((kwPtr % OPP_KWS.length) + OPP_KWS.length) % OPP_KWS.length; kwPtr++; return OPP_KWS[i]; }
 
       // Metricool import template header (94 columns)

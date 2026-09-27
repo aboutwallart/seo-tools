@@ -1,4 +1,10 @@
-// api/keywords.js — New Product Generator backend  ·  v0.21
+// api/keywords.js — New Product Generator backend  ·  v0.22
+// v0.22 (2026-09-27): "Ya rankeás — capturá más" (product side). New actions: performing-keywords
+//   (keywords you already get clicks on, COMMERCIAL, not locked/in-progress; each carries its ranking
+//   URL only if that URL is free — a taken URL means "build a new product"); claim-to-registry (lock a
+//   ranking keyword to its page + TO_OPTIMIZE → appears in Money Page Doctor); send-to-product-pool +
+//   get-product-ideas (data/product-keyword-ideas.json — the new "build a product from this" queue).
+//   Helpers: registryUrlLockMap, claimKeywordToRegistry.
 // v0.21 (2026-09-27): SHARED-IMAGE SELF-HEAL. A shared image (frame-sizes / picture-frames /
 //   canvas-wrapped / a room guide) that gets deleted from Shopify Files used to silently break every
 //   new product — Shopify returned 404 "Media processing failed" for those media on send. Now:
@@ -175,6 +181,48 @@ async function lockedKeywordSet() {
   return set;
 }
 
+// Map of normalised URL -> the keyword it's LOCKED to (only rows with a real url + LOCKED). Used to tell,
+// for a keyword you rank for, whether the ranking page is already committed to ANOTHER keyword.
+function normUrl(u) { return String(u || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, ''); }
+async function registryUrlLockMap() {
+  const map = {};
+  try {
+    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${REGISTRY_PATH}?t=${Date.now()}`);
+    if (!r.ok) return map;
+    const txt = await r.text();
+    txt.split('\n').forEach(line => {
+      if (!line.trim()) return;
+      const c = parseCSVLine(line.replace(/\r/g, ''));
+      const url = (c[1] || '').trim();
+      const locked = (c[2] || '').toUpperCase();
+      if (url && url !== 'N/A' && locked === 'LOCKED') { const k = normUrl(url); if (!map[k]) map[k] = c[0] || ''; }
+    });
+  } catch { /* ignore */ }
+  return map;
+}
+// Write a "claim" row so the keyword+page shows in Money Page Doctor to optimise (action = TO_OPTIMIZE).
+// Idempotent: skips if that exact keyword is already LOCKED. intent = 'COMMERCIAL' | 'INFORMATIONAL'.
+async function claimKeywordToRegistry(keyword, url, intent) {
+  keyword = (keyword || '').trim();
+  if (!keyword) throw new Error('keyword required');
+  const intn = (intent || 'COMMERCIAL').toUpperCase();
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const reg = await ghGet(REGISTRY_PATH);
+    if (reg.content == null) throw new Error('registry not found');
+    const lines = reg.content.split('\n').map(l => l.replace(/\r/g, ''));
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const c = parseCSVLine(line);
+      if ((c[0] || '').toLowerCase() === keyword.toLowerCase() && (c[2] || '').toUpperCase() === 'LOCKED') return { ok: true, alreadyLocked: true };
+    }
+    const newRow = `${csvField(keyword)},${csvField(url || 'N/A')},LOCKED,DONE,TO_OPTIMIZE,N/A,N/A,N/A,N/A,GSC-CLAIM,${intn},`;
+    const updated = reg.content.trimEnd() + '\n' + newRow + '\n';
+    try { await ghPut(REGISTRY_PATH, updated, reg.sha, `Claim ranking keyword to optimise: ${keyword}`); return { ok: true, keyword, url: url || 'N/A' }; }
+    catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
+  }
+  throw new Error('registry write conflict, try again');
+}
+
 /* ---------------- in-progress keyword set (products with a keyword, not yet sent to Shopify) ---------------- */
 function inProgressKeywordMap(products, excludeSku) {
   // keyword(lower) -> sku, for products that already have a keyword and aren't sent yet
@@ -308,6 +356,66 @@ async function gscOpportunities(body) {
     .slice(0, 15)
     .map(k => ({ keyword: k.keyword, impressions: k.impressions, clicks: k.clicks, position: k.position }));
   return { options };
+}
+
+// "Ya rankeás — capturá más" (PRODUCT side): keywords you already get clicks on (data/gsc-performing-
+// keywords.json), COMMERCIAL intent, not locked and not in-progress. Each carries its ranking URL ONLY
+// if that URL is free (not locked to ANOTHER keyword) — a taken URL means "build a new product instead".
+const PRODUCT_IDEAS_PATH = 'data/product-keyword-ideas.json';
+async function performingKeywords(body) {
+  let list = [];
+  try {
+    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/gsc-performing-keywords.json?t=${Date.now()}`);
+    if (r.ok) { const j = await r.json(); list = Array.isArray(j.keywords) ? j.keywords : []; }
+  } catch { /* no list yet */ }
+  const [locked, allProducts, urlLocks] = await Promise.all([lockedKeywordSet(), readProducts(), registryUrlLockMap()]);
+  const lockedArr = [...locked];
+  const inProgress = inProgressKeywordMap(allProducts, (body && body.sku) || undefined);
+  const alreadyIdeas = await readProductIdeas();
+  const ideaSet = new Set(alreadyIdeas.map(i => (i.keyword || '').toLowerCase()));
+  const options = list
+    .filter(k => k && k.keyword && (k.intent || 'product') === 'product')
+    .filter(k => { const kw = k.keyword.toLowerCase();
+      if (locked.has(kw)) return false;
+      if (lockedArr.some(lk => lk.includes(kw))) return false;
+      if (inProgress.has(kw)) return false;
+      return true;
+    })
+    .map(k => {
+      const lockedTo = k.rankingUrl ? urlLocks[normUrl(k.rankingUrl)] : null;
+      const urlFree = !!(k.rankingUrl && !lockedTo);
+      return {
+        keyword: k.keyword, impressions: k.impressions, clicks: k.clicks, position: k.position,
+        rankingUrl: urlFree ? k.rankingUrl : null,           // shown only if free to claim
+        urlLockedToOther: !!(lockedTo),                       // true = ranking page is taken → build new
+        topSix: (k.position != null && k.position <= 6),      // ⭐ already ranking well, not locked
+        savedToIdeas: ideaSet.has(k.keyword.toLowerCase())
+      };
+    })
+    .slice(0, 100);
+  return { options };
+}
+async function readProductIdeas() {
+  try {
+    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${PRODUCT_IDEAS_PATH}?t=${Date.now()}`);
+    if (!r.ok) return [];
+    const j = await r.json();
+    return Array.isArray(j) ? j : [];
+  } catch { return []; }
+}
+async function sendToProductPool(keyword, meta) {
+  keyword = (keyword || '').trim();
+  if (!keyword) throw new Error('keyword required');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const file = await ghGet(PRODUCT_IDEAS_PATH);
+    let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    if (arr.some(x => (x.keyword || '').toLowerCase() === keyword.toLowerCase())) return { ok: true, already: true, ideas: arr };
+    arr.push({ keyword, impressions: (meta && meta.impressions) || null, clicks: (meta && meta.clicks) || null, position: (meta && meta.position) || null, addedAt: new Date().toISOString() });
+    try { await ghPut(PRODUCT_IDEAS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG product keyword idea: ${keyword}`); return { ok: true, ideas: arr }; }
+    catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
+  }
+  throw new Error('write conflict, try again');
 }
 
 // Frees a deleted product's keyword: removes every registry row tagged NPG:<sku> (the source column).
@@ -1538,6 +1646,28 @@ export default async function handler(req, res) {
     if (action === 'gsc-opportunities') {
       const out = await gscOpportunities(body);
       return res.status(200).json({ ok: true, ...out });
+    }
+
+    // "Ya rankeás — capturá más" (product side)
+    if (action === 'performing-keywords') {
+      const out = await performingKeywords(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+    // Button ①: lock a ranking keyword to its page + TO_OPTIMIZE → shows in Money Page Doctor.
+    if (action === 'claim-to-registry') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const out = await claimKeywordToRegistry(body.keyword, body.url, body.intent || 'COMMERCIAL');
+      return res.status(200).json({ ok: true, ...out });
+    }
+    // Button ②: save a commercial keyword so it can be built into a new product.
+    if (action === 'send-to-product-pool') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const out = await sendToProductPool(body.keyword, body.meta || {});
+      return res.status(200).json({ ok: true, ...out });
+    }
+    if (action === 'get-product-ideas') {
+      const ideas = await readProductIdeas();
+      return res.status(200).json({ ok: true, ideas });
     }
 
     if (action === 'set-keyword') {
