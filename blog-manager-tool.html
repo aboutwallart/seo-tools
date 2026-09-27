@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.10.2 - 2026-09-27</p>
+        <p class="version">v6.10.3 - 2026-09-27</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -500,8 +500,11 @@
                 const res = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'analyze-blog-titles', titles }) }).then(x => x.json());
                 const results = (res && res.results) || [];
                 const rows = results.map(r => ({ title: r.title, keyword: r.keyword, cannibalization: r.cannibalization, conflictingKeyword: r.conflictingKeyword, conflictingUrl: r.conflictingUrl, clashIntent: r.clashIntent, looserCount: r.looserCount, isNew: true }));
-                const save = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-blog-ideas', rows }) }).then(x => x.json());
+                // spread:true — save them mixed through To Write (not all at the end) so the monthly auto-pick distributes them.
+                const save = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-blog-ideas', rows, spread: true }) }).then(x => x.json());
                 if (!save.success) throw new Error(save.error || 'Save failed');
+                // Take them off the GSC panel for good so they don't reappear next time (they're now in To Write).
+                try { await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'dismiss-gsc-blog-topic', keywords: titles }) }); } catch (e) { /* non-blocking */ }
                 let nextIndex = allIdeas.length ? Math.max(...allIdeas.map(i => i.index)) + 1 : 0;
                 results.forEach(r => allIdeas.push({ index: nextIndex++, keyword: r.keyword, title: r.title, perspective: '', cannibalization: r.cannibalization, conflictingKeyword: r.conflictingKeyword, conflictingUrl: r.conflictingUrl, clashIntent: r.clashIntent || '', looserCount: r.looserCount || 0, currentTitle: r.title, currentKeyword: r.keyword, status: 'TO_WRITE' }));
                 GSC_BLOG_KEPT = []; GSC_BLOG_LOADED = false;
