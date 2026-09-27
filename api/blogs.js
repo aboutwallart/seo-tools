@@ -1,4 +1,9 @@
-// blogs.js — v4.8
+// blogs.js — v4.9
+// v4.9 (2026-09-27): FIX — the fusion groups were found + saved but never SHOWED on screen. The two
+//                    GET readers (get-fusion-pending, get-fused-groups) had been placed inside the POST
+//                    block, but a GET request returns from the GET block first (default "return {blogs}")
+//                    and never reaches the POST section — so the page got a blog list instead of the
+//                    groups and rendered nothing. Moved both readers to the TOP of the GET block.
 // v4.8 (2026-09-27): fix find-fusion-groups returning 0 groups despite real duplicates existing —
 //                    the AI was asked to echo back exact keyword TEXT, and small rewording (case, a
 //                    word) on echo silently dropped every group during exact-match filtering. Now the
@@ -1114,6 +1119,19 @@ Include EXACTLY 3 items.`;
     // GET - Read published blogs from registry
     // ============================================
     if (req.method === 'GET') {
+
+      // ── ACTION: get-fusion-pending ── proposed-but-not-yet-applied fusion groups (for the review panel).
+      // ── ACTION: get-fused-groups ── APPLIED fusion groups, keyed by winner keyword (for card badges + writer).
+      // These GET handlers MUST sit at the top of the GET block — the GET block ends in a default
+      // "return { blogs }", so anything placed after that default never runs for a GET request.
+      if (req.query.action === 'get-fusion-pending') {
+        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
+        return res.status(200).json({ success: true, groups: pending });
+      }
+      if (req.query.action === 'get-fused-groups') {
+        const groups = await readJsonFileSafe('data/blog-fused-groups.json', {});
+        return res.status(200).json({ success: true, groups });
+      }
 
       // ── NEW ACTION: get-published-keywords ──
       if (req.query.action === 'get-published-keywords') {
@@ -3176,18 +3194,6 @@ ${pool.map((p, i) => (i + 1) + '. ' + p.keyword).join('\n')}`;
 
         const survivedNote = (aiProposedCount && aiProposedCount !== newGroups.length) ? ` (AI proposed ${aiProposedCount}, ${newGroups.length} valid — see data/blog-fusion-last-raw.json if that gap looks wrong)` : '';
         return res.status(200).json({ success: true, newGroups, checkedCount: pool.length, aiProposedCount, message: `Checked ${pool.length} topics — found ${newGroups.length} new group${newGroups.length === 1 ? '' : 's'}.${survivedNote}` });
-      }
-
-      // ── ACTION: get-fusion-pending ── (GET) load proposed-but-not-yet-applied fusion groups
-      if (req.query.action === 'get-fusion-pending') {
-        const pending = await readJsonFileSafe('data/blog-fusion-pending.json', []);
-        return res.status(200).json({ success: true, groups: pending });
-      }
-
-      // ── ACTION: get-fused-groups ── (GET) load APPLIED fusion groups, keyed by winner keyword (lowercase)
-      if (req.query.action === 'get-fused-groups') {
-        const groups = await readJsonFileSafe('data/blog-fused-groups.json', {});
-        return res.status(200).json({ success: true, groups });
       }
 
       // ── ACTION: apply-fusion-group ── Mae approved a proposed group: secondary keywords' rows go
