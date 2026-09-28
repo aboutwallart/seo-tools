@@ -1,4 +1,7 @@
-// api/keywords.js — New Product Generator backend  ·  v0.26
+// api/keywords.js — New Product Generator backend  ·  v0.27
+// v0.27 (2026-09-28): alt text now describes the ARTWORK (from product.content.productTitle), varied per
+//   image, never "print". admin-link resolves blog articles robustly. generate-capture-content embeds an
+//   internal link to the best-matching COLLECTION and returns ready-to-paste HTML (+ plain text).
 // v0.26 (2026-09-28): "Capture more" redesign. Ranking keywords route to Money Page Doctor's "Do first"
 //   tab (data/capture-tasks.json): B (free page) → capture-optimise (lock + optimise card); C (taken page)
 //   → sync-capture-tasks auto-creates a strengthen card (AI paragraph via generate-capture-content); cards
@@ -539,12 +542,20 @@ async function resolveAdminLink(url) {
     if (blog) {
       const blogHandle = decodeURIComponent(blog[1]);
       const artHandle = decodeURIComponent(blog[2]);
-      const blogs = await shopifyREST('blogs.json?fields=id,handle');
+      const blogs = await shopifyREST('blogs.json?fields=id,handle&limit=250');
       const b = (blogs.blogs || []).find(x => (x.handle || '').toLowerCase() === blogHandle.toLowerCase());
       if (b) {
-        const arts = await shopifyREST(`blogs/${b.id}/articles.json?limit=250&fields=id,handle`);
-        const a = (arts.articles || []).find(x => (x.handle || '').toLowerCase() === artHandle.toLowerCase());
-        if (a) return { adminUrl: `https://${DOMAIN}/admin/blogs/${b.id}/articles/${a.id}`, resolved: true };
+        // Paginate the blog's articles (a blog can have well over 250) until the handle matches.
+        let sinceId = 0, found = null;
+        for (let page = 0; page < 8 && !found; page++) {
+          const arts = await shopifyREST(`blogs/${b.id}/articles.json?limit=250&fields=id,handle&since_id=${sinceId}`);
+          const list = arts.articles || [];
+          if (!list.length) break;
+          found = list.find(x => (x.handle || '').toLowerCase() === artHandle.toLowerCase());
+          sinceId = list[list.length - 1].id;
+          if (list.length < 250) break;
+        }
+        if (found) return { adminUrl: `https://${DOMAIN}/admin/blogs/${b.id}/articles/${found.id}`, resolved: true };
       }
       return { adminUrl: storefront, resolved: false };
     }
@@ -637,7 +648,18 @@ async function setCaptureTaskStatus(keyword, status) {
   if (status === 'dismissed') { try { await dismissPerforming(keyword); } catch { /* keep going */ } }
   return { ok: true };
 }
-// AI writes the H2 + paragraph + internal-link anchor for a strengthen card (on demand).
+function escHtml(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+// Find the storefront URL of the collection that best matches a keyword (for the internal link).
+async function bestCollectionUrl(keyword, publicOrigin) {
+  try {
+    const d = await shopifyGQL(`query($q:String!){ collections(first:1, query:$q){ edges{ node{ handle title } } } }`, { q: keyword });
+    const node = d && d.collections && d.collections.edges && d.collections.edges[0] && d.collections.edges[0].node;
+    if (node && node.handle) return { url: `${publicOrigin}/collections/${node.handle}`, title: node.title || '' };
+  } catch { /* no collection → no link */ }
+  return null;
+}
+// AI writes the H2 + paragraph; we embed a real internal link to the best-matching collection and return
+// ready-to-paste HTML (for the visual editor) + a plain-text fallback.
 async function generateCaptureContent(body) {
   const keyword = (body.keyword || '').trim();
   const pageTopic = (body.lockedToKeyword || '').trim();
@@ -649,12 +671,13 @@ async function generateCaptureContent(body) {
     'NEVER say "print" or "prints" — always "wall art" or "art sets" (products are sets of 3).',
     `The page currently ranks for "${pageTopic || 'its main topic'}"${pageUrl ? ' (' + pageUrl + ')' : ''} and ALSO ranks for the extra keyword "${keyword}".`,
     `Write a short section to add to that page so it captures "${keyword}" better, WITHOUT changing the page's main focus.`,
-    'Return ONLY JSON: {"h2":"short H2 using the keyword naturally","paragraph":"2-3 sentences, natural, keyword once early","internalLinkAnchor":"3-5 word anchor for a link to a relevant product/collection"}'
+    'The paragraph MUST naturally contain the exact anchor phrase you return in "internalLinkAnchor" (it will become a link to a collection).',
+    'Return ONLY JSON: {"h2":"short H2 using the keyword naturally","paragraph":"4-6 sentences, natural, keyword once early, includes the anchor phrase once","internalLinkAnchor":"3-5 word anchor for a link to a relevant collection"}'
   ].join('\n');
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 700, messages: [{ role: 'user', content: prompt }] })
+    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 900, messages: [{ role: 'user', content: prompt }] })
   });
   if (!r.ok) { const t = await r.text(); throw new Error('Claude API error ' + r.status + ': ' + t.slice(0, 200)); }
   const data = await r.json();
@@ -662,19 +685,41 @@ async function generateCaptureContent(body) {
   let clean = text.replace(/```json\n?/g, '').replace(/```\n?/g, '');
   const m = clean.match(/\{[\s\S]*\}/); if (m) clean = m[0];
   let parsed; try { parsed = JSON.parse(clean); } catch { throw new Error('Could not parse AI response'); }
+  const h2 = String(parsed.h2 || '').trim();
+  const paragraph = String(parsed.paragraph || '').trim();
+  const anchor = String(parsed.internalLinkAnchor || '').trim();
+
+  // Best-matching collection for the internal link (link points at the public storefront).
+  let publicOrigin = 'https://aboutwallart.com';
+  if (pageUrl) { const mo = pageUrl.match(/^https?:\/\/[^/]+/); if (mo) publicOrigin = mo[0]; }
+  const coll = anchor ? await bestCollectionUrl(keyword, publicOrigin) : null;
+
+  // Build the paragraph HTML with the anchor wrapped as a link (first occurrence). If the anchor isn't in
+  // the text, append a short sentence with the link.
+  let paraHtml = escHtml(paragraph);
+  if (coll && anchor) {
+    const linkHtml = `<a href="${escHtml(coll.url)}">${escHtml(anchor)}</a>`;
+    const escAnchor = escHtml(anchor);
+    if (paraHtml.indexOf(escAnchor) !== -1) paraHtml = paraHtml.replace(escAnchor, linkHtml);
+    else paraHtml += ` Browse our ${linkHtml}.`;
+  }
+  const html = (h2 ? `<h2>${escHtml(h2)}</h2>\n` : '') + `<p>${paraHtml}</p>`;
+  const plainText = (h2 ? h2 + '\n\n' : '') + paragraph + (coll ? `\n\n(${anchor}: ${coll.url})` : '');
+
   try {
     for (let attempt = 0; attempt < 3; attempt++) {
       const { arr, sha } = await readCaptureTasksRaw();
       const i = arr.findIndex(t => captureKey(t.keyword) === captureKey(keyword));
       if (i < 0) break;
-      arr[i].h2 = parsed.h2 || null;
-      arr[i].paragraph = parsed.paragraph || null;
-      arr[i].internalLink = { anchor: parsed.internalLinkAnchor || '', target: '' };
+      arr[i].h2 = h2 || null;
+      arr[i].paragraph = paragraph || null;
+      arr[i].internalLink = { anchor: anchor, target: coll ? coll.url : '' };
+      arr[i].html = html;
       try { await ghPut(CAPTURE_TASKS_PATH, JSON.stringify(arr, null, 2), sha, `Capture: content for ${keyword}`); break; }
       catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
     }
-  } catch { /* returning parsed is enough even if persist fails */ }
-  return { ok: true, h2: parsed.h2 || '', paragraph: parsed.paragraph || '', internalLinkAnchor: parsed.internalLinkAnchor || '' };
+  } catch { /* returning the content is enough even if persist fails */ }
+  return { ok: true, h2, paragraph, internalLinkAnchor: anchor, target: coll ? coll.url : '', html, plainText };
 }
 // Group A — keywords you rank for but with NO usable page → offered as suggestions when you build a
 // product (topic-matched). Replaces the old saved "product ideas" pool.
@@ -1395,17 +1440,27 @@ function extFromMime(mime) {
   if (/webp/i.test(mime)) return 'webp';
   return 'jpg';
 }
-function altFor(slot, keyword, n, setSize) {
-  const kw = String(keyword || '').trim();
-  const cap = kw ? kw.charAt(0).toUpperCase() + kw.slice(1) : 'Wall art';
-  if (slot === 'lifestyle') return `${cap} styled in a room setting${n > 1 ? ' — view ' + n : ''}`;
-  if (slot === 'individual') return setSize > 1 ? `${cap} — individual print ${n} of ${setSize}` : `${cap} print close-up`;
-  if (slot === 'flatWhite') return `${cap} shown in a white frame`;
-  if (slot === 'flatBlack') return `${cap} shown in a black frame`;
-  if (slot === 'flatOak') return `${cap} shown in an oak frame`;
-  if (slot === 'flatCanvas') return `${cap} as a wrapped canvas`;
-  if (slot === 'flatUnframed') return `${cap} unframed print`;
-  return cap;
+// Base for alt text: the generated product title (has the artwork's subject + colours) when available,
+// otherwise the keyword. Never the word "print" (brand rule: wall art / art sets).
+function artAltBase(product) {
+  let t = (product && product.content && product.content.productTitle) ? String(product.content.productTitle) : String((product && product.keyword) || 'wall art');
+  t = t.replace(/\s*[|\-–—]\s*set of\s*\d+.*$/i, '')          // drop "| Set of 3"
+       .replace(/\bwall art prints?\b/ig, 'wall art')
+       .replace(/\bprints?\b/ig, 'wall art')
+       .replace(/\s{2,}/g, ' ').trim();
+  return t || 'wall art';
+}
+// Varied, natural alt text that describes the ARTWORK, different per image, never "print".
+function altFor(slot, product, n, setSize) {
+  const base = artAltBase(product);
+  if (slot === 'lifestyle') return `${base} displayed on a wall in a styled room${n > 1 ? ' — view ' + n : ''}`;
+  if (slot === 'individual') return setSize > 1 ? `${base} — piece ${n} of ${setSize} in the set` : `${base} — close-up of the artwork`;
+  if (slot === 'flatWhite') return `${base} in a white frame`;
+  if (slot === 'flatBlack') return `${base} in a black frame`;
+  if (slot === 'flatOak') return `${base} in an oak frame`;
+  if (slot === 'flatCanvas') return `${base} as a wrapped canvas`;
+  if (slot === 'flatUnframed') return `${base}, unframed`;
+  return base;
 }
 const FLAT_SLOTS = ['flatWhite', 'flatBlack', 'flatOak', 'flatCanvas', 'flatUnframed'];
 
@@ -1434,7 +1489,7 @@ async function uploadProductImage(body) {
     else n = 1; // flats are single slots
 
     const filename = `${slugifyKeyword(product.keyword)}-${slot === 'individual' ? 'individual-' + n : slot === 'lifestyle' ? 'lifestyle-' + n : slot.replace('flat', '').toLowerCase()}.${ext}`;
-    const alt = altFor(slot, product.keyword, n, setSize);
+    const alt = altFor(slot, product, n, setSize);
 
     const uploaded = await uploadImageToShopify(image, filename, imageMediaType, alt);
     const record = { gid: uploaded.gid, url: uploaded.url, filename, alt };
