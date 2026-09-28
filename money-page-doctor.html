@@ -286,7 +286,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
-                    <p class="subtitle">AI-Powered SEO Analysis · v71.2</p>
+                    <p class="subtitle">AI-Powered SEO Analysis · v71.3</p>
                     <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.11</p>
                     <button onclick="resetAllChecklists()" title="Wipe all saved checklists so every page starts fresh" style="margin-top:6px;background:#fff;color:#c62828;border:1px solid #ef9a9a;padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;">🧹 Reset all checklists (start clean)</button>
                 </div>
@@ -749,14 +749,18 @@
                 head = '<span style="background:#f6e3cf;color:#8a4b12;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-left:6px;">strengthen</span>';
                 body = '<div style="font-size:0.85rem;color:#b3620a;margin:4px 0 8px;word-break:break-word;">ranks on a page locked to “'+escDF(t.lockedToKeyword||'another keyword')+'” — add a short section + internal link to this page:<br>'+escDF(t.pageUrl||'')+'</div>';
                 if(t.paragraph){
-                    const preview = t.html ? t.html : ((t.h2?'<h4 style="margin:0 0 4px;">'+escDF(t.h2)+'</h4>':'')+'<p style="margin:0;">'+escDF(t.paragraph)+'</p>');
+                    const enc = encodeURIComponent(t.keyword);
                     const dest = (t.internalLink && t.internalLink.target) ? '<div style="font-size:0.8rem;color:#555;margin-top:8px;">Link goes to: <a href="'+escDF(t.internalLink.target)+'" target="_blank" rel="noopener">'+escDF(t.internalLink.target)+'</a></div>' : '';
                     body += '<div style="background:#f7faf7;border:1px solid #cfead0;border-radius:8px;padding:10px 12px;margin:8px 0;">'+
-                        '<div style="font-size:0.9rem;line-height:1.55;">'+preview+'</div>'+
+                        '<div style="font-size:0.78rem;color:#777;margin-bottom:5px;">Edit here if the wording needs fixing, then copy into the body:</div>'+
+                        (t.h2!=null ? '<input id="df-h2-'+enc+'" value="'+escDF(t.h2||'')+'" style="width:100%;font-weight:700;font-size:0.95rem;padding:6px 8px;border:1px solid #cfead0;border-radius:6px;margin-bottom:6px;box-sizing:border-box;">' : '')+
+                        '<textarea id="df-para-'+enc+'" rows="6" style="width:100%;font-size:0.9rem;line-height:1.55;padding:8px;border:1px solid #cfead0;border-radius:6px;box-sizing:border-box;resize:vertical;">'+escDF(t.paragraph||'')+'</textarea>'+
                         dest+
-                        '<button class="btn-secondary" style="margin-top:8px;" onclick="doFirstCopy('+"'"+encodeURIComponent(t.keyword)+"'"+')">Copy section (paste into the body)</button>'+
-                        '<button class="btn-secondary" style="margin-top:8px;margin-left:8px;" onclick="doFirstGenerate('+"'"+encodeURIComponent(t.keyword)+"'"+')">Rewrite</button>'+
-                        '<span id="copied-'+encodeURIComponent(t.keyword)+'" style="margin-left:8px;font-size:0.8rem;color:#1f5f1f;"></span>'+
+                        '<div style="margin-top:8px;">'+
+                            '<button class="btn-secondary" onclick="doFirstCopy('+"'"+enc+"'"+')">Copy for the body</button>'+
+                            '<button class="btn-secondary" style="margin-left:8px;" onclick="doFirstGenerate('+"'"+enc+"'"+')">Rewrite</button>'+
+                            '<span id="copied-'+enc+'" style="margin-left:8px;font-size:0.8rem;color:#1f5f1f;"></span>'+
+                        '</div>'+
                     '</div>';
                 } else {
                     body += '<button class="btn-secondary" onclick="doFirstGenerate('+"'"+encodeURIComponent(t.keyword)+"'"+')">Write the section for me</button>';
@@ -787,11 +791,26 @@
                 renderDoFirst();
             }catch(e){ alert('Could not write the section: '+e.message); }
         }
-        // Copy the section as rich text (formatted + working link) so it pastes into the visual body editor.
+        // Copy the section as rich text (formatted + working link) so it pastes into the VISUAL body editor —
+        // never the HTML view. Rebuilds from the edited box so Mae's fixes are included, and re-inserts the link.
         async function doFirstCopy(kwEnc){
             const t = doFirstFind(kwEnc); if(!t) return;
-            const html = t.html || ((t.h2?'<h2>'+escDF(t.h2)+'</h2>':'')+'<p>'+escDF(t.paragraph||'')+'</p>');
-            const plain = t.plainText || ((t.h2?t.h2+'\n\n':'')+(t.paragraph||''));
+            const h2El = document.getElementById('df-h2-'+kwEnc);
+            const paraEl = document.getElementById('df-para-'+kwEnc);
+            const h2 = h2El ? h2El.value.trim() : (t.h2||'');
+            const paragraph = paraEl ? paraEl.value.trim() : (t.paragraph||'');
+            const anchor = (t.internalLink && t.internalLink.anchor) || '';
+            const target = (t.internalLink && t.internalLink.target) || '';
+            let paraHtml = escDF(paragraph);
+            if(target){
+                const linkText = anchor || target;
+                const linkHtml = '<a href="'+escDF(target)+'">'+escDF(linkText)+'</a>';
+                const escAnchor = escDF(anchor);
+                if(anchor && paraHtml.indexOf(escAnchor)!==-1) paraHtml = paraHtml.replace(escAnchor, linkHtml);
+                else paraHtml += ' Browse our '+linkHtml+'.';
+            }
+            const html = (h2?'<h2>'+escDF(h2)+'</h2>':'')+'<p>'+paraHtml+'</p>';
+            const plain = (h2?h2+'\n\n':'')+paragraph+(target?('\n\n'+(anchor?anchor+': ':'')+target):'');
             try{
                 if(window.ClipboardItem && navigator.clipboard && navigator.clipboard.write){
                     await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html],{type:'text/html'}), 'text/plain': new Blob([plain],{type:'text/plain'}) })]);
