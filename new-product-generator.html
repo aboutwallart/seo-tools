@@ -156,7 +156,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v2.7</span>
+  <span class="ver">v2.8</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -199,6 +199,7 @@ let EDIT_STEP = null;     // if set, force this step open for editing even thoug
 let IMAGE_STATE = {};     // sku -> {data, mediaType} (artwork base64, no data: prefix)
 let KW_RESULTS = null;    // Step 2 cached gap-research results for the current product
 let GSC_RESULTS = null;   // Step 2 cached GSC opportunity keywords (commercial, not locked)
+let RANKING_IDEAS = null; // Step 2 cached saved keywords you already rank for (topic-matched)
 let KW_LOADING = false;   // Step 2 auto-search in flight
 
 /* ---------- API ---------- */
@@ -227,33 +228,50 @@ function renderPerforming(){
   if(!opts.length){ box.innerHTML='<span style="color:#888;">Nothing new right now.</span>'; return; }
   box.innerHTML='<div style="display:grid;gap:8px;">'+opts.map((o,i)=>{
     const star=o.topSix?'⭐ ':'';
-    const metrics='<span style="color:#888;font-size:12px;">'+o.impressions+' impr · '+o.clicks+' clicks · pos '+o.position+'</span>';
-    const kwEnc=encodeURIComponent(o.keyword);
-    let action='';
-    if(o.rankingUrl){
-      action='<div style="font-size:12px;color:#2e7d32;margin-top:2px;">ranking (free): '+esc(o.rankingUrl)+'</div>'+
-        '<button class="btn small" style="margin-top:6px;background:#2e7d32;color:#fff" onclick="claimToRegistry('+i+')">① Add to registry to optimise</button> '+
-        '<button class="btn small ghost" onclick="useInProduct('+i+')">② Use in a new product</button>';
+    const metrics='<span style="color:#888;font-size:12px;">pos '+(o.position!=null?o.position:'—')+' · '+(o.clicks!=null?o.clicks:'—')+' clicks · '+(o.impressions!=null?o.impressions:'—')+' impr</span>';
+    let pill='', urlLine='', mainBtn='', adminBtn='';
+    if(o.urlFree){
+      pill='<span style="background:#e4f2e4;color:#1f5f1f;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-left:6px;">page ranks · free</span>';
+      urlLine='<div style="font-size:12px;color:#2e7d32;margin:3px 0 8px;word-break:break-word;">ranks now: '+esc(o.pageUrl)+'</div>';
+      mainBtn='<button class="btn small" style="background:#2e7d32;color:#fff" onclick="claimToRegistry('+i+')">① Add to registry to optimise</button>';
+    } else if(o.pageUrl){
+      pill='<span style="background:#f6e3cf;color:#8a4b12;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-left:6px;">page taken</span>';
+      urlLine='<div style="font-size:12px;color:#b3620a;margin:3px 0 8px;word-break:break-word;">ranks now: '+esc(o.pageUrl)+' — locked to “'+esc(o.lockedToKeyword||'another keyword')+'”</div>';
+      mainBtn='<button class="btn small" style="background:#1f6fb2;color:#fff" onclick="useInProduct('+i+')">② Use in a new product</button>';
+      adminBtn='<button class="btn small ghost" onclick="openAdminPerf('+i+')">Open ranking page in admin ↗</button>';
     } else {
-      const taken=o.urlLockedToOther?'<div style="font-size:12px;color:#b3620a;margin-top:2px;">the page that ranks is already locked to another keyword → build new</div>':'';
-      action=taken+'<button class="btn small" style="margin-top:6px;background:#c0561d;color:#fff" onclick="useInProduct('+i+')">② Use in a new product</button>';
+      pill='<span style="background:#eee;color:#666;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-left:6px;">no page yet</span>';
+      urlLine='<div style="font-size:12px;color:#888;margin:3px 0 8px;">no page ranks for this yet — free to use</div>';
+      mainBtn='<button class="btn small" style="background:#1f6fb2;color:#fff" onclick="useInProduct('+i+')">② Use in a new product</button>';
     }
-    const footer='<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">'+
-      '<button class="btn small ghost" onclick="sendPerfToBlog('+i+')">→ Send to blog</button>'+
+    const footer='<div style="margin-top:8px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;">'+
+      mainBtn+adminBtn+
+      '<button class="btn small ghost" onclick="sendPerfToBlog('+i+')">Send to blog</button>'+
       '<button class="btn small ghost" style="color:#a33" onclick="dismissPerf('+i+')">✕ Dismiss</button></div>';
-    return '<div style="border:1px solid #e6d3a3;border-radius:8px;padding:10px 12px;background:#fffdf8;">'+
-      '<div style="font-weight:600;">'+star+esc(o.keyword)+'</div>'+metrics+'<div>'+action+'</div>'+footer+'</div>';
+    return '<div style="border:1px solid #e6d3a3;border-radius:10px;padding:11px 13px;background:#fffdf8;">'+
+      '<div style="font-weight:700;">'+star+esc(o.keyword)+pill+'</div>'+
+      '<div style="margin-top:2px;">'+metrics+'</div>'+urlLine+footer+'</div>';
   }).join('')+'</div>';
 }
+// Open the ranking page in the Shopify admin editor (to add an internal link to a new product).
+async function openAdminLink(pageUrl){
+  const w=window.open('','_blank');
+  try{
+    const r=await api({action:'admin-link',url:pageUrl});
+    const dest=(r&&r.adminUrl)||pageUrl;
+    if(w){ w.location=dest; } else { window.open(dest,'_blank'); }
+  }catch(e){ if(w){ w.location=pageUrl; } msg('Could not resolve the admin link — opened the page instead.','info'); }
+}
+async function openAdminPerf(i){ const o=(PERFORMING||[])[i]; if(!o||!o.pageUrl) return; await openAdminLink(o.pageUrl); }
 async function claimToRegistry(i){
   const o=(PERFORMING||[])[i]; if(!o) return;
-  if(!confirm('Lock "'+o.keyword+'" to '+o.rankingUrl+' and send it to Money Page Doctor to optimise?')) return;
-  try{ await api({action:'claim-to-registry',keyword:o.keyword,url:o.rankingUrl,intent:'COMMERCIAL'}); msg('Locked + sent to optimise: '+o.keyword,'ok'); PERFORMING.splice(i,1); renderPerforming(); }
+  if(!confirm('Lock "'+o.keyword+'" to '+o.pageUrl+' and send it to Money Page Doctor to optimise?')) return;
+  try{ await api({action:'claim-to-registry',keyword:o.keyword,url:o.pageUrl,intent:'COMMERCIAL'}); msg('Locked + sent to optimise: '+o.keyword,'ok'); PERFORMING.splice(i,1); renderPerforming(); }
   catch(e){ msg('Could not lock: '+e.message,'err'); }
 }
 async function useInProduct(i){
   const o=(PERFORMING||[])[i]; if(!o) return;
-  try{ await api({action:'send-to-product-pool',keyword:o.keyword,meta:{impressions:o.impressions,clicks:o.clicks,position:o.position}}); msg('Saved to build a product: '+o.keyword,'ok'); PERFORMING.splice(i,1); renderPerforming(); loadProductIdeas(); }
+  try{ await api({action:'send-to-product-pool',keyword:o.keyword,meta:{impressions:o.impressions,clicks:o.clicks,position:o.position}}); msg('Saved to build a product: '+o.keyword,'ok'); PERFORMING.splice(i,1); renderPerforming(); }
   catch(e){ msg('Could not save: '+e.message,'err'); }
 }
 // This keyword is really informational → send it to the blog To Write list, then drop it from here.
@@ -275,17 +293,6 @@ async function dismissPerf(i){
   try{ await api({action:'dismiss-performing',keyword:o.keyword}); PERFORMING.splice(i,1); renderPerforming(); }
   catch(e){ msg('Could not dismiss: '+e.message,'err'); }
 }
-// Keywords you saved to build products from (data/product-keyword-ideas.json) — shown so you can start one.
-async function loadProductIdeas(){
-  const box=document.getElementById('perf-saved'); if(!box) return;
-  try{
-    const r=await api({action:'get-product-ideas'}); const ideas=r.ideas||[];
-    if(!ideas.length){ box.innerHTML=''; return; }
-    box.innerHTML='<div style="font-weight:700;font-size:13px;margin-bottom:6px;">💡 Saved to build ('+ideas.length+') — start a product and use one of these as its keyword:</div>'+
-      '<div style="display:flex;flex-wrap:wrap;gap:6px;">'+ideas.map(function(x){ return '<span style="background:#eef6ff;border:1px solid #d6e4ff;border-radius:12px;padding:3px 10px;font-size:13px;">'+esc(x.keyword)+'</span>'; }).join('')+'</div>';
-  }catch(e){ box.innerHTML=''; }
-}
-
 /* ---------- STEP LOGIC (from handover, don't re-derive) ---------- */
 function currentProduct(){ return PRODUCTS.find(p => !p.sent) || null; }
 function isStepDone(p, n){
@@ -320,14 +327,12 @@ function renderFlow(){
         '<button class="btn primary" onclick="startDraft()">＋ Add product</button>'+
       '</div>'+
       '<div id="perf-panel" style="margin-top:22px;background:#fdf6ec;border:1px solid #f0ddb8;border-radius:10px;padding:16px;">'+
-        '<div style="font-weight:700;margin-bottom:4px;">⭐ Ya rankeás — capturá más</div>'+
-        '<div style="color:#8a6d1a;font-size:13px;margin-bottom:10px;">Commercial keywords you already get clicks on but haven\'t claimed. The ones ranking top 6 are first. Lock one to the page that already ranks (to optimise it), or save it to build a new product.</div>'+
+        '<div style="font-weight:700;margin-bottom:4px;">⭐ You already rank — capture more</div>'+
+        '<div style="color:#8a6d1a;font-size:13px;margin-bottom:10px;">Commercial keywords you already get clicks on but haven\'t claimed. Top-6 first. Green ① optimises the page that already ranks; blue ② uses the keyword for a new product.</div>'+
         '<button class="btn ghost small" onclick="loadPerforming(true)">↻ Refresh</button>'+
         '<div id="perf-list" style="margin-top:12px;color:#888;font-size:13px;">Loading…</div>'+
-        '<div id="perf-saved" style="margin-top:14px;"></div>'+
       '</div>';
     loadPerforming(false);
-    loadProductIdeas();
     return;
   }
   const natural = p ? computeNaturalStep(p) : 1;
@@ -396,7 +401,7 @@ function renderStepOpen(n,p){
   '</div></div>';
 }
 function startDraft(){ DRAFT=true; EDIT_STEP=null; renderFlow(); }
-function editStep(n){ EDIT_STEP=n; if(n===2){ KW_RESULTS=null; GSC_RESULTS=null; } renderFlow(); }
+function editStep(n){ EDIT_STEP=n; if(n===2){ KW_RESULTS=null; GSC_RESULTS=null; RANKING_IDEAS=null; } renderFlow(); }
 function closeEdit(){ EDIT_STEP=null; renderFlow(); }
 
 /* =====================================================================
@@ -575,7 +580,7 @@ function stepKeyword(p){
     (isStepDone(p,2)?'<div class="actions" style="margin-top:16px"><button class="btn ghost" onclick="closeEdit()">Done</button></div>':'');
 }
 async function ensureKwResults(p){
-  if(KW_RESULTS || KW_LOADING || !p) { if(KW_RESULTS) renderKwResults(); ensureGscResults(p); return; }
+  if(KW_RESULTS || KW_LOADING || !p) { if(KW_RESULTS) renderKwResults(); ensureGscResults(p); ensureRankingIdeas(p); return; }
   KW_LOADING=true;
   try{
     const r=await api({action:'gap-research',products:[p]});
@@ -585,6 +590,7 @@ async function ensureKwResults(p){
     renderKwResults();
   }catch(e){ KW_LOADING=false; const box=document.getElementById('kwResults'); if(box) box.innerHTML='<div class="msg show err">Keyword search failed: '+esc(e.message)+'</div>'; }
   ensureGscResults(p);
+  ensureRankingIdeas(p);
 }
 async function ensureGscResults(p){
   if(!p) return;
@@ -594,6 +600,16 @@ async function ensureGscResults(p){
     GSC_RESULTS=r.options||[];
     renderKwResults();
   }catch(e){ /* silent — GSC source is optional */ }
+}
+// Saved keywords you already rank for, matched to this product's topic — mixed into the options list.
+async function ensureRankingIdeas(p){
+  if(!p) return;
+  if(RANKING_IDEAS){ renderKwResults(); return; }
+  try{
+    const r=await api({action:'matched-product-ideas',sku:p.sku});
+    RANKING_IDEAS=r.ideas||[];
+    renderKwResults();
+  }catch(e){ /* silent — saved ideas are optional */ }
 }
 function renderGscResults(){
   const box=document.getElementById('gscResults'); if(!box) return;
@@ -626,11 +642,31 @@ function mergedOptions(p){
     pot:Math.sqrt((o.volume||0)+1)*(100/(((o.difficulty==null?50:o.difficulty))+10))}));
   const gsc=(GSC_RESULTS||[]).map(o=>({source:'gsc',keyword:o.keyword,impressions:o.impressions,clicks:o.clicks,position:o.position,
     pot:Math.sqrt((o.impressions||0)+1)*(100/(((o.position==null?20:o.position))+10))}));
+  // Keywords you already rank for come first (most valuable) — big potential so they sort to the top.
+  const rank=(RANKING_IDEAS||[]).map(o=>({source:'ranking',keyword:o.keyword,impressions:o.impressions,clicks:o.clicks,position:o.position,
+    pageUrl:o.pageUrl,urlFree:o.urlFree,lockedToKeyword:o.lockedToKeyword,topSix:o.topSix,
+    pot:1e9+(o.clicks||0)}));
   const seen=new Set();
-  return [...gap,...gsc].sort((a,b)=>b.pot-a.pot).filter(o=>{const k=(o.keyword||'').toLowerCase(); if(!k||seen.has(k))return false; seen.add(k); return true;});
+  return [...rank,...gap,...gsc].sort((a,b)=>b.pot-a.pot).filter(o=>{const k=(o.keyword||'').toLowerCase(); if(!k||seen.has(k))return false; seen.add(k); return true;});
 }
 function mergedRow(o,i,p){
   const isCurrent=p.keyword&&p.keyword.toLowerCase()===o.keyword.toLowerCase();
+  if(o.source==='ranking'){
+    const metaBits=[]; if(o.position!=null) metaBits.push('pos '+o.position); if(o.clicks!=null) metaBits.push(o.clicks+' clk');
+    let note='<span style="font-size:11px;color:#1f5f1f;font-weight:600;">you already rank — use it'+(metaBits.length?' · '+metaBits.join(' · '):'')+'</span>';
+    if(o.lockedToKeyword){
+      note+='<span style="font-size:11px;color:#b3620a;">ranks on a page locked to “'+esc(o.lockedToKeyword)+'” — add a link from that page</span>'+
+        '<button class="btn ghost small" style="align-self:flex-start" onclick="openAdminFromMerged('+i+')">Open ranking page in admin ↗</button>';
+    }
+    return '<div class="kwrow" style="background:#eef7ee">'+
+      '<span class="kw" style="display:flex;flex-direction:column;gap:3px;align-items:flex-start;">'+
+        '<span>'+(isCurrent?'✓ ':'')+esc(o.keyword)+'</span>'+note+'</span>'+
+      '<span><span class="srcpill" style="background:#cfead0;color:#1f5f1f">ranking</span></span>'+
+      '<span class="pct" style="font-size:11px;color:var(--muted)"></span>'+
+      '<span></span>'+
+      '<span class="h-act"><button class="btn '+(isCurrent?'ghost':'primary')+' small" onclick="applyMergedKw('+i+')">'+(isCurrent?'Selected':'Use')+'</button></span>'+
+    '</div>';
+  }
   const bg=o.source==='gap'?'background:#fdf9ec':'background:#f4faf8';
   const badge=o.source==='gap'
     ? '<span class="srcpill" style="background:#f3e6b8;color:#6b551a">gap</span>'
@@ -646,10 +682,19 @@ function mergedRow(o,i,p){
     '<span class="h-act"><button class="btn '+(isCurrent?'ghost':'primary')+' small" onclick="applyMergedKw('+i+')">'+(isCurrent?'Selected':'Use')+'</button></span>'+
   '</div>';
 }
+async function openAdminFromMerged(i){
+  const o=(window.__MERGED||[])[i]; if(!o||!o.pageUrl) return;
+  await openAdminLink(o.pageUrl);
+}
 async function applyMergedKw(i){
   const p=currentProduct(); if(!p) return;
   const o=(window.__MERGED||[])[i]; if(!o) return;
-  await doSetKeyword(p.sku,o.keyword);
+  const wasRanking=(o.source==='ranking'); const kw=o.keyword;
+  await doSetKeyword(p.sku,kw);
+  if(wasRanking){
+    try{ await api({action:'remove-product-idea',keyword:kw}); }catch(e){ /* leave it if it fails */ }
+    if(RANKING_IDEAS) RANKING_IDEAS=RANKING_IDEAS.filter(x=>(x.keyword||'').toLowerCase()!==(kw||'').toLowerCase());
+  }
 }
 function renderKwResults(){
   const box=document.getElementById('kwResults'); if(!box) return;
@@ -659,6 +704,7 @@ function renderKwResults(){
     : (KW_LOADING?'':'<div class="empty">No matching options yet. Add extra keyword terms, generate an Ubersuggest prompt, or add one manually below.</div>');
   box.innerHTML='<div class="kwblock">'+
     '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);margin-bottom:10px">'+
+      '<span><span class="srcpill" style="background:#cfead0;color:#1f5f1f">ranking</span> you already rank</span>'+
       '<span><span class="srcpill" style="background:#f3e6b8;color:#6b551a">gap</span> competitors-gap file</span>'+
       '<span><span class="srcpill" style="background:#d9efe6;color:#1f5f4f">GSC</span> you appear but don’t get clicked</span>'+
     '</div>'+
