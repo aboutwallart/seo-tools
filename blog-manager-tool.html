@@ -269,7 +269,7 @@
 <body>
     <div class="container">
         <h1>Blog Manager Tool</h1>
-        <p class="version">v6.11.2 - 2026-09-28</p>
+        <p class="version">v6.11.3 - 2026-09-28</p>
 
         <div class="stats" id="stats">Loading blog ideas...</div>
 
@@ -627,64 +627,46 @@
         }
         function renderPerformingBlog() {
             const box = document.getElementById('perf-list-blog'); if (!box) return;
-            const opts = PERFORMING_BLOG || [];
+            // Only A (no page → write a blog) and B (free page → send to optimise). C (ranks on a page
+            // locked to another keyword) is handled automatically in Money Page Doctor.
+            const opts = (PERFORMING_BLOG || []).filter(o => !(o.pageUrl && !o.urlFree));
             if (!opts.length) { box.innerHTML = '<span style="color:#888;">Nothing new right now.</span>'; return; }
-            box.innerHTML = '<div style="display:grid;gap:8px;">' + opts.map((o, i) => {
+            box.innerHTML = '<div style="display:grid;gap:8px;">' + opts.map(o => {
+                const i = PERFORMING_BLOG.indexOf(o);
                 const star = o.topSix ? '⭐ ' : '';
                 const metrics = '<span style="color:#888;font-size:12px;">pos ' + (o.position!=null?o.position:'—') + ' · ' + (o.clicks!=null?o.clicks:'—') + ' clicks · ' + (o.impressions!=null?o.impressions:'—') + ' impr</span>';
-                let pill = '', urlLine = '', mainBtn = '', adminBtn = '';
+                let pill = '', urlLine = '', footer = '';
                 if (o.urlFree) {
+                    // B — ranks on a free page → optimise that page (goes to Money Page Doctor).
                     pill = '<span style="background:#e4f2e4;color:#1f5f1f;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-left:6px;">page ranks · free</span>';
                     urlLine = '<div style="font-size:12px;color:#2e7d32;margin:3px 0 8px;word-break:break-word;">ranks now: ' + escBlog(o.pageUrl) + '</div>';
-                    mainBtn = '<button onclick="claimBlogToRegistry(' + i + ')" style="background:#2e7d32;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">① Add to registry to optimise</button>';
-                } else if (o.pageUrl) {
-                    pill = '<span style="background:#f6e3cf;color:#8a4b12;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-left:6px;">page taken</span>';
-                    urlLine = '<div style="font-size:12px;color:#b3620a;margin:3px 0 8px;word-break:break-word;">ranks now: ' + escBlog(o.pageUrl) + ' — locked to “' + escBlog(o.lockedToKeyword || 'another keyword') + '”</div>';
-                    mainBtn = '<button onclick="usePerformingInBlog(' + i + ')" style="background:#1f6fb2;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">② Use in a blog</button>';
-                    adminBtn = '<button onclick="openAdminPerfBlog(' + i + ')" style="background:#fff;color:#8a4b12;border:1px solid #e0b98a;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">Open ranking page in admin ↗</button>';
+                    footer = '<div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">'
+                        + '<button onclick="sendBlogToOptimise(' + i + ')" style="background:#2e7d32;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">① Send to optimise (MPD)</button>'
+                        + '<button onclick="dismissPerfBlog(' + i + ')" style="background:#fff;color:#a33;border:1px solid #ccc;border-radius:6px;padding:6px 10px;font-size:13px;font-weight:700;cursor:pointer;">✕ Dismiss</button></div>';
                 } else {
-                    pill = '<span style="background:#eee;color:#666;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-left:6px;">no page yet</span>';
-                    urlLine = '<div style="font-size:12px;color:#888;margin:3px 0 8px;">no page ranks for this yet — free to use</div>';
-                    mainBtn = '<button onclick="usePerformingInBlog(' + i + ')" style="background:#1f6fb2;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">② Use in a blog</button>';
+                    // A — no ranking page → write a dedicated blog.
+                    pill = '<span style="background:#eef2fb;color:#274b8a;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-left:6px;">no page yet</span>';
+                    urlLine = '<div style="font-size:12px;color:#888;margin:3px 0 8px;">no page ranks for this yet — good for a new blog</div>';
+                    footer = '<div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">'
+                        + '<button onclick="usePerformingInBlog(' + i + ')" style="background:#1f6fb2;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer;">② Use in a blog</button>'
+                        + '<button onclick="dismissPerfBlog(' + i + ')" style="background:#fff;color:#a33;border:1px solid #ccc;border-radius:6px;padding:6px 10px;font-size:13px;font-weight:700;cursor:pointer;">✕ Dismiss</button></div>';
                 }
-                const footer = '<div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">'
-                    + mainBtn + adminBtn
-                    + '<button onclick="sendPerfBlogToProduct(' + i + ')" style="background:#fff;color:#555;border:1px solid #ccc;border-radius:6px;padding:6px 10px;font-size:13px;font-weight:700;cursor:pointer;">Send to product</button>'
-                    + '<button onclick="dismissPerfBlog(' + i + ')" style="background:#fff;color:#a33;border:1px solid #ccc;border-radius:6px;padding:6px 10px;font-size:13px;font-weight:700;cursor:pointer;">✕ Dismiss</button></div>';
                 return '<div style="border:1px solid #e6d3a3;border-radius:10px;padding:11px 13px;background:#fffdf8;">'
                     + '<div style="font-weight:600;">' + star + escBlog(o.keyword) + pill + '</div>'
                     + '<div style="margin-top:2px;">' + metrics + '</div>' + urlLine + footer + '</div>';
             }).join('') + '</div>';
         }
-        // Open the ranking page in the Shopify admin editor (to add an internal link).
-        async function openAdminLinkBlog(pageUrl){
-            const w = window.open('', '_blank');
-            try{
-                const r = await fetch('/api/keywords', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'admin-link', url: pageUrl }) }).then(x => x.json());
-                const dest = (r && r.adminUrl) || pageUrl;
-                if (w) { w.location = dest; } else { window.open(dest, '_blank'); }
-            }catch(e){ if (w) { w.location = pageUrl; } }
-        }
-        async function openAdminPerfBlog(i){ const o = (PERFORMING_BLOG || [])[i]; if (!o || !o.pageUrl) return; await openAdminLinkBlog(o.pageUrl); }
-        async function sendPerfBlogToProduct(i) {
+        // B — send the keyword to Money Page Doctor to optimise the page that already ranks.
+        async function sendBlogToOptimise(i) {
             const o = (PERFORMING_BLOG || [])[i]; if (!o) return;
-            try {
-                let r = await fetch('/api/keywords', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'send-to-product-pool', keyword: o.keyword, meta: { impressions: o.impressions, clicks: o.clicks, position: o.position } }) }).then(x => x.json());
-                if (!r.ok) throw new Error(r.error || r.message || 'failed');
-                await fetch('/api/keywords', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'dismiss-performing', keyword: o.keyword }) });
-                PERFORMING_BLOG.splice(i, 1); renderPerformingBlog();
-            } catch (e) { alert('Could not send to product: ' + e.message); }
+            if (!confirm('Send "' + o.keyword + '" to Money Page Doctor to optimise ' + o.pageUrl + '?')) return;
+            try { const r = await fetch('/api/keywords', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'capture-optimise', keyword: o.keyword, url: o.pageUrl, intent: 'INFORMATIONAL', source: 'blog', meta: { impressions: o.impressions, clicks: o.clicks, position: o.position } }) }).then(x => x.json()); if (!r.ok) throw new Error(r.error || r.message || 'failed'); PERFORMING_BLOG.splice(i, 1); renderPerformingBlog(); }
+            catch (e) { alert('Could not send: ' + e.message); }
         }
         async function dismissPerfBlog(i) {
             const o = (PERFORMING_BLOG || [])[i]; if (!o) return;
             try { await fetch('/api/keywords', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'dismiss-performing', keyword: o.keyword }) }); PERFORMING_BLOG.splice(i, 1); renderPerformingBlog(); }
             catch (e) { alert('Could not dismiss: ' + e.message); }
-        }
-        async function claimBlogToRegistry(i) {
-            const o = (PERFORMING_BLOG || [])[i]; if (!o) return;
-            if (!confirm('Lock "' + o.keyword + '" to ' + o.pageUrl + ' and send it to Money Page Doctor to optimise?')) return;
-            try { const r = await fetch('/api/keywords', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'claim-to-registry', keyword: o.keyword, url: o.pageUrl, intent: 'INFORMATIONAL' }) }).then(x => x.json()); if (!r.ok) throw new Error(r.error || r.message || 'failed'); PERFORMING_BLOG.splice(i, 1); renderPerformingBlog(); }
-            catch (e) { alert('Could not lock: ' + e.message); }
         }
         async function usePerformingInBlog(i) {
             const o = (PERFORMING_BLOG || [])[i]; if (!o) return;

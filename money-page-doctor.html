@@ -286,7 +286,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
-                    <p class="subtitle">AI-Powered SEO Analysis</p>
+                    <p class="subtitle">AI-Powered SEO Analysis · v71.0</p>
                     <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.11</p>
                     <button onclick="resetAllChecklists()" title="Wipe all saved checklists so every page starts fresh" style="margin-top:6px;background:#fff;color:#c62828;border:1px solid #ef9a9a;padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;">🧹 Reset all checklists (start clean)</button>
                 </div>
@@ -350,7 +350,8 @@
         </div>
 
         <div class="tabs">
-            <button class="tab active" onclick="switchTab('startHere')">🎯 Start Here (<span id="startHereCount">0</span>)</button>
+            <button class="tab active" onclick="switchTab('doFirst')">📋 Do First (<span id="doFirstCount">0</span>)</button>
+            <button class="tab" onclick="switchTab('startHere')">🎯 Start Here (<span id="startHereCount">0</span>)</button>
             <button class="tab" onclick="switchTab('winners')">🏆 Winners &amp; Hold (<span id="winnersCount">0</span>)</button>
             <button class="tab" onclick="switchTab('optimized')">✅ Optimized (<span id="optimizedCount">0</span>)</button>
             <button class="tab" onclick="switchTab('removed')">🗑️ Removed (<span id="removedCount">0</span>)</button>
@@ -400,8 +401,16 @@
             <div id="urlList"></div>
         </div>
 
+        <!-- DO FIRST TAB — captured keywords that need one action (from the "You already rank" panels) -->
+        <div class="tab-content active" id="doFirstTab">
+            <h3>📋 Do First — capture the keywords you already rank for</h3>
+            <p style="color:#666;font-size:0.9rem;margin:-4px 0 14px;">One action per card. Optimise the page that ranks, or add a short section + internal link to a page that already ranks for something else.</p>
+            <div style="margin-bottom:12px;"><button class="btn-secondary" onclick="renderDoFirst()">↻ Refresh</button></div>
+            <div id="doFirstList" style="color:#888;font-size:0.9rem;">Loading…</div>
+        </div>
+
         <!-- START HERE TAB — the single working list -->
-        <div class="tab-content active" id="startHereTab">
+        <div class="tab-content" id="startHereTab">
             <h3>🎯 Start Here — your optimisation order</h3>
             <p style="color:#666;margin-bottom:8px;">Work down this list, top to bottom — it's ordered for safe, high-impact gains. Start slow (a few a day), then speed up once you see things holding/growing on the Optimized tab.</p>
             <p style="color:#888;font-size:0.85rem;margin-bottom:15px;">Order: 🔥 Quick Wins → 🖱 Fix CTR → 🚨 Danger (careful) → 📋 The rest. Optimised, winner and removed pages drop off automatically.</p>
@@ -696,10 +705,95 @@
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.getElementById(tab + 'Tab').classList.add('active');
             document.querySelector(`[onclick="switchTab('${tab}')"]`).classList.add('active');
+            if (tab === 'doFirst') renderDoFirst();
             if (tab === 'startHere') renderStartHere();
             if (tab === 'winners') renderWinners();
             if (tab === 'optimized') renderOptimized();
             if (tab === 'removed') renderRemoved();
+        }
+
+        // ── 📋 Do First — captured keywords (from the "You already rank" panels) ─────
+        // optimise cards (B): the page ranks free → optimise it for this keyword.
+        // strengthen cards (C): the page is locked to another keyword → add a short section + internal link.
+        let DOFIRST_TASKS = [];
+        function escDF(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        async function kwApi(payload){
+            const r = await fetch('/api/keywords',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+            let j; try{ j = await r.json(); }catch{ throw new Error('Bad response'); }
+            if(j.ok===false) throw new Error(j.error||j.message||'Error');
+            return j;
+        }
+        async function renderDoFirst(){
+            const box = document.getElementById('doFirstList'); if(!box) return;
+            box.innerHTML = 'Loading…';
+            try{
+                const r = await kwApi({action:'sync-capture-tasks'});
+                DOFIRST_TASKS = (r.tasks||[]).filter(t=>t.status!=='dismissed');
+            }catch(e){ box.innerHTML = '<span style="color:#a33;">Could not load: '+escDF(e.message)+'</span>'; return; }
+            const todo = DOFIRST_TASKS.filter(t=>t.status!=='done');
+            const cnt = document.getElementById('doFirstCount'); if(cnt) cnt.textContent = todo.length;
+            if(!DOFIRST_TASKS.length){ box.innerHTML = '<span style="color:#888;">Nothing to do right now.</span>'; return; }
+            box.innerHTML = '<div style="display:grid;gap:12px;">' + DOFIRST_TASKS.map(doFirstCard).join('') + '</div>';
+        }
+        function doFirstCard(t){
+            const done = t.status==='done';
+            const key = escDF(t.keyword);
+            const star = (t.position!=null && t.position<=6) ? '⭐ ' : '';
+            const metrics = 'pos '+(t.position!=null?t.position:'—')+' · '+(t.clicks!=null?t.clicks:'—')+' clicks · '+(t.impressions!=null?t.impressions:'—')+' impr';
+            const admin = t.pageUrl ? '<button class="btn-secondary" style="white-space:nowrap;" onclick="doFirstAdmin('+"'"+encodeURIComponent(t.keyword)+"'"+')">Open page in admin ↗</button>' : '';
+            let head, body;
+            if(t.type==='optimise'){
+                head = '<span style="background:#e4f2e4;color:#1f5f1f;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-left:6px;">optimise</span>';
+                body = '<div style="font-size:0.85rem;color:#2e7d32;margin:4px 0 8px;word-break:break-word;">ranks on your page (free) — optimise it for this keyword:<br>'+escDF(t.pageUrl||'')+'</div>';
+            } else {
+                head = '<span style="background:#f6e3cf;color:#8a4b12;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-left:6px;">strengthen</span>';
+                body = '<div style="font-size:0.85rem;color:#b3620a;margin:4px 0 8px;word-break:break-word;">ranks on a page locked to “'+escDF(t.lockedToKeyword||'another keyword')+'” — add a short section + internal link to this page:<br>'+escDF(t.pageUrl||'')+'</div>';
+                if(t.paragraph){
+                    body += '<div style="background:#f7faf7;border:1px solid #cfead0;border-radius:8px;padding:10px 12px;margin:8px 0;">'+
+                        (t.h2?'<div style="font-weight:700;margin-bottom:4px;">'+escDF(t.h2)+'</div>':'')+
+                        '<div style="font-size:0.9rem;line-height:1.5;">'+escDF(t.paragraph)+'</div>'+
+                        (t.internalLink&&t.internalLink.anchor?'<div style="font-size:0.82rem;color:#555;margin-top:8px;">Internal link anchor: <b>'+escDF(t.internalLink.anchor)+'</b></div>':'')+
+                        '<button class="btn-secondary" style="margin-top:8px;" onclick="doFirstCopy('+"'"+encodeURIComponent(t.keyword)+"'"+')">Copy section</button>'+
+                    '</div>';
+                } else {
+                    body += '<button class="btn-secondary" onclick="doFirstGenerate('+"'"+encodeURIComponent(t.keyword)+"'"+')">Write the section for me</button>';
+                }
+            }
+            const actions = '<div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">'+
+                admin+
+                '<button class="btn-secondary" onclick="doFirstStatus('+"'"+encodeURIComponent(t.keyword)+"'"+',\'done\')">'+(done?'Done ✓':'Mark done')+'</button>'+
+                '<button class="btn-secondary" style="color:#a33;" onclick="doFirstStatus('+"'"+encodeURIComponent(t.keyword)+"'"+',\'dismissed\')">'+(t.type==='strengthen'?'Already covered ✕':'Dismiss ✕')+'</button>'+
+            '</div>';
+            return '<div style="border:1px solid #e2e2e2;border-radius:10px;padding:12px 14px;background:#fff;'+(done?'opacity:.55;':'')+'">'+
+                '<div style="font-weight:700;">'+star+key+head+'</div>'+
+                '<div style="color:#888;font-size:12px;margin-top:2px;">'+metrics+'</div>'+body+actions+'</div>';
+        }
+        function doFirstFind(kwEnc){ const kw=decodeURIComponent(kwEnc); return DOFIRST_TASKS.find(t=>(t.keyword||'').toLowerCase()===kw.toLowerCase()); }
+        async function doFirstAdmin(kwEnc){
+            const t = doFirstFind(kwEnc); if(!t||!t.pageUrl) return;
+            const w = window.open('','_blank');
+            try{ const r = await kwApi({action:'admin-link',url:t.pageUrl}); const dest=(r&&r.adminUrl)||t.pageUrl; if(w){ w.location=dest; } else { window.open(dest,'_blank'); } }
+            catch(e){ if(w){ w.location=t.pageUrl; } }
+        }
+        async function doFirstGenerate(kwEnc){
+            const t = doFirstFind(kwEnc); if(!t) return;
+            const box = document.getElementById('doFirstList');
+            try{
+                const r = await kwApi({action:'generate-capture-content',keyword:t.keyword,pageUrl:t.pageUrl,lockedToKeyword:t.lockedToKeyword});
+                t.h2 = r.h2||''; t.paragraph = r.paragraph||''; t.internalLink = { anchor: r.internalLinkAnchor||'', target:'' };
+                renderDoFirst();
+            }catch(e){ alert('Could not write the section: '+e.message); }
+        }
+        async function doFirstCopy(kwEnc){
+            const t = doFirstFind(kwEnc); if(!t) return;
+            const text = (t.h2?t.h2+'\n\n':'')+(t.paragraph||'')+(t.internalLink&&t.internalLink.anchor?'\n\nInternal link anchor: '+t.internalLink.anchor:'');
+            try{ await navigator.clipboard.writeText(text); }catch{ /* ignore */ }
+        }
+        async function doFirstStatus(kwEnc, status){
+            const t = doFirstFind(kwEnc); if(!t) return;
+            try{ await kwApi({action:'capture-task-status',keyword:t.keyword,status:status}); }catch(e){ alert('Could not update: '+e.message); return; }
+            if(status==='dismissed'){ DOFIRST_TASKS = DOFIRST_TASKS.filter(x=>x!==t); } else { t.status = status; }
+            renderDoFirst();
         }
 
         // ── 🎯 Start Here — single ordered work-queue across all categories ──────────
@@ -6782,6 +6876,7 @@ Rules:
             renderUrls();
             renderOptimized();
             loadGSCEnrichment();
+            renderDoFirst();
         });
     </script>
 </body>
