@@ -1,4 +1,9 @@
-// api/keywords.js — New Product Generator backend  ·  v0.25
+// api/keywords.js — New Product Generator backend  ·  v0.26
+// v0.26 (2026-09-28): "Capture more" redesign. Ranking keywords route to Money Page Doctor's "Do first"
+//   tab (data/capture-tasks.json): B (free page) → capture-optimise (lock + optimise card); C (taken page)
+//   → sync-capture-tasks auto-creates a strengthen card (AI paragraph via generate-capture-content); cards
+//   set done/dismissed via capture-task-status. available-product-keywords = group A (no ranking page),
+//   topic-matched, offered at the keyword step (replaces the saved product-ideas pool).
 // v0.25 (2026-09-28): matched-product-ideas now enriched (pageUrl/urlFree/lockedToKeyword/topSix) so the
 //   keyword step can mix already-ranking keywords into the options list; new action `admin-link` resolves
 //   a storefront URL (product or blog article) to its Shopify admin editor URL (add an internal link).
@@ -547,6 +552,142 @@ async function resolveAdminLink(url) {
   } catch (e) {
     return { adminUrl: storefront, resolved: false };
   }
+}
+
+/* ---------------- "Capture more" tasks (Money Page Doctor "Do first" tab) ---------------- */
+const CAPTURE_TASKS_PATH = 'data/capture-tasks.json';
+function captureKey(k){ return (k || '').trim().toLowerCase(); }
+async function readCaptureTasksRaw() {
+  const file = await ghGet(CAPTURE_TASKS_PATH);
+  let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+  if (!Array.isArray(arr)) arr = [];
+  return { arr, sha: file.sha };
+}
+// B — "Send to optimise": lock the keyword to its ranking page (TO_OPTIMIZE → Money Page Doctor) AND
+// record an "optimise" card in the Do-first tab.
+async function captureOptimise(body) {
+  const keyword = (body.keyword || '').trim();
+  if (!keyword) throw new Error('keyword required');
+  await claimKeywordToRegistry(keyword, body.url, body.intent || 'COMMERCIAL');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { arr, sha } = await readCaptureTasksRaw();
+    const i = arr.findIndex(t => captureKey(t.keyword) === captureKey(keyword));
+    const task = {
+      keyword, type: 'optimise', pageUrl: body.url || null,
+      position: (body.meta && body.meta.position != null) ? body.meta.position : null,
+      clicks: (body.meta && body.meta.clicks != null) ? body.meta.clicks : null,
+      impressions: (body.meta && body.meta.impressions != null) ? body.meta.impressions : null,
+      lockedToKeyword: null, source: body.source || 'product',
+      status: 'todo', addedAt: new Date().toISOString()
+    };
+    if (i >= 0) arr[i] = { ...arr[i], ...task, status: (arr[i].status === 'dismissed' ? 'todo' : (arr[i].status || 'todo')) };
+    else arr.push(task);
+    try { await ghPut(CAPTURE_TASKS_PATH, JSON.stringify(arr, null, 2), sha, `Capture: optimise ${keyword}`); return { ok: true }; }
+    catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
+  }
+  throw new Error('write conflict, try again');
+}
+// C — auto: every keyword that ranks on a page LOCKED to another keyword becomes a "strengthen" card.
+// Built live from the performing list; new ones are persisted; done/dismissed ones are never recreated.
+async function syncCaptureTasks() {
+  const [perf, urlLocks, dismissed, store] = await Promise.all([
+    readPerformingList(), registryUrlLockMap(), readPerformingDismissed(), readCaptureTasksRaw()
+  ]);
+  let arr = store.arr; let sha = store.sha;
+  const have = new Set(arr.map(t => captureKey(t.keyword)));
+  let added = 0;
+  perf.forEach(k => {
+    if (!k || !k.keyword) return;
+    const kw = captureKey(k.keyword);
+    if (have.has(kw) || dismissed.has(kw)) return;
+    const cleanRanking = k.rankingUrl ? cleanUrl(k.rankingUrl) : null;
+    if (!cleanRanking) return;                          // no page → a new-product case, not strengthen
+    const lockedTo = urlLocks[normUrl(cleanRanking)];
+    if (!lockedTo) return;                              // free page → that's an optimise (B), sent by button
+    arr.push({
+      keyword: k.keyword, type: 'strengthen', pageUrl: cleanRanking,
+      position: (k.position != null ? k.position : null), clicks: (k.clicks != null ? k.clicks : null),
+      impressions: (k.impressions != null ? k.impressions : null),
+      lockedToKeyword: lockedTo, source: (k.intent === 'blog' ? 'blog' : 'product'),
+      paragraph: null, h2: null, internalLink: null,
+      status: 'todo', addedAt: new Date().toISOString()
+    });
+    have.add(kw); added++;
+  });
+  if (added > 0) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { await ghPut(CAPTURE_TASKS_PATH, JSON.stringify(arr, null, 2), sha, `Capture: +${added} strengthen task(s)`); break; }
+      catch (e) { if (e.status === 409 && attempt < 2) { const re = await readCaptureTasksRaw(); arr = re.arr; sha = re.sha; continue; } throw e; }
+    }
+  }
+  return { tasks: arr.filter(t => t.status !== 'dismissed') };
+}
+async function setCaptureTaskStatus(keyword, status) {
+  keyword = (keyword || '').trim();
+  if (!keyword) throw new Error('keyword required');
+  status = (status === 'done' || status === 'dismissed') ? status : 'todo';
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { arr, sha } = await readCaptureTasksRaw();
+    const i = arr.findIndex(t => captureKey(t.keyword) === captureKey(keyword));
+    if (i < 0) break;
+    arr[i].status = status;
+    try { await ghPut(CAPTURE_TASKS_PATH, JSON.stringify(arr, null, 2), sha, `Capture: ${keyword} → ${status}`); break; }
+    catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
+  }
+  if (status === 'dismissed') { try { await dismissPerforming(keyword); } catch { /* keep going */ } }
+  return { ok: true };
+}
+// AI writes the H2 + paragraph + internal-link anchor for a strengthen card (on demand).
+async function generateCaptureContent(body) {
+  const keyword = (body.keyword || '').trim();
+  const pageTopic = (body.lockedToKeyword || '').trim();
+  const pageUrl = (body.pageUrl || '').trim();
+  if (!keyword) throw new Error('keyword required');
+  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set');
+  const prompt = [
+    'You are writing for About Wall Art, a UK wall-art brand. UK spelling. First-person, warm, advisor tone.',
+    'NEVER say "print" or "prints" — always "wall art" or "art sets" (products are sets of 3).',
+    `The page currently ranks for "${pageTopic || 'its main topic'}"${pageUrl ? ' (' + pageUrl + ')' : ''} and ALSO ranks for the extra keyword "${keyword}".`,
+    `Write a short section to add to that page so it captures "${keyword}" better, WITHOUT changing the page's main focus.`,
+    'Return ONLY JSON: {"h2":"short H2 using the keyword naturally","paragraph":"2-3 sentences, natural, keyword once early","internalLinkAnchor":"3-5 word anchor for a link to a relevant product/collection"}'
+  ].join('\n');
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 700, messages: [{ role: 'user', content: prompt }] })
+  });
+  if (!r.ok) { const t = await r.text(); throw new Error('Claude API error ' + r.status + ': ' + t.slice(0, 200)); }
+  const data = await r.json();
+  let text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
+  let clean = text.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+  const m = clean.match(/\{[\s\S]*\}/); if (m) clean = m[0];
+  let parsed; try { parsed = JSON.parse(clean); } catch { throw new Error('Could not parse AI response'); }
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { arr, sha } = await readCaptureTasksRaw();
+      const i = arr.findIndex(t => captureKey(t.keyword) === captureKey(keyword));
+      if (i < 0) break;
+      arr[i].h2 = parsed.h2 || null;
+      arr[i].paragraph = parsed.paragraph || null;
+      arr[i].internalLink = { anchor: parsed.internalLinkAnchor || '', target: '' };
+      try { await ghPut(CAPTURE_TASKS_PATH, JSON.stringify(arr, null, 2), sha, `Capture: content for ${keyword}`); break; }
+      catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
+    }
+  } catch { /* returning parsed is enough even if persist fails */ }
+  return { ok: true, h2: parsed.h2 || '', paragraph: parsed.paragraph || '', internalLinkAnchor: parsed.internalLinkAnchor || '' };
+}
+// Group A — keywords you rank for but with NO usable page → offered as suggestions when you build a
+// product (topic-matched). Replaces the old saved "product ideas" pool.
+async function availableProductKeywords(sku) {
+  const [perf, products, dismissed] = await Promise.all([readPerformingList(), readProducts(), readPerformingDismissed()]);
+  const p = products.find(x => (x.sku || '').toLowerCase() === (sku || '').toLowerCase());
+  const terms = p ? gapTermsForProduct(p) : null;
+  return perf
+    .filter(k => k && k.keyword && (k.intent || 'product') === 'product')
+    .filter(k => !k.rankingUrl)                          // no ranking page → a "new product" candidate
+    .filter(k => !dismissed.has(k.keyword.toLowerCase()))
+    .filter(k => !terms || gapClassify(k.keyword, terms).qualifies)
+    .map(k => ({ keyword: k.keyword, impressions: k.impressions, clicks: k.clicks, position: k.position }));
 }
 
 // Frees a deleted product's keyword: removes every registry row tagged NPG:<sku> (the source column).
@@ -1810,6 +1951,34 @@ export default async function handler(req, res) {
       if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
       const out = await removeProductIdea(body.keyword);
       return res.status(200).json({ ok: true, ...out });
+    }
+    // B — "Send to optimise": lock kw→page + create an optimise card in MPD's Do-first tab.
+    if (action === 'capture-optimise') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const out = await captureOptimise(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+    // MPD Do-first tab load: auto-create strengthen cards (C) + return every non-dismissed card.
+    if (action === 'sync-capture-tasks') {
+      const out = await syncCaptureTasks();
+      return res.status(200).json({ ok: true, ...out });
+    }
+    // Mark a card done / dismissed (dismissed also hides the keyword from the panels + re-sync).
+    if (action === 'capture-task-status') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const out = await setCaptureTaskStatus(body.keyword, body.status);
+      return res.status(200).json({ ok: true, ...out });
+    }
+    // AI content for a strengthen card (paragraph + H2 + internal-link anchor).
+    if (action === 'generate-capture-content') {
+      if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ ok: false, error: 'ANTHROPIC_API_KEY not set' });
+      const out = await generateCaptureContent(body);
+      return res.status(200).json(out);
+    }
+    // Group A (no ranking page), topic-matched — offered at the keyword step of a new product.
+    if (action === 'available-product-keywords') {
+      const ideas = await availableProductKeywords(body.sku);
+      return res.status(200).json({ ok: true, ideas });
     }
     // Resolve a ranking page's storefront URL → its Shopify admin editor URL (add an internal link).
     if (action === 'admin-link') {
