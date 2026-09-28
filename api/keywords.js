@@ -1,4 +1,6 @@
-// api/keywords.js — New Product Generator backend  ·  v0.28
+// api/keywords.js — New Product Generator backend  ·  v0.29
+// v0.29 (2026-09-28): A2 — readProducts() now reads fresh via the GitHub API (no CDN lag), so a product
+//   saved a moment ago (e.g. right after an image upload) is found. Falls back to the raw CDN on error.
 // v0.28 (2026-09-28): A1 — hardened JSON parse in generateContent: repair bad escapes + strip control
 //   chars (fixes "Bad escaped character" on titles like "Solo d'Amalfi"), then retry the model once.
 // v0.27 (2026-09-28): alt text now describes the ARTWORK (from product.content.productTitle), varied per
@@ -165,12 +167,20 @@ async function ghPut(path, content, sha, message) {
   return true;
 }
 async function readProducts() {
+  // A2: read fresh via the GitHub contents API (no CDN lag) so a product saved a moment ago
+  // (e.g. right after an image upload) is always visible. Falls back to the raw CDN on any error.
   try {
-    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${PRODUCTS_PATH}?t=${Date.now()}`);
-    if (!r.ok) return [];
-    const j = await r.json();
-    return Array.isArray(j) ? j : [];
-  } catch { return []; }
+    const file = await ghGet(PRODUCTS_PATH);
+    if (file.content) { const j = JSON.parse(file.content); return Array.isArray(j) ? j : []; }
+    return [];
+  } catch {
+    try {
+      const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${PRODUCTS_PATH}?t=${Date.now()}`);
+      if (!r.ok) return [];
+      const j = await r.json();
+      return Array.isArray(j) ? j : [];
+    } catch { return []; }
+  }
 }
 
 /* ---------------- CSV registry ---------------- */
