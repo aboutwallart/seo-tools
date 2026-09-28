@@ -156,7 +156,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v3.1</span>
+  <span class="ver">v3.2</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -988,13 +988,27 @@ function stepImages(p){
     '</div>':'')+
   '</div>';
 
-  html+='<div style="margin-bottom:22px"><label class="f" style="margin-bottom:6px">Individual artwork photos <span style="color:var(--muted);font-weight:400">— '+setSize+' needed ('+esc(p.set||'')+')</span></label>'+
-    '<div style="display:flex;gap:16px;flex-wrap:wrap">'+
-    Array.from({length:setSize}).map((_,i)=>dropzone(sku,'individual',i,'Individual '+(i+1),img.individuals[i],!!UPLOADING[dzKey(sku,'individual',i)])).join('')+
-  '</div></div>';
+  html+='<div style="margin-bottom:22px"><label class="f" style="margin-bottom:6px">Individual artwork photos <span style="color:var(--muted);font-weight:400">— '+setSize+' needed ('+esc(p.set||'')+'). Drop all together; they sort A→Z by file name — drag to reorder</span></label>'+
+    multiDropzone(sku,'individual',!!UPLOADING[dzKey(sku,'individual','multi')])+
+    (img.individuals.length?'<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:14px">'+
+      img.individuals.map((im,i)=>
+        '<div class="dz-tile" draggable="true" data-idx="'+i+'" '+
+          'ondragstart="onIndDragStart(event,'+i+')" '+
+          'ondragover="event.preventDefault()" '+
+          'ondrop="onIndDrop(event,\''+esc(sku)+'\','+i+')" '+
+          'ondragend="onIndDragEnd(event)" '+
+          'style="text-align:center;width:150px">'+
+          '<div class="dz" style="cursor:grab"><img src="'+esc(im.url||'')+'"><div class="dz-badge">✓</div></div>'+
+          '<div style="font-size:0.75rem;color:var(--muted);margin-top:4px">#'+(i+1)+'</div>'+
+          '<button class="btn rm small" style="margin-top:4px" onclick="removeProdImage(\''+esc(sku)+'\',\'individual\','+i+')">Remove</button>'+
+        '</div>'
+      ).join('')+
+    '</div>':'')+
+  '</div>';
 
-  html+='<div><label class="f" style="margin-bottom:6px">Flat images <span style="color:var(--muted);font-weight:400">— these also show as the variant images in the cart</span></label>'+
-    '<div style="display:flex;gap:16px;flex-wrap:wrap">'+
+  html+='<div><label class="f" style="margin-bottom:6px">Flat images <span style="color:var(--muted);font-weight:400">— drop all 5 together; each is matched to its frame by the file name. These also show as the variant images in the cart</span></label>'+
+    multiDropzone(sku,'flat',!!UPLOADING[dzKey(sku,'flat','multi')])+
+    '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:14px">'+
     FLAT_LABELS.map(([slot,label])=>dropzone(sku,slot,0,label,img.flats[slot],!!UPLOADING[dzKey(sku,slot,0)])).join('')+
   '</div></div>';
 
@@ -1093,6 +1107,88 @@ function onImageDrop(e, sku, slot, index){
   if(!files.length) return;
   if(slot==='lifestyle') uploadLifestyleFiles(sku, files);
   else uploadOneFile(sku, slot, index, files[0]);
+}
+
+/* ---- Multi-drop blocks: Individual (append + A→Z) and Flats (assigned by exact file name) ---- */
+function multiDropzone(sku, kind, busy){
+  const id='mdz'+(DZ_SEQ++); const fileId=id+'-file';
+  const inner = busy ? '<div class="dz-spinicon"></div>Uploading…' : '<div>📷<br>Drop images here<br>or click to browse</div>';
+  const attrs = busy ? '' :
+    'ondragover="event.preventDefault();event.stopPropagation();this.classList.add(\'over\')" '+
+    'ondragleave="this.classList.remove(\'over\')" '+
+    'ondrop="onMultiDrop(event,\''+esc(sku)+'\',\''+kind+'\')" '+
+    'onclick="document.getElementById(\''+fileId+'\').click()"';
+  return '<div class="dz dz-wide'+(busy?' busy':'')+'" id="'+id+'" '+attrs+'>'+inner+'</div>'+
+    (busy?'':'<input type="file" id="'+fileId+'" accept="image/*" multiple style="display:none" onchange="onMultiInput(this,\''+esc(sku)+'\',\''+kind+'\')">');
+}
+function onMultiDrop(e, sku, kind){
+  e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.remove('over');
+  const files=[...(e.dataTransfer.files||[])].filter(f=>f.type && f.type.startsWith('image/'));
+  if(!files.length) return;
+  if(kind==='individual') uploadIndividualFiles(sku, files); else uploadFlatFiles(sku, files);
+}
+function onMultiInput(inputEl, sku, kind){
+  const files=[...inputEl.files];
+  if(files.length){ if(kind==='individual') uploadIndividualFiles(sku, files); else uploadFlatFiles(sku, files); }
+  inputEl.value='';
+}
+async function uploadIndividualFiles(sku, files){
+  if(!files.length) return;
+  const sorted=[...files].sort((a,b)=>a.name.localeCompare(b.name, undefined, {numeric:true, sensitivity:'base'}));
+  const key=dzKey(sku,'individual','multi'); UPLOADING[key]=true; renderFlow();
+  try{
+    for(const f of sorted){
+      try{
+        const {mediaType,data}=(await compressImageFile(f,2000,0.85)) || (await readFileAsBase64(f));
+        const r=await api({action:'upload-image', sku, slot:'individual', image:data, imageMediaType:mediaType});
+        PRODUCTS=r.products;
+      }catch(e){ msg('Individual skipped ('+f.name+'): '+e.message,'err'); }
+    }
+  } finally { delete UPLOADING[key]; renderFlow(); }
+}
+// Exact file-name phrases → flat slot (case-insensitive, matched as given by Mae).
+const FLAT_NAME_RULES=[
+  ['floating canvas','flatCanvas'],
+  ['floating frames black','flatBlack'],
+  ['floating frames oak','flatOak'],
+  ['floating frames white','flatWhite'],
+  ['unframed posters mockup','flatUnframed']
+];
+function matchFlatSlot(filename){
+  const n=String(filename||'').toLowerCase();
+  for(const [phrase,slot] of FLAT_NAME_RULES){ if(n.indexOf(phrase)!==-1) return slot; }
+  return null;
+}
+async function uploadFlatFiles(sku, files){
+  if(!files.length) return;
+  const key=dzKey(sku,'flat','multi'); UPLOADING[key]=true; renderFlow();
+  const unmatched=[];
+  try{
+    for(const f of files){
+      const slot=matchFlatSlot(f.name);
+      if(!slot){ unmatched.push(f.name); continue; }
+      try{
+        const {mediaType,data}=(await compressImageFile(f,2000,0.85)) || (await readFileAsBase64(f));
+        const r=await api({action:'upload-image', sku, slot, image:data, imageMediaType:mediaType});
+        PRODUCTS=r.products;
+      }catch(e){ msg('Flat failed ('+f.name+'): '+e.message,'err'); }
+    }
+  } finally { delete UPLOADING[key]; renderFlow(); }
+  if(unmatched.length) msg('Could not match by name (add these by hand): '+unmatched.join(', '),'err');
+}
+let IND_DRAG_FROM=null;
+function onIndDragStart(e, idx){ IND_DRAG_FROM=idx; e.currentTarget.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; }
+function onIndDragEnd(e){ e.currentTarget.classList.remove('dragging'); }
+async function onIndDrop(e, sku, toIdx){
+  e.preventDefault();
+  const from=IND_DRAG_FROM; IND_DRAG_FROM=null;
+  if(from===null || from===toIdx) return;
+  const p=PRODUCTS.find(x=>x.sku===sku); if(!p) return;
+  const list=(p.images&&p.images.individuals)||[];
+  const order=list.map((_,i)=>i);
+  const [moved]=order.splice(from,1); order.splice(toIdx,0,moved);
+  try{ const r=await api({action:'reorder-individual-images', sku, order}); PRODUCTS=r.products; renderFlow(); }
+  catch(err){ msg('Failed: '+err.message,'err'); }
 }
 async function removeProdImage(sku, slot, index){
   if(!confirm('Remove this image?')) return;

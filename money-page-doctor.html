@@ -286,7 +286,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
-                    <p class="subtitle">AI-Powered SEO Analysis · v71.3</p>
+                    <p class="subtitle">AI-Powered SEO Analysis · v71.4</p>
                     <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.11</p>
                     <button onclick="resetAllChecklists()" title="Wipe all saved checklists so every page starts fresh" style="margin-top:6px;background:#fff;color:#c62828;border:1px solid #ef9a9a;padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;">🧹 Reset all checklists (start clean)</button>
                 </div>
@@ -354,6 +354,7 @@
             <button class="tab" onclick="switchTab('startHere')">🎯 Start Here (<span id="startHereCount">0</span>)</button>
             <button class="tab" onclick="switchTab('winners')">🏆 Winners &amp; Hold (<span id="winnersCount">0</span>)</button>
             <button class="tab" onclick="switchTab('optimized')">✅ Optimized (<span id="optimizedCount">0</span>)</button>
+            <button class="tab" onclick="switchTab('strengthened')">💪 Strengthened (<span id="strengthenedCount">0</span>)</button>
             <button class="tab" onclick="switchTab('removed')">🗑️ Removed (<span id="removedCount">0</span>)</button>
         </div>
         <!-- Hidden: To Optimise count target kept for legacy updatePageCount() -->
@@ -469,6 +470,13 @@
                 <button class="btn-secondary" style="background:#EAF3FB;color:#1C4E80;border-color:#C4DEF3;" onclick="setOptColorFilter('blue', this)">🔵 Never took off <span id="optCntBlue"></span></button>
             </div>
             <div id="optimizedList"></div>
+        </div>
+
+        <!-- STRENGTHENED TAB — strengthen cards you've marked done (moved out of Do First) -->
+        <div class="tab-content" id="strengthenedTab">
+            <h3>💪 Strengthened — pages you've added a section + internal link to</h3>
+            <p style="color:#666;margin-bottom:15px;">Done strengthen tasks live here so Do First stays clean. Use ↩︎ to send one back to Do First.</p>
+            <div id="strengthenedList" style="color:#888;font-size:0.9rem;">Loading…</div>
         </div>
 
         <!-- REMOVED TAB -->
@@ -709,6 +717,7 @@
             if (tab === 'startHere') renderStartHere();
             if (tab === 'winners') renderWinners();
             if (tab === 'optimized') renderOptimized();
+            if (tab === 'strengthened') renderStrengthened();
             if (tab === 'removed') renderRemoved();
         }
 
@@ -716,6 +725,7 @@
         // optimise cards (B): the page ranks free → optimise it for this keyword.
         // strengthen cards (C): the page is locked to another keyword → add a short section + internal link.
         let DOFIRST_TASKS = [];
+        let DF_GENERATING = {}; // keyword -> true while the section is being written/rewritten (shows "✍️ Writing…")
         function escDF(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
         async function kwApi(payload){
             const r = await fetch('/api/keywords',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -723,20 +733,60 @@
             if(j.ok===false) throw new Error(j.error||j.message||'Error');
             return j;
         }
+        async function loadCaptureTasks(){
+            const r = await kwApi({action:'sync-capture-tasks'});
+            DOFIRST_TASKS = (r.tasks||[]).filter(t=>t.status!=='dismissed');
+        }
+        function updateStrengthenedCount(){
+            const c = document.getElementById('strengthenedCount');
+            if(c) c.textContent = DOFIRST_TASKS.filter(t=>t.type==='strengthen' && t.status==='done').length;
+        }
+        // Render the Do First list from memory (no refetch). Only TODO tasks — done ones move to Strengthened.
+        function renderDoFirstList(){
+            const box = document.getElementById('doFirstList'); if(!box) return;
+            const todo = DOFIRST_TASKS.filter(t=>t.status!=='done');
+            const cnt = document.getElementById('doFirstCount'); if(cnt) cnt.textContent = todo.length;
+            updateStrengthenedCount();
+            if(!todo.length){ box.innerHTML = '<span style="color:#888;">Nothing to do right now.</span>'; return; }
+            box.innerHTML = '<div style="display:grid;gap:12px;">' + todo.map(doFirstCard).join('') + '</div>';
+        }
         async function renderDoFirst(){
             const box = document.getElementById('doFirstList'); if(!box) return;
             box.innerHTML = 'Loading…';
-            try{
-                const r = await kwApi({action:'sync-capture-tasks'});
-                DOFIRST_TASKS = (r.tasks||[]).filter(t=>t.status!=='dismissed');
-            }catch(e){ box.innerHTML = '<span style="color:#a33;">Could not load: '+escDF(e.message)+'</span>'; return; }
-            const todo = DOFIRST_TASKS.filter(t=>t.status!=='done');
-            const cnt = document.getElementById('doFirstCount'); if(cnt) cnt.textContent = todo.length;
-            if(!DOFIRST_TASKS.length){ box.innerHTML = '<span style="color:#888;">Nothing to do right now.</span>'; return; }
-            box.innerHTML = '<div style="display:grid;gap:12px;">' + DOFIRST_TASKS.map(doFirstCard).join('') + '</div>';
+            try{ await loadCaptureTasks(); }
+            catch(e){ box.innerHTML = '<span style="color:#a33;">Could not load: '+escDF(e.message)+'</span>'; return; }
+            renderDoFirstList();
+        }
+        // ── 💪 Strengthened — done strengthen cards ──────────
+        function renderStrengthenedList(){
+            const box = document.getElementById('strengthenedList'); if(!box) return;
+            updateStrengthenedCount();
+            const done = DOFIRST_TASKS.filter(t=>t.type==='strengthen' && t.status==='done');
+            if(!done.length){ box.innerHTML = '<span style="color:#888;">Nothing strengthened yet.</span>'; return; }
+            box.innerHTML = '<div style="display:grid;gap:12px;">' + done.map(strengthenedCard).join('') + '</div>';
+        }
+        async function renderStrengthened(){
+            const box = document.getElementById('strengthenedList'); if(!box) return;
+            box.innerHTML = 'Loading…';
+            try{ await loadCaptureTasks(); }
+            catch(e){ box.innerHTML = '<span style="color:#a33;">Could not load: '+escDF(e.message)+'</span>'; return; }
+            renderStrengthenedList();
+        }
+        function strengthenedCard(t){
+            const key = escDF(t.keyword);
+            const dest = (t.internalLink && t.internalLink.target) ? '<div style="font-size:0.8rem;color:#555;margin-top:6px;">Link: <a href="'+escDF(t.internalLink.target)+'" target="_blank" rel="noopener">'+escDF(t.internalLink.target)+'</a></div>' : '';
+            return '<div style="border:1px solid #e2e2e2;border-radius:10px;padding:12px 14px;background:#fff;">'+
+                '<div style="font-weight:700;">✅ '+key+' <span style="background:#f6e3cf;color:#8a4b12;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-left:6px;">strengthened</span></div>'+
+                '<div style="color:#888;font-size:12px;margin-top:2px;word-break:break-word;">'+escDF(t.pageUrl||'')+'</div>'+
+                dest+
+                '<div style="margin-top:10px;">'+
+                    '<button class="btn-secondary" onclick="doFirstStatus('+"'"+encodeURIComponent(t.keyword)+"'"+',\'todo\')">↩︎ Back to Do First</button>'+
+                '</div>'+
+            '</div>';
         }
         function doFirstCard(t){
             const done = t.status==='done';
+            const gen = !!DF_GENERATING[t.keyword];
             const key = escDF(t.keyword);
             const star = (t.position!=null && t.position<=6) ? '⭐ ' : '';
             const metrics = 'pos '+(t.position!=null?t.position:'—')+' · '+(t.clicks!=null?t.clicks:'—')+' clicks · '+(t.impressions!=null?t.impressions:'—')+' impr';
@@ -748,7 +798,9 @@
             } else {
                 head = '<span style="background:#f6e3cf;color:#8a4b12;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-left:6px;">strengthen</span>';
                 body = '<div style="font-size:0.85rem;color:#b3620a;margin:4px 0 8px;word-break:break-word;">ranks on a page locked to “'+escDF(t.lockedToKeyword||'another keyword')+'” — add a short section + internal link to this page:<br>'+escDF(t.pageUrl||'')+'</div>';
-                if(t.paragraph){
+                if(gen){
+                    body += '<div style="margin-top:10px;color:#8a4b12;font-weight:700;">✍️ Writing… <span style="font-weight:400;color:#b3620a;">(this can take a few seconds)</span></div>';
+                } else if(t.paragraph){
                     const enc = encodeURIComponent(t.keyword);
                     const dest = (t.internalLink && t.internalLink.target) ? '<div style="font-size:0.8rem;color:#555;margin-top:8px;">Link goes to: <a href="'+escDF(t.internalLink.target)+'" target="_blank" rel="noopener">'+escDF(t.internalLink.target)+'</a></div>' : '';
                     body += '<div style="background:#f7faf7;border:1px solid #cfead0;border-radius:8px;padding:10px 12px;margin:8px 0;">'+
@@ -758,6 +810,7 @@
                         dest+
                         '<div style="margin-top:8px;">'+
                             '<button class="btn-secondary" onclick="doFirstCopy('+"'"+enc+"'"+')">Copy for the body</button>'+
+                            '<button class="btn-secondary" style="margin-left:8px;" onclick="doFirstCopyTitle('+"'"+enc+"'"+')">Copy title</button>'+
                             '<button class="btn-secondary" style="margin-left:8px;" onclick="doFirstGenerate('+"'"+enc+"'"+')">Rewrite</button>'+
                             '<span id="copied-'+enc+'" style="margin-left:8px;font-size:0.8rem;color:#1f5f1f;"></span>'+
                         '</div>'+
@@ -769,7 +822,7 @@
             const actions = '<div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">'+
                 admin+
                 '<button class="btn-secondary" onclick="doFirstStatus('+"'"+encodeURIComponent(t.keyword)+"'"+',\'done\')">'+(done?'Done ✓':'Mark done')+'</button>'+
-                '<button class="btn-secondary" style="color:#a33;" onclick="doFirstStatus('+"'"+encodeURIComponent(t.keyword)+"'"+',\'dismissed\')">'+(t.type==='strengthen'?'Already covered ✕':'Dismiss ✕')+'</button>'+
+                '<button class="btn-secondary" style="background:#c62828;color:#fff;border-color:#c62828;" onclick="doFirstStatus('+"'"+encodeURIComponent(t.keyword)+"'"+',\'dismissed\')">'+(t.type==='strengthen'?'Already covered ✕':'Dismiss ✕')+'</button>'+
             '</div>';
             return '<div style="border:1px solid #e2e2e2;border-radius:10px;padding:12px 14px;background:#fff;'+(done?'opacity:.55;':'')+'">'+
                 '<div style="font-weight:700;">'+star+key+head+'</div>'+
@@ -784,12 +837,13 @@
         }
         async function doFirstGenerate(kwEnc){
             const t = doFirstFind(kwEnc); if(!t) return;
+            DF_GENERATING[t.keyword] = true; renderDoFirstList(); // show "✍️ Writing…" so it doesn't look frozen
             try{
                 const r = await kwApi({action:'generate-capture-content',keyword:t.keyword,pageUrl:t.pageUrl,lockedToKeyword:t.lockedToKeyword});
                 t.h2 = r.h2||''; t.paragraph = r.paragraph||''; t.html = r.html||''; t.plainText = r.plainText||'';
                 t.internalLink = { anchor: r.internalLinkAnchor||'', target: r.target||'' };
-                renderDoFirst();
             }catch(e){ alert('Could not write the section: '+e.message); }
+            finally{ delete DF_GENERATING[t.keyword]; renderDoFirstList(); }
         }
         // Copy the section as rich text (formatted + working link) so it pastes into the VISUAL body editor —
         // never the HTML view. Rebuilds from the edited box so Mae's fixes are included, and re-inserts the link.
@@ -818,11 +872,18 @@
                 const s = document.getElementById('copied-'+kwEnc); if(s){ s.textContent='Copied ✓'; setTimeout(()=>{ if(s) s.textContent=''; },2500); }
             }catch{ try{ await navigator.clipboard.writeText(plain); }catch{} }
         }
+        // Copy JUST the H2 title (plain), so it's easy to paste as the heading in the index.
+        async function doFirstCopyTitle(kwEnc){
+            const t = doFirstFind(kwEnc); if(!t) return;
+            const h2El = document.getElementById('df-h2-'+kwEnc);
+            const title = h2El ? h2El.value.trim() : (t.h2||'');
+            try{ await navigator.clipboard.writeText(title); const s=document.getElementById('copied-'+kwEnc); if(s){ s.textContent='Title copied ✓'; setTimeout(()=>{ if(s) s.textContent=''; },2500); } }catch{}
+        }
         async function doFirstStatus(kwEnc, status){
             const t = doFirstFind(kwEnc); if(!t) return;
             try{ await kwApi({action:'capture-task-status',keyword:t.keyword,status:status}); }catch(e){ alert('Could not update: '+e.message); return; }
             if(status==='dismissed'){ DOFIRST_TASKS = DOFIRST_TASKS.filter(x=>x!==t); } else { t.status = status; }
-            renderDoFirst();
+            renderDoFirstList(); renderStrengthenedList(); // task may move between Do First and Strengthened
         }
 
         // ── 🎯 Start Here — single ordered work-queue across all categories ──────────
