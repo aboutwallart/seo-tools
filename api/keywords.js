@@ -1,4 +1,8 @@
-// api/keywords.js — New Product Generator backend  ·  v0.31
+// api/keywords.js — New Product Generator backend  ·  v0.32
+// v0.32 (2026-09-28): C1 — capture-content internal link now points at a REAL collection the page already
+//   uses: product page -> the product's own collections; blog page -> its custom.linked_collections
+//   metafield. Picks the one matching the keyword; a link is always embedded when one is found (no more
+//   empty search on the whole phrase). Never invents a collection.
 // v0.31 (2026-09-28): #6 — Shopify tags now respect OR vs AND on smart collections. Reads
 //   ruleSet.appliedDisjunctively: AND (conjunctive) still adds ALL tag rules; OR (disjunctive) adds only
 //   the ONE tag that fits the product (collection title -> product room/style/colour -> first, flagged).
@@ -744,13 +748,36 @@ async function setCaptureTaskStatus(keyword, status) {
 }
 function escHtml(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 // Find the storefront URL of the collection that best matches a keyword (for the internal link).
-async function bestCollectionUrl(keyword, publicOrigin) {
+// #C1: link to a REAL collection the PAGE already uses — never a made-up one.
+//  · product page -> the product's own collections (they come from its tags)
+//  · blog page    -> the article's custom.linked_collections metafield
+// Pick the collection whose title matches the keyword (its room/style word); else the first. None found -> null (no link).
+async function bestCollectionForPage(keyword, pageUrl, publicOrigin) {
   try {
-    const d = await shopifyGQL(`query($q:String!){ collections(first:1, query:$q){ edges{ node{ handle title } } } }`, { q: keyword });
-    const node = d && d.collections && d.collections.edges && d.collections.edges[0] && d.collections.edges[0].node;
-    if (node && node.handle) return { url: `${publicOrigin}/collections/${node.handle}`, title: node.title || '' };
-  } catch { /* no collection → no link */ }
-  return null;
+    let candidates = []; // [{ handle, title }]
+    const prod = pageUrl && pageUrl.match(/\/products\/([^/?#]+)/);
+    const blog = pageUrl && pageUrl.match(/\/blogs\/[^/]+\/([^/?#]+)/);
+    if (prod) {
+      const h = decodeURIComponent(prod[1]);
+      const d = await shopifyGQL(`query($q:String!){ products(first:1, query:$q){ nodes{ collections(first:25){ nodes{ handle title } } } } }`, { q: 'handle:' + h });
+      const node = d && d.products && d.products.nodes && d.products.nodes[0];
+      if (node && node.collections) candidates = (node.collections.nodes || []).filter(c => c && c.handle);
+    } else if (blog) {
+      const h = decodeURIComponent(blog[1]);
+      const d = await shopifyGQL(`query($q:String!){ articles(first:1, query:$q){ nodes{ metafield(namespace:"custom", key:"linked_collections"){ value } } } }`, { q: 'handle:' + h });
+      const node = d && d.articles && d.articles.nodes && d.articles.nodes[0];
+      const raw = node && node.metafield && node.metafield.value;
+      let gids = []; if (raw) { try { gids = JSON.parse(raw); } catch { gids = []; } }
+      if (Array.isArray(gids) && gids.length) {
+        const rd = await shopifyGQL(`query($ids:[ID!]!){ nodes(ids:$ids){ ... on Collection { handle title } } }`, { ids: gids });
+        candidates = (rd.nodes || []).filter(c => c && c.handle).map(c => ({ handle: c.handle, title: c.title }));
+      }
+    }
+    if (!candidates.length) return null;
+    const kwWords = String(keyword || '').split(/[^a-z]+/i).filter(w => w.length >= 4);
+    const best = candidates.find(c => looseHit(c.title, kwWords)) || candidates[0];
+    return { url: `${publicOrigin}/collections/${best.handle}`, title: best.title || '' };
+  } catch { return null; }
 }
 // AI writes the H2 + paragraph; we embed a real internal link to the best-matching collection and return
 // ready-to-paste HTML (for the visual editor) + a plain-text fallback.
@@ -786,15 +813,16 @@ async function generateCaptureContent(body) {
   // Best-matching collection for the internal link (link points at the public storefront).
   let publicOrigin = 'https://aboutwallart.com';
   if (pageUrl) { const mo = pageUrl.match(/^https?:\/\/[^/]+/); if (mo) publicOrigin = mo[0]; }
-  const coll = anchor ? await bestCollectionUrl(keyword, publicOrigin) : null;
+  const coll = await bestCollectionForPage(keyword, pageUrl, publicOrigin);
 
-  // Build the paragraph HTML with the anchor wrapped as a link (first occurrence). If the anchor isn't in
-  // the text, append a short sentence with the link.
+  // Build the paragraph HTML with the link. Wrap the anchor phrase (first occurrence); if it isn't in the
+  // text, append a short sentence with the link. A real collection was found -> a link is ALWAYS embedded.
   let paraHtml = escHtml(paragraph);
-  if (coll && anchor) {
-    const linkHtml = `<a href="${escHtml(coll.url)}">${escHtml(anchor)}</a>`;
+  if (coll) {
+    const linkText = anchor || coll.title || 'wall art collection';
+    const linkHtml = `<a href="${escHtml(coll.url)}">${escHtml(linkText)}</a>`;
     const escAnchor = escHtml(anchor);
-    if (paraHtml.indexOf(escAnchor) !== -1) paraHtml = paraHtml.replace(escAnchor, linkHtml);
+    if (anchor && paraHtml.indexOf(escAnchor) !== -1) paraHtml = paraHtml.replace(escAnchor, linkHtml);
     else paraHtml += ` Browse our ${linkHtml}.`;
   }
   const html = (h2 ? `<h2>${escHtml(h2)}</h2>\n` : '') + `<p>${paraHtml}</p>`;
