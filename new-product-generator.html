@@ -156,7 +156,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v2.9</span>
+  <span class="ver">v3.0</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -840,17 +840,14 @@ async function approveContent(sku){
     PRODUCTS=r.products; EDIT_STEP=null; renderFlow(); msg('Content approved.','ok');
   }catch(e){ msg('Save failed: '+e.message,'err'); }
 }
-function onImageSelected(sku, inputEl){
+async function onImageSelected(sku, inputEl){
   const file=inputEl.files[0]; if(!file) return;
-  const reader=new FileReader();
-  reader.onload=()=>{
-    const m=(reader.result||'').match(/^data:([^;]+);base64,([\s\S]*)$/);
-    if(!m){ msg('Could not read that image.','err'); return; }
-    IMAGE_STATE[sku]={mediaType:m[1], data:m[2]};
+  try{
+    const img=(await compressImageFile(file,2000,0.85)) || (await readFileAsBase64(file));
+    if(!img){ msg('Could not read that image.','err'); return; }
+    IMAGE_STATE[sku]={mediaType:img.mediaType, data:img.data};
     renderFlow();
-  };
-  reader.onerror=()=>msg('Could not read that image.','err');
-  reader.readAsDataURL(file);
+  }catch(e){ msg('Could not read that image.','err'); }
 }
 async function runGenerateContent(sku){
   const img=IMAGE_STATE[sku];
@@ -1027,11 +1024,37 @@ function readFileAsBase64(file){
     reader.readAsDataURL(file);
   });
 }
+// Resize (longest side ≤ maxDim) + compress before upload so masters aren't huge. PNGs stay PNG (keep
+// transparency); everything else exports JPEG at `quality`. Returns null on any failure → caller falls back.
+function compressImageFile(file, maxDim, quality){
+  return new Promise((resolve)=>{
+    try{
+      const url=URL.createObjectURL(file);
+      const im=new Image();
+      im.onload=()=>{
+        try{
+          const w=im.naturalWidth||im.width, h=im.naturalHeight||im.height;
+          const scale=Math.min(1, maxDim/Math.max(w,h));
+          const nw=Math.max(1,Math.round(w*scale)), nh=Math.max(1,Math.round(h*scale));
+          const c=document.createElement('canvas'); c.width=nw; c.height=nh;
+          c.getContext('2d').drawImage(im,0,0,nw,nh);
+          const isPng=/png/i.test(file.type);
+          const dataUrl=isPng?c.toDataURL('image/png'):c.toDataURL('image/jpeg',quality);
+          URL.revokeObjectURL(url);
+          const m=(dataUrl||'').match(/^data:([^;]+);base64,([\s\S]*)$/);
+          resolve(m?{mediaType:m[1],data:m[2]}:null);
+        }catch(e){ URL.revokeObjectURL(url); resolve(null); }
+      };
+      im.onerror=()=>{ URL.revokeObjectURL(url); resolve(null); };
+      im.src=url;
+    }catch(e){ resolve(null); }
+  });
+}
 async function uploadOneFile(sku, slot, index, file){
   const key=dzKey(sku,slot,index);
   UPLOADING[key]=true; renderFlow();
   try{
-    const {mediaType,data}=await readFileAsBase64(file);
+    const {mediaType,data}=(await compressImageFile(file,2000,0.85)) || (await readFileAsBase64(file));
     const r=await api({action:'upload-image', sku, slot, image:data, imageMediaType:mediaType});
     PRODUCTS=r.products;
   }catch(e){ msg('Upload failed: '+e.message,'err'); }

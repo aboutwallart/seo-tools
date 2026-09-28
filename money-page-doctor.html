@@ -286,7 +286,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
-                    <p class="subtitle">AI-Powered SEO Analysis · v71.0</p>
+                    <p class="subtitle">AI-Powered SEO Analysis · v71.1</p>
                     <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.11</p>
                     <button onclick="resetAllChecklists()" title="Wipe all saved checklists so every page starts fresh" style="margin-top:6px;background:#fff;color:#c62828;border:1px solid #ef9a9a;padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;">🧹 Reset all checklists (start clean)</button>
                 </div>
@@ -749,11 +749,13 @@
                 head = '<span style="background:#f6e3cf;color:#8a4b12;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-left:6px;">strengthen</span>';
                 body = '<div style="font-size:0.85rem;color:#b3620a;margin:4px 0 8px;word-break:break-word;">ranks on a page locked to “'+escDF(t.lockedToKeyword||'another keyword')+'” — add a short section + internal link to this page:<br>'+escDF(t.pageUrl||'')+'</div>';
                 if(t.paragraph){
+                    const preview = t.html ? t.html : ((t.h2?'<h4 style="margin:0 0 4px;">'+escDF(t.h2)+'</h4>':'')+'<p style="margin:0;">'+escDF(t.paragraph)+'</p>');
+                    const dest = (t.internalLink && t.internalLink.target) ? '<div style="font-size:0.8rem;color:#555;margin-top:8px;">Link goes to: <a href="'+escDF(t.internalLink.target)+'" target="_blank" rel="noopener">'+escDF(t.internalLink.target)+'</a></div>' : '';
                     body += '<div style="background:#f7faf7;border:1px solid #cfead0;border-radius:8px;padding:10px 12px;margin:8px 0;">'+
-                        (t.h2?'<div style="font-weight:700;margin-bottom:4px;">'+escDF(t.h2)+'</div>':'')+
-                        '<div style="font-size:0.9rem;line-height:1.5;">'+escDF(t.paragraph)+'</div>'+
-                        (t.internalLink&&t.internalLink.anchor?'<div style="font-size:0.82rem;color:#555;margin-top:8px;">Internal link anchor: <b>'+escDF(t.internalLink.anchor)+'</b></div>':'')+
-                        '<button class="btn-secondary" style="margin-top:8px;" onclick="doFirstCopy('+"'"+encodeURIComponent(t.keyword)+"'"+')">Copy section</button>'+
+                        '<div style="font-size:0.9rem;line-height:1.55;">'+preview+'</div>'+
+                        dest+
+                        '<button class="btn-secondary" style="margin-top:8px;" onclick="doFirstCopy('+"'"+encodeURIComponent(t.keyword)+"'"+')">Copy section (paste into the body)</button>'+
+                        '<span id="copied-'+encodeURIComponent(t.keyword)+'" style="margin-left:8px;font-size:0.8rem;color:#1f5f1f;"></span>'+
                     '</div>';
                 } else {
                     body += '<button class="btn-secondary" onclick="doFirstGenerate('+"'"+encodeURIComponent(t.keyword)+"'"+')">Write the section for me</button>';
@@ -777,17 +779,24 @@
         }
         async function doFirstGenerate(kwEnc){
             const t = doFirstFind(kwEnc); if(!t) return;
-            const box = document.getElementById('doFirstList');
             try{
                 const r = await kwApi({action:'generate-capture-content',keyword:t.keyword,pageUrl:t.pageUrl,lockedToKeyword:t.lockedToKeyword});
-                t.h2 = r.h2||''; t.paragraph = r.paragraph||''; t.internalLink = { anchor: r.internalLinkAnchor||'', target:'' };
+                t.h2 = r.h2||''; t.paragraph = r.paragraph||''; t.html = r.html||''; t.plainText = r.plainText||'';
+                t.internalLink = { anchor: r.internalLinkAnchor||'', target: r.target||'' };
                 renderDoFirst();
             }catch(e){ alert('Could not write the section: '+e.message); }
         }
+        // Copy the section as rich text (formatted + working link) so it pastes into the visual body editor.
         async function doFirstCopy(kwEnc){
             const t = doFirstFind(kwEnc); if(!t) return;
-            const text = (t.h2?t.h2+'\n\n':'')+(t.paragraph||'')+(t.internalLink&&t.internalLink.anchor?'\n\nInternal link anchor: '+t.internalLink.anchor:'');
-            try{ await navigator.clipboard.writeText(text); }catch{ /* ignore */ }
+            const html = t.html || ((t.h2?'<h2>'+escDF(t.h2)+'</h2>':'')+'<p>'+escDF(t.paragraph||'')+'</p>');
+            const plain = t.plainText || ((t.h2?t.h2+'\n\n':'')+(t.paragraph||''));
+            try{
+                if(window.ClipboardItem && navigator.clipboard && navigator.clipboard.write){
+                    await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html],{type:'text/html'}), 'text/plain': new Blob([plain],{type:'text/plain'}) })]);
+                } else { await navigator.clipboard.writeText(plain); }
+                const s = document.getElementById('copied-'+kwEnc); if(s){ s.textContent='Copied ✓'; setTimeout(()=>{ if(s) s.textContent=''; },2500); }
+            }catch{ try{ await navigator.clipboard.writeText(plain); }catch{} }
         }
         async function doFirstStatus(kwEnc, status){
             const t = doFirstFind(kwEnc); if(!t) return;
