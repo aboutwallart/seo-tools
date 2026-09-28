@@ -1,4 +1,8 @@
-// api/keywords.js — New Product Generator backend  ·  v0.32
+// api/keywords.js — New Product Generator backend  ·  v0.33
+// v0.33 (2026-09-28): #6 guarantee — resolveShopifyFields now DROPS any tag that names a room/style the
+//   product isn't for (belt-and-suspenders over the OR/AND fix; stops "Living room Art" on a bathroom
+//   product whatever the collection config). Also new action reorder-individual-images (for the individual
+//   multi-drop + drag-reorder in the NPG).
 // v0.32 (2026-09-28): C1 — capture-content internal link now points at a REAL collection the page already
 //   uses: product page -> the product's own collections; blog page -> its custom.linked_collections
 //   metafield. Picks the one matching the keyword; a link is always embedded when one is found (no more
@@ -1677,6 +1681,26 @@ async function reorderLifestyleImages(sku, order) {
   throw new Error('write conflict, try again');
 }
 
+async function reorderIndividualImages(sku, order) {
+  if (!Array.isArray(order)) throw new Error('order required');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const file = await ghGet(PRODUCTS_PATH);
+    let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === sku.toLowerCase());
+    if (idx < 0) throw new Error('product not found: ' + sku);
+    const product = arr[idx];
+    const individuals = (product.images && product.images.individuals) || [];
+    const valid = order.length === individuals.length && new Set(order).size === individuals.length && order.every(i => Number.isInteger(i) && i >= 0 && i < individuals.length);
+    if (!valid) throw new Error('invalid order');
+    const images = { ...(product.images || {}), individuals: order.map(i => individuals[i]) };
+    arr[idx] = { ...product, images, updatedAt: new Date().toISOString() };
+    try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG reorder individual images: ${sku}`); return { products: arr }; }
+    catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
+  }
+  throw new Error('write conflict, try again');
+}
+
 async function removeProductImage(sku, slot, index) {
   for (let attempt = 0; attempt < 2; attempt++) {
     const file = await ghGet(PRODUCTS_PATH);
@@ -1906,8 +1930,24 @@ async function resolveShopifyFields(sku) {
   if (complementaryGids.length) push('shopify--discovery--product_recommendation', 'complementary_products', 'list.product_reference', JSON.stringify(complementaryGids));
   if (related.gids.length) push('shopify--discovery--product_recommendation', 'related_products', 'list.product_reference', JSON.stringify(related.gids));
 
+  // #6 guarantee: never attach a tag that names a ROOM or STYLE the product isn't for (e.g. "Living room Art"
+  // on a bathroom product), no matter how a smart collection's rule is built. Mirrors the #3 topic veto.
+  const roomKeys = vocabKeysOf((col['By Room'] || []).map(s => String(s).toLowerCase()), ROOM_VOCAB);
+  const styleKeys = vocabKeysOf(
+    (col['By Style'] || []).map(s => String(s).toLowerCase())
+      .concat((product.trends || []).map(t => String(t).toLowerCase().replace(/\b(decor|design|style)\b/g, '').trim())),
+    STYLE_VOCAB
+  );
+  const cleanTags = [];
+  const droppedTags = [];
+  [...new Set(tagsToAdd)].forEach(tag => {
+    if (vocabOk(tag, roomKeys, ROOM_VOCAB) && vocabOk(tag, styleKeys, STYLE_VOCAB)) cleanTags.push(tag);
+    else droppedTags.push(tag);
+  });
+  if (droppedTags.length) warnings.push('Removed off-topic room/style tag(s): ' + droppedTags.join(', '));
+
   return {
-    sku: product.sku, metafields, tagsToAdd: [...new Set(tagsToAdd)], collectionsToJoin,
+    sku: product.sku, metafields, tagsToAdd: cleanTags, collectionsToJoin,
     unresolvedSmart, notFoundCollections, relatedMainCollection: related.mainName || null, warnings,
     debug: { sales24, salesCount, foxkit }
   };
@@ -2250,6 +2290,12 @@ export default async function handler(req, res) {
     if (action === 'reorder-lifestyle-images') {
       if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
       const out = await reorderLifestyleImages(body.sku, Array.isArray(body.order) ? body.order.map(Number) : []);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    if (action === 'reorder-individual-images') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const out = await reorderIndividualImages(body.sku, Array.isArray(body.order) ? body.order.map(Number) : []);
       return res.status(200).json({ ok: true, ...out });
     }
 
