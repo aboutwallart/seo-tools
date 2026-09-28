@@ -1,4 +1,8 @@
-// api/keywords.js — New Product Generator backend  ·  v0.33
+// api/keywords.js — New Product Generator backend  ·  v0.34
+// v0.34 (2026-09-28): #6 (final) — the colour/style collections only hold the LIVING-ROOM versions (rule is
+//   AND [specific tag + "Living room Art"]). So a ticked collection that REQUIRES "Living room Art" is now
+//   skipped entirely (no tags, not linked) when the product isn't marked for Living room. By Style/By Colour
+//   are still used for the AI content + SEO. Removed the earlier v0.33 room/style tag veto (wrong approach).
 // v0.33 (2026-09-28): #6 guarantee — resolveShopifyFields now DROPS any tag that names a room/style the
 //   product isn't for (belt-and-suspenders over the OR/AND fix; stops "Living room Art" on a bathroom
 //   product whatever the collection config). Also new action reorder-individual-images (for the individual
@@ -1838,6 +1842,11 @@ async function resolveShopifyFields(sku) {
 
   const warnings = [];
   const col = product.collections || {};
+  // #6 (final): the colour/style collections only hold the LIVING-ROOM versions of the artworks — their
+  // rule is AND [specific tag + "Living room Art"]. So a product that isn't marked for Living room must NOT
+  // be added to them (that's what was forcing "Living room Art" onto bathroom products). By Style/By Colour
+  // are still ticked for the AI content + SEO — this only gates the Shopify tags/collections.
+  const isLivingRoomProduct = (col['By Room'] || []).some(r => /living\s*room/i.test(String(r)));
   const allTicked = [];
   Object.keys(col).forEach(g => (col[g] || []).forEach(name => allTicked.push({ group: g, name })));
 
@@ -1866,6 +1875,16 @@ async function resolveShopifyFields(sku) {
       if (!rs) { notFoundCollections.push(r.name); return; }
       if (rs.isSmart) {
         if (rs.tags && rs.tags.length) {
+          // Living-room-only collection = AND rule that REQUIRES the "Living room Art" tag. Skip it entirely
+          // (add none of its tags) when this product isn't marked for Living room — that's the fix for
+          // colour/style collections leaking "Living room Art" onto non-living-room products.
+          const gatedByLivingRoom = !rs.disjunctive && rs.tags.some(t => String(t).trim().toLowerCase() === 'living room art');
+          if (gatedByLivingRoom && !isLivingRoomProduct) {
+            const gi = linkedCollectionGids.indexOf(r.gid);
+            if (gi !== -1) linkedCollectionGids.splice(gi, 1); // don't link it in the metafield either
+            warnings.push('Skipped "' + (rs.title || r.name) + '" — it only holds the Living-room versions, and this product isn\'t marked for Living room.');
+            return;
+          }
           if (rs.disjunctive) {
             // OR collection: product only needs ONE tag — add the one that fits, never all of them.
             const picked = pickCollectionTag(rs.tags, r.name, product);
@@ -1930,24 +1949,8 @@ async function resolveShopifyFields(sku) {
   if (complementaryGids.length) push('shopify--discovery--product_recommendation', 'complementary_products', 'list.product_reference', JSON.stringify(complementaryGids));
   if (related.gids.length) push('shopify--discovery--product_recommendation', 'related_products', 'list.product_reference', JSON.stringify(related.gids));
 
-  // #6 guarantee: never attach a tag that names a ROOM or STYLE the product isn't for (e.g. "Living room Art"
-  // on a bathroom product), no matter how a smart collection's rule is built. Mirrors the #3 topic veto.
-  const roomKeys = vocabKeysOf((col['By Room'] || []).map(s => String(s).toLowerCase()), ROOM_VOCAB);
-  const styleKeys = vocabKeysOf(
-    (col['By Style'] || []).map(s => String(s).toLowerCase())
-      .concat((product.trends || []).map(t => String(t).toLowerCase().replace(/\b(decor|design|style)\b/g, '').trim())),
-    STYLE_VOCAB
-  );
-  const cleanTags = [];
-  const droppedTags = [];
-  [...new Set(tagsToAdd)].forEach(tag => {
-    if (vocabOk(tag, roomKeys, ROOM_VOCAB) && vocabOk(tag, styleKeys, STYLE_VOCAB)) cleanTags.push(tag);
-    else droppedTags.push(tag);
-  });
-  if (droppedTags.length) warnings.push('Removed off-topic room/style tag(s): ' + droppedTags.join(', '));
-
   return {
-    sku: product.sku, metafields, tagsToAdd: cleanTags, collectionsToJoin,
+    sku: product.sku, metafields, tagsToAdd: [...new Set(tagsToAdd)], collectionsToJoin,
     unresolvedSmart, notFoundCollections, relatedMainCollection: related.mainName || null, warnings,
     debug: { sales24, salesCount, foxkit }
   };
