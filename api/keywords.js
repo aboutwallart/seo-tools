@@ -1,4 +1,6 @@
-// api/keywords.js — New Product Generator backend  ·  v0.27
+// api/keywords.js — New Product Generator backend  ·  v0.28
+// v0.28 (2026-09-28): A1 — hardened JSON parse in generateContent: repair bad escapes + strip control
+//   chars (fixes "Bad escaped character" on titles like "Solo d'Amalfi"), then retry the model once.
 // v0.27 (2026-09-28): alt text now describes the ARTWORK (from product.content.productTitle), varied per
 //   image, never "print". admin-link resolves blog articles robustly. generate-capture-content embeds an
 //   internal link to the best-matching COLLECTION and returns ready-to-paste HTML (+ plain text).
@@ -1014,24 +1016,17 @@ Return EXACTLY this JSON (real content, no placeholders):
 Return ONLY the JSON object — no other text.`;
 }
 
-async function generateContent(body) {
-  const sku = body.sku;
-  const image = body.image;
-  const imageMediaType = body.imageMediaType || 'image/jpeg';
-  if (!sku) throw new Error('sku required');
-  if (!image) throw new Error('image required');
-  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set');
+// A1: repair a model JSON string so JSON.parse survives common LLM slips.
+// - raw control chars (newlines/tabs) inside string values -> single space (invalid in JSON)
+// - stray backslashes that don't form a valid JSON escape (e.g. \' in "Solo d'Amalfi") -> drop the backslash
+function repairModelJson(s) {
+  return String(s)
+    .replace(/[\u0000-\u001F]/g, ' ')
+    .replace(/\\(?!["\\/bfnrtu])/g, '');
+}
 
-  const products = await readProducts();
-  const product = products.find(p => (p.sku || '').toLowerCase() === sku.toLowerCase());
-  if (!product) throw new Error('product not found: ' + sku);
-  if (!product.keyword) { const e = new Error('This product has no keyword yet — pick one first.'); e.status = 400; throw e; }
-
-  const competitors = await findTop3Competitors(product.keyword);
-  const competitorsData = competitors.length ? await Promise.all(competitors.map(fetchCompetitorData)) : [];
-
-  const prompt = buildGenerateContentPrompt(product, competitorsData);
-
+// A1: call the model, return the cleaned JSON candidate text (fences stripped, outer object matched).
+async function fetchGenerateContentJson(prompt, image, imageMediaType) {
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
@@ -1053,8 +1048,42 @@ async function generateContent(body) {
   let clean = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
   const jsonMatch = clean.match(/\{[\s\S]*\}/);
   if (jsonMatch) clean = jsonMatch[0];
-  let parsed;
-  try { parsed = JSON.parse(clean); } catch (e) { throw new Error('Could not parse Claude response as JSON: ' + String(e.message || e)); }
+  return clean;
+}
+
+async function generateContent(body) {
+  const sku = body.sku;
+  const image = body.image;
+  const imageMediaType = body.imageMediaType || 'image/jpeg';
+  if (!sku) throw new Error('sku required');
+  if (!image) throw new Error('image required');
+  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set');
+
+  const products = await readProducts();
+  const product = products.find(p => (p.sku || '').toLowerCase() === sku.toLowerCase());
+  if (!product) throw new Error('product not found: ' + sku);
+  if (!product.keyword) { const e = new Error('This product has no keyword yet — pick one first.'); e.status = 400; throw e; }
+
+  const competitors = await findTop3Competitors(product.keyword);
+  const competitorsData = competitors.length ? await Promise.all(competitors.map(fetchCompetitorData)) : [];
+
+  const prompt = buildGenerateContentPrompt(product, competitorsData);
+
+  // A1: try parse -> try repaired parse -> re-ask the model once. Robust to bad escapes / control chars.
+  let parsed = null, lastErr = null;
+  for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
+    const clean = await fetchGenerateContentJson(prompt, image, imageMediaType);
+    try {
+      parsed = JSON.parse(clean);
+    } catch (e1) {
+      try {
+        parsed = JSON.parse(repairModelJson(clean));
+      } catch (e2) {
+        lastErr = e2;
+      }
+    }
+  }
+  if (!parsed) throw new Error('Could not parse Claude response as JSON: ' + String((lastErr && lastErr.message) || lastErr));
 
   // meta description must always end with "Free UK shipping!"
   let meta = (parsed.metaDescription || '').trim();
