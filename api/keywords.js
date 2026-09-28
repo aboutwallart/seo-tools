@@ -1,4 +1,8 @@
-// api/keywords.js — New Product Generator backend  ·  v0.29
+// api/keywords.js — New Product Generator backend  ·  v0.30
+// v0.30 (2026-09-28): B#3 — topic filter now excludes off-topic ROOMS and STYLES. gapClassify drops any
+//   keyword that names a room or style the product isn't for (built from the real By Room / By Style +
+//   By Trend taxonomy). Mae's own manual/extra words still bypass the veto. Covers gsc-opportunities,
+//   gap-research and available-product-keywords (all route through gapClassify).
 // v0.29 (2026-09-28): A2 — readProducts() now reads fresh via the GitHub API (no CDN lag), so a product
 //   saved a moment ago (e.g. right after an image upload) is found. Falls back to the raw CDN on error.
 // v0.28 (2026-09-28): A1 — hardened JSON parse in generateContent: repair bad escapes + strip control
@@ -117,6 +121,75 @@ const COLOUR_VOCAB = new Set(['black','white','blue','pink','green','grey','gray
 // colours allowed = ONLY the given list's colour words; used to drop keywords mentioning any other colour
 function colourWordsOf(list) { const s = new Set(); (list || []).forEach(c => String(c).toLowerCase().split(/[^a-z]+/).forEach(w => { if (COLOUR_VOCAB.has(w)) s.add(w); })); return s; }
 function colourOk(kw, allowed) { for (const w of kw.split(/[^a-z]+/)) { if (COLOUR_VOCAB.has(w) && !allowed.has(w)) return false; } return true; }
+// B#3: room + style topic filters (mirror colourOk). Drop a keyword that names a ROOM or STYLE the product isn't for.
+const ROOM_VOCAB = {
+  'bathroom':        ['bathroom','shower room','ensuite','en suite','en-suite','powder room'],
+  'bedroom':         ['bedroom','above bed','over bed','master bedroom','guest bedroom'],
+  'nursery':         ['nursery','baby room','babys room','baby nursery'],
+  'kids':            ['kids','kids room','childrens','childs room','playroom','teen','teens','teenage','teenager'],
+  'living room':     ['living room','lounge','sitting room','front room','family room'],
+  'kitchen':         ['kitchen'],
+  'dining room':     ['dining room','dining','breakfast room'],
+  'hallway':         ['hallway','entryway','entrance','foyer'],
+  'office':          ['office','study','home office','workspace'],
+  'laundry room':    ['laundry','laundry room','utility room'],
+  'games room':      ['games room','game room','man cave'],
+  'above fireplace': ['above fireplace','over fireplace','mantel','mantelpiece']
+};
+// Built from the store's real By Style + By Trend taxonomy (synonyms grouped; ambiguous ones kept as phrases).
+const STYLE_VOCAB = {
+  'abstract':        ['abstract'],
+  'bohemian':        ['bohemian','boho'],
+  'chinoiserie':     ['chinoiserie'],
+  'christian':       ['christian'],
+  'coastal':         ['coastal'],
+  'coffee':          ['coffee','coffee house'],
+  'contemporary':    ['contemporary','modern'],
+  'eclectic':        ['eclectic'],
+  'maximalism':      ['maximalism','maximalist'],
+  'farmhouse':       ['farmhouse'],
+  'french country':  ['french country'],
+  'islamic':         ['islamic'],
+  'japandi':         ['japandi'],
+  'marble':          ['marble'],
+  'minimalism':      ['minimalism','minimalist','minimal'],
+  'scandinavian':    ['scandinavian','scandi','nordic'],
+  'shabby chic':     ['shabby chic'],
+  'sun & moon':      ['sun & moon','sun and moon'],
+  'travel':          ['travel'],
+  'tropical':        ['tropical'],
+  'wildlife':        ['wildlife','wild life'],
+  'zen':             ['zen'],
+  'biophilic':       ['biophilic'],
+  'black & white':   ['black & white','black and white'],
+  'country cottage': ['country cottage'],
+  'industrial':      ['industrial'],
+  'masculine':       ['masculine'],
+  'mediterranean':   ['mediterranean'],
+  'mid century':     ['mid century','mid-century','midcentury'],
+  'moroccan':        ['moroccan'],
+  'old money':       ['old money'],
+  'preppy':          ['preppy'],
+  'transitional':    ['transitional']
+};
+// which vocab entries the product itself belongs to (from its own room/style names)
+function vocabKeysOf(names, vocab) {
+  const keys = new Set();
+  (names || []).forEach(name => {
+    const n = String(name).toLowerCase();
+    for (const key in vocab) { if (key === n || wordMatch(n, key) || vocab[key].some(ph => wordMatch(n, ph))) keys.add(key); }
+  });
+  return keys;
+}
+// kw is OK unless it names a vocab entry the product does NOT have. Empty allowed set -> never blocks.
+function vocabOk(kw, allowedKeys, vocab) {
+  if (!allowedKeys || !allowedKeys.size) return true;
+  for (const key in vocab) {
+    if (allowedKeys.has(key)) continue;
+    if (vocab[key].some(ph => wordMatch(kw, ph))) return false;
+  }
+  return true;
+}
 const MIN_VOLUME = 10;
 const MAX_SEEDS_PER_PRODUCT = 8;
 const MAX_DIFF_CANDIDATES_PER_PRODUCT = 15;
@@ -318,14 +391,19 @@ function gapTermsForProduct(p) {
   const trendRoots = (p.trends || []).map(t => t.toLowerCase().replace(/\b(decor|design|style)\b/g, '').trim()).filter(Boolean);
   const colours = (p.primaryColour || []).map(c => c.toLowerCase());
   const extra = (p.keywordWords || []).map(w => String(w).toLowerCase().trim()).filter(Boolean);
-  return { styles, rooms, trendRoots, colours, extra };
+  const roomKeys = vocabKeysOf(rooms, ROOM_VOCAB);
+  const styleKeys = vocabKeysOf(styles.concat(trendRoots), STYLE_VOCAB);
+  return { styles, rooms, trendRoots, colours, extra, roomKeys, styleKeys };
 }
 // Returns { qualifies, tier } — tier 1 = manual/extra word match (top priority), tier 2 = style/room/trend or product-colour+art.
 // A colour only qualifies when the product's own colour describes art (colour word + an ART_WORD together);
 // a colour alone, or a colour describing something else (e.g. "the white rabbit"), never qualifies.
 function gapClassify(kw, terms) {
   const extraHit = anyWord(kw, terms.extra);
-  if (extraHit) return { qualifies: true, tier: 1 };
+  if (extraHit) return { qualifies: true, tier: 1 }; // Mae's own words always win, no veto
+  // B#3: hard veto — a keyword naming a room or style the product isn't for never qualifies
+  if (!vocabOk(kw, terms.roomKeys, ROOM_VOCAB)) return { qualifies: false, tier: 0 };
+  if (!vocabOk(kw, terms.styleKeys, STYLE_VOCAB)) return { qualifies: false, tier: 0 };
   const themeHit = anyWord(kw, terms.styles) || anyWord(kw, terms.rooms) || anyWord(kw, terms.trendRoots);
   const colourArtHit = anyWord(kw, terms.colours) && anyWord(kw, ART_WORDS);
   if (themeHit || colourArtHit) return { qualifies: true, tier: 2 };
