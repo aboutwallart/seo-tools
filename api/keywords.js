@@ -1,4 +1,8 @@
-// api/keywords.js — New Product Generator backend  ·  v0.30
+// api/keywords.js — New Product Generator backend  ·  v0.31
+// v0.31 (2026-09-28): #6 — Shopify tags now respect OR vs AND on smart collections. Reads
+//   ruleSet.appliedDisjunctively: AND (conjunctive) still adds ALL tag rules; OR (disjunctive) adds only
+//   the ONE tag that fits the product (collection title -> product room/style/colour -> first, flagged).
+//   Stops off-topic tags like "Living room Art" leaking onto a bathroom product from an OR collection.
 // v0.30 (2026-09-28): B#3 — topic filter now excludes off-topic ROOMS and STYLES. gapClassify drops any
 //   keyword that names a room or style the product isn't for (built from the real By Room / By Style +
 //   By Trend taxonomy). Mae's own manual/extra words still bypass the veto. Covers gsc-opportunities,
@@ -1446,19 +1450,20 @@ async function fetchRuleSetsByIds(ids) {
   const unique = [...new Set(ids)];
   for (let i = 0; i < unique.length; i += 20) {
     const chunk = unique.slice(i, i + 20);
-    const q = 'query {\n' + chunk.map((id, j) => `c${j}: collection(id:"${id}"){ id title ruleSet{ rules{ column relation condition } } } `).join('\n') + '\n}';
+    const q = 'query {\n' + chunk.map((id, j) => `c${j}: collection(id:"${id}"){ id title ruleSet{ appliedDisjunctively rules{ column relation condition } } } `).join('\n') + '\n}';
     const data = await shopifyGQL(q);
     chunk.forEach((id, j) => {
       const n = data['c' + j]; if (!n) return;
       const isSmart = !!(n.ruleSet && Array.isArray(n.ruleSet.rules) && n.ruleSet.rules.length);
-      // Trust the rules (add ALL the tags) only when EVERY rule is a plain TAG=X condition — that's a
-      // safe superset regardless of whether the store's collection matches ANY or ALL of its rules.
-      // Any non-tag rule (VARIANT_PRICE, TYPE, VARIANT_INVENTORY…) can't be satisfied by tagging alone.
+      // #6: collect the tag conditions only when EVERY rule is a plain TAG=X condition. Any non-tag rule
+      // (VARIANT_PRICE, TYPE, VARIANT_INVENTORY…) can't be satisfied by tagging alone.
+      // disjunctive = OR (product needs only ONE of the tags) vs conjunctive = AND (needs ALL of them).
+      // The caller uses this: AND -> add all tags; OR -> add only the ONE that fits the product.
       let tags = null;
       if (isSmart && n.ruleSet.rules.every(r => r.column === 'TAG' && r.relation === 'EQUALS' && r.condition)) {
         tags = n.ruleSet.rules.map(r => r.condition);
       }
-      out.set(id, { isSmart, tags, ruleCount: isSmart ? n.ruleSet.rules.length : 0, title: n.title });
+      out.set(id, { isSmart, tags, disjunctive: !!(n.ruleSet && n.ruleSet.appliedDisjunctively), ruleCount: isSmart ? n.ruleSet.rules.length : 0, title: n.title });
     });
   }
   return out;
@@ -1751,6 +1756,27 @@ async function uploadFixedImages(force) {
 }
 
 /* ---------------- resolve-shopify-fields — READ-ONLY preview of everything Send-to-Shopify will write ---------------- */
+// #6: for an OR (disjunctive) smart collection the product needs only ONE tag. Pick the one that fits:
+// first a tag matching the collection's own title, then one matching the product's room/style/colour/keyword,
+// else the first tag (flagged as a fallback so Mae can check it). Never add ALL tags for an OR collection.
+function looseHit(tag, words) {
+  const t = String(tag).toLowerCase();
+  return (words || []).some(w => { w = String(w).toLowerCase().trim(); return w.length >= 4 && t.includes(w.slice(0, 5)); });
+}
+function pickCollectionTag(tags, collName, product) {
+  const nameWords = String(collName || '').split(/[^a-z]+/i).filter(Boolean);
+  let hit = tags.find(t => looseHit(t, nameWords));
+  if (hit) return { tag: hit, fallback: false };
+  const col = product.collections || {};
+  const ctx = [];
+  ['By Room', 'By Style', 'By Colour'].forEach(g => (col[g] || []).forEach(v => ctx.push(v)));
+  (product.trends || []).forEach(t => ctx.push(String(t).replace(/\b(decor|design|style)\b/gi, '')));
+  if (product.keyword) ctx.push(product.keyword);
+  const ctxWords = ctx.join(' ').split(/[^a-z]+/i).filter(Boolean);
+  hit = tags.find(t => looseHit(t, ctxWords));
+  if (hit) return { tag: hit, fallback: false };
+  return { tag: tags[0], fallback: true };
+}
 async function resolveShopifyFields(sku) {
   const products = await readProducts();
   const product = products.find(p => (p.sku || '').toLowerCase() === (sku || '').toLowerCase());
@@ -1787,8 +1813,17 @@ async function resolveShopifyFields(sku) {
       const rs = ruleSets.get(r.gid);
       if (!rs) { notFoundCollections.push(r.name); return; }
       if (rs.isSmart) {
-        if (rs.tags && rs.tags.length) tagsToAdd.push(...rs.tags);
-        else unresolvedSmart.push({ name: r.name, collectionId: r.gid, title: rs.title, ruleCount: rs.ruleCount });
+        if (rs.tags && rs.tags.length) {
+          if (rs.disjunctive) {
+            // OR collection: product only needs ONE tag — add the one that fits, never all of them.
+            const picked = pickCollectionTag(rs.tags, r.name, product);
+            tagsToAdd.push(picked.tag);
+            if (picked.fallback) warnings.push('OR collection "' + (rs.title || r.name) + '": could not tell which tag fits — added "' + picked.tag + '". Please check.');
+          } else {
+            // AND collection: product needs ALL the tags to belong.
+            tagsToAdd.push(...rs.tags);
+          }
+        } else unresolvedSmart.push({ name: r.name, collectionId: r.gid, title: rs.title, ruleCount: rs.ruleCount });
       } else {
         collectionsToJoin.push({ id: r.gid, title: rs.title });
       }
