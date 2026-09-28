@@ -156,7 +156,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v3.0</span>
+  <span class="ver">v3.1</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -196,6 +196,7 @@ const DEFAULT_TEMPLATE = 'wall-decor';
 /* ---------- FLOW STATE ---------- */
 let DRAFT = false;        // true = showing an empty Step-1 form for a brand-new, not-yet-saved product
 let EDIT_STEP = null;     // if set, force this step open for editing even though it's already "done"
+let IMAGES_CONFIRMED = {}; // D5b: sku -> true once Mae confirms she's finished adding photos (keeps step 4 open until then)
 let IMAGE_STATE = {};     // sku -> {data, mediaType} (artwork base64, no data: prefix)
 let KW_RESULTS = null;    // Step 2 cached gap-research results for the current product
 let GSC_RESULTS = null;   // Step 2 cached GSC opportunity keywords (commercial, not locked)
@@ -331,7 +332,10 @@ function renderFlow(){
     return;
   }
   const natural = p ? computeNaturalStep(p) : 1;
-  const openN = EDIT_STEP || natural;
+  let openN = EDIT_STEP || natural;
+  // D5b: once all images are in, keep the images step OPEN until Mae confirms — she may still be adding more
+  // lifestyle photos. Don't auto-jump to Send to Shopify until she clicks "Looks good — continue".
+  if(!EDIT_STEP && p && !p.sent && natural===5 && !IMAGES_CONFIRMED[p.sku]) openN=4;
   let html='';
   for(let n=1;n<=5;n++){
     if(n===openN) html+=renderStepOpen(n,p);
@@ -398,6 +402,7 @@ function renderStepOpen(n,p){
 function startDraft(){ DRAFT=true; EDIT_STEP=null; renderFlow(); }
 function editStep(n){ EDIT_STEP=n; if(n===2){ KW_RESULTS=null; GSC_RESULTS=null; AVAILABLE_KWS=null; } renderFlow(); }
 function closeEdit(){ EDIT_STEP=null; renderFlow(); }
+function confirmImages(sku){ IMAGES_CONFIRMED[sku]=true; EDIT_STEP=null; renderFlow(); } // D5b: Mae's manual "I'm done adding photos"
 
 /* =====================================================================
    STEP 1 — PRODUCT
@@ -994,7 +999,7 @@ function stepImages(p){
   '</div></div>';
 
   if(isStepDone(p,4)){
-    html+='<div class="actions" style="margin-top:20px"><button class="btn primary" onclick="closeEdit()">Looks good — continue</button>'+
+    html+='<div class="actions" style="margin-top:20px"><button class="btn primary" onclick="confirmImages(\''+esc(sku)+'\')">Looks good — continue</button>'+
       (EDIT_STEP===4?'<button class="btn ghost" onclick="closeEdit()">Done</button>':'')+'</div>';
   } else {
     html+='<p class="sub" style="margin-top:18px">Add the lifestyle cover, all '+setSize+' individual photo(s) and the 5 flat images to unlock Send to Shopify.</p>';
