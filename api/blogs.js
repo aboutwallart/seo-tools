@@ -1,4 +1,6 @@
-// blogs.js — v5.0
+// blogs.js — v5.2
+// v5.2 (2026-09-27): performing-keywords-blog cleans ranking URLs (drop query) so the real page shows + URL-lock check matches.
+// v5.1 (2026-09-27): performing-keywords-blog now also hides the shared "✕ Dismiss" list (gsc-performing-dismissed.json).
 // v5.0 (2026-09-27): new GET action performing-keywords-blog — "Ya rankeás — capturá más" (blog side):
 //   informational keywords you already get clicks on (data/gsc-performing-keywords.json), not locked /
 //   not already a blog / not dismissed; ranking URL shown only if free (taken URL = write a new blog).
@@ -1150,7 +1152,9 @@ Include EXACTLY 3 items.`;
           if (rr.ok) { const j = await rr.json(); list = Array.isArray(j.keywords) ? j.keywords : []; }
         } catch (e) { /* no list yet */ }
         const lockedSet = new Set(); const blogKws = []; const urlLock = {};
-        const nrm = u => String(u || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
+        // Strip ?variant=… query so the real page shows + the "URL locked?" check matches the registry.
+        const cleanU = u => String(u || '').split(/[?#]/)[0];
+        const nrm = u => cleanU(u).trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
         try {
           const rc = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/keyword-locker-registry.csv?t=${Date.now()}`);
           if (rc.ok) {
@@ -1167,6 +1171,9 @@ Include EXACTLY 3 items.`;
         } catch (e) { /* ignore */ }
         let dismissed = [];
         try { const df = await getGitHubFile('data/gsc-blog-dismissed.json'); dismissed = (JSON.parse(df.content) || []).map(s => String(s).toLowerCase()); } catch (e) { dismissed = []; }
+        // Shared "✕ Dismiss" list (hidden from BOTH the product and blog performing panels).
+        let perfDismissed = [];
+        try { const pf = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/gsc-performing-dismissed.json?t=${Date.now()}`); if (pf.ok) { const j = await pf.json(); perfDismissed = (Array.isArray(j) ? j : []).map(s => String(s).toLowerCase()); } } catch (e) { perfDismissed = []; }
         const lockedArr = [...lockedSet];
         const options = list
           .filter(k => k && k.keyword && k.intent === 'blog')
@@ -1175,13 +1182,15 @@ Include EXACTLY 3 items.`;
             if (lockedArr.some(lk => lk.includes(kw))) return false;
             if (blogKws.some(bk => bk === kw || bk.includes(kw))) return false;
             if (dismissed.includes(kw)) return false;
+            if (perfDismissed.includes(kw)) return false;
             return true;
           })
           .map(k => {
-            const lockedTo = k.rankingUrl ? urlLock[nrm(k.rankingUrl)] : null;
-            const urlFree = !!(k.rankingUrl && !lockedTo);
+            const cleanRanking = k.rankingUrl ? cleanU(k.rankingUrl) : null;
+            const lockedTo = cleanRanking ? urlLock[nrm(cleanRanking)] : null;
+            const urlFree = !!(cleanRanking && !lockedTo);
             return { keyword: k.keyword, impressions: k.impressions, clicks: k.clicks, position: k.position,
-              rankingUrl: urlFree ? k.rankingUrl : null, urlLockedToOther: !!lockedTo, topSix: (k.position != null && k.position <= 6) };
+              pageUrl: cleanRanking || null, urlFree: urlFree, lockedToKeyword: lockedTo || null, topSix: (k.position != null && k.position <= 6) };
           })
           .slice(0, 100);
         return res.status(200).json({ success: true, options });

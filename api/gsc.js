@@ -1,3 +1,4 @@
+// gsc.js — 2026-09-27b: performing list stores CLEAN page URLs (drops ?variant=… query).
 // gsc.js — 2026-09-27: refresh-opportunities now ALSO builds data/gsc-performing-keywords.json — queries
 //   you already get CLICKS on (impr>=30, clicks>=1) + the page that ranks for each (a [page,query] pull),
 //   for the "Ya rankeás — capturá más" panel in the Product + Blog tools. Same intent cache, one AI pass.
@@ -27,8 +28,9 @@ function computePerforming(queryRows, pageQueryRows) {
   // Best-ranking page per query: lowest average position wins (tie → most impressions on that page).
   const pageByQuery = {};
   (pageQueryRows || []).forEach(r => {
-    const page = r.keys && r.keys[0], q = r.keys && r.keys[1];
+    var page = r.keys && r.keys[0]; const q = r.keys && r.keys[1];
     if (!page || !q) return;
+    page = String(page).split(/[?#]/)[0]; // drop ?variant=…&country=… → the real page URL
     const pos = r.position || 999, impr = r.impressions || 0;
     const cur = pageByQuery[q];
     if (!cur || pos < cur.pos || (pos === cur.pos && impr > cur.impr)) pageByQuery[q] = { url: page, pos, impr };

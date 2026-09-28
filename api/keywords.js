@@ -1,4 +1,11 @@
-// api/keywords.js — New Product Generator backend  ·  v0.22
+// api/keywords.js — New Product Generator backend  ·  v0.25
+// v0.25 (2026-09-28): matched-product-ideas now enriched (pageUrl/urlFree/lockedToKeyword/topSix) so the
+//   keyword step can mix already-ranking keywords into the options list; new action `admin-link` resolves
+//   a storefront URL (product or blog article) to its Shopify admin editor URL (add an internal link).
+// v0.24 (2026-09-27): clean ranking URLs (drop ?variant=…&country=… → the real page) — also fixes the
+//   false "URL free" when a variant URL did not match the registry; ② Use in product now leaves the panel instantly.
+// v0.23 (2026-09-27): performing panel — "✕ Dismiss" (data/gsc-performing-dismissed.json, hidden from
+//   BOTH product+blog panels) + "Send to blog" routing; keywords saved to product-ideas now leave the panel.
 // v0.22 (2026-09-27): "Ya rankeás — capturá más" (product side). New actions: performing-keywords
 //   (keywords you already get clicks on, COMMERCIAL, not locked/in-progress; each carries its ranking
 //   URL only if that URL is free — a taken URL means "build a new product"); claim-to-registry (lock a
@@ -183,7 +190,10 @@ async function lockedKeywordSet() {
 
 // Map of normalised URL -> the keyword it's LOCKED to (only rows with a real url + LOCKED). Used to tell,
 // for a keyword you rank for, whether the ranking page is already committed to ANOTHER keyword.
-function normUrl(u) { return String(u || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, ''); }
+// Strip the query string / hash: GSC reports variant URLs like ".../foo?variant=123&country=GB" but the
+// real page (and the registry) is just ".../foo". Cleaning also makes the "URL locked?" check match.
+function cleanUrl(u) { return String(u || '').split(/[?#]/)[0]; }
+function normUrl(u) { return cleanUrl(u).trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, ''); }
 async function registryUrlLockMap() {
   const map = {};
   try {
@@ -362,13 +372,36 @@ async function gscOpportunities(body) {
 // keywords.json), COMMERCIAL intent, not locked and not in-progress. Each carries its ranking URL ONLY
 // if that URL is free (not locked to ANOTHER keyword) — a taken URL means "build a new product instead".
 const PRODUCT_IDEAS_PATH = 'data/product-keyword-ideas.json';
+const PERFORMING_DISMISSED_PATH = 'data/gsc-performing-dismissed.json'; // shared: hidden from BOTH panels
+async function readPerformingDismissed() {
+  try {
+    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${PERFORMING_DISMISSED_PATH}?t=${Date.now()}`);
+    if (!r.ok) return new Set();
+    const arr = await r.json();
+    return new Set((Array.isArray(arr) ? arr : []).map(s => String(s).toLowerCase()));
+  } catch { return new Set(); }
+}
+async function dismissPerforming(keyword) {
+  keyword = (keyword || '').trim().toLowerCase();
+  if (!keyword) throw new Error('keyword required');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const file = await ghGet(PERFORMING_DISMISSED_PATH);
+    let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    if (arr.map(s => String(s).toLowerCase()).includes(keyword)) return { ok: true, already: true };
+    arr.push(keyword);
+    try { await ghPut(PERFORMING_DISMISSED_PATH, JSON.stringify(arr, null, 2), file.sha, `Dismiss performing keyword: ${keyword}`); return { ok: true }; }
+    catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
+  }
+  throw new Error('write conflict, try again');
+}
 async function performingKeywords(body) {
   let list = [];
   try {
     const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/gsc-performing-keywords.json?t=${Date.now()}`);
     if (r.ok) { const j = await r.json(); list = Array.isArray(j.keywords) ? j.keywords : []; }
   } catch { /* no list yet */ }
-  const [locked, allProducts, urlLocks] = await Promise.all([lockedKeywordSet(), readProducts(), registryUrlLockMap()]);
+  const [locked, allProducts, urlLocks, dismissed] = await Promise.all([lockedKeywordSet(), readProducts(), registryUrlLockMap(), readPerformingDismissed()]);
   const lockedArr = [...locked];
   const inProgress = inProgressKeywordMap(allProducts, (body && body.sku) || undefined);
   const alreadyIdeas = await readProductIdeas();
@@ -379,17 +412,20 @@ async function performingKeywords(body) {
       if (locked.has(kw)) return false;
       if (lockedArr.some(lk => lk.includes(kw))) return false;
       if (inProgress.has(kw)) return false;
+      if (ideaSet.has(kw)) return false;      // already saved to build → only in "Saved to build"
+      if (dismissed.has(kw)) return false;    // dismissed for good
       return true;
     })
     .map(k => {
-      const lockedTo = k.rankingUrl ? urlLocks[normUrl(k.rankingUrl)] : null;
-      const urlFree = !!(k.rankingUrl && !lockedTo);
+      const cleanRanking = k.rankingUrl ? cleanUrl(k.rankingUrl) : null; // drop ?variant=… → real page
+      const lockedTo = cleanRanking ? urlLocks[normUrl(cleanRanking)] : null;
+      const urlFree = !!(cleanRanking && !lockedTo);
       return {
         keyword: k.keyword, impressions: k.impressions, clicks: k.clicks, position: k.position,
-        rankingUrl: urlFree ? k.rankingUrl : null,           // shown only if free to claim
-        urlLockedToOther: !!(lockedTo),                       // true = ranking page is taken → build new
-        topSix: (k.position != null && k.position <= 6),      // ⭐ already ranking well, not locked
-        savedToIdeas: ideaSet.has(k.keyword.toLowerCase())
+        pageUrl: cleanRanking || null,          // the CLEAN ranking page — always shown
+        urlFree: urlFree,                       // page is free → offer "optimise it"
+        lockedToKeyword: lockedTo || null,      // if taken, the keyword that owns the page
+        topSix: (k.position != null && k.position <= 6)
       };
     })
     .slice(0, 100);
@@ -416,6 +452,101 @@ async function sendToProductPool(keyword, meta) {
     catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
   }
   throw new Error('write conflict, try again');
+}
+// The raw "already get clicks on" list (used to enrich saved ideas with their ranking page + position).
+async function readPerformingList() {
+  try {
+    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/gsc-performing-keywords.json?t=${Date.now()}`);
+    if (!r.ok) return [];
+    const j = await r.json();
+    return Array.isArray(j.keywords) ? j.keywords : [];
+  } catch { return []; }
+}
+// Saved "build a product" keywords that match THIS product's topic (room/style/trend/colour/words) —
+// mixed into the keyword step's options list. Each is enriched (same shape as the performing panel):
+// pageUrl/urlFree/lockedToKeyword/topSix, so a saved keyword whose ranking page is locked to ANOTHER
+// keyword can offer an admin link to that page.
+async function matchedProductIdeas(sku) {
+  const [ideas, products, urlLocks, perfList] = await Promise.all([
+    readProductIdeas(), readProducts(), registryUrlLockMap(), readPerformingList()
+  ]);
+  if (!ideas.length) return [];
+  const p = products.find(x => (x.sku || '').toLowerCase() === (sku || '').toLowerCase());
+  const terms = p ? gapTermsForProduct(p) : null;
+  const perfByKw = {};
+  perfList.forEach(k => { if (k && k.keyword) perfByKw[k.keyword.toLowerCase()] = k; });
+  return ideas
+    .filter(i => i.keyword && (!terms || gapClassify(i.keyword, terms).qualifies))
+    .map(i => {
+      const perf = perfByKw[(i.keyword || '').toLowerCase()] || {};
+      const cleanRanking = perf.rankingUrl ? cleanUrl(perf.rankingUrl) : null;
+      const lockedTo = cleanRanking ? urlLocks[normUrl(cleanRanking)] : null;
+      const urlFree = !!(cleanRanking && !lockedTo);
+      const position = (i.position != null ? i.position : (perf.position != null ? perf.position : null));
+      return {
+        keyword: i.keyword,
+        impressions: (i.impressions != null ? i.impressions : (perf.impressions != null ? perf.impressions : null)),
+        clicks: (i.clicks != null ? i.clicks : (perf.clicks != null ? perf.clicks : null)),
+        position: position,
+        pageUrl: cleanRanking || null,
+        urlFree: urlFree,
+        lockedToKeyword: lockedTo || null,
+        topSix: (position != null && position <= 6)
+      };
+    });
+}
+async function removeProductIdea(keyword) {
+  keyword = (keyword || '').trim().toLowerCase();
+  if (!keyword) return { ok: true };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const file = await ghGet(PRODUCT_IDEAS_PATH);
+    let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    const next = arr.filter(x => (x.keyword || '').toLowerCase() !== keyword);
+    if (next.length === arr.length) return { ok: true };
+    try { await ghPut(PRODUCT_IDEAS_PATH, JSON.stringify(next, null, 2), file.sha, `NPG remove product idea (used): ${keyword}`); return { ok: true, ideas: next }; }
+    catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
+  }
+  return { ok: true };
+}
+
+// Resolve a storefront URL (product page or blog article) to its Shopify admin editor URL, so Mae can
+// open the page that already ranks and add an internal link to a new product. Best-effort: if it can't
+// resolve (unknown page type, or a Shopify hiccup) it returns the storefront URL so the button still works.
+async function resolveAdminLink(url) {
+  const DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
+  const clean = cleanUrl(url);
+  if (!clean) return { adminUrl: null, resolved: false };
+  const storefront = /^https?:\/\//.test(clean) ? clean : ('https://' + clean);
+  const path = clean.replace(/^https?:\/\/[^/]+/, '');            // /products/handle  or  /blogs/news/handle
+  try {
+    if (!DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return { adminUrl: storefront, resolved: false };
+    const prod = path.match(/\/products\/([^/?#]+)/);
+    if (prod) {
+      const handle = decodeURIComponent(prod[1]);
+      const d = await shopifyGQL(`query($h:String!){ productByHandle(handle:$h){ id } }`, { h: handle });
+      const gid = d && d.productByHandle && d.productByHandle.id;
+      const id = gid ? String(gid).split('/').pop() : null;
+      if (id) return { adminUrl: `https://${DOMAIN}/admin/products/${id}`, resolved: true };
+      return { adminUrl: storefront, resolved: false };
+    }
+    const blog = path.match(/\/blogs\/([^/?#]+)\/([^/?#]+)/);
+    if (blog) {
+      const blogHandle = decodeURIComponent(blog[1]);
+      const artHandle = decodeURIComponent(blog[2]);
+      const blogs = await shopifyREST('blogs.json?fields=id,handle');
+      const b = (blogs.blogs || []).find(x => (x.handle || '').toLowerCase() === blogHandle.toLowerCase());
+      if (b) {
+        const arts = await shopifyREST(`blogs/${b.id}/articles.json?limit=250&fields=id,handle`);
+        const a = (arts.articles || []).find(x => (x.handle || '').toLowerCase() === artHandle.toLowerCase());
+        if (a) return { adminUrl: `https://${DOMAIN}/admin/blogs/${b.id}/articles/${a.id}`, resolved: true };
+      }
+      return { adminUrl: storefront, resolved: false };
+    }
+    return { adminUrl: storefront, resolved: false };
+  } catch (e) {
+    return { adminUrl: storefront, resolved: false };
+  }
 }
 
 // Frees a deleted product's keyword: removes every registry row tagged NPG:<sku> (the source column).
@@ -1668,6 +1799,28 @@ export default async function handler(req, res) {
     if (action === 'get-product-ideas') {
       const ideas = await readProductIdeas();
       return res.status(200).json({ ok: true, ideas });
+    }
+    // Saved keywords that match this product's topic — offered at the keyword step.
+    if (action === 'matched-product-ideas') {
+      const ideas = await matchedProductIdeas(body.sku);
+      return res.status(200).json({ ok: true, ideas });
+    }
+    // Remove a saved keyword once it's been used for a product.
+    if (action === 'remove-product-idea') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const out = await removeProductIdea(body.keyword);
+      return res.status(200).json({ ok: true, ...out });
+    }
+    // Resolve a ranking page's storefront URL → its Shopify admin editor URL (add an internal link).
+    if (action === 'admin-link') {
+      const out = await resolveAdminLink(body.url);
+      return res.status(200).json({ ok: true, ...out });
+    }
+    // "✕ Dismiss" — hide a performing keyword from BOTH the product and blog panels for good.
+    if (action === 'dismiss-performing') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const out = await dismissPerforming(body.keyword);
+      return res.status(200).json({ ok: true, ...out });
     }
 
     if (action === 'set-keyword') {
