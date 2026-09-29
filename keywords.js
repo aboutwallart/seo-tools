@@ -1,4 +1,53 @@
-// api/keywords.js — New Product Generator backend  ·  v0.24
+// api/keywords.js — New Product Generator backend  ·  v0.39
+// v0.39 (2026-09-29): Lifestyle image generator tab — actions lifestyle-wallart (4 framed sets → one styled
+//   lifestyle prompt per frame, image 1 with a person + casting rules) and lifestyle-collective (supplier
+//   photo → 4-image prompt set: white bg + 3 lifestyle, square 1:1). Both look at the image via Claude vision.
+// v0.38 (2026-09-29): Artwork tabs — new actions artwork-prompt (Nano Banana prompt builder, looks at the
+//   reference image via Claude vision), artwork-ideas-questions + artwork-ideas-generate (idea brainstormer).
+// v0.37 (2026-09-29): GKP diagnostics — response carries `v` + `debug` (raw Google error per attempt)
+//   so we can see the exact reason behind "caller does not have permission".
+// v0.36 (2026-09-29): GKP fix — "caller does not have permission" via manager. Now tries the account
+//   DIRECT first (OAuth user owns it), falls back to the manager (login-customer-id) only on a
+//   permission error, and returns `via` + exact error for diagnosis.
+// v0.35 (2026-09-29): Google Keyword Planner as a 3rd keyword source for Step 2 — new action
+//   'google-keyword-ideas' (Google Ads API v22 GenerateKeywordIdeas, free search volume, UK/English).
+//   Developer token retired by Google (Sept 2026); access lives on the Cloud project — we only send
+//   OAuth (GADS_* env) + login-customer-id. Results merge into the Step-2 list labelled "Google KP".
+// v0.34 (2026-09-28): #6 (final) — the colour/style collections only hold the LIVING-ROOM versions (rule is
+//   AND [specific tag + "Living room Art"]). So a ticked collection that REQUIRES "Living room Art" is now
+//   skipped entirely (no tags, not linked) when the product isn't marked for Living room. By Style/By Colour
+//   are still used for the AI content + SEO. Removed the earlier v0.33 room/style tag veto (wrong approach).
+// v0.33 (2026-09-28): #6 guarantee — resolveShopifyFields now DROPS any tag that names a room/style the
+//   product isn't for (belt-and-suspenders over the OR/AND fix; stops "Living room Art" on a bathroom
+//   product whatever the collection config). Also new action reorder-individual-images (for the individual
+//   multi-drop + drag-reorder in the NPG).
+// v0.32 (2026-09-28): C1 — capture-content internal link now points at a REAL collection the page already
+//   uses: product page -> the product's own collections; blog page -> its custom.linked_collections
+//   metafield. Picks the one matching the keyword; a link is always embedded when one is found (no more
+//   empty search on the whole phrase). Never invents a collection.
+// v0.31 (2026-09-28): #6 — Shopify tags now respect OR vs AND on smart collections. Reads
+//   ruleSet.appliedDisjunctively: AND (conjunctive) still adds ALL tag rules; OR (disjunctive) adds only
+//   the ONE tag that fits the product (collection title -> product room/style/colour -> first, flagged).
+//   Stops off-topic tags like "Living room Art" leaking onto a bathroom product from an OR collection.
+// v0.30 (2026-09-28): B#3 — topic filter now excludes off-topic ROOMS and STYLES. gapClassify drops any
+//   keyword that names a room or style the product isn't for (built from the real By Room / By Style +
+//   By Trend taxonomy). Mae's own manual/extra words still bypass the veto. Covers gsc-opportunities,
+//   gap-research and available-product-keywords (all route through gapClassify).
+// v0.29 (2026-09-28): A2 — readProducts() now reads fresh via the GitHub API (no CDN lag), so a product
+//   saved a moment ago (e.g. right after an image upload) is found. Falls back to the raw CDN on error.
+// v0.28 (2026-09-28): A1 — hardened JSON parse in generateContent: repair bad escapes + strip control
+//   chars (fixes "Bad escaped character" on titles like "Solo d'Amalfi"), then retry the model once.
+// v0.27 (2026-09-28): alt text now describes the ARTWORK (from product.content.productTitle), varied per
+//   image, never "print". admin-link resolves blog articles robustly. generate-capture-content embeds an
+//   internal link to the best-matching COLLECTION and returns ready-to-paste HTML (+ plain text).
+// v0.26 (2026-09-28): "Capture more" redesign. Ranking keywords route to Money Page Doctor's "Do first"
+//   tab (data/capture-tasks.json): B (free page) → capture-optimise (lock + optimise card); C (taken page)
+//   → sync-capture-tasks auto-creates a strengthen card (AI paragraph via generate-capture-content); cards
+//   set done/dismissed via capture-task-status. available-product-keywords = group A (no ranking page),
+//   topic-matched, offered at the keyword step (replaces the saved product-ideas pool).
+// v0.25 (2026-09-28): matched-product-ideas now enriched (pageUrl/urlFree/lockedToKeyword/topSix) so the
+//   keyword step can mix already-ranking keywords into the options list; new action `admin-link` resolves
+//   a storefront URL (product or blog article) to its Shopify admin editor URL (add an internal link).
 // v0.24 (2026-09-27): clean ranking URLs (drop ?variant=…&country=… → the real page) — also fixes the
 //   false "URL free" when a variant URL did not match the registry; ② Use in product now leaves the panel instantly.
 // v0.23 (2026-09-27): performing panel — "✕ Dismiss" (data/gsc-performing-dismissed.json, hidden from
@@ -102,6 +151,75 @@ const COLOUR_VOCAB = new Set(['black','white','blue','pink','green','grey','gray
 // colours allowed = ONLY the given list's colour words; used to drop keywords mentioning any other colour
 function colourWordsOf(list) { const s = new Set(); (list || []).forEach(c => String(c).toLowerCase().split(/[^a-z]+/).forEach(w => { if (COLOUR_VOCAB.has(w)) s.add(w); })); return s; }
 function colourOk(kw, allowed) { for (const w of kw.split(/[^a-z]+/)) { if (COLOUR_VOCAB.has(w) && !allowed.has(w)) return false; } return true; }
+// B#3: room + style topic filters (mirror colourOk). Drop a keyword that names a ROOM or STYLE the product isn't for.
+const ROOM_VOCAB = {
+  'bathroom':        ['bathroom','shower room','ensuite','en suite','en-suite','powder room'],
+  'bedroom':         ['bedroom','above bed','over bed','master bedroom','guest bedroom'],
+  'nursery':         ['nursery','baby room','babys room','baby nursery'],
+  'kids':            ['kids','kids room','childrens','childs room','playroom','teen','teens','teenage','teenager'],
+  'living room':     ['living room','lounge','sitting room','front room','family room'],
+  'kitchen':         ['kitchen'],
+  'dining room':     ['dining room','dining','breakfast room'],
+  'hallway':         ['hallway','entryway','entrance','foyer'],
+  'office':          ['office','study','home office','workspace'],
+  'laundry room':    ['laundry','laundry room','utility room'],
+  'games room':      ['games room','game room','man cave'],
+  'above fireplace': ['above fireplace','over fireplace','mantel','mantelpiece']
+};
+// Built from the store's real By Style + By Trend taxonomy (synonyms grouped; ambiguous ones kept as phrases).
+const STYLE_VOCAB = {
+  'abstract':        ['abstract'],
+  'bohemian':        ['bohemian','boho'],
+  'chinoiserie':     ['chinoiserie'],
+  'christian':       ['christian'],
+  'coastal':         ['coastal'],
+  'coffee':          ['coffee','coffee house'],
+  'contemporary':    ['contemporary','modern'],
+  'eclectic':        ['eclectic'],
+  'maximalism':      ['maximalism','maximalist'],
+  'farmhouse':       ['farmhouse'],
+  'french country':  ['french country'],
+  'islamic':         ['islamic'],
+  'japandi':         ['japandi'],
+  'marble':          ['marble'],
+  'minimalism':      ['minimalism','minimalist','minimal'],
+  'scandinavian':    ['scandinavian','scandi','nordic'],
+  'shabby chic':     ['shabby chic'],
+  'sun & moon':      ['sun & moon','sun and moon'],
+  'travel':          ['travel'],
+  'tropical':        ['tropical'],
+  'wildlife':        ['wildlife','wild life'],
+  'zen':             ['zen'],
+  'biophilic':       ['biophilic'],
+  'black & white':   ['black & white','black and white'],
+  'country cottage': ['country cottage'],
+  'industrial':      ['industrial'],
+  'masculine':       ['masculine'],
+  'mediterranean':   ['mediterranean'],
+  'mid century':     ['mid century','mid-century','midcentury'],
+  'moroccan':        ['moroccan'],
+  'old money':       ['old money'],
+  'preppy':          ['preppy'],
+  'transitional':    ['transitional']
+};
+// which vocab entries the product itself belongs to (from its own room/style names)
+function vocabKeysOf(names, vocab) {
+  const keys = new Set();
+  (names || []).forEach(name => {
+    const n = String(name).toLowerCase();
+    for (const key in vocab) { if (key === n || wordMatch(n, key) || vocab[key].some(ph => wordMatch(n, ph))) keys.add(key); }
+  });
+  return keys;
+}
+// kw is OK unless it names a vocab entry the product does NOT have. Empty allowed set -> never blocks.
+function vocabOk(kw, allowedKeys, vocab) {
+  if (!allowedKeys || !allowedKeys.size) return true;
+  for (const key in vocab) {
+    if (allowedKeys.has(key)) continue;
+    if (vocab[key].some(ph => wordMatch(kw, ph))) return false;
+  }
+  return true;
+}
 const MIN_VOLUME = 10;
 const MAX_SEEDS_PER_PRODUCT = 8;
 const MAX_DIFF_CANDIDATES_PER_PRODUCT = 15;
@@ -152,12 +270,20 @@ async function ghPut(path, content, sha, message) {
   return true;
 }
 async function readProducts() {
+  // A2: read fresh via the GitHub contents API (no CDN lag) so a product saved a moment ago
+  // (e.g. right after an image upload) is always visible. Falls back to the raw CDN on any error.
   try {
-    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${PRODUCTS_PATH}?t=${Date.now()}`);
-    if (!r.ok) return [];
-    const j = await r.json();
-    return Array.isArray(j) ? j : [];
-  } catch { return []; }
+    const file = await ghGet(PRODUCTS_PATH);
+    if (file.content) { const j = JSON.parse(file.content); return Array.isArray(j) ? j : []; }
+    return [];
+  } catch {
+    try {
+      const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/${PRODUCTS_PATH}?t=${Date.now()}`);
+      if (!r.ok) return [];
+      const j = await r.json();
+      return Array.isArray(j) ? j : [];
+    } catch { return []; }
+  }
 }
 
 /* ---------------- CSV registry ---------------- */
@@ -295,14 +421,19 @@ function gapTermsForProduct(p) {
   const trendRoots = (p.trends || []).map(t => t.toLowerCase().replace(/\b(decor|design|style)\b/g, '').trim()).filter(Boolean);
   const colours = (p.primaryColour || []).map(c => c.toLowerCase());
   const extra = (p.keywordWords || []).map(w => String(w).toLowerCase().trim()).filter(Boolean);
-  return { styles, rooms, trendRoots, colours, extra };
+  const roomKeys = vocabKeysOf(rooms, ROOM_VOCAB);
+  const styleKeys = vocabKeysOf(styles.concat(trendRoots), STYLE_VOCAB);
+  return { styles, rooms, trendRoots, colours, extra, roomKeys, styleKeys };
 }
 // Returns { qualifies, tier } — tier 1 = manual/extra word match (top priority), tier 2 = style/room/trend or product-colour+art.
 // A colour only qualifies when the product's own colour describes art (colour word + an ART_WORD together);
 // a colour alone, or a colour describing something else (e.g. "the white rabbit"), never qualifies.
 function gapClassify(kw, terms) {
   const extraHit = anyWord(kw, terms.extra);
-  if (extraHit) return { qualifies: true, tier: 1 };
+  if (extraHit) return { qualifies: true, tier: 1 }; // Mae's own words always win, no veto
+  // B#3: hard veto — a keyword naming a room or style the product isn't for never qualifies
+  if (!vocabOk(kw, terms.roomKeys, ROOM_VOCAB)) return { qualifies: false, tier: 0 };
+  if (!vocabOk(kw, terms.styleKeys, STYLE_VOCAB)) return { qualifies: false, tier: 0 };
   const themeHit = anyWord(kw, terms.styles) || anyWord(kw, terms.rooms) || anyWord(kw, terms.trendRoots);
   const colourArtHit = anyWord(kw, terms.colours) && anyWord(kw, ART_WORDS);
   if (themeHit || colourArtHit) return { qualifies: true, tier: 2 };
@@ -419,9 +550,10 @@ async function performingKeywords(body) {
       const urlFree = !!(cleanRanking && !lockedTo);
       return {
         keyword: k.keyword, impressions: k.impressions, clicks: k.clicks, position: k.position,
-        rankingUrl: urlFree ? cleanRanking : null,           // clean page, shown only if free to claim
-        urlLockedToOther: !!(lockedTo),                       // true = ranking page is taken → build new
-        topSix: (k.position != null && k.position <= 6)       // ⭐ already ranking well, not locked
+        pageUrl: cleanRanking || null,          // the CLEAN ranking page — always shown
+        urlFree: urlFree,                       // page is free → offer "optimise it"
+        lockedToKeyword: lockedTo || null,      // if taken, the keyword that owns the page
+        topSix: (k.position != null && k.position <= 6)
       };
     })
     .slice(0, 100);
@@ -448,6 +580,303 @@ async function sendToProductPool(keyword, meta) {
     catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
   }
   throw new Error('write conflict, try again');
+}
+// The raw "already get clicks on" list (used to enrich saved ideas with their ranking page + position).
+async function readPerformingList() {
+  try {
+    const r = await fetch(`https://raw.githubusercontent.com/${REPO}/main/data/gsc-performing-keywords.json?t=${Date.now()}`);
+    if (!r.ok) return [];
+    const j = await r.json();
+    return Array.isArray(j.keywords) ? j.keywords : [];
+  } catch { return []; }
+}
+// Saved "build a product" keywords that match THIS product's topic (room/style/trend/colour/words) —
+// mixed into the keyword step's options list. Each is enriched (same shape as the performing panel):
+// pageUrl/urlFree/lockedToKeyword/topSix, so a saved keyword whose ranking page is locked to ANOTHER
+// keyword can offer an admin link to that page.
+async function matchedProductIdeas(sku) {
+  const [ideas, products, urlLocks, perfList] = await Promise.all([
+    readProductIdeas(), readProducts(), registryUrlLockMap(), readPerformingList()
+  ]);
+  if (!ideas.length) return [];
+  const p = products.find(x => (x.sku || '').toLowerCase() === (sku || '').toLowerCase());
+  const terms = p ? gapTermsForProduct(p) : null;
+  const perfByKw = {};
+  perfList.forEach(k => { if (k && k.keyword) perfByKw[k.keyword.toLowerCase()] = k; });
+  return ideas
+    .filter(i => i.keyword && (!terms || gapClassify(i.keyword, terms).qualifies))
+    .map(i => {
+      const perf = perfByKw[(i.keyword || '').toLowerCase()] || {};
+      const cleanRanking = perf.rankingUrl ? cleanUrl(perf.rankingUrl) : null;
+      const lockedTo = cleanRanking ? urlLocks[normUrl(cleanRanking)] : null;
+      const urlFree = !!(cleanRanking && !lockedTo);
+      const position = (i.position != null ? i.position : (perf.position != null ? perf.position : null));
+      return {
+        keyword: i.keyword,
+        impressions: (i.impressions != null ? i.impressions : (perf.impressions != null ? perf.impressions : null)),
+        clicks: (i.clicks != null ? i.clicks : (perf.clicks != null ? perf.clicks : null)),
+        position: position,
+        pageUrl: cleanRanking || null,
+        urlFree: urlFree,
+        lockedToKeyword: lockedTo || null,
+        topSix: (position != null && position <= 6)
+      };
+    });
+}
+async function removeProductIdea(keyword) {
+  keyword = (keyword || '').trim().toLowerCase();
+  if (!keyword) return { ok: true };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const file = await ghGet(PRODUCT_IDEAS_PATH);
+    let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    const next = arr.filter(x => (x.keyword || '').toLowerCase() !== keyword);
+    if (next.length === arr.length) return { ok: true };
+    try { await ghPut(PRODUCT_IDEAS_PATH, JSON.stringify(next, null, 2), file.sha, `NPG remove product idea (used): ${keyword}`); return { ok: true, ideas: next }; }
+    catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
+  }
+  return { ok: true };
+}
+
+// Resolve a storefront URL (product page or blog article) to its Shopify admin editor URL, so Mae can
+// open the page that already ranks and add an internal link to a new product. Best-effort: if it can't
+// resolve (unknown page type, or a Shopify hiccup) it returns the storefront URL so the button still works.
+async function resolveAdminLink(url) {
+  const DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
+  const clean = cleanUrl(url);
+  if (!clean) return { adminUrl: null, resolved: false };
+  const storefront = /^https?:\/\//.test(clean) ? clean : ('https://' + clean);
+  const path = clean.replace(/^https?:\/\/[^/]+/, '');            // /products/handle  or  /blogs/news/handle
+  try {
+    if (!DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return { adminUrl: storefront, resolved: false };
+    const prod = path.match(/\/products\/([^/?#]+)/);
+    if (prod) {
+      const handle = decodeURIComponent(prod[1]);
+      const d = await shopifyGQL(`query($h:String!){ productByHandle(handle:$h){ id } }`, { h: handle });
+      const gid = d && d.productByHandle && d.productByHandle.id;
+      const id = gid ? String(gid).split('/').pop() : null;
+      if (id) return { adminUrl: `https://${DOMAIN}/admin/products/${id}`, resolved: true };
+      return { adminUrl: storefront, resolved: false };
+    }
+    const blog = path.match(/\/blogs\/([^/?#]+)\/([^/?#]+)/);
+    if (blog) {
+      const blogHandle = decodeURIComponent(blog[1]);
+      const artHandle = decodeURIComponent(blog[2]);
+      const blogs = await shopifyREST('blogs.json?fields=id,handle&limit=250');
+      const b = (blogs.blogs || []).find(x => (x.handle || '').toLowerCase() === blogHandle.toLowerCase());
+      if (b) {
+        // Paginate the blog's articles (a blog can have well over 250) until the handle matches.
+        let sinceId = 0, found = null;
+        for (let page = 0; page < 8 && !found; page++) {
+          const arts = await shopifyREST(`blogs/${b.id}/articles.json?limit=250&fields=id,handle&since_id=${sinceId}`);
+          const list = arts.articles || [];
+          if (!list.length) break;
+          found = list.find(x => (x.handle || '').toLowerCase() === artHandle.toLowerCase());
+          sinceId = list[list.length - 1].id;
+          if (list.length < 250) break;
+        }
+        if (found) return { adminUrl: `https://${DOMAIN}/admin/blogs/${b.id}/articles/${found.id}`, resolved: true };
+      }
+      return { adminUrl: storefront, resolved: false };
+    }
+    return { adminUrl: storefront, resolved: false };
+  } catch (e) {
+    return { adminUrl: storefront, resolved: false };
+  }
+}
+
+/* ---------------- "Capture more" tasks (Money Page Doctor "Do first" tab) ---------------- */
+const CAPTURE_TASKS_PATH = 'data/capture-tasks.json';
+function captureKey(k){ return (k || '').trim().toLowerCase(); }
+async function readCaptureTasksRaw() {
+  const file = await ghGet(CAPTURE_TASKS_PATH);
+  let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+  if (!Array.isArray(arr)) arr = [];
+  return { arr, sha: file.sha };
+}
+// B — "Send to optimise": lock the keyword to its ranking page (TO_OPTIMIZE → Money Page Doctor) AND
+// record an "optimise" card in the Do-first tab.
+async function captureOptimise(body) {
+  const keyword = (body.keyword || '').trim();
+  if (!keyword) throw new Error('keyword required');
+  await claimKeywordToRegistry(keyword, body.url, body.intent || 'COMMERCIAL');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { arr, sha } = await readCaptureTasksRaw();
+    const i = arr.findIndex(t => captureKey(t.keyword) === captureKey(keyword));
+    const task = {
+      keyword, type: 'optimise', pageUrl: body.url || null,
+      position: (body.meta && body.meta.position != null) ? body.meta.position : null,
+      clicks: (body.meta && body.meta.clicks != null) ? body.meta.clicks : null,
+      impressions: (body.meta && body.meta.impressions != null) ? body.meta.impressions : null,
+      lockedToKeyword: null, source: body.source || 'product',
+      status: 'todo', addedAt: new Date().toISOString()
+    };
+    if (i >= 0) arr[i] = { ...arr[i], ...task, status: (arr[i].status === 'dismissed' ? 'todo' : (arr[i].status || 'todo')) };
+    else arr.push(task);
+    try { await ghPut(CAPTURE_TASKS_PATH, JSON.stringify(arr, null, 2), sha, `Capture: optimise ${keyword}`); return { ok: true }; }
+    catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
+  }
+  throw new Error('write conflict, try again');
+}
+// C — auto: every keyword that ranks on a page LOCKED to another keyword becomes a "strengthen" card.
+// Built live from the performing list; new ones are persisted; done/dismissed ones are never recreated.
+async function syncCaptureTasks() {
+  const [perf, urlLocks, dismissed, store] = await Promise.all([
+    readPerformingList(), registryUrlLockMap(), readPerformingDismissed(), readCaptureTasksRaw()
+  ]);
+  let arr = store.arr; let sha = store.sha;
+  const have = new Set(arr.map(t => captureKey(t.keyword)));
+  let added = 0;
+  perf.forEach(k => {
+    if (!k || !k.keyword) return;
+    const kw = captureKey(k.keyword);
+    if (have.has(kw) || dismissed.has(kw)) return;
+    const cleanRanking = k.rankingUrl ? cleanUrl(k.rankingUrl) : null;
+    if (!cleanRanking) return;                          // no page → a new-product case, not strengthen
+    const lockedTo = urlLocks[normUrl(cleanRanking)];
+    if (!lockedTo) return;                              // free page → that's an optimise (B), sent by button
+    arr.push({
+      keyword: k.keyword, type: 'strengthen', pageUrl: cleanRanking,
+      position: (k.position != null ? k.position : null), clicks: (k.clicks != null ? k.clicks : null),
+      impressions: (k.impressions != null ? k.impressions : null),
+      lockedToKeyword: lockedTo, source: (k.intent === 'blog' ? 'blog' : 'product'),
+      paragraph: null, h2: null, internalLink: null,
+      status: 'todo', addedAt: new Date().toISOString()
+    });
+    have.add(kw); added++;
+  });
+  if (added > 0) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { await ghPut(CAPTURE_TASKS_PATH, JSON.stringify(arr, null, 2), sha, `Capture: +${added} strengthen task(s)`); break; }
+      catch (e) { if (e.status === 409 && attempt < 2) { const re = await readCaptureTasksRaw(); arr = re.arr; sha = re.sha; continue; } throw e; }
+    }
+  }
+  return { tasks: arr.filter(t => t.status !== 'dismissed') };
+}
+async function setCaptureTaskStatus(keyword, status) {
+  keyword = (keyword || '').trim();
+  if (!keyword) throw new Error('keyword required');
+  status = (status === 'done' || status === 'dismissed') ? status : 'todo';
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { arr, sha } = await readCaptureTasksRaw();
+    const i = arr.findIndex(t => captureKey(t.keyword) === captureKey(keyword));
+    if (i < 0) break;
+    arr[i].status = status;
+    try { await ghPut(CAPTURE_TASKS_PATH, JSON.stringify(arr, null, 2), sha, `Capture: ${keyword} → ${status}`); break; }
+    catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
+  }
+  if (status === 'dismissed') { try { await dismissPerforming(keyword); } catch { /* keep going */ } }
+  return { ok: true };
+}
+function escHtml(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+// Find the storefront URL of the collection that best matches a keyword (for the internal link).
+// #C1: link to a REAL collection the PAGE already uses — never a made-up one.
+//  · product page -> the product's own collections (they come from its tags)
+//  · blog page    -> the article's custom.linked_collections metafield
+// Pick the collection whose title matches the keyword (its room/style word); else the first. None found -> null (no link).
+async function bestCollectionForPage(keyword, pageUrl, publicOrigin) {
+  try {
+    let candidates = []; // [{ handle, title }]
+    const prod = pageUrl && pageUrl.match(/\/products\/([^/?#]+)/);
+    const blog = pageUrl && pageUrl.match(/\/blogs\/[^/]+\/([^/?#]+)/);
+    if (prod) {
+      const h = decodeURIComponent(prod[1]);
+      const d = await shopifyGQL(`query($q:String!){ products(first:1, query:$q){ nodes{ collections(first:25){ nodes{ handle title } } } } }`, { q: 'handle:' + h });
+      const node = d && d.products && d.products.nodes && d.products.nodes[0];
+      if (node && node.collections) candidates = (node.collections.nodes || []).filter(c => c && c.handle);
+    } else if (blog) {
+      const h = decodeURIComponent(blog[1]);
+      const d = await shopifyGQL(`query($q:String!){ articles(first:1, query:$q){ nodes{ metafield(namespace:"custom", key:"linked_collections"){ value } } } }`, { q: 'handle:' + h });
+      const node = d && d.articles && d.articles.nodes && d.articles.nodes[0];
+      const raw = node && node.metafield && node.metafield.value;
+      let gids = []; if (raw) { try { gids = JSON.parse(raw); } catch { gids = []; } }
+      if (Array.isArray(gids) && gids.length) {
+        const rd = await shopifyGQL(`query($ids:[ID!]!){ nodes(ids:$ids){ ... on Collection { handle title } } }`, { ids: gids });
+        candidates = (rd.nodes || []).filter(c => c && c.handle).map(c => ({ handle: c.handle, title: c.title }));
+      }
+    }
+    if (!candidates.length) return null;
+    const kwWords = String(keyword || '').split(/[^a-z]+/i).filter(w => w.length >= 4);
+    const best = candidates.find(c => looseHit(c.title, kwWords)) || candidates[0];
+    return { url: `${publicOrigin}/collections/${best.handle}`, title: best.title || '' };
+  } catch { return null; }
+}
+// AI writes the H2 + paragraph; we embed a real internal link to the best-matching collection and return
+// ready-to-paste HTML (for the visual editor) + a plain-text fallback.
+async function generateCaptureContent(body) {
+  const keyword = (body.keyword || '').trim();
+  const pageTopic = (body.lockedToKeyword || '').trim();
+  const pageUrl = (body.pageUrl || '').trim();
+  if (!keyword) throw new Error('keyword required');
+  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set');
+  const prompt = [
+    'You are writing for About Wall Art, a UK wall-art brand. UK spelling. First-person, warm, advisor tone.',
+    'NEVER say "print" or "prints" — always "wall art" or "art sets" (products are sets of 3).',
+    `The page currently ranks for "${pageTopic || 'its main topic'}"${pageUrl ? ' (' + pageUrl + ')' : ''} and ALSO ranks for the extra keyword "${keyword}".`,
+    `Write a short section to add to that page so it captures "${keyword}" better, WITHOUT changing the page's main focus.`,
+    'The paragraph MUST naturally contain the exact anchor phrase you return in "internalLinkAnchor" (it will become a link to a collection).',
+    'Return ONLY JSON: {"h2":"short H2 using the keyword naturally","paragraph":"4-6 sentences, natural, keyword once early, includes the anchor phrase once","internalLinkAnchor":"3-5 word anchor for a link to a relevant collection"}'
+  ].join('\n');
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 900, messages: [{ role: 'user', content: prompt }] })
+  });
+  if (!r.ok) { const t = await r.text(); throw new Error('Claude API error ' + r.status + ': ' + t.slice(0, 200)); }
+  const data = await r.json();
+  let text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
+  let clean = text.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+  const m = clean.match(/\{[\s\S]*\}/); if (m) clean = m[0];
+  let parsed; try { parsed = JSON.parse(clean); } catch { throw new Error('Could not parse AI response'); }
+  const h2 = String(parsed.h2 || '').trim();
+  const paragraph = String(parsed.paragraph || '').trim();
+  const anchor = String(parsed.internalLinkAnchor || '').trim();
+
+  // Best-matching collection for the internal link (link points at the public storefront).
+  let publicOrigin = 'https://aboutwallart.com';
+  if (pageUrl) { const mo = pageUrl.match(/^https?:\/\/[^/]+/); if (mo) publicOrigin = mo[0]; }
+  const coll = await bestCollectionForPage(keyword, pageUrl, publicOrigin);
+
+  // Build the paragraph HTML with the link. Wrap the anchor phrase (first occurrence); if it isn't in the
+  // text, append a short sentence with the link. A real collection was found -> a link is ALWAYS embedded.
+  let paraHtml = escHtml(paragraph);
+  if (coll) {
+    const linkText = anchor || coll.title || 'wall art collection';
+    const linkHtml = `<a href="${escHtml(coll.url)}">${escHtml(linkText)}</a>`;
+    const escAnchor = escHtml(anchor);
+    if (anchor && paraHtml.indexOf(escAnchor) !== -1) paraHtml = paraHtml.replace(escAnchor, linkHtml);
+    else paraHtml += ` Browse our ${linkHtml}.`;
+  }
+  const html = (h2 ? `<h2>${escHtml(h2)}</h2>\n` : '') + `<p>${paraHtml}</p>`;
+  const plainText = (h2 ? h2 + '\n\n' : '') + paragraph + (coll ? `\n\n(${anchor}: ${coll.url})` : '');
+
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { arr, sha } = await readCaptureTasksRaw();
+      const i = arr.findIndex(t => captureKey(t.keyword) === captureKey(keyword));
+      if (i < 0) break;
+      arr[i].h2 = h2 || null;
+      arr[i].paragraph = paragraph || null;
+      arr[i].internalLink = { anchor: anchor, target: coll ? coll.url : '' };
+      arr[i].html = html;
+      try { await ghPut(CAPTURE_TASKS_PATH, JSON.stringify(arr, null, 2), sha, `Capture: content for ${keyword}`); break; }
+      catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
+    }
+  } catch { /* returning the content is enough even if persist fails */ }
+  return { ok: true, h2, paragraph, internalLinkAnchor: anchor, target: coll ? coll.url : '', html, plainText };
+}
+// Group A — keywords you rank for but with NO usable page → offered as suggestions when you build a
+// product (topic-matched). Replaces the old saved "product ideas" pool.
+async function availableProductKeywords(sku) {
+  const [perf, products, dismissed] = await Promise.all([readPerformingList(), readProducts(), readPerformingDismissed()]);
+  const p = products.find(x => (x.sku || '').toLowerCase() === (sku || '').toLowerCase());
+  const terms = p ? gapTermsForProduct(p) : null;
+  return perf
+    .filter(k => k && k.keyword && (k.intent || 'product') === 'product')
+    .filter(k => !k.rankingUrl)                          // no ranking page → a "new product" candidate
+    .filter(k => !dismissed.has(k.keyword.toLowerCase()))
+    .filter(k => !terms || gapClassify(k.keyword, terms).qualifies)
+    .map(k => ({ keyword: k.keyword, impressions: k.impressions, clicks: k.clicks, position: k.position }));
 }
 
 // Frees a deleted product's keyword: removes every registry row tagged NPG:<sku> (the source column).
@@ -729,24 +1158,17 @@ Return EXACTLY this JSON (real content, no placeholders):
 Return ONLY the JSON object — no other text.`;
 }
 
-async function generateContent(body) {
-  const sku = body.sku;
-  const image = body.image;
-  const imageMediaType = body.imageMediaType || 'image/jpeg';
-  if (!sku) throw new Error('sku required');
-  if (!image) throw new Error('image required');
-  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set');
+// A1: repair a model JSON string so JSON.parse survives common LLM slips.
+// - raw control chars (newlines/tabs) inside string values -> single space (invalid in JSON)
+// - stray backslashes that don't form a valid JSON escape (e.g. \' in "Solo d'Amalfi") -> drop the backslash
+function repairModelJson(s) {
+  return String(s)
+    .replace(/[\u0000-\u001F]/g, ' ')
+    .replace(/\\(?!["\\/bfnrtu])/g, '');
+}
 
-  const products = await readProducts();
-  const product = products.find(p => (p.sku || '').toLowerCase() === sku.toLowerCase());
-  if (!product) throw new Error('product not found: ' + sku);
-  if (!product.keyword) { const e = new Error('This product has no keyword yet — pick one first.'); e.status = 400; throw e; }
-
-  const competitors = await findTop3Competitors(product.keyword);
-  const competitorsData = competitors.length ? await Promise.all(competitors.map(fetchCompetitorData)) : [];
-
-  const prompt = buildGenerateContentPrompt(product, competitorsData);
-
+// A1: call the model, return the cleaned JSON candidate text (fences stripped, outer object matched).
+async function fetchGenerateContentJson(prompt, image, imageMediaType) {
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
@@ -768,8 +1190,42 @@ async function generateContent(body) {
   let clean = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '');
   const jsonMatch = clean.match(/\{[\s\S]*\}/);
   if (jsonMatch) clean = jsonMatch[0];
-  let parsed;
-  try { parsed = JSON.parse(clean); } catch (e) { throw new Error('Could not parse Claude response as JSON: ' + String(e.message || e)); }
+  return clean;
+}
+
+async function generateContent(body) {
+  const sku = body.sku;
+  const image = body.image;
+  const imageMediaType = body.imageMediaType || 'image/jpeg';
+  if (!sku) throw new Error('sku required');
+  if (!image) throw new Error('image required');
+  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set');
+
+  const products = await readProducts();
+  const product = products.find(p => (p.sku || '').toLowerCase() === sku.toLowerCase());
+  if (!product) throw new Error('product not found: ' + sku);
+  if (!product.keyword) { const e = new Error('This product has no keyword yet — pick one first.'); e.status = 400; throw e; }
+
+  const competitors = await findTop3Competitors(product.keyword);
+  const competitorsData = competitors.length ? await Promise.all(competitors.map(fetchCompetitorData)) : [];
+
+  const prompt = buildGenerateContentPrompt(product, competitorsData);
+
+  // A1: try parse -> try repaired parse -> re-ask the model once. Robust to bad escapes / control chars.
+  let parsed = null, lastErr = null;
+  for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
+    const clean = await fetchGenerateContentJson(prompt, image, imageMediaType);
+    try {
+      parsed = JSON.parse(clean);
+    } catch (e1) {
+      try {
+        parsed = JSON.parse(repairModelJson(clean));
+      } catch (e2) {
+        lastErr = e2;
+      }
+    }
+  }
+  if (!parsed) throw new Error('Could not parse Claude response as JSON: ' + String((lastErr && lastErr.message) || lastErr));
 
   // meta description must always end with "Free UK shipping!"
   let meta = (parsed.metaDescription || '').trim();
@@ -1044,19 +1500,20 @@ async function fetchRuleSetsByIds(ids) {
   const unique = [...new Set(ids)];
   for (let i = 0; i < unique.length; i += 20) {
     const chunk = unique.slice(i, i + 20);
-    const q = 'query {\n' + chunk.map((id, j) => `c${j}: collection(id:"${id}"){ id title ruleSet{ rules{ column relation condition } } } `).join('\n') + '\n}';
+    const q = 'query {\n' + chunk.map((id, j) => `c${j}: collection(id:"${id}"){ id title ruleSet{ appliedDisjunctively rules{ column relation condition } } } `).join('\n') + '\n}';
     const data = await shopifyGQL(q);
     chunk.forEach((id, j) => {
       const n = data['c' + j]; if (!n) return;
       const isSmart = !!(n.ruleSet && Array.isArray(n.ruleSet.rules) && n.ruleSet.rules.length);
-      // Trust the rules (add ALL the tags) only when EVERY rule is a plain TAG=X condition — that's a
-      // safe superset regardless of whether the store's collection matches ANY or ALL of its rules.
-      // Any non-tag rule (VARIANT_PRICE, TYPE, VARIANT_INVENTORY…) can't be satisfied by tagging alone.
+      // #6: collect the tag conditions only when EVERY rule is a plain TAG=X condition. Any non-tag rule
+      // (VARIANT_PRICE, TYPE, VARIANT_INVENTORY…) can't be satisfied by tagging alone.
+      // disjunctive = OR (product needs only ONE of the tags) vs conjunctive = AND (needs ALL of them).
+      // The caller uses this: AND -> add all tags; OR -> add only the ONE that fits the product.
       let tags = null;
       if (isSmart && n.ruleSet.rules.every(r => r.column === 'TAG' && r.relation === 'EQUALS' && r.condition)) {
         tags = n.ruleSet.rules.map(r => r.condition);
       }
-      out.set(id, { isSmart, tags, ruleCount: isSmart ? n.ruleSet.rules.length : 0, title: n.title });
+      out.set(id, { isSmart, tags, disjunctive: !!(n.ruleSet && n.ruleSet.appliedDisjunctively), ruleCount: isSmart ? n.ruleSet.rules.length : 0, title: n.title });
     });
   }
   return out;
@@ -1155,17 +1612,27 @@ function extFromMime(mime) {
   if (/webp/i.test(mime)) return 'webp';
   return 'jpg';
 }
-function altFor(slot, keyword, n, setSize) {
-  const kw = String(keyword || '').trim();
-  const cap = kw ? kw.charAt(0).toUpperCase() + kw.slice(1) : 'Wall art';
-  if (slot === 'lifestyle') return `${cap} styled in a room setting${n > 1 ? ' — view ' + n : ''}`;
-  if (slot === 'individual') return setSize > 1 ? `${cap} — individual print ${n} of ${setSize}` : `${cap} print close-up`;
-  if (slot === 'flatWhite') return `${cap} shown in a white frame`;
-  if (slot === 'flatBlack') return `${cap} shown in a black frame`;
-  if (slot === 'flatOak') return `${cap} shown in an oak frame`;
-  if (slot === 'flatCanvas') return `${cap} as a wrapped canvas`;
-  if (slot === 'flatUnframed') return `${cap} unframed print`;
-  return cap;
+// Base for alt text: the generated product title (has the artwork's subject + colours) when available,
+// otherwise the keyword. Never the word "print" (brand rule: wall art / art sets).
+function artAltBase(product) {
+  let t = (product && product.content && product.content.productTitle) ? String(product.content.productTitle) : String((product && product.keyword) || 'wall art');
+  t = t.replace(/\s*[|\-–—]\s*set of\s*\d+.*$/i, '')          // drop "| Set of 3"
+       .replace(/\bwall art prints?\b/ig, 'wall art')
+       .replace(/\bprints?\b/ig, 'wall art')
+       .replace(/\s{2,}/g, ' ').trim();
+  return t || 'wall art';
+}
+// Varied, natural alt text that describes the ARTWORK, different per image, never "print".
+function altFor(slot, product, n, setSize) {
+  const base = artAltBase(product);
+  if (slot === 'lifestyle') return `${base} displayed on a wall in a styled room${n > 1 ? ' — view ' + n : ''}`;
+  if (slot === 'individual') return setSize > 1 ? `${base} — piece ${n} of ${setSize} in the set` : `${base} — close-up of the artwork`;
+  if (slot === 'flatWhite') return `${base} in a white frame`;
+  if (slot === 'flatBlack') return `${base} in a black frame`;
+  if (slot === 'flatOak') return `${base} in an oak frame`;
+  if (slot === 'flatCanvas') return `${base} as a wrapped canvas`;
+  if (slot === 'flatUnframed') return `${base}, unframed`;
+  return base;
 }
 const FLAT_SLOTS = ['flatWhite', 'flatBlack', 'flatOak', 'flatCanvas', 'flatUnframed'];
 
@@ -1194,7 +1661,7 @@ async function uploadProductImage(body) {
     else n = 1; // flats are single slots
 
     const filename = `${slugifyKeyword(product.keyword)}-${slot === 'individual' ? 'individual-' + n : slot === 'lifestyle' ? 'lifestyle-' + n : slot.replace('flat', '').toLowerCase()}.${ext}`;
-    const alt = altFor(slot, product.keyword, n, setSize);
+    const alt = altFor(slot, product, n, setSize);
 
     const uploaded = await uploadImageToShopify(image, filename, imageMediaType, alt);
     const record = { gid: uploaded.gid, url: uploaded.url, filename, alt };
@@ -1227,6 +1694,26 @@ async function reorderLifestyleImages(sku, order) {
     delete images.lifestyleCoverIndex;
     arr[idx] = { ...product, images, updatedAt: new Date().toISOString() };
     try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG reorder lifestyle images: ${sku}`); return { products: arr }; }
+    catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
+  }
+  throw new Error('write conflict, try again');
+}
+
+async function reorderIndividualImages(sku, order) {
+  if (!Array.isArray(order)) throw new Error('order required');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const file = await ghGet(PRODUCTS_PATH);
+    let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === sku.toLowerCase());
+    if (idx < 0) throw new Error('product not found: ' + sku);
+    const product = arr[idx];
+    const individuals = (product.images && product.images.individuals) || [];
+    const valid = order.length === individuals.length && new Set(order).size === individuals.length && order.every(i => Number.isInteger(i) && i >= 0 && i < individuals.length);
+    if (!valid) throw new Error('invalid order');
+    const images = { ...(product.images || {}), individuals: order.map(i => individuals[i]) };
+    arr[idx] = { ...product, images, updatedAt: new Date().toISOString() };
+    try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG reorder individual images: ${sku}`); return { products: arr }; }
     catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
   }
   throw new Error('write conflict, try again');
@@ -1339,6 +1826,27 @@ async function uploadFixedImages(force) {
 }
 
 /* ---------------- resolve-shopify-fields — READ-ONLY preview of everything Send-to-Shopify will write ---------------- */
+// #6: for an OR (disjunctive) smart collection the product needs only ONE tag. Pick the one that fits:
+// first a tag matching the collection's own title, then one matching the product's room/style/colour/keyword,
+// else the first tag (flagged as a fallback so Mae can check it). Never add ALL tags for an OR collection.
+function looseHit(tag, words) {
+  const t = String(tag).toLowerCase();
+  return (words || []).some(w => { w = String(w).toLowerCase().trim(); return w.length >= 4 && t.includes(w.slice(0, 5)); });
+}
+function pickCollectionTag(tags, collName, product) {
+  const nameWords = String(collName || '').split(/[^a-z]+/i).filter(Boolean);
+  let hit = tags.find(t => looseHit(t, nameWords));
+  if (hit) return { tag: hit, fallback: false };
+  const col = product.collections || {};
+  const ctx = [];
+  ['By Room', 'By Style', 'By Colour'].forEach(g => (col[g] || []).forEach(v => ctx.push(v)));
+  (product.trends || []).forEach(t => ctx.push(String(t).replace(/\b(decor|design|style)\b/gi, '')));
+  if (product.keyword) ctx.push(product.keyword);
+  const ctxWords = ctx.join(' ').split(/[^a-z]+/i).filter(Boolean);
+  hit = tags.find(t => looseHit(t, ctxWords));
+  if (hit) return { tag: hit, fallback: false };
+  return { tag: tags[0], fallback: true };
+}
 async function resolveShopifyFields(sku) {
   const products = await readProducts();
   const product = products.find(p => (p.sku || '').toLowerCase() === (sku || '').toLowerCase());
@@ -1348,6 +1856,11 @@ async function resolveShopifyFields(sku) {
 
   const warnings = [];
   const col = product.collections || {};
+  // #6 (final): the colour/style collections only hold the LIVING-ROOM versions of the artworks — their
+  // rule is AND [specific tag + "Living room Art"]. So a product that isn't marked for Living room must NOT
+  // be added to them (that's what was forcing "Living room Art" onto bathroom products). By Style/By Colour
+  // are still ticked for the AI content + SEO — this only gates the Shopify tags/collections.
+  const isLivingRoomProduct = (col['By Room'] || []).some(r => /living\s*room/i.test(String(r)));
   const allTicked = [];
   Object.keys(col).forEach(g => (col[g] || []).forEach(name => allTicked.push({ group: g, name })));
 
@@ -1375,8 +1888,27 @@ async function resolveShopifyFields(sku) {
       const rs = ruleSets.get(r.gid);
       if (!rs) { notFoundCollections.push(r.name); return; }
       if (rs.isSmart) {
-        if (rs.tags && rs.tags.length) tagsToAdd.push(...rs.tags);
-        else unresolvedSmart.push({ name: r.name, collectionId: r.gid, title: rs.title, ruleCount: rs.ruleCount });
+        if (rs.tags && rs.tags.length) {
+          // Living-room-only collection = AND rule that REQUIRES the "Living room Art" tag. Skip it entirely
+          // (add none of its tags) when this product isn't marked for Living room — that's the fix for
+          // colour/style collections leaking "Living room Art" onto non-living-room products.
+          const gatedByLivingRoom = !rs.disjunctive && rs.tags.some(t => String(t).trim().toLowerCase() === 'living room art');
+          if (gatedByLivingRoom && !isLivingRoomProduct) {
+            const gi = linkedCollectionGids.indexOf(r.gid);
+            if (gi !== -1) linkedCollectionGids.splice(gi, 1); // don't link it in the metafield either
+            warnings.push('Skipped "' + (rs.title || r.name) + '" — it only holds the Living-room versions, and this product isn\'t marked for Living room.');
+            return;
+          }
+          if (rs.disjunctive) {
+            // OR collection: product only needs ONE tag — add the one that fits, never all of them.
+            const picked = pickCollectionTag(rs.tags, r.name, product);
+            tagsToAdd.push(picked.tag);
+            if (picked.fallback) warnings.push('OR collection "' + (rs.title || r.name) + '": could not tell which tag fits — added "' + picked.tag + '". Please check.');
+          } else {
+            // AND collection: product needs ALL the tags to belong.
+            tagsToAdd.push(...rs.tags);
+          }
+        } else unresolvedSmart.push({ name: r.name, collectionId: r.gid, title: rs.title, ruleCount: rs.ruleCount });
       } else {
         collectionsToJoin.push({ id: r.gid, title: rs.title });
       }
@@ -1657,6 +2189,255 @@ async function sendToShopify(sku) {
   throw new Error('write conflict, try again');
 }
 
+/* ------------- Google Keyword Planner (Google Ads API v22) ------------- */
+// Free search-volume source for Step 2. Developer token is retired (Sept 2026) — the access level
+// lives on the Cloud project, so we only send an OAuth access token + login-customer-id.
+async function getGadsAccessToken() {
+  const params = new URLSearchParams({
+    client_id: process.env.GADS_CLIENT_ID || '',
+    client_secret: process.env.GADS_CLIENT_SECRET || '',
+    refresh_token: process.env.GADS_REFRESH_TOKEN || '',
+    grant_type: 'refresh_token'
+  });
+  const r = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString()
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!j.access_token) throw new Error('Google Ads token: ' + (j.error_description || j.error || ('HTTP ' + r.status)));
+  return j.access_token;
+}
+async function googleKeywordIdeas(body) {
+  const seeds = (Array.isArray(body.seeds) ? body.seeds : [])
+    .map(s => String(s || '').trim()).filter(Boolean).slice(0, 20);
+  if (!seeds.length) return { options: [] };
+  if (!process.env.GADS_CLIENT_ID || !process.env.GADS_REFRESH_TOKEN || !process.env.GADS_CUSTOMER_ID) {
+    return { options: [], error: 'Google Ads credentials not configured' };
+  }
+  const cid = String(process.env.GADS_CUSTOMER_ID || '').replace(/\D/g, '');
+  const manager = String(process.env.GADS_LOGIN_CUSTOMER_ID || '').replace(/\D/g, '');
+  let accessToken;
+  try { accessToken = await getGadsAccessToken(); }
+  catch (e) { return { options: [], error: e.message }; }
+  const payload = {
+    language: 'languageConstants/1000',                 // English
+    geoTargetConstants: ['geoTargetConstants/2826'],     // United Kingdom
+    keywordPlanNetwork: 'GOOGLE_SEARCH',
+    includeAdultKeywords: false,
+    keywordSeed: { keywords: seeds }
+  };
+  const url = `https://googleads.googleapis.com/v22/customers/${cid}:generateKeywordIdeas`;
+  // Try the account directly (the OAuth user owns it), then via the manager account. Only retry on
+  // permission-type errors, so any other real problem still surfaces its exact message.
+  const attempts = [{ via: 'direct', login: null }];
+  if (manager && manager !== cid) attempts.push({ via: 'manager', login: manager });
+  let lastErr = 'unknown';
+  const debug = [];
+  for (const a of attempts) {
+    const headers = { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
+    if (a.login) headers['login-customer-id'] = a.login;
+    try {
+      const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) });
+      const data = await r.json().catch(() => ({}));
+      debug.push({ via: a.via, status: r.status, error: r.ok ? null : (data.error || null) });
+      if (r.ok) {
+        const options = (data.results || []).map(x => {
+          const m = x.keywordIdeaMetrics || {};
+          return {
+            keyword: x.text,
+            volume: (m.avgMonthlySearches != null) ? Number(m.avgMonthlySearches) : null,
+            competition: m.competition || null,
+            competitionIndex: (m.competitionIndex != null) ? Number(m.competitionIndex) : null
+          };
+        }).filter(o => o.keyword);
+        return { options, via: a.via, v: '0.37' };
+      }
+      lastErr = (data.error && data.error.message) || ('HTTP ' + r.status);
+      if (!/permission|authoriz|not have|customer/i.test(lastErr)) break;
+    } catch (e) { lastErr = e.message; debug.push({ via: a.via, thrown: e.message }); break; }
+  }
+  return { options: [], error: lastErr, v: '0.37', debug };
+}
+
+/* ============================================================
+   ARTWORK TABS (Artwork Prompter + Artwork Ideas) — v0.38
+   ============================================================ */
+// Shared Claude caller. `content` is a string, or an array of blocks (text + image) for vision.
+async function callClaudeJSON(content, maxTokens) {
+  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set');
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: maxTokens || 1200, messages: [{ role: 'user', content }] })
+  });
+  if (!r.ok) { const t = await r.text(); throw new Error('Claude API error ' + r.status + ': ' + t.slice(0, 200)); }
+  const data = await r.json();
+  let text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
+  let clean = text.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+  const m = clean.match(/\{[\s\S]*\}/); if (m) clean = m[0];
+  try { return JSON.parse(clean); } catch { throw new Error('Could not parse AI response'); }
+}
+
+const ARTWORK_QUALITY = 'Ensure all major objects are fully visible and complete, naturally extending anything cropped at the edges. Maintain consistent style, colours, lighting and texture. No text, borders, frames or mockups.';
+
+// Artwork Prompter — the tool LOOKS at the reference(s) and returns one ready-to-paste English prompt.
+async function artworkPrompt(body) {
+  const mode = body.mode === 'newtheme' ? 'newtheme' : 'variation';
+  const idea = String(body.idea || '').trim();
+  const count = Math.min(3, Math.max(1, parseInt(body.count, 10) || 1));
+  const composition = body.composition === 'pano' ? 'pano' : 'normal';
+  const timeless = !!body.timeless;
+  const mix = String(body.mix || '').trim();
+  const refs = Array.isArray(body.references) ? body.references.filter(x => x && x.data) : [];
+  const attrPicks = (body.attrPicks && typeof body.attrPicks === 'object') ? body.attrPicks : {};
+
+  const content = [];
+  refs.slice(0, 3).forEach((r, i) => {
+    content.push({ type: 'text', text: 'Reference image ' + (i + 1) + ':' });
+    content.push({ type: 'image', source: { type: 'base64', media_type: r.mediaType || 'image/png', data: r.data } });
+  });
+  const attrLines = Object.keys(attrPicks).filter(k => attrPicks[k]).map(k => '- ' + k + ': from image ' + attrPicks[k]);
+
+  const rules = [];
+  rules.push('You write prompts for Nano Banana (Google\'s Gemini image model) to generate wall-art artworks for a UK wall-art brand. Any reference image(s) are attached above.');
+  rules.push('Write ONE final prompt, in ENGLISH, ready to paste. If the idea below is in another language, translate it to English. Never say "print" or "prints".');
+  if (mode === 'variation') {
+    rules.push('MODE — variation of the reference: Preserve its illustration style, composition, proportions, colour palette, mood, atmosphere, level of detail, shapes and placement of the main elements. Make subtle changes to some objects using visually similar alternatives so it feels like part of the same collection while remaining original. Keep the same framing and composition.');
+    if (idea) rules.push('Extra direction from the artist: ' + idea);
+  } else {
+    rules.push('MODE — new theme, same aesthetic: Create a NEW artwork of this subject: "' + (idea || '(the artist will specify)') + '". Keep the reference\'s style, painting technique, colour palette, mood, lighting and texture, but change the subject to the new idea.');
+  }
+  if (refs.length > 1) {
+    if (attrLines.length) rules.push('Combine the references, taking:\n' + attrLines.join('\n'));
+    if (mix) rules.push('Also blend as follows: ' + mix);
+  } else if (mix) { rules.push('Also: ' + mix); }
+  if (timeless && refs.length) {
+    rules.push('TIMELESS: Examine the attached image(s). Identify any recognisable holiday-specific items ACTUALLY PRESENT (e.g. Christmas or Halloween decorations, pumpkins, ornaments, presents, jack-o\'-lanterns, ghosts, bats, witches, Christmas trees) and name them EXPLICITLY in the prompt, instructing they be removed. Keep natural seasonal elements such as snow, autumn colours and foliage. The result must not be tied to a specific holiday.');
+  } else if (timeless) {
+    rules.push('TIMELESS: Instruct removal of any recognisable holiday-specific imagery (Christmas/Halloween decorations, pumpkins, ornaments, presents, jack-o\'-lanterns, ghosts, bats, witches, Christmas trees), while keeping natural seasonal elements such as snow and autumn foliage. Not tied to a specific holiday.');
+  }
+  if (refs.length) {
+    rules.push('EDGES: Examine the attached image(s) and name any main object sitting near an edge that risks being cut off, instructing it be kept fully visible and complete.');
+  }
+  rules.push('Always include this quality instruction verbatim: ' + ARTWORK_QUALITY);
+  if (composition === 'pano') {
+    rules.push('FORMAT: a single wide panoramic landscape image, composed so it can later be split into ' + (count > 1 ? count : '2–3') + ' equal panels.');
+  } else {
+    rules.push('FORMAT: 3:4 vertical.');
+    if (count > 1) rules.push('Produce a coordinated SET of ' + count + ' artworks that clearly belong together but are each different (not copies of each other).');
+  }
+  rules.push('Always finish by asking for 4K, high detail.');
+  rules.push('Return ONLY JSON: {"prompt":"the full english prompt as one string"}');
+  content.push({ type: 'text', text: rules.join('\n\n') });
+
+  const parsed = await callClaudeJSON(content, 1600);
+  const prompt = String(parsed.prompt || '').trim();
+  if (!prompt) throw new Error('No prompt returned');
+  return { prompt };
+}
+
+// Artwork Ideas — reads the note and asks a few clarifying questions with clickable options.
+async function artworkIdeasQuestions(body) {
+  const seed = String(body.seed || '').trim();
+  const chips = Array.isArray(body.chips) ? body.chips.filter(Boolean) : [];
+  const content = [
+    'You help an artist brainstorm ideas for WALL ART / art sets (never say "print" or "prints") for a UK wall-art brand.',
+    'The artist is deciding what to illustrate. Their starting note: "' + (seed || '(nothing yet)') + '".',
+    chips.length ? 'They also tapped: ' + chips.join(', ') + '.' : '',
+    'Ask 3 short clarifying questions that would sharpen the ideas (e.g. mood, subject, palette, room, style). Each question has 3-5 short clickable options.',
+    'Return ONLY JSON: {"questions":[{"q":"short question","options":["opt1","opt2","opt3"]}]}'
+  ].filter(Boolean).join('\n');
+  const parsed = await callClaudeJSON(content, 800);
+  const questions = Array.isArray(parsed.questions)
+    ? parsed.questions.slice(0, 4).map(q => ({ q: String(q.q || '').trim(), options: (Array.isArray(q.options) ? q.options : []).map(o => String(o).trim()).filter(Boolean).slice(0, 6) })).filter(q => q.q)
+    : [];
+  return { questions };
+}
+
+// Artwork Ideas — generates the idea list from the note + chips + answers.
+async function artworkIdeasGenerate(body) {
+  const seed = String(body.seed || '').trim();
+  const chips = Array.isArray(body.chips) ? body.chips.filter(Boolean) : [];
+  const answers = (body.answers && typeof body.answers === 'object') ? body.answers : {};
+  const ansLines = Object.keys(answers).map(k => '- ' + k + ': ' + answers[k]).filter(x => x.length > 3);
+  const content = [
+    'You suggest ideas for WALL ART / art sets (products are sets of 3; NEVER say "print" or "prints") for a UK wall-art brand.',
+    'Starting note: "' + (seed || '(open — anything)') + '".',
+    chips.length ? 'Tapped: ' + chips.join(', ') + '.' : '',
+    ansLines.length ? 'Their answers:\n' + ansLines.join('\n') : '',
+    'Give 6 distinct artwork ideas that fit. Each: a short title (2-4 words) and a one-line description of what it shows and its palette/mood. Keep them practical to illustrate as a set of 3.',
+    'Return ONLY JSON: {"ideas":[{"title":"","description":""}]}'
+  ].filter(Boolean).join('\n');
+  const parsed = await callClaudeJSON(content, 1200);
+  const ideas = Array.isArray(parsed.ideas)
+    ? parsed.ideas.map(x => ({ title: String(x.title || '').trim(), description: String(x.description || '').trim() })).filter(x => x.title)
+    : [];
+  return { ideas };
+}
+
+/* ============================================================
+   LIFESTYLE IMAGE GENERATOR TAB — v0.39
+   ============================================================ */
+// Wall art path: upload the framed sets, get one lifestyle prompt PER FRAME (image 1 has a person).
+async function lifestyleWallart(body) {
+  const room = String(body.room || 'a room').trim();
+  const style = String(body.style || '').trim();
+  const note = String(body.note || '').trim();
+  const refs = Array.isArray(body.references) ? body.references.filter(x => x && x.data) : [];
+  let frames = refs.map(r => r.frame).filter(Boolean);
+  if (!frames.length) frames = ['White frame', 'Black frame', 'Oak', 'Canvas'];
+
+  const content = [];
+  if (refs.length) {
+    content.push({ type: 'text', text: 'The wall-art set (same artwork on every frame — shown so you can see its style and palette):' });
+    content.push({ type: 'image', source: { type: 'base64', media_type: refs[0].mediaType || 'image/png', data: refs[0].data } });
+  }
+  const styleTxt = style ? style + ' ' : '';
+  const rules = [];
+  rules.push('You write prompts for Nano Banana (Google\'s Gemini image model) to create LIFESTYLE room photos for a UK wall-art brand. Never say "print" or "prints".');
+  rules.push('Write ONE prompt PER FRAME, in this exact order: ' + frames.join(', ') + '. Each prompt places the SAME art set on the main wall of a beautifully styled ' + styleTxt + room + ', decorated in an elegant ' + styleTxt + 'look' + (note ? ', ' + note : '') + '.');
+  rules.push('In EVERY prompt: use the provided framed set EXACTLY as shown — do not restyle, recolour or redraw the artwork, frames or mounts. Name the frame (e.g. "the ' + frames[0].toLowerCase() + ' set"). Choose decor colours that complement the artwork; the wall art is the clear hero focus. Bright natural light, airy, full-frame, no text or watermarks. Square 1:1.');
+  rules.push('Give EACH prompt a DIFFERENT decoration so the images feel varied (vary the props, furniture and accessories, appropriate to the room and style).');
+  rules.push('ONLY the FIRST prompt (' + frames[0] + ') includes a person: casually present (not posing), in plain neutral clothing so the art stays the focus. Vary ethnicity genuinely (a real mix, not always white). Do NOT depict gay, lesbian or transgender couples. Use fitting people for the room (a couple for a bedroom, a parent and child for a nursery, etc.). The other prompts have NO people.');
+  rules.push('Return ONLY JSON: {"prompts":[{"title":"short label incl. the frame","text":"the full english prompt"}]} — one item per frame, in the order given.');
+  content.push({ type: 'text', text: rules.join('\n\n') });
+
+  const parsed = await callClaudeJSON(content, 2200);
+  const prompts = Array.isArray(parsed.prompts)
+    ? parsed.prompts.map(p => ({ title: String(p.title || '').trim(), text: String(p.text || '').trim() })).filter(p => p.text)
+    : [];
+  if (!prompts.length) throw new Error('No prompts returned');
+  return { prompts };
+}
+
+// Collective path: upload a supplier photo, get the 4-image prompt set (1 white bg + 3 lifestyle), square.
+async function lifestyleCollective(body) {
+  const ref = (body.reference && body.reference.data) ? body.reference
+    : (Array.isArray(body.references) && body.references[0] && body.references[0].data ? body.references[0] : null);
+  if (!ref) throw new Error('Upload a product photo first');
+  const content = [
+    { type: 'text', text: 'Supplier product photo (may be low quality or plain white background):' },
+    { type: 'image', source: { type: 'base64', media_type: ref.mediaType || 'image/png', data: ref.data } },
+    { type: 'text', text: [
+      'You write prompts for Nano Banana (Google\'s Gemini image model) to regenerate this product as 4 high-quality images. Look at the photo and identify the product and its exact shape, colour and texture, plus a fitting surface/context for it.',
+      'Produce EXACTLY 4 prompts, all Square 1:1, FULL-FRAME (no borders or blank blocks):',
+      '1) WHITE BACKGROUND: the product exactly as in the reference, ultra-sharp HD product photography, preserve exact shape, colour and texture, pure white background (#FFFFFF), professional studio lighting, centred, crystal-clear focus, high contrast, no shadows.',
+      '2) LIFESTYLE WITH A PERSON: the product on a fitting surface, a person casually present in the background (neutral clothing, varied ethnicity — a real mix, not always white; no gay/lesbian/transgender couples), bright natural light, minimal modern aesthetic, the product is the hero, neutral-tone decor.',
+      '3) LIFESTYLE, minimal Scandinavian: the product styled on a bright surface with neutral-tone decor, bright natural light, product is the hero, warm and lived-in.',
+      '4) LIFESTYLE, minimal modern: the product on a bright surface with tasteful accessories, bright natural light, product is the hero, clean and organised.',
+      'Rules: preserve the product EXACTLY ("exactly as shown in reference"); never say "print"/"prints"; only image 2 has a person; use only neutral-tone decor (ceramics, vases, books, plants, wood, stone) so nothing competes with the product.',
+      'Return ONLY JSON: {"prompts":[{"title":"Image 1 — white background","text":"..."},{"title":"Image 2 — lifestyle, with a person","text":"..."},{"title":"Image 3 — lifestyle, Scandinavian","text":"..."},{"title":"Image 4 — lifestyle, modern","text":"..."}]}'
+    ].join('\n') }
+  ];
+  const parsed = await callClaudeJSON(content, 2200);
+  const prompts = Array.isArray(parsed.prompts)
+    ? parsed.prompts.map(p => ({ title: String(p.title || '').trim(), text: String(p.text || '').trim() })).filter(p => p.text)
+    : [];
+  if (!prompts.length) throw new Error('No prompts returned');
+  return { prompts };
+}
+
 /* ---------------- handler ---------------- */
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -1680,6 +2461,37 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, ...out });
     }
 
+    // Google Keyword Planner (Google Ads API) — free volume source, 3rd source in Step 2.
+    if (action === 'google-keyword-ideas') {
+      const out = await googleKeywordIdeas(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    // Artwork Prompter tab — build a ready-to-paste Nano Banana prompt (tool looks at the reference).
+    if (action === 'artwork-prompt') {
+      const out = await artworkPrompt(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+    // Artwork Ideas tab — clarifying questions, then the idea list.
+    if (action === 'artwork-ideas-questions') {
+      const out = await artworkIdeasQuestions(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+    if (action === 'artwork-ideas-generate') {
+      const out = await artworkIdeasGenerate(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    // Lifestyle image generator tab
+    if (action === 'lifestyle-wallart') {
+      const out = await lifestyleWallart(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+    if (action === 'lifestyle-collective') {
+      const out = await lifestyleCollective(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
     // "Ya rankeás — capturá más" (product side)
     if (action === 'performing-keywords') {
       const out = await performingKeywords(body);
@@ -1700,6 +2512,50 @@ export default async function handler(req, res) {
     if (action === 'get-product-ideas') {
       const ideas = await readProductIdeas();
       return res.status(200).json({ ok: true, ideas });
+    }
+    // Saved keywords that match this product's topic — offered at the keyword step.
+    if (action === 'matched-product-ideas') {
+      const ideas = await matchedProductIdeas(body.sku);
+      return res.status(200).json({ ok: true, ideas });
+    }
+    // Remove a saved keyword once it's been used for a product.
+    if (action === 'remove-product-idea') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const out = await removeProductIdea(body.keyword);
+      return res.status(200).json({ ok: true, ...out });
+    }
+    // B — "Send to optimise": lock kw→page + create an optimise card in MPD's Do-first tab.
+    if (action === 'capture-optimise') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const out = await captureOptimise(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+    // MPD Do-first tab load: auto-create strengthen cards (C) + return every non-dismissed card.
+    if (action === 'sync-capture-tasks') {
+      const out = await syncCaptureTasks();
+      return res.status(200).json({ ok: true, ...out });
+    }
+    // Mark a card done / dismissed (dismissed also hides the keyword from the panels + re-sync).
+    if (action === 'capture-task-status') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const out = await setCaptureTaskStatus(body.keyword, body.status);
+      return res.status(200).json({ ok: true, ...out });
+    }
+    // AI content for a strengthen card (paragraph + H2 + internal-link anchor).
+    if (action === 'generate-capture-content') {
+      if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ ok: false, error: 'ANTHROPIC_API_KEY not set' });
+      const out = await generateCaptureContent(body);
+      return res.status(200).json(out);
+    }
+    // Group A (no ranking page), topic-matched — offered at the keyword step of a new product.
+    if (action === 'available-product-keywords') {
+      const ideas = await availableProductKeywords(body.sku);
+      return res.status(200).json({ ok: true, ideas });
+    }
+    // Resolve a ranking page's storefront URL → its Shopify admin editor URL (add an internal link).
+    if (action === 'admin-link') {
+      const out = await resolveAdminLink(body.url);
+      return res.status(200).json({ ok: true, ...out });
     }
     // "✕ Dismiss" — hide a performing keyword from BOTH the product and blog panels for good.
     if (action === 'dismiss-performing') {
@@ -1731,6 +2587,12 @@ export default async function handler(req, res) {
     if (action === 'reorder-lifestyle-images') {
       if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
       const out = await reorderLifestyleImages(body.sku, Array.isArray(body.order) ? body.order.map(Number) : []);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    if (action === 'reorder-individual-images') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const out = await reorderIndividualImages(body.sku, Array.isArray(body.order) ? body.order.map(Number) : []);
       return res.status(200).json({ ok: true, ...out });
     }
 
