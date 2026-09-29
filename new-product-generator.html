@@ -156,7 +156,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v3.2</span>
+  <span class="ver">v3.3</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -201,6 +201,7 @@ let IMAGE_STATE = {};     // sku -> {data, mediaType} (artwork base64, no data: 
 let KW_RESULTS = null;    // Step 2 cached gap-research results for the current product
 let GSC_RESULTS = null;   // Step 2 cached GSC opportunity keywords (commercial, not locked)
 let AVAILABLE_KWS = null; // Step 2 cached group-A keywords (rank, no page yet), topic-matched
+let GKP_RESULTS = null;   // Step 2 cached Google Keyword Planner ideas (free search volume)
 let KW_LOADING = false;   // Step 2 auto-search in flight
 
 /* ---------- API ---------- */
@@ -400,7 +401,7 @@ function renderStepOpen(n,p){
   '</div></div>';
 }
 function startDraft(){ DRAFT=true; EDIT_STEP=null; renderFlow(); }
-function editStep(n){ EDIT_STEP=n; if(n===2){ KW_RESULTS=null; GSC_RESULTS=null; AVAILABLE_KWS=null; } renderFlow(); }
+function editStep(n){ EDIT_STEP=n; if(n===2){ KW_RESULTS=null; GSC_RESULTS=null; AVAILABLE_KWS=null; GKP_RESULTS=null; } renderFlow(); }
 function closeEdit(){ EDIT_STEP=null; renderFlow(); }
 function confirmImages(sku){ IMAGES_CONFIRMED[sku]=true; EDIT_STEP=null; renderFlow(); } // D5b: Mae's manual "I'm done adding photos"
 
@@ -573,14 +574,10 @@ async function deleteCurrent(sku){
 function stepKeyword(p){
   return '<p class="sub">Pick one keyword. Options come from your competitors-gap file — nothing is locked in the registry yet (that happens when the product is sent to Shopify).</p>'+
     '<div id="kwResults">'+(KW_LOADING?'<div class="empty"><span class="spin" style="border-color:var(--accent);border-top-color:transparent"></span>Searching your competitors-gap file…</div>':'')+'</div>'+
-    '<div class="comingsoon">'+
-      '<div class="cshead">From Google Keyword Planner <span class="csbadge">coming soon</span></div>'+
-      '<p>Google Keyword Planner ideas will join the list above (in pastel blue) as a third source, ranked by potential.</p>'+
-    '</div>'+
     (isStepDone(p,2)?'<div class="actions" style="margin-top:16px"><button class="btn ghost" onclick="closeEdit()">Done</button></div>':'');
 }
 async function ensureKwResults(p){
-  if(KW_RESULTS || KW_LOADING || !p) { if(KW_RESULTS) renderKwResults(); ensureGscResults(p); ensureAvailableKws(p); return; }
+  if(KW_RESULTS || KW_LOADING || !p) { if(KW_RESULTS) renderKwResults(); ensureGscResults(p); ensureAvailableKws(p); ensureGkpResults(p); return; }
   KW_LOADING=true;
   try{
     const r=await api({action:'gap-research',products:[p]});
@@ -591,6 +588,7 @@ async function ensureKwResults(p){
   }catch(e){ KW_LOADING=false; const box=document.getElementById('kwResults'); if(box) box.innerHTML='<div class="msg show err">Keyword search failed: '+esc(e.message)+'</div>'; }
   ensureGscResults(p);
   ensureAvailableKws(p);
+  ensureGkpResults(p);
 }
 async function ensureGscResults(p){
   if(!p) return;
@@ -610,6 +608,28 @@ async function ensureAvailableKws(p){
     AVAILABLE_KWS=r.ideas||[];
     renderKwResults();
   }catch(e){ /* silent — optional source */ }
+}
+// Google Keyword Planner ideas (free search volume) — third source, mixed into the list.
+// Seeds = everything we know about the product (style/room/colour/trends/extra terms), NOT the SKU,
+// each paired with "wall art" so the ideas stay on-topic.
+function buildGkpSeeds(p){
+  const seeds=new Set();
+  promptTerms(p).forEach(t=>{ const s=String(t||'').trim(); if(!s) return;
+    seeds.add(/wall/i.test(s)?s:(s+' wall art')); });
+  seeds.add('wall art');
+  return [...seeds].slice(0,20);
+}
+async function ensureGkpResults(p){
+  if(!p) return;
+  if(GKP_RESULTS){ renderKwResults(); return; }
+  try{
+    const seeds=buildGkpSeeds(p);
+    if(!seeds.length){ GKP_RESULTS=[]; return; }
+    const r=await api({action:'google-keyword-ideas',seeds});
+    if(r.error) console.warn('Google Keyword Planner:',r.error);
+    GKP_RESULTS=r.options||[];
+    renderKwResults();
+  }catch(e){ /* silent — GKP source is optional */ }
 }
 function renderGscResults(){
   const box=document.getElementById('gscResults'); if(!box) return;
@@ -636,43 +656,46 @@ async function applyGscKw(i){
   const o=(GSC_RESULTS||[])[i]; if(!o) return;
   await doSetKeyword(p.sku, o.keyword);
 }
+// One entry per keyword — sources are MERGED (kept), never dropped. Best 30 across all sources.
 function mergedOptions(p){
   const gapR=(KW_RESULTS||[]).find(x=>x.sku===p.sku)||(KW_RESULTS||[])[0]||{options:[]};
-  const gap=(gapR.options||[]).map(o=>({source:'gap',keyword:o.keyword,volume:o.volume,difficulty:o.difficulty,difficultyRaw:o.difficultyRaw,
-    pot:Math.sqrt((o.volume||0)+1)*(100/(((o.difficulty==null?50:o.difficulty))+10))}));
-  const gsc=(GSC_RESULTS||[]).map(o=>({source:'gsc',keyword:o.keyword,impressions:o.impressions,clicks:o.clicks,position:o.position,
-    pot:Math.sqrt((o.impressions||0)+1)*(100/(((o.position==null?20:o.position))+10))}));
-  // Group-A keywords you already rank for (no page yet) come first — big potential so they sort to the top.
-  const avail=(AVAILABLE_KWS||[]).map(o=>({source:'available',keyword:o.keyword,impressions:o.impressions,clicks:o.clicks,position:o.position,
-    pot:1e9+(o.clicks||0)}));
-  const seen=new Set();
-  return [...avail,...gap,...gsc].sort((a,b)=>b.pot-a.pot).filter(o=>{const k=(o.keyword||'').toLowerCase(); if(!k||seen.has(k))return false; seen.add(k); return true;});
+  const map=new Map();
+  const slot=(kw)=>{ const k=(kw||'').toLowerCase().trim(); if(!k) return null;
+    if(!map.has(k)) map.set(k,{keyword:kw,sources:{}}); return map.get(k); };
+  (AVAILABLE_KWS||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.available={clicks:o.clicks,position:o.position}; });
+  (gapR.options||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.gap={volume:o.volume,difficulty:o.difficulty,difficultyRaw:o.difficultyRaw}; });
+  (GSC_RESULTS||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.gsc={impressions:o.impressions,clicks:o.clicks,position:o.position}; });
+  (GKP_RESULTS||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.gkp={volume:o.volume,competition:o.competition,competitionIndex:o.competitionIndex}; });
+  const list=[...map.values()].map(o=>{ o.pot=mergedPot(o.sources); return o; });
+  return list.sort((a,b)=>b.pot-a.pot).slice(0,30);
 }
+function mergedPot(s){
+  if(s.available) return 1e9+((s.available.clicks)||0); // "you rank" always floats to the top
+  let best=0;
+  if(s.gap){ const v=s.gap.volume||0,d=(s.gap.difficulty==null?50:s.gap.difficulty); best=Math.max(best,Math.sqrt(v+1)*(100/(d+10))); }
+  if(s.gkp){ const v=s.gkp.volume||0,d=(s.gkp.competitionIndex==null?50:s.gkp.competitionIndex); best=Math.max(best,Math.sqrt(v+1)*(100/(d+10))); }
+  if(s.gsc){ const im=s.gsc.impressions||0,ps=(s.gsc.position==null?20:s.gsc.position); best=Math.max(best,Math.sqrt(im+1)*(100/(ps+10))); }
+  return best;
+}
+function compLabel(c){ return ({LOW:'low comp',MEDIUM:'med comp',HIGH:'high comp'})[c]||''; }
 function mergedRow(o,i,p){
   const isCurrent=p.keyword&&p.keyword.toLowerCase()===o.keyword.toLowerCase();
-  if(o.source==='available'){
-    const metaBits=[]; if(o.position!=null) metaBits.push('pos '+o.position); if(o.clicks!=null) metaBits.push(o.clicks+' clk');
-    const note='<span style="font-size:11px;color:#1f5f1f;font-weight:600;">you rank for this (no page yet) — good for this product'+(metaBits.length?' · '+metaBits.join(' · '):'')+'</span>';
-    return '<div class="kwrow" style="background:#eef7ee">'+
-      '<span class="kw" style="display:flex;flex-direction:column;gap:3px;align-items:flex-start;">'+
-        '<span>'+(isCurrent?'✓ ':'')+esc(o.keyword)+'</span>'+note+'</span>'+
-      '<span><span class="srcpill" style="background:#cfead0;color:#1f5f1f">you rank</span></span>'+
-      '<span class="pct" style="font-size:11px;color:var(--muted)"></span>'+
-      '<span></span>'+
-      '<span class="h-act"><button class="btn '+(isCurrent?'ghost':'primary')+' small" onclick="applyMergedKw('+i+')">'+(isCurrent?'Selected':'Use')+'</button></span>'+
-    '</div>';
-  }
-  const bg=o.source==='gap'?'background:#fdf9ec':'background:#f4faf8';
-  const badge=o.source==='gap'
-    ? '<span class="srcpill" style="background:#f3e6b8;color:#6b551a">gap</span>'
-    : '<span class="srcpill" style="background:#d9efe6;color:#1f5f4f">GSC</span>';
-  const metric=o.source==='gap'
-    ? ('vol '+(o.volume!=null?o.volume:'—')+' · '+diffLabel(o))
-    : ((o.impressions!=null?o.impressions:'—')+' impr · '+(o.clicks!=null?o.clicks:'—')+' clk · pos '+(o.position!=null?o.position:'—'));
+  const s=o.sources;
+  const pills=[];
+  if(s.available) pills.push('<span class="srcpill" style="background:#cfead0;color:#1f5f1f">you rank</span>');
+  if(s.gap) pills.push('<span class="srcpill" style="background:#f3e6b8;color:#6b551a">gap</span>');
+  if(s.gsc) pills.push('<span class="srcpill" style="background:#d9efe6;color:#1f5f4f">GSC</span>');
+  if(s.gkp) pills.push('<span class="srcpill" style="background:#dbe7fb;color:#274b8f">Google KP</span>');
+  const metrics=[];
+  if(s.gkp){ const c=compLabel(s.gkp.competition); metrics.push('vol '+(s.gkp.volume!=null?s.gkp.volume:'—')+(c?' · '+c:'')); }
+  if(s.gap) metrics.push('gap vol '+(s.gap.volume!=null?s.gap.volume:'—')+' · '+diffLabel(s.gap));
+  if(s.gsc) metrics.push('GSC '+(s.gsc.impressions!=null?s.gsc.impressions:'—')+' impr · pos '+(s.gsc.position!=null?s.gsc.position:'—'));
+  if(s.available){ const b=[]; if(s.available.position!=null)b.push('pos '+s.available.position); if(s.available.clicks!=null)b.push(s.available.clicks+' clk'); metrics.push('you rank'+(b.length?' · '+b.join(' · '):'')); }
+  const bg=s.available?'background:#eef7ee':s.gap?'background:#fdf9ec':s.gsc?'background:#f4faf8':s.gkp?'background:#f5f8fe':'';
   return '<div class="kwrow" style="'+bg+'">'+
     '<span class="kw">'+(isCurrent?'✓ ':'')+esc(o.keyword)+'</span>'+
-    '<span>'+badge+'</span>'+
-    '<span class="pct" style="font-size:11px;color:var(--muted)">'+esc(metric)+'</span>'+
+    '<span style="display:flex;gap:4px;flex-wrap:wrap">'+pills.join('')+'</span>'+
+    '<span class="pct" style="font-size:11px;color:var(--muted)">'+esc(metrics.join('   ·   '))+'</span>'+
     '<span></span>'+
     '<span class="h-act"><button class="btn '+(isCurrent?'ghost':'primary')+' small" onclick="applyMergedKw('+i+')">'+(isCurrent?'Selected':'Use')+'</button></span>'+
   '</div>';
@@ -704,6 +727,7 @@ function renderKwResults(){
       '<span><span class="srcpill" style="background:#cfead0;color:#1f5f1f">you rank</span> rank, no page yet</span>'+
       '<span><span class="srcpill" style="background:#f3e6b8;color:#6b551a">gap</span> competitors-gap file</span>'+
       '<span><span class="srcpill" style="background:#d9efe6;color:#1f5f4f">GSC</span> you appear but don’t get clicked</span>'+
+      '<span><span class="srcpill" style="background:#dbe7fb;color:#274b8f">Google KP</span> Google Keyword Planner (free volume)</span>'+
     '</div>'+
     (opts.length?'<div class="kwrow hd"><span>Keyword</span><span>Source</span><span>Metric</span><span></span><span></span></div>':'')+
     rowsHtml+
