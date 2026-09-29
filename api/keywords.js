@@ -1,4 +1,6 @@
-// api/keywords.js — New Product Generator backend  ·  v0.37
+// api/keywords.js — New Product Generator backend  ·  v0.38
+// v0.38 (2026-09-29): Artwork tabs — new actions artwork-prompt (Nano Banana prompt builder, looks at the
+//   reference image via Claude vision), artwork-ideas-questions + artwork-ideas-generate (idea brainstormer).
 // v0.37 (2026-09-29): GKP diagnostics — response carries `v` + `debug` (raw Google error per attempt)
 //   so we can see the exact reason behind "caller does not have permission".
 // v0.36 (2026-09-29): GKP fix — "caller does not have permission" via manager. Now tries the account
@@ -2255,6 +2257,122 @@ async function googleKeywordIdeas(body) {
   return { options: [], error: lastErr, v: '0.37', debug };
 }
 
+/* ============================================================
+   ARTWORK TABS (Artwork Prompter + Artwork Ideas) — v0.38
+   ============================================================ */
+// Shared Claude caller. `content` is a string, or an array of blocks (text + image) for vision.
+async function callClaudeJSON(content, maxTokens) {
+  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set');
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: maxTokens || 1200, messages: [{ role: 'user', content }] })
+  });
+  if (!r.ok) { const t = await r.text(); throw new Error('Claude API error ' + r.status + ': ' + t.slice(0, 200)); }
+  const data = await r.json();
+  let text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
+  let clean = text.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+  const m = clean.match(/\{[\s\S]*\}/); if (m) clean = m[0];
+  try { return JSON.parse(clean); } catch { throw new Error('Could not parse AI response'); }
+}
+
+const ARTWORK_QUALITY = 'Ensure all major objects are fully visible and complete, naturally extending anything cropped at the edges. Maintain consistent style, colours, lighting and texture. No text, borders, frames or mockups.';
+
+// Artwork Prompter — the tool LOOKS at the reference(s) and returns one ready-to-paste English prompt.
+async function artworkPrompt(body) {
+  const mode = body.mode === 'newtheme' ? 'newtheme' : 'variation';
+  const idea = String(body.idea || '').trim();
+  const count = Math.min(3, Math.max(1, parseInt(body.count, 10) || 1));
+  const composition = body.composition === 'pano' ? 'pano' : 'normal';
+  const timeless = !!body.timeless;
+  const mix = String(body.mix || '').trim();
+  const refs = Array.isArray(body.references) ? body.references.filter(x => x && x.data) : [];
+  const attrPicks = (body.attrPicks && typeof body.attrPicks === 'object') ? body.attrPicks : {};
+
+  const content = [];
+  refs.slice(0, 3).forEach((r, i) => {
+    content.push({ type: 'text', text: 'Reference image ' + (i + 1) + ':' });
+    content.push({ type: 'image', source: { type: 'base64', media_type: r.mediaType || 'image/png', data: r.data } });
+  });
+  const attrLines = Object.keys(attrPicks).filter(k => attrPicks[k]).map(k => '- ' + k + ': from image ' + attrPicks[k]);
+
+  const rules = [];
+  rules.push('You write prompts for Nano Banana (Google\'s Gemini image model) to generate wall-art artworks for a UK wall-art brand. Any reference image(s) are attached above.');
+  rules.push('Write ONE final prompt, in ENGLISH, ready to paste. If the idea below is in another language, translate it to English. Never say "print" or "prints".');
+  if (mode === 'variation') {
+    rules.push('MODE — variation of the reference: Preserve its illustration style, composition, proportions, colour palette, mood, atmosphere, level of detail, shapes and placement of the main elements. Make subtle changes to some objects using visually similar alternatives so it feels like part of the same collection while remaining original. Keep the same framing and composition.');
+    if (idea) rules.push('Extra direction from the artist: ' + idea);
+  } else {
+    rules.push('MODE — new theme, same aesthetic: Create a NEW artwork of this subject: "' + (idea || '(the artist will specify)') + '". Keep the reference\'s style, painting technique, colour palette, mood, lighting and texture, but change the subject to the new idea.');
+  }
+  if (refs.length > 1) {
+    if (attrLines.length) rules.push('Combine the references, taking:\n' + attrLines.join('\n'));
+    if (mix) rules.push('Also blend as follows: ' + mix);
+  } else if (mix) { rules.push('Also: ' + mix); }
+  if (timeless && refs.length) {
+    rules.push('TIMELESS: Examine the attached image(s). Identify any recognisable holiday-specific items ACTUALLY PRESENT (e.g. Christmas or Halloween decorations, pumpkins, ornaments, presents, jack-o\'-lanterns, ghosts, bats, witches, Christmas trees) and name them EXPLICITLY in the prompt, instructing they be removed. Keep natural seasonal elements such as snow, autumn colours and foliage. The result must not be tied to a specific holiday.');
+  } else if (timeless) {
+    rules.push('TIMELESS: Instruct removal of any recognisable holiday-specific imagery (Christmas/Halloween decorations, pumpkins, ornaments, presents, jack-o\'-lanterns, ghosts, bats, witches, Christmas trees), while keeping natural seasonal elements such as snow and autumn foliage. Not tied to a specific holiday.');
+  }
+  if (refs.length) {
+    rules.push('EDGES: Examine the attached image(s) and name any main object sitting near an edge that risks being cut off, instructing it be kept fully visible and complete.');
+  }
+  rules.push('Always include this quality instruction verbatim: ' + ARTWORK_QUALITY);
+  if (composition === 'pano') {
+    rules.push('FORMAT: a single wide panoramic landscape image, composed so it can later be split into ' + (count > 1 ? count : '2–3') + ' equal panels.');
+  } else {
+    rules.push('FORMAT: 3:4 vertical.');
+    if (count > 1) rules.push('Produce a coordinated SET of ' + count + ' artworks that clearly belong together but are each different (not copies of each other).');
+  }
+  rules.push('Always finish by asking for 4K, high detail.');
+  rules.push('Return ONLY JSON: {"prompt":"the full english prompt as one string"}');
+  content.push({ type: 'text', text: rules.join('\n\n') });
+
+  const parsed = await callClaudeJSON(content, 1600);
+  const prompt = String(parsed.prompt || '').trim();
+  if (!prompt) throw new Error('No prompt returned');
+  return { prompt };
+}
+
+// Artwork Ideas — reads the note and asks a few clarifying questions with clickable options.
+async function artworkIdeasQuestions(body) {
+  const seed = String(body.seed || '').trim();
+  const chips = Array.isArray(body.chips) ? body.chips.filter(Boolean) : [];
+  const content = [
+    'You help an artist brainstorm ideas for WALL ART / art sets (never say "print" or "prints") for a UK wall-art brand.',
+    'The artist is deciding what to illustrate. Their starting note: "' + (seed || '(nothing yet)') + '".',
+    chips.length ? 'They also tapped: ' + chips.join(', ') + '.' : '',
+    'Ask 3 short clarifying questions that would sharpen the ideas (e.g. mood, subject, palette, room, style). Each question has 3-5 short clickable options.',
+    'Return ONLY JSON: {"questions":[{"q":"short question","options":["opt1","opt2","opt3"]}]}'
+  ].filter(Boolean).join('\n');
+  const parsed = await callClaudeJSON(content, 800);
+  const questions = Array.isArray(parsed.questions)
+    ? parsed.questions.slice(0, 4).map(q => ({ q: String(q.q || '').trim(), options: (Array.isArray(q.options) ? q.options : []).map(o => String(o).trim()).filter(Boolean).slice(0, 6) })).filter(q => q.q)
+    : [];
+  return { questions };
+}
+
+// Artwork Ideas — generates the idea list from the note + chips + answers.
+async function artworkIdeasGenerate(body) {
+  const seed = String(body.seed || '').trim();
+  const chips = Array.isArray(body.chips) ? body.chips.filter(Boolean) : [];
+  const answers = (body.answers && typeof body.answers === 'object') ? body.answers : {};
+  const ansLines = Object.keys(answers).map(k => '- ' + k + ': ' + answers[k]).filter(x => x.length > 3);
+  const content = [
+    'You suggest ideas for WALL ART / art sets (products are sets of 3; NEVER say "print" or "prints") for a UK wall-art brand.',
+    'Starting note: "' + (seed || '(open — anything)') + '".',
+    chips.length ? 'Tapped: ' + chips.join(', ') + '.' : '',
+    ansLines.length ? 'Their answers:\n' + ansLines.join('\n') : '',
+    'Give 6 distinct artwork ideas that fit. Each: a short title (2-4 words) and a one-line description of what it shows and its palette/mood. Keep them practical to illustrate as a set of 3.',
+    'Return ONLY JSON: {"ideas":[{"title":"","description":""}]}'
+  ].filter(Boolean).join('\n');
+  const parsed = await callClaudeJSON(content, 1200);
+  const ideas = Array.isArray(parsed.ideas)
+    ? parsed.ideas.map(x => ({ title: String(x.title || '').trim(), description: String(x.description || '').trim() })).filter(x => x.title)
+    : [];
+  return { ideas };
+}
+
 /* ---------------- handler ---------------- */
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -2281,6 +2399,21 @@ export default async function handler(req, res) {
     // Google Keyword Planner (Google Ads API) — free volume source, 3rd source in Step 2.
     if (action === 'google-keyword-ideas') {
       const out = await googleKeywordIdeas(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    // Artwork Prompter tab — build a ready-to-paste Nano Banana prompt (tool looks at the reference).
+    if (action === 'artwork-prompt') {
+      const out = await artworkPrompt(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+    // Artwork Ideas tab — clarifying questions, then the idea list.
+    if (action === 'artwork-ideas-questions') {
+      const out = await artworkIdeasQuestions(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+    if (action === 'artwork-ideas-generate') {
+      const out = await artworkIdeasGenerate(body);
       return res.status(200).json({ ok: true, ...out });
     }
 
