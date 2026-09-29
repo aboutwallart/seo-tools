@@ -156,7 +156,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v3.3</span>
+  <span class="ver">v3.4</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -485,6 +485,17 @@ function renderCollections(){
     div.innerHTML='<h4>'+g+'</h4>'+GROUPS[g].map(c=>'<label class="opt"><input type="checkbox" class="col-cb" value="'+esc(c)+'" data-group="'+esc(g)+'">'+esc(c)+'</label>').join('');
     wrap.appendChild(div);
   });
+  wrap.onchange=(e)=>{ if(e.target&&e.target.classList.contains('col-cb')) syncNewArrivalsGate(); };
+  syncNewArrivalsGate();
+}
+// "New Arrivals" is only allowed on Living-room products — greyed out (and unticked) otherwise.
+function syncNewArrivalsGate(){
+  const na=[...document.querySelectorAll('.col-cb')].find(cb=>cb.value==='New Arrivals'); if(!na) return;
+  const living=[...document.querySelectorAll('.col-cb')].find(cb=>cb.value==='Living room' && cb.dataset.group==='By Room');
+  const ok=!!(living && living.checked);
+  na.disabled=!ok; if(!ok) na.checked=false;
+  const lbl=na.closest('label');
+  if(lbl){ lbl.style.opacity=ok?'':'0.4'; lbl.style.cursor=ok?'':'not-allowed'; lbl.title=ok?'':'Only for Living room products'; }
 }
 function renderTrends(){ const el=document.getElementById('trendGrid'); if(el) el.innerHTML=TRENDS.map(t=>'<label class="opt"><input type="checkbox" class="trend-cb" value="'+esc(t)+'">'+esc(t)+'</label>').join(''); }
 function renderGroupChecks(){ const el=document.getElementById('groupChecks'); if(el) el.innerHTML=Object.keys(GROUPS).map(g=>'<label><input type="checkbox" class="grp-cb" value="'+esc(g)+'">'+g+'</label>').join(''); }
@@ -516,6 +527,7 @@ async function doAddCol(){
   const checked=[...document.querySelectorAll('.col-cb:checked')].map(cb=>cb.value);
   renderCollections();
   document.querySelectorAll('.col-cb').forEach(cb=>{ if(checked.includes(cb.value)||cb.value===name) cb.checked=true; });
+  syncNewArrivalsGate();
   renderGroupChecks();
   document.getElementById('newColName').value='';
   document.getElementById('addBox').classList.remove('open');
@@ -531,6 +543,7 @@ function prefillStep1(p){
   if(p.set){ document.querySelectorAll('input[name=set]').forEach(r=>{ if(r.value===p.set) r.checked=true; }); syncSetRadios(); }
   const colour=document.getElementById('colour'); if(colour) colour.value=p.colour||'';
   const box=document.getElementById('primaryBoxes'); if(box){ box.innerHTML=''; const list=(p.primaryColour||[]); if(list.length) list.forEach(c=>addPrimaryBox(c)); else addPrimaryBox(); }
+  syncNewArrivalsGate();
 }
 function collectForm(){
   const cols={}; document.querySelectorAll('.col-cb:checked').forEach(cb=>{const g=cb.dataset.group;(cols[g]=cols[g]||[]).push(cb.value);});

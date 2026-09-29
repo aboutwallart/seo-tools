@@ -286,7 +286,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
-                    <p class="subtitle">AI-Powered SEO Analysis · v71.4</p>
+                    <p class="subtitle">AI-Powered SEO Analysis · v71.5</p>
                     <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.11</p>
                     <button onclick="resetAllChecklists()" title="Wipe all saved checklists so every page starts fresh" style="margin-top:6px;background:#fff;color:#c62828;border:1px solid #ef9a9a;padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;">🧹 Reset all checklists (start clean)</button>
                 </div>
@@ -831,9 +831,12 @@
         function doFirstFind(kwEnc){ const kw=decodeURIComponent(kwEnc); return DOFIRST_TASKS.find(t=>(t.keyword||'').toLowerCase()===kw.toLowerCase()); }
         async function doFirstAdmin(kwEnc){
             const t = doFirstFind(kwEnc); if(!t||!t.pageUrl) return;
-            const w = window.open('','_blank');
-            try{ const r = await kwApi({action:'admin-link',url:t.pageUrl}); const dest=(r&&r.adminUrl)||t.pageUrl; if(w){ w.location=dest; } else { window.open(dest,'_blank'); } }
-            catch(e){ if(w){ w.location=t.pageUrl; } }
+            const w = window.open('about:blank','_blank'); // open the new tab during the click, before any await
+            let dest = t.pageUrl;
+            try{ const r = await kwApi({action:'admin-link',url:t.pageUrl}); dest=(r&&r.adminUrl)||t.pageUrl; }
+            catch(e){ /* keep the storefront URL as fallback */ }
+            if(w && !w.closed){ w.location.href = dest; }
+            else { const a=document.createElement('a'); a.href=dest; a.target='_blank'; a.rel='noopener'; document.body.appendChild(a); a.click(); a.remove(); }
         }
         async function doFirstGenerate(kwEnc){
             const t = doFirstFind(kwEnc); if(!t) return;
