@@ -146,6 +146,12 @@
   .status.kw{color:var(--ok);background:#e4f3ea}
   .pill{display:inline-block;background:var(--chip);border-radius:20px;padding:2px 9px;margin:2px 4px 2px 0;font-size:12px}
   @media(max-width:820px){.cols{grid-template-columns:1fr 1fr}.trend-grid{grid-template-columns:1fr 1fr}.grid2{grid-template-columns:1fr}.kwrow{grid-template-columns:1fr 60px 60px;}.kwrow .h-int,.kwrow .c-int,.kwrow .h-act{display:none}}
+  /* ---------- TABS ---------- */
+  .tabbar{background:#fff;border-bottom:1px solid var(--border);padding:0 22px;display:flex;gap:4px;flex-wrap:wrap}
+  .tabbtn{border:none;background:none;padding:12px 16px;font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent}
+  .tabbtn:hover{color:var(--ink)}
+  .tabbtn.on{color:var(--accent);border-bottom-color:var(--accent)}
+  .aptbl th,.aptbl td{border-bottom:1px solid #f0f1f2}
 </style>
 </head>
 <body>
@@ -156,22 +162,132 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v3.4</span>
+  <span class="ver">v4.0</span>
   <span class="tag">AWA Products</span>
+</div>
+
+<div class="tabbar">
+  <button class="tabbtn on" data-tab="newproduct" onclick="switchTab('newproduct')">New product</button>
+  <button class="tabbtn" data-tab="prompter" onclick="switchTab('prompter')">Artwork prompter</button>
+  <button class="tabbtn" data-tab="ideas" onclick="switchTab('ideas')">Artwork ideas</button>
 </div>
 
 <div class="wrap">
   <div id="msg" class="msg"></div>
 
-  <!-- SHARED IMAGES — one-time setup, kept small at the top -->
-  <div class="sharedstrip">
-    <span class="sst">Shared images</span>
-    <span id="sharedImagesStatus">Checking…</span>
-    <button class="btn ghost small" id="sharedImagesBtn">Check / upload</button>
+  <!-- ============ TAB: NEW PRODUCT (existing guided flow) ============ -->
+  <div id="tab-newproduct" class="tabpanel">
+    <!-- SHARED IMAGES — one-time setup, kept small at the top -->
+    <div class="sharedstrip">
+      <span class="sst">Shared images</span>
+      <span id="sharedImagesStatus">Checking…</span>
+      <button class="btn ghost small" id="sharedImagesBtn">Check / upload</button>
+    </div>
+
+    <!-- GUIDED FLOW — one product at a time, 5 steps -->
+    <div id="flow"><div class="empty">Loading…</div></div>
   </div>
 
-  <!-- GUIDED FLOW — one product at a time, 5 steps -->
-  <div id="flow"><div class="empty">Loading…</div></div>
+  <!-- ============ TAB: ARTWORK PROMPTER ============ -->
+  <div id="tab-prompter" class="tabpanel" style="display:none">
+    <div class="card">
+      <h2>Artwork prompter</h2>
+      <p class="sub">Builds an English prompt for Nano Banana. Output is always 4K. The tool looks at your reference(s) to sharpen it.</p>
+
+      <div class="field">
+        <label class="f">1. Mode</label>
+        <div class="radios" id="apMode">
+          <label class="radio on"><input type="radio" name="apmode" value="variation" checked> Variation of the reference</label>
+          <label class="radio"><input type="radio" name="apmode" value="newtheme"> New theme, same look</label>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="f">2. Your idea <span style="color:var(--muted);font-weight:400">— Spanish or English; the prompt comes out in English</span></label>
+        <input type="text" id="apIdea" placeholder="e.g. a calm winter forest at dawn, soft blues and warm light">
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <label class="f">3. How many</label>
+          <div class="radios" id="apCount">
+            <label class="radio on"><input type="radio" name="apcount" value="1" checked> 1</label>
+            <label class="radio"><input type="radio" name="apcount" value="2"> 2</label>
+            <label class="radio"><input type="radio" name="apcount" value="3"> 3</label>
+          </div>
+        </div>
+        <div class="field">
+          <label class="f">4. Composition</label>
+          <div class="radios" id="apComp">
+            <label class="radio on"><input type="radio" name="apcomp" value="normal" checked> 3:4 vertical</label>
+            <label class="radio"><input type="radio" name="apcomp" value="pano"> Panoramic</label>
+          </div>
+        </div>
+      </div>
+      <div id="apSetNote" class="msg info" style="display:none;margin:0 0 18px"></div>
+
+      <div class="field">
+        <label class="opt" style="font-size:13.5px;align-items:flex-start">
+          <input type="checkbox" id="apTimeless" style="margin-top:2px">
+          <span><b>Make it timeless</b> — the tool looks at your image and removes holiday items (Halloween, Christmas, etc.); keeps natural seasons like snow or autumn.</span>
+        </label>
+      </div>
+
+      <div class="field">
+        <label class="f">5. References <span style="color:var(--muted);font-weight:400">— the tool looks at these (up to 3)</span></label>
+        <div id="apRefs" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px"></div>
+        <button class="btn ghost small" id="apAddRefBtn" onclick="document.getElementById('apRefInput').click()">＋ Add reference</button>
+        <input type="file" id="apRefInput" accept="image/*" multiple style="display:none" onchange="apOnRefFiles(this)">
+      </div>
+
+      <div class="field">
+        <label class="f">Mix <span style="color:var(--muted);font-weight:400">— optional</span></label>
+        <input type="text" id="apMix" placeholder="e.g. the sky from image 1 with the mountains from image 2">
+      </div>
+
+      <div class="field" id="apTableWrap" style="display:none">
+        <label class="f">6. Take each thing from… <span style="color:var(--muted);font-weight:400">— click a cell</span></label>
+        <div style="overflow-x:auto;border:1px solid var(--border);border-radius:10px">
+          <table id="apTable" class="aptbl" style="width:100%;border-collapse:collapse;font-size:13px"></table>
+        </div>
+      </div>
+
+      <div class="actions" style="margin-top:8px">
+        <button class="btn primary" id="apGenBtn" onclick="apGenerate()">Generate prompt</button>
+      </div>
+
+      <div id="apOut" style="margin-top:16px"></div>
+    </div>
+  </div>
+
+  <!-- ============ TAB: ARTWORK IDEAS ============ -->
+  <div id="tab-ideas" class="tabpanel" style="display:none">
+    <div class="card">
+      <div style="display:flex;align-items:center">
+        <h2 style="margin:0">Artwork ideas</h2>
+        <button class="btn ghost small" style="margin-left:auto" onclick="aiReset()">↺ Start over</button>
+      </div>
+      <p class="sub">Stuck on what to illustrate? Describe what you have in mind and the AI suggests ideas.</p>
+
+      <div class="field">
+        <label class="f">Your idea</label>
+        <input type="text" id="aiSeed" placeholder="e.g. a calming bathroom collection — or just 'bathroom'">
+      </div>
+
+      <div class="field">
+        <label class="f" style="font-weight:400;color:var(--muted)">Optional — tap to steer</label>
+        <div id="aiChips" style="display:flex;flex-wrap:wrap;gap:8px"></div>
+      </div>
+
+      <div class="actions">
+        <button class="btn primary" id="aiRefineBtn" onclick="aiRefine()">Help me define</button>
+        <button class="btn ghost" id="aiQuickBtn" onclick="aiGenerate()">Just give me ideas</button>
+      </div>
+
+      <div id="aiQuestions" style="margin-top:16px"></div>
+      <div id="aiIdeas" style="margin-top:16px"></div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -1283,6 +1399,164 @@ document.getElementById('sharedImagesBtn').onclick=async()=>{
   finally{ btn.disabled=false; btn.textContent='Check / upload'; }
 };
 
+/* =====================================================================
+   TABS
+   ===================================================================== */
+function switchTab(name){
+  ['newproduct','prompter','ideas'].forEach(t=>{ const el=document.getElementById('tab-'+t); if(el) el.style.display=(t===name)?'':'none'; });
+  document.querySelectorAll('.tabbtn').forEach(b=>b.classList.toggle('on', b.dataset.tab===name));
+  clearMsg();
+}
+
+/* =====================================================================
+   ARTWORK PROMPTER TAB
+   ===================================================================== */
+const AP_ATTRS=["Style","Painting technique","Colour palette","Composition / framing","Subject / main elements","Mood / atmosphere","Lighting","Level of detail","Texture"];
+let AP_REFS=[];     // [{data, mediaType, thumb}]
+let AP_PICK={};     // attrIndex -> image position (1-based)
+
+function apRadioVal(name){ const el=document.querySelector('input[name='+name+']:checked'); return el?el.value:''; }
+function apWireRadios(){
+  ['apMode','apCount','apComp'].forEach(id=>{ const w=document.getElementById(id); if(!w) return;
+    w.onchange=()=>{ w.querySelectorAll('.radio').forEach(r=>r.classList.toggle('on', r.querySelector('input').checked)); apSetNote(); }; });
+}
+function apSetNote(){
+  const n=document.getElementById('apSetNote'); if(!n) return;
+  const count=parseInt(apRadioVal('apcount'),10)||1, comp=apRadioVal('apcomp');
+  if(comp==='pano'){ n.style.display='block'; n.textContent='One panoramic image — you split it into '+(count>1?count:'2–3')+' in Photoshop.'; }
+  else if(count>1){ n.style.display='block'; n.textContent='Set of '+count+': coordinated but each one different — not copies.'; }
+  else n.style.display='none';
+}
+async function apOnRefFiles(input){
+  const files=[...input.files]; input.value='';
+  for(const f of files){
+    if(AP_REFS.length>=3){ msg('Up to 3 references.','info'); break; }
+    if(!f.type || !f.type.startsWith('image/')) continue;
+    try{ const c=(await compressImageFile(f,1600,0.85))||(await readFileAsBase64(f)); AP_REFS.push({data:c.data,mediaType:c.mediaType,thumb:'data:'+c.mediaType+';base64,'+c.data}); }
+    catch(e){ msg('Could not read '+f.name,'err'); }
+  }
+  apDrawRefs();
+}
+function apRemoveRef(pos){
+  AP_REFS.splice(pos-1,1);
+  const np={}; Object.keys(AP_PICK).forEach(k=>{ const v=AP_PICK[k]; if(v===pos)return; np[k]=v>pos?v-1:v; }); AP_PICK=np;
+  apDrawRefs();
+}
+function apThumb(pos,px,removable){
+  const s=px||64, r=AP_REFS[pos-1];
+  const bg=r?('background:url('+r.thumb+') center/cover'):'background:#fafbfb';
+  let h='<div style="position:relative;width:'+s+'px;height:'+s+'px;border-radius:8px;'+bg+';border:1px solid var(--border-strong);display:flex;align-items:flex-end;justify-content:center">';
+  h+='<span style="font-size:10px;background:rgba(0,0,0,.55);color:#fff;padding:1px 6px;border-radius:8px;margin-bottom:4px">Img '+pos+'</span>';
+  if(removable) h+='<button onclick="apRemoveRef('+pos+')" title="Remove" style="position:absolute;top:-7px;right:-7px;width:20px;height:20px;border-radius:50%;border:1px solid var(--border-strong);background:#fff;color:var(--danger);font-size:13px;line-height:1;cursor:pointer">×</button>';
+  h+='</div>';
+  return h;
+}
+function apDrawRefs(){
+  const w=document.getElementById('apRefs'); if(!w) return;
+  w.innerHTML=AP_REFS.length?AP_REFS.map((_,i)=>apThumb(i+1,64,true)).join(''):'<span class="empty">No references yet.</span>';
+  const add=document.getElementById('apAddRefBtn'); if(add) add.style.display=AP_REFS.length>=3?'none':'';
+  apDrawTable();
+}
+function apDrawTable(){
+  const wrap=document.getElementById('apTableWrap'), t=document.getElementById('apTable'); if(!wrap||!t) return;
+  if(AP_REFS.length<2){ wrap.style.display='none'; return; }
+  wrap.style.display='';
+  let head='<tr><th style="text-align:left;padding:10px;background:#fafbfb;min-width:150px">Attribute</th>';
+  for(let i=1;i<=AP_REFS.length;i++) head+='<th style="padding:10px 8px 12px;background:#fafbfb;text-align:center">'+apThumb(i,72,true)+'</th>';
+  head+='</tr>';
+  let rows='';
+  AP_ATTRS.forEach((a,idx)=>{
+    rows+='<tr><td style="padding:9px 10px">'+a+'</td>';
+    for(let i=1;i<=AP_REFS.length;i++){ const on=AP_PICK[idx]===i;
+      rows+='<td onclick="apPickCell('+idx+','+i+')" style="text-align:center;padding:9px 6px;cursor:pointer;'+(on?'background:var(--accent-soft)':'')+'">'+(on?'<span style="color:var(--accent);font-weight:700">✓</span>':'<span style="color:var(--border-strong)">○</span>')+'</td>'; }
+    rows+='</tr>';
+  });
+  t.innerHTML=head+rows;
+}
+function apPickCell(a,i){ AP_PICK[a]=i; apDrawTable(); }
+async function apGenerate(){
+  const btn=document.getElementById('apGenBtn'), out=document.getElementById('apOut');
+  const idea=document.getElementById('apIdea').value.trim(), mode=apRadioVal('apmode');
+  if(mode==='newtheme' && !idea){ msg('Type your idea for the new theme.','err'); return; }
+  const attrPicks={}; Object.keys(AP_PICK).forEach(k=>{ attrPicks[AP_ATTRS[k]]=AP_PICK[k]; });
+  btn.disabled=true; btn.innerHTML='<span class="spin"></span>Building…'; out.innerHTML='';
+  try{
+    const r=await api({ action:'artwork-prompt', mode, idea,
+      count:parseInt(apRadioVal('apcount'),10)||1, composition:apRadioVal('apcomp'),
+      timeless:document.getElementById('apTimeless').checked,
+      mix:document.getElementById('apMix').value.trim(),
+      references:AP_REFS.map(r=>({data:r.data,mediaType:r.mediaType})), attrPicks });
+    out.innerHTML='<div class="contentfield"><div class="contentfield-head"><b>Prompt (English) — paste into Nano Banana</b>'+
+      '<button class="btn ghost small" onclick="apCopy(this)">Copy</button></div>'+
+      '<div class="contentfield-body" id="apPromptText">'+esc(r.prompt)+'</div></div>';
+  }catch(e){ out.innerHTML='<div class="msg show err">'+esc(e.message)+'</div>'; }
+  finally{ btn.disabled=false; btn.textContent='Generate prompt'; }
+}
+function apCopy(btn){ const t=document.getElementById('apPromptText'); if(!t) return; if(navigator.clipboard) navigator.clipboard.writeText(t.textContent); btn.textContent='Copied'; setTimeout(()=>btn.textContent='Copy',1200); }
+
+/* =====================================================================
+   ARTWORK IDEAS TAB
+   ===================================================================== */
+const AI_CHIPS=[["Room","Bathroom"],["Room","Kids room"],["Room","Bedroom"],["Style","Minimalist"],["Style","Vintage"],["Style","Abstract"],["Colour","Neutrals"],["Colour","Blues & greens"],["Colour","Warm earth"]];
+let AI_PICKED={}, AI_ANSWERS={};
+function aiDrawChips(){
+  const w=document.getElementById('aiChips'); if(!w) return; w.innerHTML='';
+  AI_CHIPS.forEach((c,i)=>{ const b=document.createElement('button'); b.className='btn ghost small'; b.textContent=c[1];
+    if(AI_PICKED[i]){ b.style.background='var(--accent-soft)'; b.style.borderColor='var(--accent)'; b.style.color='var(--accent)'; }
+    b.onclick=()=>{ AI_PICKED[i]=!AI_PICKED[i]; aiDrawChips(); }; w.appendChild(b); });
+}
+function aiPickedChips(){ return AI_CHIPS.filter((_,i)=>AI_PICKED[i]).map(c=>c[1]); }
+async function aiRefine(){
+  const btn=document.getElementById('aiRefineBtn'), box=document.getElementById('aiQuestions');
+  btn.disabled=true; btn.innerHTML='<span class="spin"></span>Reading…';
+  try{
+    const r=await api({action:'artwork-ideas-questions', seed:document.getElementById('aiSeed').value.trim(), chips:aiPickedChips()});
+    const qs=r.questions||[];
+    if(!qs.length){ box.innerHTML=''; btn.disabled=false; btn.textContent='Help me define'; aiGenerate(); return; }
+    box.innerHTML='<div class="kwblock"><div style="font-size:12.5px;color:var(--muted);margin-bottom:10px">A few quick questions to sharpen the ideas:</div>'+
+      qs.map(q=>'<div style="margin-bottom:14px"><div style="font-weight:600;font-size:13px;margin-bottom:8px">'+esc(q.q)+'</div>'+
+        '<div class="radios">'+q.options.map(o=>'<button class="btn ghost small aiopt" data-q="'+esc(q.q)+'" onclick="aiPickOpt(this)">'+esc(o)+'</button>').join('')+'</div>'+
+        '<input type="text" class="aiqfree" data-q="'+esc(q.q)+'" placeholder="or type your own…" style="margin-top:8px" oninput="aiFreeInput(this)"></div>').join('')+
+      '<button class="btn primary" onclick="aiGenerate()">Get ideas</button></div>';
+  }catch(e){ box.innerHTML='<div class="msg show err">'+esc(e.message)+'</div>'; }
+  finally{ btn.disabled=false; btn.textContent='Help me define'; }
+}
+function aiPickOpt(el){
+  const q=el.getAttribute('data-q'); AI_ANSWERS[q]=el.textContent;
+  const wrap=el.parentElement; wrap.querySelectorAll('.aiopt').forEach(b=>{ b.style.background=''; b.style.borderColor=''; b.style.color=''; });
+  el.style.background='var(--accent-soft)'; el.style.borderColor='var(--accent)'; el.style.color='var(--accent)';
+}
+function aiFreeInput(el){ const q=el.getAttribute('data-q'); if(el.value.trim()) AI_ANSWERS[q]=el.value.trim(); }
+async function aiGenerate(){
+  const box=document.getElementById('aiIdeas');
+  box.innerHTML='<div class="empty"><span class="spin" style="border-color:var(--accent);border-top-color:transparent"></span> Thinking of ideas…</div>';
+  try{
+    const r=await api({action:'artwork-ideas-generate', seed:document.getElementById('aiSeed').value.trim(), chips:aiPickedChips(), answers:AI_ANSWERS});
+    const ideas=r.ideas||[];
+    if(!ideas.length){ box.innerHTML='<div class="empty">No ideas came back — try adding a bit more.</div>'; return; }
+    box.innerHTML='<div class="kwblock"><div style="display:flex;align-items:center;margin-bottom:10px"><b style="font-size:13.5px">Ideas for you</b>'+
+      '<button class="btn ghost small" id="aiMoreBtn" style="margin-left:auto">↻ More ideas</button></div><div id="aiIdeaList"></div></div>';
+    const list=document.getElementById('aiIdeaList');
+    ideas.forEach(idea=>{ const d=document.createElement('div');
+      d.style.cssText='border:1px solid var(--border);border-radius:9px;padding:11px 13px;margin-bottom:8px;display:flex;align-items:center;gap:12px';
+      d.innerHTML='<div style="flex:1"><div style="font-weight:600">'+esc(idea.title)+'</div><div style="font-size:12.5px;color:var(--muted)">'+esc(idea.description)+'</div></div>';
+      const b=document.createElement('button'); b.className='btn ghost small'; b.textContent='Use in prompter →'; b.onclick=()=>aiUseInPrompter(idea);
+      d.appendChild(b); list.appendChild(d); });
+    document.getElementById('aiMoreBtn').onclick=aiGenerate;
+  }catch(e){ box.innerHTML='<div class="msg show err">'+esc(e.message)+'</div>'; }
+}
+function aiUseInPrompter(idea){
+  switchTab('prompter');
+  const mv=document.querySelector('input[name=apmode][value=newtheme]');
+  if(mv){ mv.checked=true; const w=document.getElementById('apMode'); if(w) w.querySelectorAll('.radio').forEach(r=>r.classList.toggle('on', r.querySelector('input').checked)); }
+  const box=document.getElementById('apIdea'); if(box) box.value=(idea.title?idea.title+' — '+(idea.description||''):(idea.description||'')).trim();
+  msg('Sent to Artwork prompter — add a reference and generate.','ok');
+}
+function aiReset(){
+  document.getElementById('aiSeed').value=''; AI_PICKED={}; AI_ANSWERS={};
+  aiDrawChips(); document.getElementById('aiQuestions').innerHTML=''; document.getElementById('aiIdeas').innerHTML='';
+}
+
 /* ---------- INIT ---------- */
 async function init(){
   loadSharedImagesStatus();
@@ -1293,6 +1567,8 @@ async function init(){
   renderFlow();
 }
 init();
+// Artwork tabs — one-time UI setup (panels exist statically, just hidden until selected).
+apWireRadios(); apDrawRefs(); apSetNote(); aiDrawChips();
 </script>
 </body>
 </html>
