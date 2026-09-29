@@ -1,4 +1,8 @@
-// api/keywords.js — New Product Generator backend  ·  v0.34
+// api/keywords.js — New Product Generator backend  ·  v0.35
+// v0.35 (2026-09-29): Google Keyword Planner as a 3rd keyword source for Step 2 — new action
+//   'google-keyword-ideas' (Google Ads API v22 GenerateKeywordIdeas, free search volume, UK/English).
+//   Developer token retired by Google (Sept 2026); access lives on the Cloud project — we only send
+//   OAuth (GADS_* env) + login-customer-id. Results merge into the Step-2 list labelled "Google KP".
 // v0.34 (2026-09-28): #6 (final) — the colour/style collections only hold the LIVING-ROOM versions (rule is
 //   AND [specific tag + "Living room Art"]). So a ticked collection that REQUIRES "Living room Art" is now
 //   skipped entirely (no tags, not linked) when the product isn't marked for Living room. By Style/By Colour
@@ -2175,6 +2179,66 @@ async function sendToShopify(sku) {
   throw new Error('write conflict, try again');
 }
 
+/* ------------- Google Keyword Planner (Google Ads API v22) ------------- */
+// Free search-volume source for Step 2. Developer token is retired (Sept 2026) — the access level
+// lives on the Cloud project, so we only send an OAuth access token + login-customer-id.
+async function getGadsAccessToken() {
+  const params = new URLSearchParams({
+    client_id: process.env.GADS_CLIENT_ID || '',
+    client_secret: process.env.GADS_CLIENT_SECRET || '',
+    refresh_token: process.env.GADS_REFRESH_TOKEN || '',
+    grant_type: 'refresh_token'
+  });
+  const r = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString()
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!j.access_token) throw new Error('Google Ads token: ' + (j.error_description || j.error || ('HTTP ' + r.status)));
+  return j.access_token;
+}
+async function googleKeywordIdeas(body) {
+  const seeds = (Array.isArray(body.seeds) ? body.seeds : [])
+    .map(s => String(s || '').trim()).filter(Boolean).slice(0, 20);
+  if (!seeds.length) return { options: [] };
+  if (!process.env.GADS_CLIENT_ID || !process.env.GADS_REFRESH_TOKEN || !process.env.GADS_CUSTOMER_ID) {
+    return { options: [], error: 'Google Ads credentials not configured' };
+  }
+  const cid = String(process.env.GADS_CUSTOMER_ID || '').replace(/\D/g, '');
+  const login = String(process.env.GADS_LOGIN_CUSTOMER_ID || '').replace(/\D/g, '');
+  let accessToken;
+  try { accessToken = await getGadsAccessToken(); }
+  catch (e) { return { options: [], error: e.message }; }
+  const headers = { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
+  if (login) headers['login-customer-id'] = login;
+  const payload = {
+    language: 'languageConstants/1000',                 // English
+    geoTargetConstants: ['geoTargetConstants/2826'],     // United Kingdom
+    keywordPlanNetwork: 'GOOGLE_SEARCH',
+    includeAdultKeywords: false,
+    keywordSeed: { keywords: seeds }
+  };
+  let data;
+  try {
+    const r = await fetch(`https://googleads.googleapis.com/v22/customers/${cid}:generateKeywordIdeas`, {
+      method: 'POST', headers, body: JSON.stringify(payload)
+    });
+    data = await r.json().catch(() => ({}));
+    if (!r.ok) return { options: [], error: (data.error && data.error.message) || ('HTTP ' + r.status) };
+  } catch (e) { return { options: [], error: e.message }; }
+  const options = (data.results || []).map(x => {
+    const m = x.keywordIdeaMetrics || {};
+    return {
+      keyword: x.text,
+      volume: (m.avgMonthlySearches != null) ? Number(m.avgMonthlySearches) : null,
+      competition: m.competition || null,
+      competitionIndex: (m.competitionIndex != null) ? Number(m.competitionIndex) : null
+    };
+  }).filter(o => o.keyword);
+  return { options };
+}
+
 /* ---------------- handler ---------------- */
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -2195,6 +2259,12 @@ export default async function handler(req, res) {
 
     if (action === 'gsc-opportunities') {
       const out = await gscOpportunities(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    // Google Keyword Planner (Google Ads API) — free volume source, 3rd source in Step 2.
+    if (action === 'google-keyword-ideas') {
+      const out = await googleKeywordIdeas(body);
       return res.status(200).json({ ok: true, ...out });
     }
 
