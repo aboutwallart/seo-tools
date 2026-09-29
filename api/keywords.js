@@ -1,4 +1,6 @@
-// api/keywords.js — New Product Generator backend  ·  v0.36
+// api/keywords.js — New Product Generator backend  ·  v0.37
+// v0.37 (2026-09-29): GKP diagnostics — response carries `v` + `debug` (raw Google error per attempt)
+//   so we can see the exact reason behind "caller does not have permission".
 // v0.36 (2026-09-29): GKP fix — "caller does not have permission" via manager. Now tries the account
 //   DIRECT first (OAuth user owns it), falls back to the manager (login-customer-id) only on a
 //   permission error, and returns `via` + exact error for diagnosis.
@@ -2226,12 +2228,14 @@ async function googleKeywordIdeas(body) {
   const attempts = [{ via: 'direct', login: null }];
   if (manager && manager !== cid) attempts.push({ via: 'manager', login: manager });
   let lastErr = 'unknown';
+  const debug = [];
   for (const a of attempts) {
     const headers = { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
     if (a.login) headers['login-customer-id'] = a.login;
     try {
       const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) });
       const data = await r.json().catch(() => ({}));
+      debug.push({ via: a.via, status: r.status, error: r.ok ? null : (data.error || null) });
       if (r.ok) {
         const options = (data.results || []).map(x => {
           const m = x.keywordIdeaMetrics || {};
@@ -2242,13 +2246,13 @@ async function googleKeywordIdeas(body) {
             competitionIndex: (m.competitionIndex != null) ? Number(m.competitionIndex) : null
           };
         }).filter(o => o.keyword);
-        return { options, via: a.via };
+        return { options, via: a.via, v: '0.37' };
       }
       lastErr = (data.error && data.error.message) || ('HTTP ' + r.status);
       if (!/permission|authoriz|not have|customer/i.test(lastErr)) break;
-    } catch (e) { lastErr = e.message; break; }
+    } catch (e) { lastErr = e.message; debug.push({ via: a.via, thrown: e.message }); break; }
   }
-  return { options: [], error: lastErr };
+  return { options: [], error: lastErr, v: '0.37', debug };
 }
 
 /* ---------------- handler ---------------- */
