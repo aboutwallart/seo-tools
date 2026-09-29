@@ -1,4 +1,7 @@
-// api/keywords.js — New Product Generator backend  ·  v0.35
+// api/keywords.js — New Product Generator backend  ·  v0.36
+// v0.36 (2026-09-29): GKP fix — "caller does not have permission" via manager. Now tries the account
+//   DIRECT first (OAuth user owns it), falls back to the manager (login-customer-id) only on a
+//   permission error, and returns `via` + exact error for diagnosis.
 // v0.35 (2026-09-29): Google Keyword Planner as a 3rd keyword source for Step 2 — new action
 //   'google-keyword-ideas' (Google Ads API v22 GenerateKeywordIdeas, free search volume, UK/English).
 //   Developer token retired by Google (Sept 2026); access lives on the Cloud project — we only send
@@ -2206,12 +2209,10 @@ async function googleKeywordIdeas(body) {
     return { options: [], error: 'Google Ads credentials not configured' };
   }
   const cid = String(process.env.GADS_CUSTOMER_ID || '').replace(/\D/g, '');
-  const login = String(process.env.GADS_LOGIN_CUSTOMER_ID || '').replace(/\D/g, '');
+  const manager = String(process.env.GADS_LOGIN_CUSTOMER_ID || '').replace(/\D/g, '');
   let accessToken;
   try { accessToken = await getGadsAccessToken(); }
   catch (e) { return { options: [], error: e.message }; }
-  const headers = { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
-  if (login) headers['login-customer-id'] = login;
   const payload = {
     language: 'languageConstants/1000',                 // English
     geoTargetConstants: ['geoTargetConstants/2826'],     // United Kingdom
@@ -2219,24 +2220,35 @@ async function googleKeywordIdeas(body) {
     includeAdultKeywords: false,
     keywordSeed: { keywords: seeds }
   };
-  let data;
-  try {
-    const r = await fetch(`https://googleads.googleapis.com/v22/customers/${cid}:generateKeywordIdeas`, {
-      method: 'POST', headers, body: JSON.stringify(payload)
-    });
-    data = await r.json().catch(() => ({}));
-    if (!r.ok) return { options: [], error: (data.error && data.error.message) || ('HTTP ' + r.status) };
-  } catch (e) { return { options: [], error: e.message }; }
-  const options = (data.results || []).map(x => {
-    const m = x.keywordIdeaMetrics || {};
-    return {
-      keyword: x.text,
-      volume: (m.avgMonthlySearches != null) ? Number(m.avgMonthlySearches) : null,
-      competition: m.competition || null,
-      competitionIndex: (m.competitionIndex != null) ? Number(m.competitionIndex) : null
-    };
-  }).filter(o => o.keyword);
-  return { options };
+  const url = `https://googleads.googleapis.com/v22/customers/${cid}:generateKeywordIdeas`;
+  // Try the account directly (the OAuth user owns it), then via the manager account. Only retry on
+  // permission-type errors, so any other real problem still surfaces its exact message.
+  const attempts = [{ via: 'direct', login: null }];
+  if (manager && manager !== cid) attempts.push({ via: 'manager', login: manager });
+  let lastErr = 'unknown';
+  for (const a of attempts) {
+    const headers = { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
+    if (a.login) headers['login-customer-id'] = a.login;
+    try {
+      const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) });
+      const data = await r.json().catch(() => ({}));
+      if (r.ok) {
+        const options = (data.results || []).map(x => {
+          const m = x.keywordIdeaMetrics || {};
+          return {
+            keyword: x.text,
+            volume: (m.avgMonthlySearches != null) ? Number(m.avgMonthlySearches) : null,
+            competition: m.competition || null,
+            competitionIndex: (m.competitionIndex != null) ? Number(m.competitionIndex) : null
+          };
+        }).filter(o => o.keyword);
+        return { options, via: a.via };
+      }
+      lastErr = (data.error && data.error.message) || ('HTTP ' + r.status);
+      if (!/permission|authoriz|not have|customer/i.test(lastErr)) break;
+    } catch (e) { lastErr = e.message; break; }
+  }
+  return { options: [], error: lastErr };
 }
 
 /* ---------------- handler ---------------- */
