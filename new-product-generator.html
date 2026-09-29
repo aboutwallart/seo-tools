@@ -162,7 +162,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v4.0</span>
+  <span class="ver">v4.1</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -170,6 +170,7 @@
   <button class="tabbtn on" data-tab="newproduct" onclick="switchTab('newproduct')">New product</button>
   <button class="tabbtn" data-tab="prompter" onclick="switchTab('prompter')">Artwork prompter</button>
   <button class="tabbtn" data-tab="ideas" onclick="switchTab('ideas')">Artwork ideas</button>
+  <button class="tabbtn" data-tab="lifestyle" onclick="switchTab('lifestyle')">Lifestyle images</button>
 </div>
 
 <div class="wrap">
@@ -286,6 +287,60 @@
 
       <div id="aiQuestions" style="margin-top:16px"></div>
       <div id="aiIdeas" style="margin-top:16px"></div>
+    </div>
+  </div>
+
+  <!-- ============ TAB: LIFESTYLE IMAGES ============ -->
+  <div id="tab-lifestyle" class="tabpanel" style="display:none">
+    <div class="card">
+      <h2>Lifestyle image generator</h2>
+      <p class="sub">Builds ready-to-paste prompts. The tool looks at your image. (Nano Banana auto-generation comes later.)</p>
+
+      <div class="field">
+        <label class="f">What are you making?</label>
+        <div class="radios" id="lgPath">
+          <label class="radio on"><input type="radio" name="lgpath" value="wallart" checked> Wall art products</label>
+          <label class="radio"><input type="radio" name="lgpath" value="collective"> Collective products</label>
+        </div>
+      </div>
+
+      <!-- WALL ART -->
+      <div id="lgWallart">
+        <div class="field">
+          <label class="f">1. Upload the 4 framed sets <span style="color:var(--muted);font-weight:400">— each frame on white</span></label>
+          <div id="lgWaRefs" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px"></div>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label class="f">2. Room</label>
+            <select id="lgRoom" class="sel"></select>
+          </div>
+          <div class="field">
+            <label class="f">3. Style</label>
+            <select id="lgStyle" class="sel"></select>
+          </div>
+        </div>
+        <div class="field">
+          <label class="f">4. Anything to add <span style="color:var(--muted);font-weight:400">— optional</span></label>
+          <input type="text" id="lgNote" placeholder="e.g. dark green walls, brass taps">
+        </div>
+        <div class="ainotes" style="margin-bottom:16px">Returns <b>4 lifestyle prompts — one per frame</b>, each with a different decoration, the art on the main wall as the focus. <b>Image 1 (white frame) includes a person</b> (varied ethnicity, neutral clothing).</div>
+        <div class="actions"><button class="btn primary" id="lgWaBtn" onclick="lgGenerateWallart()">Generate 4 prompts</button></div>
+        <div id="lgWaOut" style="margin-top:14px"></div>
+      </div>
+
+      <!-- COLLECTIVE -->
+      <div id="lgCollective" style="display:none">
+        <div class="field">
+          <label class="f">1. Upload the supplier photo(s) <span style="color:var(--muted);font-weight:400">— low-quality / white bg is fine</span></label>
+          <div id="lgCoRefs" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px"></div>
+          <button class="btn ghost small" id="lgCoAddBtn" onclick="document.getElementById('lgCoInput').click()">＋ Add product photo</button>
+          <input type="file" id="lgCoInput" accept="image/*" multiple style="display:none" onchange="lgOnCoFiles(this)">
+        </div>
+        <div class="ainotes" style="margin-bottom:16px">Per product: <b>4 prompts, square 1:1</b> — 1 white background + 3 lifestyle (only 1 with a person). The tool looks at each photo and fills in the product details.</div>
+        <div class="actions"><button class="btn primary" id="lgCoBtn" onclick="lgGenerateCollective()">Generate prompts</button></div>
+        <div id="lgCoOut" style="margin-top:14px"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -1403,7 +1458,7 @@ document.getElementById('sharedImagesBtn').onclick=async()=>{
    TABS
    ===================================================================== */
 function switchTab(name){
-  ['newproduct','prompter','ideas'].forEach(t=>{ const el=document.getElementById('tab-'+t); if(el) el.style.display=(t===name)?'':'none'; });
+  ['newproduct','prompter','ideas','lifestyle'].forEach(t=>{ const el=document.getElementById('tab-'+t); if(el) el.style.display=(t===name)?'':'none'; });
   document.querySelectorAll('.tabbtn').forEach(b=>b.classList.toggle('on', b.dataset.tab===name));
   clearMsg();
 }
@@ -1557,6 +1612,91 @@ function aiReset(){
   aiDrawChips(); document.getElementById('aiQuestions').innerHTML=''; document.getElementById('aiIdeas').innerHTML='';
 }
 
+/* =====================================================================
+   LIFESTYLE IMAGE GENERATOR TAB
+   ===================================================================== */
+const LG_ROOMS=["Above Fireplace","Bathroom","Bedroom","Games room","Hallway","Kitchen","Laundry room","Living room","Nursery","Office","Teens Bedroom"];
+const LG_STYLES=["Abstract","Biophilic","Black & White","Bohemian","Chinoiserie","Christian","Coastal","Coffee","Contemporary","Country Cottage","Eclectic","Farmhouse","French Country","Industrial","Islamic","Japandi","Marble","Masculine","Maximalism","Mediterranean","Mid Century","Minimalism","Moroccan","Old Money","Preppy","Scandinavian","Shabby Chic","Sun & Moon","Transitional","Travel","Tropical","Wildlife","Zen"];
+const LG_FRAMES=["White frame","Black frame","Oak","Canvas"];
+let LG_WA={};   // frame -> {data, mediaType, thumb}
+let LG_CO=[];   // [{data, mediaType, thumb, name}]
+
+function lgInit(){
+  const room=document.getElementById('lgRoom'); if(room && !room.options.length){ room.innerHTML=LG_ROOMS.map(r=>'<option'+(r==='Bathroom'?' selected':'')+'>'+esc(r)+'</option>').join(''); }
+  const style=document.getElementById('lgStyle'); if(style && !style.options.length){ style.innerHTML=LG_STYLES.map(s=>'<option'+(s==='Farmhouse'?' selected':'')+'>'+esc(s)+'</option>').join(''); }
+  const w=document.getElementById('lgPath'); if(w){ w.onchange=()=>{ w.querySelectorAll('.radio').forEach(r=>r.classList.toggle('on', r.querySelector('input').checked)); const v=(document.querySelector('input[name=lgpath]:checked')||{}).value; document.getElementById('lgWallart').style.display=(v==='collective')?'none':''; document.getElementById('lgCollective').style.display=(v==='collective')?'':'none'; }; }
+  lgDrawWaRefs(); lgDrawCoRefs();
+}
+
+/* ---- Wall art uploads (4 frame slots) ---- */
+function lgDrawWaRefs(){
+  const wrap=document.getElementById('lgWaRefs'); if(!wrap) return;
+  wrap.innerHTML=LG_FRAMES.map((f,i)=>{
+    const r=LG_WA[f];
+    const inner=r
+      ? '<div style="position:relative;height:70px;border-radius:8px;background:url('+r.thumb+') center/cover;border:1px solid var(--border-strong)"><button onclick="lgRemoveWa('+i+')" title="Remove" style="position:absolute;top:-7px;right:-7px;width:20px;height:20px;border-radius:50%;border:1px solid var(--border-strong);background:#fff;color:var(--danger);font-size:13px;line-height:1;cursor:pointer">×</button></div>'
+      : '<div onclick="document.getElementById(\'lgWaInput'+i+'\').click()" style="height:70px;border-radius:8px;background:#fafbfb;border:2px dashed var(--border-strong);display:flex;align-items:center;justify-content:center;color:var(--muted);cursor:pointer;font-size:18px">＋</div>';
+    return '<div style="text-align:center"><div>'+inner+'</div><div style="font-size:11px;color:var(--muted);margin-top:4px">'+esc(f)+'</div>'+
+      '<input type="file" id="lgWaInput'+i+'" accept="image/*" style="display:none" onchange="lgOnWaFile(this,'+i+')"></div>';
+  }).join('');
+}
+async function lgOnWaFile(input,i){
+  const f=input.files[0]; input.value=''; if(!f||!f.type.startsWith('image/')) return;
+  try{ const c=(await compressImageFile(f,1600,0.85))||(await readFileAsBase64(f)); LG_WA[LG_FRAMES[i]]={data:c.data,mediaType:c.mediaType,thumb:'data:'+c.mediaType+';base64,'+c.data}; }
+  catch(e){ msg('Could not read '+f.name,'err'); }
+  lgDrawWaRefs();
+}
+function lgRemoveWa(i){ delete LG_WA[LG_FRAMES[i]]; lgDrawWaRefs(); }
+
+/* ---- Collective uploads (multi) ---- */
+async function lgOnCoFiles(input){
+  const files=[...input.files]; input.value='';
+  for(const f of files){ if(!f.type||!f.type.startsWith('image/')) continue;
+    try{ const c=(await compressImageFile(f,1600,0.85))||(await readFileAsBase64(f)); LG_CO.push({data:c.data,mediaType:c.mediaType,thumb:'data:'+c.mediaType+';base64,'+c.data,name:f.name}); }
+    catch(e){ msg('Could not read '+f.name,'err'); } }
+  lgDrawCoRefs();
+}
+function lgDrawCoRefs(){
+  const wrap=document.getElementById('lgCoRefs'); if(!wrap) return;
+  wrap.innerHTML=LG_CO.length?LG_CO.map((r,i)=>'<div style="position:relative;width:64px;height:64px;border-radius:8px;background:url('+r.thumb+') center/cover;border:1px solid var(--border-strong)"><button onclick="lgRemoveCo('+i+')" title="Remove" style="position:absolute;top:-7px;right:-7px;width:20px;height:20px;border-radius:50%;border:1px solid var(--border-strong);background:#fff;color:var(--danger);font-size:13px;line-height:1;cursor:pointer">×</button></div>').join(''):'<span class="empty">No photos yet.</span>';
+}
+function lgRemoveCo(i){ LG_CO.splice(i,1); lgDrawCoRefs(); }
+
+/* ---- shared render ---- */
+function lgPromptBlock(title,text){
+  return '<div class="contentfield"><div class="contentfield-head"><b>'+esc(title)+'</b><button class="btn ghost small" onclick="lgCopy(this)">Copy</button></div><div class="contentfield-body lgprompt">'+esc(text)+'</div></div>';
+}
+function lgCopy(btn){ const t=btn.closest('.contentfield').querySelector('.lgprompt'); if(t&&navigator.clipboard) navigator.clipboard.writeText(t.textContent); btn.textContent='Copied'; setTimeout(()=>btn.textContent='Copy',1200); }
+
+async function lgGenerateWallart(){
+  const btn=document.getElementById('lgWaBtn'), out=document.getElementById('lgWaOut');
+  const references=LG_FRAMES.filter(f=>LG_WA[f]).map(f=>({data:LG_WA[f].data,mediaType:LG_WA[f].mediaType,frame:f}));
+  if(!references.length){ msg('Upload at least one framed set.','err'); return; }
+  btn.disabled=true; btn.innerHTML='<span class="spin"></span>Building…'; out.innerHTML='';
+  try{
+    const r=await api({action:'lifestyle-wallart', room:document.getElementById('lgRoom').value, style:document.getElementById('lgStyle').value, note:document.getElementById('lgNote').value.trim(), references});
+    out.innerHTML=(r.prompts||[]).map(p=>lgPromptBlock(p.title,p.text)).join('')||'<div class="empty">No prompts came back.</div>';
+  }catch(e){ out.innerHTML='<div class="msg show err">'+esc(e.message)+'</div>'; }
+  finally{ btn.disabled=false; btn.textContent='Generate 4 prompts'; }
+}
+async function lgGenerateCollective(){
+  const btn=document.getElementById('lgCoBtn'), out=document.getElementById('lgCoOut');
+  if(!LG_CO.length){ msg('Upload at least one product photo.','err'); return; }
+  btn.disabled=true; out.innerHTML='';
+  try{
+    let html='';
+    for(let i=0;i<LG_CO.length;i++){
+      btn.innerHTML='<span class="spin"></span>Product '+(i+1)+' / '+LG_CO.length+'…';
+      const ref=LG_CO[i];
+      try{
+        const r=await api({action:'lifestyle-collective', reference:{data:ref.data,mediaType:ref.mediaType}});
+        html+='<div style="margin-bottom:14px"><div style="font-weight:600;font-size:13px;margin-bottom:6px">'+esc(ref.name||('Product '+(i+1)))+'</div>'+(r.prompts||[]).map(p=>lgPromptBlock(p.title,p.text)).join('')+'</div>';
+      }catch(e){ html+='<div class="msg show err">'+esc(ref.name||('Product '+(i+1)))+': '+esc(e.message)+'</div>'; }
+      out.innerHTML=html;
+    }
+  } finally { btn.disabled=false; btn.textContent='Generate prompts'; }
+}
+
 /* ---------- INIT ---------- */
 async function init(){
   loadSharedImagesStatus();
@@ -1567,8 +1707,8 @@ async function init(){
   renderFlow();
 }
 init();
-// Artwork tabs — one-time UI setup (panels exist statically, just hidden until selected).
-apWireRadios(); apDrawRefs(); apSetNote(); aiDrawChips();
+// Artwork + Lifestyle tabs — one-time UI setup (panels exist statically, just hidden until selected).
+apWireRadios(); apDrawRefs(); apSetNote(); aiDrawChips(); lgInit();
 </script>
 </body>
 </html>

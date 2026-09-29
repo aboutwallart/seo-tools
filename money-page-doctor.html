@@ -286,7 +286,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
-                    <p class="subtitle">AI-Powered SEO Analysis · v71.5</p>
+                    <p class="subtitle">AI-Powered SEO Analysis · v71.6</p>
                     <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.11</p>
                     <button onclick="resetAllChecklists()" title="Wipe all saved checklists so every page starts fresh" style="margin-top:6px;background:#fff;color:#c62828;border:1px solid #ef9a9a;padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;">🧹 Reset all checklists (start clean)</button>
                 </div>
@@ -742,13 +742,27 @@
             if(c) c.textContent = DOFIRST_TASKS.filter(t=>t.type==='strengthen' && t.status==='done').length;
         }
         // Render the Do First list from memory (no refetch). Only TODO tasks — done ones move to Strengthened.
+        // Grouped by PAGE: one card per page holds every action for that page (enter the page once, do it all).
         function renderDoFirstList(){
             const box = document.getElementById('doFirstList'); if(!box) return;
             const todo = DOFIRST_TASKS.filter(t=>t.status!=='done');
             const cnt = document.getElementById('doFirstCount'); if(cnt) cnt.textContent = todo.length;
             updateStrengthenedCount();
             if(!todo.length){ box.innerHTML = '<span style="color:#888;">Nothing to do right now.</span>'; return; }
-            box.innerHTML = '<div style="display:grid;gap:12px;">' + todo.map(doFirstCard).join('') + '</div>';
+            // group by page URL (fallback key when a task has no URL) — keep first-seen order
+            const groups = new Map();
+            todo.forEach(t=>{ const k = (t.pageUrl && t.pageUrl.trim()) ? t.pageUrl.trim() : ('__nourl__'+t.keyword); if(!groups.has(k)) groups.set(k, []); groups.get(k).push(t); });
+            box.innerHTML = '<div style="display:grid;gap:12px;">' + [...groups.values()].map(doFirstPageCard).join('') + '</div>';
+        }
+        // Mark EVERY todo task on one page done in one click.
+        async function doFirstDonePage(pageUrlEnc){
+            const url = decodeURIComponent(pageUrlEnc);
+            const tasks = DOFIRST_TASKS.filter(t=>t.status!=='done' && ((t.pageUrl||'').trim()===url));
+            for(const t of tasks){
+                try{ await kwApi({action:'capture-task-status',keyword:t.keyword,status:'done'}); t.status='done'; }
+                catch(e){ alert('Could not update "'+t.keyword+'": '+e.message); }
+            }
+            renderDoFirstList(); renderStrengthenedList();
         }
         async function renderDoFirst(){
             const box = document.getElementById('doFirstList'); if(!box) return;
@@ -784,20 +798,34 @@
                 '</div>'+
             '</div>';
         }
-        function doFirstCard(t){
+        // One PAGE card holds every action for that page. Header + "Open page in admin" + "Mark all done" once.
+        function doFirstPageCard(tasks){
+            const first = tasks[0];
+            const hasUrl = !!(first.pageUrl && first.pageUrl.trim());
+            const urlEnc = encodeURIComponent(first.pageUrl||'');
+            const admin = hasUrl ? '<button class="btn-secondary" style="white-space:nowrap;" onclick="doFirstAdmin('+"'"+encodeURIComponent(first.keyword)+"'"+')">Open page in admin ↗</button>' : '';
+            const markAll = (tasks.length>1 && hasUrl) ? '<button class="btn-secondary" style="white-space:nowrap;" onclick="doFirstDonePage('+"'"+urlEnc+"'"+')">Mark all '+tasks.length+' done ✓</button>' : '';
+            const header = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;border-bottom:2px solid #eef1ee;padding-bottom:10px;margin-bottom:4px;">'+
+                    '<div style="min-width:0;"><div style="font-weight:700;word-break:break-word;">📄 '+escDF(first.pageUrl||'(no page URL)')+'</div>'+
+                        '<div style="color:#888;font-size:12px;margin-top:3px;">'+tasks.length+' thing'+(tasks.length>1?'s':'')+' to add to this page</div></div>'+
+                    '<div style="display:flex;gap:8px;flex-wrap:wrap;">'+admin+markAll+'</div>'+
+                '</div>';
+            return '<div style="border:1px solid #e2e2e2;border-radius:10px;padding:14px 16px;background:#fff;">'+header+tasks.map(doFirstSection).join('')+'</div>';
+        }
+        // One action inside a page card (the editable section + per-item done/covered). Keyed by keyword.
+        function doFirstSection(t){
             const done = t.status==='done';
             const gen = !!DF_GENERATING[t.keyword];
             const key = escDF(t.keyword);
             const star = (t.position!=null && t.position<=6) ? '⭐ ' : '';
             const metrics = 'pos '+(t.position!=null?t.position:'—')+' · '+(t.clicks!=null?t.clicks:'—')+' clicks · '+(t.impressions!=null?t.impressions:'—')+' impr';
-            const admin = t.pageUrl ? '<button class="btn-secondary" style="white-space:nowrap;" onclick="doFirstAdmin('+"'"+encodeURIComponent(t.keyword)+"'"+')">Open page in admin ↗</button>' : '';
             let head, body;
             if(t.type==='optimise'){
                 head = '<span style="background:#e4f2e4;color:#1f5f1f;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-left:6px;">optimise</span>';
-                body = '<div style="font-size:0.85rem;color:#2e7d32;margin:4px 0 8px;word-break:break-word;">ranks on your page (free) — optimise it for this keyword:<br>'+escDF(t.pageUrl||'')+'</div>';
+                body = '<div style="font-size:0.85rem;color:#2e7d32;margin:4px 0 8px;">ranks on your page (free) — optimise it for this keyword.</div>';
             } else {
                 head = '<span style="background:#f6e3cf;color:#8a4b12;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-left:6px;">strengthen</span>';
-                body = '<div style="font-size:0.85rem;color:#b3620a;margin:4px 0 8px;word-break:break-word;">ranks on a page locked to “'+escDF(t.lockedToKeyword||'another keyword')+'” — add a short section + internal link to this page:<br>'+escDF(t.pageUrl||'')+'</div>';
+                body = '<div style="font-size:0.85rem;color:#b3620a;margin:4px 0 8px;">ranks on a page locked to “'+escDF(t.lockedToKeyword||'another keyword')+'” — add this short section + internal link.</div>';
                 if(gen){
                     body += '<div style="margin-top:10px;color:#8a4b12;font-weight:700;">✍️ Writing… <span style="font-weight:400;color:#b3620a;">(this can take a few seconds)</span></div>';
                 } else if(t.paragraph){
@@ -819,12 +847,11 @@
                     body += '<button class="btn-secondary" onclick="doFirstGenerate('+"'"+encodeURIComponent(t.keyword)+"'"+')">Write the section for me</button>';
                 }
             }
-            const actions = '<div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">'+
-                admin+
+            const actions = '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'+
                 '<button class="btn-secondary" onclick="doFirstStatus('+"'"+encodeURIComponent(t.keyword)+"'"+',\'done\')">'+(done?'Done ✓':'Mark done')+'</button>'+
                 '<button class="btn-secondary" style="background:#c62828;color:#fff;border-color:#c62828;" onclick="doFirstStatus('+"'"+encodeURIComponent(t.keyword)+"'"+',\'dismissed\')">'+(t.type==='strengthen'?'Already covered ✕':'Dismiss ✕')+'</button>'+
             '</div>';
-            return '<div style="border:1px solid #e2e2e2;border-radius:10px;padding:12px 14px;background:#fff;'+(done?'opacity:.55;':'')+'">'+
+            return '<div style="border-top:1px solid #eee;padding-top:10px;margin-top:10px;'+(done?'opacity:.55;':'')+'">'+
                 '<div style="font-weight:700;">'+star+key+head+'</div>'+
                 '<div style="color:#888;font-size:12px;margin-top:2px;">'+metrics+'</div>'+body+actions+'</div>';
         }
