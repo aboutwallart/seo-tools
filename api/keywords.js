@@ -1,4 +1,13 @@
-// api/keywords.js — New Product Generator backend  ·  v0.38
+// api/keywords.js — New Product Generator backend  ·  v0.40
+// v0.40 (2026-10-03): LOCKED-KEYWORD FILTER everywhere + MERGE. (1) availableProductKeywords (you-rank),
+//   googleKeywordIdeas and gapResearch (case-insensitive) now EXCLUDE keywords already locked to a page, so
+//   the NPG Step-2 list never shows a locked keyword. (2) syncCaptureTasks (Do First/strengthen) skips locked
+//   keywords when creating cards AND drops existing locked ones on load (cleans the mis-added ones). (3) New
+//   action generate-capture-merged → ONE natural section per page covering its several near-duplicate
+//   strengthen keywords (no per-variant stuffing) instead of one paragraph per keyword.
+// v0.39 (2026-09-29): Lifestyle image generator tab — actions lifestyle-wallart (4 framed sets → one styled
+//   lifestyle prompt per frame, image 1 with a person + casting rules) and lifestyle-collective (supplier
+//   photo → 4-image prompt set: white bg + 3 lifestyle, square 1:1). Both look at the image via Claude vision.
 // v0.38 (2026-09-29): Artwork tabs — new actions artwork-prompt (Nano Banana prompt builder, looks at the
 //   reference image via Claude vision), artwork-ideas-questions + artwork-ideas-generate (idea brainstormer).
 // v0.37 (2026-09-29): GKP diagnostics — response carries `v` + `debug` (raw Google error per attempt)
@@ -447,7 +456,7 @@ async function gapResearch(body) {
     // opportunity = high volume + low difficulty; small colour bonus as a tie-breaker
     const opportunity = row => Math.sqrt(row.volume + 1) * (100 / (row.difficulty + 10)) + (anyWord(row.keyword, terms.colours) ? 1 : 0);
     const qualified = gapRows
-      .filter(row => !locked.has(row.keyword) && !inProgress.has(row.keyword))
+      .filter(row => !locked.has((row.keyword || '').toLowerCase()) && !inProgress.has(row.keyword))
       .filter(row => colourOk(row.keyword, allowedColours))
       .map(row => ({ ...row, cls: gapClassify(row.keyword, terms) }))
       .filter(row => row.cls.qualifies);
@@ -718,8 +727,8 @@ async function captureOptimise(body) {
 // C — auto: every keyword that ranks on a page LOCKED to another keyword becomes a "strengthen" card.
 // Built live from the performing list; new ones are persisted; done/dismissed ones are never recreated.
 async function syncCaptureTasks() {
-  const [perf, urlLocks, dismissed, store] = await Promise.all([
-    readPerformingList(), registryUrlLockMap(), readPerformingDismissed(), readCaptureTasksRaw()
+  const [perf, urlLocks, dismissed, store, locked] = await Promise.all([
+    readPerformingList(), registryUrlLockMap(), readPerformingDismissed(), readCaptureTasksRaw(), lockedKeywordSet()
   ]);
   let arr = store.arr; let sha = store.sha;
   const have = new Set(arr.map(t => captureKey(t.keyword)));
@@ -728,6 +737,7 @@ async function syncCaptureTasks() {
     if (!k || !k.keyword) return;
     const kw = captureKey(k.keyword);
     if (have.has(kw) || dismissed.has(kw)) return;
+    if (locked.has((k.keyword || '').toLowerCase())) return;   // already locked to a page → skip (avoid cannibalisation)
     const cleanRanking = k.rankingUrl ? cleanUrl(k.rankingUrl) : null;
     if (!cleanRanking) return;                          // no page → a new-product case, not strengthen
     const lockedTo = urlLocks[normUrl(cleanRanking)];
@@ -748,7 +758,8 @@ async function syncCaptureTasks() {
       catch (e) { if (e.status === 409 && attempt < 2) { const re = await readCaptureTasksRaw(); arr = re.arr; sha = re.sha; continue; } throw e; }
     }
   }
-  return { tasks: arr.filter(t => t.status !== 'dismissed') };
+  // Also drop any EXISTING task whose keyword is now locked to a page (cleans the ones mis-added before this fix).
+  return { tasks: arr.filter(t => t.status !== 'dismissed' && !locked.has((t.keyword || '').toLowerCase())) };
 }
 async function setCaptureTaskStatus(keyword, status) {
   keyword = (keyword || '').trim();
@@ -862,15 +873,85 @@ async function generateCaptureContent(body) {
   } catch { /* returning the content is enough even if persist fails */ }
   return { ok: true, h2, paragraph, internalLinkAnchor: anchor, target: coll ? coll.url : '', html, plainText };
 }
+
+// MERGE: write ONE natural section for a page that has several (often near-duplicate) strengthen keywords,
+// instead of one paragraph per keyword. Covers the SHARED intent naturally — never stuffs every variant.
+async function generateCaptureMerged(body) {
+  const pageUrl = (body.pageUrl || '').trim();
+  const keywords = (Array.isArray(body.keywords) ? body.keywords : []).map(k => String(k || '').trim()).filter(Boolean);
+  const pageTopic = (body.lockedToKeyword || '').trim();
+  if (!pageUrl) throw new Error('pageUrl required');
+  if (!keywords.length) throw new Error('keywords required');
+  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set');
+  const primary = keywords[0];
+  const prompt = [
+    'You are writing for About Wall Art, a UK wall-art brand. UK spelling. First-person, warm, advisor tone.',
+    'NEVER say "print" or "prints" — always "wall art" or "art sets" (products are sets of 3).',
+    `The page currently ranks for "${pageTopic || 'its main topic'}"${pageUrl ? ' (' + pageUrl + ')' : ''} and ALSO ranks for these related keywords: ${keywords.map(k => '"' + k + '"').join(', ')}.`,
+    'Write ONE short section to add to that page so it captures ALL of those related keywords better, WITHOUT changing the page\'s main focus.',
+    'They are variants of the SAME intent — cover the shared meaning naturally in ONE paragraph. Do NOT repeat every literal variant and do NOT keyword-stuff; Google understands variants, so use the intent once, naturally.',
+    'The paragraph MUST naturally contain the exact anchor phrase you return in "internalLinkAnchor" (it will become a link to a collection).',
+    'Return ONLY JSON: {"h2":"short natural H2 for the shared topic","paragraph":"4-6 sentences, natural, covers the shared intent once, includes the anchor phrase once","internalLinkAnchor":"3-5 word anchor for a link to a relevant collection"}'
+  ].join('\n');
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 900, messages: [{ role: 'user', content: prompt }] })
+  });
+  if (!r.ok) { const t = await r.text(); throw new Error('Claude API error ' + r.status + ': ' + t.slice(0, 200)); }
+  const data = await r.json();
+  let text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
+  let clean = text.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+  const m = clean.match(/\{[\s\S]*\}/); if (m) clean = m[0];
+  let parsed; try { parsed = JSON.parse(clean); } catch { throw new Error('Could not parse AI response'); }
+  const h2 = String(parsed.h2 || '').trim();
+  const paragraph = String(parsed.paragraph || '').trim();
+  const anchor = String(parsed.internalLinkAnchor || '').trim();
+
+  let publicOrigin = 'https://aboutwallart.com';
+  if (pageUrl) { const mo = pageUrl.match(/^https?:\/\/[^/]+/); if (mo) publicOrigin = mo[0]; }
+  const coll = await bestCollectionForPage(primary, pageUrl, publicOrigin);
+
+  let paraHtml = escHtml(paragraph);
+  if (coll) {
+    const linkText = anchor || coll.title || 'wall art collection';
+    const linkHtml = `<a href="${escHtml(coll.url)}">${escHtml(linkText)}</a>`;
+    const escAnchor = escHtml(anchor);
+    if (anchor && paraHtml.indexOf(escAnchor) !== -1) paraHtml = paraHtml.replace(escAnchor, linkHtml);
+    else paraHtml += ` Browse our ${linkHtml}.`;
+  }
+  const html = (h2 ? `<h2>${escHtml(h2)}</h2>\n` : '') + `<p>${paraHtml}</p>`;
+  const plainText = (h2 ? h2 + '\n\n' : '') + paragraph + (coll ? `\n\n(${anchor}: ${coll.url})` : '');
+
+  // Persist onto the FIRST todo strengthen task of this page (the merged section lives there; the other
+  // tasks on the page are marked done together via "Mark all done").
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { arr, sha } = await readCaptureTasksRaw();
+      const idx = arr.findIndex(t => t.type === 'strengthen' && t.status !== 'done' && t.status !== 'dismissed' && (t.pageUrl || '').trim() === pageUrl);
+      if (idx < 0) break;
+      arr[idx].h2 = h2 || null;
+      arr[idx].paragraph = paragraph || null;
+      arr[idx].internalLink = { anchor, target: coll ? coll.url : '' };
+      arr[idx].html = html;
+      arr[idx].merged = true;
+      arr[idx].mergedKeywords = keywords;
+      try { await ghPut(CAPTURE_TASKS_PATH, JSON.stringify(arr, null, 2), sha, `Capture: merged section for ${pageUrl}`); break; }
+      catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
+    }
+  } catch { /* returning the content is enough even if persist fails */ }
+  return { ok: true, h2, paragraph, internalLinkAnchor: anchor, target: coll ? coll.url : '', html, plainText, keywords };
+}
 // Group A — keywords you rank for but with NO usable page → offered as suggestions when you build a
 // product (topic-matched). Replaces the old saved "product ideas" pool.
 async function availableProductKeywords(sku) {
-  const [perf, products, dismissed] = await Promise.all([readPerformingList(), readProducts(), readPerformingDismissed()]);
+  const [perf, products, dismissed, locked] = await Promise.all([readPerformingList(), readProducts(), readPerformingDismissed(), lockedKeywordSet()]);
   const p = products.find(x => (x.sku || '').toLowerCase() === (sku || '').toLowerCase());
   const terms = p ? gapTermsForProduct(p) : null;
   return perf
     .filter(k => k && k.keyword && (k.intent || 'product') === 'product')
     .filter(k => !k.rankingUrl)                          // no ranking page → a "new product" candidate
+    .filter(k => !locked.has(k.keyword.toLowerCase()))   // never offer a keyword already locked to a page
     .filter(k => !dismissed.has(k.keyword.toLowerCase()))
     .filter(k => !terms || gapClassify(k.keyword, terms).qualifies)
     .map(k => ({ keyword: k.keyword, impressions: k.impressions, clicks: k.clicks, position: k.position }));
@@ -2231,6 +2312,7 @@ async function googleKeywordIdeas(body) {
   if (manager && manager !== cid) attempts.push({ via: 'manager', login: manager });
   let lastErr = 'unknown';
   const debug = [];
+  const locked = await lockedKeywordSet();   // never offer a keyword already locked to a page
   for (const a of attempts) {
     const headers = { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
     if (a.login) headers['login-customer-id'] = a.login;
@@ -2247,7 +2329,7 @@ async function googleKeywordIdeas(body) {
             competition: m.competition || null,
             competitionIndex: (m.competitionIndex != null) ? Number(m.competitionIndex) : null
           };
-        }).filter(o => o.keyword);
+        }).filter(o => o.keyword && !locked.has(o.keyword.toLowerCase()));
         return { options, via: a.via, v: '0.37' };
       }
       lastErr = (data.error && data.error.message) || ('HTTP ' + r.status);
@@ -2373,6 +2455,68 @@ async function artworkIdeasGenerate(body) {
   return { ideas };
 }
 
+/* ============================================================
+   LIFESTYLE IMAGE GENERATOR TAB — v0.39
+   ============================================================ */
+// Wall art path: upload the framed sets, get one lifestyle prompt PER FRAME (image 1 has a person).
+async function lifestyleWallart(body) {
+  const room = String(body.room || 'a room').trim();
+  const style = String(body.style || '').trim();
+  const note = String(body.note || '').trim();
+  const refs = Array.isArray(body.references) ? body.references.filter(x => x && x.data) : [];
+  let frames = refs.map(r => r.frame).filter(Boolean);
+  if (!frames.length) frames = ['White frame', 'Black frame', 'Oak', 'Canvas'];
+
+  const content = [];
+  if (refs.length) {
+    content.push({ type: 'text', text: 'The wall-art set (same artwork on every frame — shown so you can see its style and palette):' });
+    content.push({ type: 'image', source: { type: 'base64', media_type: refs[0].mediaType || 'image/png', data: refs[0].data } });
+  }
+  const styleTxt = style ? style + ' ' : '';
+  const rules = [];
+  rules.push('You write prompts for Nano Banana (Google\'s Gemini image model) to create LIFESTYLE room photos for a UK wall-art brand. Never say "print" or "prints".');
+  rules.push('Write ONE prompt PER FRAME, in this exact order: ' + frames.join(', ') + '. Each prompt places the SAME art set on the main wall of a beautifully styled ' + styleTxt + room + ', decorated in an elegant ' + styleTxt + 'look' + (note ? ', ' + note : '') + '.');
+  rules.push('In EVERY prompt: use the provided framed set EXACTLY as shown — do not restyle, recolour or redraw the artwork, frames or mounts. Name the frame (e.g. "the ' + frames[0].toLowerCase() + ' set"). Choose decor colours that complement the artwork; the wall art is the clear hero focus. Bright natural light, airy, full-frame, no text or watermarks. Square 1:1.');
+  rules.push('Give EACH prompt a DIFFERENT decoration so the images feel varied (vary the props, furniture and accessories, appropriate to the room and style).');
+  rules.push('ONLY the FIRST prompt (' + frames[0] + ') includes a person: casually present (not posing), in plain neutral clothing so the art stays the focus. Vary ethnicity genuinely (a real mix, not always white). Do NOT depict gay, lesbian or transgender couples. Use fitting people for the room (a couple for a bedroom, a parent and child for a nursery, etc.). The other prompts have NO people.');
+  rules.push('Return ONLY JSON: {"prompts":[{"title":"short label incl. the frame","text":"the full english prompt"}]} — one item per frame, in the order given.');
+  content.push({ type: 'text', text: rules.join('\n\n') });
+
+  const parsed = await callClaudeJSON(content, 2200);
+  const prompts = Array.isArray(parsed.prompts)
+    ? parsed.prompts.map(p => ({ title: String(p.title || '').trim(), text: String(p.text || '').trim() })).filter(p => p.text)
+    : [];
+  if (!prompts.length) throw new Error('No prompts returned');
+  return { prompts };
+}
+
+// Collective path: upload a supplier photo, get the 4-image prompt set (1 white bg + 3 lifestyle), square.
+async function lifestyleCollective(body) {
+  const ref = (body.reference && body.reference.data) ? body.reference
+    : (Array.isArray(body.references) && body.references[0] && body.references[0].data ? body.references[0] : null);
+  if (!ref) throw new Error('Upload a product photo first');
+  const content = [
+    { type: 'text', text: 'Supplier product photo (may be low quality or plain white background):' },
+    { type: 'image', source: { type: 'base64', media_type: ref.mediaType || 'image/png', data: ref.data } },
+    { type: 'text', text: [
+      'You write prompts for Nano Banana (Google\'s Gemini image model) to regenerate this product as 4 high-quality images. Look at the photo and identify the product and its exact shape, colour and texture, plus a fitting surface/context for it.',
+      'Produce EXACTLY 4 prompts, all Square 1:1, FULL-FRAME (no borders or blank blocks):',
+      '1) WHITE BACKGROUND: the product exactly as in the reference, ultra-sharp HD product photography, preserve exact shape, colour and texture, pure white background (#FFFFFF), professional studio lighting, centred, crystal-clear focus, high contrast, no shadows.',
+      '2) LIFESTYLE WITH A PERSON: the product on a fitting surface, a person casually present in the background (neutral clothing, varied ethnicity — a real mix, not always white; no gay/lesbian/transgender couples), bright natural light, minimal modern aesthetic, the product is the hero, neutral-tone decor.',
+      '3) LIFESTYLE, minimal Scandinavian: the product styled on a bright surface with neutral-tone decor, bright natural light, product is the hero, warm and lived-in.',
+      '4) LIFESTYLE, minimal modern: the product on a bright surface with tasteful accessories, bright natural light, product is the hero, clean and organised.',
+      'Rules: preserve the product EXACTLY ("exactly as shown in reference"); never say "print"/"prints"; only image 2 has a person; use only neutral-tone decor (ceramics, vases, books, plants, wood, stone) so nothing competes with the product.',
+      'Return ONLY JSON: {"prompts":[{"title":"Image 1 — white background","text":"..."},{"title":"Image 2 — lifestyle, with a person","text":"..."},{"title":"Image 3 — lifestyle, Scandinavian","text":"..."},{"title":"Image 4 — lifestyle, modern","text":"..."}]}'
+    ].join('\n') }
+  ];
+  const parsed = await callClaudeJSON(content, 2200);
+  const prompts = Array.isArray(parsed.prompts)
+    ? parsed.prompts.map(p => ({ title: String(p.title || '').trim(), text: String(p.text || '').trim() })).filter(p => p.text)
+    : [];
+  if (!prompts.length) throw new Error('No prompts returned');
+  return { prompts };
+}
+
 /* ---------------- handler ---------------- */
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -2414,6 +2558,16 @@ export default async function handler(req, res) {
     }
     if (action === 'artwork-ideas-generate') {
       const out = await artworkIdeasGenerate(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    // Lifestyle image generator tab
+    if (action === 'lifestyle-wallart') {
+      const out = await lifestyleWallart(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+    if (action === 'lifestyle-collective') {
+      const out = await lifestyleCollective(body);
       return res.status(200).json({ ok: true, ...out });
     }
 
@@ -2470,6 +2624,12 @@ export default async function handler(req, res) {
     if (action === 'generate-capture-content') {
       if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ ok: false, error: 'ANTHROPIC_API_KEY not set' });
       const out = await generateCaptureContent(body);
+      return res.status(200).json(out);
+    }
+    // Merge: ONE natural section for a page that has several strengthen keywords.
+    if (action === 'generate-capture-merged') {
+      if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ ok: false, error: 'ANTHROPIC_API_KEY not set' });
+      const out = await generateCaptureMerged(body);
       return res.status(200).json(out);
     }
     // Group A (no ranking page), topic-matched — offered at the keyword step of a new product.

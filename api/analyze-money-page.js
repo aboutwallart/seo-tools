@@ -1,7 +1,12 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v51.9
+// analyze-money-page.js — v52.0
+// v52.0 (2026-09-29): STRENGTHEN PROTECTED — a section Mae added via Do First (done strengthen task for
+//   this page, from data/capture-tasks.json) is now loaded as yourPageData.protectedBlocks and is INTOCABLE:
+//   it still counts in the analysis, but no "change" item can target text inside it — keyword over-use
+//   findings, H2 rename/remove and internal-link items that fall inside a protected block are dropped, so a
+//   keyword over-use fix lands on ANOTHER occurrence, never on Mae's added paragraph/heading/link.
 // v51.9 (2026-09-26): product SEO title — AI is now explicitly told to NEVER include the brand/store
 //   name ("About Wall Art"/"AboutWallArt") in the SEO title (product prompt title field + rule, and the
 //   generic fallback's "include brand or USP" replaced with the same negative rule). No layout change.
@@ -402,6 +407,11 @@ module.exports = async function handler(req, res) {
       yourPageData.h2 = yourPageData.h2.filter(h => !h.includes('{{') && !h.includes('}}'));
       console.warn('[Money Page] Shopify content unavailable — using scraped data');
     }
+
+    // Strengthen sections Mae already added to THIS page — load them so the analysis never asks to
+    // change them (counted, but protected). Any keyword over-use fix goes to OTHER text instead.
+    yourPageData.protectedBlocks = await loadProtectedStrengthenBlocks(pageUrl);
+    if (yourPageData.protectedBlocks.length) console.log(`[Money Page] ${yourPageData.protectedBlocks.length} protected strengthen block(s) on this page`);
     console.log(`[Money Page] ✓ Your page analyzed (${Math.round((Date.now() - startTime) / 1000)}s elapsed)`);
 
     // Step 3: Analyze competitors
@@ -574,9 +584,19 @@ module.exports = async function handler(req, res) {
     if (analysis?.structured) {
       const st = analysis.structured;
       const pageLines = buildPageHaystack(yourPageData);
+      // STRENGTHEN PROTECTED: a section Mae added (Do First → done) is counted in the analysis but is
+      // intocable — no "change" item may target text inside it. If the keyword is over-used there, the
+      // fix must land on ANOTHER occurrence, never inside this block.
+      const _prot = Array.isArray(yourPageData.protectedBlocks) ? yourPageData.protectedBlocks : [];
+      const _protNorm = _prot.map(b => ({ p: _normTxt(b.paragraph || ''), h: _normTxt(b.h2 || '') })).filter(b => b.p || b.h);
+      const inProtected = (txt) => {
+        const n = _normTxt(txt || ''); if (!n) return false;
+        return _protNorm.some(b => (b.p && (b.p.includes(n) || n.includes(b.p))) || (b.h && b.h === n));
+      };
       if (st.keywordOveruse && Array.isArray(st.keywordOveruse.findings)) {
         st.keywordOveruse.findings = st.keywordOveruse.findings.filter(f => {
           if (!f || !f.currentText) return false;
+          if (inProtected(f.currentText)) return false;     // inside a protected strengthen block → never change it
           const real = matchRealLine(f.currentText, pageLines);
           if (real) { f.currentText = real; return true; }
           return false;                                     // not on the page → invented → drop
@@ -592,6 +612,7 @@ module.exports = async function handler(req, res) {
         st.h2Sections = st.h2Sections.filter(h => {
           if (!h || h.action === 'add') return true;        // "add" has no current text to find
           if (!h.heading) return false;
+          if (inProtected(h.heading)) return false;         // protected strengthen heading → never rename/remove
           // Never flag a video/WATCH section for rename OR removal — a WATCH H2 is fine SEO.
           if (/\b(watch|youtube|video)\b/i.test(h.heading)) return false;
           // The contents list is owned by the Updated Table of Contents block — never also flag it here.
@@ -608,6 +629,7 @@ module.exports = async function handler(req, res) {
       // "Links to Add From This Article" item that targets the SAME sentence (over-use wins).
       if (Array.isArray(st.internalLinksToAdd)) {
         st.internalLinksToAdd = st.internalLinksToAdd.filter(l => {
+          if (inProtected(l && l.existingText)) return false;   // don't re-place a link inside a protected block
           const t = _normTxt(l && l.existingText || '');
           return !(t && overuseTexts.has(t));
         });
@@ -1522,6 +1544,23 @@ function extractInternalLinks(html) {
     out.push({ url, anchor });
   }
   return out;
+}
+// Strengthen sections Mae already added to THIS page (Do First → done). They stay COUNTED in the
+// analysis, but must never be flagged for change (keyword over-use, H2 rename, link) — any keyword
+// over-use fix has to land on OTHER text, never inside these blocks. Returns [{h2, paragraph, anchor}].
+async function loadProtectedStrengthenBlocks(pageUrl) {
+  try {
+    if (!pageUrl) return [];
+    const res = await fetch('https://raw.githubusercontent.com/aboutwallart/seo-tools/main/data/capture-tasks.json', { cache: 'no-store' });
+    if (!res.ok) return [];
+    const arr = await res.json();
+    if (!Array.isArray(arr)) return [];
+    const norm = u => String(u || '').trim().replace(/[?#].*$/, '').replace(/\/+$/, '').toLowerCase();
+    const target = norm(pageUrl);
+    return arr
+      .filter(t => t && t.type === 'strengthen' && t.status === 'done' && norm(t.pageUrl) === target && (t.paragraph || t.h2))
+      .map(t => ({ h2: t.h2 || '', paragraph: t.paragraph || '', anchor: (t.internalLink && t.internalLink.anchor) || '' }));
+  } catch (e) { console.warn('[protectedBlocks]', e.message); return []; }
 }
 // url(normalised) → locked keyword, from the registry CSV.
 async function loadRegistryByUrl() {
