@@ -286,7 +286,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
-                    <p class="subtitle">AI-Powered SEO Analysis · v71.6</p>
+                    <p class="subtitle">AI-Powered SEO Analysis · v71.8</p>
                     <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.11</p>
                     <button onclick="resetAllChecklists()" title="Wipe all saved checklists so every page starts fresh" style="margin-top:6px;background:#fff;color:#c62828;border:1px solid #ef9a9a;padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;">🧹 Reset all checklists (start clean)</button>
                 </div>
@@ -810,7 +810,56 @@
                         '<div style="color:#888;font-size:12px;margin-top:3px;">'+tasks.length+' thing'+(tasks.length>1?'s':'')+' to add to this page</div></div>'+
                     '<div style="display:flex;gap:8px;flex-wrap:wrap;">'+admin+markAll+'</div>'+
                 '</div>';
-            return '<div style="border:1px solid #e2e2e2;border-radius:10px;padding:14px 16px;background:#fff;">'+header+tasks.map(doFirstSection).join('')+'</div>';
+            // When a page has 2+ strengthen keywords, write ONE merged section (natural, no variant-stuffing)
+            // instead of one paragraph per keyword. Single / optimise / mixed → per-item as before.
+            const strengthenTasks = tasks.filter(t=>t.type==='strengthen');
+            const body = (strengthenTasks.length>1 && strengthenTasks.length===tasks.length)
+                ? doFirstMergedSection(strengthenTasks)
+                : tasks.map(doFirstSection).join('');
+            return '<div style="border:2px solid #111;border-radius:10px;padding:14px 16px;background:#fff;">'+header+body+'</div>';
+        }
+        // ONE merged section for a page with several related strengthen keywords.
+        function doFirstMergedSection(tasks){
+            const first = tasks[0];
+            const url = (first.pageUrl||'').trim(); const urlEnc = encodeURIComponent(url);
+            const genKey = '__merged__'+url;
+            const gen = !!DF_GENERATING[genKey];
+            const kwlist = tasks.map(t=>escDF(t.keyword)).join(', ');
+            let inner = '<div style="font-size:0.85rem;color:#b3620a;margin:4px 0 8px;">'+tasks.length+' related keywords → cover them in <b>ONE</b> natural section:<br><b>'+kwlist+'</b></div>';
+            if(gen){
+                inner += '<div style="margin-top:10px;color:#8a4b12;font-weight:700;">✍️ Writing one merged section… <span style="font-weight:400;color:#b3620a;">(a few seconds)</span></div>';
+            } else if(first.merged && first.paragraph){
+                const enc = encodeURIComponent(first.keyword);
+                const dest = (first.internalLink && first.internalLink.target) ? '<div style="font-size:0.8rem;color:#555;margin-top:8px;">Link goes to: <a href="'+escDF(first.internalLink.target)+'" target="_blank" rel="noopener">'+escDF(first.internalLink.target)+'</a></div>' : '';
+                inner += '<div style="background:#f7faf7;border:1px solid #cfead0;border-radius:8px;padding:10px 12px;margin:8px 0;">'+
+                    '<div style="font-size:0.78rem;color:#777;margin-bottom:5px;">One section covering all the keywords above — edit if needed, then copy into the body:</div>'+
+                    (first.h2!=null ? '<input id="df-h2-'+enc+'" value="'+escDF(first.h2||'')+'" style="width:100%;font-weight:700;font-size:0.95rem;padding:6px 8px;border:1px solid #cfead0;border-radius:6px;margin-bottom:6px;box-sizing:border-box;">' : '')+
+                    '<textarea id="df-para-'+enc+'" rows="6" style="width:100%;font-size:0.9rem;line-height:1.55;padding:8px;border:1px solid #cfead0;border-radius:6px;box-sizing:border-box;resize:vertical;">'+escDF(first.paragraph||'')+'</textarea>'+
+                    dest+
+                    '<div style="margin-top:8px;">'+
+                        '<button class="btn-secondary" onclick="doFirstCopy('+"'"+enc+"'"+')">Copy for the body</button>'+
+                        '<button class="btn-secondary" style="margin-left:8px;" onclick="doFirstCopyTitle('+"'"+enc+"'"+')">Copy title</button>'+
+                        '<button class="btn-secondary" style="margin-left:8px;" onclick="doFirstGenerateMerged('+"'"+urlEnc+"'"+')">Rewrite</button>'+
+                        '<span id="copied-'+enc+'" style="margin-left:8px;font-size:0.8rem;color:#1f5f1f;"></span>'+
+                    '</div></div>';
+            } else {
+                inner += '<button class="btn-secondary" onclick="doFirstGenerateMerged('+"'"+urlEnc+"'"+')">Write ONE section for all '+tasks.length+' keywords</button>';
+            }
+            return '<div style="border-top:1px solid #eee;padding-top:10px;margin-top:10px;">'+inner+'</div>';
+        }
+        // Generate (or rewrite) the merged section for a page.
+        async function doFirstGenerateMerged(pageUrlEnc){
+            const url = decodeURIComponent(pageUrlEnc);
+            const tasks = DOFIRST_TASKS.filter(t=>t.type==='strengthen' && t.status!=='done' && t.status!=='dismissed' && (t.pageUrl||'').trim()===url);
+            if(!tasks.length) return;
+            const first = tasks[0];
+            DF_GENERATING['__merged__'+url]=true; renderDoFirstList();
+            try{
+                const r = await kwApi({action:'generate-capture-merged', pageUrl:url, keywords:tasks.map(t=>t.keyword), lockedToKeyword:first.lockedToKeyword||''});
+                first.h2=r.h2; first.paragraph=r.paragraph; first.html=r.html;
+                first.internalLink={anchor:r.internalLinkAnchor, target:r.target}; first.merged=true; first.mergedKeywords=tasks.map(t=>t.keyword);
+            }catch(e){ alert('Could not write the section: '+e.message); }
+            finally{ delete DF_GENERATING['__merged__'+url]; renderDoFirstList(); }
         }
         // One action inside a page card (the editable section + per-item done/covered). Keyed by keyword.
         function doFirstSection(t){
