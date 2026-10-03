@@ -286,7 +286,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
-                    <p class="subtitle">AI-Powered SEO Analysis · v71.8</p>
+                    <p class="subtitle">AI-Powered SEO Analysis · v71.9</p>
                     <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.11</p>
                     <button onclick="resetAllChecklists()" title="Wipe all saved checklists so every page starts fresh" style="margin-top:6px;background:#fff;color:#c62828;border:1px solid #ef9a9a;padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;">🧹 Reset all checklists (start clean)</button>
                 </div>
@@ -803,20 +803,46 @@
             const first = tasks[0];
             const hasUrl = !!(first.pageUrl && first.pageUrl.trim());
             const urlEnc = encodeURIComponent(first.pageUrl||'');
+            const strengthenTasks = tasks.filter(t=>t.type==='strengthen');
             const admin = hasUrl ? '<button class="btn-secondary" style="white-space:nowrap;" onclick="doFirstAdmin('+"'"+encodeURIComponent(first.keyword)+"'"+')">Open page in admin ↗</button>' : '';
-            const markAll = (tasks.length>1 && hasUrl) ? '<button class="btn-secondary" style="white-space:nowrap;" onclick="doFirstDonePage('+"'"+urlEnc+"'"+')">Mark all '+tasks.length+' done ✓</button>' : '';
+            // Green "Mark as done" lives in the header for any page that has strengthen work (single or merged).
+            // It marks ALL the page's strengthen tasks done (doFirstDonePage). Optimise-only pages don't get it.
+            const markDone = (strengthenTasks.length>=1 && hasUrl) ? '<button class="btn-secondary" style="white-space:nowrap;background:#2e7d32;color:#fff;border-color:#2e7d32;" onclick="doFirstDonePage('+"'"+urlEnc+"'"+')">Mark as done ✓</button>' : '';
             const header = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;border-bottom:2px solid #eef1ee;padding-bottom:10px;margin-bottom:4px;">'+
                     '<div style="min-width:0;"><div style="font-weight:700;word-break:break-word;">📄 '+escDF(first.pageUrl||'(no page URL)')+'</div>'+
                         '<div style="color:#888;font-size:12px;margin-top:3px;">'+tasks.length+' thing'+(tasks.length>1?'s':'')+' to add to this page</div></div>'+
-                    '<div style="display:flex;gap:8px;flex-wrap:wrap;">'+admin+markAll+'</div>'+
+                    '<div style="display:flex;gap:8px;flex-wrap:wrap;">'+admin+markDone+'</div>'+
                 '</div>';
             // When a page has 2+ strengthen keywords, write ONE merged section (natural, no variant-stuffing)
             // instead of one paragraph per keyword. Single / optimise / mixed → per-item as before.
-            const strengthenTasks = tasks.filter(t=>t.type==='strengthen');
             const body = (strengthenTasks.length>1 && strengthenTasks.length===tasks.length)
                 ? doFirstMergedSection(strengthenTasks)
                 : tasks.map(doFirstSection).join('');
             return '<div style="border:2px solid #111;border-radius:10px;padding:14px 16px;background:#fff;">'+header+body+'</div>';
+        }
+        // Shared editable text block (title row + paragraph + stacked copy buttons + small Rewrite).
+        // Used by both the merged section and the single-keyword cards so they look identical.
+        // `src` holds h2/paragraph/internalLink; `rewriteOnclick` is the inline onclick for the Rewrite button.
+        function doFirstEditBlock(enc, src, rewriteOnclick, hint){
+            const dest = (src.internalLink && src.internalLink.target) ? '<div style="font-size:0.8rem;color:#555;margin-top:8px;">Link goes to: <a href="'+escDF(src.internalLink.target)+'" target="_blank" rel="noopener">'+escDF(src.internalLink.target)+'</a></div>' : '';
+            const titleRow = (src.h2!=null) ? '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">'+
+                    '<input id="df-h2-'+enc+'" value="'+escDF(src.h2||'')+'" style="flex:1;min-width:0;font-weight:700;font-size:0.95rem;padding:6px 8px;border:1px solid #cfead0;border-radius:6px;box-sizing:border-box;">'+
+                    '<button class="btn-secondary" style="white-space:nowrap;" onclick="doFirstCopyTitle('+"'"+enc+"'"+')">Copy title</button>'+
+                '</div>' : '';
+            const paraRow = '<div style="display:flex;gap:8px;align-items:stretch;">'+
+                    '<textarea id="df-para-'+enc+'" rows="6" style="flex:1;min-width:0;font-size:0.9rem;line-height:1.55;padding:8px;border:1px solid #cfead0;border-radius:6px;box-sizing:border-box;resize:vertical;">'+escDF(src.paragraph||'')+'</textarea>'+
+                    '<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;">'+
+                        '<button class="btn-secondary" style="white-space:nowrap;" onclick="doFirstCopy('+"'"+enc+"'"+')">Copy for the body</button>'+
+                        '<button class="btn-secondary" style="white-space:nowrap;" onclick="doFirstCopyHtml('+"'"+enc+"'"+')">Copy HTML</button>'+
+                    '</div>'+
+                '</div>';
+            const footer = '<div style="margin-top:8px;display:flex;gap:10px;align-items:center;">'+
+                    '<button class="btn-secondary" style="font-size:0.78rem;padding:4px 10px;" onclick="'+rewriteOnclick+'">Rewrite</button>'+
+                    '<span id="copied-'+enc+'" style="font-size:0.8rem;color:#1f5f1f;"></span>'+
+                '</div>';
+            return '<div style="background:#f7faf7;border:1px solid #cfead0;border-radius:8px;padding:10px 12px;margin:8px 0;">'+
+                '<div style="font-size:0.78rem;color:#777;margin-bottom:5px;">'+hint+'</div>'+
+                titleRow+paraRow+dest+footer+'</div>';
         }
         // ONE merged section for a page with several related strengthen keywords.
         function doFirstMergedSection(tasks){
@@ -824,24 +850,12 @@
             const url = (first.pageUrl||'').trim(); const urlEnc = encodeURIComponent(url);
             const genKey = '__merged__'+url;
             const gen = !!DF_GENERATING[genKey];
-            const kwlist = tasks.map(t=>escDF(t.keyword)).join(', ');
-            let inner = '<div style="font-size:0.85rem;color:#b3620a;margin:4px 0 8px;">'+tasks.length+' related keywords → cover them in <b>ONE</b> natural section:<br><b>'+kwlist+'</b></div>';
+            let inner = '';
             if(gen){
                 inner += '<div style="margin-top:10px;color:#8a4b12;font-weight:700;">✍️ Writing one merged section… <span style="font-weight:400;color:#b3620a;">(a few seconds)</span></div>';
             } else if(first.merged && first.paragraph){
                 const enc = encodeURIComponent(first.keyword);
-                const dest = (first.internalLink && first.internalLink.target) ? '<div style="font-size:0.8rem;color:#555;margin-top:8px;">Link goes to: <a href="'+escDF(first.internalLink.target)+'" target="_blank" rel="noopener">'+escDF(first.internalLink.target)+'</a></div>' : '';
-                inner += '<div style="background:#f7faf7;border:1px solid #cfead0;border-radius:8px;padding:10px 12px;margin:8px 0;">'+
-                    '<div style="font-size:0.78rem;color:#777;margin-bottom:5px;">One section covering all the keywords above — edit if needed, then copy into the body:</div>'+
-                    (first.h2!=null ? '<input id="df-h2-'+enc+'" value="'+escDF(first.h2||'')+'" style="width:100%;font-weight:700;font-size:0.95rem;padding:6px 8px;border:1px solid #cfead0;border-radius:6px;margin-bottom:6px;box-sizing:border-box;">' : '')+
-                    '<textarea id="df-para-'+enc+'" rows="6" style="width:100%;font-size:0.9rem;line-height:1.55;padding:8px;border:1px solid #cfead0;border-radius:6px;box-sizing:border-box;resize:vertical;">'+escDF(first.paragraph||'')+'</textarea>'+
-                    dest+
-                    '<div style="margin-top:8px;">'+
-                        '<button class="btn-secondary" onclick="doFirstCopy('+"'"+enc+"'"+')">Copy for the body</button>'+
-                        '<button class="btn-secondary" style="margin-left:8px;" onclick="doFirstCopyTitle('+"'"+enc+"'"+')">Copy title</button>'+
-                        '<button class="btn-secondary" style="margin-left:8px;" onclick="doFirstGenerateMerged('+"'"+urlEnc+"'"+')">Rewrite</button>'+
-                        '<span id="copied-'+enc+'" style="margin-left:8px;font-size:0.8rem;color:#1f5f1f;"></span>'+
-                    '</div></div>';
+                inner += doFirstEditBlock(enc, first, 'doFirstGenerateMerged('+"'"+urlEnc+"'"+')', 'One section covering all these keywords — edit if needed, then copy into the body:');
             } else {
                 inner += '<button class="btn-secondary" onclick="doFirstGenerateMerged('+"'"+urlEnc+"'"+')">Write ONE section for all '+tasks.length+' keywords</button>';
             }
@@ -879,25 +893,16 @@
                     body += '<div style="margin-top:10px;color:#8a4b12;font-weight:700;">✍️ Writing… <span style="font-weight:400;color:#b3620a;">(this can take a few seconds)</span></div>';
                 } else if(t.paragraph){
                     const enc = encodeURIComponent(t.keyword);
-                    const dest = (t.internalLink && t.internalLink.target) ? '<div style="font-size:0.8rem;color:#555;margin-top:8px;">Link goes to: <a href="'+escDF(t.internalLink.target)+'" target="_blank" rel="noopener">'+escDF(t.internalLink.target)+'</a></div>' : '';
-                    body += '<div style="background:#f7faf7;border:1px solid #cfead0;border-radius:8px;padding:10px 12px;margin:8px 0;">'+
-                        '<div style="font-size:0.78rem;color:#777;margin-bottom:5px;">Edit here if the wording needs fixing, then copy into the body:</div>'+
-                        (t.h2!=null ? '<input id="df-h2-'+enc+'" value="'+escDF(t.h2||'')+'" style="width:100%;font-weight:700;font-size:0.95rem;padding:6px 8px;border:1px solid #cfead0;border-radius:6px;margin-bottom:6px;box-sizing:border-box;">' : '')+
-                        '<textarea id="df-para-'+enc+'" rows="6" style="width:100%;font-size:0.9rem;line-height:1.55;padding:8px;border:1px solid #cfead0;border-radius:6px;box-sizing:border-box;resize:vertical;">'+escDF(t.paragraph||'')+'</textarea>'+
-                        dest+
-                        '<div style="margin-top:8px;">'+
-                            '<button class="btn-secondary" onclick="doFirstCopy('+"'"+enc+"'"+')">Copy for the body</button>'+
-                            '<button class="btn-secondary" style="margin-left:8px;" onclick="doFirstCopyTitle('+"'"+enc+"'"+')">Copy title</button>'+
-                            '<button class="btn-secondary" style="margin-left:8px;" onclick="doFirstGenerate('+"'"+enc+"'"+')">Rewrite</button>'+
-                            '<span id="copied-'+enc+'" style="margin-left:8px;font-size:0.8rem;color:#1f5f1f;"></span>'+
-                        '</div>'+
-                    '</div>';
+                    body += doFirstEditBlock(enc, t, 'doFirstGenerate('+"'"+enc+"'"+')', 'Edit here if the wording needs fixing, then copy into the body:');
                 } else {
                     body += '<button class="btn-secondary" onclick="doFirstGenerate('+"'"+encodeURIComponent(t.keyword)+"'"+')">Write the section for me</button>';
                 }
             }
+            // strengthen is marked done from the green header button, so no per-item "Mark done" here — only
+            // "Already covered ✕". optimise keeps its own "Mark done" + "Dismiss ✕" (header button doesn't cover it).
+            const markDoneBtn = (t.type!=='strengthen') ? '<button class="btn-secondary" onclick="doFirstStatus('+"'"+encodeURIComponent(t.keyword)+"'"+',\'done\')">'+(done?'Done ✓':'Mark done')+'</button>' : '';
             const actions = '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'+
-                '<button class="btn-secondary" onclick="doFirstStatus('+"'"+encodeURIComponent(t.keyword)+"'"+',\'done\')">'+(done?'Done ✓':'Mark done')+'</button>'+
+                markDoneBtn+
                 '<button class="btn-secondary" style="background:#c62828;color:#fff;border-color:#c62828;" onclick="doFirstStatus('+"'"+encodeURIComponent(t.keyword)+"'"+',\'dismissed\')">'+(t.type==='strengthen'?'Already covered ✕':'Dismiss ✕')+'</button>'+
             '</div>';
             return '<div style="border-top:1px solid #eee;padding-top:10px;margin-top:10px;'+(done?'opacity:.55;':'')+'">'+
@@ -950,6 +955,27 @@
                 } else { await navigator.clipboard.writeText(plain); }
                 const s = document.getElementById('copied-'+kwEnc); if(s){ s.textContent='Copied ✓'; setTimeout(()=>{ if(s) s.textContent=''; },2500); }
             }catch{ try{ await navigator.clipboard.writeText(plain); }catch{} }
+        }
+        // Copy the LITERAL markup (<h2>…</h2><p>…<a href>…</a></p>) as PLAIN text, so it pastes into a custom
+        // Liquid / HTML code block (home page etc.) where rich-text would land as plain text. Same HTML as doFirstCopy.
+        async function doFirstCopyHtml(kwEnc){
+            const t = doFirstFind(kwEnc); if(!t) return;
+            const h2El = document.getElementById('df-h2-'+kwEnc);
+            const paraEl = document.getElementById('df-para-'+kwEnc);
+            const h2 = h2El ? h2El.value.trim() : (t.h2||'');
+            const paragraph = paraEl ? paraEl.value.trim() : (t.paragraph||'');
+            const anchor = (t.internalLink && t.internalLink.anchor) || '';
+            const target = (t.internalLink && t.internalLink.target) || '';
+            let paraHtml = escDF(paragraph);
+            if(target){
+                const linkText = anchor || target;
+                const linkHtml = '<a href="'+escDF(target)+'">'+escDF(linkText)+'</a>';
+                const escAnchor = escDF(anchor);
+                if(anchor && paraHtml.indexOf(escAnchor)!==-1) paraHtml = paraHtml.replace(escAnchor, linkHtml);
+                else paraHtml += ' Browse our '+linkHtml+'.';
+            }
+            const html = (h2?'<h2>'+escDF(h2)+'</h2>':'')+'<p>'+paraHtml+'</p>';
+            try{ await navigator.clipboard.writeText(html); const s=document.getElementById('copied-'+kwEnc); if(s){ s.textContent='HTML copied ✓'; setTimeout(()=>{ if(s) s.textContent=''; },2500); } }catch{}
         }
         // Copy JUST the H2 title (plain), so it's easy to paste as the heading in the index.
         async function doFirstCopyTitle(kwEnc){
