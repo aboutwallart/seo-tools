@@ -1,4 +1,7 @@
-// api/keywords.js — New Product Generator backend  ·  v0.42
+// api/keywords.js — New Product Generator backend  ·  v0.43
+// v0.43 (2026-10-04): room_type metafield now maps tool room names to Shopify's fixed choice list
+//   (Office->Home Office, Teens Bedroom->Nursery, Above Fireplace dropped). Fixes "Value does not exist in
+//   provided choices" on send. Collections/tags are unchanged (room_type never drove the collections).
 // v0.42 (2026-10-04): NEW action `upload-shared-image` — uploads a flat/single to Shopify ONCE and writes it
 //   onto every room product of an art group in a single commit (multi-room NPG). Avoids the old N×M per-sku
 //   uploads that were slow and failed silently. { skus:[], slot, image, imageMediaType } -> { record, products, applied }.
@@ -1973,6 +1976,8 @@ function pickCollectionTag(tags, collName, product) {
   if (hit) return { tag: hit, fallback: false };
   return { tag: tags[0], fallback: true };
 }
+// Tool By Room name -> Shopify custom.room_type choice. Identity unless listed. '' = drop from the metafield.
+const ROOM_TYPE_MAP = { 'Office': 'Home Office', 'Teens Bedroom': 'Nursery', 'Above Fireplace': '' };
 async function resolveShopifyFields(sku) {
   const products = await readProducts();
   const product = products.find(p => (p.sku || '').toLowerCase() === (sku || '').toLowerCase());
@@ -2080,7 +2085,10 @@ async function resolveShopifyFields(sku) {
   if (linkedCollectionGids.length) push('custom', 'linked_collections', 'list.collection_reference', JSON.stringify(linkedCollectionGids));
   if ((product.primaryColour || []).length) push('custom', 'primary_colour', 'list.single_line_text_field', JSON.stringify(product.primaryColour));
   if (product.colour) push('custom', 'colour', 'single_line_text_field', product.colour);
-  if ((col['By Room'] || []).length) push('custom', 'room_type', 'list.single_line_text_field', JSON.stringify(col['By Room']));
+  // room_type is a Shopify metafield with a FIXED choice list that differs from the By Room collection names.
+  // Map the few that don't match; Above Fireplace has no equivalent -> dropped (it still joins its collection by tag).
+  const roomTypes = [...new Set((col['By Room'] || []).map(r => (ROOM_TYPE_MAP[r] !== undefined ? ROOM_TYPE_MAP[r] : r)).filter(Boolean))];
+  if (roomTypes.length) push('custom', 'room_type', 'list.single_line_text_field', JSON.stringify(roomTypes));
   push('custom', 'foxkit_stock', 'number_integer', String(foxkit));
   push('custom', 'sales_last_24_hs', 'number_integer', String(sales24));
   push('custom', 'sales_count', 'number_integer', String(salesCount));
