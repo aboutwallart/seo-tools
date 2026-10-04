@@ -210,7 +210,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v4.4</span>
+  <span class="ver">v4.5</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -579,7 +579,7 @@ function artSwitcher(){
   const bases=artBasesInProgress(); const cur=artBaseId();
   let sw='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">';
   if(bases.length>1) bases.forEach(b=>{ sw+='<button class="btn '+(b===cur?'primary':'ghost')+' small" onclick="switchArt('+"'"+encodeURIComponent(b)+"'"+')">'+esc(b)+'</button>'; });
-  sw+='<button class="btn ghost small" onclick="startDraft()">+ New art</button></div>';
+  sw+='<button class="plusbtn" title="New art" onclick="startDraft()">+</button></div>';
   return sw;
 }
 function renderFlow(){
