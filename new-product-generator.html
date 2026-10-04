@@ -210,7 +210,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v4.3</span>
+  <span class="ver">v4.4</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -436,6 +436,7 @@ let ART_IMAGE = null;     // {data, mediaType} — the common artwork (in memory
 let KWC = {};             // sku -> {loading, options:[]} per-room keyword candidates (merged, top 25)
 let VOPEN = null;         // sku currently expanded in the review list
 let OPEN_STAGE = null;    // which macro stage is expanded in the post-creation accordion (null = the natural one)
+let CURRENT_ART = null;   // which art group (artBase) is being shown when several are in progress
 let GEN_ROOM = {};        // sku -> true while its SEO is generating
 let SHARED_UPLOADING = false;
 let SHARED_STAGE = [];    // staged shared images before upload: [{data, mediaType, name, slot, thumb}]
@@ -559,16 +560,27 @@ function computeNaturalStep(p){
    and the existing helpers (contentFieldBlock, aiItemBlock, dropzone, mergedPot, diffLabel, etc.).
    ===================================================================== */
 function inProgress(){ return PRODUCTS.filter(p=>!p.sent); }
-function artBaseId(){ const ip=inProgress(); return ip.length?(ip[0].artBase||ip[0].sku):null; }
+function artBasesInProgress(){ const seen=[]; inProgress().forEach(p=>{ const b=p.artBase||p.sku; if(!seen.includes(b)) seen.push(b); }); return seen; }
+function artBaseId(){ const ip=inProgress(); if(!ip.length) return null; if(CURRENT_ART && ip.some(p=>(p.artBase||p.sku)===CURRENT_ART)) return CURRENT_ART; return ip[0].artBase||ip[0].sku; }
 function groupProducts(){ const b=artBaseId(); return b?PRODUCTS.filter(p=>!p.sent && (p.artBase||p.sku)===b):[]; }
 function roomName(p){ return p.room || ((p.collections&&p.collections['By Room']||[])[0]) || p.sku; }
+function roomReady(p){ return !!p.keyword && !!p.content && imagesComplete(p); } // all info in → ready to send
 function flowStage(){
+  if(DRAFT_PROJECT) return 'define';          // creating/defining a new art takes priority (pause the others)
   const g=groupProducts();
-  if(!g.length) return DRAFT_PROJECT?'define':'empty';
+  if(!g.length) return 'empty';
   if(!ART_IMAGE && g.some(p=>!p.content)) return 'artmissing';
   if(g.some(p=>!p.keyword)) return 'keywords';
   if(g.some(p=>!p.roomApproved)) return 'review';
   return 'send';
+}
+function switchArt(enc){ CURRENT_ART=decodeURIComponent(enc); OPEN_STAGE=null; VOPEN=null; renderFlow(); }
+function artSwitcher(){
+  const bases=artBasesInProgress(); const cur=artBaseId();
+  let sw='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">';
+  if(bases.length>1) bases.forEach(b=>{ sw+='<button class="btn '+(b===cur?'primary':'ghost')+' small" onclick="switchArt('+"'"+encodeURIComponent(b)+"'"+')">'+esc(b)+'</button>'; });
+  sw+='<button class="btn ghost small" onclick="startDraft()">+ New art</button></div>';
+  return sw;
 }
 function renderFlow(){
   const flow=document.getElementById('flow');
@@ -597,13 +609,15 @@ function renderAccordion(){
     ['review','Review',g.every(p=>p.roomApproved)?'all done':(g.filter(p=>p.roomApproved).length+'/'+g.length+' done')],
     ['send','Send to Shopify','']
   ];
-  let html='<div class="card"><h2>'+esc(base)+' — '+g.length+' room'+(g.length>1?'s':'')+'</h2>'+
+  const anyReady=g.some(roomReady);
+  let html='<div class="card">'+artSwitcher()+'<h2>'+esc(base)+' — '+g.length+' room'+(g.length>1?'s':'')+'</h2>'+
     '<p class="sub">Click a step to open it. Every step stays here so you can review or edit it.</p>';
-  stages.forEach((s,i)=>{ html+=stageRow(s[0],i+1,s[1],s[2],open===s[0]); });
+  stages.forEach((s,i)=>{ html+=stageRow(s[0],i+1,s[1],s[2],open===s[0],(s[0]==='send'&&!anyReady)); });
   html+='<div class="actions" style="margin-top:14px"><button class="btn ghost" style="color:var(--danger)" onclick="deleteArtGroup()">Delete this art (all rooms)</button></div></div>';
   return html;
 }
-function stageRow(key,n,title,summary,isOpen){
+function stageRow(key,n,title,summary,isOpen,locked){
+  if(locked) return '<div class="psec locked"><div class="psec-h"><span class="psec-n">'+n+'</span><span class="psec-t">'+title+'</span><span class="psec-v">finish a room first</span></div></div>';
   const head='<div class="psec-h" style="cursor:pointer" onclick="toggleStage('+"'"+key+"'"+')"><span class="psec-n">'+(isOpen?n:'✓')+'</span><span class="psec-t">'+title+'</span><span class="psec-v">'+esc(summary)+'</span><span class="psec-ed">'+(isOpen?'▾':'open')+'</span></div>';
   return '<div class="psec'+(isOpen?' active':' done')+'">'+head+(isOpen?('<div class="psec-b">'+stageBody(key,groupProducts())+'</div>'):'')+'</div>';
 }
@@ -689,17 +703,18 @@ function artInlineBody(){
 function keywordColsInner(g){ return keywordLegend()+'<p class="sub">Top 25 per room. The recommended one is highlighted in green — click a card to use it (that generates its SEO). Scroll sideways →</p><div class="roomcols">'+g.map((p,i)=>roomKeywordColumn(p,i)).join('')+'</div>'; }
 function reviewInner(g){ return '<p class="sub">Open a room, check its SEO and add its lifestyle photos, then mark it done.</p>'+renderSharedBox()+'<div class="vlist">'+g.map(reviewRoom).join('')+'</div>'; }
 function sendInner(g){
-  const rows=g.map(p=>{ const na=((p.collections&&p.collections['Featured'])||[]).includes('New Arrivals'); const enc=encodeURIComponent(p.sku);
-    return '<tr><td style="padding:8px">'+esc(roomName(p))+'</td><td style="padding:8px;font-family:ui-monospace,Menlo,monospace">'+esc(p.sku)+'</td><td style="padding:8px">'+esc(p.keyword||'')+'</td><td style="padding:8px">'+(p.content?'✓':'—')+'</td><td style="padding:8px">'+(imagesComplete(p)?'✓':'partial')+'</td><td style="padding:8px">'+(na?'✓':'—')+'</td><td style="padding:8px"><button class="btn ghost small" onclick="sendRoom('+"'"+enc+"'"+')">Send</button></td></tr>';
+  const anyReady=g.some(roomReady);
+  const rows=g.map(p=>{ const na=((p.collections&&p.collections['Featured'])||[]).includes('New Arrivals'); const enc=encodeURIComponent(p.sku); const ready=roomReady(p);
+    return '<tr><td style="padding:8px">'+esc(roomName(p))+'</td><td style="padding:8px;font-family:ui-monospace,Menlo,monospace">'+esc(p.sku)+'</td><td style="padding:8px">'+esc(p.keyword||'')+'</td><td style="padding:8px">'+(p.content?'✓':'—')+'</td><td style="padding:8px">'+(imagesComplete(p)?'✓':'partial')+'</td><td style="padding:8px">'+(na?'✓':'—')+'</td><td style="padding:8px"><button class="btn ghost small" '+(ready?'':'disabled title="Finish keyword, SEO and all images first"')+' onclick="sendRoom('+"'"+enc+"'"+')">Send</button></td></tr>';
   }).join('');
-  return '<p class="sub">One product per room, created as Draft. Send all, or one by one.</p>'+
+  return '<p class="sub">One product per room, created as Draft. A room can be sent only once its keyword, SEO and all images are in.</p>'+
     '<table class="aptbl" style="width:100%;border-collapse:collapse;font-size:13px"><tr style="text-align:left;color:var(--muted)"><th style="padding:8px">Room</th><th style="padding:8px">SKU</th><th style="padding:8px">Keyword</th><th style="padding:8px">SEO</th><th style="padding:8px">Images</th><th style="padding:8px">New Arr.</th><th></th></tr>'+rows+'</table>'+
-    '<div class="actions" style="margin-top:14px"><button class="btn primary" id="sendAllBtn" onclick="sendAllRooms()">Send all to Shopify</button></div>';
+    '<div class="actions" style="margin-top:14px"><button class="btn primary" id="sendAllBtn" '+(anyReady?'':'disabled')+' onclick="sendAllRooms()">Send all ready to Shopify</button></div>';
 }
 async function deleteArtGroup(){
   const g=groupProducts(); if(!g.length) return;
   if(!confirm('Delete this art and all '+g.length+' room product(s)? This can\'t be undone.')) return;
-  try{ for(const p of g){ const r=await api({action:'delete-product',sku:p.sku}); PRODUCTS=r.products; } ART_IMAGE=null; KWC={}; OPEN_STAGE=null; VOPEN=null; renderFlow(); msg('Deleted.','ok'); }
+  try{ for(const p of g){ const r=await api({action:'delete-product',sku:p.sku}); PRODUCTS=r.products; } ART_IMAGE=null; KWC={}; OPEN_STAGE=null; VOPEN=null; CURRENT_ART=null; renderFlow(); msg('Deleted.','ok'); }
   catch(e){ msg('Delete failed: '+e.message,'err'); }
 }
 function renderEmpty(flow){
@@ -838,7 +853,7 @@ async function createRoomProducts(){
       const product={sku,artBase:dp.baseSku,room,roomApproved:false,collections,set:dp.set,trends:dp.trends.slice(),primaryColour:dp.primaryColour.slice(),colour:dp.colour,templateSuffix:dp.templateSuffix,aiNotes:dp.aiNotes,keywordWords:dp.keywordWords.slice()};
       const r=await api({action:'save-product',product}); PRODUCTS=r.products;
     }
-    const n=dp.rooms.length; DRAFT_PROJECT=null; DEFINE_OPEN=0;
+    const n=dp.rooms.length; CURRENT_ART=dp.baseSku; DRAFT_PROJECT=null; DEFINE_OPEN=0; OPEN_STAGE=null;
     renderFlow(); msg('Created '+n+' room product'+(n>1?'s':'')+' — now pick a keyword per room.','ok');
   }catch(e){ msg('Create failed: '+e.message,'err'); if(btn){ btn.disabled=false; btn.textContent='Create the products'; } }
 }
@@ -909,7 +924,7 @@ async function fetchRoomKw(p){
   ((gkpR&&gkpR.options)||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.gkp={volume:o.volume,competition:o.competition,competitionIndex:o.competitionIndex}; });
   const list=[...map.values()].map(o=>{ o.pot=mergedPot(o.sources); return o; }).sort((a,b)=>b.pot-a.pot).slice(0,25);
   KWC[p.sku]={loading:false,options:list};
-  if(flowStage()==='keywords') renderFlow();
+  if((OPEN_STAGE||naturalStageKey())==='keywords') renderFlow();
 }
 async function roomPick(enc,oi){ const sku=decodeURIComponent(enc); const st=KWC[sku]; if(!st) return; const o=st.options[oi]; if(!o) return; await applyRoomKeyword(sku,o.keyword); }
 async function roomAddManual(enc){ const sku=decodeURIComponent(enc); const el=document.getElementById('man-'+enc); const kw=(el&&el.value||'').trim(); if(!kw) return; await applyRoomKeyword(sku,kw); }
@@ -1065,7 +1080,7 @@ async function doSendRoom(sku){
 async function sendRoom(enc){ await doSendRoom(decodeURIComponent(enc)); renderFlow(); }
 async function sendAllRooms(){
   const btn=document.getElementById('sendAllBtn'); if(btn){ btn.disabled=true; btn.innerHTML='<span class="spin"></span>Sending…'; }
-  for(const p of groupProducts().filter(x=>!x.sent)){ await doSendRoom(p.sku); }
+  for(const p of groupProducts().filter(roomReady)){ await doSendRoom(p.sku); }
   renderFlow();
 }
 
