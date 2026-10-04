@@ -210,7 +210,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v4.5</span>
+  <span class="ver">v4.6</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -700,7 +700,7 @@ function artInlineBody(){
     '<input type="file" id="artfile" accept="image/*" style="display:none" onchange="onArtPicked(this)">';
 }
 /* ---- inner content reused inside the accordion ---- */
-function keywordColsInner(g){ return keywordLegend()+'<p class="sub">Top 25 per room. The recommended one is highlighted in green — click a card to use it (that generates its SEO). Scroll sideways →</p><div class="roomcols">'+g.map((p,i)=>roomKeywordColumn(p,i)).join('')+'</div>'; }
+function keywordColsInner(g){ return keywordLegend()+'<p class="sub">Top 40 per room, balanced by type (room · terms · style · colour). The recommended one is highlighted in green — click a card to use it (that generates its SEO). Scroll sideways →</p><div class="roomcols">'+g.map((p,i)=>roomKeywordColumn(p,i)).join('')+'</div>'; }
 function reviewInner(g){ return '<p class="sub">Open a room, check its SEO and add its lifestyle photos, then mark it done.</p>'+renderSharedBox()+'<div class="vlist">'+g.map(reviewRoom).join('')+'</div>'; }
 function sendInner(g){
   const anyReady=g.some(roomReady);
@@ -882,7 +882,7 @@ function roomKeywordColumn(p,idx){
   else body=state.options.map((o,oi)=>roomKwOption(p,o,oi)).join('');
   const enc=encodeURIComponent(p.sku);
   return '<div class="rcol"><div class="rcol-hd" style="background:'+c+'">'+(na?'<span class="na">New Arrivals</span>':'')+'<div class="rn">'+esc(roomName(p))+'</div><div class="sk">'+esc(p.sku)+'</div></div>'+
-    '<div class="rcol-bd"><div class="kwt">Main keyword — pick one · top 25</div>'+body+
+    '<div class="rcol-bd"><div class="kwt">Main keyword — pick one · top 40</div>'+body+
     '<button class="btn link" style="margin-top:8px" onclick="roomPrompt('+"'"+enc+"'"+')">Don\'t like these? Copy Ubersuggest prompt</button>'+
     '<div style="margin-top:8px;display:flex;gap:6px"><input type="text" id="man-'+enc+'" placeholder="add manually"><button class="btn primary small" onclick="roomAddManual('+"'"+enc+"'"+')">Add</button></div>'+
     '</div></div>';
@@ -906,11 +906,70 @@ function roomKwOption(p,o,oi){
     '<div class="kwtop"><input type="radio" '+(sel||rec?'checked':'')+' style="pointer-events:none" tabindex="-1"><span class="kwnm">'+(sel?'✓ ':'')+esc(o.keyword)+'</span>'+(rec?'<span class="recb">recommended</span>':'')+'</div>'+
     '<div class="kwpills">'+pills.join('')+'</div><div class="kwmet">'+esc(met.join(' · '))+'</div></div>';
 }
+// ---- Category balance for the keyword columns (v4.6) ----
+// Show up to 40 options per room, split by TYPE so the room's own keywords always get a share and the
+// shared "extra terms" don't flood every column. Target slots: terms 13 · style 10 · room 12 · colour 5.
+// If a type has no candidates (e.g. no style), its slots are shared out proportionally among the rest.
+const KW_TOTAL=40;
+const KW_QUOTA={terms:13,style:10,room:12,colour:5};
+const ROOM_SYN={
+  'bathroom':['bathroom','shower room','ensuite','en suite','en-suite','powder room'],
+  'bedroom':['bedroom','above bed','over bed','master bedroom','guest bedroom'],
+  'nursery':['nursery','baby room','babys room','baby nursery'],
+  'teens bedroom':['teen','teens','teenage','teenager','kids','childrens','playroom'],
+  'living room':['living room','lounge','sitting room','front room','family room'],
+  'kitchen':['kitchen'],
+  'dining room':['dining room','dining','breakfast room'],
+  'hallway':['hallway','entryway','entrance','foyer','corridor','hall'],
+  'office':['office','study','home office','workspace'],
+  'laundry room':['laundry','laundry room','utility room'],
+  'games room':['games room','game room','man cave'],
+  'above fireplace':['above fireplace','over fireplace','mantel','mantelpiece']
+};
+function kwHas(kw,word){ const w=String(word||'').toLowerCase().trim(); if(!w) return false; try{ return new RegExp('\\b'+w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b').test(kw); }catch(e){ return kw.includes(w); } }
+function kwHasAny(kw,arr){ return (arr||[]).some(w=>kwHas(kw,w)); }
+function catOf(keyword,p){
+  const kw=(keyword||'').toLowerCase(); const col=p.collections||{};
+  const roomSyn=[]; (col['By Room']||[]).forEach(r=>{ const key=String(r).toLowerCase(); roomSyn.push(key); (ROOM_SYN[key]||[]).forEach(s=>roomSyn.push(s)); });
+  if(kwHasAny(kw,roomSyn)) return 'room';
+  if(kwHasAny(kw,col['By Style']||[])) return 'style';
+  if(kwHasAny(kw,p.primaryColour||[])) return 'colour';
+  if(kwHasAny(kw,p.keywordWords||[])) return 'terms';
+  return 'other';
+}
+function selectByQuota(items){
+  const cats=['terms','style','room','colour'];
+  const byCat={terms:[],style:[],room:[],colour:[],other:[]};
+  items.forEach(o=>{ (byCat[o.cat]||byCat.other).push(o); });
+  Object.keys(byCat).forEach(c=>byCat[c].sort((a,b)=>b.pot-a.pot));
+  // desired per cat, capped by what's actually available
+  const desired={}; cats.forEach(c=>desired[c]=Math.min(KW_QUOTA[c],byCat[c].length));
+  let leftover=KW_TOTAL-cats.reduce((s,c)=>s+desired[c],0);
+  // share out unfilled slots proportionally among cats that still have spare candidates (weighted by quota)
+  let guard=0;
+  while(leftover>0 && guard++<50){
+    const spare=cats.filter(c=>byCat[c].length>desired[c]);
+    if(!spare.length) break;
+    const wTot=spare.reduce((s,c)=>s+KW_QUOTA[c],0)||1; let added=0;
+    for(const c of spare){ if(leftover-added<=0) break;
+      const give=Math.max(1,Math.round(leftover*KW_QUOTA[c]/wTot));
+      const g=Math.min(give,byCat[c].length-desired[c],leftover-added);
+      desired[c]+=g; added+=g; }
+    if(!added) break; leftover-=added;
+  }
+  let picked=[]; cats.forEach(c=>picked.push(...byCat[c].slice(0,desired[c])));
+  if(picked.length<KW_TOTAL) picked.push(...byCat.other.slice(0,KW_TOTAL-picked.length));
+  if(picked.length<KW_TOTAL){ const have=new Set(picked.map(o=>o.keyword.toLowerCase()));
+    picked.push(...items.filter(o=>!have.has(o.keyword.toLowerCase())).sort((a,b)=>b.pot-a.pot).slice(0,KW_TOTAL-picked.length)); }
+  const seen=new Set(); const out=[];
+  picked.sort((a,b)=>b.pot-a.pot).forEach(o=>{ const k=o.keyword.toLowerCase(); if(!seen.has(k)){ seen.add(k); out.push(o); } });
+  return out.slice(0,KW_TOTAL);
+}
 function ensureRoomKeywords(){ groupProducts().forEach(p=>{ if(!KWC[p.sku]) fetchRoomKw(p); }); }
 async function fetchRoomKw(p){
   KWC[p.sku]={loading:true,options:[]};
   const [gapR,gscR,availR,gkpR]=await Promise.all([
-    api({action:'gap-research',products:[p]}).catch(()=>null),
+    api({action:'gap-research',products:[p],limit:90}).catch(()=>null),
     api({action:'gsc-opportunities',sku:p.sku}).catch(()=>null),
     api({action:'available-product-keywords',sku:p.sku}).catch(()=>null),
     api({action:'google-keyword-ideas',seeds:buildGkpSeeds(p)}).catch(()=>null)
@@ -922,7 +981,8 @@ async function fetchRoomKw(p){
   (gap.options||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.gap={volume:o.volume,difficulty:o.difficulty,difficultyRaw:o.difficultyRaw}; });
   ((gscR&&gscR.options)||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.gsc={impressions:o.impressions,clicks:o.clicks,position:o.position}; });
   ((gkpR&&gkpR.options)||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.gkp={volume:o.volume,competition:o.competition,competitionIndex:o.competitionIndex}; });
-  const list=[...map.values()].map(o=>{ o.pot=mergedPot(o.sources); return o; }).sort((a,b)=>b.pot-a.pot).slice(0,25);
+  const all=[...map.values()].map(o=>{ o.pot=mergedPot(o.sources); o.cat=catOf(o.keyword,p); return o; });
+  const list=selectByQuota(all);
   KWC[p.sku]={loading:false,options:list};
   if((OPEN_STAGE||naturalStageKey())==='keywords') renderFlow();
 }
