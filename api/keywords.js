@@ -1,4 +1,6 @@
-// api/keywords.js — New Product Generator backend  ·  v0.43
+// api/keywords.js — New Product Generator backend  ·  v0.44
+// v0.44 (2026-10-04): add Dining room size-guide (ROOM_IMAGE_FILES['Dining room'] -> room-22.jpg). Was the
+//   only room missing from the map, so sending a Dining room product failed ("No size-guide image mapped").
 // v0.43 (2026-10-04): room_type metafield now maps tool room names to Shopify's fixed choice list
 //   (Office->Home Office, Teens Bedroom->Nursery, Above Fireplace dropped). Fixes "Value does not exist in
 //   provided choices" on send. Collections/tags are unchanged (room_type never drove the collections).
@@ -1880,6 +1882,7 @@ const ROOM_IMAGE_FILES = {
   'Above Fireplace': 'assets/npg-images/rooms/room-21.jpg',
   'Bathroom': 'assets/npg-images/rooms/room-15.jpg',
   'Bedroom': 'assets/npg-images/rooms/room-14.jpg',
+  'Dining room': 'assets/npg-images/rooms/room-22.jpg',
   'Games room': 'assets/npg-images/rooms/room-18.jpg',
   'Hallway': 'assets/npg-images/rooms/room-17.jpg',
   'Kitchen': 'assets/npg-images/rooms/room-13.jpg',
