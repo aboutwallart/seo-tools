@@ -178,7 +178,7 @@
   .rcol-bd{padding:14px;display:flex;flex-direction:column;gap:9px;max-height:620px;overflow-y:auto}
   .kwopt{border:1px solid var(--border-strong);border-radius:9px;padding:9px 11px;cursor:pointer}
   .kwopt.rec{border-color:#2f8f5a;background:#eaf7ee}
-  .kwopt.sel{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+  .kwopt.sel{border-color:#2f8f5a;background:#d4efdd;box-shadow:inset 0 0 0 1px #2f8f5a}
   .kwopt .kwtop{display:flex;align-items:center;gap:8px}
   .kwopt .kwnm{font-size:14px;font-weight:600}
   .kwopt .recb{margin-left:auto;font-size:10px;font-weight:800;text-transform:uppercase;color:#2f8f5a}
@@ -194,6 +194,9 @@
   .vrn{font-size:19px;font-weight:700}
   .vst{font-size:12px;color:var(--muted)}
   .vchev{margin-left:auto;color:var(--muted);font-size:16px}
+  .vhtxt{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+  .vhtop{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .vhsub{font-size:12.5px;color:#55605b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .vbd{padding:16px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:16px}
   .sectlab{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;color:var(--muted);margin-bottom:8px}
   .okbtn{align-self:flex-start;background:#d9f0dd;border:1px solid #1f5f1f;color:#1f5f1f;border-radius:9px;padding:9px 18px;font-size:13.5px;cursor:pointer;font-weight:700}
@@ -210,7 +213,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v4.6</span>
+  <span class="ver">v4.7</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -879,7 +882,9 @@ function roomKeywordColumn(p,idx){
   let body;
   if(!state||state.loading) body='<div class="empty"><span class="spin" style="border-color:'+c+';border-top-color:transparent"></span>Searching…</div>';
   else if(!state.options.length) body='<div class="empty">No options. Copy the Ubersuggest prompt or add one manually.</div>';
-  else body=state.options.map((o,oi)=>roomKwOption(p,o,oi)).join('');
+  else{ let ord=state.options.map((o,oi)=>({o,oi}));
+    if(p.keyword){ const kl=p.keyword.toLowerCase(); ord.sort((a,b)=>((b.o.keyword.toLowerCase()===kl)?1:0)-((a.o.keyword.toLowerCase()===kl)?1:0)); }
+    body=ord.map((it,pos)=>roomKwOption(p,it.o,it.oi,pos)).join(''); }
   const enc=encodeURIComponent(p.sku);
   return '<div class="rcol"><div class="rcol-hd" style="background:'+c+'">'+(na?'<span class="na">New Arrivals</span>':'')+'<div class="rn">'+esc(roomName(p))+'</div><div class="sk">'+esc(p.sku)+'</div></div>'+
     '<div class="rcol-bd"><div class="kwt">Main keyword — pick one · top 40</div>'+body+
@@ -887,9 +892,9 @@ function roomKeywordColumn(p,idx){
     '<div style="margin-top:8px;display:flex;gap:6px"><input type="text" id="man-'+enc+'" placeholder="add manually"><button class="btn primary small" onclick="roomAddManual('+"'"+enc+"'"+')">Add</button></div>'+
     '</div></div>';
 }
-function roomKwOption(p,o,oi){
+function roomKwOption(p,o,oi,pos){
   const sel=p.keyword&&p.keyword.toLowerCase()===o.keyword.toLowerCase();
-  const rec=oi===0 && !p.keyword;
+  const rec=(pos===0) && !p.keyword;
   const s=o.sources||{};
   const pills=[];
   if(s.available) pills.push('<span class="srcpill" style="background:#cfead0;color:#1f5f1f">you rank</span>');
@@ -1086,7 +1091,10 @@ function reviewRoom(p){
   else status='<span class="vst">keyword set</span>';
   const enc=encodeURIComponent(p.sku);
   const body=open?('<div class="vbd">'+reviewRoomBody(p)+'</div>'):'';
-  return '<div class="vroom'+(open?' open':'')+'"><div class="vhd" onclick="toggleV('+"'"+enc+"'"+')"><span class="vdot" style="background:'+dot+'"></span><span class="vrn">'+esc(roomName(p))+'</span>'+(na?'<span class="srcpill" style="background:#cfead0;color:#1f5f1f;margin-left:4px">New Arrivals</span>':'')+'<span class="vst" style="margin-left:4px">· '+esc(p.sku)+'</span>'+status+'<span class="vchev">'+(open?'▾':'▸')+'</span></div>'+body+'</div>';
+  const kwTxt=p.keyword?'<span style="color:var(--accent);font-weight:600">'+esc(p.keyword)+'</span>':'<span style="color:var(--muted)">no keyword yet</span>';
+  const titleTxt=(p.content&&p.content.productTitle)?' · '+esc(p.content.productTitle):'';
+  const sub='<div class="vhsub">'+kwTxt+titleTxt+'</div>';
+  return '<div class="vroom'+(open?' open':'')+'"><div class="vhd" onclick="toggleV('+"'"+enc+"'"+')"><span class="vdot" style="background:'+dot+'"></span><div class="vhtxt"><div class="vhtop"><span class="vrn">'+esc(roomName(p))+'</span>'+(na?'<span class="srcpill" style="background:#cfead0;color:#1f5f1f;margin-left:4px">New Arrivals</span>':'')+'<span class="vst" style="margin-left:4px">· '+esc(p.sku)+'</span>'+status+'</div>'+sub+'</div><span class="vchev">'+(open?'▾':'▸')+'</span></div>'+body+'</div>';
 }
 function toggleV(enc){ const sku=decodeURIComponent(enc); VOPEN=(VOPEN===sku)?null:sku; renderFlow(); }
 function reviewRoomBody(p){
@@ -1967,7 +1975,6 @@ async function onIndDrop(e, sku, toIdx){
   catch(err){ msg('Failed: '+err.message,'err'); }
 }
 async function removeProdImage(sku, slot, index){
-  if(!confirm('Remove this image?')) return;
   try{ const r=await api({action:'remove-product-image', sku, slot, index}); PRODUCTS=r.products; renderFlow(); msg('Removed.','ok'); }
   catch(e){ msg('Failed: '+e.message,'err'); }
 }
