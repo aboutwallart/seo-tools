@@ -1,4 +1,7 @@
-// api/keywords.js — New Product Generator backend  ·  v0.41
+// api/keywords.js — New Product Generator backend  ·  v0.42
+// v0.42 (2026-10-04): NEW action `upload-shared-image` — uploads a flat/single to Shopify ONCE and writes it
+//   onto every room product of an art group in a single commit (multi-room NPG). Avoids the old N×M per-sku
+//   uploads that were slow and failed silently. { skus:[], slot, image, imageMediaType } -> { record, products, applied }.
 // v0.41 (2026-10-03): EXCLUDE not-sold product types from every keyword source — any keyword containing
 //   "sticker", "wallpaper" or "decal" (substring, covers plurals) is dropped in gapClassify (so gap-research,
 //   gsc-opportunities and available-product-keywords all skip them) and in googleKeywordIdeas. Part of the
@@ -1763,6 +1766,43 @@ async function uploadProductImage(body) {
   throw new Error('write conflict, try again');
 }
 
+// Shared image (flat or single): upload to Shopify ONCE, then record it on every room product in ONE commit.
+// `skus` = the room SKUs of the art group. Flats overwrite their slot; individuals append (respecting set size).
+async function uploadSharedImage(body) {
+  const { skus, slot, image, imageMediaType } = body;
+  if (!Array.isArray(skus) || !skus.length) throw new Error('skus required');
+  if (!slot) throw new Error('slot required');
+  if (!image) throw new Error('image required');
+  if (slot !== 'individual' && !FLAT_SLOTS.includes(slot)) throw new Error('shared slot must be individual or a flat: ' + slot);
+  const ext = extFromMime(imageMediaType);
+  const baseName = slot === 'individual' ? 'individual' : slot.replace('flat', '').toLowerCase();
+  const filename = `shared-${baseName}.${ext}`;
+  const uploaded = await uploadImageToShopify(image, filename, imageMediaType, baseName); // ONE Shopify upload
+  const rec = { gid: uploaded.gid, url: uploaded.url, filename, alt: baseName };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const file = await ghGet(PRODUCTS_PATH);
+    let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    const applied = [];
+    for (const sku of skus) {
+      const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === String(sku).toLowerCase());
+      if (idx < 0) { applied.push({ sku, skipped: 'not found' }); continue; }
+      const product = arr[idx];
+      const images = product.images ? { ...product.images, lifestyle: [...(product.images.lifestyle || [])], individuals: [...(product.images.individuals || [])], flats: { ...(product.images.flats || {}) } } : { lifestyle: [], individuals: [], flats: {} };
+      if (slot === 'individual') {
+        const setMatch = (product.set || '').match(/\d+/); const setSize = setMatch ? parseInt(setMatch[0], 10) : 1;
+        if (images.individuals.length >= setSize) { applied.push({ sku, skipped: 'set full' }); arr[idx] = { ...product, images }; continue; }
+        images.individuals.push({ ...rec });
+      } else { images.flats[slot] = { ...rec }; }
+      arr[idx] = { ...product, images, updatedAt: new Date().toISOString() };
+      applied.push({ sku });
+    }
+    try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG shared image (${slot}) -> ${skus.length} room(s)`); return { record: rec, products: arr, applied }; }
+    catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
+  }
+  throw new Error('write conflict, try again');
+}
+
 // Cover is simply lifestyle[0] — dragging a tile to the front makes it the cover, no separate flag.
 async function reorderLifestyleImages(sku, order) {
   if (!Array.isArray(order)) throw new Error('order required');
@@ -2674,6 +2714,15 @@ export default async function handler(req, res) {
       if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
       if (!process.env.SHOPIFY_STORE_DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return res.status(500).json({ ok: false, error: 'Shopify credentials not configured' });
       const out = await uploadProductImage(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    // Multi-room: upload ONE shared image (flat or single) to Shopify once, then write it onto every
+    // room product in a single commit. Much faster than upload-image per sku (no Shopify re-upload per room).
+    if (action === 'upload-shared-image') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      if (!process.env.SHOPIFY_STORE_DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return res.status(500).json({ ok: false, error: 'Shopify credentials not configured' });
+      const out = await uploadSharedImage(body);
       return res.status(200).json({ ok: true, ...out });
     }
 
