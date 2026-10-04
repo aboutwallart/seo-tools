@@ -1,4 +1,25 @@
-// api/keywords.js — New Product Generator backend  ·  v0.39
+// api/keywords.js — New Product Generator backend  ·  v0.45
+// v0.45 (2026-10-04): gap-research accepts an optional `limit` (capped 120) so the NPG keyword columns can
+//   pull a bigger pool and balance it by category in the frontend (room keywords were being cut server-side
+//   because only 10 were returned, terms-first). Default limit unchanged for any other caller.
+// v0.44 (2026-10-04): add Dining room size-guide (ROOM_IMAGE_FILES['Dining room'] -> room-22.jpg). Was the
+//   only room missing from the map, so sending a Dining room product failed ("No size-guide image mapped").
+// v0.43 (2026-10-04): room_type metafield now maps tool room names to Shopify's fixed choice list
+//   (Office->Home Office, Teens Bedroom->Nursery, Above Fireplace dropped). Fixes "Value does not exist in
+//   provided choices" on send. Collections/tags are unchanged (room_type never drove the collections).
+// v0.42 (2026-10-04): NEW action `upload-shared-image` — uploads a flat/single to Shopify ONCE and writes it
+//   onto every room product of an art group in a single commit (multi-room NPG). Avoids the old N×M per-sku
+//   uploads that were slow and failed silently. { skus:[], slot, image, imageMediaType } -> { record, products, applied }.
+// v0.41 (2026-10-03): EXCLUDE not-sold product types from every keyword source — any keyword containing
+//   "sticker", "wallpaper" or "decal" (substring, covers plurals) is dropped in gapClassify (so gap-research,
+//   gsc-opportunities and available-product-keywords all skip them) and in googleKeywordIdeas. Part of the
+//   multi-room NPG redesign (frontend v4.2).
+// v0.40 (2026-10-03): LOCKED-KEYWORD FILTER everywhere + MERGE. (1) availableProductKeywords (you-rank),
+//   googleKeywordIdeas and gapResearch (case-insensitive) now EXCLUDE keywords already locked to a page, so
+//   the NPG Step-2 list never shows a locked keyword. (2) syncCaptureTasks (Do First/strengthen) skips locked
+//   keywords when creating cards AND drops existing locked ones on load (cleans the mis-added ones). (3) New
+//   action generate-capture-merged → ONE natural section per page covering its several near-duplicate
+//   strengthen keywords (no per-variant stuffing) instead of one paragraph per keyword.
 // v0.39 (2026-09-29): Lifestyle image generator tab — actions lifestyle-wallart (4 framed sets → one styled
 //   lifestyle prompt per frame, image 1 with a person + casting rules) and lifestyle-collective (supplier
 //   photo → 4-image prompt set: white bg + 3 lifestyle, square 1:1). Both look at the image via Claude vision.
@@ -428,7 +449,11 @@ function gapTermsForProduct(p) {
 // Returns { qualifies, tier } — tier 1 = manual/extra word match (top priority), tier 2 = style/room/trend or product-colour+art.
 // A colour only qualifies when the product's own colour describes art (colour word + an ART_WORD together);
 // a colour alone, or a colour describing something else (e.g. "the white rabbit"), never qualifies.
+// Product types About Wall Art does NOT sell — never offer a keyword containing these (singular or plural).
+// Matched as a substring, case-insensitive, so "decal" covers "decals", "sticker" covers "stickers", etc.
+const EXCLUDED_PRODUCT_TYPES = /(sticker|wallpaper|decal)/i;
 function gapClassify(kw, terms) {
+  if (EXCLUDED_PRODUCT_TYPES.test(String(kw || ''))) return { qualifies: false, tier: 0 }; // not sold — always drop
   const extraHit = anyWord(kw, terms.extra);
   if (extraHit) return { qualifies: true, tier: 1 }; // Mae's own words always win, no veto
   // B#3: hard veto — a keyword naming a room or style the product isn't for never qualifies
@@ -442,6 +467,9 @@ function gapClassify(kw, terms) {
 async function gapResearch(body) {
   const products = Array.isArray(body.products) ? body.products : [];
   if (!products.length) return { results: [] };
+  // v0.45: NPG asks for a bigger pool (limit) so the frontend can balance by category (room/style/colour/
+  // terms). Default stays MAX_OPTIONS_PER_PRODUCT for any other caller.
+  const limit = Number(body.limit) > 0 ? Math.min(Math.floor(Number(body.limit)), 120) : MAX_OPTIONS_PER_PRODUCT;
   const [gapRows, locked, allProducts] = await Promise.all([readGapFile(), lockedKeywordSet(), readProducts()]);
   const results = products.map(p => {
     const terms = gapTermsForProduct(p);
@@ -450,7 +478,7 @@ async function gapResearch(body) {
     // opportunity = high volume + low difficulty; small colour bonus as a tie-breaker
     const opportunity = row => Math.sqrt(row.volume + 1) * (100 / (row.difficulty + 10)) + (anyWord(row.keyword, terms.colours) ? 1 : 0);
     const qualified = gapRows
-      .filter(row => !locked.has(row.keyword) && !inProgress.has(row.keyword))
+      .filter(row => !locked.has((row.keyword || '').toLowerCase()) && !inProgress.has(row.keyword))
       .filter(row => colourOk(row.keyword, allowedColours))
       .map(row => ({ ...row, cls: gapClassify(row.keyword, terms) }))
       .filter(row => row.cls.qualifies);
@@ -459,7 +487,7 @@ async function gapResearch(body) {
     const tier1 = qualified.filter(r => r.cls.tier === 1).sort(byOpp);
     const tier2 = qualified.filter(r => r.cls.tier === 2).sort(byOpp);
     const options = [...tier1, ...tier2]
-      .slice(0, MAX_OPTIONS_PER_PRODUCT)
+      .slice(0, limit)
       .map(row => ({ keyword: row.keyword, volume: row.volume, difficulty: row.difficulty, difficultyRaw: row.difficultyRaw }));
     return { sku: p.sku || '', options };
   });
@@ -721,8 +749,8 @@ async function captureOptimise(body) {
 // C — auto: every keyword that ranks on a page LOCKED to another keyword becomes a "strengthen" card.
 // Built live from the performing list; new ones are persisted; done/dismissed ones are never recreated.
 async function syncCaptureTasks() {
-  const [perf, urlLocks, dismissed, store] = await Promise.all([
-    readPerformingList(), registryUrlLockMap(), readPerformingDismissed(), readCaptureTasksRaw()
+  const [perf, urlLocks, dismissed, store, locked] = await Promise.all([
+    readPerformingList(), registryUrlLockMap(), readPerformingDismissed(), readCaptureTasksRaw(), lockedKeywordSet()
   ]);
   let arr = store.arr; let sha = store.sha;
   const have = new Set(arr.map(t => captureKey(t.keyword)));
@@ -731,6 +759,7 @@ async function syncCaptureTasks() {
     if (!k || !k.keyword) return;
     const kw = captureKey(k.keyword);
     if (have.has(kw) || dismissed.has(kw)) return;
+    if (locked.has((k.keyword || '').toLowerCase())) return;   // already locked to a page → skip (avoid cannibalisation)
     const cleanRanking = k.rankingUrl ? cleanUrl(k.rankingUrl) : null;
     if (!cleanRanking) return;                          // no page → a new-product case, not strengthen
     const lockedTo = urlLocks[normUrl(cleanRanking)];
@@ -751,7 +780,8 @@ async function syncCaptureTasks() {
       catch (e) { if (e.status === 409 && attempt < 2) { const re = await readCaptureTasksRaw(); arr = re.arr; sha = re.sha; continue; } throw e; }
     }
   }
-  return { tasks: arr.filter(t => t.status !== 'dismissed') };
+  // Also drop any EXISTING task whose keyword is now locked to a page (cleans the ones mis-added before this fix).
+  return { tasks: arr.filter(t => t.status !== 'dismissed' && !locked.has((t.keyword || '').toLowerCase())) };
 }
 async function setCaptureTaskStatus(keyword, status) {
   keyword = (keyword || '').trim();
@@ -865,15 +895,85 @@ async function generateCaptureContent(body) {
   } catch { /* returning the content is enough even if persist fails */ }
   return { ok: true, h2, paragraph, internalLinkAnchor: anchor, target: coll ? coll.url : '', html, plainText };
 }
+
+// MERGE: write ONE natural section for a page that has several (often near-duplicate) strengthen keywords,
+// instead of one paragraph per keyword. Covers the SHARED intent naturally — never stuffs every variant.
+async function generateCaptureMerged(body) {
+  const pageUrl = (body.pageUrl || '').trim();
+  const keywords = (Array.isArray(body.keywords) ? body.keywords : []).map(k => String(k || '').trim()).filter(Boolean);
+  const pageTopic = (body.lockedToKeyword || '').trim();
+  if (!pageUrl) throw new Error('pageUrl required');
+  if (!keywords.length) throw new Error('keywords required');
+  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set');
+  const primary = keywords[0];
+  const prompt = [
+    'You are writing for About Wall Art, a UK wall-art brand. UK spelling. First-person, warm, advisor tone.',
+    'NEVER say "print" or "prints" — always "wall art" or "art sets" (products are sets of 3).',
+    `The page currently ranks for "${pageTopic || 'its main topic'}"${pageUrl ? ' (' + pageUrl + ')' : ''} and ALSO ranks for these related keywords: ${keywords.map(k => '"' + k + '"').join(', ')}.`,
+    'Write ONE short section to add to that page so it captures ALL of those related keywords better, WITHOUT changing the page\'s main focus.',
+    'They are variants of the SAME intent — cover the shared meaning naturally in ONE paragraph. Do NOT repeat every literal variant and do NOT keyword-stuff; Google understands variants, so use the intent once, naturally.',
+    'The paragraph MUST naturally contain the exact anchor phrase you return in "internalLinkAnchor" (it will become a link to a collection).',
+    'Return ONLY JSON: {"h2":"short natural H2 for the shared topic","paragraph":"4-6 sentences, natural, covers the shared intent once, includes the anchor phrase once","internalLinkAnchor":"3-5 word anchor for a link to a relevant collection"}'
+  ].join('\n');
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 900, messages: [{ role: 'user', content: prompt }] })
+  });
+  if (!r.ok) { const t = await r.text(); throw new Error('Claude API error ' + r.status + ': ' + t.slice(0, 200)); }
+  const data = await r.json();
+  let text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
+  let clean = text.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+  const m = clean.match(/\{[\s\S]*\}/); if (m) clean = m[0];
+  let parsed; try { parsed = JSON.parse(clean); } catch { throw new Error('Could not parse AI response'); }
+  const h2 = String(parsed.h2 || '').trim();
+  const paragraph = String(parsed.paragraph || '').trim();
+  const anchor = String(parsed.internalLinkAnchor || '').trim();
+
+  let publicOrigin = 'https://aboutwallart.com';
+  if (pageUrl) { const mo = pageUrl.match(/^https?:\/\/[^/]+/); if (mo) publicOrigin = mo[0]; }
+  const coll = await bestCollectionForPage(primary, pageUrl, publicOrigin);
+
+  let paraHtml = escHtml(paragraph);
+  if (coll) {
+    const linkText = anchor || coll.title || 'wall art collection';
+    const linkHtml = `<a href="${escHtml(coll.url)}">${escHtml(linkText)}</a>`;
+    const escAnchor = escHtml(anchor);
+    if (anchor && paraHtml.indexOf(escAnchor) !== -1) paraHtml = paraHtml.replace(escAnchor, linkHtml);
+    else paraHtml += ` Browse our ${linkHtml}.`;
+  }
+  const html = (h2 ? `<h2>${escHtml(h2)}</h2>\n` : '') + `<p>${paraHtml}</p>`;
+  const plainText = (h2 ? h2 + '\n\n' : '') + paragraph + (coll ? `\n\n(${anchor}: ${coll.url})` : '');
+
+  // Persist onto the FIRST todo strengthen task of this page (the merged section lives there; the other
+  // tasks on the page are marked done together via "Mark all done").
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { arr, sha } = await readCaptureTasksRaw();
+      const idx = arr.findIndex(t => t.type === 'strengthen' && t.status !== 'done' && t.status !== 'dismissed' && (t.pageUrl || '').trim() === pageUrl);
+      if (idx < 0) break;
+      arr[idx].h2 = h2 || null;
+      arr[idx].paragraph = paragraph || null;
+      arr[idx].internalLink = { anchor, target: coll ? coll.url : '' };
+      arr[idx].html = html;
+      arr[idx].merged = true;
+      arr[idx].mergedKeywords = keywords;
+      try { await ghPut(CAPTURE_TASKS_PATH, JSON.stringify(arr, null, 2), sha, `Capture: merged section for ${pageUrl}`); break; }
+      catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
+    }
+  } catch { /* returning the content is enough even if persist fails */ }
+  return { ok: true, h2, paragraph, internalLinkAnchor: anchor, target: coll ? coll.url : '', html, plainText, keywords };
+}
 // Group A — keywords you rank for but with NO usable page → offered as suggestions when you build a
 // product (topic-matched). Replaces the old saved "product ideas" pool.
 async function availableProductKeywords(sku) {
-  const [perf, products, dismissed] = await Promise.all([readPerformingList(), readProducts(), readPerformingDismissed()]);
+  const [perf, products, dismissed, locked] = await Promise.all([readPerformingList(), readProducts(), readPerformingDismissed(), lockedKeywordSet()]);
   const p = products.find(x => (x.sku || '').toLowerCase() === (sku || '').toLowerCase());
   const terms = p ? gapTermsForProduct(p) : null;
   return perf
     .filter(k => k && k.keyword && (k.intent || 'product') === 'product')
     .filter(k => !k.rankingUrl)                          // no ranking page → a "new product" candidate
+    .filter(k => !locked.has(k.keyword.toLowerCase()))   // never offer a keyword already locked to a page
     .filter(k => !dismissed.has(k.keyword.toLowerCase()))
     .filter(k => !terms || gapClassify(k.keyword, terms).qualifies)
     .map(k => ({ keyword: k.keyword, impressions: k.impressions, clicks: k.clicks, position: k.position }));
@@ -1677,6 +1777,43 @@ async function uploadProductImage(body) {
   throw new Error('write conflict, try again');
 }
 
+// Shared image (flat or single): upload to Shopify ONCE, then record it on every room product in ONE commit.
+// `skus` = the room SKUs of the art group. Flats overwrite their slot; individuals append (respecting set size).
+async function uploadSharedImage(body) {
+  const { skus, slot, image, imageMediaType } = body;
+  if (!Array.isArray(skus) || !skus.length) throw new Error('skus required');
+  if (!slot) throw new Error('slot required');
+  if (!image) throw new Error('image required');
+  if (slot !== 'individual' && !FLAT_SLOTS.includes(slot)) throw new Error('shared slot must be individual or a flat: ' + slot);
+  const ext = extFromMime(imageMediaType);
+  const baseName = slot === 'individual' ? 'individual' : slot.replace('flat', '').toLowerCase();
+  const filename = `shared-${baseName}.${ext}`;
+  const uploaded = await uploadImageToShopify(image, filename, imageMediaType, baseName); // ONE Shopify upload
+  const rec = { gid: uploaded.gid, url: uploaded.url, filename, alt: baseName };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const file = await ghGet(PRODUCTS_PATH);
+    let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+    if (!Array.isArray(arr)) arr = [];
+    const applied = [];
+    for (const sku of skus) {
+      const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === String(sku).toLowerCase());
+      if (idx < 0) { applied.push({ sku, skipped: 'not found' }); continue; }
+      const product = arr[idx];
+      const images = product.images ? { ...product.images, lifestyle: [...(product.images.lifestyle || [])], individuals: [...(product.images.individuals || [])], flats: { ...(product.images.flats || {}) } } : { lifestyle: [], individuals: [], flats: {} };
+      if (slot === 'individual') {
+        const setMatch = (product.set || '').match(/\d+/); const setSize = setMatch ? parseInt(setMatch[0], 10) : 1;
+        if (images.individuals.length >= setSize) { applied.push({ sku, skipped: 'set full' }); arr[idx] = { ...product, images }; continue; }
+        images.individuals.push({ ...rec });
+      } else { images.flats[slot] = { ...rec }; }
+      arr[idx] = { ...product, images, updatedAt: new Date().toISOString() };
+      applied.push({ sku });
+    }
+    try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG shared image (${slot}) -> ${skus.length} room(s)`); return { record: rec, products: arr, applied }; }
+    catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
+  }
+  throw new Error('write conflict, try again');
+}
+
 // Cover is simply lifestyle[0] — dragging a tile to the front makes it the cover, no separate flag.
 async function reorderLifestyleImages(sku, order) {
   if (!Array.isArray(order)) throw new Error('order required');
@@ -1751,6 +1888,7 @@ const ROOM_IMAGE_FILES = {
   'Above Fireplace': 'assets/npg-images/rooms/room-21.jpg',
   'Bathroom': 'assets/npg-images/rooms/room-15.jpg',
   'Bedroom': 'assets/npg-images/rooms/room-14.jpg',
+  'Dining room': 'assets/npg-images/rooms/room-22.jpg',
   'Games room': 'assets/npg-images/rooms/room-18.jpg',
   'Hallway': 'assets/npg-images/rooms/room-17.jpg',
   'Kitchen': 'assets/npg-images/rooms/room-13.jpg',
@@ -1847,6 +1985,8 @@ function pickCollectionTag(tags, collName, product) {
   if (hit) return { tag: hit, fallback: false };
   return { tag: tags[0], fallback: true };
 }
+// Tool By Room name -> Shopify custom.room_type choice. Identity unless listed. '' = drop from the metafield.
+const ROOM_TYPE_MAP = { 'Office': 'Home Office', 'Teens Bedroom': 'Nursery', 'Above Fireplace': '' };
 async function resolveShopifyFields(sku) {
   const products = await readProducts();
   const product = products.find(p => (p.sku || '').toLowerCase() === (sku || '').toLowerCase());
@@ -1954,7 +2094,10 @@ async function resolveShopifyFields(sku) {
   if (linkedCollectionGids.length) push('custom', 'linked_collections', 'list.collection_reference', JSON.stringify(linkedCollectionGids));
   if ((product.primaryColour || []).length) push('custom', 'primary_colour', 'list.single_line_text_field', JSON.stringify(product.primaryColour));
   if (product.colour) push('custom', 'colour', 'single_line_text_field', product.colour);
-  if ((col['By Room'] || []).length) push('custom', 'room_type', 'list.single_line_text_field', JSON.stringify(col['By Room']));
+  // room_type is a Shopify metafield with a FIXED choice list that differs from the By Room collection names.
+  // Map the few that don't match; Above Fireplace has no equivalent -> dropped (it still joins its collection by tag).
+  const roomTypes = [...new Set((col['By Room'] || []).map(r => (ROOM_TYPE_MAP[r] !== undefined ? ROOM_TYPE_MAP[r] : r)).filter(Boolean))];
+  if (roomTypes.length) push('custom', 'room_type', 'list.single_line_text_field', JSON.stringify(roomTypes));
   push('custom', 'foxkit_stock', 'number_integer', String(foxkit));
   push('custom', 'sales_last_24_hs', 'number_integer', String(sales24));
   push('custom', 'sales_count', 'number_integer', String(salesCount));
@@ -2234,6 +2377,7 @@ async function googleKeywordIdeas(body) {
   if (manager && manager !== cid) attempts.push({ via: 'manager', login: manager });
   let lastErr = 'unknown';
   const debug = [];
+  const locked = await lockedKeywordSet();   // never offer a keyword already locked to a page
   for (const a of attempts) {
     const headers = { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
     if (a.login) headers['login-customer-id'] = a.login;
@@ -2250,7 +2394,7 @@ async function googleKeywordIdeas(body) {
             competition: m.competition || null,
             competitionIndex: (m.competitionIndex != null) ? Number(m.competitionIndex) : null
           };
-        }).filter(o => o.keyword);
+        }).filter(o => o.keyword && !locked.has(o.keyword.toLowerCase()) && !EXCLUDED_PRODUCT_TYPES.test(o.keyword));
         return { options, via: a.via, v: '0.37' };
       }
       lastErr = (data.error && data.error.message) || ('HTTP ' + r.status);
@@ -2547,6 +2691,12 @@ export default async function handler(req, res) {
       const out = await generateCaptureContent(body);
       return res.status(200).json(out);
     }
+    // Merge: ONE natural section for a page that has several strengthen keywords.
+    if (action === 'generate-capture-merged') {
+      if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ ok: false, error: 'ANTHROPIC_API_KEY not set' });
+      const out = await generateCaptureMerged(body);
+      return res.status(200).json(out);
+    }
     // Group A (no ranking page), topic-matched — offered at the keyword step of a new product.
     if (action === 'available-product-keywords') {
       const ideas = await availableProductKeywords(body.sku);
@@ -2581,6 +2731,15 @@ export default async function handler(req, res) {
       if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
       if (!process.env.SHOPIFY_STORE_DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return res.status(500).json({ ok: false, error: 'Shopify credentials not configured' });
       const out = await uploadProductImage(body);
+      return res.status(200).json({ ok: true, ...out });
+    }
+
+    // Multi-room: upload ONE shared image (flat or single) to Shopify once, then write it onto every
+    // room product in a single commit. Much faster than upload-image per sku (no Shopify re-upload per room).
+    if (action === 'upload-shared-image') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      if (!process.env.SHOPIFY_STORE_DOMAIN || !process.env.SHOPIFY_ACCESS_TOKEN) return res.status(500).json({ ok: false, error: 'Shopify credentials not configured' });
+      const out = await uploadSharedImage(body);
       return res.status(200).json({ ok: true, ...out });
     }
 
