@@ -210,7 +210,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v4.2</span>
+  <span class="ver">v4.3</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -397,7 +397,7 @@
 /* ---------- CONFIG ---------- */
 const BASE_GROUPS = {
   "By Room":["Above Fireplace","Bathroom","Bedroom","Dining room","Games room","Hallway","Kitchen","Laundry room","Living room","Nursery","Office","Teens Bedroom"],
-  "By Style":["Abstract","Bohemian","Chinoiserie","Christian","Coastal","Coffee","Contemporary","Eclectic","Maximalism","Farmhouse","French Country","Islamic","Japandi","Marble","Minimalism","Scandinavian","Shabby Chic","Sun & Moon","Travel","Tropical","Wild Life","Zen"],
+  "By Style":["Abstract","Bohemian","Chinoiserie","Christian","Coastal","Coffee","Contemporary","Eclectic","Maximalism","Farmhouse","French Country","Islamic","Japandi","Marble","Minimalism","Scandinavian","Shabby Chic","Sun & Moon","Travel","Tropical","Vintage","Wild Life","Zen"],
   "By Colour":["Black & White","Earth Toned","Gold","Pastels","Pink","Neutrals","Teal"],
   "By Occasion":["Birthdays","Birthstones","Christmas","Family Reunion","Prints of Love","Zodiac"],
   "Featured":["New Arrivals"]
@@ -435,8 +435,11 @@ let DEFINE_OPEN = 0;      // index of the open section in the progressive Step-1
 let ART_IMAGE = null;     // {data, mediaType} — the common artwork (in memory; re-upload after a reload)
 let KWC = {};             // sku -> {loading, options:[]} per-room keyword candidates (merged, top 25)
 let VOPEN = null;         // sku currently expanded in the review list
+let OPEN_STAGE = null;    // which macro stage is expanded in the post-creation accordion (null = the natural one)
 let GEN_ROOM = {};        // sku -> true while its SEO is generating
 let SHARED_UPLOADING = false;
+let SHARED_STAGE = [];    // staged shared images before upload: [{data, mediaType, name, slot, thumb}]
+let SHARED_PROGRESS = ''; // progress/error text during the shared upload
 const DEFINE_SECTIONS = ['sku','terms','ai','template','collections','set','trends','colours','rooms'];
 const DEFINE_TITLES = {sku:'SKU for print files',terms:'Extra keyword terms',ai:'Instructions for the AI',template:'Theme template',collections:'Collections',set:'Set size',trends:'Trends',colours:'Colours',rooms:'Rooms — where it goes'};
 
@@ -577,10 +580,127 @@ function renderFlow(){
     if(DEFINE_SECTIONS[DEFINE_OPEN]==='rooms') defineRoomsChanged();
     return;
   }
-  if(stage==='artmissing'){ flow.innerHTML=renderArtStage(true); return; }
-  if(stage==='keywords'){ flow.innerHTML=renderKeywordStage(); ensureRoomKeywords(); return; }
-  if(stage==='review'){ flow.innerHTML=renderReviewStage(); return; }
-  if(stage==='send'){ flow.innerHTML=renderSendStage(); return; }
+  // post-creation → accordion: every macro stage stays visible, collapsible and editable.
+  flow.innerHTML=renderAccordion();
+  if((OPEN_STAGE||naturalStageKey())==='keywords') ensureRoomKeywords();
+}
+function naturalStageKey(){ const s=flowStage(); return s==='artmissing'?'artwork':s; } // keywords|review|send|artwork
+function renderAccordion(){
+  const g=groupProducts();
+  const open=OPEN_STAGE||naturalStageKey();
+  const base=g[0]?(g[0].artBase||g[0].sku):'';
+  const stages=[
+    ['product','Product (shared)',productSummaryText(g)],
+    ['rooms','Rooms',g.map(roomName).join(', ')],
+    ['artwork','Artwork',ART_IMAGE?'uploaded':'not uploaded'],
+    ['keywords','Keywords',g.every(p=>p.keyword)?'all picked':(g.filter(p=>p.keyword).length+'/'+g.length+' picked')],
+    ['review','Review',g.every(p=>p.roomApproved)?'all done':(g.filter(p=>p.roomApproved).length+'/'+g.length+' done')],
+    ['send','Send to Shopify','']
+  ];
+  let html='<div class="card"><h2>'+esc(base)+' — '+g.length+' room'+(g.length>1?'s':'')+'</h2>'+
+    '<p class="sub">Click a step to open it. Every step stays here so you can review or edit it.</p>';
+  stages.forEach((s,i)=>{ html+=stageRow(s[0],i+1,s[1],s[2],open===s[0]); });
+  html+='<div class="actions" style="margin-top:14px"><button class="btn ghost" style="color:var(--danger)" onclick="deleteArtGroup()">Delete this art (all rooms)</button></div></div>';
+  return html;
+}
+function stageRow(key,n,title,summary,isOpen){
+  const head='<div class="psec-h" style="cursor:pointer" onclick="toggleStage('+"'"+key+"'"+')"><span class="psec-n">'+(isOpen?n:'✓')+'</span><span class="psec-t">'+title+'</span><span class="psec-v">'+esc(summary)+'</span><span class="psec-ed">'+(isOpen?'▾':'open')+'</span></div>';
+  return '<div class="psec'+(isOpen?' active':' done')+'">'+head+(isOpen?('<div class="psec-b">'+stageBody(key,groupProducts())+'</div>'):'')+'</div>';
+}
+function toggleStage(key){ OPEN_STAGE=(OPEN_STAGE===key)?null:key; renderFlow(); }
+function stageBody(key,g){
+  if(key==='product') return productEditBody(g);
+  if(key==='rooms') return roomsEditBody(g);
+  if(key==='artwork') return artInlineBody();
+  if(key==='keywords') return keywordColsInner(g);
+  if(key==='review') return reviewInner(g);
+  if(key==='send') return sendInner(g);
+  return '';
+}
+function productSummaryText(g){ const p=g[0]||{}; const c=p.collections||{}; return [p.set, ...(c['By Style']||[]), ...(c['By Colour']||[])].filter(Boolean).slice(0,5).join(' · ')||'—'; }
+/* ---- Product (shared) — edit common fields, applied to every room ---- */
+function productEditBody(g){
+  const p=g[0]||{}; const c=p.collections||{};
+  const list=(TEMPLATES&&TEMPLATES.length)?TEMPLATES:[{suffix:DEFAULT_TEMPLATE,label:DEFAULT_TEMPLATE}];
+  const chk=(arr,cls,sel)=>arr.map(x=>'<label class="opt"><input type="checkbox" class="'+cls+'" value="'+esc(x)+'"'+((sel||[]).includes(x)?' checked':'')+'>'+esc(x)+'</label>').join('');
+  return '<p class="sub">Shared by every room. The base SKU and the rooms can\'t change here.</p>'+
+    '<div class="field"><label class="f">Extra keyword terms — comma-separated</label><input type="text" id="e-terms" value="'+esc((p.keywordWords||[]).join(', '))+'"></div>'+
+    '<div class="ainotes" style="margin-bottom:16px"><label>Instructions for the AI</label><textarea id="e-ai">'+esc(p.aiNotes||'')+'</textarea></div>'+
+    '<div class="field"><label class="f">Theme template</label><select id="e-template" class="sel">'+list.map(t=>'<option value="'+esc(t.suffix)+'"'+(t.suffix===p.templateSuffix?' selected':'')+'>'+esc(templateLabel(t))+'</option>').join('')+'</select></div>'+
+    '<div class="cols"><div class="colgroup"><h4>By Style</h4>'+chk(BASE_GROUPS['By Style'],'e-style',c['By Style'])+'</div>'+
+      '<div class="colgroup"><h4>By Colour</h4>'+chk(BASE_GROUPS['By Colour'],'e-col',c['By Colour'])+'</div>'+
+      '<div class="colgroup"><h4>By Occasion</h4>'+chk(BASE_GROUPS['By Occasion'],'e-occ',c['By Occasion'])+'</div></div>'+
+    '<div class="block"><div class="block-head"><h3>Set size</h3></div><div class="radios">'+['Set of 1','Set of 2','Set of 3'].map(s=>'<label class="radio'+(p.set===s?' on':'')+'"><input type="radio" name="e-set" value="'+s+'"'+(p.set===s?' checked':'')+'> '+s+'</label>').join('')+'</div></div>'+
+    '<div class="block"><div class="block-head"><h3>Trends</h3></div><div class="trend-grid">'+chk(TRENDS,'e-trend',p.trends)+'</div></div>'+
+    '<div class="block"><div class="block-head"><h3>Colours</h3></div><div class="grid2"><div><label class="f">Primary colour(s) — comma-separated</label><input type="text" id="e-primary" value="'+esc((p.primaryColour||[]).join(', '))+'"></div><div><label class="f">Colour</label><select id="e-colour" class="sel"><option value="">— select —</option>'+COLOUR_CHOICES.map(x=>'<option'+(p.colour===x?' selected':'')+'>'+esc(x)+'</option>').join('')+'</select></div></div></div>'+
+    '<div class="actions" style="margin-top:16px"><button class="btn primary" onclick="saveCommonToAll()">Save to all rooms</button></div>';
+}
+async function saveCommonToAll(){
+  const g=groupProducts();
+  const common={
+    keywordWords:(document.getElementById('e-terms').value||'').split(',').map(s=>s.trim()).filter(Boolean),
+    aiNotes:(document.getElementById('e-ai').value||'').trim(),
+    templateSuffix:document.getElementById('e-template').value,
+    set:(document.querySelector('input[name=e-set]:checked')||{}).value||'',
+    trends:dvals('e-trend'), primaryColour:(document.getElementById('e-primary').value||'').split(',').map(s=>s.trim()).filter(Boolean),
+    colour:document.getElementById('e-colour').value
+  };
+  const styles=dvals('e-style'),colours=dvals('e-col'),occasions=dvals('e-occ');
+  try{
+    for(const p of g){ const upd={...p,...common,collections:{...(p.collections||{}),'By Style':styles.slice(),'By Colour':colours.slice(),'By Occasion':occasions.slice()}}; const r=await api({action:'save-product',product:upd}); PRODUCTS=r.products; }
+    OPEN_STAGE='product'; renderFlow(); msg('Saved to all rooms.','ok');
+  }catch(e){ msg('Save failed: '+e.message,'err'); }
+}
+/* ---- Rooms — add / remove rooms after creation ---- */
+function roomsEditBody(g){
+  const have=g.map(p=>p.room);
+  const cbs=BASE_GROUPS['By Room'].map(r=>'<label class="opt"><input type="checkbox" class="r-room" value="'+esc(r)+'"'+(have.includes(r)?' checked':'')+'>'+esc(r)+' <span style="color:var(--muted)">'+(ROOM_PREFIX[r]||'(no prefix)')+'</span></label>').join('');
+  return '<p class="sub">Tick to add a room, untick to remove it. Removing deletes that room\'s product.</p><div class="cols">'+cbs+'</div>'+
+    '<div class="actions" style="margin-top:14px"><button class="btn primary" onclick="saveRooms()">Save rooms</button></div>';
+}
+async function saveRooms(){
+  const g=groupProducts(); const base=g[0]?(g[0].artBase||g[0].sku):''; const p0=g[0]||{};
+  const want=dvals('r-room'); if(!want.length) return alert('Keep at least one room.');
+  const have=g.map(x=>x.room);
+  const toAdd=want.filter(r=>!have.includes(r));
+  const toRemove=g.filter(x=>!want.includes(x.room));
+  if(toRemove.length && !confirm('Remove '+toRemove.map(x=>x.room).join(', ')+'? Their products will be deleted.')) return;
+  try{
+    for(const p of toRemove){ const r=await api({action:'delete-product',sku:p.sku}); PRODUCTS=r.products; delete KWC[p.sku]; }
+    for(const room of toAdd){
+      const sku=skuForRoom(base,room);
+      if(PRODUCTS.some(x=>(x.sku||'').toLowerCase()===sku.toLowerCase())) continue;
+      const collections={'By Style':((p0.collections||{})['By Style']||[]).slice(),'By Colour':((p0.collections||{})['By Colour']||[]).slice(),'By Occasion':((p0.collections||{})['By Occasion']||[]).slice(),'By Room':[room]};
+      if(room==='Living room') collections['Featured']=['New Arrivals'];
+      const product={sku,artBase:base,room,roomApproved:false,collections,set:p0.set,trends:(p0.trends||[]).slice(),primaryColour:(p0.primaryColour||[]).slice(),colour:p0.colour,templateSuffix:p0.templateSuffix,aiNotes:p0.aiNotes,keywordWords:(p0.keywordWords||[]).slice()};
+      const r=await api({action:'save-product',product}); PRODUCTS=r.products;
+    }
+    OPEN_STAGE='rooms'; renderFlow(); msg('Rooms updated.','ok');
+  }catch(e){ msg('Update failed: '+e.message,'err'); }
+}
+/* ---- Artwork (re-upload inline) ---- */
+function artInlineBody(){
+  return '<p class="sub">Used to generate each room\'s SEO. Re-upload to replace it.</p>'+
+    (ART_IMAGE?'<div class="imgbox"><img class="imgpreview" src="data:'+esc(ART_IMAGE.mediaType)+';base64,'+ART_IMAGE.data+'"><div class="sub">Loaded.</div></div>':'<div class="msg show info" style="margin-bottom:10px">No artwork in memory — re-upload it so SEO can be (re)generated.</div>')+
+    '<div class="dz dz-full" onclick="document.getElementById(\'artfile\').click()" ondragover="event.preventDefault();this.classList.add(\'over\')" ondragleave="this.classList.remove(\'over\')" ondrop="onArtDrop(event)">📷 Drop the artwork here or click to browse</div>'+
+    '<input type="file" id="artfile" accept="image/*" style="display:none" onchange="onArtPicked(this)">';
+}
+/* ---- inner content reused inside the accordion ---- */
+function keywordColsInner(g){ return keywordLegend()+'<p class="sub">Top 25 per room. The recommended one is highlighted in green — click a card to use it (that generates its SEO). Scroll sideways →</p><div class="roomcols">'+g.map((p,i)=>roomKeywordColumn(p,i)).join('')+'</div>'; }
+function reviewInner(g){ return '<p class="sub">Open a room, check its SEO and add its lifestyle photos, then mark it done.</p>'+renderSharedBox()+'<div class="vlist">'+g.map(reviewRoom).join('')+'</div>'; }
+function sendInner(g){
+  const rows=g.map(p=>{ const na=((p.collections&&p.collections['Featured'])||[]).includes('New Arrivals'); const enc=encodeURIComponent(p.sku);
+    return '<tr><td style="padding:8px">'+esc(roomName(p))+'</td><td style="padding:8px;font-family:ui-monospace,Menlo,monospace">'+esc(p.sku)+'</td><td style="padding:8px">'+esc(p.keyword||'')+'</td><td style="padding:8px">'+(p.content?'✓':'—')+'</td><td style="padding:8px">'+(imagesComplete(p)?'✓':'partial')+'</td><td style="padding:8px">'+(na?'✓':'—')+'</td><td style="padding:8px"><button class="btn ghost small" onclick="sendRoom('+"'"+enc+"'"+')">Send</button></td></tr>';
+  }).join('');
+  return '<p class="sub">One product per room, created as Draft. Send all, or one by one.</p>'+
+    '<table class="aptbl" style="width:100%;border-collapse:collapse;font-size:13px"><tr style="text-align:left;color:var(--muted)"><th style="padding:8px">Room</th><th style="padding:8px">SKU</th><th style="padding:8px">Keyword</th><th style="padding:8px">SEO</th><th style="padding:8px">Images</th><th style="padding:8px">New Arr.</th><th></th></tr>'+rows+'</table>'+
+    '<div class="actions" style="margin-top:14px"><button class="btn primary" id="sendAllBtn" onclick="sendAllRooms()">Send all to Shopify</button></div>';
+}
+async function deleteArtGroup(){
+  const g=groupProducts(); if(!g.length) return;
+  if(!confirm('Delete this art and all '+g.length+' room product(s)? This can\'t be undone.')) return;
+  try{ for(const p of g){ const r=await api({action:'delete-product',sku:p.sku}); PRODUCTS=r.products; } ART_IMAGE=null; KWC={}; OPEN_STAGE=null; VOPEN=null; renderFlow(); msg('Deleted.','ok'); }
+  catch(e){ msg('Delete failed: '+e.message,'err'); }
 }
 function renderEmpty(flow){
   flow.innerHTML=
@@ -768,7 +888,7 @@ function roomKwOption(p,o,oi){
   if(s.gkp) met.push('Google KP vol '+(s.gkp.volume!=null?s.gkp.volume:'—')+(s.gkp.competition?' · '+compLabel(s.gkp.competition):''));
   const enc=encodeURIComponent(p.sku);
   return '<div class="kwopt'+(sel?' sel':'')+(rec?' rec':'')+'" onclick="roomPick('+"'"+enc+"',"+oi+')">'+
-    '<div class="kwtop"><input type="radio" '+(sel||rec?'checked':'')+' onclick="event.preventDefault()"><span class="kwnm">'+(sel?'✓ ':'')+esc(o.keyword)+'</span>'+(rec?'<span class="recb">recommended</span>':'')+'</div>'+
+    '<div class="kwtop"><input type="radio" '+(sel||rec?'checked':'')+' style="pointer-events:none" tabindex="-1"><span class="kwnm">'+(sel?'✓ ':'')+esc(o.keyword)+'</span>'+(rec?'<span class="recb">recommended</span>':'')+'</div>'+
     '<div class="kwpills">'+pills.join('')+'</div><div class="kwmet">'+esc(met.join(' · '))+'</div></div>';
 }
 function ensureRoomKeywords(){ groupProducts().forEach(p=>{ if(!KWC[p.sku]) fetchRoomKw(p); }); }
@@ -818,29 +938,66 @@ function renderReviewStage(){
     renderSharedBox()+
     '<div class="vlist">'+g.map(reviewRoom).join('')+'</div></div>';
 }
+const SLOT_LABEL={flatWhite:'White frame',flatBlack:'Black frame',flatOak:'Oak frame',flatCanvas:'Canvas',flatUnframed:'Unframed',individual:'Single'};
 function renderSharedBox(){
-  return '<div class="sharedbox"><div class="sectlab" style="margin-bottom:6px">Shared images — flats + singles (upload once, one box, applied to every room)</div>'+
-    (SHARED_UPLOADING?'<div class="dz dz-full busy"><span class="dz-spinicon"></span>Uploading to every room…</div>':
-    '<div class="dz dz-full" onclick="document.getElementById(\'sharedfile\').click()" ondragover="event.preventDefault();this.classList.add(\'over\')" ondragleave="this.classList.remove(\'over\')" ondrop="onSharedDrop(event)">📷 Drop flats + singles together — flats go by file name, the rest become singles A→Z.</div>')+
+  const staged=SHARED_STAGE.length;
+  let tiles='';
+  if(staged){
+    tiles='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">'+SHARED_STAGE.map((s,i)=>
+      '<div style="text-align:center;width:120px"><div style="position:relative;height:120px;border-radius:8px;background:url('+s.thumb+') center/cover;border:1px solid var(--border-strong)">'+
+      (SHARED_UPLOADING?'':'<button onclick="sharedRemove('+i+')" title="Remove" style="position:absolute;top:-7px;right:-7px;width:20px;height:20px;border-radius:50%;border:1px solid var(--border-strong);background:#fff;color:var(--danger);font-size:13px;line-height:1;cursor:pointer">×</button>')+'</div>'+
+      '<div class="dz-label" style="font-weight:500">'+SLOT_LABEL[s.slot]+'</div></div>'
+    ).join('')+'</div>';
+  }
+  const dzOrBusy = SHARED_UPLOADING
+    ? '<div class="dz dz-full busy"><span class="dz-spinicon"></span>'+esc(SHARED_PROGRESS||'Uploading…')+'</div>'
+    : '<div class="dz dz-full" onclick="document.getElementById(\'sharedfile\').click()" ondragover="event.preventDefault();this.classList.add(\'over\')" ondragleave="this.classList.remove(\'over\')" ondrop="onSharedDrop(event)">📷 Drop flats + singles here — add as many tandas as you need. Nothing uploads until you press the button below.</div>';
+  const btn = (staged && !SHARED_UPLOADING)
+    ? '<div class="actions" style="margin-top:12px"><button class="btn primary" onclick="uploadSharedAll()">Upload all '+staged+' to every room</button><button class="btn ghost" onclick="sharedClear()">Clear</button></div>'
+    : '';
+  const err = (!SHARED_UPLOADING && SHARED_PROGRESS) ? '<div class="msg show info" style="margin-top:10px">'+esc(SHARED_PROGRESS)+'</div>' : '';
+  return '<div class="sharedbox"><div class="sectlab" style="margin-bottom:6px">Shared images — flats + singles (add in batches, then upload once to every room)</div>'+
+    dzOrBusy+tiles+btn+err+
     '<input type="file" id="sharedfile" accept="image/*" multiple style="display:none" onchange="onSharedPicked(this)"></div>';
 }
-function onSharedDrop(e){ e.preventDefault(); uploadSharedAll([...e.dataTransfer.files]); }
-function onSharedPicked(input){ const fs=[...input.files]; input.value=''; uploadSharedAll(fs); }
-async function uploadSharedAll(files){
+function onSharedDrop(e){ e.preventDefault(); sharedStageFiles([...e.dataTransfer.files]); }
+function onSharedPicked(input){ const fs=[...input.files]; input.value=''; sharedStageFiles(fs); }
+// Add a batch to the staging list (does NOT upload). Classifies each by file name (flat phrase → flat slot, else single).
+async function sharedStageFiles(files){
   files=files.filter(f=>f.type&&f.type.startsWith('image/'));
   if(!files.length) return;
-  files.sort((a,b)=>a.name.localeCompare(b.name));
-  const g=groupProducts();
-  SHARED_UPLOADING=true; renderFlow();
-  try{
-    for(const f of files){
-      const slot=matchFlatSlot(f.name)||'individual';
-      const c=(await compressImageFile(f,2000,0.85))||(await readFileAsBase64(f));
-      if(!c) continue;
-      for(const p of g){ try{ const r=await api({action:'upload-image',sku:p.sku,slot,image:c.data,imageMediaType:c.mediaType}); PRODUCTS=r.products; }catch(e){} }
-    }
-    msg('Shared images added to every room.','ok');
-  } finally { SHARED_UPLOADING=false; renderFlow(); }
+  for(const f of files){
+    const slot=matchFlatSlot(f.name)||'individual';
+    const c=(await compressImageFile(f,2000,0.85))||(await readFileAsBase64(f));
+    if(!c) continue;
+    SHARED_STAGE.push({data:c.data,mediaType:c.mediaType,name:f.name,slot,thumb:'data:'+c.mediaType+';base64,'+c.data});
+  }
+  SHARED_PROGRESS=''; renderFlow();
+}
+function sharedRemove(i){ SHARED_STAGE.splice(i,1); renderFlow(); }
+function sharedClear(){ SHARED_STAGE=[]; SHARED_PROGRESS=''; renderFlow(); }
+// Upload every staged image: ONE Shopify upload per image, applied to all rooms in one commit (backend).
+async function uploadSharedAll(){
+  if(!SHARED_STAGE.length) return;
+  const g=groupProducts(); const skus=g.map(p=>p.sku);
+  // singles must append A→Z, so upload individuals in file-name order; flats order doesn't matter
+  const order=SHARED_STAGE.map((s,i)=>i).sort((a,b)=>{
+    const A=SHARED_STAGE[a],B=SHARED_STAGE[b];
+    if(A.slot==='individual'&&B.slot==='individual') return A.name.localeCompare(B.name);
+    return 0;
+  });
+  SHARED_UPLOADING=true; SHARED_PROGRESS='Uploading 0/'+SHARED_STAGE.length+'…'; renderFlow();
+  let done=0; const errors=[];
+  for(const i of order){
+    const s=SHARED_STAGE[i];
+    try{ const r=await api({action:'upload-shared-image',skus,slot:s.slot,image:s.data,imageMediaType:s.mediaType}); PRODUCTS=r.products; }
+    catch(e){ errors.push(s.name+': '+e.message); }
+    done++; SHARED_PROGRESS='Uploading '+done+'/'+SHARED_STAGE.length+'…'; renderFlow();
+  }
+  SHARED_UPLOADING=false;
+  if(errors.length){ SHARED_PROGRESS='Some images failed: '+errors.join(' · '); }
+  else { SHARED_PROGRESS=''; SHARED_STAGE=[]; msg('Shared images added to every room.','ok'); }
+  renderFlow();
 }
 function reviewRoom(p){
   const g=groupProducts(); const idx=g.indexOf(p);
