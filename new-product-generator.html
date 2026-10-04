@@ -20,7 +20,7 @@
   .topbar h1{font-size:16px;margin:0;font-weight:650;letter-spacing:.2px}
   .ver{font-size:11px;color:var(--muted);background:var(--chip);border-radius:20px;padding:3px 9px}
   .tag{font-size:11px;color:var(--accent);background:var(--accent-soft);border-radius:20px;padding:3px 10px;font-weight:600}
-  .wrap{max-width:1040px;margin:22px auto;padding:0 18px 80px}
+  .wrap{max-width:none;margin:22px auto;padding:0 60px 100px}
   .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
     box-shadow:var(--shadow);padding:22px;margin-bottom:20px}
   .card h2{font-size:15px;margin:0 0 4px;font-weight:650}
@@ -145,13 +145,61 @@
   .status{font-size:11px;font-weight:600;border-radius:20px;padding:3px 10px}
   .status.kw{color:var(--ok);background:#e4f3ea}
   .pill{display:inline-block;background:var(--chip);border-radius:20px;padding:2px 9px;margin:2px 4px 2px 0;font-size:12px}
-  @media(max-width:820px){.cols{grid-template-columns:1fr 1fr}.trend-grid{grid-template-columns:1fr 1fr}.grid2{grid-template-columns:1fr}.kwrow{grid-template-columns:1fr 60px 60px;}.kwrow .h-int,.kwrow .c-int,.kwrow .h-act{display:none}}
+  @media(max-width:820px){.wrap{padding-left:18px;padding-right:18px}.cols{grid-template-columns:1fr 1fr}.trend-grid{grid-template-columns:1fr 1fr}.grid2{grid-template-columns:1fr}.kwrow{grid-template-columns:1fr 60px 60px;}.kwrow .h-int,.kwrow .c-int,.kwrow .h-act{display:none}}
   /* ---------- TABS ---------- */
   .tabbar{background:#fff;border-bottom:1px solid var(--border);padding:0 22px;display:flex;gap:4px;flex-wrap:wrap}
   .tabbtn{border:none;background:none;padding:12px 16px;font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent}
   .tabbtn:hover{color:var(--ink)}
   .tabbtn.on{color:var(--accent);border-bottom-color:var(--accent)}
   .aptbl th,.aptbl td{border-bottom:1px solid #f0f1f2}
+  /* ---------- v4.2 MULTI-ROOM REDESIGN ---------- */
+  .plusbtn{width:92px;height:92px;border-radius:50%;background:var(--ink);color:#fff;font-size:52px;line-height:1;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;margin:0 auto}
+  .plusbtn:hover{background:#000}
+  /* progressive Step-1 sections */
+  .psec{border:1px solid var(--border);border-radius:12px;margin-bottom:10px;overflow:hidden;background:#fff}
+  .psec-h{display:flex;align-items:center;gap:10px;padding:14px 18px}
+  .psec.done .psec-h{background:#f3faf5;cursor:pointer}
+  .psec.active .psec-h{background:#eef6ff}
+  .psec.locked{opacity:.5}
+  .psec-n{width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none}
+  .psec.locked .psec-n{background:var(--border-strong)}
+  .psec-t{font-weight:650;font-size:14px}
+  .psec-v{color:var(--muted);font-size:13px}
+  .psec-ed{margin-left:auto;color:var(--accent);font-weight:600;font-size:12.5px}
+  .psec-b{padding:4px 18px 18px;border-top:1px solid var(--border)}
+  /* room keyword columns */
+  .legend2{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:14px}
+  .roomcols{display:flex;gap:16px;overflow-x:auto;padding:4px 2px 16px}
+  .rcol{flex:0 0 330px;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:#fff;display:flex;flex-direction:column}
+  .rcol-hd{padding:14px 16px;color:#fff;position:relative}
+  .rcol-hd .rn{font-size:22px;font-weight:800;line-height:1.05}
+  .rcol-hd .sk{font-family:ui-monospace,Menlo,monospace;font-size:12px;opacity:.92;margin-top:5px}
+  .rcol-hd .na{position:absolute;top:12px;right:12px;background:rgba(255,255,255,.22);border:1px solid rgba(255,255,255,.5);color:#fff;font-size:10px;font-weight:800;text-transform:uppercase;padding:3px 8px;border-radius:999px}
+  .rcol-bd{padding:14px;display:flex;flex-direction:column;gap:9px;max-height:620px;overflow-y:auto}
+  .kwopt{border:1px solid var(--border-strong);border-radius:9px;padding:9px 11px;cursor:pointer}
+  .kwopt.rec{border-color:#2f8f5a;background:#eaf7ee}
+  .kwopt.sel{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+  .kwopt .kwtop{display:flex;align-items:center;gap:8px}
+  .kwopt .kwnm{font-size:14px;font-weight:600}
+  .kwopt .recb{margin-left:auto;font-size:10px;font-weight:800;text-transform:uppercase;color:#2f8f5a}
+  .kwopt .kwpills{display:flex;gap:5px;flex-wrap:wrap;margin:7px 0 6px}
+  .kwopt .kwmet{font-size:12px;color:#55605b;line-height:1.5}
+  /* vertical review list */
+  .vlist{display:flex;flex-direction:column;gap:10px}
+  .vroom{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:#fff}
+  .vroom.open{border-color:#9bd2ae}
+  .vhd{display:flex;align-items:center;gap:10px;padding:14px 16px;cursor:pointer}
+  .vroom.open .vhd{background:#eaf7ee}
+  .vdot{width:11px;height:11px;border-radius:50%;flex:none}
+  .vrn{font-size:19px;font-weight:700}
+  .vst{font-size:12px;color:var(--muted)}
+  .vchev{margin-left:auto;color:var(--muted);font-size:16px}
+  .vbd{padding:16px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:16px}
+  .sectlab{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;color:var(--muted);margin-bottom:8px}
+  .okbtn{align-self:flex-start;background:#d9f0dd;border:1px solid #1f5f1f;color:#1f5f1f;border-radius:9px;padding:9px 18px;font-size:13.5px;cursor:pointer;font-weight:700}
+  .greenbtn{background:#2e7d32;color:#fff;border:1px solid #2e7d32}
+  .sharedbox{border:1px solid #cfe0d7;background:#f4faf7;border-radius:12px;padding:14px 16px;margin-bottom:14px}
+  .dz-full{width:100%;min-height:120px;height:auto}
 </style>
 </head>
 <body>
@@ -162,7 +210,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v4.1</span>
+  <span class="ver">v4.2</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -348,12 +396,19 @@
 <script>
 /* ---------- CONFIG ---------- */
 const BASE_GROUPS = {
-  "By Room":["Above Fireplace","Bathroom","Bedroom","Games room","Hallway","Kitchen","Laundry room","Living room","Nursery","Office","Teens Bedroom"],
+  "By Room":["Above Fireplace","Bathroom","Bedroom","Dining room","Games room","Hallway","Kitchen","Laundry room","Living room","Nursery","Office","Teens Bedroom"],
   "By Style":["Abstract","Bohemian","Chinoiserie","Christian","Coastal","Coffee","Contemporary","Eclectic","Maximalism","Farmhouse","French Country","Islamic","Japandi","Marble","Minimalism","Scandinavian","Shabby Chic","Sun & Moon","Travel","Tropical","Wild Life","Zen"],
   "By Colour":["Black & White","Earth Toned","Gold","Pastels","Pink","Neutrals","Teal"],
   "By Occasion":["Birthdays","Birthstones","Christmas","Family Reunion","Prints of Love","Zodiac"],
-  "Featured":["Bestsellers","New Arrivals"]
+  "Featured":["New Arrivals"]
 };
+// SKU prefix per room — prepended (no separator) to the base SKU. Living room uses the base SKU as-is.
+const ROOM_PREFIX = {
+  "Above Fireplace":"FIR","Bathroom":"BATH","Bedroom":"BED","Dining room":"DIN","Games room":"GR",
+  "Hallway":"HALL","Kitchen":"KIT","Laundry room":"UT","Living room":"","Nursery":"NUR",
+  "Office":"OFF","Teens Bedroom":"TEEN"
+};
+function skuForRoom(baseSku, room){ return (ROOM_PREFIX[room]||'') + String(baseSku||''); }
 const TRENDS = ["Biophilic Design","Black & White Decor","Boho Decor","Coastal Decor","Coffee House Design","Contemporary Decor","Country Cottage Decor","Eclectic Decor","Farmhouse Decor","French Country Decor","Industrial Decor","Japandi Decor","Masculine Decor","Mediterranean Decor","Mid Century Decor","Minimalism Decor","Moroccan Decor","Old Money Decor","Preppy Style","Scandi Decor","Transitional Decor","Tropical Decor","Wildlife Decor","Zen Decor"];
 const COLOUR_CHOICES = ["Black","White","Blue","Pink","Green","Grey","Plum","Ivory","Peach","Teal","Maroon","Aquamarine","Brown","Beige","Mauve","Multicolour","Purple","Violet","Mink","Burgundy","Blush","Magenta","Light Blue"];
 
@@ -374,6 +429,16 @@ let GSC_RESULTS = null;   // Step 2 cached GSC opportunity keywords (commercial,
 let AVAILABLE_KWS = null; // Step 2 cached group-A keywords (rank, no page yet), topic-matched
 let GKP_RESULTS = null;   // Step 2 cached Google Keyword Planner ideas (free search volume)
 let KW_LOADING = false;   // Step 2 auto-search in flight
+/* ---------- v4.2 MULTI-ROOM FLOW STATE ---------- */
+let DRAFT_PROJECT = null; // the art being defined: {baseSku, keywordWords[], aiNotes, templateSuffix, styles[], colours[], occasions[], set, trends[], primaryColour[], colour, rooms[], naRoom, sub:'define'|'art'}
+let DEFINE_OPEN = 0;      // index of the open section in the progressive Step-1
+let ART_IMAGE = null;     // {data, mediaType} — the common artwork (in memory; re-upload after a reload)
+let KWC = {};             // sku -> {loading, options:[]} per-room keyword candidates (merged, top 25)
+let VOPEN = null;         // sku currently expanded in the review list
+let GEN_ROOM = {};        // sku -> true while its SEO is generating
+let SHARED_UPLOADING = false;
+const DEFINE_SECTIONS = ['sku','terms','ai','template','collections','set','trends','colours','rooms'];
+const DEFINE_TITLES = {sku:'SKU for print files',terms:'Extra keyword terms',ai:'Instructions for the AI',template:'Theme template',collections:'Collections',set:'Set size',trends:'Trends',colours:'Colours',rooms:'Rooms — where it goes'};
 
 /* ---------- API ---------- */
 async function api(payload){
@@ -484,97 +549,368 @@ function computeNaturalStep(p){
   return 5;
 }
 
-/* ---------- FLOW RENDERER ---------- */
+/* =====================================================================
+   v4.2 MULTI-ROOM FLOW ENGINE — one art → one product per room.
+   Each room is a normal product (schema-less save-product) + {artBase, room, roomApproved}.
+   Reuses every per-SKU action (set-keyword, generate-content, upload-image, send-to-shopify)
+   and the existing helpers (contentFieldBlock, aiItemBlock, dropzone, mergedPot, diffLabel, etc.).
+   ===================================================================== */
+function inProgress(){ return PRODUCTS.filter(p=>!p.sent); }
+function artBaseId(){ const ip=inProgress(); return ip.length?(ip[0].artBase||ip[0].sku):null; }
+function groupProducts(){ const b=artBaseId(); return b?PRODUCTS.filter(p=>!p.sent && (p.artBase||p.sku)===b):[]; }
+function roomName(p){ return p.room || ((p.collections&&p.collections['By Room']||[])[0]) || p.sku; }
+function flowStage(){
+  const g=groupProducts();
+  if(!g.length) return DRAFT_PROJECT?'define':'empty';
+  if(!ART_IMAGE && g.some(p=>!p.content)) return 'artmissing';
+  if(g.some(p=>!p.keyword)) return 'keywords';
+  if(g.some(p=>!p.roomApproved)) return 'review';
+  return 'send';
+}
 function renderFlow(){
   const flow=document.getElementById('flow');
-  const p=currentProduct();
-  if(!p && !DRAFT){
-    flow.innerHTML=
-      '<div class="addprod">'+
-        '<p>No product in progress. Start a new one and the tool will guide you step by step.</p>'+
-        '<button class="btn primary" onclick="startDraft()">＋ Add product</button>'+
-      '</div>'+
-      '<div id="perf-panel" style="margin-top:22px;background:#fdf6ec;border:1px solid #f0ddb8;border-radius:10px;padding:16px;">'+
-        '<div style="font-weight:700;margin-bottom:4px;">⭐ You already rank — capture more</div>'+
-        '<div style="color:#8a6d1a;font-size:13px;margin-bottom:10px;">Commercial keywords you already get clicks on but haven\'t claimed. Top-6 first. Green ① optimises the page that already ranks; blue ② uses the keyword for a new product.</div>'+
-        '<button class="btn ghost small" onclick="loadPerforming(true)">↻ Refresh</button>'+
-        '<div id="perf-list" style="margin-top:12px;color:#888;font-size:13px;">Loading…</div>'+
-      '</div>';
-    loadPerforming(false);
+  const stage=flowStage();
+  if(stage==='empty'){ renderEmpty(flow); return; }
+  if(stage==='define'){
+    if(DRAFT_PROJECT.sub==='art'){ flow.innerHTML=renderArtStage(false); return; }
+    flow.innerHTML=renderDefineStage();
+    if(DEFINE_SECTIONS[DEFINE_OPEN]==='rooms') defineRoomsChanged();
     return;
   }
-  const natural = p ? computeNaturalStep(p) : 1;
-  let openN = EDIT_STEP || natural;
-  // D5b: once all images are in, keep the images step OPEN until Mae confirms — she may still be adding more
-  // lifestyle photos. Don't auto-jump to Send to Shopify until she clicks "Looks good — continue".
-  if(!EDIT_STEP && p && !p.sent && natural===5 && !IMAGES_CONFIRMED[p.sku]) openN=4;
-  let html='';
-  for(let n=1;n<=5;n++){
-    if(n===openN) html+=renderStepOpen(n,p);
-    else if(isStepDone(p,n)) html+=renderStepCollapsed(n,p);
-    else html+=renderStepLocked(n);
-  }
-  flow.innerHTML=html;
+  if(stage==='artmissing'){ flow.innerHTML=renderArtStage(true); return; }
+  if(stage==='keywords'){ flow.innerHTML=renderKeywordStage(); ensureRoomKeywords(); return; }
+  if(stage==='review'){ flow.innerHTML=renderReviewStage(); return; }
+  if(stage==='send'){ flow.innerHTML=renderSendStage(); return; }
+}
+function renderEmpty(flow){
+  flow.innerHTML=
+    '<div class="addprod">'+
+      '<p>No product in progress. Start a new art and the tool will guide you step by step.</p>'+
+      '<button class="plusbtn" title="Add product" onclick="startDraft()">+</button>'+
+    '</div>'+
+    '<div id="perf-panel" style="margin-top:22px;background:#fdf6ec;border:1px solid #f0ddb8;border-radius:10px;padding:16px;">'+
+      '<div style="font-weight:700;margin-bottom:4px;">⭐ You already rank — capture more</div>'+
+      '<div style="color:#8a6d1a;font-size:13px;margin-bottom:10px;">Commercial keywords you already get clicks on but haven\'t claimed. Green ① optimises the page that already ranks; blue ② uses the keyword for a new product.</div>'+
+      '<button class="btn ghost small" onclick="loadPerforming(true)">↻ Refresh</button>'+
+      '<div id="perf-list" style="margin-top:12px;color:#888;font-size:13px;">Loading…</div>'+
+    '</div>';
+  loadPerforming(false);
+}
+function startDraft(){
+  DRAFT_PROJECT={baseSku:'',keywordWords:[],aiNotes:'',templateSuffix:DEFAULT_TEMPLATE,styles:[],colours:[],occasions:[],set:'',trends:[],primaryColour:[],colour:'',rooms:[],naRoom:'',sub:'define'};
+  if(PENDING_KEYWORD){ DRAFT_PROJECT.keywordWords=[PENDING_KEYWORD]; PENDING_KEYWORD=null; }
+  DEFINE_OPEN=0;
+  if(!TEMPLATES) loadTemplates().then(()=>{ if(DRAFT_PROJECT) renderFlow(); });
+  renderFlow();
+}
+function cancelDraft(){ DRAFT_PROJECT=null; renderFlow(); }
 
-  // Step 1's form fields are recreated each render — (re)populate the selectors.
-  if(openN===1){
-    renderCollections(); renderTrends(); renderGroupChecks(); fillColourSelect(); fillTemplateSelect(p);
-    prefillStep1(p);
+/* ---------- STAGE: define (progressive, one section at a time, editable) ---------- */
+function renderDefineStage(){
+  let html='<div class="card"><h2>New art — define once (shared by every room)</h2>'+
+    '<p class="sub">One section at a time. Everything here is common to all the rooms. Rooms come last.</p>';
+  DEFINE_SECTIONS.forEach((key,i)=>{
+    if(i<DEFINE_OPEN) html+=defineCollapsed(key,i);
+    else if(i===DEFINE_OPEN) html+=defineOpen(key,i);
+    else html+=defineLocked(key,i);
+  });
+  html+='<div class="actions" style="margin-top:14px"><button class="btn ghost" onclick="cancelDraft()">Cancel</button></div></div>';
+  return html;
+}
+function defineLocked(key,i){ return '<div class="psec locked"><div class="psec-h"><span class="psec-n">'+(i+1)+'</span><span class="psec-t">'+DEFINE_TITLES[key]+'</span></div></div>'; }
+function defineCollapsed(key,i){ return '<div class="psec done"><div class="psec-h" onclick="defineEdit('+i+')"><span class="psec-n">✓</span><span class="psec-t">'+DEFINE_TITLES[key]+'</span><span class="psec-v">'+esc(defineSummary(key))+'</span><span class="psec-ed">Edit</span></div></div>'; }
+function defineOpen(key,i){
+  const last = key==='rooms';
+  return '<div class="psec active"><div class="psec-h"><span class="psec-n">'+(i+1)+'</span><span class="psec-t">'+DEFINE_TITLES[key]+'</span></div>'+
+    '<div class="psec-b">'+defineForm(key)+
+    '<div class="actions" style="margin-top:14px"><button class="btn primary" onclick="defineNext()">'+(last?'Continue → upload the artwork':'Next')+'</button></div></div></div>';
+}
+function defineForm(key){
+  const dp=DRAFT_PROJECT;
+  if(key==='sku') return '<label class="f">Base SKU — the tool adds the room prefix <span class="req">*</span></label><input type="text" id="d-sku" value="'+esc(dp.baseSku)+'" placeholder="e.g. TRAVPARIS01">';
+  if(key==='terms') return '<label class="f">Extra keyword terms — optional, comma-separated</label><input type="text" id="d-terms" value="'+esc(dp.keywordWords.join(', '))+'" placeholder="e.g. gallery wall, travel">';
+  if(key==='ai') return '<div class="ainotes"><label>Instructions for the AI — optional</label><textarea id="d-ai" placeholder="e.g. mention it comes as a set of 3">'+esc(dp.aiNotes)+'</textarea></div>';
+  if(key==='template'){ const list=(TEMPLATES&&TEMPLATES.length)?TEMPLATES:[{suffix:DEFAULT_TEMPLATE,label:DEFAULT_TEMPLATE}]; return '<label class="f">Theme template</label><select id="d-template" class="sel">'+list.map(t=>'<option value="'+esc(t.suffix)+'"'+(t.suffix===dp.templateSuffix?' selected':'')+'>'+esc(templateLabel(t))+'</option>').join('')+'</select>'; }
+  if(key==='collections'){
+    const col=(arr,cls,sel)=>arr.map(c=>'<label class="opt"><input type="checkbox" class="'+cls+'" value="'+esc(c)+'"'+(sel.includes(c)?' checked':'')+'>'+esc(c)+'</label>').join('');
+    return '<p class="sub">By Room is chosen at the end.</p><div class="cols">'+
+      '<div class="colgroup"><h4>By Style</h4>'+col(BASE_GROUPS['By Style'],'d-style',dp.styles)+'</div>'+
+      '<div class="colgroup"><h4>By Colour</h4>'+col(BASE_GROUPS['By Colour'],'d-col',dp.colours)+'</div>'+
+      '<div class="colgroup"><h4>By Occasion</h4>'+col(BASE_GROUPS['By Occasion'],'d-occ',dp.occasions)+'</div></div>';
   }
-  // Step 2 auto-searches keywords when it opens (option A).
-  if(openN===2){ ensureKwResults(p); }
+  if(key==='set') return '<div class="radios">'+['Set of 1','Set of 2','Set of 3'].map(s=>'<label class="radio'+(dp.set===s?' on':'')+'"><input type="radio" name="d-set" value="'+s+'"'+(dp.set===s?' checked':'')+'> '+s+'</label>').join('')+'</div>';
+  if(key==='trends') return '<div class="trend-grid">'+TRENDS.map(t=>'<label class="opt"><input type="checkbox" class="d-trend" value="'+esc(t)+'"'+(dp.trends.includes(t)?' checked':'')+'>'+esc(t)+'</label>').join('')+'</div>';
+  if(key==='colours') return '<div class="grid2"><div><label class="f">Primary colour(s) — comma-separated</label><input type="text" id="d-primary" value="'+esc(dp.primaryColour.join(', '))+'" placeholder="e.g. White, Blue"></div><div><label class="f">Colour — pick one</label><select id="d-colour" class="sel"><option value="">— select —</option>'+COLOUR_CHOICES.map(c=>'<option'+(dp.colour===c?' selected':'')+'>'+esc(c)+'</option>').join('')+'</select></div></div>';
+  if(key==='rooms'){
+    const cbs=BASE_GROUPS['By Room'].map(r=>'<label class="opt"><input type="checkbox" class="d-room" value="'+esc(r)+'" onchange="defineRoomsChanged()"'+(dp.rooms.includes(r)?' checked':'')+'>'+esc(r)+' <span style="color:var(--muted)">'+(ROOM_PREFIX[r]||'(no prefix)')+'</span></label>').join('');
+    return '<p class="sub">New Arrivals goes to Living room automatically. If no Living room, pick which room gets it.</p><div class="cols">'+cbs+'</div><div id="d-na" style="margin-top:12px"></div>';
+  }
+  return '';
+}
+function defineRoomsChanged(){
+  const rooms=[...document.querySelectorAll('.d-room:checked')].map(x=>x.value);
+  const box=document.getElementById('d-na'); if(!box) return;
+  if(rooms.includes('Living room')||!rooms.length){ box.innerHTML=''; return; }
+  box.innerHTML='<label class="f">New Arrivals goes to — pick one</label><select id="d-naroom" class="sel" style="max-width:280px"><option value="">— select —</option>'+rooms.map(r=>'<option'+(DRAFT_PROJECT.naRoom===r?' selected':'')+'>'+esc(r)+'</option>').join('')+'</select>';
+}
+function dvals(cls){ return [...document.querySelectorAll('.'+cls+':checked')].map(x=>x.value); }
+function defineEdit(i){ DEFINE_OPEN=i; renderFlow(); }
+function defineNext(){
+  const dp=DRAFT_PROJECT, key=DEFINE_SECTIONS[DEFINE_OPEN];
+  if(key==='sku'){ const v=(document.getElementById('d-sku').value||'').trim(); if(!v) return alert('Base SKU is required.'); dp.baseSku=v; }
+  else if(key==='terms'){ dp.keywordWords=(document.getElementById('d-terms').value||'').split(',').map(s=>s.trim()).filter(Boolean); }
+  else if(key==='ai'){ dp.aiNotes=(document.getElementById('d-ai').value||'').trim(); }
+  else if(key==='template'){ dp.templateSuffix=document.getElementById('d-template').value; }
+  else if(key==='collections'){ dp.styles=dvals('d-style'); dp.colours=dvals('d-col'); dp.occasions=dvals('d-occ'); }
+  else if(key==='set'){ const r=document.querySelector('input[name=d-set]:checked'); dp.set=r?r.value:''; }
+  else if(key==='trends'){ dp.trends=dvals('d-trend'); }
+  else if(key==='colours'){ dp.primaryColour=(document.getElementById('d-primary').value||'').split(',').map(s=>s.trim()).filter(Boolean); dp.colour=document.getElementById('d-colour').value; }
+  else if(key==='rooms'){
+    dp.rooms=dvals('d-room'); if(!dp.rooms.length) return alert('Pick at least one room.');
+    if(!dp.rooms.includes('Living room')){ const na=document.getElementById('d-naroom'); dp.naRoom=na?na.value:''; if(!dp.naRoom||!dp.rooms.includes(dp.naRoom)) return alert('Pick which room gets New Arrivals.'); }
+    else dp.naRoom='';
+    const clash=dp.rooms.map(r=>skuForRoom(dp.baseSku,r)).find(s=>PRODUCTS.some(p=>(p.sku||'').toLowerCase()===s.toLowerCase()));
+    if(clash) return alert('A product with SKU "'+clash+'" already exists. Use a different base SKU.');
+    dp.sub='art'; renderFlow(); return;
+  }
+  DEFINE_OPEN++; renderFlow();
+}
+function defineSummary(key){
+  const dp=DRAFT_PROJECT;
+  if(key==='sku') return dp.baseSku;
+  if(key==='terms') return dp.keywordWords.join(', ')||'—';
+  if(key==='ai') return dp.aiNotes?(dp.aiNotes.slice(0,40)+(dp.aiNotes.length>40?'…':'')):'—';
+  if(key==='template'){ const t=(TEMPLATES||[]).find(x=>x.suffix===dp.templateSuffix); return t?templateLabel(t):dp.templateSuffix; }
+  if(key==='collections') return [...dp.styles,...dp.colours,...dp.occasions].join(', ')||'—';
+  if(key==='set') return dp.set||'—';
+  if(key==='trends') return dp.trends.join(', ')||'—';
+  if(key==='colours') return [dp.primaryColour.join(', '),dp.colour].filter(Boolean).join(' · ')||'—';
+  if(key==='rooms') return dp.rooms.join(', ')||'—';
+  return '';
 }
 
-const STEP_NAMES={1:'Product',2:'Keyword',3:'Content',4:'Images',5:'Send to Shopify'};
-
-function renderStepLocked(n){
-  return '<div class="step"><div class="steprow locked">'+
-    '<span class="step-num">'+n+'</span><span class="srsummary">'+STEP_NAMES[n]+'</span>'+
-  '</div></div>';
+/* ---------- STAGE: artwork (common, before keywords) ---------- */
+function renderArtStage(reupload){
+  const roomsTxt = reupload ? groupProducts().map(p=>p.room).join(', ') : (DRAFT_PROJECT?DRAFT_PROJECT.rooms.join(', '):'');
+  return '<div class="card"><h2>Upload the artwork</h2>'+
+    '<p class="sub">The art only — no frames, no wall. It is used to generate the SEO for each room ('+esc(roomsTxt)+').</p>'+
+    (ART_IMAGE?'<div class="imgbox"><img class="imgpreview" src="data:'+esc(ART_IMAGE.mediaType)+';base64,'+ART_IMAGE.data+'"><div class="sub">Loaded.</div></div>':'')+
+    '<div class="dz dz-full" onclick="document.getElementById(\'artfile\').click()" ondragover="event.preventDefault();this.classList.add(\'over\')" ondragleave="this.classList.remove(\'over\')" ondrop="onArtDrop(event)">📷<br>Drop the artwork here or click to browse</div>'+
+    '<input type="file" id="artfile" accept="image/*" style="display:none" onchange="onArtPicked(this)">'+
+    '<div class="actions" style="margin-top:16px">'+
+      (reupload?'':'<button class="btn ghost" onclick="artBack()">Back</button>')+
+      '<button class="btn primary" id="artContinue" onclick="'+(reupload?'renderFlow()':'createRoomProducts()')+'"'+(ART_IMAGE?'':' disabled')+'>'+(reupload?'Continue':'Create the products')+'</button>'+
+    '</div></div>';
 }
-function renderStepCollapsed(n,p){
-  let summary='', extra='', badge='';
-  if(n===1){
-    summary='Product: '+esc(p.sku);
-    const cols=p.collections||{};
-    const bits=[...(cols['By Room']||[]),...(cols['By Style']||[])].slice(0,4);
-    extra=[bits.join(', '), p.set].filter(Boolean).join(' · ');
-  } else if(n===2){
-    summary='Keyword: '+esc(p.keyword||'');
-  } else if(n===3){
-    summary='Content generated';
-    if(p.content && p.contentKeyword && p.keyword && p.contentKeyword.toLowerCase()!==p.keyword.toLowerCase()){
-      badge='<span class="kwchanged">keyword changed — regenerate if needed</span>';
+async function onArtPicked(input){ const f=input.files[0]; if(!f) return; const c=(await compressImageFile(f,2000,0.85))||(await readFileAsBase64(f)); if(!c){ msg('Could not read that image.','err'); return; } ART_IMAGE={data:c.data,mediaType:c.mediaType}; renderFlow(); }
+function onArtDrop(e){ e.preventDefault(); const f=e.dataTransfer.files[0]; if(!f) return; const dt=new DataTransfer(); dt.items.add(f); const inp=document.getElementById('artfile'); inp.files=dt.files; onArtPicked(inp); }
+function artBack(){ DRAFT_PROJECT.sub='define'; DEFINE_OPEN=DEFINE_SECTIONS.indexOf('rooms'); renderFlow(); }
+async function createRoomProducts(){
+  const dp=DRAFT_PROJECT; if(!dp) return;
+  if(!ART_IMAGE) return alert('Upload the artwork first.');
+  const btn=document.getElementById('artContinue'); if(btn){ btn.disabled=true; btn.innerHTML='<span class="spin"></span>Creating…'; }
+  try{
+    for(const room of dp.rooms){
+      const sku=skuForRoom(dp.baseSku,room);
+      const collections={'By Style':dp.styles.slice(),'By Colour':dp.colours.slice(),'By Occasion':dp.occasions.slice(),'By Room':[room]};
+      const getsNA=(room==='Living room')||(!dp.rooms.includes('Living room')&&room===dp.naRoom);
+      if(getsNA) collections['Featured']=['New Arrivals'];
+      const product={sku,artBase:dp.baseSku,room,roomApproved:false,collections,set:dp.set,trends:dp.trends.slice(),primaryColour:dp.primaryColour.slice(),colour:dp.colour,templateSuffix:dp.templateSuffix,aiNotes:dp.aiNotes,keywordWords:dp.keywordWords.slice()};
+      const r=await api({action:'save-product',product}); PRODUCTS=r.products;
     }
-  } else if(n===4){
-    const img=p.images||{lifestyle:[],individuals:[],flats:{}};
-    const count=(img.lifestyle||[]).length+(img.individuals||[]).length+Object.keys(img.flats||{}).length;
-    summary=count+' images uploaded';
+    const n=dp.rooms.length; DRAFT_PROJECT=null; DEFINE_OPEN=0;
+    renderFlow(); msg('Created '+n+' room product'+(n>1?'s':'')+' — now pick a keyword per room.','ok');
+  }catch(e){ msg('Create failed: '+e.message,'err'); if(btn){ btn.disabled=false; btn.textContent='Create the products'; } }
+}
+
+/* ---------- STAGE: keywords (columns per room) ---------- */
+function keywordLegend(){ return '<div class="legend2">'+
+  '<span><span class="srcpill" style="background:#cfead0;color:#1f5f1f">you rank</span> rank, no page yet</span>'+
+  '<span><span class="srcpill" style="background:#f3e6b8;color:#6b551a">gap</span> competitors-gap</span>'+
+  '<span><span class="srcpill" style="background:#d9efe6;color:#1f5f4f">GSC</span> appears, no clicks</span>'+
+  '<span><span class="srcpill" style="background:#dbe7fb;color:#274b8f">Google KP</span> free volume</span></div>'; }
+const ROOM_COLORS=['#2f6f4f','#3a5a8c','#8a5a2b','#6b4a86','#447f86','#7a6a2a','#a0456a','#1f5f4f'];
+function renderKeywordStage(){
+  const g=groupProducts();
+  return '<div class="card"><h2>Pick the keyword for each room</h2>'+
+    '<p class="sub">Top 25 per room. The recommended one is highlighted in green — click to use it (that generates its SEO). Scroll sideways →</p>'+
+    keywordLegend()+
+    '<div class="roomcols">'+g.map((p,i)=>roomKeywordColumn(p,i)).join('')+'</div></div>';
+}
+function roomKeywordColumn(p,idx){
+  const c=ROOM_COLORS[idx%ROOM_COLORS.length];
+  const na=((p.collections&&p.collections['Featured'])||[]).includes('New Arrivals');
+  const state=KWC[p.sku];
+  let body;
+  if(!state||state.loading) body='<div class="empty"><span class="spin" style="border-color:'+c+';border-top-color:transparent"></span>Searching…</div>';
+  else if(!state.options.length) body='<div class="empty">No options. Copy the Ubersuggest prompt or add one manually.</div>';
+  else body=state.options.map((o,oi)=>roomKwOption(p,o,oi)).join('');
+  const enc=encodeURIComponent(p.sku);
+  return '<div class="rcol"><div class="rcol-hd" style="background:'+c+'">'+(na?'<span class="na">New Arrivals</span>':'')+'<div class="rn">'+esc(roomName(p))+'</div><div class="sk">'+esc(p.sku)+'</div></div>'+
+    '<div class="rcol-bd"><div class="kwt">Main keyword — pick one · top 25</div>'+body+
+    '<button class="btn link" style="margin-top:8px" onclick="roomPrompt('+"'"+enc+"'"+')">Don\'t like these? Copy Ubersuggest prompt</button>'+
+    '<div style="margin-top:8px;display:flex;gap:6px"><input type="text" id="man-'+enc+'" placeholder="add manually"><button class="btn primary small" onclick="roomAddManual('+"'"+enc+"'"+')">Add</button></div>'+
+    '</div></div>';
+}
+function roomKwOption(p,o,oi){
+  const sel=p.keyword&&p.keyword.toLowerCase()===o.keyword.toLowerCase();
+  const rec=oi===0 && !p.keyword;
+  const s=o.sources||{};
+  const pills=[];
+  if(s.available) pills.push('<span class="srcpill" style="background:#cfead0;color:#1f5f1f">you rank</span>');
+  if(s.gap) pills.push('<span class="srcpill" style="background:#f3e6b8;color:#6b551a">gap</span>');
+  if(s.gsc) pills.push('<span class="srcpill" style="background:#d9efe6;color:#1f5f4f">GSC</span>');
+  if(s.gkp) pills.push('<span class="srcpill" style="background:#dbe7fb;color:#274b8f">Google KP</span>');
+  const met=[];
+  if(s.available){ const b=[]; if(s.available.position!=null)b.push('pos '+s.available.position); if(s.available.clicks!=null)b.push(s.available.clicks+' clk'); met.push('you rank'+(b.length?' · '+b.join(' · '):'')); }
+  if(s.gap) met.push('gap vol '+(s.gap.volume!=null?s.gap.volume:'—')+' · '+diffLabel(s.gap));
+  if(s.gsc) met.push('GSC '+(s.gsc.impressions!=null?s.gsc.impressions:'—')+' impr · pos '+(s.gsc.position!=null?s.gsc.position:'—'));
+  if(s.gkp) met.push('Google KP vol '+(s.gkp.volume!=null?s.gkp.volume:'—')+(s.gkp.competition?' · '+compLabel(s.gkp.competition):''));
+  const enc=encodeURIComponent(p.sku);
+  return '<div class="kwopt'+(sel?' sel':'')+(rec?' rec':'')+'" onclick="roomPick('+"'"+enc+"',"+oi+')">'+
+    '<div class="kwtop"><input type="radio" '+(sel||rec?'checked':'')+' onclick="event.preventDefault()"><span class="kwnm">'+(sel?'✓ ':'')+esc(o.keyword)+'</span>'+(rec?'<span class="recb">recommended</span>':'')+'</div>'+
+    '<div class="kwpills">'+pills.join('')+'</div><div class="kwmet">'+esc(met.join(' · '))+'</div></div>';
+}
+function ensureRoomKeywords(){ groupProducts().forEach(p=>{ if(!KWC[p.sku]) fetchRoomKw(p); }); }
+async function fetchRoomKw(p){
+  KWC[p.sku]={loading:true,options:[]};
+  const [gapR,gscR,availR,gkpR]=await Promise.all([
+    api({action:'gap-research',products:[p]}).catch(()=>null),
+    api({action:'gsc-opportunities',sku:p.sku}).catch(()=>null),
+    api({action:'available-product-keywords',sku:p.sku}).catch(()=>null),
+    api({action:'google-keyword-ideas',seeds:buildGkpSeeds(p)}).catch(()=>null)
+  ]);
+  const map=new Map();
+  const slot=(kw)=>{ const k=(kw||'').toLowerCase().trim(); if(!k) return null; if(!map.has(k)) map.set(k,{keyword:kw,sources:{}}); return map.get(k); };
+  const gap=((gapR&&gapR.results)||[]).find(x=>x.sku===p.sku)||((gapR&&gapR.results)||[])[0]||{options:[]};
+  ((availR&&availR.ideas)||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.available={clicks:o.clicks,position:o.position}; });
+  (gap.options||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.gap={volume:o.volume,difficulty:o.difficulty,difficultyRaw:o.difficultyRaw}; });
+  ((gscR&&gscR.options)||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.gsc={impressions:o.impressions,clicks:o.clicks,position:o.position}; });
+  ((gkpR&&gkpR.options)||[]).forEach(o=>{ const s=slot(o.keyword); if(s) s.sources.gkp={volume:o.volume,competition:o.competition,competitionIndex:o.competitionIndex}; });
+  const list=[...map.values()].map(o=>{ o.pot=mergedPot(o.sources); return o; }).sort((a,b)=>b.pot-a.pot).slice(0,25);
+  KWC[p.sku]={loading:false,options:list};
+  if(flowStage()==='keywords') renderFlow();
+}
+async function roomPick(enc,oi){ const sku=decodeURIComponent(enc); const st=KWC[sku]; if(!st) return; const o=st.options[oi]; if(!o) return; await applyRoomKeyword(sku,o.keyword); }
+async function roomAddManual(enc){ const sku=decodeURIComponent(enc); const el=document.getElementById('man-'+enc); const kw=(el&&el.value||'').trim(); if(!kw) return; await applyRoomKeyword(sku,kw); }
+async function roomPrompt(enc){ const sku=decodeURIComponent(enc); const p=groupProducts().find(x=>x.sku===sku); if(!p) return; try{ await navigator.clipboard.writeText(promptText(p)); msg('Prompt copied.','ok'); }catch{ msg('Could not copy.','err'); } }
+async function applyRoomKeyword(sku,kw){
+  try{ const rr=await api({action:'set-keyword',sku,keyword:kw}); if(rr.taken){ msg(rr.reason||'That keyword is already taken.','err'); return; } PRODUCTS=rr.products; }
+  catch(e){ msg('Could not set keyword: '+e.message,'err'); return; }
+  GEN_ROOM[sku]=true; renderFlow();
+  try{ await genContentForRoom(sku); }
+  catch(e){ msg('SEO generation failed ('+sku+'): '+e.message,'err'); }
+  finally{ delete GEN_ROOM[sku]; renderFlow(); }
+}
+async function genContentForRoom(sku){
+  if(!ART_IMAGE) throw new Error('Artwork image missing — re-upload it.');
+  const r=await api({action:'generate-content', sku, image:ART_IMAGE.data, imageMediaType:ART_IMAGE.mediaType});
+  PRODUCTS=r.products;
+  const p=PRODUCTS.find(x=>x.sku===sku);
+  if(p){ const upd={...p, contentKeyword:p.keyword||'', contentApproved:true}; const rr=await api({action:'save-product',product:upd}); PRODUCTS=rr.products; }
+}
+
+/* ---------- STAGE: review (vertical list — everything per room) ---------- */
+function renderReviewStage(){
+  const g=groupProducts();
+  return '<div class="card"><h2>Review each room</h2>'+
+    '<p class="sub">Open a room, check its SEO and add its lifestyle photos, then mark it done.</p>'+
+    renderSharedBox()+
+    '<div class="vlist">'+g.map(reviewRoom).join('')+'</div></div>';
+}
+function renderSharedBox(){
+  return '<div class="sharedbox"><div class="sectlab" style="margin-bottom:6px">Shared images — flats + singles (upload once, one box, applied to every room)</div>'+
+    (SHARED_UPLOADING?'<div class="dz dz-full busy"><span class="dz-spinicon"></span>Uploading to every room…</div>':
+    '<div class="dz dz-full" onclick="document.getElementById(\'sharedfile\').click()" ondragover="event.preventDefault();this.classList.add(\'over\')" ondragleave="this.classList.remove(\'over\')" ondrop="onSharedDrop(event)">📷 Drop flats + singles together — flats go by file name, the rest become singles A→Z.</div>')+
+    '<input type="file" id="sharedfile" accept="image/*" multiple style="display:none" onchange="onSharedPicked(this)"></div>';
+}
+function onSharedDrop(e){ e.preventDefault(); uploadSharedAll([...e.dataTransfer.files]); }
+function onSharedPicked(input){ const fs=[...input.files]; input.value=''; uploadSharedAll(fs); }
+async function uploadSharedAll(files){
+  files=files.filter(f=>f.type&&f.type.startsWith('image/'));
+  if(!files.length) return;
+  files.sort((a,b)=>a.name.localeCompare(b.name));
+  const g=groupProducts();
+  SHARED_UPLOADING=true; renderFlow();
+  try{
+    for(const f of files){
+      const slot=matchFlatSlot(f.name)||'individual';
+      const c=(await compressImageFile(f,2000,0.85))||(await readFileAsBase64(f));
+      if(!c) continue;
+      for(const p of g){ try{ const r=await api({action:'upload-image',sku:p.sku,slot,image:c.data,imageMediaType:c.mediaType}); PRODUCTS=r.products; }catch(e){} }
+    }
+    msg('Shared images added to every room.','ok');
+  } finally { SHARED_UPLOADING=false; renderFlow(); }
+}
+function reviewRoom(p){
+  const g=groupProducts(); const idx=g.indexOf(p);
+  const dot=ROOM_COLORS[idx%ROOM_COLORS.length];
+  const open=VOPEN===p.sku;
+  const na=((p.collections&&p.collections['Featured'])||[]).includes('New Arrivals');
+  let status;
+  if(p.roomApproved) status='<span class="vst" style="color:var(--ok)">✓ done</span>';
+  else if(GEN_ROOM[p.sku]) status='<span class="vst">generating…</span>';
+  else if(p.content) status='<span class="vst">review</span>';
+  else status='<span class="vst">keyword set</span>';
+  const enc=encodeURIComponent(p.sku);
+  const body=open?('<div class="vbd">'+reviewRoomBody(p)+'</div>'):'';
+  return '<div class="vroom'+(open?' open':'')+'"><div class="vhd" onclick="toggleV('+"'"+enc+"'"+')"><span class="vdot" style="background:'+dot+'"></span><span class="vrn">'+esc(roomName(p))+'</span>'+(na?'<span class="srcpill" style="background:#cfead0;color:#1f5f1f;margin-left:4px">New Arrivals</span>':'')+'<span class="vst" style="margin-left:4px">· '+esc(p.sku)+'</span>'+status+'<span class="vchev">'+(open?'▾':'▸')+'</span></div>'+body+'</div>';
+}
+function toggleV(enc){ const sku=decodeURIComponent(enc); VOPEN=(VOPEN===sku)?null:sku; renderFlow(); }
+function reviewRoomBody(p){
+  const sku=p.sku, enc=encodeURIComponent(sku);
+  let h='<div><div class="sectlab">Keyword</div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-weight:600">'+esc(p.keyword||'')+'</span><button class="btn ghost small" style="margin-left:auto" onclick="changeRoomKeyword('+"'"+enc+"'"+')">Change keyword</button></div></div>';
+  if(GEN_ROOM[sku]) h+='<div style="color:#8a4b12;font-weight:700">✍️ Generating the SEO…</div>';
+  else if(p.content){
+    h+='<div><div class="sectlab">Content</div>'+
+      contentFieldBlock(sku,'productTitle','Product Title',p.content.productTitle||'',false)+
+      contentFieldBlock(sku,'seoTitle','SEO Title',p.content.seoTitle||'',false)+
+      contentFieldBlock(sku,'metaDescription','Meta Description',p.content.metaDescription||'',false)+
+      contentFieldBlock(sku,'productDescription','Description',p.content.productDescription||'',true)+'</div>';
+    if((p.content.aiItems||[]).length) h+='<div><div class="sectlab">AI Optimisation — metafields</div>'+p.content.aiItems.map((it,ai)=>aiItemBlock(sku,ai,it)).join('')+'</div>';
+    h+='<div style="margin-top:4px"><button class="btn ghost small" onclick="regenRoom('+"'"+enc+"'"+')">Regenerate SEO</button></div>';
+  } else {
+    h+='<button class="btn primary small" onclick="regenRoom('+"'"+enc+"'"+')">Generate SEO</button>';
   }
-  return '<div class="step"><div class="steprow">'+
-    '<span class="step-num">✓</span>'+
-    '<span class="srsummary">'+summary+(extra?' <span class="srextra">· '+esc(extra)+'</span>':'')+'</span>'+
-    badge+
-    '<button class="btn ghost small sredit" onclick="editStep('+n+')">Edit</button>'+
-    (n===1?'<button class="btn ghost small" style="color:var(--danger);margin-left:8px" onclick="deleteCurrent(\''+esc(p.sku)+'\')">Delete</button>':'')+
-  '</div></div>';
+  const img=p.images||{lifestyle:[],individuals:[],flats:{}};
+  h+='<div><div class="sectlab">Images for this room — lifestyle (drop all, drag to reorder, first = cover)</div>'+
+    dropzone(sku,'lifestyle',(img.lifestyle||[]).length,null,null,!!UPLOADING[dzKey(sku,'lifestyle',(img.lifestyle||[]).length)]);
+  if((img.lifestyle||[]).length){
+    h+='<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px">'+img.lifestyle.map((im,i)=>
+      '<div class="dz-tile" draggable="true" ondragstart="onLifeDragStart(event,'+i+')" ondragover="event.preventDefault()" ondrop="onLifeDrop(event,\''+esc(sku)+'\','+i+')" ondragend="onLifeDragEnd(event)" style="text-align:center;width:150px"><div class="dz" style="cursor:grab"><img src="'+esc(im.url||'')+'">'+(i===0?'<div class="cover-badge">Cover</div>':'')+'<div class="dz-badge">✓</div></div><button class="btn rm small" style="margin-top:6px" onclick="removeProdImage(\''+esc(sku)+'\',\'lifestyle\','+i+')">Remove</button></div>'
+    ).join('')+'</div>';
+  }
+  h+='</div>';
+  h+='<button class="okbtn" onclick="roomOk('+"'"+enc+"'"+')">'+(p.roomApproved?'Done ✓':'OK — this room is done')+'</button>';
+  return h;
 }
-function renderStepOpen(n,p){
-  let inner='';
-  if(n===1) inner=stepProductForm(p);
-  else if(n===2) inner=stepKeyword(p);
-  else if(n===3) inner=stepContent(p);
-  else if(n===4) inner=stepImages(p);
-  else if(n===5) inner=stepSend(p);
-  return '<div class="step"><div class="step-open">'+
-    '<div class="step-openhead"><span class="step-num">'+n+'</span><span class="step-title">'+STEP_NAMES[n]+'</span></div>'+
-    inner+
-  '</div></div>';
+async function changeRoomKeyword(enc){ const sku=decodeURIComponent(enc); const p=groupProducts().find(x=>x.sku===sku); if(!p) return; const upd={...p,keyword:'',roomApproved:false}; const r=await api({action:'save-product',product:upd}); PRODUCTS=r.products; delete KWC[sku]; VOPEN=null; renderFlow(); }
+async function regenRoom(enc){ const sku=decodeURIComponent(enc); GEN_ROOM[sku]=true; renderFlow(); try{ await genContentForRoom(sku); }catch(e){ msg('Failed: '+e.message,'err'); } finally{ delete GEN_ROOM[sku]; renderFlow(); } }
+async function roomOk(enc){ const sku=decodeURIComponent(enc); const p=groupProducts().find(x=>x.sku===sku); if(!p) return; const upd={...p,roomApproved:true}; const r=await api({action:'save-product',product:upd}); PRODUCTS=r.products; VOPEN=null; renderFlow(); }
+
+/* ---------- STAGE: send (one product per room) ---------- */
+function renderSendStage(){
+  const g=groupProducts();
+  const rows=g.map(p=>{
+    const na=((p.collections&&p.collections['Featured'])||[]).includes('New Arrivals');
+    const enc=encodeURIComponent(p.sku);
+    return '<tr><td style="padding:8px">'+esc(roomName(p))+'</td><td style="padding:8px;font-family:ui-monospace,Menlo,monospace">'+esc(p.sku)+'</td><td style="padding:8px">'+esc(p.keyword||'')+'</td><td style="padding:8px">'+(p.content?'✓':'—')+'</td><td style="padding:8px">'+(imagesComplete(p)?'✓':'partial')+'</td><td style="padding:8px">'+(na?'✓':'—')+'</td><td style="padding:8px"><button class="btn ghost small" onclick="sendRoom('+"'"+enc+"'"+')">Send</button></td></tr>';
+  }).join('');
+  return '<div class="card"><h2>Send to Shopify</h2><p class="sub">One product per room, created as Draft. Send all, or one by one.</p>'+
+    '<table class="aptbl" style="width:100%;border-collapse:collapse;font-size:13px"><tr style="text-align:left;color:var(--muted)"><th style="padding:8px">Room</th><th style="padding:8px">SKU</th><th style="padding:8px">Keyword</th><th style="padding:8px">SEO</th><th style="padding:8px">Images</th><th style="padding:8px">New Arr.</th><th></th></tr>'+rows+'</table>'+
+    '<div id="sendResult" style="margin-top:12px"></div>'+
+    '<div class="actions" style="margin-top:14px"><button class="btn primary" id="sendAllBtn" onclick="sendAllRooms()">Send all to Shopify</button></div></div>';
 }
-function startDraft(){ DRAFT=true; EDIT_STEP=null; renderFlow(); }
-function editStep(n){ EDIT_STEP=n; if(n===2){ KW_RESULTS=null; GSC_RESULTS=null; AVAILABLE_KWS=null; GKP_RESULTS=null; } renderFlow(); }
-function closeEdit(){ EDIT_STEP=null; renderFlow(); }
-function confirmImages(sku){ IMAGES_CONFIRMED[sku]=true; EDIT_STEP=null; renderFlow(); } // D5b: Mae's manual "I'm done adding photos"
+async function doSendRoom(sku){
+  try{ const r=await api({action:'send-to-shopify',sku}); PRODUCTS=r.products; delete KWC[sku]; msg('Sent '+sku+(r.shopifyProductId?' — #'+r.shopifyProductId.split('/').pop():''),'ok'); return true; }
+  catch(e){ msg('Send failed ('+sku+'): '+e.message,'err'); return false; }
+}
+async function sendRoom(enc){ await doSendRoom(decodeURIComponent(enc)); renderFlow(); }
+async function sendAllRooms(){
+  const btn=document.getElementById('sendAllBtn'); if(btn){ btn.disabled=true; btn.innerHTML='<span class="spin"></span>Sending…'; }
+  for(const p of groupProducts().filter(x=>!x.sent)){ await doSendRoom(p.sku); }
+  renderFlow();
+}
 
 /* =====================================================================
    STEP 1 — PRODUCT
