@@ -1,4 +1,7 @@
-// api/keywords.js — New Product Generator backend  ·  v0.44
+// api/keywords.js — New Product Generator backend  ·  v0.45
+// v0.45 (2026-10-04): gap-research accepts an optional `limit` (capped 120) so the NPG keyword columns can
+//   pull a bigger pool and balance it by category in the frontend (room keywords were being cut server-side
+//   because only 10 were returned, terms-first). Default limit unchanged for any other caller.
 // v0.44 (2026-10-04): add Dining room size-guide (ROOM_IMAGE_FILES['Dining room'] -> room-22.jpg). Was the
 //   only room missing from the map, so sending a Dining room product failed ("No size-guide image mapped").
 // v0.43 (2026-10-04): room_type metafield now maps tool room names to Shopify's fixed choice list
@@ -464,6 +467,9 @@ function gapClassify(kw, terms) {
 async function gapResearch(body) {
   const products = Array.isArray(body.products) ? body.products : [];
   if (!products.length) return { results: [] };
+  // v0.45: NPG asks for a bigger pool (limit) so the frontend can balance by category (room/style/colour/
+  // terms). Default stays MAX_OPTIONS_PER_PRODUCT for any other caller.
+  const limit = Number(body.limit) > 0 ? Math.min(Math.floor(Number(body.limit)), 120) : MAX_OPTIONS_PER_PRODUCT;
   const [gapRows, locked, allProducts] = await Promise.all([readGapFile(), lockedKeywordSet(), readProducts()]);
   const results = products.map(p => {
     const terms = gapTermsForProduct(p);
@@ -481,7 +487,7 @@ async function gapResearch(body) {
     const tier1 = qualified.filter(r => r.cls.tier === 1).sort(byOpp);
     const tier2 = qualified.filter(r => r.cls.tier === 2).sort(byOpp);
     const options = [...tier1, ...tier2]
-      .slice(0, MAX_OPTIONS_PER_PRODUCT)
+      .slice(0, limit)
       .map(row => ({ keyword: row.keyword, volume: row.volume, difficulty: row.difficulty, difficultyRaw: row.difficultyRaw }));
     return { sku: p.sku || '', options };
   });
