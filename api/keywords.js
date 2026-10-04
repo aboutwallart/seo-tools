@@ -1,4 +1,8 @@
-// api/keywords.js — New Product Generator backend  ·  v0.40
+// api/keywords.js — New Product Generator backend  ·  v0.41
+// v0.41 (2026-10-03): EXCLUDE not-sold product types from every keyword source — any keyword containing
+//   "sticker", "wallpaper" or "decal" (substring, covers plurals) is dropped in gapClassify (so gap-research,
+//   gsc-opportunities and available-product-keywords all skip them) and in googleKeywordIdeas. Part of the
+//   multi-room NPG redesign (frontend v4.2).
 // v0.40 (2026-10-03): LOCKED-KEYWORD FILTER everywhere + MERGE. (1) availableProductKeywords (you-rank),
 //   googleKeywordIdeas and gapResearch (case-insensitive) now EXCLUDE keywords already locked to a page, so
 //   the NPG Step-2 list never shows a locked keyword. (2) syncCaptureTasks (Do First/strengthen) skips locked
@@ -434,7 +438,11 @@ function gapTermsForProduct(p) {
 // Returns { qualifies, tier } — tier 1 = manual/extra word match (top priority), tier 2 = style/room/trend or product-colour+art.
 // A colour only qualifies when the product's own colour describes art (colour word + an ART_WORD together);
 // a colour alone, or a colour describing something else (e.g. "the white rabbit"), never qualifies.
+// Product types About Wall Art does NOT sell — never offer a keyword containing these (singular or plural).
+// Matched as a substring, case-insensitive, so "decal" covers "decals", "sticker" covers "stickers", etc.
+const EXCLUDED_PRODUCT_TYPES = /(sticker|wallpaper|decal)/i;
 function gapClassify(kw, terms) {
+  if (EXCLUDED_PRODUCT_TYPES.test(String(kw || ''))) return { qualifies: false, tier: 0 }; // not sold — always drop
   const extraHit = anyWord(kw, terms.extra);
   if (extraHit) return { qualifies: true, tier: 1 }; // Mae's own words always win, no veto
   // B#3: hard veto — a keyword naming a room or style the product isn't for never qualifies
@@ -2329,7 +2337,7 @@ async function googleKeywordIdeas(body) {
             competition: m.competition || null,
             competitionIndex: (m.competitionIndex != null) ? Number(m.competitionIndex) : null
           };
-        }).filter(o => o.keyword && !locked.has(o.keyword.toLowerCase()));
+        }).filter(o => o.keyword && !locked.has(o.keyword.toLowerCase()) && !EXCLUDED_PRODUCT_TYPES.test(o.keyword));
         return { options, via: a.via, v: '0.37' };
       }
       lastErr = (data.error && data.error.message) || ('HTTP ' + r.status);
