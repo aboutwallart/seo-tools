@@ -286,7 +286,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
-                    <p class="subtitle">AI-Powered SEO Analysis · v72.1</p>
+                    <p class="subtitle">AI-Powered SEO Analysis · v72.2</p>
                     <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.11</p>
                     <button onclick="resetAllChecklists()" title="Wipe all saved checklists so every page starts fresh" style="margin-top:6px;background:#fff;color:#c62828;border:1px solid #ef9a9a;padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;">🧹 Reset all checklists (start clean)</button>
                 </div>
@@ -1149,7 +1149,7 @@
                             <span style="background:#1a1a1a;color:#fff;width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:0.8rem;font-weight:700;flex-shrink:0;">${i + 1}</span>
                             <span style="background:${m.color};color:#fff;padding:2px 9px;border-radius:4px;font-size:0.75rem;font-weight:600;">${m.icon} ${m.label}</span>
                             <span style="font-size:0.72rem;color:#999;text-transform:uppercase;">${pageType}</span>
-                            ${tooLong?'<span style="background:#c62828;color:#fff;padding:2px 9px;border-radius:4px;font-size:0.72rem;font-weight:700;">⚠ Too long — shorten it</span>':''}
+                            ${tooLong?'<span style="background:#c62828;color:#fff;padding:2px 9px;border-radius:4px;font-size:0.72rem;font-weight:700;" title="The AI reply came back cut off — just re-analyse, it usually works on the next try. NOT about blog length.">⚠ Re-analyse (AI reply cut off)</span>':''}
                         </div>
                         <div style="font-weight:500;margin-bottom:3px;word-break:break-all;">${item.url}</div>
                         ${displayKeyword ? `<div style="font-size:0.85rem;color:#1976d2;margin-bottom:3px;">🎯 Keyword: "${displayKeyword}"</div>` : ''}
@@ -2946,8 +2946,8 @@
                     saveChecklistToGitHub();
                     renderStartHere();
                     analysisHTML = `<div class="action-block" style="border:2px solid #c62828;background:#fff0f0;">
-                        <h3 style="color:#c62828;">⚠️ This blog is too long to analyse</h3>
-                        <p style="font-size:0.9rem;color:#555;line-height:1.6;">The blog is too long for the AI to analyse in one go, so the report couldn't be built. It's now marked <strong style="color:#c62828;">red in the list</strong> — shorten the blog, then click <strong>Analyse</strong> again and the red clears on its own.</p>
+                        <h3 style="color:#c62828;">⚠️ The AI reply came back cut off</h3>
+                        <p style="font-size:0.9rem;color:#555;line-height:1.6;">The AI's answer got cut off a few times in a row, so the report couldn't be built this time. <strong>This is NOT about the blog being long — don't shorten it.</strong> It's marked <strong style="color:#c62828;">red in the list</strong> — just click <strong>Analyse</strong> again (it often works on the next try). If it keeps failing after a few goes, tell Claude.</p>
                     </div>`;
                 } else {
                     analysisHTML = `<div class="action-block" style="white-space:pre-wrap;line-height:1.7;">${formatMarkdown(mdText)}</div>`;
@@ -3834,7 +3834,10 @@
             // ── People Also Ask block (blogs) ────────────────────────────────
             const paaBlock = (s.peopleAlsoAsk && s.peopleAlsoAsk.metafield) ? `
                 <div class="action-block" style="border-color:#6a1b9a;">
-                    <h3>❓ People Also Ask</h3>
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                        <h3 style="margin:0;">❓ People Also Ask</h3>
+                        <button class="push-btn" type="button" style="margin:0;" onclick="autoPublishBlock(this)" title="Pushea a Shopify y marca hecho">📤 Auto-publish (todo + marcar hecho)</button>
+                    </div>
                     <div id="row_paa" style="display:flex;align-items:flex-start;gap:12px;padding:12px;background:#f9f9f9;border-radius:6px;margin-bottom:12px;opacity:${state['paa']?'0.45':'1'};">
                         ${cb(allItems.find(it=>it.key==='paa'))}
                         <strong id="lbl_paa" style="${state['paa']?'text-decoration:line-through;':''}">People Also Ask added</strong>
@@ -4324,8 +4327,8 @@
                     `) : bqRow('bq_bio', `
                         <span id="lbl_bq_bio" style="font-size:0.9rem;${state['bq_bio']?'text-decoration:line-through;':''}">No author byline found — add this below the bold summary at the top. <span style="color:#888;">(El link en "Home Decor" abre en ventana nueva.)</span></span>
                         <div style="margin-top:6px;font-size:0.85rem;background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:8px 10px;">${_bq.authorBio.bodyHtml}</div>
-                        <textarea id="bqBio" readonly style="display:none;">${_bq.authorBio.snippet}</textarea>
-                        <button class="copy-btn" type="button" style="margin-top:4px;padding:2px 8px;font-size:0.72rem;" onclick="copyToClipboard(document.getElementById('bqBio').value,this)">📋 Copy bio</button>
+                        <textarea id="bqBioHtml" style="display:none;">${_bq.authorBio.bodyHtml}</textarea>
+                        <button class="copy-btn" type="button" style="margin-top:4px;padding:2px 8px;font-size:0.72rem;" onclick="copyFormatted('bqBioHtml',this)">📋 Copy bio (con link)</button>
                         ${_isBlog && _bq.authorBio.bodyHtml ? `<button class="copy-btn" type="button" style="margin-top:4px;margin-left:6px;padding:2px 8px;font-size:0.72rem;background:#1976d2;color:#fff;" onclick="pushEditsFromAttr('${_editsAttr([{ kind:'after-first-para', content:_bq.authorBio.bodyHtml }])}',null,{title:'Add author bio',doneMsg:'Author bio added below the first paragraph',tickKey:'bq_bio'},this)">📤 Add it for me (preview)</button>` : ''}
                     `)}` : ''}
                 </div>` : '';
