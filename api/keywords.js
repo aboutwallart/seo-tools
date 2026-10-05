@@ -1,4 +1,4 @@
-// api/keywords.js — New Product Generator backend  ·  v0.45
+// api/keywords.js — New Product Generator backend  ·  v0.46
 // v0.45 (2026-10-04): gap-research accepts an optional `limit` (capped 120) so the NPG keyword columns can
 //   pull a bigger pool and balance it by category in the frontend (room keywords were being cut server-side
 //   because only 10 were returned, terms-first). Default limit unchanged for any other caller.
@@ -1735,13 +1735,17 @@ function altFor(slot, product, n, setSize) {
   return base;
 }
 const FLAT_SLOTS = ['flatWhite', 'flatBlack', 'flatOak', 'flatCanvas', 'flatUnframed'];
+// Common images: shared across every room, single slot each (overwrite, like flats). Sent to Shopify
+// right after the lifestyle photos and before the individuals. commonLady = "Lady carrying a Black
+// frame"; commonUnboxing = the "_B212_V2" unboxing shot. Required before a product can be sent.
+const COMMON_SLOTS = ['commonLady', 'commonUnboxing'];
 
 async function uploadProductImage(body) {
   const { sku, slot, image, imageMediaType } = body;
   if (!sku) throw new Error('sku required');
   if (!slot) throw new Error('slot required');
   if (!image) throw new Error('image required');
-  if (slot !== 'lifestyle' && slot !== 'individual' && !FLAT_SLOTS.includes(slot)) throw new Error('invalid slot: ' + slot);
+  if (slot !== 'lifestyle' && slot !== 'individual' && !FLAT_SLOTS.includes(slot) && !COMMON_SLOTS.includes(slot)) throw new Error('invalid slot: ' + slot);
 
   for (let attempt = 0; attempt < 2; attempt++) {
     const file = await ghGet(PRODUCTS_PATH);
@@ -1750,7 +1754,7 @@ async function uploadProductImage(body) {
     const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === sku.toLowerCase());
     if (idx < 0) throw new Error('product not found: ' + sku);
     const product = arr[idx];
-    const images = product.images ? { ...product.images, lifestyle: [...(product.images.lifestyle || [])], individuals: [...(product.images.individuals || [])], flats: { ...(product.images.flats || {}) } } : { lifestyle: [], individuals: [], flats: {} };
+    const images = product.images ? { ...product.images, lifestyle: [...(product.images.lifestyle || [])], individuals: [...(product.images.individuals || [])], flats: { ...(product.images.flats || {}) }, commons: { ...(product.images.commons || {}) } } : { lifestyle: [], individuals: [], flats: {}, commons: {} };
 
     const setMatch = (product.set || '').match(/\d+/);
     const setSize = setMatch ? parseInt(setMatch[0], 10) : 1;
@@ -1768,6 +1772,7 @@ async function uploadProductImage(body) {
 
     if (slot === 'lifestyle') images.lifestyle.push(record);
     else if (slot === 'individual') images.individuals.push(record);
+    else if (COMMON_SLOTS.includes(slot)) images.commons[slot] = record;
     else images.flats[slot] = record;
 
     arr[idx] = { ...product, images, updatedAt: new Date().toISOString() };
@@ -1784,7 +1789,7 @@ async function uploadSharedImage(body) {
   if (!Array.isArray(skus) || !skus.length) throw new Error('skus required');
   if (!slot) throw new Error('slot required');
   if (!image) throw new Error('image required');
-  if (slot !== 'individual' && !FLAT_SLOTS.includes(slot)) throw new Error('shared slot must be individual or a flat: ' + slot);
+  if (slot !== 'individual' && !FLAT_SLOTS.includes(slot) && !COMMON_SLOTS.includes(slot)) throw new Error('shared slot must be individual, a flat or a common: ' + slot);
   const ext = extFromMime(imageMediaType);
   const baseName = slot === 'individual' ? 'individual' : slot.replace('flat', '').toLowerCase();
   const filename = `shared-${baseName}.${ext}`;
@@ -1799,12 +1804,13 @@ async function uploadSharedImage(body) {
       const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === String(sku).toLowerCase());
       if (idx < 0) { applied.push({ sku, skipped: 'not found' }); continue; }
       const product = arr[idx];
-      const images = product.images ? { ...product.images, lifestyle: [...(product.images.lifestyle || [])], individuals: [...(product.images.individuals || [])], flats: { ...(product.images.flats || {}) } } : { lifestyle: [], individuals: [], flats: {} };
+      const images = product.images ? { ...product.images, lifestyle: [...(product.images.lifestyle || [])], individuals: [...(product.images.individuals || [])], flats: { ...(product.images.flats || {}) }, commons: { ...(product.images.commons || {}) } } : { lifestyle: [], individuals: [], flats: {}, commons: {} };
       if (slot === 'individual') {
         const setMatch = (product.set || '').match(/\d+/); const setSize = setMatch ? parseInt(setMatch[0], 10) : 1;
         if (images.individuals.length >= setSize) { applied.push({ sku, skipped: 'set full' }); arr[idx] = { ...product, images }; continue; }
         images.individuals.push({ ...rec });
-      } else { images.flats[slot] = { ...rec }; }
+      } else if (COMMON_SLOTS.includes(slot)) { images.commons[slot] = { ...rec }; }
+      else { images.flats[slot] = { ...rec }; }
       arr[idx] = { ...product, images, updatedAt: new Date().toISOString() };
       applied.push({ sku });
     }
@@ -1864,10 +1870,11 @@ async function removeProductImage(sku, slot, index) {
     const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === sku.toLowerCase());
     if (idx < 0) throw new Error('product not found: ' + sku);
     const product = arr[idx];
-    const images = product.images ? { ...product.images, lifestyle: [...(product.images.lifestyle || [])], individuals: [...(product.images.individuals || [])], flats: { ...(product.images.flats || {}) } } : { lifestyle: [], individuals: [], flats: {} };
+    const images = product.images ? { ...product.images, lifestyle: [...(product.images.lifestyle || [])], individuals: [...(product.images.individuals || [])], flats: { ...(product.images.flats || {}) }, commons: { ...(product.images.commons || {}) } } : { lifestyle: [], individuals: [], flats: {}, commons: {} };
     if (slot === 'lifestyle') images.lifestyle.splice(index, 1);
     else if (slot === 'individual') images.individuals.splice(index, 1);
     else if (FLAT_SLOTS.includes(slot)) delete images.flats[slot];
+    else if (COMMON_SLOTS.includes(slot)) delete images.commons[slot];
     else throw new Error('invalid slot: ' + slot);
     arr[idx] = { ...product, images, updatedAt: new Date().toISOString() };
     try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG remove image: ${sku} (${slot})`); return { products: arr }; }
@@ -2200,6 +2207,8 @@ async function sendToShopify(sku) {
   if (!(img.lifestyle || []).length) missing.push('at least 1 lifestyle photo');
   if ((img.individuals || []).length !== setSize) missing.push(`${setSize} individual photo(s) (has ${(img.individuals || []).length})`);
   FLAT_SLOTS.forEach(slot => { if (!img.flats || !img.flats[slot]) missing.push('flat image: ' + slot.replace('flat', '')); });
+  if (!img.commons || !img.commons.commonLady) missing.push('common image: Lady with black frame');
+  if (!img.commons || !img.commons.commonUnboxing) missing.push('common image: Unboxing');
   if (missing.length) { const e = new Error('Missing before sending — ' + missing.join(', ') + '.'); e.status = 400; throw e; }
 
   const col = product.collections || {};
@@ -2256,6 +2265,8 @@ async function sendToShopify(sku) {
   // the "Media ids ... do not exist" bug hit on 2026-09-22). Copying keeps the originals in Files intact.
   const files = [];
   (img.lifestyle || []).forEach(im => files.push({ id: im.gid }));
+  if (img.commons && img.commons.commonLady) files.push({ id: img.commons.commonLady.gid });
+  if (img.commons && img.commons.commonUnboxing) files.push({ id: img.commons.commonUnboxing.gid });
   (img.individuals || []).forEach(im => files.push({ id: im.gid }));
   ['flatUnframed', 'flatWhite', 'flatOak', 'flatBlack'].forEach(slot => files.push({ id: img.flats[slot].gid }));
   files.push({ id: img.flats.flatCanvas.gid });
@@ -2820,7 +2831,10 @@ export default async function handler(req, res) {
         if (!Array.isArray(arr)) arr = [];
         const now = new Date().toISOString();
         const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === product.sku.toLowerCase());
-        if (idx >= 0) arr[idx] = { ...arr[idx], ...product, updatedAt: now };
+        // On UPDATE, never let the client's product overwrite server-side images — flats/singles/
+        // commons uploaded after the client's last read would be wiped. Images are owned solely by
+        // upload-image / upload-shared-image / remove-product-image / reorder.
+        if (idx >= 0) { const { images: _ignoreImages, ...rest } = product; arr[idx] = { ...arr[idx], ...rest, updatedAt: now }; }
         else arr.push({ ...product, sent: false, createdAt: now, updatedAt: now });
         try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG save product: ${product.sku}`); return res.status(200).json({ ok: true, products: arr }); }
         catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
@@ -2841,6 +2855,38 @@ export default async function handler(req, res) {
           return res.status(200).json({ ok: true, products: arr, keywordFreed: freed });
         }
         catch (e) { if (e.status === 409 && attempt === 0) continue; throw e; }
+      }
+    }
+
+    // Copy the shared images (flats + singles + commons, same Shopify gids) from one room onto other
+    // rooms, filling only the slots they're missing. Lifestyle is per-room and never copied. Used so a
+    // room added after the shared images were uploaded still inherits them.
+    if (action === 'inherit-shared') {
+      if (!process.env.GITHUB_TOKEN) return res.status(500).json({ ok: false, error: 'GITHUB_TOKEN not set' });
+      const fromSku = body.fromSku;
+      const toSkus = Array.isArray(body.toSkus) ? body.toSkus : [];
+      if (!fromSku || !toSkus.length) return res.status(400).json({ ok: false, error: 'fromSku and toSkus required' });
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const file = await ghGet(PRODUCTS_PATH);
+        let arr = []; if (file.content) { try { arr = JSON.parse(file.content); } catch { arr = []; } }
+        if (!Array.isArray(arr)) arr = [];
+        const src = arr.find(x => (x.sku || '').toLowerCase() === String(fromSku).toLowerCase());
+        if (!src || !src.images) return res.status(200).json({ ok: true, products: arr });
+        const si = src.images;
+        for (const sku of toSkus) {
+          const idx = arr.findIndex(x => (x.sku || '').toLowerCase() === String(sku).toLowerCase());
+          if (idx < 0) continue;
+          const t = arr[idx];
+          const images = t.images
+            ? { ...t.images, lifestyle: [...(t.images.lifestyle || [])], individuals: [...(t.images.individuals || [])], flats: { ...(t.images.flats || {}) }, commons: { ...(t.images.commons || {}) } }
+            : { lifestyle: [], individuals: [], flats: {}, commons: {} };
+          Object.keys(si.flats || {}).forEach(k => { if (!images.flats[k]) images.flats[k] = si.flats[k]; });
+          Object.keys(si.commons || {}).forEach(k => { if (!images.commons[k]) images.commons[k] = si.commons[k]; });
+          if (!images.individuals.length && (si.individuals || []).length) images.individuals = si.individuals.map(r => ({ ...r }));
+          arr[idx] = { ...t, images, updatedAt: new Date().toISOString() };
+        }
+        try { await ghPut(PRODUCTS_PATH, JSON.stringify(arr, null, 2), file.sha, `NPG inherit shared images -> ${toSkus.length} room(s)`); return res.status(200).json({ ok: true, products: arr }); }
+        catch (e) { if (e.status === 409 && attempt < 2) continue; throw e; }
       }
     }
 
