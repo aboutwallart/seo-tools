@@ -286,7 +286,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
-                    <p class="subtitle">AI-Powered SEO Analysis · v71.9</p>
+                    <p class="subtitle">AI-Powered SEO Analysis · v72.0</p>
                     <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.11</p>
                     <button onclick="resetAllChecklists()" title="Wipe all saved checklists so every page starts fresh" style="margin-top:6px;background:#fff;color:#c62828;border:1px solid #ef9a9a;padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;">🧹 Reset all checklists (start clean)</button>
                 </div>
@@ -672,15 +672,24 @@
         // Toggle "Winner — hold" for a page (saved to GitHub so it survives close/re-open — no re-analysis).
         // Winner ⇆ Start Here. hold=true → it's a winner (stays in Winners, clears any "sent out" flag).
         // hold=false → she sent it to Start Here to optimise (leaves Winners; mpdWinnerOut stops auto-adopt re-adding it).
+        // A page is a "held winner" when it's in mpdHold and she hasn't sent it back out.
+        // Held winners live ONLY in the Winners tab — they must leave every optimise queue.
+        function isHeldWinner(url) { return mpdHold.has(url) && !mpdWinnerOut.has(url); }
+
         async function toggleWinnerHold(url, hold) {
             if (hold) { mpdHold.add(url); mpdWinnerOut.delete(url); }   // optimistic
             else      { mpdHold.delete(url); mpdWinnerOut.add(url); }
+            let ok = true, error = '';
             try {
-                await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-mpd-hold', url, hold }) });
-                await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-mpd-winner-out', url, out: !hold }) });
-            } catch (e) { console.warn('[Winner-Hold] save failed:', e); }
+                const r1 = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-mpd-hold', url, hold }) });
+                if (!r1.ok) { ok = false; error = 'save-mpd-hold HTTP ' + r1.status; }
+                const r2 = await fetch('/api/blogs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'save-mpd-winner-out', url, out: !hold }) });
+                if (!r2.ok) { ok = false; error = (error ? error + '; ' : '') + 'save-mpd-winner-out HTTP ' + r2.status; }
+            } catch (e) { ok = false; error = e.message; console.warn('[Winner-Hold] save failed:', e); }
             renderStartHere();
             renderWinners();
+            if (typeof renderUrls === 'function') renderUrls();   // the main To Optimise list must drop held winners too
+            return { ok, error };
         }
 
         // "Send to Start Here" button on a Winner card — she chose to optimise it.
@@ -689,11 +698,42 @@
             await toggleWinnerHold(url, false);
         }
         // Hold/un-hold from inside an open analysis (after she's seen today's real position).
+        // On HOLD: send it to Winners and close the results window automatically. If any step
+        // didn't work, DON'T close — show exactly what failed so Mae can screenshot it.
         async function holdFromAnalysis(url, btn) {
             const newHeld = !mpdHold.has(url);
             if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving…'; }
-            await toggleWinnerHold(url, newHeld);
-            if (btn) { btn.disabled = false; btn.textContent = newHeld ? '↩️ Un-hold — bring back to the queue' : '🏆 Hold — leave this one for now (already ranking)'; }
+            const saveRes = await toggleWinnerHold(url, newHeld);
+            if (!newHeld) {   // she un-held it — just restore the button, keep the window open
+                if (btn) { btn.disabled = false; btn.textContent = '🏆 Hold — leave this one for now (already ranking)'; }
+                return;
+            }
+            // Verify the 3 steps before closing: saved to GitHub · in memory · leaves the queue.
+            const kw = (currentUrl && currentUrl.keyword) || (typeof currentKeyword !== 'undefined' ? currentKeyword : '') || '';
+            const inMemory = mpdHold.has(url);
+            const cat = startHereCategory(url, kw);
+            const inList = deduplicateUrls(urls).some(it => it.url === url);
+            const allGood = saveRes.ok && inMemory && cat === 'hold';
+            if (allGood) {
+                if (typeof closeResultsModal === 'function') closeResultsModal();
+                return;
+            }
+            // Something's off — keep the window open and show a diagnostic to screenshot.
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = '🏆 Hold — reintentar';
+                if (!document.getElementById('holdDiagBox')) {
+                    btn.insertAdjacentHTML('afterend', `
+                    <div id="holdDiagBox" style="background:#fff3e0;border:1px solid #ffb74d;border-radius:8px;padding:14px 16px;margin:12px auto 0;max-width:620px;text-align:left;font-size:0.82rem;color:#5d4037;line-height:1.6;">
+                        <strong>⚠️ No lo pude mandar a Winners — mostrale esto a Claude:</strong><br>
+                        URL: <code style="word-break:break-all;">${(url||'').replace(/</g,'&lt;')}</code><br>
+                        Guardado en GitHub: ${saveRes.ok ? '✅ OK' : '❌ FALLÓ — ' + (saveRes.error || '').replace(/</g,'&lt;')}<br>
+                        En memoria (mpdHold): ${inMemory ? '✅ sí' : '❌ no'}<br>
+                        Categoría ahora: <strong>${cat}</strong> ${cat === 'hold' ? '✅' : '❌ (debería ser "hold")'}<br>
+                        ¿Está en la lista de páginas?: ${inList ? '✅ sí' : '❌ no — la URL del análisis no coincide con ninguna card'}
+                    </div>`);
+                }
+            }
         }
 
         async function saveChecklistToGitHub() {
@@ -1469,7 +1509,7 @@
             });
 
             // Filter by urgency tab
-            const urgencyFiltered = sortedUrls.filter(item => getUrgency(item.url) === currentUrgencyTab);
+            const urgencyFiltered = sortedUrls.filter(item => getUrgency(item.url) === currentUrgencyTab && !isHeldWinner(item.url));
 
             // Apply page type filter on top
             let toRender = filteredList || (
@@ -1549,7 +1589,7 @@
         function updatePageTypeFilterCounts(dedupedList) {
             const source = dedupedList || deduplicateUrls(urls);
             // Only count items in the current urgency tab
-            const urgencyItems = source.filter(item => getUrgency(item.url) === currentUrgencyTab);
+            const urgencyItems = source.filter(item => getUrgency(item.url) === currentUrgencyTab && !isHeldWinner(item.url));
 
             const counts = { all: urgencyItems.length, collection: 0, product: 0, page: 0, blog: 0, other: 0 };
             urgencyItems.forEach(item => { const type = getPageType(item.url); counts[type] = (counts[type] || 0) + 1; });
@@ -1562,9 +1602,9 @@
             document.getElementById('filterCountOther').textContent = counts.other || 0;
 
             // Urgency tab counters
-            const dangerCount   = source.filter(i => getUrgency(i.url) === 'danger').length;
-            const quickwinCount = source.filter(i => getUrgency(i.url) === 'quickwin').length;
-            const otherCount    = source.filter(i => getUrgency(i.url) === 'other').length;
+            const dangerCount   = source.filter(i => getUrgency(i.url) === 'danger'   && !isHeldWinner(i.url)).length;
+            const quickwinCount = source.filter(i => getUrgency(i.url) === 'quickwin' && !isHeldWinner(i.url)).length;
+            const otherCount    = source.filter(i => getUrgency(i.url) === 'other'    && !isHeldWinner(i.url)).length;
             document.getElementById('urgencyCountDanger').textContent   = dangerCount;
             document.getElementById('urgencyCountQuickwin').textContent = quickwinCount;
             document.getElementById('urgencyCountOther').textContent    = otherCount;
@@ -3202,7 +3242,6 @@
             const _bq = (_isBlog && data.blogQuality) ? data.blogQuality : null;
             if (_bq) {
                 (_bq.britishEnglish || []).forEach((f, i) => add(`bq_brit_${i}`, `UK spelling: ${f.found} → ${f.suggestion}`, 'blogquality'));
-                (_bq.buzzwords || []).forEach((f, i) => add(`bq_buzz_${i}`, `AI buzzword removed: "${f.found}"`, 'blogquality'));
                 (_bq.brandedLinks || []).forEach((l, i) => add(`bq_link_${i}`, `Branded link added: ${l.anchor}`, 'blogquality'));
                 if (_bq.authorBio) add('bq_bio', 'Author bio added', 'blogquality');
             }
@@ -3511,7 +3550,10 @@
             // ── 3. AI Optimisation block ──────────────────────────────────────
             const aiBlock = s.aiItems?.length > 0 ? `
                 <div class="action-block">
-                    <h3>🤖 AI Optimisation — Copy-Paste Ready</h3>
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                        <h3 style="margin:0;">🤖 AI Optimisation — Copy-Paste Ready</h3>
+                        ${(s.aiItems.some(it => it.metafieldKey || snippetKeyForElement(it.element)) || (s.peopleAlsoAsk && s.peopleAlsoAsk.metafield)) ? `<button class="push-btn" type="button" style="margin:0;" onclick="autoPublishBlock(this)" title="Pushea todo lo de este bloque a Shopify y lo marca hecho">📤 Auto-publish (todo + marcar hecho)</button>` : ''}
+                    </div>
                     ${s.aiItems.map((item, i) => {
                         const key = `ai_${i}`;
                         const isScript = /^\s*<script/i.test(item.content);
@@ -3543,7 +3585,6 @@
                             </div>
                         </div>`;
                     }).join('')}
-                    ${(s.aiItems.some(it => it.metafieldKey || snippetKeyForElement(it.element)) || (s.peopleAlsoAsk && s.peopleAlsoAsk.metafield)) ? `<button class="push-btn" type="button" style="margin-top:8px;" onclick="pushAllSnippets(this)">📤 Push all snippets to Shopify</button>` : ''}
                 </div>` : '';
 
             // ── Questions / FAQ set (pages) — one Q&A set, fills 3 page fields in P3 ──
@@ -4158,7 +4199,10 @@
             };
             const linkedRefsBlock = (_isBlog || _isCollection || _isPage || _isProduct) ? `
                 <div class="action-block" id="linkedRefsBlock" style="border-color:#3949ab;opacity:${allRefsTicked ? '0.5' : '1'};">
-                    <h3>🔗 Linked References</h3>
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                        <h3 style="margin:0;">🔗 Linked References</h3>
+                        <button class="push-btn" type="button" style="margin:0;" onclick="autoPublishLinkedRefs(this)" title="Pushea los grupos con items y marca los 3 como hechos (los vacíos se marcan sin enviar nada)">📤 Auto-publish (todo + marcar hecho)</button>
+                    </div>
                     <p style="font-size:0.85rem;color:#666;margin-bottom:15px;">Cross-link this blog by filling its Linked Blogs, Linked Collections and Linked Trends metafields. Push a group, then tick its box once it's saved (ticking blocks the button so you don't push twice — untick to push again). <span style="color:#999;">If Linked Blogs is empty, re-run Refresh Blog Index so blogs have their IDs, then re-analyse.</span></p>
                     ${renderRefGroup('📝 Linked Blogs', lr.linkedBlogs, 'blogs', '#5e35b1')}
                     ${renderRefGroup('🛍️ Linked Collections', lr.linkedCollections, 'collections', '#00897b')}
@@ -4194,7 +4238,7 @@
 
             // ── Blog Quality Checks block (blogs only — deterministic) ───────
             const _esc = (str) => String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-            const _bqHasFindings = _bq && ((_bq.britishEnglish||[]).length || (_bq.buzzwords||[]).length || (_bq.brandedLinks||[]).length || _bq.authorBio);
+            const _bqHasFindings = _bq && ((_bq.britishEnglish||[]).length || (_bq.brandedLinks||[]).length || _bq.authorBio);
             const bqRow = (key, inner) => `
                 <div id="row_${key}" style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:#f9f9f9;border-radius:6px;margin-bottom:8px;opacity:${state[key]?'0.45':'1'};">
                     ${cb(allItems.find(it=>it.key===key))}
@@ -4245,13 +4289,6 @@
                         <button class="copy-btn" type="button" style="margin-left:10px;padding:2px 8px;font-size:0.72rem;" onclick="copyToClipboard('${_esc(f.found)}',this)" title="Copy the word to find in your editor">🔍 Find '${f.found}'</button>
                         <button class="copy-btn" type="button" style="margin-left:6px;padding:2px 8px;font-size:0.72rem;" onclick="copyToClipboard('${_esc(f.suggestion)}',this)" title="Copy the UK spelling to paste as your replacement">📋 Replace '${f.suggestion}'</button>
                         ${_isBlog ? `<button class="copy-btn" type="button" style="margin-left:6px;padding:2px 8px;font-size:0.72rem;background:#1976d2;color:#fff;" onclick="pushEditsFromAttr('${_editsAttr([{ kind: 'word-swap', find: f.found, replace: f.suggestion }])}',null,{title:'British spelling fix',doneMsg:'Spelling fixed in your blog',tickKey:'bq_brit_${i}'},this)">📤 Push</button>` : ''}`)).join('')}` : ''}
-
-                    ${(_bq.buzzwords||[]).length ? `
-                    <h4 style="margin:14px 0 8px;font-size:0.9rem;">🚫 AI buzzwords (${_bq.buzzwords.length})</h4>
-                    ${_bq.buzzwords.map((f, i) => bqRow(`bq_buzz_${i}`, `
-                        <span id="lbl_bq_buzz_${i}" style="font-size:0.9rem;${state['bq_buzz_'+i]?'text-decoration:line-through;':''}">"<strong>${f.found}</strong>" — ${f.fix}</span>
-                        <button class="copy-btn" type="button" style="margin-left:10px;padding:2px 8px;font-size:0.72rem;" onclick="copyToClipboard('${_esc(f.found)}',this)" title="Copy the phrase to find in your editor">🔍 Find '${f.found}'</button>
-                        <button class="copy-btn" type="button" style="margin-left:6px;padding:2px 8px;font-size:0.72rem;" onclick="copyToClipboard('${_esc(f.fix)}',this)" title="Copy the suggested replacement">📋 Replace</button>`)).join('')}` : ''}
 
                     ${(_bq.brandedLinks||[]).length ? `
                     <h4 style="margin:14px 0 8px;font-size:0.9rem;">🔗 Branded links (${_bq.brandedLinks.length})</h4>
@@ -4535,6 +4572,19 @@
             const html = parts.map((p, i) => i === bestI ? bold(p.trim()) + (p.match(/\s+$/) ? ' ' : '') : esc(p)).join('');
             return { html, boldSentence: parts[bestI].trim() };
         }
+        // Generic "Auto-publish" for a block — same proven mechanism as the Template Metafield Fields:
+        // click every Push button inside this block (one at a time), then tick every row done.
+        async function autoPublishBlock(btn) {
+            const block = btn.closest('.action-block');
+            if (!block) return;
+            const orig = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Publicando…';
+            const pushBtns = Array.from(block.querySelectorAll('button')).filter(b => b !== btn && !b.disabled && /push/i.test(b.textContent));
+            let done = 0;
+            for (const pb of pushBtns) { try { pb.click(); done++; } catch (e) {} await new Promise(r => setTimeout(r, 1000)); }
+            block.querySelectorAll('input[type="checkbox"]').forEach(c => { if (!c.checked) c.click(); });
+            btn.disabled = false; btn.textContent = '✅ Publicado ' + done + ' + marcado hecho';
+            setTimeout(() => { btn.textContent = orig; }, 3000);
+        }
         // "Push all 4" for the Template Metafield Fields — clicks each field's push button, then ticks every row done.
         async function pushAllTemplateFields(btn) {
             const block = btn.closest('.action-block');
@@ -4697,9 +4747,9 @@
         // The tool reads the live blog, shows a highlighted preview, and (on confirm) makes the
         // change and saves it. Undo restores the previous body. No HTML editing for the user.
         const BODY_OPS = {
-            'quick-answer': { actionsId: 'qaActions',        addedMsg: 'Quick Answer added to your blog',        previewTitle: 'Quick Answer added',        doneLabel: '✅ Added to your blog' },
-            'add-video':    { actionsId: 'videoActions',     addedMsg: 'Video added to your blog',               previewTitle: 'Video added at the end',     doneLabel: '✅ Added to your blog' },
-            'remove-paa':   { actionsId: 'paaRemoveActions', addedMsg: 'Duplicate People Also Ask removed',      previewTitle: 'People Also Ask removed',    doneLabel: '✅ Removed from your blog' }
+            'quick-answer': { actionsId: 'qaActions',        addedMsg: 'Quick Answer added to your blog',        previewTitle: 'Quick Answer added',        doneLabel: '✅ Quick Answer insertado', noPreview: true, tickKey: 'quickanswer' },
+            'add-video':    { actionsId: 'videoActions',     addedMsg: 'Video added to your blog',               previewTitle: 'Video added at the end',     doneLabel: '✅ Video agregado',          noPreview: true, tickKey: 'add_video' },
+            'remove-paa':   { actionsId: 'paaRemoveActions', addedMsg: 'Duplicate People Also Ask removed',      previewTitle: 'People Also Ask removed',    doneLabel: '✅ Removed from your blog',   tickKey: 'paa_duplicate' }
         };
         // Manual "I've done this" tick — greys the whole block out (no save, just visual).
         function toggleBlockGrey(cardId, cb) {
@@ -4730,6 +4780,8 @@
             const payload = bodyOpPayload(op);
             if (op === 'add-video' && !payload.videoUrl) { alert('Paste a YouTube link first.'); return; }
             if (op === 'quick-answer' && !payload.snippet) { alert('No Quick Answer to insert.'); return; }
+            // Add a Video / Quick Answer → no preview: save straight away (Undo is the safety net).
+            if (BODY_OPS[op] && BODY_OPS[op].noPreview) { return bodyEditSaveDirect(op, btn); }
             const orig = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Reading your blog…';
             try {
                 const res = await fetch('/api/shopify-files?action=body-edit', {
@@ -4738,7 +4790,22 @@
                 });
                 const data = await res.json();
                 btn.disabled = false; btn.textContent = orig;
-                if (!data.success) { alert(data.error || 'Nothing to do here.'); return; }
+                if (!data.success) {
+                    // Duplicate PAA → NEVER a pop-up: write what happened on the card.
+                    // No duplicate found → mark it done (grey the block). Any other result → just note it.
+                    if (op === 'remove-paa') {
+                        const el = document.getElementById(BODY_OPS[op].actionsId);
+                        if (data.notFound) {
+                            if (typeof tickPushItem === 'function') tickPushItem('paa_duplicate');
+                            if (el) el.innerHTML = '<span style="color:#2e7d32;font-weight:600;font-size:0.85rem;">✅ No había duplicado — marcado como hecho.</span>';
+                        } else if (el) {
+                            el.innerHTML = `<span style="color:#8a6d00;font-size:0.85rem;">ℹ️ ${(data.error || 'No se pudo revisar.').replace(/</g,'&lt;')}</span>`;
+                        }
+                        return;
+                    }
+                    alert(data.error || 'Nothing to do here.');
+                    return;
+                }
                 const cfg = BODY_OPS[op];
                 bodyEditModal(`
                     <div style="padding:16px 20px;border-bottom:1px solid #eee;">
@@ -4750,7 +4817,35 @@
                         <button onclick="bodyEditClose()" style="padding:9px 16px;border:1px solid #ccc;background:#fff;color:#333;border-radius:8px;cursor:pointer;">Cancel</button>
                         <button onclick="bodyEditApply('${op}',this)" style="padding:9px 18px;border:none;background:#4caf50;color:#fff;border-radius:8px;cursor:pointer;font-weight:600;">✅ Confirm &amp; save</button>
                     </div>`);
-            } catch (err) { btn.disabled = false; btn.textContent = orig; alert('Could not preview: ' + err.message); }
+            } catch (err) {
+                btn.disabled = false; btn.textContent = orig;
+                if (op === 'remove-paa') {
+                    const el = document.getElementById(BODY_OPS[op].actionsId);
+                    if (el) el.innerHTML = `<span style="color:#8a6d00;font-size:0.85rem;">ℹ️ No se pudo revisar: ${(err.message||'').replace(/</g,'&lt;')}</span>`;
+                    return;
+                }
+                alert('Could not preview: ' + err.message);
+            }
+        }
+        // No-preview save for Add a Video / Quick Answer — saves straight to Shopify, greys the
+        // block + a green "done" note on the card, no pop-ups. Undo stays reachable on the card.
+        async function bodyEditSaveDirect(op, btn) {
+            const cfg = BODY_OPS[op]; if (!cfg) return;
+            const orig = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Guardando…';
+            try {
+                const res = await fetch('/api/shopify-files?action=body-edit', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...bodyOpPayload(op), mode: 'apply' })
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Save failed');
+                bodyEditSetDone(op);                                        // green done + Undo, inline
+                if (cfg.tickKey && typeof tickPushItem === 'function') tickPushItem(cfg.tickKey);   // grey the block
+            } catch (err) {
+                btn.disabled = false; btn.textContent = orig;
+                const el = document.getElementById(cfg.actionsId);
+                if (el) el.insertAdjacentHTML('beforeend', `<div style="color:#c62828;font-size:0.82rem;margin-top:6px;">❌ No se pudo guardar: ${(err.message||'').replace(/</g,'&lt;')}</div>`);
+            }
         }
         async function bodyEditApply(op, btn) {
             const payload = bodyOpPayload(op);
@@ -4793,13 +4888,16 @@
         function bodyEditSetDone(op) {
             const cfg = BODY_OPS[op]; if (!cfg) return;
             const el = document.getElementById(cfg.actionsId); if (!el) return;
+            if (el.dataset.origHtml === undefined) el.dataset.origHtml = el.innerHTML;   // keep the original buttons so Undo can bring them back
             el.innerHTML = `<span style="color:#2e7d32;font-weight:600;font-size:0.85rem;align-self:center;">${cfg.doneLabel || '✅ Done'}</span>
                 <button class="copy-btn" style="background:#fff;color:#c62828;border:1px solid #e57373;" onclick="bodyEditRestore('${op}',this)">↩️ Undo</button>`;
         }
         function bodyEditSetReverted(op) {
             const cfg = BODY_OPS[op]; if (!cfg) return;
             const el = document.getElementById(cfg.actionsId); if (!el) return;
-            el.innerHTML = `<span style="color:#777;font-size:0.85rem;align-self:center;">↩️ Removed. Re-run the analysis to add it again.</span>`;
+            // Bring back the original insert/add button so she can re-send WITHOUT re-analysing.
+            if (el.dataset.origHtml !== undefined) { el.innerHTML = el.dataset.origHtml; delete el.dataset.origHtml; }
+            else el.innerHTML = `<span style="color:#777;font-size:0.85rem;align-self:center;">↩️ Removed. Re-run the analysis to add it again.</span>`;
         }
 
         // ── Batch 3 — unified PUSH (over-use, H2 rename/remove/add, internal & inbound links, ToC) ──
@@ -5227,6 +5325,25 @@
                 if (out.length >= 3) break;
             }
             return out;
+        }
+
+        // Auto-publish ALL Linked-References groups: push only the groups that have items
+        // (so empty ones never fire a "nothing to push" alert), then tick ALL three "pushed"
+        // boxes — including empty groups, which get marked done + greyed without sending anything.
+        async function autoPublishLinkedRefs(btn) {
+            const block = btn.closest('.action-block');
+            if (!block) return;
+            const orig = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Publicando…';
+            let done = 0;
+            for (const group of ['blogs', 'collections', 'trends']) {
+                const hasItems = (typeof getLinkedItems === 'function' ? getLinkedItems(group) : []).length > 0;
+                if (!hasItems) continue;
+                const pb = document.getElementById('linkedrefPush_' + group);
+                if (pb && !pb.disabled) { try { pb.click(); done++; } catch (e) {} await new Promise(r => setTimeout(r, 1200)); }
+            }
+            block.querySelectorAll('input[type="checkbox"]').forEach(c => { if (!c.checked) c.click(); });
+            btn.disabled = false; btn.textContent = '✅ Publicado ' + done + ' + marcado hecho';
+            setTimeout(() => { btn.textContent = orig; }, 3000);
         }
 
         // Push one Linked-References group. Re-pushable: the button re-enables after,
