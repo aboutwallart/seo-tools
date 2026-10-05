@@ -188,8 +188,15 @@
   .vlist{display:flex;flex-direction:column;gap:10px}
   .vroom{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:#fff}
   .vroom.open{border-color:#9bd2ae}
-  .vhd{display:flex;align-items:center;gap:10px;padding:14px 16px;cursor:pointer}
+  .vroom.ready{border-color:#1f7a4d;background:#f3fbf5}
+  .vhd{display:flex;align-items:center;gap:10px;padding:14px 16px}
   .vroom.open .vhd{background:#eaf7ee}
+  .vroom.ready .vhd{background:#edf8f0}
+  .vmiss{font-size:12px;font-weight:600;color:var(--danger);margin-top:3px}
+  .okbtn-sm{flex:none;background:#d9f0dd;border:1px solid #1f5f1f;color:#1f5f1f;border-radius:9px;padding:7px 16px;font-size:13px;cursor:pointer;font-weight:700}
+  .okbtn-sm.done{background:#1f7a4d;color:#fff;border-color:#1f7a4d}
+  .okbtn-sm:disabled{background:#f0f1f2;border-color:var(--border-strong);color:var(--muted);cursor:not-allowed}
+  .vimg{padding:14px 16px;border-top:1px dashed var(--border)}
   .vdot{width:11px;height:11px;border-radius:50%;flex:none}
   .vrn{font-size:19px;font-weight:700}
   .vst{font-size:12px;color:var(--muted)}
@@ -213,7 +220,7 @@
 
 <div class="topbar">
   <h1>New Product Generator</h1>
-  <span class="ver">v4.7</span>
+  <span class="ver">v4.8</span>
   <span class="tag">AWA Products</span>
 </div>
 
@@ -544,11 +551,36 @@ function isStepDone(p, n){
   if(n===5) return !!p.sent;
 }
 function imagesComplete(p){
-  const img=p.images||{lifestyle:[],individuals:[],flats:{}};
+  const img=p.images||{lifestyle:[],individuals:[],flats:{},commons:{}};
   const m=(p.set||'').match(/\d+/); const setSize=m?parseInt(m[0],10):1;
-  const flats=img.flats||{};
+  const flats=img.flats||{}; const commons=img.commons||{};
   const flatsOk=['flatUnframed','flatWhite','flatOak','flatBlack','flatCanvas'].every(s=>flats[s]);
-  return (img.lifestyle||[]).length>=1 && (img.individuals||[]).length===setSize && flatsOk;
+  const commonsOk=!!commons.commonLady && !!commons.commonUnboxing;
+  return (img.lifestyle||[]).length>=1 && (img.individuals||[]).length===setSize && flatsOk && commonsOk;
+}
+// Exactly what's still missing for a room to be sendable — plain words, red in the UI.
+// SAME criterion used for the green row, the OK button and Send (one source of truth).
+function missingBits(p){
+  const img=p.images||{lifestyle:[],individuals:[],flats:{},commons:{}};
+  const m=(p.set||'').match(/\d+/); const setSize=m?parseInt(m[0],10):1;
+  const flats=img.flats||{}; const commons=img.commons||{};
+  const miss=[];
+  if(!p.keyword) miss.push('keyword');
+  if(!p.content) miss.push('SEO');
+  if((img.lifestyle||[]).length<1) miss.push('1 lifestyle');
+  const haveInd=(img.individuals||[]).length;
+  if(haveInd<setSize){ const n=setSize-haveInd; miss.push(n+' single'+(n>1?'s':'')); }
+  const FLAB={flatUnframed:'Unframed',flatWhite:'White',flatOak:'Oak',flatBlack:'Black',flatCanvas:'Canvas'};
+  ['flatUnframed','flatWhite','flatOak','flatBlack','flatCanvas'].forEach(s=>{ if(!flats[s]) miss.push(FLAB[s]); });
+  if(!commons.commonLady) miss.push('Lady photo');
+  if(!commons.commonUnboxing) miss.push('Unboxing');
+  return miss;
+}
+// Pick the sibling room that already has the most shared images, to copy them onto a new room.
+function bestSharedSource(list){
+  let best=null, score=-1;
+  for(const p of list){ const im=p.images||{}; const s=Object.keys(im.flats||{}).length+Object.keys(im.commons||{}).length+((im.individuals||[]).length?1:0); if(s>score){ score=s; best=p; } }
+  return score>0?best:null;
 }
 function computeNaturalStep(p){
   if(!p) return 1;
@@ -567,7 +599,7 @@ function artBasesInProgress(){ const seen=[]; inProgress().forEach(p=>{ const b=
 function artBaseId(){ const ip=inProgress(); if(!ip.length) return null; if(CURRENT_ART && ip.some(p=>(p.artBase||p.sku)===CURRENT_ART)) return CURRENT_ART; return ip[0].artBase||ip[0].sku; }
 function groupProducts(){ const b=artBaseId(); return b?PRODUCTS.filter(p=>!p.sent && (p.artBase||p.sku)===b):[]; }
 function roomName(p){ return p.room || ((p.collections&&p.collections['By Room']||[])[0]) || p.sku; }
-function roomReady(p){ return !!p.keyword && !!p.content && imagesComplete(p); } // all info in → ready to send
+function roomReady(p){ return missingBits(p).length===0; } // all info in → ready to send (single source of truth)
 function flowStage(){
   if(DRAFT_PROJECT) return 'define';          // creating/defining a new art takes priority (pause the others)
   const g=groupProducts();
@@ -609,7 +641,7 @@ function renderAccordion(){
     ['rooms','Rooms',g.map(roomName).join(', ')],
     ['artwork','Artwork',ART_IMAGE?'uploaded':'not uploaded'],
     ['keywords','Keywords',g.every(p=>p.keyword)?'all picked':(g.filter(p=>p.keyword).length+'/'+g.length+' picked')],
-    ['review','Review',g.every(p=>p.roomApproved)?'all done':(g.filter(p=>p.roomApproved).length+'/'+g.length+' done')],
+    ['review','Review',g.every(roomReady)?'all ready':(g.filter(roomReady).length+'/'+g.length+' ready')],
     ['send','Send to Shopify','']
   ];
   const anyReady=g.some(roomReady);
@@ -684,14 +716,19 @@ async function saveRooms(){
   if(toRemove.length && !confirm('Remove '+toRemove.map(x=>x.room).join(', ')+'? Their products will be deleted.')) return;
   try{
     for(const p of toRemove){ const r=await api({action:'delete-product',sku:p.sku}); PRODUCTS=r.products; delete KWC[p.sku]; }
+    const addedSkus=[];
     for(const room of toAdd){
       const sku=skuForRoom(base,room);
       if(PRODUCTS.some(x=>(x.sku||'').toLowerCase()===sku.toLowerCase())) continue;
       const collections={'By Style':((p0.collections||{})['By Style']||[]).slice(),'By Colour':((p0.collections||{})['By Colour']||[]).slice(),'By Occasion':((p0.collections||{})['By Occasion']||[]).slice(),'By Room':[room]};
       if(room==='Living room') collections['Featured']=['New Arrivals'];
       const product={sku,artBase:base,room,roomApproved:false,collections,set:p0.set,trends:(p0.trends||[]).slice(),primaryColour:(p0.primaryColour||[]).slice(),colour:p0.colour,templateSuffix:p0.templateSuffix,aiNotes:p0.aiNotes,keywordWords:(p0.keywordWords||[]).slice()};
-      const r=await api({action:'save-product',product}); PRODUCTS=r.products;
+      const r=await api({action:'save-product',product}); PRODUCTS=r.products; addedSkus.push(sku);
     }
+    // Inherit the shared images (flats, singles, commons) a sibling already has, so a room added
+    // later never ends up missing them. Lifestyle stays per-room.
+    const src=bestSharedSource(g);
+    if(src && addedSkus.length){ const r=await api({action:'inherit-shared',fromSku:src.sku,toSkus:addedSkus}); PRODUCTS=r.products; }
     OPEN_STAGE='rooms'; renderFlow(); msg('Rooms updated.','ok');
   }catch(e){ msg('Update failed: '+e.message,'err'); }
 }
@@ -1018,7 +1055,7 @@ function renderReviewStage(){
     renderSharedBox()+
     '<div class="vlist">'+g.map(reviewRoom).join('')+'</div></div>';
 }
-const SLOT_LABEL={flatWhite:'White frame',flatBlack:'Black frame',flatOak:'Oak frame',flatCanvas:'Canvas',flatUnframed:'Unframed',individual:'Single'};
+const SLOT_LABEL={flatWhite:'White frame',flatBlack:'Black frame',flatOak:'Oak frame',flatCanvas:'Canvas',flatUnframed:'Unframed',individual:'Single',commonLady:'Lady w/ black frame',commonUnboxing:'Unboxing'};
 function renderSharedBox(){
   const staged=SHARED_STAGE.length;
   let tiles='';
@@ -1047,7 +1084,10 @@ async function sharedStageFiles(files){
   files=files.filter(f=>f.type&&f.type.startsWith('image/'));
   if(!files.length) return;
   for(const f of files){
-    const slot=matchFlatSlot(f.name)||'individual';
+    const lc=f.name.toLowerCase();
+    const slot = /_b212_v2/.test(lc) ? 'commonUnboxing'
+               : /lady carrying a black frame/.test(lc) ? 'commonLady'
+               : (matchFlatSlot(f.name)||'individual');
     const c=(await compressImageFile(f,2000,0.85))||(await readFileAsBase64(f));
     if(!c) continue;
     SHARED_STAGE.push({data:c.data,mediaType:c.mediaType,name:f.name,slot,thumb:'data:'+c.mediaType+';base64,'+c.data});
@@ -1084,17 +1124,29 @@ function reviewRoom(p){
   const dot=ROOM_COLORS[idx%ROOM_COLORS.length];
   const open=VOPEN===p.sku;
   const na=((p.collections&&p.collections['Featured'])||[]).includes('New Arrivals');
-  let status;
-  if(p.roomApproved) status='<span class="vst" style="color:var(--ok)">✓ done</span>';
-  else if(GEN_ROOM[p.sku]) status='<span class="vst">generating…</span>';
-  else if(p.content) status='<span class="vst">review</span>';
-  else status='<span class="vst">keyword set</span>';
   const enc=encodeURIComponent(p.sku);
-  const body=open?('<div class="vbd">'+reviewRoomBody(p)+'</div>'):'';
+  const gen=!!GEN_ROOM[p.sku];
+  const miss=missingBits(p);
+  const ready=miss.length===0;
+  let status;
+  if(ready && p.roomApproved) status='<span class="vst" style="color:var(--ok);font-weight:700">✓ done</span>';
+  else if(gen) status='<span class="vst">generating…</span>';
+  else if(ready) status='<span class="vst" style="color:var(--ok);font-weight:700">ready</span>';
+  else status='';
   const kwTxt=p.keyword?'<span style="color:var(--accent);font-weight:600">'+esc(p.keyword)+'</span>':'<span style="color:var(--muted)">no keyword yet</span>';
   const titleTxt=(p.content&&p.content.productTitle)?' · '+esc(p.content.productTitle):'';
   const sub='<div class="vhsub">'+kwTxt+titleTxt+'</div>';
-  return '<div class="vroom'+(open?' open':'')+'"><div class="vhd" onclick="toggleV('+"'"+enc+"'"+')"><span class="vdot" style="background:'+dot+'"></span><div class="vhtxt"><div class="vhtop"><span class="vrn">'+esc(roomName(p))+'</span>'+(na?'<span class="srcpill" style="background:#cfead0;color:#1f5f1f;margin-left:4px">New Arrivals</span>':'')+'<span class="vst" style="margin-left:4px">· '+esc(p.sku)+'</span>'+status+'</div>'+sub+'</div><span class="vchev">'+(open?'▾':'▸')+'</span></div>'+body+'</div>';
+  const missLine=(!ready&&!gen)?'<div class="vmiss">Missing: '+miss.map(esc).join(' · ')+'</div>':'';
+  const okBtn='<button class="okbtn-sm'+(p.roomApproved?' done':'')+'" '+(ready?'':'disabled title="Finish the missing items first"')+' onclick="event.stopPropagation();roomOk('+"'"+enc+"'"+')">'+(p.roomApproved?'Done ✓':'OK')+'</button>';
+  const body=open?('<div class="vbd">'+reviewRoomBody(p)+'</div>'):'';
+  const annex='<div class="vimg">'+reviewRoomImages(p)+'</div>';
+  return '<div class="vroom'+(open?' open':'')+(ready?' ready':'')+'">'+
+    '<div class="vhd">'+
+      '<span class="vdot" style="background:'+dot+'"></span>'+
+      '<div class="vhtxt" style="cursor:pointer" onclick="toggleV('+"'"+enc+"'"+')"><div class="vhtop"><span class="vrn">'+esc(roomName(p))+'</span>'+(na?'<span class="srcpill" style="background:#cfead0;color:#1f5f1f;margin-left:4px">New Arrivals</span>':'')+'<span class="vst" style="margin-left:4px">· '+esc(p.sku)+'</span>'+status+'</div>'+sub+missLine+'</div>'+
+      okBtn+
+      '<span class="vchev" style="cursor:pointer" onclick="toggleV('+"'"+enc+"'"+')">'+(open?'▾':'▸')+'</span>'+
+    '</div>'+body+annex+'</div>';
 }
 function toggleV(enc){ const sku=decodeURIComponent(enc); VOPEN=(VOPEN===sku)?null:sku; renderFlow(); }
 function reviewRoomBody(p){
@@ -1112,21 +1164,24 @@ function reviewRoomBody(p){
   } else {
     h+='<button class="btn primary small" onclick="regenRoom('+"'"+enc+"'"+')">Generate SEO</button>';
   }
-  const img=p.images||{lifestyle:[],individuals:[],flats:{}};
-  h+='<div><div class="sectlab">Images for this room — lifestyle (drop all, drag to reorder, first = cover)</div>'+
+  return h;
+}
+// Always-visible image annex per room: lifestyle drop + this room's lifestyle thumbnails (drop without opening).
+function reviewRoomImages(p){
+  const sku=p.sku;
+  const img=p.images||{lifestyle:[],individuals:[],flats:{},commons:{}};
+  let h='<div class="sectlab">Lifestyle photos — drop here (drag to reorder, first = cover)</div>'+
     dropzone(sku,'lifestyle',(img.lifestyle||[]).length,null,null,!!UPLOADING[dzKey(sku,'lifestyle',(img.lifestyle||[]).length)]);
   if((img.lifestyle||[]).length){
     h+='<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px">'+img.lifestyle.map((im,i)=>
-      '<div class="dz-tile" draggable="true" ondragstart="onLifeDragStart(event,'+i+')" ondragover="event.preventDefault()" ondrop="onLifeDrop(event,\''+esc(sku)+'\','+i+')" ondragend="onLifeDragEnd(event)" style="text-align:center;width:150px"><div class="dz" style="cursor:grab"><img src="'+esc(im.url||'')+'">'+(i===0?'<div class="cover-badge">Cover</div>':'')+'<div class="dz-badge">✓</div></div><button class="btn rm small" style="margin-top:6px" onclick="removeProdImage(\''+esc(sku)+'\',\'lifestyle\','+i+')">Remove</button></div>'
+      '<div class="dz-tile" draggable="true" ondragstart="onLifeDragStart(event,\''+esc(sku)+'\','+i+')" ondragover="event.preventDefault()" ondrop="onLifeDrop(event,\''+esc(sku)+'\','+i+')" ondragend="onLifeDragEnd(event)" style="text-align:center;width:150px"><div class="dz" style="cursor:grab"><img src="'+esc(im.url||'')+'">'+(i===0?'<div class="cover-badge">Cover</div>':'')+'<div class="dz-badge">✓</div></div><button class="btn rm small" style="margin-top:6px" onclick="removeProdImage(\''+esc(sku)+'\',\'lifestyle\','+i+')">Remove</button></div>'
     ).join('')+'</div>';
   }
-  h+='</div>';
-  h+='<button class="okbtn" onclick="roomOk('+"'"+enc+"'"+')">'+(p.roomApproved?'Done ✓':'OK — this room is done')+'</button>';
   return h;
 }
 async function changeRoomKeyword(enc){ const sku=decodeURIComponent(enc); const p=groupProducts().find(x=>x.sku===sku); if(!p) return; const upd={...p,keyword:'',roomApproved:false}; const r=await api({action:'save-product',product:upd}); PRODUCTS=r.products; delete KWC[sku]; VOPEN=null; renderFlow(); }
 async function regenRoom(enc){ const sku=decodeURIComponent(enc); GEN_ROOM[sku]=true; renderFlow(); try{ await genContentForRoom(sku); }catch(e){ msg('Failed: '+e.message,'err'); } finally{ delete GEN_ROOM[sku]; renderFlow(); } }
-async function roomOk(enc){ const sku=decodeURIComponent(enc); const p=groupProducts().find(x=>x.sku===sku); if(!p) return; const upd={...p,roomApproved:true}; const r=await api({action:'save-product',product:upd}); PRODUCTS=r.products; VOPEN=null; renderFlow(); }
+async function roomOk(enc){ const sku=decodeURIComponent(enc); const p=groupProducts().find(x=>x.sku===sku); if(!p) return; if(!roomReady(p)){ msg('Still missing: '+missingBits(p).join(' · '),'err'); return; } const upd={...p,roomApproved:true}; const r=await api({action:'save-product',product:upd}); PRODUCTS=r.products; VOPEN=null; renderFlow(); }
 
 /* ---------- STAGE: send (one product per room) ---------- */
 function renderSendStage(){
@@ -1756,7 +1811,7 @@ function stepImages(p){
     (img.lifestyle.length?'<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:14px">'+
       img.lifestyle.map((im,i)=>
         '<div class="dz-tile" draggable="true" data-idx="'+i+'" '+
-          'ondragstart="onLifeDragStart(event,'+i+')" '+
+          'ondragstart="onLifeDragStart(event,\''+esc(sku)+'\','+i+')" '+
           'ondragover="event.preventDefault()" '+
           'ondrop="onLifeDrop(event,\''+esc(sku)+'\','+i+')" '+
           'ondragend="onLifeDragEnd(event)" '+
@@ -1804,13 +1859,13 @@ function stepImages(p){
   }
   return html;
 }
-let LIFE_DRAG_FROM=null;
-function onLifeDragStart(e, idx){ LIFE_DRAG_FROM=idx; e.currentTarget.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; }
+let LIFE_DRAG_FROM=null, LIFE_DRAG_SKU=null;
+function onLifeDragStart(e, sku, idx){ LIFE_DRAG_SKU=sku; LIFE_DRAG_FROM=idx; e.currentTarget.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; }
 function onLifeDragEnd(e){ e.currentTarget.classList.remove('dragging'); }
 async function onLifeDrop(e, sku, toIdx){
   e.preventDefault();
-  const from=LIFE_DRAG_FROM; LIFE_DRAG_FROM=null;
-  if(from===null || from===toIdx) return;
+  const from=LIFE_DRAG_FROM, fromSku=LIFE_DRAG_SKU; LIFE_DRAG_FROM=null; LIFE_DRAG_SKU=null;
+  if(from===null || fromSku!==sku || from===toIdx) return; // only reorder within the same room
   const p=PRODUCTS.find(x=>x.sku===sku); if(!p) return;
   const list=(p.images&&p.images.lifestyle)||[];
   const order=list.map((_,i)=>i);
@@ -1871,7 +1926,7 @@ async function uploadLifestyleFiles(sku, files){
     const key=dzKey(sku,'lifestyle',idx);
     UPLOADING[key]=true; renderFlow();
     try{
-      const {mediaType,data}=await readFileAsBase64(f);
+      const {mediaType,data}=(await compressImageFile(f,2000,0.85)) || (await readFileAsBase64(f));
       const r=await api({action:'upload-image', sku, slot:'lifestyle', image:data, imageMediaType:mediaType});
       PRODUCTS=r.products;
     }catch(e){ msg('Upload failed for '+f.name+': '+e.message,'err'); }
