@@ -1,7 +1,13 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v52.0
+// analyze-money-page.js — v52.1
+// v52.1 (2026-10-05): (1) ToC now written by the AI (updatedTableOfContents in the prompt) + always folds
+//                     in the new aiItems section titles; deterministic build kept only as a fallback.
+//                     (2) "unique home decor" removed from branded links (lives in the author bio); author
+//                     bio returned in 'link-only' mode when the bio exists but the Home Decor link doesn't.
+//                     (3) Related-older-blogs now skips blogs that ALREADY link to this page (body + linked_*
+//                     metafields) and rotates to FRESH on-topic ones; if 3 already link, suggests none.
 // v52.0 (2026-09-29): STRENGTHEN PROTECTED — a section Mae added via Do First (done strengthen task for
 //   this page, from data/capture-tasks.json) is now loaded as yourPageData.protectedBlocks and is INTOCABLE:
 //   it still counts in the analysis, but no "change" item can target text inside it — keyword over-use
@@ -500,30 +506,43 @@ module.exports = async function handler(req, res) {
       }
     }
 
-    // Build a deterministic "updated Table of Contents" for blogs that HAVE a List of Contents.
-    // When H2s are renamed / added / removed, this is the full final H2 list (in order) ready to
-    // paste — so the merchant's contents list never goes stale. No AI: built from the body + h2Sections.
+    // Updated Table of Contents for blogs. PREFERRED: the AI builds the final list (it has the whole
+    // body + knows all its own renames/removes/adds AND the new aiItems sections). FALLBACK: if the AI
+    // didn't return one, build it deterministically from the body + h2Sections + aiItems. Either way we
+    // ALWAYS fold in the new aiItems section titles (the old builder ignored them — that was the bug).
     if (yourPageData.shopifyType === 'article' && analysis?.structured) {
       try {
-        const _body = yourPageData.shopifyBodyHtml || '';
-        // Generate the contents list BY DEFAULT whenever H2s change — no matter what the blog's
-        // contents list is called (Index, Contents, List of Contents…) or whether it has one.
-        // It's only shown when there ARE H2 changes (_changed below); she decides whether to use it.
-        const _hasToc = true;
-        if (_hasToc) {
-          // current H2 titles in document order
+        const _norm = s => (s || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+        // Section titles coming from the new on-page aiItems (Comparison Snippet, How-To, Summary…).
+        const _aiTitles = (Array.isArray(analysis.structured.aiItems) ? analysis.structured.aiItems : [])
+          .map(it => { const m = /<h2\b[^>]*>([\s\S]*?)<\/h2>/i.exec((it && it.content) || ''); return m ? m[1].replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim() : ''; })
+          .filter(Boolean);
+        // Keep only real, short section titles; drop the contents label, sentences, long lines, dupes.
+        const _cleanToc = (arr) => (Array.isArray(arr) ? arr : [])
+          .map(t => String(t == null ? '' : t).replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim())
+          .filter(x => x && !/^(list of contents|table of contents|contents|index|in this article|on this page|jump to|quick links)$/i.test(x) && !/[.!?]$/.test(x) && x.split(/\s+/).length <= 12)
+          .filter((x, i, a) => a.findIndex(y => y.toLowerCase() === x.toLowerCase()) === i);
+
+        const _aiToc = analysis.structured.updatedTableOfContents;
+        if (Array.isArray(_aiToc) && _aiToc.length) {
+          // AI gave us the final list — make sure every new aiItems section is in it, then clean.
+          const merged = _aiToc.slice();
+          for (const t of _aiTitles) if (!merged.some(x => _norm(x) === _norm(t))) merged.push(t);
+          const cleaned = _cleanToc(merged);
+          if (cleaned.length) analysis.structured.updatedTableOfContents = cleaned;
+          else delete analysis.structured.updatedTableOfContents;
+        } else {
+          // Fallback — deterministic build from the body.
+          const _body = yourPageData.shopifyBodyHtml || '';
           const _h2s = [];
           const _re = /<h2\b[^>]*>([\s\S]*?)<\/h2>/gi;
           let _mm;
           while ((_mm = _re.exec(_body)) !== null) {
             const _t = _mm[1].replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
-            // Exclude the contents heading itself — it's the title, not a bullet in the list.
             if (_t && !/^(list of contents|table of contents|contents|index|in this article|on this page|jump to|quick links)$/i.test(_t)) _h2s.push(_t);
           }
-          const _norm = s => (s || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
           const _changes = Array.isArray(analysis.structured.h2Sections) ? analysis.structured.h2Sections : [];
           let _toc = _h2s.slice();
-          // apply renames + removes against the current list
           for (const _c of _changes) {
             if (!_c || _c.action === 'add') continue;
             const _idx = _toc.findIndex(h => _norm(h) === _norm(_c.heading));
@@ -531,21 +550,11 @@ module.exports = async function handler(req, res) {
             if (_c.action === 'remove') _toc.splice(_idx, 1);
             else if (_c.replacementText && _c.replacementText.trim()) _toc[_idx] = _c.replacementText.trim();
           }
-          // append any brand-new sections
-          for (const _c of _changes) {
-            if (_c && _c.action === 'add' && _c.heading && _c.heading.trim()) _toc.push(_c.heading.trim());
-          }
-          // Keep ONLY real section titles — drop anything that leaked in as a full sentence
-          // (e.g. a "More About" authority line) or the contents label itself.
-          _toc = _toc.filter(t => {
-            const x = (t || '').trim();
-            if (!x) return false;
-            if (/^(list of contents|table of contents|contents|index)$/i.test(x)) return false;
-            if (/[.!?]$/.test(x)) return false;            // sentences end in punctuation; headings don't
-            if (x.split(/\s+/).length > 12) return false;  // too long to be a heading
-            return true;
-          });
-          const _changed = _changes.some(c => c && (c.action === 'add' || c.action === 'remove' || (c.action !== 'add' && c.replacementText && c.replacementText.trim())));
+          for (const _c of _changes) if (_c && _c.action === 'add' && _c.heading && _c.heading.trim()) _toc.push(_c.heading.trim());
+          for (const t of _aiTitles) if (!_toc.some(x => _norm(x) === _norm(t))) _toc.push(t);   // include the new aiItems sections
+          _toc = _cleanToc(_toc);
+          // Show it whenever ANYTHING changes the headings — a rename/remove/add OR a new aiItems section.
+          const _changed = _aiTitles.length > 0 || _changes.some(c => c && (c.action === 'add' || c.action === 'remove' || (c.action !== 'add' && c.replacementText && c.replacementText.trim())));
           if (_toc.length && _changed) analysis.structured.updatedTableOfContents = _toc;
         }
       } catch (e) { /* non-fatal — ToC is a nicety */ }
@@ -1236,10 +1245,11 @@ const BUZZWORDS = [
 ].map(phrase => ({ phrase, fix: 'remove or rephrase' }));
 
 // Branded links to offer (only when the body doesn't already contain that URL).
+// "unique home decor" is NOT offered as a branded link — its link lives in the author bio instead
+// (wrapped on the words "Home Decor"), so it is intentionally left out of this list.
 const BRANDED_LINKS = [
   { anchor: 'wall art',          url: 'https://share.google/RKuQBBwmgZBHOL1VQ',            title: 'Wall Art' },
-  { anchor: 'unique wall art',   url: 'https://aboutwallart.com/pages/unique-wall-art',    title: 'Unique Wall Art' },
-  { anchor: 'unique home decor', url: 'https://aboutwallart.com/pages/home-decor-items',   title: 'Unique Home Decor' }
+  { anchor: 'unique wall art',   url: 'https://aboutwallart.com/pages/unique-wall-art',    title: 'Unique Wall Art' }
 ];
 
 const AUTHOR_BIO_SNIPPET = 'By Mae Osz | Interior Design Consultant & Home Decor Expert with 12+ years of experience.';
@@ -1317,8 +1327,14 @@ function scanBlogQuality(yourPage) {
   // 4. Author bio — offer the snippet only if the body lacks the byline. bodyHtml = the italic line that
   //    goes right below the first (page-description) paragraph, with "Home Decor" linked to the home-decor page.
   const hasBio = /mae\s+osz/i.test(text) || /interior\s+design\s+consultant/i.test(text);
+  const hasHomeDecorLink = bodyHtml.includes('home-decor-items');   // the "Home Decor" link already in the body?
   const bioHtml = `<p>&nbsp;</p>\n<p><em>By Mae Osz | Interior Design Consultant &amp; <a href="https://aboutwallart.com/pages/home-decor-items" title="Unique Home Decor" target="_blank" rel="noopener">Home Decor</a> Expert with 12+ years of experience.</em></p>`;
-  const authorBio = hasBio ? null : { snippet: AUTHOR_BIO_SNIPPET, bodyHtml: bioHtml };
+  // mode 'add'       → no bio yet: offer the full bio (with the link) to add below the summary.
+  // mode 'link-only' → bio is already there but the "Home Decor" link isn't: give it so she adds the link by hand.
+  // (bio present AND link present → nothing to do → null)
+  let authorBio = null;
+  if (!hasBio)                    authorBio = { snippet: AUTHOR_BIO_SNIPPET, bodyHtml: bioHtml, mode: 'add' };
+  else if (!hasHomeDecorLink)     authorBio = { snippet: AUTHOR_BIO_SNIPPET, bodyHtml: bioHtml, mode: 'link-only' };
 
   return { britishEnglish, buzzwords, brandedLinks, authorBio };
 }
@@ -1949,6 +1965,7 @@ Return this exact JSON structure with real content (no placeholders):
       "competitorDriven": false
     }
   ],
+  "updatedTableOfContents": ["Final H2 section title 1", "Final H2 section title 2", "..."],
   "aiItems": [
     {
       "element": "Related Questions",
@@ -2089,6 +2106,7 @@ RULES:
 - quickAnswer: return the EXACT HTML structure shown — do not change any tags or styles, and never add borders, colour lines, wrapper divs or extra tags. Replace ONLY the bracketed text with a direct, factual 2-3 sentence answer to the search intent of "${keyword}", written in British English. The whole value must be one single <div> exactly as shown. It is placed in the body after the second intro paragraph (before any List of Contents, Key Takeaways, or first H2).
 - "MORE ABOUT" H2 RULE: If any H2 is "More about ..." (or similar) and contains an external authority link, NEVER flag it for removal or deletion. Keep the H2 and the external link exactly as they are. Use action "change" with exactAction that says to keep the heading and link, and replace ONLY the intro sentence with a single clean sentence of MAXIMUM 30 words describing what the reader will find at the linked source. Put that exact rewritten sentence inside exactAction. Banned words you must NOT use anywhere in that sentence: delve, explore, comprehensive, wealth of, dive into, invaluable, a range of, further insight.
 - h2Sections: use action "change" (rename/retag, with reason + exactAction + replacementText), action "add" (new section, with content), or action "remove" (a body section/heading that HURTS SEO — thin, off-topic, duplicate, keyword-diluting, or proven unnecessary vs competitors — with a reason; body content ONLY, never a global theme section). Include "competitorDriven" on every item.
+- updatedTableOfContents: the blog's FINAL list of section titles, in document order, EXACTLY as the contents list ("List of Contents") should read AFTER all your recommendations are applied. You have the full blog body above, so build it from what the blog actually ends up with: (1) START from the current H2 section headings in order; (2) APPLY every h2Sections change — use the new replacementText for a "change", drop a "remove", add a "add" heading in a sensible position; (3) ALSO ADD a title for EVERY new on-page section you return in aiItems that renders as an on-page H2 (Related Questions, Summary Block, Comparison Snippet, How-To Block, Comparison Table, etc.) — use the <h2> text inside that aiItem's content, placed at the end in the order they'll appear. EXCLUDE the contents-list heading itself (List of Contents / Table of Contents / Contents / Index / In this article / On this page) and any global theme sections (More About, Complete the Look, author bio, Key Takeaways). Each entry is a SHORT heading only (no full sentences, no trailing punctuation, 12 words max). ALWAYS return the complete final list whenever ANYTHING changes the headings (a rename, a remove, OR a new section/aiItem). If nothing changes the blog's headings at all, return an empty array [].
 - H2 CASE: H2 headings inside the blog BODY are CONTENT headings. Write every rename and every new heading in natural, readable case (sentence case or title case) — exactly as it should read. NEVER force body headings to ALL-CAPS, and NEVER suggest a rename whose only change is letter-casing or give "make it all-caps / sentence case" as a reason. (The all-caps look is a theme CSS style applied to theme sections only — it must NOT be baked into content headings.)
 - BEFORE suggesting any "add" section: check the EXISTING PAGE CONTENT above. NEVER suggest adding a section, heading or topic the page already covers (even if a competitor has it) — only add content that fills a genuine gap. Never suggest an addition whose main purpose is to repeat "${keyword}". Fixing over-use (keywordOveruse) and removing redundancy come first; new content is only for real gaps.
 - replacementText (on "change" items): return ONLY the exact final text the merchant should paste — no surrounding quotes, no "Rename to", no "Why", no instructions. For a rename it is the new heading text; for the "More about" rewrite it is the new intro sentence. If there is genuinely nothing to paste (e.g. the action is only to remove a tag), return an empty string.
@@ -3096,14 +3114,26 @@ function pickRelatedBlogs(currentUrl, currentTags, allArticles, n = 3, titleText
 
 // For each related blog, fetch its body and check whether THIS page's keyword already
 // appears; if so, pull the sentence containing it so the link can wrap it in place.
-async function enrichRelatedBlogs(related, keyword) {
+async function enrichRelatedBlogs(related, keyword, self = null) {
   const kw = (keyword || '').toLowerCase();
   await Promise.all(related.map(async (b) => {
-    b.keywordPresent = false; b.sentence = ''; b.outline = '';
+    b.keywordPresent = false; b.sentence = ''; b.outline = ''; b.alreadyLinksHere = false;
     try {
       const handle = b.url.split('/').filter(Boolean).pop();
-      const data = await shopifyGraphQL(`{ articles(first:1, query:"handle:${handle}") { edges { node { body } } } }`);
-      const body = data && data.articles && data.articles.edges[0] && data.articles.edges[0].node.body || '';
+      const data = await shopifyGraphQL(`{ articles(first:1, query:"handle:${handle}") { edges { node { body metafields(first:30) { edges { node { namespace key value } } } } } } }`);
+      const node = data && data.articles && data.articles.edges[0] && data.articles.edges[0].node;
+      const body = (node && node.body) || '';
+      // Does this candidate ALREADY link to the page we're analysing? Check its body AND its
+      // linked_* reference metafields (where Mae now puts the links). If so, skip it later.
+      if (self) {
+        const mfVals = (((node && node.metafields && node.metafields.edges) || [])
+          .map(e => e.node).filter(m => m.namespace === 'custom' && /linked_/.test(m.key || ''))
+          .map(m => m.value || '').join(' '));
+        const linkInBody = (self.url && body.includes(self.url)) ||
+          (self.handle && new RegExp('/' + escapeRegExp(self.handle) + '(?:[/"?#\\s]|$)', 'i').test(body));
+        const linkInMeta = self.idNum && mfVals.includes(self.idNum);
+        b.alreadyLinksHere = !!(linkInBody || linkInMeta);
+      }
       const text = body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
       if (kw && text.toLowerCase().includes(kw)) {
         b.keywordPresent = true;
@@ -3149,9 +3179,19 @@ async function getRelatedBlogLinks(yourPage, keyword) {
     if (t !== 'article' && !t.includes('collection') && t !== 'page' && t !== 'product') return [];
     let all = await fetchBlogIndex();
     if (!all) { console.warn('[Related Blogs] index missing — falling back to live fetch'); all = await fetchAllArticlesLite(); }
-    const related = pickRelatedBlogs(yourPage.url, yourPage.tags, all, 3, `${yourPage.title || ''} ${keyword || ''}`);
-    if (!related.length) return [];
-    return await enrichRelatedBlogs(related, keyword);
+    // Pick a WIDER on-topic pool so we can skip blogs that ALREADY link to this page and still
+    // return up to 3 FRESH ones — this stops the tool repeating the same already-linked blogs.
+    const pool = pickRelatedBlogs(yourPage.url, yourPage.tags, all, 10, `${yourPage.title || ''} ${keyword || ''}`);
+    if (!pool.length) return [];
+    const self = {
+      url: yourPage.url,
+      handle: (yourPage.url.split('/').filter(Boolean).pop() || '').toLowerCase(),
+      idNum: (String(yourPage.shopifyId || '').match(/\d+/) || [''])[0]
+    };
+    const enriched = await enrichRelatedBlogs(pool, keyword, self);
+    const already = enriched.filter(b => b.alreadyLinksHere).length;
+    if (already >= 3) return [];                                  // page already has its 3 links — don't ask for more
+    return enriched.filter(b => !b.alreadyLinksHere).slice(0, 3); // only FRESH on-topic blogs that don't link here yet
   } catch (e) {
     console.warn('[Related Blogs] failed:', e.message);
     return [];

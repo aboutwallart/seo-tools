@@ -1,4 +1,7 @@
-// shopify-files.js — v2.9
+// shopify-files.js — v3.0
+// v3.0 (2026-10-05): ToC push ('toc' kind) no longer inserts a second contents list when it can't find
+//                    an existing one — it reports "paste it by hand" (via the edit's reason) so the blog
+//                    never ends up with two indexes. push-edits now surfaces per-edit reasons.
 // v2.9 (Sep 22, 2026): autolink-webhook no longer links a PRODUCT to another PRODUCT (competes for the
 //                       same sale) — blogs and collections still link normally. Mae's rule.
 // v2.8 (June 29, 2026): BATCH 3 fixes. (1) NEW push-edits kind 'word-swap' — whole-word, case-aware
@@ -1086,9 +1089,9 @@ module.exports = async function handler(req, res) {
           mk = mtk ? mk.slice(0, mtk.index) + markWrap(content) + mk.slice(mtk.index + mtk[0].length) : mk;
           return { b, mk, ok: true };
         }
-        const h = /<h2\b/i.exec(b), i = h ? h.index : 0, hk = /<h2\b/i.exec(mk), ik = hk ? hk.index : 0;
-        b = b.slice(0, i) + content + '\n' + b.slice(i); mk = mk.slice(0, ik) + markWrap(content) + '\n' + mk.slice(ik);
-        return { b, mk, ok: true };
+        // No existing contents list found — DON'T insert a second one. Report it so the merchant
+        // can paste it by hand (she never ends up with two indexes).
+        return { b, mk, ok: false, reason: 'No encontré un índice existente para reemplazar — pegalo a mano (así no quedan dos).' };
       }
       if (kind === 'h2-add') {
         const i = addSectionIndex(b), ik = addSectionIndex(mk);
@@ -1251,14 +1254,14 @@ module.exports = async function handler(req, res) {
         // ONE body read + ONE write, so a single Undo reverts the whole push. Reports any not found.
         const edits = Array.isArray(req.body.edits) ? req.body.edits : [];
         if (!edits.length) return res.status(400).json({ error: 'No edits supplied' });
-        let b = oldBody, mk = oldBody; const applied = [], failed = [], guarded = [];
+        let b = oldBody, mk = oldBody; const applied = [], failed = [], guarded = [], reasons = [];
         // Each edit is isolated: a bad one is reported as "failed", never crashes the whole push.
         edits.forEach((e, i) => {
-          try { const r = applyOneEdit(b, mk, e); if (r && r.ok) { b = r.b; mk = r.mk; applied.push(i); } else { if (r && r.linkGuarded) guarded.push(i); failed.push(i); } }
+          try { const r = applyOneEdit(b, mk, e); if (r && r.ok) { b = r.b; mk = r.mk; applied.push(i); } else { if (r && r.linkGuarded) guarded.push(i); if (r && r.reason) reasons.push(r.reason); failed.push(i); } }
           catch (_) { failed.push(i); }
         });
         newBody = b; markedAfter = mk; editReport = { applied, failed, guarded };
-        if (!applied.length) return res.status(200).json({ success: false, notFound: true, failed, error: 'Could not find any of those items in the page any more — it may have been edited.' });
+        if (!applied.length) return res.status(200).json({ success: false, notFound: true, failed, error: reasons[0] || 'Could not find any of those items in the page any more — it may have been edited.' });
       }
       else {
         return res.status(400).json({ error: `Unknown op: ${op}` });
