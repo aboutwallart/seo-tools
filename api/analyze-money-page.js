@@ -1,7 +1,12 @@
 // Money Page Optimizer Backend API
 // Handles SerpAPI, PageSpeed, web scraping, and Claude analysis
 
-// analyze-money-page.js — v52.1
+// analyze-money-page.js — v52.2
+// v52.2 (2026-10-05): (1) Author bio link no longer inside <em> (Shopify was stripping it on save) — now
+//                     italic via inline style so the <a> survives. (2) British-English scan now covers the
+//                     body + EDITABLE (custom.*) metafields only, not app-owned ones she can't edit — kills
+//                     false positives. (3) Claude call retries up to 3x on a cut-off/unparseable reply before
+//                     falling back, so "too long" stops firing on an intermittent truncation.
 // v52.1 (2026-10-05): (1) ToC now written by the AI (updatedTableOfContents in the prompt) + always folds
 //                     in the new aiItems section titles; deterministic build kept only as a fallback.
 //                     (2) "unique home decor" removed from branded links (lives in the author bio); author
@@ -1264,13 +1269,15 @@ function htmlToText(html) {
     .replace(/&amp;/gi, '&').replace(/\s+/g, ' ').trim();
 }
 
-// Deterministic blog quality scan over body + excerpt + every text metafield.
+// Deterministic blog quality scan over body + excerpt + the EDITABLE (custom) metafields.
 // Returns list-only findings — the merchant uses the editor search bar to fix them.
+// Only "custom.*" metafields are scanned: those are the ones Mae manages in the admin. App-owned
+// metafields she can't edit are skipped, so the check never flags a word she can't find/fix.
 function scanBlogQuality(yourPage) {
   const bodyHtml = yourPage.shopifyBodyHtml || '';
   const excerptHtml = yourPage.shopifyExcerpt || '';
-  const metaText = (yourPage.metafields || []).map(m => m.text || '').join(' ');
-  // Combined plain text (body + excerpt + metafields) for word/phrase matching.
+  const metaText = (yourPage.metafields || []).filter(m => (m.key || '').startsWith('custom.')).map(m => m.text || '').join(' ');
+  // Combined plain text (body + excerpt + editable metafields) for word/phrase matching.
   const text = `${htmlToText(bodyHtml)} ${htmlToText(excerptHtml)} ${metaText}`;
   const lower = text.toLowerCase();
 
@@ -1328,7 +1335,9 @@ function scanBlogQuality(yourPage) {
   //    goes right below the first (page-description) paragraph, with "Home Decor" linked to the home-decor page.
   const hasBio = /mae\s+osz/i.test(text) || /interior\s+design\s+consultant/i.test(text);
   const hasHomeDecorLink = bodyHtml.includes('home-decor-items');   // the "Home Decor" link already in the body?
-  const bioHtml = `<p>&nbsp;</p>\n<p><em>By Mae Osz | Interior Design Consultant &amp; <a href="https://aboutwallart.com/pages/home-decor-items" title="Unique Home Decor" target="_blank" rel="noopener">Home Decor</a> Expert with 12+ years of experience.</em></p>`;
+  // NOTE: italic via inline style on the <p>, NOT an <em> wrapper — a link nested inside <em>
+  // gets stripped when Shopify saves the body, so the <a> must be a direct child of the <p>.
+  const bioHtml = `<p>&nbsp;</p>\n<p style="font-style:italic;">By Mae Osz | Interior Design Consultant &amp; <a href="https://aboutwallart.com/pages/home-decor-items" title="Unique Home Decor" target="_blank" rel="noopener">Home Decor</a> Expert with 12+ years of experience.</p>`;
   // mode 'add'       → no bio yet: offer the full bio (with the link) to add below the summary.
   // mode 'link-only' → bio is already there but the "Home Decor" link isn't: give it so she adds the link by hand.
   // (bio present AND link present → nothing to do → null)
@@ -1783,56 +1792,60 @@ async function getClaudeAnalysis(yourPage, competitors, keyword, userPosition = 
   if (cannibalisation && Array.isArray(cannibalisation.siblings) && cannibalisation.siblings.length) prompt = injectCannibalContext(prompt, cannibalisation, keyword);
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 32000,   // 32000 is the safe ceiling (48000 made generation slow enough to hit 504 timeouts). Very long blogs still fall back to the "too long" message and get flagged red in the list.
-        messages: [{ role: 'user', content: prompt }]
-      })
-    });
+    // The AI reply sometimes comes back cut off (truncated JSON) — that's intermittent, not a sign
+    // the blog is "too long". So try up to 3 times before giving up, and only then fall back.
+    let lastRaw = '';
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 32000,   // 32000 is the safe ceiling (48000 made generation slow enough to hit 504 timeouts).
+          messages: [{ role: 'user', content: prompt }]
+        })
+      });
 
-    const data = await response.json();
-    if (data.error) throw new Error(data.error.message || 'Claude API error');
-    if (!data.content?.[0]?.text) throw new Error('Invalid Claude API response structure');
+      const data = await response.json();
+      if (data.error) throw new Error(data.error.message || 'Claude API error');
+      if (!data.content?.[0]?.text) throw new Error('Invalid Claude API response structure');
 
-    const raw = data.content[0].text.trim();
-    console.log('[Claude] Response length:', raw.length, 'chars');
+      const raw = data.content[0].text.trim();
+      lastRaw = raw;
+      console.log(`[Claude] attempt ${attempt}/3 — response length:`, raw.length, 'chars', data.stop_reason ? `(stop: ${data.stop_reason})` : '');
 
-    // Try to parse as structured JSON.
-    // The model sometimes wraps the JSON in ```json fences or adds a stray line of
-    // text before/after it. Rather than relying on fence-stripping alone, isolate the
-    // actual object by slicing from the FIRST "{" to the LAST "}" — this reads
-    // reliably no matter how the answer is wrapped.
-    try {
-      let jsonStr = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
-      const firstBrace = jsonStr.indexOf('{');
-      const lastBrace  = jsonStr.lastIndexOf('}');
-      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-        jsonStr = jsonStr.slice(firstBrace, lastBrace + 1);
-      }
-      let parsed;
+      // Try to parse as structured JSON. The model sometimes wraps the JSON in ```json fences or adds
+      // a stray line before/after it, so isolate the object from the FIRST "{" to the LAST "}".
       try {
-        parsed = JSON.parse(jsonStr);
-      } catch (firstErr) {
-        // Common failure on long HTML values (e.g. the product description rewrite): raw line
-        // breaks / tabs sit INSIDE a string, which JSON.parse rejects. Structural whitespace is
-        // optional in JSON, so collapsing raw control chars to spaces is safe and recovers it.
-        const repaired = jsonStr.replace(/[\r\n\t]/g, ' ');
-        parsed = JSON.parse(repaired);
-        console.log('[Claude] ✓ Structured JSON parsed after control-char repair');
+        let jsonStr = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+        const firstBrace = jsonStr.indexOf('{');
+        const lastBrace  = jsonStr.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+          jsonStr = jsonStr.slice(firstBrace, lastBrace + 1);
+        }
+        let parsed;
+        try {
+          parsed = JSON.parse(jsonStr);
+        } catch (firstErr) {
+          // Common failure on long HTML values: raw line breaks / tabs INSIDE a string. Structural
+          // whitespace is optional in JSON, so collapsing raw control chars to spaces recovers it.
+          const repaired = jsonStr.replace(/[\r\n\t]/g, ' ');
+          parsed = JSON.parse(repaired);
+          console.log('[Claude] ✓ Structured JSON parsed after control-char repair');
+        }
+        console.log(`[Claude] ✓ Structured JSON parsed successfully (attempt ${attempt})`);
+        return { structured: parsed };
+      } catch (parseErr) {
+        console.warn(`[Claude] attempt ${attempt}/3 JSON parse failed:`, parseErr.message);
+        // retry (unless this was the last attempt)
       }
-      console.log('[Claude] ✓ Structured JSON parsed successfully');
-      return { structured: parsed };
-    } catch (parseErr) {
-      console.warn('[Claude] JSON parse failed, falling back to markdown:', parseErr.message);
-      return { markdown: raw };
     }
+    console.warn('[Claude] All 3 attempts came back unparseable — falling back to markdown.');
+    return { markdown: lastRaw };
 
   } catch (error) {
     console.error('[Claude] Error:', error.message);
