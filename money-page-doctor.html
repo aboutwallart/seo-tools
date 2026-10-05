@@ -286,7 +286,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
                 <div style="flex: 1;">
                     <h1>💰 Money Page Doctor</h1>
-                    <p class="subtitle">AI-Powered SEO Analysis · v72.0</p>
+                    <p class="subtitle">AI-Powered SEO Analysis · v72.1</p>
                     <p style="color: #999; font-size: 0.85rem; margin-top: 5px;">Version 70.11</p>
                     <button onclick="resetAllChecklists()" title="Wipe all saved checklists so every page starts fresh" style="margin-top:6px;background:#fff;color:#c62828;border:1px solid #ef9a9a;padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;">🧹 Reset all checklists (start clean)</button>
                 </div>
@@ -3701,7 +3701,10 @@
                         #productDescBlock .desc-preview ul { margin:0.2em 0 1em 1.3em; }
                         #productDescBlock .desc-preview li { margin:0 0 0.3em; }
                     </style>
-                    <h3>📝 Product Description — Full Rewrite</h3>
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                        <h3 style="margin:0;">📝 Product Description — Full Rewrite</h3>
+                        <button class="push-btn" type="button" style="margin:0;" onclick="autoPublishBlock(this)" title="Pushea la descripción a Shopify y la marca hecha">📤 Auto-publish (todo + marcar hecho)</button>
+                    </div>
                     ${_riskLabel}
                     <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">A complete, SEO-optimised rewrite of this product's description in the AboutWallArt voice. Review it, then copy or push it straight to the product body.</p>
                     ${_prodImg ? `<div style="text-align:center;margin-bottom:14px;"><img src="${_prodImg.src}" alt="${(_prodImg.alt||'').replace(/"/g,'&quot;')}" style="max-width:220px;max-height:220px;border-radius:8px;border:1px solid #eee;"></div>` : ''}
@@ -4295,26 +4298,36 @@
                     ${_isBlog && _bq.brandedLinks.some(l => l.wrap) ? `<button class="copy-btn" type="button" style="background:#1565c0;color:#fff;font-weight:600;margin-bottom:8px;" onclick="pushEditsFromAttr('${_editsAttr(_bq.brandedLinks.filter(l => l.wrap).map(l => ({ kind:'link-wrap', anchor:l.wrap.anchor, href:l.wrap.href, title:l.wrap.title, occurrence:l.wrap.occurrence, skipIfPrecededBy:l.wrap.skipIfPrecededBy||'' })))}',null,{title:'Add branded links',doneMsg:'Branded links added to your blog',tickKeys:${JSON.stringify(_bq.brandedLinks.map((l,i)=>l.wrap?('bq_link_'+i):null).filter(Boolean)).replace(/"/g,"'")}},this)">📤 Add all branded links (preview)</button>` : ''}
                     ${_bq.brandedLinks.map((l, i) => bqRow(`bq_link_${i}`, `
                         <span id="lbl_bq_link_${i}" style="font-size:0.9rem;${state['bq_link_'+i]?'text-decoration:line-through;':''}">Add a link on <strong>${l.anchor}</strong> (not yet in the body)</span>
-                        <div style="font-size:0.72rem;color:#888;font-weight:600;margin-top:8px;">ANCHOR TEXT</div>
+                        <div style="font-size:0.72rem;color:#888;font-weight:600;margin-top:8px;">URL</div>
                         <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
-                            <input id="bqAnchor${i}" type="text" readonly value="${(l.anchor||'').replace(/"/g,'&quot;')}" style="flex:1;min-width:0;padding:7px 9px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.82rem;font-family:'Poppins',sans-serif;background:white;">
-                            <button class="copy-btn" type="button" style="padding:4px 10px;font-size:0.72rem;white-space:nowrap;" onclick="copyToClipboard(document.getElementById('bqAnchor${i}').value,this)">📋 Anchor</button>
-                        </div>
-                        <div style="font-size:0.72rem;color:#888;font-weight:600;">URL</div>
-                        <div style="display:flex;gap:6px;align-items:center;">
                             <input id="bqUrl${i}" type="text" readonly value="${(l.url||'').replace(/"/g,'&quot;')}" style="flex:1;min-width:0;padding:7px 9px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.78rem;font-family:monospace;background:white;">
                             <button class="copy-btn" type="button" style="padding:4px 10px;font-size:0.72rem;white-space:nowrap;" onclick="copyToClipboard(document.getElementById('bqUrl${i}').value,this)">📋 URL</button>
+                        </div>
+                        <div style="font-size:0.72rem;color:#888;font-weight:600;">ANCHOR TEXT</div>
+                        <div style="display:flex;gap:6px;align-items:center;">
+                            <input id="bqAnchor${i}" type="text" readonly value="${(l.anchor||'').replace(/"/g,'&quot;')}" style="flex:1;min-width:0;padding:7px 9px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.82rem;font-family:'Poppins',sans-serif;background:white;">
+                            <button class="copy-btn" type="button" style="padding:4px 10px;font-size:0.72rem;white-space:nowrap;" onclick="copyToClipboard(document.getElementById('bqAnchor${i}').value,this)">📋 Anchor</button>
                         </div>
                         ${_isBlog && l.wrap ? `<button class="copy-btn" type="button" style="margin-top:8px;background:#1976d2;color:#fff;" onclick="pushEditsFromAttr('${_editsAttr([{ kind:'link-wrap', anchor:l.wrap.anchor, href:l.wrap.href, title:l.wrap.title, occurrence:l.wrap.occurrence, skipIfPrecededBy:l.wrap.skipIfPrecededBy||'' }])}',null,{title:'Add branded link',doneMsg:'Link added to your blog',tickKey:'bq_link_${i}'},this)">📤 Wrap it in the blog (preview)</button>
                         <button class="copy-btn" type="button" style="margin-top:8px;margin-left:6px;background:#6a1b9a;color:#fff;" onclick="aiBrandedLine('${(l.wrap.anchor||'').replace(/'/g,"\\\\'")}','${(l.wrap.href||'').replace(/'/g,"\\\\'")}','${(l.wrap.title||'').replace(/'/g,"\\\\'")}','bq_link_${i}',this)" title="Use this when the words aren't in the blog — the AI writes a natural line with the link">✍️ AI write a line (preview)</button>` : ''}`)).join('')}` : ''}
 
                     ${_bq.authorBio ? `
                     <h4 style="margin:14px 0 8px;font-size:0.9rem;">✍️ Author bio</h4>
-                    ${bqRow('bq_bio', `
-                        <span id="lbl_bq_bio" style="font-size:0.9rem;${state['bq_bio']?'text-decoration:line-through;':''}">No author byline found — add this below the bold summary at the top.</span>
-                        <textarea id="bqBio" readonly style="width:100%;margin-top:6px;padding:8px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.8rem;font-family:'Poppins',sans-serif;min-height:42px;background:white;">${_bq.authorBio.snippet}</textarea>
+                    ${_bq.authorBio.mode === 'link-only' ? bqRow('bq_bio', `
+                        <span id="lbl_bq_bio" style="font-size:0.9rem;${state['bq_bio']?'text-decoration:line-through;':''}">Tu blog ya tiene el author bio, pero le falta el link. Linkeá a mano las palabras <strong>"Home Decor"</strong> a esta URL (que abra en ventana nueva):</span>
+                        <div style="display:flex;gap:6px;align-items:center;margin-top:6px;">
+                            <input id="bqBioUrl" type="text" readonly value="https://aboutwallart.com/pages/home-decor-items" style="flex:1;min-width:0;padding:7px 9px;border:2px solid #e0e0e0;border-radius:6px;font-size:0.78rem;font-family:monospace;background:white;">
+                            <button class="copy-btn" type="button" style="padding:4px 10px;font-size:0.72rem;white-space:nowrap;" onclick="copyToClipboard(document.getElementById('bqBioUrl').value,this)">📋 URL</button>
+                        </div>
+                        <textarea id="bqBioLink" style="display:none;"><a href="https://aboutwallart.com/pages/home-decor-items" title="Unique Home Decor" target="_blank" rel="noopener">Home Decor</a></textarea>
+                        <button class="copy-btn" type="button" style="margin-top:6px;padding:2px 8px;font-size:0.72rem;" onclick="copyToClipboard(document.getElementById('bqBioLink').value,this)">📋 Copy link (HTML)</button>
+                    `) : bqRow('bq_bio', `
+                        <span id="lbl_bq_bio" style="font-size:0.9rem;${state['bq_bio']?'text-decoration:line-through;':''}">No author byline found — add this below the bold summary at the top. <span style="color:#888;">(El link en "Home Decor" abre en ventana nueva.)</span></span>
+                        <div style="margin-top:6px;font-size:0.85rem;background:#fff;border:1px solid #e0e0e0;border-radius:6px;padding:8px 10px;">${_bq.authorBio.bodyHtml}</div>
+                        <textarea id="bqBio" readonly style="display:none;">${_bq.authorBio.snippet}</textarea>
                         <button class="copy-btn" type="button" style="margin-top:4px;padding:2px 8px;font-size:0.72rem;" onclick="copyToClipboard(document.getElementById('bqBio').value,this)">📋 Copy bio</button>
-                        ${_isBlog && _bq.authorBio.bodyHtml ? `<button class="copy-btn" type="button" style="margin-top:4px;margin-left:6px;padding:2px 8px;font-size:0.72rem;background:#1976d2;color:#fff;" onclick="pushEditsFromAttr('${_editsAttr([{ kind:'after-first-para', content:_bq.authorBio.bodyHtml }])}',null,{title:'Add author bio',doneMsg:'Author bio added below the first paragraph',tickKey:'bq_bio'},this)">📤 Add it for me (preview)</button>` : ''}`)}` : ''}
+                        ${_isBlog && _bq.authorBio.bodyHtml ? `<button class="copy-btn" type="button" style="margin-top:4px;margin-left:6px;padding:2px 8px;font-size:0.72rem;background:#1976d2;color:#fff;" onclick="pushEditsFromAttr('${_editsAttr([{ kind:'after-first-para', content:_bq.authorBio.bodyHtml }])}',null,{title:'Add author bio',doneMsg:'Author bio added below the first paragraph',tickKey:'bq_bio'},this)">📤 Add it for me (preview)</button>` : ''}
+                    `)}` : ''}
                 </div>` : '';
 
             // ── Image SEO block (blogs with body images) ─────────────────────
